@@ -6,6 +6,8 @@ import android.content.Context
 import android.database.Cursor
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.media.ExifInterface
 import android.media.ThumbnailUtils
 import android.net.Uri
 import android.os.ParcelFileDescriptor
@@ -61,7 +63,7 @@ object Media {
 
     // ── sending ──
 
-    class Picked(val bytes: ByteArray, val kind: String, val ext: String, val name: String?)
+    class Picked(val bytes: ByteArray, val kind: String, val ext: String, val name: String?, val du: Double? = null, val wave: FloatArray? = null)
 
     /** What was picked, read whole, with its kind as iOS names kinds (img · vid · doc). */
     fun read(c: Context, uri: Uri, asDoc: Boolean): Picked? {
@@ -109,7 +111,8 @@ object Media {
         val local = file(c, mid, p.ext)
         local.writeBytes(p.bytes)
         val provisional = Marks.MEDIA + JSONObject().put("k", p.kind).put("e", p.ext).put("sz", p.bytes.size).apply {
-            p.name?.let { put("n", it) }; if (caption.isNotEmpty()) put("cap", caption)
+            p.name?.let { put("n", it) }; if (caption.isNotEmpty()) put("cap", caption); p.du?.let { put("du", it) }
+            p.wave?.takeIf { it.isNotEmpty() }?.let { w -> put("wv", Base64.encodeToString(ByteArray(w.size) { (w[it] * 255).toInt().coerceIn(0, 255).toByte() }, Base64.NO_WRAP)) }
         }
         Book.edit(ref) { it.msgs.add(Msg(mid, provisional, true, Marks.birthMs(mid) ?: System.currentTimeMillis(), file = local.path)) }
         Thread {
@@ -149,6 +152,9 @@ object Media {
         val m = JSONObject().put("k", p.kind).put("e", p.ext).put("bk", Base64.encodeToString(bk, Base64.NO_WRAP)).put("sz", total).put("chunks", chunks)
         p.name?.let { if (p.kind == "doc") m.put("n", it) }
         if (caption.isNotEmpty()) m.put("cap", caption)
+        p.du?.let { m.put("du", Math.round(it * 10) / 10.0) }   // the tape's length is the sender's word (iOS «du»)
+        // THE WAVE RIDES WITH THE LETTER (iOS «wv», MTWaveform.pack): one byte per line, 0…255.
+        p.wave?.takeIf { it.isNotEmpty() }?.let { w -> m.put("wv", Base64.encodeToString(ByteArray(w.size) { (w[it] * 255).toInt().coerceIn(0, 255).toByte() }, Base64.NO_WRAP)) }
         preview(c, local, p.kind)?.let { b -> thumb(b)?.let { m.put("th", it) } }
         val json = m.toString()
         if ((Marks.MEDIA + json).toByteArray().size <= 1900) return (Marks.MEDIA + json) to json
@@ -224,12 +230,34 @@ object Media {
                 val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                 BitmapFactory.decodeFile(f.path, o)
                 var s = 1; while (o.outWidth / (s * 2) >= maxPx || o.outHeight / (s * 2) >= maxPx) s *= 2
-                BitmapFactory.decodeFile(f.path, BitmapFactory.Options().apply { inSampleSize = s })
+                // THE CAMERA'S TURN (EXIF orientation): a phone photo lies on its side in its bytes and says how to stand it up.
+                BitmapFactory.decodeFile(f.path, BitmapFactory.Options().apply { inSampleSize = s })?.let { upright(f, it) }
             }
             "vid" -> ThumbnailUtils.createVideoThumbnail(f, Size(maxPx, maxPx), null)
             else -> null
         }
     }.getOrNull()
+
+    /**
+     * THE PICTURE STANDS AS IT WAS TAKEN: a camera writes the pixels as the sensor lies and the turn in the EXIF tag beside
+     * them (iOS UIImage honours it by itself); the decoder here does not, so the turn — and a mirror — is applied here.
+     */
+    private fun upright(f: File, b: Bitmap): Bitmap {
+        val o = runCatching { ExifInterface(f.path).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL) }
+            .getOrDefault(ExifInterface.ORIENTATION_NORMAL)
+        val m = Matrix()
+        when (o) {
+            ExifInterface.ORIENTATION_ROTATE_90 -> m.postRotate(90f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> m.postRotate(180f)
+            ExifInterface.ORIENTATION_ROTATE_270 -> m.postRotate(270f)
+            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> m.postScale(-1f, 1f)
+            ExifInterface.ORIENTATION_FLIP_VERTICAL -> m.postScale(1f, -1f)
+            ExifInterface.ORIENTATION_TRANSPOSE -> { m.postRotate(90f); m.postScale(-1f, 1f) }
+            ExifInterface.ORIENTATION_TRANSVERSE -> { m.postRotate(270f); m.postScale(-1f, 1f) }
+            else -> return b
+        }
+        return Bitmap.createBitmap(b, 0, 0, b.width, b.height, m, true)
+    }
 
     fun thumbOf(man: JSONObject?): Bitmap? = man?.optString("th")?.takeIf { it.isNotEmpty() }?.let {
         runCatching { Base64.decode(it, Base64.DEFAULT) }.getOrNull()?.let { b -> BitmapFactory.decodeByteArray(b, 0, b.size) }

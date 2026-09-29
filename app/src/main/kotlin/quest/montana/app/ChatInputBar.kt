@@ -138,6 +138,9 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
     /** The gallery and file keys' deeds, given by the page that owns the letters (the conversation sends media). */
     var onGallery: (() -> Unit)? = null
     var onFile: (() -> Unit)? = null
+    /** The voice's deeds: start the tape (false — it could not start), and end it (true — dropped, not sent). */
+    var onVoiceStart: (() -> Boolean)? = null
+    var onVoiceEnd: ((Boolean) -> Unit)? = null
 
     private fun notYet() = Toast.makeText(c, R.string.compose_not_yet, Toast.LENGTH_SHORT).show()
 
@@ -166,7 +169,31 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
                 Prefs.setStr(MODE_KEY, if (video) "mic" else "video")
                 draw()
             }
-            setOnLongClickListener { notYet(); true }
+            // THE HOLD RECORDS (iOS: hold the mark, speak, let go to send, slide left to drop) — when the page gives the voice's deeds.
+            setOnLongClickListener {
+                if (video || onVoiceStart == null) { notYet(); return@setOnLongClickListener true }
+                recording = onVoiceStart?.invoke() == true
+                if (recording) { startX = lastX; field.isEnabled = false; field.hint = c.getString(R.string.voice_hint) }
+                true
+            }
+            setOnTouchListener { _, e ->
+                lastX = e.rawX
+                if (recording) when (e.actionMasked) {
+                    android.view.MotionEvent.ACTION_MOVE -> if (startX - e.rawX > dp(120)) finish(cancel = true)
+                    android.view.MotionEvent.ACTION_UP -> { finish(cancel = false); return@setOnTouchListener true }
+                    android.view.MotionEvent.ACTION_CANCEL -> finish(cancel = true)
+                }
+                false
+            }
+        }
+        private var recording = false
+        private var startX = 0f
+        private var lastX = 0f
+        private fun finish(cancel: Boolean) {
+            if (!recording) return
+            recording = false
+            field.isEnabled = true; field.hint = c.getString(R.string.message_hint)
+            onVoiceEnd?.invoke(cancel)
         }
         private val video get() = Prefs.str(MODE_KEY, "mic") == "video"
         private fun draw() {

@@ -6,6 +6,7 @@
 
     <!-- The one question after the identity (iOS MontanaNotifyGate): the system's own. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- The person's own node: the copy of the history comes back from it (iOS MontanaHomeNode). -->
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- The daily copy rides Wi-Fi alone: the app asks the system which network it stands on. -->

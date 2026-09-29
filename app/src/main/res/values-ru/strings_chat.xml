@@ -20,4 +20,5 @@
     <string name="open_word">Открыть</string>
     <string name="media_failed">Файл не дошёл до узла</string>
     <string name="loading_file">Загрузка…</string>
+    <string name="voice_hint">Запись… отпустите, чтобы отправить; влево — отмена</string>
 </resources>

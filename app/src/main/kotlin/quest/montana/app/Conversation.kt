@@ -227,6 +227,41 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit): View 
     }
     bar.onGallery = { act.pickVisual(sendPicked(false)) }
     bar.onFile = { act.openDocument(sendPicked(true)) }
+    // THE VOICE (iOS the held mark): the tape starts under the finger and leaves as a media letter of kind «aud».
+    // THE SWELL WHILE SPEAKING (iOS the recording row): the red mark, the running time and the wave that rises with the voice.
+    val liveWave = WaveView(c).apply { played = Color.WHITE }
+    val liveTime = c.text("0:00", 15f, Color.WHITE)
+    val dot = View(c).apply { background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(SysColor.red) } }
+    val recStrip = c.hstack {
+        visibility = View.GONE
+        gravity = Gravity.CENTER_VERTICAL
+        setPadding(dp(18), dp(6), dp(18), dp(6))
+        addView(dot, lp(dp(10), dp(10)).apply { marginEnd = dp(8) })
+        addView(liveTime, lp(WRAP, WRAP).apply { marginEnd = dp(12) })
+        addView(liveWave, lp(0, WRAP, 1f))
+    }
+    fun endStrip() { recStrip.visibility = View.GONE; VoiceTape.onLevel = null; dot.animate().cancel() }
+    bar.onVoiceStart = {
+        val on = VoiceTape.start(act)
+        if (on) {
+            liveWave.bars = FloatArray(0); liveWave.progress = 0f
+            recStrip.visibility = View.VISIBLE
+            dot.animate().alpha(0.2f).setDuration(600).withEndAction { dot.alpha = 1f }.start()
+            VoiceTape.onLevel = { a ->
+                liveWave.push(a)
+                val s = VoiceTape.seconds.toInt(); liveTime.text = "%d:%02d".format(s / 60, s % 60)
+                dot.alpha = if ((VoiceTape.levels.size / 20) % 2 == 0) 1f else 0.3f
+            }
+        }
+        on
+    }
+    bar.onVoiceEnd = { dropped ->
+        val wave = VoiceTape.waveform()
+        endStrip()
+        VoiceTape.stop(keep = !dropped)?.let { (f, secs) ->
+            Thread { Media.send(c, ref, Media.Picked(f.readBytes(), "aud", "m4a", null, secs, wave), ""); f.delete(); MainThread.post { toBottom() } }.start()
+        }
+    }
 
     // ── the bar: the back mark, the face and the name; the face's press offers the chat's own actions ──
     val chat0 = Book.chat(ref)
@@ -267,6 +302,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit): View 
             addView(top)
             addView(scroll, lp(MATCH, 0, 1f))
             addView(strip, lp())
+            addView(recStrip, lp())
             addView(bar, lp())
         }, FrameLayout.LayoutParams(MATCH, MATCH))
         setOnApplyWindowInsetsListener { v, insets ->
@@ -418,6 +454,11 @@ private fun mediaBody(c: Context, m: Msg, into: LinearLayout) {
     val byExt = when (f?.extension?.lowercase()) { "jpg", "jpeg", "png", "gif", "webp", "heic", "heif" -> "img"; "mp4", "mov", "m4v", "webm", "3gp" -> "vid"; else -> "doc" }
     val kind = man?.optString("k")?.ifEmpty { null } ?: byExt
     val tint = BubbleStyle.text(m.mine)
+    if (kind == "aud") {
+        val wv = man?.optString("wv")?.takeIf { it.isNotEmpty() }?.let { runCatching { android.util.Base64.decode(it, android.util.Base64.DEFAULT) }.getOrNull() }
+        voiceBody(c, m, man?.optDouble("du", 0.0) ?: 0.0, into, wv?.let { b -> FloatArray(b.size) { (b[it].toInt() and 0xFF) / 255f } })
+        return
+    }
     if (kind == "img" || kind == "vid") {
         val pic = (f?.let { Media.preview(c, it, kind, 800) } ?: Media.thumbOf(man))
         into.addView(FrameLayout(c).apply {
