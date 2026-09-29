@@ -4,6 +4,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="quest.montana.app.dev">
 
+    <!-- The one question after the identity (iOS MontanaNotifyGate): the system's own. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <!-- The seed never leaves the device: no cloud backup, no device-to-device transfer
          (iOS: AfterFirstUnlockThisDeviceOnly, synchronizable=NO, backupExcluded=YES). -->
     <application

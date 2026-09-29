@@ -183,5 +183,10 @@ object Prefs {
         get() = p.getString("userName", "") ?: ""
         set(v) { p.edit().putString("userName", v).apply() }
 
+    /** The notifications question was asked once (iOS MontanaNotifyGate.asked, "mt.notify.asked"). */
+    var notifyAsked: Boolean
+        get() = p.getBoolean("mt.notify.asked", false)
+        set(v) { p.edit().putBoolean("mt.notify.asked", v).apply() }
+
     fun forgetPerson() { p.edit().clear().commit() }
 }

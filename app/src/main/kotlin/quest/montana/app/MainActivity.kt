@@ -79,6 +79,20 @@ class MainActivity : Activity() {
             }
         }
         show(page)
+        if (hasSeed && termsAccepted && !showWelcome) askWhatIsUnasked()
+    }
+
+    /**
+     * iOS askWhatIsUnasked: nobody is asked anything before they hold an identity; then exactly ONE
+     * question, and it is the system's own — notifications. Asked once; the answer is the system's.
+     */
+    private fun askWhatIsUnasked() {
+        if (Prefs.notifyAsked) return
+        Prefs.notifyAsked = true
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), ASK_NOTIFY)
+        }
     }
 
     /** A picture under the whole window, system bars included; null — the plain black. */
@@ -138,5 +152,5 @@ class MainActivity : Activity() {
         }
     }
 
-    private companion object { const val PICK_PHOTO = 1 }
+    private companion object { const val PICK_PHOTO = 1; const val ASK_NOTIFY = 2 }
 }
