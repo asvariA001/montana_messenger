@@ -32,7 +32,7 @@ class CrestGround(c: Context) : FrameLayout(c) {
 
     init {
         setBackgroundColor(Color.BLACK)
-        val picture = BitmapFactory.decodeResource(resources, R.drawable.chats_crest)
+        val picture = kept ?: BitmapFactory.decodeResource(resources, R.drawable.chats_crest).also { kept = it }
         val soft = Build.VERSION.SDK_INT >= 31
         if (soft) addView(ImageView(c).apply {
             setImageBitmap(picture)
@@ -58,12 +58,27 @@ class CrestGround(c: Context) : FrameLayout(c) {
         return RenderEffect.createBlurEffect(px, px, Shader.TileMode.CLAMP)
     }
 
+    /** A ground asks for no room of its own: it fills what its container is given (the preview's box, the screen). */
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        fun size(spec: Int) = if (MeasureSpec.getMode(spec) == MeasureSpec.EXACTLY) MeasureSpec.getSize(spec) else 0
+        val w = size(widthMeasureSpec); val h = size(heightMeasureSpec)
+        setMeasuredDimension(w, h)
+        val exact = { v: Int -> MeasureSpec.makeMeasureSpec(v, MeasureSpec.EXACTLY) }
+        for (i in 0 until childCount) {
+            val child = getChildAt(i)
+            val cw = (child.layoutParams.width).let { if (it > 0) it else w }
+            child.measure(exact(cw), exact(h))
+        }
+    }
+
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         post { crest.layoutParams = LayoutParams((w * SCALE).toInt(), MATCH, Gravity.CENTER) }
     }
 
     private companion object {
+        /** The crest decoded once a launch: the preview of «Appearance» draws the ground again at every slider's move. */
+        var kept: android.graphics.Bitmap? = null
         const val BLUR = 8f           // the crest's own softness (iOS blur 8)
         const val OPACITY = 0.5f
         const val SCALE = 0.7f        // seven tenths of the screen's width
@@ -125,10 +140,12 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
 private fun drawerMenu(act: MainActivity, anchor: View, onForget: () -> Unit) {
     PopupMenu(act, anchor).apply {
         menu.add(0, 1, 0, R.string.my_profile)
-        menu.add(0, 3, 1, R.string.your_node)
-        menu.add(0, 2, 2, R.string.forget_device)
+        menu.add(0, 4, 1, R.string.appearance)
+        menu.add(0, 3, 2, R.string.your_node)
+        menu.add(0, 2, 3, R.string.forget_device)
         setOnMenuItemClickListener {
             if (it.itemId == 1) act.showProfile()
+            else if (it.itemId == 4) { lateinit var close: () -> Unit; close = act.overlay(AppearancePage(act) { close() }.view) }
             else if (it.itemId == 3) { lateinit var close: () -> Unit; close = act.overlay(NodePage(act) { close() }.view) }
             else AlertDialog.Builder(act).setTitle(R.string.forget_device)
                 .setPositiveButton(R.string.forget_device) { _, _ -> onForget() }

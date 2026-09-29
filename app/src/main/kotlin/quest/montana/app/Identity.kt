@@ -200,5 +200,12 @@ object Prefs {
         get() = p.getBoolean("mt.notify.asked", false)
         set(v) { p.edit().putBoolean("mt.notify.asked", v).apply() }
 
+    /** The appearance's own settings, under the iOS UserDefaults keys (bubbleStyle, cbMineFill1, noteQuality…). */
+    fun str(key: String, def: String): String = p.getString(key, def) ?: def
+    fun setStr(key: String, v: String) { p.edit().putString(key, v).apply() }
+    fun dbl(key: String, def: Double): Double = if (p.contains(key)) p.getFloat(key, def.toFloat()).toDouble() else def
+    fun setDbl(key: String, v: Double) { p.edit().putFloat(key, v.toFloat()).apply() }
+    fun remove(vararg keys: String) { p.edit().apply { keys.forEach { remove(it) } }.apply() }
+
     fun forgetPerson() { p.edit().clear().commit() }
 }

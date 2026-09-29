@@ -20,7 +20,7 @@
         android:restoreAnyVersion="true"
         android:fullBackupContent="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
-        android:icon="@mipmap/ic_launcher"
+        android:icon="@mipmap/ic_launcher_glass"
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.Montana">
@@ -28,11 +28,31 @@
             android:name="quest.montana.app.MainActivity"
             android:exported="true"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
-            android:windowSoftInputMode="adjustResize">
+            android:windowSoftInputMode="adjustResize" />
+        <!-- THE APP'S ICON, CHOSEN IN «APPEARANCE» (iOS MTAppIconChooser, setAlternateIconName): the launcher entry is one of two
+             aliases of the one activity, and exactly one of them is enabled — the liquid glass (iOS primary, AppIcon.icon)
+             by default, the gold on black (iOS AppIconGold) when chosen. -->
+        <activity-alias
+            android:name="quest.montana.app.IconGlass"
+            android:targetActivity="quest.montana.app.MainActivity"
+            android:icon="@mipmap/ic_launcher_glass"
+            android:enabled="true"
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
+        </activity-alias>
+        <activity-alias
+            android:name="quest.montana.app.IconGold"
+            android:targetActivity="quest.montana.app.MainActivity"
+            android:icon="@mipmap/ic_launcher"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
     </application>
 </manifest>
