@@ -132,6 +132,7 @@ object Marks {
     const val MEDIA = "​​MD:"
     const val STICKER = "⁣⁣"
     const val LONG = "⁣LB:"
+    const val PLAYED = "\u200B\u200BPL:"   // + the mid of a voice of theirs that was played here (iOS playedMark)
     /** A word of the wire, not a row of the feed. */
     fun isService(t: String) = t.startsWith("​") || t.startsWith("⁣")
 
@@ -153,22 +154,45 @@ object Marks {
 
 // ─────────────────────────── the book of correspondences (iOS MTPipeBook + ChatStore) ───────────────────────────
 
-/** One letter of the feed. `state`: 0 waiting, 1 at the node, 2 delivered, 3 read (iOS ticks). */
+/**
+ * One letter of the feed. `state` is the rung of the ladder (iOS DeliveryStatus.rung): 0 sending, 1 sent, 2 delivered, 3 read;
+ * -1 not sent. `statusAt` — the moment the rung was reached; `heard` — a voice played (theirs here, or mine there).
+ */
 class Msg(
     val mid: String, var text: String, val mine: Boolean, val at: Long,
     var state: Int = 0, var edited: Boolean = false,
     val qt: String? = null, val qm: String? = null,
     val reactions: MutableList<String> = mutableListOf(), var myReact: String? = null,
     var file: String? = null, var meta: String? = null,   // a media letter: the assembled file, and its manifest once known
+    var statusAt: Long = 0, var heard: Boolean = false,
 ) {
     fun json(): JSONObject = JSONObject().put("m", mid).put("t", text).put("o", mine).put("at", at).put("s", state).put("e", edited)
         .put("qt", qt ?: "").put("qm", qm ?: "").put("r", JSONArray(reactions)).put("mr", myReact ?: "")
-        .put("f", file ?: "").put("mm", meta ?: "")
+        .put("f", file ?: "").put("mm", meta ?: "").put("sa", statusAt).put("h", heard)
+
+    /** The moment the letter's rung was reached, or its birth (iOS Message.statusMoment). */
+    val statusMoment: Long get() = if (statusAt > 0) statusAt else at
+
+    /**
+     * THE ONE DOOR TO THE RUNG (iOS ChatStore.advance): only forward; «read» only from «delivered» — reading what was never
+     * received is impossible, and so is showing it; «not sent» only from «sending» or «sent» — the proven does not turn red.
+     */
+    fun advance(next: Int): Boolean {
+        val ok = when (next) {
+            -1 -> state == 0 || state == 1
+            3 -> state == 2
+            else -> next > state
+        }
+        if (ok) { state = next; statusAt = System.currentTimeMillis() }
+        return ok
+    }
+
     companion object {
         fun of(o: JSONObject) = Msg(o.getString("m"), o.getString("t"), o.getBoolean("o"), o.getLong("at"), o.optInt("s"), o.optBoolean("e"),
             o.optString("qt").ifEmpty { null }, o.optString("qm").ifEmpty { null },
             o.optJSONArray("r")?.let { a -> MutableList(a.length()) { a.getString(it) } } ?: mutableListOf(),
-            o.optString("mr").ifEmpty { null }, o.optString("f").ifEmpty { null }, o.optString("mm").ifEmpty { null })
+            o.optString("mr").ifEmpty { null }, o.optString("f").ifEmpty { null }, o.optString("mm").ifEmpty { null },
+            o.optLong("sa"), o.optBoolean("h"))
     }
 }
 
@@ -251,7 +275,7 @@ object Book {
     /** A chat deleted here (and its pipe with it — iOS MTPipeBook.forget). */
     fun forget(ref: String) {
         synchronized(lock) {
-            ensure(); chats.remove(ref); DeviceVault.delete("chat:$ref"); saveIndex()
+            ensure(); chats.remove(ref); DeviceVault.delete("chat:$ref"); saveIndex(); Meeting.forget(ref)
             val m = sec(); m.remove(ref)
             val o = JSONObject(); m.forEach { (k, v) -> o.put(k, Base64.encodeToString(v, Base64.NO_WRAP)) }
             DeviceVault.set(SECRETS, o.toString().toByteArray())
@@ -270,6 +294,7 @@ object Book {
         }
         File(ctx.filesDir, "faces").deleteRecursively()
         DeviceVault.delete(Post.OUTBOX)
+        Meeting.wipe()
         changed()
     }
 }
@@ -317,9 +342,20 @@ object Post {
             val to = o.getString("to"); val mid = o.getString("m")
             val secret = Book.secret(to)
             if (secret == null) { done.add(mid); continue }   // the pipe is gone — nobody to deliver to
-            if (knock(secret, mid, o.getString("t"), o.optString("qt").ifEmpty { null }, o.optString("qm").ifEmpty { null })) {
+            // WHILE THE INTRODUCTION IS UNANSWERED every letter a person wrote rides the invitation's box with the ciphertext;
+            // the words of the wire (receipts, reads, name, face) wait for the pipe to stand (iOS first_hold).
+            val intro = Meeting.first(to)
+            val text = o.getString("t")
+            val sent = if (intro != null) {
+                if (Marks.isService(text) && !text.startsWith(Marks.MEDIA) && !text.startsWith(Marks.VOICE)) false
+                else {
+                    val words = if (text.toByteArray().size > 300) sealLong(mid, text) else text
+                    words != null && Meeting.knockFirst(secret, intro.first, intro.second, mid, words)
+                }
+            } else knock(secret, mid, text, o.optString("qt").ifEmpty { null }, o.optString("qm").ifEmpty { null })
+            if (sent) {
                 done.add(mid)
-                Book.edit(to) { c -> c.msgs.find { it.mid == mid }?.let { if (it.state < 1) it.state = 1 } }
+                Book.edit(to) { c -> c.msgs.find { it.mid == mid }?.advance(1) }
             }
         }
         if (done.isEmpty()) return
@@ -473,6 +509,7 @@ object Post {
     private fun letter(ref: String, plain: ByteArray): Boolean {
         val f = Wire.fields(plain)
         if (f[0].isEmpty() || f[1].isEmpty()) return false
+        Meeting.firstDone(ref)   // a word sealed under the pipe by the other side: the introduction is over
         var text = f[1]
         if (text.startsWith(Marks.LONG)) text = fetchLong(text)?.ifEmpty { text } ?: return false   // later: the letter waits in the box
         place(ref, f[0], text, f[2], f[4].ifEmpty { null }, f[5].ifEmpty { null })
@@ -482,10 +519,18 @@ object Post {
     private fun place(ref: String, mid: String, text: String, name: String, qt: String?, qm: String?) {
         val sid = mid
         when {
-            text.startsWith(Marks.DELIVERED) -> { val d = text.removePrefix(Marks.DELIVERED); Book.edit(ref) { c -> c.msgs.find { it.mid == d && it.mine }?.let { if (it.state < 2) it.state = 2 } } }
+            text.startsWith(Marks.DELIVERED) -> { val d = text.removePrefix(Marks.DELIVERED); Book.edit(ref) { c -> c.msgs.find { it.mid == d && it.mine }?.advance(2) } }
             text.startsWith(Marks.READ) -> {
                 val upTo = text.removePrefix(Marks.READ).toLongOrNull()
-                Book.edit(ref) { c -> c.msgs.filter { it.mine && it.state >= 1 && (upTo == null || (Marks.birthMs(it.mid) ?: 0) <= upTo) }.forEach { it.state = 3 } }
+                // the door lets «read» only onto what was delivered — the bulk word never paints a letter they do not have
+                Book.edit(ref) { c -> c.msgs.filter { it.mine && (upTo == null || (Marks.birthMs(it.mid) ?: 0) <= upTo) }.forEach { it.advance(3) } }
+            }
+            // A VOICE OF MINE WAS PLAYED THERE (iOS playedMark): their own playing — the only road to «Listened»; the word itself
+            // proves their build says it, so from now on a mere «read» of a voice stays «delivered».
+            text.startsWith(Marks.PLAYED) -> {
+                val d = text.removePrefix(Marks.PLAYED)
+                Prefs.setBool("plcap_$ref", true)
+                Book.edit(ref) { c -> c.msgs.find { it.mid == d && it.mine }?.heard = true }
             }
             text.startsWith(Marks.DELETE) -> { val d = text.removePrefix(Marks.DELETE).removePrefix("mid:"); Book.edit(ref) { c -> c.msgs.removeAll { it.mid == d } } }
             text.startsWith(Marks.EDIT) -> runCatching {
@@ -531,6 +576,17 @@ object Post {
     /** «Delivered» for a letter of theirs — under its own name, so the queue holds one per letter (iOS receiptMid). */
     private fun receipt(ref: String, mid: String) = send(ref, "rcpt-$mid", Marks.DELIVERED + mid)
     fun receiptFor(ref: String, mid: String) = receipt(ref, mid)
+
+    /**
+     * A VOICE OF THEIRS WAS PLAYED HERE (iOS notePlayed): its sender is told once, silently. Opening the chat plays nothing
+     * and says nothing.
+     */
+    fun notePlayed(mid: String) {
+        val ref = Book.refs().firstOrNull { r -> Book.chat(r)?.msgs?.any { it.mid == mid } == true } ?: return
+        var fresh = false
+        Book.edit(ref) { c -> c.msgs.find { it.mid == mid && !it.mine && !it.heard }?.let { it.heard = true; fresh = true } }
+        if (fresh) send(ref, Marks.mintMid(), Marks.PLAYED + mid)
+    }
 
     /** «Read» covering the newest letter of theirs on the screen, by their birth millisecond (iOS sendReadMark). */
     fun markRead(ref: String) {

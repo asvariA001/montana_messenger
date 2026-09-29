@@ -54,6 +54,22 @@ class MainActivity : Activity() {
         hasSeed = MontanaSeed.hasSeed
         termsAccepted = Prefs.termsAccepted
         render()
+        intent?.data?.let { openLink(it.toString()) }
+    }
+
+    /** AN INVITATION HANDED IN BY THE SYSTEM (iOS handleLink): opened now, or kept until the identity exists. */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        intent.data?.let { openLink(it.toString()) }
+    }
+    fun openLink(link: String) {
+        if (!hasSeed || !termsAccepted) {
+            Prefs.setStr("pendingInvite", link)
+            android.widget.Toast.makeText(this, R.string.invite_wait, android.widget.Toast.LENGTH_LONG).show()
+            return
+        }
+        openInvitation(this, link)
     }
 
     /**
@@ -86,6 +102,8 @@ class MainActivity : Activity() {
         if (hasSeed && termsAccepted && !showWelcome) askWhatIsUnasked()
         // THE DAILY ROAD to the person's own node, a little after the first screen stands (iOS tickSoon).
         if (hasSeed && termsAccepted) HomeNodeWatch.tickSoon(this)
+        // The identity is born: the invitation that waited for it opens by itself (iOS replayPendingInvite).
+        if (hasSeed && termsAccepted && !showWelcome) Prefs.str("pendingInvite", "").takeIf { it.isNotEmpty() }?.let { Prefs.remove("pendingInvite"); openInvitation(this, it) }
     }
 
     /**

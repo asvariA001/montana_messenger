@@ -116,10 +116,45 @@ fn main() {
             println!("sha_ok={}", hex(&sha(&[&sealed])));
             std::fs::write(&a[4], p).unwrap();
         }
+        "offer" => {
+            // offer <name>: a card as an iPhone mints it — the blob-put body, the link, and the secret half (hex) on the last line
+            let mut seed = [0u8; 64]; unsafe { mt_bindings::ffi_c::mt_random_fast(seed.as_mut_ptr(), 64) };
+            let (mut pk, mut sk) = (vec![0u8; 1184], vec![0u8; 2400]);
+            assert_eq!(unsafe { mt_bindings::ffi_c::mt_mlkem_keypair_from_seed(seed.as_ptr(), pk.as_mut_ptr(), sk.as_mut_ptr()) }, 0);
+            let mut inv = [0u8; 32]; unsafe { mt_bindings::ffi_c::mt_random_fast(inv.as_mut_ptr(), 32) };
+            let mut payload = pk.clone(); payload.extend_from_slice(a[2].as_bytes());
+            let sealed = seal(&sha(&[b"mt-rdv-k\0", &inv]), &payload);
+            println!("{{\"bid\":\"{}\",\"data\":\"{}\",\"over\":true}}", hex(&sha(&[b"mt-rdv-a\0", &inv])), b64(&sealed));
+            println!("https://montana.quest/temp/{}", b64url(&inv));
+            println!("{}", hex(&sk));
+            println!("{}", hex(&pk));
+        }
+        "accept" => {
+            // accept <inv_b64url> <sk_hex> <pk_hex> <env_b64> <at>: the owner's side — open the first letter, prove it, print the secret
+            let inv = unb64(&a[2]); let sk = unhex(&a[3]); let pk = unhex(&a[4]); let sealed = unb64(&a[5]); let at: u64 = a[6].parse().unwrap();
+            let lk = sha(&[b"mt-rdv-letter\0", &inv]);
+            let mut plain = None;
+            for back in 0..1440u64 { for w in [at / 60 - back, at / 60 + 1] { if plain.is_none() { plain = open(&body_key(&lk, w), &sealed); } } }
+            let plain = plain.expect("the first letter opens under the invitation");
+            let ct = &plain[..1088];
+            let mut ss = [0u8; 32];
+            assert_eq!(unsafe { mt_bindings::ffi_c::mt_mlkem_decaps(sk.as_ptr(), ct.as_ptr(), ss.as_mut_ptr()) }, 0);
+            let mut secret = [0u8; 32];
+            assert_eq!(unsafe { mt_bindings::ffi_names::mt_name_first_secret(ss.as_ptr(), 32, pk.as_ptr(), 1184, ct.as_ptr(), 1088, secret.as_mut_ptr()) }, 0);
+            let f: Vec<String> = plain[1088..].split(|b| *b == 0).take(5).map(|x| String::from_utf8_lossy(x).to_string()).collect();
+            let conf = b64url(&sha(&[b"mt-first-conf\0", &secret, ct])[..16]);
+            println!("fields={:?} conf_ok={}", &f[..4], f[4] == conf);
+            println!("{}", hex(&secret));
+        }
         "labels" => {
             let secret = unhex(&a[2]);
             let cw = hex(&sha(&[b"mt-wake-conv\0", &secret, &(now() / 86400).to_le_bytes()]));
             println!("{{\"subs\":[\"{}\"],\"sids\":[\"{}\"]}}", cw, sub_id(&cw, "mac-scanner"));
+        }
+        "rdvlabels" => {
+            let inv = unb64(&a[2]);
+            let cw = hex(&sha(&[b"mt-rdv-wake\0", &inv, &(now() / 86400).to_le_bytes()]));
+            println!("{{\"subs\":[\"{}\"],\"sids\":[\"{}\"]}}", cw, sub_id(&cw, "mac-owner"));
         }
         "open" => {
             let secret = unhex(&a[2]); let sealed = unb64(&a[3]); let at: u64 = a[4].parse().unwrap();

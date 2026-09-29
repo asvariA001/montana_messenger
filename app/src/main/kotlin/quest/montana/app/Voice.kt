@@ -138,6 +138,8 @@ fun voiceBody(c: Context, m: Msg, du: Double, into: LinearLayout, wave: FloatArr
         VoicePlayer.toggle(p, onProgress = { cur, dur -> bar.progress = cur.toFloat() / maxOf(1, dur); time.text = fmt(cur) },
             stopped = { mark.setImageResource(R.drawable.ic_play_fill); bar.progress = 0f; time.text = fmt(total) })
         mark.setImageResource(if (VoicePlayer.playing == p) R.drawable.ic_pause_fill else R.drawable.ic_play_fill)
+        // their voice played here: its sender is told once, silently (iOS notePlayed) — the road to their «Listened»
+        if (!m.mine && VoicePlayer.playing == p) Thread { Post.notePlayed(m.mid) }.start()
     }
     bar.onSeek = { f -> if (path != null) VoicePlayer.seek(path, (f * total).toInt()) }
     into.addView(c.hstack {

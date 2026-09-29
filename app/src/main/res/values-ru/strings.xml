@@ -263,4 +263,11 @@
     <string name="record_video">Видеосообщение</string>
     <string name="compose_open">Показать кнопки</string>
     <string name="compose_fold">Скрыть кнопки</string>
+    <!-- the delivery ladder (iOS DeliveryStatus.word) -->
+    <string name="ladder_sending">Отправка…</string>
+    <string name="ladder_sent">Отправлено</string>
+    <string name="ladder_delivered">Доставлено</string>
+    <string name="ladder_read">Прочитано</string>
+    <string name="ladder_failed">Не отправлено</string>
+    <string name="ladder_listened">Прослушано</string>
 </resources>

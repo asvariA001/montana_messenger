@@ -42,11 +42,11 @@ object MontanaCard {
     private fun sha(label: String, inv: ByteArray): ByteArray =
         MessageDigest.getInstance("SHA-256").digest(label.toByteArray() + byteArrayOf(0) + inv)
     private fun hex(b: ByteArray) = b.joinToString("") { "%02x".format(it) }
-    private fun rdvKey(inv: ByteArray) = sha("mt-rdv-k", inv)
-    private fun rdvBid(inv: ByteArray) = hex(sha("mt-rdv-a", inv))
-    private fun permBid(inv: ByteArray) = hex(sha("mt-rdv-p", inv))
-    private fun faceBid(inv: ByteArray) = hex(sha("mt-rdv-f", inv))
-    private fun faceKey(inv: ByteArray) = sha("mt-rdv-fk", inv)
+    fun rdvKey(inv: ByteArray) = sha("mt-rdv-k", inv)
+    fun rdvBid(inv: ByteArray) = hex(sha("mt-rdv-a", inv))
+    fun permBid(inv: ByteArray) = hex(sha("mt-rdv-p", inv))
+    fun faceBid(inv: ByteArray) = hex(sha("mt-rdv-f", inv))
+    fun faceKey(inv: ByteArray) = sha("mt-rdv-fk", inv)
 
     // ── the records ──
     private fun map(name: String): MutableMap<String, ByteArray> {

@@ -122,6 +122,16 @@ pub fn mlkem_decaps(sk: &[u8], ct: &[u8]) -> Option<Zeroizing<[u8; 32]>> {
     Some(out)
 }
 
+/// The scanner's side: one encapsulation to a card's key, ct[1088] ‖ ss[32] (mt_mlkem_encaps).
+pub fn mlkem_encaps(pk: &[u8]) -> Option<Zeroizing<Vec<u8>>> {
+    let pk = mt_crypto::MlkemPublicKey::from_slice(pk)?;
+    let (ct, ss) = mt_crypto::mlkem_encapsulate(&pk).ok()?;
+    let mut out = Zeroizing::new(Vec::with_capacity(1088 + 32));
+    out.extend_from_slice(ct.as_bytes());
+    out.extend_from_slice(ss.as_bytes());
+    Some(out)
+}
+
 /// The secret of a first letter, every later tag of the correspondence stands on it (mt_name_first_secret).
 pub fn first_secret(ss: &[u8], root: &[u8], ct: &[u8]) -> Zeroizing<[u8; 32]> {
     Zeroizing::new(mt_names::first_secret(ss, root, ct))
@@ -262,6 +272,14 @@ mod jni_doors {
     }
 
     #[no_mangle]
+    pub extern "system" fn Java_quest_montana_app_MtBindings_nativeMlkemEncaps<'l>(
+        mut env: JNIEnv<'l>, _c: JClass<'l>, pk: JByteArray<'l>,
+    ) -> jbyteArray {
+        let Ok(p) = env.convert_byte_array(&pk) else { return std::ptr::null_mut() };
+        match mlkem_encaps(&p) { Some(o) => bytes(&mut env, &o[..]), None => std::ptr::null_mut() }
+    }
+
+    #[no_mangle]
     pub extern "system" fn Java_quest_montana_app_MtBindings_nativeFirstSecret<'l>(
         mut env: JNIEnv<'l>, _c: JClass<'l>, ss: JByteArray<'l>, root: JByteArray<'l>, ct: JByteArray<'l>,
     ) -> jbyteArray {
@@ -365,6 +383,19 @@ mod tests {
         assert_eq!(unsafe { ffi_c::mt_mlkem_decaps(sk.as_ptr(), ct.as_ptr(), ios_ss.as_mut_ptr()) }, 0);
         assert_eq!(ios_ss, ss);
         assert_eq!(&first_secret(&mine[..], pk, &ct)[..], &theirs[..]);
+    }
+
+    #[test]
+    fn encaps_opens_under_ios_decaps() {
+        // Ours encapsulates (the scanner is Android), the iOS door decapsulates (the card's owner is an iPhone).
+        let seed: [u8; 64] = core::array::from_fn(|i| (i * 11 + 2) as u8);
+        let kp = mlkem_keypair(&seed).unwrap();
+        let (pk, sk) = (&kp[..1184], &kp[1184..]);
+        let o = mlkem_encaps(pk).unwrap();
+        let (ct, ss) = (&o[..1088], &o[1088..]);
+        let mut theirs = [0u8; 32];
+        assert_eq!(unsafe { ffi_c::mt_mlkem_decaps(sk.as_ptr(), ct.as_ptr(), theirs.as_mut_ptr()) }, 0);
+        assert_eq!(&theirs[..], ss);
     }
 
     #[test]

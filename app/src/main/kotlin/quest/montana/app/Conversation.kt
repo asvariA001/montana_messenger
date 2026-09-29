@@ -88,7 +88,9 @@ fun chatRow(act: MainActivity, chat: Chat): View {
             addView(c.hstack {
                 addView(c.text(chat.name.ifBlank { c.getString(R.string.peer) }, 17f, Color.WHITE, bold = true).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))   // USER-DATA: the name
                 if (last != null) {
-                    if (last.mine) addView(ticks(c, last.state), lp(WRAP, WRAP).apply { marginEnd = dp(4) })
+                    // the ladder's dots left of the hour, only when the last word was mine; a letter that did not go, the red mark
+                    if (last.mine) addView(if (last.state == -1) c.failedMark() else c.deliveryDots(Ladder.of(chat.ref, last).first),
+                        lp(WRAP, WRAP).apply { marginEnd = dp(6) })
                     addView(c.text(rowTime(c, last.at), 13f, MT.gray))
                 }
             }, lp())
@@ -109,12 +111,59 @@ fun chatRow(act: MainActivity, chat: Chat): View {
     }
 }
 
-/** The ticks of one's own letter (iOS MTTicks): a clock waiting, one tick at the node, two delivered, two blue read. */
-private fun ticks(c: Context, state: Int): TextView = when (state) {
-    0 -> c.text("🕓", 11f, MT.gray)
-    1 -> c.text("✓", 13f, MT.gray)
-    2 -> c.text("✓✓", 13f, MT.gray)
-    else -> c.text("✓✓", 13f, MT.blue)
+// ─────────────────────────── the delivery ladder (iOS MTDeliveryLine, MTDeliveryDots, MTPlayed) ───────────────────────────
+
+/**
+ * THE LADDER OF ONE'S OWN LETTER: sending → sent → delivered → read, each rung with its one word. A voice of mine is played,
+ * not read: its third rung is the correspondent's own playing («Listened»); a correspondent whose build has said «played»
+ * once keeps a mere «read» of a voice at «delivered» — the chat opened is no playing.
+ */
+object Ladder {
+    private fun isVoice(m: Msg) = m.text.startsWith(Marks.MEDIA) &&
+        ((m.meta?.let { runCatching { JSONObject(it) }.getOrNull() } ?: Media.inline(m.text))?.optString("k") == "aud")
+
+    /** The rung the dots stand on (0…3) and the word's resource. */
+    fun of(ref: String, m: Msg): Pair<Int, Int> {
+        if (m.state == -1) return 0 to R.string.ladder_failed
+        if (isVoice(m)) {
+            if (m.heard) return 3 to R.string.ladder_listened
+            if (m.state == 3 && Prefs.bool("plcap_$ref", false)) return 2 to R.string.ladder_delivered
+        }
+        return m.state to when (m.state) {
+            0 -> R.string.ladder_sending; 1 -> R.string.ladder_sent; 2 -> R.string.ladder_delivered; else -> R.string.ladder_read
+        }
+    }
+
+    /** The rung's moment: the hour today, the day and the hour before (iOS MTDeliveryLine.moment). */
+    fun moment(c: Context, at: Long): String {
+        val t = android.text.format.DateFormat.getTimeFormat(c).format(Date(at))
+        return if (DateUtils.isToday(at)) t else DateUtils.formatDateTime(c, at, DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_ABBREV_MONTH) + " " + t
+    }
+}
+
+/** THE THREE DOTS (iOS MTDeliveryDots): five points each, five apart; green once their rung is reached, dark grey before. */
+fun Context.deliveryDots(rung: Int): View = hstack {
+    gravity = Gravity.CENTER_VERTICAL
+    for (k in 1..3) addView(View(context).apply {
+        background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(if (rung >= k) MT.green else Color.rgb(77, 77, 77)) }
+    }, lp(dp(5), dp(5)).apply { if (k > 1) marginStart = dp(5) })
+}
+
+/** THE LADDER LINE (iOS MTDeliveryLine): the dots, the one word of the rung and — over the menu — the moment it was reached. */
+fun Context.deliveryLine(ref: String, m: Msg, withMoment: Boolean = false): View = hstack {
+    gravity = Gravity.CENTER_VERTICAL
+    val (rung, word) = Ladder.of(ref, m)
+    addView(deliveryDots(rung))
+    addView(text(getString(word), 12f, Color.WHITE, bold = true), lp(WRAP, WRAP).apply { marginStart = dp(5) })
+    if (withMoment) addView(text(Ladder.moment(context, m.statusMoment), 12f, Color.WHITE), lp(WRAP, WRAP).apply { marginStart = dp(5) })
+}
+
+/** THE RED MARK of a letter that did not go (iOS MTFailedMark): the bubble's corner and the chat row wear the same one. */
+fun Context.failedMark(): View = text("!", 9f, Color.WHITE, bold = true, center = true).apply {
+    background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(SysColor.red) }
+    layoutParams = LinearLayout.LayoutParams(dp(12), dp(12))
+    gravity = Gravity.CENTER
+    setPadding(0, 0, 0, 0)
 }
 
 // ─────────────────────────── the conversation (iOS ChatConversationView) ───────────────────────────
@@ -183,6 +232,9 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit): View 
                 }, lp().apply { topMargin = c.dp(8); bottomMargin = c.dp(8) })
             }
             val b = letterBubble(c, m, chat)
+            // THE LADDER UNDER THE BUBBLE (iOS: the last row of the feed, when it is mine — none once they have answered)
+            if (m.mine && m === chat.msgs.last()) (b.getChildAt(0) as LinearLayout).addView(c.deliveryLine(ref, m),
+                LinearLayout.LayoutParams(WRAP, WRAP).apply { topMargin = c.dp(3); marginEnd = c.dp(4) })
             b.getChildAt(0).setOnLongClickListener { letterMenu(act, ref, m, onReply = { replyTo = m; editing = null; showStrip(); showKeys() },
                 onEdit = { editing = m; replyTo = null; field.setText(m.text); field.setSelection(field.text.length); showStrip(); showKeys() }); true }
             column.addView(b, lp().apply { topMargin = c.dp(3) })
@@ -324,7 +376,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit): View 
     }
 }
 
-/** One letter: the quote it answers, its words, «edited», the time and the ticks; its reactions under it (iOS MessageBubble). */
+/** One letter: the quote it answers, its words, «edited» and the time; its reactions under it (iOS MessageBubble). */
 private fun letterBubble(c: Context, m: Msg, chat: Chat): FrameLayout = FrameLayout(c).apply {
     val mine = m.mine
     addView(c.vstack(if (mine) Gravity.END else Gravity.START) {
@@ -347,7 +399,8 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat): FrameLayout = FrameLay
                 gravity = Gravity.CENTER_VERTICAL
                 if (m.edited) addView(c.text(c.getString(R.string.edited) + " ", 11f, BubbleStyle.time(mine)))
                 addView(c.text(android.text.format.DateFormat.getTimeFormat(c).format(Date(m.at)), 11f, BubbleStyle.time(mine)))
-                if (mine) addView(ticks(c, m.state).apply { textSize = 11f; if (m.state < 3) setTextColor(BubbleStyle.time(true)) }, lp(WRAP, WRAP).apply { marginStart = dp(3) })
+                // no ticks in the bubble (iOS 15.47): the words stand under the last own letter; only «not sent» marks the corner
+                if (mine && m.state == -1) addView(c.failedMark(), lp(dp(12), dp(12)).apply { marginStart = dp(4) })
             }, lp(WRAP, WRAP))
         }, lp(WRAP, WRAP))
         if (m.reactions.isNotEmpty()) addView(c.hstack {
@@ -376,6 +429,8 @@ private fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Un
     }
     fun fillActions() {
         actions.removeAllViews()
+        // THE RUNG AND ITS MOMENT over the actions (iOS MontanaMessageMenu ladder): the same line as under the bubble, with the time
+        if (m.mine) actions.addView(c.deliveryLine(ref, m, withMoment = true).apply { setPadding(dp(16), dp(11), dp(16), dp(11)) }, lp())
         row(c.getString(R.string.reply)) { onReply() }
         if (!Marks.isService(m.text)) row(c.getString(R.string.copy)) {
             c.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("", m.text))

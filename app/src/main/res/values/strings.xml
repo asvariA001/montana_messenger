@@ -264,4 +264,11 @@
     <string name="record_video">Video message</string>
     <string name="compose_open">Show buttons</string>
     <string name="compose_fold">Hide buttons</string>
+    <!-- the delivery ladder (iOS DeliveryStatus.word) -->
+    <string name="ladder_sending">Sending…</string>
+    <string name="ladder_sent">Sent</string>
+    <string name="ladder_delivered">Delivered</string>
+    <string name="ladder_read">Read</string>
+    <string name="ladder_failed">Not sent</string>
+    <string name="ladder_listened">Listened</string>
 </resources>

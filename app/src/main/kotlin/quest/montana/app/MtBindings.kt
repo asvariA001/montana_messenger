@@ -39,6 +39,8 @@ object MtBindings {
     @JvmStatic external fun nativeOpenBlob(key: ByteArray, sealed: ByteArray): ByteArray?
     /** sk[2400], ct[1088] → ss[32], implicit rejection: a foreign ct yields garbage, never null (mt_mlkem_decaps). */
     @JvmStatic external fun nativeMlkemDecaps(sk: ByteArray, ct: ByteArray): ByteArray?
+    /** pk[1184] → ct[1088] ‖ ss[32]: the scanner's one encapsulation to a card's key (mt_mlkem_encaps). */
+    @JvmStatic external fun nativeMlkemEncaps(pk: ByteArray): ByteArray?
     /** ss, contact root, ct → the first letter's secret[32] (mt_name_first_secret). */
     @JvmStatic external fun nativeFirstSecret(ss: ByteArray, root: ByteArray, ct: ByteArray): ByteArray?
 
