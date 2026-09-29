@@ -42,6 +42,7 @@ import java.nio.FloatBuffer
 /**
  * THE ROUND VIDEO NOTE (iOS MontanaVideoNoteCamera): «a square with the circle baked in» — every frame turned upright, cut to
  * its centre square, the 400-point circle drawn over a darkened copy of itself in a 480 file (iOS side 400 / square 480),
+ * the front camera a mirror (as the platform hands it, as iOS records it),
  * H.264 at the chosen quality (iOS MontanaNoteQuality: 0.9 / 1.5 / 2.5 Mbit/s), the voice in AAC; the preview IS the file —
  * the one drawing goes to the screen and to the encoder. A tap on the window turns the camera; 6:39 at most (iOS maxSeconds).
  * The platform's own pieces only: Camera2, OpenGL ES, MediaCodec, MediaMuxer, AudioRecord.
@@ -160,7 +161,9 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
             GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(program, "uTex"), 1, false, mtx, 0)
             // The upright frame is 9:16; its centre square spans 9/16 of its height.
             GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uCrop"), 720f / 1280f)
-            GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uMirror"), if (front) 1f else 0f)
+            // THE FRONT CAMERA IS A MIRROR, as iOS keeps it (orient(mirrored: pos == .front)): the platform already hands the
+            // front camera's frames mirrored to a SurfaceTexture, so a second turn here made the picture go the other way.
+            GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uMirror"), 0f)
             GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uRadius"), CIRCLE / 2f / SQUARE)
             GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
             GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, tex)
