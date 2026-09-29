@@ -286,10 +286,13 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
         val done = java.util.concurrent.CountDownLatch(1)
         h.post {
             runCatching { video?.signalEndOfInputStream(); drain(video!!, true, isVideo = true) }
+            // THE FILE IS CLOSED BEFORE IT IS HANDED ON: the muxer writes its index (moov) at stop, and a file read before
+            // that is a heap of samples no player opens.
+            synchronized(muxLock) { runCatching { if (muxing) muxer?.stop() }; runCatching { muxer?.release() }; muxer = null }
             done.countDown()
         }
         done.await(5, java.util.concurrent.TimeUnit.SECONDS)
-        val wrote = synchronized(muxLock) { muxing }
+        val wrote = synchronized(muxLock) { muxing.also { muxing = false } }
         release()
         if (!keep || !wrote || secs < 1.0 || !file.exists()) { runCatching { file.delete() }; return null }
         return file to secs
