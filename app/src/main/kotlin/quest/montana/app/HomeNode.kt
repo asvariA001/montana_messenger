@@ -252,7 +252,7 @@ object HomeNodeWatch {
      */
     fun tick(ctx: Context, force: Boolean) {
         if (!MontanaHomeNode.on(ctx) || MontanaHomeNode.host.isEmpty() || busy) return
-        if (!force && !onWifi(ctx)) run { Log.i("Montana", "home_node tick skipped: not on Wi-Fi"); return }
+        if (!force && !onWifi(ctx)) run { Log.i("Montana", "home_node tick skipped: not on Wi-Fi (${networkWord(ctx)})"); return }
         ask()
         val none = when (state) { is State.None -> true; is State.Held -> false; else -> return }
         if (!MontanaHomeNode.due(ctx, none)) run { Log.i("Montana", "home_node tick skipped: not due"); return }
