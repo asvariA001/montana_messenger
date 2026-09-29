@@ -1,0 +1,196 @@
+package quest.montana.app
+
+import android.animation.ValueAnimator
+import android.content.Context
+import android.content.res.ColorStateList
+import android.graphics.Bitmap
+import android.graphics.Color
+import android.graphics.Outline
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.text.TextUtils
+import android.util.TypedValue
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
+import android.view.ViewOutlineProvider
+import android.view.animation.AccelerateDecelerateInterpolator
+import android.widget.FrameLayout
+import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.ProgressBar
+import android.widget.Switch
+import android.widget.TextView
+
+// ─────────── colours (iOS MontanaNetFrames.swift / ContentView.swift) ───────────
+object MT {
+    val gold = Color.rgb(217, 158, 56)          // Color(red: 0.85, green: 0.62, blue: 0.22)
+    val gray = Color.rgb(142, 142, 147)         // iOS .gray
+    val plate = Color.rgb(31, 31, 31)           // iOS Color(white: 0.12)
+    val orange = Color.rgb(255, 159, 10)        // iOS .orange (dark)
+    val red = Color.rgb(255, 69, 58)            // iOS .red (dark)
+    val green = Color.rgb(48, 209, 88)          // iOS .green (dark)
+    val hairline = Color.argb(20, 255, 255, 255)
+    fun withAlpha(c: Int, a: Float) = Color.argb((a * 255).toInt(), Color.red(c), Color.green(c), Color.blue(c))
+}
+
+fun Context.dp(v: Number): Int = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v.toFloat(), resources.displayMetrics).toInt()
+fun View.dp(v: Number): Int = context.dp(v)
+
+// ─────────── layout parameters, written once ───────────
+fun lp(w: Int = ViewGroup.LayoutParams.MATCH_PARENT, h: Int = ViewGroup.LayoutParams.WRAP_CONTENT, weight: Float = 0f) =
+    LinearLayout.LayoutParams(w, h, weight)
+const val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
+const val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
+
+/** A vertical stack (SwiftUI VStack). */
+fun Context.vstack(gravity: Int = Gravity.CENTER_HORIZONTAL, build: LinearLayout.() -> Unit = {}) =
+    LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; this.gravity = gravity; build() }
+
+/** A horizontal stack (SwiftUI HStack). */
+fun Context.hstack(build: LinearLayout.() -> Unit = {}) =
+    LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; build() }
+
+/** Empty room that grows (SwiftUI Spacer()). */
+fun LinearLayout.spacer() = addView(View(context), lp(if (orientation == LinearLayout.VERTICAL) MATCH else 0, if (orientation == LinearLayout.VERTICAL) 0 else MATCH, 1f))
+
+/** A fixed gap (SwiftUI Spacer().frame(height:)). */
+fun LinearLayout.gap(size: Int) = addView(View(context), if (orientation == LinearLayout.VERTICAL) lp(MATCH, dp(size)) else lp(dp(size), 1))
+
+fun Context.text(s: CharSequence, sizeSp: Float = 17f, color: Int = Color.WHITE, bold: Boolean = false, center: Boolean = false) =
+    TextView(this).apply {
+        text = s
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, sizeSp)
+        setTextColor(color)
+        if (bold) typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        if (center) gravity = Gravity.CENTER
+    }
+
+fun Context.rounded(color: Int, radiusDp: Number, strokeColor: Int? = null) = GradientDrawable().apply {
+    setColor(color); cornerRadius = dp(radiusDp).toFloat()
+    if (strokeColor != null) setStroke(dp(1), strokeColor)
+}
+
+fun Context.icon(res: Int, tint: Int, sizeDp: Int = 24) = ImageView(this).apply {
+    setImageResource(res)
+    imageTintList = ColorStateList.valueOf(tint)
+    layoutParams = LinearLayout.LayoutParams(dp(sizeDp), dp(sizeDp))
+}
+
+/** Dims while pressed (iOS: .opacity(isPressed ? 0.55 : 1)). */
+fun View.pressable(onClick: () -> Unit): View {
+    isClickable = true
+    setOnClickListener { onClick() }
+    setOnTouchListener { v, e ->
+        when (e.actionMasked) {
+            android.view.MotionEvent.ACTION_DOWN -> v.alpha = if (v.isEnabled) 0.55f else v.alpha
+            android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> v.alpha = if (v.isEnabled) 1f else 0.4f
+        }
+        false
+    }
+    return this
+}
+
+/** The gold button (iOS bigButton): gold fill, black headline, corner 14. */
+class GoldButton(ctx: Context, title: String, onClick: () -> Unit) : LinearLayout(ctx) {
+    private val label = ctx.text(title, 17f, Color.BLACK, bold = true)
+    private val spinner = ProgressBar(ctx).apply {
+        indeterminateTintList = ColorStateList.valueOf(Color.BLACK); visibility = View.GONE
+    }
+    init {
+        orientation = HORIZONTAL; gravity = Gravity.CENTER
+        background = ctx.rounded(MT.gold, 14)
+        setPadding(0, dp(16), 0, dp(16))
+        addView(spinner, LayoutParams(dp(18), dp(18)).apply { marginEnd = dp(8) })
+        addView(label)
+        pressable(onClick)
+    }
+    fun setTitle(s: String) { label.text = s }
+    fun setBusy(busy: Boolean) { spinner.visibility = if (busy) View.VISIBLE else View.GONE; setOn(!busy) }
+    /** Enabled or dimmed to 0.4, as iOS dims a disabled gold button. */
+    fun setOn(on: Boolean) { isEnabled = on; alpha = if (on) 1f else 0.4f }
+}
+
+/** The outlined button: the word in [color], a 1pt stroke, corner 14. */
+fun Context.outlineButton(title: String, color: Int = MT.gold, stroke: Int = MT.gold, onClick: () -> Unit) =
+    text(title, 17f, color, bold = true, center = true).apply {
+        background = rounded(Color.TRANSPARENT, 14, stroke)
+        setPadding(0, dp(16), 0, dp(16))
+        pressable(onClick)
+    }
+
+/** iOS Button("Back").font(.caption).foregroundColor(.gray) */
+fun Context.backLink(onClick: () -> Unit) =
+    text(getString(R.string.back), 12f, MT.gray, center = true).apply { setPadding(dp(16), dp(8), dp(16), dp(8)); pressable(onClick) }
+
+/** A row with the words on the left and the system switch on the right (SwiftUI Toggle). */
+fun Context.toggleRow(title: String, onChange: (Boolean) -> Unit): LinearLayout {
+    val sw = Switch(this).apply {
+        thumbTintList = ColorStateList.valueOf(Color.WHITE)
+        trackTintList = ColorStateList(arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()), intArrayOf(MT.gold, Color.rgb(57, 57, 61)))
+        setOnCheckedChangeListener { _, on -> onChange(on) }
+    }
+    return hstack {
+        addView(text(title, 15f), lp(0, WRAP, 1f))
+        addView(sw)
+        setOnClickListener { sw.toggle() }
+    }
+}
+
+/** The page's glass plate: rows on a rounded dark card (iOS MTGlassRowPlate inside a List section). */
+fun Context.plate(build: LinearLayout.() -> Unit) = vstack(Gravity.NO_GRAVITY) {
+    background = rounded(MT.plate, 12)
+    build()
+}
+
+fun LinearLayout.divider() = addView(View(context).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = dp(16) })
+
+/** The face: the photo, or the first character of the name, in a circle. */
+fun Context.avatar(face: Bitmap?, name: String, sizeDp: Int): View {
+    val box = FrameLayout(this)
+    box.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(MT.plate) }
+    box.clipToOutline = true
+    box.outlineProvider = object : ViewOutlineProvider() {
+        override fun getOutline(v: View, o: Outline) = o.setOval(0, 0, v.width, v.height)
+    }
+    val inner: View = when {
+        face != null -> ImageView(this).apply { setImageBitmap(face); scaleType = ImageView.ScaleType.CENTER_CROP }
+        name.isNotBlank() -> text(name.trim().let { it.substring(0, it.offsetByCodePoints(0, 1)) }, sizeDp * 0.42f, MT.gold, center = true)
+        else -> icon(R.drawable.ic_add_a_photo, MT.gold, (sizeDp * 0.36f).toInt())
+    }
+    val p = if (inner is ImageView && face == null) FrameLayout.LayoutParams(dp(sizeDp * 0.36f), dp(sizeDp * 0.36f), Gravity.CENTER)
+            else FrameLayout.LayoutParams(MATCH, MATCH, Gravity.CENTER)
+    if (inner is TextView) inner.gravity = Gravity.CENTER
+    box.addView(inner, p)
+    box.layoutParams = LinearLayout.LayoutParams(dp(sizeDp), dp(sizeDp))
+    return box
+}
+
+/** The logo with its soft golden halo breathing behind it (iOS intro: 2.3 s, autoreverse). */
+fun Context.glowingLogo(logoDp: Int, haloDp: Int, periodMs: Long): FrameLayout {
+    val halo = View(this).apply {
+        background = GradientDrawable().apply {
+            gradientType = GradientDrawable.RADIAL_GRADIENT
+            gradientRadius = dp(haloDp / 2).toFloat()
+            colors = intArrayOf(MT.withAlpha(MT.gold, 0.55f), Color.TRANSPARENT)
+        }
+    }
+    val logo = ImageView(this).apply { setImageResource(R.drawable.logo) }
+    ValueAnimator.ofFloat(0f, 1f).apply {
+        duration = periodMs; repeatMode = ValueAnimator.REVERSE; repeatCount = ValueAnimator.INFINITE
+        interpolator = AccelerateDecelerateInterpolator()
+        addUpdateListener { a ->
+            val g = a.animatedValue as Float
+            halo.alpha = 0.5f + 0.5f * g
+            halo.scaleX = 0.92f + 0.16f * g; halo.scaleY = halo.scaleX
+        }
+        start()
+    }
+    return FrameLayout(this).apply {
+        addView(halo, FrameLayout.LayoutParams(dp(haloDp), dp(haloDp), Gravity.CENTER))
+        addView(logo, FrameLayout.LayoutParams(dp(logoDp), dp(logoDp), Gravity.CENTER))
+        clipChildren = false
+    }
+}
+
+fun TextView.singleLineEllipsis() { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }

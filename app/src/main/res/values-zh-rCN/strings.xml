@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Taken from the iOS String Catalog (Code/Montana/Localizable.xcstrings) — one wording on both platforms. -->
+<resources>
+    <string name="intro_tagline">私密通讯工具。您的身份源自您的助记词，聊天内容在您的设备上加密。</string>
+    <string name="priv_words_title">由 24 个词构成的身份</string>
+    <string name="priv_words_sub">只有您持有密钥</string>
+    <string name="priv_e2e_title">端到端加密</string>
+    <string name="priv_e2e_sub">密钥仅存于您的设备</string>
+    <string name="priv_wallet_title">您自己的钱包地址</string>
+    <string name="priv_wallet_sub">他人通过它给您发消息和 Montana</string>
+    <string name="priv_servers_title">没有服务器</string>
+    <string name="priv_servers_sub">消息由您的手机自己传递</string>
+    <string name="creating">正在生成身份…</string>
+    <string name="create">创建</string>
+    <string name="open_identity">打开身份</string>
+    <string name="recover_title">助记词恢复</string>
+    <string name="recover_hint">按正确顺序输入这 24 个单词，用空格分隔。</string>
+    <string name="recover_node">您的节点（可选）</string>
+    <string name="restoring">正在恢复…</string>
+    <string name="restore">恢复</string>
+    <string name="back">返回</string>
+    <string name="recover_invalid">助记词无效。请检查词语及顺序。</string>
+    <string name="store_failed_title">无法在此设备上保存身份</string>
+    <string name="resp_title">完全掌控——完全责任</string>
+    <string name="resp_toggle">我理解并自行承担责任</string>
+    <string name="show_words">显示助记词</string>
+    <string name="seed_title">您的 24 个单词助记词</string>
+    <string name="seed_hint">请妥善保存：使用您信任的密码管理器，或抄写在纸上并离线保管。请勿截屏，也不要保存在“备忘录”中。</string>
+    <string name="copied">已复制</string>
+    <string name="copy">复制</string>
+    <string name="seed_saved">我已将这些单词保存在安全的地方</string>
+    <string name="seed_done">您在 Montana 的身份</string>
+    <string name="got_it">知道了</string>
+    <string name="store_failed_msg">未创建任何内容。请解锁设备后重试——未保存的身份在下次启动时无法打开。</string>
+    <string name="first_name">名字</string>
+    <string name="choose_callsign">选择呼号</string>
+    <string name="profile_onboarding_footer">此处的一切都留在您的设备上。不会公开任何内容：对方只能看到您选择展示的内容。名称留空则使用您的呼号。</string>
+    <string name="change_photo">更换照片</string>
+    <string name="remove_photo">移除照片</string>
+    <string name="choose_photo">选择照片</string>
+    <string name="terms_intro">Montana 是一款供彼此选择交谈的人使用的通讯软件。每一段对话都经过端到端加密；除对话双方外，无人能读取。</string>
+    <string name="terms_agree_line">使用 Montana 即表示您同意这些条款。</string>
+    <string name="terms_abuse_h">对滥用零容忍</string>
+    <string name="terms_abuse_1">对不当内容和滥用者零容忍：威胁、骚扰、仇恨言论、涉及未成年人的色情内容、垃圾信息及任何违法内容。</string>
+    <string name="terms_abuse_2">您必须年满 18 岁才能使用 Montana。</string>
+    <string name="terms_abuse_3">发送此类内容或滥用他人者将被禁止使用 Montana 的中继与入口。</string>
+    <string name="terms_tools_h">您的工具</string>
+    <string name="terms_tools_1">屏蔽：被屏蔽的人再也无法联系您——其信件在所有通道上都会被拒收，且永不显示。</string>
+    <string name="terms_tools_2">举报：任何信件或用户都可从菜单中举报。举报将在 24 小时内处理；违规内容将被删除，违规者将被禁止。</string>
+    <string name="terms_tools_3">过滤：含有不当词语的信件默认折叠，仅在您点击后展开。您可以在“隐私”中保留或关闭该过滤。</string>
+    <string name="terms_tools_4">删除：任何信件都可立即从您的信息流中移除——仅对您，或对所有人。</string>
+    <string name="terms_reach_h">联系我们</string>
+    <string name="i_agree">我同意</string>
+    <string name="terms_title">使用条款</string>
+    <string name="resp_body">您身份的密钥是即将显示的 24 个助记词。只有凭它才能恢复。\n\n一旦丢失，您将永久失去对身份和聊天记录的访问权限。请勿向任何人展示。\n\n请妥善保管——使用您信任的任何机密数据保管方式（例如密码管理器），或手写在纸上离线保存。请勿截屏，也不要保存在备忘录中。</string>
+    <string name="words_count">需要正好 24 个词（已输入 %1$d）</string>
+
+    <string name="no_chats">暂无聊天</string>
+    <string name="saved_messages">收藏</string>
+    <string name="forget_device">忘记此设备</string>
+    <string name="chats">聊天</string>
+    <string name="contacts">联系人</string>
+    <string name="settings">设置</string>
+    <string name="my_profile">我的资料</string>
+</resources>

@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Taken from the iOS String Catalog (Code/Montana/Localizable.xcstrings) — one wording on both platforms. -->
+<resources>
+    <string name="intro_tagline">Приватный мессенджер. Личность — из вашей секретной фразы, переписка зашифрована на вашем устройстве.</string>
+    <string name="priv_words_title">Личность из 24 слов</string>
+    <string name="priv_words_sub">Ключ держите только вы</string>
+    <string name="priv_e2e_title">Сквозное шифрование</string>
+    <string name="priv_e2e_sub">Ключ живёт на ваших устройствах</string>
+    <string name="priv_wallet_title">Свой адрес-кошелёк</string>
+    <string name="priv_wallet_sub">По нему вам пишут и отправляют Montana</string>
+    <string name="priv_servers_title">Серверов нет</string>
+    <string name="priv_servers_sub">Письма несёт сам телефон</string>
+    <string name="creating">Рождается личность…</string>
+    <string name="create">Создать</string>
+    <string name="open_identity">Открыть личность</string>
+    <string name="recover_title">Восстановление по фразе</string>
+    <string name="recover_hint">Введите 24 слова через пробел, в правильном порядке.</string>
+    <string name="recover_node">Ваш узел (необязательно)</string>
+    <string name="restoring">Восстанавливаем…</string>
+    <string name="restore">Восстановить</string>
+    <string name="back">Назад</string>
+    <string name="recover_invalid">Фраза неверна. Проверьте слова и порядок.</string>
+    <string name="store_failed_title">Личность не удалось сохранить на устройстве</string>
+    <string name="resp_title">Полный контроль — полная ответственность</string>
+    <string name="resp_toggle">Я понимаю и беру ответственность на себя</string>
+    <string name="show_words">Показать слова</string>
+    <string name="seed_title">Ваша сид-фраза из 24 слов</string>
+    <string name="seed_hint">Сохраните надёжно: менеджер паролей, которому доверяете, либо перепишите на бумагу и держите офлайн. Не делайте скриншот и не храните в Заметках.</string>
+    <string name="copied">Скопировано</string>
+    <string name="copy">Скопировать</string>
+    <string name="seed_saved">Я записал слова в надёжном месте</string>
+    <string name="seed_done">Ваша личность в Montana</string>
+    <string name="got_it">Понятно</string>
+    <string name="store_failed_msg">Ничего не создано. Разблокируйте устройство и попробуйте снова — несохранённую личность не открыть при следующем запуске.</string>
+    <string name="first_name">Имя</string>
+    <string name="choose_callsign">Выбрать позывной</string>
+    <string name="profile_onboarding_footer">Всё, что здесь, остаётся на устройстве. Ничего не публикуется: собеседник видит только то, что вы решили показать. Оставите имя пустым — вас будут звать позывным.</string>
+    <string name="change_photo">Изменить фотографию</string>
+    <string name="remove_photo">Удалить фотографию</string>
+    <string name="choose_photo">Выбрать фотографию</string>
+    <string name="terms_intro">Montana — мессенджер между людьми, которые сами решили говорить друг с другом. Каждый разговор зашифрован из конца в конец; никто, кроме двух его сторон, прочесть его не может.</string>
+    <string name="terms_agree_line">Пользуясь Montana, вы принимаете эти условия.</string>
+    <string name="terms_abuse_h">Нетерпимость к злоупотреблениям</string>
+    <string name="terms_abuse_1">Нет терпимости к неприемлемому содержимому и к тем, кто злоупотребляет: угрозы, травля, язык вражды, сексуальное содержимое с участием несовершеннолетних, спам и всё, что нарушает закон.</string>
+    <string name="terms_abuse_2">Пользоваться Montana можно только с 18 лет.</string>
+    <string name="terms_abuse_3">Тот, кто рассылает такое содержимое или злоупотребляет в отношении других, лишается доступа к узлам и дверям Montana.</string>
+    <string name="terms_tools_h">Ваши инструменты</string>
+    <string name="terms_tools_1">Блокировка: заблокированный человек больше не может до вас дотянуться — его письма отвергаются на всех дорогах и никогда не показываются.</string>
+    <string name="terms_tools_2">Жалоба: на любое письмо или человека можно пожаловаться из меню. Жалобы рассматриваются в течение 24 часов; нарушающее содержимое удаляется, нарушитель лишается доступа.</string>
+    <string name="terms_tools_3">Фильтр: письма с неприемлемыми словами по умолчанию свёрнуты и разворачиваются только вашим касанием. Фильтр можно оставить или выключить в разделе «Приватность».</string>
+    <string name="terms_tools_4">Удаление: любое письмо можно сразу убрать из ленты — у себя или у всех.</string>
+    <string name="terms_reach_h">Связь с нами</string>
+    <string name="i_agree">Принимаю</string>
+    <string name="terms_title">Условия использования</string>
+    <string name="resp_body">Ключ к вашей личности — сид-фраза из 24 слов, которую вы сейчас увидите. Восстановление возможно только по ней.\n\nПотеряете её — навсегда потеряете доступ к личности и перепискам. Никому её не показывайте.\n\nХраните надёжно — любым способом хранения конфиденциальных данных, которому доверяете (например, менеджер паролей), либо запишите от руки на бумаге и держите вне сети. Не делайте снимок экрана и не сохраняйте в Заметках.</string>
+    <string name="words_count">Нужно ровно 24 слова (введено %1$d)</string>
+
+    <string name="no_chats">Пока нет чатов</string>
+    <string name="saved_messages">Избранное</string>
+    <string name="forget_device">Забыть это устройство</string>
+    <string name="chats">Чаты</string>
+    <string name="contacts">Контакты</string>
+    <string name="settings">Настройки</string>
+    <string name="my_profile">Мой профиль</string>
+</resources>

@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Taken from the iOS String Catalog (Code/Montana/Localizable.xcstrings) — one wording on both platforms. -->
+<resources>
+    <string name="app_name" translatable="false">Montana</string>
+    <string name="intro_tagline">A private messenger. Your identity comes from your secret phrase, and your chats are encrypted on your device.</string>
+    <string name="priv_words_title">Identity from 24 words</string>
+    <string name="priv_words_sub">Only you hold the key</string>
+    <string name="priv_e2e_title">End-to-end encryption</string>
+    <string name="priv_e2e_sub">The key lives on your devices</string>
+    <string name="priv_wallet_title">Your own wallet address</string>
+    <string name="priv_wallet_sub">People message you and send Montana to it</string>
+    <string name="priv_servers_title">No servers</string>
+    <string name="priv_servers_sub">Your phone carries the messages itself</string>
+    <string name="creating">Bringing an identity into being…</string>
+    <string name="create">Create</string>
+    <string name="open_identity">Open identity</string>
+    <string name="recover_title">Recovery from phrase</string>
+    <string name="recover_hint">Enter the 24 words separated by spaces, in the correct order.</string>
+    <string name="recover_node">Your node (optional)</string>
+    <string name="restoring">Restoring…</string>
+    <string name="restore">Restore</string>
+    <string name="back">Back</string>
+    <string name="recover_invalid">Invalid phrase. Check the words and their order.</string>
+    <string name="store_failed_title">The identity could not be stored on this device</string>
+    <string name="resp_title">Full control — full responsibility</string>
+    <string name="resp_toggle">I understand and take responsibility</string>
+    <string name="show_words">Show Words</string>
+    <string name="seed_title">Your 24-word seed phrase</string>
+    <string name="seed_hint">Store it securely: a password manager you trust, or write it down on paper and keep it offline. Don\'t take a screenshot or store it in Notes.</string>
+    <string name="copied">Copied</string>
+    <string name="copy">Copy</string>
+    <string name="seed_saved">I\'ve saved the words in a safe place</string>
+    <string name="seed_done">Your identity in Montana</string>
+    <string name="got_it">Got it</string>
+    <string name="store_failed_msg">Nothing was created. Unlock the device and try again — an identity that is not stored cannot be opened at the next launch.</string>
+    <string name="first_name">First name</string>
+    <string name="choose_callsign">Choose a call sign</string>
+    <string name="profile_onboarding_footer">Everything here stays on your device. Nothing is published: your correspondent sees only what you choose to show. Leave the name empty and your call sign is used.</string>
+    <string name="change_photo">Change photo</string>
+    <string name="remove_photo">Remove photo</string>
+    <string name="choose_photo">Choose photo</string>
+    <string name="terms_intro">Montana is a messenger between people who chose to talk to each other. Every conversation is encrypted end to end; nobody but its two sides can read it.</string>
+    <string name="terms_agree_line">By using Montana you agree to these terms.</string>
+    <string name="terms_abuse_h">No tolerance for abuse</string>
+    <string name="terms_abuse_1">There is no tolerance for objectionable content or abusive users: threats, harassment, hate speech, sexual content involving minors, spam and any content that breaks the law.</string>
+    <string name="terms_abuse_2">You must be 18 or older to use Montana.</string>
+    <string name="terms_abuse_3">A person who sends such content or abuses others is barred from Montana\'s relays and doors.</string>
+    <string name="terms_tools_h">Your tools</string>
+    <string name="terms_tools_1">Block: a blocked person can no longer reach you — their letters are refused on every road and never shown.</string>
+    <string name="terms_tools_2">Report: any letter or person can be reported from its menu. Reports are reviewed within 24 hours; offending content is removed and the offender is barred.</string>
+    <string name="terms_tools_3">Filter: letters carrying objectionable words are folded by default and unfold only by your tap. The filter is yours to keep or turn off in Privacy.</string>
+    <string name="terms_tools_4">Delete: any letter can be removed from your feed at once — for you, or for everyone.</string>
+    <string name="terms_reach_h">Reach us</string>
+    <string name="i_agree">I agree</string>
+    <string name="terms_title">Terms of Use</string>
+    <string name="resp_body">The key to your identity is your 24-word seed phrase, which you\'re about to see. Recovery is only possible with it.\n\nLose it and you lose access to your identity and chats forever. Don\'t show it to anyone.\n\nStore it securely — using whatever method of storing confidential data you trust (for example, a password manager), or write it down by hand on paper and keep it offline. Don\'t take a screenshot or save it in Notes.</string>
+    <string name="words_count">Exactly 24 words required (entered %1$d)</string>
+
+    <string name="no_chats">No chats yet</string>
+    <string name="saved_messages">Saved Messages</string>
+    <string name="forget_device">Forget this device</string>
+    <string name="chats">Chats</string>
+    <string name="contacts">Contacts</string>
+    <string name="settings">Settings</string>
+    <string name="my_profile">My profile</string>
+</resources>

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A separate app beside the old Montana on the phone (quest.montana.app): its data and seed stay untouched.
+     The code's package stays quest.montana.app — the core's JNI names it. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="quest.montana.app.dev">
+
+    <!-- The seed never leaves the device: no cloud backup, no device-to-device transfer
+         (iOS: AfterFirstUnlockThisDeviceOnly, synchronizable=NO, backupExcluded=YES). -->
+    <application
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Montana">
+        <activity
+            android:name="quest.montana.app.MainActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
