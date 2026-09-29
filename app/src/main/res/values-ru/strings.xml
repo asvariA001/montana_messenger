@@ -250,4 +250,17 @@
     <string name="delete">Удалить</string>
     <string name="today">Сегодня</string>
     <string name="send">Отправить</string>
+    <!-- the compose bar (iOS ChatInputBar) -->
+    <string name="compose_not_yet">На Android пока нет — появится в следующих версиях.</string>
+    <string name="compose_hold">Удерживайте для записи</string>
+    <string name="emoji">Эмодзи</string>
+    <string name="gallery">Фото</string>
+    <string name="business_card">Визитка</string>
+    <string name="file">Файл</string>
+    <string name="location">Место</string>
+    <string name="contact">Контакт</string>
+    <string name="record_voice">Голосовое сообщение</string>
+    <string name="record_video">Видеосообщение</string>
+    <string name="compose_open">Показать кнопки</string>
+    <string name="compose_fold">Скрыть кнопки</string>
 </resources>

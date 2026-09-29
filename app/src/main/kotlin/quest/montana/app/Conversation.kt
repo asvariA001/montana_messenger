@@ -139,17 +139,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit): View 
     var replyTo: Msg? = null
     var editing: Msg? = null
 
-    val field = EditText(c).apply {
-        hint = c.getString(R.string.message_hint)
-        setHintTextColor(MT.gray); setTextColor(Color.WHITE)
-        textSize = 17f
-        inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
-        maxLines = 6
-        setPadding(dp(14), dp(8), dp(14), dp(8))
-        background = GradientDrawable().apply { cornerRadius = dp(20).toFloat(); setColor(Color.argb(46, 255, 255, 255)); setStroke(1, Color.argb(38, 255, 255, 255)) }
-        minHeight = dp(40)
-        setText(Prefs.str("draft.$ref", ""))
-    }
+    val field = EditText(c).apply { setText(Prefs.str("draft.$ref", "")) }
     fun hideKeys() = c.getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(field.windowToken, 0)
     fun showKeys() { field.requestFocus(); c.getSystemService(InputMethodManager::class.java).showSoftInput(field, 0) }
 
@@ -200,21 +190,13 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit): View 
     }
 
     // ── sending (iOS sendMessage) ──
-    val send = ImageView(c).apply {
-        setImageResource(R.drawable.send_button)
-        scaleType = ImageView.ScaleType.FIT_CENTER
-        contentDescription = c.getString(R.string.send)
-    }
-    fun sync() { send.visibility = if (field.text.isBlank()) View.GONE else View.VISIBLE }
-    sync()
     field.addTextChangedListener(object : TextWatcher {
         override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
         override fun onTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
-        override fun afterTextChanged(s: Editable?) { if (editing == null) Prefs.setStr("draft.$ref", s?.toString() ?: ""); sync() }
+        override fun afterTextChanged(s: Editable?) { if (editing == null) Prefs.setStr("draft.$ref", s?.toString() ?: "") }
     })
-    send.pressable {
+    val bar = ChatInputBar(act, field) {
         val words = field.text.toString().trim()
-        if (words.isEmpty()) return@pressable
         field.setText("")
         val e = editing
         if (e != null) {
@@ -235,12 +217,16 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit): View 
         showStrip()
         toBottom()
     }
-    val bar = c.hstack {
-        gravity = Gravity.BOTTOM
-        setPadding(dp(12), dp(6), dp(12), dp(8))
-        addView(field, lp(0, WRAP, 1f))
-        addView(send, lp(dp(40), dp(40)).apply { marginStart = dp(8) })
+    // THE GALLERY AND THE FILE KEYS SEND FOR REAL (iOS PhotosPicker / fileImporter → MontanaMedia): read, sealed, laid, lettered.
+    fun sendPicked(asDoc: Boolean): (android.net.Uri?) -> Unit = { uri ->
+        if (uri != null) Thread {
+            val p = Media.read(c, uri, asDoc)
+            if (p == null) MainThread.post { android.widget.Toast.makeText(c, R.string.media_failed, android.widget.Toast.LENGTH_LONG).show() }
+            else { Media.send(c, ref, p, ""); MainThread.post { toBottom() } }
+        }.start()
     }
+    bar.onGallery = { act.pickVisual(sendPicked(false)) }
+    bar.onFile = { act.openDocument(sendPicked(true)) }
 
     // ── the bar: the back mark, the face and the name; the face's press offers the chat's own actions ──
     val chat0 = Book.chat(ref)
@@ -319,7 +305,8 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat): FrameLayout = FrameLay
                     })
                 }, lp(WRAP, WRAP).apply { bottomMargin = dp(4) })
             }
-            addView(c.text(letterWords(c, m.text), 16f, BubbleStyle.text(mine)).apply { maxWidth = dp(260); setTextIsSelectable(false) }, lp(WRAP, WRAP))   // USER-DATA: the letter
+            if (m.text.startsWith(Marks.MEDIA)) mediaBody(c, m, this)
+            else addView(c.text(letterWords(c, m.text), 16f, BubbleStyle.text(mine)).apply { maxWidth = dp(260); setTextIsSelectable(false) }, lp(WRAP, WRAP))   // USER-DATA: the letter
             addView(c.hstack {
                 gravity = Gravity.CENTER_VERTICAL
                 if (m.edited) addView(c.text(c.getString(R.string.edited) + " ", 11f, BubbleStyle.time(mine)))
@@ -415,6 +402,95 @@ private fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Un
             gap(8)
             addView(actions, lp(dp(240), WRAP))
         }, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.CENTER))
+    }
+    close = act.overlay(page)
+}
+
+
+/**
+ * A MEDIA LETTER IN ITS BUBBLE (iOS MessageBubble media): the picture itself, a film's first frame under the play mark, or
+ * a file's name and size; the small face that rode the manifest stands while the file is on its way; the caption under it.
+ * A press opens it whole: a picture or a film in the app, a file in the system's viewer.
+ */
+private fun mediaBody(c: Context, m: Msg, into: LinearLayout) {
+    val man = m.meta?.let { runCatching { JSONObject(it) }.getOrNull() } ?: Media.inline(m.text)
+    val f = m.file?.let { java.io.File(it) }?.takeIf { it.exists() }
+    val byExt = when (f?.extension?.lowercase()) { "jpg", "jpeg", "png", "gif", "webp", "heic", "heif" -> "img"; "mp4", "mov", "m4v", "webm", "3gp" -> "vid"; else -> "doc" }
+    val kind = man?.optString("k")?.ifEmpty { null } ?: byExt
+    val tint = BubbleStyle.text(m.mine)
+    if (kind == "img" || kind == "vid") {
+        val pic = (f?.let { Media.preview(c, it, kind, 800) } ?: Media.thumbOf(man))
+        into.addView(FrameLayout(c).apply {
+            val w = c.dp(240)
+            val h = if (pic != null) (w * pic.height / maxOf(1, pic.width)).coerceIn(c.dp(120), c.dp(320)) else c.dp(180)
+            addView(ImageView(c).apply {
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                if (pic != null) setImageBitmap(pic) else setBackgroundColor(Color.argb(60, 255, 255, 255))
+                outlineProvider = object : android.view.ViewOutlineProvider() {
+                    override fun getOutline(v: View, o: android.graphics.Outline) = o.setRoundRect(0, 0, v.width, v.height, v.dp(12).toFloat())
+                }
+                clipToOutline = true
+            }, FrameLayout.LayoutParams(w, h))
+            if (f == null) addView(android.widget.ProgressBar(c), FrameLayout.LayoutParams(c.dp(36), c.dp(36), Gravity.CENTER))
+            else if (kind == "vid") addView(c.icon(R.drawable.ic_play_fill, Color.WHITE).apply {
+                background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.argb(140, 0, 0, 0)) }
+                setPadding(c.dp(12), c.dp(12), c.dp(12), c.dp(12))
+            }, FrameLayout.LayoutParams(c.dp(52), c.dp(52), Gravity.CENTER))
+            if (f != null) setOnClickListener { (c as? MainActivity)?.let { a -> openMedia(a, f, kind) } }
+        }, LinearLayout.LayoutParams(WRAP, WRAP).apply { bottomMargin = c.dp(4) })
+    } else {
+        val name = man?.optString("n")?.ifEmpty { null } ?: ("file." + (man?.optString("e") ?: ""))
+        val size = man?.optLong("sz") ?: 0L
+        into.addView(c.hstack {
+            gravity = Gravity.CENTER_VERTICAL
+            addView(FrameLayout(c).apply {
+                background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.argb(70, 255, 255, 255)) }
+                if (f == null) addView(android.widget.ProgressBar(c), FrameLayout.LayoutParams(c.dp(26), c.dp(26), Gravity.CENTER))
+                else addView(c.icon(R.drawable.ic_set_doc, tint), FrameLayout.LayoutParams(c.dp(22), c.dp(22), Gravity.CENTER))
+            }, lp(c.dp(44), c.dp(44)).apply { marginEnd = c.dp(10) })
+            addView(c.vstack(Gravity.NO_GRAVITY) {
+                addView(c.text(name, 15f, tint, bold = true).apply { maxWidth = c.dp(190); singleLineEllipsis() })   // USER-DATA: the file's name
+                addView(c.text(android.text.format.Formatter.formatShortFileSize(c, size), 13f, BubbleStyle.time(m.mine)))
+            })
+            if (f != null) setOnClickListener { (c as? MainActivity)?.let { a -> openMedia(a, f, kind) } }
+        }, LinearLayout.LayoutParams(WRAP, WRAP).apply { bottomMargin = c.dp(4) })
+    }
+    if (m.state == -1) into.addView(c.text(c.getString(R.string.media_failed), 12f, SysColor.red))
+    man?.optString("cap")?.takeIf { it.isNotEmpty() }?.let { into.addView(c.text(it, 16f, tint).apply { maxWidth = c.dp(240) }) }   // USER-DATA: the caption
+}
+
+/** THE FILE WHOLE: a picture on black, a film in the platform's own player; any other file to the system's viewer. */
+private fun openMedia(act: MainActivity, f: java.io.File, kind: String) {
+    val c: Context = act
+    if (kind != "img" && kind != "vid") {
+        val view = Intent(Intent.ACTION_VIEW).setDataAndType(Media.uri(c, f), c.contentResolver.getType(Media.uri(c, f)) ?: "*/*")
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        runCatching { act.startActivity(Intent.createChooser(view, null)) }
+        return
+    }
+    lateinit var close: () -> Unit
+    val page = FrameLayout(c).apply {
+        setBackgroundColor(Color.BLACK)
+        isClickable = true
+        if (kind == "img") addView(ImageView(c).apply {
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setImageBitmap(Media.preview(c, f, "img", 2400))
+        }, FrameLayout.LayoutParams(MATCH, MATCH))
+        else addView(android.widget.VideoView(c).apply {
+            setVideoURI(android.net.Uri.fromFile(f))
+            setMediaController(android.widget.MediaController(c).also { it.setAnchorView(this) })
+            setOnPreparedListener { start() }
+        }, FrameLayout.LayoutParams(MATCH, MATCH, Gravity.CENTER))
+        addView(c.icon(R.drawable.ic_close, Color.WHITE).apply { setPadding(c.dp(12), c.dp(12), c.dp(12), c.dp(12)); pressable { close() } },
+            FrameLayout.LayoutParams(c.dp(48), c.dp(48), Gravity.TOP or Gravity.START).apply { setMargins(c.dp(8), c.dp(8), 0, 0) })
+        addView(c.icon(R.drawable.ic_share, Color.WHITE).apply {
+            setPadding(c.dp(12), c.dp(12), c.dp(12), c.dp(12))
+            pressable {
+                val send = Intent(Intent.ACTION_SEND).setType(c.contentResolver.getType(Media.uri(c, f)) ?: "*/*")
+                    .putExtra(Intent.EXTRA_STREAM, Media.uri(c, f)).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                act.startActivity(Intent.createChooser(send, null))
+            }
+        }, FrameLayout.LayoutParams(c.dp(48), c.dp(48), Gravity.TOP or Gravity.END).apply { setMargins(0, c.dp(8), c.dp(8), 0) })
     }
     close = act.overlay(page)
 }

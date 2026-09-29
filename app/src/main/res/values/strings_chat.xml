@@ -15,4 +15,9 @@
     <string name="attachment">📎 Attachment</string>
     <string name="voice_message">🎤 Voice message</string>
     <string name="long_letter">Long message</string>
+    <string name="photo_or_video">Photo or video</string>
+    <string name="file_word">File</string>
+    <string name="open_word">Open</string>
+    <string name="media_failed">The file did not reach the node</string>
+    <string name="loading_file">Loading…</string>
 </resources>

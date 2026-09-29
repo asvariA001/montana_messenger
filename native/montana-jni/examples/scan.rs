@@ -84,6 +84,38 @@ fn main() {
             let cw = hex(&sha(&[b"mt-wake-conv\0", &secret, &(now() / 86400).to_le_bytes()]));
             println!("{{\"conv\":\"{}\",\"from_id\":\"{}\",\"mid\":\"{}\",\"env\":\"{}\"}}", cw, sub_id(&cw, "mac-scanner"), a[3], b64(&env));
         }
+        "media" => {
+            // media <secret_hex> <mid> <file> <kind> <ext>: every piece as a /blob-put body, then the /wake body with MD:{manifest}
+            let secret = unhex(&a[2]); let data = std::fs::read(&a[4]).unwrap();
+            let mut bk = [0u8; 32]; unsafe { mt_bindings::ffi_c::mt_random_fast(bk.as_mut_ptr(), 32) };
+            let mut chunks = Vec::new();
+            for (i, piece) in data.chunks(512 * 1024).enumerate() {
+                let mut padded = piece.to_vec(); padded.resize(mt_messenger_e2e::media::pad_len(piece.len()), 0);
+                let nb = sha(&[&bk, &(i as u64).to_le_bytes(), &padded]);
+                let mut nonce = [0u8; 12]; nonce.copy_from_slice(&nb[..12]);
+                let sealed = mt_messenger_e2e::media::seal_blob(&bk, &nonce, &padded);
+                let bid = hex(&sha(&[&sealed]));
+                println!("{{\"bid\":\"{}\",\"data\":\"{}\"}}", bid, b64(&sealed));
+                chunks.push(format!("{{\"bid\":\"{}\",\"cs\":{}}}", bid, piece.len()));
+            }
+            let man = format!("{{\"k\":\"{}\",\"e\":\"{}\",\"bk\":\"{}\",\"sz\":{},\"chunks\":[{}],\"cap\":\"с Мака\"}}", a[5], a[6], b64(&bk), data.len(), chunks.join(","));
+            let text = format!("\u{200b}\u{200b}MD:{}", man);
+            let mut body = Vec::new();
+            for f in [&a[3], &text, &"Мак".to_string(), &String::new()] { body.extend_from_slice(f.as_bytes()); body.push(0); }
+            body.resize(2048, 0);
+            let env = seal(&body_key(&secret, now() / 60), &body);
+            let cw = hex(&sha(&[b"mt-wake-conv\0", &secret, &(now() / 86400).to_le_bytes()]));
+            println!("WAKE {{\"conv\":\"{}\",\"from_id\":\"{}\",\"mid\":\"{}\",\"env\":\"{}\"}}", cw, sub_id(&cw, "mac-scanner"), a[3], b64(&env));
+        }
+        "blobopen" => {
+            // blobopen <key_b64> <sealed_file> <out_file> [cs]: a node blob opened under its key, cut to cs when given
+            let k = unb64(&a[2]); let mut key = [0u8; 32]; key.copy_from_slice(&k);
+            let sealed = std::fs::read(&a[3]).unwrap();
+            let mut p = open(&key, &sealed).expect("the blob opens");
+            if let Some(cs) = a.get(5) { p.truncate(cs.parse().unwrap()); }
+            println!("sha_ok={}", hex(&sha(&[&sealed])));
+            std::fs::write(&a[4], p).unwrap();
+        }
         "labels" => {
             let secret = unhex(&a[2]);
             let cw = hex(&sha(&[b"mt-wake-conv\0", &secret, &(now() / 86400).to_le_bytes()]));

@@ -6,7 +6,6 @@ import android.content.Context
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.text.Editable
-import android.text.InputType
 import android.text.TextWatcher
 import android.text.format.DateUtils
 import android.view.Gravity
@@ -125,47 +124,19 @@ fun savedMessagesPage(act: MainActivity, onClose: () -> Unit): View {
     }
     SavedMessages.all(c).forEach { place(it) }
 
-    // THE FIELD (iOS ChatInputBar, folded): the words on glass, «Message…» while empty; the send artwork when there are words.
-    val field = EditText(c).apply {
-        hint = c.getString(R.string.message_hint)
-        setHintTextColor(MT.gray); setTextColor(Color.WHITE)
-        textSize = 17f
-        background = null
-        inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
-        maxLines = 6
-        setPadding(dp(14), dp(8), dp(14), dp(8))
-        setText(SavedMessages.draft)
-    }
-    val send = ImageView(c).apply {
-        setImageResource(R.drawable.send_button)
-        scaleType = ImageView.ScaleType.FIT_CENTER
-        contentDescription = c.getString(R.string.send)
-    }
-    fun sync() { send.visibility = if (field.text.isBlank()) View.GONE else View.VISIBLE }
-    sync()
-    field.addTextChangedListener(object : TextWatcher {
-        override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
-        override fun onTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
-        override fun afterTextChanged(s: Editable?) { SavedMessages.draft = s?.toString() ?: ""; sync() }
-    })
-    send.pressable {
+    // THE FIELD (iOS ChatInputBar): the one compose bar of every chat; the unsent words are kept as a draft.
+    val field = EditText(c).apply { setText(SavedMessages.draft) }
+    val bar = ChatInputBar(act, field) {
         val words = field.text.toString().trim()
-        if (words.isEmpty()) return@pressable
         field.setText("")   // the field is emptied first — that is what ends the draft (iOS sendMessage)
         place(SavedMessages.add(c, words))
         toBottom()
     }
-    val bar = c.hstack {
-        gravity = Gravity.BOTTOM
-        setPadding(dp(12), dp(6), dp(12), dp(8))
-        addView(field.apply {
-            background = GradientDrawable().apply {
-                cornerRadius = dp(20).toFloat(); setColor(Color.argb(46, 255, 255, 255)); setStroke(1, Color.argb(38, 255, 255, 255))
-            }
-            minHeight = dp(40)
-        }, lp(0, WRAP, 1f))
-        addView(send, lp(dp(40), dp(40)).apply { marginStart = dp(8) })
-    }
+    field.addTextChangedListener(object : TextWatcher {
+        override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
+        override fun onTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
+        override fun afterTextChanged(s: Editable?) { SavedMessages.draft = s?.toString() ?: "" }
+    })
 
     fun hideKeys() = (c.getSystemService(InputMethodManager::class.java)).hideSoftInputFromWindow(field.windowToken, 0)
 

@@ -251,4 +251,17 @@
     <string name="delete">Delete</string>
     <string name="today">Today</string>
     <string name="send">Send</string>
+    <!-- the compose bar (iOS ChatInputBar) -->
+    <string name="compose_not_yet">Not on Android yet — it comes with the next versions.</string>
+    <string name="compose_hold">Hold to record</string>
+    <string name="emoji">Emoji</string>
+    <string name="gallery">Photo</string>
+    <string name="business_card">Business card</string>
+    <string name="file">File</string>
+    <string name="location">Location</string>
+    <string name="contact">Contact</string>
+    <string name="record_voice">Voice message</string>
+    <string name="record_video">Video message</string>
+    <string name="compose_open">Show buttons</string>
+    <string name="compose_fold">Hide buttons</string>
 </resources>

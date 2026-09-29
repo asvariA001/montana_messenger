@@ -54,5 +54,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity-alias>
+        <!-- The app's own door to its received files (Media.kt): read-only, granted address by address. -->
+        <provider
+            android:name="quest.montana.app.MediaProvider"
+            android:authorities="quest.montana.app.dev.media"
+            android:exported="false"
+            android:grantUriPermissions="true" />
     </application>
 </manifest>

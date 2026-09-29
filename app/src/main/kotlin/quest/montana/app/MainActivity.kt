@@ -183,6 +183,14 @@ class MainActivity : Activity() {
         @Suppress("DEPRECATION") startActivityForResult(intent, PICK_PHOTO)
     }
 
+    /** A picture OR a film from the system's own picker (iOS PhotosPicker .any(of: [.images, .videos])). */
+    fun pickVisual(done: (Uri?) -> Unit) {
+        photoDone = done
+        val intent = if (Build.VERSION.SDK_INT >= 33) Intent(MediaStore.ACTION_PICK_IMAGES)
+                     else Intent(Intent.ACTION_GET_CONTENT).setType("*/*").putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("image/*", "video/*"))
+        @Suppress("DEPRECATION") startActivityForResult(intent, PICK_PHOTO)
+    }
+
     // ── the system's document picker: a backup handed to a place the person picks, and taken back from a file ──
     private var docDone: ((Uri?) -> Unit)? = null
     fun saveDocument(name: String, done: (Uri?) -> Unit) {

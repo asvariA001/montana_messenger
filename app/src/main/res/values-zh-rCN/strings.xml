@@ -250,4 +250,17 @@
     <string name="delete">删除</string>
     <string name="today">今天</string>
     <string name="send">发送</string>
+    <!-- the compose bar (iOS ChatInputBar) -->
+    <string name="compose_not_yet">Android 版暂不支持，将在后续版本中推出。</string>
+    <string name="compose_hold">按住录制</string>
+    <string name="emoji">表情</string>
+    <string name="gallery">照片</string>
+    <string name="business_card">名片</string>
+    <string name="file">文件</string>
+    <string name="location">位置</string>
+    <string name="contact">联系人</string>
+    <string name="record_voice">语音消息</string>
+    <string name="record_video">视频消息</string>
+    <string name="compose_open">显示按钮</string>
+    <string name="compose_fold">隐藏按钮</string>
 </resources>

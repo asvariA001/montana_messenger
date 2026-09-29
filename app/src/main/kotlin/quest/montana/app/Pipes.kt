@@ -100,6 +100,13 @@ object Wire {
         code to text
     } catch (_: Exception) { -1 to null }
 
+    /** A blob onto the node (iOS putBlob): POST /blob-put {bid, data}; true once a door holds it. */
+    fun putBlob(bid: String, data: ByteArray, cargo: String? = null, last: Boolean = false): Boolean = MontanaCard.doors.any { door ->
+        val body = JSONObject().put("bid", bid).put("data", Base64.encodeToString(data, Base64.NO_WRAP))
+        if (cargo != null) { body.put("cg", cargo); if (last) body.put("last", true) }
+        post(door, "/blob-put", body, 60_000).first == 200
+    }
+
     /** A blob of the node (iOS getBlob): POST /blob-get {bid} → {data}. */
     fun getBlob(bid: String): ByteArray? {
         for (door in MontanaCard.doors) {
@@ -119,6 +126,7 @@ object Marks {
     const val DELETE = "​​DL:"     // + "mid:" + the letter's mid
     const val EDIT = "​​ED:"       // {sid, tx}
     const val NAME = "​​NM:"       // + the display name
+    const val AVATAR = "\u200B\u200BAV:"     // + the face as base64 JPEG; empty — «no face»
     const val TYPING = "​​TY:"
     const val VOICE = "​​VC:"
     const val MEDIA = "​​MD:"
@@ -151,14 +159,16 @@ class Msg(
     var state: Int = 0, var edited: Boolean = false,
     val qt: String? = null, val qm: String? = null,
     val reactions: MutableList<String> = mutableListOf(), var myReact: String? = null,
+    var file: String? = null, var meta: String? = null,   // a media letter: the assembled file, and its manifest once known
 ) {
     fun json(): JSONObject = JSONObject().put("m", mid).put("t", text).put("o", mine).put("at", at).put("s", state).put("e", edited)
         .put("qt", qt ?: "").put("qm", qm ?: "").put("r", JSONArray(reactions)).put("mr", myReact ?: "")
+        .put("f", file ?: "").put("mm", meta ?: "")
     companion object {
         fun of(o: JSONObject) = Msg(o.getString("m"), o.getString("t"), o.getBoolean("o"), o.getLong("at"), o.optInt("s"), o.optBoolean("e"),
             o.optString("qt").ifEmpty { null }, o.optString("qm").ifEmpty { null },
             o.optJSONArray("r")?.let { a -> MutableList(a.length()) { a.getString(it) } } ?: mutableListOf(),
-            o.optString("mr").ifEmpty { null })
+            o.optString("mr").ifEmpty { null }, o.optString("f").ifEmpty { null }, o.optString("mm").ifEmpty { null })
     }
 }
 
@@ -320,8 +330,10 @@ object Post {
     }
 
     /** ONE KNOCK (iOS MTNodeWire.knockLetter): the body is sealed afresh at every door, the first door that boxes it ends the walk. */
-    private fun knock(secret: ByteArray, mid: String, text: String, qt: String?, qm: String?): Boolean {
+    private fun knock(secret: ByteArray, mid: String, text0: String, qt: String?, qm: String?): Boolean {
         val twin = MontanaSeed.twin ?: return false
+        // A LETTER TOO LONG FOR ONE ENVELOPE rides as a blob under a key of its own, the envelope carries the reference (iOS sealLongLetter).
+        val text = if (text0.toByteArray().size > Wire.ENVELOPE - 400) sealLong(mid, text0) ?: return false else text0
         var body = mid.toByteArray() + 0 + text.toByteArray() + 0 + Prefs.userName.trim().toByteArray() + 0 + byteArrayOf(0)
         if (!qt.isNullOrEmpty()) {
             val tail = qt.take(200).toByteArray() + 0 + (qm ?: "").toByteArray() + 0
@@ -340,12 +352,53 @@ object Post {
     }
     private operator fun ByteArray.plus(b: Int) = this + byteArrayOf(b.toByte())
 
+    /** mid‖0‖text sealed under a fresh key, laid on the node under SHA-256 of the seal (iOS blobIdHex); the reference once per letter. */
+    private fun sealLong(mid: String, text: String): String? {
+        Prefs.str("longRef.$mid", "").takeIf { it.isNotEmpty() }?.let { return it }
+        val mk = MtBindings.nativeRandom(32) ?: return null
+        val sealed = Wire.seal(mk, mid.toByteArray() + 0 + text.toByteArray()) ?: return null
+        val bid = Wire.hex(Wire.sha(sealed))
+        if (!Wire.putBlob(bid, sealed)) return null
+        val link = Marks.LONG + JSONObject().put("r", bid).put("k", Base64.encodeToString(mk, Base64.NO_WRAP))
+        Prefs.setStr("longRef.$mid", link)
+        return link
+    }
+
+    /** The words behind a long letter's reference: the words, null — later (no door answered), "" — gone for good. */
+    private fun fetchLong(text: String): String? {
+        val o = runCatching { JSONObject(text.removePrefix(Marks.LONG)) }.getOrNull() ?: return ""
+        val mk = runCatching { Base64.decode(o.getString("k"), Base64.DEFAULT) }.getOrNull() ?: return ""
+        val sealed = Wire.getBlob(o.optString("r")) ?: return null
+        val plain = Wire.open(mk, sealed) ?: return ""
+        val sep = plain.indexOf(0).takeIf { it >= 0 } ?: return ""
+        return String(plain, sep + 1, plain.size - sep - 1, Charsets.UTF_8)
+    }
+
+    /**
+     * MY NAME AND MY FACE GO TO EVERY CORRESPONDENT (iOS sendNameIfNeeded, sendFace): once, and again whenever they change.
+     * The face rides as AV:+base64 JPEG — a long letter by construction; an empty AV: says «no face».
+     */
+    fun announce(ref: String) {
+        val name = Prefs.userName.trim()
+        if (name.isNotEmpty() && Prefs.str("annName.$ref", "") != name) {
+            Prefs.setStr("annName.$ref", name); send(ref, Marks.mintMid(), Marks.NAME + name)
+        }
+        val face = SelfFace.bytes(Book.ctx) ?: ByteArray(0)
+        val tag = Wire.hex(Wire.sha(face)).take(16)
+        if (Prefs.str("annFace.$ref", "") != tag) {
+            Prefs.setStr("annFace.$ref", tag)
+            send(ref, Marks.mintMid(), Marks.AVATAR + if (face.isEmpty()) "" else Base64.encodeToString(face, Base64.NO_WRAP))
+        }
+    }
+
     // ── receiving ──
     /** ONE PICKUP AT A TIME (iOS fetchBox): the labels of every live invitation and every pipe, across the box's term. */
     fun fetch() {
         synchronized(fetchLock) { if (fetching) return; fetching = true }
         try { fetchOnce() } catch (e: Exception) { Log.w("Montana", "box fetch: ${e.javaClass.simpleName}") }
         finally { synchronized(fetchLock) { fetching = false } }
+        Book.refs().forEach { announce(it) }
+        Media.fetchPending(Book.ctx)
         flush()
     }
 
@@ -411,6 +464,7 @@ object Post {
         Book.open(ref, name, MontanaCard.isPermanentRoot(root))
         if (fresh) Thread { readPipeFace(ref, secret) }.start()
         place(ref, mid, text, name, null, null)
+        announce(ref)
         return true
     }
 
@@ -418,7 +472,9 @@ object Post {
     private fun letter(ref: String, plain: ByteArray): Boolean {
         val f = Wire.fields(plain)
         if (f[0].isEmpty() || f[1].isEmpty()) return false
-        place(ref, f[0], f[1], f[2], f[4].ifEmpty { null }, f[5].ifEmpty { null })
+        var text = f[1]
+        if (text.startsWith(Marks.LONG)) text = fetchLong(text)?.ifEmpty { text } ?: return false   // later: the letter waits in the box
+        place(ref, f[0], text, f[2], f[4].ifEmpty { null }, f[5].ifEmpty { null })
         return true
     }
 
@@ -444,6 +500,13 @@ object Post {
                 if (n.isNotEmpty() && n.length <= 64) Book.edit(ref) { it.name = n }
                 receipt(ref, sid)
             }
+            text.startsWith(Marks.AVATAR) -> {
+                val b64 = text.removePrefix(Marks.AVATAR)
+                val face = if (b64.isEmpty()) null else runCatching { Base64.decode(b64, Base64.DEFAULT) }.getOrNull()
+                if (face == null || face.isEmpty()) Book.face(ref).delete() else if (face.size <= 262_144) Book.face(ref).writeBytes(face)
+                Book.edit(ref) {}
+                receipt(ref, sid)
+            }
             Marks.isService(text) && !text.startsWith(Marks.VOICE) && !text.startsWith(Marks.MEDIA) && !text.startsWith(Marks.STICKER) && !text.startsWith(Marks.LONG) -> {}
             else -> {
                 var isNew = false
@@ -456,7 +519,8 @@ object Post {
                         isNew = true
                     }
                 }
-                receipt(ref, sid)
+                // A MEDIA LETTER IS ANSWERED ONLY ONCE ITS FILE IS ASSEMBLED (iOS: the receipt waits for the file).
+                if (text.startsWith(Marks.MEDIA)) Media.fetch(Book.ctx, ref, mid, text) else receipt(ref, sid)
                 if (isNew && Book.openChat == ref) markRead(ref)
                 if (isNew && Book.openChat != ref) Notify.letter(ref, text)
             }
@@ -465,6 +529,7 @@ object Post {
 
     /** «Delivered» for a letter of theirs — under its own name, so the queue holds one per letter (iOS receiptMid). */
     private fun receipt(ref: String, mid: String) = send(ref, "rcpt-$mid", Marks.DELIVERED + mid)
+    fun receiptFor(ref: String, mid: String) = receipt(ref, mid)
 
     /** «Read» covering the newest letter of theirs on the screen, by their birth millisecond (iOS sendReadMark). */
     fun markRead(ref: String) {
