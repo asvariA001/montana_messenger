@@ -84,7 +84,7 @@ class MainActivity : Activity() {
         if (hasSeed) MontanaBackupID.publish(this)   // the account carries this device's words (iOS publish)
         if (hasSeed && termsAccepted && !showWelcome) askWhatIsUnasked()
         // THE DAILY ROAD to the person's own node, a little after the first screen stands (iOS tickSoon).
-        if (hasSeed && termsAccepted) main.postDelayed({ background { HomeNodeWatch.tick(this, force = false) } }, 12_000)
+        if (hasSeed && termsAccepted) HomeNodeWatch.tickSoon(this)
     }
 
     /**
@@ -161,6 +161,7 @@ class MainActivity : Activity() {
     // ── work off the main thread (the core's key derivation takes a moment) ──
     fun background(work: () -> Unit) { worker.execute(work) }
     fun onMain(work: () -> Unit) { main.post(work) }
+    fun onMainAfter(ms: Long, work: () -> Unit) { main.postDelayed(work, ms) }
 
     // ── the system photo picker ──
     private var photoDone: ((Uri?) -> Unit)? = null

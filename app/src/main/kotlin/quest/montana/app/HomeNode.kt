@@ -199,6 +199,8 @@ object HomeNodeWatch {
             c.setRequestProperty("content-type", "application/octet-stream")
             c.setRequestProperty("X-Montana-SHA256", digest)
             sending = 0.0; said()
+            Log.i("Montana", "home_node put start name=${f.name} bytes=${f.length()}")
+            val sentAll = java.util.concurrent.atomic.AtomicLong(0)
             // A FRONT THAT STOPS READING MUST NOT HOLD THE PHONE (29.09, diag.montana.quest: nginx refuses a body over
             // 1 MB with 413 and stops reading; the write then waits forever, the bar at 49%). No byte taken for a
             // minute → the connection is cut, and the node's own word is read if it gave one.
@@ -215,15 +217,17 @@ object HomeNodeWatch {
                     var shown = -1
                     while (true) {
                         val n = inp.read(b); if (n < 0) break
-                        out.write(b, 0, n); sent += n; moved.set(System.currentTimeMillis())
+                        out.write(b, 0, n); sent += n; sentAll.set(sent); moved.set(System.currentTimeMillis())
                         val pct = (sent * 100 / maxOf(1L, f.length())).toInt()
                         if (pct != shown) { shown = pct; sending = pct / 100.0; said() }
                     }
                 }
             } } catch (e: java.io.IOException) {
                 val said = runCatching { c.responseCode }.getOrDefault(-1)
-                Log.i("Montana", "home_node put cut code=$said ${code(e)}")
-                return done(CopyResult.Refused(Refusal.CloudRefused(if (said > 0) "put $said" else "put ${code(e)}")))
+                Log.i("Montana", "home_node put cut code=$said sent=${sentAll.get()} ${code(e)}: ${e.message?.take(80)}")
+                // The node's own code when it gave one; else where the road stopped, in the person's own units.
+                val where = if (said > 0) "put $said" else "put stalled at ${sentAll.get() / 1024} KB of ${f.length() / 1024} KB"
+                return done(CopyResult.Refused(Refusal.CloudRefused(where)))
             } finally { watch.cancel() }
             val code = c.responseCode
             val j = json(c)
@@ -250,8 +254,17 @@ object HomeNodeWatch {
      * THE DAILY ROAD (launch and the switch): the node is asked first; a copy is sealed and sent only when one is due --
      * the node holds none of ours, or this device's last copy is a day old -- and rides Wi-Fi alone.
      */
+    /** Once per launch of the app, a little after the first screen stands (iOS tickSoon): a page drawn anew is not a launch. */
+    @Volatile private var launched = false
+    fun tickSoon(act: MainActivity) {
+        if (launched) return
+        launched = true
+        act.onMainAfter(12_000) { act.background { tick(act, force = false) } }
+    }
+
     fun tick(ctx: Context, force: Boolean) {
-        if (!MontanaHomeNode.on(ctx) || MontanaHomeNode.host.isEmpty() || busy) return
+        val why = when { !MontanaHomeNode.on(ctx) -> "switch off"; MontanaHomeNode.host.isEmpty() -> "no address"; busy -> "busy"; else -> null }
+        if (why != null) { Log.i("Montana", "home_node tick skipped: $why"); return }
         if (!force && !onWifi(ctx)) run { Log.i("Montana", "home_node tick skipped: not on Wi-Fi (${networkWord(ctx)})"); return }
         ask()
         val none = when (state) { is State.None -> true; is State.Held -> false; else -> return }
