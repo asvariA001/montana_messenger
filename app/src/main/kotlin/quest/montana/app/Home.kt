@@ -126,19 +126,66 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
     }
     MusicPlayer.listeners += { if (player.isAttachedToWindow) showPlayer() }
     lateinit var bar: HomeBar
-    fun choose(p: Pane) {
-        if (p == pane) return
-        val off = views.getValue(pane); val on = views.getValue(p)
+    /** The pane stands: the bar's puck under it, the dynamic glyph's memory, the music's walk, the player's place. */
+    fun arrived(p: Pane) {
         pane = p
         if (p == Pane.MUSIC || p == Pane.GALLERY) Prefs.setStr("lastMediaPane", if (p == Pane.MUSIC) "music" else "gallery")
         bar.showPane(p)
-        off.visibility = View.GONE
-        on.alpha = 0f; on.visibility = View.VISIBLE
-        on.animate().alpha(1f).setDuration(200).start()   // iOS .easeInOut(duration: 0.2)
         if (p == Pane.MUSIC) MusicFolders.walk(act)          // what was put into the lent folders since comes in
         showPlayer()
     }
+    fun choose(p: Pane) {
+        if (p == pane) return
+        val off = views.getValue(pane); val on = views.getValue(p)
+        off.visibility = View.GONE
+        on.translationX = 0f; on.alpha = 0f; on.visibility = View.VISIBLE
+        on.animate().alpha(1f).setDuration(200).start()   // iOS .easeInOut(duration: 0.2)
+        arrived(p)
+    }
     val shell = DrawerShell(act)
+    // THE PAGES FOLLOW THE FINGER (iOS turnOrder, turnStroke): the pane moves by the finger and the page beside it slides in
+    // from its side — the next on a stroke to the left, the one before on a stroke to the right; at the release a moving finger
+    // says the way, a still one the distance. The order is the bar's: contacts, calls, the feed, the chats, and the dynamic
+    // glyph's page — the music, or the gallery when it was the last opened. The network's page comes with the network.
+    shell.turner = object : DrawerShell.Turner {
+        var next: Pane? = null
+        var side = 0
+        fun order(): List<Pane> {
+            val media = if (pane == Pane.MUSIC || pane == Pane.GALLERY) pane
+                        else if (Prefs.str("lastMediaPane", "music") == "gallery") Pane.GALLERY else Pane.MUSIC
+            return listOf(Pane.CONTACTS, Pane.CALLS, Pane.FEED, Pane.CHATS, media)
+        }
+        override fun begin(side: Int): Boolean {
+            val o = order(); val i = o.indexOf(pane); val j = i + side
+            if (i < 0 || j !in o.indices) return false
+            next = o[j]; this.side = side
+            views.getValue(pane).animate().cancel()
+            views.getValue(o[j]).apply { animate().cancel(); alpha = 1f; visibility = View.VISIBLE; translationX = side * panes.width.toFloat() }
+            return true
+        }
+        override fun move(dx: Float) {
+            val w = panes.width.toFloat()
+            val d = if (side > 0) dx.coerceIn(-w, 0f) else dx.coerceIn(0f, w)
+            views.getValue(pane).translationX = d
+            next?.let { views.getValue(it).translationX = d + side * w }
+        }
+        override fun end(dx: Float, velocity: Float) {
+            val to = next ?: return
+            val w = panes.width.toFloat()
+            val fling = c.dp(400)
+            val go = if (kotlin.math.abs(velocity) > fling) (velocity < 0) == (side > 0) else kotlin.math.abs(dx) > w / 3
+            val cur = views.getValue(pane); val nv = views.getValue(to)
+            val ms = 240L
+            cur.animate().translationX(if (go) -side * w else 0f).setDuration(ms).setInterpolator(android.view.animation.DecelerateInterpolator()).withEndAction {
+                if (go) { cur.visibility = View.GONE; cur.translationX = 0f }
+            }.start()
+            nv.animate().translationX(if (go) 0f else side * w).setDuration(ms).setInterpolator(android.view.animation.DecelerateInterpolator()).withEndAction {
+                if (!go) { nv.visibility = View.GONE; nv.translationX = 0f }
+            }.start()
+            if (go) arrived(to)
+            next = null
+        }
+    }
     bar = HomeBar(act, onDrawer = { shell.open() }, onPane = ::choose)
     bar.showPane(Pane.CHATS, animated = false)
     shell.page.addView(c.vstack(Gravity.NO_GRAVITY) {
@@ -159,6 +206,14 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
  * edge; on Android that edge belongs to the system's back gesture, so the grid glyph is the one road in.
  */
 class DrawerShell(private val act: MainActivity) : FrameLayout(act) {
+    /** The pages under the bar turned by the same stroke (iOS turnStroke): side +1 — the next page, from a stroke to the left. */
+    interface Turner {
+        fun begin(side: Int): Boolean
+        fun move(dx: Float)
+        fun end(dx: Float, velocity: Float)
+    }
+    var turner: Turner? = null
+    private var turning = false
     val drawer = FrameLayout(act)
     val page = FrameLayout(act)
     private val dim = View(act).apply { setBackgroundColor(Color.BLACK); alpha = 0f; visibility = View.GONE }
@@ -182,30 +237,104 @@ class DrawerShell(private val act: MainActivity) : FrameLayout(act) {
         post { drawer.layoutParams = LayoutParams(Math.round(w * 0.78f), MATCH) }
     }
 
-    fun open() {
-        if (isOpen) return
-        isOpen = true
-        dim.bringToFront()
-        drawer.visibility = View.VISIBLE
-        dim.visibility = View.VISIBLE
-        page.animate().translationX(width78.toFloat()).setDuration(320).setInterpolator(android.view.animation.DecelerateInterpolator(1.6f)).start()
-        dim.animate().alpha(0.35f).setDuration(320).start()
-        keepBack = act.back
-        act.back = { close() }
-    }
+    fun open() = settle(true)
 
     /** Closes, and does what the drawer's row asked once the page is home (iOS leave(then:)). */
     fun close(then: () -> Unit = {}) {
-        if (!isOpen) { then(); return }
-        isOpen = false
-        act.back = keepBack
-        dim.animate().alpha(0f).setDuration(280).start()
-        page.animate().translationX(0f).setDuration(280).setInterpolator(android.view.animation.DecelerateInterpolator(1.6f)).withEndAction {
-            dim.visibility = View.GONE
-            drawer.visibility = View.INVISIBLE
+        if (!isOpen && page.translationX == 0f) { then(); return }
+        settle(false, then)
+    }
+
+    /** The page slides to where the finger or the tap sent it: open over the drawer, or home. */
+    private fun settle(open: Boolean, then: () -> Unit = {}) {
+        val was = isOpen
+        isOpen = open
+        reveal()
+        val to = if (open) width78.toFloat() else 0f
+        val ms = (280 * kotlin.math.abs(to - page.translationX) / width78.coerceAtLeast(1)).toLong().coerceIn(120, 320)
+        dim.animate().alpha(if (open) DIM else 0f).setDuration(ms).start()
+        page.animate().translationX(to).setDuration(ms).setInterpolator(android.view.animation.DecelerateInterpolator(1.6f)).withEndAction {
+            if (!open) { dim.visibility = View.GONE; drawer.visibility = View.INVISIBLE }
             then()
         }.start()
+        if (open && !was) { keepBack = act.back; act.back = { close() } }
+        if (!open && was) act.back = keepBack
     }
+
+    private fun reveal() {
+        dim.bringToFront()
+        drawer.visibility = View.VISIBLE
+        dim.visibility = View.VISIBLE
+    }
+
+    // THE PAGE FOLLOWS THE FINGER (the user's word 29.09: «a swipe to the right from the chats opens the side panel, a swipe to the
+    // left brings me back»): a stroke that is plainly sideways takes the page — to the right it uncovers the drawer, to the left it
+    // covers it again — and at the release a moving finger says the way, a still one the distance (half the drawer). A stroke
+    // that is mostly up or down stays the list's; a control that holds its own drag (the player's plate) asks not to be taken.
+    private val slop = android.view.ViewConfiguration.get(act).scaledTouchSlop
+    private var downX = 0f; private var downY = 0f; private var startT = 0f
+    private var dragging = false
+    private var tracker: android.view.VelocityTracker? = null
+
+    override fun onInterceptTouchEvent(e: android.view.MotionEvent): Boolean {
+        when (e.actionMasked) {
+            android.view.MotionEvent.ACTION_DOWN -> {
+                downX = e.x; downY = e.y; dragging = false
+                tracker?.recycle(); tracker = android.view.VelocityTracker.obtain().also { it.addMovement(e) }
+            }
+            android.view.MotionEvent.ACTION_MOVE -> {
+                tracker?.addMovement(e)
+                val dx = e.x - downX; val dy = e.y - downY
+                if (!dragging && kotlin.math.abs(dx) > slop && kotlin.math.abs(dx) > 1.5f * kotlin.math.abs(dy)) {
+                    // THE ROW'S LEFT END (iOS turnAtRowStart): the pages turn under the stroke; past the first page a stroke to
+                    // the right is the drawer's; with the drawer open, a stroke to the left closes it.
+                    if (isOpen) { if (dx > 0) return false }
+                    else if (turner?.begin(if (dx < 0) 1 else -1) == true) {
+                        turning = true; dragging = true; downX = e.x
+                        parent?.requestDisallowInterceptTouchEvent(true)
+                        return true
+                    } else if (dx < 0) return false
+                    dragging = true
+                    startT = page.translationX
+                    downX = e.x
+                    page.animate().cancel(); dim.animate().cancel()
+                    reveal()
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    override fun onTouchEvent(e: android.view.MotionEvent): Boolean {
+        // A touch no child took comes here straight, never through the interception: the same reading of the stroke.
+        if (!dragging) {
+            val took = onInterceptTouchEvent(e)
+            return e.actionMasked == android.view.MotionEvent.ACTION_DOWN || took || dragging
+        }
+        tracker?.addMovement(e)
+        when (e.actionMasked) {
+            android.view.MotionEvent.ACTION_MOVE -> {
+                if (turning) { turner?.move(e.x - downX); return true }
+                val t = (startT + e.x - downX).coerceIn(0f, width78.toFloat())
+                page.translationX = t
+                dim.alpha = DIM * t / width78.coerceAtLeast(1)
+            }
+            android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
+                dragging = false
+                tracker?.computeCurrentVelocity(1000)
+                val v = tracker?.xVelocity ?: 0f
+                tracker?.recycle(); tracker = null
+                if (turning) { turning = false; turner?.end(e.x - downX, v); return true }
+                val fling = dp(400)
+                settle(if (kotlin.math.abs(v) > fling) v > 0 else page.translationX > width78 / 2f)
+            }
+        }
+        return true
+    }
+
+    private companion object { const val DIM = 0.35f }
 }
 
 /**
