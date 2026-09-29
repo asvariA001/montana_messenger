@@ -229,4 +229,10 @@
     <string name="continue_word">Continue</string>
     <string name="restoring_backup">Restoring from the backup</string>
     <string name="sealing_copy">Sealing the copy</string>
+    <!-- The pages under the bar: calls, feed, gallery, music (iOS CallsTabView, MTFeedTabView, GalleryTabView, MusicTabView) -->
+    <string name="no_calls">Your audio and video calls\nwill appear here</string>
+    <string name="no_posts">Posts on your people\'s walls\nwill appear here</string>
+    <string name="no_photos">No photos yet</string>
+    <string name="no_music">Your music will appear here</string>
+    <string name="track_refused">Could not open the track</string>
 </resources>

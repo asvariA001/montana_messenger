@@ -228,4 +228,10 @@
     <string name="continue_word">继续</string>
     <string name="restoring_backup">正在从备份恢复</string>
     <string name="sealing_copy">正在封存副本</string>
+    <!-- The pages under the bar: calls, feed, gallery, music (iOS CallsTabView, MTFeedTabView, GalleryTabView, MusicTabView) -->
+    <string name="no_calls">您的语音和视频通话\n将显示在这里</string>
+    <string name="no_posts">你联系人墙上的帖子\n将显示在这里</string>
+    <string name="no_photos">暂无照片</string>
+    <string name="no_music">您的音乐将显示在这里</string>
+    <string name="track_refused">无法打开曲目</string>
 </resources>

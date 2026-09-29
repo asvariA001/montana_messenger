@@ -228,4 +228,10 @@
     <string name="continue_word">Продолжить</string>
     <string name="restoring_backup">Восстановление из копии</string>
     <string name="sealing_copy">Запечатывание копии</string>
+    <!-- The pages under the bar: calls, feed, gallery, music (iOS CallsTabView, MTFeedTabView, GalleryTabView, MusicTabView) -->
+    <string name="no_calls">Здесь появятся ваши\nаудио- и видеозвонки</string>
+    <string name="no_posts">Посты со стен ваших собеседников\nпоявятся здесь</string>
+    <string name="no_photos">Фото пока нет</string>
+    <string name="no_music">Здесь появится ваша музыка</string>
+    <string name="track_refused">Не удалось открыть трек</string>
 </resources>

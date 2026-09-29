@@ -102,31 +102,45 @@ fun Context.glassPlate(oval: Boolean = false) = GradientDrawable().apply {
 /** The glyph inside a bar button (iOS MontanaOctagon.barGlyph: Color(white: 0.8)). */
 private val barGlyph = Color.rgb(204, 204, 204)
 
-/** The pages under the bar that Android has so far (iOS UIState.Pane: .chats and .contacts). */
-enum class Pane { CHATS, CONTACTS }
+/** The pages under the bar (iOS UIState.Pane); the network's page comes with the network. */
+enum class Pane { CHATS, CONTACTS, CALLS, FEED, MUSIC, GALLERY }
 
 fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
     val c = act
     act.setGround(CrestGround(c))
     var pane = Pane.CHATS   // iOS: the chats are the first page of a launch
     val panes = FrameLayout(c)
-    val chats = chatsPane(act)
-    val contacts = contactsPane(act)
-    panes.addView(chats, FrameLayout.LayoutParams(MATCH, MATCH))
-    panes.addView(contacts, FrameLayout.LayoutParams(MATCH, MATCH))
+    val music = MusicPage(act)
+    val views = mapOf(Pane.CHATS to chatsPane(act), Pane.CONTACTS to contactsPane(act), Pane.CALLS to callsPane(c),
+        Pane.FEED to feedPane(c), Pane.MUSIC to music.view, Pane.GALLERY to galleryPane(c))
+    views.values.forEach { v -> v.visibility = View.GONE; panes.addView(v, FrameLayout.LayoutParams(MATCH, MATCH)) }
+    views.getValue(Pane.CHATS).visibility = View.VISIBLE
+    // THE FLOATING PLAYER stands on the chats, the feed and the music while a track stands (iOS playerBar).
+    val player = miniBar(act)
+    panes.addView(player, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM).apply { bottomMargin = c.dp(8) })
+    fun showPlayer() {
+        val on = MusicPlayer.current != null && pane in setOf(Pane.CHATS, Pane.FEED, Pane.MUSIC)
+        player.visibility = if (on) View.VISIBLE else View.GONE
+        if (on) player.live()
+        music.reserve(on && pane == Pane.MUSIC)
+    }
+    MusicPlayer.listeners += { if (player.isAttachedToWindow) showPlayer() }
     lateinit var bar: HomeBar
     fun choose(p: Pane) {
+        if (p == pane) return
+        val off = views.getValue(pane); val on = views.getValue(p)
         pane = p
-        bar.movePuck(if (p == Pane.CHATS) HomeBar.CHATS else HomeBar.CONTACTS)
-        val (on, off) = if (p == Pane.CHATS) chats to contacts else contacts to chats
+        if (p == Pane.MUSIC || p == Pane.GALLERY) Prefs.setStr("lastMediaPane", if (p == Pane.MUSIC) "music" else "gallery")
+        bar.showPane(p)
         off.visibility = View.GONE
         on.alpha = 0f; on.visibility = View.VISIBLE
         on.animate().alpha(1f).setDuration(200).start()   // iOS .easeInOut(duration: 0.2)
+        if (p == Pane.MUSIC) MusicFolders.walk(act)          // what was put into the lent folders since comes in
+        showPlayer()
     }
     val shell = DrawerShell(act)
     bar = HomeBar(act, onDrawer = { shell.open() }, onPane = ::choose)
-    contacts.visibility = View.GONE
-    bar.movePuck(HomeBar.CHATS, animated = false)
+    bar.showPane(Pane.CHATS, animated = false)
     shell.page.addView(c.vstack(Gravity.NO_GRAVITY) {
         addView(bar, lp(MATCH, dp(60)).apply { setMargins(dp(12), dp(4), dp(12), dp(2)) })
         addView(searchRow(c), lp(MATCH, dp(56)))
@@ -229,11 +243,11 @@ private fun sideDrawer(act: MainActivity, onPane: (Pane) -> Unit, onProfile: () 
         addView(face, lp(dp(88), WRAP).apply { marginStart = -dp(20) })
         gap(14)
         addView(row(glyph(R.drawable.ic_bar_contacts), R.string.contacts) { onPane(Pane.CONTACTS) }, lp())
-        addView(row(glyph(R.drawable.ic_bar_calls), R.string.app_calls, null), lp())
-        addView(row(feedMark(), R.string.app_feed, null), lp())
+        addView(row(glyph(R.drawable.ic_bar_calls), R.string.app_calls) { onPane(Pane.CALLS) }, lp())
+        addView(row(feedMark(), R.string.app_feed) { onPane(Pane.FEED) }, lp())
         addView(row(glyph(R.drawable.ic_bar_chats), R.string.chats) { onPane(Pane.CHATS) }, lp())
-        addView(row(glyph(R.drawable.ic_bar_play), R.string.app_music, null), lp())
-        addView(row(glyph(R.drawable.ic_app_gallery), R.string.app_gallery, null), lp())
+        addView(row(glyph(R.drawable.ic_bar_play), R.string.app_music) { onPane(Pane.MUSIC) }, lp())
+        addView(row(glyph(R.drawable.ic_app_gallery), R.string.app_gallery) { onPane(Pane.GALLERY) }, lp())
         addView(row(android.widget.ImageView(c).apply { setImageResource(R.drawable.chess_knight) }, R.string.app_chess, null), lp())
         addView(row(glyph(R.drawable.ic_app_wallet), R.string.app_wallet, null), lp())
         addView(row(glyph(R.drawable.ic_language), R.string.app_network, null), lp())
@@ -262,6 +276,7 @@ class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (
     }
     private val row = act.hstack { }
     private var slot = CHATS
+    private lateinit var media: ImageView
 
     init {
         background = act.glassPlate()
@@ -269,7 +284,7 @@ class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (
         addView(row, LayoutParams(MATCH, MATCH))
         glyph(R.drawable.ic_bar_drawer, 26) { onDrawer(it) }
         glyph(R.drawable.ic_bar_contacts, 26) { onPane(Pane.CONTACTS) }
-        glyph(R.drawable.ic_bar_calls, 26)
+        glyph(R.drawable.ic_bar_calls, 26) { onPane(Pane.CALLS) }
         // THE LOGO ON THE GLASS (iOS MTFeedGlyph): the gold sign on a round glass plate, a quarter of its side around it.
         row.addView(FrameLayout(act).apply {
             addView(FrameLayout(act).apply {
@@ -277,23 +292,33 @@ class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (
                 addView(ImageView(act).apply { setImageResource(R.drawable.logo); setPadding(dp(9), dp(9), dp(9), dp(9)) },
                     LayoutParams(MATCH, MATCH))
             }, LayoutParams(dp(36), dp(36), Gravity.CENTER))
+            pressable { onPane(Pane.FEED) }   // the logo opens the feed of my people's walls (iOS 25.09)
         }, lp(0, MATCH, 1f))
         glyph(R.drawable.ic_bar_chats, 24) { onPane(Pane.CHATS) }
-        glyph(R.drawable.ic_bar_play, 26)
+        // THE DYNAMIC GLYPH: the last opened of the player and the gallery; a tap opens that one again.
+        media = glyph(R.drawable.ic_bar_play, 26) { onPane(if (Prefs.str("lastMediaPane", "music") == "gallery") Pane.GALLERY else Pane.MUSIC) }
+        if (Prefs.str("lastMediaPane", "music") == "gallery") media.setImageResource(R.drawable.ic_app_gallery)
         // THE GLOBE (iOS MTBarGlobe): the network's lamp — unknown wears grey; Android knocks on no node yet.
         glyph(R.drawable.ic_language, 26, tint = Color.rgb(115, 115, 115))
         addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> place(false) }
     }
 
-    private fun glyph(res: Int, sizeDp: Int, tint: Int = barGlyph, onTap: ((View) -> Unit)? = null) {
+    private fun glyph(res: Int, sizeDp: Int, tint: Int = barGlyph, onTap: ((View) -> Unit)? = null): ImageView {
         val box = FrameLayout(act)
-        box.addView(act.icon(res, tint), LayoutParams(dp(sizeDp), dp(sizeDp), Gravity.CENTER))
+        val icon = act.icon(res, tint)
+        box.addView(icon, LayoutParams(dp(sizeDp), dp(sizeDp), Gravity.CENTER))
         if (onTap != null) box.pressable { onTap(box) }
         row.addView(box, lp(0, MATCH, 1f))
+        return icon
     }
 
-    /** The puck goes under the slot (iOS MTPuckSlide: the slot's frame, 6 above and below, 3 at the sides). */
-    fun movePuck(to: Int, animated: Boolean = true) { slot = to; place(animated) }
+    /** The puck goes under the pane's slot; the dynamic glyph wears the music's or the gallery's face (iOS slot(of:)). */
+    fun showPane(p: Pane, animated: Boolean = true) {
+        slot = when (p) { Pane.CONTACTS -> 1; Pane.CALLS -> 2; Pane.FEED -> 3; Pane.CHATS -> 4; Pane.MUSIC, Pane.GALLERY -> 5 }
+        if (p == Pane.MUSIC) media.setImageResource(R.drawable.ic_bar_play)
+        if (p == Pane.GALLERY) media.setImageResource(R.drawable.ic_app_gallery)
+        place(animated)
+    }
 
     private fun place(animated: Boolean) {
         if (width == 0) return
@@ -309,7 +334,7 @@ class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (
         else puck.translationX = x
     }
 
-    companion object { const val CONTACTS = 1; const val CHATS = 4 }
+    private companion object { const val CHATS = 4 }
 }
 
 /**

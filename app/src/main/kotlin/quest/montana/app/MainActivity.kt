@@ -179,6 +179,12 @@ class MainActivity : Activity() {
         @Suppress("DEPRECATION") startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
             .setType("application/octet-stream").putExtra(Intent.EXTRA_TITLE, name), DOCUMENT)
     }
+    /** A folder lent to the music (iOS fileImporter .folder): the system's tree picker; the grant is taken by MusicFolders. */
+    fun pickFolder(done: (Uri?) -> Unit) {
+        docDone = done
+        @Suppress("DEPRECATION") startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION), DOCUMENT)
+    }
     fun openDocument(done: (Uri?) -> Unit) {
         docDone = done
         @Suppress("DEPRECATION") startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
