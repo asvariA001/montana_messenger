@@ -92,4 +92,35 @@
     <string name="copy_wrong_words">These 24 words do not open this backup: it belongs to another phrase.</string>
     <string name="copy_unopened">These 24 words do not open this file: it is a backup of another phrase, or not a Montana backup at all.</string>
     <string name="copy_torn">This backup is cut short or damaged. Whatever could be read has been filed.</string>
+    <!-- the page «Your node» (iOS HomeNodeView) -->
+    <string name="your_node">Your node</string>
+    <string name="your_node_header">YOUR NODE</string>
+    <string name="node_address">Address</string>
+    <string name="node_asking">Asking your node…</string>
+    <string name="node_holds_none">Your node holds no copy</string>
+    <string name="node_holds">Held by your node</string>
+    <string name="node_refused_word">Your node refused</string>
+    <string name="node_silent">Your node did not answer</string>
+    <string name="node_sealing">Sealing the copy for your node</string>
+    <string name="node_sending">Sending to your node</string>
+    <string name="node_fetching">Downloading from your node</string>
+    <string name="node_restoring">Restoring from your node</string>
+    <string name="your_node_footer">Your node is a machine you own: your backup, your space. Once a day over Wi-Fi, while Montana is open, a copy of the whole app goes there, sealed with the key your 24 words open; the words are not in it. On a new phone, enter the address and the words, and the copy comes back.</string>
+    <string name="node_copies_switch">Copies to your node</string>
+    <string name="node_send_now">Send a copy now</string>
+    <string name="node_restore">Restore from your node</string>
+    <string name="node_offers">WHAT YOUR NODE OFFERS</string>
+    <string name="cap_vault">Copies of the whole phone</string>
+    <string name="cap_box">Letters for sleeping phones</string>
+    <string name="cap_blob">Attachments in transit</string>
+    <string name="cap_signal">Call signalling</string>
+    <string name="cap_turn">Call relay</string>
+    <string name="cap_diag">Diaries</string>
+    <string name="cap_stun">Reflector</string>
+    <string name="cap_notify">Wakes</string>
+    <string name="cap_gif">Moving pictures</string>
+    <string name="cap_name">Names</string>
+    <string name="node_taken_by">Taken by your node: %1$d conversations, %2$d records, %3$d attachments.</string>
+    <string name="node_taken_into">Taken into this device: %1$d conversations, %2$d records, %3$d attachments.</string>
+    <string name="ok">OK</string>
 </resources>

@@ -344,6 +344,7 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
                         is CopyResult.Taken -> onDone()
                         // EVERY REFUSAL ON THE WAY BACK IS SPOKEN (iOS 28.09), with «Try again» and the way on without the copy.
                         is CopyResult.Refused -> refuse(r.why.spoken(act)) { takeFromNode() }
+                        is CopyResult.Made -> onDone()   // a copy made here never answers a taking back
                     }
                 }
             }

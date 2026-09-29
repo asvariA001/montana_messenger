@@ -56,6 +56,14 @@ pub fn seed_keys(words: &str) -> Option<Zeroizing<Vec<u8>>> {
     Some(out)
 }
 
+/// Bytes drawn by the core from its own sources — a copy's salt (mt_random_fast); None when the core refuses.
+pub fn random(len: usize) -> Option<Vec<u8>> {
+    if len == 0 || len > 4096 { return None; }
+    let mut out = vec![0u8; len];
+    mt_mnemonic::random_fast(&mut out).ok()?;
+    Some(out)
+}
+
 /// entropy[32] → history_key[32]: HKDF-SHA-256(salt=0×32, ikm=entropy, info="mt-history-key") (mt_history_key).
 pub fn history_key(entropy: &[u8; 32]) -> Zeroizing<[u8; 32]> {
     let prk = Zeroizing::new(mt_mnemonic::hmac_sha256(&[0u8; 32], entropy));
@@ -161,6 +169,14 @@ mod jni_doors {
         bytes(&mut env, &seed[..])
     }
 
+    #[no_mangle]
+    pub extern "system" fn Java_quest_montana_app_MtBindings_nativeRandom(mut env: JNIEnv, _c: JClass, len: jint) -> jbyteArray {
+        match random(len.max(0) as usize) {
+            Some(b) => bytes(&mut env, &b),
+            None => std::ptr::null_mut(),
+        }
+    }
+
     fn key32(env: &mut JNIEnv, b: &JByteArray) -> Option<Zeroizing<[u8; 32]>> {
         let v = Zeroizing::new(env.convert_byte_array(b).ok()?);
         if v.len() != 32 { return None; }
@@ -255,6 +271,17 @@ mod tests {
         let mut out = [0u8; 32];
         assert_eq!(unsafe { ffi_c::mt_mldsa_seed_for_role(master.as_ptr(), role.as_ptr(), role.len(), out.as_mut_ptr()) }, 0);
         assert_eq!(&role_seed(&master, role)[..], &out[..]);
+    }
+
+    #[test]
+    fn random_is_the_cores() {
+        let a = random(32).unwrap();
+        let b = random(32).unwrap();
+        assert_eq!(a.len(), 32);
+        assert_ne!(a, b);
+        assert!(random(0).is_none());
+        let mut out = [0u8; 32];
+        assert_eq!(unsafe { ffi_c::mt_random_fast(out.as_mut_ptr(), 32) }, 0);
     }
 
     #[test]

@@ -91,4 +91,35 @@
     <string name="copy_wrong_words">Эти 24 слова не открывают эту копию: она принадлежит другой фразе.</string>
     <string name="copy_unopened">Эти 24 слова не открывают этот файл: это копия другой фразы или вовсе не копия Montana.</string>
     <string name="copy_torn">Эта копия оборвана или повреждена. Всё, что удалось прочитать, сохранено.</string>
+    <!-- the page «Your node» (iOS HomeNodeView) -->
+    <string name="your_node">Ваш узел</string>
+    <string name="your_node_header">ВАШ УЗЕЛ</string>
+    <string name="node_address">Адрес</string>
+    <string name="node_asking">Спрашиваем ваш узел…</string>
+    <string name="node_holds_none">На вашем узле копии нет</string>
+    <string name="node_holds">Хранится на вашем узле</string>
+    <string name="node_refused_word">Ваш узел отказал</string>
+    <string name="node_silent">Ваш узел не ответил</string>
+    <string name="node_sealing">Запечатываем копию для вашего узла</string>
+    <string name="node_sending">Отправляем на ваш узел</string>
+    <string name="node_fetching">Загружаем с вашего узла</string>
+    <string name="node_restoring">Восстанавливаем с вашего узла</string>
+    <string name="your_node_footer">Ваш узел — машина, которой владеете вы: ваша копия, ваше пространство. Раз в день по Wi-Fi, пока Montana открыта, туда уходит копия всего приложения, запечатанная ключом, который открывают ваши 24 слова; самих слов в ней нет. На новом телефоне введите адрес и слова — и копия вернётся.</string>
+    <string name="node_copies_switch">Копии на ваш узел</string>
+    <string name="node_send_now">Отправить копию сейчас</string>
+    <string name="node_restore">Восстановить с вашего узла</string>
+    <string name="node_offers">ЧТО УМЕЕТ ВАШ УЗЕЛ</string>
+    <string name="cap_vault">Копии всего телефона</string>
+    <string name="cap_box">Письма для спящих телефонов</string>
+    <string name="cap_blob">Вложения в пути</string>
+    <string name="cap_signal">Сигналинг звонков</string>
+    <string name="cap_turn">Ретрансляция звонков</string>
+    <string name="cap_diag">Дневники</string>
+    <string name="cap_stun">Отражатель</string>
+    <string name="cap_notify">Побудки</string>
+    <string name="cap_gif">Движущиеся картинки</string>
+    <string name="cap_name">Имена</string>
+    <string name="node_taken_by">Принято вашим узлом: бесед — %1$d, записей — %2$d, вложений — %3$d.</string>
+    <string name="node_taken_into">Принято на это устройство: бесед — %1$d, записей — %2$d, вложений — %3$d.</string>
+    <string name="ok">ОК</string>
 </resources>

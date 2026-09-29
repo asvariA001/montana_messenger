@@ -22,6 +22,8 @@ object MtBindings {
     /** master_seed[64] + role → 32 bytes: the core's mt_mldsa_seed_for_role. */
     @JvmStatic external fun nativeRoleSeed(master: ByteArray, role: String): ByteArray?
 
+    /** Bytes drawn by the core from its own sources (mt_random_fast), 1..4096; null when the core refuses. */
+    @JvmStatic external fun nativeRandom(len: Int): ByteArray?
     /** entropy[32] → history_key[32] (mt_history_key). */
     @JvmStatic external fun nativeHistoryKey(entropy: ByteArray): ByteArray?
     /** Which conversation a sealed history block belongs to, 32 bytes, or null (mt_archive_peek_conv). */

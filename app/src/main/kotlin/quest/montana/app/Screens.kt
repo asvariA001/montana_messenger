@@ -289,9 +289,11 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
     settings.pressable {
         PopupMenu(c, settings).apply {
             menu.add(0, 1, 0, R.string.my_profile)
-            menu.add(0, 2, 1, R.string.forget_device)
+            menu.add(0, 3, 1, R.string.your_node)
+            menu.add(0, 2, 2, R.string.forget_device)
             setOnMenuItemClickListener {
                 if (it.itemId == 1) act.showProfile()
+                else if (it.itemId == 3) { lateinit var close: () -> Unit; close = act.overlay(NodePage(act) { close() }.view) }
                 else AlertDialog.Builder(c).setTitle(R.string.forget_device)
                     .setPositiveButton(R.string.forget_device) { _, _ -> onForget() }
                     .setNegativeButton(R.string.back, null).show()

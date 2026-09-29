@@ -36,9 +36,15 @@ object MontanaHomeNode {
         if (clean.isEmpty()) DeviceVault.delete(HOST) else DeviceVault.set(HOST, clean.toByteArray())
         Log.i("Montana", "home_node host set=${if (clean.isEmpty()) 0 else 1}")
     }
-    fun setOn(ctx: Context, v: Boolean) {
-        ctx.getSharedPreferences("mt.defaults", Context.MODE_PRIVATE).edit().putBoolean(ON, v).apply()
-    }
+    private const val LAST = "mt.home.node.at"   // NOT-UI: this device's own clock of its last copy to the node
+    private fun prefs(ctx: Context) = ctx.getSharedPreferences("mt.defaults", Context.MODE_PRIVATE)
+    fun on(ctx: Context) = prefs(ctx).getBoolean(ON, false)
+    fun setOn(ctx: Context, v: Boolean) { prefs(ctx).edit().putBoolean(ON, v).apply() }
+    fun noteCopied(ctx: Context, at: java.util.Date) { prefs(ctx).edit().putLong(LAST, at.time).apply() }
+    /** Due once a day, or when the node holds none of ours. */
+    fun due(ctx: Context, holdsNone: Boolean) = holdsNone || System.currentTimeMillis() - prefs(ctx).getLong(LAST, 0) >= 86_400_000L
+    /** «Forget this device»: the node's address leaves with the person. */
+    fun forget(ctx: Context) { DeviceVault.delete(HOST); DeviceVault.delete(PIN); prefs(ctx).edit().remove(ON).remove(LAST).apply() }
     /** The digest of the node's own certificate (a node put up by address); empty for a named node. */
     val pin: String get() = DeviceVault.get(PIN)?.toString(Charsets.UTF_8) ?: ""
 
@@ -93,6 +99,21 @@ fun hex(b: ByteArray): String = b.joinToString("") { "%02x".format(it) }
  * the bytes come (this phone's own count), then the frames filed.
  */
 object HomeNodeWatch {
+    /** What the node said last (iOS HomeNodeWatch.State): its own word, never this phone's guess. */
+    sealed class State {
+        object Unknown : State()
+        object NoHost : State()
+        object Asking : State()
+        class None(val free: Long) : State()
+        class Held(val name: String, val date: java.util.Date, val bytes: Long, val free: Long) : State()
+        class Refused(val code: String) : State()
+        class Silent(val code: String) : State()
+    }
+    @Volatile var state: State = State.Unknown; private set
+    /** What the node names it can do (/health). */
+    @Volatile var caps: List<String> = emptyList(); private set
+    @Volatile var sealing: Double? = null; private set
+    @Volatile var sending: Double? = null; private set
     @Volatile var fetching: Double? = null; private set
     @Volatile var restoring: Double? = null; private set
     @Volatile private var busy = false
@@ -100,14 +121,129 @@ object HomeNodeWatch {
     @Volatile var onChange: (() -> Unit)? = null
     private fun said() { onChange?.invoke() }
 
-    private fun open(path: String, token: String): HttpURLConnection? {
+    private fun open(path: String, token: String?): HttpURLConnection? {
         val b = MontanaHomeNode.base(MontanaHomeNode.host) ?: return null
         val c = URL(b + path).openConnection() as HttpURLConnection
-        c.setRequestProperty(MontanaHomeNode.TOKEN_HEADER, token)
+        if (token != null) c.setRequestProperty(MontanaHomeNode.TOKEN_HEADER, token)
         c.connectTimeout = 15_000
         c.readTimeout = 60_000
         if (c is HttpsURLConnection) NodeTrust.apply(c)
         return c
+    }
+
+    private fun code(e: Exception) = e.javaClass.simpleName
+    private fun json(c: HttpURLConnection): org.json.JSONObject? = runCatching {
+        org.json.JSONObject((if (c.responseCode < 400) c.inputStream else c.errorStream).bufferedReader().readText())
+    }.getOrNull()
+
+    /** The node's word, asked afresh: what it can do, and what it holds of ours. Runs on a worker thread. */
+    fun ask() {
+        if (MontanaHomeNode.host.isEmpty()) { state = State.NoHost; return said() }
+        val tok = MontanaHomeNode.tokenHex() ?: run { state = State.NoHost; return said() }
+        if (state is State.Asking) return
+        state = State.Asking; said()
+        runCatching {
+            val h = open("/health", null)!!
+            if (h.responseCode == 200) json(h)?.optJSONObject("caps")?.let { j ->
+                caps = j.keys().asSequence().filter { j.optBoolean(it) }.sorted().toList()
+            }
+            h.disconnect()
+        }
+        state = try {
+            val c = open("/vault-have", tok)!!
+            val code = c.responseCode
+            val j = if (code == 200) json(c) else null
+            c.disconnect()
+            if (j == null) {
+                Log.i("Montana", "home_node have refused code=$code")
+                State.Refused(code.toString())
+            } else {
+                val free = j.optLong("free")
+                val top = j.optJSONArray("held")?.optJSONObject(0)
+                Log.i("Montana", "home_node holds n=${j.optJSONArray("held")?.length() ?: 0} free=$free")
+                if (top != null && top.has("name")) {
+                    val n = top.getString("name")
+                    State.Held(n, MontanaBackup.born(n) ?: java.util.Date(top.optLong("at") * 1000), top.optLong("bytes"), free)
+                } else State.None(free)
+            }
+        } catch (e: Exception) {
+            Log.i("Montana", "home_node no answer ${code(e)}")
+            State.Silent(code(e))
+        }
+        said()
+    }
+
+    /**
+     * A COPY TO THE NODE: sealed by the engine, sent whole, and held only on the node's echo of its digest.
+     * Runs on the caller's worker thread; `done` answers there.
+     */
+    fun send(ctx: Context, done: (CopyResult) -> Unit) {
+        val tok = MontanaHomeNode.tokenHex()
+        if (busy || tok == null) return done(CopyResult.Refused(if (tok == null) Refusal.NoSeed else Refusal.Stopped))
+        busy = true
+        sealing = 0.0; said()
+        var file: File? = null
+        try {
+            val made = MontanaBackup.create(ctx) { f -> sealing = f; said() }
+            sealing = null; said()
+            if (made !is CopyResult.Made) return done(made)
+            val f = made.file.also { file = it }
+            val digest = hex(MessageDigest.getInstance("SHA-256").let { md ->
+                f.inputStream().use { i -> val b = ByteArray(1 shl 16); while (true) { val n = i.read(b); if (n < 0) break; md.update(b, 0, n) } }
+                md.digest()
+            })
+            val c = open("/vault-put?name=${f.name}&sha256=$digest", tok) ?: return done(CopyResult.Refused(Refusal.Stopped))
+            c.requestMethod = "PUT"
+            c.doOutput = true
+            c.setFixedLengthStreamingMode(f.length())
+            c.setRequestProperty("content-type", "application/octet-stream")
+            c.setRequestProperty("X-Montana-SHA256", digest)
+            sending = 0.0; said()
+            c.outputStream.use { out ->
+                f.inputStream().use { inp ->
+                    val b = ByteArray(1 shl 16)
+                    var sent = 0L
+                    var shown = -1
+                    while (true) {
+                        val n = inp.read(b); if (n < 0) break
+                        out.write(b, 0, n); sent += n
+                        val pct = (sent * 100 / maxOf(1L, f.length())).toInt()
+                        if (pct != shown) { shown = pct; sending = pct / 100.0; said() }
+                    }
+                }
+            }
+            val code = c.responseCode
+            val j = json(c)
+            c.disconnect()
+            sending = null; said()
+            if (code != 200 || j?.optString("sha256") != digest) {
+                Log.i("Montana", "home_node put refused code=$code")
+                return done(CopyResult.Refused(Refusal.CloudRefused("put $code ${j?.optString("error") ?: ""}".trim())))
+            }
+            MontanaHomeNode.noteCopied(ctx, MontanaBackup.born(f.name) ?: java.util.Date())
+            Log.i("Montana", "home_node held bytes=${f.length()} (the node echoed the digest)")
+            done(made)
+        } catch (e: Exception) {
+            Log.i("Montana", "home_node put no answer ${code(e)}")
+            state = State.Silent(code(e))
+            done(CopyResult.Refused(Refusal.CloudRefused("put ${code(e)}")))
+        } finally {
+            file?.delete()   // handed: the shelf copy leaves either way; the node's word decides what is held
+            sealing = null; sending = null; busy = false; said()
+        }
+    }
+
+    /**
+     * THE DAILY ROAD (launch and the switch): the node is asked first; a copy is sealed and sent only when one is due --
+     * the node holds none of ours, or this device's last copy is a day old -- and rides Wi-Fi alone.
+     */
+    fun tick(ctx: Context, force: Boolean) {
+        if (!MontanaHomeNode.on(ctx) || MontanaHomeNode.host.isEmpty() || busy) return
+        if (!force && !onWifi(ctx)) run { Log.i("Montana", "home_node tick skipped: not on Wi-Fi"); return }
+        ask()
+        val none = when (state) { is State.None -> true; is State.Held -> false; else -> return }
+        if (!MontanaHomeNode.due(ctx, none)) run { Log.i("Montana", "home_node tick skipped: not due"); return }
+        send(ctx) { ask() }
     }
 
     /**
@@ -153,6 +289,7 @@ object HomeNodeWatch {
             fetching = null; restoring = 0.0; said()
             Log.i("Montana", "home_node fetched $name")
             val r = MontanaBackup.restore(ctx, dst) { f -> restoring = f; said() }
+            if (r is CopyResult.Taken) MontanaHomeNode.noteCopied(ctx, MontanaBackup.born(name) ?: java.util.Date())
             dst.delete()
             done(r)
         } catch (e: Exception) {

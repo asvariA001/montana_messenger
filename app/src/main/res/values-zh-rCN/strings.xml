@@ -91,4 +91,35 @@
     <string name="copy_wrong_words">这 24 个助记词无法打开此备份：它属于另一组助记词。</string>
     <string name="copy_unopened">这 24 个词无法打开此文件：它是另一组助记词的备份，或者根本不是 Montana 备份。</string>
     <string name="copy_torn">此备份被截断或已损坏。能够读取的部分已归档。</string>
+    <!-- the page «Your node» (iOS HomeNodeView) -->
+    <string name="your_node">您的节点</string>
+    <string name="your_node_header">您的节点</string>
+    <string name="node_address">地址</string>
+    <string name="node_asking">正在询问您的节点…</string>
+    <string name="node_holds_none">您的节点没有副本</string>
+    <string name="node_holds">您的节点已保存</string>
+    <string name="node_refused_word">您的节点拒绝了</string>
+    <string name="node_silent">您的节点没有回应</string>
+    <string name="node_sealing">正在为您的节点封存副本</string>
+    <string name="node_sending">正在发送到您的节点</string>
+    <string name="node_fetching">正在从您的节点下载</string>
+    <string name="node_restoring">正在从您的节点恢复</string>
+    <string name="your_node_footer">您的节点是您自己拥有的机器：您的备份，您的空间。当 Montana 打开时，每天通过 Wi-Fi 将整个应用的副本发送到那里，并用您的 24 个词打开的密钥封存；副本中不含这些词。在新手机上输入地址和这些词，副本就会回来。</string>
+    <string name="node_copies_switch">备份到您的节点</string>
+    <string name="node_send_now">立即发送副本</string>
+    <string name="node_restore">从您的节点恢复</string>
+    <string name="node_offers">您的节点提供什么</string>
+    <string name="cap_vault">整机副本</string>
+    <string name="cap_box">给休眠手机的信件</string>
+    <string name="cap_blob">传输中的附件</string>
+    <string name="cap_signal">通话信令</string>
+    <string name="cap_turn">通话中继</string>
+    <string name="cap_diag">日志</string>
+    <string name="cap_stun">反射器</string>
+    <string name="cap_notify">唤醒</string>
+    <string name="cap_gif">动图</string>
+    <string name="cap_name">名字</string>
+    <string name="node_taken_by">您的节点已接收：对话 %1$d 个，记录 %2$d 条，附件 %3$d 个。</string>
+    <string name="node_taken_into">已恢复到本设备：对话 %1$d 个，记录 %2$d 条，附件 %3$d 个。</string>
+    <string name="ok">确定</string>
 </resources>
