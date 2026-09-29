@@ -209,6 +209,17 @@ class MainActivity : Activity() {
         @Suppress("DEPRECATION") startActivityForResult(intent, PICK_PHOTO)
     }
 
+    /** The camera's question, asked by the system; the answer comes back once (iOS AVCaptureDevice.requestAccess). */
+    private var cameraDone: ((Boolean) -> Unit)? = null
+    fun askCamera(done: (Boolean) -> Unit) {
+        cameraDone = done
+        requestPermissions(arrayOf(android.Manifest.permission.CAMERA), ASK_CAMERA)
+    }
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == ASK_CAMERA) { cameraDone?.invoke(grantResults.firstOrNull() == android.content.pm.PackageManager.PERMISSION_GRANTED); cameraDone = null }
+    }
+
     // ── the system's document picker: a backup handed to a place the person picks, and taken back from a file ──
     private var docDone: ((Uri?) -> Unit)? = null
     fun saveDocument(name: String, done: (Uri?) -> Unit) {
@@ -243,5 +254,5 @@ class MainActivity : Activity() {
     /** The app's own language before Android 13 (from 13 the system keeps it: AppLanguage). */
     override fun attachBaseContext(base: android.content.Context) = super.attachBaseContext(AppLanguage.wrap(base))
 
-    private companion object { const val PICK_PHOTO = 1; const val ASK_NOTIFY = 2; const val DOCUMENT = 3 }
+    private companion object { const val PICK_PHOTO = 1; const val ASK_NOTIFY = 2; const val DOCUMENT = 3; const val ASK_CAMERA = 4 }
 }

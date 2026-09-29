@@ -232,8 +232,8 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit): View 
                 }, lp().apply { topMargin = c.dp(8); bottomMargin = c.dp(8) })
             }
             val b = letterBubble(c, m, chat)
-            // THE LADDER UNDER THE BUBBLE (iOS: the last row of the feed, when it is mine — none once they have answered)
-            if (m.mine && m === chat.msgs.last()) (b.getChildAt(0) as LinearLayout).addView(c.deliveryLine(ref, m),
+            // THE LADDER UNDER EVERY OWN BUBBLE (the author's word 29.09: «у каждого сообщения, по отдельности»): each letter its own rung
+            if (m.mine) (b.getChildAt(0) as LinearLayout).addView(c.deliveryLine(ref, m),
                 LinearLayout.LayoutParams(WRAP, WRAP).apply { topMargin = c.dp(3); marginEnd = c.dp(4) })
             b.getChildAt(0).setOnLongClickListener { letterMenu(act, ref, m, onReply = { replyTo = m; editing = null; showStrip(); showKeys() },
                 onEdit = { editing = m; replyTo = null; field.setText(m.text); field.setSelection(field.text.length); showStrip(); showKeys() }); true }

@@ -109,6 +109,17 @@ class CardView(private val act: MainActivity, private val onExpand: (() -> Unit)
             addView(copy, lp(WRAP, WRAP))
             gap(8)
             addView(share, lp().apply { setMargins(dp(36), 0, dp(36), 0) })
+            gap(10)
+            // «SCAN» (iOS MontanaCodeView onScan): the other side's code read by the camera opens the meeting.
+            addView(c.hstack {
+                gravity = Gravity.CENTER
+                background = c.rounded(Color.argb(46, 255, 255, 255), 11)
+                setPadding(0, dp(12), 0, dp(12))
+                addView(c.icon(R.drawable.ic_qr_scan, Color.WHITE), lp(dp(20), dp(20)))
+                gap(8)
+                addView(c.text(c.getString(R.string.scan), 16f, Color.WHITE, bold = true))
+                pressable { act.push { close -> scannerPage(act, close) } }
+            }, lp().apply { setMargins(dp(36), 0, dp(36), 0) })
         }
         draw()
     }
