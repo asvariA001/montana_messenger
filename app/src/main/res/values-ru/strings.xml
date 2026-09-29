@@ -122,4 +122,8 @@
     <string name="node_taken_by">Принято вашим узлом: бесед — %1$d, записей — %2$d, вложений — %3$d.</string>
     <string name="node_taken_into">Принято на это устройство: бесед — %1$d, записей — %2$d, вложений — %3$d.</string>
     <string name="ok">ОК</string>
+    <!-- The main screen's bar, search and contacts page (iOS ChatsListView, ContactsTab) -->
+    <string name="no_contacts">Контактов пока нет</string>
+    <string name="search">Поиск</string>
+    <string name="share">Поделиться</string>
 </resources>

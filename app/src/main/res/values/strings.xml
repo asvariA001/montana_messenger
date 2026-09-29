@@ -123,4 +123,8 @@
     <string name="node_taken_by">Taken by your node: %1$d conversations, %2$d records, %3$d attachments.</string>
     <string name="node_taken_into">Taken into this device: %1$d conversations, %2$d records, %3$d attachments.</string>
     <string name="ok">OK</string>
+    <!-- The main screen's bar, search and contacts page (iOS ChatsListView, ContactsTab) -->
+    <string name="no_contacts">No contacts yet</string>
+    <string name="search">Search</string>
+    <string name="share">Share</string>
 </resources>

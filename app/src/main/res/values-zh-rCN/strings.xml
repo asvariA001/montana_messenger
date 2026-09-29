@@ -122,4 +122,8 @@
     <string name="node_taken_by">您的节点已接收：对话 %1$d 个，记录 %2$d 条，附件 %3$d 个。</string>
     <string name="node_taken_into">已恢复到本设备：对话 %1$d 个，记录 %2$d 条，附件 %3$d 个。</string>
     <string name="ok">确定</string>
+    <!-- The main screen's bar, search and contacts page (iOS ChatsListView, ContactsTab) -->
+    <string name="no_contacts">还没有联系人</string>
+    <string name="search">搜索</string>
+    <string name="share">分享</string>
 </resources>

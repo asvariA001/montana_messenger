@@ -103,6 +103,15 @@ class MainActivity : Activity() {
     /** A picture under the whole window, system bars included; null — the plain black. */
     fun setBackdrop(res: Int?) {
         if (res == null) backdrop.setImageDrawable(null) else backdrop.setImageResource(res)
+        ground?.let { surface.removeView(it) }; ground = null
+    }
+
+    /** A drawn ground under the whole window, system bars included (iOS MontanaCrestGround's .ignoresSafeArea()). */
+    private var ground: View? = null
+    fun setGround(v: View) {
+        ground?.let { surface.removeView(it) }
+        ground = v
+        surface.addView(v, 1, FrameLayout.LayoutParams(MATCH, MATCH))   // over the backdrop, under the pages
     }
 
     /** Replaces the page with a short cross-fade. */
