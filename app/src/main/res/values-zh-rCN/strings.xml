@@ -245,4 +245,9 @@
     <string name="invite_perm">我在 Montana！这是我的永久链接：</string>
     <string name="invite_temp">我在 Montana！这是我的临时链接：</string>
     <string name="card_failed">暂时无法生成链接，请稍后再试。</string>
+    <!-- Saved Messages (iOS ChatConversationView) -->
+    <string name="message_hint">消息…</string>
+    <string name="delete">删除</string>
+    <string name="today">今天</string>
+    <string name="send">发送</string>
 </resources>

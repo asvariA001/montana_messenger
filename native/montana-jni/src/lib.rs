@@ -111,6 +111,22 @@ pub fn open_blob(key: &[u8; 32], sealed: &[u8]) -> Option<Vec<u8>> {
     mt_messenger_e2e::media::open_blob(key, sealed)
 }
 
+/// A card's key opens what was encapsulated to it: sk[2400] + ct[1088] -> ss[32], implicit rejection
+/// (mt_mlkem_decaps). A foreign ciphertext yields garbage, never a refusal — the proof is the seal.
+pub fn mlkem_decaps(sk: &[u8], ct: &[u8]) -> Option<Zeroizing<[u8; 32]>> {
+    let sk = mt_crypto::MlkemSecretKey::from_slice(sk)?;
+    let ct = mt_crypto::MlkemCiphertext::from_slice(ct)?;
+    let ss = mt_crypto::mlkem_decapsulate(&sk, &ct).ok()?;
+    let mut out = Zeroizing::new([0u8; 32]);
+    out.copy_from_slice(ss.as_bytes());
+    Some(out)
+}
+
+/// The secret of a first letter, every later tag of the correspondence stands on it (mt_name_first_secret).
+pub fn first_secret(ss: &[u8], root: &[u8], ct: &[u8]) -> Zeroizing<[u8; 32]> {
+    Zeroizing::new(mt_names::first_secret(ss, root, ct))
+}
+
 // ─────────── JNI: class quest.montana.app.MtBindings ───────────
 
 #[cfg(target_os = "android")]
@@ -237,6 +253,27 @@ mod jni_doors {
     }
 
     #[no_mangle]
+    pub extern "system" fn Java_quest_montana_app_MtBindings_nativeMlkemDecaps<'l>(
+        mut env: JNIEnv<'l>, _c: JClass<'l>, sk: JByteArray<'l>, ct: JByteArray<'l>,
+    ) -> jbyteArray {
+        let (Ok(s), Ok(c)) = (env.convert_byte_array(&sk), env.convert_byte_array(&ct)) else { return std::ptr::null_mut() };
+        let s = Zeroizing::new(s);
+        match mlkem_decaps(&s, &c) { Some(ss) => bytes(&mut env, &ss[..]), None => std::ptr::null_mut() }
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_quest_montana_app_MtBindings_nativeFirstSecret<'l>(
+        mut env: JNIEnv<'l>, _c: JClass<'l>, ss: JByteArray<'l>, root: JByteArray<'l>, ct: JByteArray<'l>,
+    ) -> jbyteArray {
+        let (Ok(s), Ok(r), Ok(c)) = (env.convert_byte_array(&ss), env.convert_byte_array(&root), env.convert_byte_array(&ct)) else {
+            return std::ptr::null_mut();
+        };
+        let s = Zeroizing::new(s);
+        let out = first_secret(&s, &r, &c);
+        bytes(&mut env, &out[..])
+    }
+
+    #[no_mangle]
     pub extern "system" fn Java_quest_montana_app_MtBindings_nativeHistoryKey<'l>(
         mut env: JNIEnv<'l>, _c: JClass<'l>, ent: JByteArray<'l>,
     ) -> jbyteArray {
@@ -308,6 +345,26 @@ mod tests {
         assert_eq!(ours, theirs);
         assert_eq!(open_blob(&key, &ours).as_deref(), Some(&msg[..]));
         assert!(open_blob(&[1u8; 32], &ours).is_none());
+    }
+
+    #[test]
+    fn first_contact_matches_ios() {
+        // The scanner's side through the iOS doors: encapsulate to the card key, derive the first secret.
+        let seed: [u8; 64] = core::array::from_fn(|i| (i * 5 + 1) as u8);
+        let kp = mlkem_keypair(&seed).unwrap();
+        let (pk, sk) = (&kp[..1184], &kp[1184..]);
+        let mut ct = vec![0u8; 1088];
+        let mut ss = [0u8; 32];
+        assert_eq!(unsafe { ffi_c::mt_mlkem_encaps(pk.as_ptr(), ct.as_mut_ptr(), ss.as_mut_ptr()) }, 0);
+        let mut theirs = [0u8; 32];
+        assert_eq!(unsafe { mt_bindings::ffi_names::mt_name_first_secret(ss.as_ptr(), 32, pk.as_ptr(), 1184, ct.as_ptr(), 1088, theirs.as_mut_ptr()) }, 0);
+        // The holder's side through ours: the same shared secret, the same first secret.
+        let mine = mlkem_decaps(sk, &ct).unwrap();
+        assert_eq!(&mine[..], &ss[..]);
+        let mut ios_ss = [0u8; 32];
+        assert_eq!(unsafe { ffi_c::mt_mlkem_decaps(sk.as_ptr(), ct.as_ptr(), ios_ss.as_mut_ptr()) }, 0);
+        assert_eq!(ios_ss, ss);
+        assert_eq!(&first_secret(&mine[..], pk, &ct)[..], &theirs[..]);
     }
 
     #[test]

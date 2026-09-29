@@ -245,4 +245,9 @@
     <string name="invite_perm">Я в Монтане! Вот моя постоянная ссылка:</string>
     <string name="invite_temp">Я в Монтане! Вот моя временная ссылка:</string>
     <string name="card_failed">Ссылку сейчас не удалось создать. Попробуйте ещё раз чуть позже.</string>
+    <!-- Saved Messages (iOS ChatConversationView) -->
+    <string name="message_hint">Сообщение…</string>
+    <string name="delete">Удалить</string>
+    <string name="today">Сегодня</string>
+    <string name="send">Отправить</string>
 </resources>

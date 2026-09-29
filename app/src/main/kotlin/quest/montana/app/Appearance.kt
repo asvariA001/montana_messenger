@@ -121,8 +121,8 @@ object BubbleStyle {
 }
 
 /** One letter as the chat will draw it: the words, the time under them at the trailing edge. */
-fun Context.bubble(words: String, mine: Boolean): View = FrameLayout(this).apply {
-    val now = android.text.format.DateFormat.getTimeFormat(context).format(java.util.Date())
+fun Context.bubble(words: String, mine: Boolean, at: java.util.Date = java.util.Date()): View = FrameLayout(this).apply {
+    val now = android.text.format.DateFormat.getTimeFormat(context).format(at)
     addView(vstack(Gravity.END) {
         background = BubbleStyle.drawable(context, mine)
         setPadding(dp(12), dp(7), dp(12), dp(6))

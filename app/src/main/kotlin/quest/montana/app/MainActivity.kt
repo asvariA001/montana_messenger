@@ -35,6 +35,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         DeviceVault.init(this)
         Prefs.init(this)
+        Book.ctx = applicationContext
         window.setDecorFitsSystemWindows(false)
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = Color.TRANSPARENT
@@ -73,8 +74,8 @@ class MainActivity : Activity() {
             showWelcome -> welcome(this) { showWelcome = false; render() }
             else -> mainScreen(this) {
                 // «Forget this device» (iOS: Privacy): the seed and everything of the person leave.
-                MontanaSeed.clear(); Prefs.forgetPerson(); SelfFace.clear(this)
-                MontanaHomeNode.forget(this); MontanaBackup.forget(this); MontanaCard.forget()
+                MontanaSeed.clear(); Prefs.forgetPerson(); SelfFace.clear(this); SavedMessages.forget(this)
+                MontanaHomeNode.forget(this); MontanaBackup.forget(this); MontanaCard.forget(); Book.wipe()
                 MontanaBackupID.withdrawOwn(this)   // this installation's record leaves the account; a twin's stands
                 hasSeed = false; termsAccepted = false
                 render()
@@ -151,6 +152,16 @@ class MainActivity : Activity() {
     fun showProfile() {
         show(Profile(this, onboarding = false) { render() }.view)
     }
+
+    // ── THE BOX IS READ WHILE THE APP STANDS (iOS fetchBox on activation and by its kick): at once, then every eight seconds ──
+    private val boxRound = object : Runnable {
+        override fun run() {
+            if (hasSeed && termsAccepted) Thread { Post.fetch() }.start()
+            main.postDelayed(this, 8000)
+        }
+    }
+    override fun onResume() { super.onResume(); main.removeCallbacks(boxRound); main.post(boxRound) }
+    override fun onPause() { super.onPause(); main.removeCallbacks(boxRound) }
 
     @Deprecated("the platform's back for targetSdk 35 without predictive back")
     override fun onBackPressed() {

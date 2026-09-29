@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="reply">Ответить</string>
+    <string name="edit">Изменить</string>
+    <string name="editing">Редактирование</string>
+    <string name="delete_for_me">Удалить у меня</string>
+    <string name="delete_for_everyone">Удалить у всех</string>
+    <string name="delete_message_q">Удалить сообщение?</string>
+    <string name="delete_chat">Удалить чат</string>
+    <string name="delete_chat_q">Удалить этот чат? Переписка на этом устройстве закончится.</string>
+    <string name="edited">изменено</string>
+    <string name="peer">Собеседник</string>
+    <string name="channel_letters">Сообщения</string>
+    <string name="new_message">Новое сообщение</string>
+    <string name="attachment">📎 Вложение</string>
+    <string name="voice_message">🎤 Голосовое сообщение</string>
+    <string name="long_letter">Длинное сообщение</string>
+</resources>

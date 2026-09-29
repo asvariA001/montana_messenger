@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="reply">回复</string>
+    <string name="edit">编辑</string>
+    <string name="editing">正在编辑</string>
+    <string name="delete_for_me">为我删除</string>
+    <string name="delete_for_everyone">为所有人删除</string>
+    <string name="delete_message_q">删除消息？</string>
+    <string name="delete_chat">删除聊天</string>
+    <string name="delete_chat_q">删除此聊天？此设备上的通信将结束。</string>
+    <string name="edited">已编辑</string>
+    <string name="peer">对方</string>
+    <string name="channel_letters">消息</string>
+    <string name="new_message">新消息</string>
+    <string name="attachment">📎 附件</string>
+    <string name="voice_message">🎤 语音消息</string>
+    <string name="long_letter">长消息</string>
+</resources>

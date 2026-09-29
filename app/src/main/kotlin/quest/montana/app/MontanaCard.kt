@@ -32,7 +32,7 @@ object MontanaCard {
     private const val CURRENT = "rdvCurrent"       // the day's invitation
     private const val BORN = "rdvCurrentBorn"      // when it was born, seconds
     /** The doors that keep the cards (the shipped list, iOS nodes.txt): every door that holds «blob». */
-    private val doors = listOf("https://api.montana.quest/pushwake", "https://montana.xxx/pushwake")
+    val doors = listOf("https://api.montana.quest/pushwake", "https://montana.xxx/pushwake")
 
     private val lock = Any()
 
@@ -125,6 +125,33 @@ object MontanaCard {
         save(KEYS, keys)
         upload(c, inv, payload, "rdvUpAt")
         TEMP_PREFIX + b64url(inv)
+    }
+
+    /** Every live invitation — the daily generations and the permanent one (iOS outstandingInvites). */
+    fun outstandingInvites(): List<ByteArray> = synchronized(lock) {
+        (map(DAILY).keys + map(PERM).keys).distinct().mapNotNull { unb64url(it) }.filter { it.size == 32 }
+    }
+
+    /** Did the letter come through the permanent card's point? (iOS isPermanentRoot) */
+    fun isPermanentRoot(root: ByteArray): Boolean = synchronized(lock) { map(PERM).values.any { it.copyOf(1184).contentEquals(root) } }
+
+    /**
+     * THE OFFERING SIDE, FROM THE BOX (iOS accept(firstLetter:invite:conf:)): the invitation whose seal opened the letter names
+     * the one card to try — nothing is walked. Decapsulation never refuses (implicit rejection), so the key confirmation is the
+     * proof: SHA-256("mt-first-conf"‖0‖secret‖ct)[0..16] in base64url, compared in constant time. The secret and the root, or null.
+     */
+    fun acceptFirst(ct: ByteArray, inv64: String, conf: String): Pair<ByteArray, ByteArray>? {
+        val (root, sk) = synchronized(lock) {
+            val payload = (map(DAILY) + map(PERM))[inv64] ?: return null
+            val root = payload.copyOf(1184)
+            root to (map(KEYS)[b64url(root)] ?: return null)
+        }
+        val ss = MtBindings.nativeMlkemDecaps(sk, ct) ?: return null
+        val secret = MtBindings.nativeFirstSecret(ss, root, ct) ?: return null
+        ss.fill(0)
+        val want = b64url(MessageDigest.getInstance("SHA-256").digest("mt-first-conf".toByteArray() + byteArrayOf(0) + secret + ct).copyOf(16))
+        if (!MessageDigest.isEqual(want.toByteArray(), conf.toByteArray())) return null
+        return secret to root
     }
 
     /** The words a share carries before the link (iOS MontanaConv.inviteMessage). */

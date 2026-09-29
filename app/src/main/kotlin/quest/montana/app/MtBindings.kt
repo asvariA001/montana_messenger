@@ -37,6 +37,10 @@ object MtBindings {
     @JvmStatic external fun nativeSealBlob(key: ByteArray, nonce: ByteArray, input: ByteArray): ByteArray?
     /** key[32], a sealed blob → its bytes, or null when the key is not its key (mt_e2e_open_blob). */
     @JvmStatic external fun nativeOpenBlob(key: ByteArray, sealed: ByteArray): ByteArray?
+    /** sk[2400], ct[1088] → ss[32], implicit rejection: a foreign ct yields garbage, never null (mt_mlkem_decaps). */
+    @JvmStatic external fun nativeMlkemDecaps(sk: ByteArray, ct: ByteArray): ByteArray?
+    /** ss, contact root, ct → the first letter's secret[32] (mt_name_first_secret). */
+    @JvmStatic external fun nativeFirstSecret(ss: ByteArray, root: ByteArray, ct: ByteArray): ByteArray?
 
     const val PUBKEY = 1952
     const val SECKEY = 4032

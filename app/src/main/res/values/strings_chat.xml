@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="reply">Reply</string>
+    <string name="edit">Edit</string>
+    <string name="editing">Editing</string>
+    <string name="delete_for_me">Delete for me</string>
+    <string name="delete_for_everyone">Delete for everyone</string>
+    <string name="delete_message_q">Delete message?</string>
+    <string name="delete_chat">Delete chat</string>
+    <string name="delete_chat_q">Delete this chat? The correspondence ends on this device.</string>
+    <string name="edited">edited</string>
+    <string name="peer">Peer</string>
+    <string name="channel_letters">Messages</string>
+    <string name="new_message">New message</string>
+    <string name="attachment">📎 Attachment</string>
+    <string name="voice_message">🎤 Voice message</string>
+    <string name="long_letter">Long message</string>
+</resources>

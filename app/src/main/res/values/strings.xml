@@ -246,4 +246,9 @@
     <string name="invite_perm">I\'m in Montana! Here is my permanent link:</string>
     <string name="invite_temp">I\'m in Montana! Here is my temporary link:</string>
     <string name="card_failed">The link could not be made just now. Try again in a moment.</string>
+    <!-- Saved Messages (iOS ChatConversationView) -->
+    <string name="message_hint">Message…</string>
+    <string name="delete">Delete</string>
+    <string name="today">Today</string>
+    <string name="send">Send</string>
 </resources>

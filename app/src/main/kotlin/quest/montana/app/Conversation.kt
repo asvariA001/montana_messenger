@@ -1,0 +1,420 @@
+package quest.montana.app
+
+import android.app.AlertDialog
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
+import android.graphics.BitmapFactory
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
+import android.text.Editable
+import android.text.InputType
+import android.text.TextWatcher
+import android.text.format.DateUtils
+import android.view.Gravity
+import android.view.View
+import android.view.WindowInsets
+import android.view.inputmethod.InputMethodManager
+import android.widget.EditText
+import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
+import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.TextView
+import org.json.JSONObject
+import java.util.Date
+
+// ─────────────────────────── what a row says of a letter (iOS MTRowLetter) ───────────────────────────
+
+/** The words a letter shows in the list and the banner: its text, or the name of what it carries. */
+fun letterWords(c: Context, t: String): String = when {
+    t.startsWith(Marks.VOICE) -> c.getString(R.string.voice_message)
+    t.startsWith(Marks.MEDIA) -> c.getString(R.string.attachment)
+    t.startsWith(Marks.STICKER) -> t.removePrefix(Marks.STICKER)
+    t.startsWith(Marks.LONG) -> c.getString(R.string.long_letter)
+    else -> t
+}
+
+/** The face of a correspondent: the face laid beside the pipe, else the drawn initial (iOS MontanaAvatar). */
+fun Context.peerFace(ref: String, name: String, sizeDp: Int): View {
+    val f = Book.face(ref)
+    val bmp = if (f.exists()) BitmapFactory.decodeFile(f.path) else null
+    return avatar(bmp, name.ifBlank { "?" }, sizeDp)
+}
+
+// ─────────────────────────── the banner (iOS MontanaNotify) ───────────────────────────
+
+object Notify {
+    private const val CHANNEL = "letters"
+    fun letter(ref: String, text: String) {
+        val c = Book.ctx
+        val nm = c.getSystemService(NotificationManager::class.java) ?: return
+        if (!Prefs.bool("notifMessages", true)) return
+        nm.createNotificationChannel(NotificationChannel(CHANNEL, c.getString(R.string.channel_letters), NotificationManager.IMPORTANCE_HIGH))
+        val chat = Book.chat(ref)
+        val title = if (Prefs.bool("notifSender", true)) chat?.name?.ifBlank { null } ?: c.getString(R.string.peer) else "Montana"
+        val body = if (Prefs.bool("notifPreview", true)) letterWords(c, text) else c.getString(R.string.new_message)
+        val open = PendingIntent.getActivity(c, ref.hashCode(),
+            c.packageManager.getLaunchIntentForPackage(c.packageName)?.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP) ?: Intent(),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val n = Notification.Builder(c, CHANNEL)
+            .setSmallIcon(R.drawable.ic_launcher_monochrome)
+            .setContentTitle(title)   // USER-DATA: the correspondent's name
+            .setContentText(body)     // USER-DATA: the letter
+            .setAutoCancel(true)
+            .setContentIntent(open)
+            .build()
+        runCatching { nm.notify(ref.hashCode(), n) }
+    }
+    fun clear(ref: String) { Book.ctx.getSystemService(NotificationManager::class.java)?.cancel(ref.hashCode()) }
+}
+
+// ─────────────────────────── the chats as rows (iOS MTChatListView rows) ───────────────────────────
+
+/** One conversation in the list: the face, the name, the last letter, its time and the unread count. */
+fun chatRow(act: MainActivity, chat: Chat): View {
+    val c: Context = act
+    val last = chat.last
+    return c.hstack {
+        setPadding(dp(16), dp(10), dp(16), dp(10))
+        addView(c.peerFace(chat.ref, chat.name, 54), lp(dp(54), dp(54)).apply { marginEnd = dp(12) })
+        addView(c.vstack(Gravity.NO_GRAVITY) {
+            addView(c.hstack {
+                addView(c.text(chat.name.ifBlank { c.getString(R.string.peer) }, 17f, Color.WHITE, bold = true).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))   // USER-DATA: the name
+                if (last != null) {
+                    if (last.mine) addView(ticks(c, last.state), lp(WRAP, WRAP).apply { marginEnd = dp(4) })
+                    addView(c.text(rowTime(c, last.at), 13f, MT.gray))
+                }
+            }, lp())
+            addView(c.hstack {
+                addView(c.text(last?.let { letterWords(c, it.text) } ?: "", 15f, MT.gray).apply { maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END }, lp(0, WRAP, 1f))   // USER-DATA: the last letter
+                if (chat.unread > 0) addView(c.text(chat.unread.toString(), 13f, Color.WHITE, bold = true, center = true).apply {
+                    background = c.rounded(MT.blue, 11); setPadding(dp(7), dp(1), dp(7), dp(1)); minWidth = dp(22)
+                }, lp(WRAP, WRAP).apply { marginStart = dp(6) })
+            }, lp())
+        }, lp(0, WRAP, 1f))
+        pressable { act.push { close -> conversationPage(act, chat.ref, close) } }
+        setOnLongClickListener {
+            AlertDialog.Builder(c).setMessage(R.string.delete_chat_q)
+                .setPositiveButton(R.string.delete) { _, _ -> Book.forget(chat.ref) }
+                .setNegativeButton(R.string.cancel, null).show()
+            true
+        }
+    }
+}
+
+/** The ticks of one's own letter (iOS MTTicks): a clock waiting, one tick at the node, two delivered, two blue read. */
+private fun ticks(c: Context, state: Int): TextView = when (state) {
+    0 -> c.text("🕓", 11f, MT.gray)
+    1 -> c.text("✓", 13f, MT.gray)
+    2 -> c.text("✓✓", 13f, MT.gray)
+    else -> c.text("✓✓", 13f, MT.blue)
+}
+
+// ─────────────────────────── the conversation (iOS ChatConversationView) ───────────────────────────
+
+/**
+ * THE CONVERSATION (iOS ChatConversationView): the bar with the back mark, the person's name and face; the letters, newest at
+ * the foot, a day's plate over each new day, each letter with its time, its ticks when it is one's own, «edited» when it was,
+ * the quote it answers and the reactions it wears; the field on glass with the send artwork. A long press on a letter opens its
+ * menu as iOS draws it: the quick reactions over the letter and the actions under it — Reply, Copy, Edit (one's own), Delete
+ * (for me / for everyone). The feed follows the book live: a letter that lands, a receipt, a reaction redraw it.
+ */
+fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit): View {
+    val c: Context = act
+    val column = c.vstack(Gravity.NO_GRAVITY) { setPadding(dp(10), dp(8), dp(10), dp(8)) }
+    val scroll = ScrollView(c).apply {
+        isVerticalScrollBarEnabled = false
+        isFillViewport = true
+        addView(FrameLayout(c).apply { addView(column, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM)) })
+    }
+    fun toBottom() = scroll.post { scroll.scrollTo(0, scroll.getChildAt(0)?.height ?: 0) }
+
+    var replyTo: Msg? = null
+    var editing: Msg? = null
+
+    val field = EditText(c).apply {
+        hint = c.getString(R.string.message_hint)
+        setHintTextColor(MT.gray); setTextColor(Color.WHITE)
+        textSize = 17f
+        inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+        maxLines = 6
+        setPadding(dp(14), dp(8), dp(14), dp(8))
+        background = GradientDrawable().apply { cornerRadius = dp(20).toFloat(); setColor(Color.argb(46, 255, 255, 255)); setStroke(1, Color.argb(38, 255, 255, 255)) }
+        minHeight = dp(40)
+        setText(Prefs.str("draft.$ref", ""))
+    }
+    fun hideKeys() = c.getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(field.windowToken, 0)
+    fun showKeys() { field.requestFocus(); c.getSystemService(InputMethodManager::class.java).showSoftInput(field, 0) }
+
+    // THE LINE OVER THE FIELD (iOS the reply/edit strip): what the next letter answers, or which letter is being changed.
+    val stripTitle = c.text("", 13f, MT.blue, bold = true)
+    val stripWords = c.text("", 14f, Color.WHITE).apply { singleLineEllipsis() }
+    val strip = c.hstack {
+        visibility = View.GONE
+        setPadding(dp(16), dp(6), dp(8), dp(2))
+        addView(View(c).apply { setBackgroundColor(MT.blue) }, lp(dp(3), dp(34)).apply { marginEnd = dp(8) })
+        addView(c.vstack(Gravity.NO_GRAVITY) { addView(stripTitle); addView(stripWords) }, lp(0, WRAP, 1f))
+        addView(c.icon(R.drawable.ic_close, MT.gray).apply {
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+            pressable { if (editing != null) field.setText(""); replyTo = null; editing = null; this@hstack.visibility = View.GONE }
+        }, lp(dp(36), dp(36)))
+    }
+    fun showStrip() {
+        val r = replyTo; val e = editing
+        strip.visibility = if (r == null && e == null) View.GONE else View.VISIBLE
+        if (e != null) { stripTitle.text = c.getString(R.string.editing); stripWords.text = letterWords(c, e.text) }
+        else if (r != null) {
+            stripTitle.text = if (r.mine) Prefs.userName.ifBlank { c.getString(R.string.reply) } else Book.chat(ref)?.name?.ifBlank { null } ?: c.getString(R.string.peer)
+            stripWords.text = letterWords(c, r.text)   // USER-DATA
+        }
+    }
+
+    // ── the feed ──
+    fun redraw() {
+        val chat = Book.chat(ref) ?: return
+        column.removeAllViews()
+        var lastDay = -1L
+        for (m in chat.msgs) {
+            val cal = java.util.Calendar.getInstance().apply { timeInMillis = m.at }
+            val day = cal.get(java.util.Calendar.YEAR) * 1000L + cal.get(java.util.Calendar.DAY_OF_YEAR)
+            if (day != lastDay) {
+                lastDay = day
+                val words = if (DateUtils.isToday(m.at)) c.getString(R.string.today) else DateUtils.formatDateTime(c, m.at, DateUtils.FORMAT_SHOW_DATE)
+                column.addView(FrameLayout(c).apply {
+                    addView(c.text(words, 13f, Color.WHITE).apply { background = c.glassPlate(); setPadding(dp(10), dp(3), dp(10), dp(3)) },
+                        FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
+                }, lp().apply { topMargin = c.dp(8); bottomMargin = c.dp(8) })
+            }
+            val b = letterBubble(c, m, chat)
+            b.getChildAt(0).setOnLongClickListener { letterMenu(act, ref, m, onReply = { replyTo = m; editing = null; showStrip(); showKeys() },
+                onEdit = { editing = m; replyTo = null; field.setText(m.text); field.setSelection(field.text.length); showStrip(); showKeys() }); true }
+            column.addView(b, lp().apply { topMargin = c.dp(3) })
+        }
+    }
+
+    // ── sending (iOS sendMessage) ──
+    val send = ImageView(c).apply {
+        setImageResource(R.drawable.send_button)
+        scaleType = ImageView.ScaleType.FIT_CENTER
+        contentDescription = c.getString(R.string.send)
+    }
+    fun sync() { send.visibility = if (field.text.isBlank()) View.GONE else View.VISIBLE }
+    sync()
+    field.addTextChangedListener(object : TextWatcher {
+        override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
+        override fun onTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
+        override fun afterTextChanged(s: Editable?) { if (editing == null) Prefs.setStr("draft.$ref", s?.toString() ?: ""); sync() }
+    })
+    send.pressable {
+        val words = field.text.toString().trim()
+        if (words.isEmpty()) return@pressable
+        field.setText("")
+        val e = editing
+        if (e != null) {
+            // THE NEW WORDS OF A LETTER ALREADY SENT (iOS editMessage): the row changes here, the peer is told by ED:{sid,tx}.
+            editing = null
+            if (words != e.text) {
+                Book.edit(ref) { ch -> ch.msgs.find { it.mid == e.mid }?.let { it.text = words; it.edited = true } }
+                Post.send(ref, Marks.mintMid(), Marks.EDIT + JSONObject().put("sid", e.mid).put("tx", words))
+            }
+        } else {
+            val r = replyTo
+            replyTo = null
+            val mid = Marks.mintMid()
+            val qt = r?.let { letterWords(c, it.text).take(200) }
+            Book.edit(ref) { it.msgs.add(Msg(mid, words, true, Marks.birthMs(mid) ?: System.currentTimeMillis(), qt = qt, qm = r?.mid)) }
+            Post.send(ref, mid, words, qt, r?.mid)
+        }
+        showStrip()
+        toBottom()
+    }
+    val bar = c.hstack {
+        gravity = Gravity.BOTTOM
+        setPadding(dp(12), dp(6), dp(12), dp(8))
+        addView(field, lp(0, WRAP, 1f))
+        addView(send, lp(dp(40), dp(40)).apply { marginStart = dp(8) })
+    }
+
+    // ── the bar: the back mark, the face and the name; the face's press offers the chat's own actions ──
+    val chat0 = Book.chat(ref)
+    val title = c.text(chat0?.name?.ifBlank { null } ?: c.getString(R.string.peer), 17f, Color.WHITE, bold = true).apply { singleLineEllipsis() }   // USER-DATA
+    val faceSlot = FrameLayout(c)
+    fun drawHead() {
+        val ch = Book.chat(ref) ?: return
+        title.text = ch.name.ifBlank { c.getString(R.string.peer) }
+        faceSlot.removeAllViews(); faceSlot.addView(c.peerFace(ref, ch.name, 36), FrameLayout.LayoutParams(c.dp(36), c.dp(36)))
+    }
+    drawHead()
+    val top = FrameLayout(c).apply {
+        setPadding(dp(8), 0, dp(8), 0)
+        addView(c.icon(R.drawable.ic_arrow_back_ios_new, Color.WHITE).apply { setPadding(dp(10), dp(10), dp(10), dp(10)); pressable { hideKeys(); onClose() } },
+            FrameLayout.LayoutParams(dp(44), dp(44), Gravity.CENTER_VERTICAL or Gravity.START))
+        addView(title, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER).apply { marginStart = dp(56); marginEnd = dp(56) })
+        addView(faceSlot.apply {
+            setOnLongClickListener {
+                AlertDialog.Builder(c).setMessage(R.string.delete_chat_q)
+                    .setPositiveButton(R.string.delete) { _, _ -> hideKeys(); onClose(); Book.forget(ref) }
+                    .setNegativeButton(R.string.cancel, null).show(); true
+            }
+        }, FrameLayout.LayoutParams(dp(36), dp(36), Gravity.CENTER_VERTICAL or Gravity.END).apply { marginEnd = dp(8) })
+        layoutParams = LinearLayout.LayoutParams(MATCH, dp(52))
+    }
+
+    val listener: () -> Unit = {
+        val before = column.childCount
+        redraw(); drawHead()
+        if (column.childCount != before) toBottom()
+        if ((Book.chat(ref)?.unread ?: 0) > 0) Thread { Post.markRead(ref) }.start()
+    }
+
+    return FrameLayout(c).apply {
+        setBackgroundColor(Color.BLACK)
+        addView(CrestGround(c), FrameLayout.LayoutParams(MATCH, MATCH))
+        addView(c.vstack(Gravity.NO_GRAVITY) {
+            addView(top)
+            addView(scroll, lp(MATCH, 0, 1f))
+            addView(strip, lp())
+            addView(bar, lp())
+        }, FrameLayout.LayoutParams(MATCH, MATCH))
+        setOnApplyWindowInsetsListener { v, insets ->
+            val b = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.ime())
+            v.setPadding(b.left, b.top, b.right, b.bottom)
+            insets
+        }
+        addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: View) {
+                v.requestApplyInsets()
+                Book.openChat = ref; Book.listen(listener); Notify.clear(ref)
+                if ((Book.chat(ref)?.unread ?: 0) > 0) Thread { Post.markRead(ref) }.start()
+            }
+            override fun onViewDetachedFromWindow(v: View) { if (Book.openChat == ref) Book.openChat = null; Book.unlisten(listener) }
+        })
+        scroll.addOnLayoutChangeListener { _, _, t, _, b, _, ot, _, ob -> if (b - t < ob - ot) toBottom() }
+        redraw()
+        toBottom()
+    }
+}
+
+/** One letter: the quote it answers, its words, «edited», the time and the ticks; its reactions under it (iOS MessageBubble). */
+private fun letterBubble(c: Context, m: Msg, chat: Chat): FrameLayout = FrameLayout(c).apply {
+    val mine = m.mine
+    addView(c.vstack(if (mine) Gravity.END else Gravity.START) {
+        addView(c.vstack(Gravity.END) {
+            background = BubbleStyle.drawable(context, mine)
+            setPadding(dp(12), dp(7), dp(12), dp(6))
+            if (m.qt != null) {
+                val whose = m.qm?.let { q -> chat.msgs.find { it.mid == q } }
+                addView(c.hstack {
+                    addView(View(c).apply { setBackgroundColor(BubbleStyle.text(mine)) }, lp(dp(2), MATCH).apply { marginEnd = dp(6) })
+                    addView(c.vstack(Gravity.NO_GRAVITY) {
+                        addView(c.text(if (whose?.mine == true) Prefs.userName.ifBlank { "·" } else chat.name.ifBlank { c.getString(R.string.peer) }, 13f, BubbleStyle.text(mine), bold = true))
+                        addView(c.text(m.qt, 13f, BubbleStyle.time(mine)).apply { maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END; maxWidth = dp(240) })   // USER-DATA
+                    })
+                }, lp(WRAP, WRAP).apply { bottomMargin = dp(4) })
+            }
+            addView(c.text(letterWords(c, m.text), 16f, BubbleStyle.text(mine)).apply { maxWidth = dp(260); setTextIsSelectable(false) }, lp(WRAP, WRAP))   // USER-DATA: the letter
+            addView(c.hstack {
+                gravity = Gravity.CENTER_VERTICAL
+                if (m.edited) addView(c.text(c.getString(R.string.edited) + " ", 11f, BubbleStyle.time(mine)))
+                addView(c.text(android.text.format.DateFormat.getTimeFormat(c).format(Date(m.at)), 11f, BubbleStyle.time(mine)))
+                if (mine) addView(ticks(c, m.state).apply { textSize = 11f; if (m.state < 3) setTextColor(BubbleStyle.time(true)) }, lp(WRAP, WRAP).apply { marginStart = dp(3) })
+            }, lp(WRAP, WRAP))
+        }, lp(WRAP, WRAP))
+        if (m.reactions.isNotEmpty()) addView(c.hstack {
+            m.reactions.groupingBy { it }.eachCount().forEach { (e, n) ->
+                addView(c.text(if (n > 1) "$e $n" else e, 14f, Color.WHITE).apply {
+                    background = c.rounded(if (e == m.myReact) Color.argb(120, 10, 133, 255) else Color.argb(70, 255, 255, 255), 12)
+                    setPadding(dp(7), dp(2), dp(7), dp(2))
+                }, lp(WRAP, WRAP).apply { marginEnd = dp(4) })
+            }
+        }, lp(WRAP, WRAP).apply { topMargin = dp(2) })
+    }, FrameLayout.LayoutParams(WRAP, WRAP, if (mine) Gravity.END else Gravity.START))
+}
+
+/**
+ * THE LETTER'S MENU (iOS MontanaMessageMenu): the room dims, the quick reactions stand over the letter, the actions under it —
+ * Reply · Copy · Edit (one's own words) · Delete, which asks «for me» or «for everyone».
+ */
+private fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Unit, onEdit: () -> Unit) {
+    val c: Context = act
+    lateinit var close: () -> Unit
+    val canEdit = m.mine && !Marks.isService(m.text)
+    val actions = c.vstack(Gravity.NO_GRAVITY) { background = c.rounded(Color.argb(235, 44, 44, 46), 14) }
+    fun row(words: String, red: Boolean = false, work: () -> Unit) {
+        if (actions.childCount > 0) actions.addView(View(c).apply { setBackgroundColor(Color.argb(40, 255, 255, 255)) }, lp(MATCH, 1))
+        actions.addView(c.text(words, 17f, if (red) SysColor.red else Color.WHITE).apply { setPadding(dp(16), dp(12), dp(16), dp(12)); pressable { close(); work() } }, lp())
+    }
+    fun fillActions() {
+        actions.removeAllViews()
+        row(c.getString(R.string.reply)) { onReply() }
+        if (!Marks.isService(m.text)) row(c.getString(R.string.copy)) {
+            c.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("", m.text))
+        }
+        if (canEdit) row(c.getString(R.string.edit)) { onEdit() }
+        actions.addView(View(c).apply { setBackgroundColor(Color.argb(40, 255, 255, 255)) }, lp(MATCH, 1))
+        actions.addView(c.text(c.getString(R.string.delete), 17f, SysColor.red).apply {
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+            pressable {
+                // «Delete message?» — for me, for everyone (any bubble, mine or theirs: the mid is the same on both sides).
+                actions.removeAllViews()
+                actions.addView(c.text(c.getString(R.string.delete_message_q), 13f, MT.gray, center = true).apply { setPadding(dp(16), dp(10), dp(16), dp(6)) }, lp())
+                row(c.getString(R.string.delete_for_everyone), red = true) {
+                    Book.edit(ref) { ch -> ch.msgs.removeAll { it.mid == m.mid } }
+                    Post.send(ref, Marks.mintMid(), Marks.DELETE + "mid:" + m.mid)
+                }
+                row(c.getString(R.string.delete_for_me), red = true) { Book.edit(ref) { ch -> ch.msgs.removeAll { it.mid == m.mid } } }
+                row(c.getString(R.string.cancel)) {}
+            }
+        }, lp())
+    }
+    fillActions()
+    // THE QUICK REACTIONS (iOS MTReactions.common): a press puts it on or takes it off; the peer hears RC:{sid,txt,e,op}.
+    val reactions = HorizontalScrollView(c).apply {
+        isHorizontalScrollBarEnabled = false
+        background = c.rounded(Color.argb(235, 44, 44, 46), 24)
+        addView(c.hstack {
+            setPadding(dp(8), dp(4), dp(8), dp(4))
+            for (e in listOf("👍", "❤️", "🔥", "😂", "😮", "😢", "🎉", "🙏", "👏")) addView(c.text(e, 28f).apply {
+                setPadding(dp(6), dp(4), dp(6), dp(4))
+                pressable {
+                    close()
+                    var added = false
+                    val prev = m.myReact
+                    Book.edit(ref) { ch ->
+                        ch.msgs.find { it.mid == m.mid }?.let { t ->
+                            t.myReact?.let { old -> t.reactions.remove(old) }
+                            if (prev == e) t.myReact = null else { t.reactions.add(e); t.myReact = e; added = true }
+                        }
+                    }
+                    fun tell(emoji: String, add: Boolean) = Post.send(ref, Marks.mintMid(), Marks.REACTION +
+                        JSONObject().put("sid", "mid:" + m.mid).put("txt", m.text.take(200)).put("e", emoji).put("op", if (add) "add" else "del"))
+                    if (prev != null) tell(prev, false)
+                    if (added) tell(e, true)
+                }
+            })
+        })
+    }
+    val chat = Book.chat(ref)
+    val copy = if (chat != null) letterBubble(c, m, chat) else View(c)
+    val page = FrameLayout(c).apply {
+        setBackgroundColor(Color.argb(150, 0, 0, 0))
+        isClickable = true
+        pressable { close() }
+        addView(c.vstack(if (m.mine) Gravity.END else Gravity.START) {
+            setPadding(dp(14), 0, dp(14), 0)
+            addView(reactions, lp(WRAP, WRAP))
+            gap(8)
+            addView(copy, lp())
+            gap(8)
+            addView(actions, lp(dp(240), WRAP))
+        }, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.CENTER))
+    }
+    close = act.overlay(page)
+}

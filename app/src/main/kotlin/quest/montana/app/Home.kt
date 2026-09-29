@@ -497,19 +497,63 @@ private fun chatsPane(act: MainActivity): View {
     val list = ScrollView(c).apply {
         isVerticalScrollBarEnabled = false
         addView(c.vstack(Gravity.NO_GRAVITY) {
-            // The local room: stands in the list from the first moment.
+            // The local room: stands in the list from the first moment; a tap opens it (iOS: the row opens its conversation).
+            val preview = c.text("", 15f, MT.gray).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
+            val time = c.text("", 13f, MT.gray)
+            fun refresh() {
+                val last = SavedMessages.last(c)
+                preview.text = last?.text ?: ""   // USER-DATA: one's own last letter
+                preview.visibility = if (last == null) View.GONE else View.VISIBLE
+                time.text = last?.let { rowTime(c, it.at) } ?: ""
+            }
+            refresh()
             addView(c.hstack {
                 setPadding(dp(16), dp(10), dp(16), dp(10))
                 addView(FrameLayout(c).apply {
                     background = android.graphics.drawable.GradientDrawable().apply { shape = android.graphics.drawable.GradientDrawable.OVAL; setColor(MT.gold) }
                     addView(c.icon(R.drawable.ic_bookmark, Color.WHITE), FrameLayout.LayoutParams(dp(24), dp(24), Gravity.CENTER))
                 }, lp(dp(54), dp(54)).apply { marginEnd = dp(12) })
-                addView(c.text(c.getString(R.string.saved_messages), 17f, Color.WHITE, bold = true))
+                addView(c.vstack(Gravity.NO_GRAVITY) {
+                    addView(c.hstack {
+                        addView(c.text(c.getString(R.string.saved_messages), 17f, Color.WHITE, bold = true), lp(0, WRAP, 1f))
+                        addView(time)
+                    }, lp())
+                    addView(preview, lp())
+                }, lp(0, WRAP, 1f))
+                pressable {
+                    act.push { close ->
+                        savedMessagesPage(act, close).apply {
+                            // back by the arrow or by the system's gesture alike: the row reads the room again
+                            addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+                                override fun onViewAttachedToWindow(v: View) {}
+                                override fun onViewDetachedFromWindow(v: View) { refresh() }
+                            })
+                        }
+                    }
+                }
             }, lp())
             addView(View(c).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = dp(82) })
-            gap(20)
-            gap(40)
-            addView(c.text(c.getString(R.string.no_chats), 17f, MT.gray, center = true), lp())
+            // THE CONVERSATIONS (iOS MTChatListView): newest first, each row a person; «No chats yet» while there are none.
+            val rows = c.vstack(Gravity.NO_GRAVITY)
+            fun fillRows() {
+                rows.removeAllViews()
+                val all = Book.all()
+                if (all.isEmpty()) {
+                    rows.addView(View(c), lp(MATCH, dp(60)))
+                    rows.addView(c.text(c.getString(R.string.no_chats), 17f, MT.gray, center = true), lp())
+                }
+                for (ch in all) {
+                    rows.addView(chatRow(act, ch), lp())
+                    rows.addView(View(c).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = dp(82) })
+                }
+            }
+            fillRows()
+            val onBook: () -> Unit = { fillRows() }
+            rows.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+                override fun onViewAttachedToWindow(v: View) { Book.listen(onBook); fillRows() }
+                override fun onViewDetachedFromWindow(v: View) { Book.unlisten(onBook) }
+            })
+            addView(rows, lp())
             gap(120)   // the floating player's room at the foot
         })
     }

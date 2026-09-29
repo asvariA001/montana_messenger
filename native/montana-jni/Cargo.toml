@@ -19,12 +19,15 @@ mt-crypto   = { path = "../../../Montana Protocol/Code/crates/mt-crypto" }
 mt-codec    = { path = "../../../Montana Protocol/Code/crates/mt-codec" }
 # The archive of letters: the one road a block of history takes into this device (mt_archive_ingest on iOS).
 mt-messenger-e2e = { path = "../../../Montana Protocol/Code/crates/mt-messenger-e2e" }
+# The first letter's secret (mt_name_first_secret on iOS).
+mt-names    = { path = "../../../Montana Protocol/Code/crates/mt-names" }
 zeroize     = { version = "=1.8.1", default-features = false }
 jni         = { version = "0.21", default-features = false }
 
 # The proof that every door here answers exactly as the iOS door does: tests on the Mac call both.
 [dev-dependencies]
 mt-bindings = { path = "../../../Montana Protocol/Code/crates/mt-bindings" }
+sha2 = "0.10"
 
 [profile.release]
 # the core workspace's own release profile

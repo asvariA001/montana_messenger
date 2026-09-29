@@ -531,6 +531,8 @@ dependencies = [
  "mt-crypto",
  "mt-messenger-e2e",
  "mt-mnemonic",
+ "mt-names",
+ "sha2",
  "zeroize",
 ]
 
