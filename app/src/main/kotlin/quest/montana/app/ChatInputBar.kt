@@ -141,6 +141,12 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
     /** The voice's deeds: start the tape (false — it could not start), and end it (true — dropped, not sent). */
     var onVoiceStart: (() -> Boolean)? = null
     var onVoiceEnd: ((Boolean) -> Unit)? = null
+    /** The tape's time is up (the note's 6:39): the hold ends as if the finger let go. */
+    fun stopRecording() = record.endHold()
+
+    /** The round note's deeds, the same shape as the voice's (iOS MontanaVideoNoteHold under the held camera mark). */
+    var onNoteStart: (() -> Boolean)? = null
+    var onNoteEnd: ((Boolean) -> Unit)? = null
 
     private fun notYet() = Toast.makeText(c, R.string.compose_not_yet, Toast.LENGTH_SHORT).show()
 
@@ -171,8 +177,11 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
             }
             // THE HOLD RECORDS (iOS: hold the mark, speak, let go to send, slide left to drop) — when the page gives the voice's deeds.
             setOnLongClickListener {
-                if (video || onVoiceStart == null) { notYet(); return@setOnLongClickListener true }
-                recording = onVoiceStart?.invoke() == true
+                // The mark's mode decides the tape: the microphone's voice or the camera's round note (iOS MTComposeMark).
+                val start = if (video) onNoteStart else onVoiceStart
+                if (start == null) { notYet(); return@setOnLongClickListener true }
+                recordingNote = video
+                recording = start.invoke()
                 if (recording) { startX = lastX; field.isEnabled = false; field.hint = c.getString(R.string.voice_hint) }
                 true
             }
@@ -193,8 +202,10 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
             if (!recording) return
             recording = false
             field.isEnabled = true; field.hint = c.getString(R.string.message_hint)
-            onVoiceEnd?.invoke(cancel)
+            if (recordingNote) onNoteEnd?.invoke(cancel) else onVoiceEnd?.invoke(cancel)
         }
+        private var recordingNote = false
+        fun endHold() = finish(cancel = false)
         private val video get() = Prefs.str(MODE_KEY, "mic") == "video"
         private fun draw() {
             face.setImageResource(if (video) R.drawable.video_record_button else R.drawable.voice_record_button)

@@ -63,7 +63,7 @@ object Media {
 
     // ── sending ──
 
-    class Picked(val bytes: ByteArray, val kind: String, val ext: String, val name: String?, val du: Double? = null, val wave: FloatArray? = null)
+    class Picked(val bytes: ByteArray, val kind: String, val ext: String, val name: String?, val du: Double? = null, val wave: FloatArray? = null, val round: Boolean = false)
 
     /** What was picked, read whole, with its kind as iOS names kinds (img · vid · doc). */
     fun read(c: Context, uri: Uri, asDoc: Boolean): Picked? {
@@ -112,6 +112,7 @@ object Media {
         local.writeBytes(p.bytes)
         val provisional = Marks.MEDIA + JSONObject().put("k", p.kind).put("e", p.ext).put("sz", p.bytes.size).apply {
             p.name?.let { put("n", it) }; if (caption.isNotEmpty()) put("cap", caption); p.du?.let { put("du", it) }
+            if (p.round) put("r", true)
             p.wave?.takeIf { it.isNotEmpty() }?.let { w -> put("wv", Base64.encodeToString(ByteArray(w.size) { (w[it] * 255).toInt().coerceIn(0, 255).toByte() }, Base64.NO_WRAP)) }
         }
         Book.edit(ref) { it.msgs.add(Msg(mid, provisional, true, Marks.birthMs(mid) ?: System.currentTimeMillis(), file = local.path)) }
@@ -153,6 +154,7 @@ object Media {
         p.name?.let { if (p.kind == "doc") m.put("n", it) }
         if (caption.isNotEmpty()) m.put("cap", caption)
         p.du?.let { m.put("du", Math.round(it * 10) / 10.0) }   // the tape's length is the sender's word (iOS «du»)
+        if (p.round) m.put("r", true)   // a round video note (iOS «r»)
         // THE WAVE RIDES WITH THE LETTER (iOS «wv», MTWaveform.pack): one byte per line, 0…255.
         p.wave?.takeIf { it.isNotEmpty() }?.let { w -> m.put("wv", Base64.encodeToString(ByteArray(w.size) { (w[it] * 255).toInt().coerceIn(0, 255).toByte() }, Base64.NO_WRAP)) }
         preview(c, local, p.kind)?.let { b -> thumb(b)?.let { m.put("th", it) } }

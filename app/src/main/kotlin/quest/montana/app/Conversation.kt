@@ -17,6 +17,7 @@ import android.text.InputType
 import android.text.TextWatcher
 import android.text.format.DateUtils
 import android.view.Gravity
+import android.view.TextureView
 import android.view.View
 import android.view.WindowInsets
 import android.view.inputmethod.InputMethodManager
@@ -175,6 +176,9 @@ fun Context.failedMark(): View = text("!", 9f, Color.WHITE, bold = true, center 
  * menu as iOS draws it: the quick reactions over the letter and the actions under it — Reply, Copy, Edit (one's own), Delete
  * (for me / for everyone). The feed follows the book live: a letter that lands, a receipt, a reaction redraw it.
  */
+private var noteRing: NoteRing? = null
+private var noteTime: TextView? = null
+
 fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit): View {
     val c: Context = act
     val column = c.vstack(Gravity.NO_GRAVITY) { setPadding(dp(10), dp(8), dp(10), dp(8)) }
@@ -306,6 +310,49 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit): View 
             }
         }
         on
+    }
+    // THE ROUND NOTE UNDER THE FINGER (iOS MontanaVideoNoteHold): the window over the feed, the ring for the time; a tap turns
+    // the camera; let go to send, slide left to drop. What the window shows is the file itself.
+    var note: NoteRecorder? = null
+    var noteClose: (() -> Unit)? = null
+    val noteTick = object : Runnable {
+        override fun run() { val n = note ?: return; noteRing?.progress = (n.elapsed / NoteRecorder.MAX_SECONDS).toFloat(); val s = n.elapsed.toInt(); noteTime?.text = "%d:%02d".format(s / 60, s % 60); MainThread.later(100, this) }
+    }
+    bar.onNoteStart = start@{
+        if (c.checkSelfPermission(android.Manifest.permission.CAMERA) != android.content.pm.PackageManager.PERMISSION_GRANTED ||
+            !VoiceTape.granted(c)) {
+            act.requestPermissions(arrayOf(android.Manifest.permission.CAMERA, android.Manifest.permission.RECORD_AUDIO), 8); return@start false
+        }
+        val tv = TextureView(c)
+        val ring = NoteRing(c); val time = c.text("0:00", 15f, Color.WHITE)
+        noteRing = ring; noteTime = time
+        val side = c.dp(280)
+        val page = FrameLayout(c).apply {
+            setBackgroundColor(Color.argb(170, 0, 0, 0))
+            addView(ring, FrameLayout.LayoutParams(side + c.dp(16), side + c.dp(16), Gravity.CENTER))
+            addView(tv.round().apply { setOnClickListener { note?.flip() } }, FrameLayout.LayoutParams(side, side, Gravity.CENTER))
+            addView(time.apply { setShadowLayer(6f, 0f, 0f, Color.BLACK) }, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER).apply { topMargin = side / 2 + c.dp(30) })
+        }
+        noteClose = act.overlay(page)
+        tv.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+            override fun onSurfaceTextureAvailable(st: android.graphics.SurfaceTexture, w: Int, h: Int) {
+                val r = NoteRecorder(c, tv)
+                r.onMax = { MainThread.post { bar.stopRecording() } }
+                if (r.start()) { note = r; MainThread.later(100, noteTick) } else { noteClose?.invoke(); noteClose = null }
+            }
+            override fun onSurfaceTextureSizeChanged(st: android.graphics.SurfaceTexture, w: Int, h: Int) {}
+            override fun onSurfaceTextureDestroyed(st: android.graphics.SurfaceTexture) = true
+            override fun onSurfaceTextureUpdated(st: android.graphics.SurfaceTexture) {}
+        }
+        true
+    }
+    bar.onNoteEnd = { dropped ->
+        val r = note; note = null
+        Thread {
+            val got = r?.stop(keep = !dropped)
+            MainThread.post { noteClose?.invoke(); noteClose = null }
+            got?.let { (f, secs) -> Media.send(c, ref, Media.Picked(f.readBytes(), "vid", "mp4", null, secs, round = true), ""); f.delete(); MainThread.post { toBottom() } }
+        }.start()
     }
     bar.onVoiceEnd = { dropped ->
         val wave = VoiceTape.waveform()
@@ -514,6 +561,7 @@ private fun mediaBody(c: Context, m: Msg, into: LinearLayout) {
         voiceBody(c, m, man?.optDouble("du", 0.0) ?: 0.0, into, wv?.let { b -> FloatArray(b.size) { (b[it].toInt() and 0xFF) / 255f } })
         return
     }
+    if (kind == "vid" && man?.optBoolean("r") == true) { noteBody(c, m, f, man, into); return }
     if (kind == "img" || kind == "vid") {
         val pic = (f?.let { Media.preview(c, it, kind, 800) } ?: Media.thumbOf(man))
         into.addView(FrameLayout(c).apply {
@@ -589,4 +637,53 @@ private fun openMedia(act: MainActivity, f: java.io.File, kind: String) {
         }, FrameLayout.LayoutParams(c.dp(48), c.dp(48), Gravity.TOP or Gravity.END).apply { setMargins(0, c.dp(8), c.dp(8), 0) })
     }
     close = act.overlay(page)
+}
+
+
+/** A ROUND NOTE IN ITS BUBBLE (iOS videoNoteBubble): the circle with the note's own first frame; a press plays it large, with sound. */
+private fun noteBody(c: Context, m: Msg, f: java.io.File?, man: JSONObject?, into: LinearLayout) {
+    val side = c.dp(220)
+    val pic = f?.let { Media.preview(c, it, "vid", 600) } ?: Media.thumbOf(man)
+    into.addView(FrameLayout(c).apply {
+        addView(ImageView(c).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            if (pic != null) setImageBitmap(pic) else setBackgroundColor(Color.argb(60, 255, 255, 255))
+        }.round(), FrameLayout.LayoutParams(side, side))
+        if (f == null) addView(android.widget.ProgressBar(c), FrameLayout.LayoutParams(c.dp(36), c.dp(36), Gravity.CENTER))
+        else setOnClickListener { (c as? MainActivity)?.let { a -> playNote(a, f) } }
+    }, LinearLayout.LayoutParams(side, side).apply { bottomMargin = c.dp(4) })
+    // A note stands without the bubble's plate: the circle is its own shape.
+    (into.background as? android.graphics.drawable.Drawable)?.let { into.background = null; into.setPadding(0, 0, 0, 0) }
+}
+
+/** The note large, with sound, the ring for its time; a tap or its end closes it (iOS MontanaNotePlayback's own window). */
+private fun playNote(act: MainActivity, f: java.io.File) {
+    val c: Context = act
+    lateinit var close: () -> Unit
+    val side = c.dp(300)
+    val ring = NoteRing(c)
+    val tv = TextureView(c)
+    var player: android.media.MediaPlayer? = null
+    val page = FrameLayout(c).apply {
+        setBackgroundColor(Color.argb(200, 0, 0, 0))
+        isClickable = true
+        pressable { close() }
+        addView(ring, FrameLayout.LayoutParams(side + c.dp(16), side + c.dp(16), Gravity.CENTER))
+        addView(tv.round(), FrameLayout.LayoutParams(side, side, Gravity.CENTER))
+    }
+    tv.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+        override fun onSurfaceTextureAvailable(st: android.graphics.SurfaceTexture, w: Int, h: Int) {
+            player = runCatching { android.media.MediaPlayer().apply {
+                setDataSource(f.path); setSurface(android.view.Surface(st)); prepare(); start()
+                setOnCompletionListener { close() }
+            } }.getOrNull()
+            val tick = object : Runnable { override fun run() { val p = player ?: return; runCatching { ring.progress = p.currentPosition.toFloat() / maxOf(1, p.duration) }; MainThread.later(50, this) } }
+            MainThread.later(50, tick)
+        }
+        override fun onSurfaceTextureSizeChanged(st: android.graphics.SurfaceTexture, w: Int, h: Int) {}
+        override fun onSurfaceTextureDestroyed(st: android.graphics.SurfaceTexture): Boolean { player?.runCatching { stop(); release() }; player = null; return true }
+        override fun onSurfaceTextureUpdated(st: android.graphics.SurfaceTexture) {}
+    }
+    val done = act.overlay(page)
+    close = { player?.runCatching { stop(); release() }; player = null; done() }
 }
