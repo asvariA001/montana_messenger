@@ -15,6 +15,10 @@ import android.widget.FrameLayout
 import java.util.concurrent.Executors
 
 class MainActivity : Activity() {
+    /** The window's whole surface: the backdrop runs under the system bars (iOS .ignoresSafeArea()). */
+    private lateinit var surface: FrameLayout
+    private lateinit var backdrop: android.widget.ImageView
+    /** The pages: inside the system bars and above the keyboard. */
     private lateinit var root: FrameLayout
     private val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
@@ -34,14 +38,18 @@ class MainActivity : Activity() {
         window.setDecorFitsSystemWindows(false)
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = Color.TRANSPARENT
-        root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
+        surface = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
+        backdrop = android.widget.ImageView(this).apply { scaleType = android.widget.ImageView.ScaleType.CENTER_CROP }
+        root = FrameLayout(this)
+        surface.addView(backdrop, FrameLayout.LayoutParams(MATCH, MATCH))
+        surface.addView(root, FrameLayout.LayoutParams(MATCH, MATCH))
         // The page stands inside the system bars and above the keyboard.
         root.setOnApplyWindowInsetsListener { v, insets ->
             val b = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.ime())
             v.setPadding(b.left, b.top, b.right, b.bottom)
             WindowInsets.CONSUMED
         }
-        setContentView(root)
+        setContentView(surface)
         hasSeed = MontanaSeed.hasSeed
         termsAccepted = Prefs.termsAccepted
         render()
@@ -54,13 +62,14 @@ class MainActivity : Activity() {
      */
     private fun render() {
         back = null
+        setBackdrop(null)
         val page: View = when {
             !hasSeed -> Onboarding(this) {
                 hasSeed = MontanaSeed.hasSeed
                 showWelcome = hasSeed
                 render()
             }.view
-            !termsAccepted -> termsGate(this) { Prefs.termsAccepted = true; termsAccepted = true; render() }
+            !termsAccepted -> termsGate(this, onAgree = { Prefs.termsAccepted = true; termsAccepted = true; render() })
             showWelcome -> welcome(this) { showWelcome = false; render() }
             else -> mainScreen(this) {
                 // «Forget this device» (iOS: Privacy): the seed and everything of the person leave.
@@ -72,12 +81,29 @@ class MainActivity : Activity() {
         show(page)
     }
 
+    /** A picture under the whole window, system bars included; null — the plain black. */
+    fun setBackdrop(res: Int?) {
+        if (res == null) backdrop.setImageDrawable(null) else backdrop.setImageResource(res)
+    }
+
     /** Replaces the page with a short cross-fade. */
     private fun show(page: View) {
         page.alpha = 0f
         root.removeAllViews()
         root.addView(page, FrameLayout.LayoutParams(MATCH, MATCH))
         page.animate().alpha(1f).setDuration(220).start()
+    }
+
+    /** The terms over the current page (iOS: a sheet from the doors' footer); back or its mark closes it. */
+    fun showTermsSheet() {
+        val keepBack = back
+        lateinit var sheet: View
+        val close = { root.removeView(sheet); back = keepBack }
+        sheet = termsGate(this, onAgree = null, onClose = close)
+        sheet.translationY = root.height.toFloat()
+        root.addView(sheet, FrameLayout.LayoutParams(MATCH, MATCH))
+        sheet.animate().translationY(0f).setDuration(280).setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+        back = close
     }
 
     fun showProfile() {

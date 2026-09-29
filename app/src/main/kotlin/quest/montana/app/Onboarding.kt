@@ -13,34 +13,45 @@ import android.view.View
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.GridLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 
 /**
  * The first launch (iOS MontanaOnboardingView). Steps keep the iOS numbers:
- * 0 intro · 1 responsibility · 2 the words · 3 the name · 4 recovery.
+ * 0 the doors, then the Montana road (intro) · 1 responsibility · 2 the words · 3 the name · 4 recovery.
  * Not yet here: 5 (the copy back from a node / iCloud) and 6 (the outer service's door).
  */
 class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) {
     val view = FrameLayout(act)
+    private val content = FrameLayout(act)
     // In memory only: the words are never written anywhere but the device vault.
     private var bornWords: String? = null
     private var creating = false
+    /** The doors screen chose Montana: the roads to a seed stand behind it (iOS montanaRoad, 29.09). */
+    private var montanaRoad = false
 
-    init { go(0) }
+    init {
+        view.addView(content, FrameLayout.LayoutParams(MATCH, MATCH))
+        go(0)
+    }
 
     private fun go(step: Int) {
-        view.removeAllViews()
+        content.removeAllViews()
+        // THE AUTHOR'S OWN GROUND (iOS 29.09): his picture under every step of the first screens, edge to edge;
+        // the name's editor stands on its own black, as on iOS.
+        act.setBackdrop(if (step == 3) null else R.drawable.login_background)
         val page: View = when (step) {
-            0 -> intro()
+            0 -> if (montanaRoad) intro() else doors()
             1 -> responsibility()
             2 -> seedWords()
             3 -> Profile(act, onboarding = true, onFinish = onDone).view
             else -> recover()
         }
-        view.addView(page, FrameLayout.LayoutParams(MATCH, MATCH))
+        content.addView(page, FrameLayout.LayoutParams(MATCH, MATCH))
         act.back = when (step) {
+            0 -> if (montanaRoad) ({ montanaRoad = false; go(0) }) else null
             1 -> { { go(0) } }
             2 -> { { go(1) } }
             4 -> { { go(0) } }
@@ -79,6 +90,36 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
         addView(c.outlineButton(c.getString(R.string.open_identity)) { go(4) }, lp())
         gap(18)
         addView(c.text(versionFooter(c), 11f, MT.withAlpha(MT.gray, 0.7f), center = true))
+        addView(c.backLink { montanaRoad = false; go(0) })
+    }
+
+    // ── 0: the doors (the author's design, iOS 29.09) ──
+    private fun doors() = page {
+        val c = context
+        spacer()
+        addView(ImageView(c).apply { setImageResource(R.drawable.icon_glass) }, lp(dp(120), dp(120)))
+        gap(22)
+        addView(c.text(c.getString(R.string.sign_in_title), 28f, Color.WHITE, bold = true, center = true))
+        gap(6)
+        addView(c.text(c.getString(R.string.sign_in_sub), 17f, MT.gray, center = true))
+        spacer()
+        addView(c.loginDoor(R.drawable.logo, c.getString(R.string.continue_montana), MT.gold, rounded = false) {
+            montanaRoad = true; go(0)
+        }, lp())
+        gap(10)
+        addView(c.loginDoor(R.drawable.library_outer, c.getString(R.string.continue_with, OUTER_SERVICE), MT.blue, rounded = true) {
+            // The outer service's door (iOS step 6, MTOuterLoginView) is not built on Android yet.
+            android.app.AlertDialog.Builder(act)
+                .setMessage(c.getString(R.string.outer_not_yet, OUTER_SERVICE))
+                .setPositiveButton(R.string.got_it, null).show()
+        }, lp())
+        gap(14)
+        addView(c.linkedText(c.getString(R.string.sign_in_footer), 11f, MT.gray, MT.withAlpha(Color.WHITE, 0.8f)) { url ->
+            when (url) {
+                "montana://terms" -> act.showTermsSheet()
+                "montana://privacy" -> runCatching { act.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(PRIVACY_URL))) }
+            }
+        }.apply { setPadding(dp(12), 0, dp(12), 0) }, lp())
     }
 
     private fun LinearLayout.privRow(iconRes: Int, title: Int, sub: Int) {
@@ -255,3 +296,8 @@ fun versionFooter(c: Context): String {
     val info = c.packageManager.getPackageInfo(c.packageName, 0)
     return "Android ${info.versionName} (${info.longVersionCode}) · SSOT ${MtBindings.nativeAbiVersion()}"
 }
+
+/** The outer service's own name, shown to the person as its API terms ask (iOS MTOuterService.displayName). */
+const val OUTER_SERVICE = "Telegram"
+/** The privacy policy on the site (iOS MontanaSafety.privacy). */
+const val PRIVACY_URL = "https://montana.quest/privacy/"

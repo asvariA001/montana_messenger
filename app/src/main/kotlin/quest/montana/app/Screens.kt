@@ -69,6 +69,7 @@ class Profile(private val act: MainActivity, private val onboarding: Boolean, pr
     private fun showEditor() {
         val c = act
         view.removeAllViews()
+        view.setBackgroundColor(Color.BLACK)   // the editor's own ground (iOS: black under the page), over the first screens' picture
         act.back = if (onboarding) null else ({ done() })
         val col = c.vstack(Gravity.NO_GRAVITY) {
             addView(c.topBar(trailing = c.icon(R.drawable.ic_check, MT.gold).apply {
@@ -210,7 +211,11 @@ class Profile(private val act: MainActivity, private val onboarding: Boolean, pr
 
 // ─────────────────────────── the terms (iOS MontanaTermsGate) ───────────────────────────
 
-fun termsGate(act: MainActivity, onAgree: () -> Unit): View {
+/**
+ * The terms. [onAgree] set — the gate after the identity: no way past without «I agree».
+ * [onAgree] null — the page opened from the doors' footer (iOS: a sheet), closed by its back mark.
+ */
+fun termsGate(act: MainActivity, onAgree: (() -> Unit)?, onClose: (() -> Unit)? = null): View {
     val c = act
     fun header(res: Int) = c.text(c.getString(res).uppercase(), 13f, MT.gray).apply { setPadding(dp(16), dp(20), dp(16), dp(6)) }
     fun section(vararg lines: Int) = c.plate {
@@ -240,9 +245,10 @@ fun termsGate(act: MainActivity, onAgree: () -> Unit): View {
         }, lp())
     }
     return c.vstack(Gravity.NO_GRAVITY) {
-        addView(c.topBar(c.getString(R.string.terms_title)))
+        setBackgroundColor(Color.BLACK)
+        addView(c.topBar(c.getString(R.string.terms_title), onBack = onClose))
         addView(ScrollView(c).apply { addView(body) }, lp(MATCH, 0, 1f))
-        addView(GoldButton(c, c.getString(R.string.i_agree), onAgree), lp().apply { setMargins(dp(20), dp(12), dp(20), dp(12)) })
+        if (onAgree != null) addView(GoldButton(c, c.getString(R.string.i_agree), onAgree), lp().apply { setMargins(dp(20), dp(12), dp(20), dp(12)) })
     }
 }
 

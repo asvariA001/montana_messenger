@@ -30,6 +30,7 @@ object MT {
     val orange = Color.rgb(255, 159, 10)        // iOS .orange (dark)
     val red = Color.rgb(255, 69, 58)            // iOS .red (dark)
     val green = Color.rgb(48, 209, 88)          // iOS .green (dark)
+    val blue = Color.rgb(10, 132, 255)          // iOS .systemBlue (dark), MontanaOctagon.platformBlue
     val hairline = Color.argb(20, 255, 255, 255)
     fun withAlpha(c: Int, a: Float) = Color.argb((a * 255).toInt(), Color.red(c), Color.green(c), Color.blue(c))
 }
@@ -194,3 +195,68 @@ fun Context.glowingLogo(logoDp: Int, haloDp: Int, periodMs: Long): FrameLayout {
 }
 
 fun TextView.singleLineEllipsis() { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
+
+/**
+ * A door of the first screen (iOS MTLoginDoorStyle, the pre-glass face): a 52dp capsule on a thin dark
+ * material with a rim in the door's own colour; the glyph at the left, the word in the middle, the
+ * chevron at the right; the whole capsule is the target and gives under the finger (0.97).
+ */
+fun Context.loginDoor(glyph: Int, word: String, tint: Int, rounded: Boolean, onClick: () -> Unit): View {
+    val glyphView = ImageView(this).apply {
+        setImageResource(glyph)
+        if (rounded) {
+            clipToOutline = true
+            outlineProvider = object : ViewOutlineProvider() {
+                override fun getOutline(v: View, o: Outline) = o.setRoundRect(0, 0, v.width, v.height, dp(7).toFloat())
+            }
+        }
+    }
+    val door = hstack {
+        background = GradientDrawable().apply {
+            cornerRadius = dp(26).toFloat()
+            setColor(Color.argb(150, 28, 28, 30))
+            setStroke(dp(1), MT.withAlpha(tint, 0.45f))
+        }
+        setPadding(dp(18), 0, dp(18), 0)
+        addView(glyphView, lp(dp(26), dp(26)))
+        addView(text(word, 17f, Color.WHITE, bold = true, center = true).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))
+        addView(icon(R.drawable.ic_chevron_right, MT.withAlpha(Color.WHITE, 0.55f), 20))
+        minimumHeight = dp(52)
+    }
+    door.isClickable = true
+    door.setOnClickListener { onClick() }
+    door.setOnTouchListener { v, e ->
+        when (e.actionMasked) {
+            android.view.MotionEvent.ACTION_DOWN -> v.animate().scaleX(0.97f).scaleY(0.97f).setDuration(120).start()
+            android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> v.animate().scaleX(1f).scaleY(1f).setDuration(120).start()
+        }
+        false
+    }
+    return door
+}
+
+/**
+ * Words with links written as iOS writes them in its catalogue — `[the words](url)` — so one string
+ * serves both platforms. The links are drawn in [linkColor]; a tap hands the url to [onLink].
+ */
+fun Context.linkedText(markup: String, sizeSp: Float, color: Int, linkColor: Int, onLink: (String) -> Unit): TextView {
+    val out = android.text.SpannableStringBuilder()
+    val re = Regex("""\[([^\]]+)]\(([^)]+)\)""")
+    var at = 0
+    for (m in re.findAll(markup)) {
+        out.append(markup, at, m.range.first)
+        val start = out.length
+        out.append(m.groupValues[1])
+        val url = m.groupValues[2]
+        out.setSpan(object : android.text.style.ClickableSpan() {
+            override fun onClick(w: View) = onLink(url)
+            override fun updateDrawState(ds: android.text.TextPaint) { ds.color = linkColor; ds.isUnderlineText = false }
+        }, start, out.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        at = m.range.last + 1
+    }
+    out.append(markup, at, markup.length)
+    return text(out, sizeSp, color, center = true).apply {
+        movementMethod = android.text.method.LinkMovementMethod.getInstance()
+        highlightColor = Color.TRANSPARENT
+    }
+}

@@ -62,4 +62,11 @@
     <string name="contacts">联系人</string>
     <string name="settings">设置</string>
     <string name="my_profile">我的资料</string>
+
+    <string name="sign_in_title">登录 Montana</string>
+    <string name="sign_in_sub">选择登录方式</string>
+    <string name="continue_montana">使用 Montana 继续</string>
+    <string name="continue_with">使用 %1$s 继续</string>
+    <string name="sign_in_footer">继续即表示您同意[使用条款](montana://terms)和[隐私政策](montana://privacy)。</string>
+    <string name="outer_not_yet">通过 %1$s 登录将在后续版本的 Montana Android 中推出。</string>
 </resources>
