@@ -132,6 +132,7 @@ object Marks {
     const val MEDIA = "​​MD:"
     const val STICKER = "⁣⁣"
     const val LONG = "⁣LB:"
+    const val ABOUT = "\u200B\u200BAB:"   // + {b, l, at}: their bio and link (iOS aboutMark)
     const val PLAYED = "\u200B\u200BPL:"   // + the mid of a voice of theirs that was played here (iOS playedMark)
     /** A word of the wire, not a row of the feed. */
     fun isService(t: String) = t.startsWith("​") || t.startsWith("⁣")
@@ -527,6 +528,15 @@ object Post {
             }
             // A VOICE OF MINE WAS PLAYED THERE (iOS playedMark): their own playing — the only road to «Listened»; the word itself
             // proves their build says it, so from now on a mere «read» of a voice stays «delivered».
+            // THEIR BIO AND LINK AS STATE (iOS aboutMark): applied if it is the latest word, receipted either way.
+            text.startsWith(Marks.ABOUT) -> {
+                runCatching {
+                    val o = JSONObject(text.removePrefix(Marks.ABOUT))
+                    PeerAbout.note(ref, o.optString("b"), o.optString("l"), o.optDouble("at", System.currentTimeMillis() / 1000.0))
+                }
+                Book.edit(ref) {}
+                receipt(ref, sid)
+            }
             text.startsWith(Marks.PLAYED) -> {
                 val d = text.removePrefix(Marks.PLAYED)
                 Prefs.setBool("plcap_$ref", true)
@@ -554,6 +564,8 @@ object Post {
                 receipt(ref, sid)
             }
             Marks.isService(text) && !text.startsWith(Marks.VOICE) && !text.startsWith(Marks.MEDIA) && !text.startsWith(Marks.STICKER) && !text.startsWith(Marks.LONG) -> {}
+            // A BLOCKED PERSON'S LETTERS DO NOT REACH THE FEED (iOS MontanaSafety: the block is enforced on every road).
+            PeerSafety.isBlocked(ref) -> {}
             else -> {
                 var isNew = false
                 Book.edit(ref) { c ->

@@ -378,6 +378,8 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit): View 
             FrameLayout.LayoutParams(dp(44), dp(44), Gravity.CENTER_VERTICAL or Gravity.START))
         addView(title, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER).apply { marginStart = dp(56); marginEnd = dp(56) })
         addView(faceSlot.apply {
+            // the face opens the correspondent's page (iOS: the chat's header → MontanaPeerInfoScreen)
+            setOnClickListener { hideKeys(); act.push { close -> peerInfoPage(act, ref, close) } }
             setOnLongClickListener {
                 AlertDialog.Builder(c).setMessage(R.string.delete_chat_q)
                     .setPositiveButton(R.string.delete) { _, _ -> hideKeys(); onClose(); Book.forget(ref) }
@@ -604,7 +606,7 @@ private fun mediaBody(c: Context, m: Msg, into: LinearLayout) {
 }
 
 /** THE FILE WHOLE: a picture on black, a film in the platform's own player; any other file to the system's viewer. */
-private fun openMedia(act: MainActivity, f: java.io.File, kind: String) {
+internal fun openMedia(act: MainActivity, f: java.io.File, kind: String) {
     val c: Context = act
     if (kind != "img" && kind != "vid") {
         val view = Intent(Intent.ACTION_VIEW).setDataAndType(Media.uri(c, f), c.contentResolver.getType(Media.uri(c, f)) ?: "*/*")
