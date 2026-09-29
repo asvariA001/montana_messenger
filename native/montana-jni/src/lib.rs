@@ -56,6 +56,34 @@ pub fn seed_keys(words: &str) -> Option<Zeroizing<Vec<u8>>> {
     Some(out)
 }
 
+/// entropy[32] → history_key[32]: HKDF-SHA-256(salt=0×32, ikm=entropy, info="mt-history-key") (mt_history_key).
+pub fn history_key(entropy: &[u8; 32]) -> Zeroizing<[u8; 32]> {
+    let prk = Zeroizing::new(mt_mnemonic::hmac_sha256(&[0u8; 32], entropy));
+    let okm = Zeroizing::new(mt_mnemonic::hkdf_expand(&prk[..], domain::MSG_HISTORY_KEY, 32));
+    let mut out = Zeroizing::new([0u8; 32]);
+    out.copy_from_slice(&okm);
+    out
+}
+
+/// Which conversation a sealed block belongs to, readable only under the history key (mt_archive_peek_conv).
+pub fn archive_peek_conv(hk: &[u8; 32], owner: &[u8; 32], sealed: &[u8]) -> Option<[u8; 32]> {
+    mt_messenger_e2e::archive::peek_conv(hk, owner, sealed)
+}
+
+/// A sealed block filed as-stored into the chat's log: 1 appended, 0 already held, <0 refused (mt_archive_ingest).
+pub fn archive_ingest(base: &str, chat: &str, hk: &[u8; 32], owner: &[u8; 32], sealed: &[u8]) -> i32 {
+    let store = match mt_messenger_e2e::archive::ArchiveStore::open(base) {
+        Ok(s) => s,
+        Err(_) => return -5, // MT_ERR_IO
+    };
+    match store.ingest_block(chat, hk, owner, sealed) {
+        Ok(true) => 1,
+        Ok(false) => 0,
+        Err(e) if e.kind() == std::io::ErrorKind::InvalidData => -4, // MT_ERR_DECODE
+        Err(_) => -5,
+    }
+}
+
 // ─────────── JNI: class quest.montana.app.MtBindings ───────────
 
 #[cfg(target_os = "android")]
@@ -132,6 +160,50 @@ mod jni_doors {
         let seed = role_seed(&arr, role.as_bytes());
         bytes(&mut env, &seed[..])
     }
+
+    fn key32(env: &mut JNIEnv, b: &JByteArray) -> Option<Zeroizing<[u8; 32]>> {
+        let v = Zeroizing::new(env.convert_byte_array(b).ok()?);
+        if v.len() != 32 { return None; }
+        let mut k = Zeroizing::new([0u8; 32]);
+        k.copy_from_slice(&v);
+        Some(k)
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_quest_montana_app_MtBindings_nativeHistoryKey<'l>(
+        mut env: JNIEnv<'l>, _c: JClass<'l>, ent: JByteArray<'l>,
+    ) -> jbyteArray {
+        match key32(&mut env, &ent) {
+            Some(e) => { let hk = history_key(&e); bytes(&mut env, &hk[..]) }
+            None => std::ptr::null_mut(),
+        }
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_quest_montana_app_MtBindings_nativeArchivePeekConv<'l>(
+        mut env: JNIEnv<'l>, _c: JClass<'l>, hk: JByteArray<'l>, owner: JByteArray<'l>, sealed: JByteArray<'l>,
+    ) -> jbyteArray {
+        let (Some(h), Some(o), Ok(s)) = (key32(&mut env, &hk), key32(&mut env, &owner), env.convert_byte_array(&sealed)) else {
+            return std::ptr::null_mut();
+        };
+        match archive_peek_conv(&h, &o, &s) {
+            Some(conv) => bytes(&mut env, &conv),
+            None => std::ptr::null_mut(),
+        }
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_quest_montana_app_MtBindings_nativeArchiveIngest<'l>(
+        mut env: JNIEnv<'l>, _c: JClass<'l>, base: JString<'l>, chat: JString<'l>,
+        hk: JByteArray<'l>, owner: JByteArray<'l>, sealed: JByteArray<'l>,
+    ) -> jint {
+        let base: String = match env.get_string(&base) { Ok(s) => s.into(), Err(_) => return -3 };
+        let chat: String = match env.get_string(&chat) { Ok(s) => s.into(), Err(_) => return -3 };
+        let (Some(h), Some(o), Ok(s)) = (key32(&mut env, &hk), key32(&mut env, &owner), env.convert_byte_array(&sealed)) else {
+            return -1;
+        };
+        archive_ingest(&base, &chat, &h, &o, &s)
+    }
 }
 
 // ─────────── proof: every door answers as the iOS door (mt-bindings C ABI) ───────────
@@ -183,6 +255,43 @@ mod tests {
         let mut out = [0u8; 32];
         assert_eq!(unsafe { ffi_c::mt_mldsa_seed_for_role(master.as_ptr(), role.as_ptr(), role.len(), out.as_mut_ptr()) }, 0);
         assert_eq!(&role_seed(&master, role)[..], &out[..]);
+    }
+
+    #[test]
+    fn history_key_matches_ios() {
+        // iOS E2EVault.historyKeyKAT: the frozen vector on 0x55 × 32
+        let k = history_key(&[0x55; 32]);
+        let hexed: String = k.iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(hexed, "e6a7dc51003770589d9f731c1231c1523be7348c7769383875dd34bd6c578def");
+        let e = entropy(&some_words()).unwrap();
+        let mut out = [0u8; 32];
+        assert_eq!(unsafe { ffi_c::mt_history_key(e.as_ptr(), out.as_mut_ptr()) }, 0);
+        assert_eq!(&history_key(&e)[..], &out[..]);
+    }
+
+    #[test]
+    fn archive_doors_match_ios() {
+        // a block this device seals, taken back by both doors into two stores: the same answers, the same files
+        let hk = [7u8; 32];
+        let owner = [9u8; 32];
+        let conv = [3u8; 32];
+        let tmp = std::env::temp_dir().join(format!("mt-jni-archive-{}", std::process::id()));
+        let (a, b) = (tmp.join("a"), tmp.join("b"));
+        use mt_messenger_e2e::archive::{seal_block, HistoryBlock, HistoryItem};
+        let item = HistoryItem { conv_id: conv, dir: 1, send_time: 1_700_000_000, content: b"hello".to_vec() };
+        let sealed = seal_block(&hk, &owner, &[1u8; 16], &HistoryBlock { block_seq: 1, items: vec![item] });
+        assert_eq!(archive_peek_conv(&hk, &owner, &sealed), Some(conv));
+        let mut out = [0u8; 32];
+        assert_eq!(unsafe { ffi_c::mt_archive_peek_conv(hk.as_ptr(), owner.as_ptr(), sealed.as_ptr(), sealed.len(), out.as_mut_ptr()) }, 0);
+        assert_eq!(out, conv);
+        let bs = CString::new(b.to_str().unwrap()).unwrap();
+        let chat = CString::new("c1").unwrap();
+        let ios = unsafe { ffi_c::mt_archive_ingest(bs.as_ptr(), chat.as_ptr(), hk.as_ptr(), owner.as_ptr(), sealed.as_ptr(), sealed.len()) };
+        let ours = archive_ingest(a.to_str().unwrap(), "c1", &hk, &owner, &sealed);
+        assert_eq!((ours, ios), (1, 1));
+        assert_eq!(archive_ingest(a.to_str().unwrap(), "c1", &hk, &owner, &sealed), 0); // held already: merged, not doubled
+        assert!(archive_ingest(a.to_str().unwrap(), "c1", &[8u8; 32], &owner, &sealed) < 0); // another key: refused
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]

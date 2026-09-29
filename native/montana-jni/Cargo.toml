@@ -17,6 +17,8 @@ crate-type = ["cdylib", "rlib"]
 mt-mnemonic = { path = "../../../Montana Protocol/Code/crates/mt-mnemonic" }
 mt-crypto   = { path = "../../../Montana Protocol/Code/crates/mt-crypto" }
 mt-codec    = { path = "../../../Montana Protocol/Code/crates/mt-codec" }
+# The archive of letters: the one road a block of history takes into this device (mt_archive_ingest on iOS).
+mt-messenger-e2e = { path = "../../../Montana Protocol/Code/crates/mt-messenger-e2e" }
 zeroize     = { version = "=1.8.1", default-features = false }
 jni         = { version = "0.21", default-features = false }
 

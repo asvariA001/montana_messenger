@@ -529,6 +529,7 @@ dependencies = [
  "mt-bindings",
  "mt-codec",
  "mt-crypto",
+ "mt-messenger-e2e",
  "mt-mnemonic",
  "zeroize",
 ]

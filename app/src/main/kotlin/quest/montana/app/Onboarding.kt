@@ -20,8 +20,8 @@ import android.widget.TextView
 
 /**
  * The first launch (iOS MontanaOnboardingView). Steps keep the iOS numbers:
- * 0 the doors, then the Montana road (intro) · 1 responsibility · 2 the words · 3 the name · 4 recovery.
- * Not yet here: 5 (the copy back from a node / iCloud) and 6 (the outer service's door).
+ * 0 the doors, then the Montana road (intro) · 1 responsibility · 2 the words · 3 the name · 4 recovery ·
+ * 5 the copy coming back from the person's own node. Not yet here: 6 (the outer service's door).
  */
 class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) {
     val view = FrameLayout(act)
@@ -31,6 +31,10 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
     private var creating = false
     /** The doors screen chose Montana: the roads to a seed stand behind it (iOS montanaRoad, 29.09). */
     private var montanaRoad = false
+    /** The person's own node, named beside the words (iOS nodeHost). */
+    private var nodeHost = ""
+    /** The person walked on without the copy: its late answer no longer speaks on this screen. */
+    private var walkedOn = false
 
     init {
         view.addView(content, FrameLayout.LayoutParams(MATCH, MATCH))
@@ -47,6 +51,7 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
             1 -> responsibility()
             2 -> seedWords()
             3 -> Profile(act, onboarding = true, onFinish = onDone).view
+            5 -> takingBack()
             else -> recover()
         }
         content.addView(page, FrameLayout.LayoutParams(MATCH, MATCH))
@@ -289,8 +294,9 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
         val input = field(null, 5)
         addView(input, lp(MATCH, dp(130)))
         gap(16)
-        // The person's own node: named here as on iOS; taking the copy back from it comes with the network step.
-        addView(field(c.getString(R.string.recover_node), 1), lp())
+        // THE PERSON'S OWN NODE, named beside the words (iOS 28.09): the copy it holds comes back before the first screen.
+        val node = field(c.getString(R.string.recover_node), 1).apply { setText(nodeHost) }
+        addView(node, lp())
         val error = c.text("", 12f, MT.red, center = true).apply { visibility = View.GONE }
         gap(16)
         addView(error, lp())
@@ -310,7 +316,7 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
                     when {
                         keys == null -> say(c.getString(R.string.recover_invalid))
                         !stored -> say(c.getString(R.string.store_failed_title))
-                        else -> onDone()
+                        else -> { nodeHost = node.text.toString(); takeFromNode() }
                     }
                 }
             }
@@ -318,6 +324,70 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
         addView(restore, lp())
         spacer()
         addView(c.backLink { go(0) })
+    }
+
+    // ── 5: the copy coming back ──
+
+    /** THE WORDS OPENED; THE PERSON'S OWN NODE, IF NAMED, HANDS THE COPY BACK (iOS takeFromNode) — otherwise the first screen. */
+    private fun takeFromNode() {
+        val h = nodeHost.trim()
+        if (h.isEmpty()) return onDone()
+        MontanaHomeNode.setHost(h)
+        MontanaHomeNode.setOn(act, true)
+        walkedOn = false
+        go(5)
+        act.background {
+            HomeNodeWatch.takeBack(act) { r ->
+                act.onMain {
+                    HomeNodeWatch.onChange = null
+                    if (!walkedOn) when (r) {
+                        is CopyResult.Taken -> onDone()
+                        // EVERY REFUSAL ON THE WAY BACK IS SPOKEN (iOS 28.09), with «Try again» and the way on without the copy.
+                        is CopyResult.Refused -> refuse(r.why.spoken(act)) { takeFromNode() }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun refuse(word: String, again: () -> Unit) {
+        AlertDialog.Builder(act)
+            .setTitle(R.string.your_history).setMessage(word)
+            .setPositiveButton(R.string.try_again) { _, _ -> again() }
+            .setNegativeButton(R.string.go_on_without_copy) { _, _ -> onDone() }
+            .setCancelable(false).show()
+    }
+
+    private fun takingBack() = page {
+        val c = context
+        spacer()
+        addView(c.icon(R.drawable.ic_arrow_circle_down, MT.gold, 46))
+        gap(16)
+        addView(c.text(c.getString(R.string.taking_back), 20f, Color.WHITE, bold = true, center = true))
+        gap(16)
+        val bar = android.widget.ProgressBar(c, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 100
+            progressTintList = android.content.res.ColorStateList.valueOf(MT.gold)
+            indeterminateTintList = progressTintList
+        }
+        addView(bar, lp().apply { marginStart = dp(24); marginEnd = dp(24) })
+        gap(8)
+        val pct = c.text("", 12f, MT.gray, center = true)
+        addView(pct, lp())
+        spacer()
+        // The person may walk on without the copy while nothing is being laid into this device: a copy half laid is
+        // not a state to leave in (iOS canGoOn).
+        val without = c.outlineButton(c.getString(R.string.go_on_without_copy)) { walkedOn = true; HomeNodeWatch.onChange = null; onDone() }
+        addView(without, lp())
+        fun show() {
+            val f = HomeNodeWatch.fetching ?: HomeNodeWatch.restoring
+            bar.isIndeterminate = f == null
+            if (f != null) bar.progress = (f * 100).toInt()
+            pct.text = if (f == null) "" else "${(f * 100).toInt()}%"   // USER-DATA: a share
+            without.visibility = if (HomeNodeWatch.restoring == null) View.VISIBLE else View.GONE
+        }
+        show()
+        HomeNodeWatch.onChange = { act.onMain { if (isAttachedToWindow) show() } }
     }
 }
 

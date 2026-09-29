@@ -64,6 +64,18 @@ object DeviceVault {
     }
 
     fun delete(name: String) { prefs.edit().remove(name).commit() }
+
+    /** Bytes sealed under the device key for a file of their own (iv ‖ ciphertext ‖ tag); null when the key refuses. */
+    fun seal(value: ByteArray): ByteArray? = try {
+        Cipher.getInstance("AES/GCM/NoPadding").run { init(Cipher.ENCRYPT_MODE, key()); iv + doFinal(value) }
+    } catch (e: Exception) { null }
+
+    fun unseal(sealed: ByteArray): ByteArray? = try {
+        Cipher.getInstance("AES/GCM/NoPadding").run {
+            init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, sealed, 0, 12))
+            doFinal(sealed, 12, sealed.size - 12)
+        }
+    } catch (e: Exception) { null }
 }
 
 /** What a seed opens (iOS MontanaSeedKeys.Keys): the words and the ML-DSA-65 signing keys. */

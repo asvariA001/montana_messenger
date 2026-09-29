@@ -74,4 +74,21 @@
     <string name="which_identity">打开哪个身份？</string>
     <string name="backup_many">您的备份中保存了多个 Montana 身份。请选择要在此手机上打开的身份。</string>
     <string name="opening_identity">正在打开您的身份…</string>
+    <!-- the copy back from the person's own node (iOS step 5, MontanaHomeNode) -->
+    <string name="taking_back">正在取回您的历史记录</string>
+    <string name="your_history">您的历史记录</string>
+    <string name="try_again">重试</string>
+    <string name="go_on_without_copy">不带副本继续</string>
+    <string name="node_empty">您的节点还没有副本。</string>
+    <string name="node_refused">您的节点未接收副本：%1$s</string>
+    <string name="copy_stopped">已停止。</string>
+    <string name="copy_no_seed">本设备尚无身份。请先输入您的 24 个助记词，然后再恢复。</string>
+    <string name="copy_no_vault">设备存储此刻未能打开。请稍后重试。</string>
+    <string name="copy_no_space">磁盘已无剩余空间。请释放空间后重试。</string>
+    <string name="copy_disk_refused">磁盘拒绝：%1$s</string>
+    <string name="copy_not_ours">此文件不是 Montana 备份。</string>
+    <string name="copy_version">此备份由更新版本的 Montana 创建。</string>
+    <string name="copy_wrong_words">这 24 个助记词无法打开此备份：它属于另一组助记词。</string>
+    <string name="copy_unopened">这 24 个词无法打开此文件：它是另一组助记词的备份，或者根本不是 Montana 备份。</string>
+    <string name="copy_torn">此备份被截断或已损坏。能够读取的部分已归档。</string>
 </resources>

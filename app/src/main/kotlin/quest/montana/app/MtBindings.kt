@@ -22,6 +22,13 @@ object MtBindings {
     /** master_seed[64] + role → 32 bytes: the core's mt_mldsa_seed_for_role. */
     @JvmStatic external fun nativeRoleSeed(master: ByteArray, role: String): ByteArray?
 
+    /** entropy[32] → history_key[32] (mt_history_key). */
+    @JvmStatic external fun nativeHistoryKey(entropy: ByteArray): ByteArray?
+    /** Which conversation a sealed history block belongs to, 32 bytes, or null (mt_archive_peek_conv). */
+    @JvmStatic external fun nativeArchivePeekConv(hk: ByteArray, owner: ByteArray, sealed: ByteArray): ByteArray?
+    /** A sealed block filed into <base>/Chats/<chat>: 1 appended, 0 already held, <0 refused (mt_archive_ingest). */
+    @JvmStatic external fun nativeArchiveIngest(base: String, chat: String, hk: ByteArray, owner: ByteArray, sealed: ByteArray): Int
+
     const val PUBKEY = 1952
     const val SECKEY = 4032
 }

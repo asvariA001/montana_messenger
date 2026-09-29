@@ -75,4 +75,21 @@
     <string name="which_identity">Which identity?</string>
     <string name="backup_many">Your backup carries more than one identity of Montana. Choose the one to open on this phone.</string>
     <string name="opening_identity">Opening your identity…</string>
+    <!-- the copy back from the person's own node (iOS step 5, MontanaHomeNode) -->
+    <string name="taking_back">Taking your history back</string>
+    <string name="your_history">Your history</string>
+    <string name="try_again">Try again</string>
+    <string name="go_on_without_copy">Continue without the copy</string>
+    <string name="node_empty">Your node holds no copy yet.</string>
+    <string name="node_refused">Your node did not take the copy: %1$s</string>
+    <string name="copy_stopped">Stopped.</string>
+    <string name="copy_no_seed">This device holds no identity yet. Enter your 24 words first, then restore.</string>
+    <string name="copy_no_vault">The storage of this device did not open just now. Try again in a moment.</string>
+    <string name="copy_no_space">The disk has no room left. Free some space and try again.</string>
+    <string name="copy_disk_refused">The disk refused: %1$s</string>
+    <string name="copy_not_ours">This file is not a Montana backup.</string>
+    <string name="copy_version">This backup was made by a newer version of Montana.</string>
+    <string name="copy_wrong_words">These 24 words do not open this backup: it belongs to another phrase.</string>
+    <string name="copy_unopened">These 24 words do not open this file: it is a backup of another phrase, or not a Montana backup at all.</string>
+    <string name="copy_torn">This backup is cut short or damaged. Whatever could be read has been filed.</string>
 </resources>

@@ -74,4 +74,21 @@
     <string name="which_identity">Какую личность открыть?</string>
     <string name="backup_many">В резервной копии хранится несколько личностей Montana. Выберите ту, которую открыть на этом телефоне.</string>
     <string name="opening_identity">Открываем вашу личность…</string>
+    <!-- the copy back from the person's own node (iOS step 5, MontanaHomeNode) -->
+    <string name="taking_back">Возвращаем вашу историю</string>
+    <string name="your_history">Ваша история</string>
+    <string name="try_again">Повторить</string>
+    <string name="go_on_without_copy">Продолжить без копии</string>
+    <string name="node_empty">На вашем узле пока нет копии.</string>
+    <string name="node_refused">Ваш узел не принял копию: %1$s</string>
+    <string name="copy_stopped">Остановлено.</string>
+    <string name="copy_no_seed">На этом устройстве ещё нет личности. Сначала введите 24 слова, затем восстанавливайте.</string>
+    <string name="copy_no_vault">Хранилище устройства сейчас не открылось. Повторите через мгновение.</string>
+    <string name="copy_no_space">На диске не осталось места. Освободите место и повторите.</string>
+    <string name="copy_disk_refused">Диск отказал: %1$s</string>
+    <string name="copy_not_ours">Этот файл — не копия Montana.</string>
+    <string name="copy_version">Эта копия сделана более новой версией Montana.</string>
+    <string name="copy_wrong_words">Эти 24 слова не открывают эту копию: она принадлежит другой фразе.</string>
+    <string name="copy_unopened">Эти 24 слова не открывают этот файл: это копия другой фразы или вовсе не копия Montana.</string>
+    <string name="copy_torn">Эта копия оборвана или повреждена. Всё, что удалось прочитать, сохранено.</string>
 </resources>
