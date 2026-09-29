@@ -72,11 +72,14 @@ class NodePage(private val act: MainActivity, private val onClose: () -> Unit) {
             addView(c.text(c.getString(R.string.your_node_footer), 12f, MT.gray).apply { setPadding(dp(16), dp(8), dp(16), 0) })
             gap(20)
             addView(c.plate {
+                var ready = false   // the switch set to what is stored is not the person's tap
                 val sw = c.toggleRow(c.getString(R.string.node_copies_switch)) { on ->
+                    if (!ready) return@toggleRow
                     MontanaHomeNode.setOn(act, on)
                     if (on) { commit(); act.background { HomeNodeWatch.tick(act, force = false) } }
                 }.apply { setPadding(dp(16), dp(10), dp(16), dp(10)) }
                 (0 until sw.childCount).map { sw.getChildAt(it) }.filterIsInstance<Switch>().firstOrNull()?.isChecked = MontanaHomeNode.on(act)
+                ready = true
                 addView(sw, lp())
                 divider()
                 sendRow = row(R.drawable.ic_arrow_circle_up, MT.green, c.getString(R.string.node_send_now)) { sendNow() }
@@ -88,6 +91,8 @@ class NodePage(private val act: MainActivity, private val onClose: () -> Unit) {
             addView(capsBox, lp())
         }
         view = c.vstack(Gravity.NO_GRAVITY) {
+            setBackgroundColor(Color.BLACK)   // a page over the main screen stands on its own ground
+            isClickable = true                // and takes the touches meant for it
             addView(c.topBar(c.getString(R.string.your_node), onBack = onClose))
             addView(ScrollView(c).apply { addView(list) }, lp(MATCH, 0, 1f))
         }

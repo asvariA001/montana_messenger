@@ -199,19 +199,32 @@ object HomeNodeWatch {
             c.setRequestProperty("content-type", "application/octet-stream")
             c.setRequestProperty("X-Montana-SHA256", digest)
             sending = 0.0; said()
-            c.outputStream.use { out ->
+            // A FRONT THAT STOPS READING MUST NOT HOLD THE PHONE (29.09, diag.montana.quest: nginx refuses a body over
+            // 1 MB with 413 and stops reading; the write then waits forever, the bar at 49%). No byte taken for a
+            // minute → the connection is cut, and the node's own word is read if it gave one.
+            val moved = java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis())
+            val watch = java.util.Timer(true).apply {
+                schedule(object : java.util.TimerTask() {
+                    override fun run() { if (System.currentTimeMillis() - moved.get() > 60_000) { c.disconnect(); cancel() } }
+                }, 5_000, 5_000)
+            }
+            try { c.outputStream.use { out ->
                 f.inputStream().use { inp ->
                     val b = ByteArray(1 shl 16)
                     var sent = 0L
                     var shown = -1
                     while (true) {
                         val n = inp.read(b); if (n < 0) break
-                        out.write(b, 0, n); sent += n
+                        out.write(b, 0, n); sent += n; moved.set(System.currentTimeMillis())
                         val pct = (sent * 100 / maxOf(1L, f.length())).toInt()
                         if (pct != shown) { shown = pct; sending = pct / 100.0; said() }
                     }
                 }
-            }
+            } } catch (e: java.io.IOException) {
+                val said = runCatching { c.responseCode }.getOrDefault(-1)
+                Log.i("Montana", "home_node put cut code=$said ${code(e)}")
+                return done(CopyResult.Refused(Refusal.CloudRefused(if (said > 0) "put $said" else "put ${code(e)}")))
+            } finally { watch.cancel() }
             val code = c.responseCode
             val j = json(c)
             c.disconnect()
