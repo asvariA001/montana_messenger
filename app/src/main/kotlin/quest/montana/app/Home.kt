@@ -489,13 +489,12 @@ private fun searchRow(c: Context): View = FrameLayout(c).apply {
 }
 
 /**
- * THE CHATS PAGE as a new person first sees it (iOS: the list with the local room, and while it holds nothing else the code
- * page stands under it as the last row — MontanaQRCard: «No chats yet» and the code; a tap on the code opens its whole page).
- * No face and no name of one's own here: they stand on the code itself and in the drawer.
+ * THE CHATS PAGE as a new person first sees it: the local room, «No chats yet», and the round «Write» button at the foot
+ * (iOS composeButton) — the one door to the code and the link. No face, no name and no code on the page itself (the author's word).
  */
 private fun chatsPane(act: MainActivity): View {
     val c = act
-    return ScrollView(c).apply {
+    val list = ScrollView(c).apply {
         isVerticalScrollBarEnabled = false
         addView(c.vstack(Gravity.NO_GRAVITY) {
             // The local room: stands in the list from the first moment.
@@ -509,10 +508,20 @@ private fun chatsPane(act: MainActivity): View {
             }, lp())
             addView(View(c).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = dp(82) })
             gap(20)
-            addView(c.text(c.getString(R.string.no_chats), 20f, Color.WHITE, bold = true, center = true), lp())
-            addView(CardView(act) { act.push { cardPage(act, it) } }.view, lp())
+            gap(40)
+            addView(c.text(c.getString(R.string.no_chats), 17f, MT.gray, center = true), lp())
             gap(120)   // the floating player's room at the foot
         })
+    }
+    return FrameLayout(c).apply {
+        addView(list, FrameLayout.LayoutParams(MATCH, MATCH))
+        // «WRITE» (iOS composeButton): the one door to the code and the link — the QR opens here and nowhere else.
+        addView(FrameLayout(c).apply {
+            background = c.glassPlate(oval = true)
+            contentDescription = c.getString(R.string.share)
+            addView(c.icon(R.drawable.ic_compose, barGlyph), FrameLayout.LayoutParams(dp(30), dp(30), Gravity.CENTER))
+            pressable { act.push { cardPage(act, it) } }
+        }, FrameLayout.LayoutParams(dp(60), dp(60), Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, dp(16), dp(36)) })
     }
 }
 
