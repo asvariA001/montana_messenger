@@ -30,16 +30,18 @@ object SelfFace {
     fun load(ctx: Context): Bitmap? = file(ctx).takeIf { it.exists() }?.let { BitmapFactory.decodeFile(it.path) }
     fun clear(ctx: Context) { file(ctx).delete() }
 
-    /** The picked photo, cut to the centre square and kept as a 512-pixel JPEG. */
-    fun set(ctx: Context, uri: Uri): Boolean = try {
-        val src = ImageDecoder.decodeBitmap(ImageDecoder.createSource(ctx.contentResolver, uri)) { d, _, _ ->
+    /** The picked photo, read for the crop: no side past 2048 pixels, so a camera original fits in memory. */
+    fun decode(ctx: Context, uri: Uri): Bitmap? = try {
+        ImageDecoder.decodeBitmap(ImageDecoder.createSource(ctx.contentResolver, uri)) { d, info, _ ->
             d.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+            val big = maxOf(info.size.width, info.size.height)
+            if (big > 2048) d.setTargetSampleSize((big + 2047) / 2048)
         }
-        val side = minOf(src.width, src.height)
-        val square = Bitmap.createBitmap(src, (src.width - side) / 2, (src.height - side) / 2, side, side)
-        val face = Bitmap.createScaledBitmap(square, 512, 512, true)
-        file(ctx).outputStream().use { face.compress(Bitmap.CompressFormat.JPEG, 85, it) }
-        true
+    } catch (e: Exception) { null }
+
+    /** The face the crop rendered (640×640 JPEG) becomes the face. */
+    fun set(ctx: Context, jpeg: ByteArray): Boolean = try {
+        file(ctx).writeBytes(jpeg); true
     } catch (e: Exception) { false }
 }
 
@@ -155,8 +157,14 @@ class Profile(private val act: MainActivity, private val onboarding: Boolean, pr
         }
     }
 
+    /** The system picker, then the crop: the circle decides what the face keeps (iOS: PhotosPicker → MTAvatarCropView). */
     private fun pickFace() = act.pickPhoto { uri ->
-        if (uri != null && SelfFace.set(act, uri)) { refreshFace(); refreshPhotoRow() }
+        val image = uri?.let { SelfFace.decode(act, it) } ?: return@pickPhoto
+        lateinit var close: () -> Unit
+        close = act.overlay(cropPage(act, image) { jpeg ->
+            close()
+            if (jpeg != null && SelfFace.set(act, jpeg)) { refreshFace(); refreshPhotoRow() }
+        })
     }
 
     /** iOS MontanaCallsignPicker: every row of the table, searchable; the choice becomes the name. */

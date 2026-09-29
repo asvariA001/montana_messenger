@@ -108,6 +108,20 @@ class MainActivity : Activity() {
         page.animate().alpha(1f).setDuration(220).start()
     }
 
+    /** A page over the current one, full screen; back or the returned close takes it away. */
+    fun overlay(page: View): () -> Unit {
+        val keepBack = back
+        var open = true
+        val close = { if (open) { open = false; surface.removeView(page); back = keepBack } }
+        page.alpha = 0f
+        // the page's marks stand inside the system bars, as every page's do
+        page.setPadding(root.paddingLeft, root.paddingTop, root.paddingRight, root.paddingBottom)
+        surface.addView(page, FrameLayout.LayoutParams(MATCH, MATCH))
+        page.animate().alpha(1f).setDuration(180).start()
+        back = close
+        return close
+    }
+
     /** The terms over the current page (iOS: a sheet from the doors' footer); back or its mark closes it. */
     fun showTermsSheet() {
         val keepBack = back
