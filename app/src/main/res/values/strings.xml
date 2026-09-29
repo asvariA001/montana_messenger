@@ -235,4 +235,15 @@
     <string name="no_photos">No photos yet</string>
     <string name="no_music">Your music will appear here</string>
     <string name="track_refused">Could not open the track</string>
+    <!-- The card: the QR code and the link (iOS MontanaCodeView, MontanaCardShare) -->
+    <string name="code_caption">This code opens one correspondence with you and nothing else.</string>
+    <string name="card_perm">Permanent</string>
+    <string name="card_temp">Temporary</string>
+    <string name="card_perm_note">The link does not expire: whoever holds it can always write to you.</string>
+    <string name="card_renews">The link renews on %1$s</string>
+    <string name="copy_link">Copy link</string>
+    <string name="link_copied">Link copied</string>
+    <string name="invite_perm">I\'m in Montana! Here is my permanent link:</string>
+    <string name="invite_temp">I\'m in Montana! Here is my temporary link:</string>
+    <string name="card_failed">The link could not be made just now. Try again in a moment.</string>
 </resources>

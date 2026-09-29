@@ -488,37 +488,37 @@ private fun searchRow(c: Context): View = FrameLayout(c).apply {
     }, FrameLayout.LayoutParams(MATCH, dp(40), Gravity.CENTER_VERTICAL).apply { setMargins(dp(19), 0, dp(19), 0) })
 }
 
-/** THE CHATS PAGE as a new person first sees it: the local room, «No chats yet», one's own face and name. */
+/**
+ * THE CHATS PAGE as a new person first sees it (iOS: the list with the local room, and while it holds nothing else the code
+ * page stands under it as the last row — MontanaQRCard: «No chats yet» and the code; a tap on the code opens its whole page).
+ * No face and no name of one's own here: they stand on the code itself and in the drawer.
+ */
 private fun chatsPane(act: MainActivity): View {
     val c = act
-    val name = Prefs.userName
-    return c.vstack(Gravity.NO_GRAVITY) {
-        // The local room: stands in the list from the first moment.
-        addView(c.hstack {
-            setPadding(dp(16), dp(10), dp(16), dp(10))
-            addView(FrameLayout(c).apply {
-                background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(MT.gold) }
-                addView(c.icon(R.drawable.ic_bookmark, Color.WHITE), FrameLayout.LayoutParams(dp(24), dp(24), Gravity.CENTER))
-            }, lp(dp(54), dp(54)).apply { marginEnd = dp(12) })
-            addView(c.text(c.getString(R.string.saved_messages), 17f, Color.WHITE, bold = true))
-        }, lp())
-        addView(View(c).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = dp(82) })
-        gap(20)
-        addView(c.text(c.getString(R.string.no_chats), 20f, Color.WHITE, bold = true, center = true), lp())
-        gap(16)
-        // The person's code page (MontanaCodeView) comes with the network step; the face and name stand here.
-        addView(c.avatar(SelfFace.load(c), name, 96), lp(dp(96), dp(96)).apply { gravity = Gravity.CENTER_HORIZONTAL })
-        gap(10)
-        addView(c.text(name, 18f, MT.gold, bold = true, center = true), lp())
-        spacer()
-        addView(c.text(versionFooter(c), 11f, MT.withAlpha(MT.gray, 0.7f), center = true).apply { setPadding(0, dp(8), 0, dp(8)) }, lp())
+    return ScrollView(c).apply {
+        isVerticalScrollBarEnabled = false
+        addView(c.vstack(Gravity.NO_GRAVITY) {
+            // The local room: stands in the list from the first moment.
+            addView(c.hstack {
+                setPadding(dp(16), dp(10), dp(16), dp(10))
+                addView(FrameLayout(c).apply {
+                    background = android.graphics.drawable.GradientDrawable().apply { shape = android.graphics.drawable.GradientDrawable.OVAL; setColor(MT.gold) }
+                    addView(c.icon(R.drawable.ic_bookmark, Color.WHITE), FrameLayout.LayoutParams(dp(24), dp(24), Gravity.CENTER))
+                }, lp(dp(54), dp(54)).apply { marginEnd = dp(12) })
+                addView(c.text(c.getString(R.string.saved_messages), 17f, Color.WHITE, bold = true))
+            }, lp())
+            addView(View(c).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = dp(82) })
+            gap(20)
+            addView(c.text(c.getString(R.string.no_chats), 20f, Color.WHITE, bold = true, center = true), lp())
+            addView(CardView(act) { act.push { cardPage(act, it) } }.view, lp())
+            gap(120)   // the floating player's room at the foot
+        })
     }
 }
 
 /**
  * THE CONTACTS PAGE (iOS ContactsTab): «No contacts yet» at the centre, and at the bottom right the round glass button with
- * the share glyph. On iOS it hands out one's card (MontanaCardShare: the words and the link); the card is born with the
- * network step, so on Android the button stands in its place and hands out nothing yet.
+ * the share glyph that hands out one's card (MontanaCardShare: the words and the link).
  */
 private fun contactsPane(act: MainActivity): View {
     val c = act
@@ -529,6 +529,7 @@ private fun contactsPane(act: MainActivity): View {
             background = c.glassPlate(oval = true)
             contentDescription = c.getString(R.string.share)
             addView(c.icon(R.drawable.ic_share, barGlyph), FrameLayout.LayoutParams(dp(30), dp(30), Gravity.CENTER))
+            pressable { shareCard(act) }   // the one share of one's card (iOS MontanaCardShare)
         }, FrameLayout.LayoutParams(dp(56), dp(56), Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, dp(16), dp(36)) })
     }
 }

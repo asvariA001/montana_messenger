@@ -234,4 +234,15 @@
     <string name="no_photos">暂无照片</string>
     <string name="no_music">您的音乐将显示在这里</string>
     <string name="track_refused">无法打开曲目</string>
+    <!-- The card: the QR code and the link (iOS MontanaCodeView, MontanaCardShare) -->
+    <string name="code_caption">此码只开启与您的一段通信，别无其他。</string>
+    <string name="card_perm">永久</string>
+    <string name="card_temp">临时</string>
+    <string name="card_perm_note">链接永不过期：持有它的人随时可以给你写信。</string>
+    <string name="card_renews">链接将于 %1$s 更新</string>
+    <string name="copy_link">复制链接</string>
+    <string name="link_copied">链接已复制</string>
+    <string name="invite_perm">我在 Montana！这是我的永久链接：</string>
+    <string name="invite_temp">我在 Montana！这是我的临时链接：</string>
+    <string name="card_failed">暂时无法生成链接，请稍后再试。</string>
 </resources>

@@ -74,7 +74,7 @@ class MainActivity : Activity() {
             else -> mainScreen(this) {
                 // «Forget this device» (iOS: Privacy): the seed and everything of the person leave.
                 MontanaSeed.clear(); Prefs.forgetPerson(); SelfFace.clear(this)
-                MontanaHomeNode.forget(this); MontanaBackup.forget(this)
+                MontanaHomeNode.forget(this); MontanaBackup.forget(this); MontanaCard.forget()
                 MontanaBackupID.withdrawOwn(this)   // this installation's record leaves the account; a twin's stands
                 hasSeed = false; termsAccepted = false
                 render()

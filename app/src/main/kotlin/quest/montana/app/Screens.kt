@@ -29,6 +29,8 @@ object SelfFace {
     private fun file(ctx: Context) = File(ctx.filesDir, "avatar.jpg")
     fun load(ctx: Context): Bitmap? = file(ctx).takeIf { it.exists() }?.let { BitmapFactory.decodeFile(it.path) }
     fun clear(ctx: Context) { file(ctx).delete() }
+    /** The face as it travels (iOS avatarData): the JPEG itself, or null when there is none. */
+    fun bytes(ctx: Context): ByteArray? = file(ctx).takeIf { it.exists() }?.readBytes()
 
     /** The picked photo, read for the crop: no side past 2048 pixels, so a camera original fits in memory. */
     fun decode(ctx: Context, uri: Uri): Bitmap? = try {

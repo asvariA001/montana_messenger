@@ -92,6 +92,25 @@ pub fn archive_ingest(base: &str, chat: &str, hk: &[u8; 32], owner: &[u8; 32], s
     }
 }
 
+/// A card's key: ML-KEM-768 KeyGen from a 64-byte seed, pk[1184] ‖ sk[2400] (mt_mlkem_keypair_from_seed).
+pub fn mlkem_keypair(seed: &[u8; 64]) -> Option<Zeroizing<Vec<u8>>> {
+    let (pk, sk) = mt_crypto::keypair_from_seed_mlkem(seed).ok()?;
+    let mut out = Zeroizing::new(Vec::with_capacity(1184 + 2400));
+    out.extend_from_slice(pk.as_bytes());
+    out.extend_from_slice(sk.as_bytes());
+    Some(out)
+}
+
+/// A blob for the node: nonce ‖ Seal(key, nonce, input, AD=mt-media) (mt_e2e_seal_blob).
+pub fn seal_blob(key: &[u8; 32], nonce: &[u8; 12], input: &[u8]) -> Vec<u8> {
+    mt_messenger_e2e::media::seal_blob(key, nonce, input)
+}
+
+/// The blob opened, or None when the key is not its key (mt_e2e_open_blob).
+pub fn open_blob(key: &[u8; 32], sealed: &[u8]) -> Option<Vec<u8>> {
+    mt_messenger_e2e::media::open_blob(key, sealed)
+}
+
 // ─────────── JNI: class quest.montana.app.MtBindings ───────────
 
 #[cfg(target_os = "android")]
@@ -186,6 +205,38 @@ mod jni_doors {
     }
 
     #[no_mangle]
+    pub extern "system" fn Java_quest_montana_app_MtBindings_nativeMlkemKeypair<'l>(
+        mut env: JNIEnv<'l>, _c: JClass<'l>, seed: JByteArray<'l>,
+    ) -> jbyteArray {
+        let v = match env.convert_byte_array(&seed) { Ok(v) if v.len() == 64 => Zeroizing::new(v), _ => return std::ptr::null_mut() };
+        let mut s = Zeroizing::new([0u8; 64]);
+        s.copy_from_slice(&v);
+        match mlkem_keypair(&s) { Some(k) => bytes(&mut env, &k[..]), None => std::ptr::null_mut() }
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_quest_montana_app_MtBindings_nativeSealBlob<'l>(
+        mut env: JNIEnv<'l>, _c: JClass<'l>, key: JByteArray<'l>, nonce: JByteArray<'l>, input: JByteArray<'l>,
+    ) -> jbyteArray {
+        let (Some(k), Ok(n), Ok(i)) = (key32(&mut env, &key), env.convert_byte_array(&nonce), env.convert_byte_array(&input)) else {
+            return std::ptr::null_mut();
+        };
+        if n.len() != 12 { return std::ptr::null_mut(); }
+        let mut nn = [0u8; 12];
+        nn.copy_from_slice(&n);
+        let out = seal_blob(&k, &nn, &i);
+        bytes(&mut env, &out)
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_quest_montana_app_MtBindings_nativeOpenBlob<'l>(
+        mut env: JNIEnv<'l>, _c: JClass<'l>, key: JByteArray<'l>, sealed: JByteArray<'l>,
+    ) -> jbyteArray {
+        let (Some(k), Ok(s)) = (key32(&mut env, &key), env.convert_byte_array(&sealed)) else { return std::ptr::null_mut() };
+        match open_blob(&k, &s) { Some(p) => bytes(&mut env, &p), None => std::ptr::null_mut() }
+    }
+
+    #[no_mangle]
     pub extern "system" fn Java_quest_montana_app_MtBindings_nativeHistoryKey<'l>(
         mut env: JNIEnv<'l>, _c: JClass<'l>, ent: JByteArray<'l>,
     ) -> jbyteArray {
@@ -231,6 +282,33 @@ mod tests {
     use std::ffi::CString;
 
     fn some_words() -> String { generate().expect("the core draws a phrase").to_string() }
+
+    #[test]
+    fn mlkem_keypair_matches_ios() {
+        let seed: [u8; 64] = core::array::from_fn(|i| (i * 7 + 3) as u8);
+        let mut pk = vec![0u8; 1184];
+        let mut sk = vec![0u8; 2400];
+        assert_eq!(unsafe { ffi_c::mt_mlkem_keypair_from_seed(seed.as_ptr(), pk.as_mut_ptr(), sk.as_mut_ptr()) }, 0);
+        let ours = mlkem_keypair(&seed).unwrap();
+        assert_eq!(&ours[..1184], &pk[..]);
+        assert_eq!(&ours[1184..], &sk[..]);
+    }
+
+    #[test]
+    fn blob_seal_matches_ios_and_opens() {
+        let key = [9u8; 32];
+        let nonce = [4u8; 12];
+        let msg = b"montana card payload";
+        let mut out: *mut u8 = std::ptr::null_mut();
+        let mut len = 0usize;
+        assert_eq!(unsafe { mt_bindings::ffi_e2e::mt_e2e_seal_blob(key.as_ptr(), nonce.as_ptr(), msg.as_ptr(), msg.len(), &mut out, &mut len) }, 0);
+        let theirs = unsafe { std::slice::from_raw_parts(out, len) }.to_vec();
+        unsafe { mt_bindings::ffi_e2e::mt_e2e_free(out, len) };
+        let ours = seal_blob(&key, &nonce, msg);
+        assert_eq!(ours, theirs);
+        assert_eq!(open_blob(&key, &ours).as_deref(), Some(&msg[..]));
+        assert!(open_blob(&[1u8; 32], &ours).is_none());
+    }
 
     #[test]
     fn abi_version_is_the_cores() {

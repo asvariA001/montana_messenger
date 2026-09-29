@@ -31,6 +31,13 @@ object MtBindings {
     /** A sealed block filed into <base>/Chats/<chat>: 1 appended, 0 already held, <0 refused (mt_archive_ingest). */
     @JvmStatic external fun nativeArchiveIngest(base: String, chat: String, hk: ByteArray, owner: ByteArray, sealed: ByteArray): Int
 
+    /** seed[64] → a card's key, pk[1184] ‖ sk[2400] (mt_mlkem_keypair_from_seed). */
+    @JvmStatic external fun nativeMlkemKeypair(seed: ByteArray): ByteArray?
+    /** key[32], nonce[12], input → nonce ‖ sealed, the node's blob (mt_e2e_seal_blob). */
+    @JvmStatic external fun nativeSealBlob(key: ByteArray, nonce: ByteArray, input: ByteArray): ByteArray?
+    /** key[32], a sealed blob → its bytes, or null when the key is not its key (mt_e2e_open_blob). */
+    @JvmStatic external fun nativeOpenBlob(key: ByteArray, sealed: ByteArray): ByteArray?
+
     const val PUBKEY = 1952
     const val SECKEY = 4032
 }

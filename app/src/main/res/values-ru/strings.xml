@@ -234,4 +234,15 @@
     <string name="no_photos">Фото пока нет</string>
     <string name="no_music">Здесь появится ваша музыка</string>
     <string name="track_refused">Не удалось открыть трек</string>
+    <!-- The card: the QR code and the link (iOS MontanaCodeView, MontanaCardShare) -->
+    <string name="code_caption">Этот код открывает одну переписку с вами и ничего больше.</string>
+    <string name="card_perm">Постоянная</string>
+    <string name="card_temp">Временная</string>
+    <string name="card_perm_note">Ссылка не истекает: тот, у кого она есть, всегда сможет вам написать.</string>
+    <string name="card_renews">Ссылка обновится %1$s</string>
+    <string name="copy_link">Скопировать ссылку</string>
+    <string name="link_copied">Ссылка скопирована</string>
+    <string name="invite_perm">Я в Монтане! Вот моя постоянная ссылка:</string>
+    <string name="invite_temp">Я в Монтане! Вот моя временная ссылка:</string>
+    <string name="card_failed">Ссылку сейчас не удалось создать. Попробуйте ещё раз чуть позже.</string>
 </resources>
