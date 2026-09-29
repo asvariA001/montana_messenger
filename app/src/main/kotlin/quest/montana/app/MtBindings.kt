@@ -1,28 +1,26 @@
 package quest.montana.app
 
 /**
- * The Montana core (Rust, mt-bindings) — the one source of every derivation. Nothing here is
+ * The Montana core (Rust) — the one source of every derivation. Nothing here is
  * computed in Kotlin: the same words open the same keys on iOS and on Android because both
  * call the same code.
  *
- * The first group is the core's own JNI surface (mt-bindings/src/ffi_jni.rs); the second is
- * native/montana-jni, which hands Kotlin the C functions the iOS client calls directly.
+ * Every function is a door of native/montana-jni: the same composition of the core's crates as
+ * its iOS twin in mt-bindings/src/ffi_c.rs, proven equal by that crate's tests. There is no door
+ * that turns entropy handed in by the app into a phrase: a person is born by the core alone.
  */
 object MtBindings {
     init { System.loadLibrary("montana") }
 
-    // mt-bindings/src/ffi_jni.rs
     @JvmStatic external fun nativeAbiVersion(): Int
     @JvmStatic external fun nativeGenerateMnemonic(): String?
     @JvmStatic external fun nativeMnemonicToMasterSeed(mnemonic: String): ByteArray?
     @JvmStatic external fun nativeMnemonicToEntropy(mnemonic: String): ByteArray?
-    /** 24 words → pk[1952] ‖ sk[4032] ‖ account_id[32]; the keys equal iOS mt_seed_keys. */
-    @JvmStatic external fun nativeAccountFromMnemonic(mnemonic: String): ByteArray?
+    /** 24 words → pk[1952] ‖ sk[4032]: the iOS door mt_seed_keys. */
+    @JvmStatic external fun nativeSeedKeys(mnemonic: String): ByteArray?
 
-    // native/montana-jni
     /** master_seed[64] + role → 32 bytes: the core's mt_mldsa_seed_for_role. */
     @JvmStatic external fun nativeRoleSeed(master: ByteArray, role: String): ByteArray?
-    @JvmStatic external fun nativeCAbiVersion(): Int
 
     const val PUBKEY = 1952
     const val SECKEY = 4032

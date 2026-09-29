@@ -71,7 +71,7 @@ class SeedKeys(val mnemonic: String, val pubkey: ByteArray, val seckey: ByteArra
     companion object {
         /** 24 words → keys, through the core; null for words the core refuses. */
         fun from(mnemonic: String): SeedKeys? {
-            val b = MtBindings.nativeAccountFromMnemonic(mnemonic) ?: return null
+            val b = MtBindings.nativeSeedKeys(mnemonic) ?: return null
             if (b.size < MtBindings.PUBKEY + MtBindings.SECKEY) return null
             val pk = b.copyOfRange(0, MtBindings.PUBKEY)
             val sk = b.copyOfRange(MtBindings.PUBKEY, MtBindings.PUBKEY + MtBindings.SECKEY)

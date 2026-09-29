@@ -527,7 +527,10 @@ version = "0.1.0"
 dependencies = [
  "jni",
  "mt-bindings",
+ "mt-codec",
+ "mt-crypto",
  "mt-mnemonic",
+ "zeroize",
 ]
 
 [[package]]

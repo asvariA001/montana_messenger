@@ -3,20 +3,26 @@ name = "montana-jni"
 version = "0.1.0"
 edition = "2021"
 publish = false
-description = "Android library: the Montana core (mt-bindings, unchanged) plus the few JNI doors the iOS client reaches through the C ABI."
+description = "Android library: the Montana core's own crates (unchanged) behind the few JNI doors the client path needs."
 
 [lib]
-name = "montana"               # System.loadLibrary("montana"): the core plus our JNI doors, one library
-crate-type = ["cdylib"]
+name = "montana"               # System.loadLibrary("montana")
+crate-type = ["cdylib", "rlib"]
 
+# The core's crates, the same ones mt-bindings/src/ffi_c.rs (the iOS door) calls. mt-bindings itself
+# is not linked: its Android file (ffi_jni.rs) still reaches mt_mnemonic::entropy_to_mnemonic, a door
+# the core closed (a phrase made from entropy an app hands in). Linking the crates directly keeps that
+# door out of this library entirely — see docs/core-note-entropy-to-mnemonic.md.
 [dependencies]
+mt-mnemonic = { path = "../../../Montana Protocol/Code/crates/mt-mnemonic" }
+mt-crypto   = { path = "../../../Montana Protocol/Code/crates/mt-crypto" }
+mt-codec    = { path = "../../../Montana Protocol/Code/crates/mt-codec" }
+zeroize     = { version = "=1.8.1", default-features = false }
+jni         = { version = "0.21", default-features = false }
+
+# The proof that every door here answers exactly as the iOS door does: tests on the Mac call both.
+[dev-dependencies]
 mt-bindings = { path = "../../../Montana Protocol/Code/crates/mt-bindings" }
-jni = { version = "0.21", default-features = false }
-# The core's Android file (mt-bindings/src/ffi_jni.rs) still names mt_mnemonic::entropy_to_mnemonic,
-# which the core has since moved behind the test feature `vectors` (the root is drawn by the core,
-# never handed in by an app). The feature is enabled only so that file compiles; Kotlin never
-# declares nativeEntropyToMnemonic — a person is born by nativeGenerateMnemonic alone, as on iOS.
-mt-mnemonic = { path = "../../../Montana Protocol/Code/crates/mt-mnemonic", features = ["vectors"] }
 
 [profile.release]
 # the core workspace's own release profile
