@@ -41,6 +41,9 @@ object MontanaBackupID {
 
     fun on(c: Context) = prefs(c).getBoolean(SWITCH, true)
 
+    /** The switch on the Privacy page (iOS MontanaAppleID.set(on:)): the system is told, and the agent writes or leaves out the words. */
+    fun setOn(c: Context, v: Boolean) { prefs(c).edit().putBoolean(SWITCH, v).commit(); publish(c) }
+
     /** The name of this installation's record: drawn once, never in a copy, so a reinstall writes a new one. */
     fun ownRecord(c: Context): String {
         val p = prefs(c)

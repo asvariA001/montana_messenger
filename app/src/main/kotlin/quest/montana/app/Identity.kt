@@ -205,6 +205,8 @@ object Prefs {
     fun setStr(key: String, v: String) { p.edit().putString(key, v).apply() }
     fun dbl(key: String, def: Double): Double = if (p.contains(key)) p.getFloat(key, def.toFloat()).toDouble() else def
     fun setDbl(key: String, v: Double) { p.edit().putFloat(key, v.toFloat()).apply() }
+    fun bool(key: String, def: Boolean): Boolean = p.getBoolean(key, def)
+    fun setBool(key: String, v: Boolean) { p.edit().putBoolean(key, v).apply() }
     fun remove(vararg keys: String) { p.edit().apply { keys.forEach { remove(it) } }.apply() }
 
     fun forgetPerson() { p.edit().clear().commit() }

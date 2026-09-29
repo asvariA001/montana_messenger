@@ -17,7 +17,7 @@ import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.PopupMenu
+import android.widget.ScrollView
 
 // ─────────────────────────── the main screen (iOS ChatsListView and its panes) ───────────────────────────
 
@@ -123,36 +123,130 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
         on.alpha = 0f; on.visibility = View.VISIBLE
         on.animate().alpha(1f).setDuration(200).start()   // iOS .easeInOut(duration: 0.2)
     }
-    bar = HomeBar(act, onDrawer = { anchor -> drawerMenu(act, anchor, onForget) }, onPane = ::choose)
+    val shell = DrawerShell(act)
+    bar = HomeBar(act, onDrawer = { shell.open() }, onPane = ::choose)
     contacts.visibility = View.GONE
     bar.movePuck(HomeBar.CHATS, animated = false)
-    return c.vstack(Gravity.NO_GRAVITY) {
+    shell.page.addView(c.vstack(Gravity.NO_GRAVITY) {
         addView(bar, lp(MATCH, dp(60)).apply { setMargins(dp(12), dp(4), dp(12), dp(2)) })
         addView(searchRow(c), lp(MATCH, dp(56)))
         addView(panes, lp(MATCH, 0, 1f))
+    }, 1, FrameLayout.LayoutParams(MATCH, MATCH))
+    shell.drawer.addView(sideDrawer(act,
+        onPane = { p -> shell.close { choose(p) } },
+        onProfile = { shell.close { act.showProfile() } },
+        onSettings = { shell.close { act.push { settingsRoot(act, onForget, it) } } }), FrameLayout.LayoutParams(MATCH, MATCH))
+    return shell
+}
+
+/**
+ * THE DRAWER LIES UNDER THE PAGE (iOS MontanaDrawerHost): the page slides right by the drawer's width — 0.78 of the screen —
+ * and dims; a tap on the dimmed page or the system's back closes it. iOS also opens it by a drag from the screen's left
+ * edge; on Android that edge belongs to the system's back gesture, so the grid glyph is the one road in.
+ */
+class DrawerShell(private val act: MainActivity) : FrameLayout(act) {
+    val drawer = FrameLayout(act)
+    val page = FrameLayout(act)
+    private val dim = View(act).apply { setBackgroundColor(Color.BLACK); alpha = 0f; visibility = View.GONE }
+    private var isOpen = false
+    private var keepBack: (() -> Unit)? = null
+
+    init {
+        drawer.addView(CrestGround(act), LayoutParams(MATCH, MATCH))   // the drawer's own ground (iOS montanaPageGround(still: true))
+        page.addView(CrestGround(act), LayoutParams(MATCH, MATCH))     // the page carries its ground as it slides
+        page.addView(dim, LayoutParams(MATCH, MATCH))
+        dim.setOnClickListener { close() }
+        addView(drawer, LayoutParams(0, MATCH))
+        addView(page, LayoutParams(MATCH, MATCH))
+        drawer.visibility = View.INVISIBLE
+    }
+
+    private val width78 get() = Math.round(width * 0.78f)
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        post { drawer.layoutParams = LayoutParams(Math.round(w * 0.78f), MATCH) }
+    }
+
+    fun open() {
+        if (isOpen) return
+        isOpen = true
+        dim.bringToFront()
+        drawer.visibility = View.VISIBLE
+        dim.visibility = View.VISIBLE
+        page.animate().translationX(width78.toFloat()).setDuration(320).setInterpolator(android.view.animation.DecelerateInterpolator(1.6f)).start()
+        dim.animate().alpha(0.35f).setDuration(320).start()
+        keepBack = act.back
+        act.back = { close() }
+    }
+
+    /** Closes, and does what the drawer's row asked once the page is home (iOS leave(then:)). */
+    fun close(then: () -> Unit = {}) {
+        if (!isOpen) { then(); return }
+        isOpen = false
+        act.back = keepBack
+        dim.animate().alpha(0f).setDuration(280).start()
+        page.animate().translationX(0f).setDuration(280).setInterpolator(android.view.animation.DecelerateInterpolator(1.6f)).withEndAction {
+            dim.visibility = View.GONE
+            drawer.visibility = View.INVISIBLE
+            then()
+        }.start()
     }
 }
 
 /**
- * THE SIDE DRAWER'S PLACE (iOS: the grid glyph opens the drawer, and my page, the settings and the rest live there).
- * Android has no drawer yet: the glyph opens the platform's own menu with what Android already holds.
+ * THE SIDE DRAWER (iOS MontanaSideDrawer, the 1949 list): my face with its name at the head, then every application as a
+ * row — the white glyph, the bold word — and «Settings» pressed to the foot with the build's number under it. The rows of
+ * pages Android does not have yet stand in their places, quieter, and take no tap. The outer service and the plus of a
+ * second login are iOS's multi-login, which Android does not have.
  */
-private fun drawerMenu(act: MainActivity, anchor: View, onForget: () -> Unit) {
-    PopupMenu(act, anchor).apply {
-        menu.add(0, 1, 0, R.string.my_profile)
-        menu.add(0, 4, 1, R.string.appearance)
-        menu.add(0, 3, 2, R.string.your_node)
-        menu.add(0, 2, 3, R.string.forget_device)
-        setOnMenuItemClickListener {
-            if (it.itemId == 1) act.showProfile()
-            else if (it.itemId == 4) { lateinit var close: () -> Unit; close = act.overlay(AppearancePage(act) { close() }.view) }
-            else if (it.itemId == 3) { lateinit var close: () -> Unit; close = act.overlay(NodePage(act) { close() }.view) }
-            else AlertDialog.Builder(act).setTitle(R.string.forget_device)
-                .setPositiveButton(R.string.forget_device) { _, _ -> onForget() }
-                .setNegativeButton(R.string.back, null).show()
-            true
-        }
-        show()
+private fun sideDrawer(act: MainActivity, onPane: (Pane) -> Unit, onProfile: () -> Unit, onSettings: () -> Unit): View {
+    val c: Context = act
+    fun row(icon: View, word: Int, onTap: (() -> Unit)?) = c.hstack {
+        setPadding(0, dp(16), 0, dp(16))
+        addView(icon, lp(dp(30), dp(30)))
+        gap(22)
+        addView(c.text(c.getString(word), 22f, Color.WHITE, bold = true).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))
+        if (onTap != null) pressable(onTap) else alpha = 0.35f
+    }
+    fun glyph(res: Int) = c.icon(res, Color.WHITE, 30)
+    // THE FEED'S WHITE MARK (iOS MTFeedMark): the logo drawn white inside a thin white ring.
+    fun feedMark() = FrameLayout(c).apply {
+        background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setStroke(dp(1.6f), Color.WHITE) }
+        addView(c.icon(R.drawable.logo, Color.WHITE), FrameLayout.LayoutParams(MATCH, MATCH).apply { setMargins(dp(6), dp(6), dp(6), dp(6)) })
+        setPadding(dp(2), dp(2), dp(2), dp(2))
+    }
+    val name = Prefs.userName.trim()
+    val face = c.vstack {
+        addView(c.avatar(SelfFace.load(c), name, 48).apply {
+            foreground = GradientDrawable().apply { shape = GradientDrawable.OVAL; setStroke(dp(3), MT.blue) }   // the ring of the shown shell
+        }, lp(dp(48), dp(48)))
+        if (name.isNotEmpty()) addView(c.text(name, 12f, Color.WHITE, center = true).apply { maxLines = 2 }, lp(dp(88), WRAP).apply { topMargin = dp(6) })   // USER-DATA: the person's own name
+        pressable(onProfile)
+    }
+    val column = c.vstack(Gravity.NO_GRAVITY) {
+        setPadding(dp(24), dp(20), dp(16), 0)
+        addView(face, lp(dp(88), WRAP).apply { marginStart = -dp(20) })
+        gap(14)
+        addView(row(glyph(R.drawable.ic_bar_contacts), R.string.contacts) { onPane(Pane.CONTACTS) }, lp())
+        addView(row(glyph(R.drawable.ic_bar_calls), R.string.app_calls, null), lp())
+        addView(row(feedMark(), R.string.app_feed, null), lp())
+        addView(row(glyph(R.drawable.ic_bar_chats), R.string.chats) { onPane(Pane.CHATS) }, lp())
+        addView(row(glyph(R.drawable.ic_bar_play), R.string.app_music, null), lp())
+        addView(row(glyph(R.drawable.ic_app_gallery), R.string.app_gallery, null), lp())
+        addView(row(android.widget.ImageView(c).apply { setImageResource(R.drawable.chess_knight) }, R.string.app_chess, null), lp())
+        addView(row(glyph(R.drawable.ic_app_wallet), R.string.app_wallet, null), lp())
+        addView(row(glyph(R.drawable.ic_language), R.string.app_network, null), lp())
+        addView(row(glyph(R.drawable.ic_app_card), R.string.app_card, null), lp())
+        spacer()
+        addView(row(glyph(R.drawable.ic_settings), R.string.settings, onSettings), lp())
+        addView(c.text(versionFooter(c), 11f, MT.gray).apply { setPadding(dp(52), 0, 0, dp(8)) }, lp())   // USER-DATA: the build's own number
+    }
+    return ScrollView(c).apply {
+        isFillViewport = true
+        isVerticalScrollBarEnabled = false
+        overScrollMode = View.OVER_SCROLL_NEVER
+        addView(column)
     }
 }
 

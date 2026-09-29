@@ -172,14 +172,33 @@ class MainActivity : Activity() {
         @Suppress("DEPRECATION") startActivityForResult(intent, PICK_PHOTO)
     }
 
+    // ── the system's document picker: a backup handed to a place the person picks, and taken back from a file ──
+    private var docDone: ((Uri?) -> Unit)? = null
+    fun saveDocument(name: String, done: (Uri?) -> Unit) {
+        docDone = done
+        @Suppress("DEPRECATION") startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+            .setType("application/octet-stream").putExtra(Intent.EXTRA_TITLE, name), DOCUMENT)
+    }
+    fun openDocument(done: (Uri?) -> Unit) {
+        docDone = done
+        @Suppress("DEPRECATION") startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+            .setType("*/*"), DOCUMENT)
+    }
+
     @Deprecated("the platform's own result road")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         @Suppress("DEPRECATION") super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == PICK_PHOTO) {
             photoDone?.invoke(if (resultCode == RESULT_OK) data?.data else null)
             photoDone = null
+        } else if (requestCode == DOCUMENT) {
+            docDone?.invoke(if (resultCode == RESULT_OK) data?.data else null)
+            docDone = null
         }
     }
 
-    private companion object { const val PICK_PHOTO = 1; const val ASK_NOTIFY = 2 }
+    /** The app's own language before Android 13 (from 13 the system keeps it: AppLanguage). */
+    override fun attachBaseContext(base: android.content.Context) = super.attachBaseContext(AppLanguage.wrap(base))
+
+    private companion object { const val PICK_PHOTO = 1; const val ASK_NOTIFY = 2; const val DOCUMENT = 3 }
 }
