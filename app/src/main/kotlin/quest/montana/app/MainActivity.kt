@@ -74,11 +74,13 @@ class MainActivity : Activity() {
             else -> mainScreen(this) {
                 // «Forget this device» (iOS: Privacy): the seed and everything of the person leave.
                 MontanaSeed.clear(); Prefs.forgetPerson(); SelfFace.clear(this)
+                MontanaBackupID.withdrawOwn(this)   // this installation's record leaves the account; a twin's stands
                 hasSeed = false; termsAccepted = false
                 render()
             }
         }
         show(page)
+        if (hasSeed) MontanaBackupID.publish(this)   // the account carries this device's words (iOS publish)
         if (hasSeed && termsAccepted && !showWelcome) askWhatIsUnasked()
     }
 

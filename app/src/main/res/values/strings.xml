@@ -70,4 +70,9 @@
     <string name="continue_with">Continue with %1$s</string>
     <string name="sign_in_footer">By continuing, you agree to the [Terms of Use](montana://terms) and [Privacy Policy](montana://privacy).</string>
     <string name="outer_not_yet">Signing in with %1$s is coming to Montana for Android in a later version.</string>
+
+    <string name="continue_backup">Continue from your backup</string>
+    <string name="which_identity">Which identity?</string>
+    <string name="backup_many">Your backup carries more than one identity of Montana. Choose the one to open on this phone.</string>
+    <string name="opening_identity">Opening your identity…</string>
 </resources>

@@ -69,4 +69,9 @@
     <string name="continue_with">使用 %1$s 继续</string>
     <string name="sign_in_footer">继续即表示您同意[使用条款](montana://terms)和[隐私政策](montana://privacy)。</string>
     <string name="outer_not_yet">通过 %1$s 登录将在后续版本的 Montana Android 中推出。</string>
+
+    <string name="continue_backup">从备份继续</string>
+    <string name="which_identity">打开哪个身份？</string>
+    <string name="backup_many">您的备份中保存了多个 Montana 身份。请选择要在此手机上打开的身份。</string>
+    <string name="opening_identity">正在打开您的身份…</string>
 </resources>

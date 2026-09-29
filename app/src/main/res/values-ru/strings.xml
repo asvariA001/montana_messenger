@@ -69,4 +69,9 @@
     <string name="continue_with">Продолжить с %1$s</string>
     <string name="sign_in_footer">Продолжая, вы соглашаетесь с [Условиями использования](montana://terms) и [Политикой конфиденциальности](montana://privacy).</string>
     <string name="outer_not_yet">Вход через %1$s появится в Montana для Android в одной из следующих версий.</string>
+
+    <string name="continue_backup">Продолжить из резервной копии</string>
+    <string name="which_identity">Какую личность открыть?</string>
+    <string name="backup_many">В резервной копии хранится несколько личностей Montana. Выберите ту, которую открыть на этом телефоне.</string>
+    <string name="opening_identity">Открываем вашу личность…</string>
 </resources>

@@ -83,6 +83,15 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
             privRow(R.drawable.ic_hub, R.string.priv_servers_title, R.string.priv_servers_sub)
         })
         spacer()
+        // THE ACCOUNT ALREADY HOLDS A SEED (iOS 28.09): the first act on a new phone of the same account is to go on as
+        // that person. More than one seed — the person chooses; nothing opens by the order of writing.
+        val carried = MontanaBackupID.held()
+        if (carried.isNotEmpty()) {
+            addView(GoldButton(c, c.getString(R.string.continue_backup)) {
+                if (carried.size == 1) openCarried(carried[0].words) else chooseCarried(carried)
+            }, lp())
+            gap(18)
+        }
         lateinit var create: GoldButton
         create = GoldButton(c, c.getString(R.string.create)) { createSeed(create) }
         addView(create, lp())
@@ -91,6 +100,27 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
         gap(18)
         addView(c.text(versionFooter(c), 11f, MT.withAlpha(MT.gray, 0.7f), center = true))
         addView(c.backLink { montanaRoad = false; go(0) })
+    }
+
+    private fun chooseCarried(all: List<MontanaBackupID.Carried>) {
+        // USER-DATA: the moment a record was written, and how many devices wrote it
+        val fmt = java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM, java.text.DateFormat.SHORT)
+        val lines = all.map { fmt.format(java.util.Date(it.at)) + if (it.devices > 1) " · ×${it.devices}" else "" }
+        android.app.AlertDialog.Builder(act)
+            .setTitle(R.string.which_identity)
+            .setItems(lines.toTypedArray()) { _, i -> openCarried(all[i].words) }
+            .show()
+    }
+
+    /** The seed the account carries opens this phone (iOS openCarried); the copy of the history comes with the network. */
+    private fun openCarried(words: String) {
+        if (creating) return
+        creating = true
+        act.background {
+            val keys = SeedKeys.from(words)
+            val stored = keys != null && MontanaSeed.enter(keys)
+            act.onMain { creating = false; if (stored) onDone() else go(0) }
+        }
     }
 
     // ── 0: the doors (the author's design, iOS 29.09) ──
