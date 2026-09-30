@@ -247,8 +247,8 @@ class DrawerShell(private val act: MainActivity) : FrameLayout(act) {
     private var keepBack: (() -> Unit)? = null
 
     init {
-        drawer.addView(act.chatGround(ChatWall.PAGE), LayoutParams(MATCH, MATCH))   // the drawer's own ground (iOS montanaPageGround(still: true))
-        page.addView(act.chatGround(ChatWall.PAGE), LayoutParams(MATCH, MATCH))     // the page carries its ground as it slides
+        drawer.addView(CrestGround(act), LayoutParams(MATCH, MATCH))   // the drawer's own ground (iOS montanaPageGround(still: true))
+        page.addView(CrestGround(act), LayoutParams(MATCH, MATCH))     // the page carries its ground as it slides
         page.addView(dim, LayoutParams(MATCH, MATCH))
         dim.setOnClickListener { close() }
         addView(drawer, LayoutParams(0, MATCH))
