@@ -170,6 +170,16 @@ object Presence {
 
     private fun seenAt(ref: String) = Prefs.str("seenAt.$ref", "0").toLongOrNull() ?: 0L
 
+    /** THE MOMENT BEHIND THE LINE, as a number to sort by (iOS presenceStamp): a live word above every stamp, «gone» at the bottom. */
+    fun stamp(ref: String): Long {
+        val now = System.currentTimeMillis()
+        if ((typingUntil[ref] ?: 0) > now) return now + 3
+        if ((inChatUntil[ref] ?: 0) > now) return now + 2
+        if ((onlineUntil[ref] ?: 0) > now) return now + 1
+        if (Prefs.bool("peerGone.$ref", false)) return 1
+        return seenAt(ref)
+    }
+
     /** The one presence line (iOS presenceWord): the words and whether they are live (green). null — nothing is known. */
     fun word(c: Context, ref: String): Pair<String, Boolean>? {
         val now = System.currentTimeMillis()

@@ -19,6 +19,8 @@ object ChatMarks {
     private val muted = mutableSetOf<String>()
     private val archived = mutableSetOf<String>()
     private val forcedUnread = mutableSetOf<String>()
+    private val contactPins = mutableListOf<String>()      // the contacts page's own pins (iOS pinnedContacts)
+    private val contactArchive = mutableSetOf<String>()    // the contacts page's own archive (iOS archivedContacts)
     private val listeners = mutableListOf<() -> Unit>()
 
     fun listen(l: () -> Unit) { synchronized(listeners) { listeners.add(l) } }
@@ -30,11 +32,13 @@ object ChatMarks {
         val o = DeviceVault.get(KEY)?.toString(Charsets.UTF_8)?.let { runCatching { JSONObject(it) }.getOrNull() } ?: return
         fun read(name: String, into: MutableCollection<String>) = o.optJSONArray(name)?.let { a -> for (i in 0 until a.length()) into.add(a.getString(i)) }
         read("pin", pinned); read("mute", muted); read("arch", archived); read("unread", forcedUnread)
+        read("cpin", contactPins); read("carch", contactArchive)
     }
 
     private fun save() {
         val o = JSONObject().put("pin", JSONArray(pinned)).put("mute", JSONArray(muted))
             .put("arch", JSONArray(archived)).put("unread", JSONArray(forcedUnread))
+            .put("cpin", JSONArray(contactPins)).put("carch", JSONArray(contactArchive))
         DeviceVault.set(KEY, o.toString().toByteArray(Charsets.UTF_8))
     }
 
@@ -85,6 +89,15 @@ object ChatMarks {
     /** The chat opened: the hand mark has done its work (iOS: the mark yields to reading). */
     fun opened(ref: String) { if (handMark(ref)) change { forcedUnread.remove(ref) } }
 
+    // ── the contacts page's own marks (iOS togglePinContact / toggleArchiveContact): apart from the chats' ──
+    fun isContactPinned(ref: String) = synchronized(lock) { ensure(); ref in contactPins }
+    fun isContactArchived(ref: String) = synchronized(lock) { ensure(); ref in contactArchive }
+    fun contactArchiveCount() = synchronized(lock) { ensure(); contactArchive.size }
+    fun toggleContactPin(ref: String) = change { if (!contactPins.remove(ref)) contactPins.add(0, ref) }
+    fun toggleContactArchive(ref: String) = change { if (!contactArchive.remove(ref)) contactArchive.add(ref) }
+
     /** A chat forgotten leaves no mark behind. */
-    fun forget(ref: String) = change { pinned.remove(ref); muted.remove(ref); archived.remove(ref); forcedUnread.remove(ref) }
+    fun forget(ref: String) = change {
+        pinned.remove(ref); muted.remove(ref); archived.remove(ref); forcedUnread.remove(ref); contactPins.remove(ref); contactArchive.remove(ref)
+    }
 }

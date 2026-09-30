@@ -38,4 +38,17 @@
     <string name="ld_forward_to">Forward to…</string>
     <string name="ld_forwarded">↪︎ Forwarded message</string>
     <string name="ld_select">Select</string>
+    <!-- the contacts page (iOS ContactsTabView: the menu about a person) -->
+    <string name="ct_write">Write</string>
+    <string name="ct_profile">Profile</string>
+    <!-- the deletion of a chat, for both or for me (iOS MontanaDeleteChatSheet) -->
+    <string name="dl_q">Permanently delete the chat with %1$s?</string>
+    <string name="dl_both">Delete for me and them</string>
+    <string name="dl_mine">Delete for me only</string>
+    <!-- the document page (iOS DocPreview) -->
+    <string name="dv_missing">The file is not on this device. Ask the sender to send it again.</string>
+    <!-- my page's ground (iOS MTWallpaperPicker task .page) -->
+    <string name="pg_change">Change page background</string>
+    <string name="pg_title">Page background</string>
+    <string name="pg_none">No background</string>
 </resources>

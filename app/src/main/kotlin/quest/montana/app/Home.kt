@@ -247,8 +247,8 @@ class DrawerShell(private val act: MainActivity) : FrameLayout(act) {
     private var keepBack: (() -> Unit)? = null
 
     init {
-        drawer.addView(CrestGround(act), LayoutParams(MATCH, MATCH))   // the drawer's own ground (iOS montanaPageGround(still: true))
-        page.addView(CrestGround(act), LayoutParams(MATCH, MATCH))     // the page carries its ground as it slides
+        drawer.addView(act.chatGround(ChatWall.PAGE), LayoutParams(MATCH, MATCH))   // the drawer's own ground (iOS montanaPageGround(still: true))
+        page.addView(act.chatGround(ChatWall.PAGE), LayoutParams(MATCH, MATCH))     // the page carries its ground as it slides
         page.addView(dim, LayoutParams(MATCH, MATCH))
         dim.setOnClickListener { close() }
         addView(drawer, LayoutParams(0, MATCH))
@@ -715,14 +715,14 @@ private fun chatsPane(act: MainActivity): View {
 }
 
 /**
- * THE CONTACTS PAGE (iOS ContactsTab): «No contacts yet» at the centre, and at the bottom right the round glass button with
+ * THE CONTACTS PAGE (iOS ContactsTabView): the people (Contacts.kt), and at the bottom right the round glass button with
  * the share glyph that hands out one's card (MontanaCardShare: the words and the link).
  */
 private fun contactsPane(act: MainActivity): View {
     val c = act
     return FrameLayout(c).apply {
-        addView(c.text(c.getString(R.string.no_contacts), 17f, MT.gray, center = true),
-            FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
+        // THE PEOPLE (iOS ContactsTabView): pins, then presence, then name; «No contacts yet» while there are none (Contacts.kt)
+        addView(contactsList(act), FrameLayout.LayoutParams(MATCH, MATCH))
         addView(FrameLayout(c).apply {
             background = c.glassPlate(oval = true)
             contentDescription = c.getString(R.string.share)

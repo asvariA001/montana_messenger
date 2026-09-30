@@ -36,4 +36,17 @@
     <string name="ld_forward_to">转发到…</string>
     <string name="ld_forwarded">↪︎ 转发的消息</string>
     <string name="ld_select">选择</string>
+    <!-- the contacts page (iOS ContactsTabView: the menu about a person) -->
+    <string name="ct_write">发消息</string>
+    <string name="ct_profile">个人资料</string>
+    <!-- the deletion of a chat, for both or for me (iOS MontanaDeleteChatSheet) -->
+    <string name="dl_q">永久删除与 %1$s 的聊天？</string>
+    <string name="dl_both">为双方删除</string>
+    <string name="dl_mine">仅删除我这边</string>
+    <!-- the document page (iOS DocPreview) -->
+    <string name="dv_missing">此设备上没有该文件。请让对方重新发送。</string>
+    <!-- my page's ground (iOS MTWallpaperPicker task .page) -->
+    <string name="pg_change">更改主页背景</string>
+    <string name="pg_title">主页背景</string>
+    <string name="pg_none">无背景</string>
 </resources>

@@ -653,6 +653,8 @@ object Post {
             }
             // THEIR PIN OR UNPIN OF A LETTER (iOS pinMark → applyPinFromControl): silent, the plate follows
             text.startsWith(PIN_MARK) -> applyPin(ref, text.removePrefix(PIN_MARK))
+            // THE CONVERSATION WIPED AT BOTH (iOS convDelMark): the receipt settles their queue, then it is buried here too
+            text.startsWith(CONVDEL_MARK) -> { receipt(ref, sid); buryChat(ref) }
             text.startsWith(Marks.NAME) -> {
                 val n = text.removePrefix(Marks.NAME).trim()
                 if (n.isNotEmpty() && n.length <= 64) Book.edit(ref) { it.name = n }

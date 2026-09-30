@@ -31,13 +31,31 @@ class ChatSelection(val onChange: (ChatSelection) -> Unit) {
     fun end() { on = false; chosen.clear(); onChange(this) }
 }
 
+/** THE FUNERAL'S WORD ON THE WIRE (iOS convDelMark): silent; the other side erases the conversation too. */
+const val CONVDEL_MARK = "\u2063mtconvdel:"
+
 /**
- * THE DELETION ASKED ONCE: the chat and its marks leave this device (the correspondent's side is untouched; iOS
- * deleteChat(forBoth: false)).
+ * THE CONVERSATION LEAVES THIS DEVICE (iOS removeConversationLocally): its marks and its book. A word still queued for it (the
+ * funeral, the funeral's receipt) is knocked out first — the pipe's secret must outlive the last word it carries.
+ */
+fun buryChat(ref: String) = Thread { Post.flush(); ChatMarks.forget(ref); Book.forget(ref) }.start()
+
+/** Deleted at both (iOS deleteChat forBoth): the funeral leaves by the pipe, then the chat is buried here. */
+fun deleteForBoth(ref: String) { Post.send(ref, Marks.mintMid(), CONVDEL_MARK); buryChat(ref) }
+
+/**
+ * THE DELETION ASKED ONCE (iOS MontanaDeleteChatSheet): «Permanently delete the chat with …?» — for me and them, when a pipe
+ * still stands; for me only. The correspondent's side is erased only by the first.
  */
 fun askDeleteChat(act: MainActivity, ref: String, done: () -> Unit = {}) {
-    AlertDialog.Builder(act).setMessage(R.string.delete_chat_q)
-        .setPositiveButton(R.string.delete) { _, _ -> ChatMarks.forget(ref); Book.forget(ref); done() }
+    val name = Book.chat(ref)?.shown?.ifBlank { null } ?: act.getString(R.string.peer)
+    val both = Book.secret(ref) != null
+    val words = listOfNotNull(if (both) act.getString(R.string.dl_both) else null, act.getString(R.string.dl_mine)).toTypedArray()
+    AlertDialog.Builder(act).setTitle(act.getString(R.string.dl_q, name))   // USER-DATA: the name
+        .setItems(words) { _, which ->
+            if (both && which == 0) deleteForBoth(ref) else { ChatMarks.forget(ref); Book.forget(ref) }
+            done()
+        }
         .setNegativeButton(R.string.cancel, null).show()
 }
 
@@ -97,35 +115,45 @@ fun rowTiles(act: MainActivity, chat: Chat, inArchive: Boolean): List<Tile> = li
  * Mark as read / unread · Archive · Delete. In the archive: Unarchive · Mute · Mark · Delete (ArchivedChatsView's menu).
  */
 fun personMenu(act: MainActivity, chat: Chat, inArchive: Boolean, sel: ChatSelection?) {
-    val c: Context = act
-    lateinit var close: () -> Unit
-    val deeds = c.vstack(Gravity.NO_GRAVITY) { background = c.rounded(Color.argb(235, 44, 44, 46), 14) }
-    fun deed(words: Int, glyph: Int, red: Boolean = false, work: () -> Unit) {
-        if (deeds.childCount > 0) deeds.addView(View(c).apply { setBackgroundColor(Color.argb(40, 255, 255, 255)) }, lp(MATCH, 1))
-        val tint = if (red) SysColor.red else Color.WHITE
-        deeds.addView(c.hstack {
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(16), dp(12), dp(16), dp(12))
-            addView(c.text(c.getString(words), 17f, tint), lp(0, WRAP, 1f))
-            addView(c.icon(glyph, tint, 20), lp(dp(20), dp(20)))
-            pressable { close(); work() }
-        }, lp())
-    }
-    if (inArchive) {
-        deed(R.string.cl_unarchive, R.drawable.ic_unarchive) { ChatMarks.unarchive(chat.ref) }
-    } else {
+    val deeds = mutableListOf<Deed>()
+    if (inArchive) deeds += Deed(R.string.cl_unarchive, R.drawable.ic_unarchive) { ChatMarks.unarchive(chat.ref) }
+    else {
         val pinned = ChatMarks.isPinned(chat.ref)
-        deed(if (pinned) R.string.cl_unpin else R.string.cl_pin, R.drawable.ic_pin) { pin(chat.ref) }
+        deeds += Deed(if (pinned) R.string.cl_unpin else R.string.cl_pin, R.drawable.ic_pin) { pin(chat.ref) }
     }
     val muted = ChatMarks.isMuted(chat.ref)
-    deed(if (muted) R.string.cl_unmute else R.string.cl_mute, if (muted) R.drawable.ic_set_bell else R.drawable.ic_bell_off) { ChatMarks.toggleMute(chat.ref) }
-    if (!inArchive && sel != null) deed(R.string.cl_select, R.drawable.ic_set_check_circle) { sel.begin(chat.ref) }
+    deeds += Deed(if (muted) R.string.cl_unmute else R.string.cl_mute, if (muted) R.drawable.ic_set_bell else R.drawable.ic_bell_off) { ChatMarks.toggleMute(chat.ref) }
+    if (!inArchive && sel != null) deeds += Deed(R.string.cl_select, R.drawable.ic_set_check_circle) { sel.begin(chat.ref) }
     val unread = ChatMarks.hasUnread(chat)
-    deed(if (unread) R.string.cl_mark_read else R.string.cl_mark_unread, if (unread) R.drawable.ic_mark_read else R.drawable.ic_dot) { ChatMarks.toggleUnread(chat) }
-    if (!inArchive) deed(R.string.cl_archive, R.drawable.ic_archive) { ChatMarks.archive(chat.ref) }
-    deed(R.string.cl_delete, R.drawable.ic_delete, red = true) { askDeleteChat(act, chat.ref) }
+    deeds += Deed(if (unread) R.string.cl_mark_read else R.string.cl_mark_unread, if (unread) R.drawable.ic_mark_read else R.drawable.ic_dot) { ChatMarks.toggleUnread(chat) }
+    if (!inArchive) deeds += Deed(R.string.cl_archive, R.drawable.ic_archive) { ChatMarks.archive(chat.ref) }
+    deeds += Deed(R.string.cl_delete, R.drawable.ic_delete, red = true) { askDeleteChat(act, chat.ref) }
+    holdMenu(act, chatRow(act, chat), deeds)
+}
 
-    val lifted = chatRow(act, chat).apply { background = c.rounded(MT.plate, 14); isClickable = false; setOnLongClickListener(null) }
+/** One deed of a hold's menu: its words, its glyph, red when it destroys. */
+class Deed(val words: Int, val glyph: Int, val red: Boolean = false, val work: () -> Unit)
+
+/**
+ * THE MENU OF A HOLD (iOS MTPersonMenu): the room dims, the held row stands lifted on a plate, the deeds under it; a tap
+ * anywhere else lets it go.
+ */
+fun holdMenu(act: MainActivity, row: View, deeds: List<Deed>) {
+    val c: Context = act
+    lateinit var close: () -> Unit
+    val plate = c.vstack(Gravity.NO_GRAVITY) { background = c.rounded(Color.argb(235, 44, 44, 46), 14) }
+    deeds.forEach { d ->
+        if (plate.childCount > 0) plate.addView(View(c).apply { setBackgroundColor(Color.argb(40, 255, 255, 255)) }, lp(MATCH, 1))
+        val tint = if (d.red) SysColor.red else Color.WHITE
+        plate.addView(c.hstack {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+            addView(c.text(c.getString(d.words), 17f, tint), lp(0, WRAP, 1f))
+            addView(c.icon(d.glyph, tint, 20), lp(dp(20), dp(20)))
+            pressable { close(); d.work() }
+        }, lp())
+    }
+    val lifted = row.apply { background = c.rounded(MT.plate, 14); isClickable = false; setOnClickListener(null); setOnLongClickListener(null) }
     val page = FrameLayout(c).apply {
         setBackgroundColor(Color.argb(150, 0, 0, 0))
         isClickable = true
@@ -134,7 +162,7 @@ fun personMenu(act: MainActivity, chat: Chat, inArchive: Boolean, sel: ChatSelec
             setPadding(dp(14), 0, dp(14), 0)
             addView(lifted, lp())
             gap(8)
-            addView(deeds, lp(dp(250), WRAP))
+            addView(plate, lp(dp(250), WRAP))
         }, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.CENTER_VERTICAL))
     }
     close = act.overlay(page)
@@ -170,14 +198,16 @@ fun selectionBar(act: MainActivity, sel: ChatSelection): View {
         addView(pill(R.string.cl_delete, red = true) {
             val refs = sel.chosen.toList()
             AlertDialog.Builder(act).setMessage(R.string.delete_chat_q)
-                .setPositiveButton(R.string.delete) { _, _ -> refs.forEach { ChatMarks.forget(it); Book.forget(it) } }
+                .setItems(arrayOf(c.getString(R.string.dl_both), c.getString(R.string.dl_mine))) { _, which ->
+                    refs.forEach { if (which == 0 && Book.secret(it) != null) deleteForBoth(it) else { ChatMarks.forget(it); Book.forget(it) } }
+                }
                 .setNegativeButton(R.string.cancel, null).show()
         }, lp(0, WRAP, 1f))
     }
 }
 
 /** The «Archive» row at the head of the list (iOS: the archive's row over the chats), shown while something is archived. */
-fun archiveEntry(act: MainActivity, count: Int): View {
+fun archiveEntry(act: MainActivity, count: Int, onOpen: (() -> Unit)? = null): View {
     val c: Context = act
     return c.hstack {
         gravity = Gravity.CENTER_VERTICAL
@@ -188,7 +218,7 @@ fun archiveEntry(act: MainActivity, count: Int): View {
         }, lp(dp(54), dp(54)).apply { marginEnd = dp(12) })
         addView(c.text(c.getString(R.string.cl_archive), 17f, Color.WHITE, bold = true), lp(0, WRAP, 1f))
         addView(c.text(count.toString(), 15f, MT.gray))
-        pressable { act.push { archivePage(act, it) } }
+        pressable { onOpen?.invoke() ?: act.push { archivePage(act, it) } }
     }
 }
 
