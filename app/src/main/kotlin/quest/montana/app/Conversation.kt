@@ -242,6 +242,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 LinearLayout.LayoutParams(WRAP, WRAP).apply { topMargin = c.dp(3); marginEnd = c.dp(4) })
             b.getChildAt(0).setOnLongClickListener { letterMenu(act, ref, m, onReply = { replyTo = m; editing = null; showStrip(); showKeys() },
                 onEdit = { editing = m; replyTo = null; field.setText(m.text); field.setSelection(field.text.length); showStrip(); showKeys() }); true }
+            b.onReply = { replyTo = m; editing = null; showStrip(); showKeys() }   // the pull to the left answers, as the menu's «Reply»
             b.tag = m.mid
             column.addView(b, lp().apply { topMargin = c.dp(3) })
         }
@@ -440,7 +441,98 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
 }
 
 /** One letter: the quote it answers, its words, «edited» and the time; its reactions under it (iOS MessageBubble). */
-private fun letterBubble(c: Context, m: Msg, chat: Chat): FrameLayout = FrameLayout(c).apply {
+/**
+ * A LETTER PULLED TO THE LEFT IS ANSWERED (iOS MTReplySwipe + SwipeReplyRow): the two first points decide — a stroke to the
+ * right or an upright one is the scroll's, a flat one to the left is ours; the letter rides by the finger, the round glass with
+ * the reply arrow comes in from beyond the edge, growing and clearing; past the threshold (60 for one's own, 45 for theirs)
+ * the pull stiffens and the phone knocks once; let go armed — the reply strip opens. The row slides back either way.
+ */
+class ReplySwipe(c: Context) : FrameLayout(c) {
+    var onReply: (() -> Unit)? = null
+    var mine = false
+    private var badge: View? = null
+    private var x0 = 0f; private var y0 = 0f
+    private var validated = false; private var failed = false; private var armed = false
+    private val slop = dp(2).toFloat()
+
+    private fun threshold() = dp(if (mine) 60 else 45).toFloat()
+    /** The pull past the threshold stiffens (iOS band: range 100, k 0.4). */
+    private fun band(off: Float, start: Float): Float {
+        if (off < start) return off
+        val range = dp(100).toFloat()
+        return start + (1 - 1 / ((off - start) * 0.4f / range + 1)) * range
+    }
+    private fun badge(): View = badge ?: FrameLayout(context).apply {
+        background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.argb(90, 120, 120, 128)); setStroke(dp(1), Color.argb(38, 255, 255, 255)) }
+        addView(context.icon(R.drawable.ic_reply, Color.WHITE), LayoutParams(dp(17), dp(17), Gravity.CENTER))
+        alpha = 0f
+        this@ReplySwipe.addView(this, LayoutParams(dp(34), dp(34), Gravity.END or Gravity.CENTER_VERTICAL))
+    }.also { badge = it }
+
+    private fun ride(pull: Float) {
+        val tx = band(pull, threshold()); val p = (pull / threshold()).coerceAtMost(1f)
+        getChildAt(0)?.translationX = -tx
+        badge().apply { translationX = dp(43) - tx; alpha = p; scaleX = 0.6f + 0.4f * p; scaleY = scaleX }
+    }
+    private fun settle() {
+        val content = getChildAt(0) ?: return
+        val from = -content.translationX
+        if (from == 0f) return
+        android.animation.ValueAnimator.ofFloat(from, 0f).apply {
+            duration = 240; interpolator = android.view.animation.DecelerateInterpolator(1.6f)
+            addUpdateListener { v -> val tx = v.animatedValue as Float; content.translationX = -tx
+                badge?.let { b -> b.translationX = dp(43) - tx; val p = (tx / threshold()).coerceIn(0f, 1f); b.alpha = p; b.scaleX = 0.6f + 0.4f * p; b.scaleY = b.scaleX } }
+            start()
+        }
+    }
+
+    /** The first points of a touch: whether it is a pull to the left. */
+    private fun judge(e: android.view.MotionEvent) {
+        when (e.actionMasked) {
+            android.view.MotionEvent.ACTION_DOWN -> { x0 = e.rawX; y0 = e.rawY; validated = false; failed = false; armed = false }
+            android.view.MotionEvent.ACTION_MOVE -> if (!validated && !failed) {
+                // two-point validation — quick enough to win the race against the scroll's own pan
+                val dx = e.rawX - x0; val dy = e.rawY - y0
+                if (dx > slop) failed = true
+                else if (kotlin.math.abs(dy) > slop && kotlin.math.abs(dy) > kotlin.math.abs(dx) * 2) failed = true
+                else if (kotlin.math.abs(dx) > slop && kotlin.math.abs(dy) * 2 < kotlin.math.abs(dx)) {
+                    validated = true; parent?.requestDisallowInterceptTouchEvent(true)
+                }
+            }
+        }
+    }
+
+    override fun onInterceptTouchEvent(e: android.view.MotionEvent): Boolean {
+        if (onReply == null) return false
+        judge(e)
+        return validated
+    }
+
+    @android.annotation.SuppressLint("ClickableViewAccessibility")
+    override fun onTouchEvent(e: android.view.MotionEvent): Boolean {
+        if (onReply == null) return false
+        // A PULL BESIDE THE BUBBLE ANSWERS TOO (iOS: the letter's line, not the bubble's face): the row keeps the touch
+        // that no bubble took, and judges it itself.
+        if (!validated) { judge(e); return !failed }
+        when (e.actionMasked) {
+            android.view.MotionEvent.ACTION_MOVE -> {
+                val pull = (x0 - e.rawX).coerceAtLeast(0f)
+                ride(pull)
+                if (pull >= threshold() && !armed) {
+                    armed = true
+                    performHapticFeedback(if (android.os.Build.VERSION.SDK_INT >= 34) android.view.HapticFeedbackConstants.GESTURE_THRESHOLD_ACTIVATE
+                                          else android.view.HapticFeedbackConstants.LONG_PRESS)
+                }
+            }
+            android.view.MotionEvent.ACTION_UP -> { if (armed) onReply?.invoke(); settle(); validated = false }
+            android.view.MotionEvent.ACTION_CANCEL -> { settle(); validated = false }
+        }
+        return true
+    }
+}
+
+private fun letterBubble(c: Context, m: Msg, chat: Chat): ReplySwipe = ReplySwipe(c).apply {
+    mine = m.mine
     val mine = m.mine
     addView(c.vstack(if (mine) Gravity.END else Gravity.START) {
         addView(c.vstack(Gravity.END) {
