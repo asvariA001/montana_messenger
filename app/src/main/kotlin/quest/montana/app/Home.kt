@@ -409,7 +409,7 @@ private fun sideDrawer(act: MainActivity, onPane: (Pane) -> Unit, onProfile: () 
         addView(row(glyph(R.drawable.ic_app_card), R.string.app_card, null), lp())
         spacer()
         addView(row(glyph(R.drawable.ic_settings), R.string.settings, onSettings), lp())
-        addView(c.text(versionFooter(c), 11f, MT.gray).apply { setPadding(dp(52), 0, 0, dp(8)) }, lp())   // USER-DATA: the build's own number
+        addView(c.text(appVersionFull(c), 11f, MT.gray).apply { setPadding(dp(52), 0, 0, dp(8)) }, lp())   // USER-DATA: the build's own number
     }
     return ScrollView(c).apply {
         isFillViewport = true

@@ -20,8 +20,18 @@ KOTLINC="$HOME/Library/Montana-tools/kotlinc/bin/kotlinc"
 STDLIB="$HOME/Library/Montana-tools/kotlinc/lib/kotlin-stdlib.jar"
 CORE_SO="$ROOT/native/montana-jni/target/aarch64-linux-android/release/libmontana.so"
 
-VERSION_CODE=1
-VERSION_NAME="0.1.0"
+# The version: scripts/version says how it is made.
+source "$ROOT/scripts/version"
+if [[ -n "$TARGET" ]]; then
+    # catching up: our own build is the count of commits on main, and the iOS build we go to stands beside it
+    VERSION_CODE=$(git -C "$ROOT" rev-list --count HEAD)
+    (( VERSION_CODE < TARGET )) || { echo "own build $VERSION_CODE reached $TARGET: the jump to $TARGET would go backwards (scripts/version)"; exit 1; }
+    VERSION_NAME="$MARKETING ($VERSION_CODE → $TARGET)"
+else
+    # level with iOS: the number is the iOS build Android does what it does
+    VERSION_CODE=$BUILD
+    VERSION_NAME="$MARKETING ($BUILD)"
+fi
 
 APP="$ROOT/app/src/main"
 OUT="$ROOT/build"
@@ -33,7 +43,7 @@ echo "1/6 resources"
 "$BT/aapt2" compile --dir "$APP/res" -o "$OUT/res/compiled.zip"
 "$BT/aapt2" link -I "$ANDROID_JAR" --manifest "$APP/AndroidManifest.xml" \
     --min-sdk-version 26 --target-sdk-version 35 \
-    --version-code $VERSION_CODE --version-name $VERSION_NAME \
+    --version-code $VERSION_CODE --version-name "$VERSION_NAME" \
     --java "$OUT/gen" --custom-package quest.montana.app -o "$OUT/base.apk" "$OUT/res/compiled.zip"
 
 echo "2/6 R.java"

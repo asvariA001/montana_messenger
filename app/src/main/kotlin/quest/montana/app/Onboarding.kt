@@ -392,11 +392,16 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
     }
 }
 
+/** The version as scripts/version makes it: "1.0 (31 → 1277)" while catching up with iOS, "1.0 (1277)" once level. */
+private fun versionName(c: Context): String =
+    c.packageManager.getPackageInfo(c.packageName, 0).versionName ?: "—"
+
+/** iOS AppVersion.full: "v<version> (<build>)". */
+fun appVersionFull(c: Context): String = "v${versionName(c)}"
+
 /** iOS MontanaVersion.footer: "<platform> <version> (<build>) · SSOT <core ABI>". */
-fun versionFooter(c: Context): String {
-    val info = c.packageManager.getPackageInfo(c.packageName, 0)
-    return "Android ${info.versionName} (${info.longVersionCode}) · SSOT ${MtBindings.nativeAbiVersion()}"
-}
+fun versionFooter(c: Context): String =
+    "Android ${versionName(c)} · SSOT ${MtBindings.nativeAbiVersion()}"
 
 /** The outer service's own name, shown to the person as its API terms ask (iOS MTOuterService.displayName). */
 const val OUTER_SERVICE = "Telegram"
