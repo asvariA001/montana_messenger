@@ -227,6 +227,9 @@ object Presence {
             override fun onActivitySaveInstanceState(a: android.app.Activity, b: android.os.Bundle) {}
             override fun onActivityDestroyed(a: android.app.Activity) {}
         })
-        appShown()   // the pickup runs only while the app stands: it is on the screen now
+        // on the screen only when an activity really stands in front — a pickup from a background job must not say «online»;
+        // the callbacks above say it when the activity resumes later
+        val me = android.app.ActivityManager.RunningAppProcessInfo().also { android.app.ActivityManager.getMyMemoryState(it) }
+        if (me.importance <= android.app.ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND) appShown()
     }
 }
