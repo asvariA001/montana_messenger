@@ -325,7 +325,10 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             }
         }.start()
     }
-    bar.onGallery = { act.pickVisual(sendPicked(false)) }
+    // THE CAMERA BESIDE THE PHOTOS (iOS MTGalleryPick: the camera's tile, «All photos»): a shot goes the picked picture's road
+    bar.onGallery = { hideKeys(); cameraOrPhotos(act) { how -> if (how == null) act.pickVisual(sendPicked(false)) else Capture.shoot(act, video = how) { u -> if (u != null) sendPicked(false)(u) } } }
+    // A CONTACT OF THE PHONE (iOS ContactPicker): its name and number leave as one letter
+    bar.onContact = { hideKeys(); act.pickContact { u -> u?.let { contactLetter(c, it) }?.let { words -> sendWords(ref, words); toBottom() } } }
     bar.onFile = { act.openDocument(sendPicked(true)) }
     // THE VOICE (iOS the held mark): the tape starts under the finger and leaves as a media letter of kind «aud».
     // THE SWELL WHILE SPEAKING (iOS the recording row): the red mark, the running time and the wave that rises with the voice.

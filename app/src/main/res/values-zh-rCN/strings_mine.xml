@@ -49,4 +49,8 @@
     <string name="pg_change">更改主页背景</string>
     <string name="pg_title">主页背景</string>
     <string name="pg_none">无背景</string>
+    <!-- the camera beside the photos (iOS MTGalleryPick: the camera's tile, «All photos») -->
+    <string name="cm_photo">相机 · 照片</string>
+    <string name="cm_video">相机 · 视频</string>
+    <string name="cm_all">所有照片</string>
 </resources>

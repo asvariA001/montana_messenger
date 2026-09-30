@@ -103,7 +103,7 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
                 glassKey(R.drawable.ic_compose_card, R.string.business_card) { notYet() },
                 glassKey(R.drawable.ic_compose_doc, R.string.file) { onFile?.invoke() ?: notYet() },
                 glassKey(R.drawable.ic_compose_location, R.string.location) { notYet() },
-                glassKey(R.drawable.ic_compose_contact, R.string.contact) { notYet() },
+                glassKey(R.drawable.ic_compose_contact, R.string.contact) { onContact?.invoke() ?: notYet() },
                 sendColumn)
             // the first and the last flush with the row's edges, the ones between shared evenly
             keys.forEachIndexed { i, k ->
@@ -137,6 +137,7 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
     /** What iOS does here and Android does not do yet says so in words instead of doing nothing. */
     /** The gallery and file keys' deeds, given by the page that owns the letters (the conversation sends media). */
     var onGallery: (() -> Unit)? = null
+    var onContact: (() -> Unit)? = null   // the phone's contact as a letter (iOS ContactPicker)
     var onFile: (() -> Unit)? = null
     /** The voice's deeds: start the tape (false — it could not start), and end it (true — dropped, not sent). */
     var onVoiceStart: (() -> Boolean)? = null

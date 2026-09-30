@@ -100,6 +100,12 @@
             android:authorities="quest.montana.app.dev.media"
             android:exported="false"
             android:grantUriPermissions="true" />
+        <!-- The camera's own door (Capture.kt): the system camera writes one shot into the app's cache, granted address by address. -->
+        <provider
+            android:name="quest.montana.app.CaptureProvider"
+            android:authorities="quest.montana.app.dev.capture"
+            android:exported="false"
+            android:grantUriPermissions="true" />
         <!-- The track on the bar, known to the system: the shade, the lock screen, the headphones (Music.kt, MusicService.kt). -->
         <service
             android:name="quest.montana.app.MusicService"

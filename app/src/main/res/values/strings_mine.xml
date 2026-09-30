@@ -51,4 +51,8 @@
     <string name="pg_change">Change page background</string>
     <string name="pg_title">Page background</string>
     <string name="pg_none">No background</string>
+    <!-- the camera beside the photos (iOS MTGalleryPick: the camera's tile, «All photos») -->
+    <string name="cm_photo">Camera · Photo</string>
+    <string name="cm_video">Camera · Video</string>
+    <string name="cm_all">All photos</string>
 </resources>

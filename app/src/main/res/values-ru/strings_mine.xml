@@ -49,4 +49,8 @@
     <string name="pg_change">Изменить фон страницы</string>
     <string name="pg_title">Фон страницы</string>
     <string name="pg_none">Без фона</string>
+    <!-- the camera beside the photos (iOS MTGalleryPick: the camera's tile, «All photos») -->
+    <string name="cm_photo">Камера · Фото</string>
+    <string name="cm_video">Камера · Видео</string>
+    <string name="cm_all">Все фотографии</string>
 </resources>

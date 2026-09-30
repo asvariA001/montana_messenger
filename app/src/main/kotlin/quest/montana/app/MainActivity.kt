@@ -240,6 +240,21 @@ class MainActivity : Activity() {
             .setType("*/*"), DOCUMENT)
     }
 
+    /** The system camera (Capture.shoot): the shot is in the door's file; the answer is whether it was taken. */
+    private var captureDone: ((Boolean) -> Unit)? = null
+    fun captureWith(intent: Intent, done: (Boolean) -> Unit) {
+        captureDone = done
+        runCatching { @Suppress("DEPRECATION") startActivityForResult(intent, CAPTURE) }.onFailure { captureDone = null; done(false) }
+    }
+    /** The phone's own contacts picker (iOS CNContactPickerViewController): one phone row, read through its granted address. */
+    private var contactDone: ((Uri?) -> Unit)? = null
+    fun pickContact(done: (Uri?) -> Unit) {
+        contactDone = done
+        runCatching {
+            @Suppress("DEPRECATION") startActivityForResult(Intent(Intent.ACTION_PICK, android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_URI), PICK_CONTACT)
+        }.onFailure { contactDone = null; done(null) }
+    }
+
     /** The system's code screen on Android 8–9 (OwnerCheck): its answer comes back through onActivityResult. */
     fun confirmOwner(intent: Intent) {
         @Suppress("DEPRECATION") startActivityForResult(intent, CONFIRM_OWNER)
@@ -248,7 +263,11 @@ class MainActivity : Activity() {
     @Deprecated("the platform's own result road")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         @Suppress("DEPRECATION") super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == CONFIRM_OWNER) {
+        if (requestCode == CAPTURE) {
+            captureDone?.invoke(resultCode == RESULT_OK); captureDone = null
+        } else if (requestCode == PICK_CONTACT) {
+            contactDone?.invoke(if (resultCode == RESULT_OK) data?.data else null); contactDone = null
+        } else if (requestCode == CONFIRM_OWNER) {
             OwnerCheck.pending?.invoke(if (resultCode == RESULT_OK) OwnerWord.CONFIRMED else OwnerWord.FAILED)
             OwnerCheck.pending = null
         } else if (requestCode == PICK_PHOTO) {
@@ -263,5 +282,5 @@ class MainActivity : Activity() {
     /** The app's own language before Android 13 (from 13 the system keeps it: AppLanguage). */
     override fun attachBaseContext(base: android.content.Context) = super.attachBaseContext(AppLanguage.wrap(base))
 
-    private companion object { const val PICK_PHOTO = 1; const val ASK_NOTIFY = 2; const val DOCUMENT = 3; const val ASK_CAMERA = 4; const val CONFIRM_OWNER = 5 }
+    private companion object { const val PICK_PHOTO = 1; const val ASK_NOTIFY = 2; const val DOCUMENT = 3; const val ASK_CAMERA = 4; const val CONFIRM_OWNER = 5; const val CAPTURE = 6; const val PICK_CONTACT = 7 }
 }
