@@ -54,14 +54,15 @@ class MainActivity : Activity() {
         hasSeed = MontanaSeed.hasSeed
         termsAccepted = Prefs.termsAccepted
         render()
-        intent?.data?.let { openLink(it.toString()) }
+        // «Share → Montana» from another app, else an invitation's link
+        if (!takeShared(intent, hasSeed && termsAccepted)) intent?.data?.let { openLink(it.toString()) }
     }
 
     /** AN INVITATION HANDED IN BY THE SYSTEM (iOS handleLink): opened now, or kept until the identity exists. */
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        intent.data?.let { openLink(it.toString()) }
+        if (!takeShared(intent, hasSeed && termsAccepted)) intent.data?.let { openLink(it.toString()) }
     }
     fun openLink(link: String) {
         if (!hasSeed || !termsAccepted) {

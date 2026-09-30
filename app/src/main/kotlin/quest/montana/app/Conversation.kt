@@ -835,6 +835,8 @@ internal fun openMedia(act: MainActivity, f: java.io.File, kind: String) {
         runCatching { act.startActivity(Intent.createChooser(view, null)) }
         return
     }
+    // A PICTURE OPENS AMONG THE CONVERSATION'S PICTURES (iOS PhotoPresenter): pages, pinch, a pull down to close (Viewer.kt)
+    if (kind == "img") { openPictures(act, f); return }
     lateinit var close: () -> Unit
     val page = FrameLayout(c).apply {
         setBackgroundColor(Color.BLACK)
