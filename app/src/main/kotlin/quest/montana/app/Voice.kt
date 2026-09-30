@@ -25,12 +25,24 @@ object VoiceTape {
     private val meter = object : Runnable {
         override fun run() {
             val r = rec ?: return
-            val a = runCatching { r.maxAmplitude }.getOrDefault(0) / 32767f
-            levels.add(a); onLevel?.invoke(a)
+            if (!paused) {   // a paused tape hears nothing: the wave stands (iOS)
+                val a = runCatching { r.maxAmplitude }.getOrDefault(0) / 32767f
+                levels.add(a); onLevel?.invoke(a)
+            }
             MainThread.later(25, this)
         }
     }
-    val seconds: Double get() = if (rec == null) 0.0 else (System.currentTimeMillis() - began) / 1000.0
+    val seconds: Double get() = if (rec == null) 0.0 else (System.currentTimeMillis() - began - pausedMs - (if (paused) System.currentTimeMillis() - pauseAt else 0)) / 1000.0
+
+    /** THE PAUSE OF A LOCKED TAPE (iOS VoiceRecorder.pause/resume): the platform's recorder stands, the file skips the gap. */
+    var paused = false; private set
+    private var pauseAt = 0L
+    private var pausedMs = 0L
+    fun togglePause() {
+        val r = rec ?: return
+        if (paused) { runCatching { r.resume() }; pausedMs += System.currentTimeMillis() - pauseAt; paused = false }
+        else if (runCatching { r.pause() }.isSuccess) { pauseAt = System.currentTimeMillis(); paused = true }
+    }
 
     /** The tape's 60 lines as iOS shapes them (MTWaveform.compute): scaled to a loud slot (92nd percentile), a soft curve (0.7). */
     fun waveform(): FloatArray {
@@ -63,7 +75,7 @@ object VoiceTape {
                 setOutputFile(f.path)
                 prepare(); start()
             }
-            file = f; began = System.currentTimeMillis()
+            file = f; began = System.currentTimeMillis(); paused = false; pausedMs = 0
             levels.clear(); MainThread.later(25, meter)
             true
         } catch (_: Exception) { rec?.release(); rec = null; f.delete(); false }
@@ -73,7 +85,8 @@ object VoiceTape {
     fun stop(keep: Boolean): Pair<File, Double>? {
         val r = rec ?: return null
         rec = null
-        val secs = (System.currentTimeMillis() - began) / 1000.0
+        val secs = seconds
+        paused = false
         val ok = runCatching { r.stop() }.isSuccess
         r.release()
         val f = file; file = null

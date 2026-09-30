@@ -332,15 +332,62 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     val liveWave = WaveView(c).apply { played = Color.WHITE }
     val liveTime = c.text("0:00", 15f, Color.WHITE)
     val dot = View(c).apply { background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(SysColor.red) } }
+    // THE CONTROLS OF A LOCKED TAPE (iOS MTHoldOverlayView barRow): each the bar's round glass on a 44-point target
+    fun ctl(icon: Int, label: Int, work: () -> Unit): FrameLayout = FrameLayout(c).apply {
+        background = c.glassPlate(oval = true); contentDescription = c.getString(label)
+        addView(c.icon(icon, Color.WHITE), FrameLayout.LayoutParams(c.dp(20), c.dp(20), Gravity.CENTER))
+        visibility = View.GONE
+        pressable(work)
+    }
+    fun paint(key: FrameLayout, pausedNow: Boolean) {
+        (key.getChildAt(0) as? ImageView)?.let { it.setImageResource(if (pausedNow) R.drawable.ic_record_circle else R.drawable.ic_pause_fill)
+            it.imageTintList = android.content.res.ColorStateList.valueOf(if (pausedNow) SysColor.red else Color.WHITE) }
+    }
+    val voiceBin = ctl(R.drawable.ic_close, R.string.cancel) { bar.cancelRecording() }
+    lateinit var voicePause: FrameLayout
+    voicePause = ctl(R.drawable.ic_pause_fill, R.string.rec_pause) { VoiceTape.togglePause(); paint(voicePause, VoiceTape.paused) }
     val recStrip = c.hstack {
         visibility = View.GONE
         gravity = Gravity.CENTER_VERTICAL
         setPadding(dp(18), dp(6), dp(18), dp(6))
+        addView(voiceBin, lp(dp(40), dp(40)).apply { marginEnd = dp(10) })
         addView(dot, lp(dp(10), dp(10)).apply { marginEnd = dp(8) })
         addView(liveTime, lp(WRAP, WRAP).apply { marginEnd = dp(12) })
         addView(liveWave, lp(0, WRAP, 1f))
+        addView(voicePause, lp(dp(40), dp(40)).apply { marginStart = dp(10) })
     }
+    // THE LOCK OVER THE KEY (iOS lockPlate): the padlock and the chevron above the held key; the chevron folds as the finger rises
+    val padlock = c.icon(R.drawable.ic_lock_open, Color.WHITE)
+    val chevron = c.icon(R.drawable.ic_chevron_up, Color.WHITE)
+    val lockPlate = c.vstack(Gravity.CENTER_HORIZONTAL) {
+        background = c.glassPlate().apply { cornerRadius = dp(18).toFloat(); setColor(Color.argb(170, 40, 40, 44)) }
+        setPadding(0, dp(14), 0, dp(14))
+        addView(padlock, lp(dp(24), dp(24)))
+        addView(chevron, lp(dp(18), dp(18)).apply { topMargin = dp(8) })
+        visibility = View.GONE
+    }
+    var noteControls: View? = null
+    var plateHome: FrameLayout? = null
+    fun plateLp() = FrameLayout.LayoutParams(c.dp(52), WRAP, Gravity.BOTTOM or Gravity.END).apply { bottomMargin = c.dp(150); marginEnd = c.dp(8) }
+    /** The plate stands where the tape is watched: over the chat for a voice, over the note's window for a note. */
+    fun movePlate(to: FrameLayout?) { val t = to ?: return; if (lockPlate.parent !== t) { (lockPlate.parent as? android.view.ViewGroup)?.removeView(lockPlate); t.addView(lockPlate, plateLp()) } }
     fun endStrip() { recStrip.visibility = View.GONE; VoiceTape.onLevel = null; dot.animate().cancel() }
+    bar.onRecLift = { l ->
+        lockPlate.visibility = View.VISIBLE; lockPlate.translationY = -c.dp(9) * l
+        padlock.setImageResource(if (l >= 1f) R.drawable.ic_lock else R.drawable.ic_lock_open)
+        chevron.alpha = 1f - l
+    }
+    bar.onRecLocked = {
+        lockPlate.visibility = View.GONE
+        voiceBin.visibility = View.VISIBLE; voicePause.visibility = View.VISIBLE; paint(voicePause, false)
+        noteControls?.visibility = View.VISIBLE
+    }
+    bar.onRecIdle = {
+        lockPlate.visibility = View.GONE
+        voiceBin.visibility = View.GONE; voicePause.visibility = View.GONE
+        noteControls = null
+        movePlate(plateHome)
+    }
     bar.onVoiceStart = {
         val on = VoiceTape.start(act)
         if (on) {
@@ -371,13 +418,29 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         val ring = NoteRing(c); val time = c.text("0:00", 15f, Color.WHITE)
         noteRing = ring; noteTime = time
         val side = c.dp(280)
+        lateinit var notePause: FrameLayout
+        notePause = ctl(R.drawable.ic_pause_fill, R.string.rec_pause) { note?.togglePause(); paint(notePause, note?.paused == true) }
+        val controls = c.hstack {
+            gravity = Gravity.CENTER
+            visibility = View.GONE   // stands once the tape is locked (iOS: the bin, the flip, the pause, and the arrow that sends)
+            listOf(ctl(R.drawable.ic_close, R.string.cancel) { bar.cancelRecording() },
+                   ctl(R.drawable.ic_camera_rotate, R.string.rec_flip) { note?.flip() },
+                   notePause,
+                   ctl(R.drawable.ic_arrow_circle_up, R.string.send) { bar.stopRecording() }).forEachIndexed { i, k ->
+                k.visibility = View.VISIBLE
+                addView(k, lp(dp(48), dp(48)).apply { if (i > 0) marginStart = dp(22) })
+            }
+        }
+        noteControls = controls
         val page = FrameLayout(c).apply {
             setBackgroundColor(Color.argb(170, 0, 0, 0))
+            addView(controls, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM).apply { bottomMargin = c.dp(60) })
             addView(ring, FrameLayout.LayoutParams(side + c.dp(16), side + c.dp(16), Gravity.CENTER))
             addView(tv.round().apply { setOnClickListener { note?.flip() } }, FrameLayout.LayoutParams(side, side, Gravity.CENTER))
             addView(time.apply { setShadowLayer(6f, 0f, 0f, Color.BLACK) }, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER).apply { topMargin = side / 2 + c.dp(30) })
         }
         noteClose = act.overlay(page)
+        movePlate(page)
         tv.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
             override fun onSurfaceTextureAvailable(st: android.graphics.SurfaceTexture, w: Int, h: Int) {
                 val r = NoteRecorder(c, tv)
@@ -515,6 +578,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             addView(bar, lp())
             addView(foot, lp())
         }, FrameLayout.LayoutParams(MATCH, MATCH))
+        plateHome = this; addView(lockPlate, plateLp())
         setOnApplyWindowInsetsListener { v, insets ->
             val b = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.ime())
             v.setPadding(b.left, b.top, b.right, b.bottom)

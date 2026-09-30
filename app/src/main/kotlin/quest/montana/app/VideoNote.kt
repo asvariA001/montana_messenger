@@ -82,7 +82,21 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
     @Volatile private var running = false
     private var audioThread: Thread? = null
     lateinit var file: File; private set
-    val elapsed: Double get() = if (startNs == 0L) 0.0 else (System.nanoTime() - startNs) / 1e9
+    val elapsed: Double get() = if (startNs == 0L) 0.0 else (clock()) / 1e9
+
+    /**
+     * THE PAUSE (iOS MontanaVideoNoteCamera.togglePause): while it stands no frame and no sound is written, and the file's
+     * clock skips it — no frozen stretch inside; the window still shows the camera.
+     */
+    @Volatile var paused = false; private set
+    private var pauseAt = 0L
+    @Volatile private var pausedNs = 0L
+    /** The file's clock: the time since the start less every pause so far. */
+    private fun clock(): Long = System.nanoTime() - startNs - pausedNs - (if (paused) System.nanoTime() - pauseAt else 0L)
+    fun togglePause() {
+        if (!running) return
+        if (paused) { pausedNs += System.nanoTime() - pauseAt; paused = false } else { pauseAt = System.nanoTime(); paused = true }
+    }
 
     /** The tape starts: the camera, the encoders and the drawing; false when a piece refused. */
     fun start(): Boolean = try {
@@ -170,9 +184,9 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
             GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
         }
         if (viewSurface != EGL14.EGL_NO_SURFACE) { paint(viewSurface, preview.width, preview.height); EGL14.eglSwapBuffers(egl, viewSurface) }
-        if (running) {
+        if (running && !paused) {
             paint(encSurface, SQUARE, SQUARE)
-            EGLExt.eglPresentationTimeANDROID(egl, encSurface, System.nanoTime() - startNs)
+            EGLExt.eglPresentationTimeANDROID(egl, encSurface, clock())
             EGL14.eglSwapBuffers(egl, encSurface)
             drain(video!!, false, isVideo = true)
             if (elapsed >= MAX_SECONDS) onMax?.invoke()
@@ -238,6 +252,7 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
             while (true) {
                 val n = r.read(buf, 0, buf.size)
                 val stop = !running
+                if (paused && !stop) { drain(ac, false, isVideo = false); continue }   // the paused sound is heard and let go
                 val i = ac.dequeueInputBuffer(10_000)
                 if (i >= 0) {
                     val ib = ac.getInputBuffer(i)!!

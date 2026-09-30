@@ -143,6 +143,13 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
     var onVoiceEnd: ((Boolean) -> Unit)? = null
     /** The tape's time is up (the note's 6:39): the hold ends as if the finger let go. */
     fun stopRecording() = record.endHold()
+    /** The bin of a locked tape (iOS «Cancel» on the bar's line): the tape is dropped. */
+    fun cancelRecording() = record.cancelHold()
+    /** THE LOCK (iOS MTHoldOverlayView lockPlate): the finger's way up, 0…1, shown over the key; 1 — the tape rolls hands-free. */
+    var onRecLift: ((Float) -> Unit)? = null
+    var onRecLocked: (() -> Unit)? = null
+    /** The tape ended (sent, dropped, or cut by its minute): the page takes its lock and its controls away. */
+    var onRecIdle: (() -> Unit)? = null
 
     /** The round note's deeds, the same shape as the voice's (iOS MontanaVideoNoteHold under the held camera mark). */
     var onNoteStart: (() -> Boolean)? = null
@@ -172,6 +179,8 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
             clipToOutline = true
             draw()
             setOnClickListener {
+                // a locked tape's key is its send arrow (iOS: the crown's arrow sends); otherwise a tap switches the mark
+                if (locked) { finish(cancel = false); return@setOnClickListener }
                 Prefs.setStr(MODE_KEY, if (video) "mic" else "video")
                 draw()
             }
@@ -182,38 +191,56 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
                 if (start == null) { notYet(); return@setOnLongClickListener true }
                 recordingNote = video
                 recording = start.invoke()
-                if (recording) { startX = lastX; field.isEnabled = false; field.hint = c.getString(R.string.voice_hint) }
+                if (recording) { startX = lastX; startY = lastY; field.isEnabled = false; field.hint = c.getString(R.string.voice_hint); onRecLift?.invoke(0f) }
                 true
             }
-            setOnTouchListener { _, e ->
-                lastX = e.rawX
-                if (recording) when (e.actionMasked) {
-                    android.view.MotionEvent.ACTION_MOVE -> if (startX - e.rawX > dp(120)) finish(cancel = true)
+            setOnTouchListener { v, e ->
+                lastX = e.rawX; lastY = e.rawY
+                if (recording && !locked) when (e.actionMasked) {
+                    android.view.MotionEvent.ACTION_MOVE -> {
+                        v.parent?.requestDisallowInterceptTouchEvent(true)
+                        // THE WAY UP TO THE LOCK (iOS lockWay 72): the plate's padlock closes as the finger rises
+                        val lift = ((startY - e.rawY) / dp(LOCK_WAY)).coerceIn(0f, 1f)
+                        onRecLift?.invoke(lift)
+                        if (lift >= 1f) {
+                            locked = true; draw(); field.hint = ""; onRecLocked?.invoke()   // no «release to send» over a locked tape (iOS)
+                            v.performHapticFeedback(android.view.HapticFeedbackConstants.CONFIRM)
+                        } else if (startX - e.rawX > dp(120)) finish(cancel = true)
+                    }
                     android.view.MotionEvent.ACTION_UP -> { finish(cancel = false); return@setOnTouchListener true }
                     android.view.MotionEvent.ACTION_CANCEL -> finish(cancel = true)
                 }
+                else if (locked && e.actionMasked == android.view.MotionEvent.ACTION_UP && e.eventTime - e.downTime > 400) return@setOnTouchListener true   // the finger that locked it lets go: the tape rolls on
                 false
             }
         }
         private var recording = false
+        private var locked = false
         private var startX = 0f
+        private var startY = 0f
         private var lastX = 0f
+        private var lastY = 0f
         private fun finish(cancel: Boolean) {
             if (!recording) return
             recording = false
+            if (locked) { locked = false; draw() }
+            onRecIdle?.invoke()
             field.isEnabled = true; field.hint = c.getString(R.string.message_hint)
             if (recordingNote) onNoteEnd?.invoke(cancel) else onVoiceEnd?.invoke(cancel)
         }
         private var recordingNote = false
         fun endHold() = finish(cancel = false)
+        fun cancelHold() = finish(cancel = true)
         private val video get() = Prefs.str(MODE_KEY, "mic") == "video"
         private fun draw() {
+            if (locked) { face.setImageResource(R.drawable.send_button); contentDescription = c.getString(R.string.send); return }
             face.setImageResource(if (video) R.drawable.video_record_button else R.drawable.voice_record_button)
             contentDescription = c.getString(if (video) R.string.record_video else R.string.record_voice)
         }
     }
 
     private companion object {
+        const val LOCK_WAY = 72                            // iOS lockWay: the finger's way up to the lock, in points
         const val TIER = 36                                // iOS MontanaOctagon.composeHeight
         val GLYPH = Color.rgb(204, 204, 204)               // iOS MontanaOctagon.barGlyph
         const val OPEN_KEY = "composeOpen"
