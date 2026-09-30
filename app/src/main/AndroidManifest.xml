@@ -8,6 +8,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- the phone's own lock asked before the 24 words are shown (OwnerCheck); a normal permission, never asked of the person -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <!-- The person's own node: the copy of the history comes back from it (iOS MontanaHomeNode). -->
     <uses-permission android:name="android.permission.INTERNET" />

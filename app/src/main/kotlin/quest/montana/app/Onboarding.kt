@@ -258,7 +258,7 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
         addView(done, lp())
         gap(10)
         addView(c.backLink { go(1) })
-    }
+    }.keepsSecret()   // no screenshot, no recording, black in the recent apps while the words stand here
 
     /** The words go to the clipboard marked sensitive, so the system does not show them in its preview. */
     private fun copySecret(ctx: Context, text: String) {

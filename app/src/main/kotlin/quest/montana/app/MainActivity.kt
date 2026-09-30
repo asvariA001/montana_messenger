@@ -239,10 +239,18 @@ class MainActivity : Activity() {
             .setType("*/*"), DOCUMENT)
     }
 
+    /** The system's code screen on Android 8–9 (OwnerCheck): its answer comes back through onActivityResult. */
+    fun confirmOwner(intent: Intent) {
+        @Suppress("DEPRECATION") startActivityForResult(intent, CONFIRM_OWNER)
+    }
+
     @Deprecated("the platform's own result road")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         @Suppress("DEPRECATION") super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == PICK_PHOTO) {
+        if (requestCode == CONFIRM_OWNER) {
+            OwnerCheck.pending?.invoke(if (resultCode == RESULT_OK) OwnerWord.CONFIRMED else OwnerWord.FAILED)
+            OwnerCheck.pending = null
+        } else if (requestCode == PICK_PHOTO) {
             photoDone?.invoke(if (resultCode == RESULT_OK) data?.data else null)
             photoDone = null
         } else if (requestCode == DOCUMENT) {
@@ -254,5 +262,5 @@ class MainActivity : Activity() {
     /** The app's own language before Android 13 (from 13 the system keeps it: AppLanguage). */
     override fun attachBaseContext(base: android.content.Context) = super.attachBaseContext(AppLanguage.wrap(base))
 
-    private companion object { const val PICK_PHOTO = 1; const val ASK_NOTIFY = 2; const val DOCUMENT = 3; const val ASK_CAMERA = 4 }
+    private companion object { const val PICK_PHOTO = 1; const val ASK_NOTIFY = 2; const val DOCUMENT = 3; const val ASK_CAMERA = 4; const val CONFIRM_OWNER = 5 }
 }

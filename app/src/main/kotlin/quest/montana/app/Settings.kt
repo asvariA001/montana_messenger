@@ -16,6 +16,7 @@ import android.os.LocaleList
 import android.provider.Settings
 import android.view.Gravity
 import android.view.View
+import android.widget.CheckBox
 import android.widget.FrameLayout
 import android.widget.GridLayout
 import android.widget.LinearLayout
@@ -299,43 +300,102 @@ fun privacyPage(act: MainActivity, onForget: () -> Unit, onBack: () -> Unit): Vi
     }
 }
 
-/** THE SEED PHRASE (iOS SeedShowView): the 24 words in two columns read top to bottom, and the copy that the system keeps sensitive. */
+/**
+ * THE SEED PHRASE (iOS SeedShowView), in three steps: the lock — the phone's owner confirms with a finger, a face or the
+ * code, and a phone with no lock shows nothing; the two promises read and ticked — Montana has no access to this key, the
+ * words go on paper; then the 24 words in two columns read top to bottom, and the copy that the system keeps sensitive.
+ * The whole page keeps its secret: no screenshot, no recording, black in the recent apps.
+ */
 fun seedPage(act: MainActivity, onBack: () -> Unit): View {
     val c: Context = act
-    val words = (MontanaSeed.mnemonic ?: "").split(' ').filter { it.isNotEmpty() }
-    return settingsPage(act, c.getString(R.string.seed_phrase), onBack) {
-        gap(12)
-        addView(c.text(c.getString(R.string.seed_hint), 12f, MT.gray, center = true), lp())
-        gap(12)
-        val half = (words.size + 1) / 2
-        val order = (0 until half).flatMap { r -> if (r + half < words.size) listOf(r, r + half) else listOf(r) }
-        addView(GridLayout(c).apply {
-            columnCount = 2
-            order.forEach { i ->
-                addView(c.hstack {
-                    background = c.rounded(MT.plate, 8)
-                    setPadding(dp(7), dp(7), dp(7), dp(7))
-                    addView(c.text("${i + 1}.", 15f, MT.gray).apply { gravity = Gravity.END }, lp(dp(26), WRAP))
-                    gap(6)
-                    addView(c.text(words[i], 15f, Color.WHITE, bold = true))   // USER-DATA: the person's own words
-                }, GridLayout.LayoutParams(GridLayout.spec(GridLayout.UNDEFINED), GridLayout.spec(GridLayout.UNDEFINED, 1f)).apply {
-                    width = 0; setMargins(dp(4), dp(4), dp(4), dp(4))
-                })
-            }
-        }, lp())
-        gap(14)
-        lateinit var copy: TextView
-        copy = c.text(c.getString(R.string.copy), 14f, MT.gold, center = true).apply {
-            setPadding(dp(12), dp(10), dp(12), dp(10))
-            pressable {
-                val clip = ClipData.newPlainText("Montana", words.joinToString(" "))
-                if (Build.VERSION.SDK_INT >= 33) clip.description.extras = android.os.PersistableBundle().apply { putBoolean("android.content.extra.IS_SENSITIVE", true) }
-                (c.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(clip)
-                copy.text = c.getString(R.string.copied); copy.setTextColor(MT.green)
-            }
-        }
-        addView(copy, lp())
+    lateinit var body: LinearLayout
+    var ask: () -> Unit = {}
+    fun words() { body.removeAllViews(); body.seedWords(c) }
+    fun locked(word: OwnerWord?) {
+        body.removeAllViews()
+        body.gap(48)
+        body.addView(c.icon(R.drawable.ic_set_lock, MT.gold, 44), lp(WRAP, WRAP).apply { gravity = Gravity.CENTER_HORIZONTAL })
+        body.gap(16)
+        val say = when (word) { OwnerWord.NO_LOCK -> R.string.sg_no_lock; OwnerWord.FAILED -> R.string.sg_failed; else -> R.string.sg_confirm }
+        body.addView(c.text(c.getString(say), 13f, MT.gray, center = true), lp())
+        body.gap(16)
+        body.addView(GoldButton(c, c.getString(R.string.sg_unlock)) { ask() }, lp())
     }
+    fun promises() {
+        body.removeAllViews()
+        body.gap(36)
+        body.addView(c.icon(R.drawable.ic_shield, MT.gold, 72), lp(WRAP, WRAP).apply { gravity = Gravity.CENTER_HORIZONTAL })
+        body.gap(12)
+        body.addView(c.text("⚠ " + c.getString(R.string.sg_for_you), 17f, Color.WHITE, bold = true, center = true), lp())
+        body.gap(6)
+        body.addView(c.text(c.getString(R.string.sg_wallet), 22f, Color.WHITE, bold = true, center = true), lp())
+        body.gap(16)
+        lateinit var go: GoldButton
+        val ticks = BooleanArray(2)
+        fun promise(i: Int, res: Int) = c.hstack {
+            background = c.rounded(MT.plate, 12)
+            setPadding(dp(14), dp(14), dp(14), dp(14))
+            val box = CheckBox(c).apply {
+                buttonTintList = ColorStateList(arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()), intArrayOf(MT.green, MT.gray))
+                isClickable = false
+            }
+            addView(box)
+            gap(8)
+            addView(c.text(c.getString(res), 15f, Color.WHITE), lp(0, WRAP, 1f))
+            pressable { box.toggle(); ticks[i] = box.isChecked; go.setOn(ticks.all { it }) }   // the whole row is the target
+        }
+        body.addView(promise(0, R.string.sg_no_access), lp())
+        body.gap(8)
+        body.addView(promise(1, R.string.sg_on_paper), lp())
+        body.gap(16)
+        go = GoldButton(c, c.getString(R.string.continue_word)) { words() }.apply { setOn(false) }
+        body.addView(go, lp())
+    }
+    ask = { OwnerCheck.ask(act, c.getString(R.string.sg_reason)) { w -> act.onMain { if (w == OwnerWord.CONFIRMED) promises() else locked(w) } } }
+    val page = settingsPage(act, c.getString(R.string.seed_phrase), onBack) {
+        body = c.vstack(Gravity.NO_GRAVITY) {}
+        addView(body, lp())
+    }
+    locked(null)
+    ask()   // asked at once, as iOS asks on appear; «Unlock» asks again
+    return page.keepsSecret()
+}
+
+/** The words themselves, shown only after the lock and the two promises (seedPage). */
+private fun LinearLayout.seedWords(c: Context) {
+    val words = (MontanaSeed.mnemonic ?: "").split(' ').filter { it.isNotEmpty() }
+    gap(12)
+    addView(c.text(c.getString(R.string.sg_write_down), 12f, MT.gray, center = true), lp())
+    gap(12)
+    if (words.isEmpty()) { gap(28); addView(c.text(c.getString(R.string.sg_no_seed), 15f, MT.gray, center = true), lp()); return }
+    val half = (words.size + 1) / 2
+    val order = (0 until half).flatMap { r -> if (r + half < words.size) listOf(r, r + half) else listOf(r) }
+    addView(GridLayout(c).apply {
+        columnCount = 2
+        order.forEach { i ->
+            addView(c.hstack {
+                background = c.rounded(MT.plate, 8)
+                setPadding(dp(7), dp(7), dp(7), dp(7))
+                addView(c.text("${i + 1}.", 15f, MT.gray).apply { gravity = Gravity.END }, lp(dp(26), WRAP))
+                gap(6)
+                addView(c.text(words[i], 15f, Color.WHITE, bold = true))   // USER-DATA: the person's own words
+            }, GridLayout.LayoutParams(GridLayout.spec(GridLayout.UNDEFINED), GridLayout.spec(GridLayout.UNDEFINED, 1f)).apply {
+                width = 0; setMargins(dp(4), dp(4), dp(4), dp(4))
+            })
+        }
+    }, lp())
+    gap(14)
+    lateinit var copy: TextView
+    copy = c.text(c.getString(R.string.copy), 14f, MT.gold, center = true).apply {
+        setPadding(dp(12), dp(10), dp(12), dp(10))
+        pressable {
+            val clip = ClipData.newPlainText("Montana", words.joinToString(" "))
+            if (Build.VERSION.SDK_INT >= 33) clip.description.extras = android.os.PersistableBundle().apply { putBoolean("android.content.extra.IS_SENSITIVE", true) }
+            (c.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(clip)
+            copy.text = c.getString(R.string.copied); copy.setTextColor(MT.green)
+        }
+    }
+    addView(copy, lp())
 }
 
 // ─────────────────────────── Data and Storage (iOS DataStorageView) ───────────────────────────
