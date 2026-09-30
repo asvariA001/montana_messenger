@@ -360,4 +360,5 @@
     <string name="pr_today_at">today at %1$s</string>
     <string name="pr_yesterday_at">yesterday at %1$s</string>
     <plurals name="pr_minutes"><item quantity="one">%d minute</item><item quantity="other">%d minutes</item></plurals>
+    <string name="caption_hint">Caption…</string>   <!-- iOS AttachSheet «Caption…» -->
 </resources>

@@ -286,7 +286,19 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         if (uri != null) Thread {
             val p = Media.read(c, uri, asDoc)
             if (p == null) MainThread.post { android.widget.Toast.makeText(c, R.string.media_failed, android.widget.Toast.LENGTH_LONG).show() }
-            else { Media.send(c, ref, p, ""); MainThread.post { toBottom() } }
+            else if (asDoc) { Media.send(c, ref, p, ""); MainThread.post { toBottom() } }   // a file leaves as it is (iOS fileImporter)
+            // A PICTURE OR A VIDEO GETS ITS CAPTION FIRST (iOS AttachSheet): the words already typed stand in it (the author's word 19.09)
+            else MainThread.post {
+                hideKeys()
+                val draft = if (editing == null) field.text.toString().trim() else ""
+                lateinit var close: () -> Unit
+                close = act.overlay(captionPage(act, p, draft, onCancel = { close() }) { caption ->
+                    close()
+                    // THE DRAFT BECOMES THE CAPTION (iOS consumeDraftAsCaption): what was typed leaves the field with the picture
+                    if (draft.isNotEmpty() && caption.startsWith(draft)) { field.setText(""); Prefs.setStr("draft.$ref", "") }
+                    Thread { Media.send(c, ref, p, caption); MainThread.post { toBottom() } }.start()
+                })
+            }
         }.start()
     }
     bar.onGallery = { act.pickVisual(sendPicked(false)) }
@@ -822,4 +834,62 @@ private fun playNote(act: MainActivity, f: java.io.File) {
     }
     val done = act.overlay(page)
     close = { player?.runCatching { stop(); release() }; player = null; done() }
+}
+
+
+/**
+ * THE PICTURE WITH ITS CAPTION (iOS AttachSheet's album page: «under the album stand the caption field and the send button»):
+ * the picked picture or the video's first frame across the page, the field «Caption…» under it, prefilled with what was
+ * typed, and the chat's own send key. The cross leaves without sending. iOS picks in its own grid; Android's picker is the
+ * system's, so the caption comes on this page right after it.
+ */
+fun captionPage(act: MainActivity, p: Media.Picked, draft: String, onCancel: () -> Unit, onSend: (String) -> Unit): View {
+    val c: Context = act
+    val preview: android.graphics.Bitmap? = when (p.kind) {
+        "img" -> runCatching {
+            val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(p.bytes, 0, p.bytes.size, o)
+            val side = maxOf(o.outWidth, o.outHeight); var s = 1
+            while (side / (s * 2) >= 2048) s *= 2
+            BitmapFactory.decodeByteArray(p.bytes, 0, p.bytes.size, BitmapFactory.Options().apply { inSampleSize = s })
+        }.getOrNull()
+        "vid" -> runCatching {
+            val f = java.io.File(c.cacheDir, "cap-preview.${p.ext}").apply { writeBytes(p.bytes) }
+            android.media.MediaMetadataRetriever().run { setDataSource(f.path); val b = frameAtTime; release(); f.delete(); b }
+        }.getOrNull()
+        else -> null
+    }
+    val field = EditText(c).apply {
+        hint = c.getString(R.string.caption_hint); setText(draft); setSelection(text.length)
+        setHintTextColor(MT.gray); setTextColor(Color.WHITE); textSize = 17f
+        background = c.glassPlate().apply { cornerRadius = c.dp(20).toFloat() }
+        setPadding(c.dp(16), c.dp(9), c.dp(16), c.dp(9))
+        inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+        maxLines = 5
+    }
+    return FrameLayout(c).apply {
+        setBackgroundColor(Color.BLACK)
+        addView(ImageView(c).apply { setImageBitmap(preview); scaleType = ImageView.ScaleType.FIT_CENTER }, FrameLayout.LayoutParams(MATCH, MATCH))
+        if (p.kind == "vid") addView(c.icon(R.drawable.ic_play_fill, Color.WHITE), FrameLayout.LayoutParams(c.dp(56), c.dp(56), Gravity.CENTER))
+        addView(FrameLayout(c).apply {
+            background = c.glassPlate(oval = true); contentDescription = c.getString(R.string.cancel)
+            addView(c.icon(R.drawable.ic_close, Color.WHITE), FrameLayout.LayoutParams(dp(20), dp(20), Gravity.CENTER))
+            pressable { onCancel() }
+        }, FrameLayout.LayoutParams(c.dp(44), c.dp(44), Gravity.TOP or Gravity.START).apply { setMargins(c.dp(14), c.dp(6), 0, 0) })
+        addView(c.hstack {
+            gravity = Gravity.BOTTOM
+            setPadding(dp(10), dp(8), dp(10), dp(10))
+            setBackgroundColor(Color.argb(150, 0, 0, 0))
+            addView(field, lp(0, WRAP, 1f))
+            addView(ImageView(c).apply {
+                setImageResource(R.drawable.send_button); scaleType = ImageView.ScaleType.FIT_CENTER
+                contentDescription = c.getString(R.string.send)
+                pressable { onSend(field.text.toString().trim()) }
+            }, lp(dp(40), dp(40)).apply { marginStart = dp(8) })
+        }, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM))
+        setOnApplyWindowInsetsListener { v, insets ->
+            val b = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.ime())
+            v.setPadding(b.left, b.top, b.right, b.bottom); insets
+        }
+    }
 }
