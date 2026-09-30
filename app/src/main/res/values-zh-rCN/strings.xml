@@ -360,4 +360,8 @@
     <string name="pr_yesterday_at">昨天%1$s</string>
     <plurals name="pr_minutes"><item quantity="other">%d分钟</item></plurals>
     <string name="caption_hint">添加说明…</string>   <!-- iOS AttachSheet «Caption…» -->
+    <!-- my bio and link (iOS ProfileView) -->
+    <string name="pf_bio">简介</string>
+    <string name="pf_link">链接</string>
+    <string name="pf_about_footer">与您聊天的人可以看到您的简介和链接。</string>
 </resources>

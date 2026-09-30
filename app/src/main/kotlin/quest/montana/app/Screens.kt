@@ -67,6 +67,8 @@ class Profile(private val act: MainActivity, private val onboarding: Boolean, pr
     private lateinit var nameField: EditText
     private lateinit var faceSlot: FrameLayout
     private lateinit var photoRowText: TextView
+    private var bioField: EditText? = null
+    private var linkField: EditText? = null
 
     init { showEditor() }
 
@@ -124,6 +126,32 @@ class Profile(private val act: MainActivity, private val onboarding: Boolean, pr
                     row.pressable { showCallsigns() }
                     addView(row, lp())
                 }, lp())
+                // ── BIO AND LINK (iOS ProfileView, the author's word 24.09): the platform's own fields in the page's own rows ──
+                if (!onboarding) {
+                    gap(16)
+                    addView(c.plate {
+                        bioField = EditText(c).apply {
+                            setText(Prefs.str("profileBio", "")); hint = c.getString(R.string.pf_bio)
+                            setTextColor(Color.WHITE); setHintTextColor(MT.gray); background = null
+                            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE or android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+                            maxLines = 4
+                            filters = arrayOf(InputFilter.LengthFilter(MyAbout.BIO_LIMIT))
+                            setPadding(dp(16), dp(14), dp(16), dp(14))
+                        }
+                        addView(bioField, lp())
+                        divider()
+                        linkField = EditText(c).apply {
+                            setText(Prefs.str("profileLink", "")); hint = c.getString(R.string.pf_link)
+                            setTextColor(Color.WHITE); setHintTextColor(MT.gray); background = null
+                            isSingleLine = true
+                            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_URI
+                            filters = arrayOf(InputFilter.LengthFilter(PeerAbout.LINK_LIMIT))
+                            setPadding(dp(16), dp(14), dp(16), dp(14))
+                        }
+                        addView(linkField, lp())
+                    }, lp())
+                    addView(c.text(c.getString(R.string.pf_about_footer), 13f, MT.gray).apply { setPadding(dp(16), dp(8), dp(16), 0) })
+                }
                 if (onboarding) {
                     addView(c.text(c.getString(R.string.profile_onboarding_footer), 13f, MT.gray).apply {
                         setPadding(dp(16), dp(8), dp(16), 0)
@@ -214,6 +242,10 @@ class Profile(private val act: MainActivity, private val onboarding: Boolean, pr
             if (sign.isNotEmpty()) name = sign
         }
         if (name.isNotBlank()) Prefs.userName = name.trim()
+        // the bio and the link are kept as typed; what leaves is the bio trimmed and the link only when it is one (iOS keepAbout)
+        bioField?.let { Prefs.setStr("profileBio", it.text.toString()) }
+        linkField?.let { Prefs.setStr("profileLink", it.text.toString().trim()) }
+        if (bioField != null) Thread { MyAbout.broadcast() }.start()
         act.back = null
         onFinish()
     }

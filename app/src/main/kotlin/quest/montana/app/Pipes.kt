@@ -494,6 +494,7 @@ object Post {
         if (name.isNotEmpty() && Prefs.str("annName.$ref", "") != name) {
             Prefs.setStr("annName.$ref", name); send(ref, Marks.mintMid(), Marks.NAME + name)
         }
+        MyAbout.sendIfNeeded(ref)
         val face = SelfFace.bytes(Book.ctx) ?: ByteArray(0)
         val tag = Wire.hex(Wire.sha(face)).take(16)
         if (Prefs.str("annFace.$ref", "") != tag) {
@@ -723,4 +724,25 @@ object Post {
             return
         }
     }
+}
+
+/**
+ * MY WORDS ABOUT MYSELF (iOS MTPeerAbout.myBio/myLink + E2E.sendAboutIfNeeded): the bio trimmed to 140, the link only when
+ * it is a web link; to every correspondent as one silent AB: {b, l, at} — again whenever they change, never twice for the
+ * same words, and nothing at all while nothing was ever said and nothing is said now.
+ */
+object MyAbout {
+    const val BIO_LIMIT = 140
+    fun bio() = Prefs.str("profileBio", "").trim().take(BIO_LIMIT)
+    fun link() = PeerAbout.url(Prefs.str("profileLink", ""))?.toString() ?: ""
+    private fun tag(b: String, l: String) = if (b.isEmpty() && l.isEmpty()) "0" else Wire.hex(Wire.sha((b + "\n" + l).toByteArray())).take(16)
+    fun sendIfNeeded(ref: String) {
+        if (PeerSafety.isBlocked(ref) || SamePair.merged(ref) != null) return
+        val b = bio(); val l = link(); val t = tag(b, l)
+        val held = Prefs.str("annAbout.$ref", "")
+        if (held == t || (held.isEmpty() && t == "0")) return
+        Prefs.setStr("annAbout.$ref", t)
+        Post.send(ref, Marks.mintMid(), Marks.ABOUT + JSONObject().put("b", b).put("l", l).put("at", System.currentTimeMillis() / 1000.0))
+    }
+    fun broadcast() { Book.refs().forEach { sendIfNeeded(it) } }
 }

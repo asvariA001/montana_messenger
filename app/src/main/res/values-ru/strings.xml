@@ -360,4 +360,8 @@
     <string name="pr_yesterday_at">Вчера %1$s</string>
     <plurals name="pr_minutes"><item quantity="one">%d минуту</item><item quantity="few">%d минуты</item><item quantity="many">%d минут</item><item quantity="other">%d минуты</item></plurals>
     <string name="caption_hint">Подпись…</string>   <!-- iOS AttachSheet «Caption…» -->
+    <!-- my bio and link (iOS ProfileView) -->
+    <string name="pf_bio">О себе</string>
+    <string name="pf_link">Ссылка</string>
+    <string name="pf_about_footer">Описание и ссылку видят те, с кем вы переписываетесь.</string>
 </resources>

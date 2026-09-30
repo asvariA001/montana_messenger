@@ -361,4 +361,8 @@
     <string name="pr_yesterday_at">yesterday at %1$s</string>
     <plurals name="pr_minutes"><item quantity="one">%d minute</item><item quantity="other">%d minutes</item></plurals>
     <string name="caption_hint">Caption…</string>   <!-- iOS AttachSheet «Caption…» -->
+    <!-- my bio and link (iOS ProfileView) -->
+    <string name="pf_bio">Bio</string>
+    <string name="pf_link">Link</string>
+    <string name="pf_about_footer">Your bio and link are seen by the people you write to.</string>
 </resources>
