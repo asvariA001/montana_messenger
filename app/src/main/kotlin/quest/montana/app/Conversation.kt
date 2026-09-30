@@ -187,10 +187,12 @@ private var noteTime: TextView? = null
 fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: String? = null): View {
     val c: Context = act
     val column = c.vstack(Gravity.NO_GRAVITY) { setPadding(dp(10), dp(8), dp(10), dp(8)) }
+    val draftRow = FrameLayout(c).apply { setPadding(c.dp(10), 0, c.dp(10), c.dp(8)); visibility = View.GONE }
     val scroll = ScrollView(c).apply {
         isVerticalScrollBarEnabled = false
         isFillViewport = true
-        addView(FrameLayout(c).apply { addView(column, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM)) })
+        // the feed, and under it their live draft (iOS LiveDraftBubble at the feed's foot)
+        addView(FrameLayout(c).apply { addView(c.vstack(Gravity.NO_GRAVITY) { addView(column, lp()); addView(draftRow, lp()) }, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM)) })
     }
     fun toBottom() = scroll.post { scroll.scrollTo(0, scroll.getChildAt(0)?.height ?: 0) }
 
@@ -281,6 +283,8 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             if (editing == null) Prefs.setStr("draft.$ref", s?.toString() ?: "")
             // «TYPING…» TO THEM (iOS: a word on the lane, at most every three seconds, only while there are words)
             if (!s.isNullOrBlank() && System.currentTimeMillis() - typedAt > 3000) { typedAt = System.currentTimeMillis(); Presence.sayTyping(ref) }
+            // MY WORDS AS I TYPE THEM (iOS sendDraft): the field and its caret; emptied — sent or erased — the draft ends
+            if (editing == null) LiveDraft.say(ref, s?.toString()?.takeIf { it.isNotBlank() } ?: "", field.selectionEnd, replyTo?.mid ?: "")
         }
     })
     val bar = ChatInputBar(act, field) {
@@ -514,6 +518,16 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     }
 
     var lane = false   // the live lane stands while the page does
+    fun drawDraft() {
+        val d = LiveDraft.of(ref)
+        val was = draftRow.visibility == View.VISIBLE
+        draftRow.removeAllViews()
+        if (d == null) { draftRow.visibility = View.GONE; return }
+        draftRow.addView(c.liveDraftBubble(d, Book.chat(ref)), FrameLayout.LayoutParams(MATCH, WRAP))
+        draftRow.visibility = View.VISIBLE
+        if (!was) toBottom()
+    }
+    val draftListener: () -> Unit = { drawDraft() }
     val presenceListener: () -> Unit = { drawPresence() }
     lateinit var chatBeat: Runnable
     chatBeat = Runnable { if (lane) { Presence.sayChat(ref, true); MainThread.later(Presence.BEAT, chatBeat) } }   // the 20-second beat (iOS P-109)
@@ -594,13 +608,16 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 v.requestApplyInsets()
                 Book.openChat = ref; Book.listen(listener); Notify.clear(ref)
                 Presence.listen(presenceListener); lane = true
+                LiveDraft.listen(draftListener); drawDraft()
                 Presence.sayChat(ref, true); MainThread.later(Presence.BEAT, chatBeat)
                 Signal.listen(ref, alive = { lane }) { w -> Presence.hear(ref, w) }
                 if ((Book.chat(ref)?.unread ?: 0) > 0) Thread { Post.markRead(ref) }.start()
             }
             override fun onViewDetachedFromWindow(v: View) {
                 if (Book.openChat == ref) Book.openChat = null; Book.unlisten(listener)
-                Presence.unlisten(presenceListener)
+                Presence.unlisten(presenceListener); LiveDraft.unlisten(draftListener)
+                // words left in the field stand on their screen as a checkpoint, frozen, not typing (iOS «ck»)
+                field.text.toString().takeIf { it.isNotBlank() }?.let { LiveDraft.say(ref, it, field.selectionEnd, checkpoint = true) }
                 if (lane) { lane = false; Presence.sayChat(ref, false) }   // leaving says so at once (iOS: the departure word)
             }
         })

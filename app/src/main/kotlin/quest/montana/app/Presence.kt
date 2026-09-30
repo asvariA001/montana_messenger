@@ -126,6 +126,8 @@ object Presence {
     /** A word of the lane from `ref` (iOS append's presence branches + liveWordMoves). */
     fun hear(ref: String, text: String) {
         if (PeerSafety.isBlocked(ref)) return   // a blocked person reaches nothing
+        // THEIR LIVE DRAFT (iOS handleMeshDraft): its bubble, and «typing…» when it is a keystroke said now
+        if (text.startsWith(LiveDraft.MARK)) { if (LiveDraft.hear(ref, text)) hear(ref, TYPING + saidTail()); return }
         val now = System.currentTimeMillis()
         val at = said(text)
         val age = at?.let { (now - it).coerceAtLeast(0) } ?: 0L
