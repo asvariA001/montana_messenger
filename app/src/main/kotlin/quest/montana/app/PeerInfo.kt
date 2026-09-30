@@ -10,9 +10,12 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
+import android.text.InputType
 import android.text.format.DateUtils
 import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.ImageView
@@ -148,8 +151,7 @@ private fun select(tab: Tab, msgs: List<Msg>): List<Msg> = when (tab) {
  */
 fun peerInfoPage(act: MainActivity, ref: String, onClose: () -> Unit): View {
     val c: Context = act
-    val chat = Book.chat(ref)
-    val name = chat?.name?.ifBlank { null } ?: c.getString(R.string.peer)
+    var name = Book.chat(ref)?.shown?.ifBlank { null } ?: c.getString(R.string.peer)
     val body = c.vstack(Gravity.NO_GRAVITY) { setPadding(0, dp(56), 0, dp(40)) }
 
     fun notYet() = Toast.makeText(c, R.string.compose_not_yet, Toast.LENGTH_SHORT).show()
@@ -163,8 +165,8 @@ fun peerInfoPage(act: MainActivity, ref: String, onClose: () -> Unit): View {
     lateinit var redrawAll: () -> Unit
 
     // ── the face: the circle; a press opens the square across the page, a second press the whole screen (iOS MTFaceDock) ──
-    val faceFile = Book.face(ref)
-    val bmp = if (faceFile.exists()) BitmapFactory.decodeFile(faceFile.path) else null
+    fun readFace() = Book.shownFace(ref).let { f -> if (f.exists()) BitmapFactory.decodeFile(f.path) else null }
+    var bmp = readFace()
     var open = false
     val faceBox = FrameLayout(c)
     fun drawFace() {
@@ -191,6 +193,8 @@ fun peerInfoPage(act: MainActivity, ref: String, onClose: () -> Unit): View {
     // ── the head's lines ──
     val head = c.vstack(Gravity.CENTER_HORIZONTAL)
     fun drawHead() {
+        name = Book.chat(ref)?.shown?.ifBlank { null } ?: c.getString(R.string.peer)
+        bmp = readFace(); drawFace()
         head.removeAllViews()
         head.addView(faceBox, lp(MATCH, WRAP))
         head.addView(bubble(c.text(name, 20f, Color.WHITE, bold = true, center = true).apply { maxLines = 2 }),   // USER-DATA: their name
@@ -208,6 +212,11 @@ fun peerInfoPage(act: MainActivity, ref: String, onClose: () -> Unit): View {
                     c.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("", u.toString())); true
                 }
             }), lp().apply { topMargin = c.dp(8); marginStart = c.dp(18); marginEnd = c.dp(18) })
+        }
+        // THE NOTE I KEEP ON THEM (iOS MTPeerHeader note): grey, under their own lines
+        Book.chat(ref)?.note?.takeIf { it.isNotEmpty() }?.let { n ->
+            head.addView(bubble(c.text(n, 15f, MT.gray, center = true)),   // USER-DATA: my note on this person
+                lp().apply { topMargin = c.dp(8); marginStart = c.dp(18); marginEnd = c.dp(18) })
         }
     }
 
@@ -331,7 +340,7 @@ fun peerInfoPage(act: MainActivity, ref: String, onClose: () -> Unit): View {
     drawStrip()
     redrawAll()
 
-    val listener: () -> Unit = { drawPane() }
+    val listener: () -> Unit = { drawHead(); drawPane() }
     return FrameLayout(c).apply {
         setBackgroundColor(Color.BLACK)
         addView(CrestGround(c), FrameLayout.LayoutParams(MATCH, MATCH))
@@ -342,6 +351,13 @@ fun peerInfoPage(act: MainActivity, ref: String, onClose: () -> Unit): View {
             addView(c.icon(R.drawable.ic_arrow_back_ios_new, Color.WHITE), FrameLayout.LayoutParams(dp(20), dp(20), Gravity.CENTER))
             pressable { onClose() }
         }, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.TOP or Gravity.START).apply { setMargins(dp(14), dp(6), 0, 0) })
+        // THE DOTS STAND TOP RIGHT (iOS MontanaEditMark: «Edit» behind the platform's three dots): the card's edit page
+        addView(FrameLayout(c).apply {
+            background = c.glassPlate(oval = true)
+            contentDescription = c.getString(R.string.pe_edit)
+            addView(c.icon(R.drawable.ic_more_horiz, Color.WHITE), FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
+            pressable { act.push { close -> peerEditPage(act, ref, close) } }
+        }, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.TOP or Gravity.END).apply { setMargins(0, dp(6), dp(14), 0) })
         addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
             override fun onViewAttachedToWindow(v: View) { Book.listen(listener) }
             override fun onViewDetachedFromWindow(v: View) { Book.unlisten(listener) }
@@ -510,5 +526,118 @@ private fun reportPage(act: MainActivity, ref: String, name: String, onClose: ()
                 onClose()
             }
         })
+    }
+}
+
+/**
+ * THE EDIT PAGE (iOS MontanaPeerInfoScreen editor): the face with «Edit» under it — the system's picker, then the circle's
+ * crop; the name fields, prefilled with the name as it stands, and «Show original name» with the name they gave themselves
+ * when my own stands over it; the note; «Restore original photo» while a picture of mine is on the card. The checkmark
+ * saves (iOS MontanaDoneMark); the back mark leaves the card as it was.
+ */
+fun peerEditPage(act: MainActivity, ref: String, onClose: () -> Unit): View {
+    val c: Context = act
+    val chat = Book.chat(ref)
+    val theirs = chat?.name?.trim().orEmpty()
+    val shown = chat?.shown?.trim().orEmpty()
+    var photo: ByteArray? = null          // picked just now
+    var photoCleared = false              // «Restore original photo» pressed
+    val body = c.vstack(Gravity.NO_GRAVITY) { setPadding(dp(16), dp(64), dp(16), dp(40)) }
+
+    fun field(hintWords: Int, value: String, multi: Boolean = false) = EditText(c).apply {
+        hint = c.getString(hintWords); setText(value)
+        setHintTextColor(MT.gray); setTextColor(Color.WHITE); textSize = 17f
+        background = null; setPadding(dp(16), dp(13), dp(16), dp(13))
+        if (multi) { inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES; minLines = 1; maxLines = 5 }
+        else { isSingleLine = true; inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS }
+    }
+    fun group(vararg rows: View): LinearLayout = c.vstack(Gravity.NO_GRAVITY) {
+        background = c.glassPlate().apply { cornerRadius = dp(20).toFloat() }
+        rows.forEachIndexed { i, r ->
+            if (i > 0) addView(View(c).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = dp(16) })
+            addView(r, lp())
+        }
+    }
+
+    // ── the face and «Edit» under it ──
+    val faceBox = FrameLayout(c)
+    lateinit var drawPhotoRows: () -> Unit
+    fun drawFace() {
+        faceBox.removeAllViews()
+        val bmp = photo?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
+            ?: (if (photoCleared) Book.face(ref) else Book.shownFace(ref)).let { f -> if (f.exists()) BitmapFactory.decodeFile(f.path) else null }
+        faceBox.addView(c.avatar(bmp, shown.ifBlank { "?" }, 100), FrameLayout.LayoutParams(c.dp(100), c.dp(100), Gravity.CENTER_HORIZONTAL))
+    }
+    fun pick() = act.pickPhoto { uri ->
+        val image = uri?.let { SelfFace.decode(act, it) } ?: return@pickPhoto
+        lateinit var close: () -> Unit
+        close = act.overlay(cropPage(act, image) { jpeg ->
+            close()
+            if (jpeg != null) { photo = jpeg; photoCleared = false; drawFace(); drawPhotoRows() }
+        })
+    }
+    drawFace()
+    body.addView(faceBox, lp(MATCH, WRAP))
+    body.addView(c.text(c.getString(R.string.pe_edit), 17f, MT.blue, center = true).apply {
+        setPadding(dp(12), dp(10), dp(12), dp(10)); pressable { pick() }
+    }, lp(WRAP, WRAP).apply { gravity = Gravity.CENTER_HORIZONTAL; bottomMargin = c.dp(16) })
+
+    // ── the name fields; their own name revealed under them when mine stands over it (iOS overName) ──
+    val first = field(R.string.pe_first, shown.substringBefore(' '))
+    val last = field(R.string.pe_last, if (shown.contains(' ')) shown.substringAfter(' ') else "")
+    val overName = chat?.pin != null && theirs.isNotEmpty()
+    val original = c.text(theirs, 13f, MT.gray).apply { setPadding(dp(16), dp(6), dp(16), 0); visibility = View.GONE }   // USER-DATA: their own name
+    body.addView(if (overName) group(first, last, c.text(c.getString(R.string.pe_show_original), 17f, MT.blue).apply {
+        setPadding(dp(16), dp(13), dp(16), dp(13))
+        pressable { original.visibility = if (original.visibility == View.VISIBLE) View.GONE else View.VISIBLE }
+    }) else group(first, last), lp())
+    body.addView(original, lp())
+
+    // ── the note, and «Restore original photo» while a picture of mine stands ──
+    val note = field(R.string.pe_note, chat?.note.orEmpty(), multi = true)
+    val second = c.vstack(Gravity.NO_GRAVITY)
+    drawPhotoRows = {
+        second.removeAllViews()
+        val mine = photo != null || (!photoCleared && Book.myFace(ref).exists())
+        if (note.parent != null) (note.parent as ViewGroup).removeView(note)
+        second.addView(if (!mine) group(note) else group(note, c.hstack {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16), dp(10), dp(16), dp(10))
+            val f = Book.face(ref)
+            addView(c.avatar(if (f.exists()) BitmapFactory.decodeFile(f.path) else null, theirs.ifBlank { "?" }, 36), lp(dp(36), dp(36)).apply { marginEnd = dp(12) })
+            addView(c.text(c.getString(R.string.pe_restore_photo), 17f, MT.blue))
+            pressable { photo = null; photoCleared = true; drawFace(); drawPhotoRows() }
+        }), lp())
+    }
+    drawPhotoRows()
+    body.addView(second, lp().apply { topMargin = c.dp(22) })
+
+    fun keysAway() = c.getSystemService(android.view.inputmethod.InputMethodManager::class.java).hideSoftInputFromWindow(body.windowToken, 0)
+    return FrameLayout(c).apply {
+        setBackgroundColor(Color.BLACK)
+        addView(CrestGround(c), FrameLayout.LayoutParams(MATCH, MATCH))
+        addView(ScrollView(c).apply { isVerticalScrollBarEnabled = false; addView(body) }, FrameLayout.LayoutParams(MATCH, MATCH))
+        addView(c.text(c.getString(R.string.pe_edit), 17f, Color.WHITE, bold = true, center = true),
+            FrameLayout.LayoutParams(WRAP, dp(44), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(6) })
+        addView(FrameLayout(c).apply {
+            background = c.glassPlate(oval = true)
+            addView(c.icon(R.drawable.ic_arrow_back_ios_new, Color.WHITE), FrameLayout.LayoutParams(dp(20), dp(20), Gravity.CENTER))
+            pressable { keysAway(); onClose() }
+        }, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.TOP or Gravity.START).apply { setMargins(dp(14), dp(6), 0, 0) })
+        addView(FrameLayout(c).apply {
+            background = c.glassPlate(oval = true)
+            contentDescription = c.getString(R.string.pe_done)
+            addView(c.icon(R.drawable.ic_check, Color.WHITE), FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
+            pressable {
+                keysAway()
+                Book.saveCard(ref, first.text.toString(), last.text.toString(), note.text.toString(), photo, photoCleared)
+                onClose()
+            }
+        }, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.TOP or Gravity.END).apply { setMargins(0, dp(6), dp(14), 0) })
+        // the marks stay inside the system bars, and the keys push the page up rather than over it (as the chat's page does)
+        setOnApplyWindowInsetsListener { v, insets ->
+            val b = insets.getInsets(android.view.WindowInsets.Type.systemBars() or android.view.WindowInsets.Type.ime())
+            v.setPadding(b.left, b.top, b.right, b.bottom); insets
+        }
     }
 }

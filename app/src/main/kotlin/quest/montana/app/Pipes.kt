@@ -199,13 +199,22 @@ class Msg(
     }
 }
 
-class Chat(val ref: String, var name: String, var perm: Boolean = false, var unread: Int = 0, val msgs: MutableList<Msg> = mutableListOf()) {
+/**
+ * `name` — the word the person gave themselves (their NM:, the card); `pin` — the name my hand set over it (iOS
+ * MTNameBook.manual), and `note` — what I keep on them (iOS the card's note). What the screens show is `shown`.
+ */
+class Chat(val ref: String, var name: String, var perm: Boolean = false, var unread: Int = 0, val msgs: MutableList<Msg> = mutableListOf(),
+           var pin: String? = null, var note: String = "") {
     fun json(): JSONObject = JSONObject().put("ref", ref).put("n", name).put("p", perm).put("u", unread)
+        .put("pn", pin ?: "").put("nt", note)
         .put("msgs", JSONArray().apply { msgs.forEach { put(it.json()) } })
     val last: Msg? get() = msgs.lastOrNull()
+    /** My word stands over theirs (iOS MTNameBook.display: mine, then declared). */
+    val shown: String get() = pin?.ifBlank { null } ?: name
     companion object {
         fun of(o: JSONObject) = Chat(o.getString("ref"), o.optString("n"), o.optBoolean("p"), o.optInt("u"),
-            o.optJSONArray("msgs")?.let { a -> MutableList(a.length()) { Msg.of(a.getJSONObject(it)) } } ?: mutableListOf())
+            o.optJSONArray("msgs")?.let { a -> MutableList(a.length()) { Msg.of(a.getJSONObject(it)) } } ?: mutableListOf(),
+            o.optString("pn").ifEmpty { null }, o.optString("nt"))
     }
 }
 
@@ -285,7 +294,7 @@ object Book {
             DeviceVault.set(SECRETS, o.toString().toByteArray())
         }
         SamePair.drop(dead)
-        face(ref).delete()
+        face(ref).delete(); myFace(ref).delete()
         changed()
     }
 
@@ -310,19 +319,43 @@ object Book {
                 o.msgs.addAll(n.msgs.filter { it.mid !in had }); o.msgs.sortBy { it.at }
                 o.unread += n.unread
                 if (o.name.isEmpty()) o.name = n.name
+                if (o.pin == null) o.pin = n.pin
+                if (o.note.isEmpty()) o.note = n.note
                 o.perm = o.perm || n.perm
             }
             save(o); DeviceVault.delete("chat:$newer"); saveIndex()
         }
         val nf = face(newer); val of = face(older)
         if (nf.exists()) { if (!of.exists()) nf.renameTo(of) else nf.delete() }
+        val nm = myFace(newer); val om = myFace(older)
+        if (nm.exists()) { if (!om.exists()) nm.renameTo(om) else nm.delete() }
         SamePair.noteMerged(newer, older)
         Meeting.repoint(newer, older)
         if (openChat == newer) openChat = older
         changed()
     }
 
+    /** The face the person published (their AV:, the card's face, the pipe's face). */
     fun face(ref: String) = File(File(ctx.filesDir, "faces").apply { mkdirs() }, "$ref.jpg")
+    /** The picture my hand set on their card (iOS MTNameBook.setManualPhoto): it wins over theirs while it stands. */
+    fun myFace(ref: String) = File(File(ctx.filesDir, "faces").apply { mkdirs() }, "$ref.mine.jpg")
+    /** The one face of a person, resolved in one place: mine, then theirs (iOS MTNameBook avatar resolution). */
+    fun shownFace(ref: String): File = myFace(ref).takeIf { it.exists() } ?: face(ref)
+
+    /**
+     * THE EDIT PAGE'S «DONE» (iOS mtHandProfileEdit → MTNameBook.setManual/setManualPhoto): a name equal to their own word
+     * clears the pin instead of setting it, an empty field restores their name; the photo — bytes set by hand, or null to
+     * give theirs back.
+     */
+    fun saveCard(ref: String, first: String, last: String, note: String, photo: ByteArray?, photoCleared: Boolean) {
+        edit(ref) { c ->
+            val full = (first.trim() + " " + last.trim()).trim()
+            c.pin = if (full.isEmpty() || full == c.name.trim()) null else full
+            c.note = note.trim()
+        }
+        if (photo != null) myFace(ref).writeBytes(photo) else if (photoCleared) myFace(ref).delete()
+        changed()
+    }
 
     /** The person leaves: every correspondence leaves with them. */
     fun wipe() {

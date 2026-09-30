@@ -323,4 +323,12 @@
     <string name="search_contacts">КОНТАКТЫ</string>
     <string name="search_messages">СООБЩЕНИЯ</string>
     <string name="nothing_found">Ничего не найдено</string>
+    <!-- the correspondent's edit page (iOS MontanaPeerInfoScreen editor) -->
+    <string name="pe_edit">Изменить</string>
+    <string name="pe_done">Готово</string>
+    <string name="pe_first">Имя</string>
+    <string name="pe_last">Фамилия</string>
+    <string name="pe_show_original">Показать оригинальное имя</string>
+    <string name="pe_note">Заметка</string>
+    <string name="pe_restore_photo">Вернуть оригинальное фото</string>
 </resources>

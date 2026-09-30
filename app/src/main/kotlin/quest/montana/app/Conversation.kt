@@ -44,7 +44,7 @@ fun letterWords(c: Context, t: String): String = when {
 
 /** The face of a correspondent: the face laid beside the pipe, else the drawn initial (iOS MontanaAvatar). */
 fun Context.peerFace(ref: String, name: String, sizeDp: Int): View {
-    val f = Book.face(ref)
+    val f = Book.shownFace(ref)
     val bmp = if (f.exists()) BitmapFactory.decodeFile(f.path) else null
     return avatar(bmp, name.ifBlank { "?" }, sizeDp)
 }
@@ -59,7 +59,7 @@ object Notify {
         if (!Prefs.bool("notifMessages", true)) return
         nm.createNotificationChannel(NotificationChannel(CHANNEL, c.getString(R.string.channel_letters), NotificationManager.IMPORTANCE_HIGH))
         val chat = Book.chat(ref)
-        val title = if (Prefs.bool("notifSender", true)) chat?.name?.ifBlank { null } ?: c.getString(R.string.peer) else "Montana"
+        val title = if (Prefs.bool("notifSender", true)) chat?.shown?.ifBlank { null } ?: c.getString(R.string.peer) else "Montana"
         val body = if (Prefs.bool("notifPreview", true)) letterWords(c, text) else c.getString(R.string.new_message)
         val open = PendingIntent.getActivity(c, ref.hashCode(),
             c.packageManager.getLaunchIntentForPackage(c.packageName)?.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP) ?: Intent(),
@@ -84,10 +84,10 @@ fun chatRow(act: MainActivity, chat: Chat): View {
     val last = chat.last
     return c.hstack {
         setPadding(dp(16), dp(10), dp(16), dp(10))
-        addView(c.peerFace(chat.ref, chat.name, 54), lp(dp(54), dp(54)).apply { marginEnd = dp(12) })
+        addView(c.peerFace(chat.ref, chat.shown, 54), lp(dp(54), dp(54)).apply { marginEnd = dp(12) })
         addView(c.vstack(Gravity.NO_GRAVITY) {
             addView(c.hstack {
-                addView(c.text(chat.name.ifBlank { c.getString(R.string.peer) }, 17f, Color.WHITE, bold = true).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))   // USER-DATA: the name
+                addView(c.text(chat.shown.ifBlank { c.getString(R.string.peer) }, 17f, Color.WHITE, bold = true).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))   // USER-DATA: the name
                 if (last != null) {
                     // the ladder's dots left of the hour, only when the last word was mine; a letter that did not go, the red mark
                     if (last.mine) addView(if (last.state == -1) c.failedMark() else c.deliveryDots(Ladder.of(chat.ref, last).first),
@@ -215,7 +215,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         strip.visibility = if (r == null && e == null) View.GONE else View.VISIBLE
         if (e != null) { stripTitle.text = c.getString(R.string.editing); stripWords.text = letterWords(c, e.text) }
         else if (r != null) {
-            stripTitle.text = if (r.mine) Prefs.userName.ifBlank { c.getString(R.string.reply) } else Book.chat(ref)?.name?.ifBlank { null } ?: c.getString(R.string.peer)
+            stripTitle.text = if (r.mine) Prefs.userName.ifBlank { c.getString(R.string.reply) } else Book.chat(ref)?.shown?.ifBlank { null } ?: c.getString(R.string.peer)
             stripWords.text = letterWords(c, r.text)   // USER-DATA
         }
     }
@@ -367,12 +367,12 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
 
     // ── the bar: the back mark, the face and the name; the face's press offers the chat's own actions ──
     val chat0 = Book.chat(ref)
-    val title = c.text(chat0?.name?.ifBlank { null } ?: c.getString(R.string.peer), 17f, Color.WHITE, bold = true).apply { singleLineEllipsis() }   // USER-DATA
+    val title = c.text(chat0?.shown?.ifBlank { null } ?: c.getString(R.string.peer), 17f, Color.WHITE, bold = true).apply { singleLineEllipsis() }   // USER-DATA
     val faceSlot = FrameLayout(c)
     fun drawHead() {
         val ch = Book.chat(ref) ?: return
-        title.text = ch.name.ifBlank { c.getString(R.string.peer) }
-        faceSlot.removeAllViews(); faceSlot.addView(c.peerFace(ref, ch.name, 36), FrameLayout.LayoutParams(c.dp(36), c.dp(36)))
+        title.text = ch.shown.ifBlank { c.getString(R.string.peer) }
+        faceSlot.removeAllViews(); faceSlot.addView(c.peerFace(ref, ch.shown, 36), FrameLayout.LayoutParams(c.dp(36), c.dp(36)))
     }
     drawHead()
     val top = FrameLayout(c).apply {
@@ -543,7 +543,7 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat): ReplySwipe = ReplySwip
                 addView(c.hstack {
                     addView(View(c).apply { setBackgroundColor(BubbleStyle.text(mine)) }, lp(dp(2), MATCH).apply { marginEnd = dp(6) })
                     addView(c.vstack(Gravity.NO_GRAVITY) {
-                        addView(c.text(if (whose?.mine == true) Prefs.userName.ifBlank { "·" } else chat.name.ifBlank { c.getString(R.string.peer) }, 13f, BubbleStyle.text(mine), bold = true))
+                        addView(c.text(if (whose?.mine == true) Prefs.userName.ifBlank { "·" } else chat.shown.ifBlank { c.getString(R.string.peer) }, 13f, BubbleStyle.text(mine), bold = true))
                         addView(c.text(m.qt, 13f, BubbleStyle.time(mine)).apply { maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END; maxWidth = dp(240) })   // USER-DATA
                     })
                 }, lp(WRAP, WRAP).apply { bottomMargin = dp(4) })

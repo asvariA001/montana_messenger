@@ -324,4 +324,12 @@
     <string name="search_contacts">CONTACTS</string>
     <string name="search_messages">MESSAGES</string>
     <string name="nothing_found">Nothing found</string>
+    <!-- the correspondent's edit page (iOS MontanaPeerInfoScreen editor) -->
+    <string name="pe_edit">Edit</string>
+    <string name="pe_done">Done</string>
+    <string name="pe_first">First name</string>
+    <string name="pe_last">Last name</string>
+    <string name="pe_show_original">Show original name</string>
+    <string name="pe_note">Note</string>
+    <string name="pe_restore_photo">Restore original photo</string>
 </resources>

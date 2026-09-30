@@ -323,4 +323,12 @@
     <string name="search_contacts">联系人</string>
     <string name="search_messages">消息</string>
     <string name="nothing_found">未找到内容</string>
+    <!-- the correspondent's edit page (iOS MontanaPeerInfoScreen editor) -->
+    <string name="pe_edit">编辑</string>
+    <string name="pe_done">完成</string>
+    <string name="pe_first">名字</string>
+    <string name="pe_last">姓氏</string>
+    <string name="pe_show_original">显示原始名字</string>
+    <string name="pe_note">备注</string>
+    <string name="pe_restore_photo">恢复原始照片</string>
 </resources>
