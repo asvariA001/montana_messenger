@@ -57,6 +57,7 @@ object Notify {
         val c = Book.ctx
         val nm = c.getSystemService(NotificationManager::class.java) ?: return
         if (!Prefs.bool("notifMessages", true)) return
+        if (ChatMarks.isMuted(ref)) return   // muted: no banner and no sound (iOS willPresent «why=muted»)
         nm.createNotificationChannel(NotificationChannel(CHANNEL, c.getString(R.string.channel_letters), NotificationManager.IMPORTANCE_HIGH))
         val chat = Book.chat(ref)
         val title = if (Prefs.bool("notifSender", true)) chat?.shown?.ifBlank { null } ?: c.getString(R.string.peer) else "Montana"
@@ -88,6 +89,8 @@ fun chatRow(act: MainActivity, chat: Chat): View {
         addView(c.vstack(Gravity.NO_GRAVITY) {
             addView(c.hstack {
                 addView(c.text(chat.shown.ifBlank { c.getString(R.string.peer) }, 17f, Color.WHITE, bold = true).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))   // USER-DATA: the name
+                // a muted chat wears the struck bell after its name (iOS ChatRow muted)
+                if (ChatMarks.isMuted(chat.ref)) addView(c.icon(R.drawable.ic_bell_off, MT.gray, 14), lp(dp(14), dp(14)).apply { marginEnd = dp(6) })
                 if (last != null) {
                     // the ladder's dots left of the hour, only when the last word was mine; a letter that did not go, the red mark
                     if (last.mine) addView(if (last.state == -1) c.failedMark() else c.deliveryDots(Ladder.of(chat.ref, last).first),
@@ -98,17 +101,18 @@ fun chatRow(act: MainActivity, chat: Chat): View {
             addView(c.hstack {
                 addView(c.text(last?.let { letterWords(c, it.text) } ?: "", 15f, MT.gray).apply { maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END }, lp(0, WRAP, 1f))   // USER-DATA: the last letter
                 if (chat.unread > 0) addView(c.text(chat.unread.toString(), 13f, Color.WHITE, bold = true, center = true).apply {
-                    background = c.rounded(MT.blue, 11); setPadding(dp(7), dp(1), dp(7), dp(1)); minWidth = dp(22)
+                    // a muted chat's number is grey, as iOS draws it
+                    background = c.rounded(if (ChatMarks.isMuted(chat.ref)) MT.gray else MT.blue, 11); setPadding(dp(7), dp(1), dp(7), dp(1)); minWidth = dp(22)
                 }, lp(WRAP, WRAP).apply { marginStart = dp(6) })
+                // the hand mark «unread» where nothing is unread: the row's dot (iOS forcedUnread)
+                else if (ChatMarks.handMark(chat.ref)) addView(c.icon(R.drawable.ic_dot, MT.blue, 12), lp(dp(12), dp(12)).apply { marginStart = dp(6) })
+                // a pinned chat with nothing unread shows its pin (iOS ChatRow pinned)
+                if (chat.unread == 0 && !ChatMarks.handMark(chat.ref) && ChatMarks.isPinned(chat.ref))
+                    addView(c.icon(R.drawable.ic_pin, MT.gray, 16), lp(dp(16), dp(16)).apply { marginStart = dp(6) })
             }, lp())
         }, lp(0, WRAP, 1f))
         pressable { act.push { close -> conversationPage(act, chat.ref, close) } }
-        setOnLongClickListener {
-            AlertDialog.Builder(c).setMessage(R.string.delete_chat_q)
-                .setPositiveButton(R.string.delete) { _, _ -> Book.forget(chat.ref) }
-                .setNegativeButton(R.string.cancel, null).show()
-            true
-        }
+        // the list sets the long press itself (ChatList.listRow: the person's menu)
     }
 }
 
@@ -192,6 +196,10 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
 
     var replyTo: Msg? = null
     var editing: Msg? = null
+    // THE CHAT'S SELECTION (iOS selectingMsgs, selectedMsgs): «Select» in a letter's menu begins it
+    var selecting = false
+    val picked = linkedSetOf<String>()
+    lateinit var drawFoot: () -> Unit
 
     val field = EditText(c).apply { setText(Prefs.str("draft.$ref", "")) }
     fun hideKeys() = c.getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(field.windowToken, 0)
@@ -237,11 +245,27 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 }, lp().apply { topMargin = c.dp(8); bottomMargin = c.dp(8) })
             }
             val b = letterBubble(c, m, chat)
+            if (selecting) {
+                // WHILE THE CHAT SELECTS a letter is a choice: a circle on the left, a tap chooses (iOS the selection rows)
+                val chosen = m.mid in picked
+                column.addView(c.hstack {
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(FrameLayout(c).apply {
+                        background = if (chosen) c.rounded(MT.gold, 11) else c.rounded(Color.TRANSPARENT, 11, Color.WHITE)
+                        if (chosen) addView(c.icon(R.drawable.ic_check, Color.BLACK, 14), FrameLayout.LayoutParams(dp(14), dp(14), Gravity.CENTER))
+                    }, lp(dp(22), dp(22)).apply { marginEnd = dp(8) })
+                    addView(b.apply { isClickable = false }, lp(0, WRAP, 1f))
+                    pressable { if (!picked.remove(m.mid)) picked.add(m.mid); redraw(); drawFoot() }
+                }, lp().apply { topMargin = c.dp(3) })
+                continue
+            }
             // THE LADDER UNDER EVERY OWN BUBBLE (the author's word 29.09: «у каждого сообщения, по отдельности»): each letter its own rung
             if (m.mine) (b.getChildAt(0) as LinearLayout).addView(c.deliveryLine(ref, m),
                 LinearLayout.LayoutParams(WRAP, WRAP).apply { topMargin = c.dp(3); marginEnd = c.dp(4) })
             b.getChildAt(0).setOnLongClickListener { letterMenu(act, ref, m, onReply = { replyTo = m; editing = null; showStrip(); showKeys() },
-                onEdit = { editing = m; replyTo = null; field.setText(m.text); field.setSelection(field.text.length); showStrip(); showKeys() }); true }
+                onEdit = { editing = m; replyTo = null; field.setText(m.text); field.setSelection(field.text.length); showStrip(); showKeys() },
+                onForward = { hideKeys(); act.push { close -> forwardPage(act, ref, listOf(m), close) { to -> close(); if (to != ref) { onClose(); act.push { c2 -> conversationPage(act, to, c2) } } } } },
+                onSelect = { hideKeys(); selecting = true; picked.clear(); picked.add(m.mid); redraw(); drawFoot() }); true }
             b.onReply = { replyTo = m; editing = null; showStrip(); showKeys() }   // the pull to the left answers, as the menu's «Reply»
             b.tag = m.mid
             column.addView(b, lp().apply { topMargin = c.dp(3) })
@@ -439,15 +463,57 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         if ((Book.chat(ref)?.unread ?: 0) > 0) Thread { Post.markRead(ref) }.start()
     }
 
+    // THE EYE CARRIED TO A LETTER (the pinned plate's tap, the search's jump): scrolled a third down and lit for a moment
+    fun jumpTo(mid: String) {
+        val found = column.findViewWithTag<View>(mid) ?: return
+        scroll.post {
+            scroll.smoothScrollTo(0, (found.top + column.top - scroll.height / 3).coerceAtLeast(0))
+            found.setBackgroundColor(Color.argb(60, 255, 255, 255))
+            found.postDelayed({ found.background = null }, 1200)
+        }
+    }
+    // THE FOOT WHILE THE CHAT SELECTS (iOS the selection bar): Forward and Delete for the chosen letters, in place of the field
+    val foot = FrameLayout(c).apply { visibility = View.GONE }
+    drawFoot = {
+        foot.removeAllViews()
+        foot.visibility = if (selecting) View.VISIBLE else View.GONE
+        bar.visibility = if (selecting) View.GONE else View.VISIBLE
+        if (selecting) {
+            strip.visibility = View.GONE
+            fun done() { selecting = false; picked.clear(); redraw(); drawFoot() }
+            fun chosen() = Book.chat(ref)?.msgs?.filter { it.mid in picked } ?: emptyList()
+            foot.addView(letterSelectionFoot(act, picked.size, onClose = { done() },
+                onForward = {
+                    val letters = chosen().filter { canForward(it) }
+                    done()
+                    if (letters.isNotEmpty()) act.push { close -> forwardPage(act, ref, letters, close) { to -> close(); if (to != ref) { onClose(); act.push { c2 -> conversationPage(act, to, c2) } } } }
+                },
+                onDelete = {
+                    val letters = chosen()
+                    AlertDialog.Builder(c).setTitle(R.string.delete_message_q)
+                        .setItems(arrayOf(c.getString(R.string.delete_for_everyone), c.getString(R.string.delete_for_me))) { _, which ->
+                            val mids = letters.map { it.mid }.toSet()
+                            Book.edit(ref) { ch -> ch.msgs.removeAll { it.mid in mids } }
+                            if (which == 0) mids.forEach { Post.send(ref, Marks.mintMid(), Marks.DELETE + "mid:" + it) }
+                            done()
+                        }
+                        .setNegativeButton(R.string.cancel, null).show()
+                }), FrameLayout.LayoutParams(MATCH, WRAP))
+        } else showStrip()
+    }
+
     return FrameLayout(c).apply {
         setBackgroundColor(Color.BLACK)
         addView(c.chatGround(ref), FrameLayout.LayoutParams(MATCH, MATCH))   // the chat's own ground, or the pages' crest (iOS MTWallpaper)
         addView(c.vstack(Gravity.NO_GRAVITY) {
             addView(top)
+            // THE PINNED PLATE under the header (iOS the pinned bar): shown while a letter of this chat is pinned
+            addView(pinnedPlate(act, ref) { mid -> jumpTo(mid) }, lp().apply { marginStart = dp(10); marginEnd = dp(10); bottomMargin = dp(4) })
             addView(scroll, lp(MATCH, 0, 1f))
             addView(strip, lp())
             addView(recStrip, lp())
             addView(bar, lp())
+            addView(foot, lp())
         }, FrameLayout.LayoutParams(MATCH, MATCH))
         setOnApplyWindowInsetsListener { v, insets ->
             val b = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.ime())
@@ -578,7 +644,9 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat): ReplySwipe = ReplySwip
         addView(c.vstack(Gravity.END) {
             background = BubbleStyle.drawable(context, mine)
             setPadding(dp(12), dp(7), dp(12), dp(6))
-            if (m.qt != null) {
+            // A FORWARDED LETTER (iOS isForwarded): one grey line over its words, no name and no bar
+            if (m.qt == FORWARDED_QUOTE) addView(c.text(c.getString(R.string.ld_forwarded), 13f, BubbleStyle.time(mine)), lp(WRAP, WRAP).apply { bottomMargin = dp(3) })
+            else if (m.qt != null) {
                 val whose = m.qm?.let { q -> chat.msgs.find { it.mid == q } }
                 addView(c.hstack {
                     addView(View(c).apply { setBackgroundColor(BubbleStyle.text(mine)) }, lp(dp(2), MATCH).apply { marginEnd = dp(6) })
@@ -613,7 +681,7 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat): ReplySwipe = ReplySwip
  * THE LETTER'S MENU (iOS MontanaMessageMenu): the room dims, the quick reactions stand over the letter, the actions under it —
  * Reply · Copy · Edit (one's own words) · Delete, which asks «for me» or «for everyone».
  */
-private fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Unit, onEdit: () -> Unit) {
+private fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Unit, onEdit: () -> Unit, onForward: () -> Unit, onSelect: () -> Unit) {
     val c: Context = act
     lateinit var close: () -> Unit
     val canEdit = m.mine && !Marks.isService(m.text)
@@ -631,6 +699,10 @@ private fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Un
             c.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("", m.text))
         }
         if (canEdit) row(c.getString(R.string.edit)) { onEdit() }
+        // PIN · FORWARD (iOS MontanaMessageMenu): the pin asks «for both / for me», the unpin is told at once
+        if (!Marks.isService(m.text) || m.text.startsWith(Marks.MEDIA))
+            row(c.getString(if (MsgPins.isPinned(ref, m.mid)) R.string.ld_unpin else R.string.ld_pin)) { pinOrUnpin(act, ref, m) }
+        if (canForward(m)) row(c.getString(R.string.ld_forward)) { onForward() }
         actions.addView(View(c).apply { setBackgroundColor(Color.argb(40, 255, 255, 255)) }, lp(MATCH, 1))
         actions.addView(c.text(c.getString(R.string.delete), 17f, SysColor.red).apply {
             setPadding(dp(16), dp(12), dp(16), dp(12))
@@ -646,6 +718,9 @@ private fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Un
                 row(c.getString(R.string.cancel)) {}
             }
         }, lp())
+        // «SELECT» stands apart at the foot (iOS: after a wider gap)
+        actions.addView(View(c).apply { setBackgroundColor(Color.argb(40, 255, 255, 255)) }, lp(MATCH, c.dp(6)))
+        actions.addView(c.text(c.getString(R.string.ld_select), 17f, Color.WHITE).apply { setPadding(dp(16), dp(12), dp(16), dp(12)); pressable { close(); onSelect() } }, lp())
     }
     fillActions()
     // THE QUICK REACTIONS (iOS MTReactions.common): a press puts it on or takes it off; the peer hears RC:{sid,txt,e,op}.

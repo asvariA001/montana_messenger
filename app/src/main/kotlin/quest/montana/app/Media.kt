@@ -106,7 +106,7 @@ object Media {
      * THE ONE ROAD OF A SENT FILE: the row stands at once with the local copy, the pieces are sealed and laid on the node,
      * then the letter with the manifest leaves by the ordinary post (the pieces first — the receiver must find them).
      */
-    fun send(c: Context, ref: String, p: Picked, caption: String) {
+    fun send(c: Context, ref: String, p: Picked, caption: String, qt: String? = null) {
         val mid = Marks.mintMid()
         val local = file(c, mid, p.ext)
         local.writeBytes(p.bytes)
@@ -115,13 +115,13 @@ object Media {
             if (p.round) put("r", true)
             p.wave?.takeIf { it.isNotEmpty() }?.let { w -> put("wv", Base64.encodeToString(ByteArray(w.size) { (w[it] * 255).toInt().coerceIn(0, 255).toByte() }, Base64.NO_WRAP)) }
         }
-        Book.edit(ref) { it.msgs.add(Msg(mid, provisional, true, Marks.birthMs(mid) ?: System.currentTimeMillis(), file = local.path)) }
+        Book.edit(ref) { it.msgs.add(Msg(mid, provisional, true, Marks.birthMs(mid) ?: System.currentTimeMillis(), qt = qt, file = local.path)) }
         Thread {
             val (letter, man) = seal(c, p, caption, local) ?: run {
                 Log.w("Montana", "media: the pieces did not reach the node"); Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.state = -1 }; return@Thread
             }
             Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.let { it.text = letter; it.meta = man } }
-            Post.send(ref, mid, letter)
+            Post.send(ref, mid, letter, qt)   // a forwarded file carries the forwarded quote (iOS forwardedQuote)
         }.start()
     }
 

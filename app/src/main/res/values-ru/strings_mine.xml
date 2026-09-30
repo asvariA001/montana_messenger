@@ -25,4 +25,15 @@
     <string name="cl_read_all">Прочитать все</string>
     <string name="cl_archive_empty">Архив пуст</string>
     <string name="cl_selected">Выделено: %1$d</string>
+    <!-- a letter's own deeds: pin, forward, select (iOS MontanaMessageMenu, ForwardPickerView, the pinned plate) -->
+    <string name="ld_pin_q">Закрепить это сообщение?</string>
+    <string name="ld_pin_both">Закрепить у обоих</string>
+    <string name="ld_pin_me">Закрепить у меня</string>
+    <string name="ld_pinned">Закреплённое сообщение</string>
+    <string name="ld_pin">Закрепить</string>
+    <string name="ld_unpin">Открепить</string>
+    <string name="ld_forward">Переслать</string>
+    <string name="ld_forward_to">Переслать в…</string>
+    <string name="ld_forwarded">↪︎ Пересланное сообщение</string>
+    <string name="ld_select">Выбрать</string>
 </resources>

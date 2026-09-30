@@ -27,4 +27,15 @@
     <string name="cl_read_all">Read all</string>
     <string name="cl_archive_empty">Archive is empty</string>
     <string name="cl_selected">Selected: %1$d</string>
+    <!-- a letter's own deeds: pin, forward, select (iOS MontanaMessageMenu, ForwardPickerView, the pinned plate) -->
+    <string name="ld_pin_q">Pin this message?</string>
+    <string name="ld_pin_both">Pin for both</string>
+    <string name="ld_pin_me">Pin for me</string>
+    <string name="ld_pinned">Pinned message</string>
+    <string name="ld_pin">Pin</string>
+    <string name="ld_unpin">Unpin</string>
+    <string name="ld_forward">Forward</string>
+    <string name="ld_forward_to">Forward to…</string>
+    <string name="ld_forwarded">↪︎ Forwarded message</string>
+    <string name="ld_select">Select</string>
 </resources>

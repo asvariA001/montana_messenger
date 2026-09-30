@@ -617,6 +617,17 @@ private class SearchResults(val act: MainActivity) : ScrollView(act) {
  */
 private fun chatsPane(act: MainActivity): View {
     val c = act
+    // THE SELECTION (iOS selecting): «Select» in a row's menu begins it; the bar at the foot acts on the chosen chats
+    val bar = FrameLayout(c).apply { visibility = View.GONE }
+    lateinit var write: View
+    lateinit var redrawRows: () -> Unit
+    val sel = ChatSelection { s ->
+        redrawRows()
+        bar.removeAllViews()
+        if (s.on) bar.addView(selectionBar(act, s), FrameLayout.LayoutParams(MATCH, WRAP))
+        bar.visibility = if (s.on) View.VISIBLE else View.GONE
+        write.visibility = if (s.on) View.GONE else View.VISIBLE
+    }
     val list = ScrollView(c).apply {
         isVerticalScrollBarEnabled = false
         addView(c.vstack(Gravity.NO_GRAVITY) {
@@ -660,23 +671,30 @@ private fun chatsPane(act: MainActivity): View {
             val rows = c.vstack(Gravity.NO_GRAVITY)
             fun fillRows() {
                 rows.removeAllViews()
+                // THE ARCHIVE'S ROW over the chats while something is archived (iOS ArchivedChatsView behind «Archive»)
+                val archived = archivedChats().size
+                if (archived > 0 && !sel.on) {
+                    rows.addView(archiveEntry(act, archived), lp())
+                    rows.addView(View(c).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = dp(82) })
+                }
                 // a meeting that never carried a word leaves no row (iOS: the list stands on letters) — the silent question
-                // of a scan must not raise an empty person here
-                val all = Book.all().filter { it.msgs.isNotEmpty() }
-                if (all.isEmpty()) {
+                // of a scan must not raise an empty person here; the pinned stand first (listedChats)
+                val all = listedChats()
+                if (all.isEmpty() && archived == 0) {
                     rows.addView(View(c), lp(MATCH, dp(60)))
                     rows.addView(c.text(c.getString(R.string.no_chats), 17f, MT.gray, center = true), lp())
                 }
                 for (ch in all) {
-                    rows.addView(chatRow(act, ch), lp())
+                    rows.addView(listRow(act, ch, inArchive = false, sel = sel), lp())
                     rows.addView(View(c).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = dp(82) })
                 }
             }
+            redrawRows = { fillRows() }
             fillRows()
-            val onBook: () -> Unit = { fillRows() }
+            val onBook: () -> Unit = { act.onMain { fillRows() } }
             rows.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
-                override fun onViewAttachedToWindow(v: View) { Book.listen(onBook); fillRows() }
-                override fun onViewDetachedFromWindow(v: View) { Book.unlisten(onBook) }
+                override fun onViewAttachedToWindow(v: View) { Book.listen(onBook); ChatMarks.listen(onBook); fillRows() }
+                override fun onViewDetachedFromWindow(v: View) { Book.unlisten(onBook); ChatMarks.unlisten(onBook) }
             })
             addView(rows, lp())
             gap(120)   // the floating player's room at the foot
@@ -685,12 +703,14 @@ private fun chatsPane(act: MainActivity): View {
     return FrameLayout(c).apply {
         addView(list, FrameLayout.LayoutParams(MATCH, MATCH))
         // «WRITE» (iOS composeButton): the one door to the code and the link — the QR opens here and nowhere else.
-        addView(FrameLayout(c).apply {
+        write = FrameLayout(c).apply {
             background = c.glassPlate(oval = true)
             contentDescription = c.getString(R.string.share)
             addView(c.icon(R.drawable.ic_compose, barGlyph), FrameLayout.LayoutParams(dp(30), dp(30), Gravity.CENTER))
             pressable { act.push { cardPage(act, it) } }
-        }, FrameLayout.LayoutParams(dp(60), dp(60), Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, dp(16), dp(36)) })
+        }
+        addView(write, FrameLayout.LayoutParams(dp(60), dp(60), Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, dp(16), dp(36)) })
+        addView(bar, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM).apply { bottomMargin = dp(26) })
     }
 }
 

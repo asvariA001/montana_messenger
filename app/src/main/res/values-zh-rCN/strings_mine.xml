@@ -25,4 +25,15 @@
     <string name="cl_read_all">全部已读</string>
     <string name="cl_archive_empty">归档为空</string>
     <string name="cl_selected">已选择：%1$d</string>
+    <!-- a letter's own deeds: pin, forward, select (iOS MontanaMessageMenu, ForwardPickerView, the pinned plate) -->
+    <string name="ld_pin_q">置顶这条消息？</string>
+    <string name="ld_pin_both">为双方置顶</string>
+    <string name="ld_pin_me">为我置顶</string>
+    <string name="ld_pinned">置顶消息</string>
+    <string name="ld_pin">置顶</string>
+    <string name="ld_unpin">取消置顶</string>
+    <string name="ld_forward">转发</string>
+    <string name="ld_forward_to">转发到…</string>
+    <string name="ld_forwarded">↪︎ 转发的消息</string>
+    <string name="ld_select">选择</string>
 </resources>
