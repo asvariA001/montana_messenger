@@ -349,4 +349,15 @@
     <string name="wall_aurora">Aurora</string>
     <string name="wall_rose">Rose</string>
     <string name="wall_forest">Forest</string>
+    <!-- the presence line (iOS presenceWord, MontanaSeen) -->
+    <string name="pr_typing">Typing…</string>
+    <string name="pr_in_chat">in chat</string>
+    <string name="pr_online">online</string>
+    <string name="pr_seen_recently">seen recently</string>
+    <string name="pr_seen_week">seen this week</string>
+    <string name="pr_seen_month">seen this month</string>
+    <string name="pr_seen_long_ago">seen long ago</string>
+    <string name="pr_today_at">today at %1$s</string>
+    <string name="pr_yesterday_at">yesterday at %1$s</string>
+    <plurals name="pr_minutes"><item quantity="one">%d minute</item><item quantity="other">%d minutes</item></plurals>
 </resources>

@@ -505,6 +505,7 @@ object Post {
     // ── receiving ──
     /** ONE PICKUP AT A TIME (iOS fetchBox): the labels of every live invitation and every pipe, across the box's term. */
     fun fetch() {
+        MainThread.post { Presence.watchApp(Book.ctx) }
         synchronized(fetchLock) { if (fetching) return; fetching = true }
         try { fetchOnce() } catch (e: Exception) { Log.w("Montana", "box fetch: ${e.javaClass.simpleName}") }
         finally { synchronized(fetchLock) { fetching = false } }
@@ -620,6 +621,7 @@ object Post {
             text.startsWith(Marks.DELIVERED) -> { val d = text.removePrefix(Marks.DELIVERED); Book.edit(ref) { c -> c.msgs.find { it.mid == d && it.mine }?.advance(2) } }
             text.startsWith(Marks.READ) -> {
                 val upTo = text.removePrefix(Marks.READ).toLongOrNull()
+                Presence.noteSeen(ref, System.currentTimeMillis())   // reading is being there (not a word a phone says by itself)
                 // the door lets «read» only onto what was delivered — the bulk word never paints a letter they do not have
                 Book.edit(ref) { c -> c.msgs.filter { it.mine && (upTo == null || (Marks.birthMs(it.mid) ?: 0) <= upTo) }.forEach { it.advance(3) } }
             }
@@ -665,6 +667,7 @@ object Post {
             PeerSafety.isBlocked(ref) -> {}
             else -> {
                 var isNew = false
+                Presence.noteSeen(ref, Marks.birthMs(mid))   // a person's own word stamps the moment it was written (iOS append)
                 Book.edit(ref) { c ->
                     if (c.msgs.none { it.mid == mid }) {
                         val at = Marks.birthMs(mid) ?: System.currentTimeMillis()

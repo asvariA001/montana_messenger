@@ -348,4 +348,15 @@
     <string name="wall_aurora">Сияние</string>
     <string name="wall_rose">Роза</string>
     <string name="wall_forest">Лес</string>
+    <!-- the presence line (iOS presenceWord, MontanaSeen) -->
+    <string name="pr_typing">Печатает…</string>
+    <string name="pr_in_chat">В чате</string>
+    <string name="pr_online">Онлайн</string>
+    <string name="pr_seen_recently">Недавно</string>
+    <string name="pr_seen_week">На этой неделе</string>
+    <string name="pr_seen_month">В этом месяце</string>
+    <string name="pr_seen_long_ago">Очень давно</string>
+    <string name="pr_today_at">Сегодня %1$s</string>
+    <string name="pr_yesterday_at">Вчера %1$s</string>
+    <plurals name="pr_minutes"><item quantity="one">%d минуту</item><item quantity="few">%d минуты</item><item quantity="many">%d минут</item><item quantity="other">%d минуты</item></plurals>
 </resources>

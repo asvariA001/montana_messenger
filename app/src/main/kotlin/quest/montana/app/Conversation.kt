@@ -249,10 +249,15 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     }
 
     // ── sending (iOS sendMessage) ──
+    var typedAt = 0L
     field.addTextChangedListener(object : TextWatcher {
         override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
         override fun onTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
-        override fun afterTextChanged(s: Editable?) { if (editing == null) Prefs.setStr("draft.$ref", s?.toString() ?: "") }
+        override fun afterTextChanged(s: Editable?) {
+            if (editing == null) Prefs.setStr("draft.$ref", s?.toString() ?: "")
+            // «TYPING…» TO THEM (iOS: a word on the lane, at most every three seconds, only while there are words)
+            if (!s.isNullOrBlank() && System.currentTimeMillis() - typedAt > 3000) { typedAt = System.currentTimeMillis(); Presence.sayTyping(ref) }
+        }
     })
     val bar = ChatInputBar(act, field) {
         val words = field.text.toString().trim()
@@ -369,6 +374,15 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     val chat0 = Book.chat(ref)
     val title = c.text(chat0?.shown?.ifBlank { null } ?: c.getString(R.string.peer), 17f, Color.WHITE, bold = true).apply { singleLineEllipsis() }   // USER-DATA
     val faceSlot = FrameLayout(c)
+    // THE PRESENCE LINE UNDER THE NAME (iOS presenceWord): «typing…» / «in chat» / «online» in green, else «last seen…»
+    val presenceLine = c.text("", 12f, MT.gray).apply { singleLineEllipsis(); visibility = View.GONE }
+    fun drawPresence() {
+        val w = Presence.word(c, ref)
+        presenceLine.visibility = if (w == null) View.GONE else View.VISIBLE
+        presenceLine.text = w?.first ?: ""
+        presenceLine.setTextColor(if (w?.second == true) SysColor.green else MT.gray)
+    }
+    drawPresence()
     fun drawHead() {
         val ch = Book.chat(ref) ?: return
         title.text = ch.shown.ifBlank { c.getString(R.string.peer) }
@@ -379,7 +393,10 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         setPadding(dp(8), 0, dp(8), 0)
         addView(c.icon(R.drawable.ic_arrow_back_ios_new, Color.WHITE).apply { setPadding(dp(10), dp(10), dp(10), dp(10)); pressable { hideKeys(); onClose() } },
             FrameLayout.LayoutParams(dp(44), dp(44), Gravity.CENTER_VERTICAL or Gravity.START))
-        addView(title, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER).apply { marginStart = dp(56); marginEnd = dp(56) })
+        addView(c.vstack(Gravity.CENTER_HORIZONTAL) {
+            addView(title, lp(WRAP, WRAP))
+            addView(presenceLine, lp(WRAP, WRAP))
+        }, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER).apply { marginStart = dp(56); marginEnd = dp(56) })
         addView(faceSlot.apply {
             // the face opens the correspondent's page (iOS: the chat's header → MontanaPeerInfoScreen)
             setOnClickListener { hideKeys(); act.push { close -> peerInfoPage(act, ref, close) } }
@@ -392,6 +409,10 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         layoutParams = LinearLayout.LayoutParams(MATCH, dp(52))
     }
 
+    var lane = false   // the live lane stands while the page does
+    val presenceListener: () -> Unit = { drawPresence() }
+    lateinit var chatBeat: Runnable
+    chatBeat = Runnable { if (lane) { Presence.sayChat(ref, true); MainThread.later(Presence.BEAT, chatBeat) } }   // the 20-second beat (iOS P-109)
     var folded = false
     val listener: () -> Unit = listener@{
         // THIS CHAT WAS FOLDED INTO THE OLDER ONE WITH THE SAME PERSON (iOS foldConversation → openChatRequest): the older opens instead.
@@ -425,9 +446,16 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             override fun onViewAttachedToWindow(v: View) {
                 v.requestApplyInsets()
                 Book.openChat = ref; Book.listen(listener); Notify.clear(ref)
+                Presence.listen(presenceListener); lane = true
+                Presence.sayChat(ref, true); MainThread.later(Presence.BEAT, chatBeat)
+                Signal.listen(ref, alive = { lane }) { w -> Presence.hear(ref, w) }
                 if ((Book.chat(ref)?.unread ?: 0) > 0) Thread { Post.markRead(ref) }.start()
             }
-            override fun onViewDetachedFromWindow(v: View) { if (Book.openChat == ref) Book.openChat = null; Book.unlisten(listener) }
+            override fun onViewDetachedFromWindow(v: View) {
+                if (Book.openChat == ref) Book.openChat = null; Book.unlisten(listener)
+                Presence.unlisten(presenceListener)
+                if (lane) { lane = false; Presence.sayChat(ref, false) }   // leaving says so at once (iOS: the departure word)
+            }
         })
         scroll.addOnLayoutChangeListener { _, _, t, _, b, _, ot, _, ob -> if (b - t < ob - ot) toBottom() }
         redraw()
