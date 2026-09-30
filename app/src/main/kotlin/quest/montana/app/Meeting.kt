@@ -51,6 +51,16 @@ object Meeting {
     }
     fun wipe() { listOf(FIRSTS, SCANS, CARDS).forEach(DeviceVault::delete) }
 
+    /** A folded conversation's cards and links open the older one (iOS MontanaMeeting.repoint). */
+    fun repoint(newer: String, older: String) = synchronized(gate) {
+        for (name in listOf(SCANS, CARDS)) {
+            val m = jmap(name); val moved = m.keys().asSequence().filter { m.optString(it) == newer }.toList()
+            if (moved.isNotEmpty()) { moved.forEach { m.put(it, older) }; jsave(name, m) }
+        }
+    }
+    /** The pipes this phone begot by a scan (the card book's conversations). */
+    fun metByScan(): Set<String> = synchronized(gate) { jmap(CARDS).let { m -> m.keys().asSequence().map { m.optString(it) }.filter { it.isNotEmpty() }.toSet() } }
+
     // ── the link ──
 
     /** The link as a messenger may have mangled it: percent bytes, glued punctuation, a capitalised scheme (iOS normalizeLink). */
@@ -122,6 +132,9 @@ object Meeting {
         Book.open(ref, name, perm)
         if (inv != null) Thread { face(inv)?.let { Book.face(ref).writeBytes(it); Book.edit(ref) {} } }.start()
         Thread { layPipeFace(secret) }.start()
+        // ONE PERSON, ONE CONVERSATION (iOS MTSamePair.ask): whether we already share a pipe is asked at once — the silent
+        // first letter, which carries the card's ciphertext to its owner.
+        SamePair.ask(ref)
         return Outcome.Opened(ref)
     }
 
@@ -195,7 +208,8 @@ fun openInvitation(act: MainActivity, link: String) {
         val o = Meeting.meet(act, link)
         act.onMain {
             when (o) {
-                is Meeting.Outcome.Opened -> act.push { close -> conversationPage(act, o.ref, close) }
+                // a pipe folded into a conversation is never opened as a page of its own (iOS meet → MTSamePair.root)
+                is Meeting.Outcome.Opened -> act.push { close -> conversationPage(act, SamePair.root(o.ref), close) }
                 Meeting.Outcome.Spent -> android.widget.Toast.makeText(act, R.string.invite_spent, android.widget.Toast.LENGTH_LONG).show()
                 Meeting.Outcome.Nameless -> android.widget.Toast.makeText(act, R.string.invite_nameless, android.widget.Toast.LENGTH_LONG).show()
                 Meeting.Outcome.Refused -> android.widget.Toast.makeText(act, R.string.invite_refused, android.widget.Toast.LENGTH_LONG).show()

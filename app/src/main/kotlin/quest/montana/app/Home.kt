@@ -537,7 +537,9 @@ private fun chatsPane(act: MainActivity): View {
             val rows = c.vstack(Gravity.NO_GRAVITY)
             fun fillRows() {
                 rows.removeAllViews()
-                val all = Book.all()
+                // a meeting that never carried a word leaves no row (iOS: the list stands on letters) — the silent question
+                // of a scan must not raise an empty person here
+                val all = Book.all().filter { it.msgs.isNotEmpty() }
                 if (all.isEmpty()) {
                     rows.addView(View(c), lp(MATCH, dp(60)))
                     rows.addView(c.text(c.getString(R.string.no_chats), 17f, MT.gray, center = true), lp())

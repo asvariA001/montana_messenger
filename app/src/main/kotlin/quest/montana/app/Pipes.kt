@@ -134,6 +134,8 @@ object Marks {
     const val LONG = "⁣LB:"
     const val ABOUT = "\u200B\u200BAB:"   // + {b, l, at}: their bio and link (iOS aboutMark)
     const val PLAYED = "\u200B\u200BPL:"   // + the mid of a voice of theirs that was played here (iOS playedMark)
+    const val SAME_ASK = "\u200B\u200BSM:"   // + base64 {t: [32 tags]}: \u00ABdo we already share a pipe?\u00BB (iOS sameAskMark)
+    const val SAME_YES = "\u200B\u200BSY:"   // + base64 {p: proof or noise}: the answer (iOS sameYesMark)
     /** A word of the wire, not a row of the feed. */
     fun isService(t: String) = t.startsWith("​") || t.startsWith("⁣")
 
@@ -273,15 +275,50 @@ object Book {
         changed()
     }
 
-    /** A chat deleted here (and its pipe with it — iOS MTPipeBook.forget). */
+    /** A chat deleted here (and its pipe with it — iOS MTPipeBook.forget), with every pipe folded into it. */
     fun forget(ref: String) {
+        val dead = listOf(ref) + SamePair.folded(ref)
         synchronized(lock) {
-            ensure(); chats.remove(ref); DeviceVault.delete("chat:$ref"); saveIndex(); Meeting.forget(ref)
-            val m = sec(); m.remove(ref)
+            ensure(); chats.remove(ref); DeviceVault.delete("chat:$ref"); saveIndex()
+            val m = sec(); dead.forEach { m.remove(it); Meeting.forget(it) }
             val o = JSONObject(); m.forEach { (k, v) -> o.put(k, Base64.encodeToString(v, Base64.NO_WRAP)) }
             DeviceVault.set(SECRETS, o.toString().toByteArray())
         }
+        SamePair.drop(dead)
         face(ref).delete()
+        changed()
+    }
+
+    /** Two pipes proven to be one person: whichever conversations they speak for become one (iOS joinSamePerson). */
+    fun join(pipe: String, proven: String) {
+        val a = SamePair.root(pipe); val b = SamePair.root(proven)
+        if (a != b) fold(a, b)
+    }
+
+    /**
+     * THE FOLD (iOS foldConversation): the newer conversation's letters join the older one's feed, the newer row leaves,
+     * the meeting books open the older one, and the newer pipe forwards into it until it dies.
+     */
+    private fun fold(newer: String, older: String) {
+        if (newer == older || SamePair.merged(older) != null || SamePair.merged(newer) != null) return
+        synchronized(lock) {
+            ensure()
+            val n = chats.remove(newer)
+            val o = chats[older] ?: Chat(older, n?.name ?: "", n?.perm ?: false).also { chats[older] = it }
+            if (n != null) {
+                val had = o.msgs.map { it.mid }.toSet()
+                o.msgs.addAll(n.msgs.filter { it.mid !in had }); o.msgs.sortBy { it.at }
+                o.unread += n.unread
+                if (o.name.isEmpty()) o.name = n.name
+                o.perm = o.perm || n.perm
+            }
+            save(o); DeviceVault.delete("chat:$newer"); saveIndex()
+        }
+        val nf = face(newer); val of = face(older)
+        if (nf.exists()) { if (!of.exists()) nf.renameTo(of) else nf.delete() }
+        SamePair.noteMerged(newer, older)
+        Meeting.repoint(newer, older)
+        if (openChat == newer) openChat = older
         changed()
     }
 
@@ -295,7 +332,7 @@ object Book {
         }
         File(ctx.filesDir, "faces").deleteRecursively()
         DeviceVault.delete(Post.OUTBOX)
-        Meeting.wipe()
+        Meeting.wipe(); SamePair.wipe()
         changed()
     }
 }
@@ -323,7 +360,8 @@ object Post {
 
     // ── sending ──
     /** Queue a letter and knock at once; a letter that no door took waits in the outbox and rides the next round. */
-    fun send(to: String, mid: String, text: String, qt: String? = null, qm: String? = null) {
+    fun send(to0: String, mid: String, text: String, qt: String? = null, qm: String? = null) {
+        val to = if (SamePair.speaksOfPipe(text)) to0 else SamePair.root(to0)   // a folded pipe's words go by its conversation's pipe
         synchronized(outLock) {
             val a = outbox()
             for (i in 0 until a.length()) if (a.getJSONObject(i).optString("m") == mid) return   // one letter, one place in the queue
@@ -348,7 +386,8 @@ object Post {
             val intro = Meeting.first(to)
             val text = o.getString("t")
             val sent = if (intro != null) {
-                if (Marks.isService(text) && !text.startsWith(Marks.MEDIA) && !text.startsWith(Marks.VOICE)) false
+                // the question «do we already share a pipe?» is itself the silent first letter that carries the ciphertext (iOS MTSamePair.ask)
+                if (Marks.isService(text) && !text.startsWith(Marks.MEDIA) && !text.startsWith(Marks.VOICE) && !text.startsWith(Marks.SAME_ASK)) false
                 else {
                     val words = if (text.toByteArray().size > 300) sealLong(mid, text) else text
                     words != null && Meeting.knockFirst(secret, intro.first, intro.second, mid, words)
@@ -356,7 +395,7 @@ object Post {
             } else knock(secret, mid, text, o.optString("qt").ifEmpty { null }, o.optString("qm").ifEmpty { null })
             if (sent) {
                 done.add(mid)
-                Book.edit(to) { c -> c.msgs.find { it.mid == mid }?.advance(1) }
+                Book.edit(SamePair.root(to)) { c -> c.msgs.find { it.mid == mid }?.advance(1) }   // a letter queued on a pipe since folded settles in the conversation
             }
         }
         if (done.isEmpty()) return
@@ -435,7 +474,8 @@ object Post {
         synchronized(fetchLock) { if (fetching) return; fetching = true }
         try { fetchOnce() } catch (e: Exception) { Log.w("Montana", "box fetch: ${e.javaClass.simpleName}") }
         finally { synchronized(fetchLock) { fetching = false } }
-        Book.refs().forEach { announce(it) }
+        SamePair.askUnasked()
+        Book.refs().filter { SamePair.merged(it) == null }.forEach { announce(it) }   // a folded pipe only forwards
         Media.fetchPending(Book.ctx)
         flush()
     }
@@ -493,8 +533,10 @@ object Post {
         if (plain.size <= 1092) return false
         val ct = plain.copyOf(1088)
         val f = Wire.fields(plain, 1088)
-        val mid = f[0]; val text = f[1]
+        val mid = f[0]; var text = f[1]
         if (mid.isEmpty() || text.isEmpty()) return false
+        // a long first letter (the question of MTSamePair always is one) rides as a blob; unfolded before the pipe is born
+        if (text.startsWith(Marks.LONG)) text = fetchLong(text)?.ifEmpty { text } ?: return false
         val (secret, root) = MontanaCard.acceptFirst(ct, inv64, f[4]) ?: return true   // not ours to open: buried, never retried
         val ref = Book.establish(secret) ?: return false
         val name = f[2].takeIf { it.isNotBlank() && it.length <= 64 } ?: ""
@@ -519,7 +561,28 @@ object Post {
 
     private fun place(ref: String, mid: String, text: String, name: String, qt: String?, qm: String?) {
         val sid = mid
+        // A FOLDED PIPE FORWARDS (iOS MTSamePair): a word still on its way over a pipe folded into a conversation lands in that
+        // conversation; a letter of theirs into it says our answer may have been lost, and it is said again.
+        val speaksFor = SamePair.root(ref)
+        if (speaksFor != ref && !SamePair.speaksOfPipe(text)) {
+            val person = !Marks.isService(text) || text.startsWith(Marks.VOICE) || text.startsWith(Marks.MEDIA) || text.startsWith(Marks.STICKER)
+            if (person) SamePair.remind(ref)
+            return place(speaksFor, mid, text, name, qt, qm)
+        }
         when {
+            // ONE PERSON, ONE CONVERSATION (iOS MTSamePair): the scanner's question over a pipe just born from my card —
+            // answered, and folded when I share an older pipe with them — and the owner's answer to my own question.
+            text.startsWith(Marks.SAME_ASK) -> {
+                receipt(ref, sid)
+                val q = SamePair.shared(text.removePrefix(Marks.SAME_ASK), ref)
+                SamePair.answer(q, ref)
+                if (q != null) Book.join(ref, q)
+            }
+            text.startsWith(Marks.SAME_YES) -> {
+                receipt(ref, sid)
+                SamePair.settle(ref)
+                SamePair.proven(text.removePrefix(Marks.SAME_YES), ref)?.let { Book.join(ref, it) }
+            }
             text.startsWith(Marks.DELIVERED) -> { val d = text.removePrefix(Marks.DELIVERED); Book.edit(ref) { c -> c.msgs.find { it.mid == d && it.mine }?.advance(2) } }
             text.startsWith(Marks.READ) -> {
                 val upTo = text.removePrefix(Marks.READ).toLongOrNull()

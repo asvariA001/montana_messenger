@@ -389,7 +389,14 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit): View 
         layoutParams = LinearLayout.LayoutParams(MATCH, dp(52))
     }
 
-    val listener: () -> Unit = {
+    var folded = false
+    val listener: () -> Unit = listener@{
+        // THIS CHAT WAS FOLDED INTO THE OLDER ONE WITH THE SAME PERSON (iOS foldConversation → openChatRequest): the older opens instead.
+        val into = SamePair.root(ref)
+        if (into != ref && Book.chat(ref) == null) {
+            if (!folded) { folded = true; hideKeys(); onClose(); act.push { close -> conversationPage(act, into, close) } }
+            return@listener
+        }
         val before = column.childCount
         redraw(); drawHead()
         if (column.childCount != before) toBottom()
