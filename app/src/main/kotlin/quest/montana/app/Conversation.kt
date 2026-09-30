@@ -425,6 +425,8 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             visibility = View.GONE   // stands once the tape is locked (iOS: the bin, the flip, the pause, and the arrow that sends)
             listOf(ctl(R.drawable.ic_close, R.string.cancel) { bar.cancelRecording() },
                    ctl(R.drawable.ic_camera_rotate, R.string.rec_flip) { note?.flip() },
+                   // BOTH CAMERAS (iOS the dual seat): only where the hardware streams a back and a front camera together
+                   *(if (NoteRecorder.dualPair(c) != null) arrayOf(ctl(R.drawable.ic_dual_camera, R.string.rec_dual) { note?.toggleDual() }) else emptyArray()),
                    notePause,
                    ctl(R.drawable.ic_arrow_circle_up, R.string.send) { bar.stopRecording() }).forEachIndexed { i, k ->
                 k.visibility = View.VISIBLE

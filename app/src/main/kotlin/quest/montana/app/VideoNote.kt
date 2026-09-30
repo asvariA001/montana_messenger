@@ -53,6 +53,24 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
         const val CIRCLE = 400
         const val MAX_SECONDS = 399.0
         fun bitRate() = when (Prefs.str("noteQuality", "medium")) { "low" -> 900_000; "high" -> 2_500_000; else -> 1_500_000 }
+        const val INNER = 144        // iOS inner: the badge on the big circle's rim, in file pixels
+        /** The badge's centre from the canvas's middle (iOS reach: (side/2 + inner/6)/√2), bottom-right (iOS corner 3). */
+        val REACH = ((CIRCLE / 2f + INNER / 6f) / Math.sqrt(2.0)).toFloat()
+        /**
+         * BOTH CAMERAS AT ONCE, where the hardware runs them (iOS AVCaptureMultiCamSession.isMultiCamSupported): the platform's
+         * own list of camera sets that may stream together; the pair is a back and a front camera of one set. null — one camera.
+         */
+        fun dualPair(c: Context): Pair<String, String>? {
+            if (android.os.Build.VERSION.SDK_INT < 30) return null
+            val cm = c.getSystemService(CameraManager::class.java) ?: return null
+            return runCatching {
+                cm.concurrentCameraIds.firstNotNullOfOrNull { set ->
+                    val back = set.firstOrNull { cm.getCameraCharacteristics(it).get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK }
+                    val front = set.firstOrNull { cm.getCameraCharacteristics(it).get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_FRONT }
+                    if (back != null && front != null) back to front else null
+                }
+            }.getOrNull()
+        }
     }
 
     private val gl = HandlerThread("montana-note").apply { start() }
@@ -70,6 +88,16 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
     private var session: CameraCaptureSession? = null
     private var front = true
     private val mtx = FloatArray(16)
+    // THE SECOND CAMERA (iOS dual): its own texture, its latest frame latched as it lands; the big circle composes both
+    private var tex2 = 0
+    private var camTexture2: SurfaceTexture? = null
+    private var cam2: CameraDevice? = null
+    private var session2: CameraCaptureSession? = null
+    private val mtx2 = FloatArray(16)
+    @Volatile private var badgeReady = false
+    /** Both cameras: the back fills the circle, the front sits in the badge; a flip swaps them (iOS toggleDual, 18.09). */
+    @Volatile var dual = false; private set
+    @Volatile private var swapped = false
 
     private var video: MediaCodec? = null
     private var audio: MediaCodec? = null
@@ -143,10 +171,17 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
         vc.start()
         preview.surfaceTexture?.let { viewSurface = EGL14.eglCreateWindowSurface(egl, cfg, Surface(it), intArrayOf(EGL14.EGL_NONE), 0) }
         EGL14.eglMakeCurrent(egl, encSurface, encSurface, ctx)
-        val t = IntArray(1); GLES20.glGenTextures(1, t, 0); tex = t[0]
-        GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, tex)
-        GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
-        GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
+        val t = IntArray(2); GLES20.glGenTextures(2, t, 0); tex = t[0]; tex2 = t[1]
+        for (x in t) {
+            GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, x)
+            GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
+            GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
+        }
+        camTexture2 = SurfaceTexture(tex2).apply {
+            setDefaultBufferSize(1280, 720)
+            // the badge camera only leaves its latest frame (iOS lastSmall); the big one composes on its own frames
+            setOnFrameAvailableListener({ st -> if (!closing && runCatching { st.updateTexImage() }.isSuccess) { st.getTransformMatrix(mtx2); badgeReady = true } }, h)
+        }
         program = link(VS, FS)
         camTexture = SurfaceTexture(tex).apply {
             setDefaultBufferSize(1280, 720)
@@ -165,10 +200,37 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
         val st = camTexture ?: return
         if (runCatching { st.updateTexImage() }.isFailure) return
         st.getTransformMatrix(mtx)
+        fun pass(t: Int, m: FloatArray, badge: Boolean) {
+            val pos = GLES20.glGetAttribLocation(program, "aPos")
+            GLES20.glEnableVertexAttribArray(pos)
+            GLES20.glVertexAttribPointer(pos, 2, GLES20.GL_FLOAT, false, 0, quad)
+            GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(program, "uTex"), 1, false, m, 0)
+            GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uCrop"), 720f / 1280f)
+            GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uMirror"), 0f)
+            GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uRadius"), if (badge) 0.5f else CIRCLE / 2f / SQUARE)
+            GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uBadge"), if (badge) 1f else 0f)
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+            GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, t)
+            GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+        }
         fun paint(s: EGLSurface, w: Int, hh: Int) {
             EGL14.eglMakeCurrent(egl, s, s, ctx)
             GLES20.glViewport(0, 0, w, hh)
             GLES20.glUseProgram(program)
+            if (dual && badgeReady) {
+                // THE RING ON A RING (iOS nested): the big camera's circle, then the badge nested in its rim, bottom-right
+                val big = if (swapped) tex2 else tex; val bigM = if (swapped) mtx2 else mtx
+                val small = if (swapped) tex else tex2; val smallM = if (swapped) mtx else mtx2
+                pass(big, bigM, false)
+                val k = w / SQUARE.toFloat()
+                val cx = SQUARE / 2f + REACH; val cy = SQUARE / 2f + REACH   // y down, as iOS says the offset
+                val side = (INNER * k).toInt()
+                GLES20.glViewport(((cx - INNER / 2f) * k).toInt(), ((SQUARE - cy - INNER / 2f) * k).toInt(), side, side)
+                GLES20.glEnable(GLES20.GL_BLEND); GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
+                pass(small, smallM, true)
+                GLES20.glDisable(GLES20.GL_BLEND)
+                return
+            }
             val pos = GLES20.glGetAttribLocation(program, "aPos")
             GLES20.glEnableVertexAttribArray(pos)
             GLES20.glVertexAttribPointer(pos, 2, GLES20.GL_FLOAT, false, 0, quad)
@@ -203,19 +265,26 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
 
     // ── the camera ──
 
-    @SuppressLint("MissingPermission")
     private fun openCamera() {
         val cm = c.getSystemService(CameraManager::class.java)
         val want = if (front) CameraCharacteristics.LENS_FACING_FRONT else CameraCharacteristics.LENS_FACING_BACK
         val id = cm.cameraIdList.firstOrNull { cm.getCameraCharacteristics(it).get(CameraCharacteristics.LENS_FACING) == want } ?: cm.cameraIdList.first()
-        val out = Surface(camTexture)
+        openInto(id, camTexture!!, { cam = it }, { session = it })
+    }
+
+    /** One camera streaming into one texture (the big one's, or the badge's). */
+    @SuppressLint("MissingPermission")
+    private fun openInto(id: String, st: SurfaceTexture, keepCam: (CameraDevice) -> Unit, keepSession: (CameraCaptureSession) -> Unit) {
+        val cm = c.getSystemService(CameraManager::class.java)
+        val out = Surface(st)
         cm.openCamera(id, object : CameraDevice.StateCallback() {
             override fun onOpened(d: CameraDevice) {
-                cam = d
+                if (closing) { d.close(); return }
+                keepCam(d)
                 @Suppress("DEPRECATION")
                 d.createCaptureSession(listOf(out), object : CameraCaptureSession.StateCallback() {
                     override fun onConfigured(s: CameraCaptureSession) {
-                        session = s
+                        keepSession(s)
                         runCatching {
                             s.setRepeatingRequest(d.createCaptureRequest(CameraDevice.TEMPLATE_RECORD).apply {
                                 addTarget(out); set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
@@ -230,11 +299,31 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
         }, h)
     }
 
-    /** The other camera; the tape runs on through the turn (iOS flip). */
+    /** The other camera; the tape runs on through the turn (iOS flip). With both on, the flip swaps the circle and the badge. */
     fun flip() = h.post {
+        if (dual) { swapped = !swapped; return@post }
         runCatching { session?.close() }; runCatching { cam?.close() }
         front = !front
         openCamera()
+    }
+
+    /**
+     * BOTH CAMERAS (iOS toggleDual): on — the back camera fills the circle and the front one sits in the badge (a set the
+     * platform lets stream together); off — the badge's camera closes and the circle's stays. The tape runs on through it.
+     */
+    fun toggleDual() = h.post {
+        if (dual) {
+            dual = false; badgeReady = false
+            runCatching { session2?.close() }; runCatching { cam2?.close() }; session2 = null; cam2 = null
+            if (swapped) { swapped = false; front = true; runCatching { session?.close() }; runCatching { cam?.close() }; openCamera() }
+            return@post
+        }
+        val (back, frontId) = dualPair(c) ?: return@post
+        runCatching { session?.close() }; runCatching { cam?.close() }
+        front = false; swapped = false
+        openInto(back, camTexture!!, { cam = it }, { session = it })
+        openInto(frontId, camTexture2!!, { cam2 = it }, { session2 = it })
+        dual = true
     }
 
     // ── the voice ──
@@ -322,10 +411,11 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
         runCatching { audio?.stop() }; runCatching { audio?.release() }; audio = null
         h.post {
             runCatching { session?.close() }; runCatching { cam?.close() }
-            camTexture?.setOnFrameAvailableListener(null)
+            runCatching { session2?.close() }; runCatching { cam2?.close() }
+            camTexture?.setOnFrameAvailableListener(null); camTexture2?.setOnFrameAvailableListener(null)
             runCatching { video?.stop() }; runCatching { video?.release() }; video = null
             synchronized(muxLock) { runCatching { if (muxing) muxer?.stop() }; runCatching { muxer?.release() }; muxer = null; muxing = false }
-            runCatching { camTexture?.release() }
+            runCatching { camTexture?.release() }; runCatching { camTexture2?.release() }
             if (egl != EGL14.EGL_NO_DISPLAY) {
                 EGL14.eglMakeCurrent(egl, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT)
                 for (s in listOf(encSurface, viewSurface, dummy)) if (s != EGL14.EGL_NO_SURFACE) EGL14.eglDestroySurface(egl, s)
@@ -352,6 +442,7 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
         uniform float uCrop;
         uniform float uMirror;
         uniform float uRadius;
+        uniform float uBadge;
         void main() {
             vec2 q = vUv;
             if (uMirror > 0.5) q.x = 1.0 - q.x;
@@ -359,7 +450,13 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
             vec4 col = texture2D(sTex, (uTex * vec4(src, 0.0, 1.0)).xy);
             float d = distance(vUv, vec2(0.5));
             float edge = smoothstep(uRadius, uRadius - 0.004, d);
-            gl_FragColor = mix(vec4(col.rgb * 0.28, 1.0), col, edge);
+            if (uBadge > 0.5) {
+                // the badge: its own circle over the big one, a light rim around it, nothing outside
+                float rim = smoothstep(uRadius - 0.05, uRadius - 0.04, d);
+                gl_FragColor = vec4(mix(col.rgb, vec3(1.0), rim * 0.85), edge);
+            } else {
+                gl_FragColor = mix(vec4(col.rgb * 0.28, 1.0), col, edge);
+            }
         }
     """.trimIndent()
 }
