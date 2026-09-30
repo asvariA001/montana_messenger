@@ -15,6 +15,10 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- The daily copy rides Wi-Fi alone: the app asks the system which network it stands on. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- The music plays on with the app closed and the screen dark (MusicService, iOS audio background mode). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <!-- The active seed lives device-only (iOS AfterFirstUnlockThisDeviceOnly): no file of the app is copied —
          no Auto Backup (fullBackupContent=false, every domain excluded). The ONE thing the system backup carries
@@ -82,5 +86,10 @@
             android:authorities="quest.montana.app.dev.media"
             android:exported="false"
             android:grantUriPermissions="true" />
+        <!-- The track on the bar, known to the system: the shade, the lock screen, the headphones (Music.kt, MusicService.kt). -->
+        <service
+            android:name="quest.montana.app.MusicService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
     </application>
 </manifest>

@@ -13,6 +13,7 @@ import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.provider.DocumentsContract
 import android.view.Gravity
 import android.view.MotionEvent
@@ -103,7 +104,9 @@ object MusicFolders {
 
 /**
  * THE ONE PLAYER: a queue — the list as it stood when a row was tapped, so the next track is the row below — the platform's
- * MediaPlayer with the system's audio focus, and one clock that tells the bar where the track stands.
+ * MediaPlayer with the system's audio focus, and one clock that tells the bar where the track stands. Every change of the
+ * track, its rest or its place is told to the system too (MusicService), so the shade, the lock screen and the headphones
+ * follow it; the clock's ticks are not — the system runs the position on by itself.
  */
 object MusicPlayer {
     var queue: List<Track> = emptyList(); private set
@@ -111,46 +114,69 @@ object MusicPlayer {
     var playing = false; private set
     private var mp: MediaPlayer? = null
     private var prepared = false
+    private var app: Context? = null
     private val main = Handler(Looper.getMainLooper())
     val listeners = mutableListOf<() -> Unit>()
     private fun said() = listeners.toList().forEach { it() }
+    private fun changed() { said(); app?.let { MusicService.sync(it) } }
     val current: Track? get() = queue.getOrNull(index)
-    var refused: ((Context) -> Unit)? = null
+    var refused: (() -> Unit)? = null
 
     private var focus: AudioFocusRequest? = null
     private fun takeFocus(c: Context) {
         val am = c.getSystemService(AudioManager::class.java)
+        focus?.let { am.abandonAudioFocusRequest(it) }
         focus = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
             .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
             .setOnAudioFocusChangeListener { if (it == AudioManager.AUDIOFOCUS_LOSS || it == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) pause() }
             .build().also { am.requestAudioFocus(it) }
     }
+    private fun dropFocus() {
+        val f = focus ?: return; focus = null
+        app?.getSystemService(AudioManager::class.java)?.abandonAudioFocusRequest(f)
+    }
 
     fun play(c: Context, list: List<Track>, i: Int) {
+        val a = c.applicationContext
+        app = a
         queue = list; index = i
         release()
         val t = current ?: return
-        takeFocus(c)
+        takeFocus(a)
         mp = MediaPlayer().apply {
             setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
-            setOnPreparedListener { prepared = true; it.start(); playing = true; tick(); said() }
-            setOnCompletionListener { if (index + 1 < queue.size) play(c, queue, index + 1) else { playing = false; seek(0.0); said() } }
-            setOnErrorListener { _, _, _ -> playing = false; said(); refused?.invoke(c); true }
-            try { setDataSource(c, t.uri); prepareAsync() } catch (_: Exception) { refused?.invoke(c) }
+            // the processor stays awake while it plays: the screen goes dark, the music goes on
+            setWakeMode(a, PowerManager.PARTIAL_WAKE_LOCK)
+            setOnPreparedListener { prepared = true; it.start(); playing = true; tick(); changed() }
+            setOnCompletionListener { if (index + 1 < queue.size) play(a, queue, index + 1) else { playing = false; seek(0.0); changed() } }
+            setOnErrorListener { _, _, _ -> playing = false; changed(); refused?.invoke(); true }
+            try { setDataSource(a, t.uri); prepareAsync() } catch (_: Exception) { refused?.invoke() }
         }
-        said()
+        changed()
     }
 
     fun toggle() { if (playing) pause() else resume() }
-    fun pause() { mp?.takeIf { prepared }?.pause(); playing = false; said() }
-    fun resume() { mp?.takeIf { prepared }?.start() ?: return; playing = true; tick(); said() }
-    fun skip(seconds: Int) { val p = mp?.takeIf { prepared } ?: return; p.seekTo((p.currentPosition + seconds * 1000).coerceIn(0, p.duration)); said() }
-    fun seek(f: Double) { val p = mp?.takeIf { prepared } ?: return; p.seekTo((f * p.duration).toInt()); said() }
+    fun pause() { mp?.takeIf { prepared }?.pause(); playing = false; changed() }
+    fun resume() {
+        val p = mp?.takeIf { prepared } ?: return
+        app?.let { takeFocus(it) }
+        p.start(); playing = true; tick(); changed()
+    }
+    fun skip(seconds: Int) { val p = mp?.takeIf { prepared } ?: return; p.seekTo((p.currentPosition + seconds * 1000).coerceIn(0, p.duration)); changed() }
+    fun seek(f: Double) { val p = mp?.takeIf { prepared } ?: return; p.seekTo((f * p.duration).toInt()); changed() }
+    /** Forward turns the page even on the last track — the first follows (iOS next). */
+    fun next() { val a = app ?: return; if (queue.isEmpty()) return; play(a, queue, if (index + 1 < queue.size) index + 1 else 0) }
+    /** Back: past three seconds the track starts over, before them the one above plays (iOS prev). */
+    fun prev() {
+        val a = app ?: return
+        if (positionMs > 3000 || index <= 0) seek(0.0) else play(a, queue, index - 1)
+    }
     /** The bar's cross: the track stops and the bar leaves (iOS MontanaPlayerBar close). */
-    fun stop() { release(); queue = emptyList(); index = -1; said() }
+    fun stop() { release(); dropFocus(); queue = emptyList(); index = -1; changed() }
 
     val fraction: Double get() = mp?.takeIf { prepared && it.duration > 0 }?.let { it.currentPosition.toDouble() / it.duration } ?: 0.0
     val duration: Double get() = mp?.takeIf { prepared }?.duration?.div(1000.0) ?: (current?.length ?: 0.0)
+    val positionMs: Long get() = mp?.takeIf { prepared }?.currentPosition?.toLong() ?: 0L
 
     private fun release() {
         main.removeCallbacksAndMessages(null)
@@ -301,7 +327,8 @@ class MusicPage(private val act: MainActivity) {
         view.addView(plus, FrameLayout.LayoutParams(act.dp(56), act.dp(56), Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, act.dp(16), act.dp(36)) })
         MusicFolders.listeners += { if (view.isAttachedToWindow || view.parent != null) fill() }
         MusicPlayer.listeners += { ringChanged() }
-        MusicPlayer.refused = { c -> AlertDialog.Builder(c).setMessage(R.string.track_refused).setPositiveButton(R.string.ok, null).show() }
+        // a track refused while the app is away (the next one, from the shade) is only not played: no window without a page
+        MusicPlayer.refused = { if (!act.isFinishing && !act.isDestroyed) AlertDialog.Builder(act).setMessage(R.string.track_refused).setPositiveButton(R.string.ok, null).show() }
         fill()
     }
 
