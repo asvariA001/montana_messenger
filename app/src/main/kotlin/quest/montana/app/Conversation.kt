@@ -179,7 +179,8 @@ fun Context.failedMark(): View = text("!", 9f, Color.WHITE, bold = true, center 
 private var noteRing: NoteRing? = null
 private var noteTime: TextView? = null
 
-fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit): View {
+/** `jump` — a letter found by the search: the chat opens on it, and it glows once (iOS openChat(jump:)). */
+fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: String? = null): View {
     val c: Context = act
     val column = c.vstack(Gravity.NO_GRAVITY) { setPadding(dp(10), dp(8), dp(10), dp(8)) }
     val scroll = ScrollView(c).apply {
@@ -241,6 +242,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit): View 
                 LinearLayout.LayoutParams(WRAP, WRAP).apply { topMargin = c.dp(3); marginEnd = c.dp(4) })
             b.getChildAt(0).setOnLongClickListener { letterMenu(act, ref, m, onReply = { replyTo = m; editing = null; showStrip(); showKeys() },
                 onEdit = { editing = m; replyTo = null; field.setText(m.text); field.setSelection(field.text.length); showStrip(); showKeys() }); true }
+            b.tag = m.mid
             column.addView(b, lp().apply { topMargin = c.dp(3) })
         }
     }
@@ -428,7 +430,12 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit): View 
         })
         scroll.addOnLayoutChangeListener { _, _, t, _, b, _, ot, _, ob -> if (b - t < ob - ot) toBottom() }
         redraw()
-        toBottom()
+        val found = jump?.let { column.findViewWithTag<View>(it) }
+        if (found == null) toBottom() else scroll.post {
+            scroll.scrollTo(0, (found.top + column.top - scroll.height / 3).coerceAtLeast(0))
+            found.setBackgroundColor(Color.argb(60, 255, 255, 255))
+            found.postDelayed({ found.background = null }, 1200)
+        }
     }
 }
 

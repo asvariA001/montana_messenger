@@ -318,4 +318,9 @@
     <string name="pi_write_wall">Написать на стене</string>
     <string name="pi_voice_message">Голосовое сообщение</string>
     <string name="pi_file">Файл</string>
+    <!-- the search (iOS searchResults) -->
+    <string name="search_chats">ЧАТЫ, ГРУППЫ И КОНТАКТЫ</string>
+    <string name="search_contacts">КОНТАКТЫ</string>
+    <string name="search_messages">СООБЩЕНИЯ</string>
+    <string name="nothing_found">Ничего не найдено</string>
 </resources>

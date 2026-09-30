@@ -318,4 +318,9 @@
     <string name="pi_write_wall">在留言墙上发帖</string>
     <string name="pi_voice_message">语音消息</string>
     <string name="pi_file">文件</string>
+    <!-- the search (iOS searchResults) -->
+    <string name="search_chats">聊天、群组和联系人</string>
+    <string name="search_contacts">联系人</string>
+    <string name="search_messages">消息</string>
+    <string name="nothing_found">未找到内容</string>
 </resources>

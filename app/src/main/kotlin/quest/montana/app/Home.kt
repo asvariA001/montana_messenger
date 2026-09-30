@@ -125,6 +125,23 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
         music.reserve(on && pane == Pane.MUSIC)
     }
     MusicPlayer.listeners += { if (player.isAttachedToWindow) showPlayer() }
+    // THE ONE SEARCH (iOS searchResults, [C-1]): the same field and the same results stand on the chats, the contacts and the
+    // calls pages; while the search is on, the system's back puts it away first.
+    val results = SearchResults(act).apply { visibility = View.GONE }
+    var keepBack: (() -> Unit)? = null
+    var searching = false
+    lateinit var search: SearchRow
+    fun showResults() {
+        val on = search.active && pane in setOf(Pane.CHATS, Pane.CONTACTS, Pane.CALLS)
+        if (on && results.visibility != View.VISIBLE) results.scrollTo(0, 0)
+        results.visibility = if (on) View.VISIBLE else View.GONE
+        if (on) results.show(search.query)
+        if (search.active != searching) {
+            searching = search.active
+            if (searching) { keepBack = act.back; act.back = { search.clear() } } else { act.back = keepBack; keepBack = null }
+        }
+    }
+    search = SearchRow(c) { _, _ -> showResults() }
     lateinit var bar: HomeBar
     /** The pane stands: the bar's puck under it, the dynamic glyph's memory, the music's walk, the player's place. */
     fun arrived(p: Pane) {
@@ -133,6 +150,7 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
         bar.showPane(p)
         if (p == Pane.MUSIC) MusicFolders.walk(act)          // what was put into the lent folders since comes in
         showPlayer()
+        showResults()
     }
     fun choose(p: Pane) {
         if (p == pane) return
@@ -190,9 +208,17 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
     bar.showPane(Pane.CHATS, animated = false)
     shell.page.addView(c.vstack(Gravity.NO_GRAVITY) {
         addView(bar, lp(MATCH, dp(60)).apply { setMargins(dp(12), dp(4), dp(12), dp(2)) })
-        addView(searchRow(c), lp(MATCH, dp(56)))
-        addView(panes, lp(MATCH, 0, 1f))
+        addView(search, lp(MATCH, dp(56)))
+        addView(FrameLayout(c).apply {
+            addView(panes, FrameLayout.LayoutParams(MATCH, MATCH))
+            addView(results, FrameLayout.LayoutParams(MATCH, MATCH))
+        }, lp(MATCH, 0, 1f))
     }, 1, FrameLayout.LayoutParams(MATCH, MATCH))
+    results.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+        val again: () -> Unit = { results.again() }
+        override fun onViewAttachedToWindow(v: View) { Book.listen(again) }
+        override fun onViewDetachedFromWindow(v: View) { Book.unlisten(again) }
+    })
     shell.drawer.addView(sideDrawer(act,
         onPane = { p -> shell.close { choose(p) } },
         onProfile = { shell.close { act.showProfile() } },
@@ -468,24 +494,121 @@ class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (
 
 /**
  * THE SEARCH ROW (iOS MTSearchField, the platform's own search bar in its minimal style): a capsule with the magnifier and
- * «Search». Nothing is searched yet — the rows it will narrow come with the network.
+ * «Search», and the round cross beside it while the search is on (iOS searchBar: the cross appears in search mode).
+ * `onChange(query, active)` — active is «focused or holding text» (iOS searchActive).
  */
-private fun searchRow(c: Context): View = FrameLayout(c).apply {
-    addView(c.hstack {
-        background = c.glassPlate()
-        setPadding(dp(12), 0, dp(12), 0)
-        addView(c.icon(R.drawable.ic_search, Color.rgb(230, 230, 230)), lp(dp(22), dp(22)).apply { marginEnd = dp(8) })
-        addView(EditText(c).apply {
-            hint = c.getString(R.string.search)
-            setHintTextColor(MT.gray); setTextColor(Color.WHITE)
-            textSize = 17f
-            background = null
-            isSingleLine = true
-            inputType = InputType.TYPE_CLASS_TEXT
-            imeOptions = EditorInfo.IME_ACTION_SEARCH
-            setPadding(0, 0, 0, 0)
+private class SearchRow(val c: Context, onChange: (String, Boolean) -> Unit) : LinearLayout(c) {
+    val field = EditText(c)
+    private val cross = FrameLayout(c)
+    val query get() = field.text.toString()
+    val active get() = field.hasFocus() || query.isNotEmpty()
+
+    init {
+        orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+        setPadding(dp(19), 0, dp(19), 0)
+        addView(c.hstack {
+            background = c.glassPlate()
+            setPadding(dp(12), 0, dp(12), 0)
+            addView(c.icon(R.drawable.ic_search, Color.rgb(230, 230, 230)), lp(dp(22), dp(22)).apply { marginEnd = dp(8) })
+            addView(field.apply {
+                hint = c.getString(R.string.search)
+                setHintTextColor(MT.gray); setTextColor(Color.WHITE)
+                textSize = 17f
+                background = null
+                isSingleLine = true
+                inputType = InputType.TYPE_CLASS_TEXT
+                imeOptions = EditorInfo.IME_ACTION_SEARCH
+                setPadding(0, 0, 0, 0)
+            }, lp(0, WRAP, 1f))
+        }, LayoutParams(0, dp(40), 1f))
+        addView(cross.apply {
+            background = c.glassPlate(oval = true)
+            contentDescription = c.getString(R.string.cancel)
+            addView(c.icon(R.drawable.ic_close, barGlyph), FrameLayout.LayoutParams(dp(18), dp(18), Gravity.CENTER))
+            visibility = GONE
+            pressable { clear() }
+        }, LayoutParams(dp(40), dp(40)).apply { marginStart = dp(8) })
+        val tell = { cross.visibility = if (active) VISIBLE else GONE; onChange(query, active) }
+        field.setOnFocusChangeListener { _, _ -> tell() }
+        field.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
+            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) { tell() }
+        })
+        field.setOnEditorActionListener { _, _, _ -> hideKeys(); true }   // the search key only puts the keys away (iOS searchBarSearchButtonClicked)
+    }
+    private fun hideKeys() = c.getSystemService(android.view.inputmethod.InputMethodManager::class.java).hideSoftInputFromWindow(field.windowToken, 0)
+    /** The cross, the back gesture: the words go, the focus goes, the keys go. */
+    fun clear() { hideKeys(); field.setText(""); field.clearFocus() }
+}
+
+/** Words compared as a person reads them: case and marks aside, «ё» as «е» (iOS .caseInsensitive, .diacriticInsensitive). */
+private fun fold(s: String) = java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD).replace(Regex("\\p{Mn}+"), "").lowercase()
+
+/**
+ * THE SEARCH RESULTS (iOS searchResults, refreshSearchHits): nothing typed — the recent people; a word — the chats whose name
+ * holds it, then the letters that hold it, newest sixty; nothing — «Nothing found». Android has no book of contacts
+ * without a conversation, so iOS's «Contacts» section of such cards has nothing to show here.
+ */
+private class SearchResults(val act: MainActivity) : ScrollView(act) {
+    private val list = act.vstack(Gravity.NO_GRAVITY)
+    private var q = ""
+    private val redraw = Runnable { draw() }
+    init {
+        isVerticalScrollBarEnabled = false
+        setBackgroundColor(Color.BLACK)
+        addView(list)
+    }
+    /** A word typed through is scanned once, after the keys settle (iOS: 120 ms). */
+    fun show(query: String) { q = query; removeCallbacks(redraw); postDelayed(redraw, if (query.isEmpty()) 0 else 120) }
+    fun again() { if (visibility == VISIBLE) show(q) }
+
+    private fun keysAway() = act.getSystemService(android.view.inputmethod.InputMethodManager::class.java).hideSoftInputFromWindow(windowToken, 0)
+    private fun header(words: Int) = list.addView(act.text(act.getString(words), 12f, MT.gray).apply { setPadding(dp(16), dp(14), dp(16), dp(6)) }, lp())
+    private fun hairline() = list.addView(View(act).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = dp(82) })
+
+    /** A person's row: the face and the name (iOS contactRow). */
+    private fun personRow(ch: Chat) = act.hstack {
+        setPadding(dp(16), dp(8), dp(16), dp(8))
+        addView(act.peerFace(ch.ref, ch.name, 46), lp(dp(46), dp(46)).apply { marginEnd = dp(12) })
+        addView(act.text(ch.name.ifBlank { act.getString(R.string.peer) }, 17f, Color.WHITE, bold = true).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))   // USER-DATA: the name
+        pressable { keysAway(); act.push { close -> conversationPage(act, ch.ref, close) } }
+    }
+    /** A letter found: the face, the name, the hour and the words (iOS messageHitRow); a tap opens the chat on that letter. */
+    private fun hitRow(ch: Chat, m: Msg) = act.hstack {
+        setPadding(dp(16), dp(8), dp(16), dp(8))
+        addView(act.peerFace(ch.ref, ch.name, 46), lp(dp(46), dp(46)).apply { marginEnd = dp(12) })
+        addView(act.vstack(Gravity.NO_GRAVITY) {
+            addView(act.hstack {
+                // the chat's own name, whoever wrote the letter (iOS: the one face and the one title of a chat)
+                addView(act.text(ch.name.ifBlank { act.getString(R.string.peer) }, 15f, Color.WHITE, bold = true).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))   // USER-DATA: the name
+                addView(act.text(rowTime(act, m.at), 12f, MT.gray))
+            }, lp())
+            addView(act.text(m.text, 13f, MT.gray).apply { maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END }, lp())   // USER-DATA: the letter
         }, lp(0, WRAP, 1f))
-    }, FrameLayout.LayoutParams(MATCH, dp(40), Gravity.CENTER_VERTICAL).apply { setMargins(dp(19), 0, dp(19), 0) })
+        pressable { keysAway(); act.push { close -> conversationPage(act, ch.ref, close, jump = m.mid) } }
+    }
+
+    private fun draw() {
+        list.removeAllViews()
+        val people = Book.all().filter { it.msgs.isNotEmpty() }
+        if (q.isEmpty()) {
+            // nothing typed yet — the recent people only (iOS recentContacts: twelve, people only)
+            if (people.isNotEmpty()) header(R.string.search_contacts)
+            people.take(12).forEach { list.addView(personRow(it), lp()); hairline() }
+            return
+        }
+        val w = fold(q.trim())
+        if (w.isEmpty()) return
+        val chats = people.filter { fold(it.name).contains(w) }
+        // the words of a person only: a word of the wire is never read as theirs, a voice or a file has no words to find
+        val found = people.flatMap { ch -> ch.msgs.filter { !Marks.isService(it.text) && fold(it.text).contains(w) }.map { ch to it } }
+            .sortedByDescending { it.second.at }.take(60)
+        if (chats.isNotEmpty()) { header(R.string.search_chats); chats.forEach { list.addView(personRow(it), lp()); hairline() } }
+        if (found.isNotEmpty()) { header(R.string.search_messages); found.forEach { (ch, m) -> list.addView(hitRow(ch, m), lp()); hairline() } }
+        if (chats.isEmpty() && found.isEmpty())
+            list.addView(act.text(act.getString(R.string.nothing_found), 17f, MT.gray, center = true).apply { setPadding(0, dp(40), 0, 0) }, lp())
+    }
 }
 
 /**
