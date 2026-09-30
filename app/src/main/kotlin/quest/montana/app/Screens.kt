@@ -98,6 +98,17 @@ class Profile(private val act: MainActivity, private val onboarding: Boolean, pr
                     }
                     row.pressable { pickFace() }
                     addView(row, lp())
+                    // MY PAGE'S GROUND (iOS «Change page background», the author's word 25.09): the chat's own chooser with the
+                    // page's task; the page's ground is every page's and every chat's on «Same as my page»
+                    if (!onboarding) {
+                        divider()
+                        addView(c.hstack {
+                            setPadding(dp(16), dp(14), dp(16), dp(14))
+                            addView(c.icon(R.drawable.ic_photo, Color.WHITE), lp(dp(26), dp(24)).apply { marginEnd = dp(12) })
+                            addView(c.text(c.getString(R.string.pg_change), 17f, MT.gold), lp(0, WRAP, 1f))
+                            pressable { act.push { close -> wallpaperPicker(act, ChatWall.PAGE, close) } }
+                        }, lp())
+                    }
                 }, lp())
                 refreshPhotoRow()
                 gap(16)

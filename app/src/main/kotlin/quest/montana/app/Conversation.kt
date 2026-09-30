@@ -893,6 +893,7 @@ private fun mediaBody(c: Context, m: Msg, into: LinearLayout) {
 /** THE FILE WHOLE: a picture on black, a film in the platform's own player; any other file to the system's viewer. */
 internal fun openMedia(act: MainActivity, f: java.io.File, kind: String) {
     val c: Context = act
+    if (kind == "doc") { openDocument(act, f); return }   // a document opens in its own page (iOS DocPreview, DocView.kt)
     if (kind != "img" && kind != "vid") {
         val view = Intent(Intent.ACTION_VIEW).setDataAndType(Media.uri(c, f), c.contentResolver.getType(Media.uri(c, f)) ?: "*/*")
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)

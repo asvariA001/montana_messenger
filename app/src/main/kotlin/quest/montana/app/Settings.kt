@@ -108,7 +108,7 @@ fun settingsPage(act: MainActivity, title: String, onLead: () -> Unit, cross: Bo
     }
     return FrameLayout(c).apply {
         setBackgroundColor(Color.BLACK)
-        addView(CrestGround(c), FrameLayout.LayoutParams(MATCH, MATCH))
+        addView(c.chatGround(ChatWall.PAGE), FrameLayout.LayoutParams(MATCH, MATCH))   // my page's ground (iOS montanaPageGround)
         addView(c.vstack(Gravity.NO_GRAVITY) {
             addView(bar, lp(MATCH, dp(52)))
             addView(ScrollView(c).apply {

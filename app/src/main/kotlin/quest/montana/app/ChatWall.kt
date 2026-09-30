@@ -36,6 +36,8 @@ import java.util.UUID
  * a drawn ground by its name, or a picture placed by the finger and kept as placed. One owner of the storage and the files.
  */
 object ChatWall {
+    /** MY PAGE'S GROUND (iOS MTWallpaper.page): kept as a chat's is, under this key; «General» is no ground (the crest). */
+    const val PAGE = "*page"
     sealed class Choice {
         object General : Choice()
         data class Named(val name: String) : Choice()
@@ -163,16 +165,22 @@ class GroundPaint(private val c: Context, private val name: String) : Drawable()
     }
 }
 
-/** A drawn ground, or the pages' crest for «general», or the kept picture (CENTER_CROP) — the one view every chat draws. */
+/** A drawn ground, or my page's ground for «general», or the kept picture (CENTER_CROP) — the one view every chat draws. */
 fun Context.groundView(choice: ChatWall.Choice): View = when (choice) {
-    ChatWall.Choice.General -> CrestGround(this)
+    ChatWall.Choice.General -> pageGround()
     is ChatWall.Choice.Named -> View(this).apply { background = GroundPaint(context, choice.name) }
     is ChatWall.Choice.Photo -> ChatWall.image(choice.file)?.let { b ->
         ImageView(this).apply { setImageBitmap(b); scaleType = ImageView.ScaleType.CENTER_CROP; setBackgroundColor(Color.BLACK) }
     } ?: CrestGround(this)
 }
 
-/** The ground slot of a chat's page: it follows the chat's choice while the page stands. */
+/**
+ * MY PAGE'S GROUND (iOS montanaPageGround, rule 30: «the page's ground is every page's and every chat's»): the ground I chose
+ * in my profile, or the pages' crest while I chose none. A chat on «Same as my page» wears it.
+ */
+fun Context.pageGround(): View = ChatWall.choice(ChatWall.PAGE).let { if (it == ChatWall.Choice.General) CrestGround(this) else groundView(it) }
+
+/** The ground slot of a chat's page — or of any page, with ChatWall.PAGE: it follows the choice while the page stands. */
 fun Context.chatGround(ref: String): FrameLayout = FrameLayout(this).apply {
     fun fillIn() { removeAllViews(); addView(groundView(ChatWall.choice(ref)), FrameLayout.LayoutParams(MATCH, MATCH)) }
     fillIn()
@@ -236,7 +244,10 @@ fun wallpaperPicker(act: MainActivity, ref: String, onClose: () -> Unit): View {
         val now = ChatWall.choice(ref)
         body.addView(c.hstack {
             setPadding(dp(20), dp(10), dp(20), 0)
-            addView(tile(now == ChatWall.Choice.General, c.getString(R.string.wall_same_as_page), true, CrestGround(c)) {
+            // my page's own chooser offers «No background» (the crest); a chat's offers «Same as my page» (iOS task.isPage)
+            val page = ref == ChatWall.PAGE
+            addView(tile(now == ChatWall.Choice.General, c.getString(if (page) R.string.pg_none else R.string.wall_same_as_page), true,
+                if (page) CrestGround(c) else c.pageGround()) {
                 preview(ChatWall.Choice.General)
             }, lp(dp(78), dp(78)))
             if (now is ChatWall.Choice.Photo) ChatWall.image(now.file)?.let { b ->
@@ -266,7 +277,7 @@ fun wallpaperPicker(act: MainActivity, ref: String, onClose: () -> Unit): View {
         setBackgroundColor(Color.BLACK)
         addView(CrestGround(c), FrameLayout.LayoutParams(MATCH, MATCH))
         addView(c.vstack(Gravity.NO_GRAVITY) {
-            addView(barOf(c, c.getString(R.string.pi_chat_background), onClose, onClose), lp(MATCH, dp(56)))
+            addView(barOf(c, c.getString(if (ref == ChatWall.PAGE) R.string.pg_title else R.string.pi_chat_background), onClose, onClose), lp(MATCH, dp(56)))
             addView(ScrollView(c).apply { isVerticalScrollBarEnabled = false; addView(body) }, lp(MATCH, 0, 1f))
         }, FrameLayout.LayoutParams(MATCH, MATCH))
     }
