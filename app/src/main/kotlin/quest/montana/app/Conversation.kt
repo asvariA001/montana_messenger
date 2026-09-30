@@ -408,7 +408,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
 
     return FrameLayout(c).apply {
         setBackgroundColor(Color.BLACK)
-        addView(CrestGround(c), FrameLayout.LayoutParams(MATCH, MATCH))
+        addView(c.chatGround(ref), FrameLayout.LayoutParams(MATCH, MATCH))   // the chat's own ground, or the pages' crest (iOS MTWallpaper)
         addView(c.vstack(Gravity.NO_GRAVITY) {
             addView(top)
             addView(scroll, lp(MATCH, 0, 1f))

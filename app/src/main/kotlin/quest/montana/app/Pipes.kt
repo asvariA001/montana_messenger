@@ -295,6 +295,7 @@ object Book {
         }
         SamePair.drop(dead)
         face(ref).delete(); myFace(ref).delete()
+        ChatWall.forget(ref)
         changed()
     }
 

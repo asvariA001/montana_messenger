@@ -241,7 +241,7 @@ fun peerInfoPage(act: MainActivity, ref: String, onClose: () -> Unit): View {
         plate(R.drawable.ic_more_horiz, R.string.pi_more) { v ->
             PopupMenu(c, v).apply {
                 menu.add(c.getString(R.string.pi_chat_background))
-                setOnMenuItemClickListener { notYet(); true }
+                setOnMenuItemClickListener { act.push { close -> wallpaperPicker(act, ref, close) }; true }   // iOS: More → Chat background
             }.show()
         }
     }

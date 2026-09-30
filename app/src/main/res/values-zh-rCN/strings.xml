@@ -331,4 +331,21 @@
     <string name="pe_show_original">显示原始名字</string>
     <string name="pe_note">备注</string>
     <string name="pe_restore_photo">恢复原始照片</string>
+    <!-- the chat's ground (iOS MTWallpaperPicker) -->
+    <string name="wall_tab_ready">壁纸</string>
+    <string name="wall_tab_photos">照片</string>
+    <string name="wall_same_as_page">与我的页面相同</string>
+    <string name="wall_choose_photo">选择照片</string>
+    <string name="wall_preview">预览</string>
+    <string name="wall_hello">你好！这是蒙大拿样式。</string>
+    <string name="wall_default">默认</string>
+    <string name="wall_black">黑色</string>
+    <string name="wall_dark">深色</string>
+    <string name="wall_blue">蓝色</string>
+    <string name="wall_sky">天空</string>
+    <string name="wall_dusk">暮色</string>
+    <string name="wall_water">水</string>
+    <string name="wall_aurora">极光</string>
+    <string name="wall_rose">玫瑰</string>
+    <string name="wall_forest">森林</string>
 </resources>

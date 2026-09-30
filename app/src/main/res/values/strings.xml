@@ -332,4 +332,21 @@
     <string name="pe_show_original">Show original name</string>
     <string name="pe_note">Note</string>
     <string name="pe_restore_photo">Restore original photo</string>
+    <!-- the chat's ground (iOS MTWallpaperPicker) -->
+    <string name="wall_tab_ready">Wallpapers</string>
+    <string name="wall_tab_photos">Photos</string>
+    <string name="wall_same_as_page">Same as my page</string>
+    <string name="wall_choose_photo">Choose photo</string>
+    <string name="wall_preview">Preview</string>
+    <string name="wall_hello">Hello! This is the Montana style.</string>
+    <string name="wall_default">Default ground</string>
+    <string name="wall_black">Black ground</string>
+    <string name="wall_dark">Dark ground</string>
+    <string name="wall_blue">Blue ground</string>
+    <string name="wall_sky">Sky</string>
+    <string name="wall_dusk">Dusk</string>
+    <string name="wall_water">Water</string>
+    <string name="wall_aurora">Aurora</string>
+    <string name="wall_rose">Rose</string>
+    <string name="wall_forest">Forest</string>
 </resources>
