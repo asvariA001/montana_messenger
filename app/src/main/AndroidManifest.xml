@@ -19,11 +19,14 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- The box read with the app closed outlives a reboot (BoxJob, persisted by the system's scheduler). -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <!-- The active seed lives device-only (iOS AfterFirstUnlockThisDeviceOnly): no file of the app is copied —
          no Auto Backup (fullBackupContent=false, every domain excluded). The ONE thing the system backup carries
          is SeedBackupAgent's record of the words, and only sealed end to end (iOS MontanaAppleID). -->
     <application
+        android:name="quest.montana.app.MontanaApp"
         android:allowBackup="true"
         android:backupAgent="quest.montana.app.SeedBackupAgent"
         android:restoreAnyVersion="true"
@@ -91,5 +94,10 @@
             android:name="quest.montana.app.MusicService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
+        <!-- The box read with the app closed (BoxJob.kt): only the system's scheduler may start it. -->
+        <service
+            android:name="quest.montana.app.BoxJob"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
     </application>
 </manifest>
