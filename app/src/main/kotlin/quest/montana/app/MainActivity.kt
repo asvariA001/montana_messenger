@@ -54,6 +54,7 @@ class MainActivity : Activity() {
         hasSeed = MontanaSeed.hasSeed
         termsAccepted = Prefs.termsAccepted
         render()
+        Scheduled.run()   // the app's clock for letters sent later (Schedule.kt)
         // «Share → Montana» from another app, else an invitation's link
         if (!takeShared(intent, hasSeed && termsAccepted)) intent?.data?.let { openLink(it.toString()) }
     }

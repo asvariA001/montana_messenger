@@ -305,6 +305,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             val qt = r?.let { letterWords(c, it.text).take(200) }
             Book.edit(ref) { it.msgs.add(Msg(mid, words, true, Marks.birthMs(mid) ?: System.currentTimeMillis(), qt = qt, qm = r?.mid)) }
             Post.send(ref, mid, words, qt, r?.mid)
+            LinkPreview.attend(ref, mid, words, qt, r?.mid)   // a link's card follows the letter (iOS MTLinkCards.attend)
         }
         showStrip()
         toBottom()
@@ -331,9 +332,12 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     }
     // THE CAMERA BESIDE THE PHOTOS (iOS MTGalleryPick: the camera's tile, «All photos»): a shot goes the picked picture's road
     bar.onGallery = { hideKeys(); cameraOrPhotos(act) { how -> if (how == null) act.pickVisual(sendPicked(false)) else Capture.shoot(act, video = how) { u -> if (u != null) sendPicked(false)(u) } } }
+    // «SEND LATER» (iOS: the send key's hold): the words leave the field and wait for their moment (Schedule.kt)
+    bar.onSendLater = { v -> sendLaterMenu(act, v, ref, { field.text.toString() }) { field.setText(""); Prefs.setStr("draft.$ref", "") } }
     // A CONTACT OF THE PHONE (iOS ContactPicker): its name and number leave as one letter
     bar.onContact = { hideKeys(); act.pickContact { u -> u?.let { contactLetter(c, it) }?.let { words -> sendWords(ref, words); toBottom() } } }
     bar.onFile = { act.openDocument(sendPicked(true)) }
+    bar.onStickers = { hideKeys(); Stickers.panel(act, ref) }   // a hold on the emoji key (Stickers.kt)
     // THE VOICE (iOS the held mark): the tape starts under the finger and leaves as a media letter of kind «aud».
     // THE SWELL WHILE SPEAKING (iOS the recording row): the red mark, the running time and the wave that rises with the voice.
     val liveWave = WaveView(c).apply { played = Color.WHITE }
@@ -728,7 +732,7 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat): ReplySwipe = ReplySwip
     val mine = m.mine
     addView(c.vstack(if (mine) Gravity.END else Gravity.START) {
         addView(c.vstack(Gravity.END) {
-            background = BubbleStyle.drawable(context, mine)
+            background = if (Stickers.bare(m)) null else BubbleStyle.drawable(context, mine)   // a sticker stands without a bubble
             setPadding(dp(12), dp(7), dp(12), dp(6))
             // A FORWARDED LETTER (iOS isForwarded): one grey line over its words, no name and no bar
             if (m.qt == FORWARDED_QUOTE) addView(c.text(c.getString(R.string.ld_forwarded), 13f, BubbleStyle.time(mine)), lp(WRAP, WRAP).apply { bottomMargin = dp(3) })
@@ -742,8 +746,10 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat): ReplySwipe = ReplySwip
                     })
                 }, lp(WRAP, WRAP).apply { bottomMargin = dp(4) })
             }
-            if (m.text.startsWith(Marks.MEDIA)) mediaBody(c, m, this)
+            if (Stickers.body(c, m, this)) Unit else if (m.text.startsWith(Marks.MEDIA)) mediaBody(c, m, this)
             else addView(c.text(letterWords(c, m.text), 16f, BubbleStyle.text(mine)).apply { maxWidth = dp(260); setTextIsSelectable(false) }, lp(WRAP, WRAP))   // USER-DATA: the letter
+            // THE LINK'S CARD UNDER THE WORDS (iOS the link card in the bubble), drawn from the letter's own bytes
+            LinkCard.parse(m.lp)?.let { addView(linkCardView(c, it, mine), lp(WRAP, WRAP)) }
             addView(c.hstack {
                 gravity = Gravity.CENTER_VERTICAL
                 if (m.edited) addView(c.text(c.getString(R.string.edited) + " ", 11f, BubbleStyle.time(mine)))

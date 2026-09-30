@@ -168,10 +168,11 @@ class Msg(
     val reactions: MutableList<String> = mutableListOf(), var myReact: String? = null,
     var file: String? = null, var meta: String? = null,   // a media letter: the assembled file, and its manifest once known
     var statusAt: Long = 0, var heard: Boolean = false,
+    var lp: String? = null,   // the link's card (iOS linkPreview, LinkPreview.kt): the body's seventh field
 ) {
     fun json(): JSONObject = JSONObject().put("m", mid).put("t", text).put("o", mine).put("at", at).put("s", state).put("e", edited)
         .put("qt", qt ?: "").put("qm", qm ?: "").put("r", JSONArray(reactions)).put("mr", myReact ?: "")
-        .put("f", file ?: "").put("mm", meta ?: "").put("sa", statusAt).put("h", heard)
+        .put("f", file ?: "").put("mm", meta ?: "").put("sa", statusAt).put("h", heard).put("lp", lp ?: "")
 
     /** The moment the letter's rung was reached, or its birth (iOS Message.statusMoment). */
     val statusMoment: Long get() = if (statusAt > 0) statusAt else at
@@ -195,7 +196,7 @@ class Msg(
             o.optString("qt").ifEmpty { null }, o.optString("qm").ifEmpty { null },
             o.optJSONArray("r")?.let { a -> MutableList(a.length()) { a.getString(it) } } ?: mutableListOf(),
             o.optString("mr").ifEmpty { null }, o.optString("f").ifEmpty { null }, o.optString("mm").ifEmpty { null },
-            o.optLong("sa"), o.optBoolean("h"))
+            o.optLong("sa"), o.optBoolean("h"), o.optString("lp").ifEmpty { null })
     }
 }
 
@@ -394,12 +395,16 @@ object Post {
 
     // ── sending ──
     /** Queue a letter and knock at once; a letter that no door took waits in the outbox and rides the next round. */
-    fun send(to0: String, mid: String, text: String, qt: String? = null, qm: String? = null) {
+    fun send(to0: String, mid: String, text: String, qt: String? = null, qm: String? = null, lp: String? = null) {
         val to = if (SamePair.speaksOfPipe(text)) to0 else SamePair.root(to0)   // a folded pipe's words go by its conversation's pipe
         synchronized(outLock) {
             val a = outbox()
-            for (i in 0 until a.length()) if (a.getJSONObject(i).optString("m") == mid) return   // one letter, one place in the queue
-            a.put(JSONObject().put("to", to).put("m", mid).put("t", text).put("qt", qt ?: "").put("qm", qm ?: ""))
+            for (i in 0 until a.length()) if (a.getJSONObject(i).optString("m") == mid) {
+                // one letter, one place in the queue; its card, come later, joins the place it already holds (iOS attachPreview)
+                if (lp != null) { a.getJSONObject(i).put("lp", lp); DeviceVault.set(OUTBOX, a.toString().toByteArray()) }
+                return
+            }
+            a.put(JSONObject().put("to", to).put("m", mid).put("t", text).put("qt", qt ?: "").put("qm", qm ?: "").put("lp", lp ?: ""))
             DeviceVault.set(OUTBOX, a.toString().toByteArray())
         }
         Thread { flush() }.start()
@@ -426,7 +431,7 @@ object Post {
                     val words = if (text.toByteArray().size > 300) sealLong(mid, text) else text
                     words != null && Meeting.knockFirst(secret, intro.first, intro.second, mid, words)
                 }
-            } else knock(secret, mid, text, o.optString("qt").ifEmpty { null }, o.optString("qm").ifEmpty { null })
+            } else knock(secret, mid, text, o.optString("qt").ifEmpty { null }, o.optString("qm").ifEmpty { null }, o.optString("lp").ifEmpty { null })
             if (sent) {
                 done.add(mid)
                 Book.edit(SamePair.root(to)) { c -> c.msgs.find { it.mid == mid }?.advance(1) }   // a letter queued on a pipe since folded settles in the conversation
@@ -441,13 +446,20 @@ object Post {
     }
 
     /** ONE KNOCK (iOS MTNodeWire.knockLetter): the body is sealed afresh at every door, the first door that boxes it ends the walk. */
-    private fun knock(secret: ByteArray, mid: String, text0: String, qt: String?, qm: String?): Boolean {
+    private fun knock(secret: ByteArray, mid: String, text0: String, qt: String?, qm: String?, lp: String? = null): Boolean {
         val twin = MontanaSeed.twin ?: return false
         // A LETTER TOO LONG FOR ONE ENVELOPE rides as a blob under a key of its own, the envelope carries the reference (iOS sealLongLetter).
         val text = if (text0.toByteArray().size > Wire.ENVELOPE - 400) sealLong(mid, text0) ?: return false else text0
         var body = mid.toByteArray() + 0 + text.toByteArray() + 0 + Prefs.userName.trim().toByteArray() + 0 + byteArrayOf(0)
-        if (!qt.isNullOrEmpty()) {
-            val tail = qt.take(200).toByteArray() + 0 + (qm ?: "").toByteArray() + 0
+        val quoted = !qt.isNullOrEmpty()
+        if (quoted) {
+            val tail = qt!!.take(200).toByteArray() + 0 + (qm ?: "").toByteArray() + 0
+            if (body.size + tail.size <= Wire.ENVELOPE) body += tail
+        }
+        // THE LINK'S CARD IS THE SEVENTH FIELD (iOS wireTail / wireTailAfterQuote): after the quote pair, or after two empty
+        // fields where the quote would stand; the envelope carries it without its picture, and only when it fits — decoration
+        lp?.let { LinkCard.parse(it)?.json(withPicture = false) }?.takeIf { it.toByteArray().size > 64 }?.let { card ->
+            val tail = (if (quoted) ByteArray(0) else byteArrayOf(0, 0)) + card.toByteArray()
             if (body.size + tail.size <= Wire.ENVELOPE) body += tail
         }
         if (body.size > Wire.ENVELOPE) return false
@@ -591,11 +603,11 @@ object Post {
         Meeting.firstDone(ref)   // a word sealed under the pipe by the other side: the introduction is over
         var text = f[1]
         if (text.startsWith(Marks.LONG)) text = fetchLong(text)?.ifEmpty { text } ?: return false   // later: the letter waits in the box
-        place(ref, f[0], text, f[2], f[4].ifEmpty { null }, f[5].ifEmpty { null })
+        place(ref, f[0], text, f[2], f[4].ifEmpty { null }, f[5].ifEmpty { null }, f[6].ifEmpty { null })
         return true
     }
 
-    private fun place(ref: String, mid: String, text: String, name: String, qt: String?, qm: String?) {
+    private fun place(ref: String, mid: String, text: String, name: String, qt: String?, qm: String?, lp: String? = null) {
         val sid = mid
         // A FOLDED PIPE FORWARDS (iOS MTSamePair): a word still on its way over a pipe folded into a conversation lands in that
         // conversation; a letter of theirs into it says our answer may have been lost, and it is said again.
@@ -603,7 +615,7 @@ object Post {
         if (speaksFor != ref && !SamePair.speaksOfPipe(text)) {
             val person = !Marks.isService(text) || text.startsWith(Marks.VOICE) || text.startsWith(Marks.MEDIA) || text.startsWith(Marks.STICKER)
             if (person) SamePair.remind(ref)
-            return place(speaksFor, mid, text, name, qt, qm)
+            return place(speaksFor, mid, text, name, qt, qm, lp)
         }
         when {
             // ONE PERSON, ONE CONVERSATION (iOS MTSamePair): the scanner's question over a pipe just born from my card —
@@ -674,9 +686,12 @@ object Post {
                 var isNew = false
                 Presence.noteSeen(ref, Marks.birthMs(mid))   // a person's own word stamps the moment it was written (iOS append)
                 Book.edit(ref) { c ->
-                    if (c.msgs.none { it.mid == mid }) {
+                    val had = c.msgs.find { it.mid == mid }
+                    // THE SAME LETTER AGAIN, NOW WITH ITS CARD (iOS attachPreview's copy): the card joins the row, nothing else moves
+                    if (had != null && lp != null && LinkCard.parse(lp) != null && had.lp == null) had.lp = lp
+                    if (had == null) {
                         val at = Marks.birthMs(mid) ?: System.currentTimeMillis()
-                        c.msgs.add(Msg(mid, text, false, at, qt = qt, qm = qm)); c.msgs.sortBy { it.at }
+                        c.msgs.add(Msg(mid, text, false, at, qt = qt, qm = qm, lp = lp?.takeIf { LinkCard.parse(it) != null })); c.msgs.sortBy { it.at }
                         if (Book.openChat != ref) c.unread++
                         if (c.name.isEmpty() && name.isNotBlank()) c.name = name
                         isNew = true

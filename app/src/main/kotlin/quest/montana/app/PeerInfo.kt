@@ -477,6 +477,28 @@ private fun safetyPage(act: MainActivity, ref: String, name: String, onClose: ()
             setPadding(0, dp(12), 0, dp(12))
             pressable { PeerSafety.setVerified(ref, !PeerSafety.isVerified(ref)); draw() }
         }, lp().apply { topMargin = c.dp(18) })
+        // THEIR QR READ BY THE CAMERA (iOS SafetyNumberView's scan): only a fingerprint of this shape is compared — any other
+        // code keeps the camera looking; the same number verifies, a different one unverifies and is said (it is evidence)
+        if (digits.isNotEmpty()) addView(c.text(c.getString(R.string.sn_scan), 17f, MT.gold, bold = true, center = true).apply {
+            setPadding(0, dp(12), 0, dp(12))
+            background = c.rounded(Color.TRANSPARENT, 10, MT.gold)
+            pressable {
+                act.push { close ->
+                    scannerPage(act, close) { code ->
+                        val payload = code.substringBefore('#').removePrefix("mt:fp:")
+                        if (payload.length != digits.length || !payload.all { it in '0'..'9' }) return@scannerPage false
+                        val same = payload == digits
+                        PeerSafety.setVerified(ref, same)
+                        act.onMain {
+                            draw()
+                            if (!same) android.app.AlertDialog.Builder(act).setTitle(R.string.sn_mismatch).setMessage(R.string.sn_mismatch_note)
+                                .setPositiveButton(R.string.ok, null).show()
+                        }
+                        true
+                    }
+                }
+            }
+        }, lp().apply { topMargin = c.dp(10) })
         draw()
     }
 }

@@ -53,4 +53,10 @@
     <string name="cm_photo">相机 · 照片</string>
     <string name="cm_video">相机 · 视频</string>
     <string name="cm_all">所有照片</string>
+    <!-- the fingerprint read by the camera (iOS SafetyNumberView's scan) -->
+    <string name="sn_scan">扫描对方的 QR</string>
+    <string name="sn_mismatch">代码不一致</string>
+    <string name="sn_mismatch_note">这是另一个聊天的代码，或者有人介于你们之间。请口头核对这些数字。</string>
+    <!-- a letter sent later (iOS «Send later», the send key's hold) -->
+    <string name="sl_later">稍后发送</string>
 </resources>

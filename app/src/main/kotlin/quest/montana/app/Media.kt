@@ -151,7 +151,7 @@ object Media {
             if (!ok) return null
         }
         val m = JSONObject().put("k", p.kind).put("e", p.ext).put("bk", Base64.encodeToString(bk, Base64.NO_WRAP)).put("sz", total).put("chunks", chunks)
-        p.name?.let { if (p.kind == "doc") m.put("n", it) }
+        p.name?.let { if (p.kind == "doc" || it == Stickers.CARD) m.put("n", it) }   // a sticker's picture names itself (iOS docName)
         if (caption.isNotEmpty()) m.put("cap", caption)
         p.du?.let { m.put("du", Math.round(it * 10) / 10.0) }   // the tape's length is the sender's word (iOS «du»)
         if (p.round) m.put("r", true)   // a round video note (iOS «r»)

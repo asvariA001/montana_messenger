@@ -31,7 +31,11 @@ import android.widget.Toast
  * main thread — one at a time, the frames between are let go; the first Montana link read closes the page and opens the
  * meeting (the one resolver). The platform's own Camera2, no library.
  */
-fun scannerPage(act: MainActivity, onClose: () -> Unit): View {
+/**
+ * With [onCode] the scanner reads for someone else (iOS SafetyNumberView's scan): every code read is handed to it off the main
+ * thread; «true» ends the scan and closes the page, «false» keeps the camera looking. No invitation is opened, no link pasted.
+ */
+fun scannerPage(act: MainActivity, onClose: () -> Unit, onCode: ((String) -> Boolean)? = null): View {
     val c: Context = act
     val texture = TextureView(c)
     var cam: CameraDevice? = null
@@ -70,7 +74,9 @@ fun scannerPage(act: MainActivity, onClose: () -> Unit): View {
             img.close()
             val text = runCatching { QrReader.read(lum, w, h, stride) }.getOrNull()
             busy.set(false)
-            if (text != null) {
+            if (text != null && onCode != null) {
+                if (onCode(text) && done.compareAndSet(false, true)) act.onMain { onClose() }
+            } else if (text != null) {
                 if (Meeting.looksLikeInvitation(text)) finish(text)
                 else if (!toldForeign) { toldForeign = true; act.onMain { Toast.makeText(c, R.string.invite_refused, Toast.LENGTH_SHORT).show() } }
             }
@@ -128,7 +134,7 @@ fun scannerPage(act: MainActivity, onClose: () -> Unit): View {
             pressable { release(); onClose() }
         }, FrameLayout.LayoutParams(c.dp(48), c.dp(48), Gravity.TOP or Gravity.START).apply { setMargins(c.dp(16), c.dp(16), 0, 0) })
         // «Paste a link» (iOS: the scanner's own paste): a link that came by mail or a messenger opens the same meeting.
-        addView(c.text(c.getString(R.string.paste_link), 16f, Color.BLACK, bold = true, center = true).apply {
+        if (onCode == null) addView(c.text(c.getString(R.string.paste_link), 16f, Color.BLACK, bold = true, center = true).apply {
             background = c.rounded(Color.WHITE, 22)
             setPadding(c.dp(22), c.dp(12), c.dp(22), c.dp(12))
             pressable {

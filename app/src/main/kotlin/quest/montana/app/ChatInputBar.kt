@@ -40,12 +40,14 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
         contentDescription = c.getString(R.string.emoji)
         setPadding(dp(9), dp(9), dp(9), dp(9))
         pressable { showKeys() }
+        setOnLongClickListener { onStickers?.invoke(); onStickers != null }   // a hold on the emoji key: the stickers
     }
     private val sendColumn = FrameLayout(c)
     private val send = ImageView(c).apply {
         setImageResource(R.drawable.send_button); scaleType = ImageView.ScaleType.FIT_CENTER
         contentDescription = c.getString(R.string.send)
         pressable { if (field.text.isNotBlank()) onSend() }
+        setOnLongClickListener { if (field.text.isNotBlank()) onSendLater?.invoke(it); onSendLater != null }   // a hold: «Send later» (iOS)
     }
     private val record = RecordKey(c)
 
@@ -98,7 +100,7 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
             field.setPadding(dp(14), dp(8), dp(14), dp(8))
             val keys = listOf(
                 glassKey(R.drawable.ic_chevron_up, R.string.compose_fold) { setOpen(false) },
-                glassKey(R.drawable.ic_face_smiling, R.string.emoji) { showKeys() },
+                glassKey(R.drawable.ic_face_smiling, R.string.emoji) { showKeys() }.apply { setOnLongClickListener { onStickers?.invoke(); onStickers != null } },
                 glassKey(R.drawable.ic_compose_photo, R.string.gallery) { onGallery?.invoke() ?: notYet() },
                 glassKey(R.drawable.ic_compose_card, R.string.business_card) { notYet() },
                 glassKey(R.drawable.ic_compose_doc, R.string.file) { onFile?.invoke() ?: notYet() },
@@ -137,8 +139,10 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
     /** What iOS does here and Android does not do yet says so in words instead of doing nothing. */
     /** The gallery and file keys' deeds, given by the page that owns the letters (the conversation sends media). */
     var onGallery: (() -> Unit)? = null
+    var onSendLater: ((View) -> Unit)? = null   // the send key's hold (Schedule.kt)
     var onContact: (() -> Unit)? = null   // the phone's contact as a letter (iOS ContactPicker)
     var onFile: (() -> Unit)? = null
+    var onStickers: (() -> Unit)? = null   // the sticker panel, opened by a hold on the emoji key (Stickers.kt)
     /** The voice's deeds: start the tape (false — it could not start), and end it (true — dropped, not sent). */
     var onVoiceStart: (() -> Boolean)? = null
     var onVoiceEnd: ((Boolean) -> Unit)? = null

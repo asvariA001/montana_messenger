@@ -53,4 +53,10 @@
     <string name="cm_photo">Камера · Фото</string>
     <string name="cm_video">Камера · Видео</string>
     <string name="cm_all">Все фотографии</string>
+    <!-- the fingerprint read by the camera (iOS SafetyNumberView's scan) -->
+    <string name="sn_scan">Сканировать QR собеседника</string>
+    <string name="sn_mismatch">Коды не совпадают</string>
+    <string name="sn_mismatch_note">Это код другого чата — или между вами кто-то стоит. Сверьте цифры голосом.</string>
+    <!-- a letter sent later (iOS «Send later», the send key's hold) -->
+    <string name="sl_later">Отправить позже</string>
 </resources>
