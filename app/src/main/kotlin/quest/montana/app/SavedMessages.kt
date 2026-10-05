@@ -4,7 +4,6 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Color
-import android.graphics.drawable.GradientDrawable
 import android.text.Editable
 import android.text.TextWatcher
 import android.text.format.DateUtils
@@ -14,7 +13,6 @@ import android.view.WindowInsets
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.FrameLayout
-import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.PopupMenu
 import android.widget.ScrollView
@@ -140,17 +138,8 @@ fun savedMessagesPage(act: MainActivity, onClose: () -> Unit): View {
 
     fun hideKeys() = (c.getSystemService(InputMethodManager::class.java)).hideSoftInputFromWindow(field.windowToken, 0)
 
-    // THE BAR'S FACE: one's own face (iOS: Saved Messages wears one's own face, the author's word 18.09), else the bookmark.
-    val face: View = SelfFace.load(c)?.let { bmp ->
-        ImageView(c).apply {
-            setImageBitmap(bmp); scaleType = ImageView.ScaleType.CENTER_CROP
-            clipToOutline = true
-            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.DKGRAY) }
-        }
-    } ?: FrameLayout(c).apply {
-        background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(MT.gold) }
-        addView(c.icon(R.drawable.ic_bookmark, Color.WHITE), FrameLayout.LayoutParams(dp(18), dp(18), Gravity.CENTER))
-    }
+    // THE BAR'S FACE: one's own face (iOS MTSelfFace: Saved Messages wears one's own face, the author's word 18.09)
+    val face: View = c.avatar(SelfFace.load(c), Prefs.userName, 36)
     val top = c.topBar(c.getString(R.string.saved_messages), onBack = { hideKeys(); onClose() },
         trailing = FrameLayout(c).apply {
             setPadding(0, 0, dp(8), 0)

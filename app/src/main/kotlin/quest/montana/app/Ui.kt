@@ -146,18 +146,18 @@ fun Context.plate(build: LinearLayout.() -> Unit) = vstack(Gravity.NO_GRAVITY) {
 
 fun LinearLayout.divider() = addView(View(context).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = dp(16) })
 
-/** The face: the photo, or the first character of the name, in a circle. */
+/** The face (iOS AvatarCircle): the photo, or the name's first character, bold and white, on a black circle. */
 fun Context.avatar(face: Bitmap?, name: String, sizeDp: Int): View {
     val box = FrameLayout(this)
-    box.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(MT.plate) }
+    box.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.BLACK) }
     box.clipToOutline = true
     box.outlineProvider = object : ViewOutlineProvider() {
         override fun getOutline(v: View, o: Outline) = o.setOval(0, 0, v.width, v.height)
     }
     val inner: View = when {
         face != null -> ImageView(this).apply { setImageBitmap(face); scaleType = ImageView.ScaleType.CENTER_CROP }
-        name.isNotBlank() -> text(name.trim().let { it.substring(0, it.offsetByCodePoints(0, 1)) }, sizeDp * 0.42f, MT.gold, center = true)
-        else -> icon(R.drawable.ic_add_a_photo, MT.gold, (sizeDp * 0.36f).toInt())
+        name.isNotBlank() -> text(name.trim().let { it.substring(0, it.offsetByCodePoints(0, 1)) }, sizeDp * 0.42f, Color.WHITE, bold = true, center = true)
+        else -> icon(R.drawable.ic_add_a_photo, Color.WHITE, (sizeDp * 0.36f).toInt())
     }
     val p = if (inner is ImageView && face == null) FrameLayout.LayoutParams(dp(sizeDp * 0.36f), dp(sizeDp * 0.36f), Gravity.CENTER)
             else FrameLayout.LayoutParams(MATCH, MATCH, Gravity.CENTER)
