@@ -46,7 +46,8 @@ class CardView(private val act: MainActivity, private val onExpand: (() -> Unit)
     private val qr = QrView(act)
     private val note = act.text("", 12f, MT.gray, center = true)
     private val link = act.text("", 16f, Color.WHITE, bold = true, center = true)
-    private val copy = act.text(act.getString(R.string.copy_link), 15f, MT.gold)
+    // iOS CopyLinkButton: the caption's bold in the accent's white, green while «Link copied» stands (2 s)
+    private val copy = act.text(act.getString(R.string.copy_link), 12f, Color.WHITE, bold = true)
     private var current: String? = null
     private val permanent get() = Prefs.str("cardKind", "perm") == "perm"
 
@@ -72,23 +73,29 @@ class CardView(private val act: MainActivity, private val onExpand: (() -> Unit)
         link.paintFlags = link.paintFlags or android.graphics.Paint.UNDERLINE_TEXT_FLAG
         link.setTextIsSelectable(true)
         copy.setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_link, 0, 0, 0)
-        copy.compoundDrawableTintList = android.content.res.ColorStateList.valueOf(MT.gold)
+        copy.compoundDrawableTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
         copy.compoundDrawablePadding = c.dp(8)
         copy.setPadding(c.dp(12), c.dp(10), c.dp(12), c.dp(10))
         copy.pressable {
             val l = current ?: return@pressable
             (c.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Montana", l))
-            copy.text = c.getString(R.string.link_copied)
-            copy.setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_check, 0, 0, 0)
-            copy.postDelayed({ copy.text = c.getString(R.string.copy_link); copy.setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_link, 0, 0, 0) }, 1800)
+            fun look(word: Int, glyph: Int, tint: Int) {
+                copy.text = c.getString(word)
+                copy.setTextColor(tint)
+                copy.setCompoundDrawablesRelativeWithIntrinsicBounds(glyph, 0, 0, 0)
+                copy.compoundDrawableTintList = android.content.res.ColorStateList.valueOf(tint)
+            }
+            look(R.string.link_copied, R.drawable.ic_check, MT.green)
+            copy.postDelayed({ look(R.string.copy_link, R.drawable.ic_link, Color.WHITE) }, 2000)
         }
         val share = c.hstack {
             gravity = Gravity.CENTER
-            background = c.rounded(MT.gold, 11)
-            setPadding(0, dp(12), 0, dp(12))
+            // iOS: «Share» on the accent, which is white since the gold left iOS; the words black
+            background = c.rounded(Color.WHITE, 11)
+            setPadding(0, dp(10), 0, dp(10))
             addView(c.icon(R.drawable.ic_share, Color.BLACK), lp(dp(20), dp(20)))
             gap(8)
-            addView(c.text(c.getString(R.string.share), 16f, Color.BLACK, bold = true))
+            addView(c.text(c.getString(R.string.share), 15f, Color.BLACK, bold = true))
             pressable { shareCard(act) }
         }
         view = c.vstack {
@@ -113,11 +120,11 @@ class CardView(private val act: MainActivity, private val onExpand: (() -> Unit)
             // «SCAN» (iOS MontanaCodeView onScan): the other side's code read by the camera opens the meeting.
             addView(c.hstack {
                 gravity = Gravity.CENTER
-                background = c.rounded(Color.argb(46, 255, 255, 255), 11)
-                setPadding(0, dp(12), 0, dp(12))
+                background = c.rounded(MT.plate, 11)   // iOS Color(white: 0.12)
+                setPadding(0, dp(10), 0, dp(10))
                 addView(c.icon(R.drawable.ic_qr_scan, Color.WHITE), lp(dp(20), dp(20)))
                 gap(8)
-                addView(c.text(c.getString(R.string.scan), 16f, Color.WHITE, bold = true))
+                addView(c.text(c.getString(R.string.scan), 15f, Color.WHITE, bold = true))
                 pressable { act.push { close -> scannerPage(act, close) } }
             }, lp().apply { setMargins(dp(36), 0, dp(36), 0) })
         }
