@@ -34,12 +34,106 @@ import java.util.Date
 // ─────────────────────────── what a row says of a letter (iOS MTRowLetter) ───────────────────────────
 
 /** The words a letter shows in the list and the banner: its text, or the name of what it carries. */
-fun letterWords(c: Context, t: String): String = when {
+fun letterWords(c: Context, t: String, meta: String? = null): String = when {
     t.startsWith(Marks.VOICE) -> c.getString(R.string.voice_message)
-    t.startsWith(Marks.MEDIA) -> c.getString(R.string.attachment)
+    t.startsWith(Marks.MEDIA) -> mediaWords(c, meta?.let { runCatching { JSONObject(it) }.getOrNull() } ?: Media.inline(t))
     t.startsWith(Marks.STICKER) -> t.removePrefix(Marks.STICKER)
     t.startsWith(Marks.LONG) -> c.getString(R.string.long_letter)
     else -> t
+}
+/** The same words for a letter of the book: its manifest, once read, names what it carries. */
+fun letterWords(c: Context, m: Msg): String = letterWords(c, m.text, m.meta)
+
+/**
+ * THE WORDS OF A MEDIA LETTER (iOS MTRowLetter.mediaWords, mediaPreview): one answer for the row, the banner and the reply
+ * strip, read from the manifest — a round note is a video message, as a voice is a voice message; a sticker is a sticker, a
+ * moving picture a GIF. A manifest not read yet (sealed in its blob) is «Media».
+ */
+fun mediaWords(c: Context, man: JSONObject?): String {
+    if (man == null) return c.getString(R.string.lw_media)
+    val cap = man.optString("cap").trim()
+    val name = man.optString("n").ifEmpty { man.optString("name") }
+    return when (man.optString("k")) {
+        "img" -> if (name == Stickers.CARD) c.getString(R.string.lw_sticker) else "📷 " + cap.ifEmpty { c.getString(R.string.lw_photo) }
+        "vid", "video" -> "📹 " + if (man.optBoolean("r")) c.getString(R.string.lw_video_message) else cap.ifEmpty { c.getString(R.string.lw_video) }
+        "aud" -> c.getString(R.string.voice_message)
+        "doc" -> if (name.lowercase().endsWith(".gif")) c.getString(R.string.lw_gif) else "📄 " + name.ifEmpty { c.getString(R.string.file) }
+        else -> c.getString(R.string.lw_media)
+    }
+}
+
+/** The row's words without the glyph the vocabulary puts first, when a thumbnail stands there (iOS MontanaRowWords.bare). */
+fun bareWords(p: String): String = listOf("🎤 ", "📹 ", "📷 ", "📄 ", "📞 ").firstOrNull { p.startsWith(it) }?.let { p.removePrefix(it) } ?: p
+
+private val AUDIO_NAMES = setOf("mp3", "m4a", "aac", "wav", "flac", "ogg", "opus", "aif", "aiff")
+
+/**
+ * THE ROW'S ONE WORD FOR WHAT A LETTER CARRIES (iOS ChatStore.rowMediaKind): the voice, the round note, the video, the photo,
+ * music, a file — by the manifest, once the file is here — and the link of a letter of words. The thumbnail draws by it.
+ */
+fun rowKind(m: Msg): String? {
+    if (!m.text.startsWith(Marks.MEDIA)) return if (LinkPreview.webURLs(m.text).isNotEmpty()) "link" else null
+    val f = m.file?.let { java.io.File(it) }?.takeIf { it.exists() } ?: return null
+    val man = m.meta?.let { runCatching { JSONObject(it) }.getOrNull() } ?: Media.inline(m.text)
+    return when (man?.optString("k")) {
+        "aud" -> "aud"
+        "vid", "video" -> if (man.optBoolean("r")) "vnote" else "vid"
+        "img" -> "img"
+        "doc" -> if (man.optString("n").substringAfterLast('.', "").lowercase() in AUDIO_NAMES || f.extension.lowercase() in AUDIO_NAMES) "music" else "doc"
+        else -> null
+    }
+}
+
+private val rowPosters = android.util.LruCache<String, android.graphics.Bitmap>(48)
+
+/** The small picture of a letter: the face its manifest carries, else the file's own first frame, kept while the list lives. */
+private fun rowPoster(c: Context, m: Msg, kind: String): android.graphics.Bitmap? {
+    rowPosters.get(m.mid)?.let { return it }
+    val man = m.meta?.let { runCatching { JSONObject(it) }.getOrNull() } ?: Media.inline(m.text)
+    val pic = Media.thumbOf(man)
+        ?: m.file?.let { java.io.File(it) }?.takeIf { it.exists() }?.let { Media.preview(c, it, if (kind == "img") "img" else "vid", 96) }
+    pic?.let { rowPosters.put(m.mid, it) }
+    return pic
+}
+
+/**
+ * ONE THUMBNAIL OF WHAT A LETTER CARRIES (iOS MTLetterThumb; side 20 in the list row): the voice's round of glass with the
+ * quiet prism sheen (MTVoiceRound), the round note's window with its poster (MontanaNoteFrame), the photo and the video's
+ * poster, and the quiet plate with the system's glyph for music, a file, a link.
+ */
+fun Context.letterThumb(m: Msg, kind: String, sideDp: Int = 20): View {
+    val side = dp(sideDp)
+    fun plate(glyph: Int) = FrameLayout(this).apply {
+        background = rounded(Color.rgb(41, 41, 41), sideDp * 0.22f)
+        addView(icon(glyph, MT.gray), FrameLayout.LayoutParams(side / 2, side / 2, Gravity.CENTER))
+    }
+    return when (kind) {
+        "aud" -> FrameLayout(this).apply {
+            background = android.graphics.drawable.LayerDrawable(arrayOf(glassPlate(oval = true), GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                gradientType = GradientDrawable.SWEEP_GRADIENT
+                colors = intArrayOf(Color.argb(56, 50, 173, 230), Color.argb(56, 175, 82, 222), Color.argb(56, 255, 45, 85), Color.argb(56, 50, 173, 230))
+                setStroke(1, Color.argb(89, 255, 255, 255))
+            }))
+            addView(icon(R.drawable.ic_play_fill, Color.WHITE), FrameLayout.LayoutParams(side * 2 / 5, side * 2 / 5, Gravity.CENTER))
+        }
+        "vnote", "img", "vid" -> {
+            val pic = rowPoster(this, m, kind)
+            if (pic == null && kind != "vnote") plate(if (kind == "img") R.drawable.ic_photo else R.drawable.ic_peer_video)
+            else ImageView(this).apply {
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                if (pic != null) setImageBitmap(pic) else setBackgroundColor(Color.BLACK)
+                outlineProvider = object : android.view.ViewOutlineProvider() {
+                    override fun getOutline(v: View, o: android.graphics.Outline) =
+                        if (kind == "vnote") o.setOval(0, 0, v.width, v.height) else o.setRoundRect(0, 0, v.width, v.height, v.width * 0.22f)
+                }
+                clipToOutline = true
+            }
+        }
+        "music" -> plate(R.drawable.ic_play_fill)
+        "link" -> plate(R.drawable.ic_link)
+        else -> plate(R.drawable.ic_set_doc)
+    }
 }
 
 /** The face of a correspondent: the face laid beside the pipe, else the drawn initial (iOS MontanaAvatar). */
@@ -100,7 +194,12 @@ fun chatRow(act: MainActivity, chat: Chat): View {
                 }
             }, lp())
             addView(c.hstack {
-                addView(c.text(last?.let { letterWords(c, it.text) } ?: "", 15f, MT.gray).apply { maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END }, lp(0, WRAP, 1f))   // USER-DATA: the last letter
+                // THE THUMBNAIL BEFORE THE WORDS (iOS MTLetterThumb, side 20, spacing 6): the voice's round and the round note's
+                // poster stand in the row as in the player bar; the words then carry no glyph of their own
+                val kind = last?.let { rowKind(it) }
+                if (last != null && kind != null) addView(c.letterThumb(last, kind), lp(dp(20), dp(20)).apply { marginEnd = dp(6); gravity = Gravity.CENTER_VERTICAL })
+                val words = last?.let { letterWords(c, it) } ?: ""
+                addView(c.text(if (kind != null) bareWords(words) else words, 15f, MT.gray).apply { maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END }, lp(0, WRAP, 1f))   // USER-DATA: the last letter
                 if (chat.unread > 0) addView(c.text(chat.unread.toString(), 13f, Color.WHITE, bold = true, center = true).apply {
                     // a muted chat's number is grey, as iOS draws it
                     background = c.rounded(if (ChatMarks.isMuted(chat.ref)) MT.gray else MT.blue, 11); setPadding(dp(7), dp(1), dp(7), dp(1)); minWidth = dp(22)
@@ -225,10 +324,10 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     fun showStrip() {
         val r = replyTo; val e = editing
         strip.visibility = if (r == null && e == null) View.GONE else View.VISIBLE
-        if (e != null) { stripTitle.text = c.getString(R.string.editing); stripWords.text = letterWords(c, e.text) }
+        if (e != null) { stripTitle.text = c.getString(R.string.editing); stripWords.text = letterWords(c, e) }
         else if (r != null) {
             stripTitle.text = if (r.mine) Prefs.userName.ifBlank { c.getString(R.string.reply) } else Book.chat(ref)?.shown?.ifBlank { null } ?: c.getString(R.string.peer)
-            stripWords.text = letterWords(c, r.text)   // USER-DATA
+            stripWords.text = letterWords(c, r)   // USER-DATA
         }
     }
 
@@ -305,7 +404,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             val r = replyTo
             replyTo = null
             val mid = Marks.mintMid()
-            val qt = r?.let { letterWords(c, it.text).take(200) }
+            val qt = r?.let { letterWords(c, it).take(200) }
             Book.edit(ref) { it.msgs.add(Msg(mid, words, true, Marks.birthMs(mid) ?: System.currentTimeMillis(), qt = qt, qm = r?.mid)) }
             Post.send(ref, mid, words, qt, r?.mid)
             LinkPreview.attend(ref, mid, words, qt, r?.mid)   // a link's card follows the letter (iOS MTLinkCards.attend)

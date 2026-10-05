@@ -96,7 +96,7 @@ fun pinnedPlate(act: MainActivity, ref: String, onJump: (String) -> Unit): View 
     fun draw() {
         val m = MsgPins.newest(ref)
         plate.visibility = if (m == null) View.GONE else View.VISIBLE
-        if (m != null) { words.text = letterWords(c, m.text); plate.tag = m.mid }   // USER-DATA: the pinned letter
+        if (m != null) { words.text = letterWords(c, m); plate.tag = m.mid }   // USER-DATA: the pinned letter
     }
     plate = c.hstack {
         gravity = Gravity.CENTER_VERTICAL

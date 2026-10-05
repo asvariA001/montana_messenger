@@ -12,7 +12,6 @@
     <string name="peer">Собеседник</string>
     <string name="channel_letters">Сообщения</string>
     <string name="new_message">Новое сообщение</string>
-    <string name="attachment">📎 Вложение</string>
     <string name="voice_message">🎤 Голосовое сообщение</string>
     <string name="long_letter">Длинное сообщение</string>
     <string name="photo_or_video">Фото или видео</string>
@@ -33,4 +32,10 @@
     <string name="gr_member">Участник</string>
     <string name="gr_out_note">Вы больше не участник: сообщения остаются здесь для чтения.</string>
     <plurals name="gr_members"><item quantity="one">%d участник</item><item quantity="few">%d участника</item><item quantity="many">%d участников</item><item quantity="other">%d участника</item></plurals>
+    <string name="lw_photo">Фото</string>
+    <string name="lw_video">Видео</string>
+    <string name="lw_video_message">Видеосообщение</string>
+    <string name="lw_media">Медиа</string>
+    <string name="lw_sticker">Стикер</string>
+    <string name="lw_gif">GIF</string>
 </resources>

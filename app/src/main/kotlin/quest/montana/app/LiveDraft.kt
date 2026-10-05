@@ -89,7 +89,7 @@ fun Context.liveDraftBubble(d: LiveDraft.Draft, chat: Chat?): View = FrameLayout
         if (d.replyMid.isNotEmpty()) chat?.msgs?.find { it.mid == d.replyMid }?.let { q ->
             addView(hstack {
                 addView(View(context).apply { setBackgroundColor(MT.gold) }, lp(dp(3), dp(16)).apply { marginEnd = dp(6) })
-                addView(text(letterWords(context, q.text), 12f, Color.argb(180, 255, 255, 255)).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })   // USER-DATA
+                addView(text(letterWords(context, q), 12f, Color.argb(180, 255, 255, 255)).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })   // USER-DATA
             }, lp().apply { bottomMargin = dp(2) })
         }
         addView(text(d.text.substring(0, caret) + "│" + d.text.substring(caret), 17f, Color.WHITE).apply { maxWidth = dp(260) })   // USER-DATA: their draft

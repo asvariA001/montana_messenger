@@ -12,7 +12,6 @@
     <string name="peer">对方</string>
     <string name="channel_letters">消息</string>
     <string name="new_message">新消息</string>
-    <string name="attachment">📎 附件</string>
     <string name="voice_message">🎤 语音消息</string>
     <string name="long_letter">长消息</string>
     <string name="photo_or_video">照片或视频</string>
@@ -33,4 +32,10 @@
     <string name="gr_member">成员</string>
     <string name="gr_out_note">您已不再是成员：消息仍可在此阅读。</string>
     <plurals name="gr_members"><item quantity="other">%d 名成员</item></plurals>
+    <string name="lw_photo">照片</string>
+    <string name="lw_video">视频</string>
+    <string name="lw_video_message">视频消息</string>
+    <string name="lw_media">媒体</string>
+    <string name="lw_sticker">贴纸</string>
+    <string name="lw_gif">GIF</string>
 </resources>

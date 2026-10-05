@@ -12,7 +12,6 @@
     <string name="peer">Peer</string>
     <string name="channel_letters">Messages</string>
     <string name="new_message">New message</string>
-    <string name="attachment">📎 Attachment</string>
     <string name="voice_message">🎤 Voice message</string>
     <string name="long_letter">Long message</string>
     <string name="photo_or_video">Photo or video</string>
@@ -33,4 +32,10 @@
     <string name="gr_member">Member</string>
     <string name="gr_out_note">You are no longer a member: the messages stay here to read.</string>
     <plurals name="gr_members"><item quantity="one">%d member</item><item quantity="other">%d members</item></plurals>
+    <string name="lw_photo">Photo</string>
+    <string name="lw_video">Video</string>
+    <string name="lw_video_message">Video message</string>
+    <string name="lw_media">Media</string>
+    <string name="lw_sticker">Sticker</string>
+    <string name="lw_gif">GIF</string>
 </resources>
