@@ -27,6 +27,7 @@ import toolchain
 
 PIN, ROOT, HERE = toolchain.PIN, toolchain.ROOT, toolchain.HERE
 MIN_SDK = "26"
+FIXED_MOMENT = (1981, 1, 1, 1, 1, 2)
 BUILD = os.path.join(ROOT, "build")
 APK = os.path.join(BUILD, "Montana.apk")
 JNI = os.path.join(ROOT, "native", "montana-jni")
@@ -142,10 +143,16 @@ def apk(p, code, name, key, check):
         say("5/6 package")
         unsigned, aligned, signed = [os.path.join(out, n) for n in ("unsigned.apk", "aligned.apk", "signed.apk")]
         open(unsigned, "wb").write(open(base, "rb").read())
+        # the library is stored, not deflated: the system maps it straight from the package, page-aligned below
         with zipfile.ZipFile(unsigned, "a") as z:
-            z.write(os.path.join(dex, "classes.dex"), "classes.dex", compress_type=zipfile.ZIP_DEFLATED)
-            # stored, not deflated: the system maps the library straight from the package, page-aligned below
-            z.write(CORE_SO, "lib/arm64-v8a/libmontana.so", compress_type=zipfile.ZIP_STORED)
+            for path, name, how in ((os.path.join(dex, "classes.dex"), "classes.dex", zipfile.ZIP_DEFLATED),
+                                    (CORE_SO, "lib/arm64-v8a/libmontana.so", zipfile.ZIP_STORED)):
+                # a fixed moment and mode in each entry, not the file's own: one commit makes one APK, byte for byte,
+                # whoever builds it (a build as anna differed from root's only in these)
+                entry = zipfile.ZipInfo(name, date_time=FIXED_MOMENT)
+                entry.compress_type = how
+                entry.external_attr = 0x81A40000   # a regular file, rw-r--r--
+                z.writestr(entry, open(path, "rb").read())
         say("6/6 align + sign")
         run([os.path.join(bt, "zipalign"), "-f", "-P", "16", "4", unsigned, aligned])
         # the shared key keeps its secret in KEY.pass beside it; in its PKCS12 store the key's password is the store's,
@@ -169,6 +176,13 @@ def publish(directory, code, name):
     place = os.path.join(directory, "%d-%s" % (code, commit[:7]))
     os.makedirs(place, exist_ok=True)
     target = os.path.join(place, "Montana.apk")
+    known = os.path.join(place, "build.json")
+    if os.path.exists(known):
+        before = json.load(open(known, encoding="utf-8"))["sha256"]
+        if before != digest(APK):
+            # one commit, one APK: other bytes for the same commit mean the build is not reproducible -- never laid over
+            raise SystemExit("commit %s was built before into %s, now into %s: the build is not reproducible"
+                             % (commit[:12], before[:16], digest(APK)[:16]))
     open(target, "wb").write(open(APK, "rb").read())
     record = dict(build=code, name=name, commit=commit, sha256=digest(target), apk=target,
                   time=time.strftime("%Y-%m-%d %H:%M:%S %Z"))
