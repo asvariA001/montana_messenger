@@ -21,7 +21,7 @@ import android.widget.TextView
 /**
  * The first launch (iOS MontanaOnboardingView). Steps keep the iOS numbers:
  * 0 the doors, then the Montana road (intro) · 1 responsibility · 2 the words · 3 the name · 4 recovery ·
- * 5 the copy coming back from the person's own node. Not yet here: 6 (the outer service's door).
+ * 5 the copy coming back from the person's own node.
  */
 class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) {
     val view = FrameLayout(act)
@@ -128,7 +128,7 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
         }
     }
 
-    // ── 0: the doors (the author's design, iOS 29.09) ──
+    // ── 0: the door (the author's design, iOS 29.09; iOS keeps the Montana door alone) ──
     private fun doors() = page {
         val c = context
         spacer()
@@ -138,15 +138,8 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
         gap(6)
         addView(c.text(c.getString(R.string.sign_in_sub), 17f, MT.gray, center = true))
         spacer()
-        addView(c.loginDoor(R.drawable.logo, c.getString(R.string.continue_montana), MT.gold, rounded = false) {
+        addView(c.loginDoor(R.drawable.logo, c.getString(R.string.continue_montana)) {
             montanaRoad = true; go(0)
-        }, lp())
-        gap(10)
-        addView(c.loginDoor(R.drawable.library_outer, c.getString(R.string.continue_with, OUTER_SERVICE), MT.blue, rounded = true) {
-            // The outer service's door (iOS step 6, MTOuterLoginView) is not built on Android yet.
-            android.app.AlertDialog.Builder(act)
-                .setMessage(c.getString(R.string.outer_not_yet, OUTER_SERVICE))
-                .setPositiveButton(R.string.got_it, null).show()
         }, lp())
         gap(14)
         addView(c.linkedText(c.getString(R.string.sign_in_footer), 11f, MT.gray, MT.withAlpha(Color.WHITE, 0.8f)) { url ->
@@ -403,7 +396,5 @@ fun appVersionFull(c: Context): String = "v${versionName(c)}"
 fun versionFooter(c: Context): String =
     "Android ${versionName(c)} · SSOT ${MtBindings.nativeAbiVersion()}"
 
-/** The outer service's own name, shown to the person as its API terms ask (iOS MTOuterService.displayName). */
-const val OUTER_SERVICE = "Telegram"
 /** The privacy policy on the site (iOS MontanaSafety.privacy). */
 const val PRIVACY_URL = "https://montana.quest/privacy/"

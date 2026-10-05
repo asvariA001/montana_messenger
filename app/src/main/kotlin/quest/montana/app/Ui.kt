@@ -197,25 +197,18 @@ fun Context.glowingLogo(logoDp: Int, haloDp: Int, periodMs: Long): FrameLayout {
 fun TextView.singleLineEllipsis() { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
 
 /**
- * A door of the first screen (iOS MTLoginDoorStyle, the pre-glass face): a 52dp capsule on a thin dark
- * material with a rim in the door's own colour; the glyph at the left, the word in the middle, the
+ * The door of the first screen (iOS MTLoginDoorStyle without a tint, the pre-glass face): a 52dp capsule on a thin dark
+ * material with the platform's faint rim; the glyph at the left, the word in the middle, the
  * chevron at the right; the whole capsule is the target and gives under the finger (0.97).
  */
-fun Context.loginDoor(glyph: Int, word: String, tint: Int, rounded: Boolean, onClick: () -> Unit): View {
-    val glyphView = ImageView(this).apply {
-        setImageResource(glyph)
-        if (rounded) {
-            clipToOutline = true
-            outlineProvider = object : ViewOutlineProvider() {
-                override fun getOutline(v: View, o: Outline) = o.setRoundRect(0, 0, v.width, v.height, dp(7).toFloat())
-            }
-        }
-    }
+fun Context.loginDoor(glyph: Int, word: String, onClick: () -> Unit): View {
+    val glyphView = ImageView(this).apply { setImageResource(glyph) }
     val door = hstack {
         background = GradientDrawable().apply {
             cornerRadius = dp(26).toFloat()
             setColor(Color.argb(150, 28, 28, 30))
-            setStroke(dp(1), MT.withAlpha(tint, 0.45f))
+            // iOS: a clear door's rim is white at 0.6, drawn at 0.45
+            setStroke(dp(1), MT.withAlpha(Color.WHITE, 0.6f * 0.45f))
         }
         setPadding(dp(18), 0, dp(18), 0)
         addView(glyphView, lp(dp(26), dp(26)))

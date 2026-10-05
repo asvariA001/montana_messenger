@@ -366,8 +366,8 @@ class DrawerShell(private val act: MainActivity) : FrameLayout(act) {
 /**
  * THE SIDE DRAWER (iOS MontanaSideDrawer, the 1949 list): my face with its name at the head, then every application as a
  * row — the white glyph, the bold word — and «Settings» pressed to the foot with the build's number under it. The rows of
- * pages Android does not have yet stand in their places, quieter, and take no tap. The outer service and the plus of a
- * second login are iOS's multi-login, which Android does not have.
+ * pages Android does not have yet stand in their places, quieter, and take no tap. The plus of a second login is iOS's
+ * multi-login, which Android does not have.
  */
 private fun sideDrawer(act: MainActivity, onPane: (Pane) -> Unit, onProfile: () -> Unit, onSettings: () -> Unit): View {
     val c: Context = act

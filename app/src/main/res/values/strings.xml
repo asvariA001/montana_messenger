@@ -67,9 +67,7 @@
     <string name="sign_in_title">Sign in to Montana</string>
     <string name="sign_in_sub">Choose how to sign in</string>
     <string name="continue_montana">Continue with Montana</string>
-    <string name="continue_with">Continue with %1$s</string>
     <string name="sign_in_footer">By continuing, you agree to the [Terms of Use](montana://terms) and [Privacy Policy](montana://privacy).</string>
-    <string name="outer_not_yet">Signing in with %1$s is coming to Montana for Android in a later version.</string>
 
     <string name="continue_backup">Continue from your backup</string>
     <string name="which_identity">Which identity?</string>
