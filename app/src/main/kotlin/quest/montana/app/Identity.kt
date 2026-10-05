@@ -64,6 +64,8 @@ object DeviceVault {
     }
 
     fun delete(name: String) { prefs.edit().remove(name).commit() }
+    /** Whether a value is stored at all, opened or not: a store that would not open is not an empty one (Groups). */
+    fun has(name: String): Boolean = prefs.contains(name)
 
     /** Bytes sealed under the device key for a file of their own (iv ‖ ciphertext ‖ tag); null when the key refuses. */
     fun seal(value: ByteArray): ByteArray? = try {

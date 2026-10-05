@@ -53,7 +53,7 @@ fun Context.peerFace(ref: String, name: String, sizeDp: Int): View {
 
 object Notify {
     private const val CHANNEL = "letters"
-    fun letter(ref: String, text: String) {
+    fun letter(ref: String, text: String, who: String? = null) {
         val c = Book.ctx
         val nm = c.getSystemService(NotificationManager::class.java) ?: return
         if (!Prefs.bool("notifMessages", true)) return
@@ -61,7 +61,8 @@ object Notify {
         nm.createNotificationChannel(NotificationChannel(CHANNEL, c.getString(R.string.channel_letters), NotificationManager.IMPORTANCE_HIGH))
         val chat = Book.chat(ref)
         val title = if (Prefs.bool("notifSender", true)) chat?.shown?.ifBlank { null } ?: c.getString(R.string.peer) else "Montana"
-        val body = if (Prefs.bool("notifPreview", true)) letterWords(c, text) else c.getString(R.string.new_message)
+        val shown = if (Prefs.bool("notifPreview", true)) letterWords(c, text) else c.getString(R.string.new_message)
+        val body = if (who.isNullOrEmpty()) shown else "$who: $shown"   // a group's letter says who wrote it (iOS presentGroup)
         val open = PendingIntent.getActivity(c, ref.hashCode(),
             c.packageManager.getLaunchIntentForPackage(c.packageName)?.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP) ?: Intent(),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
@@ -186,6 +187,7 @@ private var noteTime: TextView? = null
 /** `jump` — a letter found by the search: the chat opens on it, and it glows once (iOS openChat(jump:)). */
 fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: String? = null): View {
     val c: Context = act
+    val group = Groups.isKey(ref)   // a group's feed: no pipe, no presence, no doors (iOS MTGroup.isKey)
     val column = c.vstack(Gravity.NO_GRAVITY) { setPadding(dp(10), dp(8), dp(10), dp(8)) }
     val draftRow = FrameLayout(c).apply { setPadding(c.dp(10), 0, c.dp(10), c.dp(8)); visibility = View.GONE }
     val scroll = ScrollView(c).apply {
@@ -267,8 +269,9 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             b.getChildAt(0).setOnLongClickListener { letterMenu(act, ref, m, onReply = { replyTo = m; editing = null; showStrip(); showKeys() },
                 onEdit = { editing = m; replyTo = null; field.setText(m.text); field.setSelection(field.text.length); showStrip(); showKeys() },
                 onForward = { hideKeys(); act.push { close -> forwardPage(act, ref, listOf(m), close) { to -> close(); if (to != ref) { onClose(); act.push { c2 -> conversationPage(act, to, c2) } } } } },
-                onSelect = { hideKeys(); selecting = true; picked.clear(); picked.add(m.mid); redraw(); drawFoot() }); true }
-            b.onReply = { replyTo = m; editing = null; showStrip(); showKeys() }   // the pull to the left answers, as the menu's «Reply»
+                onSelect = { hideKeys(); selecting = true; picked.clear(); picked.add(m.mid); redraw(); drawFoot() }, group = group); true }
+            // the pull to the left answers, as the menu's «Reply»; a group's feed takes no reply until its field writes into the group
+            if (!group) b.onReply = { replyTo = m; editing = null; showStrip(); showKeys() }
             b.tag = m.mid
             column.addView(b, lp().apply { topMargin = c.dp(3) })
         }
@@ -489,6 +492,12 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     // THE PRESENCE LINE UNDER THE NAME (iOS presenceWord): «typing…» / «in chat» / «online» in green, else «last seen…»
     val presenceLine = c.text("", 12f, MT.gray).apply { singleLineEllipsis(); visibility = View.GONE }
     fun drawPresence() {
+        if (group) {   // a group has no presence of one person: its people's count (iOS the group chat's head)
+            presenceLine.text = Groups.peopleLine(c, ref) ?: ""
+            presenceLine.setTextColor(MT.gray)
+            presenceLine.visibility = if (presenceLine.text.isEmpty()) View.GONE else View.VISIBLE
+            return
+        }
         val w = Presence.word(c, ref)
         presenceLine.visibility = if (w == null) View.GONE else View.VISIBLE
         presenceLine.text = w?.first ?: ""
@@ -511,7 +520,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         }, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER).apply { marginStart = dp(56); marginEnd = dp(56) })
         addView(faceSlot.apply {
             // the face opens the correspondent's page (iOS: the chat's header → MontanaPeerInfoScreen)
-            setOnClickListener { hideKeys(); act.push { close -> peerInfoPage(act, ref, close) } }
+            setOnClickListener { if (!group) { hideKeys(); act.push { close -> peerInfoPage(act, ref, close) } } }   // a group's face opens no person's page
             setOnLongClickListener {
                 AlertDialog.Builder(c).setMessage(R.string.delete_chat_q)
                     .setPositiveButton(R.string.delete) { _, _ -> hideKeys(); onClose(); Book.forget(ref) }
@@ -521,6 +530,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         layoutParams = LinearLayout.LayoutParams(MATCH, dp(52))
     }
 
+    val groupFoot = FrameLayout(c).apply { visibility = View.GONE }.also { if (group) fillGroupFoot(c, ref, it) }
     var lane = false   // the live lane stands while the page does
     fun drawDraft() {
         val d = LiveDraft.of(ref)
@@ -545,6 +555,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         }
         val before = column.childCount
         redraw(); drawHead()
+        if (group) { drawPresence(); fillGroupFoot(c, ref, groupFoot) }
         if (column.childCount != before) toBottom()
         if ((Book.chat(ref)?.unread ?: 0) > 0) Thread { Post.markRead(ref) }.start()
     }
@@ -563,7 +574,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     drawFoot = {
         foot.removeAllViews()
         foot.visibility = if (selecting) View.VISIBLE else View.GONE
-        bar.visibility = if (selecting) View.GONE else View.VISIBLE
+        bar.visibility = if (selecting || group) View.GONE else View.VISIBLE
         if (selecting) {
             strip.visibility = View.GONE
             fun done() { selecting = false; picked.clear(); redraw(); drawFoot() }
@@ -598,8 +609,9 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             addView(scroll, lp(MATCH, 0, 1f))
             addView(strip, lp())
             addView(recStrip, lp())
-            addView(bar, lp())
+            addView(bar.apply { if (group) visibility = View.GONE }, lp())
             addView(foot, lp())
+            addView(groupFoot, lp())
         }, FrameLayout.LayoutParams(MATCH, MATCH))
         plateHome = this; addView(lockPlate, plateLp())
         setOnApplyWindowInsetsListener { v, insets ->
@@ -727,10 +739,35 @@ class ReplySwipe(c: Context) : FrameLayout(c) {
     }
 }
 
+/**
+ * THE GROUP'S FOOT IN PLACE OF THE FIELD (iOS composeSlot): out of the group — the note that its letters stay to read
+ * (groupOutNote); a channel's subscriber — the platform's bell, the channel's sound off or on, the same switch as the list's
+ * swipe (channelMuteBar).
+ */
+private fun fillGroupFoot(c: Context, ref: String, into: FrameLayout) {
+    into.removeAllViews()
+    if (Groups.isOut(ref)) into.addView(c.text(c.getString(R.string.gr_out_note), 13f, MT.gray, center = true).apply {
+        setPadding(c.dp(20), c.dp(12), c.dp(20), c.dp(12))
+    }, FrameLayout.LayoutParams(MATCH, WRAP))
+    else if (!Groups.canWrite(ref)) {
+        val muted = ChatMarks.isMuted(ref)
+        into.addView(c.icon(if (muted) R.drawable.ic_bell_off else R.drawable.ic_set_bell, Color.WHITE).apply {
+            setPadding(c.dp(12), c.dp(12), c.dp(12), c.dp(12))
+            contentDescription = c.getString(if (muted) R.string.cl_unmute else R.string.cl_mute)
+            pressable { ChatMarks.toggleMute(ref); fillGroupFoot(c, ref, into) }
+        }, FrameLayout.LayoutParams(c.dp(44), c.dp(44), Gravity.CENTER).apply { topMargin = c.dp(6); bottomMargin = c.dp(6) })
+    }
+    into.visibility = if (into.childCount > 0) View.VISIBLE else View.GONE
+}
+
 private fun letterBubble(c: Context, m: Msg, chat: Chat): ReplySwipe = ReplySwipe(c).apply {
     mine = m.mine
     val mine = m.mine
     addView(c.vstack(if (mine) Gravity.END else Gravity.START) {
+        // THE SPEAKER OVER A GROUP'S LETTER (iOS speakerLine): every letter of another says who wrote it; a channel speaks as itself
+        Groups.speakerLine(c, m, chat.ref)?.let { who ->
+            addView(c.text(who, 12f, MT.gray, bold = true).apply { singleLineEllipsis(); setPadding(c.dp(8), c.dp(6), 0, c.dp(2)) }, lp(WRAP, WRAP))   // USER-DATA: the speaker's name
+        }
         addView(c.vstack(Gravity.END) {
             background = if (Stickers.bare(m)) null else BubbleStyle.drawable(context, mine)   // a sticker stands without a bubble
             setPadding(dp(12), dp(7), dp(12), dp(6))
@@ -741,7 +778,7 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat): ReplySwipe = ReplySwip
                 addView(c.hstack {
                     addView(View(c).apply { setBackgroundColor(BubbleStyle.text(mine)) }, lp(dp(2), MATCH).apply { marginEnd = dp(6) })
                     addView(c.vstack(Gravity.NO_GRAVITY) {
-                        addView(c.text(if (whose?.mine == true) Prefs.userName.ifBlank { "·" } else chat.shown.ifBlank { c.getString(R.string.peer) }, 13f, BubbleStyle.text(mine), bold = true))
+                        addView(c.text(if (whose?.mine == true) Prefs.userName.ifBlank { "·" } else if (Groups.isKey(chat.ref)) Groups.speakerName(c, whose?.from) else chat.shown.ifBlank { c.getString(R.string.peer) }, 13f, BubbleStyle.text(mine), bold = true))
                         addView(c.text(m.qt, 13f, BubbleStyle.time(mine)).apply { maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END; maxWidth = dp(240) })   // USER-DATA
                     })
                 }, lp(WRAP, WRAP).apply { bottomMargin = dp(4) })
@@ -773,10 +810,11 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat): ReplySwipe = ReplySwip
  * THE LETTER'S MENU (iOS MontanaMessageMenu): the room dims, the quick reactions stand over the letter, the actions under it —
  * Reply · Copy · Edit (one's own words) · Delete, which asks «for me» or «for everyone».
  */
-private fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Unit, onEdit: () -> Unit, onForward: () -> Unit, onSelect: () -> Unit) {
+private fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Unit, onEdit: () -> Unit, onForward: () -> Unit, onSelect: () -> Unit, group: Boolean = false) {
     val c: Context = act
     lateinit var close: () -> Unit
-    val canEdit = m.mine && !Marks.isService(m.text)
+    // A GROUP'S LETTER (Groups): what this phone keeps of it — copy, forward, delete here; what would tell the group waits for its own word
+    val canEdit = m.mine && !group && !Marks.isService(m.text)
     val actions = c.vstack(Gravity.NO_GRAVITY) { background = c.rounded(Color.argb(235, 44, 44, 46), 14) }
     fun row(words: String, red: Boolean = false, work: () -> Unit) {
         if (actions.childCount > 0) actions.addView(View(c).apply { setBackgroundColor(Color.argb(40, 255, 255, 255)) }, lp(MATCH, 1))
@@ -786,13 +824,13 @@ private fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Un
         actions.removeAllViews()
         // THE RUNG AND ITS MOMENT over the actions (iOS MontanaMessageMenu ladder): the same line as under the bubble, with the time
         if (m.mine) actions.addView(c.deliveryLine(ref, m, withMoment = true).apply { setPadding(dp(16), dp(11), dp(16), dp(11)) }, lp())
-        row(c.getString(R.string.reply)) { onReply() }
+        if (!group) row(c.getString(R.string.reply)) { onReply() }
         if (!Marks.isService(m.text)) row(c.getString(R.string.copy)) {
             c.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("", m.text))
         }
         if (canEdit) row(c.getString(R.string.edit)) { onEdit() }
         // PIN · FORWARD (iOS MontanaMessageMenu): the pin asks «for both / for me», the unpin is told at once
-        if (!Marks.isService(m.text) || m.text.startsWith(Marks.MEDIA))
+        if (!group && (!Marks.isService(m.text) || m.text.startsWith(Marks.MEDIA)))
             row(c.getString(if (MsgPins.isPinned(ref, m.mid)) R.string.ld_unpin else R.string.ld_pin)) { pinOrUnpin(act, ref, m) }
         if (canForward(m)) row(c.getString(R.string.ld_forward)) { onForward() }
         actions.addView(View(c).apply { setBackgroundColor(Color.argb(40, 255, 255, 255)) }, lp(MATCH, 1))
@@ -802,7 +840,7 @@ private fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Un
                 // «Delete message?» — for me, for everyone (any bubble, mine or theirs: the mid is the same on both sides).
                 actions.removeAllViews()
                 actions.addView(c.text(c.getString(R.string.delete_message_q), 13f, MT.gray, center = true).apply { setPadding(dp(16), dp(10), dp(16), dp(6)) }, lp())
-                row(c.getString(R.string.delete_for_everyone), red = true) {
+                if (!group) row(c.getString(R.string.delete_for_everyone), red = true) {
                     Book.edit(ref) { ch -> ch.msgs.removeAll { it.mid == m.mid } }
                     Post.send(ref, Marks.mintMid(), Marks.DELETE + "mid:" + m.mid)
                 }
@@ -811,8 +849,8 @@ private fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Un
             }
         }, lp())
         // «SELECT» stands apart at the foot (iOS: after a wider gap)
-        actions.addView(View(c).apply { setBackgroundColor(Color.argb(40, 255, 255, 255)) }, lp(MATCH, c.dp(6)))
-        actions.addView(c.text(c.getString(R.string.ld_select), 17f, Color.WHITE).apply { setPadding(dp(16), dp(12), dp(16), dp(12)); pressable { close(); onSelect() } }, lp())
+        if (!group) actions.addView(View(c).apply { setBackgroundColor(Color.argb(40, 255, 255, 255)) }, lp(MATCH, c.dp(6)))
+        if (!group) actions.addView(c.text(c.getString(R.string.ld_select), 17f, Color.WHITE).apply { setPadding(dp(16), dp(12), dp(16), dp(12)); pressable { close(); onSelect() } }, lp())
     }
     fillActions()
     // THE QUICK REACTIONS (iOS MTReactions.common): a press puts it on or takes it off; the peer hears RC:{sid,txt,e,op}.
@@ -849,8 +887,7 @@ private fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Un
         pressable { close() }
         addView(c.vstack(if (m.mine) Gravity.END else Gravity.START) {
             setPadding(dp(14), 0, dp(14), 0)
-            addView(reactions, lp(WRAP, WRAP))
-            gap(8)
+            if (!group) { addView(reactions, lp(WRAP, WRAP)); gap(8) }
             addView(copy, lp())
             gap(8)
             addView(actions, lp(dp(240), WRAP))

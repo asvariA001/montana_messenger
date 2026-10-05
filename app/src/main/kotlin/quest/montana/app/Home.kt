@@ -591,7 +591,7 @@ private class SearchResults(val act: MainActivity) : ScrollView(act) {
 
     private fun draw() {
         list.removeAllViews()
-        val people = Book.all().filter { it.msgs.isNotEmpty() }
+        val people = Book.all().filter { it.msgs.isNotEmpty() && !Groups.isKey(it.ref) }   // people only: a group is no person
         if (q.isEmpty()) {
             // nothing typed yet — the recent people only (iOS recentContacts: twelve, people only)
             if (people.isNotEmpty()) header(R.string.search_contacts)

@@ -30,4 +30,7 @@
     <string name="scan_hint">Point the camera at a Montana code</string>
     <string name="no_invite_in_clipboard">There is no Montana link in the clipboard</string>
     <string name="camera_needed">Montana needs the camera to read the code</string>
+    <string name="gr_member">Member</string>
+    <string name="gr_out_note">You are no longer a member: the messages stay here to read.</string>
+    <plurals name="gr_members"><item quantity="one">%d member</item><item quantity="other">%d members</item></plurals>
 </resources>

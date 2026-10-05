@@ -30,4 +30,7 @@
     <string name="scan_hint">Наведите камеру на код Montana</string>
     <string name="no_invite_in_clipboard">В буфере обмена нет ссылки Montana</string>
     <string name="camera_needed">Montana нужна камера, чтобы прочитать код</string>
+    <string name="gr_member">Участник</string>
+    <string name="gr_out_note">Вы больше не участник: сообщения остаются здесь для чтения.</string>
+    <plurals name="gr_members"><item quantity="one">%d участник</item><item quantity="few">%d участника</item><item quantity="many">%d участников</item><item quantity="other">%d участника</item></plurals>
 </resources>

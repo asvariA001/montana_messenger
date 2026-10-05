@@ -155,7 +155,8 @@ fun forwardOne(c: Context, target: String, m: Msg) {
 fun forwardPage(act: MainActivity, from: String, letters: List<Msg>, onBack: () -> Unit, onSent: (String) -> Unit): View {
     val c: Context = act
     return settingsPage(act, c.getString(R.string.ld_forward_to), onBack) {
-        for (ch in listedChats().filter { it.ref != from } + listOfNotNull(Book.chat(from))) {
+        // nothing reaches a group's feed but the group's own word (Groups): a group is no place to forward to from here
+        for (ch in (listedChats().filter { it.ref != from } + listOfNotNull(Book.chat(from))).filter { !Groups.isKey(it.ref) }) {
             addView(c.hstack {
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(dp(4), dp(8), dp(4), dp(8))

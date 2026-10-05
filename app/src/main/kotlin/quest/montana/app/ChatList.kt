@@ -17,10 +17,14 @@ import kotlin.math.abs
 
 /** THE LIST'S ORDER (iOS orderedChats): the pinned ones first, in their own order; then the rest, newest letter first. The archived leave. */
 fun listedChats(): List<Chat> = Book.all()
-    .filter { it.msgs.isNotEmpty() && !ChatMarks.isArchived(it.ref) }
-    .sortedBy { ChatMarks.pinPlace(it.ref) ?: Int.MAX_VALUE }   // a stable sort: the newest-first order of Book.all stays under the pins
+    .filter { stands(it) && !ChatMarks.isArchived(it.ref) }
+    .sortedByDescending { it.last?.at ?: Groups.bornAt(it.ref) }
+    .sortedBy { ChatMarks.pinPlace(it.ref) ?: Int.MAX_VALUE }   // a stable sort: the newest-first order stays under the pins
 
-fun archivedChats(): List<Chat> = Book.all().filter { it.msgs.isNotEmpty() && ChatMarks.isArchived(it.ref) }
+fun archivedChats(): List<Chat> = Book.all().filter { stands(it) && ChatMarks.isArchived(it.ref) }
+
+/** A row stands on letters; a group stands from its invitation, by the moment it stood here (iOS MTGroup.stand: the row at once). */
+private fun stands(c: Chat) = c.msgs.isNotEmpty() || Groups.isKey(c.ref)
 
 /** The chats chosen while the list selects (iOS selecting, selectedChats). */
 class ChatSelection(val onChange: (ChatSelection) -> Unit) {

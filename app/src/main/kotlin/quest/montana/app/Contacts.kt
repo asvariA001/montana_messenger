@@ -16,7 +16,7 @@ import android.widget.ScrollView
  * (a live word above every stamp, the stamps newest first), then by name.
  */
 fun contactPeople(archived: Boolean = false): List<Chat> = Book.all()
-    .filter { it.shown.isNotBlank() && ChatMarks.isContactArchived(it.ref) == archived }
+    .filter { it.shown.isNotBlank() && !Groups.isKey(it.ref) && ChatMarks.isContactArchived(it.ref) == archived }   // a group is no person
     .sortedWith(compareBy<Chat> { if (ChatMarks.isContactPinned(it.ref)) 0 else 1 }
         .thenByDescending { Presence.stamp(it.ref) }
         .thenBy(String.CASE_INSENSITIVE_ORDER) { it.shown })

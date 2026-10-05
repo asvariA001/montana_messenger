@@ -30,4 +30,7 @@
     <string name="scan_hint">将相机对准 Montana 代码</string>
     <string name="no_invite_in_clipboard">剪贴板中没有 Montana 链接</string>
     <string name="camera_needed">Montana 需要相机来读取代码</string>
+    <string name="gr_member">成员</string>
+    <string name="gr_out_note">您已不再是成员：消息仍可在此阅读。</string>
+    <plurals name="gr_members"><item quantity="other">%d 名成员</item></plurals>
 </resources>

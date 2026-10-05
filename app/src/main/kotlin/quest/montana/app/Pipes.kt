@@ -169,10 +169,11 @@ class Msg(
     var file: String? = null, var meta: String? = null,   // a media letter: the assembled file, and its manifest once known
     var statusAt: Long = 0, var heard: Boolean = false,
     var lp: String? = null,   // the link's card (iOS linkPreview, LinkPreview.kt): the body's seventh field
+    val from: String? = null,   // a group's speaker (iOS Message.senderRef, Groups.speakerName); null in a pipe's own feed
 ) {
     fun json(): JSONObject = JSONObject().put("m", mid).put("t", text).put("o", mine).put("at", at).put("s", state).put("e", edited)
         .put("qt", qt ?: "").put("qm", qm ?: "").put("r", JSONArray(reactions)).put("mr", myReact ?: "")
-        .put("f", file ?: "").put("mm", meta ?: "").put("sa", statusAt).put("h", heard).put("lp", lp ?: "")
+        .put("f", file ?: "").put("mm", meta ?: "").put("sa", statusAt).put("h", heard).put("lp", lp ?: "").put("sr", from ?: "")
 
     /** The moment the letter's rung was reached, or its birth (iOS Message.statusMoment). */
     val statusMoment: Long get() = if (statusAt > 0) statusAt else at
@@ -196,7 +197,7 @@ class Msg(
             o.optString("qt").ifEmpty { null }, o.optString("qm").ifEmpty { null },
             o.optJSONArray("r")?.let { a -> MutableList(a.length()) { a.getString(it) } } ?: mutableListOf(),
             o.optString("mr").ifEmpty { null }, o.optString("f").ifEmpty { null }, o.optString("mm").ifEmpty { null },
-            o.optLong("sa"), o.optBoolean("h"), o.optString("lp").ifEmpty { null })
+            o.optLong("sa"), o.optBoolean("h"), o.optString("lp").ifEmpty { null }, o.optString("sr").ifEmpty { null })
     }
 }
 
@@ -367,7 +368,7 @@ object Book {
         }
         File(ctx.filesDir, "faces").deleteRecursively()
         DeviceVault.delete(Post.OUTBOX)
-        Meeting.wipe(); SamePair.wipe()
+        Meeting.wipe(); SamePair.wipe(); Groups.wipe()
         changed()
     }
 }
@@ -396,6 +397,7 @@ object Post {
     // ── sending ──
     /** Queue a letter and knock at once; a letter that no door took waits in the outbox and rides the next round. */
     fun send(to0: String, mid: String, text: String, qt: String? = null, qm: String? = null, lp: String? = null) {
+        if (Groups.isKey(to0)) return   // a group's feed has no pipe: nothing is ever queued to it (iOS: a group's key has no doors)
         val to = if (SamePair.speaksOfPipe(text)) to0 else SamePair.root(to0)   // a folded pipe's words go by its conversation's pipe
         synchronized(outLock) {
             val a = outbox()
@@ -679,6 +681,9 @@ object Post {
                 Book.edit(ref) {}
                 receipt(ref, sid)
             }
+            // A GROUP'S WORD (iOS MTGroup.handle): an invitation, a letter or an answer of a group its owner carries over the pipes —
+            // it lands in the group's own feed, never as a row of this pipe, and its copy is receipted by its own name
+            text.startsWith(Groups.MARK) -> Groups.handle(ref, sid, text)
             Marks.isService(text) && !text.startsWith(Marks.VOICE) && !text.startsWith(Marks.MEDIA) && !text.startsWith(Marks.STICKER) && !text.startsWith(Marks.LONG) -> {}
             // A BLOCKED PERSON'S LETTERS DO NOT REACH THE FEED (iOS MontanaSafety: the block is enforced on every road).
             PeerSafety.isBlocked(ref) -> {}
