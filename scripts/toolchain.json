@@ -27,9 +27,10 @@
   "platform": "android-35",
   "ndk": "27.2.12479018",
   "kotlin": {
-    "version": "2.4.20",
-    "url": "https://github.com/JetBrains/kotlin/releases/download/v2.4.20/kotlin-compiler-2.4.20.zip",
-    "sha256": "59e9ca74c7904ef2c122b12114937673ccce68de820a663f0ed66ccf8799e0b7"
+    "version": "2.1.21",
+    "url": "https://github.com/JetBrains/kotlin/releases/download/v2.1.21/kotlin-compiler-2.1.21.zip",
+    "sha256": "1ba08a8b45da99339a0601134cc037b54cf85e9bc0edbe76dcbd27c2d684a977",
+    "why": "the newest Kotlin whose metadata the D8 of build-tools 35.0.0 reads (it reads up to 2.1.0; 2.4.20 drew a warning per class)"
   },
   "cargo_ndk": "4.1.2",
   "protocol": {

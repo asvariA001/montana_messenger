@@ -38,7 +38,8 @@ def say(text):
     print(text, flush=True)
 
 
-def run(args, env=None, cwd=None):
+def run(args, env=None, cwd=ROOT):
+    # the SDK's own scripts step back into the folder they started from, so they start from one every builder can enter
     r = subprocess.run(args, env=env, cwd=cwd)
     if r.returncode:
         raise SystemExit("failed (%d): %s" % (r.returncode, " ".join(args)))
@@ -127,7 +128,7 @@ def apk(p, code, name, key, check):
         say("3/6 Kotlin")
         r = subprocess.run([p.kotlinc, "-nowarn", "-jvm-target", "17", "-no-reflect", "-no-stdlib",
                             "-cp", os.pathsep.join([jar, p.stdlib, classes]), "-d", classes, "-Xjvm-default=all"]
-                           + files(os.path.join(APP, "kotlin"), ".kt"), env=env, capture_output=True, text=True)
+                           + files(os.path.join(APP, "kotlin"), ".kt"), env=env, cwd=ROOT, capture_output=True, text=True)
         for line in (r.stdout + r.stderr).splitlines():
             if not line.startswith("warning:"):
                 print(line)
@@ -147,10 +148,13 @@ def apk(p, code, name, key, check):
             z.write(CORE_SO, "lib/arm64-v8a/libmontana.so", compress_type=zipfile.ZIP_STORED)
         say("6/6 align + sign")
         run([os.path.join(bt, "zipalign"), "-f", "-P", "16", "4", unsigned, aligned])
-        # a key with its own secret keeps it in KEY.pass beside it (the shared key); a debug key's is the known one
-        secret = "file:" + key + ".pass" if os.path.exists(key + ".pass") else "pass:android"
-        run([os.path.join(bt, "apksigner"), "sign", "--ks", key, "--ks-pass", secret, "--key-pass", secret,
-             "--out", signed, aligned], env=env)
+        # the shared key keeps its secret in KEY.pass beside it; in its PKCS12 store the key's password is the store's,
+        # and apksigner reads one file named twice line by line, so the file is named once. A debug key's is the known one.
+        if os.path.exists(key + ".pass"):
+            secret = ["--ks-pass", "file:" + key + ".pass"]
+        else:
+            secret = ["--ks-pass", "pass:android", "--key-pass", "pass:android"]
+        run([os.path.join(bt, "apksigner"), "sign", "--ks", key] + secret + ["--out", signed, aligned], env=env)
         os.makedirs(BUILD, exist_ok=True)
         open(APK, "wb").write(open(signed, "rb").read())
     say("   %s  %d bytes" % (os.path.relpath(APK, ROOT), os.path.getsize(APK)))
