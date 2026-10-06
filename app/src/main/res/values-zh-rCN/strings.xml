@@ -375,6 +375,11 @@
     <string name="call_missed">未接来电</string>
     <string name="call_unanswered">无人接听</string>
     <string name="call_decline">拒绝</string>
-    <string name="call_end">结束</string>
+    <string name="call_end">挂断</string>
+    <string name="call_speaker">扬声器</string>
+    <string name="call_mute">静音</string>
+    <string name="call_connecting">连接中…</string>
+    <string name="call_title_audio">Montana 语音通话</string>
+    <string name="call_back">返回</string>
     <string name="call_accept">接听</string>
 </resources>

@@ -375,6 +375,11 @@
     <string name="call_missed">Пропущенный звонок</string>
     <string name="call_unanswered">Без ответа</string>
     <string name="call_decline">Отклонить</string>
-    <string name="call_end">Завершить</string>
+    <string name="call_end">Отбой</string>
+    <string name="call_speaker">Динамик</string>
+    <string name="call_mute">Выкл. звук</string>
+    <string name="call_connecting">Соединение…</string>
+    <string name="call_title_audio">Аудиовызов Montana</string>
+    <string name="call_back">Назад</string>
     <string name="call_accept">Принять</string>
 </resources>

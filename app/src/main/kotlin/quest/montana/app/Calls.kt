@@ -140,6 +140,9 @@ object Calls {
         MainThread.later(15_000) { if (synchronized(gate) { ring === r && !r.line }) hangUp("offer-missing") }
     }
 
+    /** The call in hand — answered and not yet ended — by its person; null when none (the call's screen asks it). */
+    fun held(): String? = synchronized(gate) { ring?.takeIf { it.answered }?.ref }
+
     /** The offer goes to the voice once — when the call is answered and its offer is here, in whichever order they came. */
     private fun voice(r: Ring) {
         val offer = synchronized(gate) { if (r.line || !r.answered) null else r.offer?.also { r.line = true } } ?: return
@@ -156,6 +159,7 @@ object Calls {
         noteSeed(r.seed, "dead")
         val dur = CallLine.stop(r.seed)
         CallService.stop()
+        CallScreen.hide()
         Signal.release(r.ref, "call")
         hide()
         // iOS: «missed» means the person never reacted — an answer whose call did not connect is «Connection failed»

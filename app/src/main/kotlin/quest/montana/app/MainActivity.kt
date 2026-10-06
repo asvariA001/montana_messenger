@@ -61,15 +61,24 @@ class MainActivity : Activity() {
         if (!takeShared(intent, hasSeed && termsAccepted)) intent?.data?.let { openLink(it.toString()) }
     }
 
-    /** THE RING'S OWN PAGE (Calls): its conversation opens; «Answer» takes the call there first, the microphone asked once. */
+    /**
+     * THE RING'S OWN PAGE (Calls): its conversation opens, and over it the call's screen while the call is in hand; «Answer»
+     * takes the call first, the microphone asked once.
+     */
     private fun takeCall(i: Intent?): Boolean {
         val ref = i?.getStringExtra(Calls.EXTRA_REF) ?: return false
-        if (i.getBooleanExtra(Calls.EXTRA_ANSWER, false)) {
-            if (VoiceTape.granted(this)) Calls.answer() else requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), ASK_CALL_MIC)
-        }
+        val answer = i.getBooleanExtra(Calls.EXTRA_ANSWER, false)
         i.removeExtra(Calls.EXTRA_REF)
         if (hasSeed && termsAccepted && Book.chat(ref) != null) push { close -> conversationPage(this, ref, close) }
+        if (answer && !VoiceTape.granted(this)) requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), ASK_CALL_MIC)
+        else takeTheCall(answer)
         return true
+    }
+
+    /** iOS acceptCall: the call's screen stands at once («Connecting…»), not after the voice joins. */
+    private fun takeTheCall(answer: Boolean) {
+        if (answer) Calls.answer()
+        Calls.held()?.let { CallScreen.show(this, it) }
     }
 
     /** AN INVITATION HANDED IN BY THE SYSTEM (iOS handleLink): opened now, or kept until the identity exists. */
@@ -234,7 +243,7 @@ class MainActivity : Activity() {
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == ASK_CAMERA) { cameraDone?.invoke(grantResults.firstOrNull() == android.content.pm.PackageManager.PERMISSION_GRANTED); cameraDone = null }
-        if (requestCode == ASK_CALL_MIC) Calls.answer()   // refused, the call is still taken: the person hears, the other side does not
+        if (requestCode == ASK_CALL_MIC) takeTheCall(true)   // refused, the call is still taken: the person hears, the other side does not
     }
 
     // ── the system's document picker: a backup handed to a place the person picks, and taken back from a file ──

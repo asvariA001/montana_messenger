@@ -19,9 +19,6 @@ private fun emptyPane(c: Context, words: Int, above: View? = null): View = Frame
     }, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
 }
 
-/** THE CALLS (iOS CallsTabView): the log of calls, a day row before each day; none yet — the calls come with the network. */
-fun callsPane(c: Context) = emptyPane(c, R.string.no_calls)
-
 /** THE FEED under the logo (iOS MTFeedTabView): the posts on my people's walls, by time; none yet — the walls come with the network. */
 fun feedPane(c: Context) = emptyPane(c, R.string.no_posts)
 

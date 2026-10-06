@@ -111,7 +111,7 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
     var pane = Pane.CHATS   // iOS: the chats are the first page of a launch
     val panes = FrameLayout(c)
     val music = MusicPage(act)
-    val views = mapOf(Pane.CHATS to chatsPane(act), Pane.CONTACTS to contactsPane(act), Pane.CALLS to callsPane(c),
+    val views = mapOf(Pane.CHATS to chatsPane(act), Pane.CONTACTS to contactsPane(act), Pane.CALLS to callsPane(act),
         Pane.FEED to feedPane(c), Pane.MUSIC to music.view, Pane.GALLERY to galleryPane(c))
     views.values.forEach { v -> v.visibility = View.GONE; panes.addView(v, FrameLayout.LayoutParams(MATCH, MATCH)) }
     views.getValue(Pane.CHATS).visibility = View.VISIBLE
