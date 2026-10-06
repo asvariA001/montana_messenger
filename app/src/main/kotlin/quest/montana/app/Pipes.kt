@@ -636,9 +636,20 @@ object Post {
                 SamePair.settle(ref)
                 SamePair.proven(text.removePrefix(Marks.SAME_YES), ref)?.let { Book.join(ref, it) }
             }
-            text.startsWith(Marks.DELIVERED) -> { val d = text.removePrefix(Marks.DELIVERED); Book.edit(ref) { c -> c.msgs.find { it.mid == d && it.mine }?.advance(2) } }
+            text.startsWith(Marks.DELIVERED) -> {
+                val d = text.removePrefix(Marks.DELIVERED)
+                // THE READ WORD MAY HAVE OUTRUN THIS RECEIPT (iOS markDelivered 4221-4226): a film is told «delivered» only once
+                // its file is whole there, while «read» leaves the moment the chat is open — the mark remembers, the letter catches up
+                val u = PeerRead.upTo(ref)
+                Book.edit(ref) { c ->
+                    c.msgs.find { it.mid == d && it.mine }?.let { m ->
+                        if (m.advance(2) && u != null && (Marks.birthMs(m.mid) ?: Long.MAX_VALUE) <= u) m.advance(3)
+                    }
+                }
+            }
             text.startsWith(Marks.READ) -> {
                 val upTo = text.removePrefix(Marks.READ).toLongOrNull()
+                if (upTo != null) PeerRead.note(ref, upTo)
                 Presence.noteSeen(ref, System.currentTimeMillis())   // reading is being there (not a word a phone says by itself)
                 // the door lets «read» only onto what was delivered — the bulk word never paints a letter they do not have
                 Book.edit(ref) { c -> c.msgs.filter { it.mine && (upTo == null || (Marks.birthMs(it.mid) ?: 0) <= upTo) }.forEach { it.advance(3) } }
@@ -730,6 +741,21 @@ object Post {
         var fresh = false
         Book.edit(ref) { c -> c.msgs.find { it.mid == mid && !it.mine && !it.heard }?.let { it.heard = true; fresh = true } }
         if (fresh) send(ref, Marks.mintMid(), Marks.PLAYED + mid)
+    }
+
+    /**
+     * THE PEER'S READ MARK PER CONVERSATION (iOS peerReadUpTo / notePeerRead 2807-2822): the newest of my letters, by its birth
+     * millisecond, the peer declared read — kept sealed, so a receipt that lands after the read word still raises its letter.
+     */
+    object PeerRead {
+        private const val KEY = "peerReadMap"
+        private val lock = Any()
+        private fun map(): JSONObject = DeviceVault.get(KEY)?.toString(Charsets.UTF_8)?.let { runCatching { JSONObject(it) }.getOrNull() } ?: JSONObject()
+        fun upTo(ref: String): Long? = synchronized(lock) { map().optLong(ref, 0L).takeIf { it > 0L } }
+        fun note(ref: String, ms: Long) = synchronized(lock) {
+            val m = map()
+            if (m.optLong(ref, 0L) < ms) { m.put(ref, ms); DeviceVault.set(KEY, m.toString().toByteArray(Charsets.UTF_8)) }
+        }
     }
 
     /** «Read» covering the newest letter of theirs on the screen, by their birth millisecond (iOS sendReadMark). */
