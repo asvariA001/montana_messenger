@@ -60,9 +60,12 @@ object CallScreen {
     private fun page(act: MainActivity, ref: String, ring: Boolean): View {
         val c: Context = act
         val name = Book.chat(ref)?.shown?.ifBlank { null } ?: c.getString(R.string.peer)
+        var hold: (() -> Unit)? = null   // the hold button repaints with the tick: the far side's word may change nothing, mine may
         val light = c.icon(R.drawable.ic_dot, SysColor.green, 11)
         val status = c.text("", 20f, Color.argb(153, 255, 255, 255)).apply { singleLineEllipsis(); fontFeatureSettings = "tnum" }
         val route = if (ring) null else routeButton(c)
+        // under the name, the call's own state in bold (iOS 6725-6738): the hold, either side's, and the lost link
+        val state = c.text("", 17f, Color.WHITE, bold = true, center = true).apply { singleLineEllipsis() }
         fun line() {
             light.setColorFilter(if (CallLine.lost) SysColor.red else SysColor.green)   // iOS MTCallLight: red while the link is lost
             val since = CallLine.connectedAt
@@ -73,6 +76,15 @@ object CallScreen {
             }
             status.text = c.getString(R.string.call_title_audio) + (tail?.let { " — " + it } ?: "")
             route?.second?.invoke()
+            val word = when {
+                ring -> null
+                CallLine.held || CallLine.heldByPeer -> R.string.call_on_hold
+                CallLine.lost -> R.string.call_lost
+                else -> null
+            }
+            state.visibility = if (word == null) View.GONE else View.VISIBLE
+            if (word != null) state.text = c.getString(word)
+            hold?.invoke()
         }
         line()
         val column = c.vstack(Gravity.CENTER_HORIZONTAL) {
@@ -98,6 +110,7 @@ object CallScreen {
                 singleLineEllipsis()
                 setAutoSizeTextTypeUniformWithConfiguration(24, 40, 1, TypedValue.COMPLEX_UNIT_SP)
             }, lp(MATCH, dp(52)).apply { leftMargin = dp(16); rightMargin = dp(16) })
+            addView(state, lp().apply { leftMargin = dp(16); rightMargin = dp(16); topMargin = dp(2) })
             addView(View(c), lp(MATCH, 0, 1f))
             if (ring) {
                 // iOS 6520-6527: Decline and Accept, seventy-two apart
@@ -113,7 +126,9 @@ object CallScreen {
                 val end = button(c, R.string.call_end, R.drawable.ic_phone_down, SysColor.red, { false }) { Thread { Calls.hangUp("hangup") }.start() }
                 addView(c.hstack { addView(route!!.first, lp(dp(COL), WRAP)); gap(GAP); addView(View(c), lp(dp(COL), 1)); gap(GAP); addView(mute, lp(dp(COL), WRAP)) }, lp(WRAP, WRAP))
                 gap(30)
-                addView(c.hstack { addView(View(c), lp(dp(COL), 1)); gap(GAP); addView(end, lp(dp(COL), WRAP)); gap(GAP); addView(View(c), lp(dp(COL), 1)) }, lp(WRAP, WRAP))
+                val holdBtn = button(c, R.string.call_hold, R.drawable.ic_pause_fill, null, { CallLine.held }) { CallLine.setHeld(!CallLine.held) }
+                hold = { holdBtn.tag?.let { (it as () -> Unit)() } }
+                addView(c.hstack { addView(holdBtn, lp(dp(COL), WRAP)); gap(GAP); addView(end, lp(dp(COL), WRAP)); gap(GAP); addView(View(c), lp(dp(COL), 1)) }, lp(WRAP, WRAP))
             }
             gap(46)
         }
@@ -210,6 +225,7 @@ object CallScreen {
         face.contentDescription = c.getString(caption)
         face.pressable { face.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY); work(); paint() }
         return c.vstack(Gravity.CENTER_HORIZONTAL) {
+            tag = { paint() }
             addView(face, lp(dp(SIDE), dp(SIDE)))
             gap(8)
             addView(c.text(c.getString(caption), 15f, Color.WHITE, center = true).apply { singleLineEllipsis() }, lp())

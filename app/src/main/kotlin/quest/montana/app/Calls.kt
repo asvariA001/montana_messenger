@@ -92,6 +92,7 @@ object Calls {
                         CallLine.answered(ref, epochOf(r.seed), sdp)
                     }
                 }
+                "call-hold", "call-resume" -> CallLine.peerHeld(ref, w.optString("e").ifEmpty { epoch }, ctrl == "call-hold")
                 // the caller's candidates (iOS 2368): one in «candidate», an old build's batch in «candidates»
                 "call-ice" -> {
                     val cs = ArrayList<IceCandidate>()

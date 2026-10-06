@@ -51,6 +51,10 @@ object CallLine {
         private set
     @Volatile var speaker = false
         private set
+    @Volatile var held = false   // this side put the call on hold (iOS softHeld)
+        private set
+    @Volatile var heldByPeer = false   // the far side did (iOS heldByPeer)
+        private set
     @Volatile var lost = false   // the link broke and has not healed (iOS «reconnecting»): the call's light is red
         private set
 
@@ -251,6 +255,8 @@ object CallLine {
         }
         audioOff()
         lost = false
+        held = false
+        heldByPeer = false
         val at = l.connectedAt
         return if (at == 0L) 0 else ((System.currentTimeMillis() - at) / 1000).toInt()
     }
@@ -374,8 +380,25 @@ object CallLine {
     fun setMuted(on: Boolean) {
         muted = on
         val l = synchronized(gate) { line } ?: return
-        work.execute { runCatching { l.track.setEnabled(!on) } }
+        work.execute { runCatching { l.track.setEnabled(!on && !held) } }
     }
+
+    /**
+     * HOLD (iOS softHold 429-455): my microphone and the far voice go quiet, the connection stays, the far side is told
+     * «call-hold»; the resume gives both back — the microphone as the mute leaves it — and says «call-resume».
+     */
+    fun setHeld(on: Boolean) {
+        val l = synchronized(gate) { line } ?: return
+        held = on
+        work.execute {
+            runCatching { l.track.setEnabled(!on && !muted) }
+            runCatching { l.pc.receivers.forEach { it.track()?.setEnabled(!on) } }
+            say(l, JSONArray().put(word(l, if (on) "call-hold" else "call-resume")))
+        }
+    }
+
+    /** The far side's hold and resume (iOS 2544-2551): the screen says «On hold». */
+    fun peerHeld(ref: String, epoch: String, on: Boolean) { if (mine(ref, epoch) != null) heldByPeer = on }
 
     private fun log(s: String) { Log.d("Montana", "call line: " + s) }
 }
