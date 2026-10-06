@@ -23,6 +23,9 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- An incoming call stands on the screen as the system's call (Calls, iOS CallKit's incoming screen). -->
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <!-- The call speaks on with the screen dark or the app left (CallService), and its sound is routed (CallLine). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
     <!-- The active seed lives device-only (iOS AfterFirstUnlockThisDeviceOnly): no file of the app is copied —
          no Auto Backup (fullBackupContent=false, every domain excluded). The ONE thing the system backup carries
@@ -117,6 +120,11 @@
         <receiver
             android:name="quest.montana.app.CallDecline"
             android:exported="false" />
+        <!-- The call in hand as the system's ongoing call, holding the microphone (CallService.kt). -->
+        <service
+            android:name="quest.montana.app.CallService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
         <!-- The box read with the app closed (BoxJob.kt): only the system's scheduler may start it. -->
         <service
             android:name="quest.montana.app.BoxJob"

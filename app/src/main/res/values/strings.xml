@@ -376,5 +376,6 @@
     <string name="call_missed">Missed call</string>
     <string name="call_unanswered">Unanswered call</string>
     <string name="call_decline">Decline</string>
+    <string name="call_end">End</string>
     <string name="call_accept">Accept</string>
 </resources>

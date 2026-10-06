@@ -18,6 +18,7 @@ import android.view.Gravity
 import android.widget.LinearLayout
 import org.json.JSONArray
 import org.json.JSONObject
+import org.webrtc.IceCandidate
 import java.util.Date
 import java.util.Locale
 
@@ -25,8 +26,8 @@ import java.util.Locale
  * THE CALL MACHINE, ITS FIRST HALF (iOS MontanaCall; the map is docs/calls.md). A call of the iPhone is heard here — by its
  * ring letter in the box (RG) or by its words on the node's lane — and rings as the system's call (iOS CallKit; here the
  * call's own notification). The caller is told «ringing», a decline is told «call-end», a call that ends unanswered leaves its
- * row, and the caller's «missed» letter (MC) lays the row of a call this phone never saw. The voice, and the answer that
- * carries it, are the next step of Anna's plan: «Answer» opens the conversation meanwhile.
+ * row, and the caller's «missed» letter (MC) lays the row of a call this phone never saw. «Answer» hands the offer to the
+ * voice (CallLine) and the call stands as the system's ongoing call (CallService) until either side ends it.
  */
 object Calls {
     const val LIFE_MS = 90_000L   // iOS callLifeS: the ring, the age of an offer, the life of a call letter — one number
@@ -37,8 +38,9 @@ object Calls {
     private const val SEEDS = "callSeeds"   // seed -> {st, at}: «alive» rang here, «dead» is over (iOS MontanaMissedCall's book, burySeed)
 
     private class Ring(val ref: String, val seed: String, val video: Boolean) {
-        var offer: String? = null   // the caller's description, kept for the answer of step 4
+        var offer: String? = null   // the caller's description, kept for the answer
         var answered = false
+        var line = false   // the voice was handed its offer
     }
     private val gate = Any()
     private var ring: Ring? = null
@@ -72,7 +74,18 @@ object Calls {
                     val named = if (ctrl == "call-gone") epochOf(w.optString("s")) else w.optString("e").ifEmpty { epoch }
                     synchronized(gate) { ring?.takeIf { it.ref == ref && epochOf(it.seed) == named } }?.let { end(it, ctrl) }
                 }
-                else -> {}   // the rest of a call's words wait for the voice (step 4)
+                // the caller's candidates (iOS 2368): one in «candidate», an old build's batch in «candidates»
+                "call-ice" -> {
+                    val cs = ArrayList<IceCandidate>()
+                    fun take(o: JSONObject?) {
+                        val sdp = o?.optString("candidate")?.ifEmpty { null } ?: return
+                        cs.add(IceCandidate(o.optString("sdpMid"), o.optInt("sdpMLineIndex"), sdp))
+                    }
+                    take(w.optJSONObject("candidate"))
+                    w.optJSONArray("candidates")?.let { a -> for (j in 0 until a.length()) take(a.optJSONObject(j)) }
+                    if (cs.isNotEmpty()) CallLine.remoteIce(ref, w.optString("e").ifEmpty { epoch }, cs)
+                }
+                else -> {}   // hold, video, the restart of the checks: later steps
             }
         }
     }
@@ -83,37 +96,54 @@ object Calls {
      */
     private fun incoming(ref: String, seed: String, video: Boolean, name: String, offer: String?) {
         if (PeerSafety.isBlocked(ref)) return log("blocked caller")   // a blocked person's call is not assembled (iOS 15.09)
+        if (seed.isEmpty()) {
+            synchronized(gate) { ring?.takeIf { it.ref == ref && it.offer == null }?.offer = offer }
+            synchronized(gate) { ring?.takeIf { it.ref == ref } }?.let { voice(it) }   // an answer that waited for its offer
+            return
+        }
         val fresh = synchronized(gate) {
             val r = ring
-            if (seed.isEmpty()) { if (r != null && r.ref == ref && r.offer == null) r.offer = offer; return }
             if (seedState(seed) == "dead") return log("dead seed")
             if (r != null && r.seed != seed) return log("busy: another call rings")
             if (r != null) { if (r.offer == null) r.offer = offer; false }
             else { ring = Ring(ref, seed, video).also { it.offer = offer }; true }
         }
         say(ref, seed, "call-ringing")   // the caller hears that it rings here (iOS 2218), for the birth and for each copy
-        if (!fresh) return
+        if (!fresh) { synchronized(gate) { ring?.takeIf { it.seed == seed } }?.let { voice(it) }; return }
         noteSeed(seed, "alive")
         if (name.isNotBlank() && name.length <= 64) Book.edit(ref) { it.name = name.trim() }   // iOS onCallerNamed
         Signal.hold(ref, "call")
         show(ref, video)
-        MainThread.later(LIFE_MS) { synchronized(gate) { ring?.takeIf { it.seed == seed } }?.let { end(it, "timeout") } }
+        MainThread.later(LIFE_MS) { synchronized(gate) { ring?.takeIf { it.seed == seed && !it.answered } }?.let { end(it, "timeout") } }
         log("ring video=" + video)
     }
 
     // ── what this phone says ──
 
-    /** «Decline» (iOS CXEndCallAction on a ringing call): the caller is told; the row stays — a declined call is a missed one. */
-    fun decline() {
+    /**
+     * «Decline» on a ring, «Hang up» on a call, and every rule that ends one (iOS CXEndCallAction, endByRule): the caller is
+     * told «call-end». A declined call stays a missed one; an answered one leaves its length.
+     */
+    fun hangUp(why: String = "declined") {
         val r = synchronized(gate) { ring } ?: return
         say(r.ref, r.seed, "call-end")
-        end(r, "declined")
+        end(r, why)
     }
 
-    /** «Answer»: the ring stops here. The voice that answers the caller is step 4 — the conversation opens meanwhile. */
+    /** «Answer» (iOS acceptCall): the ring stops, the call stands as the system's, and the voice takes the offer. */
     fun answer() {
-        synchronized(gate) { ring }?.answered = true
+        val r = synchronized(gate) { ring?.also { it.answered = true } } ?: return
         hide()
+        CallService.start(Book.ctx, r.ref)
+        voice(r)
+        // iOS 2639-2647: an offer still on its way is waited for fifteen seconds, then the call honestly ends
+        MainThread.later(15_000) { if (synchronized(gate) { ring === r && !r.line }) hangUp("offer-missing") }
+    }
+
+    /** The offer goes to the voice once — when the call is answered and its offer is here, in whichever order they came. */
+    private fun voice(r: Ring) {
+        val offer = synchronized(gate) { if (r.line || !r.answered) null else r.offer?.also { r.line = true } } ?: return
+        CallLine.answer(r.ref, r.seed, offer)
     }
 
     private fun say(ref: String, seed: String, ctrl: String) {
@@ -124,10 +154,12 @@ object Calls {
     private fun end(r: Ring, why: String) {
         synchronized(gate) { if (ring !== r) return; ring = null }
         noteSeed(r.seed, "dead")
+        val dur = CallLine.stop(r.seed)
+        CallService.stop()
         Signal.release(r.ref, "call")
         hide()
         // iOS: «missed» means the person never reacted — an answer whose call did not connect is «Connection failed»
-        row(r.ref, r.video, incoming = true, dur = 0, missed = !r.answered)
+        row(r.ref, r.video, incoming = true, dur = dur, missed = !r.answered)
         if (!r.answered && why != "declined") Notify.letter(r.ref, rowText(r.video, true, 0, true))   // iOS postMissedCallBanner
         log("end " + why)
     }
@@ -261,7 +293,7 @@ object Calls {
     private fun log(s: String) { Log.d("Montana", "call: " + s) }
 }
 
-/** The ring's «Decline» (Calls): the system hands the press here. */
+/** The ring's «Decline» and the call's «Hang up» (Calls, CallService): the system hands the press here. */
 class CallDecline : BroadcastReceiver() {
-    override fun onReceive(c: Context, i: Intent) { Thread { Calls.decline() }.start() }
+    override fun onReceive(c: Context, i: Intent) { Thread { Calls.hangUp() }.start() }
 }

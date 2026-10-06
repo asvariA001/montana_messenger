@@ -61,10 +61,12 @@ class MainActivity : Activity() {
         if (!takeShared(intent, hasSeed && termsAccepted)) intent?.data?.let { openLink(it.toString()) }
     }
 
-    /** THE RING'S OWN PAGE (Calls): its conversation opens; «Answer» stops the ring there first. */
+    /** THE RING'S OWN PAGE (Calls): its conversation opens; «Answer» takes the call there first, the microphone asked once. */
     private fun takeCall(i: Intent?): Boolean {
         val ref = i?.getStringExtra(Calls.EXTRA_REF) ?: return false
-        if (i.getBooleanExtra(Calls.EXTRA_ANSWER, false)) Calls.answer()
+        if (i.getBooleanExtra(Calls.EXTRA_ANSWER, false)) {
+            if (VoiceTape.granted(this)) Calls.answer() else requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), ASK_CALL_MIC)
+        }
         i.removeExtra(Calls.EXTRA_REF)
         if (hasSeed && termsAccepted && Book.chat(ref) != null) push { close -> conversationPage(this, ref, close) }
         return true
@@ -232,6 +234,7 @@ class MainActivity : Activity() {
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == ASK_CAMERA) { cameraDone?.invoke(grantResults.firstOrNull() == android.content.pm.PackageManager.PERMISSION_GRANTED); cameraDone = null }
+        if (requestCode == ASK_CALL_MIC) Calls.answer()   // refused, the call is still taken: the person hears, the other side does not
     }
 
     // ── the system's document picker: a backup handed to a place the person picks, and taken back from a file ──
@@ -295,5 +298,5 @@ class MainActivity : Activity() {
     /** The app's own language before Android 13 (from 13 the system keeps it: AppLanguage). */
     override fun attachBaseContext(base: android.content.Context) = super.attachBaseContext(AppLanguage.wrap(base))
 
-    private companion object { const val PICK_PHOTO = 1; const val ASK_NOTIFY = 2; const val DOCUMENT = 3; const val ASK_CAMERA = 4; const val CONFIRM_OWNER = 5; const val CAPTURE = 6; const val PICK_CONTACT = 7 }
+    private companion object { const val PICK_PHOTO = 1; const val ASK_NOTIFY = 2; const val DOCUMENT = 3; const val ASK_CAMERA = 4; const val CONFIRM_OWNER = 5; const val CAPTURE = 6; const val PICK_CONTACT = 7; const val ASK_CALL_MIC = 9 }
 }

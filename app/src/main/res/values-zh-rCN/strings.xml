@@ -375,5 +375,6 @@
     <string name="call_missed">未接来电</string>
     <string name="call_unanswered">无人接听</string>
     <string name="call_decline">拒绝</string>
+    <string name="call_end">结束</string>
     <string name="call_accept">接听</string>
 </resources>
