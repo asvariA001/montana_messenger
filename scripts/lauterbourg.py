@@ -42,7 +42,9 @@ def digest(data):
 
 def build(ref):
     say("Lauterbourg builds %s" % ref)
-    proc = subprocess.Popen(["ssh", HOST["ssh"], "python3", HOST["build"], ref], stdout=subprocess.PIPE,
+    # the build is silent for minutes while Kotlin compiles, and a silent line was cut on the way (06.10, twice at
+    # «3/6 Kotlin»: «Connection reset by peer»); the line speaks every fifteen seconds of its own
+    proc = subprocess.Popen(["ssh", "-o", "ServerAliveInterval=15", HOST["ssh"], "python3", HOST["build"], ref], stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT, text=True)
     record = None
     for line in proc.stdout:
