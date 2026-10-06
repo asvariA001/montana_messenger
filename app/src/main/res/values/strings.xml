@@ -367,4 +367,14 @@
     <string name="rec_pause">Pause</string>
     <string name="rec_dual">Both cameras</string>
     <string name="rec_flip">Switch camera</string>
+    <!-- the calls (Calls.kt): the iOS words, the same in every language -->
+    <string name="call_voice">Voice call</string>
+    <string name="call_video">Video call</string>
+    <string name="call_missed_short">Missed</string>
+    <string name="call_no_answer">No answer</string>
+    <string name="call_failed">Connection failed</string>
+    <string name="call_missed">Missed call</string>
+    <string name="call_unanswered">Unanswered call</string>
+    <string name="call_decline">Decline</string>
+    <string name="call_accept">Accept</string>
 </resources>

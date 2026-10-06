@@ -136,6 +136,9 @@ object Marks {
     const val PLAYED = "\u200B\u200BPL:"   // + the mid of a voice of theirs that was played here (iOS playedMark)
     const val SAME_ASK = "\u200B\u200BSM:"   // + base64 {t: [32 tags]}: \u00ABdo we already share a pipe?\u00BB (iOS sameAskMark)
     const val SAME_YES = "\u200B\u200BSY:"   // + base64 {p: proof or noise}: the answer (iOS sameYesMark)
+    const val RING = "\u200B\u200BRG:"   // + {v, s, n, t}: a call as a letter (iOS ringMark) — it rings, never a row
+    const val MISSED = "\u200B\u200BMC:"   // + {v, s}: the caller's «missed call» (iOS missedCallMark) — it lands as a call row
+    const val CALL = "\u200B\u200BCL:"   // + {v, inc, dur, miss}: a call's row, laid by each phone for itself (iOS callMark), never sent
     /** A word of the wire, not a row of the feed. */
     fun isService(t: String) = t.startsWith("​") || t.startsWith("⁣")
 
@@ -684,6 +687,10 @@ object Post {
             // A GROUP'S WORD (iOS MTGroup.handle): an invitation, a letter or an answer of a group its owner carries over the pipes —
             // it lands in the group's own feed, never as a row of this pipe, and its copy is receipted by its own name
             text.startsWith(Groups.MARK) -> Groups.handle(ref, sid, text)
+            // A CALL AS A LETTER (iOS ringMark): it rings here and is never a row; its age and the seeds seen cut the stale (Calls)
+            text.startsWith(Marks.RING) -> Calls.ringLetter(ref, text.removePrefix(Marks.RING))
+            // THE CALLER'S «MISSED» (iOS missedCallMark): the row of a call this phone never saw, receipted either way
+            text.startsWith(Marks.MISSED) -> { Calls.missedLetter(ref, text.removePrefix(Marks.MISSED)); receipt(ref, sid) }
             Marks.isService(text) && !text.startsWith(Marks.VOICE) && !text.startsWith(Marks.MEDIA) && !text.startsWith(Marks.STICKER) && !text.startsWith(Marks.LONG) -> {}
             // A BLOCKED PERSON'S LETTERS DO NOT REACH THE FEED (iOS MontanaSafety: the block is enforced on every road).
             PeerSafety.isBlocked(ref) -> {}

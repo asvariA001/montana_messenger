@@ -366,4 +366,14 @@
     <string name="rec_pause">Пауза</string>
     <string name="rec_dual">Обе камеры</string>
     <string name="rec_flip">Сменить камеру</string>
+    <!-- the calls (Calls.kt): the iOS words, the same in every language -->
+    <string name="call_voice">Аудиозвонок</string>
+    <string name="call_video">Видеозвонок</string>
+    <string name="call_missed_short">Пропущенный</string>
+    <string name="call_no_answer">Нет ответа</string>
+    <string name="call_failed">Соединение не удалось</string>
+    <string name="call_missed">Пропущенный звонок</string>
+    <string name="call_unanswered">Без ответа</string>
+    <string name="call_decline">Отклонить</string>
+    <string name="call_accept">Принять</string>
 </resources>

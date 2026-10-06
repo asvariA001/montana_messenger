@@ -35,6 +35,7 @@ import java.util.Date
 
 /** The words a letter shows in the list and the banner: its text, or the name of what it carries. */
 fun letterWords(c: Context, t: String, meta: String? = null): String = when {
+    t.startsWith(Marks.CALL) -> Calls.info(t)?.let { Calls.words(c, it) } ?: ""
     t.startsWith(Marks.VOICE) -> c.getString(R.string.voice_message)
     t.startsWith(Marks.MEDIA) -> mediaWords(c, meta?.let { runCatching { JSONObject(it) }.getOrNull() } ?: Media.inline(t))
     t.startsWith(Marks.STICKER) -> t.removePrefix(Marks.STICKER)
@@ -72,6 +73,7 @@ private val AUDIO_NAMES = setOf("mp3", "m4a", "aac", "wav", "flac", "ogg", "opus
  * music, a file — by the manifest, once the file is here — and the link of a letter of words. The thumbnail draws by it.
  */
 fun rowKind(m: Msg): String? {
+    Calls.info(m.text)?.let { return if (it.video) "vcall" else "acall" }
     if (!m.text.startsWith(Marks.MEDIA)) return if (LinkPreview.webURLs(m.text).isNotEmpty()) "link" else null
     val f = m.file?.let { java.io.File(it) }?.takeIf { it.exists() } ?: return null
     val man = m.meta?.let { runCatching { JSONObject(it) }.getOrNull() } ?: Media.inline(m.text)
@@ -132,6 +134,8 @@ fun Context.letterThumb(m: Msg, kind: String, sideDp: Int = 20): View {
         }
         "music" -> plate(R.drawable.ic_play_fill)
         "link" -> plate(R.drawable.ic_link)
+        "acall" -> plate(R.drawable.ic_peer_phone)
+        "vcall" -> plate(R.drawable.ic_peer_video)
         else -> plate(R.drawable.ic_set_doc)
     }
 }
@@ -725,7 +729,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 Presence.listen(presenceListener); lane = true
                 LiveDraft.listen(draftListener); drawDraft()
                 Presence.sayChat(ref, true); MainThread.later(Presence.BEAT, chatBeat)
-                Signal.listen(ref, alive = { lane }) { w -> Presence.hear(ref, w) }
+                Signal.hold(ref, "chat")
                 if ((Book.chat(ref)?.unread ?: 0) > 0) Thread { Post.markRead(ref) }.start()
             }
             override fun onViewDetachedFromWindow(v: View) {
@@ -733,6 +737,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 Presence.unlisten(presenceListener); LiveDraft.unlisten(draftListener)
                 // words left in the field stand on their screen as a checkpoint, frozen, not typing (iOS «ck»)
                 field.text.toString().takeIf { it.isNotBlank() }?.let { LiveDraft.say(ref, it, field.selectionEnd, checkpoint = true) }
+                Signal.release(ref, "chat")
                 if (lane) { lane = false; Presence.sayChat(ref, false) }   // leaving says so at once (iOS: the departure word)
             }
         })
@@ -882,11 +887,13 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat): ReplySwipe = ReplySwip
                     })
                 }, lp(WRAP, WRAP).apply { bottomMargin = dp(4) })
             }
+            val call = Calls.info(m.text) != null
             if (Stickers.body(c, m, this)) Unit else if (m.text.startsWith(Marks.MEDIA)) mediaBody(c, m, this)
+            else if (call) Calls.body(c, m, this)   // a call's row carries its moment inside, as iOS callBubble
             else addView(c.text(letterWords(c, m.text), 16f, BubbleStyle.text(mine)).apply { maxWidth = dp(260); setTextIsSelectable(false) }, lp(WRAP, WRAP))   // USER-DATA: the letter
             // THE LINK'S CARD UNDER THE WORDS (iOS the link card in the bubble), drawn from the letter's own bytes
             LinkCard.parse(m.lp)?.let { addView(linkCardView(c, it, mine), lp(WRAP, WRAP)) }
-            addView(c.hstack {
+            if (!call) addView(c.hstack {
                 gravity = Gravity.CENTER_VERTICAL
                 if (m.edited) addView(c.text(c.getString(R.string.edited) + " ", 11f, BubbleStyle.time(mine)))
                 addView(c.text(android.text.format.DateFormat.getTimeFormat(c).format(Date(m.at)), 11f, BubbleStyle.time(mine)))

@@ -366,4 +366,14 @@
     <string name="rec_pause">暂停</string>
     <string name="rec_dual">两个摄像头</string>
     <string name="rec_flip">切换摄像头</string>
+    <!-- the calls (Calls.kt): the iOS words, the same in every language -->
+    <string name="call_voice">语音通话</string>
+    <string name="call_video">视频通话</string>
+    <string name="call_missed_short">未接</string>
+    <string name="call_no_answer">无应答</string>
+    <string name="call_failed">连接失败</string>
+    <string name="call_missed">未接来电</string>
+    <string name="call_unanswered">无人接听</string>
+    <string name="call_decline">拒绝</string>
+    <string name="call_accept">接听</string>
 </resources>

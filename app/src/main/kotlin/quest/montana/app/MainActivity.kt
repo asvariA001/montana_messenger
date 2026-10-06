@@ -57,13 +57,24 @@ class MainActivity : Activity() {
         Scheduled.run()   // the app's clock for letters sent later (Schedule.kt)
         CallEngine.warm(this)   // the call engine stands from launch, as iOS MontanaCall.shared
         // «Share → Montana» from another app, else an invitation's link
+        if (takeCall(intent)) return
         if (!takeShared(intent, hasSeed && termsAccepted)) intent?.data?.let { openLink(it.toString()) }
+    }
+
+    /** THE RING'S OWN PAGE (Calls): its conversation opens; «Answer» stops the ring there first. */
+    private fun takeCall(i: Intent?): Boolean {
+        val ref = i?.getStringExtra(Calls.EXTRA_REF) ?: return false
+        if (i.getBooleanExtra(Calls.EXTRA_ANSWER, false)) Calls.answer()
+        i.removeExtra(Calls.EXTRA_REF)
+        if (hasSeed && termsAccepted && Book.chat(ref) != null) push { close -> conversationPage(this, ref, close) }
+        return true
     }
 
     /** AN INVITATION HANDED IN BY THE SYSTEM (iOS handleLink): opened now, or kept until the identity exists. */
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        if (takeCall(intent)) return
         if (!takeShared(intent, hasSeed && termsAccepted)) intent.data?.let { openLink(it.toString()) }
     }
     fun openLink(link: String) {

@@ -34,11 +34,14 @@ object Signal {
     }.getOrNull()
 
     /** One word on the lane to every door: per-node stores do not talk, and the other side asks whichever it asks. */
-    fun post(ref: String, text: String) {
+    fun post(ref: String, text: String) = postWord(ref, "chat", text.toByteArray())
+
+    /** A word of any epoch (iOS postSignal): «chat» for the live words, a call's own epoch for its words (Calls). */
+    fun postWord(ref: String, epoch: String, payload: ByteArray) {
         val twin = MontanaSeed.twin ?: return
         val secret = Book.secret(ref) ?: return
         Thread {
-            val body = twin.toByteArray() + byteArrayOf(0) + "chat".toByteArray() + byteArrayOf(0) + deflate(text.toByteArray())
+            val body = twin.toByteArray() + byteArrayOf(0) + epoch.toByteArray() + byteArrayOf(0) + deflate(payload)
             val sealed = Wire.seal(Wire.bodyKey(secret, Wire.minute()), body) ?: return@Thread
             val cw = Wire.convW(secret, Wire.day())
             val req = JSONObject().put("conv", cw).put("from_id", Wire.subId(cw, twin)).put("env", Base64.encodeToString(sealed, Base64.NO_WRAP))
@@ -46,8 +49,11 @@ object Signal {
         }.start()
     }
 
-    /** The words that landed for `ref`: opened by the minute (this one and its neighbours), unpacked; «box» hints fetch the box. */
-    private fun open(ref: String, envs: org.json.JSONArray, onWord: (String) -> Unit) {
+    /**
+     * The words that landed for `ref`: opened by the minute (this one and its neighbours), unpacked, handed on by their epoch —
+     * «chat» to the presence, any other to the call it names; «box» hints fetch the box.
+     */
+    private fun open(ref: String, envs: org.json.JSONArray) {
         val secret = Book.secret(ref) ?: return
         for (k in 0 until envs.length()) {
             val e = envs.optString(k)
@@ -57,27 +63,49 @@ object Signal {
             val plain = listOf(w0, w0 - 1, w0 + 1).firstNotNullOfOrNull { w -> Wire.open(Wire.bodyKey(secret, w), sealed) } ?: continue
             val a = plain.indexOf(0); if (a < 0) continue
             val b = (a + 1 until plain.size).firstOrNull { plain[it] == 0.toByte() } ?: continue
-            if (String(plain, a + 1, b - a - 1, Charsets.UTF_8) != "chat") continue   // a call's lane: not ours yet
-            val text = inflate(plain.copyOfRange(b + 1, plain.size))?.toString(Charsets.UTF_8)?.takeIf { it.isNotEmpty() } ?: continue
-            onWord(text)
+            val epoch = String(plain, a + 1, b - a - 1, Charsets.UTF_8)
+            val words = inflate(plain.copyOfRange(b + 1, plain.size))?.takeIf { it.isNotEmpty() } ?: continue
+            if (epoch == "chat") Presence.hear(ref, String(words, Charsets.UTF_8)) else Calls.hear(ref, epoch, words)
         }
     }
 
+    private val holders = HashMap<String, MutableSet<String>>()
+    private val running = HashMap<String, Int>()
+
+    /** THE LANE OF ONE CONVERSATION stands while anyone holds it — the open chat, a call ringing — one long question per door. */
+    fun hold(ref: String, why: String) {
+        val start = synchronized(holders) {
+            holders.getOrPut(ref) { mutableSetOf() }.add(why)
+            ((running[ref] ?: 0) == 0).also { if (it) running[ref] = MontanaCard.doors.size }
+        }
+        if (start) listen(ref)
+    }
+
+    fun release(ref: String, why: String) {
+        synchronized(holders) { holders[ref]?.let { it.remove(why); if (it.isEmpty()) holders.remove(ref) } }
+    }
+
     /**
-     * THE LONG QUESTION while a chat stands open (iOS fetchSignals): each door asked with a wait of twelve seconds — the doors'
-     * gate cuts at fifteen — and asked again the moment it answers. The lane lives while `alive()` says so.
+     * THE LONG QUESTION (iOS fetchSignals): each door asked with a wait of twelve seconds — the doors' gate cuts at fifteen —
+     * and asked again the moment it answers, while the lane is held.
      */
-    fun listen(ref: String, alive: () -> Boolean, onWord: (String) -> Unit) {
-        val twin = MontanaSeed.twin ?: return
+    private fun listen(ref: String) {
         for (door in MontanaCard.doors) Thread {
             var fails = 0
-            while (alive()) {
-                val secret = Book.secret(ref) ?: return@Thread
+            while (true) {
+                val twin = MontanaSeed.twin
+                val secret = Book.secret(ref)
+                val go = synchronized(holders) {
+                    val ok = twin != null && secret != null && !holders[ref].isNullOrEmpty()
+                    if (!ok) running[ref] = (running[ref] ?: 1) - 1
+                    ok
+                }
+                if (!go || twin == null || secret == null) return@Thread
                 val cw = Wire.convW(secret, Wire.day())
                 val (code, text) = Wire.post(door, "/signal-fetch", JSONObject().put("conv", cw).put("from_id", Wire.subId(cw, twin)).put("wait", 12), 15_000)
                 if (code != 200 || text == null) { fails++; Thread.sleep(minOf(10_000L, 1000L * fails)); continue }
                 fails = 0
-                runCatching { JSONObject(text).optJSONArray("envs") }.getOrNull()?.let { envs -> if (envs.length() > 0) open(ref, envs, onWord) }
+                runCatching { JSONObject(text).optJSONArray("envs") }.getOrNull()?.let { envs -> if (envs.length() > 0) open(ref, envs) }
             }
         }.start()
     }
