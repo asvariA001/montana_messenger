@@ -87,7 +87,7 @@ object Signal {
 
     /**
      * THE APP'S EAR (what the platform's call push — PushKit — gives the iPhone, this phone keeps for itself on our own doors, with
-     * no third party): while the app stands in front, the lane of every conversation is held, so a call's first word rings here
+     * no third party): while the app stands — in front, or closed under its EarService — the lane of every conversation is held, so a call's first word rings here
      * the millisecond it lands — as an iPhone's ring does — not at the box's next round. The doors read a held lane as «this
      * phone is here» and keep the bell of a letter silent: the person is here, its screen is receiving it.
      */
@@ -113,6 +113,7 @@ object Signal {
                 if (!go || twin == null || secret == null) return@Thread
                 val cw = Wire.convW(secret, Wire.day())
                 val (code, text) = Wire.post(door, "/signal-fetch", JSONObject().put("conv", cw).put("from_id", Wire.subId(cw, twin)).put("wait", 12), 15_000)
+                EarService.awake()   // the answer woke the phone: it stays up for the word and the next question (the app closed)
                 if (code != 200 || text == null) { fails++; Thread.sleep(minOf(10_000L, 1000L * fails)); continue }
                 fails = 0
                 runCatching { JSONObject(text).optJSONArray("envs") }.getOrNull()?.let { envs -> if (envs.length() > 0) open(ref, envs) }

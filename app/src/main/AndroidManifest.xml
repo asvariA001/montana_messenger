@@ -29,6 +29,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
     <!-- A shared screen rides the call (CallLine.startShare): the projection stands in the call's foreground. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <!-- The ear with the app closed (EarService): the platform's own foreground kind for a messenger's link, and the system's
+         own question whether the line may stay while the phone dozes. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
     <!-- The active seed lives device-only (iOS AfterFirstUnlockThisDeviceOnly): no file of the app is copied —
@@ -129,6 +133,20 @@
             android:name="quest.montana.app.CallService"
             android:exported="false"
             android:foregroundServiceType="microphone|camera|mediaProjection" />
+        <!-- The ear with the app closed (EarService.kt): every conversation's lane held, so a call rings at once. -->
+        <service
+            android:name="quest.montana.app.EarService"
+            android:exported="false"
+            android:foregroundServiceType="remoteMessaging" />
+        <!-- The ear comes back after a reboot and after an update (EarService.kt). -->
+        <receiver
+            android:name="quest.montana.app.EarStart"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
         <!-- The box read with the app closed (BoxJob.kt): only the system's scheduler may start it. -->
         <service
             android:name="quest.montana.app.BoxJob"

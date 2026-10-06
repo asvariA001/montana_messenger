@@ -151,12 +151,24 @@ class MainActivity : Activity() {
      * question, and it is the system's own — notifications. Asked once; the answer is the system's.
      */
     private fun askWhatIsUnasked() {
-        if (Prefs.notifyAsked) return
+        if (Prefs.notifyAsked) return askDoze()
         Prefs.notifyAsked = true
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), ASK_NOTIFY)
         }
+    }
+
+    /**
+     * THE EAR'S ONE QUESTION (EarService), the next time after the notifications' one: the system's own question whether the app
+     * may keep its line while the phone dozes — without it a call to a sleeping phone waits for the doze's next window. Asked once.
+     */
+    private fun askDoze() {
+        if (Prefs.str("dozeAsked", "").isNotEmpty()) return
+        val pm = getSystemService(android.os.PowerManager::class.java) ?: return
+        if (pm.isIgnoringBatteryOptimizations(packageName)) return
+        Prefs.setStr("dozeAsked", "1")
+        runCatching { startActivity(Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:" + packageName))) }
     }
 
     /** A picture under the whole window, system bars included; null — the plain black. */
@@ -218,8 +230,9 @@ class MainActivity : Activity() {
             main.postDelayed(this, 8000)
         }
     }
-    override fun onResume() { super.onResume(); CallScreen.front = this; main.removeCallbacks(boxRound); main.post(boxRound) }
-    override fun onPause() { super.onPause(); if (CallScreen.front === this) CallScreen.front = null; main.removeCallbacks(boxRound); Signal.ear(false) }
+    override fun onResume() { super.onResume(); CallScreen.front = this; main.removeCallbacks(boxRound); main.post(boxRound); EarService.start(this) }
+    // the ear stays when the app leaves the screen: EarService holds it (the app closed is heard as the app open)
+    override fun onPause() { super.onPause(); if (CallScreen.front === this) CallScreen.front = null; main.removeCallbacks(boxRound) }
 
     /** A small view over every page and every overlay (the call's pill), at the foot above the system bar; the close takes it away. */
     fun floating(v: View, bottomDp: Int): () -> Unit {
