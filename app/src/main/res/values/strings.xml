@@ -395,6 +395,8 @@
     <string name="call_broadcast">Broadcast</string>
     <string name="ear_channel">Connection</string>
     <string name="ear_ready">Calls and messages arrive at once</string>
+    <string name="film_close">Close</string>
+    <string name="film_fold">Picture in Picture</string>
     <string name="call_video_ask">is calling with video</string>
     <string name="call_turn_on_video">Turn on your video?</string>
     <string name="call_turn_on">Turn On</string>

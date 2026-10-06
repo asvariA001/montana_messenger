@@ -1090,6 +1090,8 @@ internal fun openMedia(act: MainActivity, f: java.io.File, kind: String) {
     }
     // A PICTURE OPENS AMONG THE CONVERSATION'S PICTURES (iOS PhotoPresenter): pages, pinch, a pull down to close (Viewer.kt)
     if (kind == "img") { openPictures(act, f); return }
+    // A FILM OPENS IN ITS OWN PLAYER THAT FOLDS INTO A WINDOW OVER THE CHAT (iOS VideoPresenter, picture in picture): FilmActivity
+    if (kind == "vid") { FilmActivity.open(act, f); return }
     lateinit var close: () -> Unit
     val page = FrameLayout(c).apply {
         setBackgroundColor(Color.BLACK)

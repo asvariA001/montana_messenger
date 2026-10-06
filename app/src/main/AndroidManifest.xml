@@ -82,6 +82,17 @@
                 <data android:mimeType="*/*" />
             </intent-filter>
         </activity>
+        <!-- A FILM WHOLE (FilmActivity.kt, iOS VideoPresenter): its own task, so its picture-in-picture window floats over the chat. -->
+        <activity
+            android:name="quest.montana.app.FilmActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Montana"
+            android:launchMode="singleTask"
+            android:taskAffinity="quest.montana.app.film"
+            android:excludeFromRecents="true"
+            android:resizeableActivity="true"
+            android:supportsPictureInPicture="true"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden" />
         <!-- THE APP'S ICON, CHOSEN IN «APPEARANCE» (iOS MTAppIconChooser, setAlternateIconName): the launcher entry is one of two
              aliases of the one activity, and exactly one of them is enabled — the liquid glass (iOS primary, AppIcon.icon)
              by default, the gold on black (iOS AppIconGold) when chosen. -->
