@@ -99,6 +99,39 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
     @Volatile var dual = false; private set
     @Volatile private var swapped = false
 
+    // ── THE BADGE UNDER THE FINGER (iOS dragBadge / dragEnded / easeBadge, MontanaFeeds 1811-1831): dragged within its square,
+    // it eases to the nearest corner on the rim when let go — a third of the way each frame — and the corner is remembered
+    // between notes (iOS «vnoteCorner»). The offset is from the canvas's middle, in file pixels, y down ──
+    private var corner = Prefs.str("vnoteCorner", "3").toIntOrNull()?.takeIf { it in 0..3 } ?: 3
+    @Volatile private var bx = cornerX(corner)
+    @Volatile private var by = cornerY(corner)
+    @Volatile private var target: Pair<Float, Float>? = null
+    private var grabX = 0f
+    private var grabY = 0f
+    private fun cornerX(k: Int) = (if (k % 2 == 0) -1 else 1) * REACH
+    private fun cornerY(k: Int) = (if (k < 2) -1 else 1) * REACH
+
+    /** A point of the canvas (from its middle, in file pixels) stands on the badge. */
+    fun onBadge(x: Float, y: Float): Boolean = dual && (x - bx) * (x - bx) + (y - by) * (y - by) <= (INNER / 2f) * (INNER / 2f)
+    fun grabBadge() { grabX = bx; grabY = by; target = null }
+    fun dragBadge(dx: Float, dy: Float) {
+        bx = (grabX + dx).coerceIn(-REACH, REACH)
+        by = (grabY + dy).coerceIn(-REACH, REACH)
+        target = null
+    }
+    fun dropBadge() {
+        val k = (if (bx > 0) 1 else 0) + (if (by > 0) 2 else 0)
+        corner = k
+        Prefs.setStr("vnoteCorner", k.toString())
+        target = cornerX(k) to cornerY(k)
+    }
+    private fun easeBadge() {
+        val t = target ?: return
+        val dx = t.first - bx; val dy = t.second - by
+        if (kotlin.math.abs(dx) < 0.5f && kotlin.math.abs(dy) < 0.5f) { bx = t.first; by = t.second; target = null }
+        else { bx += dx * 0.35f; by += dy * 0.35f }
+    }
+
     private var video: MediaCodec? = null
     private var audio: MediaCodec? = null
     private var record: AudioRecord? = null
@@ -200,6 +233,7 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
         val st = camTexture ?: return
         if (runCatching { st.updateTexImage() }.isFailure) return
         st.getTransformMatrix(mtx)
+        easeBadge()
         fun pass(t: Int, m: FloatArray, badge: Boolean) {
             val pos = GLES20.glGetAttribLocation(program, "aPos")
             GLES20.glEnableVertexAttribArray(pos)
@@ -218,12 +252,12 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
             GLES20.glViewport(0, 0, w, hh)
             GLES20.glUseProgram(program)
             if (dual && badgeReady) {
-                // THE RING ON A RING (iOS nested): the big camera's circle, then the badge nested in its rim, bottom-right
+                // THE RING ON A RING (iOS nested): the big camera's circle, then the badge nested in its rim, where the finger left it
                 val big = if (swapped) tex2 else tex; val bigM = if (swapped) mtx2 else mtx
                 val small = if (swapped) tex else tex2; val smallM = if (swapped) mtx else mtx2
                 pass(big, bigM, false)
                 val k = w / SQUARE.toFloat()
-                val cx = SQUARE / 2f + REACH; val cy = SQUARE / 2f + REACH   // y down, as iOS says the offset
+                val cx = SQUARE / 2f + bx; val cy = SQUARE / 2f + by   // y down, as iOS says the offset
                 val side = (INNER * k).toInt()
                 GLES20.glViewport(((cx - INNER / 2f) * k).toInt(), ((SQUARE - cy - INNER / 2f) * k).toInt(), side, side)
                 GLES20.glEnable(GLES20.GL_BLEND); GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)

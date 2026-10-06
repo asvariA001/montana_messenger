@@ -557,7 +557,30 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             setBackgroundColor(Color.argb(170, 0, 0, 0))
             addView(controls, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM).apply { bottomMargin = c.dp(60) })
             addView(ring, FrameLayout.LayoutParams(side + c.dp(16), side + c.dp(16), Gravity.CENTER))
-            addView(tv.round().apply { setOnClickListener { note?.flip() } }, FrameLayout.LayoutParams(side, side, Gravity.CENTER))
+            addView(tv.round().apply {
+                setOnClickListener { note?.flip() }
+                // THE BADGE UNDER THE FINGER (iOS MontanaVideoNoteHold 1658-1672): a finger on the badge drags it, and the badge
+                // eases to the nearest corner when let go; a tap anywhere else turns the camera, as before
+                setOnTouchListener(object : View.OnTouchListener {
+                    var dragging = false
+                    var sx = 0f
+                    var sy = 0f
+                    override fun onTouch(v: View, e: android.view.MotionEvent): Boolean {
+                        val n = note ?: return false
+                        val k = v.width / NoteRecorder.SQUARE.toFloat()
+                        if (k <= 0f) return false
+                        when (e.actionMasked) {
+                            android.view.MotionEvent.ACTION_DOWN -> {
+                                dragging = n.onBadge(e.x / k - NoteRecorder.SQUARE / 2f, e.y / k - NoteRecorder.SQUARE / 2f)
+                                if (dragging) { sx = e.x; sy = e.y; n.grabBadge() }
+                            }
+                            android.view.MotionEvent.ACTION_MOVE -> if (dragging) n.dragBadge((e.x - sx) / k, (e.y - sy) / k)
+                            android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> if (dragging) { n.dropBadge(); dragging = false; return true }
+                        }
+                        return dragging
+                    }
+                })
+            }, FrameLayout.LayoutParams(side, side, Gravity.CENTER))
             addView(time.apply { setShadowLayer(6f, 0f, 0f, Color.BLACK) }, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER).apply { topMargin = side / 2 + c.dp(30) })
         }
         noteClose = act.overlay(page)
