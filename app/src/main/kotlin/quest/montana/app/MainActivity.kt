@@ -214,12 +214,12 @@ class MainActivity : Activity() {
     // ── THE BOX IS READ WHILE THE APP STANDS (iOS fetchBox on activation and by its kick): at once, then every eight seconds ──
     private val boxRound = object : Runnable {
         override fun run() {
-            if (hasSeed && termsAccepted) Thread { Post.fetch() }.start()
+            if (hasSeed && termsAccepted) { Signal.ear(true); Thread { Post.fetch() }.start() }   // a conversation born since is heard too
             main.postDelayed(this, 8000)
         }
     }
     override fun onResume() { super.onResume(); CallScreen.front = this; main.removeCallbacks(boxRound); main.post(boxRound) }
-    override fun onPause() { super.onPause(); if (CallScreen.front === this) CallScreen.front = null; main.removeCallbacks(boxRound) }
+    override fun onPause() { super.onPause(); if (CallScreen.front === this) CallScreen.front = null; main.removeCallbacks(boxRound); Signal.ear(false) }
 
     /** A small view over every page and every overlay (the call's pill), at the foot above the system bar; the close takes it away. */
     fun floating(v: View, bottomDp: Int): () -> Unit {

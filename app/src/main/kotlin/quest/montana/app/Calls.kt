@@ -61,6 +61,7 @@ object Calls {
         val o = runCatching { JSONObject(json) }.getOrNull() ?: return
         val t = (o.optDouble("t", 0.0) * 1000).toLong()
         if (t > 0 && System.currentTimeMillis() - t > LIFE_MS) return log("ring letter stale")
+        if (t > 0) log("ring letter age=" + (System.currentTimeMillis() - t) + " ms")   // how long the call took to reach this phone
         incoming(ref, o.optString("s"), o.optBoolean("v"), o.optString("n"), null)
     }
 
@@ -73,6 +74,7 @@ object Calls {
                 "call" -> {
                     val ts = w.optLong("ts")
                     if (ts > 0 && System.currentTimeMillis() - ts > LIFE_MS) { log("call word stale"); continue }
+                    if (ts > 0) log("call word age=" + (System.currentTimeMillis() - ts) + " ms")
                     incoming(ref, w.optString("s"), w.optBoolean("video"), w.optString("n"), w.optJSONObject("sdp")?.optString("sdp"))
                 }
                 "call-end", "call-gone" -> {

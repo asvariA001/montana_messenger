@@ -86,6 +86,16 @@ object Signal {
     }
 
     /**
+     * THE APP'S EAR (what the platform's call push — PushKit — gives the iPhone, this phone keeps for itself on our own doors, with
+     * no third party): while the app stands in front, the lane of every conversation is held, so a call's first word rings here
+     * the millisecond it lands — as an iPhone's ring does — not at the box's next round. The doors read a held lane as «this
+     * phone is here» and keep the bell of a letter silent: the person is here, its screen is receiving it.
+     */
+    fun ear(on: Boolean) {
+        for (ref in Book.refs()) if (on && !PeerSafety.isBlocked(ref)) hold(ref, "ear") else release(ref, "ear")
+    }
+
+    /**
      * THE LONG QUESTION (iOS fetchSignals): each door asked with a wait of twelve seconds — the doors' gate cuts at fifteen —
      * and asked again the moment it answers, while the lane is held.
      */
