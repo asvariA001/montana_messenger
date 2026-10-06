@@ -45,9 +45,10 @@ import java.util.concurrent.TimeUnit
  * corner one 110 by 156 (MTCallSurface, MTCallMini) — the pictures handed between them, never rebuilt; a tap on the picture hides
  * and brings back the buttons (a sibling layer — the picture never takes the finger), six untouched seconds hide them
  * (chromeFoldS); the top row — the fold, the name in the centre, the camera flip — the time under it, the call's events under
- * that. The far side's ask stands over the grid (6745-6767), and so does the offer to turn my camera on (6768-6788). Broadcast
- * is a later step: its place stands empty. Ringing while the app stands in front (incomingScreen 6504): the same face, Decline
- * and Accept. Folded (pillBody 6536): the green pill with the call's clock and the red end over every page.
+ * that. The far side's ask stands over the grid (6745-6767), and so does the offer to turn my camera on (6768-6788). While a
+ * screen rides — mine or theirs — only the fold stands, and the stop under my own (6624-6647). Ringing while the app stands in
+ * front (incomingScreen 6504): the same face, Decline and Accept. Folded (pillBody 6536): the green pill with the call's clock
+ * and the red end over every page.
  */
 object CallScreen {
     private const val SIDE = 76   // iOS grid(): the circle of a column in portrait
@@ -226,17 +227,32 @@ object CallScreen {
         val mute = button(c, R.string.call_mute, R.drawable.ic_mic_slash, null, { CallLine.muted }, SysColor.red) { CallLine.setMuted(!CallLine.muted) }
         val end = button(c, R.string.call_end, R.drawable.ic_phone_down, SysColor.red, { false }) { Thread { Calls.hangUp("hangup") }.start() }
         // «Video» (iOS 6799): lit while the call carries pictures or my ask waits; the camera is asked of the system first
-        val videoBtn = button(c, R.string.call_video_btn, R.drawable.ic_peer_video, null, { CallLine.video || CallLine.asking }) {
+        val videoBtn = button(c, R.string.call_video_btn, R.drawable.ic_peer_video, null, { (CallLine.video && !CallLine.sharing) || CallLine.asking }) {
             if (CallLine.video || c.checkSelfPermission(android.Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) CallLine.toggleVideo()
             else act.askCamera { ok -> if (ok) CallLine.toggleVideo() }
         }
-        videoLit = { videoBtn.tag?.let { (it as () -> Unit)() } }
+        // «Broadcast» (iOS 6814-6825): the system's own question, then the screen rides the call and the call folds away — the
+        // sharer lands on the very screen being shared; lit while it rides
+        val shareBtn = button(c, R.string.call_broadcast, R.drawable.ic_broadcast, null, { CallLine.sharing }) {
+            if (CallLine.sharing) CallLine.stopShare()
+            else if (CallLine.connectedAt > 0L) act.askScreen { data -> if (data != null) { CallLine.startShare(data); close?.invoke() } }
+        }
+        // the stop of my share (iOS 6638-6645): the white circle with the share's glyph, the call's end lives on the pill
+        val stopShare = FrameLayout(c).apply {
+            addView(FrameLayout(c).apply {
+                background = c.rounded(Color.WHITE, 28)
+                addView(c.icon(R.drawable.ic_broadcast, Color.BLACK, 22), FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
+            }, FrameLayout.LayoutParams(dp(56), dp(56), Gravity.CENTER))
+            contentDescription = c.getString(R.string.call_broadcast)
+            pressable { performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY); CallLine.stopShare() }
+        }
+        videoLit = { listOf(videoBtn, shareBtn).forEach { b -> b.tag?.let { (it as () -> Unit)() } } }
         val holdBtn = button(c, R.string.call_hold, R.drawable.ic_pause_fill, null, { CallLine.held }) { CallLine.setHeld(!CallLine.held) }
         hold = { holdBtn.tag?.let { (it as () -> Unit)() } }
         val grid = c.vstack(Gravity.CENTER_HORIZONTAL) {
             addView(c.hstack { addView(route.first, lp(dp(COL), WRAP)); gap(GAP); addView(videoBtn, lp(dp(COL), WRAP)); gap(GAP); addView(mute, lp(dp(COL), WRAP)) }, lp(WRAP, WRAP))
             gap(30)
-            addView(c.hstack { addView(holdBtn, lp(dp(COL), WRAP)); gap(GAP); addView(end, lp(dp(COL), WRAP)); gap(GAP); addView(View(c), lp(dp(COL), 1)) }, lp(WRAP, WRAP))
+            addView(c.hstack { addView(holdBtn, lp(dp(COL), WRAP)); gap(GAP); addView(end, lp(dp(COL), WRAP)); gap(GAP); addView(shareBtn, lp(dp(COL), WRAP)) }, lp(WRAP, WRAP))
         }
         val top = c.hstack {
             gravity = Gravity.CENTER_VERTICAL
@@ -255,6 +271,7 @@ object CallScreen {
             addView(askPlate, lp(WRAP, WRAP).apply { leftMargin = dp(16); rightMargin = dp(16); bottomMargin = dp(12) })
             addView(turnPlate, lp(WRAP, WRAP).apply { leftMargin = dp(16); rightMargin = dp(16); bottomMargin = dp(12) })
             addView(grid, lp(WRAP, WRAP))
+            addView(stopShare, lp(dp(56), dp(56)))
             gap(46)
         }
         // ── the pictures (iOS 6599-6616): the big slot, the switch over it, the dial's shade, the corner slot ──
@@ -291,6 +308,8 @@ object CallScreen {
         // WHICH PICTURE FILLS WHICH SLOT has one owner (iOS CallUIModel.applySides 5512): their picture, once drawn, fills the
         // screen and mine rides the corner — until the corner is tapped; before theirs comes, mine fills the screen
         fun sides() {
+            // the sharer sees the peer's ground, not the screen it shares (iOS 6566-6574): no picture is drawn
+            if (CallLine.sharing) { CallLine.theirs.into = null; CallLine.own.into = null; miniBox.visibility = View.GONE; return }
             val pip = CallLine.video && CallLine.remoteLive
             val shown = pip && !CallLine.peerSharing && CallLine.camera
             val bigLocal = !pip || (CallLine.swapped && shown)
@@ -319,21 +338,25 @@ object CallScreen {
         var foldAt = 0L
         fun redraw() {
             val v = CallLine.video
-            val sharing = CallLine.peerSharing
-            if (!v) chromeHidden = false
-            pictures.visibility = if (v) View.VISIBLE else View.INVISIBLE
-            pictures.setBackgroundColor(if (v && sharing) Color.BLACK else Color.TRANSPARENT)
-            tap.visibility = if (v) View.VISIBLE else View.GONE
+            val mine = CallLine.sharing
+            val theirs = CallLine.peerSharing
+            // while a screen rides — mine or theirs — only the fold stands, and the stop under mine (iOS 6624-6647)
+            val screen = mine || theirs
+            if (!v || screen) chromeHidden = false
+            pictures.visibility = if (v && !mine) View.VISIBLE else View.INVISIBLE
+            pictures.setBackgroundColor(if (v && theirs) Color.BLACK else Color.TRANSPARENT)
+            tap.visibility = if (v && !screen) View.VISIBLE else View.GONE
             column.visibility = if (v && chromeHidden) View.INVISIBLE else View.VISIBLE
-            val head = if (v && !sharing) View.VISIBLE else View.INVISIBLE
+            val head = if (v && !screen) View.VISIBLE else View.INVISIBLE
             roomL.visibility = head; title.visibility = head; roomR.visibility = head
-            flip.visibility = if (v && !sharing && CallLine.camera) View.VISIBLE else View.INVISIBLE
-            timeLine.visibility = if (v && !sharing) View.VISIBLE else View.GONE
+            flip.visibility = if (v && !screen && CallLine.camera) View.VISIBLE else View.INVISIBLE
+            timeLine.visibility = if (v && !screen) View.VISIBLE else View.GONE
             events.visibility = timeLine.visibility
-            voiceHead.visibility = if (v) View.GONE else View.VISIBLE
-            grid.visibility = if (sharing) View.GONE else View.VISIBLE
-            askPlate.visibility = if (CallLine.asked) View.VISIBLE else View.GONE
-            turnPlate.visibility = if (CallLine.offerMine && v && !sharing) View.VISIBLE else View.GONE
+            voiceHead.visibility = if (v || mine) View.GONE else View.VISIBLE
+            grid.visibility = if (screen) View.GONE else View.VISIBLE
+            stopShare.visibility = if (mine) View.VISIBLE else View.GONE
+            askPlate.visibility = if (CallLine.asked && !screen) View.VISIBLE else View.GONE
+            turnPlate.visibility = if (CallLine.offerMine && v && !screen) View.VISIBLE else View.GONE
             page.keepScreenOn = v   // iOS applyScreenHold: a video call holds the screen awake
             sides()
             videoLit?.invoke()
@@ -370,7 +393,8 @@ object CallScreen {
         })
         // iOS armChromeFold 5481: a video call that stands, asking nothing of the person, hides its buttons after six seconds
         fun fold() {
-            val want = CallLine.video && CallLine.connectedAt > 0L && !CallLine.peerSharing && !CallLine.asked && !CallLine.offerMine && !chromeHidden
+            val want = CallLine.video && CallLine.connectedAt > 0L && !CallLine.peerSharing && !CallLine.sharing && !CallLine.asked &&
+                !CallLine.offerMine && !chromeHidden
             if (!want) { foldAt = 0L; return }
             val now = System.currentTimeMillis()
             if (foldAt == 0L) foldAt = now + FOLD_MS

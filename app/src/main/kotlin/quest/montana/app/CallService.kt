@@ -36,6 +36,9 @@ class CallService : Service() {
         /** The voice joined: the clock starts on the call's notification. */
         fun sync() { running?.let { s -> MainThread.post { s.publish() } } }
 
+        /** At once, on the main thread: the screen's projection asks for its foreground before it may begin (Android 14). */
+        fun publishNow() { running?.publish() }
+
         fun stop() {
             ref = null
             running?.let { s -> MainThread.post { s.end() } }
@@ -99,11 +102,15 @@ class CallService : Service() {
         }
         val n = b.build()
         // the microphone's foreground needs the microphone granted: without it the call speaks only while the app stands in front;
-        // a video call adds the camera's, so the picture goes on with the app left — refused, the voice still stands
-        val voice = if (Build.VERSION.SDK_INT >= 30) ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE else 0
-        val both = if (CallLine.video && Build.VERSION.SDK_INT >= 30) voice or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA else voice
-        runCatching { if (Build.VERSION.SDK_INT >= 30) startForeground(ID, n, both) else startForeground(ID, n) }
-            .recoverCatching { if (both != voice) startForeground(ID, n, voice) else throw it }
-            .onFailure { log("foreground: " + it.message); end() }
+        // a video call adds the camera's, so the picture goes on with the app left, and a shared screen its projection's —
+        // a type refused, the next smaller set is asked, down to the voice alone
+        if (Build.VERSION.SDK_INT < 30) { runCatching { startForeground(ID, n) }.onFailure { log("foreground: " + it.message); end() }; return }
+        val voice = ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+        val screen = if (CallLine.sharing) voice or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION else voice
+        val full = if (CallLine.video && !CallLine.sharing) screen or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA else screen
+        for (types in listOf(full, screen, voice).distinct()) {
+            if (runCatching { startForeground(ID, n, types) }.onFailure { log("foreground " + types + ": " + it.message) }.isSuccess) return
+        }
+        end()
     }
 }

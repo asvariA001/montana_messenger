@@ -1,11 +1,13 @@
 package quest.montana.app
 
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.AudioAttributes
 import android.media.AudioDeviceInfo
 import android.media.AudioFocusRequest
 import android.media.AudioManager
+import android.media.projection.MediaProjection
 import android.os.Build
 import android.util.Log
 import org.json.JSONArray
@@ -23,6 +25,7 @@ import org.webrtc.PeerConnection
 import org.webrtc.RtpParameters
 import org.webrtc.RtpReceiver
 import org.webrtc.RtpTransceiver
+import org.webrtc.ScreenCapturerAndroid
 import org.webrtc.SdpObserver
 import org.webrtc.SessionDescription
 import org.webrtc.SurfaceTextureHelper
@@ -65,6 +68,11 @@ object CallLine {
         var armedAt = 0L   // iOS videoArmedAt: my «yes» to their camera stands forty seconds
         var speakerDecided = false   // iOS videoSpeakerDecided: the video call's loudspeaker is decided once, the person's choice stands
         var grewByShare = false   // iOS peerShareGrewVideo: their screen made the voice call a video one
+        // my screen (iOS MTScreenShare, startScreenShare 3282): its capturer and helper; what the call was before it
+        var screen: ScreenCapturerAndroid? = null
+        var shelper: SurfaceTextureHelper? = null
+        var audioBefore = false   // iOS audioBeforeShare: the video line grew for the share alone
+        var cameraWas = false   // iOS cameraWasLive: my camera comes back when the share ends
         @Volatile var connectedAt = 0L
     }
 
@@ -97,6 +105,8 @@ object CallLine {
     @Volatile var remoteLive = false   // their frames are drawn: a track is not a picture
         private set
     @Volatile var peerSharing = false   // their screen rides the video line
+        private set
+    @Volatile var sharing = false   // my screen rides it (iOS screenSharing)
         private set
     @Volatile var swapped = false   // the corner picture was tapped: mine fills the screen, theirs rides the corner
     @Volatile var front = true   // the front camera, shown mirrored
@@ -335,6 +345,9 @@ object CallLine {
         } ?: return 0
         work.execute {
             runCatching { l.pc.dispose() }
+            runCatching { l.screen?.stopCapture() }
+            runCatching { l.screen?.dispose() }
+            runCatching { l.shelper?.dispose() }
             cameraOff(l)
             runCatching { l.remote?.dispose() }
             runCatching { l.source.dispose() }
@@ -344,7 +357,7 @@ object CallLine {
         held = false
         heldByPeer = false
         video = false; asking = false; asked = false; offerMine = false; remoteLive = false; peerSharing = false; swapped = false
-        front = true; sniffed = false; askRound++
+        front = true; sniffed = false; askRound++; sharing = false
         theirs.into = null; own.into = null
         moved()
         val at = l.connectedAt
@@ -503,6 +516,7 @@ object CallLine {
      */
     fun toggleVideo() {
         val l = synchronized(gate) { line } ?: return
+        if (sharing) return stopShare()   // «Video» ends the share; the camera comes back as it was (iOS 3139)
         if (video) { work.execute { drop(l, aloud = true) }; return }
         if (asking) return
         asking = true
@@ -624,7 +638,8 @@ object CallLine {
             val s = l.pc.transceivers.firstOrNull { it.mediaType == MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO }?.sender ?: return
             val p = s.parameters
             p.encodings.firstOrNull()?.let { it.maxBitrateBps = 700_000; it.minBitrateBps = 300_000 }
-            p.degradationPreference = RtpParameters.DegradationPreference.MAINTAIN_FRAMERATE
+            // a shared screen keeps its letters sharp and gives up motion; a camera the reverse (iOS 3790-3808)
+            p.degradationPreference = if (sharing) RtpParameters.DegradationPreference.MAINTAIN_RESOLUTION else RtpParameters.DegradationPreference.MAINTAIN_FRAMERATE
             s.setParameters(p)
         }.onFailure { log("ceiling: " + it.message) }
     }
@@ -657,7 +672,7 @@ object CallLine {
 
     /** Back to the voice (iOS dropVideoMode 3162): my camera stops, its line stays and carries nothing; by my press or their word. */
     private fun drop(l: Line, aloud: Boolean) {
-        if (!video) return
+        if (!video || sharing) return
         if (aloud) say(l, JSONArray().put(word(l, "call-video-end")))
         runCatching { l.pc.transceivers.firstOrNull { it.mediaType == MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO }?.sender?.setTrack(null, false) }
         cameraOff(l)
@@ -690,6 +705,127 @@ object CallLine {
         sniffed = false
         v.addSink(sniff)
         log("video: their track came")
+    }
+
+    // ── MY SCREEN (iOS startScreenShare 3282-3326, stopScreenShare 3328-3382, sharePixelBudget 3387) ──
+
+    /**
+     * «BROADCAST», AFTER THE SYSTEM'S OWN YES: the screen rides the call's video line. The platform asks the projection's
+     * foreground before the projection itself, so the call's service stands in it first; the capture follows on the line's queue.
+     */
+    fun startShare(data: Intent) {
+        val l = synchronized(gate) { line } ?: return
+        if (l.connectedAt == 0L || sharing) return log("screen: share refused")
+        sharing = true
+        moved()
+        CallService.publishNow()
+        work.execute { share(l, data) }
+    }
+
+    /** The share's end — by the stop on the call's screen, by «Video», or by the system's own stop of the projection. */
+    fun stopShare() = work.execute { synchronized(gate) { line }?.let { unshare(it, "stop") } }
+
+    /**
+     * The screen into the line (iOS startScreenShare 3282): the camera rests and its line stays — the screen feeds its track; a
+     * voice call grows the line as «Video» does, without a camera, and offers it. «call-screen-on» tells the far side.
+     */
+    private fun share(l: Line, data: Intent) {
+        if (synchronized(gate) { line !== l }) return
+        val f = CallEngine.factory ?: return failShare(l, "no engine")
+        val egl = CallEngine.egl ?: return failShare(l, "no engine")
+        l.audioBefore = !video
+        l.cameraWas = l.cam != null
+        l.cam?.let { cam -> runCatching { cam.stopCapture() }; runCatching { cam.dispose() } }
+        l.cam = null
+        val grew = l.vtrack == null
+        if (grew) {
+            val src = f.createVideoSource(true)
+            l.vsource = src
+            l.vtrack = f.createVideoTrack("mt_video", src)
+            video = true
+        }
+        l.vtrack?.setEnabled(true)
+        val src = l.vsource ?: return failShare(l, "no source")
+        val (w, h) = shape()
+        val helper = SurfaceTextureHelper.create("mt_screen", egl.eglBaseContext) ?: return failShare(l, "no helper")
+        val cap = ScreenCapturerAndroid(data, object : MediaProjection.Callback() { override fun onStop() { stopShare() } })
+        val up = runCatching { cap.initialize(helper, Book.ctx, src.capturerObserver); cap.startCapture(w, h, 15) }
+        if (up.isFailure) {
+            runCatching { cap.dispose() }; runCatching { helper.dispose() }
+            return failShare(l, "capture: " + up.exceptionOrNull()?.message)
+        }
+        l.screen = cap; l.shelper = helper
+        if (grew) { place(l); reoffer(l) }
+        bound(l)
+        say(l, JSONArray().put(word(l, "call-screen-on")))
+        moved()
+        CallService.sync()
+        log("screen: share started " + w + "x" + h + " camera_was=" + l.cameraWas + " grew=" + grew)
+    }
+
+    private fun failShare(l: Line, why: String) {
+        sharing = false
+        if (l.cameraWas) startCam(l)
+        moved()
+        CallService.sync()
+        log("screen: share failed " + why)
+    }
+
+    /**
+     * The share ends (iOS stopScreenShare 3328): the far side is told what the call was before it; my camera comes back into the
+     * same track through a fresh capturer, or a call that grew for the share falls back to the voice whole.
+     */
+    private fun unshare(l: Line, why: String) {
+        if (!sharing) return
+        sharing = false
+        val cap = l.screen; val helper = l.shelper
+        l.screen = null; l.shelper = null
+        runCatching { cap?.stopCapture() }
+        runCatching { cap?.dispose() }
+        runCatching { helper?.dispose() }
+        say(l, JSONArray().put(word(l, "call-screen-off").put("video", !l.audioBefore)))
+        when {
+            l.cameraWas -> startCam(l)
+            l.audioBefore -> {
+                runCatching { l.pc.transceivers.firstOrNull { it.mediaType == MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO }?.sender?.setTrack(null, false) }
+                cameraOff(l)
+                video = false
+            }
+            else -> l.vtrack?.setEnabled(false)   // a video call whose camera slept before the share: my picture stays dark
+        }
+        bound(l)
+        l.cameraWas = false; l.audioBefore = false
+        moved()
+        CallService.sync()
+        log("screen: share stopped why=" + why)
+    }
+
+    /** My camera into the track that stands (iOS stopScreenShare 3345): a fresh capturer feeds the same source. */
+    private fun startCam(l: Line) {
+        val src = l.vsource ?: return
+        val egl = CallEngine.egl ?: return
+        runCatching {
+            val en = Camera2Enumerator(Book.ctx)
+            val name = en.deviceNames.firstOrNull { en.isFrontFacing(it) == front } ?: en.deviceNames.firstOrNull() ?: return
+            val cam = en.createCapturer(name, null) ?: return
+            runCatching { l.helper?.dispose() }
+            val helper = SurfaceTextureHelper.create("mt_camera", egl.eglBaseContext)
+            l.helper = helper
+            cam.initialize(helper, Book.ctx, src.capturerObserver)
+            cam.startCapture(1280, 720, 30)
+            l.cam = cam
+            log("camera back front=" + front)
+        }.onFailure { log("camera back: " + it.message) }
+    }
+
+    /** The share's shape (iOS sharePixelBudget 3387): the screen's own, scaled down to the phone portrait's area, 720 by 1560, never cut. */
+    private fun shape(): Pair<Int, Int> {
+        val m = android.util.DisplayMetrics()
+        @Suppress("DEPRECATION") Book.ctx.getSystemService(android.view.WindowManager::class.java).defaultDisplay.getRealMetrics(m)
+        val w = m.widthPixels.toDouble()
+        val h = m.heightPixels.toDouble()
+        val s = minOf(1.0, Math.sqrt(720.0 * 1560.0 / (w * h)))
+        return ((w * s).toInt() / 2 * 2) to ((h * s).toInt() / 2 * 2)
     }
 
     /**

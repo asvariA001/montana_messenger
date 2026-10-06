@@ -27,6 +27,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <!-- A video call's picture goes on with the app left (CallService, the camera's foreground while the call carries video). -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
+    <!-- A shared screen rides the call (CallLine.startShare): the projection stands in the call's foreground. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
     <!-- The active seed lives device-only (iOS AfterFirstUnlockThisDeviceOnly): no file of the app is copied —
@@ -122,11 +124,11 @@
         <receiver
             android:name="quest.montana.app.CallDecline"
             android:exported="false" />
-        <!-- The call in hand as the system's ongoing call, holding the microphone and, on a video call, the camera (CallService.kt). -->
+        <!-- The call in hand as the system's ongoing call, holding the microphone, on a video call the camera, and a shared screen (CallService.kt). -->
         <service
             android:name="quest.montana.app.CallService"
             android:exported="false"
-            android:foregroundServiceType="microphone|camera" />
+            android:foregroundServiceType="microphone|camera|mediaProjection" />
         <!-- The box read with the app closed (BoxJob.kt): only the system's scheduler may start it. -->
         <service
             android:name="quest.montana.app.BoxJob"

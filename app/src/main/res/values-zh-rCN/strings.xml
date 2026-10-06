@@ -391,6 +391,7 @@
     <string name="call_back">返回</string>
     <string name="call_accept">接听</string>
     <string name="call_video_btn">视频</string>
+    <string name="call_broadcast">屏幕共享</string>
     <string name="call_video_ask">发起视频通话</string>
     <string name="call_turn_on_video">开启您的视频？</string>
     <string name="call_turn_on">开启</string>

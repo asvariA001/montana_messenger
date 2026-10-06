@@ -391,6 +391,7 @@
     <string name="call_back">Назад</string>
     <string name="call_accept">Принять</string>
     <string name="call_video_btn">Видео</string>
+    <string name="call_broadcast">Трансляция</string>
     <string name="call_video_ask">звонит по видео</string>
     <string name="call_turn_on_video">Включить ваше видео?</string>
     <string name="call_turn_on">Включить</string>
