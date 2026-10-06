@@ -1,6 +1,8 @@
 package quest.montana.app
 
+import android.content.Context
 import android.media.AudioAttributes
+import android.media.AudioDeviceInfo
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.os.Build
@@ -48,6 +50,8 @@ object CallLine {
     @Volatile var muted = false
         private set
     @Volatile var speaker = false
+        private set
+    @Volatile var lost = false   // the link broke and has not healed (iOS «reconnecting»): the call's light is red
         private set
 
     /** The moment the voice joined, for the call's clock; 0 — not yet. */
@@ -214,15 +218,21 @@ object CallLine {
         if (synchronized(gate) { line !== l }) return@execute
         log("ice " + s)
         when (s) {
-            PeerConnection.IceConnectionState.CONNECTED, PeerConnection.IceConnectionState.COMPLETED -> if (l.connectedAt == 0L) {
-                l.connectedAt = System.currentTimeMillis()
-                CallService.sync()
+            PeerConnection.IceConnectionState.CONNECTED, PeerConnection.IceConnectionState.COMPLETED -> {
+                lost = false
+                if (l.connectedAt == 0L) {
+                    l.connectedAt = System.currentTimeMillis()
+                    CallService.sync()
+                }
             }
-            PeerConnection.IceConnectionState.FAILED -> Calls.hangUp("ice-failed")
+            PeerConnection.IceConnectionState.FAILED -> { lost = true; Calls.hangUp("ice-failed") }
             // a break that does not heal in fifteen seconds ends the call; the restart of the checks is a later step
-            PeerConnection.IceConnectionState.DISCONNECTED -> MainThread.later(15_000) {
-                if (synchronized(gate) { line === l }) work.execute {
-                    if (l.pc.iceConnectionState() == PeerConnection.IceConnectionState.DISCONNECTED) Calls.hangUp("ice-lost")
+            PeerConnection.IceConnectionState.DISCONNECTED -> {
+                lost = true
+                MainThread.later(15_000) {
+                    if (synchronized(gate) { line === l }) work.execute {
+                        if (l.pc.iceConnectionState() == PeerConnection.IceConnectionState.DISCONNECTED) Calls.hangUp("ice-lost")
+                    }
                 }
             }
             else -> {}
@@ -240,6 +250,7 @@ object CallLine {
             runCatching { l.source.dispose() }
         }
         audioOff()
+        lost = false
         val at = l.connectedAt
         return if (at == 0L) 0 else ((System.currentTimeMillis() - at) / 1000).toInt()
     }
@@ -314,6 +325,49 @@ object CallLine {
             val loud = am.availableCommunicationDevices.firstOrNull { it.type == android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
             if (on && loud != null) am.setCommunicationDevice(loud) else am.clearCommunicationDevice()
         } else am.isSpeakerphoneOn = on
+    }
+
+    // ── where the sound goes (iOS MontanaAudioRoute 7214-7285) ──
+
+    data class Face(val caption: Int, val icon: Int, val lit: Boolean, val menu: Boolean)
+    class Way(val name: String, val chosen: Boolean, val take: () -> Unit)
+
+    // the devices outside the phone that carry a call (iOS externalPorts: headphones, Bluetooth, a car, USB)
+    private val OUTSIDE = setOf(AudioDeviceInfo.TYPE_WIRED_HEADSET, AudioDeviceInfo.TYPE_WIRED_HEADPHONES, AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+        AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, AudioDeviceInfo.TYPE_USB_HEADSET, AudioDeviceInfo.TYPE_USB_DEVICE, AudioDeviceInfo.TYPE_HEARING_AID,
+        AudioDeviceInfo.TYPE_BLE_HEADSET, AudioDeviceInfo.TYPE_BLE_SPEAKER)
+
+    /**
+     * THE AUDIO BUTTON'S FACE (iOS MontanaAudioRoute.face 7261): the phone alone — «Speaker», lit on the loudspeaker; a device
+     * outside the phone in reach — «Audio» with the glyph of where the sound is, lit unless it stands at the ear, and a menu.
+     */
+    fun face(): Face {
+        val am = am()
+        if (am == null || Build.VERSION.SDK_INT < 31) return Face(R.string.call_speaker, R.drawable.ic_speaker_wave3, speaker, false)
+        val now = am.communicationDevice
+        val onSpeaker = now?.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
+        if (am.availableCommunicationDevices.none { it.type in OUTSIDE }) return Face(R.string.call_speaker, R.drawable.ic_speaker_wave3, onSpeaker, false)
+        val ext = now?.takeIf { it.type in OUTSIDE }
+        val icon = if (ext != null) R.drawable.ic_route_headphones else if (onSpeaker) R.drawable.ic_speaker_wave3 else R.drawable.ic_route_phone
+        return Face(R.string.call_audio, icon, ext != null || onSpeaker, true)
+    }
+
+    /** The menu's ways, as the system's own output menu names them: the phone, the loudspeaker, each device by its name. */
+    fun ways(c: Context): List<Way> {
+        val am = am() ?: return emptyList()
+        if (Build.VERSION.SDK_INT < 31) return emptyList()
+        val now = am.communicationDevice
+        val out = ArrayList<Way>()
+        for (d in am.availableCommunicationDevices) {
+            val name = when (d.type) {
+                AudioDeviceInfo.TYPE_BUILTIN_EARPIECE -> c.getString(R.string.call_route_phone)
+                AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> c.getString(R.string.call_speaker)
+                in OUTSIDE -> d.productName?.toString()?.ifBlank { null } ?: c.getString(R.string.call_audio)
+                else -> continue
+            }
+            out.add(Way(name, now?.id == d.id) { speaker = d.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER; am.setCommunicationDevice(d) })
+        }
+        return out
     }
 
     /** The microphone goes quiet on its one track; the connection stays. */

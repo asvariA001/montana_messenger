@@ -382,6 +382,9 @@
     <string name="call_connecting">Connecting…</string>
     <string name="call_calling">Calling…</string>
     <string name="call_ringing">Ringing…</string>
+    <string name="call_audio">Audio</string>
+    <string name="call_route_phone">Phone</string>
+    <string name="call_pill">Call</string>
     <string name="call_title_audio">Montana Audio Call</string>
     <string name="call_back">Back</string>
     <string name="call_accept">Accept</string>

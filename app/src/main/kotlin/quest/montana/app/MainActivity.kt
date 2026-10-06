@@ -210,8 +210,21 @@ class MainActivity : Activity() {
             main.postDelayed(this, 8000)
         }
     }
-    override fun onResume() { super.onResume(); main.removeCallbacks(boxRound); main.post(boxRound) }
-    override fun onPause() { super.onPause(); main.removeCallbacks(boxRound) }
+    override fun onResume() { super.onResume(); CallScreen.front = this; main.removeCallbacks(boxRound); main.post(boxRound) }
+    override fun onPause() { super.onPause(); if (CallScreen.front === this) CallScreen.front = null; main.removeCallbacks(boxRound) }
+
+    /** A small view over every page and every overlay (the call's pill), at the foot above the system bar; the close takes it away. */
+    fun floating(v: View, bottomDp: Int): () -> Unit {
+        val deck = window.decorView as FrameLayout
+        deck.addView(v, FrameLayout.LayoutParams(WRAP, WRAP, android.view.Gravity.BOTTOM or android.view.Gravity.CENTER_HORIZONTAL)
+            .apply { bottomMargin = root.paddingBottom + dp(bottomDp) })
+        return { deck.removeView(v) }
+    }
+
+    /** «Accept» on the in-app ring (CallScreen): the microphone asked once, then the call and its screen. */
+    fun answerCall() {
+        if (VoiceTape.granted(this)) takeTheCall(true) else requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), ASK_CALL_MIC)
+    }
 
     @Deprecated("the platform's back for targetSdk 35 without predictive back")
     override fun onBackPressed() {

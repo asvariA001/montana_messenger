@@ -132,6 +132,7 @@ object Calls {
         if (name.isNotBlank() && name.length <= 64) Book.edit(ref) { it.name = name.trim() }   // iOS onCallerNamed
         Signal.hold(ref, "call")
         show(ref, video)
+        CallScreen.ring(ref)   // the app in front rings on its own screen too (iOS incomingScreen)
         MainThread.later(LIFE_MS) { synchronized(gate) { ring?.takeIf { it.seed == seed && !it.answered } }?.let { end(it, "timeout") } }
         log("ring video=" + video)
     }
