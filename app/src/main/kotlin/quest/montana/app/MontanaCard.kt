@@ -165,26 +165,37 @@ object MontanaCard {
 
     // ── the node ──
     private fun now() = System.currentTimeMillis() / 1000.0
-    /** By term, never at every showing: a top-up per showing is a beacon of the owner's activity for the node. */
-    private fun due(stamp: String): Boolean {
-        val last = Prefs.dbl(stamp, 0.0)
-        if (now() - last <= 7200) return false
-        Prefs.setDbl(stamp, now()); return true
-    }
+    /**
+     * By term, never at every showing: a top-up per showing is a beacon of the owner's activity for the node. The term is only
+     * asked here: THE STAMP IS THE NODE'S OK (Business 06.10, b141246b: a card born in a run the installer closed before its upload
+     * kept a stamp and was laid by nobody for two hours, while its code was shown) — upload writes it, and only on success.
+     */
+    private fun due(stamp: String): Boolean = now() - Prefs.dbl(stamp, 0.0) > 7200
     private fun seal(key: ByteArray, payload: ByteArray): ByteArray? {
         val nonce = MtBindings.nativeRandom(12) ?: return null
         return MtBindings.nativeSealBlob(key, nonce, payload)
     }
 
-    /** The card goes onto the node, and the face beside it; a card that did not reach the node is not counted as up. */
+    /**
+     * The card goes onto the node, and the face beside it. Its stamp is written by the node's ok alone, and only while the card still
+     * stands at its place (a day's card turned meanwhile is not stamped for the new one); a card on its way is not sent twice.
+     */
     private fun upload(c: Context, inv: ByteArray, payload: ByteArray, stamp: String) {
-        val sealed = seal(rdvKey(inv), payload) ?: return
+        val key = b64url(inv)
+        if (!synchronized(flying) { flying.add(key) }) return
+        val sealed = seal(rdvKey(inv), payload) ?: run { synchronized(flying) { flying.remove(key) }; return }
         Thread {
-            var ok = put(rdvBid(inv), sealed)
-            if (!ok) { Thread.sleep(20_000); ok = put(rdvBid(inv), sealed) }
-            if (!ok) Prefs.setDbl(stamp, 0.0)   // the next showing lays it again
-            uploadFace(c, inv)
+            try {
+                var ok = put(rdvBid(inv), sealed)
+                if (!ok) { Thread.sleep(20_000); ok = put(rdvBid(inv), sealed) }
+                if (ok && stillOwn(key, stamp)) Prefs.setDbl(stamp, now())
+                uploadFace(c, inv)
+            } finally { synchronized(flying) { flying.remove(key) } }
         }.start()
+    }
+    private val flying = HashSet<String>()
+    private fun stillOwn(inv64: String, stamp: String): Boolean = synchronized(lock) {
+        if (stamp == "rdvPermUpAt") map(PERM).containsKey(inv64) else text(CURRENT) == inv64
     }
     private fun uploadPermMark(inv: ByteArray) {
         val sealed = seal(rdvKey(inv), PERM_MAGIC.toByteArray()) ?: return
