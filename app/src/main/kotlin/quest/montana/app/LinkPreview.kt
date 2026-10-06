@@ -149,7 +149,9 @@ object LinkPreview {
         Thread {
             var card: LinkCard? = null
             for (wait in listOf(0L, 4_000L, 30_000L)) { if (wait > 0) Thread.sleep(wait); card = build(text); if (card != null) break }
-            val c = card ?: return@Thread
+            // the diary says whether a card was read, never the link itself (iOS lp_give_up, lp_attach)
+            val c = card ?: return@Thread run { android.util.Log.d("Montana", "link card: none after three reads mid=" + mid.take(8)); Unit }
+            android.util.Log.d("Montana", "link card: built mid=" + mid.take(8) + " picture=" + (c.p != null))
             Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.lp = c.json() }
             Post.send(ref, mid, text, qt, qm, lp = c.json(withPicture = false))   // the envelope leg: the card without its picture
             picture(c)?.let { full -> Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.lp = full.json() } }

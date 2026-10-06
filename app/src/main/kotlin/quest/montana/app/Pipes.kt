@@ -707,11 +707,12 @@ object Post {
             PeerSafety.isBlocked(ref) -> {}
             else -> {
                 var isNew = false
+                if (lp != null) Log.d("Montana", "link card: rides the letter mid=" + mid.take(8))
                 Presence.noteSeen(ref, Marks.birthMs(mid))   // a person's own word stamps the moment it was written (iOS append)
                 Book.edit(ref) { c ->
                     val had = c.msgs.find { it.mid == mid }
                     // THE SAME LETTER AGAIN, NOW WITH ITS CARD (iOS attachPreview's copy): the card joins the row, nothing else moves
-                    if (had != null && lp != null && LinkCard.parse(lp) != null && had.lp == null) had.lp = lp
+                    if (had != null && lp != null && LinkCard.parse(lp) != null && had.lp == null) { had.lp = lp; Log.d("Montana", "link card: landed on a standing row mid=" + mid.take(8)) }
                     if (had == null) {
                         val at = Marks.birthMs(mid) ?: System.currentTimeMillis()
                         c.msgs.add(Msg(mid, text, false, at, qt = qt, qm = qm, lp = lp?.takeIf { LinkCard.parse(it) != null })); c.msgs.sortBy { it.at }
