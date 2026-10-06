@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Installs the toolchain of scripts/toolchain.json on this computer: the JDK, the Android SDK pieces, the Kotlin compiler,
-and the core's road (the NDK, the core's own Rust with the phone's target, cargo-ndk).
+the call engine (WebRTC), and the core's road (the NDK, the core's own Rust with the phone's target, cargo-ndk).
 
 usage: python3 scripts/setup.py [--apk-only]
   --apk-only   all but the core's road: for a computer that writes and checks the Kotlin and installs on a phone,
@@ -117,6 +117,33 @@ def kotlin(p):
     say("Kotlin %s installed" % pin["version"])
 
 
+def digest_of(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        while True:
+            chunk = f.read(CHUNK)
+            if not chunk:
+                return h.hexdigest()
+            h.update(chunk)
+
+
+def webrtc(p):
+    pin = PIN["webrtc"]
+    if os.path.exists(p.webrtc):
+        if digest_of(p.webrtc) != pin["sha256"]:
+            raise SystemExit("setup: %s is not the pinned call engine; set it aside and run again (pinned %s)"
+                             % (p.webrtc, pin["version"]))
+        return say("WebRTC %s in place" % pin["version"])
+    parent = os.path.dirname(p.webrtc)
+    os.makedirs(parent, exist_ok=True)
+    # downloaded beside its place, then put there whole: a broken download never leaves half an engine
+    with tempfile.TemporaryDirectory(dir=parent) as tmp:
+        got = os.path.join(tmp, os.path.basename(p.webrtc))
+        fetch(pin["url"], "sha256", pin["sha256"], got)
+        os.rename(got, p.webrtc)
+    say("WebRTC %s installed" % pin["version"])
+
+
 def rust(p):
     channel, env = p.rust_channel(), p.env()
     rustup = p.tool("rustup")
@@ -151,6 +178,7 @@ def main():
     cmdline_tools(p)
     sdk_packages(p, core)
     kotlin(p)
+    webrtc(p)
     if core:
         rust(p)
     say("ready on %s%s" % (p.host, "" if core else " (the core is built on the shared host)"))

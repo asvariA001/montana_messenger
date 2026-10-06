@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Builds Montana for Android with the platform's own tools only -- no Gradle, no libraries -- the same on every computer.
+"""Builds Montana for Android with the platform's own tools -- no Gradle, one library -- the same on every computer.
 
     the core     cargo ndk   native/montana-jni   →  libmontana.so (the core's crates, built by the core's own Rust)
+    the engine   WebRTC      pinned by its digest →  its classes and libjingle_peerconnection_so.so (calls, as iOS)
     resources    aapt2       app/src/main/res     →  R.java and a resource package
     R.java       javac
     our Kotlin   kotlinc
@@ -32,6 +33,7 @@ BUILD = os.path.join(ROOT, "build")
 APK = os.path.join(BUILD, "Montana.apk")
 JNI = os.path.join(ROOT, "native", "montana-jni")
 CORE_SO = os.path.join(JNI, "target", "aarch64-linux-android", "release", "libmontana.so")
+ABI = "arm64-v8a"
 APP = os.path.join(ROOT, "app", "src", "main")
 
 
@@ -91,9 +93,22 @@ def core(p):
                          % (head[:12], " with changes" if changed else "", pin["commit"][:12]))
     channel = p.rust_channel()
     say("core: Rust %s, NDK %s" % (channel, PIN["ndk"]))
-    run([p.tool("cargo"), "+" + channel, "ndk", "-t", "arm64-v8a", "-P", MIN_SDK, "build", "--release"],
+    run([p.tool("cargo"), "+" + channel, "ndk", "-t", ABI, "-P", MIN_SDK, "build", "--release"],
         env=p.env(), cwd=JNI)
     say("core: %s, %d bytes" % (os.path.relpath(CORE_SO, ROOT), os.path.getsize(CORE_SO)))
+
+
+def engine(p, out):
+    # the call engine iOS rings with, taken only as the pinned bytes: its classes for Kotlin and d8, its library for the
+    # phone's processor alone
+    pin = PIN["webrtc"]
+    if hashlib.sha256(open(p.webrtc, "rb").read()).hexdigest() != pin["sha256"]:
+        raise SystemExit("%s is not the pinned call engine %s: python3 scripts/setup.py" % (p.webrtc, pin["version"]))
+    jar = os.path.join(out, "webrtc.jar")
+    with zipfile.ZipFile(p.webrtc) as z:
+        open(jar, "wb").write(z.read("classes.jar"))
+        so = z.read("jni/%s/libjingle_peerconnection_so.so" % ABI)
+    return jar, so
 
 
 def signing_key(p, given):
@@ -117,6 +132,7 @@ def apk(p, code, name, key, check):
         for d in (res, gen, classes, dex):
             os.makedirs(d)
         base = os.path.join(out, "base.apk")
+        engine_jar, engine_so = engine(p, out)
         say("1/6 resources")
         run([os.path.join(bt, "aapt2"), "compile", "--dir", os.path.join(APP, "res"), "-o", res + "/compiled.zip"])
         run([os.path.join(bt, "aapt2"), "link", "-I", jar, "--manifest", os.path.join(APP, "AndroidManifest.xml"),
@@ -128,7 +144,7 @@ def apk(p, code, name, key, check):
             + files(gen, ".java"), env=env)
         say("3/6 Kotlin")
         r = subprocess.run([p.kotlinc, "-nowarn", "-jvm-target", "17", "-no-reflect", "-no-stdlib",
-                            "-cp", os.pathsep.join([jar, p.stdlib, classes]), "-d", classes, "-Xjvm-default=all"]
+                            "-cp", os.pathsep.join([jar, p.stdlib, classes, engine_jar]), "-d", classes, "-Xjvm-default=all"]
                            + files(os.path.join(APP, "kotlin"), ".kt"), env=env, cwd=ROOT, capture_output=True, text=True)
         for line in (r.stdout + r.stderr).splitlines():
             if not line.startswith("warning:"):
@@ -139,20 +155,21 @@ def apk(p, code, name, key, check):
             return say("the code compiles: %d classes" % len(files(classes, ".class")))
         say("4/6 dex")
         run([os.path.join(bt, "d8"), "--release", "--min-api", MIN_SDK, "--lib", jar, "--output", dex]
-            + files(classes, ".class") + [p.stdlib], env=env)
+            + files(classes, ".class") + [p.stdlib, engine_jar], env=env)
         say("5/6 package")
         unsigned, aligned, signed = [os.path.join(out, n) for n in ("unsigned.apk", "aligned.apk", "signed.apk")]
         open(unsigned, "wb").write(open(base, "rb").read())
         # the library is stored, not deflated: the system maps it straight from the package, page-aligned below
         with zipfile.ZipFile(unsigned, "a") as z:
-            for path, name, how in ((os.path.join(dex, "classes.dex"), "classes.dex", zipfile.ZIP_DEFLATED),
-                                    (CORE_SO, "lib/arm64-v8a/libmontana.so", zipfile.ZIP_STORED)):
+            for data, name, how in ((open(os.path.join(dex, "classes.dex"), "rb").read(), "classes.dex", zipfile.ZIP_DEFLATED),
+                                    (open(CORE_SO, "rb").read(), "lib/%s/libmontana.so" % ABI, zipfile.ZIP_STORED),
+                                    (engine_so, "lib/%s/libjingle_peerconnection_so.so" % ABI, zipfile.ZIP_STORED)):
                 # a fixed moment and mode in each entry, not the file's own: one commit makes one APK, byte for byte,
                 # whoever builds it (a build as anna differed from root's only in these)
                 entry = zipfile.ZipInfo(name, date_time=FIXED_MOMENT)
                 entry.compress_type = how
                 entry.external_attr = 0x81A40000   # a regular file, rw-r--r--
-                z.writestr(entry, open(path, "rb").read())
+                z.writestr(entry, data)
         say("6/6 align + sign")
         run([os.path.join(bt, "zipalign"), "-f", "-P", "16", "4", unsigned, aligned])
         # the shared key keeps its secret in KEY.pass beside it; in its PKCS12 store the key's password is the store's,
@@ -212,7 +229,7 @@ def main():
     ap.add_argument("--install", action="store_true", help="install on the phone over adb and start it")
     a = ap.parse_args()
     p = toolchain.Paths()
-    need = [p.java_home, p.kotlinc, p.build_tools, p.android_jar] if not a.core_only else []
+    need = [p.java_home, p.kotlinc, p.build_tools, p.android_jar, p.webrtc] if not a.core_only else []
     if not a.check:
         need.append(p.ndk)
     missing = [n for n in need if not os.path.exists(n)]

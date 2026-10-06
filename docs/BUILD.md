@@ -7,8 +7,14 @@
 ## Средства
 
 `scripts/toolchain.json` держит версии и контрольные суммы: JDK Temurin 17.0.20.1+1, Android cmdline-tools 22.0,
-build-tools 35.0.0, платформа android-35, NDK 27.2.12479018, Kotlin 2.0.21, cargo-ndk 4.1.2. Компилятор Rust — тот,
-что закрепило само ядро (`Montana Protocol/Code/rust-toolchain.toml`), здесь он не повторяется.
+build-tools 35.0.0, платформа android-35, NDK 27.2.12479018, Kotlin 2.0.21, cargo-ndk 4.1.2, движок звонков WebRTC
+144.7559.15. Компилятор Rust — тот, что закрепило само ядро (`Montana Protocol/Code/rust-toolchain.toml`), здесь он
+не повторяется.
+
+WebRTC — единственная библиотека сборки (слово Анны 06.10.2026, вариант А): тот же движок webrtc-sdk, на котором звонит
+iOS (`fetch-webrtc.sh` в Montana-iOS — 144.7559.10; для Android её нет, 144.7559.15 — новейшая той же линии). `setup.py`
+кладёт пакет `.aar` в папку средств, `build.py` берёт его только с закреплённой контрольной суммой: классы — в Kotlin и d8,
+в APK — только `libjingle_peerconnection_so.so` для arm64. Сборка движка из исходников Google — вариант Б, отложен.
 
 cmdline-tools — 22.0, а не 23.0: в 23.0 sdkmanager передаёт каждый вызов «Android CLI», который скачивается при запуске
 без закреплённой версии и по умолчанию отправляет Google сведения о командах. Kotlin — 2.0.21, а не новее: d8 из
@@ -20,7 +26,7 @@ build-tools 35.0.0 пишет метаданные Kotlin только до 2.0 
 - `python3 scripts/setup.py --apk-only` — всё, кроме дороги ядра (NDK, Rust, cargo-ndk): для компьютера, который пишет
   и проверяет Kotlin и ставит на телефон, а ядро собирает Лотербург.
 
-Где лежит: на Маке — `~/Library/Montana-tools/jdk-17`, `~/Library/Montana-tools/kotlinc`, SDK в `~/Library/Android/sdk`;
+Где лежит: на Маке — `~/Library/Montana-tools/jdk-17`, `~/Library/Montana-tools/kotlinc`, `~/Library/Montana-tools/webrtc`, SDK в `~/Library/Android/sdk`;
 на Лотербурге — всё в `/opt/montana-tools`, группа `mtdev`.
 
 ## Ядро рядом

@@ -55,6 +55,7 @@ class MainActivity : Activity() {
         termsAccepted = Prefs.termsAccepted
         render()
         Scheduled.run()   // the app's clock for letters sent later (Schedule.kt)
+        CallEngine.warm(this)   // the call engine stands from launch, as iOS MontanaCall.shared
         // «Share → Montana» from another app, else an invitation's link
         if (!takeShared(intent, hasSeed && termsAccepted)) intent?.data?.let { openLink(it.toString()) }
     }
