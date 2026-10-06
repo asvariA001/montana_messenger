@@ -1,39 +1,68 @@
 package quest.montana.app
 
 import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.graphics.Color
+import android.graphics.Outline
 import android.graphics.RenderEffect
 import android.graphics.Shader
+import android.graphics.SurfaceTexture
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.TextUtils
+import android.text.style.StyleSpan
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
+import android.view.MotionEvent
+import android.view.TextureView
 import android.view.View
+import android.view.ViewConfiguration
+import android.view.ViewOutlineProvider
 import android.widget.FrameLayout
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.PopupMenu
 import android.widget.TextView
+import org.webrtc.EglBase
+import org.webrtc.EglRenderer
+import org.webrtc.GlRectDrawer
+import org.webrtc.VideoFrame
+import org.webrtc.VideoSink
 import java.util.Locale
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /**
- * THE CALL'S OWN SCREEN (iOS CallOverlayView, MontanaCall.swift 6442-6860). In hand (fullScreen, the voice branch): the ground of
- * the peer's face (MTCallGround 6406), the fold-away mark, the system's line — the light, «Montana Audio Call — 0:03» (or the
- * stage) — the name at forty, and the system grid of two rows of three: Speaker/Audio · Video · Mute over Hold · End · Broadcast.
- * Video, hold and the broadcast are later steps of Anna's plan: their places stand empty, so every button keeps the place iOS
- * gives it. Ringing while the app stands in front (incomingScreen 6504): the same face, Decline and Accept. Folded (pillBody
- * 6536): the green pill with the call's clock and the red end over every page; its press brings the screen back.
+ * THE CALL'S OWN SCREEN (iOS CallOverlayView, MontanaCall.swift 6442-6860). In hand (fullScreen): the ground of the peer's face
+ * (MTCallGround 6406) and the system grid of two rows of three: Speaker/Audio · Video · Mute over Hold · End · Broadcast. A voice
+ * call (the audio branch): the fold-away mark, the system's line — the light, «Montana Audio Call — 0:03» (or the stage) — and the
+ * name at forty. A video call (the video branch, 6575-6618 and 6649-6697): two fixed slots — the big one filling the screen, the
+ * corner one 110 by 156 (MTCallSurface, MTCallMini) — the pictures handed between them, never rebuilt; a tap on the picture hides
+ * and brings back the buttons (a sibling layer — the picture never takes the finger), six untouched seconds hide them
+ * (chromeFoldS); the top row — the fold, the name in the centre, the camera flip — the time under it, the call's events under
+ * that. The far side's ask stands over the grid (6745-6767), and so does the offer to turn my camera on (6768-6788). Broadcast
+ * is a later step: its place stands empty. Ringing while the app stands in front (incomingScreen 6504): the same face, Decline
+ * and Accept. Folded (pillBody 6536): the green pill with the call's clock and the red end over every page.
  */
 object CallScreen {
     private const val SIDE = 76   // iOS grid(): the circle of a column in portrait
     private const val COL = 100
     private const val GAP = 24
+    private const val MINI_W = 110   // iOS MTCallMini: the corner picture's fixed frame
+    private const val MINI_H = 156
+    private const val FOLD_MS = 6000L   // iOS chromeFoldS: a video call's buttons step aside after six untouched seconds
     private val barGlyph = Color.rgb(204, 204, 204)   // iOS MontanaOctagon.barGlyph
     @Volatile var front: MainActivity? = null   // the activity on the screen (its onResume / onPause): an in-app ring stands there
     private var close: (() -> Unit)? = null
     private var ringing = false   // the page on the screen is the in-app ring, not the call in hand
     private var pill: (() -> Unit)? = null
+    private var chromeHidden = false   // iOS chromeHidden: the picture was tapped and the buttons stepped aside, for the call's life
+    private var corner = 1   // iOS miniCorner, for the call's life: 0 top left, 1 top right, 2 bottom left, 3 bottom right
 
     /** The call in hand on the screen; an in-app ring standing there gives way to it. */
     fun show(act: MainActivity, ref: String) {
@@ -41,7 +70,7 @@ object CallScreen {
         if (close != null && !ringing) return
         close?.invoke()
         ringing = false
-        close = act.overlay(page(act, ref, ring = false))
+        close = act.overlay(callPage(act, ref))
     }
 
     /** A call rings while the app stands in front (iOS incomingScreen: the in-app ring). */
@@ -49,110 +78,338 @@ object CallScreen {
         val act = front ?: return@post
         if (close != null) return@post
         ringing = true
-        close = act.overlay(page(act, ref, ring = true))
+        close = act.overlay(ringPage(act, ref))
     }
 
-    /** The call ended: the screen and the pill go. */
-    fun hide() = MainThread.post { dropPill(); val c = close; close = null; c?.invoke() }
+    /** The call ended: the screen and the pill go, and the screen's choices end with the call. */
+    fun hide() = MainThread.post { dropPill(); chromeHidden = false; corner = 1; val c = close; close = null; c?.invoke() }
 
     private fun dropPill() { pill?.invoke(); pill = null }
 
-    private fun page(act: MainActivity, ref: String, ring: Boolean): View {
+    /** The ring's face (iOS incomingScreen 6504-6533): the light and the kind of call, the name at forty, Decline and Accept. */
+    private fun ringPage(act: MainActivity, ref: String): View {
+        val c: Context = act
+        val name = Book.chat(ref)?.shown?.ifBlank { null } ?: c.getString(R.string.peer)
+        val title = if (Calls.ringVideo()) R.string.call_title_video else R.string.call_title_audio
+        val column = c.vstack(Gravity.CENTER_HORIZONTAL) {
+            gap(22)
+            addView(c.hstack {
+                gravity = Gravity.CENTER_VERTICAL
+                addView(c.icon(R.drawable.ic_dot, SysColor.green, 11), lp(dp(11), dp(11)).apply { marginEnd = dp(6) })
+                addView(c.text(c.getString(title), 20f, Color.argb(153, 255, 255, 255)).apply { singleLineEllipsis() }, lp(WRAP, WRAP))
+            }, lp(WRAP, WRAP).apply { leftMargin = dp(16); rightMargin = dp(16) })
+            gap(10)
+            addView(bigName(c, name), lp(MATCH, dp(52)).apply { leftMargin = dp(16); rightMargin = dp(16) })
+            addView(View(c), lp(MATCH, 0, 1f))
+            // iOS 6520-6527: Decline and Accept, seventy-two apart
+            val decline = button(c, R.string.call_decline, R.drawable.ic_phone_down, SysColor.red, { false }) { Thread { Calls.hangUp() }.start() }
+            val accept = button(c, R.string.call_accept, R.drawable.ic_peer_phone, SysColor.green, { false }) {
+                val cl = close; close = null; ringing = false; cl?.invoke()
+                act.answerCall()
+            }
+            addView(c.hstack { addView(decline, lp(dp(COL), WRAP)); gap(72); addView(accept, lp(dp(COL), WRAP)) }, lp(WRAP, WRAP))
+            gap(46)
+        }
+        return Page(c).apply {
+            isClickable = true   // the screen takes every touch: nothing under it is reached
+            addView(ground(c, ref, name), FrameLayout.LayoutParams(MATCH, MATCH))
+            addView(column, FrameLayout.LayoutParams(MATCH, MATCH))
+            inner = column
+        }
+    }
+
+    /** The call in hand (iOS fullScreen 6561-6860): one page for both branches — the video's views stand ready and step in when the call carries pictures. */
+    private fun callPage(act: MainActivity, ref: String): View {
         val c: Context = act
         val name = Book.chat(ref)?.shown?.ifBlank { null } ?: c.getString(R.string.peer)
         var hold: (() -> Unit)? = null   // the hold button repaints with the tick: the far side's word may change nothing, mine may
+        var videoLit: (() -> Unit)? = null
+        var again: () -> Unit = {}
+        val medium = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        val haze = Color.argb(128, 0, 0, 0)   // legible over whatever the picture shows (iOS .shadow 0.5, 3)
+        // ── the audio branch's line (iOS 6702-6738): the light, «Montana Audio Call — 0:03», the name at forty, the state ──
         val light = c.icon(R.drawable.ic_dot, SysColor.green, 11)
         val status = c.text("", 20f, Color.argb(153, 255, 255, 255)).apply { singleLineEllipsis(); fontFeatureSettings = "tnum" }
-        val route = if (ring) null else routeButton(c)
-        // under the name, the call's own state in bold (iOS 6725-6738): the hold, either side's, and the lost link
         val state = c.text("", 17f, Color.WHITE, bold = true, center = true).apply { singleLineEllipsis() }
-        fun line() {
-            light.setColorFilter(if (CallLine.lost) SysColor.red else SysColor.green)   // iOS MTCallLight: red while the link is lost
-            val since = CallLine.connectedAt
-            val tail = when {
-                ring -> null
-                since > 0L -> ((System.currentTimeMillis() - since) / 1000).toInt().let { String.format(Locale.ROOT, "%d:%02d", it / 60, it % 60) }
-                else -> c.getString(Calls.stage() ?: R.string.call_connecting)   // «Calling…», «Ringing…», then «Connecting…»
-            }
-            status.text = c.getString(R.string.call_title_audio) + (tail?.let { " — " + it } ?: "")
-            route?.second?.invoke()
-            val word = when {
-                ring -> null
-                CallLine.held || CallLine.heldByPeer -> R.string.call_on_hold
-                CallLine.lost -> R.string.call_lost
-                else -> null
-            }
-            state.visibility = if (word == null) View.GONE else View.VISIBLE
-            if (word != null) state.text = c.getString(word)
-            hold?.invoke()
-        }
-        line()
-        val column = c.vstack(Gravity.CENTER_HORIZONTAL) {
-            if (!ring) {
-                // the fold-away mark, the chat's back mark one to one (iOS MontanaCallMark chevron.down)
-                addView(FrameLayout(c).apply {
-                    addView(FrameLayout(c).apply {
-                        background = c.glassPlate(oval = true)
-                        contentDescription = c.getString(R.string.call_back)
-                        addView(c.icon(R.drawable.ic_chevron_down, Color.WHITE, 22), FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
-                        pressable { close?.invoke() }
-                    }, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.START))
-                }, lp().apply { leftMargin = dp(16); rightMargin = dp(16); topMargin = dp(8) })
-                gap(20)
-            } else gap(22)
+        val voiceHead = c.vstack(Gravity.CENTER_HORIZONTAL) {
+            gap(20)
             addView(c.hstack {
                 gravity = Gravity.CENTER_VERTICAL
                 addView(light, lp(dp(11), dp(11)).apply { marginEnd = dp(6) })
                 addView(status, lp(WRAP, WRAP))
             }, lp(WRAP, WRAP).apply { leftMargin = dp(16); rightMargin = dp(16) })
             gap(10)
-            addView(c.text(name, 40f, Color.WHITE, bold = true, center = true).apply {   // USER-DATA: the peer's name
-                singleLineEllipsis()
-                setAutoSizeTextTypeUniformWithConfiguration(24, 40, 1, TypedValue.COMPLEX_UNIT_SP)
-            }, lp(MATCH, dp(52)).apply { leftMargin = dp(16); rightMargin = dp(16) })
+            addView(bigName(c, name), lp(MATCH, dp(52)).apply { leftMargin = dp(16); rightMargin = dp(16) })
             addView(state, lp().apply { leftMargin = dp(16); rightMargin = dp(16); topMargin = dp(2) })
+        }
+        // ── the video branch's top (iOS 6660-6696): the name in the row's centre, the time under it, the events under that ──
+        val title = c.text(name, 32f, Color.WHITE).apply {   // USER-DATA: the peer's name
+            typeface = medium
+            gravity = Gravity.CENTER
+            isSingleLine = true
+            ellipsize = TextUtils.TruncateAt.MARQUEE   // iOS MTCallMarquee: a name wider than its room runs three times
+            marqueeRepeatLimit = 3
+            isSelected = true
+            setShadowLayer(dp(3).toFloat(), 0f, 0f, haze)
+        }
+        val vlight = c.icon(R.drawable.ic_dot, SysColor.green, 11)
+        val clock = c.text("", 17f, Color.argb(217, 255, 255, 255)).apply {
+            typeface = medium; fontFeatureSettings = "tnum"; singleLineEllipsis(); setShadowLayer(dp(3).toFloat(), 0f, 0f, haze)
+        }
+        val timeLine = c.hstack {
+            gravity = Gravity.CENTER
+            addView(vlight, lp(dp(11), dp(11)).apply { marginEnd = dp(5) })
+            addView(clock, lp(WRAP, WRAP))
+        }
+        val events = c.text("", 17f, Color.WHITE, bold = true, center = true).apply { singleLineEllipsis(); setShadowLayer(dp(3).toFloat(), 0f, 0f, haze) }
+        val back = mark(c, R.drawable.ic_chevron_down, R.string.call_back) { close?.invoke() }
+        val flip = mark(c, R.drawable.ic_camera_rotate, R.string.call_camera) { CallLine.switchCamera() }
+        val roomL = View(c)   // the mask's twin room keeps the name in the centre (iOS 6665); the mask itself is not in this build
+        val roomR = View(c)
+        val route = routeButton(c)
+        fun line() {
+            val tint = if (CallLine.lost) SysColor.red else SysColor.green   // iOS MTCallLight: red while the link is lost
+            light.setColorFilter(tint)
+            vlight.setColorFilter(tint)
+            val since = CallLine.connectedAt
+            val tail = if (since > 0L) ((System.currentTimeMillis() - since) / 1000).toInt().let { String.format(Locale.ROOT, "%d:%02d", it / 60, it % 60) }
+                else c.getString(Calls.stage() ?: R.string.call_connecting)   // «Calling…», «Ringing…», then «Connecting…»
+            status.text = c.getString(R.string.call_title_audio) + " — " + tail
+            clock.text = tail
+            route.second.invoke()
+            // under the name, the call's own state in bold (iOS 6725-6738); a video call's one line puts a break before a hold (5357)
+            val held = CallLine.held || CallLine.heldByPeer
+            val word = if (held) R.string.call_on_hold else if (CallLine.lost) R.string.call_lost else null
+            state.visibility = if (word == null) View.GONE else View.VISIBLE
+            if (word != null) state.text = c.getString(word)
+            events.text = if (CallLine.lost) c.getString(R.string.call_lost) else if (held) c.getString(R.string.call_on_hold) else ""
+            hold?.invoke()
+            videoLit?.invoke()
+        }
+        fun capsule(word: Int, fill: Int, ink: Int, work: () -> Unit) = FrameLayout(c).apply {
+            addView(c.text(c.getString(word), 15f, ink, bold = true).apply {
+                background = c.rounded(fill, 17); setPadding(dp(14), dp(7), dp(14), dp(7)); maxLines = 1
+            }, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
+            contentDescription = c.getString(word)
+            pressable { performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY); work() }
+        }
+        fun plate(build: LinearLayout.() -> Unit) = c.hstack {
+            background = c.rounded(Color.argb(115, 0, 0, 0), 26)
+            setPadding(dp(16), dp(2), dp(10), dp(2))
+            build()
+        }
+        // THE FAR SIDE ASKS (iOS 6745-6767): «NAME is calling with video», Accept in green, Decline in red
+        val askWords = SpannableStringBuilder().append(name, StyleSpan(Typeface.BOLD), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)   // USER-DATA: the peer's name
+            .append(" ").append(c.getString(R.string.call_video_ask))
+        val askPlate = plate {
+            addView(c.text(askWords, 15f, Color.WHITE).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END }, lp(WRAP, WRAP, 1f))
+            gap(12)
+            addView(capsule(R.string.call_accept, SysColor.green, Color.BLACK) { CallLine.acceptAsk() }, lp(WRAP, dp(44)))
+            gap(8)
+            addView(capsule(R.string.call_decline, SysColor.red, Color.WHITE) { CallLine.declineAsk() }, lp(WRAP, dp(44)))
+        }
+        // MY CAMERA, OFFERED (iOS 6768-6788): their picture came while mine sleeps — «Turn on your video?», «Turn On», the close
+        val turnPlate = plate {
+            addView(c.text(c.getString(R.string.call_turn_on_video), 15f, Color.WHITE).apply { maxLines = 2 }, lp(WRAP, WRAP, 1f))
+            gap(12)
+            addView(capsule(R.string.call_turn_on, Color.WHITE, Color.BLACK) { CallLine.turnOn() }, lp(WRAP, dp(44)))
+            addView(FrameLayout(c).apply {
+                addView(FrameLayout(c).apply {
+                    background = c.rounded(Color.argb(46, 255, 255, 255), 14)
+                    addView(c.icon(R.drawable.ic_close, Color.WHITE, 12), FrameLayout.LayoutParams(dp(12), dp(12), Gravity.CENTER))
+                }, FrameLayout.LayoutParams(dp(28), dp(28), Gravity.CENTER))
+                contentDescription = c.getString(R.string.cancel)
+                pressable { CallLine.offerMine = false; again() }
+            }, lp(dp(44), dp(44)))
+        }
+        // the microphone off as the system's own call shows it: the lit plate, the crossed microphone in red (iOS 6801)
+        val mute = button(c, R.string.call_mute, R.drawable.ic_mic_slash, null, { CallLine.muted }, SysColor.red) { CallLine.setMuted(!CallLine.muted) }
+        val end = button(c, R.string.call_end, R.drawable.ic_phone_down, SysColor.red, { false }) { Thread { Calls.hangUp("hangup") }.start() }
+        // «Video» (iOS 6799): lit while the call carries pictures or my ask waits; the camera is asked of the system first
+        val videoBtn = button(c, R.string.call_video_btn, R.drawable.ic_peer_video, null, { CallLine.video || CallLine.asking }) {
+            if (CallLine.video || c.checkSelfPermission(android.Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) CallLine.toggleVideo()
+            else act.askCamera { ok -> if (ok) CallLine.toggleVideo() }
+        }
+        videoLit = { videoBtn.tag?.let { (it as () -> Unit)() } }
+        val holdBtn = button(c, R.string.call_hold, R.drawable.ic_pause_fill, null, { CallLine.held }) { CallLine.setHeld(!CallLine.held) }
+        hold = { holdBtn.tag?.let { (it as () -> Unit)() } }
+        val grid = c.vstack(Gravity.CENTER_HORIZONTAL) {
+            addView(c.hstack { addView(route.first, lp(dp(COL), WRAP)); gap(GAP); addView(videoBtn, lp(dp(COL), WRAP)); gap(GAP); addView(mute, lp(dp(COL), WRAP)) }, lp(WRAP, WRAP))
+            gap(30)
+            addView(c.hstack { addView(holdBtn, lp(dp(COL), WRAP)); gap(GAP); addView(end, lp(dp(COL), WRAP)); gap(GAP); addView(View(c), lp(dp(COL), 1)) }, lp(WRAP, WRAP))
+        }
+        val top = c.hstack {
+            gravity = Gravity.CENTER_VERTICAL
+            addView(back, lp(dp(44), dp(44)))
+            addView(roomL, lp(dp(44), dp(44)))
+            addView(title, lp(0, dp(44), 1f))
+            addView(roomR, lp(dp(44), dp(44)))
+            addView(flip, lp(dp(44), dp(44)))
+        }
+        val column = c.vstack(Gravity.CENTER_HORIZONTAL) {
+            addView(top, lp().apply { leftMargin = dp(16); rightMargin = dp(16); topMargin = dp(8) })
+            addView(timeLine, lp(MATCH, dp(22)).apply { topMargin = dp(4) })
+            addView(events, lp(MATCH, dp(22)).apply { leftMargin = dp(16); rightMargin = dp(16) })
+            addView(voiceHead, lp())
             addView(View(c), lp(MATCH, 0, 1f))
-            if (ring) {
-                // iOS 6520-6527: Decline and Accept, seventy-two apart
-                val decline = button(c, R.string.call_decline, R.drawable.ic_phone_down, SysColor.red, { false }) { Thread { Calls.hangUp() }.start() }
-                val accept = button(c, R.string.call_accept, R.drawable.ic_peer_phone, SysColor.green, { false }) {
-                    val cl = close; close = null; ringing = false; cl?.invoke()
-                    act.answerCall()
-                }
-                addView(c.hstack { addView(decline, lp(dp(COL), WRAP)); gap(72); addView(accept, lp(dp(COL), WRAP)) }, lp(WRAP, WRAP))
-            } else {
-                // the microphone off as the system's own call shows it: the lit plate, the crossed microphone in red (iOS 6801)
-                val mute = button(c, R.string.call_mute, R.drawable.ic_mic_slash, null, { CallLine.muted }, SysColor.red) { CallLine.setMuted(!CallLine.muted) }
-                val end = button(c, R.string.call_end, R.drawable.ic_phone_down, SysColor.red, { false }) { Thread { Calls.hangUp("hangup") }.start() }
-                addView(c.hstack { addView(route!!.first, lp(dp(COL), WRAP)); gap(GAP); addView(View(c), lp(dp(COL), 1)); gap(GAP); addView(mute, lp(dp(COL), WRAP)) }, lp(WRAP, WRAP))
-                gap(30)
-                val holdBtn = button(c, R.string.call_hold, R.drawable.ic_pause_fill, null, { CallLine.held }) { CallLine.setHeld(!CallLine.held) }
-                hold = { holdBtn.tag?.let { (it as () -> Unit)() } }
-                addView(c.hstack { addView(holdBtn, lp(dp(COL), WRAP)); gap(GAP); addView(end, lp(dp(COL), WRAP)); gap(GAP); addView(View(c), lp(dp(COL), 1)) }, lp(WRAP, WRAP))
-            }
+            addView(askPlate, lp(WRAP, WRAP).apply { leftMargin = dp(16); rightMargin = dp(16); bottomMargin = dp(12) })
+            addView(turnPlate, lp(WRAP, WRAP).apply { leftMargin = dp(16); rightMargin = dp(16); bottomMargin = dp(12) })
+            addView(grid, lp(WRAP, WRAP))
             gap(46)
+        }
+        // ── the pictures (iOS 6599-6616): the big slot, the switch over it, the dial's shade, the corner slot ──
+        val big = Picture(c)
+        val mini = Picture(c)
+        val miniBox = FrameLayout(c).apply {
+            setBackgroundColor(Color.BLACK)
+            outlineProvider = object : ViewOutlineProvider() {
+                override fun getOutline(v: View, o: Outline) { o.setRoundRect(0, 0, v.width, v.height, v.dp(12).toFloat()) }
+            }
+            clipToOutline = true
+            foreground = c.rounded(Color.TRANSPARENT, 12, Color.argb(64, 255, 255, 255))
+            addView(mini, FrameLayout.LayoutParams(MATCH, MATCH))
+            visibility = View.GONE
+        }
+        val shade = View(c).apply {
+            background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(Color.argb(89, 0, 0, 0), Color.TRANSPARENT, Color.argb(115, 0, 0, 0)))
+        }
+        val tap = View(c).apply { importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }
+        val pictures = FrameLayout(c).apply {
+            addView(big, FrameLayout.LayoutParams(MATCH, MATCH, Gravity.CENTER))
+            addView(tap, FrameLayout.LayoutParams(MATCH, MATCH))
+            addView(shade, FrameLayout.LayoutParams(MATCH, MATCH))
+            addView(miniBox, FrameLayout.LayoutParams(c.dp(MINI_W), c.dp(MINI_H), Gravity.TOP or Gravity.START))
+            visibility = View.INVISIBLE
         }
         val page = Page(c).apply {
             isClickable = true   // the screen takes every touch: nothing under it is reached
             addView(ground(c, ref, name), FrameLayout.LayoutParams(MATCH, MATCH))
+            addView(pictures, FrameLayout.LayoutParams(MATCH, MATCH))
             addView(column, FrameLayout.LayoutParams(MATCH, MATCH))
             inner = column
         }
+        // WHICH PICTURE FILLS WHICH SLOT has one owner (iOS CallUIModel.applySides 5512): their picture, once drawn, fills the
+        // screen and mine rides the corner — until the corner is tapped; before theirs comes, mine fills the screen
+        fun sides() {
+            val pip = CallLine.video && CallLine.remoteLive
+            val shown = pip && !CallLine.peerSharing && CallLine.camera
+            val bigLocal = !pip || (CallLine.swapped && shown)
+            CallLine.theirs.into = if (!pip) null else if (bigLocal) mini else big
+            CallLine.own.into = if (bigLocal) big else if (shown) mini else null
+            big.mirror(bigLocal && CallLine.front)
+            mini.mirror(!bigLocal && CallLine.front)
+            big.fit = !bigLocal && CallLine.peerSharing   // a shared screen is fitted on black, never cut
+            miniBox.visibility = if (shown) View.VISIBLE else View.GONE
+            shade.visibility = if (!shown && !CallLine.peerSharing) View.VISIBLE else View.GONE
+        }
+        // THE CORNER PICTURE'S PLACE (iOS MTCallMini.center 6279): ten points under the top panel or over the buttons while they
+        // stand, fourteen from the safe edge when they step aside, fourteen from the side
+        var placed = false
+        fun placeMini(glide: Boolean) {
+            if (miniBox.visibility != View.VISIBLE || pictures.width == 0) return
+            val up = column.visibility == View.VISIBLE
+            val topEdge = if (up && events.bottom > 0) events.bottom + c.dp(10) else column.paddingTop + c.dp(14)
+            val bottomEdge = if (up && grid.visibility == View.VISIBLE && grid.top > 0) grid.top - c.dp(10) else pictures.height - column.paddingBottom - c.dp(14)
+            val x = (if (corner % 2 == 0) c.dp(14) else pictures.width - c.dp(14) - c.dp(MINI_W)).toFloat()
+            val y = (if (corner < 2) topEdge else maxOf(topEdge, bottomEdge - c.dp(MINI_H))).toFloat()
+            if (glide && placed) miniBox.animate().translationX(x).translationY(y).setDuration(300).start()
+            else { miniBox.animate().cancel(); miniBox.translationX = x; miniBox.translationY = y }
+            placed = true
+        }
+        var foldAt = 0L
+        fun redraw() {
+            val v = CallLine.video
+            val sharing = CallLine.peerSharing
+            if (!v) chromeHidden = false
+            pictures.visibility = if (v) View.VISIBLE else View.INVISIBLE
+            pictures.setBackgroundColor(if (v && sharing) Color.BLACK else Color.TRANSPARENT)
+            tap.visibility = if (v) View.VISIBLE else View.GONE
+            column.visibility = if (v && chromeHidden) View.INVISIBLE else View.VISIBLE
+            val head = if (v && !sharing) View.VISIBLE else View.INVISIBLE
+            roomL.visibility = head; title.visibility = head; roomR.visibility = head
+            flip.visibility = if (v && !sharing && CallLine.camera) View.VISIBLE else View.INVISIBLE
+            timeLine.visibility = if (v && !sharing) View.VISIBLE else View.GONE
+            events.visibility = timeLine.visibility
+            voiceHead.visibility = if (v) View.GONE else View.VISIBLE
+            grid.visibility = if (sharing) View.GONE else View.VISIBLE
+            askPlate.visibility = if (CallLine.asked) View.VISIBLE else View.GONE
+            turnPlate.visibility = if (CallLine.offerMine && v && !sharing) View.VISIBLE else View.GONE
+            page.keepScreenOn = v   // iOS applyScreenHold: a video call holds the screen awake
+            sides()
+            videoLit?.invoke()
+            page.post { placeMini(true) }
+        }
+        again = { redraw() }
+        // the picture is the switch (iOS 6602-6610): a tap hides the buttons, the next brings them back
+        tap.setOnClickListener { chromeHidden = !chromeHidden; foldAt = 0L; redraw() }
+        // THE CORNER PICTURE'S TOUCH (iOS MTCallMiniTouch 6359): a tap that does not move swaps the pictures, a finger that moves
+        // drags it, and it settles in the nearest corner
+        val slop = ViewConfiguration.get(c).scaledTouchSlop
+        miniBox.setOnTouchListener(object : View.OnTouchListener {
+            var x0 = 0f; var y0 = 0f; var tx0 = 0f; var ty0 = 0f; var dragging = false
+            override fun onTouch(v: View, e: MotionEvent): Boolean {
+                when (e.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> { x0 = e.rawX; y0 = e.rawY; tx0 = v.translationX; ty0 = v.translationY; dragging = false; v.animate().cancel() }
+                    MotionEvent.ACTION_MOVE -> {
+                        val dx = e.rawX - x0; val dy = e.rawY - y0
+                        if (!dragging && Math.hypot(dx.toDouble(), dy.toDouble()) > slop) dragging = true
+                        if (dragging) { v.translationX = tx0 + dx; v.translationY = ty0 + dy }
+                    }
+                    MotionEvent.ACTION_UP -> {
+                        if (!dragging) { v.performClick(); CallLine.swapped = !CallLine.swapped; sides() }
+                        else {
+                            corner = (if (v.translationX + v.width / 2f > pictures.width / 2f) 1 else 0) +
+                                (if (v.translationY + v.height / 2f > pictures.height / 2f) 2 else 0)
+                            placeMini(true)
+                        }
+                    }
+                    MotionEvent.ACTION_CANCEL -> placeMini(true)
+                }
+                return true
+            }
+        })
+        // iOS armChromeFold 5481: a video call that stands, asking nothing of the person, hides its buttons after six seconds
+        fun fold() {
+            val want = CallLine.video && CallLine.connectedAt > 0L && !CallLine.peerSharing && !CallLine.asked && !CallLine.offerMine && !chromeHidden
+            if (!want) { foldAt = 0L; return }
+            val now = System.currentTimeMillis()
+            if (foldAt == 0L) foldAt = now + FOLD_MS
+            else if (now >= foldAt) { foldAt = 0L; chromeHidden = true; redraw() }
+        }
+        line()
         var live = true
         MainThread.later(1000, object : Runnable {
-            override fun run() { if (!live) return; line(); MainThread.later(1000, this) }
+            override fun run() { if (!live) return; line(); fold(); MainThread.later(1000, this) }
         })
+        val hook: () -> Unit = { line(); redraw() }
         // the page goes by the fold, by the system's back or by the call's end; a call still in hand leaves its pill
         page.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
-            override fun onViewAttachedToWindow(v: View) {}
+            override fun onViewAttachedToWindow(v: View) { CallLine.changed = hook; redraw() }
             override fun onViewDetachedFromWindow(v: View) {
                 live = false
-                if (ring) return
+                if (CallLine.changed === hook) CallLine.changed = null
+                if (CallLine.theirs.into === big || CallLine.theirs.into === mini) CallLine.theirs.into = null
+                if (CallLine.own.into === big || CallLine.own.into === mini) CallLine.own.into = null
+                big.release(); mini.release()
                 close = null
                 if (Calls.held() == ref) showPill(act, ref)
             }
         })
+        page.addOnLayoutChangeListener { _, l, t, r, b, l0, t0, r0, b0 -> if (r - l != r0 - l0 || b - t != b0 - t0) placeMini(false) }
         return page
+    }
+
+    private fun bigName(c: Context, name: String) = c.text(name, 40f, Color.WHITE, bold = true, center = true).apply {   // USER-DATA: the peer's name
+        singleLineEllipsis()
+        setAutoSizeTextTypeUniformWithConfiguration(24, 40, 1, TypedValue.COMPLEX_UNIT_SP)
+    }
+
+    /** A mark of the chat's own (iOS MontanaCallMark): the glass circle, its glyph, the finger's forty-four. */
+    private fun mark(c: Context, glyph: Int, label: Int, work: () -> Unit) = FrameLayout(c).apply {
+        background = c.glassPlate(oval = true)
+        contentDescription = c.getString(label)
+        addView(c.icon(glyph, Color.WHITE, 22), FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
+        pressable { work() }
     }
 
     /** The page is laid edge to edge; the system bars' room the overlay gives it goes to the column, not to the ground. */
@@ -295,4 +552,54 @@ object CallScreen {
                 FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
         }
     }
+}
+
+/**
+ * A PICTURE OF THE CALL (iOS VideoView): the platform's own texture view, drawn by the engine's renderer. It shows and never takes
+ * the finger — the switch over it is a sibling layer (the law of the platform view). A camera fills its room, cut to its shape;
+ * a shared screen is fitted whole, its room taking the frame's own shape.
+ */
+private class Picture(c: Context) : TextureView(c), TextureView.SurfaceTextureListener, VideoSink {
+    private val egl = EglRenderer("mt_picture")
+    @Volatile private var ready = false
+    @Volatile private var fw = 0
+    @Volatile private var fh = 0
+    var fit = false
+        set(v) { if (field != v) { field = v; requestLayout(); aspect() } }
+
+    init {
+        isClickable = false
+        isFocusable = false
+        importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
+        surfaceTextureListener = this
+        CallEngine.egl?.let { egl.init(it.eglBaseContext, EglBase.CONFIG_PLAIN, GlRectDrawer()); ready = true }
+    }
+
+    fun mirror(on: Boolean) { if (ready) egl.setMirror(on) }
+
+    fun release() { if (ready) { ready = false; egl.release() } }
+
+    override fun onFrame(f: VideoFrame) {
+        if (!ready) return
+        if (f.rotatedWidth != fw || f.rotatedHeight != fh) { fw = f.rotatedWidth; fh = f.rotatedHeight; post { requestLayout(); aspect() } }
+        egl.onFrame(f)
+    }
+
+    private fun aspect() { if (ready) egl.setLayoutAspectRatio(if (fit || width == 0 || height == 0) 0f else width.toFloat() / height) }
+
+    override fun onMeasure(wSpec: Int, hSpec: Int) {
+        val w = MeasureSpec.getSize(wSpec)
+        val h = MeasureSpec.getSize(hSpec)
+        if (!fit || fw == 0 || fh == 0 || w == 0 || h == 0) return super.onMeasure(wSpec, hSpec)
+        val scale = minOf(w.toFloat() / fw, h.toFloat() / fh)
+        setMeasuredDimension((fw * scale).toInt(), (fh * scale).toInt())
+    }
+
+    override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) { if (ready) { egl.createEglSurface(st); aspect() } }
+    override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) { aspect() }
+    override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
+        if (ready) { val done = CountDownLatch(1); egl.releaseEglSurface { done.countDown() }; done.await(1, TimeUnit.SECONDS) }
+        return true
+    }
+    override fun onSurfaceTextureUpdated(st: SurfaceTexture) {}
 }

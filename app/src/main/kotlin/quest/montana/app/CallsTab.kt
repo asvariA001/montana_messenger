@@ -87,7 +87,7 @@ fun callsPane(act: MainActivity): View {
                 }, lp().apply { topMargin = c.dp(8); bottomMargin = c.dp(4) })
             }
             val row = callRow(act, r)
-            row.pressable { act.callOut(r.ref) }   // a tap dials back (iOS 2977); a video call's row too, by voice until video is here
+            row.pressable { act.callOut(r.ref, r.info.video) }   // a tap dials back, a video call's row by video (iOS 2983)
             rows.addView(SwipeRow(act, row, listOf(Tile(R.drawable.ic_delete, red = true) {
                 Book.edit(r.ref) { ch -> ch.msgs.removeAll { it.mid == r.mid } }
             })), lp())

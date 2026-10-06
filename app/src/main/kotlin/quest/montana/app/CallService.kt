@@ -85,7 +85,7 @@ class CallService : Service() {
         val b = Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_launcher_monochrome)
             .setContentTitle(name)   // USER-DATA: the peer's name
-            .setContentText(getString(R.string.call_voice))
+            .setContentText(getString(if (CallLine.video) R.string.call_video else R.string.call_voice))
             .setCategory(Notification.CATEGORY_CALL)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -93,14 +93,17 @@ class CallService : Service() {
         if (since > 0L) b.setWhen(since).setUsesChronometer(true).setShowWhen(true) else b.setShowWhen(false)
         if (Build.VERSION.SDK_INT >= 31) {
             val face = who?.let { Book.shownFace(it) }?.takeIf { it.exists() }?.let { BitmapFactory.decodeFile(it.path) }?.let { Icon.createWithBitmap(it) }
-            b.setStyle(Notification.CallStyle.forOngoingCall(Person.Builder().setName(name).setIcon(face).build(), hang))
+            b.setStyle(Notification.CallStyle.forOngoingCall(Person.Builder().setName(name).setIcon(face).build(), hang).setIsVideo(CallLine.video))
         } else {
             b.addAction(Notification.Action.Builder(null as Icon?, getString(R.string.call_end), hang).build())
         }
         val n = b.build()
-        // the microphone's foreground needs the microphone granted: without it the call speaks only while the app stands in front
-        runCatching {
-            if (Build.VERSION.SDK_INT >= 30) startForeground(ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE) else startForeground(ID, n)
-        }.onFailure { log("foreground: " + it.message); end() }
+        // the microphone's foreground needs the microphone granted: without it the call speaks only while the app stands in front;
+        // a video call adds the camera's, so the picture goes on with the app left — refused, the voice still stands
+        val voice = if (Build.VERSION.SDK_INT >= 30) ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE else 0
+        val both = if (CallLine.video && Build.VERSION.SDK_INT >= 30) voice or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA else voice
+        runCatching { if (Build.VERSION.SDK_INT >= 30) startForeground(ID, n, both) else startForeground(ID, n) }
+            .recoverCatching { if (both != voice) startForeground(ID, n, voice) else throw it }
+            .onFailure { log("foreground: " + it.message); end() }
     }
 }

@@ -70,17 +70,25 @@ class MainActivity : Activity() {
         val answer = i.getBooleanExtra(Calls.EXTRA_ANSWER, false)
         i.removeExtra(Calls.EXTRA_REF)
         if (hasSeed && termsAccepted && Book.chat(ref) != null) push { close -> conversationPage(this, ref, close) }
-        if (answer && !VoiceTape.granted(this)) requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), ASK_CALL_MIC)
-        else takeTheCall(answer)
+        val asks = callAsks(Calls.ringVideo())
+        if (answer && asks.isNotEmpty()) requestPermissions(asks, ASK_CALL_MIC) else takeTheCall(answer)
         return true
     }
 
-    /** «Call» (iOS startCall from the person's page and the calls' row): the microphone asked once, then the call and its screen. */
-    fun callOut(ref: String) {
-        if (!VoiceTape.granted(this)) { pendingCall = ref; requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), ASK_CALL_OUT); return }
-        if (Calls.dial(ref)) CallScreen.show(this, ref)
+    /** «Call» and «Video Call» (iOS startCall from the person's page and the calls' row): what the call needs asked once, then the call and its screen. */
+    fun callOut(ref: String, video: Boolean = false) {
+        val asks = callAsks(video)
+        if (asks.isNotEmpty()) { pendingCall = ref; pendingVideo = video; requestPermissions(asks, ASK_CALL_OUT); return }
+        if (Calls.dial(ref, video)) CallScreen.show(this, ref)
     }
     private var pendingCall: String? = null
+    private var pendingVideo = false
+
+    /** What a call still needs asked (iOS: the microphone, and the camera for a video call): asked together, once. */
+    private fun callAsks(video: Boolean): Array<String> = listOfNotNull(
+        android.Manifest.permission.RECORD_AUDIO.takeIf { !VoiceTape.granted(this) },
+        android.Manifest.permission.CAMERA.takeIf { video && checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED }
+    ).toTypedArray()
 
     /** iOS acceptCall: the call's screen stands at once («Connecting…»), not after the voice joins. */
     private fun takeTheCall(answer: Boolean) {
@@ -223,7 +231,8 @@ class MainActivity : Activity() {
 
     /** «Accept» on the in-app ring (CallScreen): the microphone asked once, then the call and its screen. */
     fun answerCall() {
-        if (VoiceTape.granted(this)) takeTheCall(true) else requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), ASK_CALL_MIC)
+        val asks = callAsks(Calls.ringVideo())
+        if (asks.isEmpty()) takeTheCall(true) else requestPermissions(asks, ASK_CALL_MIC)
     }
 
     @Deprecated("the platform's back for targetSdk 35 without predictive back")
@@ -263,7 +272,7 @@ class MainActivity : Activity() {
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == ASK_CAMERA) { cameraDone?.invoke(grantResults.firstOrNull() == android.content.pm.PackageManager.PERMISSION_GRANTED); cameraDone = null }
-        if (requestCode == ASK_CALL_OUT) pendingCall?.let { pendingCall = null; if (Calls.dial(it)) CallScreen.show(this, it) }
+        if (requestCode == ASK_CALL_OUT) pendingCall?.let { pendingCall = null; if (Calls.dial(it, pendingVideo)) CallScreen.show(this, it) }
         if (requestCode == ASK_CALL_MIC) takeTheCall(true)   // refused, the call is still taken: the person hears, the other side does not
     }
 

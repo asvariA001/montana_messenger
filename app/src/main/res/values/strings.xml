@@ -391,4 +391,10 @@
     <string name="call_title_audio">Montana Audio Call</string>
     <string name="call_back">Back</string>
     <string name="call_accept">Accept</string>
+    <string name="call_video_btn">Video</string>
+    <string name="call_video_ask">is calling with video</string>
+    <string name="call_turn_on_video">Turn on your video?</string>
+    <string name="call_turn_on">Turn On</string>
+    <string name="call_camera">Camera</string>
+    <string name="call_title_video">Montana Video Call</string>
 </resources>

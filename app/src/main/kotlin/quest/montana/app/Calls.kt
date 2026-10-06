@@ -93,6 +93,9 @@ object Calls {
                     }
                 }
                 "call-hold", "call-resume" -> CallLine.peerHeld(ref, w.optString("e").ifEmpty { epoch }, ctrl == "call-hold")
+                // the picture and the descriptions in the middle of the call (iOS 2391-2543): the line owns them
+                "call-video-ask", "call-video-ok", "call-video-no", "call-video-end", "call-restart", "call-restart-answer",
+                "call-screen-on", "call-screen-off" -> CallLine.heard(ref, w.optString("e").ifEmpty { epoch }, ctrl, w)
                 // the caller's candidates (iOS 2368): one in «candidate», an old build's batch in «candidates»
                 "call-ice" -> {
                     val cs = ArrayList<IceCandidate>()
@@ -104,7 +107,7 @@ object Calls {
                     w.optJSONArray("candidates")?.let { a -> for (j in 0 until a.length()) take(a.optJSONObject(j)) }
                     if (cs.isNotEmpty()) CallLine.remoteIce(ref, w.optString("e").ifEmpty { epoch }, cs)
                 }
-                else -> {}   // hold, video, the restart of the checks: later steps
+                else -> {}   // the frame key (SFrame) and the run that comes back into its call: not in this build
             }
         }
     }
@@ -163,6 +166,9 @@ object Calls {
     /** The call in hand — answered and not yet ended — by its person; null when none (the call's screen asks it). */
     fun held(): String? = synchronized(gate) { ring?.takeIf { it.answered || it.out }?.ref }
 
+    /** The ring in hand is a video call's (its letter's «v», its word's «video»): its screen and its questions say so. */
+    fun ringVideo(): Boolean = synchronized(gate) { ring?.video == true }
+
     /** The words of a call of ours before the far phone answers — «Calling…», then «Ringing…» (iOS statusText 6470); null after. */
     fun stage(): Int? = synchronized(gate) { ring?.takeIf { it.out && !it.answered }?.let { if (it.ringing) R.string.call_ringing else R.string.call_calling } }
 
@@ -174,12 +180,12 @@ object Calls {
      * «call» every two seconds, six times at most, and a wake carries it too; the third knock without «ringing» sends the ring
      * letter loud (E2E.ringBell). Ninety seconds unanswered end it, and the far phone is left its «missed» letter.
      */
-    fun dial(ref: String): Boolean {
+    fun dial(ref: String, video: Boolean = false): Boolean {
         if (PeerSafety.isBlocked(ref) || Book.secret(ref) == null) return false
         val seed = Base64.encodeToString(ByteArray(32).also { SecureRandom().nextBytes(it) }, Base64.NO_WRAP)
         val r = synchronized(gate) {
             if (ring != null) return false.also { log("busy: a call is in hand") }
-            Ring(ref, seed, false, out = true).also { ring = it }
+            Ring(ref, seed, video, out = true).also { ring = it }
         }
         noteSeed(seed, "alive")
         Signal.hold(ref, "call")
@@ -187,7 +193,7 @@ object Calls {
         Thread { knock(r) }.start()
         // one ring letter per call, its name the call's (iOS E2E 1162-1166): the road of a phone the wake does not reach
         Post.send(ref, "ring-" + epochOf(seed), Marks.RING + ringWords(r, loud = false))
-        CallLine.dial(ref, seed) { sdp ->
+        CallLine.dial(ref, seed, video) { sdp ->
             synchronized(gate) { r.offer = sdp }
             MainThread.post { offerOut(r, 0) }
             Thread { wake(r, sdp) }.start()
