@@ -572,14 +572,16 @@ object CallLine {
             "call-video-end" -> drop(l, aloud = false)
             "call-restart" -> restart(l, w)
             "call-restart-answer" -> restartAnswer(l, w)
-            // their screen (iOS 2509-2543): it grows a voice call into a video one while it rides; its end says what the call was
-            "call-screen-on" -> {
+            // their screen (iOS 2509-2543): it grows a voice call into a video one while it rides; its end says what the call was.
+            // Each word comes by every door and both roads — the first copy is the word, the rest are buried: a second «on»
+            // would read the call it grew as a video call already and lose the way back to the voice
+            "call-screen-on" -> if (!peerSharing) {
                 l.grewByShare = !video
                 if (l.remote != null) video = true
                 peerSharing = true
                 log("screen: peer sharing on grew=" + l.grewByShare)
             }
-            "call-screen-off" -> {
+            "call-screen-off" -> if (peerSharing) {
                 val back = if (w.has("video")) !w.optBoolean("video") else l.grewByShare
                 if (back) { l.grewByShare = false; video = false; remoteLive = false; offerMine = false }
                 peerSharing = false
