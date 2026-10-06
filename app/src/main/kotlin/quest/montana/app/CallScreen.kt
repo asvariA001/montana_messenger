@@ -54,7 +54,7 @@ object CallScreen {
         fun line() {
             val since = CallLine.connectedAt
             val tail = if (since > 0L) ((System.currentTimeMillis() - since) / 1000).toInt().let { String.format(Locale.ROOT, "%d:%02d", it / 60, it % 60) }
-                else c.getString(R.string.call_connecting)
+                else c.getString(Calls.stage() ?: R.string.call_connecting)   // «Calling…», «Ringing…», then «Connecting…»
             status.text = c.getString(R.string.call_title_audio) + " — " + tail
         }
         line()

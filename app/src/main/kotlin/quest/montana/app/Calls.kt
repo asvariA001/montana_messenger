@@ -11,14 +11,18 @@ import android.content.Intent
 import android.graphics.BitmapFactory
 import android.graphics.drawable.Icon
 import android.media.AudioAttributes
+import android.media.AudioManager
+import android.media.ToneGenerator
 import android.media.RingtoneManager
 import android.os.Build
+import android.util.Base64
 import android.util.Log
 import android.view.Gravity
 import android.widget.LinearLayout
 import org.json.JSONArray
 import org.json.JSONObject
 import org.webrtc.IceCandidate
+import java.security.SecureRandom
 import java.util.Date
 import java.util.Locale
 
@@ -37,11 +41,13 @@ object Calls {
     private const val NOTE = 0x4d43   // one incoming call stands on the screen at a time
     private const val SEEDS = "callSeeds"   // seed -> {st, at}: «alive» rang here, «dead» is over (iOS MontanaMissedCall's book, burySeed)
 
-    private class Ring(val ref: String, val seed: String, val video: Boolean) {
-        var offer: String? = null   // the caller's description, kept for the answer
-        var answered = false
+    private class Ring(val ref: String, val seed: String, val video: Boolean, val out: Boolean = false) {
+        var offer: String? = null   // incoming: the caller's description, kept for the answer; outgoing: ours, said until it rings
+        var answered = false   // incoming: this person answered; outgoing: the far phone did
         var line = false   // the voice was handed its offer
+        var ringing = false   // outgoing: the far phone said «call-ringing»
     }
+    private var tone: ToneGenerator? = null
     private val gate = Any()
     private var ring: Ring? = null
 
@@ -73,6 +79,18 @@ object Calls {
                     // «call-gone» names its call in «s» (iOS 24.09); every other word in «e», else by the lane's own epoch
                     val named = if (ctrl == "call-gone") epochOf(w.optString("s")) else w.optString("e").ifEmpty { epoch }
                     synchronized(gate) { ring?.takeIf { it.ref == ref && epochOf(it.seed) == named } }?.let { end(it, ctrl) }
+                }
+                // the far phone's words to a call of ours (iOS handleSignalBody «call-ringing» 2321, «call-answer» 2332)
+                "call-ringing" -> outOf(ref, w, epoch)?.let { ringingHere(it) }
+                "call-answer" -> {
+                    val sdp = w.optJSONObject("sdp")?.optString("sdp")?.ifEmpty { null }
+                    val r = outOf(ref, w, epoch)
+                    if (r != null && sdp != null) {
+                        synchronized(gate) { r.answered = true }
+                        ringingHere(r)
+                        tone(false)
+                        CallLine.answered(ref, epochOf(r.seed), sdp)
+                    }
                 }
                 // the caller's candidates (iOS 2368): one in «candidate», an old build's batch in «candidates»
                 "call-ice" -> {
@@ -132,7 +150,7 @@ object Calls {
 
     /** «Answer» (iOS acceptCall): the ring stops, the call stands as the system's, and the voice takes the offer. */
     fun answer() {
-        val r = synchronized(gate) { ring?.also { it.answered = true } } ?: return
+        val r = synchronized(gate) { ring?.takeIf { !it.out }?.also { it.answered = true } } ?: return
         hide()
         CallService.start(Book.ctx, r.ref)
         voice(r)
@@ -141,7 +159,115 @@ object Calls {
     }
 
     /** The call in hand — answered and not yet ended — by its person; null when none (the call's screen asks it). */
-    fun held(): String? = synchronized(gate) { ring?.takeIf { it.answered }?.ref }
+    fun held(): String? = synchronized(gate) { ring?.takeIf { it.answered || it.out }?.ref }
+
+    /** The words of a call of ours before the far phone answers — «Calling…», then «Ringing…» (iOS statusText 6470); null after. */
+    fun stage(): Int? = synchronized(gate) { ring?.takeIf { it.out && !it.answered }?.let { if (it.ringing) R.string.call_ringing else R.string.call_calling } }
+
+    // ── the call out (iOS startCall 1736-1919) ──
+
+    /**
+     * THE CALL OUT: a fresh seed names it; the far phone is knocked at once and every five seconds by the call's wake (WakePush
+     * wakeVoip: the platform's own call on an iPhone, its app open or not) until it says «ringing»; the offer rides the lane as
+     * «call» every two seconds, six times at most, and a wake carries it too; the third knock without «ringing» sends the ring
+     * letter loud (E2E.ringBell). Ninety seconds unanswered end it, and the far phone is left its «missed» letter.
+     */
+    fun dial(ref: String): Boolean {
+        if (PeerSafety.isBlocked(ref) || Book.secret(ref) == null) return false
+        val seed = Base64.encodeToString(ByteArray(32).also { SecureRandom().nextBytes(it) }, Base64.NO_WRAP)
+        val r = synchronized(gate) {
+            if (ring != null) return false.also { log("busy: a call is in hand") }
+            Ring(ref, seed, false, out = true).also { ring = it }
+        }
+        noteSeed(seed, "alive")
+        Signal.hold(ref, "call")
+        CallService.start(Book.ctx, ref)
+        Thread { knock(r) }.start()
+        // one ring letter per call, its name the call's (iOS E2E 1162-1166): the road of a phone the wake does not reach
+        Post.send(ref, "ring-" + epochOf(seed), Marks.RING + ringWords(r, loud = false))
+        CallLine.dial(ref, seed) { sdp ->
+            synchronized(gate) { r.offer = sdp }
+            MainThread.post { offerOut(r, 0) }
+            Thread { wake(r, sdp) }.start()
+        }
+        MainThread.later(LIFE_MS) { if (synchronized(gate) { ring === r && !r.answered }) hangUp("no-answer") }
+        log("dial")
+        return true
+    }
+
+    private fun ringWords(r: Ring, loud: Boolean) = JSONObject().put("v", r.video).put("s", r.seed).put("n", Prefs.userName.trim())
+        .put("t", System.currentTimeMillis() / 1000.0).apply { if (loud) put("b", 1) }.toString()
+
+    /** The knock goes on for the whole ring (iOS 1786-1829): every five seconds until «ringing», an answer or the end. */
+    private fun knock(r: Ring) {
+        var n = 0
+        while (synchronized(gate) { ring === r && !r.ringing && !r.answered }) {
+            wake(r, null)
+            n++
+            // THE SECOND BELL (iOS 1811-1819): ten seconds of knocking without «ringing» — the ring letter goes out loud, once
+            if (n == 3 && synchronized(gate) { ring === r && !r.ringing }) Post.send(r.ref, "ringb-" + epochOf(r.seed), Marks.RING + ringWords(r, loud = true))
+            Thread.sleep(5000)
+        }
+    }
+
+    /**
+     * THE CALL'S WAKE (iOS WakePush.wakeVoip 3400-3483): «ring»‖0‖my address‖0‖deflate({o, v, s, n, g, av, rj}) sealed under the
+     * pipe as a lane word is, posted to the doors' /wake-voip one by one until a door rang a phone. This build reads no answer off
+     * the wake road and does not rejoin: «av» and «rj» say so. An offer too big for the platform's push rides the lane alone.
+     */
+    private fun wake(r: Ring, offer: String?): Boolean {
+        val twin = MontanaSeed.twin ?: return false
+        val secret = Book.secret(r.ref) ?: return false
+        fun sealed(o: String): String? {
+            val words = JSONObject().put("o", o).put("v", r.video).put("s", r.seed).put("n", Prefs.userName.trim()).put("g", "")
+                .put("av", false).put("rj", false)
+            val body = "ring".toByteArray() + byteArrayOf(0) + twin.toByteArray() + byteArrayOf(0) + Signal.deflate(words.toString().toByteArray())
+            return Wire.seal(Wire.bodyKey(secret, Wire.minute()), body)?.let { Base64.encodeToString(it, Base64.NO_WRAP) }
+        }
+        val env = sealed(offer ?: "")?.takeIf { it.length <= 4600 } ?: sealed("") ?: return false
+        val cw = Wire.convW(secret, Wire.day())
+        val req = JSONObject().put("conv", cw).put("from_id", Wire.subId(cw, twin)).put("env", env)
+        for (door in MontanaCard.doors) {
+            val (code, text) = Wire.post(door, "/wake-voip", req, 8000)
+            val o = text?.let { runCatching { JSONObject(it) }.getOrNull() }
+            val sent = o?.optInt("sent", o.optInt("woken", -1)) ?: -1
+            log("wake code=" + code + " sent=" + sent + " offer=" + (offer != null))
+            if (code == 200 && sent > 0) return true
+        }
+        return false
+    }
+
+    /** The offer on the lane every two seconds until the far phone rings or answers, six times at most (iOS 1895-1918). */
+    private fun offerOut(r: Ring, n: Int) {
+        val sdp = synchronized(gate) { if (ring !== r || r.ringing || r.answered) null else r.offer } ?: return
+        val w = JSONObject().put("t", "cal").put("ctrl", "call").put("ts", System.currentTimeMillis()).put("e", epochOf(r.seed))
+            .put("sdp", JSONObject().put("type", "offer").put("sdp", sdp)).put("video", r.video).put("caps", CallLine.caps())
+            .put("n", Prefs.userName.trim()).put("s", r.seed)
+        Signal.postWord(r.ref, epochOf(r.seed), JSONArray().put(w).toString().toByteArray())
+        if (n < 6) MainThread.later(2000) { offerOut(r, n + 1) }
+    }
+
+    private fun outOf(ref: String, w: JSONObject, epoch: String): Ring? {
+        val e = w.optString("e").ifEmpty { epoch }
+        return synchronized(gate) { ring?.takeIf { it.out && it.ref == ref && epochOf(it.seed) == e } }
+    }
+
+    /** The far phone rings (iOS 2321): the knock and the offer stop, the held candidates leave, the ringback sounds here. */
+    private fun ringingHere(r: Ring) {
+        val first = synchronized(gate) { (!r.ringing).also { r.ringing = true } }
+        if (!first) return
+        CallLine.release(r.ref, epochOf(r.seed))
+        if (!r.answered) tone(true)
+        log("far phone rings")
+    }
+
+    /** The ringback (iOS startRingback): the platform's own tone on the call's stream, while the far phone rings. */
+    private fun tone(on: Boolean) = MainThread.post {
+        tone?.let { runCatching { it.stopTone(); it.release() } }
+        tone = null
+        if (on && synchronized(gate) { ring?.let { it.out && !it.answered } == true })
+            tone = runCatching { ToneGenerator(AudioManager.STREAM_VOICE_CALL, 80).also { it.startTone(ToneGenerator.TONE_SUP_RINGTONE) } }.getOrNull()
+    }
 
     /** The offer goes to the voice once — when the call is answered and its offer is here, in whichever order they came. */
     private fun voice(r: Ring) {
@@ -157,14 +283,17 @@ object Calls {
     private fun end(r: Ring, why: String) {
         synchronized(gate) { if (ring !== r) return; ring = null }
         noteSeed(r.seed, "dead")
+        tone(false)
         val dur = CallLine.stop(r.seed)
         CallService.stop()
         CallScreen.hide()
         Signal.release(r.ref, "call")
         hide()
         // iOS: «missed» means the person never reacted — an answer whose call did not connect is «Connection failed»
-        row(r.ref, r.video, incoming = true, dur = dur, missed = !r.answered)
-        if (!r.answered && why != "declined") Notify.letter(r.ref, rowText(r.video, true, 0, true))   // iOS postMissedCallBanner
+        row(r.ref, r.video, incoming = !r.out, dur = dur, missed = !r.answered)
+        // a call of ours nobody took leaves the far phone its «missed» letter (iOS missedCallMark); one of theirs, the banner here
+        if (r.out) { if (!r.answered) Post.send(r.ref, Marks.mintMid(), Marks.MISSED + JSONObject().put("v", r.video).put("s", r.seed)) }
+        else if (!r.answered && why != "declined") Notify.letter(r.ref, rowText(r.video, true, 0, true))   // iOS postMissedCallBanner
         log("end " + why)
     }
 

@@ -379,6 +379,8 @@
     <string name="call_speaker">Динамик</string>
     <string name="call_mute">Выкл. звук</string>
     <string name="call_connecting">Соединение…</string>
+    <string name="call_calling">Звоним…</string>
+    <string name="call_ringing">Звонит…</string>
     <string name="call_title_audio">Аудиовызов Montana</string>
     <string name="call_back">Назад</string>
     <string name="call_accept">Принять</string>

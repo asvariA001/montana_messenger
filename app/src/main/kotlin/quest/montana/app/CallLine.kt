@@ -34,6 +34,8 @@ object CallLine {
         var batching = false
         var flushes = 0
         var remoteSet = false
+        var answerTaken = false
+        var holding = false   // the caller's candidates wait for the far phone's first word (iOS iceHeldForPeerWord)
         @Volatile var connectedAt = 0L
     }
 
@@ -53,8 +55,62 @@ object CallLine {
 
     /** «Answer» with the offer in hand (iOS proceedAccept): the line is built on its own queue, the answer leaves at once. */
     fun answer(ref: String, seed: String, offer: String) = work.execute {
-        if (synchronized(gate) { line != null }) return@execute
-        val f = CallEngine.factory ?: return@execute run { log("no engine"); Calls.hangUp("engine-missing") }
+        val l = build(ref, seed) ?: return@execute
+        armConnect(l)
+        l.pc.setRemoteDescription(sdp(onSet = {
+            l.remoteSet = true
+            drain(l)
+            l.pc.createAnswer(sdp(onMade = { d ->
+                val tuned = SessionDescription(d.type, tune(d.description, 40000))
+                // an answer without its own accepted description is not an answer (iOS 2729): the call ends, nothing is sent
+                l.pc.setLocalDescription(sdp(onSet = { sendAnswer(l, tuned.description, 0) },
+                    onFail = { e -> log("own description refused: " + e); Calls.hangUp("answer-refused-here") }), tuned)
+            }, onFail = { e -> log("answer unbuilt: " + e); Calls.hangUp("answer-unbuilt") }), MediaConstraints())
+        }, onFail = { e -> log("offer refused: " + e); Calls.hangUp("offer-refused") }), SessionDescription(SessionDescription.Type.OFFER, offer))
+    }
+
+    /**
+     * THE CALLER'S HALF (iOS startCall 1857-1884): the line, and its offer tuned as iOS tunes its own (64 kbit/s), handed back to
+     * be said; the candidates are held until the far phone's first word.
+     */
+    fun dial(ref: String, seed: String, offered: (String) -> Unit) = work.execute {
+        val l = build(ref, seed) ?: return@execute
+        l.holding = true
+        l.pc.createOffer(sdp(onMade = { d ->
+            val tuned = SessionDescription(d.type, tune(d.description, 64000))
+            l.pc.setLocalDescription(sdp(onSet = { offered(tuned.description) },
+                onFail = { e -> log("own offer refused: " + e); Calls.hangUp("offer-refused-here") }), tuned)
+        }, onFail = { e -> log("offer unbuilt: " + e); Calls.hangUp("offer-unbuilt") }), MediaConstraints())
+    }
+
+    /** The far phone's answer (iOS «call-answer» 2039, 2332): taken once; the minute to connect runs from here (armHardTimeout). */
+    fun answered(ref: String, epoch: String, answer: String) = work.execute {
+        val l = mine(ref, epoch) ?: return@execute
+        if (l.answerTaken) return@execute
+        l.answerTaken = true
+        armConnect(l)
+        log("answer in")
+        l.pc.setRemoteDescription(sdp(onSet = { l.remoteSet = true; drain(l); unhold(l) },
+            onFail = { e -> log("answer refused: " + e); Calls.hangUp("answer-refused") }), SessionDescription(SessionDescription.Type.ANSWER, answer))
+    }
+
+    /** The far phone said its first word: the candidates held for it leave in one batch (iOS releaseHeldIce). */
+    fun release(ref: String, epoch: String) = work.execute { mine(ref, epoch)?.let { unhold(it) } }
+
+    private fun unhold(l: Line) {
+        if (!l.holding) return
+        l.holding = false
+        flush(l)
+    }
+
+    private fun mine(ref: String, epoch: String) = synchronized(gate) { line?.takeIf { it.ref == ref && Calls.epochOf(it.seed) == epoch } }
+
+    private fun armConnect(l: Line) = MainThread.later(CONNECT_MS) { if (synchronized(gate) { line === l } && l.connectedAt == 0L) Calls.hangUp("connect-timeout") }
+
+    /** One connection for one call (iOS rtcConfig + buildPC), on the line's queue; the phone's sound turns to the call. */
+    private fun build(ref: String, seed: String): Line? {
+        if (synchronized(gate) { line != null }) return null
+        val f = CallEngine.factory ?: return null.also { log("no engine"); Calls.hangUp("engine-missing") }
         val cfg = PeerConnection.RTCConfiguration(servers()).apply {
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
             continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
@@ -73,7 +129,7 @@ object CallLine {
             override fun onRemoveStream(s: MediaStream) {}
             override fun onDataChannel(d: DataChannel) {}
             override fun onRenegotiationNeeded() {}
-        }) ?: return@execute run { log("no connection"); Calls.hangUp("connection-unbuilt") }
+        }) ?: return null.also { log("no connection"); Calls.hangUp("connection-unbuilt") }
         // iOS buildPC: one voice track «mt_audio» in the stream «mt_stream», the person's mute applied to it at birth
         val source = f.createAudioSource(MediaConstraints())
         val track = f.createAudioTrack("mt_audio", source)
@@ -83,17 +139,7 @@ object CallLine {
         made = l
         synchronized(gate) { line = l }
         audioOn()
-        MainThread.later(CONNECT_MS) { if (synchronized(gate) { line === l } && l.connectedAt == 0L) Calls.hangUp("connect-timeout") }
-        pc.setRemoteDescription(sdp(onSet = {
-            l.remoteSet = true
-            drain(l)
-            pc.createAnswer(sdp(onMade = { d ->
-                val tuned = SessionDescription(d.type, tune(d.description))
-                // an answer without its own accepted description is not an answer (iOS 2729): the call ends, nothing is sent
-                pc.setLocalDescription(sdp(onSet = { sendAnswer(l, tuned.description, 0) },
-                    onFail = { e -> log("own description refused: " + e); Calls.hangUp("answer-refused-here") }), tuned)
-            }, onFail = { e -> log("answer unbuilt: " + e); Calls.hangUp("answer-unbuilt") }), MediaConstraints())
-        }, onFail = { e -> log("offer refused: " + e); Calls.hangUp("offer-refused") }), SessionDescription(SessionDescription.Type.OFFER, offer))
+        return l
     }
 
     /** The observer of one step of the descriptions; every callback goes back onto the line's queue. */
@@ -104,11 +150,12 @@ object CallLine {
         override fun onSetFailure(e: String?) { work.execute { onFail(e ?: "") } }
     }
 
-    // iOS tuneSDP: the voice's settings ride its FEC line; 40 kbit/s, the rate iOS gives a far side that is not «premium»
-    private fun tune(sdp: String) = sdp.replace("useinbandfec=1", "useinbandfec=1;stereo=0;maxaveragebitrate=40000;maxplaybackrate=48000;cbr=0")
+    // iOS tuneSDP: the voice's settings ride its FEC line — 64 kbit/s on the caller's offer, 40 on an answer to a far side that
+    // is not «premium» (SFrame off)
+    private fun tune(sdp: String, rate: Int) = sdp.replace("useinbandfec=1", "useinbandfec=1;stereo=0;maxaveragebitrate=" + rate + ";maxplaybackrate=48000;cbr=0")
 
     // iOS myCaps, as this build is: SFrame off, no rejoin, no video yet
-    private fun caps() = JSONObject().put("tier", "android-native").put("ver", 1).put("opus_max", 40000).put("hw_aec", true)
+    fun caps(): JSONObject = JSONObject().put("tier", "android-native").put("ver", 1).put("opus_max", 40000).put("hw_aec", true)
         .put("sframe", false).put("av", false).put("rejoin", false)
 
     private fun word(l: Line, ctrl: String) =
@@ -130,7 +177,7 @@ object CallLine {
     private fun gathered(l: Line, c: IceCandidate) = work.execute {
         if (synchronized(gate) { line !== l }) return@execute
         l.out.add(c)
-        if (l.batching) return@execute
+        if (l.batching || l.holding) return@execute
         l.batching = true
         MainThread.later(if (l.flushes == 0) 0L else 200L) { work.execute { flush(l) } }
     }
@@ -148,7 +195,7 @@ object CallLine {
 
     /** The caller's candidates (iOS «call-ice» 2368): into the line once it holds the offer, kept until then. */
     fun remoteIce(ref: String, epoch: String, cs: List<IceCandidate>) = work.execute {
-        val l = synchronized(gate) { line?.takeIf { it.ref == ref && Calls.epochOf(it.seed) == epoch } }
+        val l = mine(ref, epoch)
         if (l != null && l.remoteSet) { cs.forEach { l.pc.addIceCandidate(it) }; return@execute }
         synchronized(gate) {
             cs.forEach { waiting.add(epoch to it) }

@@ -75,6 +75,13 @@ class MainActivity : Activity() {
         return true
     }
 
+    /** «Call» (iOS startCall from the person's page and the calls' row): the microphone asked once, then the call and its screen. */
+    fun callOut(ref: String) {
+        if (!VoiceTape.granted(this)) { pendingCall = ref; requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), ASK_CALL_OUT); return }
+        if (Calls.dial(ref)) CallScreen.show(this, ref)
+    }
+    private var pendingCall: String? = null
+
     /** iOS acceptCall: the call's screen stands at once («Connecting…»), not after the voice joins. */
     private fun takeTheCall(answer: Boolean) {
         if (answer) Calls.answer()
@@ -243,6 +250,7 @@ class MainActivity : Activity() {
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == ASK_CAMERA) { cameraDone?.invoke(grantResults.firstOrNull() == android.content.pm.PackageManager.PERMISSION_GRANTED); cameraDone = null }
+        if (requestCode == ASK_CALL_OUT) pendingCall?.let { pendingCall = null; if (Calls.dial(it)) CallScreen.show(this, it) }
         if (requestCode == ASK_CALL_MIC) takeTheCall(true)   // refused, the call is still taken: the person hears, the other side does not
     }
 
@@ -307,5 +315,5 @@ class MainActivity : Activity() {
     /** The app's own language before Android 13 (from 13 the system keeps it: AppLanguage). */
     override fun attachBaseContext(base: android.content.Context) = super.attachBaseContext(AppLanguage.wrap(base))
 
-    private companion object { const val PICK_PHOTO = 1; const val ASK_NOTIFY = 2; const val DOCUMENT = 3; const val ASK_CAMERA = 4; const val CONFIRM_OWNER = 5; const val CAPTURE = 6; const val PICK_CONTACT = 7; const val ASK_CALL_MIC = 9 }
+    private companion object { const val PICK_PHOTO = 1; const val ASK_NOTIFY = 2; const val DOCUMENT = 3; const val ASK_CAMERA = 4; const val CONFIRM_OWNER = 5; const val CAPTURE = 6; const val PICK_CONTACT = 7; const val ASK_CALL_MIC = 9; const val ASK_CALL_OUT = 10 }
 }

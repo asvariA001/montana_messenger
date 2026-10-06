@@ -235,7 +235,7 @@ fun peerInfoPage(act: MainActivity, ref: String, onClose: () -> Unit): View {
         }
         plate(R.drawable.ic_peer_message, R.string.pi_message) { onClose() }   // opened from the chat: back to it
         if (!PeerSafety.isBlocked(ref)) {
-            plate(R.drawable.ic_peer_phone, R.string.pi_voice_call) { notYet() }
+            plate(R.drawable.ic_peer_phone, R.string.pi_voice_call) { act.callOut(ref) }
             plate(R.drawable.ic_peer_video, R.string.pi_video_call) { notYet() }
         }
         plate(R.drawable.ic_more_horiz, R.string.pi_more) { v ->

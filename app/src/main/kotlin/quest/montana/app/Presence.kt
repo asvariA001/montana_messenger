@@ -18,7 +18,7 @@ import java.util.zip.Inflater
  * box holds a letter of ours — it is fetched at once.
  */
 object Signal {
-    private fun deflate(b: ByteArray): ByteArray {
+    fun deflate(b: ByteArray): ByteArray {
         val d = Deflater(Deflater.DEFAULT_COMPRESSION, true)   // raw DEFLATE, as Apple's .zlib writes it (no header)
         d.setInput(b); d.finish()
         val out = ByteArrayOutputStream(); val buf = ByteArray(512)

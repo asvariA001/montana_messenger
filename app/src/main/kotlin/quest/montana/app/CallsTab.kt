@@ -61,8 +61,8 @@ private fun callRow(act: MainActivity, r: CallRecord): View {
 
 /**
  * THE CALLS (iOS CallsTabView): the log of calls, a day's pill before the first call of each day, newest first; a stroke from
- * the right deletes a call's row (iOS swipeTrailing). A tap dials back on iOS; until this phone calls out (step 4 of Anna's plan),
- * it opens the person's chat. «Your audio and video calls will appear here» while there are none.
+ * the right deletes a call's row (iOS swipeTrailing), a tap dials back. «Your audio and video calls will appear here» while there
+ * are none.
  */
 fun callsPane(act: MainActivity): View {
     val c: Context = act
@@ -87,7 +87,7 @@ fun callsPane(act: MainActivity): View {
                 }, lp().apply { topMargin = c.dp(8); bottomMargin = c.dp(4) })
             }
             val row = callRow(act, r)
-            row.pressable { act.push { close -> conversationPage(act, r.ref, close) } }
+            row.pressable { act.callOut(r.ref) }   // a tap dials back (iOS 2977); a video call's row too, by voice until video is here
             rows.addView(SwipeRow(act, row, listOf(Tile(R.drawable.ic_delete, red = true) {
                 Book.edit(r.ref) { ch -> ch.msgs.removeAll { it.mid == r.mid } }
             })), lp())
