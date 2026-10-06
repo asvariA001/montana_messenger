@@ -506,7 +506,7 @@ private fun safetyPage(act: MainActivity, ref: String, name: String, onClose: ()
 // ─────────────────────────── the report (iOS MontanaReportSheet) ───────────────────────────
 
 /** A report by mail to the network's address: the reason, «block this person too», the platform's own mail road. */
-private fun reportPage(act: MainActivity, ref: String, name: String, onClose: () -> Unit): View {
+fun reportPage(act: MainActivity, ref: String, name: String, onClose: () -> Unit): View {
     val c: Context = act
     val reasons = listOf("spam" to R.string.pi_spam, "abuse" to R.string.pi_abuse, "hate" to R.string.pi_hate,
         "illegal" to R.string.pi_illegal, "other" to R.string.pi_other)

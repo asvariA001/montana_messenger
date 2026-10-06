@@ -369,7 +369,9 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             // THE LADDER UNDER EVERY OWN BUBBLE (the author's word 29.09: «у каждого сообщения, по отдельности»): each letter its own rung
             if (m.mine) (b.getChildAt(0) as LinearLayout).addView(c.deliveryLine(ref, m),
                 LinearLayout.LayoutParams(WRAP, WRAP).apply { topMargin = c.dp(3); marginEnd = c.dp(4) })
-            b.getChildAt(0).setOnLongClickListener { letterMenu(act, ref, m, onReply = { replyTo = m; editing = null; showStrip(); showKeys() },
+            // THE MENU OPENS ON EVERY LETTER (iOS: the long press is the bubble's, whatever it holds): a picture, a film, a circle, a
+            // voice or a link's card keeps its own tap, and its long press opens the letter's menu as the words' does
+            b.getChildAt(0).holdEverywhere { letterMenu(act, ref, m, onReply = { replyTo = m; editing = null; showStrip(); showKeys() },
                 onEdit = { editing = m; replyTo = null; field.setText(m.text); field.setSelection(field.text.length); showStrip(); showKeys() },
                 onForward = { hideKeys(); act.push { close -> forwardPage(act, ref, listOf(m), close) { to -> close(); if (to != ref) { onClose(); act.push { c2 -> conversationPage(act, to, c2) } } } } },
                 onSelect = { hideKeys(); selecting = true; picked.clear(); picked.add(m.mid); redraw(); drawFoot() }, group = group); true }
@@ -921,42 +923,57 @@ private fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Un
     lateinit var close: () -> Unit
     // A GROUP'S LETTER (Groups): what this phone keeps of it — copy, forward, delete here; what would tell the group waits for its own word
     val canEdit = m.mine && !group && !Marks.isService(m.text)
-    val actions = c.vstack(Gravity.NO_GRAVITY) { background = c.rounded(Color.argb(235, 44, 44, 46), 14) }
-    fun row(words: String, red: Boolean = false, work: () -> Unit) {
-        if (actions.childCount > 0) actions.addView(View(c).apply { setBackgroundColor(Color.argb(40, 255, 255, 255)) }, lp(MATCH, 1))
-        actions.addView(c.text(words, 17f, if (red) SysColor.red else Color.WHITE).apply { setPadding(dp(16), dp(12), dp(16), dp(12)); pressable { close(); work() } }, lp())
+    val actions = c.vstack(Gravity.NO_GRAVITY) { background = c.rounded(Color.argb(235, 44, 44, 46), 16, Color.argb(26, 255, 255, 255)) }
+    val line = Color.argb(77, 142, 142, 147)   // iOS MTMenuDivider: the gray at three tenths
+    lateinit var fillActions: () -> Unit
+    // iOS MTMenuRow: the title left, the glyph right — red for a deed that cannot be undone; «keep» stays in the menu
+    fun row(words: String, glyph: Int, red: Boolean = false, mirrored: Boolean = false, keep: Boolean = false, work: () -> Unit) {
+        if (actions.childCount > 0) actions.addView(View(c).apply { setBackgroundColor(line) }, lp(MATCH, 1))
+        actions.addView(c.hstack {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(14), dp(11), dp(14), dp(11))
+            addView(c.text(words, 16f, if (red) SysColor.red else Color.WHITE), lp(0, WRAP, 1f))
+            addView(c.icon(glyph, if (red) SysColor.red else Color.argb(204, 255, 255, 255), 20).apply { if (mirrored) scaleX = -1f }, lp(dp(20), dp(20)))
+            pressable { if (!keep) close(); work() }
+        }, lp())
     }
-    fun fillActions() {
+    fillActions = {
         actions.removeAllViews()
         // THE RUNG AND ITS MOMENT over the actions (iOS MontanaMessageMenu ladder): the same line as under the bubble, with the time
         if (m.mine) actions.addView(c.deliveryLine(ref, m, withMoment = true).apply { setPadding(dp(16), dp(11), dp(16), dp(11)) }, lp())
-        if (!group) row(c.getString(R.string.reply)) { onReply() }
-        if (!Marks.isService(m.text)) row(c.getString(R.string.copy)) {
+        if (!group) row(c.getString(R.string.reply), R.drawable.ic_reply) { onReply() }
+        if (!Marks.isService(m.text)) row(c.getString(R.string.copy), R.drawable.ic_content_copy) {
             c.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("", m.text))
         }
-        if (canEdit) row(c.getString(R.string.edit)) { onEdit() }
-        // PIN · FORWARD (iOS MontanaMessageMenu): the pin asks «for both / for me», the unpin is told at once
+        if (canEdit) row(c.getString(R.string.edit), R.drawable.ic_pencil) { onEdit() }
+        // PIN · FORWARD (iOS MontanaMessageMenu 488-492): the pin asks «for both / for me», the unpin is told at once
         if (!group && (!Marks.isService(m.text) || m.text.startsWith(Marks.MEDIA)))
-            row(c.getString(if (MsgPins.isPinned(ref, m.mid)) R.string.ld_unpin else R.string.ld_pin)) { pinOrUnpin(act, ref, m) }
-        if (canForward(m)) row(c.getString(R.string.ld_forward)) { onForward() }
-        actions.addView(View(c).apply { setBackgroundColor(Color.argb(40, 255, 255, 255)) }, lp(MATCH, 1))
-        actions.addView(c.text(c.getString(R.string.delete), 17f, SysColor.red).apply {
-            setPadding(dp(16), dp(12), dp(16), dp(12))
-            pressable {
-                // «Delete message?» — for me, for everyone (any bubble, mine or theirs: the mid is the same on both sides).
-                actions.removeAllViews()
-                actions.addView(c.text(c.getString(R.string.delete_message_q), 13f, MT.gray, center = true).apply { setPadding(dp(16), dp(10), dp(16), dp(6)) }, lp())
-                if (!group) row(c.getString(R.string.delete_for_everyone), red = true) {
-                    Book.edit(ref) { ch -> ch.msgs.removeAll { it.mid == m.mid } }
-                    Post.send(ref, Marks.mintMid(), Marks.DELETE + "mid:" + m.mid)
-                }
-                row(c.getString(R.string.delete_for_me), red = true) { Book.edit(ref) { ch -> ch.msgs.removeAll { it.mid == m.mid } } }
-                row(c.getString(R.string.cancel)) {}
+            row(c.getString(if (MsgPins.isPinned(ref, m.mid)) R.string.ld_unpin else R.string.ld_pin), R.drawable.ic_pin) { pinOrUnpin(act, ref, m) }
+        if (canForward(m)) row(c.getString(R.string.ld_forward), R.drawable.ic_reply, mirrored = true) { onForward() }
+        // «Delete» asks in place (iOS confirmingDelete 403-414): for everyone, for me — any bubble, mine or theirs, the mid is the same
+        // on both sides — and «Cancel» goes back to the deeds
+        row(c.getString(R.string.delete), R.drawable.ic_delete, red = true, keep = true) {
+            actions.removeAllViews()
+            actions.addView(c.text(c.getString(R.string.delete_message_q), 13f, MT.gray, center = true).apply { setPadding(dp(16), dp(10), dp(16), dp(10)) }, lp())
+            if (!group) row(c.getString(R.string.delete_for_everyone), R.drawable.ic_delete, red = true) {
+                Book.edit(ref) { ch -> ch.msgs.removeAll { it.mid == m.mid } }
+                Post.send(ref, Marks.mintMid(), Marks.DELETE + "mid:" + m.mid)
             }
-        }, lp())
-        // «SELECT» stands apart at the foot (iOS: after a wider gap)
-        if (!group) actions.addView(View(c).apply { setBackgroundColor(Color.argb(40, 255, 255, 255)) }, lp(MATCH, c.dp(6)))
-        if (!group) actions.addView(c.text(c.getString(R.string.ld_select), 17f, Color.WHITE).apply { setPadding(dp(16), dp(12), dp(16), dp(12)); pressable { close(); onSelect() } }, lp())
+            row(c.getString(R.string.delete_for_me), R.drawable.ic_delete, red = true) { Book.edit(ref) { ch -> ch.msgs.removeAll { it.mid == m.mid } } }
+            row(c.getString(R.string.cancel), R.drawable.ic_close, keep = true) { fillActions() }
+        }
+        // «Report» on their letter (iOS 499-502): the report of its sender
+        if (!m.mine && !group) row(c.getString(R.string.pi_report), R.drawable.ic_report, red = true) {
+            val name = Book.chat(ref)?.shown?.ifBlank { null } ?: c.getString(R.string.peer)
+            act.push { cl -> reportPage(act, ref, name, cl) }
+        }
+        // «SELECT» stands apart at the foot (iOS 503-504: after a wider gap)
+        if (!group) {
+            actions.addView(View(c).apply { setBackgroundColor(line) }, lp(MATCH, c.dp(6)))
+            val before = actions.childCount
+            row(c.getString(R.string.ld_select), R.drawable.ic_set_check_circle) { onSelect() }
+            if (actions.childCount - before == 2) actions.removeViewAt(before)   // the row's own hairline under the wide gap goes
+        }
     }
     fillActions()
     // THE QUICK REACTIONS (iOS MTReactions.common): a press puts it on or takes it off; the peer hears RC:{sid,txt,e,op}.
@@ -996,7 +1013,7 @@ private fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Un
             if (!group) { addView(reactions, lp(WRAP, WRAP)); gap(8) }
             addView(copy, lp())
             gap(8)
-            addView(actions, lp(dp(240), WRAP))
+            addView(actions, lp(dp(250), WRAP))
         }, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.CENTER))
     }
     close = act.overlay(page)
@@ -1205,4 +1222,10 @@ fun captionPage(act: MainActivity, p: Media.Picked, draft: String, onCancel: () 
             v.setPadding(b.left, b.top, b.right, b.bottom); insets
         }
     }
+}
+
+/** The long press reaches the letter's menu through every part of the bubble that takes its own tap. */
+private fun View.holdEverywhere(root: Boolean = true, menu: () -> Unit) {
+    if (root || isClickable) setOnLongClickListener { menu(); true }
+    if (this is android.view.ViewGroup) for (i in 0 until childCount) getChildAt(i).holdEverywhere(false, menu)
 }

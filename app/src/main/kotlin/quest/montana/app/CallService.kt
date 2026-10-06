@@ -107,7 +107,8 @@ class CallService : Service() {
         if (Build.VERSION.SDK_INT < 30) { runCatching { startForeground(ID, n) }.onFailure { log("foreground: " + it.message); end() }; return }
         val voice = ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
         val screen = if (CallLine.sharing) voice or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION else voice
-        val full = if (CallLine.video && !CallLine.sharing) screen or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA else screen
+        // the camera's type stays through a share: the camera comes back at its end, and with the app behind it opens only under it
+        val full = if (CallLine.video) screen or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA else screen
         for (types in listOf(full, screen, voice).distinct()) {
             if (runCatching { startForeground(ID, n, types) }.onFailure { log("foreground " + types + ": " + it.message) }.isSuccess) return
         }
