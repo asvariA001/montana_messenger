@@ -48,6 +48,13 @@
     <string name="gp_remove_q">Удалить из группы?</string>
     <string name="gp_remove">Убрать</string>
     <string name="gp_done">Готово</string>
+    <string name="pl_send">Отправить геопозицию</string>
+    <string name="pl_locating">Определяем…</string>
+    <string name="pl_accurate">С точностью до %1$s</string>
+    <string name="pl_no_access">У Montana нет доступа к вашей геопозиции</string>
+    <string name="pl_turn_on">Включить геопозицию</string>
+    <string name="pl_mine">Моё местоположение</string>
+    <string name="pl_no_maps">На телефоне нет приложения карт</string>
     <plurals name="gr_members"><item quantity="one">%d участник</item><item quantity="few">%d участника</item><item quantity="many">%d участников</item><item quantity="other">%d участника</item></plurals>
     <string name="lw_photo">Фото</string>
     <string name="lw_video">Видео</string>

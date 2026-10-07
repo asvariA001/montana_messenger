@@ -48,6 +48,13 @@
     <string name="gp_remove_q">从群组中移除？</string>
     <string name="gp_remove">移除</string>
     <string name="gp_done">完成</string>
+    <string name="pl_send">发送此位置</string>
+    <string name="pl_locating">定位中…</string>
+    <string name="pl_accurate">精确到 %1$s</string>
+    <string name="pl_no_access">Montana 无法访问你的位置</string>
+    <string name="pl_turn_on">开启定位</string>
+    <string name="pl_mine">我的位置</string>
+    <string name="pl_no_maps">此手机上没有地图应用</string>
     <plurals name="gr_members"><item quantity="other">%d 名成员</item></plurals>
     <string name="lw_photo">照片</string>
     <string name="lw_video">视频</string>

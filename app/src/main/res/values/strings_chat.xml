@@ -48,6 +48,13 @@
     <string name="gp_remove_q">Remove from the group?</string>
     <string name="gp_remove">Remove</string>
     <string name="gp_done">Done</string>
+    <string name="pl_send">Send This Location</string>
+    <string name="pl_locating">Locating…</string>
+    <string name="pl_accurate">Accurate to %1$s</string>
+    <string name="pl_no_access">Montana has no access to your location</string>
+    <string name="pl_turn_on">Turn on location</string>
+    <string name="pl_mine">My location</string>
+    <string name="pl_no_maps">No maps app on this phone</string>
     <plurals name="gr_members"><item quantity="one">%d member</item><item quantity="other">%d members</item></plurals>
     <string name="lw_photo">Photo</string>
     <string name="lw_video">Video</string>

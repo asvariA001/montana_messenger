@@ -456,6 +456,8 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     // A CONTACT OF THE PHONE (iOS ContactPicker): its name and number leave as one letter
     bar.onContact = { hideKeys(); act.pickContact { u -> u?.let { contactLetter(c, it) }?.let { words -> sendWords(ref, words); toBottom() } } }
     bar.onFile = { act.openDocument(sendPicked(true)) }
+    // THE PLACE (iOS onLocation → MTLocationPicker → mtSendPlace): this spot leaves as the place's words, by the one road of words
+    bar.onLocation = { hideKeys(); act.push { close -> placePage(act, close) { words -> sendWords(ref, words); toBottom() } } }
     bar.onStickers = { hideKeys(); Stickers.panel(act, ref) }   // a hold on the emoji key (Stickers.kt)
     // THE VOICE (iOS the held mark): the tape starts under the finger and leaves as a media letter of kind «aud».
     // THE SWELL WHILE SPEAKING (iOS the recording row): the red mark, the running time and the wave that rises with the voice.
@@ -935,6 +937,8 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat): ReplySwipe = ReplySwip
             val call = Calls.info(m.text) != null
             if (Stickers.body(c, m, this)) Unit else if (m.text.startsWith(Marks.MEDIA)) mediaBody(c, m, this)
             else if (call) Calls.body(c, m, this)   // a call's row carries its moment inside, as iOS callBubble
+            // A PLACE LETTER (iOS MTPlaceLetter.parse → the map plate): the pin, the name and the spot instead of the link's words
+            else if (PlaceLetter.parse(c, m.text) != null) addView(c.placePlate(PlaceLetter.parse(c, m.text)!!, mine), lp(WRAP, WRAP))
             else addView(c.text(letterWords(c, m.text), 16f, BubbleStyle.text(mine)).apply { maxWidth = dp(260); setTextIsSelectable(false) }, lp(WRAP, WRAP))   // USER-DATA: the letter
             // THE LINK'S CARD UNDER THE WORDS (iOS the link card in the bubble), drawn from the letter's own bytes
             LinkCard.parse(m.lp)?.let { addView(linkCardView(c, it, mine), lp(WRAP, WRAP)) }

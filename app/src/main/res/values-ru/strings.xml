@@ -257,7 +257,7 @@
     <string name="gallery">Фото</string>
     <string name="business_card">Визитка</string>
     <string name="file">Файл</string>
-    <string name="location">Место</string>
+    <string name="location">Геопозиция</string>
     <string name="contact">Контакт</string>
     <string name="record_voice">Голосовое сообщение</string>
     <string name="record_video">Видеосообщение</string>

@@ -104,7 +104,7 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
                 glassKey(R.drawable.ic_compose_photo, R.string.gallery) { onGallery?.invoke() ?: notYet() },
                 glassKey(R.drawable.ic_compose_card, R.string.business_card) { notYet() },
                 glassKey(R.drawable.ic_compose_doc, R.string.file) { onFile?.invoke() ?: notYet() },
-                glassKey(R.drawable.ic_compose_location, R.string.location) { notYet() },
+                glassKey(R.drawable.ic_compose_location, R.string.location) { onLocation?.invoke() ?: notYet() },
                 glassKey(R.drawable.ic_compose_contact, R.string.contact) { onContact?.invoke() ?: notYet() },
                 sendColumn)
             // the first and the last flush with the row's edges, the ones between shared evenly
@@ -139,6 +139,8 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
     /** What iOS does here and Android does not do yet says so in words instead of doing nothing. */
     /** The gallery and file keys' deeds, given by the page that owns the letters (the conversation sends media). */
     var onGallery: (() -> Unit)? = null
+    /** The place key (iOS onLocation → MTLocationPicker): this spot as a letter. */
+    var onLocation: (() -> Unit)? = null
     var onSendLater: ((View) -> Unit)? = null   // the send key's hold (Schedule.kt)
     var onContact: (() -> Unit)? = null   // the phone's contact as a letter (iOS ContactPicker)
     var onFile: (() -> Unit)? = null
