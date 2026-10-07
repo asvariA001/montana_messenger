@@ -229,10 +229,6 @@ class MainActivity : Activity() {
         back = close
     }
 
-    fun showProfile() {
-        show(Profile(this, onboarding = false) { render() }.view)
-    }
-
     // ── THE BOX IS READ WHILE THE APP STANDS (iOS fetchBox on activation and by its kick): at once, then every eight seconds ──
     private val boxRound = object : Runnable {
         override fun run() {

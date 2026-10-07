@@ -222,7 +222,7 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
     })
     shell.drawer.addView(sideDrawer(act,
         onPane = { p -> shell.close { choose(p) } },
-        onProfile = { shell.close { act.showProfile() } },
+        onProfile = { shell.close { act.push { myPage(act, it) } } },   // the face with the name opens my page (iOS MTMyPageFromDrawer)
         onSettings = { shell.close { act.push { settingsRoot(act, onForget, it) } } },
         onCard = { shell.close { act.push { businessCardPage(act, it) } } },
         onPasswords = { shell.close { act.push { passwordsPage(act, it) } } },
