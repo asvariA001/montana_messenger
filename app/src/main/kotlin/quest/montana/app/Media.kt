@@ -121,14 +121,58 @@ object Media {
         }
         Book.edit(ref) { it.msgs.add(Msg(mid, provisional, true, Marks.birthMs(mid) ?: System.currentTimeMillis(), qt = qt, file = local.path)) }
         Thread {
-            val (letter, man) = seal(c, p, caption, local, group) ?: run {
-                Log.w("Montana", "media: the pieces did not reach the node"); Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.state = -1 }; return@Thread
-            }
-            Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.let { it.text = letter; it.meta = man } }
-            // a group's manifest rides the group's carrier, a copy to everyone it carries to (iOS sendMediaToPeer → MTGroup.carryMedia)
-            if (Groups.isKey(ref)) { if (!Groups.carryMedia(ref, mid, letter)) Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.advance(-1) } }
-            else Post.send(ref, mid, letter, qt)   // a forwarded file carries the forwarded quote (iOS forwardedQuote)
+            if (deliver(c, ref, mid, p, caption, local, qt, group)) return@Thread
+            // THE INTENT SURVIVES ITS BROKEN UPLOAD (iOS 1675, 1677): the bubble stands at the clock and the upload waits for the drain
+            keepIntent(ref, mid, local, provisional.toString(), caption, qt)
+            Log.w("Montana", "media: the pieces did not reach the node — the intent waits for the drain mid=" + mid.take(8))
         }.start()
+    }
+
+    /** The pieces laid, the row given its letter, the letter posted; false — the node took nothing, the intent stands. */
+    private fun deliver(c: Context, ref: String, mid: String, p: Picked, caption: String, local: File, qt: String?, group: MediaGroup.Slot?): Boolean {
+        val (letter, man) = seal(c, p, caption, local, group) ?: return false
+        Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.let { it.text = letter; it.meta = man } }
+        // a group's manifest rides the group's carrier, a copy to everyone it carries to (iOS sendMediaToPeer → MTGroup.carryMedia)
+        if (Groups.isKey(ref)) { if (!Groups.carryMedia(ref, mid, letter)) Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.advance(-1) } }
+        else Post.send(ref, mid, letter, qt)   // a forwarded file carries the forwarded quote (iOS forwardedQuote)
+        return true
+    }
+
+    // ── the intents that wait (iOS: a media intent rides the drain) ──
+    private const val INTENTS = "mediaIntents"
+    private val intentLock = Any()
+    private fun intents(): JSONArray = DeviceVault.get(INTENTS)?.let { runCatching { JSONArray(String(it, Charsets.UTF_8)) }.getOrNull() } ?: JSONArray()
+    private fun keepIntent(ref: String, mid: String, local: File, provisional: String, caption: String, qt: String?) = synchronized(intentLock) {
+        val a = intents().put(JSONObject().put("ref", ref).put("mid", mid).put("f", local.path).put("p", provisional).put("cap", caption).put("qt", qt ?: ""))
+        DeviceVault.set(INTENTS, a.toString().toByteArray())
+    }
+    private fun dropIntent(mid: String) = synchronized(intentLock) {
+        val a = intents(); val keep = JSONArray()
+        for (i in 0 until a.length()) a.optJSONObject(i)?.let { if (it.optString("mid") != mid) keep.put(it) }
+        DeviceVault.set(INTENTS, keep.toString().toByteArray())
+    }
+    @Volatile private var draining = false
+    /** The intents still waiting go out again, oldest first, one at a time, at every pickup of the box; while the node takes nothing the rest wait too. */
+    fun drainIntents(c: Context) {
+        if (draining) return
+        draining = true
+        try {
+            val a = synchronized(intentLock) { intents() }
+            for (i in 0 until a.length()) {
+                val o = a.optJSONObject(i) ?: continue
+                val mid = o.optString("mid")
+                val f = File(o.optString("f")).takeIf { it.exists() } ?: run { dropIntent(mid); null } ?: continue
+                val man = runCatching { JSONObject(o.optString("p").removePrefix(Marks.MEDIA)) }.getOrNull() ?: run { dropIntent(mid); null } ?: continue
+                val wave = man.optString("wv").takeIf { it.isNotEmpty() }?.let { w ->
+                    runCatching { Base64.decode(w, Base64.NO_WRAP) }.getOrNull()?.let { b -> FloatArray(b.size) { (b[it].toInt() and 0xFF) / 255f } }
+                }
+                val p = Picked(f.readBytes(), man.optString("k").ifEmpty { "doc" }, man.optString("e").ifEmpty { f.extension }, man.optString("n").ifEmpty { null },
+                    man.optDouble("du").takeIf { !it.isNaN() }, wave, man.optBoolean("r"))
+                if (!deliver(c, o.optString("ref"), mid, p, o.optString("cap"), f, o.optString("qt").ifEmpty { null }, MediaGroup.read(man))) return
+                dropIntent(mid)
+                Log.i("Montana", "media: a waiting intent went out mid=" + mid.take(8))
+            }
+        } finally { draining = false }
     }
 
     /**

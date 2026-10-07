@@ -569,6 +569,7 @@ object Post {
         SamePair.askUnasked()
         Book.refs().filter { SamePair.merged(it) == null }.forEach { announce(it) }   // a folded pipe only forwards
         Media.fetchPending(Book.ctx)
+        Thread { Media.drainIntents(Book.ctx) }.start()   // a file whose pieces did not land goes out again (iOS 1675), never ahead of the letters
         flush()
     }
 
