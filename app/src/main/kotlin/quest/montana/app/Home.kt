@@ -760,7 +760,7 @@ private fun groupsPane(act: MainActivity, channel: Boolean): View {
             background = c.glassPlate(oval = true)
             contentDescription = c.getString(R.string.app_groups)
             addView(c.icon(R.drawable.ic_plus, barGlyph), FrameLayout.LayoutParams(dp(30), dp(30), Gravity.CENTER))
-            pressable { act.push { close -> groupPickPage(act, close) { key -> act.push { back -> conversationPage(act, key, back) } } } }
+            pressable { act.push { close -> groupPickPage(act, close, onCreated = { key -> act.push { back -> conversationPage(act, key, back) } }) } }
         }, FrameLayout.LayoutParams(dp(60), dp(60), Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, dp(16), dp(36)) })
     }
 }

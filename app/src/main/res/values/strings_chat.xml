@@ -36,6 +36,18 @@
     <string name="gr_new">New Group</string>
     <string name="gr_name">Group name</string>
     <string name="gr_people">Members</string>
+    <string name="gp_members">MEMBERS</string>
+    <string name="gp_you">You</string>
+    <string name="gp_creator">creator</string>
+    <string name="gp_member">member</string>
+    <string name="gp_add">Add members</string>
+    <string name="gp_leave_group">Leave group</string>
+    <string name="gp_leave_channel">Leave channel</string>
+    <string name="gp_leave_group_q">Leave the group?</string>
+    <string name="gp_leave_channel_q">Leave the channel?</string>
+    <string name="gp_remove_q">Remove from the group?</string>
+    <string name="gp_remove">Remove</string>
+    <string name="gp_done">Done</string>
     <plurals name="gr_members"><item quantity="one">%d member</item><item quantity="other">%d members</item></plurals>
     <string name="lw_photo">Photo</string>
     <string name="lw_video">Video</string>

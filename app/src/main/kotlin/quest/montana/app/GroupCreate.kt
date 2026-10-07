@@ -19,7 +19,9 @@ import android.widget.ScrollView
  * The people a group can carry to (iOS MTGroupPickStep.reachable): a conversation whose pipe this phone holds — a group letter
  * rides each member's own pipe, and a person without one could be shown as a member and never receive a word.
  */
-private fun reachable(): List<Chat> = chatRows().filter { Book.secret(SamePair.root(it.ref)) != null }
+private fun reachable(adding: String?): List<Chat> = chatRows().filter {
+    Book.secret(SamePair.root(it.ref)) != null && (adding == null || !Groups.carriesTo(it.ref, adding))   // adding: its own people are not listed again
+}
 
 /** A step's bar (iOS the sheet's toolbar): the cross or the back on the left, the title, the tick on the right — dim and deaf until it may act. */
 private class StepBar(c: Context, title: String, back: Boolean, onLead: () -> Unit, onDone: () -> Unit) : FrameLayout(c) {
@@ -64,10 +66,11 @@ private fun pickRow(c: Context, ch: Chat, on: Boolean, onTap: () -> Unit): View 
 /**
  * THE FIRST STEP — THE PEOPLE (iOS MTGroupPickStep, the author's word 05.10.2026: «choose Contacts to add to the group»): each
  * chosen by a tick, the search over them, the tick that goes on to the name. `onCreated` — the group's key, once it is born.
+ * `adding` — the group people are added to from its page (iOS MTGroupPickStep(adding:) → MTGroup.add): the tick ends the choosing.
  */
-fun groupPickPage(act: MainActivity, onClose: () -> Unit, onCreated: (String) -> Unit): View {
+fun groupPickPage(act: MainActivity, onClose: () -> Unit, onCreated: (String) -> Unit, adding: String? = null): View {
     val c: Context = act
-    val people = reachable()
+    val people = reachable(adding)
     val chosen = linkedSetOf<String>()
     val rows = c.vstack(Gravity.NO_GRAVITY)
     var query = ""
@@ -86,7 +89,8 @@ fun groupPickPage(act: MainActivity, onClose: () -> Unit, onCreated: (String) ->
     }
     bar = StepBar(c, c.getString(R.string.gr_choose), back = false, onLead = onClose) {
         val picked = people.filter { it.ref in chosen }
-        act.push { back -> groupNamePage(act, picked, back) { key -> back(); onClose(); onCreated(key) } }
+        if (adding != null) { Groups.add(adding, picked.map { it.ref }); onClose() }
+        else act.push { back -> groupNamePage(act, picked, back) { key -> back(); onClose(); onCreated(key) } }
     }
     bar.ready(false)
     val search = EditText(c).apply {

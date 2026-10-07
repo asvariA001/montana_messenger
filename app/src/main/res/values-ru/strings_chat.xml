@@ -36,6 +36,18 @@
     <string name="gr_new">Новая группа</string>
     <string name="gr_name">Название группы</string>
     <string name="gr_people">Участники</string>
+    <string name="gp_members">УЧАСТНИКИ</string>
+    <string name="gp_you">Вы</string>
+    <string name="gp_creator">создатель</string>
+    <string name="gp_member">участник</string>
+    <string name="gp_add">Добавить участников</string>
+    <string name="gp_leave_group">Покинуть группу</string>
+    <string name="gp_leave_channel">Покинуть канал</string>
+    <string name="gp_leave_group_q">Покинуть группу?</string>
+    <string name="gp_leave_channel_q">Покинуть канал?</string>
+    <string name="gp_remove_q">Удалить из группы?</string>
+    <string name="gp_remove">Убрать</string>
+    <string name="gp_done">Готово</string>
     <plurals name="gr_members"><item quantity="one">%d участник</item><item quantity="few">%d участника</item><item quantity="many">%d участников</item><item quantity="other">%d участника</item></plurals>
     <string name="lw_photo">Фото</string>
     <string name="lw_video">Видео</string>

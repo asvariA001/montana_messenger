@@ -659,7 +659,8 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         }, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER).apply { marginStart = dp(56); marginEnd = dp(56) })
         addView(faceSlot.apply {
             // the face opens the correspondent's page (iOS: the chat's header → MontanaPeerInfoScreen)
-            setOnClickListener { if (!group) { hideKeys(); act.push { close -> peerInfoPage(act, ref, close) } } }   // a group's face opens no person's page
+            // the face opens the correspondent's page, a group's face the group's page (iOS MontanaPeerInfoScreen, kind .group)
+            setOnClickListener { hideKeys(); act.push { close -> if (group) groupPage(act, ref, close) else peerInfoPage(act, ref, close) } }
             setOnLongClickListener {
                 AlertDialog.Builder(c).setMessage(R.string.delete_chat_q)
                     .setPositiveButton(R.string.delete) { _, _ -> hideKeys(); onClose(); Book.forget(ref) }

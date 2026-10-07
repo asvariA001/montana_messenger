@@ -305,6 +305,93 @@ object Groups {
         }
     }
 
+    // ── the group's life: its name and face, its people, leaving ──
+
+    /** One person of the group's page: the seat, the name it wears here, and the pipe this phone holds with them. */
+    class Seat(val seat: String, val name: String, val pipe: String)
+    /** The people of the group's page (iOS shownSeats): the owner's phone lists everyone it carries to, a member's the owner. */
+    fun shownSeats(c: Context, key: String): List<Seat> {
+        val g = state(key) ?: return emptyList()
+        return if (g.mine) g.members.map { Seat(it.seat, speakerName(c, speaker(g.id, it.seat)), it.pipe) }
+            else listOf(Seat(OWNER_SEAT, speakerName(c, speaker(g.id, OWNER_SEAT)), g.owner))
+    }
+    /** This phone owns the group: its page edits it (iOS state.mine). */
+    fun owns(key: String) = state(key)?.mine == true
+    /** Whether the owner's phone already carries the group to this person (iOS carries(to:in:)): the page's «add» lists the others only. */
+    fun carriesTo(pipe: String, key: String): Boolean {
+        val p = SamePair.root(pipe)
+        return state(key)?.members?.any { SamePair.root(it.pipe) == p } == true
+    }
+
+    /**
+     * THE OWNER RENAMES THE GROUP OR GIVES IT A NEW FACE (iOS renew): every member is told by the invitation's own word again —
+     * the same group, the same seat, the new title and face — so every phone shows what the owner's shows.
+     */
+    fun renew(key: String, title: String, face: ByteArray?) {
+        synchronized(lock) {
+            val g = state(key) ?: return
+            val name = clean(title, TITLE_LIMIT)
+            if (!g.mine || name.isEmpty() || (name == g.title && face == null)) return
+            g.title = name
+            save()
+            stand(g, face)
+            tellAll(g, face?.let { thumb(it) })
+            Log.i("Montana", "group_renewed face=" + (if (face == null) 0 else 1))
+        }
+    }
+
+    /** THE OWNER ADDS PEOPLE (iOS add): each new one is invited with a seat of their own and the group's face; everyone learns the count. */
+    fun add(key: String, people: List<String>) {
+        synchronized(lock) {
+            val g = state(key) ?: return
+            if (!g.mine) return
+            val held = g.members.map { SamePair.root(it.pipe) }.toSet()
+            val taken = (g.members.map { it.seat } + OWNER_SEAT).toMutableSet()
+            val fresh = mutableListOf<Member>()
+            for (p in people.map { SamePair.root(it) }.distinct()) {
+                if (isKey(p) || Book.secret(p) == null || p in held || g.members.size + fresh.size >= PEOPLE_LIMIT) continue
+                var seat = mintSeat()
+                while (seat in taken) seat = mintSeat()
+                taken.add(seat)
+                fresh.add(Member(seat, p))
+            }
+            if (fresh.isEmpty()) return
+            g.members.addAll(fresh)
+            g.count = g.members.size + 1
+            save()
+            val face = Book.face(key).takeIf { it.exists() }?.readBytes()?.let { thumb(it) }
+            tellAll(g, face, fresh.map { it.seat }.toSet())
+            Log.i("Montana", "group_added people=" + fresh.size + " count=" + g.count)
+        }
+    }
+
+    /** THE OWNER TAKES A PERSON OUT (iOS remove): told by their own word, carried to no more; everyone left learns the count. */
+    fun remove(key: String, seat: String) {
+        synchronized(lock) {
+            val g = state(key) ?: return
+            val m = (if (g.mine) g.members.firstOrNull { it.seat == seat } else null) ?: return
+            g.members.removeAll { it.seat == seat }
+            g.count = g.members.size + 1
+            save()
+            carry(JSONObject().put("t", "out").put("g", g.id), m.pipe, "", own = false)
+            tellAll(g, null)
+            Log.i("Montana", "group_removed count=" + g.count)
+        }
+    }
+
+    /** A MEMBER LEAVES (iOS leave): the owner is told and carries nothing more to this phone; the group's rows stay readable here. */
+    fun leave(key: String) {
+        synchronized(lock) {
+            val g = state(key) ?: return
+            if (g.mine || g.left) return
+            g.left = true
+            save()
+            carry(JSONObject().put("t", "bye").put("g", g.id), g.owner, "", own = false)
+            Log.i("Montana", "group_left by this phone")
+        }
+        Book.edit(key) {}   // the open chat trades its field for the note at once
+    }
+
     private fun mintId() = UUID.randomUUID().toString().replace("-", "").lowercase()
     private fun mintSeat() = mintId().take(8)
     /** The face an invitation carries (iOS thumb): small, so the word stays a letter and not a file. */
