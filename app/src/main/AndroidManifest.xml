@@ -55,7 +55,7 @@
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
             android:windowSoftInputMode="adjustResize"
             android:launchMode="singleTask">
-            <!-- AN INVITATION OPENS THE APP (iOS handleLink): the card's web link and its scheme form, as the system camera reads them. -->
+            <!-- AN INVITATION OPENS THE APP (iOS handleLink): the card's web link on both sites (montana.quest; montana.xxx, where the Business writes, iOS MontanaCard.linkHosts) and its scheme form, as the system camera reads them. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -63,6 +63,12 @@
                 <data android:scheme="https" android:host="montana.quest" android:pathPrefix="/perp/" />
                 <data android:scheme="https" android:host="montana.quest" android:pathPrefix="/temp/" />
                 <data android:scheme="https" android:host="montana.quest" android:pathPrefix="/r/" />
+                <data android:scheme="https" android:host="montana.xxx" android:pathPrefix="/perp/" />
+                <data android:scheme="https" android:host="montana.xxx" android:pathPrefix="/temp/" />
+                <data android:scheme="https" android:host="montana.xxx" android:pathPrefix="/r/" />
+                <data android:scheme="https" android:host="www.montana.xxx" android:pathPrefix="/perp/" />
+                <data android:scheme="https" android:host="www.montana.xxx" android:pathPrefix="/temp/" />
+                <data android:scheme="https" android:host="www.montana.xxx" android:pathPrefix="/r/" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />

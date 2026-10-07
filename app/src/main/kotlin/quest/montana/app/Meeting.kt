@@ -73,7 +73,10 @@ object Meeting {
         return raw
     }
 
-    private val shortForms = listOf("https://montana.quest/r/", "https://montana.quest/perp/", "https://montana.quest/temp/", "montana://r/")
+    /** ONE CARD, ONE NODE, TWO SITES (iOS MontanaCard.linkHosts / readPrefixes, 07.10.2026): the Business writes its invitations
+     *  on montana.xxx; this app writes montana.quest and reads the /r/, /perp/ and /temp/ forms of both sites. */
+    private val linkHosts = setOf("montana.quest", "montana.xxx", "www.montana.xxx")
+    private val shortForms = linkHosts.sorted().flatMap { h -> listOf("r", "perp", "temp").map { "https://" + h + "/" + it + "/" } } + "montana://r/"
     /** The 32-byte invitation inside a short link, or null (iOS MontanaCard.invite(inShort:)). */
     fun invite(link: String): ByteArray? {
         val t = normalize(link)
