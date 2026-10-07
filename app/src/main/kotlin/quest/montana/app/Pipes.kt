@@ -388,6 +388,7 @@ object Book {
         File(ctx.filesDir, "faces").deleteRecursively()
         DeviceVault.delete(Post.OUTBOX)
         Meeting.wipe(); SamePair.wipe(); Groups.wipe(); PeerLinks.wipe(); PasswordVault.wipe()
+        CoinBook.setAside()   // the book of a person forgotten leaves with them (iOS MTCoinPlace.setAside)
         changed()
     }
 }
@@ -746,6 +747,7 @@ object Post {
                 if (text.startsWith(Marks.MEDIA)) Media.fetch(Book.ctx, ref, mid, text) else receipt(ref, sid)
                 if (isNew && Book.openChat == ref) markRead(ref)
                 if (isNew && Book.openChat != ref) Notify.letter(ref, text)
+                if (isNew) CoinSend.landed(ref, mid, text, qt)   // a coin letter is credited once by its wire name (iOS MTCoinSend)
             }
         }
     }

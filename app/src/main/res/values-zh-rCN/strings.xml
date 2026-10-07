@@ -413,4 +413,34 @@
     <string name="update_failed">更新未能下载，请稍后再试</string>
     <string name="update_current">Montana 已是最新版本</string>
     <string name="update_tap_install">轻点安装更新</string>
+    <!-- TimeCoin: the book, the wallet, the coin letter (Coins.kt, WalletPage.kt; iOS MTWalletCore, MTWalletScreen) -->
+    <string name="coin_title">时间币</string>
+    <string name="coin_pantheon">烈焰万神殿</string>
+    <string name="coin_a11y">硬币</string>
+    <string name="coin_send">发送</string>
+    <string name="coin_levels">π 的等级</string>
+    <string name="coin_minting">铸造</string>
+    <string name="coin_from_pantheon">万神殿的硬币</string>
+    <string name="coin_received_n">收到的硬币</string>
+    <string name="coin_sent_n">已发送的硬币</string>
+    <string name="coin_in_montana">以 Montana 计的硬币</string>
+    <string name="coin_counted_here">在钱包开放之前，硬币在此手机上计数。</string>
+    <string name="coin_history">历史</string>
+    <string name="coin_to_level">距离第 %2$d 级还差 %1$s 枚</string>
+    <string name="coin_send_title">发送硬币</string>
+    <string name="coin_choose_chats">选择聊天</string>
+    <string name="coin_no_chats">暂无聊天</string>
+    <string name="coin_total">合计</string>
+    <string name="coin_not_enough">硬币不足</string>
+    <string name="coin_not_enough_sub">您的硬币余额不足。</string>
+    <string name="coin_you">您</string>
+    <string name="coin_letter_sent">已发送的硬币</string>
+    <string name="coin_letter_received">收到的硬币</string>
+    <string name="coin_letter_back">未送达，硬币已退回</string>
+    <string name="coins_word">硬币</string>
+    <string name="coin_k">k</string>
+    <string name="coin_close">关闭</string>
+    <string name="coin_no_moves">暂无硬币变动</string>
+    <string name="coin_kind_earn">在聊天中赚取</string>
+    <string name="coin_burned">已燃烧</string>
 </resources>

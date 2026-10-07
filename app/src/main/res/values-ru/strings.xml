@@ -413,4 +413,34 @@
     <string name="update_failed">Обновление не загрузилось — попробуйте позже</string>
     <string name="update_current">У вас последняя версия Montana</string>
     <string name="update_tap_install">Коснитесь, чтобы установить обновление</string>
+    <!-- TimeCoin: the book, the wallet, the coin letter (Coins.kt, WalletPage.kt; iOS MTWalletCore, MTWalletScreen) -->
+    <string name="coin_title">Монета Времени</string>
+    <string name="coin_pantheon">Пантеон в Огне</string>
+    <string name="coin_a11y">Монета</string>
+    <string name="coin_send">Отправить</string>
+    <string name="coin_levels">Уровни по Пи</string>
+    <string name="coin_minting">Чеканка</string>
+    <string name="coin_from_pantheon">Монеты Пантеона</string>
+    <string name="coin_received_n">Монеты получены</string>
+    <string name="coin_sent_n">Монеты отправлены</string>
+    <string name="coin_in_montana">Монеты в Монтане</string>
+    <string name="coin_counted_here">Монеты считаются на этом телефоне, пока кошелёк не откроется.</string>
+    <string name="coin_history">История</string>
+    <string name="coin_to_level">До уровня %2$d осталось %1$s</string>
+    <string name="coin_send_title">Отправить монеты</string>
+    <string name="coin_choose_chats">Выберите чаты</string>
+    <string name="coin_no_chats">Пока нет чатов</string>
+    <string name="coin_total">Итого</string>
+    <string name="coin_not_enough">Недостаточно монет</string>
+    <string name="coin_not_enough_sub">На вашем балансе меньше монет.</string>
+    <string name="coin_you">Вы</string>
+    <string name="coin_letter_sent">Монеты отправлены</string>
+    <string name="coin_letter_received">Монеты получены</string>
+    <string name="coin_letter_back">Не доставлено, монеты возвращены</string>
+    <string name="coins_word">монет</string>
+    <string name="coin_k">к</string>
+    <string name="coin_close">Закрыть</string>
+    <string name="coin_no_moves">Движений монет пока нет</string>
+    <string name="coin_kind_earn">Заработано в чате</string>
+    <string name="coin_burned">Сожжено</string>
 </resources>
