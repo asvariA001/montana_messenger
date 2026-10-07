@@ -61,6 +61,8 @@
     <string name="local_network">本地网络</string>
     <string name="st_allowed">已允许</string>
     <string name="st_denied">已拒绝</string>
+    <string name="gl_show_in_chat">在聊天中显示</string>
+    <string name="gl_yesterday">昨天</string>
     <plurals name="gr_members"><item quantity="other">%d 名成员</item></plurals>
     <string name="lw_photo">照片</string>
     <string name="lw_video">视频</string>

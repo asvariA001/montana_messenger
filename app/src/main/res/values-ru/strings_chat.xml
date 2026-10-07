@@ -61,6 +61,8 @@
     <string name="local_network">Локальная сеть</string>
     <string name="st_allowed">Разрешено</string>
     <string name="st_denied">Запрещено</string>
+    <string name="gl_show_in_chat">Показать в чате</string>
+    <string name="gl_yesterday">Вчера</string>
     <plurals name="gr_members"><item quantity="one">%d участник</item><item quantity="few">%d участника</item><item quantity="many">%d участников</item><item quantity="other">%d участника</item></plurals>
     <string name="lw_photo">Фото</string>
     <string name="lw_video">Видео</string>

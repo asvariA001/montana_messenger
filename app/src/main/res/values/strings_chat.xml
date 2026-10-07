@@ -61,6 +61,8 @@
     <string name="local_network">Local Network</string>
     <string name="st_allowed">Allowed</string>
     <string name="st_denied">Denied</string>
+    <string name="gl_show_in_chat">Show in chat</string>
+    <string name="gl_yesterday">Yesterday</string>
     <plurals name="gr_members"><item quantity="one">%d member</item><item quantity="other">%d members</item></plurals>
     <string name="lw_photo">Photo</string>
     <string name="lw_video">Video</string>
