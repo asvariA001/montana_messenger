@@ -405,4 +405,16 @@
     <string name="call_turn_on">Turn On</string>
     <string name="call_camera">Camera</string>
     <string name="call_title_video">Montana Video Call</string>
+    <!-- a newer build from the site (Update.kt) -->
+    <string name="update_channel">Updates</string>
+    <string name="update_title">New version of Montana</string>
+    <string name="update_text">Montana %1$s (%2$d) is ready — tap to update</string>
+    <string name="update_now">Update</string>
+    <string name="update_loading">Downloading Montana %1$s (%2$d)</string>
+    <string name="update_failed">The update did not download — try again later</string>
+    <string name="update_current">Montana is up to date</string>
+    <string name="update_tap_install">Tap to install the update</string>
+    <string name="wall_on">On %1$s\'s wall</string>
+    <string name="wall_reposted">Reposted from %1$s</string>
+    <string name="wall_someone">Someone</string>
 </resources>

@@ -404,4 +404,16 @@
     <string name="call_turn_on">Включить</string>
     <string name="call_camera">Камера</string>
     <string name="call_title_video">Видеовызов Montana</string>
+    <!-- a newer build from the site (Update.kt) -->
+    <string name="update_channel">Обновления</string>
+    <string name="update_title">Новая версия Montana</string>
+    <string name="update_text">Montana %1$s (%2$d) готова — коснитесь, чтобы обновить</string>
+    <string name="update_now">Обновить</string>
+    <string name="update_loading">Загрузка Montana %1$s (%2$d)</string>
+    <string name="update_failed">Обновление не загрузилось — попробуйте позже</string>
+    <string name="update_current">У вас последняя версия Montana</string>
+    <string name="update_tap_install">Коснитесь, чтобы установить обновление</string>
+    <string name="wall_on">На стене: %1$s</string>
+    <string name="wall_reposted">Репост со стены: %1$s</string>
+    <string name="wall_someone">Кто-то</string>
 </resources>

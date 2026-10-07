@@ -182,6 +182,7 @@ object Presence {
                 val payload = text.removePrefix(if (chat) WATCH else APP)
                 Prefs.setBool("phide_$ref", payload.drop(1).contains('h'))
                 val open = payload.startsWith("1")
+                if (age <= WORD_LIFE) Board.heardPresence(ref, payload)   // their wall's version (iOS heardHeld, wallHeard)
                 if (age <= WORD_LIFE) {
                     if (open) {
                         if (chat) inChatUntil[ref] = now + WORD_LIFE - age

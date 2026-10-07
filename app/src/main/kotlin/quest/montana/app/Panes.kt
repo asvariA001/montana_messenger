@@ -19,8 +19,8 @@ private fun emptyPane(c: Context, words: Int, above: View? = null): View = Frame
     }, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
 }
 
-/** THE FEED under the logo (iOS MTFeedTabView): the posts on my people's walls, by time; none yet — the walls come with the network. */
-fun feedPane(c: Context) = emptyPane(c, R.string.no_posts)
+/** THE FEED under the logo (iOS MTFeedTabView): the posts on my people's walls, by time (Board.kt). */
+fun feedPane(c: Context): View = FeedPane(c)
 
 /** ONE MOMENT OF THE GALLERY (iOS MTMoment): a photo or a video lying in a conversation — the file, where it lies, when. */
 private class Moment(val file: java.io.File, val photo: Boolean, val ref: String, val mid: String, val at: Long)

@@ -251,7 +251,7 @@ object Media {
         }.start()
     }
 
-    private fun download(man: JSONObject, dest: File): Boolean {
+    fun download(man: JSONObject, dest: File): Boolean {
         val bk = runCatching { Base64.decode(man.getString("bk"), Base64.DEFAULT) }.getOrNull() ?: return false
         val chunks = man.optJSONArray("chunks") ?: return false
         val tmp = File(dest.path + ".part")
