@@ -436,6 +436,17 @@ object CoinSend {
         return true
     }
 
+    /**
+     * COINS GIVEN ON A LETTER (iOS MTCoinSend.reacted 2601-2605, applyReactionFromControl 5901-5908; the author's word 03.10): a
+     * reaction word with the op «coin» carries coins the giver's book has paid; credited once, by the name it carries, never shown
+     * as an emoji. Android read it as the coin's emoji and credited nothing — the coins were gone from the giver and never came here.
+     */
+    private const val RECEIVED = "rc:"
+    fun reacted(c: Long, ref: String, sid: String, chat: String) {
+        if (c <= 0 || ref.isEmpty() || sid.isEmpty()) return
+        CoinBook.receive(c, chat, RECEIVED + ref, on = sid)
+    }
+
     /** A letter of theirs landed (Post): a coin letter is credited once by its wire name. */
     fun landed(ref: String, mid: String, text: String, qt: String?) {
         if (qt != null || Groups.isKey(ref)) return

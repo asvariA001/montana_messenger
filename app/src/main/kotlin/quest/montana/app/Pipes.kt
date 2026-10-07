@@ -731,7 +731,9 @@ object Post {
             }
             text.startsWith(Marks.REACTION) -> runCatching {
                 val o = JSONObject(text.removePrefix(Marks.REACTION)); val d = o.getString("sid").removePrefix("mid:"); val e = o.getString("e")
-                Book.edit(ref) { c -> c.msgs.find { it.mid == d }?.let { m -> if (o.optString("op") == "del") m.reactions.remove(e) else if (e !in m.reactions) m.reactions.add(e) } }
+                // coins given on a letter ride the reaction's road under their own op: credited, never an emoji (iOS 5901-5908)
+                if (o.optString("op") == "coin") CoinSend.reacted(o.optLong("c"), o.optString("r"), o.optString("sid"), ref)
+                else Book.edit(ref) { c -> c.msgs.find { it.mid == d }?.let { m -> if (o.optString("op") == "del") m.reactions.remove(e) else if (e !in m.reactions) m.reactions.add(e) } }
             }
             // THEIR PIN OR UNPIN OF A LETTER (iOS pinMark → applyPinFromControl): silent, the plate follows
             text.startsWith(PIN_MARK) -> applyPin(ref, text.removePrefix(PIN_MARK))
