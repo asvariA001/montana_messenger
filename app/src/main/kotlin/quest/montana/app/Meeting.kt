@@ -219,8 +219,14 @@ fun openInvitation(act: MainActivity, link: String) {
             when (o) {
                 // a pipe folded into a conversation is never opened as a page of its own (iOS meet → MTSamePair.root)
                 is Meeting.Outcome.Opened -> act.push { close -> conversationPage(act, SamePair.root(o.ref), close) }
-                else -> android.widget.Toast.makeText(act, Meeting.verdict(o), android.widget.Toast.LENGTH_LONG).show()
+                else -> sayVerdict(act, Meeting.verdict(o))
             }
         }
     }
+}
+
+/** THE VERDICT STANDS UNTIL IT IS READ (iOS montanaMeetVerdict: an alert with its OK over the whole app): a passing word was gone before
+ *  a person who looked away from the screen had read why the meeting did not open. */
+fun sayVerdict(act: MainActivity, words: Int) {
+    android.app.AlertDialog.Builder(act).setMessage(words).setPositiveButton(R.string.ok, null).show()
 }

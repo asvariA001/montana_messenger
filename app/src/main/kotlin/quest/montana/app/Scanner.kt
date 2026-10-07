@@ -91,7 +91,7 @@ fun scannerPage(act: MainActivity, onClose: () -> Unit, onCode: ((String) -> Boo
                     release(); onClose()
                     // the page leaves first, the chat comes after it (iOS 1052: 0.35 s)
                     MainThread.later(350) { act.push { close -> conversationPage(act, SamePair.root(o.ref), close) } }
-                } else AlertDialog.Builder(act).setTitle(Meeting.verdict(o)).setPositiveButton(R.string.ok, null)
+                } else AlertDialog.Builder(act).setMessage(Meeting.verdict(o)).setPositiveButton(R.string.ok, null)
                     .setOnDismissListener { done.set(false) }.show()
             }
         }

@@ -61,7 +61,11 @@ class MainActivity : Activity() {
         // «Share → Montana» from another app, else an invitation's link
         if (takeUpdate(intent)) return
         if (takeCall(intent)) return
-        if (!takeShared(intent, hasSeed && termsAccepted)) intent?.data?.let { openLink(it.toString()) }
+        // A LINK OR A SHARE IS TAKEN ONCE (iOS handleLink: one link, one handling): a page the system rebuilt, or a task brought
+        // back from the recent apps, carries the intent that once made it — the invitation opened anew and an expired card was
+        // said expired every time the app came back.
+        val handed = savedInstanceState == null && (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) == 0
+        if (handed && !takeShared(intent, hasSeed && termsAccepted)) intent?.data?.let { openLink(it.toString()) }
     }
 
     /**
@@ -116,9 +120,15 @@ class MainActivity : Activity() {
         if (!takeShared(intent, hasSeed && termsAccepted)) intent.data?.let { openLink(it.toString()) }
     }
     fun openLink(link: String) {
+        // A COIN'S LINK OPENS THE WALLET (iOS handleLink 1871-1877, the author's word 03.10): the coin letter's machine line is no
+        // invitation, and the invitation road answered it «could not be opened».
+        if (Meeting.normalize(link).startsWith(CoinLetter.LINK.substringBefore("/1/"))) {
+            if (hasSeed && termsAccepted) push { close -> walletPage(this, close) }
+            return
+        }
         if (!hasSeed || !termsAccepted) {
             Prefs.setStr("pendingInvite", link)
-            android.widget.Toast.makeText(this, R.string.invite_wait, android.widget.Toast.LENGTH_LONG).show()
+            sayVerdict(this, R.string.invite_wait)
             return
         }
         openInvitation(this, link)
