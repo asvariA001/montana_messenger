@@ -36,6 +36,8 @@ object LiveDraft {
     @Synchronized private fun stamp(): Long { lastStamp = maxOf(System.currentTimeMillis(), lastStamp + 1); return lastStamp }
 
     // ── what I say ──
+    /** «d» — the doors alive for me, in the one builder of the word (iOS sendDraftWord 474-475): the peer picks the first we share. */
+    private fun doors(body: JSONObject) = body.apply { Signal.aliveHosts().joinToString(",").takeIf { it.isNotEmpty() }?.let { put("d", it) } }
     /** The field as it stands; an empty text ends the draft (and is always said, whatever the switch). */
     fun say(ref: String, text: String, caret: Int = -1, replyMid: String = "", checkpoint: Boolean = false) {
         val ending = text.isEmpty()
@@ -49,7 +51,7 @@ object LiveDraft {
         val due = 250 - (now - (sentAt[ref] ?: 0))
         val speak = Runnable {
             sentAt[ref] = System.currentTimeMillis(); pending.remove(ref)
-            val body = JSONObject().put("t", text).put("c", caret).put("n", stamp())
+            val body = doors(JSONObject().put("t", text).put("c", caret).put("n", stamp()))
             if (replyMid.isNotEmpty()) body.put("rm", replyMid)
             if (checkpoint) body.put("ck", 1)
             Signal.post(ref, MARK + Base64.encodeToString(body.toString().toByteArray(), Base64.NO_WRAP))
@@ -71,13 +73,13 @@ object LiveDraft {
         if (!force && System.currentTimeMillis() - (linkSaidAt[ref] ?: 0L) < 6 * 3600_000L) return
         val (link, born) = MontanaCard.currentShortWithBorn(Book.ctx) ?: return
         linkSaidAt[ref] = System.currentTimeMillis()
-        val body = JSONObject().put("t", said[ref] ?: "").put("c", -1).put("n", stamp()).put("rl", link).put("rb", born)
+        val body = doors(JSONObject().put("t", said[ref] ?: "").put("c", -1).put("n", stamp()).put("rl", link).put("rb", born))
         Signal.post(ref, MARK + Base64.encodeToString(body.toString().toByteArray(), Base64.NO_WRAP))
     }
     /** «Hand me your link» (iOS askLinkWord, share contact): a peer of this build answers with its link at once. */
     fun askLink(ref: String) {
         if (Book.secret(ref) == null) return
-        val body = JSONObject().put("t", said[ref] ?: "").put("c", -1).put("n", stamp()).put("rq", 1)
+        val body = doors(JSONObject().put("t", said[ref] ?: "").put("c", -1).put("n", stamp()).put("rq", 1))
         Signal.post(ref, MARK + Base64.encodeToString(body.toString().toByteArray(), Base64.NO_WRAP))
     }
 

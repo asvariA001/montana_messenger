@@ -45,8 +45,64 @@ object Signal {
             val sealed = Wire.seal(Wire.bodyKey(secret, Wire.minute()), body) ?: return@Thread
             val cw = Wire.convW(secret, Wire.day())
             val req = JSONObject().put("conv", cw).put("from_id", Wire.subId(cw, twin)).put("env", Base64.encodeToString(sealed, Base64.NO_WRAP))
-            for (door in MontanaCard.doors) Wire.post(door, "/signal", req, 8000)
+            // a chat word passes a door resting dead for me; a call's word knocks every door (iOS postSignal 3010-3033)
+            val doors = if (epoch == "chat") MontanaCard.doors.filter { doorAlive(it) }.ifEmpty { MontanaCard.doors } else MontanaCard.doors
+            for (door in doors) {
+                val (code, _) = Wire.post(door, "/signal", req, 8000)
+                if (code == 200) doorAnswered(door) else doorFailed(door, code)
+            }
         }.start()
+    }
+
+    // ── the doors' life (iOS WakePush baseFailed 318-346, signalDoorAnswered 451-459, the path change 516-528) ──
+    private val doorFails = HashMap<String, Int>()
+    private val deathStreak = HashMap<String, Int>()
+    private val deadUntil = HashMap<String, Long>()
+    /** No answer, or the door's own failure: two in a row and it rests a minute, then two, four, eight at most. A refusal is an answer. */
+    fun doorFailed(door: String, code: Int) {
+        if (code != -1 && code < 500) { doorAnswered(door); return }
+        val now = System.currentTimeMillis()
+        val rest = synchronized(deadUntil) {
+            if ((deadUntil[door] ?: 0L) > now) return
+            val n = (doorFails[door] ?: 0) + 1
+            doorFails[door] = n
+            if (n < 2) return
+            doorFails[door] = 0
+            val streak = minOf((deathStreak[door] ?: 0) + 1, 4)
+            deathStreak[door] = streak
+            (60_000L shl (streak - 1)).also { deadUntil[door] = now + it }
+        }
+        Log.d("Montana", "sig_door dead " + host(door) + " code=" + code + " — not asked for " + rest / 1000 + "s")
+    }
+    fun doorAnswered(door: String) {
+        val revived = synchronized(deadUntil) {
+            val was = deathStreak.containsKey(door) || deadUntil.containsKey(door)
+            doorFails.remove(door); deathStreak.remove(door); deadUntil.remove(door)
+            was
+        }
+        if (revived) Log.d("Montana", "sig_door alive " + host(door))
+    }
+    fun doorAlive(door: String) = synchronized(deadUntil) { (deadUntil[door] ?: 0L) <= System.currentTimeMillis() }
+    private fun host(door: String) = android.net.Uri.parse(door).host ?: door
+    /** The doors alive for me, in the list's order — what I name to the peer with every word (iOS signalDoors 497-499). */
+    fun aliveHosts(): List<String> = MontanaCard.doors.filter { doorAlive(it) }.map { host(it) }
+
+    private var pathWatched = false
+    /** THE NETWORK PATH CHANGED (iOS 516-528): dead on one path says nothing of another — every door is forgiven at once. */
+    fun watchPath(c: Context) {
+        if (pathWatched) return
+        pathWatched = true
+        val cm = c.getSystemService(android.net.ConnectivityManager::class.java) ?: return
+        runCatching {
+            cm.registerDefaultNetworkCallback(object : android.net.ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(n: android.net.Network) = forgive("path available")
+                override fun onLost(n: android.net.Network) = forgive("path lost")
+            })
+        }
+    }
+    private fun forgive(why: String) {
+        synchronized(deadUntil) { deadUntil.clear(); doorFails.clear(); deathStreak.clear() }
+        Log.d("Montana", "sig_lane " + why + " — every door forgiven")
     }
 
     /**
@@ -111,10 +167,13 @@ object Signal {
                     ok
                 }
                 if (!go || twin == null || secret == null) return@Thread
+                // the standing question leaves a door resting dead for me; a path change forgives it (iOS 442-445, 516-528)
+                if (!doorAlive(door)) { Thread.sleep(2000); continue }
                 val cw = Wire.convW(secret, Wire.day())
                 val (code, text) = Wire.post(door, "/signal-fetch", JSONObject().put("conv", cw).put("from_id", Wire.subId(cw, twin)).put("wait", 12), 15_000)
                 EarService.awake()   // the answer woke the phone: it stays up for the word and the next question (the app closed)
-                if (code != 200 || text == null) { fails++; Thread.sleep(minOf(10_000L, 1000L * fails)); continue }
+                if (code != 200 || text == null) { doorFailed(door, code); fails++; Thread.sleep(minOf(10_000L, 1000L * fails)); continue }
+                doorAnswered(door)
                 fails = 0
                 runCatching { JSONObject(text).optJSONArray("envs") }.getOrNull()?.let { envs -> if (envs.length() > 0) open(ref, envs) }
             }
@@ -155,7 +214,9 @@ object Presence {
 
     // ── what I say ──
     fun sayTyping(ref: String) { if (sharing) Signal.post(ref, TYPING + saidTail()) }
-    fun sayChat(ref: String, open: Boolean) { if (sharing) Signal.post(ref, WATCH + (if (open) "1" else "0") + saidTail()) }
+    fun sayChat(ref: String, open: Boolean) { if (sharing) Signal.post(ref, WATCH + (if (open) "1" else "0") + saidTail() + doorTail()) }
+    /** «@DOORS» — the doors alive for me, in the chat word's tail (iOS doorTail 685-691): UPPERCASE, so no old reader takes a host's «h» for hiding. */
+    private fun doorTail() = Signal.aliveHosts().joinToString(",").let { if (it.isEmpty()) "" else "@" + it.uppercase() }
     fun sayApp(open: Boolean) {
         if (!sharing) return
         for (ref in Book.refs()) if (SamePair.merged(ref) == null && !PeerSafety.isBlocked(ref)) Signal.post(ref, APP + (if (open) "1" else "0") + saidTail())
@@ -272,6 +333,7 @@ object Presence {
     fun watchApp(c: Context) {
         if (watching) return
         watching = true
+        Signal.watchPath(c)
         (c.applicationContext as android.app.Application).registerActivityLifecycleCallbacks(object : android.app.Application.ActivityLifecycleCallbacks {
             override fun onActivityResumed(a: android.app.Activity) = appShown()
             override fun onActivityPaused(a: android.app.Activity) = appHidden()
