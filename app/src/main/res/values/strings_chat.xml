@@ -109,4 +109,7 @@
     <string name="gp_camera">Camera</string>
     <string name="gp_no_access">No access to photos</string>
     <plurals name="gp_add"><item quantity="one">Add %d photo</item><item quantity="other">Add %d photos</item></plurals>
+    <!-- the camera of the gallery's first tile (the platform camera's own modes) -->
+    <string name="cam_video">Video</string>
+    <string name="cam_photo">Photo</string>
 </resources>
