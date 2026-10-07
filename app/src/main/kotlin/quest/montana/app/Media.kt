@@ -61,6 +61,9 @@ object Media {
         return runCatching { JSONObject(String(plain, Charsets.UTF_8)) }.getOrNull()
     }
 
+    /** What a media letter says of itself as known here: the manifest kept with the row, or the one inside the letter. */
+    fun manifestOf(m: Msg): JSONObject? = m.meta?.let { runCatching { JSONObject(it) }.getOrNull() } ?: inline(m.text)
+
     // ── sending ──
 
     class Picked(val bytes: ByteArray, val kind: String, val ext: String, val name: String?, val du: Double? = null, val wave: FloatArray? = null, val round: Boolean = false)
@@ -106,18 +109,19 @@ object Media {
      * THE ONE ROAD OF A SENT FILE: the row stands at once with the local copy, the pieces are sealed and laid on the node,
      * then the letter with the manifest leaves by the ordinary post (the pieces first — the receiver must find them).
      */
-    fun send(c: Context, ref: String, p: Picked, caption: String, qt: String? = null) {
+    fun send(c: Context, ref: String, p: Picked, caption: String, qt: String? = null, group: MediaGroup.Slot? = null) {
         val mid = Marks.mintMid()
         val local = file(c, mid, p.ext)
         local.writeBytes(p.bytes)
         val provisional = Marks.MEDIA + JSONObject().put("k", p.kind).put("e", p.ext).put("sz", p.bytes.size).apply {
             p.name?.let { put("n", it) }; if (caption.isNotEmpty()) put("cap", caption); p.du?.let { put("du", it) }
             if (p.round) put("r", true)
+            MediaGroup.stamp(this, group)
             p.wave?.takeIf { it.isNotEmpty() }?.let { w -> put("wv", Base64.encodeToString(ByteArray(w.size) { (w[it] * 255).toInt().coerceIn(0, 255).toByte() }, Base64.NO_WRAP)) }
         }
         Book.edit(ref) { it.msgs.add(Msg(mid, provisional, true, Marks.birthMs(mid) ?: System.currentTimeMillis(), qt = qt, file = local.path)) }
         Thread {
-            val (letter, man) = seal(c, p, caption, local) ?: run {
+            val (letter, man) = seal(c, p, caption, local, group) ?: run {
                 Log.w("Montana", "media: the pieces did not reach the node"); Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.state = -1 }; return@Thread
             }
             Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.let { it.text = letter; it.meta = man } }
@@ -127,8 +131,17 @@ object Media {
         }.start()
     }
 
+    /**
+     * PICTURES PICKED TOGETHER LEAVE AS ONE GROUP (iOS sendAssets / sendPasted, MontanaConversation 3160-3206, 3568-3577): one
+     * key for the pick, the pick's order, the words with the first letter only; one picture is no group.
+     */
+    fun sendAll(c: Context, ref: String, picks: List<Picked>, caption: String) {
+        val slots = MediaGroup.slots(picks.size)
+        picks.forEachIndexed { i, p -> send(c, ref, p, if (i == 0) caption else "", group = slots[i]) }
+    }
+
     /** The letter and the manifest it stands for (the sender keeps its own manifest: its row draws from it). */
-    private fun seal(c: Context, p: Picked, caption: String, local: File): Pair<String, String>? {
+    private fun seal(c: Context, p: Picked, caption: String, local: File, group: MediaGroup.Slot? = null): Pair<String, String>? {
         val bk = MtBindings.nativeRandom(32) ?: return null
         val total = p.bytes.size
         val count = maxOf(1, (total + CHUNK - 1) / CHUNK)
@@ -160,6 +173,7 @@ object Media {
         // THE WAVE RIDES WITH THE LETTER (iOS «wv», MTWaveform.pack): one byte per line, 0…255.
         p.wave?.takeIf { it.isNotEmpty() }?.let { w -> m.put("wv", Base64.encodeToString(ByteArray(w.size) { (w[it] * 255).toInt().coerceIn(0, 255).toByte() }, Base64.NO_WRAP)) }
         preview(c, local, p.kind)?.let { b -> thumb(b)?.let { m.put("th", it) } }
+        MediaGroup.stamp(m, group)   // the sender's word on the group, so the receiver folds the plate in the sender's order
         val json = m.toString()
         if ((Marks.MEDIA + json).toByteArray().size <= 1900) return (Marks.MEDIA + json) to json
         val mk = MtBindings.nativeRandom(32) ?: return null
@@ -173,8 +187,29 @@ object Media {
 
     /** Every media letter of theirs still without its file is asked for (once at a time), and «delivered» follows the file. */
     fun fetchPending(c: Context) {
-        for (ch in Book.all()) for (m in ch.msgs) if (!m.mine && m.text.startsWith(Marks.MEDIA) && m.file == null) fetch(c, ch.ref, m.mid, m.text)
+        val auto = autoAllowed(c)
+        for (ch in Book.all()) for (m in ch.msgs) if (!m.mine && m.text.startsWith(Marks.MEDIA) && m.file == null) {
+            // a file that waits for a tap still has its manifest read: its small face, its kind and its group stand at once
+            if (auto) fetch(c, ch.ref, m.mid, m.text) else if (m.meta == null) learn(ch.ref, m.mid, m.text)
+        }
     }
+
+    /** The manifest alone (a small sealed blob, or the letter itself): kept with the row before any piece of the file. */
+    private fun learn(ref: String, mid: String, text: String) {
+        val key = "m:" + mid
+        synchronized(inFlight) {
+            val now = System.currentTimeMillis()
+            if ((lastTry[key] ?: 0) > now - 60_000 || !inFlight.add(key)) return
+            lastTry[key] = now
+        }
+        Thread {
+            try { manifest(text)?.let { man -> keepManifest(ref, mid, man) } }
+            catch (e: Exception) { Log.w("Montana", "media manifest: " + e.javaClass.simpleName) }
+            finally { synchronized(inFlight) { inFlight.remove(key) } }
+        }.start()
+    }
+    private fun keepManifest(ref: String, mid: String, man: JSONObject) =
+        Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.let { if (it.meta == null) it.meta = man.toString() } }
 
     /**
      * AUTOMATIC DOWNLOAD FOR THE CONNECTION THE PHONE IS ON (iOS MontanaNet.autoDownloadAllowed): the mobile or the Wi-Fi switch of
@@ -204,6 +239,8 @@ object Media {
         Thread {
             try {
                 val man = manifest(text) ?: return@Thread
+                // THE MANIFEST LANDS BEFORE THE FILE: the row folds into its group and shows its small face while the pieces travel
+                keepManifest(ref, mid, man)
                 val dest = file(c, mid, man.optString("e"))
                 if (!download(man, dest)) return@Thread
                 Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.let { it.file = dest.path; it.meta = man.toString() } }
@@ -312,4 +349,29 @@ class MediaProvider : ContentProvider() {
     override fun insert(uri: Uri, values: ContentValues?): Uri? = null
     override fun delete(uri: Uri, s: String?, a: Array<out String>?) = 0
     override fun update(uri: Uri, v: ContentValues?, s: String?, a: Array<out String>?) = 0
+}
+
+/**
+ * THE GROUP OF ONE PICK (iOS MTMediaGroup, MontanaMediaKit 1043-1076): pictures and films picked together leave under one key —
+ * every letter carries the key, its place and the group's size (gk, gi, gn in the manifest); the caption rides with the first
+ * letter only. Ten is the ceiling of a group; the eleventh picture of a pick opens the next key. Old readers skip the keys and
+ * draw the letters one by one.
+ */
+object MediaGroup {
+    const val CEILING = 10
+    class Slot(val key: String, val index: Int, val count: Int)
+    /** One key for the letters of one pick: sixteen hex digits of the phone's own randomness. */
+    private fun mintKey(): String = Wire.hex(MtBindings.nativeRandom(8) ?: ByteArray(8).also { java.security.SecureRandom().nextBytes(it) })
+    /** The slots of a whole pick under one fresh key; a pick of one is no group (every slot null). */
+    fun slots(total: Int): List<Slot?> {
+        if (total < 2) return List(total) { null }
+        val key = mintKey()
+        return List(total) { i ->
+            val chunk = i / CEILING
+            Slot(if (chunk == 0) key else key + "-" + chunk, i % CEILING, minOf(CEILING, total - chunk * CEILING))
+        }
+    }
+    fun stamp(o: JSONObject, g: Slot?) { if (g != null) o.put("gk", g.key).put("gi", g.index).put("gn", g.count) }
+    fun read(o: JSONObject?): Slot? = o?.optString("gk")?.takeIf { it.isNotEmpty() }?.let { Slot(it, o.optInt("gi"), o.optInt("gn")) }
+    fun of(m: Msg): Slot? = read(Media.manifestOf(m))
 }

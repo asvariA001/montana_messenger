@@ -344,7 +344,9 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         val chat = Book.chat(ref) ?: return
         column.removeAllViews()
         var lastDay = -1L
-        for (m in chat.msgs) {
+        // A MEDIA GROUP IS ONE ROW (iOS buildRows): its letters stand as one plate, chosen, forwarded and deleted together
+        for (row in feedRows(chat.msgs)) {
+            val m = row[0]
             val cal = java.util.Calendar.getInstance().apply { timeInMillis = m.at }
             val day = cal.get(java.util.Calendar.YEAR) * 1000L + cal.get(java.util.Calendar.DAY_OF_YEAR)
             if (day != lastDay) {
@@ -355,9 +357,9 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                         FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
                 }, lp().apply { topMargin = c.dp(8); bottomMargin = c.dp(8) })
             }
-            val b = letterBubble(c, m, chat)
+            val b = letterBubble(c, m, chat, row)
             if (selecting) {
-                // WHILE THE CHAT SELECTS a letter is a choice: a circle on the left, a tap chooses (iOS the selection rows)
+                // WHILE THE CHAT SELECTS a letter is a choice: a circle on the left, a tap chooses (iOS the selection rows); a plate whole
                 val chosen = m.mid in picked
                 column.addView(c.hstack {
                     gravity = Gravity.CENTER_VERTICAL
@@ -366,19 +368,19 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                         if (chosen) addView(c.icon(R.drawable.ic_check, Color.BLACK, 14), FrameLayout.LayoutParams(dp(14), dp(14), Gravity.CENTER))
                     }, lp(dp(22), dp(22)).apply { marginEnd = dp(8) })
                     addView(b.apply { isClickable = false }, lp(0, WRAP, 1f))
-                    pressable { if (!picked.remove(m.mid)) picked.add(m.mid); redraw(); drawFoot() }
+                    pressable { val mids = row.map { it.mid }; if (chosen) picked.removeAll(mids.toSet()) else picked.addAll(mids); redraw(); drawFoot() }
                 }, lp().apply { topMargin = c.dp(3) })
                 continue
             }
             // THE LADDER UNDER EVERY OWN BUBBLE (the author's word 29.09: «у каждого сообщения, по отдельности»): each letter its own rung
-            if (m.mine) (b.getChildAt(0) as LinearLayout).addView(c.deliveryLine(ref, m),
+            if (m.mine) (b.getChildAt(0) as LinearLayout).addView(c.deliveryLine(ref, row.last()),
                 LinearLayout.LayoutParams(WRAP, WRAP).apply { topMargin = c.dp(3); marginEnd = c.dp(4) })
             // THE MENU OPENS ON EVERY LETTER (iOS: the long press is the bubble's, whatever it holds): a picture, a film, a circle, a
             // voice or a link's card keeps its own tap, and its long press opens the letter's menu as the words' does
             b.getChildAt(0).holdEverywhere { letterMenu(act, ref, m, onReply = { replyTo = m; editing = null; showStrip(); showKeys() },
                 onEdit = { editing = m; replyTo = null; field.setText(m.text); field.setSelection(field.text.length); showStrip(); showKeys() },
-                onForward = { hideKeys(); act.push { close -> forwardPage(act, ref, listOf(m), close) { to -> close(); if (to != ref) { onClose(); act.push { c2 -> conversationPage(act, to, c2) } } } } },
-                onSelect = { hideKeys(); selecting = true; picked.clear(); picked.add(m.mid); redraw(); drawFoot() }, group = group); true }
+                onForward = { hideKeys(); act.push { close -> forwardPage(act, ref, row, close) { to -> close(); if (to != ref) { onClose(); act.push { c2 -> conversationPage(act, to, c2) } } } } },
+                onSelect = { hideKeys(); selecting = true; picked.clear(); picked.addAll(row.map { it.mid }); redraw(); drawFoot() }, group = group, members = row); true }
             // the pull to the left answers, as the menu's «Reply»; in a group, while this phone writes into it
             if (!group || Groups.canWrite(ref)) b.onReply = { replyTo = m; editing = null; showStrip(); showKeys() }
             b.tag = m.mid
@@ -919,7 +921,7 @@ private fun fillGroupFoot(c: Context, ref: String, into: FrameLayout) {
     into.visibility = if (into.childCount > 0) View.VISIBLE else View.GONE
 }
 
-private fun letterBubble(c: Context, m: Msg, chat: Chat): ReplySwipe = ReplySwipe(c).apply {
+private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = listOf(m)): ReplySwipe = ReplySwipe(c).apply {
     mine = m.mine
     val mine = m.mine
     addView(c.vstack(if (mine) Gravity.END else Gravity.START) {
@@ -943,7 +945,8 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat): ReplySwipe = ReplySwip
                 }, lp(WRAP, WRAP).apply { bottomMargin = dp(4) })
             }
             val call = Calls.info(m.text) != null
-            if (Stickers.body(c, m, this)) Unit else if (m.text.startsWith(Marks.MEDIA)) mediaBody(c, m, this)
+            if (1 < members.size) albumBody(c, members, this)   // the plate of a media group (Album.kt)
+            else if (Stickers.body(c, m, this)) Unit else if (m.text.startsWith(Marks.MEDIA)) mediaBody(c, m, this)
             else if (call) Calls.body(c, m, this)   // a call's row carries its moment inside, as iOS callBubble
             // A SECRET SHARED FROM PASSWORDS (iOS MTSecretLetter): the key and the title; the receiver's tap saves it
             else if (SecretLetter.parse(m.text) != null) addView(c.secretPlate(c as? MainActivity, SecretLetter.parse(m.text)!!, mine), lp(WRAP, WRAP))
@@ -975,7 +978,7 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat): ReplySwipe = ReplySwip
  * THE LETTER'S MENU (iOS MontanaMessageMenu): the room dims, the quick reactions stand over the letter, the actions under it —
  * Reply · Copy · Edit (one's own words) · Delete, which asks «for me» or «for everyone».
  */
-private fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Unit, onEdit: () -> Unit, onForward: () -> Unit, onSelect: () -> Unit, group: Boolean = false) {
+private fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Unit, onEdit: () -> Unit, onForward: () -> Unit, onSelect: () -> Unit, group: Boolean = false, members: List<Msg> = listOf(m)) {
     val c: Context = act
     lateinit var close: () -> Unit
     // A GROUP'S LETTER (iOS MontanaMessageMenu in a group): the deeds that tell the group ride its carrier (Groups.signal); the
@@ -1015,11 +1018,13 @@ private fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Un
             actions.removeAllViews()
             actions.addView(c.text(c.getString(R.string.delete_message_q), 13f, MT.gray, center = true).apply { setPadding(dp(16), dp(10), dp(16), dp(10)) }, lp())
             // in a group a speaker takes away their own letter for everyone (iOS canDeleteForEveryone: chat.isGroup ? m.isMine)
+            // a plate of a media group goes whole (iOS rowLetters: a group is one bubble)
+            val mids = members.map { it.mid }.toSet()
             if (!group || m.mine) row(c.getString(R.string.delete_for_everyone), R.drawable.ic_delete, red = true) {
-                Book.edit(ref) { ch -> ch.msgs.removeAll { it.mid == m.mid } }
-                if (group) Groups.signal(ref, Marks.DELETE + "mid:" + m.mid) else Post.send(ref, Marks.mintMid(), Marks.DELETE + "mid:" + m.mid)
+                Book.edit(ref) { ch -> ch.msgs.removeAll { it.mid in mids } }
+                for (x in mids) if (group) Groups.signal(ref, Marks.DELETE + "mid:" + x) else Post.send(ref, Marks.mintMid(), Marks.DELETE + "mid:" + x)
             }
-            row(c.getString(R.string.delete_for_me), R.drawable.ic_delete, red = true) { Book.edit(ref) { ch -> ch.msgs.removeAll { it.mid == m.mid } } }
+            row(c.getString(R.string.delete_for_me), R.drawable.ic_delete, red = true) { Book.edit(ref) { ch -> ch.msgs.removeAll { it.mid in mids } } }
             row(c.getString(R.string.cancel), R.drawable.ic_close, keep = true) { fillActions() }
         }
         // «Report» on their letter (iOS 499-502): the report of its sender
@@ -1064,7 +1069,7 @@ private fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Un
         })
     }
     val chat = Book.chat(ref)
-    val copy = if (chat != null) letterBubble(c, m, chat) else View(c)
+    val copy = if (chat != null) letterBubble(c, m, chat, members) else View(c)
     val page = FrameLayout(c).apply {
         setBackgroundColor(Color.argb(150, 0, 0, 0))
         isClickable = true
