@@ -28,6 +28,7 @@ import kotlin.math.abs
  * new one takes the window's place (iOS VideoKeeper).
  */
 class FilmActivity : Activity() {
+    override fun attachBaseContext(base: android.content.Context) = super.attachBaseContext(pinnedText(AppLanguage.wrap(base)))
     companion object {
         private const val EXTRA_FILE = "montana.film.file"
         fun open(c: Context, f: File) {

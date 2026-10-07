@@ -36,6 +36,17 @@ object MT {
 }
 
 fun Context.dp(v: Number): Int = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v.toFloat(), resources.displayMetrics).toInt()
+
+/**
+ * THE SYSTEM TEXT SIZE DISTORTS NOTHING (iOS 1454: every window pinned at its trait): the app's words, its menus and its
+ * dialogs keep the sizes they were drawn at, whatever the system's text size says.
+ */
+fun pinnedText(base: Context): Context {
+    val conf = android.content.res.Configuration(base.resources.configuration)
+    if (conf.fontScale == 1f) return base
+    conf.fontScale = 1f
+    return base.createConfigurationContext(conf)
+}
 fun View.dp(v: Number): Int = context.dp(v)
 
 // ─────────── layout parameters, written once ───────────
