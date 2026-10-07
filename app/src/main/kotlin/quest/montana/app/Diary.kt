@@ -23,6 +23,7 @@ object Diary {
     private const val PER_PASS = 32                 // iOS perPass: up to 8 MB of catching up per pass
     private var dir: File? = null
     private var started = false
+    @Volatile private var app: Context? = null
 
     /** Once a process: the reader of this process's own lines and the shipper (the app or its ear, whichever stands first). */
     @Synchronized fun start(c: Context) {
@@ -30,6 +31,7 @@ object Diary {
         started = true
         dir = File(c.filesDir, "Montana/Diagnostics").apply { mkdirs() }
         val app = c.applicationContext
+        this.app = app
         Thread({ listen() }, "diary").apply { isDaemon = true; start() }
         Thread({ ship(app) }, "diary-ship").apply { isDaemon = true; start() }
     }
@@ -59,6 +61,21 @@ object Diary {
         val f = File(d, FILE)
         runCatching { f.appendText(iso.format(java.util.Date(ms)) + hide(" " + words) + "\n") }
         if (f.length() >= ROTATE) rotate(d, f)
+        if (m.groupValues[3] == "E" || m.groupValues[4] == "AndroidRuntime") failure()
+    }
+
+    /**
+     * AN ERROR SHIPS AT ONCE (iOS shipOnFailure 3892-3907): errors come in bursts and one report is enough — five seconds fold
+     * them; a store every door refuses is not told of its own death at every breath.
+     */
+    @Volatile private var lastFailureShip = 0L
+    @Volatile private var refused = 0
+    private fun failure() {
+        val now = System.currentTimeMillis()
+        if (now - lastFailureShip <= 5000 || refused > 0) return
+        lastFailureShip = now
+        val c = app ?: return
+        Thread({ runCatching { if (Calls.talking() == null) pass(c) } }, "diary-failure").apply { isDaemon = true; start() }
     }
 
     private fun gen(d: File, g: Int) = File(d, FILE + (if (g == 0) ".prev" else ".prev." + g))
@@ -178,9 +195,10 @@ object Diary {
         val bytes = body.toString().length
         for (door in MontanaCard.doors) {
             val (code, _) = Wire.post(door, "/diag-put", body, 10_000 + bytes / 25)   // the deadline grows with the body
-            if (code == 200) { Signal.doorAnswered(door); return true }
+            if (code == 200) { Signal.doorAnswered(door); refused = 0; return true }
             Signal.doorFailed(door, code)
         }
+        refused++
         return false
     }
 }
