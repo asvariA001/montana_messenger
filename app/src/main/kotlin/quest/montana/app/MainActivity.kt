@@ -55,6 +55,7 @@ class MainActivity : Activity() {
         termsAccepted = Prefs.termsAccepted
         render()
         Scheduled.run()   // the app's clock for letters sent later (Schedule.kt)
+        Exits.witness(this)   // how the last run ended, said once (iOS run sentinel, 1336)
         CallEngine.warm(this)   // the call engine stands from launch, as iOS MontanaCall.shared
         // «Share → Montana» from another app, else an invitation's link
         if (takeUpdate(intent)) return

@@ -70,6 +70,9 @@ object Calls {
         val words = runCatching { JSONArray(String(payload, Charsets.UTF_8)) }.getOrNull() ?: return
         for (k in 0 until words.length()) {
             val w = words.optJSONObject(k) ?: continue
+            // EVERY CALL WORD OF THEIRS IS PRESENCE (iOS handleSignal 2026-2036, notePeerSeen 1243-1245): stamped now, whatever it
+            // says; only the invitation of a call already ended here proves nothing
+            if (!(w.optString("ctrl") == "call" && seedState(w.optString("s")) == "dead")) Presence.noteSeen(ref, System.currentTimeMillis())
             when (val ctrl = w.optString("ctrl")) {
                 "call" -> {
                     val ts = w.optLong("ts")
@@ -215,7 +218,8 @@ object Calls {
     private fun knock(r: Ring) {
         var n = 0
         while (synchronized(gate) { ring === r && !r.ringing && !r.answered }) {
-            wake(r, null)
+            // EVERY DOOR SAID «NO RECIPIENTS» (iOS 1810-1815): the far phone never registered for calls — knocking on cannot change it
+            if (wake(r, null) == NOBODY) { log("ring_nobody"); break }
             n++
             // THE SECOND BELL (iOS 1811-1819): ten seconds of knocking without «ringing» — the ring letter goes out loud, once
             if (n == 3 && synchronized(gate) { ring === r && !r.ringing }) Post.send(r.ref, "ringb-" + epochOf(r.seed), Marks.RING + ringWords(r, loud = true))
@@ -227,28 +231,34 @@ object Calls {
      * THE CALL'S WAKE (iOS WakePush.wakeVoip 3400-3483): «ring»‖0‖my address‖0‖deflate({o, v, s, n, g, av, rj}) sealed under the
      * pipe as a lane word is, posted to the doors' /wake-voip one by one until a door rang a phone. This build reads no answer off
      * the wake road and does not rejoin: «av» and «rj» say so. An offer too big for the platform's push rides the lane alone.
+     * RUNG when a door rang a phone; NOBODY when every door said 404 — no recipients (iOS 3536-3553); else 0.
      */
-    private fun wake(r: Ring, offer: String?): Boolean {
-        val twin = MontanaSeed.twin ?: return false
-        val secret = Book.secret(r.ref) ?: return false
+    private fun wake(r: Ring, offer: String?): Int {
+        val twin = MontanaSeed.twin ?: return 0
+        val secret = Book.secret(r.ref) ?: return 0
         fun sealed(o: String): String? {
             val words = JSONObject().put("o", o).put("v", r.video).put("s", r.seed).put("n", Prefs.userName.trim()).put("g", "")
                 .put("av", false).put("rj", false)
             val body = "ring".toByteArray() + byteArrayOf(0) + twin.toByteArray() + byteArrayOf(0) + Signal.deflate(words.toString().toByteArray())
             return Wire.seal(Wire.bodyKey(secret, Wire.minute()), body)?.let { Base64.encodeToString(it, Base64.NO_WRAP) }
         }
-        val env = sealed(offer ?: "")?.takeIf { it.length <= 4600 } ?: sealed("") ?: return false
+        val env = sealed(offer ?: "")?.takeIf { it.length <= 4600 } ?: sealed("") ?: return 0
         val cw = Wire.convW(secret, Wire.day())
         val req = JSONObject().put("conv", cw).put("from_id", Wire.subId(cw, twin)).put("env", env)
+        var saw404 = false
+        var sawOther = false
         for (door in MontanaCard.doors) {
             val (code, text) = Wire.post(door, "/wake-voip", req, 8000)
             val o = text?.let { runCatching { JSONObject(it) }.getOrNull() }
             val sent = o?.optInt("sent", o.optInt("woken", -1)) ?: -1
             log("wake code=" + code + " sent=" + sent + " offer=" + (offer != null))
-            if (code == 200 && sent > 0) return true
+            if (code == 200 && sent > 0) return RUNG
+            if (code == 404) saw404 = true else sawOther = true
         }
-        return false
+        return if (saw404 && !sawOther) NOBODY else 0
     }
+    private const val RUNG = 1
+    private const val NOBODY = 2
 
     /** The offer on the lane every two seconds until the far phone rings or answers, six times at most (iOS 1895-1918). */
     private fun offerOut(r: Ring, n: Int) {
