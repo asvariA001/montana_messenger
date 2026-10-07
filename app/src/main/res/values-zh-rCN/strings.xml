@@ -413,4 +413,7 @@
     <string name="update_failed">更新未能下载，请稍后再试</string>
     <string name="update_current">Montana 已是最新版本</string>
     <string name="update_tap_install">轻点安装更新</string>
+    <string name="wall_on">在%1$s的墙上</string>
+    <string name="wall_reposted">转发自 %1$s</string>
+    <string name="wall_someone">某人</string>
 </resources>

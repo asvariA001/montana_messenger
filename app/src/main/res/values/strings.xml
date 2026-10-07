@@ -414,4 +414,7 @@
     <string name="update_failed">The update did not download — try again later</string>
     <string name="update_current">Montana is up to date</string>
     <string name="update_tap_install">Tap to install the update</string>
+    <string name="wall_on">On %1$s\'s wall</string>
+    <string name="wall_reposted">Reposted from %1$s</string>
+    <string name="wall_someone">Someone</string>
 </resources>

@@ -413,4 +413,7 @@
     <string name="update_failed">Обновление не загрузилось — попробуйте позже</string>
     <string name="update_current">У вас последняя версия Montana</string>
     <string name="update_tap_install">Коснитесь, чтобы установить обновление</string>
+    <string name="wall_on">На стене: %1$s</string>
+    <string name="wall_reposted">Репост со стены: %1$s</string>
+    <string name="wall_someone">Кто-то</string>
 </resources>
