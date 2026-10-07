@@ -185,7 +185,7 @@ object Meeting {
      * invitation's letter key of this minute, boxed under the invitation's daily label. `conf` is the key confirmation the
      * owner's box road demands (MontanaFirstContact.firstConfirm).
      */
-    fun knockFirst(secret: ByteArray, ct: ByteArray, inv: ByteArray, mid: String, text: String): Boolean {
+    fun knockFirst(secret: ByteArray, ct: ByteArray, inv: ByteArray, mid: String, text: String, silent: Boolean = false): Boolean {
         val twin = MontanaSeed.twin ?: return false
         val conf = MontanaCard.b64url(Wire.sha("mt-first-conf".toByteArray() + byteArrayOf(0), secret, ct).copyOf(16))
         var body = ct
@@ -197,7 +197,7 @@ object Meeting {
         for (door in MontanaCard.doors) {
             val env = Wire.seal(Wire.bodyKey(letterKey, Wire.minute()), body) ?: return false
             val (code, _) = Wire.post(door, "/wake", JSONObject().put("conv", cw).put("from_id", Wire.subId(cw, twin)).put("mid", mid)
-                .put("env", Base64.encodeToString(env, Base64.NO_WRAP)))
+                .put("env", Base64.encodeToString(env, Base64.NO_WRAP)).apply { if (silent) put("silent", true) })   // a service word: no banner
             if (code == 200) return true
         }
         return false

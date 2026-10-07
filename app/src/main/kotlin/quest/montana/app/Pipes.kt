@@ -141,6 +141,15 @@ object Marks {
     const val CALL = "\u200B\u200BCL:"   // + {v, inc, dur, miss}: a call's row, laid by each phone for itself (iOS callMark), never sent
     /** A word of the wire, not a row of the feed. */
     fun isService(t: String) = t.startsWith("​") || t.startsWith("⁣")
+    /**
+     * A WORD OF THE WIRE NEVER RINGS (iOS isSilentLetter, isControlMarker): receipts, typing, drafts, the profile (name, face,
+     * words, card, ground), deletions, edits, pins, presence, the set's and the wall's words ride a silent push — no banner on
+     * their phone. Media, voice and stickers are letters and ring; a call's ring letter rings by its own road.
+     */
+    private val SILENT = listOf(READ, DELIVERED, TYPING, REACTION, AVATAR, NAME, ABOUT, "​​PG:", "​​QC:", DELETE,
+        CONVDEL_MARK, "​​DF:", "​​WH:", "​​PA:", "​​EX:", "​​CG:", Presence.WATCH, PLAYED,
+        Presence.APP, EDIT, PIN_MARK, "​​SP:", "​​WL:", SAME_ASK, SAME_YES, "​​PX:", LiveDraft.MARK)
+    fun isSilent(t: String) = SILENT.any { t.startsWith(it) }
 
     /** A letter's name: t<birth ms>-<UUID> (iOS ChatStore.mintMid). */
     private var lastMs = 0L
@@ -441,7 +450,7 @@ object Post {
                 if (Marks.isService(text) && !text.startsWith(Marks.MEDIA) && !text.startsWith(Marks.VOICE) && !text.startsWith(Marks.SAME_ASK)) false
                 else {
                     val words = if (text.toByteArray().size > 300) sealLong(mid, text) else text
-                    words != null && Meeting.knockFirst(secret, intro.first, intro.second, mid, words)
+                    words != null && Meeting.knockFirst(secret, intro.first, intro.second, mid, words, Marks.isSilent(text))
                 }
             } else knock(secret, mid, text, o.optString("qt").ifEmpty { null }, o.optString("qm").ifEmpty { null }, o.optString("lp").ifEmpty { null })
             if (sent) {
@@ -478,10 +487,12 @@ object Post {
         if (body.size > Wire.ENVELOPE) return false
         val plain = body + ByteArray(Wire.ENVELOPE - body.size)
         val cw = Wire.convW(secret, Wire.day())
+        // a service word asks the node for a silent push (iOS wake: body["silent"]), judged by its words, not by a long letter's reference
+        val silent = Marks.isSilent(text0)
         for (door in MontanaCard.doors) {
             val env = Wire.seal(Wire.bodyKey(secret, Wire.minute()), plain) ?: return false
             val (code, _) = Wire.post(door, "/wake", JSONObject().put("conv", cw).put("from_id", Wire.subId(cw, twin)).put("mid", mid)
-                .put("env", Base64.encodeToString(env, Base64.NO_WRAP)))
+                .put("env", Base64.encodeToString(env, Base64.NO_WRAP)).apply { if (silent) put("silent", true) })
             if (code == 200) return true
         }
         return false
