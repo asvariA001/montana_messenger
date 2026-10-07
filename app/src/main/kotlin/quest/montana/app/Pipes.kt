@@ -528,15 +528,34 @@ object Post {
      */
     fun announce(ref: String) {
         val name = Prefs.userName.trim()
-        if (name.isNotEmpty() && Prefs.str("annName.$ref", "") != name) {
-            Prefs.setStr("annName.$ref", name); send(ref, Marks.mintMid(), Marks.NAME + name)
+        if (name.isNotEmpty() && Prefs.str("annName2." + ref, "") != name && !inFlight("N", ref, name)) {
+            val mid = Marks.mintMid(); flight("N", ref, name, mid); send(ref, mid, Marks.NAME + name)
         }
         MyAbout.sendIfNeeded(ref)
         val face = SelfFace.bytes(Book.ctx) ?: ByteArray(0)
         val tag = Wire.hex(Wire.sha(face)).take(16)
-        if (Prefs.str("annFace.$ref", "") != tag) {
-            Prefs.setStr("annFace.$ref", tag)
-            send(ref, Marks.mintMid(), Marks.AVATAR + if (face.isEmpty()) "" else Base64.encodeToString(face, Base64.NO_WRAP))
+        if (Prefs.str("annFace2." + ref, "") != tag && !inFlight("F", ref, tag)) {
+            val mid = Marks.mintMid(); flight("F", ref, tag, mid)
+            send(ref, mid, Marks.AVATAR + if (face.isEmpty()) "" else Base64.encodeToString(face, Base64.NO_WRAP))
+        }
+    }
+
+    /**
+     * «ANNOUNCED» MEANS «RECEIPTED» (iOS Announced.recordDelivered 424-453; the mark's meaning changed, so it lives under a
+     * new name, 351-358): the only writer of the mark is the receipt of the very letter that carried the value. A promise
+     * written at the send outlived a lost letter, and the face was never announced again until it changed. Until the
+     * receipt the value is on its way — an hour, as the iPhone's queue holds an unanswered letter — and is not said twice.
+     */
+    private fun flight(kind: String, ref: String, value: String, mid: String) =
+        Prefs.setStr("annFly" + kind + "." + ref, value + "\n" + mid + "\n" + System.currentTimeMillis())
+    private fun inFlight(kind: String, ref: String, value: String): Boolean {
+        val f = Prefs.str("annFly" + kind + "." + ref, "").split("\n")
+        return f.size == 3 && f[0] == value && System.currentTimeMillis() - (f[2].toLongOrNull() ?: 0L) < 3_600_000L
+    }
+    private fun announcedDelivered(ref: String, mid: String) {
+        for ((kind, mark) in listOf("N" to "annName2.", "F" to "annFace2.")) {
+            val f = Prefs.str("annFly" + kind + "." + ref, "").split("\n")
+            if (f.size == 3 && f[1] == mid) { Prefs.setStr(mark + ref, f[0]); Prefs.remove("annFly" + kind + "." + ref) }
         }
     }
 
@@ -658,6 +677,7 @@ object Post {
             }
             text.startsWith(Marks.DELIVERED) -> {
                 val d = text.removePrefix(Marks.DELIVERED)
+                announcedDelivered(ref, d)   // a receipt of my name or my face writes the mark (iOS recordDelivered)
                 // a group's copy witnesses the group's row, never a row of the pipe (iOS markDelivered → MTGroup.copyDelivered)
                 if (Groups.copyDelivered(d)) return
                 // THE READ WORD MAY HAVE OUTRUN THIS RECEIPT (iOS markDelivered 4221-4226): a film is told «delivered» only once
