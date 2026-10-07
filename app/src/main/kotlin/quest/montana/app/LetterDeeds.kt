@@ -143,6 +143,8 @@ fun forwardOne(c: Context, target: String, m: Msg) {
         return
     }
     if (Marks.isService(m.text)) return
+    // into a group the words ride the group's carrier with the forwarded quote (iOS forward → ChatStore.send → MTGroup.send)
+    if (Groups.isKey(target)) { Groups.send(target, m.text, FORWARDED_QUOTE, null); return }
     val mid = Marks.mintMid()
     Book.edit(target) { it.msgs.add(Msg(mid, m.text, true, Marks.birthMs(mid) ?: System.currentTimeMillis(), qt = FORWARDED_QUOTE)) }
     Post.send(target, mid, m.text, FORWARDED_QUOTE)
@@ -155,8 +157,8 @@ fun forwardOne(c: Context, target: String, m: Msg) {
 fun forwardPage(act: MainActivity, from: String, letters: List<Msg>, onBack: () -> Unit, onSent: (String) -> Unit): View {
     val c: Context = act
     return settingsPage(act, c.getString(R.string.ld_forward_to), onBack) {
-        // nothing reaches a group's feed but the group's own word (Groups): a group is no place to forward to from here
-        for (ch in (listedChats().filter { it.ref != from } + listOfNotNull(Book.chat(from))).filter { !Groups.isKey(it.ref) }) {
+        // the list's chats, groups included (iOS ForwardPickerView: store.listChats()) — a group this phone writes into
+        for (ch in (listedChats().filter { it.ref != from } + listOfNotNull(Book.chat(from))).filter { !Groups.isKey(it.ref) || Groups.canWrite(it.ref) }) {
             addView(c.hstack {
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(dp(4), dp(8), dp(4), dp(8))

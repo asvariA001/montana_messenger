@@ -57,7 +57,7 @@ fun sharePage(act: MainActivity, s: Shared, onClose: () -> Unit): View {
     val rows = c.vstack(Gravity.NO_GRAVITY)
     fun fill() {
         rows.removeAllViews()
-        for (ch in listedChats().filter { !Groups.isKey(it.ref) }) {   // nothing reaches a group's feed but the group's own word (Groups)
+        for (ch in listedChats().filter { !Groups.isKey(it.ref) || Groups.canWrite(it.ref) }) {   // a group this phone writes into takes it by its carrier (Groups.send, carryMedia)
             val on = ch.ref in chosen
             rows.addView(c.hstack {
                 gravity = Gravity.CENTER_VERTICAL
