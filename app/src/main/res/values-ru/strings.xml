@@ -443,4 +443,7 @@
     <string name="coin_no_moves">Движений монет пока нет</string>
     <string name="coin_kind_earn">Заработано в чате</string>
     <string name="coin_burned">Сожжено</string>
+    <string name="wall_on">На стене: %1$s</string>
+    <string name="wall_reposted">Репост со стены: %1$s</string>
+    <string name="wall_someone">Кто-то</string>
 </resources>

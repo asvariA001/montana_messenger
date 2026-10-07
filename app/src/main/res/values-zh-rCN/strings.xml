@@ -443,4 +443,7 @@
     <string name="coin_no_moves">暂无硬币变动</string>
     <string name="coin_kind_earn">在聊天中赚取</string>
     <string name="coin_burned">已燃烧</string>
+    <string name="wall_on">在%1$s的墙上</string>
+    <string name="wall_reposted">转发自 %1$s</string>
+    <string name="wall_someone">某人</string>
 </resources>

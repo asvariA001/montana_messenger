@@ -720,6 +720,8 @@ object Post {
             // A GROUP'S WORD (iOS MTGroup.handle): an invitation, a letter or an answer of a group its owner carries over the pipes —
             // it lands in the group's own feed, never as a row of this pipe, and its copy is receipted by its own name
             text.startsWith(Groups.MARK) -> Groups.handle(ref, sid, text)
+            // A WORD OF A WALL (iOS MTBoard.handle): a page of a person's wall, an ask for mine — receipted, never a row
+            text.startsWith(Board.MARK) -> Board.handle(ref, sid, text)
             // A CALL AS A LETTER (iOS ringMark): it rings here and is never a row; its age and the seeds seen cut the stale (Calls)
             text.startsWith(Marks.RING) -> Calls.ringLetter(ref, text.removePrefix(Marks.RING))
             // THE CALLER'S «MISSED» (iOS missedCallMark): the row of a call this phone never saw, receipted either way

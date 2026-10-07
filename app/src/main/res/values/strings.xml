@@ -444,4 +444,7 @@
     <string name="coin_no_moves">No coin moves yet</string>
     <string name="coin_kind_earn">Earned in a chat</string>
     <string name="coin_burned">Burned</string>
+    <string name="wall_on">On %1$s\'s wall</string>
+    <string name="wall_reposted">Reposted from %1$s</string>
+    <string name="wall_someone">Someone</string>
 </resources>
