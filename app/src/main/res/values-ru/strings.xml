@@ -520,4 +520,5 @@
     <string name="call_end_ask">Завершить звонок?</string>
     <string name="filter_hidden">Скрыто фильтром</string>
     <string name="filter_tap">Нажмите, чтобы показать</string>
+    <string name="channel_letters_quiet">Сообщения без звука</string>
 </resources>

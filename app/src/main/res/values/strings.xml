@@ -521,4 +521,5 @@
     <string name="call_end_ask">End the call?</string>
     <string name="filter_hidden">Hidden by the filter</string>
     <string name="filter_tap">Tap to show</string>
+    <string name="channel_letters_quiet">Messages without sound</string>
 </resources>

@@ -158,12 +158,19 @@ fun Context.peerFace(ref: String, name: String, sizeDp: Int): View {
 
 object Notify {
     private const val CHANNEL = "letters"
+    private const val QUIET = "letters_quiet"
     fun letter(ref: String, text: String, who: String? = null) {
         val c = Book.ctx
         val nm = c.getSystemService(NotificationManager::class.java) ?: return
         if (!Prefs.bool("notifMessages", true)) return
         if (ChatMarks.isMuted(ref)) return   // muted: no banner and no sound (iOS willPresent «why=muted»)
-        nm.createNotificationChannel(NotificationChannel(CHANNEL, c.getString(R.string.channel_letters), NotificationManager.IMPORTANCE_HIGH))
+        // THE SOUND IS THE PERSON'S SWITCH (iOS MontanaNotify 379, NotificationService 400): a channel's sound is the platform's
+        // once made, so the quiet letters have a channel of their own
+        val sound = Prefs.bool("notifSound", true)
+        val channel = if (sound) CHANNEL else QUIET
+        nm.createNotificationChannel(NotificationChannel(channel, c.getString(if (sound) R.string.channel_letters else R.string.channel_letters_quiet), NotificationManager.IMPORTANCE_HIGH).apply {
+            if (!sound) { setSound(null, null); enableVibration(false) }
+        })
         val chat = Book.chat(ref)
         val title = if (Prefs.bool("notifSender", true)) chat?.shown?.ifBlank { null } ?: c.getString(R.string.peer) else "Montana"
         val shown = if (!Prefs.bool("notifPreview", true)) c.getString(R.string.new_message)
@@ -173,12 +180,19 @@ object Notify {
         val open = PendingIntent.getActivity(c, ref.hashCode(),
             c.packageManager.getLaunchIntentForPackage(c.packageName)?.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP) ?: Intent(),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        val n = Notification.Builder(c, CHANNEL)
+        val n = Notification.Builder(c, channel)
             .setSmallIcon(R.drawable.ic_launcher_monochrome)
             .setContentTitle(title)   // USER-DATA: the correspondent's name
             .setContentText(body)     // USER-DATA: the letter
             .setAutoCancel(true)
             .setContentIntent(open)
+            // THE NAME STANDS ON THE LOCKED SCREEN (iOS 1715, hiddenPreviewsShowTitle, MontanaP2PNode 1268-1290): with the system
+            // hiding a locked phone's contents, the person's name stays and the words read «New message»; the switch can take it
+            .setPublicVersion(Notification.Builder(c, channel)
+                .setSmallIcon(R.drawable.ic_launcher_monochrome)
+                .setContentTitle(if (Prefs.bool("notifLockName", true)) title else "Montana")   // USER-DATA: the correspondent's name
+                .setContentText(c.getString(R.string.new_message))
+                .build())
             .build()
         runCatching { nm.notify(ref.hashCode(), n) }
     }
