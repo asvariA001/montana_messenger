@@ -46,7 +46,7 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
     private val send = ImageView(c).apply {
         setImageResource(R.drawable.send_button); scaleType = ImageView.ScaleType.FIT_CENTER
         contentDescription = c.getString(R.string.send)
-        pressable { if (field.text.isNotBlank()) onSend() }
+        pressable { if (field.text.isNotBlank() || attached) onSend() }
         setOnLongClickListener { if (field.text.isNotBlank()) onSendLater?.invoke(it); onSendLater != null }   // a hold: «Send later» (iOS)
     }
     private val record = RecordKey(c)
@@ -124,9 +124,13 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
         syncSend()
     }
 
-    /** Words → the send artwork; no words → the recording button (iOS sendColumn). */
+    /** Pictures wait above the field (iOS hasAttachment): the send artwork stands even without words — it sends them. */
+    var attached = false
+        set(v) { field = v; syncSend() }
+
+    /** Words or a waiting picture → the send artwork; neither → the recording button (iOS sendColumn). */
     fun syncSend() {
-        val words = field.text.isNotBlank()
+        val words = this.field.text.isNotBlank() || attached
         send.visibility = if (words) View.VISIBLE else View.GONE
         record.visibility = if (words) View.GONE else View.VISIBLE
     }

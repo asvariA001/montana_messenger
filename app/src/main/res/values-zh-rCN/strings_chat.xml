@@ -105,4 +105,8 @@
     <string name="lw_media">媒体</string>
     <string name="lw_sticker">贴纸</string>
     <string name="lw_gif">GIF</string>
+    <!-- the gallery of the compose row (iOS MTGalleryPick: Camera, No access to photos, Add %lld photos) -->
+    <string name="gp_camera">相机</string>
+    <string name="gp_no_access">无法访问照片</string>
+    <plurals name="gp_add"><item quantity="other">添加 %d 张照片</item></plurals>
 </resources>

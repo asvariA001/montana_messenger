@@ -105,4 +105,8 @@
     <string name="lw_media">Медиа</string>
     <string name="lw_sticker">Стикер</string>
     <string name="lw_gif">GIF</string>
+    <!-- the gallery of the compose row (iOS MTGalleryPick: Camera, No access to photos, Add %lld photos) -->
+    <string name="gp_camera">Камера</string>
+    <string name="gp_no_access">Нет доступа к фото</string>
+    <plurals name="gp_add"><item quantity="one">Добавить %d фото</item><item quantity="few">Добавить %d фото</item><item quantity="many">Добавить %d фото</item><item quantity="other">Добавить %d фото</item></plurals>
 </resources>

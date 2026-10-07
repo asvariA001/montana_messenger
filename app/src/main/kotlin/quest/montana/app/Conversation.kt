@@ -403,7 +403,24 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             if (editing == null) LiveDraft.say(ref, s?.toString()?.takeIf { it.isNotBlank() } ?: "", field.selectionEnd, replyTo?.mid ?: "")
         }
     })
+    // WHAT WAITS ABOVE THE FIELD (iOS pastedPreview, MontanaConversation 3087-3159): the chosen pictures themselves, 116 by 78,
+    // the corner rounded, the cross in the top corner of each, not a word beside them; more than three travel sideways
+    val staged = ArrayList<Pair<Media.Picked, android.graphics.Bitmap?>>()
+    val stagedRow = c.hstack { setPadding(dp(16), dp(2), dp(16), dp(2)) }
+    val stagedStrip = HorizontalScrollView(c).apply {
+        isHorizontalScrollBarEnabled = false; visibility = View.GONE; setPadding(0, c.dp(6), 0, c.dp(6)); addView(stagedRow)
+    }
+    lateinit var drawStaged: () -> Unit
+    // THE PICTURES LEAVE WITH THE FIELD'S WORDS AS ONE GROUP (iOS sendPasted 3160-3206): the words ride with the first of them
+    fun sendStaged() {
+        val words = field.text.toString().trim()
+        field.setText(""); Prefs.setStr("draft." + ref, "")
+        val picks = staged.map { it.first }
+        staged.clear(); drawStaged()
+        Thread { Media.sendAll(c, ref, picks, words); MainThread.post { toBottom() } }.start()
+    }
     val bar = ChatInputBar(act, field) {
+        if (staged.isNotEmpty() && editing == null) { sendStaged(); return@ChatInputBar }
         val words = field.text.toString().trim()
         field.setText("")
         val e = editing
@@ -454,7 +471,47 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         }.start()
     }
     // THE CAMERA BESIDE THE PHOTOS (iOS MTGalleryPick: the camera's tile, «All photos»): a shot goes the picked picture's road
-    bar.onGallery = { hideKeys(); cameraOrPhotos(act) { how -> if (how == null) act.pickVisual(sendPicked(false)) else Capture.shoot(act, video = how) { u -> if (u != null) sendPicked(false)(u) } } }
+    drawStaged = {
+        stagedRow.removeAllViews()
+        for (s in staged.toList()) stagedRow.addView(FrameLayout(c).apply {
+            addView(ImageView(c).apply {
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                if (s.second != null) setImageBitmap(s.second) else setBackgroundColor(Color.rgb(51, 51, 51))
+                outlineProvider = object : android.view.ViewOutlineProvider() {
+                    override fun getOutline(v: View, o: android.graphics.Outline) = o.setRoundRect(0, 0, v.width, v.height, v.dp(12).toFloat())
+                }
+                clipToOutline = true
+            }, FrameLayout.LayoutParams(MATCH, MATCH))
+            if (s.first.kind == "vid") addView(c.icon(R.drawable.ic_play_fill, Color.WHITE), FrameLayout.LayoutParams(c.dp(22), c.dp(22), Gravity.CENTER))
+            // the cross drawn small and taken on the platform's least target: 22 drawn, 44 to the finger, grown inward from the corner
+            addView(FrameLayout(c).apply {
+                contentDescription = c.getString(R.string.cancel)
+                addView(FrameLayout(c).apply {
+                    background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.argb(191, 0, 0, 0)) }
+                    addView(c.icon(R.drawable.ic_close, Color.WHITE), FrameLayout.LayoutParams(c.dp(11), c.dp(11), Gravity.CENTER))
+                }, FrameLayout.LayoutParams(c.dp(22), c.dp(22), Gravity.TOP or Gravity.END).apply { setMargins(0, c.dp(4), c.dp(4), 0) })
+                pressable { staged.remove(s); drawStaged() }
+            }, FrameLayout.LayoutParams(c.dp(44), c.dp(44), Gravity.TOP or Gravity.END))
+        }, lp(c.dp(116), c.dp(78)).apply { marginEnd = c.dp(8) })
+        stagedStrip.visibility = if (staged.isEmpty()) View.GONE else View.VISIBLE
+        bar.attached = staged.isNotEmpty()
+    }
+    /** The chosen pictures read whole off the frame and staged above the field, in the order the finger chose them (iOS stagePicks). */
+    fun stage(uris: List<android.net.Uri>) {
+        if (uris.isEmpty()) return
+        Thread {
+            val made = uris.mapNotNull { u -> Media.read(c, u, false)?.takeIf { it.kind == "img" || it.kind == "vid" }?.let { p -> p to stagedFace(c, p) } }
+            MainThread.post {
+                if (made.size < uris.size) android.widget.Toast.makeText(c, R.string.media_failed, android.widget.Toast.LENGTH_LONG).show()
+                staged.addAll(made); drawStaged(); toBottom()
+            }
+        }.start()
+    }
+    // THE GALLERY OF THE ROW (iOS openGallery → MTGalleryPick): the phone's latest pictures at once, the camera the first tile,
+    // «All photos» the system's own picker with its ten; what is chosen waits above the field
+    bar.onGallery = { hideKeys(); galleryPick(act, onPick = { stage(it) },
+        onCamera = { Capture.shoot(act, video = false) { u -> if (u != null) stage(listOf(u)) } },
+        onAll = { act.pickVisualMany(MediaGroup.CEILING) { stage(it) } }) }
     // «SEND LATER» (iOS: the send key's hold): the words leave the field and wait for their moment (Schedule.kt)
     bar.onSendLater = { v -> sendLaterMenu(act, v, ref, { field.text.toString() }) { field.setText(""); Prefs.setStr("draft.$ref", "") } }
     // A CONTACT OF THE PHONE (iOS ContactPicker): its name and number leave as one letter
@@ -767,6 +824,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             addView(pinnedPlate(act, ref) { mid -> jumpTo(mid) }, lp().apply { marginStart = dp(10); marginEnd = dp(10); bottomMargin = dp(4) })
             addView(scroll, lp(MATCH, 0, 1f))
             addView(strip, lp())
+            addView(stagedStrip, lp())
             addView(recStrip, lp())
             addView(bar.apply { if (group && !Groups.canWrite(ref)) visibility = View.GONE }, lp())
             addView(foot, lp())

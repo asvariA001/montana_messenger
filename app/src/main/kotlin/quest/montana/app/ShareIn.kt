@@ -86,8 +86,14 @@ fun sharePage(act: MainActivity, s: Shared, onClose: () -> Unit): View {
                 Media.read(c, u, asDoc = !(mime.startsWith("image/") || mime.startsWith("video/"))).also { if (it == null) failed = true }
             }
             val captioned = picked.firstOrNull { it.kind == "img" || it.kind == "vid" }
+            // pictures shared together are one group in every chat (iOS MTMediaGroup, the share sheet's own, 20.09)
+            val pictures = picked.filter { it.kind == "img" || it.kind == "vid" }
             for (ref in to) {
-                picked.forEach { p -> Media.send(c, ref, p, if (p === captioned) words else "") }
+                val slots = MediaGroup.slots(pictures.size)
+                picked.forEach { p ->
+                    val at = pictures.indexOfFirst { it === p }
+                    Media.send(c, ref, p, if (p === captioned) words else "", group = if (at < 0) null else slots[at])
+                }
                 if (words.isNotEmpty() && captioned == null) sendWords(ref, words)
             }
             act.onMain { if (failed) Toast.makeText(c, R.string.media_failed, Toast.LENGTH_LONG).show() }
