@@ -101,12 +101,19 @@ fun placePage(act: MainActivity, onClose: () -> Unit, onPick: (String) -> Unit):
     var best: Location? = null
     fun allowed() = c.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
         c.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+    // THE PHONE'S OWN SWITCH (iOS: location off for the whole phone reads as .denied, «disabled globally in Settings»): the app's
+    // yes is worth nothing while it is off, and the row says so instead of locating forever
+    fun systemOn() = lm != null && (if (28 <= Build.VERSION.SDK_INT) lm.isLocationEnabled else
+        listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER).any { runCatching { lm.isProviderEnabled(it) }.getOrDefault(false) })
+    fun off() = allowed() && !systemOn()
     val glyphRound = FrameLayout(c)
     val title = c.text("", 17f, Color.WHITE)
     val state = c.text("", 13f, MT.gray)
-    fun refused() = !allowed() && Prefs.bool("locAsked", false)
+    val chevron = c.icon(R.drawable.ic_chevron_right, Color.rgb(89, 89, 89), 18)
+    fun refused() = (!allowed() && Prefs.bool("locAsked", false)) || off()
     fun draw() {
         val no = refused()
+        chevron.visibility = if (no) View.VISIBLE else View.GONE
         glyphRound.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(if (no) Color.rgb(115, 115, 115) else SysColor.blue) }
         title.text = c.getString(if (no) R.string.pl_turn_on else R.string.pl_send)
         state.text = when {
@@ -119,11 +126,13 @@ fun placePage(act: MainActivity, onClose: () -> Unit, onPick: (String) -> Unit):
     var watching = false
     fun watch() {
         if (watching || !allowed() || lm == null) return
-        watching = true
         val providers = buildList {
             if (Build.VERSION.SDK_INT >= 31) add(LocationManager.FUSED_PROVIDER)
             add(LocationManager.GPS_PROVIDER); add(LocationManager.NETWORK_PROVIDER)
         }.filter { runCatching { lm.isProviderEnabled(it) }.getOrDefault(false) }
+        // nothing to listen to while the phone's location is off: no latch — the beat asks again and catches the switch turned on
+        if (providers.isEmpty()) return
+        watching = true
         for (p in providers) runCatching {
             lm.getLastKnownLocation(p)?.takeIf { System.currentTimeMillis() - it.time < 120_000 }?.let { listener.onLocationChanged(it) }
             lm.requestLocationUpdates(p, 1000L, 0f, listener, Looper.getMainLooper())
@@ -136,9 +145,12 @@ fun placePage(act: MainActivity, onClose: () -> Unit, onPick: (String) -> Unit):
         glyphRound.addView(c.icon(R.drawable.ic_compose_location, Color.WHITE, 20), FrameLayout.LayoutParams(dp(20), dp(20), Gravity.CENTER))
         addView(glyphRound, lp(dp(40), dp(40)).apply { marginEnd = dp(14) })
         addView(c.vstack(Gravity.NO_GRAVITY) { addView(title, lp()); addView(state, lp()) }, lp(0, WRAP, 1f))
+        addView(chevron, lp(dp(18), dp(18)).apply { marginStart = dp(6) })
         pressable {
             when {
-                refused() -> runCatching { act.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + c.packageName))) }
+                // where it is changed: the phone's own switch while that is off, the app's page when the app was refused
+                refused() -> runCatching { act.startActivity(if (off()) Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)
+                    else Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + c.packageName))) }
                 !allowed() -> { Prefs.setBool("locAsked", true); act.requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), 7) }
                 else -> best?.let { b -> onPick(PlaceLetter.words(c, b.latitude, b.longitude, null, null)); onClose() }
             }
@@ -158,7 +170,7 @@ fun placePage(act: MainActivity, onClose: () -> Unit, onPick: (String) -> Unit):
             }
             beat.run()
         }
-        override fun onViewDetachedFromWindow(v: View) { live = false; runCatching { lm?.removeUpdates(listener) } }
+        override fun onViewDetachedFromWindow(v: View) { live = false; watching = false; runCatching { lm?.removeUpdates(listener) } }
     })
     draw()
     return page
