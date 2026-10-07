@@ -198,6 +198,7 @@ object Calls {
         noteSeed(seed, "alive")
         Signal.hold(ref, "call")
         CallService.start(Book.ctx, ref)
+        MainThread.later(1200) { pipsOn(r) }   // the searching pips until the far phone's own word «ringing» (iOS 1855, 4548-4556)
         Thread { knock(r) }.start()
         // one ring letter per call, its name the call's (iOS E2E 1162-1166): the road of a phone the wake does not reach
         Post.send(ref, "ring-" + epochOf(seed), Marks.RING + ringWords(r, loud = false))
@@ -286,10 +287,48 @@ object Calls {
 
     /** The ringback (iOS startRingback): the platform's own tone on the call's stream, while the far phone rings. */
     private fun tone(on: Boolean) = MainThread.post {
+        pips?.let { runCatching { it.stop(); it.release() } }
+        pips = null
         tone?.let { runCatching { it.stopTone(); it.release() } }
         tone = null
         if (on && synchronized(gate) { ring?.let { it.out && !it.answered } == true })
             tone = runCatching { ToneGenerator(AudioManager.STREAM_VOICE_CALL, 80).also { it.startTone(ToneGenerator.TONE_SUP_RINGTONE) } }.getOrNull()
+    }
+
+    /**
+     * THE SEARCHING TONE (iOS startDialTone 4542-4569, reconnectFile 4616-4630): from the dial until the far phone's own word
+     * «ringing» — two low pips every three seconds, the carrier's sound of waiting. The ringback waits for that word, so no ear
+     * hears «it rings» while the offer still looks for a door; tone() ends both.
+     */
+    private var pips: android.media.AudioTrack? = null
+    private fun pipsOn(r: Ring) {
+        if (pips != null || !synchronized(gate) { ring === r && r.out && !r.ringing && !r.answered }) return
+        val pcm = searchPips()
+        pips = runCatching {
+            android.media.AudioTrack.Builder()
+                .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION_SIGNALLING)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build())
+                .setAudioFormat(android.media.AudioFormat.Builder().setEncoding(android.media.AudioFormat.ENCODING_PCM_16BIT).setSampleRate(8000)
+                    .setChannelMask(android.media.AudioFormat.CHANNEL_OUT_MONO).build())
+                .setTransferMode(android.media.AudioTrack.MODE_STATIC).setBufferSizeInBytes(pcm.size * 2).build()
+                .also { t -> t.write(pcm, 0, pcm.size); t.setLoopPoints(0, pcm.size, -1); t.setVolume(0.6f); t.play() }
+        }.getOrNull()
+        log("call_tone search")
+    }
+    /** Two pips of 120 ms at 380 Hz, 100 ms apart, soft-edged over 10 ms, then silence to three seconds — the iPhone's samples. */
+    private fun searchPips(): ShortArray {
+        val sr = 8000
+        val out = ShortArray(3 * sr)
+        val len = sr * 120 / 1000
+        for (pip in 0 until 2) {
+            val start = pip * (sr * 220 / 1000)
+            for (i in 0 until len) {
+                val v = Math.sin(2.0 * Math.PI * 380.0 * i / sr)
+                val edge = minOf(1.0, minOf(i.toDouble(), (len - i).toDouble()) / (sr / 100))
+                out[start + i] = (v * edge * 6000).toInt().toShort()
+            }
+        }
+        return out
     }
 
     /** The offer goes to the voice once — when the call is answered and its offer is here, in whichever order they came. */
