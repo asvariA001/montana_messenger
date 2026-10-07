@@ -182,10 +182,11 @@ class Msg(
     var statusAt: Long = 0, var heard: Boolean = false,
     var lp: String? = null,   // the link's card (iOS linkPreview, LinkPreview.kt): the body's seventh field
     val from: String? = null,   // a group's speaker (iOS Message.senderRef, Groups.speakerName); null in a pipe's own feed
+    var peerReact: String? = null,   // the correspondent's one answer on this letter (iOS Message.peerReact): a new one replaces it
 ) {
     fun json(): JSONObject = JSONObject().put("m", mid).put("t", text).put("o", mine).put("at", at).put("s", state).put("e", edited)
         .put("qt", qt ?: "").put("qm", qm ?: "").put("r", JSONArray(reactions)).put("mr", myReact ?: "")
-        .put("f", file ?: "").put("mm", meta ?: "").put("sa", statusAt).put("h", heard).put("lp", lp ?: "").put("sr", from ?: "")
+        .put("f", file ?: "").put("mm", meta ?: "").put("sa", statusAt).put("h", heard).put("lp", lp ?: "").put("sr", from ?: "").put("pr", peerReact ?: "")
 
     /** The moment the letter's rung was reached, or its birth (iOS Message.statusMoment). */
     val statusMoment: Long get() = if (statusAt > 0) statusAt else at
@@ -209,7 +210,7 @@ class Msg(
             o.optString("qt").ifEmpty { null }, o.optString("qm").ifEmpty { null },
             o.optJSONArray("r")?.let { a -> MutableList(a.length()) { a.getString(it) } } ?: mutableListOf(),
             o.optString("mr").ifEmpty { null }, o.optString("f").ifEmpty { null }, o.optString("mm").ifEmpty { null },
-            o.optLong("sa"), o.optBoolean("h"), o.optString("lp").ifEmpty { null }, o.optString("sr").ifEmpty { null })
+            o.optLong("sa"), o.optBoolean("h"), o.optString("lp").ifEmpty { null }, o.optString("sr").ifEmpty { null }, o.optString("pr").ifEmpty { null })
     }
 }
 
@@ -733,7 +734,16 @@ object Post {
                 val o = JSONObject(text.removePrefix(Marks.REACTION)); val d = o.getString("sid").removePrefix("mid:"); val e = o.getString("e")
                 // coins given on a letter ride the reaction's road under their own op: credited, never an emoji (iOS 5901-5908)
                 if (o.optString("op") == "coin") CoinSend.reacted(o.optLong("c"), o.optString("r"), o.optString("sid"), ref)
-                else Book.edit(ref) { c -> c.msgs.find { it.mid == d }?.let { m -> if (o.optString("op") == "del") m.reactions.remove(e) else if (e !in m.reactions) m.reactions.add(e) } }
+                // THE CORRESPONDENT HAS ONE ANSWER ON A LETTER (iOS applyReaction 5858-5866): a new one replaces their old, and taking one
+                // away takes theirs — Android kept one list for both, so their taking away a sign we both gave took away mine
+                else Book.edit(ref) { c -> c.msgs.find { it.mid == d }?.let { m ->
+                    if (o.optString("op") == "del") { m.reactions.remove(e); if (m.peerReact == e) m.peerReact = null }
+                    else {
+                        m.peerReact?.takeIf { it != e }?.let { old -> m.reactions.remove(old) }
+                        if (m.peerReact != e) m.reactions.add(e)
+                        m.peerReact = e
+                    }
+                } }
             }
             // THEIR PIN OR UNPIN OF A LETTER (iOS pinMark → applyPinFromControl): silent, the plate follows
             text.startsWith(PIN_MARK) -> applyPin(ref, text.removePrefix(PIN_MARK))
