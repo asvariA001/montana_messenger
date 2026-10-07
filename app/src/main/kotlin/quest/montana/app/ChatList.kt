@@ -286,6 +286,11 @@ class SwipeRow(private val act: MainActivity, private val content: View, tiles: 
 
     private fun zone(): Float = (width / 6f).coerceIn(dp(22).toFloat(), dp(80).toFloat())
 
+    // AN OPEN ROW CLOSES WHEN THE LIST MOVES (iOS 15.26, 1367: the platform's own swipe actions close on scroll)
+    private val onScroll = android.view.ViewTreeObserver.OnScrollChangedListener { if (content.translationX < 0f && !dragging) settle(false) }
+    override fun onAttachedToWindow() { super.onAttachedToWindow(); viewTreeObserver.addOnScrollChangedListener(onScroll) }
+    override fun onDetachedFromWindow() { viewTreeObserver.removeOnScrollChangedListener(onScroll); super.onDetachedFromWindow() }
+
     override fun onInterceptTouchEvent(e: MotionEvent): Boolean {
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {

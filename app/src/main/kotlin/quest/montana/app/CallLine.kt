@@ -411,11 +411,26 @@ object CallLine {
         val attrs = AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build()
         focus = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT).setAudioAttributes(attrs).build().also { am.requestAudioFocus(it) }
         am.mode = AudioManager.MODE_IN_COMMUNICATION
+        // EVERY ROUTE CHANGE DURING A CALL IS NAMED (iOS 15.28, 1369): where the sound went; the platform tells no reason
+        if (Build.VERSION.SDK_INT >= 31) runCatching { am.addOnCommunicationDeviceChangedListener(java.util.concurrent.Executor { it.run() }, routeWatch) }
         route(speaker)
+    }
+    private val routeWatch = AudioManager.OnCommunicationDeviceChangedListener { d -> log("audio_route_change now=" + way(d?.type)) }
+    private fun way(t: Int?): String = when (t) {
+        null -> "none"
+        android.media.AudioDeviceInfo.TYPE_BUILTIN_EARPIECE -> "earpiece"
+        android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "speaker"
+        android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET, android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> "wired"
+        android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO, android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> "bluetooth"
+        android.media.AudioDeviceInfo.TYPE_BLE_HEADSET, android.media.AudioDeviceInfo.TYPE_BLE_SPEAKER -> "ble"
+        android.media.AudioDeviceInfo.TYPE_USB_HEADSET, android.media.AudioDeviceInfo.TYPE_USB_DEVICE -> "usb"
+        android.media.AudioDeviceInfo.TYPE_HEARING_AID -> "hearing-aid"
+        else -> "type-" + t
     }
 
     private fun audioOff() {
         val am = am() ?: return
+        if (Build.VERSION.SDK_INT >= 31) runCatching { am.removeOnCommunicationDeviceChangedListener(routeWatch) }
         route(false)
         am.mode = AudioManager.MODE_NORMAL
         focus?.let { am.abandonAudioFocusRequest(it) }
@@ -433,6 +448,7 @@ object CallLine {
         if (Build.VERSION.SDK_INT >= 31) {
             val loud = am.availableCommunicationDevices.firstOrNull { it.type == android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
             if (on && loud != null) am.setCommunicationDevice(loud) else am.clearCommunicationDevice()
+            log("audio_route speaker=" + (if (on) 1 else 0) + " landed=" + way(am.communicationDevice?.type))   // the switch names where it landed (1369)
         } else am.isSpeakerphoneOn = on
     }
 
