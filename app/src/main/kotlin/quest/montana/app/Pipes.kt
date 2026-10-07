@@ -724,8 +724,10 @@ object Post {
                 if (Book.chat(ref)?.msgs?.find { it.mid == d }?.let { CoinSend.travels(it) } != true) Book.edit(ref) { c -> c.msgs.removeAll { it.mid == d } }
             }
             text.startsWith(Marks.EDIT) -> runCatching {
-                val o = JSONObject(text.removePrefix(Marks.EDIT)); val d = o.getString("sid").removePrefix("mid:")
-                Book.edit(ref) { c -> c.msgs.find { it.mid == d && !it.mine }?.let { it.text = o.getString("tx"); it.edited = true } }
+                val o = JSONObject(text.removePrefix(Marks.EDIT)); val d = o.getString("sid").removePrefix("mid:"); val tx = o.optString("tx")
+                // only a person's words: within a bubble's length, carrying no service mark of their own (iOS applyEditFromPeer 3380-3387)
+                if (d.isEmpty() || 128 < d.length || tx.isBlank() || 4500 < tx.length || Marks.isService(tx)) Log.d("Montana", "edit_rx refused: not a person's words")
+                else if (!applyEdit(ref, d, tx)) holdEdit(ref, d, tx)
             }
             text.startsWith(Marks.REACTION) -> runCatching {
                 val o = JSONObject(text.removePrefix(Marks.REACTION)); val d = o.getString("sid").removePrefix("mid:"); val e = o.getString("e")
@@ -783,8 +785,50 @@ object Post {
                 if (isNew && Book.openChat == ref) markRead(ref)
                 if (isNew && Book.openChat != ref) Notify.letter(ref, text)
                 if (isNew) CoinSend.landed(ref, mid, text, qt)   // a coin letter is credited once by its wire name (iOS MTCoinSend)
+                if (isNew) takeEdit(ref, mid)?.let { applyEdit(ref, mid, it) }   // the words that outran the letter (iOS takePendingEdit)
             }
         }
+    }
+
+    /**
+     * THE PEER'S EDIT (iOS applyEditFromPeer, MontanaChatStore 3371-3415): only on a letter of theirs — a word off the wire never
+     * rewrites my own letters, or one side could put words into the other's mouth. A text letter takes the new words; a picture's or a
+     * video's caption is a person's words too (the author's word 19.09) and is rewritten inside its manifest; a voice, a file, a call
+     * row and a service word are not letters whose words change. Android wrote the caption's words over a picture's whole letter.
+     * False: the letter has not landed here yet.
+     */
+    private fun applyEdit(ref: String, mid: String, tx: String): Boolean {
+        var found = false
+        Book.edit(ref) { c -> c.msgs.find { it.mid == mid }?.let { m -> found = true; if (!m.mine) reword(m, tx) } }
+        return found
+    }
+    private fun reword(m: Msg, tx: String) {
+        if (!m.text.startsWith(Marks.MEDIA)) {
+            if (Marks.isService(m.text) || m.text == tx) return
+            m.text = tx; m.edited = true
+            return
+        }
+        val meta = m.meta?.let { runCatching { JSONObject(it) }.getOrNull() }
+        val man = meta ?: Media.inline(m.text) ?: return
+        if (man.optString("k") != "img" && man.optString("k") != "vid") return
+        if (man.optString("cap") == tx) return
+        man.put("cap", tx)
+        if (meta != null) m.meta = man.toString() else m.text = Marks.MEDIA + man.toString()
+        m.edited = true
+    }
+    /** An edit for a letter still on the road is held and applied the moment it lands, so the race cannot lose the newer words (iOS pendingEdits: 32 a chat, a bound, not a memory). */
+    private val pendingEdits = HashMap<String, LinkedHashMap<String, String>>()
+    private fun holdEdit(ref: String, mid: String, tx: String) = synchronized(pendingEdits) {
+        val held = pendingEdits.getOrPut(ref) { LinkedHashMap() }
+        if (32 <= held.size) held.remove(held.keys.first())
+        held[mid] = tx
+        Log.d("Montana", "edit_rx held mid=" + mid.take(8) + " the letter has not landed yet")
+    }
+    private fun takeEdit(ref: String, mid: String): String? = synchronized(pendingEdits) {
+        val held = pendingEdits[ref] ?: return null
+        val tx = held.remove(mid)
+        if (held.isEmpty()) pendingEdits.remove(ref)
+        tx
     }
 
     /** «Delivered» for a letter of theirs — under its own name, so the queue holds one per letter (iOS receiptMid). */

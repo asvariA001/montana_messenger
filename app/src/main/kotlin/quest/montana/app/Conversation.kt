@@ -483,7 +483,8 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         if (e != null) {
             // THE NEW WORDS OF A LETTER ALREADY SENT (iOS editMessage): the row changes here, the peer is told by ED:{sid,tx}.
             editing = null
-            if (words != e.text) {
+            // and no edit becomes one (iOS editMessage 3353): the row keeps its words
+            if (words != e.text && CoinLetter.parse(words) == null) {
                 Book.edit(ref) { ch -> ch.msgs.find { it.mid == e.mid }?.let { it.text = words; it.edited = true } }
                 val edit = Marks.EDIT + JSONObject().put("sid", e.mid).put("tx", words)
                 // a group's edit rides the group's carrier to every phone of it (iOS editMessage → MTGroup.signal)
@@ -1171,7 +1172,8 @@ fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Unit, onEd
     // A GROUP'S LETTER (iOS MontanaMessageMenu in a group): the deeds that tell the group ride its carrier (Groups.signal); the
     // field's deeds stand while this phone writes into it
     val writes = !group || Groups.canWrite(ref)
-    val canEdit = m.mine && writes && !Marks.isService(m.text)
+    // a coin letter is never edited (iOS editMessage 3352-3353, 06.10): its coins were taken once, under its words
+    val canEdit = m.mine && writes && !Marks.isService(m.text) && CoinLetter.parse(m.text) == null
     val actions = c.vstack(Gravity.NO_GRAVITY) { background = c.rounded(Color.argb(235, 44, 44, 46), 16, Color.argb(26, 255, 255, 255)) }
     val line = Color.argb(77, 142, 142, 147)   // iOS MTMenuDivider: the gray at three tenths
     lateinit var fillActions: () -> Unit
