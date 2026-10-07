@@ -25,6 +25,9 @@ object Groups {
     private const val GROUP = "g"
     private const val CHANNEL = "c"
     private const val STORE = "groups.held"
+    private const val COPIES = "groups.copies"
+    /** A copy outlives the queue's own term by a day and is let go with it (iOS copyLife). */
+    private const val COPY_LIFE_MS = 8L * 24 * 3600 * 1000
     private const val TITLE_LIMIT = 64
     private const val ABOUT_LIMIT = 255
     private const val NAME_LIMIT = 64
@@ -72,17 +75,39 @@ object Groups {
     /** The names of the newest answers already applied: a repeat of a copy is applied once (iOS answersHeard). */
     private val heard = mutableListOf<String>()
 
+    /**
+     * A COPY OF A GROUP'S WORD ON ITS WAY TO ONE RECEIVER (iOS MTGroupCopy): the queue knows it by its own name, the group knows by
+     * this record whose row its receipt moves. `letter` — the row it carries, empty for a word of no row; `own` — a copy of a
+     * letter of mine, its receipt a witness of my row; `of` — how many copies the letter left in.
+     */
+    private class Copy(val group: String, val letter: String, val to: String, val own: Boolean, var of: Int,
+                       var held: Boolean = false, var failed: Boolean = false, val at: Long = System.currentTimeMillis()) {
+        fun json(): JSONObject = JSONObject().put("g", group).put("l", letter).put("to", to).put("o", own).put("of", of)
+            .put("h", held).put("f", failed).put("at", at)
+        companion object {
+            fun of(o: JSONObject) = Copy(o.getString("g"), o.optString("l"), o.getString("to"), o.optBoolean("o"), o.optInt("of", 1),
+                o.optBoolean("h"), o.optBoolean("f"), o.optLong("at"))
+        }
+    }
+    private val copies = LinkedHashMap<String, Copy>()
+
     private fun ready(): Boolean {
         if (loaded && !unread) return true
         loaded = true
-        groups.clear(); gone.clear()
+        groups.clear(); gone.clear(); copies.clear()
         val raw = DeviceVault.get(STORE)
-        unread = raw == null && DeviceVault.has(STORE)
+        val kept = DeviceVault.get(COPIES)
+        unread = (raw == null && DeviceVault.has(STORE)) || (kept == null && DeviceVault.has(COPIES))
         if (raw != null) runCatching {
             val o = JSONObject(String(raw, Charsets.UTF_8))
             o.optJSONObject("g")?.let { g -> g.keys().forEach { k -> groups[k] = State.of(g.getJSONObject(k)) } }
             o.optJSONArray("gone")?.let { a -> for (i in 0 until a.length()) gone.add(a.getString(i)) }
         }.onFailure { groups.clear(); gone.clear(); unread = true }
+        if (kept != null) runCatching {
+            val o = JSONObject(String(kept, Charsets.UTF_8))
+            val edge = System.currentTimeMillis() - COPY_LIFE_MS
+            o.keys().forEach { k -> Copy.of(o.getJSONObject(k)).takeIf { edge < it.at }?.let { copies[k] = it } }
+        }.onFailure { copies.clear(); unread = true }
         if (unread) Log.i("Montana", "group_unread the groups' store did not open -- read again before use")
         return !unread
     }
@@ -91,8 +116,16 @@ object Groups {
         val g = JSONObject(); groups.forEach { (k, v) -> g.put(k, v.json()) }
         DeviceVault.set(STORE, JSONObject().put("g", g).put("gone", JSONArray(gone)).toString().toByteArray(Charsets.UTF_8))
     }
+    private fun saveCopies() {
+        if (unread) return
+        val o = JSONObject(); copies.forEach { (k, v) -> o.put(k, v.json()) }
+        DeviceVault.set(COPIES, o.toString().toByteArray(Charsets.UTF_8))
+    }
     /** The person leaves: their groups leave with them (iOS montanaSeedForgotten). */
-    fun wipe() = synchronized(lock) { groups.clear(); gone.clear(); heard.clear(); loaded = false; unread = false; DeviceVault.delete(STORE) }
+    fun wipe() = synchronized(lock) {
+        groups.clear(); gone.clear(); heard.clear(); copies.clear(); loaded = false; unread = false
+        DeviceVault.delete(STORE); DeviceVault.delete(COPIES)
+    }
 
     // ── names ──
 
@@ -125,6 +158,144 @@ object Groups {
     /** The line above a speaker's bubble (iOS speakerLine): in a group every letter of another says who wrote it; a channel speaks as itself. */
     fun speakerLine(c: Context, m: Msg, chat: String): String? =
         if (m.mine || m.from?.startsWith(SPEAKER_HEAD) != true || state(chat)?.kind != GROUP) null else speakerName(c, m.from)
+
+    // ── the wire ──
+
+    /**
+     * ONE COPY TO ONE RECEIVER, UNDER A NAME OF ITS OWN (iOS carry): it has no row of its own — the row it carries stands in the
+     * group's feed under the letter's name, and the copy's receipt moves that row (follow).
+     */
+    private fun carry(w: JSONObject, pipe: String, letter: String, own: Boolean): String? {
+        if (Book.secret(pipe) == null) return null
+        val name = Marks.mintMid()
+        copies[name] = Copy(w.getString("g"), letter, pipe, own, 1)
+        saveCopies()
+        Post.send(pipe, name, MARK + w.toString())
+        Log.i("Montana", "group_tx mid=" + name.take(14) + " t=" + w.optString("t") + " to=" + pipe.take(10))
+        return name
+    }
+
+    /** A word to everyone this phone carries to in the group (iOS spread): the owner to every member but the speaker, a member to the owner. */
+    private fun spread(w: JSONObject, g: State, except: String?, own: Boolean): Int {
+        val targets = if (g.mine) g.members.filter { it.seat != except }.map { it.pipe } else listOf(g.owner)
+        val names = targets.mapNotNull { carry(w, it, w.optString("id"), own) }
+        names.forEach { copies[it]?.of = names.size }
+        if (names.isNotEmpty()) saveCopies()
+        return names.size
+    }
+
+    /**
+     * The word's head (iOS MTGroupWord): its kind and its group; a letter carries the group's kind and title too — the receiver's
+     * notification holds no group and names it by these — and every word the name this phone gives itself.
+     */
+    private fun word(t: String, g: State): JSONObject {
+        val w = JSONObject().put("t", t).put("g", g.id)
+        if (t == "say") w.put("k", g.kind).put("ti", g.title)
+        clean(Prefs.userName, NAME_LIMIT).takeIf { it.isNotEmpty() }?.let { w.put("n", it) }
+        return w
+    }
+
+    /**
+     * A LETTER OF MINE INTO A GROUP (iOS ChatStore.send → MTGroup.send): long words leave as pieces (breakOutgoingText), each a row
+     * born in the group's feed under its one name and a copy to everyone this phone carries to — on a member's phone, the owner;
+     * the receipts raise the row (follow). Nobody to carry to: honest red. False when the group takes no letter from this phone.
+     */
+    fun send(key: String, words: String, qt: String?, qm: String?): Boolean {
+        synchronized(lock) {
+            val g = state(key)
+            if (g == null || g.left || (g.kind != GROUP && !g.mine) || words.isBlank()) {
+                Log.i("Montana", "group_refused send -- group=" + (if (g == null) 0 else 1))
+                return false
+            }
+            pieces(words).forEachIndexed { i, piece ->
+                if (!carries(piece)) return@forEachIndexed
+                val first = i == 0
+                val mid = Marks.mintMid()
+                Book.edit(key) { it.msgs.add(Msg(mid, piece, true, Marks.birthMs(mid) ?: System.currentTimeMillis(),
+                    qt = qt.takeIf { first }, qm = qm.takeIf { first })) }
+                val w = word("say", g).put("id", mid).put("s", g.me).put("tx", piece)
+                if (first && !qt.isNullOrEmpty()) w.put("qt", qt)
+                if (first && !qm.isNullOrEmpty()) w.put("qm", qm)
+                if (spread(w, g, null, own = true) == 0) Book.edit(key) { c -> c.msgs.find { it.mid == mid }?.advance(-1) }
+            }
+            return true
+        }
+    }
+
+    /**
+     * A MEDIA LETTER OF MINE INTO A GROUP (iOS MTGroup.carryMedia): its row stands in the feed already under its one name, its
+     * file's sealed pieces lie on the nodes for every receiver — the node's term keeps them, no single receipt takes them away —
+     * and its manifest leaves to everyone this phone carries to, as a word does. False: nobody took it.
+     */
+    fun carryMedia(key: String, mid: String, letter: String): Boolean {
+        synchronized(lock) {
+            val g = state(key)
+            if (g == null || g.left || (g.kind != GROUP && !g.mine) || !letter.startsWith(Marks.MEDIA) || !carries(letter) || !isLetterName(mid)) {
+                Log.i("Montana", "group_refused media -- group=" + (if (g == null) 0 else 1))
+                return false
+            }
+            return spread(word("say", g).put("id", mid).put("s", g.me).put("tx", letter), g, null, own = true) > 0
+        }
+    }
+
+    /**
+     * A REACTION, AN EDIT OR A DELETION OF MINE (iOS MTGroup.signal): carried to every phone of the group like a letter and applied
+     * there by the same road, never a row. Everyone in a group or a channel may react; only a letter's own speaker changes it or
+     * takes it away (answered checks the seat on every phone).
+     */
+    fun signal(key: String, text: String) {
+        synchronized(lock) {
+            val g = state(key)
+            if (g == null || g.left || !answers(text)) { Log.i("Montana", "group_refused answer -- group=" + (if (g == null) 0 else 1)); return }
+            spread(word("sig", g).put("id", Marks.mintMid()).put("s", g.me).put("tx", text), g, null, own = false)
+        }
+    }
+
+    // ── the receipts of the copies ──
+
+    /** The node holds a copy (Post.flush): my row has left this phone. True when the name was a group's copy. */
+    fun copyHeld(name: String): Boolean {
+        synchronized(lock) {
+            val c = (if (ready()) copies[name] else null) ?: return false
+            if (!c.held) { c.held = true; saveCopies() }
+            if (c.own) follow(c)
+            return true
+        }
+    }
+    /** A copy was receipted (Post.place, «delivered» on its receiver's pipe): it witnesses the group's row, never a row of the pipe. */
+    fun copyDelivered(name: String): Boolean {
+        synchronized(lock) {
+            val c = (if (ready()) copies.remove(name) else null) ?: return false
+            saveCopies()
+            Log.i("Montana", "group_rcpt mid=" + name.take(14) + " own=" + (if (c.own) 1 else 0))
+            if (c.own) follow(c)
+            return true
+        }
+    }
+    /** The copy's pipe was gone before it left (Post.flush): my row says so (iOS copySettled, red with no pipe). */
+    fun copyLost(name: String): Boolean {
+        synchronized(lock) {
+            val c = (if (ready()) copies[name] else null) ?: return false
+            if (!c.failed) { c.failed = true; saveCopies() }
+            if (c.own) follow(c)
+            return true
+        }
+    }
+    /**
+     * MY ROW STANDS WHERE ITS RECEIVERS SAY (iOS follow): delivered when every copy is receipted, red while a copy has failed, sent
+     * once the node holds one or one is receipted — through the rung's one door (Msg.advance: forward only, red only from below).
+     */
+    private fun follow(c: Copy) {
+        if (c.letter.isEmpty()) return
+        val left = copies.values.filter { it.own && it.group == c.group && it.letter == c.letter }
+        val next = when {
+            left.isEmpty() -> 2
+            left.any { it.failed } -> -1
+            left.size < c.of || left.any { it.held } -> 1
+            else -> return
+        }
+        Book.edit(key(c.group)) { ch -> ch.msgs.find { it.mine && it.mid == c.letter }?.advance(next) }
+    }
 
     // ── arrival ──
 
@@ -230,6 +401,8 @@ object Groups {
             }
         }
         Log.i("Montana", "group_rx mid=$id letter landed=${if (landed) 1 else 0}")
+        // a media letter's file is gathered from the pieces every member reads; its copy was receipted already (handle)
+        if (landed && words.startsWith(Marks.MEDIA)) Media.fetch(Book.ctx, key, id, words)
         // the banner a running app owes its person: the group's title over who wrote and what (a channel speaks as itself)
         if (landed && Book.openChat != key) Notify.letter(key, words, if (g.kind == GROUP) speakerName(Book.ctx, from) else null)
         return Verdict.HELD
@@ -327,11 +500,12 @@ object Groups {
         return sid.removePrefix("mid:").takeIf { isLetterName(it) }
     }
     /**
-     * WHAT A GROUP CARRIES (iOS carries): a person's words and a sticker, never a service word. iOS also refuses a coin's, a game's
-     * and a phone's own letter at the sender's door; this build reads none of them.
+     * WHAT A GROUP CARRIES (iOS carries): a person's words, a sticker, and a media letter — the manifest of a picture, a film, a
+     * round note, a voice or a file, whose sealed pieces lie on the nodes for every receiver; never another service word. iOS also
+     * refuses a coin's, a game's and a phone's own letter at the sender's door; this build reads none of them.
      */
-    private fun carries(text: String): Boolean =
-        text.isNotEmpty() && graphemes(text) <= PIECE_CHARS && (!Marks.isService(text) || text.startsWith(Marks.STICKER))
+    private fun carries(text: String): Boolean = text.isNotEmpty() && graphemes(text) <= PIECE_CHARS &&
+        (!Marks.isService(text) || text.startsWith(Marks.STICKER) || text.startsWith(Marks.MEDIA))
 
     private fun isLabel(s: String) = s.length == 32 && s.all { it in '0'..'9' || it in 'a'..'f' }
     private fun isSeat(s: String) = s.isNotEmpty() && s.length <= 16 && s.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }
@@ -357,6 +531,26 @@ object Groups {
         var end = 0
         repeat(limit) { val next = cut.next(); if (next == BreakIterator.DONE) return p.substring(0, end); end = next }
         return p.substring(0, end)
+    }
+    /** Long words are cut into letters of up to the piece's characters, backing off to the last line break or period (iOS breakOutgoingText). */
+    private fun pieces(text: String): List<String> {
+        if (graphemes(text) <= PIECE_CHARS) return listOf(text)
+        val out = mutableListOf<String>()
+        val cut = BreakIterator.getCharacterInstance().apply { setText(text) }
+        var start = 0
+        while (start < text.length) {
+            var end = start; var n = 0; var mark = -1
+            while (end < text.length && n < PIECE_CHARS) {
+                val next = cut.following(end)
+                val ch = text.substring(end, next)
+                n++; end = next
+                if (ch == "\n" || ch == ".") mark = end
+            }
+            val stop = if (end >= text.length || mark < 0) end else mark
+            out.add(text.substring(start, stop).trim())
+            start = stop
+        }
+        return out.filter { it.isNotEmpty() }
     }
     private fun graphemes(s: String): Int {
         if (s.length <= PIECE_CHARS) return s.length

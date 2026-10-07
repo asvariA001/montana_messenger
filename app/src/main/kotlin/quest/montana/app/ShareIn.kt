@@ -31,6 +31,7 @@ fun sharedOf(i: Intent?): Shared? {
 
 /** Words of mine as a plain letter to a chat (the one road of a typed letter: the row now, the post after). */
 fun sendWords(target: String, words: String) {
+    if (Groups.isKey(target)) { Groups.send(target, words, null, null); return }   // a group's letter rides the group's carrier (iOS MTGroup.send)
     val mid = Marks.mintMid()
     Book.edit(target) { it.msgs.add(Msg(mid, words, true, Marks.birthMs(mid) ?: System.currentTimeMillis())) }
     Post.send(target, mid, words)

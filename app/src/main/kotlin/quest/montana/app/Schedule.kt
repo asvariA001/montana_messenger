@@ -39,6 +39,7 @@ object Scheduled {
         due.forEach { o ->
             val ref = o.getString("ref"); val words = o.getString("t")
             if (Book.chat(ref) == null) return@forEach   // the chat is gone: nobody to send to
+            if (Groups.isKey(ref)) { Groups.send(ref, words, null, null); return@forEach }   // a group's letter rides the group's carrier
             val mid = Marks.mintMid()
             Book.edit(ref) { it.msgs.add(Msg(mid, words, true, Marks.birthMs(mid) ?: now)) }
             Post.send(ref, mid, words)

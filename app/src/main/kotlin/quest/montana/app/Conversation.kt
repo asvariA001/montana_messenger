@@ -330,7 +330,9 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         strip.visibility = if (r == null && e == null) View.GONE else View.VISIBLE
         if (e != null) { stripTitle.text = c.getString(R.string.editing); stripWords.text = letterWords(c, e) }
         else if (r != null) {
-            stripTitle.text = if (r.mine) Prefs.userName.ifBlank { c.getString(R.string.reply) } else Book.chat(ref)?.shown?.ifBlank { null } ?: c.getString(R.string.peer)
+            stripTitle.text = if (r.mine) Prefs.userName.ifBlank { c.getString(R.string.reply) }
+                else if (group) Groups.speakerName(c, r.from)   // a group's letter is its speaker's (iOS speakerName)
+                else Book.chat(ref)?.shown?.ifBlank { null } ?: c.getString(R.string.peer)
             stripWords.text = letterWords(c, r)   // USER-DATA
         }
     }
@@ -375,8 +377,8 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 onEdit = { editing = m; replyTo = null; field.setText(m.text); field.setSelection(field.text.length); showStrip(); showKeys() },
                 onForward = { hideKeys(); act.push { close -> forwardPage(act, ref, listOf(m), close) { to -> close(); if (to != ref) { onClose(); act.push { c2 -> conversationPage(act, to, c2) } } } } },
                 onSelect = { hideKeys(); selecting = true; picked.clear(); picked.add(m.mid); redraw(); drawFoot() }, group = group); true }
-            // the pull to the left answers, as the menu's «Reply»; a group's feed takes no reply until its field writes into the group
-            if (!group) b.onReply = { replyTo = m; editing = null; showStrip(); showKeys() }
+            // the pull to the left answers, as the menu's «Reply»; in a group, while this phone writes into it
+            if (!group || Groups.canWrite(ref)) b.onReply = { replyTo = m; editing = null; showStrip(); showKeys() }
             b.tag = m.mid
             column.addView(b, lp().apply { topMargin = c.dp(3) })
         }
@@ -389,6 +391,8 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         override fun onTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
         override fun afterTextChanged(s: Editable?) {
             if (editing == null) Prefs.setStr("draft.$ref", s?.toString() ?: "")
+            // a group says neither: it has no pipe of its own (iOS: a group streams no draft)
+            if (group) return
             // «TYPING…» TO THEM (iOS: a word on the lane, at most every three seconds, only while there are words)
             if (!s.isNullOrBlank() && System.currentTimeMillis() - typedAt > 3000) { typedAt = System.currentTimeMillis(); Presence.sayTyping(ref) }
             // MY WORDS AS I TYPE THEM (iOS sendDraft): the field and its caret; emptied — sent or erased — the draft ends
@@ -404,8 +408,15 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             editing = null
             if (words != e.text) {
                 Book.edit(ref) { ch -> ch.msgs.find { it.mid == e.mid }?.let { it.text = words; it.edited = true } }
-                Post.send(ref, Marks.mintMid(), Marks.EDIT + JSONObject().put("sid", e.mid).put("tx", words))
+                val edit = Marks.EDIT + JSONObject().put("sid", e.mid).put("tx", words)
+                // a group's edit rides the group's carrier to every phone of it (iOS editMessage → MTGroup.signal)
+                if (group) Groups.signal(ref, edit) else Post.send(ref, Marks.mintMid(), edit)
             }
+        } else if (group) {
+            // A GROUP'S LETTER HAS ITS OWN CARRIER (iOS ChatStore.send → MTGroup.send): the row here, a copy to everyone it carries to
+            val r = replyTo
+            replyTo = null
+            if (!Groups.send(ref, words, r?.let { letterWords(c, it).take(200) }, r?.mid)) field.setText(words)
         } else {
             val r = replyTo
             replyTo = null
@@ -683,7 +694,11 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         }
         val before = column.childCount
         redraw(); drawHead()
-        if (group) { drawPresence(); fillGroupFoot(c, ref, groupFoot) }
+        if (group) {
+            drawPresence(); fillGroupFoot(c, ref, groupFoot)
+            // taken out of the group, or let back in: the field follows (iOS composeSlot)
+            if (!selecting) bar.visibility = if (Groups.canWrite(ref)) View.VISIBLE else View.GONE
+        }
         if (column.childCount != before) toBottom()
         if ((Book.chat(ref)?.unread ?: 0) > 0) Thread { Post.markRead(ref) }.start()
     }
@@ -702,7 +717,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     drawFoot = {
         foot.removeAllViews()
         foot.visibility = if (selecting) View.VISIBLE else View.GONE
-        bar.visibility = if (selecting || group) View.GONE else View.VISIBLE
+        bar.visibility = if (selecting || (group && !Groups.canWrite(ref))) View.GONE else View.VISIBLE
         if (selecting) {
             strip.visibility = View.GONE
             fun done() { selecting = false; picked.clear(); redraw(); drawFoot() }
@@ -719,7 +734,11 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                         .setItems(arrayOf(c.getString(R.string.delete_for_everyone), c.getString(R.string.delete_for_me))) { _, which ->
                             val mids = letters.map { it.mid }.toSet()
                             Book.edit(ref) { ch -> ch.msgs.removeAll { it.mid in mids } }
-                            if (which == 0) mids.forEach { Post.send(ref, Marks.mintMid(), Marks.DELETE + "mid:" + it) }
+                            // in a group a speaker takes away their own letters for everyone (iOS MTGroup.answered checks the seat)
+                            if (which == 0) letters.forEach { m ->
+                                if (!group) Post.send(ref, Marks.mintMid(), Marks.DELETE + "mid:" + m.mid)
+                                else if (m.mine) Groups.signal(ref, Marks.DELETE + "mid:" + m.mid)
+                            }
                             done()
                         }
                         .setNegativeButton(R.string.cancel, null).show()
@@ -737,7 +756,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             addView(scroll, lp(MATCH, 0, 1f))
             addView(strip, lp())
             addView(recStrip, lp())
-            addView(bar.apply { if (group) visibility = View.GONE }, lp())
+            addView(bar.apply { if (group && !Groups.canWrite(ref)) visibility = View.GONE }, lp())
             addView(foot, lp())
             addView(groupFoot, lp())
         }, FrameLayout.LayoutParams(MATCH, MATCH))
@@ -944,8 +963,10 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat): ReplySwipe = ReplySwip
 private fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Unit, onEdit: () -> Unit, onForward: () -> Unit, onSelect: () -> Unit, group: Boolean = false) {
     val c: Context = act
     lateinit var close: () -> Unit
-    // A GROUP'S LETTER (Groups): what this phone keeps of it — copy, forward, delete here; what would tell the group waits for its own word
-    val canEdit = m.mine && !group && !Marks.isService(m.text)
+    // A GROUP'S LETTER (iOS MontanaMessageMenu in a group): the deeds that tell the group ride its carrier (Groups.signal); the
+    // field's deeds stand while this phone writes into it
+    val writes = !group || Groups.canWrite(ref)
+    val canEdit = m.mine && writes && !Marks.isService(m.text)
     val actions = c.vstack(Gravity.NO_GRAVITY) { background = c.rounded(Color.argb(235, 44, 44, 46), 16, Color.argb(26, 255, 255, 255)) }
     val line = Color.argb(77, 142, 142, 147)   // iOS MTMenuDivider: the gray at three tenths
     lateinit var fillActions: () -> Unit
@@ -964,13 +985,13 @@ private fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Un
         actions.removeAllViews()
         // THE RUNG AND ITS MOMENT over the actions (iOS MontanaMessageMenu ladder): the same line as under the bubble, with the time
         if (m.mine) actions.addView(c.deliveryLine(ref, m, withMoment = true).apply { setPadding(dp(16), dp(11), dp(16), dp(11)) }, lp())
-        if (!group) row(c.getString(R.string.reply), R.drawable.ic_reply) { onReply() }
+        if (writes) row(c.getString(R.string.reply), R.drawable.ic_reply) { onReply() }
         if (!Marks.isService(m.text)) row(c.getString(R.string.copy), R.drawable.ic_content_copy) {
             c.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("", m.text))
         }
         if (canEdit) row(c.getString(R.string.edit), R.drawable.ic_pencil) { onEdit() }
         // PIN · FORWARD (iOS MontanaMessageMenu 488-492): the pin asks «for both / for me», the unpin is told at once
-        if (!group && (!Marks.isService(m.text) || m.text.startsWith(Marks.MEDIA)))
+        if (!Marks.isService(m.text) || m.text.startsWith(Marks.MEDIA))
             row(c.getString(if (MsgPins.isPinned(ref, m.mid)) R.string.ld_unpin else R.string.ld_pin), R.drawable.ic_pin) { pinOrUnpin(act, ref, m) }
         if (canForward(m)) row(c.getString(R.string.ld_forward), R.drawable.ic_reply, mirrored = true) { onForward() }
         // «Delete» asks in place (iOS confirmingDelete 403-414): for everyone, for me — any bubble, mine or theirs, the mid is the same
@@ -978,9 +999,10 @@ private fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Un
         row(c.getString(R.string.delete), R.drawable.ic_delete, red = true, keep = true) {
             actions.removeAllViews()
             actions.addView(c.text(c.getString(R.string.delete_message_q), 13f, MT.gray, center = true).apply { setPadding(dp(16), dp(10), dp(16), dp(10)) }, lp())
-            if (!group) row(c.getString(R.string.delete_for_everyone), R.drawable.ic_delete, red = true) {
+            // in a group a speaker takes away their own letter for everyone (iOS canDeleteForEveryone: chat.isGroup ? m.isMine)
+            if (!group || m.mine) row(c.getString(R.string.delete_for_everyone), R.drawable.ic_delete, red = true) {
                 Book.edit(ref) { ch -> ch.msgs.removeAll { it.mid == m.mid } }
-                Post.send(ref, Marks.mintMid(), Marks.DELETE + "mid:" + m.mid)
+                if (group) Groups.signal(ref, Marks.DELETE + "mid:" + m.mid) else Post.send(ref, Marks.mintMid(), Marks.DELETE + "mid:" + m.mid)
             }
             row(c.getString(R.string.delete_for_me), R.drawable.ic_delete, red = true) { Book.edit(ref) { ch -> ch.msgs.removeAll { it.mid == m.mid } } }
             row(c.getString(R.string.cancel), R.drawable.ic_close, keep = true) { fillActions() }
@@ -991,12 +1013,10 @@ private fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Un
             act.push { cl -> reportPage(act, ref, name, cl) }
         }
         // «SELECT» stands apart at the foot (iOS 503-504: after a wider gap)
-        if (!group) {
-            actions.addView(View(c).apply { setBackgroundColor(line) }, lp(MATCH, c.dp(6)))
-            val before = actions.childCount
-            row(c.getString(R.string.ld_select), R.drawable.ic_set_check_circle) { onSelect() }
-            if (actions.childCount - before == 2) actions.removeViewAt(before)   // the row's own hairline under the wide gap goes
-        }
+        actions.addView(View(c).apply { setBackgroundColor(line) }, lp(MATCH, c.dp(6)))
+        val before = actions.childCount
+        row(c.getString(R.string.ld_select), R.drawable.ic_set_check_circle) { onSelect() }
+        if (actions.childCount - before == 2) actions.removeViewAt(before)   // the row's own hairline under the wide gap goes
     }
     fillActions()
     // THE QUICK REACTIONS (iOS MTReactions.common): a press puts it on or takes it off; the peer hears RC:{sid,txt,e,op}.
@@ -1017,8 +1037,11 @@ private fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Un
                             if (prev == e) t.myReact = null else { t.reactions.add(e); t.myReact = e; added = true }
                         }
                     }
-                    fun tell(emoji: String, add: Boolean) = Post.send(ref, Marks.mintMid(), Marks.REACTION +
-                        JSONObject().put("sid", "mid:" + m.mid).put("txt", m.text.take(200)).put("e", emoji).put("op", if (add) "add" else "del"))
+                    fun tell(emoji: String, add: Boolean) {
+                        val word = Marks.REACTION + JSONObject().put("sid", "mid:" + m.mid).put("txt", m.text.take(200)).put("e", emoji).put("op", if (add) "add" else "del")
+                        // a group's answer rides the group's own carrier to every phone of it (iOS react → MTGroup.signal)
+                        if (group) Groups.signal(ref, word) else Post.send(ref, Marks.mintMid(), word)
+                    }
                     if (prev != null) tell(prev, false)
                     if (added) tell(e, true)
                 }
@@ -1033,7 +1056,7 @@ private fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Un
         pressable { close() }
         addView(c.vstack(if (m.mine) Gravity.END else Gravity.START) {
             setPadding(dp(14), 0, dp(14), 0)
-            if (!group) { addView(reactions, lp(WRAP, WRAP)); gap(8) }
+            if (!group || !Groups.isOut(ref)) { addView(reactions, lp(WRAP, WRAP)); gap(8) }
             addView(copy, lp())
             gap(8)
             addView(actions, lp(dp(250), WRAP))

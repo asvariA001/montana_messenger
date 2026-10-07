@@ -424,7 +424,7 @@ object Post {
             val o = items.getJSONObject(i)
             val to = o.getString("to"); val mid = o.getString("m")
             val secret = Book.secret(to)
-            if (secret == null) { done.add(mid); continue }   // the pipe is gone — nobody to deliver to
+            if (secret == null) { done.add(mid); Groups.copyLost(mid); continue }   // the pipe is gone — nobody to deliver to; a group's copy says so on its row
             // WHILE THE INTRODUCTION IS UNANSWERED every letter a person wrote rides the invitation's box with the ciphertext;
             // the words of the wire (receipts, reads, name, face) wait for the pipe to stand (iOS first_hold).
             val intro = Meeting.first(to)
@@ -440,6 +440,7 @@ object Post {
             if (sent) {
                 done.add(mid)
                 Book.edit(SamePair.root(to)) { c -> c.msgs.find { it.mid == mid }?.advance(1) }   // a letter queued on a pipe since folded settles in the conversation
+                Groups.copyHeld(mid)   // a group's copy has no row of the pipe: the node holds it, and the group's row moves (iOS copyHeld)
             }
         }
         if (done.isEmpty()) return
@@ -638,6 +639,8 @@ object Post {
             }
             text.startsWith(Marks.DELIVERED) -> {
                 val d = text.removePrefix(Marks.DELIVERED)
+                // a group's copy witnesses the group's row, never a row of the pipe (iOS markDelivered → MTGroup.copyDelivered)
+                if (Groups.copyDelivered(d)) return
                 // THE READ WORD MAY HAVE OUTRUN THIS RECEIPT (iOS markDelivered 4221-4226): a film is told «delivered» only once
                 // its file is whole there, while «read» leaves the moment the chat is open — the mark remembers, the letter catches up
                 val u = PeerRead.upTo(ref)

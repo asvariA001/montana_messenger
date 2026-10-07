@@ -121,7 +121,9 @@ object Media {
                 Log.w("Montana", "media: the pieces did not reach the node"); Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.state = -1 }; return@Thread
             }
             Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.let { it.text = letter; it.meta = man } }
-            Post.send(ref, mid, letter, qt)   // a forwarded file carries the forwarded quote (iOS forwardedQuote)
+            // a group's manifest rides the group's carrier, a copy to everyone it carries to (iOS sendMediaToPeer → MTGroup.carryMedia)
+            if (Groups.isKey(ref)) { if (!Groups.carryMedia(ref, mid, letter)) Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.advance(-1) } }
+            else Post.send(ref, mid, letter, qt)   // a forwarded file carries the forwarded quote (iOS forwardedQuote)
         }.start()
     }
 
@@ -186,8 +188,8 @@ object Media {
                 val dest = file(c, mid, man.optString("e"))
                 if (!download(man, dest)) return@Thread
                 Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.let { it.file = dest.path; it.meta = man.toString() } }
-                Post.receiptFor(ref, mid)
-                drop(man)
+                // a group's copy was receipted by the group (Groups.handle), and its pieces serve every other member of it
+                if (!Groups.isKey(ref)) { Post.receiptFor(ref, mid); drop(man) }
             } catch (e: Exception) { Log.w("Montana", "media fetch: ${e.javaClass.simpleName}") }
             finally { synchronized(inFlight) { inFlight.remove(mid) } }
         }.start()

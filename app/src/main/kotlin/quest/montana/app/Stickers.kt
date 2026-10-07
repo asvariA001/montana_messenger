@@ -97,8 +97,9 @@ object Stickers {
 
     /** A glyph sticker: one letter of the mark and the emoji (iOS sendSticker). */
     fun sendGlyph(ref: String, e: String) {
-        val mid = Marks.mintMid()
         val text = Marks.STICKER + e
+        if (Groups.isKey(ref)) { Groups.send(ref, text, null, null); return }   // a group's letter rides the group's carrier
+        val mid = Marks.mintMid()
         Book.edit(ref) { it.msgs.add(Msg(mid, text, true, Marks.birthMs(mid) ?: System.currentTimeMillis())) }
         Post.send(ref, mid, text)
     }
