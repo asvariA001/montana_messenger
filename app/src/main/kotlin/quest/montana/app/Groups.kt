@@ -1,12 +1,15 @@
 package quest.montana.app
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Base64
 import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.text.BreakIterator
+import java.util.UUID
 
 /**
  * GROUPS AND CHANNELS, CARRIED BY THE PHONES THEMSELVES (iOS MTGroup, MontanaGroup.swift). No server holds a group: its owner's
@@ -32,6 +35,7 @@ object Groups {
     private const val ABOUT_LIMIT = 255
     private const val NAME_LIMIT = 64
     private const val FACE_LIMIT = 24_000
+    private const val FACE_SIDE = 160   // iOS faceSide
     /** [I-14]: a group is bounded by the people its owner carries to (iOS peopleLimit). */
     private const val PEOPLE_LIMIT = 200
     private const val PIECE_CHARS = 4500   // iOS ChatStore.sendPieceChars
@@ -253,6 +257,67 @@ object Groups {
         }
     }
 
+    // ── birth: this phone owns the group ──
+
+    /**
+     * A GROUP OR A CHANNEL IS BORN ON THIS PHONE (iOS MTGroup.create): its owner's phone. The people are the correspondents chosen,
+     * each by the pipe this phone holds with them; each is told by an invitation of their own, with a seat of their own. The row
+     * stands at once; the invitations ride the queue until each is receipted. The key of the group's feed, or null when nobody
+     * chosen can be carried to.
+     */
+    fun create(channel: Boolean, title: String, about: String, face: ByteArray?, people: List<String>): String? {
+        synchronized(lock) {
+            val name = clean(title, TITLE_LIMIT)
+            val pipes = people.map { SamePair.root(it) }.filter { !isKey(it) && Book.secret(it) != null }.distinct().take(PEOPLE_LIMIT)
+            if (!ready() || name.isEmpty() || pipes.isEmpty()) {
+                Log.i("Montana", "group_refused birth -- title=" + (if (name.isEmpty()) 0 else 1) + " people=" + pipes.size)
+                return null
+            }
+            val id = mintId()
+            val taken = mutableSetOf(OWNER_SEAT)
+            val members = pipes.map { p ->
+                var seat = mintSeat()
+                while (seat in taken) seat = mintSeat()
+                taken.add(seat)
+                Member(seat, p)
+            }.toMutableList()
+            val g = State(id, if (channel) CHANNEL else GROUP, name, clean(about, ABOUT_LIMIT), "", OWNER_SEAT, members, members.size + 1,
+                mutableMapOf(), System.currentTimeMillis())
+            groups[id] = g
+            save()
+            stand(g, face)
+            tellAll(g, face?.let { thumb(it) })
+            Log.i("Montana", "group_born kind=" + g.kind + " people=" + g.count)
+            return key(id)
+        }
+    }
+
+    /**
+     * The invitation's word to every member (iOS tellAll): the title, the words about the group, the count, the receiver's own
+     * seat, and the face where it is given — `only`, the seats the face goes to (the people just added).
+     */
+    private fun tellAll(g: State, face: String?, only: Set<String>? = null) {
+        for (m in g.members) {
+            val w = word("inv", g).put("k", g.kind).put("ti", g.title).put("c", g.count).put("me", m.seat)
+            if (g.about.isNotEmpty()) w.put("ds", g.about)
+            if (face != null && (only == null || m.seat in only)) w.put("fc", face)
+            carry(w, m.pipe, "", own = false)
+        }
+    }
+
+    private fun mintId() = UUID.randomUUID().toString().replace("-", "").lowercase()
+    private fun mintSeat() = mintId().take(8)
+    /** The face an invitation carries (iOS thumb): small, so the word stays a letter and not a file. */
+    private fun thumb(face: ByteArray): String? {
+        val b = BitmapFactory.decodeByteArray(face, 0, face.size) ?: return null
+        val side = minOf(b.width, b.height)
+        val square = Bitmap.createBitmap(b, (b.width - side) / 2, (b.height - side) / 2, side, side)
+        val small = Bitmap.createScaledBitmap(square, FACE_SIDE, FACE_SIDE, true)
+        val out = ByteArrayOutputStream()
+        small.compress(Bitmap.CompressFormat.JPEG, 70, out)
+        return Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP).takeIf { it.length <= FACE_LIMIT }
+    }
+
     // ── the receipts of the copies ──
 
     /** The node holds a copy (Post.flush): my row has left this phone. True when the name was a group's copy. */
@@ -319,7 +384,7 @@ object Groups {
             "say" -> said(w, pipe)
             "sig" -> answered(w, pipe)
             "out" -> dropped(w, pipe)
-            "bye" -> Verdict.REFUSED   // a member's leaving is told to its owner's phone, and this phone carries no group of its own yet
+            "bye" -> parted(w, pipe)
             else -> Verdict.REFUSED.also { Log.i("Montana", "group_refused kind=${t.take(8)}") }   // a newer build's word: its road ends here
         }
     }
@@ -373,40 +438,58 @@ object Groups {
     }
 
     /**
-     * A LETTER (iOS heard): it lands in the group's feed under its one name, worn by its speaker's seat. A member takes letters
-     * from the owner's pipe alone; carrying a member's letter on to the others is the owner's phone's work.
+     * A LETTER (iOS heard): it lands in the group's feed under its one name, worn by its speaker's seat. The owner takes a letter
+     * only from a member it carries to — in a group, never in a channel — and carries it on to every other member; a member takes
+     * letters from the owner's pipe alone.
      */
     private fun said(w: JSONObject, pipe: String): Verdict {
         val g = groups[w.getString("g")] ?: return Verdict.WAIT
         if (g.left) return Verdict.REFUSED   // out of the group: the word's road ends here
         val id = w.optString("id")
         val words = w.optString("tx")
-        if (!isLetterName(id) || !carries(words) || g.mine) return Verdict.REFUSED
-        val seat = w.optString("s")
-        if (SamePair.root(g.owner) != SamePair.root(pipe) || !isSeat(seat) || seat == g.me) return Verdict.REFUSED
+        if (!isLetterName(id) || !carries(words)) return Verdict.REFUSED
+        val from = SamePair.root(pipe)
+        val seat: String
+        if (g.mine) {
+            val m = g.members.firstOrNull { SamePair.root(it.pipe) == from } ?: return Verdict.REFUSED
+            if (g.kind != GROUP) { Log.i("Montana", "group_refused a member's letter in a channel is not carried"); return Verdict.REFUSED }
+            seat = m.seat
+        } else {
+            val s0 = w.optString("s")
+            if (SamePair.root(g.owner) != from || !isSeat(s0) || s0 == g.me) return Verdict.REFUSED
+            seat = s0
+        }
         val name = clean(w.optString("n"), NAME_LIMIT)
         if (name.isNotEmpty() && g.names[seat] != name) { g.names[seat] = name; save() }
         if (id in gone) return Verdict.HELD
         val key = key(g.id)
         if (Book.chat(key)?.msgs?.any { it.mid == id } == true) return Verdict.HELD   // a repeat: the row stands
         stand(g, null)
-        val from = speaker(g.id, seat)
+        val sp = speaker(g.id, seat)
         val at = Marks.birthMs(id) ?: System.currentTimeMillis()
         val quote = w.optString("qt").ifEmpty { null }
         val quoted = w.optString("qm").removePrefix("mid:").ifEmpty { null }
         var landed = false
         Book.edit(key) { c ->
             if (c.msgs.none { it.mid == id }) {
-                c.msgs.add(Msg(id, words, false, at, qt = quote, qm = quoted, from = from)); c.msgs.sortBy { it.at }
+                c.msgs.add(Msg(id, words, false, at, qt = quote, qm = quoted, from = sp)); c.msgs.sortBy { it.at }
                 if (Book.openChat != key) c.unread++
                 landed = true
             }
         }
-        Log.i("Montana", "group_rx mid=$id letter landed=${if (landed) 1 else 0}")
+        Log.i("Montana", "group_rx mid=$id letter landed=${if (landed) 1 else 0} owner=${if (g.mine) 1 else 0}")
         // a media letter's file is gathered from the pieces every member reads; its copy was receipted already (handle)
         if (landed && words.startsWith(Marks.MEDIA)) Media.fetch(Book.ctx, key, id, words)
         // the banner a running app owes its person: the group's title over who wrote and what (a channel speaks as itself)
-        if (landed && Book.openChat != key) Notify.letter(key, words, if (g.kind == GROUP) speakerName(Book.ctx, from) else null)
+        if (landed && Book.openChat != key) Notify.letter(key, words, if (g.kind == GROUP) speakerName(Book.ctx, sp) else null)
+        // THE OWNER CARRIES IT ON (iOS heard, g.mine): to every other member, under the speaker's seat and the name they gave
+        if (landed && g.mine) {
+            val on = JSONObject().put("t", "say").put("g", g.id).put("k", g.kind).put("ti", g.title).put("id", id).put("s", seat).put("tx", words)
+            if (name.isNotEmpty()) on.put("n", name)
+            if (quote != null) on.put("qt", quote)
+            w.optString("qm").ifEmpty { null }?.let { on.put("qm", it) }
+            spread(on, g, seat, own = false)
+        }
         return Verdict.HELD
     }
 
@@ -420,9 +503,11 @@ object Groups {
         if (g.left) return Verdict.REFUSED
         val id = w.optString("id")
         val words = w.optString("tx")
-        if (!isLetterName(id) || !answers(words) || g.mine) return Verdict.REFUSED
-        val seat = w.optString("s")
-        if (SamePair.root(g.owner) != SamePair.root(pipe) || !isSeat(seat) || seat == g.me) return Verdict.REFUSED
+        if (!isLetterName(id) || !answers(words)) return Verdict.REFUSED
+        val from = SamePair.root(pipe)
+        // the owner answers for every member by the pipe the word came by; a member takes the owner's word alone
+        val seat = if (g.mine) g.members.firstOrNull { SamePair.root(it.pipe) == from }?.seat ?: return Verdict.REFUSED
+            else w.optString("s").takeIf { SamePair.root(g.owner) == from && isSeat(it) && it != g.me } ?: return Verdict.REFUSED
         if (id in heard) return Verdict.HELD
         val key = key(g.id)
         target(words)?.let { t ->
@@ -433,10 +518,27 @@ object Groups {
                     return Verdict.REFUSED
                 }
             } else if (t in gone) return Verdict.HELD
+            else if (g.mine) return Verdict.WAIT   // the letter has not landed at the owner yet: the copy knocks again
             else if (words.startsWith(Marks.DELETE)) { bury(t); remember(id); return Verdict.HELD }
         }
         remember(id)
         apply(key, words)
+        // the owner carries the answer on to every other member (iOS answered, g.mine)
+        if (g.mine) spread(JSONObject().put("t", "sig").put("g", g.id).put("id", id).put("s", seat).put("tx", words)
+            .apply { w.optString("n").ifEmpty { null }?.let { put("n", it) } }, g, seat, own = false)
+        return Verdict.HELD
+    }
+
+    /** A MEMBER LEFT (iOS parted, their «bye»): the owner carries nothing more to them, and everyone left learns the new count. */
+    private fun parted(w: JSONObject, pipe: String): Verdict {
+        val g = groups[w.getString("g")] ?: return Verdict.REFUSED
+        val from = SamePair.root(pipe)
+        val m = (if (g.mine) g.members.firstOrNull { SamePair.root(it.pipe) == from } else null) ?: return Verdict.REFUSED
+        g.members.removeAll { it.seat == m.seat }
+        g.count = g.members.size + 1
+        save()
+        tellAll(g, null)
+        Log.i("Montana", "group_rx a member left count=" + g.count)
         return Verdict.HELD
     }
 

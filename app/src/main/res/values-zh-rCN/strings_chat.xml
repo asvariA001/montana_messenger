@@ -31,6 +31,11 @@
     <string name="camera_needed">Montana 需要相机来读取代码</string>
     <string name="gr_member">成员</string>
     <string name="gr_out_note">您已不再是成员：消息仍可在此阅读。</string>
+    <string name="gr_choose">选择成员</string>
+    <string name="gr_pick_note">群组消息经由每个人各自的通道传送，因此这里只列出与你有通信的人。</string>
+    <string name="gr_new">新建群组</string>
+    <string name="gr_name">群组名称</string>
+    <string name="gr_people">成员</string>
     <plurals name="gr_members"><item quantity="other">%d 名成员</item></plurals>
     <string name="lw_photo">照片</string>
     <string name="lw_video">视频</string>

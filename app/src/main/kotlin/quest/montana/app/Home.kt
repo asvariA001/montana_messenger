@@ -748,9 +748,20 @@ private fun groupsPane(act: MainActivity, channel: Boolean): View {
         override fun onViewAttachedToWindow(v: View) { Book.listen(onBook); ChatMarks.listen(onBook); fill() }
         override fun onViewDetachedFromWindow(v: View) { Book.unlisten(onBook); ChatMarks.unlisten(onBook) }
     })
-    return ScrollView(c).apply {
+    val list = ScrollView(c).apply {
         isVerticalScrollBarEnabled = false
         addView(c.vstack(Gravity.NO_GRAVITY) { addView(rows, lp()); gap(120) })   // the floating player's room at the foot
+    }
+    if (channel) return list   // a channel is born by its own three steps (the plan's stage 6)
+    // THE CORNER CREATES ONE OF THE PAGE'S KIND (iOS createButton): the plus on the bar's glass, the group's two steps
+    return FrameLayout(c).apply {
+        addView(list, FrameLayout.LayoutParams(MATCH, MATCH))
+        addView(FrameLayout(c).apply {
+            background = c.glassPlate(oval = true)
+            contentDescription = c.getString(R.string.app_groups)
+            addView(c.icon(R.drawable.ic_plus, barGlyph), FrameLayout.LayoutParams(dp(30), dp(30), Gravity.CENTER))
+            pressable { act.push { close -> groupPickPage(act, close) { key -> act.push { back -> conversationPage(act, key, back) } } } }
+        }, FrameLayout.LayoutParams(dp(60), dp(60), Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, dp(16), dp(36)) })
     }
 }
 

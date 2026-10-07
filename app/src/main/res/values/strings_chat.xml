@@ -31,6 +31,11 @@
     <string name="camera_needed">Montana needs the camera to read the code</string>
     <string name="gr_member">Member</string>
     <string name="gr_out_note">You are no longer a member: the messages stay here to read.</string>
+    <string name="gr_choose">Choose members</string>
+    <string name="gr_pick_note">A group letter rides the pipe of each person, so only the people you write with are listed.</string>
+    <string name="gr_new">New Group</string>
+    <string name="gr_name">Group name</string>
+    <string name="gr_people">Members</string>
     <plurals name="gr_members"><item quantity="one">%d member</item><item quantity="other">%d members</item></plurals>
     <string name="lw_photo">Photo</string>
     <string name="lw_video">Video</string>

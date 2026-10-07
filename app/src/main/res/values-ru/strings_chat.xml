@@ -31,6 +31,11 @@
     <string name="camera_needed">Montana нужна камера, чтобы прочитать код</string>
     <string name="gr_member">Участник</string>
     <string name="gr_out_note">Вы больше не участник: сообщения остаются здесь для чтения.</string>
+    <string name="gr_choose">Выберите участников</string>
+    <string name="gr_pick_note">Письмо группы идёт по каналу каждого человека, поэтому в списке только те, с кем вы переписываетесь.</string>
+    <string name="gr_new">Новая группа</string>
+    <string name="gr_name">Название группы</string>
+    <string name="gr_people">Участники</string>
     <plurals name="gr_members"><item quantity="one">%d участник</item><item quantity="few">%d участника</item><item quantity="many">%d участников</item><item quantity="other">%d участника</item></plurals>
     <string name="lw_photo">Фото</string>
     <string name="lw_video">Видео</string>
