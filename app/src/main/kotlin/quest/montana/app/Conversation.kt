@@ -166,7 +166,9 @@ object Notify {
         nm.createNotificationChannel(NotificationChannel(CHANNEL, c.getString(R.string.channel_letters), NotificationManager.IMPORTANCE_HIGH))
         val chat = Book.chat(ref)
         val title = if (Prefs.bool("notifSender", true)) chat?.shown?.ifBlank { null } ?: c.getString(R.string.peer) else "Montana"
-        val shown = if (Prefs.bool("notifPreview", true)) letterWords(c, text) else c.getString(R.string.new_message)
+        val shown = if (!Prefs.bool("notifPreview", true)) c.getString(R.string.new_message)
+            else if (ContentFilter.hides(false, text)) c.getString(R.string.filter_hidden)   // the banner folds as the feed does (iOS NotificationService 399)
+            else letterWords(c, text)
         val body = if (who.isNullOrEmpty()) shown else "$who: $shown"   // a group's letter says who wrote it (iOS presentGroup)
         val open = PendingIntent.getActivity(c, ref.hashCode(),
             c.packageManager.getLaunchIntentForPackage(c.packageName)?.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP) ?: Intent(),
@@ -212,7 +214,8 @@ fun chatRow(act: MainActivity, chat: Chat): View {
                 // poster stand in the row as in the player bar; the words then carry no glyph of their own
                 val kind = last?.let { rowKind(it) }
                 if (last != null && kind != null) addView(c.letterThumb(last, kind), lp(dp(20), dp(20)).apply { marginEnd = dp(6); gravity = Gravity.CENTER_VERTICAL })
-                val words = last?.let { letterWords(c, it) } ?: ""
+                // a letter the filter hides is told as hidden in the row, opened or not (iOS ChatStore 159)
+                val words = last?.let { if (ContentFilter.hides(it.mine, it.text)) c.getString(R.string.filter_hidden) else letterWords(c, it) } ?: ""
                 addView(c.text(if (kind != null) bareWords(words) else words, 15f, MT.gray).apply { maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END }, lp(0, WRAP, 1f))   // USER-DATA: the last letter
                 if (chat.unread > 0) addView(c.text(chat.unread.toString(), 13f, Color.WHITE, bold = true, center = true).apply {
                     // a muted chat's number is grey, as iOS draws it
@@ -1071,6 +1074,21 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
             else if (SecretLetter.parse(m.text) != null) addView(c.secretPlate(c as? MainActivity, SecretLetter.parse(m.text)!!, mine), lp(WRAP, WRAP))
             // A PLACE LETTER (iOS MTPlaceLetter.parse → the map plate): the pin, the name and the spot instead of the link's words
             else if (PlaceLetter.parse(c, m.text) != null) addView(c.placePlate(PlaceLetter.parse(c, m.text)!!, mine), lp(WRAP, WRAP))
+            // THE FILTER (iOS MontanaBubble 672-691): a letter of theirs with a word of the list stands folded; the tap unfolds it
+            else if (ContentFilter.folded(m)) {
+                val words = c.text(letterWords(c, m.text), 16f, BubbleStyle.text(mine)).apply { maxWidth = dp(260); setTextIsSelectable(false); visibility = View.GONE }   // USER-DATA: the letter
+                val fold = c.vstack(Gravity.NO_GRAVITY) {
+                    addView(c.hstack {
+                        gravity = Gravity.CENTER_VERTICAL
+                        addView(c.icon(R.drawable.ic_set_eye_slash, BubbleStyle.text(mine), 16), lp(dp(16), dp(16)).apply { marginEnd = dp(6) })
+                        addView(c.text(c.getString(R.string.filter_hidden), 16f, BubbleStyle.text(mine)), lp(WRAP, WRAP))
+                    }, lp(WRAP, WRAP))
+                    addView(c.text(c.getString(R.string.filter_tap), 12f, BubbleStyle.text(mine)).apply { alpha = 0.7f }, lp(WRAP, WRAP).apply { topMargin = dp(4) })
+                    pressable { ContentFilter.open(m.mid); visibility = View.GONE; words.visibility = View.VISIBLE }
+                }
+                addView(fold, lp(WRAP, WRAP))
+                addView(words, lp(WRAP, WRAP))
+            }
             else addView(c.text(letterWords(c, m.text), 16f, BubbleStyle.text(mine)).apply { maxWidth = dp(260); setTextIsSelectable(false) }, lp(WRAP, WRAP))   // USER-DATA: the letter
             // THE LINK'S CARD UNDER THE WORDS (iOS the link card in the bubble), drawn from the letter's own bytes
             LinkCard.parse(m.lp)?.let { addView(linkCardView(c, it, mine), lp(WRAP, WRAP)) }

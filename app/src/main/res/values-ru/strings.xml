@@ -518,4 +518,6 @@
     <string name="wall_views">Просмотры</string>
     <string name="wall_send">Отправить</string>
     <string name="call_end_ask">Завершить звонок?</string>
+    <string name="filter_hidden">Скрыто фильтром</string>
+    <string name="filter_tap">Нажмите, чтобы показать</string>
 </resources>
