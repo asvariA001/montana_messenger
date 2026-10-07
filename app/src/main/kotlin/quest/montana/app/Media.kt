@@ -176,7 +176,26 @@ object Media {
         for (ch in Book.all()) for (m in ch.msgs) if (!m.mine && m.text.startsWith(Marks.MEDIA) && m.file == null) fetch(c, ch.ref, m.mid, m.text)
     }
 
-    fun fetch(c: Context, ref: String, mid: String, text: String) {
+    /**
+     * AUTOMATIC DOWNLOAD FOR THE CONNECTION THE PHONE IS ON (iOS MontanaNet.autoDownloadAllowed): the mobile or the Wi-Fi switch of
+     * «Data and storage», on by default. Off, an attachment waits for a tap (iOS queuePendingMedia: queued, so there is a tap).
+     */
+    fun autoAllowed(c: Context): Boolean {
+        val cm = c.getSystemService(android.net.ConnectivityManager::class.java)
+        val caps = cm?.getNetworkCapabilities(cm.activeNetwork)
+        val cellular = caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) == true
+        return Prefs.bool(if (cellular) "autoDownloadCellular" else "autoDownloadWiFi", true)
+    }
+    /** A letter of theirs whose file waits for a tap: no file here, and the switch of this connection is off. */
+    fun waiting(c: Context, m: Msg): Boolean = !m.mine && m.file?.let { File(it).exists() } != true && !autoAllowed(c)
+    /** The tap on a waiting attachment: its file is asked for now, whatever the switch (iOS: a tap starts the queued download). */
+    fun tapped(c: Context, m: Msg) {
+        val ref = Book.all().firstOrNull { ch -> ch.msgs.any { it.mid == m.mid } }?.ref ?: return
+        fetch(c, ref, m.mid, m.text, manual = true)
+    }
+
+    fun fetch(c: Context, ref: String, mid: String, text: String, manual: Boolean = false) {
+        if (!manual && !autoAllowed(c)) { Log.d("Montana", "media: automatic download is off -- the attachment waits for a tap"); return }
         synchronized(inFlight) {
             val now = System.currentTimeMillis()
             if ((lastTry[mid] ?: 0) > now - 60_000 || !inFlight.add(mid)) return

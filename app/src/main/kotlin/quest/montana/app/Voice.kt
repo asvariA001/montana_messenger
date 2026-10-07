@@ -147,7 +147,8 @@ fun voiceBody(c: Context, m: Msg, du: Double, into: LinearLayout, wave: FloatArr
         alpha = if (path == null) 0.4f else 1f
     }
     mark.setOnClickListener {
-        val p = path ?: return@setOnClickListener
+        // automatic download off, a voice of theirs waits: the play key asks for it (iOS: a tap starts the queued download)
+        val p = path ?: run { if (Media.waiting(c, m)) Media.tapped(c, m); return@setOnClickListener }
         VoicePlayer.toggle(p, onProgress = { cur, dur -> bar.progress = cur.toFloat() / maxOf(1, dur); time.text = fmt(cur) },
             stopped = { mark.setImageResource(R.drawable.ic_play_fill); bar.progress = 0f; time.text = fmt(total) })
         mark.setImageResource(if (VoicePlayer.playing == p) R.drawable.ic_pause_fill else R.drawable.ic_play_fill)

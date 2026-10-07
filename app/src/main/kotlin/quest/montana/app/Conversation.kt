@@ -1102,12 +1102,18 @@ private fun mediaBody(c: Context, m: Msg, into: LinearLayout) {
                 }
                 clipToOutline = true
             }, FrameLayout.LayoutParams(w, h))
-            if (f == null) addView(android.widget.ProgressBar(c), FrameLayout.LayoutParams(c.dp(36), c.dp(36), Gravity.CENTER))
+            // automatic download off: the attachment waits for a tap (iOS queuePendingMedia), the platform's arrow down on it
+            if (f == null && Media.waiting(c, m)) addView(c.icon(R.drawable.ic_arrow_circle_down, Color.WHITE).apply {
+                background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.argb(140, 0, 0, 0)) }
+                setPadding(c.dp(10), c.dp(10), c.dp(10), c.dp(10))
+            }, FrameLayout.LayoutParams(c.dp(52), c.dp(52), Gravity.CENTER))
+            else if (f == null) addView(android.widget.ProgressBar(c), FrameLayout.LayoutParams(c.dp(36), c.dp(36), Gravity.CENTER))
             else if (kind == "vid") addView(c.icon(R.drawable.ic_play_fill, Color.WHITE).apply {
                 background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.argb(140, 0, 0, 0)) }
                 setPadding(c.dp(12), c.dp(12), c.dp(12), c.dp(12))
             }, FrameLayout.LayoutParams(c.dp(52), c.dp(52), Gravity.CENTER))
             if (f != null) setOnClickListener { (c as? MainActivity)?.let { a -> openMedia(a, f, kind) } }
+            else if (Media.waiting(c, m)) setOnClickListener { Media.tapped(c, m) }
         }, LinearLayout.LayoutParams(WRAP, WRAP).apply { bottomMargin = c.dp(4) })
     } else {
         val name = man?.optString("n")?.ifEmpty { null } ?: ("file." + (man?.optString("e") ?: ""))
@@ -1116,7 +1122,8 @@ private fun mediaBody(c: Context, m: Msg, into: LinearLayout) {
             gravity = Gravity.CENTER_VERTICAL
             addView(FrameLayout(c).apply {
                 background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.argb(70, 255, 255, 255)) }
-                if (f == null) addView(android.widget.ProgressBar(c), FrameLayout.LayoutParams(c.dp(26), c.dp(26), Gravity.CENTER))
+                if (f == null && Media.waiting(c, m)) addView(c.icon(R.drawable.ic_arrow_circle_down, tint), FrameLayout.LayoutParams(c.dp(24), c.dp(24), Gravity.CENTER))
+                else if (f == null) addView(android.widget.ProgressBar(c), FrameLayout.LayoutParams(c.dp(26), c.dp(26), Gravity.CENTER))
                 else addView(c.icon(R.drawable.ic_set_doc, tint), FrameLayout.LayoutParams(c.dp(22), c.dp(22), Gravity.CENTER))
             }, lp(c.dp(44), c.dp(44)).apply { marginEnd = c.dp(10) })
             addView(c.vstack(Gravity.NO_GRAVITY) {
@@ -1124,6 +1131,7 @@ private fun mediaBody(c: Context, m: Msg, into: LinearLayout) {
                 addView(c.text(android.text.format.Formatter.formatShortFileSize(c, size), 13f, BubbleStyle.time(m.mine)))
             })
             if (f != null) setOnClickListener { (c as? MainActivity)?.let { a -> openMedia(a, f, kind) } }
+            else if (Media.waiting(c, m)) setOnClickListener { Media.tapped(c, m) }
         }, LinearLayout.LayoutParams(WRAP, WRAP).apply { bottomMargin = c.dp(4) })
     }
     if (m.state == -1) into.addView(c.text(c.getString(R.string.media_failed), 12f, SysColor.red))
@@ -1181,7 +1189,11 @@ private fun noteBody(c: Context, m: Msg, f: java.io.File?, man: JSONObject?, int
             scaleType = ImageView.ScaleType.CENTER_CROP
             if (pic != null) setImageBitmap(pic) else setBackgroundColor(Color.argb(60, 255, 255, 255))
         }.round(), FrameLayout.LayoutParams(side, side))
-        if (f == null) addView(android.widget.ProgressBar(c), FrameLayout.LayoutParams(c.dp(36), c.dp(36), Gravity.CENTER))
+        if (f == null && Media.waiting(c, m)) {
+            addView(c.icon(R.drawable.ic_arrow_circle_down, Color.WHITE), FrameLayout.LayoutParams(c.dp(36), c.dp(36), Gravity.CENTER))
+            setOnClickListener { Media.tapped(c, m) }   // automatic download off: the round note waits for a tap
+        }
+        else if (f == null) addView(android.widget.ProgressBar(c), FrameLayout.LayoutParams(c.dp(36), c.dp(36), Gravity.CENTER))
         else setOnClickListener { (c as? MainActivity)?.let { a -> playNote(a, f) } }
     }, LinearLayout.LayoutParams(side, side).apply { bottomMargin = c.dp(4) })
     // A note stands without the bubble's plate: the circle is its own shape.
