@@ -226,6 +226,8 @@ object Presence {
         val now = System.currentTimeMillis()
         if ((typingUntil[ref] ?: 0) > now) return c.getString(R.string.pr_typing) to true
         if ((inChatUntil[ref] ?: 0) > now) return c.getString(R.string.pr_in_chat) to true
+        // a person on the line with me is present for as long as the call stands (iOS presenceWord 15.7)
+        if (Calls.talking() == ref) return c.getString(R.string.pr_on_call) to true
         if ((onlineUntil[ref] ?: 0) > now) return c.getString(R.string.pr_online) to true
         if (Prefs.bool("peerGone.$ref", false)) return c.getString(R.string.pr_seen_long_ago) to false
         val seen = seenAt(ref).takeIf { it > 0 } ?: return null

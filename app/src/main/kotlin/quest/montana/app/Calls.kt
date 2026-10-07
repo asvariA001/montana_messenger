@@ -168,6 +168,9 @@ object Calls {
     /** The call in hand — answered and not yet ended — by its person; null when none (the call's screen asks it). */
     fun held(): String? = synchronized(gate) { ring?.takeIf { it.answered || it.out }?.ref }
 
+    /** The person on the line with me now — the call answered on both ends (iOS stateSnapshot «connected» with peerSnapshot). */
+    fun talking(): String? = synchronized(gate) { ring?.takeIf { it.answered }?.ref }
+
     /** The ring in hand is a video call's (its letter's «v», its word's «video»): its screen and its questions say so. */
     fun ringVideo(): Boolean = synchronized(gate) { ring?.video == true }
 

@@ -352,6 +352,7 @@
     <string name="pr_typing">正在输入…</string>
     <string name="pr_in_chat">在对话中</string>
     <string name="pr_online">在线</string>
+<string name="pr_on_call">通话中</string>
     <string name="pr_seen_recently">最近</string>
     <string name="pr_seen_week">本周</string>
     <string name="pr_seen_month">本月</string>

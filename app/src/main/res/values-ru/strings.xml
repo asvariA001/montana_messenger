@@ -352,6 +352,7 @@
     <string name="pr_typing">Печатает…</string>
     <string name="pr_in_chat">В чате</string>
     <string name="pr_online">Онлайн</string>
+<string name="pr_on_call">На связи</string>
     <string name="pr_seen_recently">Недавно</string>
     <string name="pr_seen_week">На этой неделе</string>
     <string name="pr_seen_month">В этом месяце</string>

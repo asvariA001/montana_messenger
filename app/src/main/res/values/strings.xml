@@ -351,8 +351,9 @@
     <string name="wall_forest">Forest</string>
     <!-- the presence line (iOS presenceWord, MontanaSeen) -->
     <string name="pr_typing">Typing…</string>
-    <string name="pr_in_chat">in chat</string>
-    <string name="pr_online">online</string>
+    <string name="pr_in_chat">In chat</string>
+    <string name="pr_online">Online</string>
+<string name="pr_on_call">On a call</string>
     <string name="pr_seen_recently">seen recently</string>
     <string name="pr_seen_week">seen this week</string>
     <string name="pr_seen_month">seen this month</string>
