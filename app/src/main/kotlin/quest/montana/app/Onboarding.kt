@@ -63,6 +63,17 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
             4 -> { { go(0) } }
             else -> null
         }
+        // THE ONE WAY BACK OF THE PATH (iOS 2188-2204, the author's word 29.09, 23:25): the back chevron on its glass circle,
+        // top left where the system draws its own — one mark for every page of the path, never a grey word at the foot
+        act.back?.let { b ->
+            page.setPadding(page.paddingLeft, page.paddingTop + act.dp(28), page.paddingRight, page.paddingBottom)   // iOS .padding(.top, 28) under the mark
+            content.addView(FrameLayout(act).apply {
+                background = act.glassPlate(oval = true)
+                contentDescription = act.getString(R.string.back)
+                addView(act.icon(R.drawable.ic_arrow_back_ios_new, Color.rgb(204, 204, 204), 22), FrameLayout.LayoutParams(act.dp(22), act.dp(22), Gravity.CENTER))
+                pressable { b() }
+            }, FrameLayout.LayoutParams(act.dp(44), act.dp(44), Gravity.TOP or Gravity.START).apply { leftMargin = act.dp(12); topMargin = act.dp(4) })
+        }
     }
 
     /** Page frame: black ground, 24dp padding, a column. */
@@ -98,7 +109,6 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
         addView(PathDoor(c, c.getString(R.string.open_identity)) { go(4) }, lp())
         gap(18)
         addView(c.text(versionFooter(c), 11f, MT.withAlpha(MT.gray, 0.7f), center = true))
-        addView(c.backLink { montanaRoad = false; go(0) })
     }
 
     private fun chooseCarried(all: List<MontanaBackupID.Carried>) {
@@ -194,8 +204,6 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
         spacer()
         next = PathDoor(c, c.getString(R.string.show_words), MT.blue) { go(2) }.apply { setOn(false) }
         addView(next, lp())
-        gap(10)
-        addView(c.backLink { go(0) })
     }
 
     // ── 2: the 24 words ──
@@ -234,8 +242,6 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
         gap(14)
         done = PathDoor(c, c.getString(R.string.seed_done), MT.blue) { go(3) }.apply { setOn(false) }
         addView(done, lp())
-        gap(10)
-        addView(c.backLink { go(1) })
     }.keepsSecret()   // no screenshot, no recording, black in the recent apps while the words stand here
 
     /** The words go to the clipboard marked sensitive, so the system does not show them in its preview. */
@@ -316,7 +322,6 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
         }
         carried.post(ask)
         spacer()
-        addView(c.backLink { go(0) })
     }
 
     // ── 5: the copy coming back ──
