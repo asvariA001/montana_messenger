@@ -100,7 +100,13 @@ fun listRow(act: MainActivity, chat: Chat, inArchive: Boolean, sel: ChatSelectio
     }
     row.setOnClickListener { open() }
     row.setOnLongClickListener { personMenu(act, chat, inArchive, sel); true }
-    return SwipeRow(act, row, rowTiles(act, chat, inArchive))
+    return SwipeRow(act, row, rowTiles(act, chat, inArchive), callTiles(act, chat))
+}
+
+/** Left to right the two calls (iOS swipeLeading 773-777): a pair's chat only — no group, no room without an address. */
+private fun callTiles(act: MainActivity, chat: Chat): List<Tile> {
+    if (Groups.isKey(chat.ref) || Book.secret(chat.ref) == null) return emptyList()
+    return listOf(Tile(R.drawable.ic_peer_phone) { act.callOut(chat.ref, video = false) }, Tile(R.drawable.ic_peer_video) { act.callOut(chat.ref, video = true) })
 }
 
 /** A tile under the row: its glyph and its deed (iOS SwipeTile). */
@@ -258,36 +264,42 @@ fun archivePage(act: MainActivity, onBack: () -> Unit): View {
 }
 
 /**
- * A ROW THAT UNCOVERS ITS TILES (iOS SwipeChatRow). The stroke is the row's only when it begins in the row's right edge zone
- * — a sixth of the width, 22 to 80 points (iOS MTTabPan's edge zones): from the centre the stroke turns the pages, as it did
- * before. Released past half the tiles, the row stays open; a tap on the open row closes it.
+ * A ROW THAT UNCOVERS ITS TILES (iOS SwipeChatRow; MontanaChatsList 771-786: left to right the two calls, right to left the
+ * marks). The stroke is the row's only when it begins in one of the row's edge zones — a sixth of the width, 22 to 80 points
+ * (iOS MTTabPan's edge zones): from the centre the stroke turns the pages, as it did before. Released past half the tiles,
+ * the row stays open; a tap on the open row closes it, and so does the list's move.
  */
-class SwipeRow(private val act: MainActivity, private val content: View, tiles: List<Tile>) : FrameLayout(act) {
+class SwipeRow(private val act: MainActivity, private val content: View, tiles: List<Tile>, leading: List<Tile> = emptyList()) : FrameLayout(act) {
     private val tray = act.hstack { gravity = Gravity.CENTER_VERTICAL or Gravity.END; setPadding(0, 0, dp(10), 0) }
+    private val lead = act.hstack { gravity = Gravity.CENTER_VERTICAL or Gravity.START; setPadding(dp(10), 0, 0, 0) }
     private val tileSize = dp(44)
     private val gapPx = dp(8)
     private val trayWidth = tiles.size * (tileSize + gapPx) + dp(10)
+    private val leadWidth = if (leading.isEmpty()) 0 else leading.size * (tileSize + gapPx) + dp(10)
     private val slop = ViewConfiguration.get(act).scaledTouchSlop
     private var downX = 0f; private var downY = 0f; private var startT = 0f
     private var edge = false; private var dragging = false
 
+    private fun tileView(t: Tile) = FrameLayout(act).apply {
+        background = act.glassPlate(oval = true)
+        addView(act.icon(t.glyph, if (t.red) SysColor.red else Color.WHITE, 20), LayoutParams(dp(20), dp(20), Gravity.CENTER))
+        pressable { settle(0f); t.deed() }
+    }
+
     init {
-        tiles.forEach { t ->
-            tray.addView(FrameLayout(act).apply {
-                background = act.glassPlate(oval = true)
-                addView(act.icon(t.glyph, if (t.red) SysColor.red else Color.WHITE, 20), LayoutParams(dp(20), dp(20), Gravity.CENTER))
-                pressable { settle(false); t.deed() }
-            }, LinearLayout.LayoutParams(tileSize, tileSize).apply { marginStart = gapPx })
-        }
+        tiles.forEach { t -> tray.addView(tileView(t), LinearLayout.LayoutParams(tileSize, tileSize).apply { marginStart = gapPx }) }
+        leading.forEach { t -> lead.addView(tileView(t), LinearLayout.LayoutParams(tileSize, tileSize).apply { marginEnd = gapPx }) }
         addView(tray, LayoutParams(MATCH, MATCH))
+        addView(lead, LayoutParams(MATCH, MATCH))
         tray.visibility = INVISIBLE
+        lead.visibility = INVISIBLE
         addView(content, LayoutParams(MATCH, WRAP))
     }
 
     private fun zone(): Float = (width / 6f).coerceIn(dp(22).toFloat(), dp(80).toFloat())
 
     // AN OPEN ROW CLOSES WHEN THE LIST MOVES (iOS 15.26, 1367: the platform's own swipe actions close on scroll)
-    private val onScroll = android.view.ViewTreeObserver.OnScrollChangedListener { if (content.translationX < 0f && !dragging) settle(false) }
+    private val onScroll = android.view.ViewTreeObserver.OnScrollChangedListener { if (content.translationX != 0f && !dragging) settle(0f) }
     override fun onAttachedToWindow() { super.onAttachedToWindow(); viewTreeObserver.addOnScrollChangedListener(onScroll) }
     override fun onDetachedFromWindow() { viewTreeObserver.removeOnScrollChangedListener(onScroll); super.onDetachedFromWindow() }
 
@@ -295,7 +307,7 @@ class SwipeRow(private val act: MainActivity, private val content: View, tiles: 
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 downX = e.x; downY = e.y; startT = content.translationX; dragging = false
-                edge = startT < 0f || e.x > width - zone()
+                edge = startT != 0f || e.x > width - zone() || (leadWidth > 0 && e.x < zone())
                 // the edge zone is the row's: the pages must not take this stroke sideways
                 if (edge) parent?.requestDisallowInterceptTouchEvent(true)
             }
@@ -305,11 +317,11 @@ class SwipeRow(private val act: MainActivity, private val content: View, tiles: 
                 if (abs(dy) > slop && abs(dy) > abs(dx)) { edge = false; parent?.requestDisallowInterceptTouchEvent(false); return false }   // a scroll: the list's
                 if (abs(dx) > slop) {
                     // the row covers its tiles while it moves; closed, it is clear again over the page's ground
-                    dragging = true; tray.visibility = VISIBLE; content.setBackgroundColor(Color.BLACK); return true
+                    dragging = true; tray.visibility = VISIBLE; lead.visibility = VISIBLE; content.setBackgroundColor(Color.BLACK); return true
                 }
             }
             // a tap on the open row closes it; a tap on a tile is the tile's
-            MotionEvent.ACTION_UP -> if (startT < 0f && abs(e.x - downX) < slop && e.x < width + content.translationX) { settle(false); return true }
+            MotionEvent.ACTION_UP -> if (startT != 0f && abs(e.x - downX) < slop && e.x > content.translationX && e.x < width + content.translationX) { settle(0f); return true }
         }
         return false
     }
@@ -317,18 +329,21 @@ class SwipeRow(private val act: MainActivity, private val content: View, tiles: 
     override fun onTouchEvent(e: MotionEvent): Boolean {
         if (!dragging) return super.onTouchEvent(e)
         when (e.actionMasked) {
-            MotionEvent.ACTION_MOVE -> content.translationX = (startT + e.x - downX).coerceIn(-trayWidth.toFloat(), 0f)
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> { dragging = false; settle(content.translationX < -trayWidth / 2f) }
+            MotionEvent.ACTION_MOVE -> content.translationX = (startT + e.x - downX).coerceIn(-trayWidth.toFloat(), leadWidth.toFloat())
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                dragging = false
+                val t = content.translationX
+                settle(if (t < -trayWidth / 2f) -trayWidth.toFloat() else if (leadWidth > 0 && t > leadWidth / 2f) leadWidth.toFloat() else 0f)
+            }
         }
         return true
     }
 
-    private fun settle(open: Boolean) {
-        val to = if (open) -trayWidth.toFloat() else 0f
+    private fun settle(to: Float) {
         ValueAnimator.ofFloat(content.translationX, to).apply {
             duration = 220
             addUpdateListener { content.translationX = it.animatedValue as Float }
-            doOnEnd { if (!open) { tray.visibility = INVISIBLE; content.background = null } }
+            doOnEnd { if (to == 0f) { tray.visibility = INVISIBLE; lead.visibility = INVISIBLE; content.background = null } }
             start()
         }
     }
