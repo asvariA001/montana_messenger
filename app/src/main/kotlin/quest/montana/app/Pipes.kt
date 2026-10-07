@@ -275,8 +275,15 @@ object Book {
         ref
     }
 
-    fun all(): List<Chat> = synchronized(lock) { ensure(); chats.values.sortedByDescending { it.last?.at ?: 0 } }
-    fun chat(ref: String): Chat? = synchronized(lock) { ensure(); chats[ref] }
+    /**
+     * A READER'S COPY (the screens, the searches, the counts): its own list of the feed's letters, taken under the lock. The
+     * live list is changed by the receiving threads inside edit; a screen iterating it on the main thread died of it (07.10,
+     * Pixel 19:23 MSK: ConcurrentModificationException in the conversation's redraw while a letter landed). Every change
+     * still goes by edit.
+     */
+    private fun Chat.shot() = Chat(ref, name, perm, unread, ArrayList(msgs), pin, note)
+    fun all(): List<Chat> = synchronized(lock) { ensure(); chats.values.sortedByDescending { it.last?.at ?: 0 }.map { it.shot() } }
+    fun chat(ref: String): Chat? = synchronized(lock) { ensure(); chats[ref]?.shot() }
 
     fun open(ref: String, name: String, perm: Boolean): Chat = synchronized(lock) {
         ensure()
