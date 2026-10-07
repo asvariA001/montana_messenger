@@ -55,6 +55,9 @@
     <string name="pl_turn_on">Turn on location</string>
     <string name="pl_mine">My location</string>
     <string name="pl_no_maps">No maps app on this phone</string>
+    <string name="pi_new_contact">Create new contact</string>
+    <string name="pi_existing_contact">Add to existing</string>
+    <string name="pi_link_unavailable">The contact link is not available yet: the person must open Montana once.</string>
     <plurals name="gr_members"><item quantity="one">%d member</item><item quantity="other">%d members</item></plurals>
     <string name="lw_photo">Photo</string>
     <string name="lw_video">Video</string>

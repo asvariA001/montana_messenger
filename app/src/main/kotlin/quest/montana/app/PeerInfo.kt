@@ -275,10 +275,53 @@ fun peerInfoPage(act: MainActivity, ref: String, onClose: () -> Unit): View {
             c.getString(R.string.pi_fingerprint), c.getString(if (verified) R.string.pi_verified else R.string.pi_not_verified), chevron = true) {
             act.push { close -> safetyPage(act, ref, name) { close(); redrawAll() } }
         })
-        first.add(row(R.drawable.ic_share, c.getString(R.string.pi_share_contact)) { notYet() })
+        // SHARE CONTACT (iOS shareContact): the correspondent's own daily link, handed to us to hand on; without a fresh one it is
+        // asked for, and a peer that does not answer within six seconds is asleep or older — said honestly
+        first.add(row(R.drawable.ic_share, c.getString(R.string.pi_share_contact)) {
+            fun share(link: String) = runCatching {
+                act.startActivity(android.content.Intent.createChooser(android.content.Intent(android.content.Intent.ACTION_SEND)
+                    .setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT, link), null))
+            }
+            PeerLinks.fresh(ref)?.let { share(it); return@row }
+            LiveDraft.askLink(ref)
+            val asked = System.currentTimeMillis()
+            lateinit var wait: Runnable
+            wait = Runnable {
+                val got = PeerLinks.fresh(ref)
+                when {
+                    got != null -> share(got)
+                    System.currentTimeMillis() - asked < 6000 -> MainThread.later(300, wait)
+                    else -> AlertDialog.Builder(c).setMessage(R.string.pi_link_unavailable).setPositiveButton(android.R.string.ok, null).show()
+                }
+            }
+            MainThread.later(300, wait)
+        })
         sections.addView(glassGroup(*first.toTypedArray()), lp())
         val blocked = PeerSafety.isBlocked(ref)
         sections.addView(glassGroup(
+            // THE PHONE'S ADDRESS BOOK (iOS settings.newContact / settings.existingContact): a new card of the phone with the
+            // person's name, or a card of the phone whose name becomes my name for this person (iOS attachToExistingCard)
+            row(R.drawable.ic_person_add, c.getString(R.string.pi_new_contact)) {
+                val card = android.content.Intent(android.provider.ContactsContract.Intents.Insert.ACTION)
+                    .setType(android.provider.ContactsContract.RawContacts.CONTENT_TYPE)
+                    .putExtra(android.provider.ContactsContract.Intents.Insert.NAME, Book.chat(ref)?.shown ?: "")
+                runCatching { act.startActivity(card) }
+            },
+            row(R.drawable.ic_bar_contacts, c.getString(R.string.pi_existing_contact)) {
+                act.pickContact { uri ->
+                    val shown = uri?.let { u ->
+                        runCatching {
+                            c.contentResolver.query(u, arrayOf(android.provider.ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME), null, null, null)
+                                ?.use { cur -> if (cur.moveToFirst()) cur.getString(0) else null }
+                        }.getOrNull()
+                    }?.trim()
+                    if (!shown.isNullOrEmpty()) {
+                        val parts = shown.split(" ", limit = 2)
+                        Book.saveCard(ref, parts[0], parts.getOrElse(1) { "" }, Book.chat(ref)?.note ?: "", null, false)
+                        redrawAll()
+                    }
+                }
+            },
             row(R.drawable.ic_report, c.getString(R.string.pi_report), red = true) {
                 act.push { close -> reportPage(act, ref, name) { close(); redrawAll() } }
             },

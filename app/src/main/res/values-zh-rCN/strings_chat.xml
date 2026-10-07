@@ -55,6 +55,9 @@
     <string name="pl_turn_on">开启定位</string>
     <string name="pl_mine">我的位置</string>
     <string name="pl_no_maps">此手机上没有地图应用</string>
+    <string name="pi_new_contact">创建新联系人</string>
+    <string name="pi_existing_contact">添加到现有联系人</string>
+    <string name="pi_link_unavailable">联系人链接暂不可用：对方需要打开一次 Montana。</string>
     <plurals name="gr_members"><item quantity="other">%d 名成员</item></plurals>
     <string name="lw_photo">照片</string>
     <string name="lw_video">视频</string>

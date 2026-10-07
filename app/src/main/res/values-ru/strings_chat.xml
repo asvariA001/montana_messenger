@@ -55,6 +55,9 @@
     <string name="pl_turn_on">Включить геопозицию</string>
     <string name="pl_mine">Моё местоположение</string>
     <string name="pl_no_maps">На телефоне нет приложения карт</string>
+    <string name="pi_new_contact">Создать новый контакт</string>
+    <string name="pi_existing_contact">Добавить к существующему</string>
+    <string name="pi_link_unavailable">Ссылка контакта пока недоступна: человек должен один раз открыть Montana.</string>
     <plurals name="gr_members"><item quantity="one">%d участник</item><item quantity="few">%d участника</item><item quantity="many">%d участников</item><item quantity="other">%d участника</item></plurals>
     <string name="lw_photo">Фото</string>
     <string name="lw_video">Видео</string>

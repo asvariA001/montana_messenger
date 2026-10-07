@@ -777,6 +777,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 LiveDraft.listen(draftListener); drawDraft()
                 Presence.sayChat(ref, true); MainThread.later(Presence.BEAT, chatBeat)
                 Signal.hold(ref, "chat")
+                if (!group) LiveDraft.sayLink(ref)   // our daily link, to hand on (iOS sendLinkWord on a chat's opening)
                 if ((Book.chat(ref)?.unread ?: 0) > 0) Thread { Post.markRead(ref) }.start()
             }
             override fun onViewDetachedFromWindow(v: View) {

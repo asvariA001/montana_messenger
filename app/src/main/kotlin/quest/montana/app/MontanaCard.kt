@@ -157,6 +157,13 @@ object MontanaCard {
     /** The words a share carries before the link (iOS MontanaConv.inviteMessage). */
     fun inviteMessage(c: Context, permanent: Boolean) = c.getString(if (permanent) R.string.invite_perm else R.string.invite_temp)
 
+    /** The day's link and the moment it was born, seconds (iOS currentShortWithBorn): handed to a correspondent to hand on. */
+    fun currentShortWithBorn(c: Context): Pair<String, Double>? {
+        val link = offerShort(c) ?: return null
+        val born = text(BORN)?.toDoubleOrNull() ?: return null
+        return link to born
+    }
+
     /** When the day's link turns (born + one day), or null. */
     fun renewsAt(): Long? = text(BORN)?.toDoubleOrNull()?.let { ((it + LIFETIME) * 1000).toLong() }
 

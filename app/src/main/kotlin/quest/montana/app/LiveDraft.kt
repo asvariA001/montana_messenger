@@ -59,12 +59,38 @@ object LiveDraft {
         if (ending || due <= 0) speak.run() else { pending[ref] = speak; h.postDelayed(speak, due) }
     }
 
+    // ── the daily links (iOS sendLinkWord, askLinkWord) ──
+    private val linkSaidAt = HashMap<String, Long>()
+    /**
+     * OUR DAILY LINK TO A CORRESPONDENT (iOS sendLinkWord), so they can introduce us to a friend the way they share their own
+     * code: said when a chat is opened, at most once a correspondence per six hours (the link lives a day), and at their ask at
+     * once. It rides the draft word with the words of mine already standing there — an empty text would end a draft.
+     */
+    fun sayLink(ref: String, force: Boolean = false) {
+        if (PeerSafety.isBlocked(ref) || Book.secret(ref) == null) return
+        if (!force && System.currentTimeMillis() - (linkSaidAt[ref] ?: 0L) < 6 * 3600_000L) return
+        val (link, born) = MontanaCard.currentShortWithBorn(Book.ctx) ?: return
+        linkSaidAt[ref] = System.currentTimeMillis()
+        val body = JSONObject().put("t", said[ref] ?: "").put("c", -1).put("n", stamp()).put("rl", link).put("rb", born)
+        Signal.post(ref, MARK + Base64.encodeToString(body.toString().toByteArray(), Base64.NO_WRAP))
+    }
+    /** «Hand me your link» (iOS askLinkWord, share contact): a peer of this build answers with its link at once. */
+    fun askLink(ref: String) {
+        if (Book.secret(ref) == null) return
+        val body = JSONObject().put("t", said[ref] ?: "").put("c", -1).put("n", stamp()).put("rq", 1)
+        Signal.post(ref, MARK + Base64.encodeToString(body.toString().toByteArray(), Base64.NO_WRAP))
+    }
+
     // ── what I hear ──
     /** A draft word of theirs off the lane. true — a keystroke said now (it lights «typing…»). */
     fun hear(ref: String, word: String): Boolean {
         val j = runCatching { JSONObject(String(Base64.decode(word.removePrefix(MARK), Base64.DEFAULT), Charsets.UTF_8)) }.getOrNull() ?: return false
         val n = j.optLong("n", 0)
         if (n > 0) { if (n <= (heardAt[ref] ?: 0)) return false; heardAt[ref] = n }   // an older word is an echo of the road
+        // THEIR DAILY LINK, handed to us to hand on (iOS MTPeerLinks.note); their ask for mine is answered at once (iOS rq)
+        j.optString("rl").takeIf { Meeting.invite(it) != null }?.let { PeerLinks.note(ref, it, j.optDouble("rb", System.currentTimeMillis() / 1000.0)) }
+        if (j.optInt("rq") == 1) MainThread.post { sayLink(ref, force = true) }
+        val state = j.has("rl") || j.has("rq") || j.has("ab") || j.has("al")   // a word of state, never a keystroke (iOS draftStateKeys)
         if (!on) return false
         val text = j.optString("t")
         // WORDS THAT ALREADY BECAME A LETTER ARE NOT A DRAFT (iOS draft_ghost): a word equal to a letter of theirs just landed
@@ -72,9 +98,26 @@ object LiveDraft {
         if (text.isEmpty() || landed) shown.remove(ref) else shown[ref] = Draft(text, j.optInt("c", -1), j.optString("rm"))
         changed()
         val fresh = n == 0L || System.currentTimeMillis() - n <= 7_000
-        return text.isNotEmpty() && !landed && !j.has("ck") && fresh
+        return text.isNotEmpty() && !landed && !j.has("ck") && !state && fresh
     }
     fun of(ref: String): Draft? = shown[ref]
+}
+
+/**
+ * THE DAILY LINKS OUR CORRESPONDENTS HANDED US (iOS MTPeerLinks): each with the moment it was born; a link is shown only while
+ * its day runs, rather than hand a friend a code that answers «spent».
+ */
+object PeerLinks {
+    private const val KEY = "peerRdvLinks"
+    private fun all(): JSONObject = DeviceVault.get(KEY)?.let { runCatching { JSONObject(String(it, Charsets.UTF_8)) }.getOrNull() } ?: JSONObject()
+    @Synchronized fun note(ref: String, link: String, born: Double) {
+        DeviceVault.set(KEY, all().put(ref, JSONObject().put("l", link).put("b", born)).toString().toByteArray(Charsets.UTF_8))
+        android.util.Log.d("Montana", "link_rx from=" + ref.take(10))
+    }
+    /** The link, while its day runs. */
+    fun fresh(ref: String): String? = all().optJSONObject(ref)
+        ?.takeIf { System.currentTimeMillis() / 1000.0 - it.optDouble("b", 0.0) < 24 * 3600 }?.optString("l")?.ifEmpty { null }
+    fun wipe() = DeviceVault.delete(KEY)
 }
 
 /**
