@@ -100,6 +100,15 @@ object PeerSafety {
     }
 }
 
+/**
+ * THE PERSON KEPT AS A CONTACT (iOS isInContacts, the list mtContacts): marked once their card is saved in the phone or a card of the
+ * phone is taken for them; from then the page offers neither «Create new contact» nor «Add to existing».
+ */
+object PeerContact {
+    fun isKept(ref: String) = Prefs.bool("contact.$ref", false)
+    fun keep(ref: String) = Prefs.setBool("contact.$ref", true)
+}
+
 // ─────────────────────────── the panes (iOS MTMediaTab) ───────────────────────────
 
 private enum class Tab(val title: Int, val icon: Int, val empty: Int) {
@@ -253,48 +262,103 @@ fun peerInfoPage(act: MainActivity, ref: String, onClose: () -> Unit,
         })
         sections.addView(glassGroup(*first.toTypedArray()), lp())
         val blocked = PeerSafety.isBlocked(ref)
-        sections.addView(glassGroup(
-            // THE PHONE'S ADDRESS BOOK (iOS settings.newContact / settings.existingContact): a new card of the phone with the
-            // person's name, or a card of the phone whose name becomes my name for this person (iOS attachToExistingCard)
-            row(R.drawable.ic_person_add, c.getString(R.string.pi_new_contact)) {
+        val second = mutableListOf<View>()
+        // THE PHONE'S ADDRESS BOOK (iOS settings.newContact / settings.existingContact), WHILE THE PERSON IS NOT KEPT (iOS
+        // !isInContacts): a new card of the phone with the person's name, kept once the phone says it is saved; or a card of the
+        // phone whose name becomes my name for this person (iOS attachToExistingCard)
+        if (!PeerContact.isKept(ref)) {
+            second.add(row(R.drawable.ic_person_add, c.getString(R.string.pi_new_contact)) {
                 val card = android.content.Intent(android.provider.ContactsContract.Intents.Insert.ACTION)
                     .setType(android.provider.ContactsContract.RawContacts.CONTENT_TYPE)
                     .putExtra(android.provider.ContactsContract.Intents.Insert.NAME, Book.chat(ref)?.shown ?: "")
-                runCatching { act.startActivity(card) }
-            },
-            row(R.drawable.ic_bar_contacts, c.getString(R.string.pi_existing_contact)) {
+                act.addContact(card) { saved -> if (saved) { PeerContact.keep(ref); redrawAll() } }
+            })
+            second.add(row(R.drawable.ic_bar_contacts, c.getString(R.string.pi_existing_contact)) {
                 act.pickContact { uri ->
-                    val shown = uri?.let { u ->
-                        runCatching {
-                            c.contentResolver.query(u, arrayOf(android.provider.ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME), null, null, null)
-                                ?.use { cur -> if (cur.moveToFirst()) cur.getString(0) else null }
-                        }.getOrNull()
-                    }?.trim()
+                    if (uri == null) return@pickContact
+                    val shown = runCatching {
+                        c.contentResolver.query(uri, arrayOf(android.provider.ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME), null, null, null)
+                            ?.use { cur -> if (cur.moveToFirst()) cur.getString(0) else null }
+                    }.getOrNull()?.trim()
                     if (!shown.isNullOrEmpty()) {
                         val parts = shown.split(" ", limit = 2)
                         Book.saveCard(ref, parts[0], parts.getOrElse(1) { "" }, Book.chat(ref)?.note ?: "", null, false)
-                        redrawAll()
                     }
+                    PeerContact.keep(ref)
+                    redrawAll()
                 }
-            },
-            row(R.drawable.ic_report, c.getString(R.string.pi_report), red = true) {
-                act.push { close -> reportPage(act, ref, name) { close(); redrawAll() } }
-            },
-            row(R.drawable.ic_hand, c.getString(if (blocked) R.string.pi_unblock else R.string.pi_block), red = true) {
-                if (blocked) { PeerSafety.setBlocked(ref, false); redrawAll() }
-                else AlertDialog.Builder(c).setTitle(R.string.pi_block_q).setMessage(R.string.pi_block_note)
-                    .setPositiveButton(R.string.pi_block_contact) { _, _ -> PeerSafety.setBlocked(ref, true); redrawAll() }
-                    .setNegativeButton(R.string.cancel, null).show()
-            }), lp().apply { topMargin = c.dp(22) })
+            })
+        }
+        second.add(row(R.drawable.ic_report, c.getString(R.string.pi_report), red = true) {
+            act.push { close -> reportPage(act, ref, name) { close(); redrawAll() } }
+        })
+        second.add(row(R.drawable.ic_hand, c.getString(if (blocked) R.string.pi_unblock else R.string.pi_block), red = true) {
+            if (blocked) { PeerSafety.setBlocked(ref, false); redrawAll() }
+            else AlertDialog.Builder(c).setTitle(R.string.pi_block_q).setMessage(R.string.pi_block_note)
+                .setPositiveButton(R.string.pi_block_contact) { _, _ -> PeerSafety.setBlocked(ref, true); redrawAll() }
+                .setNegativeButton(R.string.cancel, null).show()
+        })
+        sections.addView(glassGroup(*second.toTypedArray()), lp().apply { topMargin = c.dp(22) })
     }
 
-    // ── the strip and the panes (iOS MTTabStrip): the system's glass 44 points tall, the chosen word on the system's grey pill ──
+    // ── THE STRIP (iOS MTTabStrip): the system's glass capsule 44 tall stands still on the page's margin and the words roll inside it,
+    // under its edge; the chosen word wears the system's grey pill, which rides to the next one; while every word fits, the tabs
+    // share the capsule equally ──
     var tab = Tab.WALL   // a page opens on its wall
-    val strip = c.hstack { setPadding(dp(3), dp(3), dp(3), dp(3)); background = c.glassPlate() }
+    val dim = Color.argb(153, 235, 235, 245)   // iOS .secondaryLabel
+    val words = Tab.values().map { t ->
+        c.text(c.getString(t.title), 15f, dim, center = true).apply { typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL); maxLines = 1 }
+    }
+    val pill = View(c).apply { background = c.rounded(Color.rgb(58, 58, 60), 19) }   // iOS .systemGray4
+    val wordRow = c.hstack { setPadding(dp(3), dp(3), dp(3), dp(3)) }
+    words.forEach { wordRow.addView(it, lp(WRAP, c.dp(38))) }
+    val track = FrameLayout(c).apply {
+        addView(pill, FrameLayout.LayoutParams(0, dp(38)).apply { topMargin = dp(3) })
+        addView(wordRow, FrameLayout.LayoutParams(WRAP, MATCH))
+    }
     val roll = HorizontalScrollView(c).apply {
-        isHorizontalScrollBarEnabled = false
-        setPadding(dp(16), 0, dp(16), 0); clipToPadding = false
-        addView(strip)
+        isHorizontalScrollBarEnabled = false; overScrollMode = View.OVER_SCROLL_NEVER
+        addView(track, FrameLayout.LayoutParams(WRAP, MATCH))
+    }
+    val bar = FrameLayout(c).apply {
+        background = c.glassPlate()
+        clipToOutline = true   // the words roll under the capsule's own edge
+        addView(roll, FrameLayout.LayoutParams(MATCH, MATCH))
+    }
+    var slots = IntArray(0)   // each word's place in the track
+    var spans = IntArray(0)   // and its width
+    // the words' places: equal shares of the capsule while all fit, else each its own width and 16 on either side (iOS layoutSubviews)
+    fun lay() {
+        val inner = bar.width - c.dp(6)
+        if (inner == minOf(inner, 0)) return
+        val natural = words.map { v -> v.paint.measureText(v.text.toString()).toInt() + 1 + c.dp(32) }
+        val fits = natural.sum() == minOf(natural.sum(), inner)
+        val n = words.size
+        val share = inner / n
+        var x = c.dp(3)
+        slots = IntArray(n); spans = IntArray(n)
+        words.forEachIndexed { i, v ->
+            val w = if (!fits) natural[i] else if (i == n - 1) inner - share * (n - 1) else share
+            slots[i] = x; spans[i] = w; x += w
+            v.layoutParams = (v.layoutParams as LinearLayout.LayoutParams).apply { width = w }
+        }
+    }
+    // the pill under the chosen word, ridden there on the platform's spring of 0.4 s (iOS place, usingSpringWithDamping 0.85)
+    fun place(animated: Boolean) {
+        val i = tab.ordinal
+        if (i == maxOf(i, slots.size)) return
+        words.forEachIndexed { k, v -> v.setTextColor(if (k == i) Color.WHITE else dim) }
+        val p = pill.layoutParams as FrameLayout.LayoutParams
+        if (!animated || pill.width == 0) { p.width = spans[i]; pill.layoutParams = p; pill.translationX = slots[i].toFloat(); return }
+        val fromX = pill.translationX; val fromW = pill.width
+        android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 400; interpolator = android.view.animation.DecelerateInterpolator(2f)
+            addUpdateListener { a ->
+                val f = a.animatedValue as Float
+                pill.translationX = fromX + (slots[i] - fromX) * f
+                p.width = (fromW + (spans[i] - fromW) * f).toInt(); pill.layoutParams = p
+            }
+        }.start()
     }
     val pane = c.vstack(Gravity.NO_GRAVITY) { setPadding(dp(16), 0, dp(16), 0) }
     lateinit var drawPane: () -> Unit
@@ -354,31 +418,28 @@ fun peerInfoPage(act: MainActivity, ref: String, onClose: () -> Unit,
         }
     }
     // the chosen word rides into view, a hundred points of its neighbour showing beside it (iOS reveal)
-    fun reveal() {
-        val v = strip.getChildAt(tab.ordinal) ?: return
+    fun reveal(animated: Boolean) {
+        val i = tab.ordinal
         val w = roll.width
-        if (w == 0) return
-        val from = roll.paddingLeft + v.left
-        val to = roll.paddingLeft + v.right
+        if (w == 0 || i == maxOf(i, slots.size)) return
+        val from = slots[i]
+        val to = slots[i] + spans[i]
         var x = roll.scrollX
         if (x + w - c.dp(100) < to) x = to - w + c.dp(100)
         if (from - c.dp(100) < x) x = from - c.dp(100)
-        roll.smoothScrollTo(x.coerceIn(0, maxOf(0, strip.width + roll.paddingLeft + roll.paddingRight - w)), 0)
+        x = x.coerceIn(0, maxOf(0, track.width - w))
+        if (animated) roll.smoothScrollTo(x, 0) else roll.scrollTo(x, 0)
     }
-    fun drawStrip() {
-        strip.removeAllViews()
-        for (t in Tab.values()) strip.addView(c.text(c.getString(t.title), 15f, if (t == tab) Color.WHITE else Color.argb(153, 235, 235, 245), center = true).apply {
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            setPadding(dp(16), 0, dp(16), 0)
-            if (t == tab) background = c.rounded(Color.rgb(58, 58, 60), 19)   // iOS .systemGray4
-            setOnClickListener { if (t != tab) { tab = t; drawStrip(); drawPane() } }
-        }, lp(WRAP, c.dp(38)))
-        roll.post { reveal() }
+    fun choose(t: Tab) { if (t != tab) { tab = t; place(true); reveal(true); drawPane() } }
+    words.forEachIndexed { i, v -> v.setOnClickListener { choose(Tab.values()[i]) } }
+    // the capsule measured anew (the first layout, a turn of the phone): the words take their places again
+    bar.addOnLayoutChangeListener { _, left, _, right, _, oldLeft, _, oldRight, _ ->
+        if (right - left != oldRight - oldLeft) bar.post { lay(); wordRow.requestLayout(); wordRow.post { place(false); reveal(false) } }
     }
     // THE PANES ARE TURNED BY THE FINGER (iOS MTSwipePanes): one step along the strip, stopping at its ends
     fun turnPane(step: Int) {
         val j = tab.ordinal + step
-        if (j in Tab.values().indices) { tab = Tab.values()[j]; drawStrip(); drawPane() }
+        if (j in Tab.values().indices) choose(Tab.values()[j])
     }
     drawPane = {
         pane.removeAllViews()
@@ -408,9 +469,8 @@ fun peerInfoPage(act: MainActivity, ref: String, onClose: () -> Unit,
     body.addView(face.view, lp())
     body.addView(actions, lp())
     body.addView(sections, lp())
-    body.addView(roll, lp().apply { topMargin = c.dp(24) })
+    body.addView(bar, lp(MATCH, c.dp(44)).apply { topMargin = c.dp(24); marginStart = c.dp(16); marginEnd = c.dp(16) })
     body.addView(pane, lp())
-    drawStrip()
     redrawAll()
 
     val listener: () -> Unit = { drawHead(); drawPane(); if (selecting) drawFoot() }
@@ -424,7 +484,7 @@ fun peerInfoPage(act: MainActivity, ref: String, onClose: () -> Unit,
         setBackgroundColor(Color.BLACK)
         addView(CrestGround(c), FrameLayout.LayoutParams(MATCH, MATCH))
         // a stroke begun on the strip rolls the strip and turns nothing; the page scrolled up closes the open face
-        addView(PanesScroll(c, skip = { y -> y in roll.top.toFloat()..roll.bottom.toFloat() }, turn = { turnPane(it) }).apply {
+        addView(PanesScroll(c, skip = { y -> y in bar.top.toFloat()..bar.bottom.toFloat() }, turn = { turnPane(it) }).apply {
             isVerticalScrollBarEnabled = false; addView(body); face.attach(this)
         }, FrameLayout.LayoutParams(MATCH, MATCH))
         // the back mark on its own round of glass, over the page

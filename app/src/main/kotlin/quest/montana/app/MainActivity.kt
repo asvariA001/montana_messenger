@@ -365,6 +365,14 @@ class MainActivity : Activity() {
         }.onFailure { contactDone = null; done(null) }
     }
 
+    /** The phone's own new-contact screen (iOS upsertSystemCard): it closes once the card is saved, and says whether it was. */
+    private var cardDone: ((Boolean) -> Unit)? = null
+    fun addContact(card: Intent, done: (Boolean) -> Unit) {
+        cardDone = done
+        runCatching { @Suppress("DEPRECATION") startActivityForResult(card.putExtra("finishActivityOnSaveCompleted", true), ADD_CONTACT) }
+            .onFailure { cardDone = null; done(false) }
+    }
+
     /** The system's own question before a screen is shared (iOS: the broadcast picker, «Broadcast»): its answer comes back once. */
     private var screenDone: ((Intent?) -> Unit)? = null
     fun askScreen(done: (Intent?) -> Unit) {
@@ -385,6 +393,8 @@ class MainActivity : Activity() {
             captureDone?.invoke(resultCode == RESULT_OK); captureDone = null
         } else if (requestCode == PICK_CONTACT) {
             contactDone?.invoke(if (resultCode == RESULT_OK) data?.data else null); contactDone = null
+        } else if (requestCode == ADD_CONTACT) {
+            cardDone?.invoke(resultCode == RESULT_OK); cardDone = null
         } else if (requestCode == CONFIRM_OWNER) {
             OwnerCheck.pending?.invoke(if (resultCode == RESULT_OK) OwnerWord.CONFIRMED else OwnerWord.FAILED)
             OwnerCheck.pending = null
@@ -410,5 +420,5 @@ class MainActivity : Activity() {
     /** The app's own language before Android 13 (from 13 the system keeps it: AppLanguage). */
     override fun attachBaseContext(base: android.content.Context) = super.attachBaseContext(AppLanguage.wrap(base))
 
-    private companion object { const val PICK_PHOTO = 1; const val ASK_NOTIFY = 2; const val DOCUMENT = 3; const val ASK_CAMERA = 4; const val CONFIRM_OWNER = 5; const val CAPTURE = 6; const val PICK_CONTACT = 7; const val ASK_CALL_MIC = 9; const val ASK_CALL_OUT = 10; const val ASK_SCREEN = 11; const val PICK_MANY = 12; const val ASK_MEDIA = 13; const val ASK_MIC = 14 }
+    private companion object { const val PICK_PHOTO = 1; const val ASK_NOTIFY = 2; const val DOCUMENT = 3; const val ASK_CAMERA = 4; const val CONFIRM_OWNER = 5; const val CAPTURE = 6; const val PICK_CONTACT = 7; const val ASK_CALL_MIC = 9; const val ASK_CALL_OUT = 10; const val ASK_SCREEN = 11; const val PICK_MANY = 12; const val ASK_MEDIA = 13; const val ASK_MIC = 14; const val ADD_CONTACT = 15 }
 }
