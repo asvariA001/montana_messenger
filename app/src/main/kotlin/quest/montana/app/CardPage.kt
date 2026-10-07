@@ -166,12 +166,25 @@ class CardView(private val act: MainActivity, private val onExpand: (() -> Unit)
     }
 }
 
-/** THE CODE'S OWN PAGE (iOS: the card over everything, the checkmark top right): the one scroll, the column at its centre. */
+/**
+ * THE PAGE CLOSES WHEN THE ONE WHO SCANNED IT WRITES (iOS MontanaCodeView onMet 4287-4289, MontanaQRFullView 4606, the author's
+ * word 23.09): a first letter came through this phone's card — the code has done its work, and the page that holds it closes.
+ */
+object CodeMet {
+    @Volatile var close: (() -> Unit)? = null
+    fun met() { val c = close ?: return; MainThread.post { c() } }
+}
+
+/** THE CODE'S OWN PAGE (iOS MontanaQRFullView 4596-4617): the checkmark top right, the one scroll, the column at its centre, on my page's ground. */
 fun cardPage(act: MainActivity, onClose: () -> Unit): View {
     val c: Context = act
     return FrameLayout(c).apply {
         setBackgroundColor(Color.BLACK)
-        addView(CrestGround(c), FrameLayout.LayoutParams(MATCH, MATCH))
+        addView(c.chatGround(ChatWall.PAGE), FrameLayout.LayoutParams(MATCH, MATCH))   // my page's ground, as every page wears it (iOS 4615)
+        addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: View) { CodeMet.close = onClose }
+            override fun onViewDetachedFromWindow(v: View) { if (CodeMet.close === onClose) CodeMet.close = null }
+        })
         addView(c.vstack(Gravity.NO_GRAVITY) {
             addView(FrameLayout(c).apply {
                 addView(c.icon(R.drawable.ic_check, Color.WHITE).apply { setPadding(dp(10), dp(10), dp(10), dp(10)); pressable(onClose) },

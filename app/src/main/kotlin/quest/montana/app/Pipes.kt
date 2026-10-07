@@ -638,6 +638,7 @@ object Post {
         if (fresh) Thread { readPipeFace(ref, secret) }.start()
         place(ref, mid, text, name, null, null)
         announce(ref)
+        if (fresh) CodeMet.met()   // the page of the code that brought them closes (iOS onMet)
         return true
     }
 
