@@ -301,8 +301,35 @@ object Board {
         return f.format(java.util.Date(sec * 1000)) + "." + ms.toString().padStart(3, '0')
     }
     fun stamp(at: Double) = moment(at, java.util.TimeZone.getTimeZone("UTC"), "yyyy-MM-dd'T'HH:mm:ss") + "Z"
-    /** A comment's number in its chain and its moment on this phone's clock (iOS numberLine, without the prime sum). */
-    fun numberLine(n: Int, at: Double) = n.toString() + " · " + moment(at, java.util.TimeZone.getDefault(), "dd.MM.yyyy HH:mm:ss")
+    /** A comment's number in its chain, its moment on this phone's clock, then the prime sum of its own seal (iOS numberLine 1296-1302). */
+    fun numberLine(n: Int, at: Double, h: String): String {
+        val line = n.toString() + " · " + moment(at, java.util.TimeZone.getDefault(), "dd.MM.yyyy HH:mm:ss")
+        return if (h.isEmpty()) line else line + " · gematria " + gematria(h)
+    }
+    private val PRIMES = intArrayOf(2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109)
+    /** iOS gematria (MontanaBoard 1266-1290): the seal read as one number, divided by 29 again and again, the prime of every remainder summed. */
+    fun gematria(hex: String): Int {
+        var chars = hex.lowercase().toList()
+        if (chars.isEmpty()) return PRIMES[0]
+        var total = 0
+        while (true) {
+            var rem = 0
+            val next = ArrayList<Char>()
+            var started = false
+            for (ch in chars) {
+                val v = Character.digit(ch, 16)
+                if (v == -1) return total
+                val cur = rem * 16 + v
+                val q = cur / 29
+                rem = cur % 29
+                if (q != 0 || started) { next.add(Character.forDigit(q, 16)); started = true }
+            }
+            total += PRIMES[rem]
+            if (next.isEmpty()) break
+            chars = next
+        }
+        return total
+    }
 
     /** My small face for a comment, as the commenter sends it (iOS commentFace): a JPEG under the bound every build keeps. */
     private fun commentFace(): String? {
@@ -474,7 +501,7 @@ fun wallCommentsPage(act: MainActivity, wall: String, id: String, onClose: () ->
                 }, lp())
                 val words = k.optString("text")
                 if (words.isNotEmpty()) addView(c.text(words, 16f).apply { setPadding(dp(46), dp(2), 0, 0) }, lp())
-                addView(c.text(Board.numberLine(base + i + 1, k.optDouble("at")), 11f, MT.gray).apply { setPadding(dp(46), dp(2), 0, 0) }, lp())
+                addView(c.text(Board.numberLine(base + i + 1, k.optDouble("at"), k.optString("h")), 11f, MT.gray).apply { setPadding(dp(46), dp(2), 0, 0) }, lp())
             }, lp())
         }
     }
