@@ -26,6 +26,7 @@ import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.PopupMenu
 import android.widget.ScrollView
 import android.widget.TextView
 import org.json.JSONObject
@@ -697,23 +698,32 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         }
     }
 
-    // ── the bar: the back mark, the face and the name; the face's press offers the chat's own actions ──
+    // ── the bar (iOS chatTop in MTChatTopBar, 8 from each edge): the back on the marks' round, the name's bubble on the rest of the
+    // room, a pair's handset at its right ──
     val chat0 = Book.chat(ref)
-    val title = c.text(chat0?.shown?.ifBlank { null } ?: c.getString(R.string.peer), 17f, Color.WHITE, bold = true).apply { singleLineEllipsis() }   // USER-DATA
+    val title = c.text(chat0?.shown?.ifBlank { null } ?: c.getString(R.string.peer), 15f, Color.WHITE, bold = true).apply { singleLineEllipsis() }   // USER-DATA
     val faceSlot = FrameLayout(c)
-    // THE PRESENCE LINE UNDER THE NAME (iOS presenceWord): «typing…» / «in chat» / «online» in green, else «last seen…»
-    val presenceLine = c.text("", 12f, MT.gray).apply { singleLineEllipsis(); visibility = View.GONE }
+    // THE PRESENCE UNDER THE NAME (iOS presenceWord in chatTitleBubble): the words in grey after a dot — green while the person is live
+    // («typing…» / «in chat» / «online»), red on «last seen…»; a group's line is its people's count, with no dot
+    val presenceLine = c.text("", 11f, MT.gray).apply { singleLineEllipsis() }
+    val presenceDot = View(c)
+    val presenceRow = c.hstack {
+        gravity = Gravity.CENTER_VERTICAL
+        visibility = View.GONE
+        addView(presenceDot, lp(dp(9), dp(9)).apply { marginEnd = dp(4) })
+        addView(presenceLine, lp(WRAP, WRAP))
+    }
     fun drawPresence() {
         if (group) {   // a group has no presence of one person: its people's count (iOS the group chat's head)
             presenceLine.text = Groups.peopleLine(c, ref) ?: ""
-            presenceLine.setTextColor(MT.gray)
-            presenceLine.visibility = if (presenceLine.text.isEmpty()) View.GONE else View.VISIBLE
+            presenceDot.visibility = View.GONE
+            presenceRow.visibility = if (presenceLine.text.isEmpty()) View.GONE else View.VISIBLE
             return
         }
         val w = Presence.word(c, ref)
-        presenceLine.visibility = if (w == null) View.GONE else View.VISIBLE
+        presenceRow.visibility = if (w == null) View.GONE else View.VISIBLE
         presenceLine.text = w?.first ?: ""
-        presenceLine.setTextColor(if (w?.second == true) SysColor.green else MT.gray)
+        presenceDot.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(if (w?.second == true) SysColor.green else SysColor.red) }
     }
     drawPresence()
     fun drawHead() {
@@ -722,26 +732,52 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         faceSlot.removeAllViews(); faceSlot.addView(c.peerFace(ref, ch.shown, 36), FrameLayout.LayoutParams(c.dp(36), c.dp(36)))
     }
     drawHead()
-    val top = FrameLayout(c).apply {
-        setPadding(dp(8), 0, dp(8), 0)
-        addView(c.icon(R.drawable.ic_arrow_back_ios_new, Color.WHITE).apply { setPadding(dp(10), dp(10), dp(10), dp(10)); pressable { hideKeys(); onClose() } },
-            FrameLayout.LayoutParams(dp(44), dp(44), Gravity.CENTER_VERTICAL or Gravity.START))
-        // THE NAME AND THE FACE ARE ONE DOOR (iOS chatTitleDoor: the whole bubble — the face, the name, the presence — is the one button
-        // into the correspondent's page, a group's into the group's page; the keyboard goes down with it)
-        val openPage = { hideKeys(); act.push { close -> if (group) groupPage(act, ref, close) else peerInfoPage(act, ref, close) } }
-        addView(c.vstack(Gravity.CENTER) {
-            addView(title, lp(WRAP, WRAP))
-            addView(presenceLine, lp(WRAP, WRAP))
+    // THE NAME'S BUBBLE IS THE ONE DOOR (iOS chatTitleDoor): the face, the name and the presence in one capsule of glass, the whole of it
+    // the button into the correspondent's page (a group's into the group's page), the keyboard going down with it; a hold: «Copy name»
+    val openPage = { hideKeys(); act.push { close -> if (group) groupPage(act, ref, close) else peerInfoPage(act, ref, close) } }
+    // one round of the bar (iOS MTBarRoundMark): the glass circle of 44 with the bar's grey glyph (MontanaOctagon.barGlyph)
+    fun roundMark(res: Int, label: Int, onTap: (View) -> Unit): View = FrameLayout(c).apply {
+        background = c.glassPlate(oval = true)
+        contentDescription = c.getString(label)
+        addView(c.icon(res, Color.rgb(204, 204, 204)), FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
+        pressable { onTap(this) }
+    }
+    // the menu's own ink for its glyphs, so they read on whichever plate the platform gives the menu
+    fun menuInk() = c.obtainStyledAttributes(intArrayOf(android.R.attr.textColorPrimary)).let { t -> t.getColorStateList(0).also { t.recycle() } }
+    val top = c.hstack {
+        gravity = Gravity.CENTER_VERTICAL
+        setPadding(dp(8), dp(4), dp(8), dp(4))
+        addView(roundMark(R.drawable.ic_arrow_back_ios_new, R.string.back) { hideKeys(); onClose() }, lp(dp(44), dp(44)))
+        addView(c.hstack {
+            gravity = Gravity.CENTER_VERTICAL
+            background = c.glassPlate()
+            setPadding(dp(4), 0, dp(14), 0)
+            addView(faceSlot, lp(dp(36), dp(36)).apply { marginEnd = dp(8) })
+            addView(c.vstack(Gravity.NO_GRAVITY) {
+                addView(title, lp(WRAP, WRAP))
+                addView(presenceRow, lp(WRAP, WRAP).apply { topMargin = dp(1) })
+            }, lp(0, WRAP, 1f))
             pressable { openPage() }
-        }, FrameLayout.LayoutParams(MATCH, MATCH, Gravity.CENTER).apply { marginStart = dp(56); marginEnd = dp(56) })
-        addView(faceSlot.apply {
-            setOnClickListener { openPage() }
-            setOnLongClickListener {
-                AlertDialog.Builder(c).setMessage(R.string.delete_chat_q)
-                    .setPositiveButton(R.string.delete) { _, _ -> hideKeys(); onClose(); Book.forget(ref) }
-                    .setNegativeButton(R.string.cancel, null).show(); true
+            setOnLongClickListener { v ->
+                PopupMenu(c, v).apply {
+                    menu.add(R.string.copy_name)
+                    setOnMenuItemClickListener {
+                        c.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("name", title.text)); true
+                    }
+                }.show(); true
             }
-        }, FrameLayout.LayoutParams(dp(36), dp(36), Gravity.CENTER_VERTICAL or Gravity.END).apply { marginEnd = dp(8) })
+        }, lp(0, dp(44), 1f).apply { marginStart = dp(6); if (!group) marginEnd = dp(6) })
+        // THE HANDSET AS IT WAS (iOS handsetMark, a pair's chat): the calls' menu behind the one bar glyph — a voice call or a video call
+        if (!group) addView(roundMark(R.drawable.ic_bar_calls, R.string.pi_voice_call) { v ->
+            hideKeys()
+            PopupMenu(c, v).apply {
+                if (29 <= android.os.Build.VERSION.SDK_INT) setForceShowIcon(true)
+                val ink = menuInk()
+                menu.add(0, 0, 0, R.string.pi_voice_call).setIcon(R.drawable.ic_peer_phone).iconTintList = ink
+                menu.add(0, 1, 1, R.string.pi_video_call).setIcon(R.drawable.ic_peer_video).iconTintList = ink
+                setOnMenuItemClickListener { item -> act.callOut(ref, video = item.itemId == 1); true }
+            }.show()
+        }, lp(dp(44), dp(44)))
         layoutParams = LinearLayout.LayoutParams(MATCH, dp(52))
     }
 
