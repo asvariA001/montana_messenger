@@ -20,7 +20,7 @@
     <string name="media_failed">Файл не дошёл до узла</string>
     <string name="loading_file">Загрузка…</string>
     <string name="voice_hint">Запись… отпустите, чтобы отправить; влево — отмена</string>
-    <string name="invite_spent">Приглашение истекло. Попросите новый код.</string>
+    <string name="invite_spent">Приглашение погашено. Попросите новый код.</string>
     <string name="invite_refused">Приглашение не открылось. Проверьте ссылку или попробуйте ещё раз.</string>
     <string name="invite_nameless">Имена на Android пока не поддерживаются — попросите ссылку-визитку.</string>
     <string name="invite_wait">Сначала создайте личность — приглашение откроется сразу после.</string>
@@ -28,7 +28,11 @@
     <string name="paste_link">Вставить ссылку</string>
     <string name="scan_hint">Наведите камеру на код Montana</string>
     <string name="no_invite_in_clipboard">В буфере обмена нет ссылки Montana</string>
-    <string name="camera_needed">Montana нужна камера, чтобы прочитать код</string>
+    <string name="scan_code">Сканировать код</string>
+    <string name="scan_qr">Скан QR</string>
+    <string name="camera_off">Камера выключена для Montana</string>
+    <string name="camera_unavailable">Камера недоступна.</string>
+    <string name="open_settings">Открыть Настройки</string>
     <string name="gr_member">Участник</string>
     <string name="gr_out_note">Вы больше не участник: сообщения остаются здесь для чтения.</string>
     <string name="gr_choose">Выберите участников</string>

@@ -20,7 +20,7 @@
     <string name="media_failed">文件未到达节点</string>
     <string name="loading_file">加载中…</string>
     <string name="voice_hint">录音中… 松开发送，左滑取消</string>
-    <string name="invite_spent">邀请已过期。请索取新代码。</string>
+    <string name="invite_spent">邀请已失效。请索取新的邀请码。</string>
     <string name="invite_refused">无法打开邀请。请检查链接或重试。</string>
     <string name="invite_nameless">Android 暂不支持名称——请索取名片链接。</string>
     <string name="invite_wait">请先创建身份——邀请随后会自动打开。</string>
@@ -28,7 +28,11 @@
     <string name="paste_link">粘贴链接</string>
     <string name="scan_hint">将相机对准 Montana 代码</string>
     <string name="no_invite_in_clipboard">剪贴板中没有 Montana 链接</string>
-    <string name="camera_needed">Montana 需要相机来读取代码</string>
+    <string name="scan_code">扫描二维码</string>
+    <string name="scan_qr">扫描 QR</string>
+    <string name="camera_off">Montana 的相机已关闭</string>
+    <string name="camera_unavailable">摄像头不可用。</string>
+    <string name="open_settings">打开设置</string>
     <string name="gr_member">成员</string>
     <string name="gr_out_note">您已不再是成员：消息仍可在此阅读。</string>
     <string name="gr_choose">选择成员</string>

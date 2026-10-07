@@ -20,6 +20,12 @@ object Meeting {
         object Refused : Outcome()
         object Nameless : Outcome()
     }
+    /** The words a meeting that did not open says — the scanner's and the link road's alike (iOS ScanMeetingView 519-522). */
+    fun verdict(o: Outcome): Int = when (o) {
+        Outcome.Spent -> R.string.invite_spent
+        Outcome.Nameless -> R.string.invite_nameless
+        else -> R.string.invite_refused
+    }
 
     private const val FIRSTS = "pipeFirst"     // ref → {ct, inv}: the introduction still unanswered
     private const val SCANS = "rdvScanned"     // invitation → ref (iOS scanBook)
@@ -213,9 +219,7 @@ fun openInvitation(act: MainActivity, link: String) {
             when (o) {
                 // a pipe folded into a conversation is never opened as a page of its own (iOS meet → MTSamePair.root)
                 is Meeting.Outcome.Opened -> act.push { close -> conversationPage(act, SamePair.root(o.ref), close) }
-                Meeting.Outcome.Spent -> android.widget.Toast.makeText(act, R.string.invite_spent, android.widget.Toast.LENGTH_LONG).show()
-                Meeting.Outcome.Nameless -> android.widget.Toast.makeText(act, R.string.invite_nameless, android.widget.Toast.LENGTH_LONG).show()
-                Meeting.Outcome.Refused -> android.widget.Toast.makeText(act, R.string.invite_refused, android.widget.Toast.LENGTH_LONG).show()
+                else -> android.widget.Toast.makeText(act, Meeting.verdict(o), android.widget.Toast.LENGTH_LONG).show()
             }
         }
     }

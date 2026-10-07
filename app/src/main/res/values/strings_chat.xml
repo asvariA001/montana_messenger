@@ -28,7 +28,11 @@
     <string name="paste_link">Paste a link</string>
     <string name="scan_hint">Point the camera at a Montana code</string>
     <string name="no_invite_in_clipboard">There is no Montana link in the clipboard</string>
-    <string name="camera_needed">Montana needs the camera to read the code</string>
+    <string name="scan_code">Scan code</string>
+    <string name="scan_qr">Scan QR</string>
+    <string name="camera_off">Camera is off for Montana</string>
+    <string name="camera_unavailable">The camera is unavailable.</string>
+    <string name="open_settings">Open Settings</string>
     <string name="gr_member">Member</string>
     <string name="gr_out_note">You are no longer a member: the messages stay here to read.</string>
     <string name="gr_choose">Choose members</string>
