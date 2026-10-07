@@ -311,7 +311,9 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     lateinit var drawFoot: () -> Unit
 
     val field = EditText(c).apply { setText(Prefs.str("draft.$ref", "")) }
-    fun hideKeys() = c.getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(field.windowToken, 0)
+    // THE KEYBOARD AWAY IS THE FIELD LET GO (iOS inputFocused = false with hideKeyboard): a field kept focused under a hidden keyboard
+    // is raised again by the system each time the window comes forward (SHOW_AUTO_EDITOR_FORWARD_NAV, the Pixel's own record 07.10 22:35)
+    fun hideKeys() { c.getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(field.windowToken, 0); field.clearFocus() }
     fun showKeys() { field.requestFocus(); c.getSystemService(InputMethodManager::class.java).showSoftInput(field, 0) }
 
     // THE LINE OVER THE FIELD (iOS the reply/edit strip): what the next letter answers, or which letter is being changed.
@@ -519,7 +521,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     bar.onSendLater = { v -> sendLaterMenu(act, v, ref, { field.text.toString() }) { field.setText(""); Prefs.setStr("draft.$ref", "") } }
     // A CONTACT OF THE PHONE (iOS ContactPicker): its name and number leave as one letter
     bar.onContact = { hideKeys(); act.pickContact { u -> u?.let { contactLetter(c, it) }?.let { words -> sendWords(ref, words); toBottom() } } }
-    bar.onFile = { act.openDocument(sendPicked(true)) }
+    bar.onFile = { hideKeys(); act.openDocument(sendPicked(true)) }
     // THE CARD AS A PHOTO (iOS sendCardPhoto): the kept card drawn at the standard size, its words the caption under the card's mark
     bar.onCard = { hideKeys(); act.push { close -> businessCardPage(act, close) { card ->
         close()
@@ -724,14 +726,16 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         setPadding(dp(8), 0, dp(8), 0)
         addView(c.icon(R.drawable.ic_arrow_back_ios_new, Color.WHITE).apply { setPadding(dp(10), dp(10), dp(10), dp(10)); pressable { hideKeys(); onClose() } },
             FrameLayout.LayoutParams(dp(44), dp(44), Gravity.CENTER_VERTICAL or Gravity.START))
-        addView(c.vstack(Gravity.CENTER_HORIZONTAL) {
+        // THE NAME AND THE FACE ARE ONE DOOR (iOS chatTitleDoor: the whole bubble — the face, the name, the presence — is the one button
+        // into the correspondent's page, a group's into the group's page; the keyboard goes down with it)
+        val openPage = { hideKeys(); act.push { close -> if (group) groupPage(act, ref, close) else peerInfoPage(act, ref, close) } }
+        addView(c.vstack(Gravity.CENTER) {
             addView(title, lp(WRAP, WRAP))
             addView(presenceLine, lp(WRAP, WRAP))
-        }, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER).apply { marginStart = dp(56); marginEnd = dp(56) })
+            pressable { openPage() }
+        }, FrameLayout.LayoutParams(MATCH, MATCH, Gravity.CENTER).apply { marginStart = dp(56); marginEnd = dp(56) })
         addView(faceSlot.apply {
-            // the face opens the correspondent's page (iOS: the chat's header → MontanaPeerInfoScreen)
-            // the face opens the correspondent's page, a group's face the group's page (iOS MontanaPeerInfoScreen, kind .group)
-            setOnClickListener { hideKeys(); act.push { close -> if (group) groupPage(act, ref, close) else peerInfoPage(act, ref, close) } }
+            setOnClickListener { openPage() }
             setOnLongClickListener {
                 AlertDialog.Builder(c).setMessage(R.string.delete_chat_q)
                     .setPositiveButton(R.string.delete) { _, _ -> hideKeys(); onClose(); Book.forget(ref) }
