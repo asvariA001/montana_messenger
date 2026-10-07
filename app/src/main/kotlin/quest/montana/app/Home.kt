@@ -225,7 +225,8 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
         onProfile = { shell.close { act.showProfile() } },
         onSettings = { shell.close { act.push { settingsRoot(act, onForget, it) } } },
         onCard = { shell.close { act.push { businessCardPage(act, it) } } },
-        onPasswords = { shell.close { act.push { passwordsPage(act, it) } } }), FrameLayout.LayoutParams(MATCH, MATCH))
+        onPasswords = { shell.close { act.push { passwordsPage(act, it) } } },
+        onWallet = { shell.close { act.push { walletPage(act, it) } } }), FrameLayout.LayoutParams(MATCH, MATCH))
     return shell
 }
 
@@ -372,7 +373,7 @@ class DrawerShell(private val act: MainActivity) : FrameLayout(act) {
  * pages Android does not have yet stand in their places, quieter, and take no tap. The plus of a second login is iOS's
  * multi-login, which Android does not have.
  */
-private fun sideDrawer(act: MainActivity, onPane: (Pane) -> Unit, onProfile: () -> Unit, onSettings: () -> Unit, onCard: () -> Unit, onPasswords: () -> Unit): View {
+private fun sideDrawer(act: MainActivity, onPane: (Pane) -> Unit, onProfile: () -> Unit, onSettings: () -> Unit, onCard: () -> Unit, onPasswords: () -> Unit, onWallet: () -> Unit): View {
     val c: Context = act
     fun row(icon: View, word: Int, onTap: (() -> Unit)?) = c.hstack {
         setPadding(0, dp(16), 0, dp(16))
@@ -410,7 +411,7 @@ private fun sideDrawer(act: MainActivity, onPane: (Pane) -> Unit, onProfile: () 
         addView(row(glyph(R.drawable.ic_bar_play), R.string.app_music) { onPane(Pane.MUSIC) }, lp())
         addView(row(glyph(R.drawable.ic_app_gallery), R.string.app_gallery) { onPane(Pane.GALLERY) }, lp())
         addView(row(android.widget.ImageView(c).apply { setImageResource(R.drawable.chess_knight) }, R.string.app_chess, null), lp())
-        addView(row(glyph(R.drawable.ic_app_wallet), R.string.app_wallet, null), lp())
+        addView(row(glyph(R.drawable.ic_app_wallet), R.string.app_wallet, onWallet), lp())   // TimeCoin (iOS MTWalletPage)
         addView(row(glyph(R.drawable.ic_language), R.string.app_network, null), lp())
         addView(row(glyph(R.drawable.ic_app_card), R.string.app_card, onCard), lp())   // the business card (iOS MTCardFromDrawer, the author's word 28.09)
         // PASSWORDS (iOS MTApplication .passwords, key.fill, the author's word 06.10.2026 17:4x MSK): a page of its own over the tabs

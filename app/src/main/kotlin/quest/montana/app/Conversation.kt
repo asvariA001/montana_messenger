@@ -41,6 +41,8 @@ fun letterWords(c: Context, t: String, meta: String? = null): String = when {
     t.startsWith(Marks.MEDIA) -> mediaWords(c, meta?.let { runCatching { JSONObject(it) }.getOrNull() } ?: Media.inline(t))
     t.startsWith(Marks.STICKER) -> t.removePrefix(Marks.STICKER)
     t.startsWith(Marks.LONG) -> c.getString(R.string.long_letter)
+    // a coin letter: the coin and the number (iOS MTRowLetter.coinCount)
+    CoinLetter.parse(t) != null -> CoinLetter.preview(c, t) ?: t
     // a shared secret's every preview names no title and no content (iOS MTRowLetter.preview)
     SecretLetter.isOne(t) -> "\uD83D\uDD11 " + c.getString(R.string.pw_shared)
     else -> t
@@ -1054,6 +1056,8 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
             if (1 < members.size) albumBody(c, members, this)   // the plate of a media group (Album.kt)
             else if (Stickers.body(c, m, this)) Unit else if (m.text.startsWith(Marks.MEDIA)) mediaBody(c, m, this)
             else if (call) Calls.body(c, m, this)   // a call's row carries its moment inside, as iOS callBubble
+            // A COIN LETTER (iOS MTCoinLetter's bubble): our coin, the signed number, which way the coins went
+            else if (CoinSend.coinOf(m) != null) addView(c.coinPlate(m, CoinSend.coinOf(m)!!, mine), lp(WRAP, WRAP))
             // A SECRET SHARED FROM PASSWORDS (iOS MTSecretLetter): the key and the title; the receiver's tap saves it
             else if (SecretLetter.parse(m.text) != null) addView(c.secretPlate(c as? MainActivity, SecretLetter.parse(m.text)!!, mine), lp(WRAP, WRAP))
             // A PLACE LETTER (iOS MTPlaceLetter.parse → the map plate): the pin, the name and the spot instead of the link's words
