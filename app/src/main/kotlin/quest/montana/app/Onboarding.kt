@@ -35,8 +35,12 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
     private var nodeHost = ""
     /** The person walked on without the copy: its late answer no longer speaks on this screen. */
     private var walkedOn = false
+    /** The new person chose a ground: the pages of the making wear it from then on (iOS groundChosen, 30.09). */
+    private var groundChosen = false
+    private val ground = act.chatGround(ChatWall.PAGE).apply { visibility = View.GONE }
 
     init {
+        view.addView(ground, FrameLayout.LayoutParams(MATCH, MATCH))
         view.addView(content, FrameLayout.LayoutParams(MATCH, MATCH))
         go(0)
     }
@@ -46,7 +50,8 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
         // THE AUTHOR'S OWN GROUND (iOS 29.09): his picture under every step of the first screens, edge to edge;
         // the name's editor stands on its own black, as on iOS.
         // THE LOGIN PAGE IS BURGUNDY BY DEFAULT (iOS 2127-2133, the author's word 06.10.2026 15:1x MSK): his file as it came
-        act.setBackdrop(if (step == 3) null else R.drawable.montana_burgundy)
+        act.setBackdrop(if (step == 3 || groundChosen) null else R.drawable.montana_burgundy)
+        ground.visibility = if (groundChosen && step != 3) View.VISIBLE else View.GONE   // the chosen ground, once chosen (iOS 2129-2130)
         val page: View = when (step) {
             0 -> if (montanaRoad) intro() else doors()
             1 -> responsibility()
@@ -103,7 +108,9 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
         // EVERY ACT OF THE PATH IS A DOOR (iOS intro 2281-2291): the main act rimmed in the platform's blue, the second clear;
         // the account's door left this page for the page of opening (the author's word 29.09, 23:25)
         lateinit var create: PathDoor
-        create = PathDoor(c, c.getString(R.string.create), MT.blue) { createSeed(create) }
+        // THE GROUND COMES BEFORE THE PERSON (iOS 2167-2172, the author's word 30.09): the first «Create» opens my page's ground;
+        // its checkmark makes the person
+        create = PathDoor(c, c.getString(R.string.create), MT.blue) { if (bornWords == null && !groundChosen) chooseGround(create) else createSeed(create) }
         addView(create, lp())
         gap(18)
         addView(PathDoor(c, c.getString(R.string.open_identity)) { go(4) }, lp())
@@ -163,6 +170,17 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
                 addView(c.text(c.getString(sub), 12f, MT.gray))
             }, lp(0, WRAP, 1f))
         }, lp())
+    }
+
+    private fun chooseGround(button: PathDoor) {
+        act.push { close ->
+            wallpaperPicker(act, ChatWall.PAGE) {   // iOS shows no cross here; Android's bar cross closes as its checkmark does
+                close()
+                groundChosen = true
+                act.setBackdrop(null); ground.visibility = View.VISIBLE   // the page under the door wears the chosen ground at once
+                createSeed(button)
+            }
+        }
     }
 
     /** A person is born as an identity by their own act — the tap on «Create» — and by no other event. */
