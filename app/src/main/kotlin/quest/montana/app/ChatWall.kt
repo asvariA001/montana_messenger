@@ -11,6 +11,7 @@ import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.RadialGradient
+import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.SweepGradient
@@ -45,9 +46,12 @@ object ChatWall {
     }
     /** The drawn grounds, seen not read: the names are for the voice that reads the screen aloud (iOS MTWallpaper.names). */
     val names = listOf(
+        "gold" to R.string.wall_gold, "montana" to R.string.wall_montana,
         "default" to R.string.wall_default, "black" to R.string.wall_black, "dark" to R.string.wall_dark, "blue" to R.string.wall_blue,
         "sky" to R.string.wall_sky, "dusk" to R.string.wall_dusk, "water" to R.string.wall_water, "aurora" to R.string.wall_aurora,
-        "rose" to R.string.wall_rose, "forest" to R.string.wall_forest)
+        "burgundy" to R.string.wall_burgundy, "rose" to R.string.wall_rose, "forest" to R.string.wall_forest)
+    /** THE ONE DEFAULT (iOS MTWallpaper.byDefault, the author's word 03.10): my page's ground is gold until I choose another. */
+    const val BY_DEFAULT = "gold"
 
     private val listeners = mutableListOf<() -> Unit>()
     fun listen(l: () -> Unit) { synchronized(listeners) { listeners.add(l) } }
@@ -58,13 +62,15 @@ object ChatWall {
         return when {
             s.startsWith("named:") -> Choice.Named(s.removePrefix("named:"))
             s.startsWith("photo:") -> Choice.Photo(s.removePrefix("photo:"))
+            // nothing chosen for my page reads as the gold; «No background» chosen by hand is stored as «general» (iOS 182-193)
+            s.isEmpty() && ref == PAGE -> Choice.Named(BY_DEFAULT)
             else -> Choice.General
         }
     }
     fun set(ref: String, c: Choice) {
         val old = (choice(ref) as? Choice.Photo)?.file
         when (c) {
-            Choice.General -> Prefs.remove("chatWall.$ref")
+            Choice.General -> if (ref == PAGE) Prefs.setStr("chatWall.$ref", "general") else Prefs.remove("chatWall.$ref")
             is Choice.Named -> Prefs.setStr("chatWall.$ref", "named:" + c.name)
             is Choice.Photo -> Prefs.setStr("chatWall.$ref", "photo:" + c.file)
         }
@@ -90,6 +96,9 @@ object ChatWall {
 class GroundPaint(private val c: Context, private val name: String) : Drawable() {
     private val p = Paint(Paint.ANTI_ALIAS_FLAG)
     private val logo: Bitmap? = if (name == "default") logoBitmap(c) else null
+    // THE AUTHOR'S PICTURES, HIS FILES AS THEY CAME (iOS paint «montana», «burgundy», «gold»: scaledToFill, nothing drawn over them)
+    private val picture: Bitmap? = PICTURES[name]?.let { picture(c, it) }
+    private val bitmapPaint = Paint(Paint.FILTER_BITMAP_FLAG)
 
     private fun rgb(r: Double, g: Double, b: Double, a: Double = 1.0) = Color.argb((a * 255).toInt(), (r * 255).toInt(), (g * 255).toInt(), (b * 255).toInt())
     private fun linear(x0: Float, y0: Float, x1: Float, y1: Float, vararg colors: Int) = LinearGradient(x0, y0, x1, y1, colors, null, Shader.TileMode.CLAMP)
@@ -103,6 +112,14 @@ class GroundPaint(private val c: Context, private val name: String) : Drawable()
 
     override fun draw(canvas: Canvas) {
         val w = bounds.width().toFloat(); val h = bounds.height().toFloat()
+        picture?.let { b ->
+            // the picture fills the ground edge to edge, cut at its centre (scaledToFill)
+            val k = maxOf(w / b.width, h / b.height)
+            val sw = w / k; val sh = h / k
+            val left = (b.width - sw) / 2f; val top = (b.height - sh) / 2f
+            canvas.drawBitmap(b, Rect(left.toInt(), top.toInt(), (left + sw).toInt(), (top + sh).toInt()), bounds, bitmapPaint)
+            return
+        }
         when (name) {
             "black" -> canvas.drawColor(Color.BLACK)
             "dark" -> fill(canvas, dark(h))
@@ -162,6 +179,12 @@ class GroundPaint(private val c: Context, private val name: String) : Drawable()
     companion object {
         private var kept: Bitmap? = null
         fun logoBitmap(c: Context): Bitmap? = kept ?: runCatching { BitmapFactory.decodeResource(c.resources, R.drawable.logo) }.getOrNull()?.also { kept = it }
+        private val PICTURES = mapOf("gold" to R.drawable.montana_gold_ground, "montana" to R.drawable.montana_wallpaper, "burgundy" to R.drawable.montana_burgundy)
+        private val pictures = HashMap<Int, Bitmap>()
+        /** Decoded once, when a ground first wears it. */
+        fun picture(c: Context, res: Int): Bitmap? = synchronized(pictures) {
+            pictures[res] ?: runCatching { BitmapFactory.decodeResource(c.resources, res) }.getOrNull()?.also { pictures[res] = it }
+        }
     }
 }
 

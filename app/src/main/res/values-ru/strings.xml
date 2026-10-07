@@ -521,4 +521,7 @@
     <string name="filter_hidden">Скрыто фильтром</string>
     <string name="filter_tap">Нажмите, чтобы показать</string>
     <string name="channel_letters_quiet">Сообщения без звука</string>
+    <string name="wall_gold">Золотой фон</string>
+    <string name="wall_montana">Монтана</string>
+    <string name="wall_burgundy">Бургунди</string>
 </resources>

@@ -45,7 +45,8 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
         content.removeAllViews()
         // THE AUTHOR'S OWN GROUND (iOS 29.09): his picture under every step of the first screens, edge to edge;
         // the name's editor stands on its own black, as on iOS.
-        act.setBackdrop(if (step == 3) null else R.drawable.login_background)
+        // THE LOGIN PAGE IS BURGUNDY BY DEFAULT (iOS 2127-2133, the author's word 06.10.2026 15:1x MSK): his file as it came
+        act.setBackdrop(if (step == 3) null else R.drawable.montana_burgundy)
         val page: View = when (step) {
             0 -> if (montanaRoad) intro() else doors()
             1 -> responsibility()
