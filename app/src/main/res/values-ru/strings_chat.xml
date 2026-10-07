@@ -37,6 +37,9 @@
     <string name="feed_fresh_note">Напишите первое — оно дождётся на узле</string>
     <string name="feed_no_network">Нет связи с сетью</string>
     <string name="feed_no_network_note">Сообщения уйдут, как только ответит дверь</string>
+    <string name="coins_travel">Монеты в пути</string>
+    <string name="coins_travel_note">Письмо с монетами держит их, пока его не доставят или монеты не вернутся. Тогда его можно удалить.</string>
+    <string name="coins_travel_chat">Письмо с монетами в этом чате ещё в пути. Чат можно удалить, когда его доставят или монеты вернутся.</string>
     <string name="gr_member">Участник</string>
     <string name="gr_out_note">Вы больше не участник: сообщения остаются здесь для чтения.</string>
     <string name="gr_choose">Выберите участников</string>

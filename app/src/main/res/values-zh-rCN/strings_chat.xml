@@ -37,6 +37,9 @@
     <string name="feed_fresh_note">写下第一条 — 它会在节点上等待对方</string>
     <string name="feed_no_network">未连接到网络</string>
     <string name="feed_no_network_note">一旦有节点应答，消息就会发送</string>
+    <string name="coins_travel">硬币正在途中</string>
+    <string name="coins_travel_note">硬币信件会保留硬币，直到送达或硬币退回。之后即可删除。</string>
+    <string name="coins_travel_chat">此聊天中的硬币信件仍在途中。送达或硬币退回后即可删除聊天。</string>
     <string name="gr_member">成员</string>
     <string name="gr_out_note">您已不再是成员：消息仍可在此阅读。</string>
     <string name="gr_choose">选择成员</string>

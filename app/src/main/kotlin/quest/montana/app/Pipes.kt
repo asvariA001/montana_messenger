@@ -685,11 +685,15 @@ object Post {
                 // THE READ WORD MAY HAVE OUTRUN THIS RECEIPT (iOS markDelivered 4221-4226): a film is told «delivered» only once
                 // its file is whole there, while «read» leaves the moment the chat is open — the mark remembers, the letter catches up
                 val u = PeerRead.upTo(ref)
+                var row = false
                 Book.edit(ref) { c ->
                     c.msgs.find { it.mid == d && it.mine }?.let { m ->
+                        row = true
                         if (m.advance(2) && u != null && (Marks.birthMs(m.mid) ?: Long.MAX_VALUE) <= u) m.advance(3)
                     }
                 }
+                // a coin letter whose row is gone: its coins that came back are taken again (iOS markDelivered 4266, MTCoinSend.arrived)
+                if (!row) CoinSend.arrived(d, ref)
             }
             text.startsWith(Marks.READ) -> {
                 val upTo = text.removePrefix(Marks.READ).toLongOrNull()
@@ -714,7 +718,11 @@ object Post {
                 Prefs.setBool("plcap_$ref", true)
                 Book.edit(ref) { c -> c.msgs.find { it.mid == d && it.mine }?.heard = true }
             }
-            text.startsWith(Marks.DELETE) -> { val d = text.removePrefix(Marks.DELETE).removePrefix("mid:"); Book.edit(ref) { c -> c.msgs.removeAll { it.mid == d } } }
+            text.startsWith(Marks.DELETE) -> {
+                val d = text.removePrefix(Marks.DELETE).removePrefix("mid:")
+                // a coin letter of mine on its way keeps its row whoever asks (iOS deleteLocally 122-128: every door asks first)
+                if (Book.chat(ref)?.msgs?.find { it.mid == d }?.let { CoinSend.travels(it) } != true) Book.edit(ref) { c -> c.msgs.removeAll { it.mid == d } }
+            }
             text.startsWith(Marks.EDIT) -> runCatching {
                 val o = JSONObject(text.removePrefix(Marks.EDIT)); val d = o.getString("sid").removePrefix("mid:")
                 Book.edit(ref) { c -> c.msgs.find { it.mid == d && !it.mine }?.let { it.text = o.getString("tx"); it.edited = true } }
@@ -726,7 +734,8 @@ object Post {
             // THEIR PIN OR UNPIN OF A LETTER (iOS pinMark → applyPinFromControl): silent, the plate follows
             text.startsWith(PIN_MARK) -> applyPin(ref, text.removePrefix(PIN_MARK))
             // THE CONVERSATION WIPED AT BOTH (iOS convDelMark): the receipt settles their queue, then it is buried here too
-            text.startsWith(CONVDEL_MARK) -> { receipt(ref, sid); buryChat(ref) }
+            // a coin letter of mine not proven delivered gives its coins back before its row goes (iOS removeConversationLocally 3484)
+            text.startsWith(CONVDEL_MARK) -> { receipt(ref, sid); Book.chat(ref)?.msgs?.toList()?.forEach { CoinSend.release(it, ref) }; buryChat(ref) }
             text.startsWith(Marks.NAME) -> {
                 val n = text.removePrefix(Marks.NAME).trim()
                 if (n.isNotEmpty() && n.length <= 64) Book.edit(ref) { it.name = n }

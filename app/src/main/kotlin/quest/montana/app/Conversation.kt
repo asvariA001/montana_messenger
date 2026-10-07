@@ -901,7 +901,12 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                     if (letters.isNotEmpty()) act.push { close -> forwardPage(act, ref, letters, close) { to -> close(); if (to != ref) { onClose(); act.push { c2 -> conversationPage(act, to, c2) } } } }
                 },
                 onDelete = {
-                    val letters = chosen()
+                    // a coin letter of mine on its way stays, and the person is told why once the rest are gone (iOS deleteSelected 4247-4250)
+                    val all = chosen()
+                    val letters = all.filter { !CoinSend.travels(it) }
+                    val held = letters.size != all.size
+                    fun told() { if (held) AlertDialog.Builder(c).setTitle(R.string.coins_travel).setMessage(R.string.coins_travel_note).setPositiveButton(R.string.ok, null).show() }
+                    if (letters.isEmpty()) { done(); told(); return@letterSelectionFoot }
                     AlertDialog.Builder(c).setTitle(R.string.delete_message_q)
                         .setItems(arrayOf(c.getString(R.string.delete_for_everyone), c.getString(R.string.delete_for_me))) { _, which ->
                             val mids = letters.map { it.mid }.toSet()
@@ -911,7 +916,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                                 if (!group) Post.send(ref, Marks.mintMid(), Marks.DELETE + "mid:" + m.mid)
                                 else if (m.mine) Groups.signal(ref, Marks.DELETE + "mid:" + m.mid)
                             }
-                            done()
+                            done(); told()
                         }
                         .setNegativeButton(R.string.cancel, null).show()
                 }), FrameLayout.LayoutParams(MATCH, WRAP))
@@ -1203,8 +1208,9 @@ fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Unit, onEd
             if (canForward(m)) row(c.getString(R.string.ld_forward), R.drawable.ic_reply, mirrored = true) { onForward() }
         }
         // «Delete» asks in place (iOS confirmingDelete 403-414): for everyone, for me — any bubble, mine or theirs, the mid is the same
-        // on both sides — and «Cancel» goes back to the deeds
-        row(c.getString(R.string.delete), R.drawable.ic_delete, red = true, keep = true) {
+        // on both sides — and «Cancel» goes back to the deeds. A coin letter of mine on its way is offered no deletion (iOS canDelete:
+        // MTCoinSend.travels, MontanaConversation 2293): it keeps its coins and its row until its road ends
+        if (members.none { CoinSend.travels(it) }) row(c.getString(R.string.delete), R.drawable.ic_delete, red = true, keep = true) {
             actions.removeAllViews()
             actions.addView(c.text(c.getString(R.string.delete_message_q), 13f, MT.gray, center = true).apply { setPadding(dp(16), dp(10), dp(16), dp(10)) }, lp())
             // in a group a speaker takes away their own letter for everyone (iOS canDeleteForEveryone: chat.isGroup ? m.isMine)

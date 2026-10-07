@@ -410,7 +410,7 @@ fun peerInfoPage(act: MainActivity, ref: String, onClose: () -> Unit,
                     endSelecting(); forward(letters)
                 }, lp(dp(44), dp(44)))
                 addView(key(R.drawable.ic_delete, R.string.delete, if (any) SysColor.red else MT.gray, any) {
-                    val mids = letters.map { it.mid }.toSet()
+                    val mids = letters.filter { !CoinSend.travels(it) }.map { it.mid }.toSet()   // a coin letter on its way keeps its row (iOS deleteLocally)
                     Book.edit(ref) { ch -> ch.msgs.removeAll { it.mid in mids } }
                     endSelecting()
                 }, lp(dp(44), dp(44)).apply { marginStart = dp(18) })

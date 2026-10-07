@@ -37,6 +37,9 @@
     <string name="feed_fresh_note">Write the first one — it will wait for them on a node</string>
     <string name="feed_no_network">No connection to the network</string>
     <string name="feed_no_network_note">Messages will be sent as soon as a door answers</string>
+    <string name="coins_travel">The coins are on their way</string>
+    <string name="coins_travel_note">A coin letter keeps its coins until it is delivered or they come back. Then it can be deleted.</string>
+    <string name="coins_travel_chat">A coin letter in this chat is on its way. The chat can be deleted once it is delivered or its coins come back.</string>
     <string name="gr_member">Member</string>
     <string name="gr_out_note">You are no longer a member: the messages stay here to read.</string>
     <string name="gr_choose">Choose members</string>

@@ -59,6 +59,13 @@ fun deleteForBoth(ref: String) { Post.send(ref, Marks.mintMid(), CONVDEL_MARK); 
  */
 fun askDeleteChat(act: MainActivity, ref: String, done: () -> Unit = {}) {
     val name = Book.chat(ref)?.shown?.ifBlank { null } ?: act.getString(R.string.peer)
+    // A COIN LETTER OF MINE ON ITS WAY IN THIS CHAT (iOS MontanaDeleteChatSheet coinsTravel, ChatStore.deleteChat 5427-5429): the
+    // question says so and offers no deletion — the erasure would take the letter off the road with its coins
+    if (CoinSend.travelsIn(ref)) {
+        AlertDialog.Builder(act).setTitle(act.getString(R.string.dl_q, name)).setMessage(R.string.coins_travel_chat)   // USER-DATA: the name
+            .setNegativeButton(R.string.cancel, null).show()
+        return
+    }
     val both = Book.secret(ref) != null
     val words = listOfNotNull(if (both) act.getString(R.string.dl_both) else null, act.getString(R.string.dl_mine)).toTypedArray()
     AlertDialog.Builder(act).setTitle(act.getString(R.string.dl_q, name))   // USER-DATA: the name
@@ -212,7 +219,7 @@ fun selectionBar(act: MainActivity, sel: ChatSelection): View {
         addView(pill(R.string.cl_archive) { chosen().forEach { ChatMarks.archive(it.ref) } }, lp(0, WRAP, 1f))
         gap(8)
         addView(pill(R.string.cl_delete, red = true) {
-            val refs = sel.chosen.toList()
+            val refs = sel.chosen.toList().filter { !CoinSend.travelsIn(it) }   // a chat with coins on their way waits (iOS deleteChat 5429)
             AlertDialog.Builder(act).setMessage(R.string.delete_chat_q)
                 .setItems(arrayOf(c.getString(R.string.dl_both), c.getString(R.string.dl_mine))) { _, which ->
                     refs.forEach { if (which == 0 && Book.secret(it) != null) deleteForBoth(it) else { ChatMarks.forget(it); Book.forget(it) } }

@@ -279,6 +279,8 @@ object CoinBook {
     @Synchronized fun coins(on: String): Long { ensure(); return onTarget[on] ?: 0L }
     @Synchronized fun holds(k: String, ref: String): Boolean { ensure(); return (k + ":" + ref) in taken }
     fun received(ref: String): Boolean = holds(CoinEntry.RECEIVE, ref)
+    /** The coins of one move by its kind and name (a coin letter's transfer, read when its row is gone: CoinSend.arrived). */
+    @Synchronized fun amount(k: String, ref: String): Long? { ensure(); return entries.lastOrNull { it.k == k && it.ref == ref }?.c }
     /** The moves, newest first, for the history. */
     @Synchronized fun moves(): List<CoinEntry> { ensure(); return entries.asReversed().toList() }
 
@@ -478,6 +480,53 @@ object CoinSend {
     fun returned(m: Msg): Boolean {
         val name = wire(m.mid)
         return m.mine && m.state == -1 && moves(CoinEntry.SEND, AGAIN + name) < moves(CoinEntry.RECEIVE, BACK + name)
+    }
+
+    /**
+     * A COIN LETTER OF MINE ON ITS WAY IS NOT DELETED (iOS MTCoinSend.travels, MTWalletCore 2528-2539, the coin audit's first point
+     * 05.10): a row deleted by the hand while it said «sending» or «sent» took its letter off the road and left its coins taken
+     * — the receiver never had them and the sender never got them back. The letter keeps its row until its road ends: delivered
+     * (the coins are the receiver's) or red (they come back by hold). Every door of the hand asks this first.
+     */
+    fun travels(m: Msg): Boolean {
+        if (!m.mine || (m.state != 0 && m.state != 1) || m.mid.isEmpty()) return false
+        coinOf(m) ?: return false
+        val name = wire(m.mid)
+        return CoinBook.holds(CoinEntry.SEND, name) && moves(CoinEntry.SEND, AGAIN + name) == moves(CoinEntry.RECEIVE, BACK + name)
+    }
+    /** Whether a conversation holds a coin letter of mine on its way: its deletion by the hand waits for the road to end (iOS coinsTravel). */
+    fun travelsIn(ref: String): Boolean = Book.chat(ref)?.msgs?.any { travels(it) } == true
+
+    /**
+     * THE COINS OF A LETTER THAT CAN NO LONGER GO COME BACK FIRST (iOS MTCoinSend.release, removeConversationLocally 3484-3490): the
+     * correspondent's erasure for both reaches here unasked — a coin letter of mine not proven delivered and still holding its coins
+     * gives them back by the back move before its row goes.
+     */
+    fun release(m: Msg, ref: String) {
+        if (!m.mine || m.state == 2 || m.state == 3 || m.mid.isEmpty()) return
+        val coin = coinOf(m) ?: return
+        val name = wire(m.mid)
+        if (!CoinBook.holds(CoinEntry.SEND, name)) return
+        val back = moves(CoinEntry.RECEIVE, BACK + name)
+        if (moves(CoinEntry.SEND, AGAIN + name) != back) return
+        CoinBook.receive(coin.c, ref, BACK + name + ":" + (back + 1))
+        Log.i("Montana", "coin_back coins=" + coin.c + " letter=gone")
+    }
+
+    /**
+     * A RECEIPT FOR A COIN LETTER OF MINE WHOSE ROW IS GONE (iOS MTCoinSend.arrived, MTWalletCore 2551-2562; markDelivered 4266): the
+     * letter did arrive, so the coins that came back — released above, or red and then deleted — are taken again by one move, by the
+     * amount the book's own transfer named. Without it the receiver held them and so did the sender.
+     */
+    fun arrived(mid: String, ref: String) {
+        val name = wire(mid)
+        if (!CoinBook.holds(CoinEntry.SEND, name)) return
+        val c = CoinBook.amount(CoinEntry.SEND, name) ?: return
+        val again = moves(CoinEntry.SEND, AGAIN + name)
+        val back = moves(CoinEntry.RECEIVE, BACK + name)
+        if (back <= again) return
+        val took = CoinBook.retake(c, ref, AGAIN + name + ":" + (again + 1))
+        Log.i("Montana", "coin_again coins=" + c + " took=" + (if (took) 1 else 0) + " row=gone")
     }
 
     /**
