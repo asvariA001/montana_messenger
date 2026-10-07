@@ -456,6 +456,11 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     // A CONTACT OF THE PHONE (iOS ContactPicker): its name and number leave as one letter
     bar.onContact = { hideKeys(); act.pickContact { u -> u?.let { contactLetter(c, it) }?.let { words -> sendWords(ref, words); toBottom() } } }
     bar.onFile = { act.openDocument(sendPicked(true)) }
+    // THE CARD AS A PHOTO (iOS sendCardPhoto): the kept card drawn at the standard size, its words the caption under the card's mark
+    bar.onCard = { hideKeys(); act.push { close -> businessCardPage(act, close) { card ->
+        close()
+        Thread { Media.send(c, ref, Media.Picked(cardPhoto(c, card), "img", "jpg", null), card.wire); MainThread.post { toBottom() } }.start()
+    } } }
     // THE PLACE (iOS onLocation → MTLocationPicker → mtSendPlace): this spot leaves as the place's words, by the one road of words
     bar.onLocation = { hideKeys(); act.push { close -> placePage(act, close) { words -> sendWords(ref, words); toBottom() } } }
     bar.onStickers = { hideKeys(); Stickers.panel(act, ref) }   // a hold on the emoji key (Stickers.kt)
@@ -1135,7 +1140,19 @@ private fun mediaBody(c: Context, m: Msg, into: LinearLayout) {
         }, LinearLayout.LayoutParams(WRAP, WRAP).apply { bottomMargin = c.dp(4) })
     }
     if (m.state == -1) into.addView(c.text(c.getString(R.string.media_failed), 12f, SysColor.red))
-    man?.optString("cap")?.takeIf { it.isNotEmpty() }?.let { into.addView(c.text(it, 16f, tint).apply { maxWidth = c.dp(240) }) }   // USER-DATA: the caption
+    val cap = man?.optString("cap")?.takeIf { it.isNotEmpty() }
+    // A CARD'S PHOTO (iOS: a build that knows the mark draws the photo alone, and offers its words to the contacts — MTCardContactBadge)
+    val card = cap?.let { BusinessCard.lines(it) }
+    if (card != null && !m.mine) into.addView(c.hstack {
+        gravity = Gravity.CENTER_VERTICAL
+        addView(FrameLayout(c).apply {
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.argb(115, 0, 0, 0)) }
+            addView(c.icon(R.drawable.ic_person_add, Color.WHITE, 18), FrameLayout.LayoutParams(c.dp(18), c.dp(18), Gravity.CENTER))
+        }, lp(c.dp(40), c.dp(40)).apply { marginEnd = c.dp(8) })
+        addView(c.text(c.getString(R.string.bc_add_contacts), 15f, tint), lp(WRAP, WRAP))
+        pressable { (c as? MainActivity)?.let { a -> cardToContacts(a, card) } }
+    }, lp(WRAP, WRAP))
+    else if (card == null) cap?.let { into.addView(c.text(it, 16f, tint).apply { maxWidth = c.dp(240) }) }   // USER-DATA: the caption
 }
 
 /** THE FILE WHOLE: a picture on black, a film in the platform's own player; any other file to the system's viewer. */

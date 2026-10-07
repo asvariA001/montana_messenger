@@ -63,6 +63,12 @@
     <string name="st_denied">已拒绝</string>
     <string name="gl_show_in_chat">在聊天中显示</string>
     <string name="gl_yesterday">昨天</string>
+    <string name="bc_name">名称</string>
+    <string name="bc_phone">电话</string>
+    <string name="bc_email">电子邮件</string>
+    <string name="bc_other">其他联系方式</string>
+    <string name="bc_note">这是您的名片：保存它并交给任何人——您的个人联系方式以及如何联系您：电话、电子邮件和其他方式。它以照片形式发送，收到的人可以将其保存到通讯录。</string>
+    <string name="bc_add_contacts">添加到通讯录</string>
     <plurals name="gr_members"><item quantity="other">%d 名成员</item></plurals>
     <string name="lw_photo">照片</string>
     <string name="lw_video">视频</string>

@@ -223,7 +223,8 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
     shell.drawer.addView(sideDrawer(act,
         onPane = { p -> shell.close { choose(p) } },
         onProfile = { shell.close { act.showProfile() } },
-        onSettings = { shell.close { act.push { settingsRoot(act, onForget, it) } } }), FrameLayout.LayoutParams(MATCH, MATCH))
+        onSettings = { shell.close { act.push { settingsRoot(act, onForget, it) } } },
+        onCard = { shell.close { act.push { businessCardPage(act, it) } } }), FrameLayout.LayoutParams(MATCH, MATCH))
     return shell
 }
 
@@ -370,7 +371,7 @@ class DrawerShell(private val act: MainActivity) : FrameLayout(act) {
  * pages Android does not have yet stand in their places, quieter, and take no tap. The plus of a second login is iOS's
  * multi-login, which Android does not have.
  */
-private fun sideDrawer(act: MainActivity, onPane: (Pane) -> Unit, onProfile: () -> Unit, onSettings: () -> Unit): View {
+private fun sideDrawer(act: MainActivity, onPane: (Pane) -> Unit, onProfile: () -> Unit, onSettings: () -> Unit, onCard: () -> Unit): View {
     val c: Context = act
     fun row(icon: View, word: Int, onTap: (() -> Unit)?) = c.hstack {
         setPadding(0, dp(16), 0, dp(16))
@@ -410,7 +411,7 @@ private fun sideDrawer(act: MainActivity, onPane: (Pane) -> Unit, onProfile: () 
         addView(row(android.widget.ImageView(c).apply { setImageResource(R.drawable.chess_knight) }, R.string.app_chess, null), lp())
         addView(row(glyph(R.drawable.ic_app_wallet), R.string.app_wallet, null), lp())
         addView(row(glyph(R.drawable.ic_language), R.string.app_network, null), lp())
-        addView(row(glyph(R.drawable.ic_app_card), R.string.app_card, null), lp())
+        addView(row(glyph(R.drawable.ic_app_card), R.string.app_card, onCard), lp())   // the business card (iOS MTCardFromDrawer, the author's word 28.09)
         spacer()
         addView(row(glyph(R.drawable.ic_settings), R.string.settings, onSettings), lp())
         addView(c.text(appVersionFull(c), 11f, MT.gray).apply { setPadding(dp(52), 0, 0, dp(8)) }, lp())   // USER-DATA: the build's own number

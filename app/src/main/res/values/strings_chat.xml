@@ -63,6 +63,12 @@
     <string name="st_denied">Denied</string>
     <string name="gl_show_in_chat">Show in chat</string>
     <string name="gl_yesterday">Yesterday</string>
+    <string name="bc_name">Name</string>
+    <string name="bc_phone">Phone</string>
+    <string name="bc_email">E-mail</string>
+    <string name="bc_other">Other ways to reach you</string>
+    <string name="bc_note">This is your business card: keep it and hand it to anyone — your personal contacts and how to reach you: phone, e-mail and other ways. It leaves as a photo, and whoever receives it can save it to their contacts.</string>
+    <string name="bc_add_contacts">Add to Contacts</string>
     <plurals name="gr_members"><item quantity="one">%d member</item><item quantity="other">%d members</item></plurals>
     <string name="lw_photo">Photo</string>
     <string name="lw_video">Video</string>

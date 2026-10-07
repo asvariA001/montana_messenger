@@ -102,7 +102,7 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
                 glassKey(R.drawable.ic_chevron_up, R.string.compose_fold) { setOpen(false) },
                 glassKey(R.drawable.ic_face_smiling, R.string.emoji) { showKeys() }.apply { setOnLongClickListener { onStickers?.invoke(); onStickers != null } },
                 glassKey(R.drawable.ic_compose_photo, R.string.gallery) { onGallery?.invoke() ?: notYet() },
-                glassKey(R.drawable.ic_compose_card, R.string.business_card) { notYet() },
+                glassKey(R.drawable.ic_compose_card, R.string.business_card) { onCard?.invoke() ?: notYet() },
                 glassKey(R.drawable.ic_compose_doc, R.string.file) { onFile?.invoke() ?: notYet() },
                 glassKey(R.drawable.ic_compose_location, R.string.location) { onLocation?.invoke() ?: notYet() },
                 glassKey(R.drawable.ic_compose_contact, R.string.contact) { onContact?.invoke() ?: notYet() },
@@ -144,6 +144,8 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
     var onSendLater: ((View) -> Unit)? = null   // the send key's hold (Schedule.kt)
     var onContact: (() -> Unit)? = null   // the phone's contact as a letter (iOS ContactPicker)
     var onFile: (() -> Unit)? = null
+    /** The card key (iOS .card → MontanaCardNoteView with onSend): the person's business card, sent as a photo. */
+    var onCard: (() -> Unit)? = null
     var onStickers: (() -> Unit)? = null   // the sticker panel, opened by a hold on the emoji key (Stickers.kt)
     /** The voice's deeds: start the tape (false — it could not start), and end it (true — dropped, not sent). */
     var onVoiceStart: (() -> Boolean)? = null

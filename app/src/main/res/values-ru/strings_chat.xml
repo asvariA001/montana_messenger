@@ -63,6 +63,12 @@
     <string name="st_denied">Запрещено</string>
     <string name="gl_show_in_chat">Показать в чате</string>
     <string name="gl_yesterday">Вчера</string>
+    <string name="bc_name">Имя</string>
+    <string name="bc_phone">Телефон</string>
+    <string name="bc_email">Почта</string>
+    <string name="bc_other">Другие способы связи</string>
+    <string name="bc_note">Это ваша визитка: сохраните её и передавайте кому угодно — ваши личные контакты и как с вами связаться: телефон, почта и другие способы. Она уходит фотографией, и получатель может сохранить её в свои контакты.</string>
+    <string name="bc_add_contacts">Добавить в контакты</string>
     <plurals name="gr_members"><item quantity="one">%d участник</item><item quantity="few">%d участника</item><item quantity="many">%d участников</item><item quantity="other">%d участника</item></plurals>
     <string name="lw_photo">Фото</string>
     <string name="lw_video">Видео</string>
