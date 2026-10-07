@@ -94,7 +94,7 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
         spacer()
         addView(c.glowingLogo(66, 300, 2300), lp(MATCH, dp(120)))
         gap(18)
-        addView(c.text("Montana", 40f, MT.gold, bold = true, center = true))
+        addView(c.text("Montana", 40f, Color.WHITE, bold = true, center = true))   // iOS Color.accentColor: white in the dark
         gap(18)
         addView(c.text(c.getString(R.string.intro_tagline), 15f, MT.gray, center = true).apply { setPadding(dp(20), 0, dp(20), 0) })
         gap(18)
@@ -164,7 +164,7 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
     private fun LinearLayout.privRow(iconRes: Int, title: Int, sub: Int) {
         val c = context
         addView(c.hstack {
-            addView(c.icon(iconRes, MT.gold), LinearLayout.LayoutParams(dp(24), dp(24)).apply { marginEnd = dp(16) })
+            addView(c.icon(iconRes, Color.WHITE), LinearLayout.LayoutParams(dp(24), dp(24)).apply { marginEnd = dp(16) })
             addView(c.vstack(Gravity.NO_GRAVITY) {
                 addView(c.text(c.getString(title), 15f, Color.WHITE, bold = true))
                 addView(c.text(c.getString(sub), 12f, MT.gray))
@@ -287,7 +287,7 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
             if (lines > 1) { minLines = lines; maxLines = lines } else isSingleLine = true
         }
         gap(6)
-        addView(c.icon(R.drawable.ic_restore, MT.gold, 46))
+        addView(c.icon(R.drawable.ic_restore, Color.WHITE, 46))
         gap(16)
         addView(c.text(c.getString(R.string.recover_title), 20f, Color.WHITE, bold = true, center = true))
         gap(16)
@@ -378,13 +378,13 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
     private fun takingBack() = page {
         val c = context
         spacer()
-        addView(c.icon(R.drawable.ic_arrow_circle_down, MT.gold, 46))
+        addView(c.icon(R.drawable.ic_arrow_circle_down, Color.WHITE, 46))
         gap(16)
         addView(c.text(c.getString(R.string.taking_back), 20f, Color.WHITE, bold = true, center = true))
         gap(16)
         val bar = android.widget.ProgressBar(c, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 100
-            progressTintList = android.content.res.ColorStateList.valueOf(MT.gold)
+            progressTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
             indeterminateTintList = progressTintList
         }
         addView(bar, lp().apply { marginStart = dp(24); marginEnd = dp(24) })

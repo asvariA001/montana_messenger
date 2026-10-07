@@ -207,13 +207,13 @@ fun Context.avatar(face: Bitmap?, name: String, sizeDp: Int): View {
     return box
 }
 
-/** The logo with its soft golden halo breathing behind it (iOS intro: 2.3 s, autoreverse). */
+/** The logo with its soft halo breathing behind it (iOS intro: 2.3 s, autoreverse), in the accent — white in the dark (iOS AccentColor). */
 fun Context.glowingLogo(logoDp: Int, haloDp: Int, periodMs: Long): FrameLayout {
     val halo = View(this).apply {
         background = GradientDrawable().apply {
             gradientType = GradientDrawable.RADIAL_GRADIENT
             gradientRadius = dp(haloDp / 2).toFloat()
-            colors = intArrayOf(MT.withAlpha(MT.gold, 0.55f), Color.TRANSPARENT)
+            colors = intArrayOf(MT.withAlpha(Color.WHITE, 0.55f), Color.TRANSPARENT)
         }
     }
     val logo = ImageView(this).apply { setImageResource(R.drawable.logo) }

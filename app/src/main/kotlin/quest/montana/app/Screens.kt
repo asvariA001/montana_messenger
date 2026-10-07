@@ -279,8 +279,8 @@ fun termsGate(act: MainActivity, onAgree: (() -> Unit)?, onClose: (() -> Unit)? 
     }
     fun link(iconRes: Int, label: String, intent: Intent) = c.hstack {
         setPadding(dp(16), dp(14), dp(16), dp(14))
-        addView(c.icon(iconRes, MT.gold), lp(dp(24), dp(24)).apply { marginEnd = dp(12) })
-        addView(c.text(label, 17f, MT.gold))
+        addView(c.icon(iconRes, Color.WHITE), lp(dp(24), dp(24)).apply { marginEnd = dp(12) })   // iOS Color.accentColor: white in the dark
+        addView(c.text(label, 17f, Color.WHITE))
         pressable { runCatching { c.startActivity(intent) } }
     }
     val body = c.vstack(Gravity.NO_GRAVITY) {
@@ -297,13 +297,13 @@ fun termsGate(act: MainActivity, onAgree: (() -> Unit)?, onClose: (() -> Unit)? 
             addView(link(R.drawable.ic_language, "https://montana.quest", Intent(Intent.ACTION_VIEW, Uri.parse("https://montana.quest"))), lp())
         }, lp())
     }
-    return c.vstack(Gravity.NO_GRAVITY) {
-        setBackgroundColor(Color.BLACK)
+    // the terms stand on my page's ground, as the drawer and my page wear it (iOS MontanaTermsView 118)
+    return FrameLayout(c).apply { addView(c.chatGround(ChatWall.PAGE), FrameLayout.LayoutParams(MATCH, MATCH)) }.also { root -> root.addView(c.vstack(Gravity.NO_GRAVITY) {
         addView(c.topBar(c.getString(R.string.terms_title), onBack = onClose))
         addView(ScrollView(c).apply { addView(body) }, lp(MATCH, 0, 1f))
         // agreeing to the terms is the path's door too (iOS MTLoginDoorStyle 2653-2655), the page's main act
         if (onAgree != null) addView(PathDoor(c, c.getString(R.string.i_agree), MT.blue, onAgree), lp().apply { setMargins(dp(20), dp(12), dp(20), dp(12)) })
-    }
+    }, FrameLayout.LayoutParams(MATCH, MATCH)) }
 }
 
 // ─────────────────────────── the sign lights up (iOS WelcomeView) ───────────────────────────
@@ -311,8 +311,9 @@ fun termsGate(act: MainActivity, onAgree: (() -> Unit)?, onClose: (() -> Unit)? 
 fun welcome(act: MainActivity, onFinish: () -> Unit): View {
     val c = act
     val logo = ImageView(c).apply { setImageResource(R.drawable.logo); scaleX = 0.6f; scaleY = 0.6f; alpha = 0f }
-    val title = c.text("Montana", 40f, MT.gold, bold = true, center = true).apply {
-        alpha = 0f; setShadowLayer(dp(18).toFloat(), 0f, 0f, MT.gold)
+    // iOS WelcomeView: the sign and the word in the accent — white in the dark (AccentColor)
+    val title = c.text("Montana", 40f, Color.WHITE, bold = true, center = true).apply {
+        alpha = 0f; setShadowLayer(dp(18).toFloat(), 0f, 0f, Color.WHITE)
     }
     val col = c.vstack(Gravity.CENTER) {
         addView(c.glowingLogo(87, 260, 700).also { g -> g.removeViewAt(1); g.addView(logo, FrameLayout.LayoutParams(dp(87), dp(87), Gravity.CENTER)) },
@@ -323,5 +324,9 @@ fun welcome(act: MainActivity, onFinish: () -> Unit): View {
     logo.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(400).setInterpolator(DecelerateInterpolator()).start()
     title.animate().alpha(1f).setDuration(400).start()
     col.postDelayed(onFinish, 600)   // the splash dismisses fast (iOS: 0.6 s)
-    return col
+    // the ground of the terms before it and the chats after it: no black between (iOS 2732, montanaPageGround)
+    return FrameLayout(c).apply {
+        addView(c.chatGround(ChatWall.PAGE), FrameLayout.LayoutParams(MATCH, MATCH))
+        addView(col, FrameLayout.LayoutParams(MATCH, MATCH))
+    }
 }
