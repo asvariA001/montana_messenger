@@ -280,7 +280,8 @@ fun cameraPage(act: MainActivity, done: (File, Boolean) -> Unit) {
     })
     paintModes()
     page.requestApplyInsets()
-    act.askCamera { granted -> if (!granted) close() }
+    // the first «allow» comes after the picture's surface: the camera opens on the answer, not only on the surface
+    act.askCamera { granted -> if (!granted) close() else h.post { if (cam == null) openCamera() } }
 }
 
 /** THE SHUTTER (the platform camera's own): the white ring; inside a white disc for a photo, a red one for a film, a red square while it rolls. */
