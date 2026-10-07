@@ -736,7 +736,11 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     drawHead()
     // THE NAME'S BUBBLE IS THE ONE DOOR (iOS chatTitleDoor): the face, the name and the presence in one capsule of glass, the whole of it
     // the button into the correspondent's page (a group's into the group's page), the keyboard going down with it; a hold: «Copy name»
-    val openPage = { hideKeys(); act.push { close -> if (group) groupPage(act, ref, close) else peerInfoPage(act, ref, close) } }
+    // the page's «Show in chat» and its forward land here (iOS ui.showLetter): this chat jumps to the letter, another opens in its place
+    var jumpHere: (String) -> Unit = {}
+    val openPage = { hideKeys(); act.push { close -> if (group) groupPage(act, ref, close) else peerInfoPage(act, ref, close) { to, mid ->
+        if (to != ref) { onClose(); act.push { c2 -> conversationPage(act, to, c2) } } else if (mid != null) jumpHere(mid)
+    } } }
     // one round of the bar (iOS MTBarRoundMark): the glass circle of 44 with the bar's grey glyph (MontanaOctagon.barGlyph)
     fun roundMark(res: Int, label: Int, onTap: (View) -> Unit): View = FrameLayout(c).apply {
         background = c.glassPlate(oval = true)
@@ -826,6 +830,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             found.postDelayed({ found.background = null }, 1200)
         }
     }
+    jumpHere = { jumpTo(it) }
     // THE FOOT WHILE THE CHAT SELECTS (iOS the selection bar): Forward and Delete for the chosen letters, in place of the field
     val foot = FrameLayout(c).apply { visibility = View.GONE }
     drawFoot = {
@@ -1081,9 +1086,11 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
 
 /**
  * THE LETTER'S MENU (iOS MontanaMessageMenu): the room dims, the quick reactions stand over the letter, the actions under it —
- * Reply · Copy · Edit (one's own words) · Delete, which asks «for me» or «for everyone».
+ * Reply · Copy · Edit (one's own words) · Delete, which asks «for me» or «for everyone». The correspondent's page opens the same
+ * cloud with its own rows (iOS onShowInChat).
  */
-private fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Unit, onEdit: () -> Unit, onForward: () -> Unit, onSelect: () -> Unit, group: Boolean = false, members: List<Msg> = listOf(m)) {
+fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Unit, onEdit: () -> Unit, onForward: () -> Unit, onSelect: () -> Unit, group: Boolean = false, members: List<Msg> = listOf(m),
+               onShowInChat: (() -> Unit)? = null) {
     val c: Context = act
     lateinit var close: () -> Unit
     // A GROUP'S LETTER (iOS MontanaMessageMenu in a group): the deeds that tell the group ride its carrier (Groups.signal); the
@@ -1106,17 +1113,25 @@ private fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Un
     }
     fillActions = {
         actions.removeAllViews()
-        // THE RUNG AND ITS MOMENT over the actions (iOS MontanaMessageMenu ladder): the same line as under the bubble, with the time
-        if (m.mine) actions.addView(c.deliveryLine(ref, m, withMoment = true).apply { setPadding(dp(16), dp(11), dp(16), dp(11)) }, lp())
-        if (writes) row(c.getString(R.string.reply), R.drawable.ic_reply) { onReply() }
-        if (!Marks.isService(m.text)) row(c.getString(R.string.copy), R.drawable.ic_content_copy) {
-            c.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("", m.text))
+        // THE PROFILE'S MENU (iOS MessageContextOverlay with onShowInChat): the same cloud, other rows — show in chat and forward, then
+        // the chat's own delete (for me alone) and select
+        val profile = onShowInChat
+        if (profile != null) {
+            row(c.getString(R.string.gl_show_in_chat), R.drawable.ic_bar_chats) { profile() }
+            if (canForward(m)) row(c.getString(R.string.ld_forward), R.drawable.ic_reply, mirrored = true) { onForward() }
+        } else {
+            // THE RUNG AND ITS MOMENT over the actions (iOS MontanaMessageMenu ladder): the same line as under the bubble, with the time
+            if (m.mine) actions.addView(c.deliveryLine(ref, m, withMoment = true).apply { setPadding(dp(16), dp(11), dp(16), dp(11)) }, lp())
+            if (writes) row(c.getString(R.string.reply), R.drawable.ic_reply) { onReply() }
+            if (!Marks.isService(m.text)) row(c.getString(R.string.copy), R.drawable.ic_content_copy) {
+                c.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("", m.text))
+            }
+            if (canEdit) row(c.getString(R.string.edit), R.drawable.ic_pencil) { onEdit() }
+            // PIN · FORWARD (iOS MontanaMessageMenu 488-492): the pin asks «for both / for me», the unpin is told at once
+            if (!Marks.isService(m.text) || m.text.startsWith(Marks.MEDIA))
+                row(c.getString(if (MsgPins.isPinned(ref, m.mid)) R.string.ld_unpin else R.string.ld_pin), R.drawable.ic_pin) { pinOrUnpin(act, ref, m) }
+            if (canForward(m)) row(c.getString(R.string.ld_forward), R.drawable.ic_reply, mirrored = true) { onForward() }
         }
-        if (canEdit) row(c.getString(R.string.edit), R.drawable.ic_pencil) { onEdit() }
-        // PIN · FORWARD (iOS MontanaMessageMenu 488-492): the pin asks «for both / for me», the unpin is told at once
-        if (!Marks.isService(m.text) || m.text.startsWith(Marks.MEDIA))
-            row(c.getString(if (MsgPins.isPinned(ref, m.mid)) R.string.ld_unpin else R.string.ld_pin), R.drawable.ic_pin) { pinOrUnpin(act, ref, m) }
-        if (canForward(m)) row(c.getString(R.string.ld_forward), R.drawable.ic_reply, mirrored = true) { onForward() }
         // «Delete» asks in place (iOS confirmingDelete 403-414): for everyone, for me — any bubble, mine or theirs, the mid is the same
         // on both sides — and «Cancel» goes back to the deeds
         row(c.getString(R.string.delete), R.drawable.ic_delete, red = true, keep = true) {
@@ -1125,7 +1140,7 @@ private fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Un
             // in a group a speaker takes away their own letter for everyone (iOS canDeleteForEveryone: chat.isGroup ? m.isMine)
             // a plate of a media group goes whole (iOS rowLetters: a group is one bubble)
             val mids = members.map { it.mid }.toSet()
-            if (!group || m.mine) row(c.getString(R.string.delete_for_everyone), R.drawable.ic_delete, red = true) {
+            if (profile == null && (!group || m.mine)) row(c.getString(R.string.delete_for_everyone), R.drawable.ic_delete, red = true) {
                 Book.edit(ref) { ch -> ch.msgs.removeAll { it.mid in mids } }
                 for (x in mids) if (group) Groups.signal(ref, Marks.DELETE + "mid:" + x) else Post.send(ref, Marks.mintMid(), Marks.DELETE + "mid:" + x)
             }
@@ -1133,7 +1148,7 @@ private fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Un
             row(c.getString(R.string.cancel), R.drawable.ic_close, keep = true) { fillActions() }
         }
         // «Report» on their letter (iOS 499-502): the report of its sender
-        if (!m.mine && !group) row(c.getString(R.string.pi_report), R.drawable.ic_report, red = true) {
+        if (profile == null && !m.mine && !group) row(c.getString(R.string.pi_report), R.drawable.ic_report, red = true) {
             val name = Book.chat(ref)?.shown?.ifBlank { null } ?: c.getString(R.string.peer)
             act.push { cl -> reportPage(act, ref, name, cl) }
         }

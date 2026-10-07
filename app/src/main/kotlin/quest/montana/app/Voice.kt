@@ -95,18 +95,18 @@ object VoiceTape {
     }
 }
 
-/** ONE VOICE PLAYS AT A TIME (iOS the chat's one player): a new press stops the one before. */
+/** ONE VOICE PLAYS AT A TIME (iOS the chat's one player): a new press stops the one before; a queue's next follows the end (iOS auto-next). */
 object VoicePlayer {
     private var player: MediaPlayer? = null
     var playing: String? = null; private set
     private var onStop: (() -> Unit)? = null
 
-    fun toggle(path: String, onProgress: (Int, Int) -> Unit, stopped: () -> Unit) {
+    fun toggle(path: String, onProgress: (Int, Int) -> Unit, stopped: () -> Unit, then: (() -> Unit)? = null) {
         if (playing == path) { stop(); return }
         stop()
         val p = runCatching { MediaPlayer().apply { setDataSource(path); prepare() } }.getOrNull() ?: return
         player = p; playing = path; onStop = stopped
-        p.setOnCompletionListener { stop() }
+        p.setOnCompletionListener { stop(); then?.invoke() }
         p.start()
         val tick = object : Runnable {
             override fun run() {

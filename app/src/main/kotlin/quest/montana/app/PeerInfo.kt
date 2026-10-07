@@ -12,7 +12,9 @@ import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.text.InputType
 import android.text.format.DateUtils
+import android.view.GestureDetector
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
@@ -29,6 +31,7 @@ import org.json.JSONObject
 import java.io.File
 import java.security.MessageDigest
 import java.util.Date
+import kotlin.math.abs
 
 // ─────────────────────────── what the page knows of a person (iOS MTPeerAbout, MontanaSafety, SafetyStore) ───────────────────────────
 
@@ -147,81 +150,30 @@ private fun select(tab: Tab, msgs: List<Msg>): List<Msg> = when (tab) {
  * THE CORRESPONDENT'S PAGE (iOS MontanaPeerInfoScreen): the face, their name, their bio and their link each on its own glass
  * bubble; the four plates — message, call, video, more; the fingerprint and the sharing of the contact; report and block; and
  * the strip of panes — the wall, then what the conversation carried: media, video, files, links, music, voices, newest on top,
- * cut by day. The whole page scrolls as one.
+ * cut by day. The whole page scrolls as one. A hold on an item opens the chat's own menu of its letter; «Show in chat» and a
+ * forward land through [toChat] — the chat beneath jumps, or another opens (iOS ui.showLetter).
  */
-fun peerInfoPage(act: MainActivity, ref: String, onClose: () -> Unit): View {
+fun peerInfoPage(act: MainActivity, ref: String, onClose: () -> Unit,
+                 toChat: (String, String?) -> Unit = { to, mid -> act.push { close -> conversationPage(act, to, close, jump = mid) } }): View {
     val c: Context = act
     var name = Book.chat(ref)?.shown?.ifBlank { null } ?: c.getString(R.string.peer)
     val body = c.vstack(Gravity.NO_GRAVITY) { setPadding(0, dp(56), 0, dp(40)) }
 
     fun notYet() = Toast.makeText(c, R.string.compose_not_yet, Toast.LENGTH_SHORT).show()
-    fun bubble(v: View): View = FrameLayout(c).apply {
-        addView(v.apply {
-            background = c.glassPlate().apply { cornerRadius = dp(22).toFloat() }
-            setPadding(dp(16), dp(9), dp(16), dp(9))
-        }, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER_HORIZONTAL))
-    }
-
     lateinit var redrawAll: () -> Unit
 
-    // ── the face: the circle; a press opens the square across the page, a second press the whole screen (iOS MTFaceDock) ──
-    fun readFace() = Book.shownFace(ref).let { f -> if (f.exists()) BitmapFactory.decodeFile(f.path) else null }
-    var bmp = readFace()
-    var open = false
-    val faceBox = FrameLayout(c)
-    fun drawFace() {
-        faceBox.removeAllViews()
-        val w = c.resources.displayMetrics.widthPixels
-        if (open && bmp != null) faceBox.addView(ImageView(c).apply { setImageBitmap(bmp); scaleType = ImageView.ScaleType.CENTER_CROP },
-            FrameLayout.LayoutParams(w, w))
-        else faceBox.addView(c.avatar(bmp, name, 104), FrameLayout.LayoutParams(c.dp(104), c.dp(104), Gravity.CENTER_HORIZONTAL))
-    }
-    faceBox.setOnClickListener {
-        if (bmp == null) return@setOnClickListener
-        if (!open) { open = true; drawFace() }
-        else {
-            lateinit var close: () -> Unit
-            close = act.overlay(FrameLayout(c).apply {
-                setBackgroundColor(Color.BLACK)
-                addView(ImageView(c).apply { setImageBitmap(bmp); scaleType = ImageView.ScaleType.FIT_CENTER }, FrameLayout.LayoutParams(MATCH, MATCH))
-                pressable { close() }
-            })
-        }
-    }
-    drawFace()
-
-    // ── the head's lines ──
-    val head = c.vstack(Gravity.CENTER_HORIZONTAL)
+    // ── the face and the head's lines: one owner, the settings' and my page's own (iOS MTFacePage, MTFaceHeader) ──
+    val face = FaceHead(act, body)
     fun drawHead() {
         name = Book.chat(ref)?.shown?.ifBlank { null } ?: c.getString(R.string.peer)
-        bmp = readFace(); drawFace()
-        head.removeAllViews()
-        head.addView(faceBox, lp(MATCH, WRAP))
-        head.addView(bubble(c.text(name, 20f, Color.WHITE, bold = true, center = true).apply { maxLines = 2 }),   // USER-DATA: their name
-            lp().apply { topMargin = c.dp(10); marginStart = c.dp(18); marginEnd = c.dp(18) })
-        if (PeerSafety.isBlocked(ref)) head.addView(bubble(c.text(c.getString(R.string.pi_blocked), 15f, SysColor.red, bold = true)),
-            lp().apply { topMargin = c.dp(8) })
         val about = PeerAbout.of(ref)
-        if (!about?.bio.isNullOrEmpty()) head.addView(bubble(c.text(about!!.bio, 17f, Color.WHITE, center = true).apply { setTextIsSelectable(true) }),   // USER-DATA: their bio
-            lp().apply { topMargin = c.dp(8); marginStart = c.dp(18); marginEnd = c.dp(18) })
-        PeerAbout.url(about?.link ?: "")?.let { u ->
-            head.addView(bubble(c.text(PeerAbout.shown(u), 17f, MT.blue).apply {   // USER-DATA: their link
-                maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.MIDDLE
-                setOnClickListener { runCatching { act.startActivity(Intent(Intent.ACTION_VIEW, u)) } }
-                setOnLongClickListener {
-                    c.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("", u.toString())); true
-                }
-            }), lp().apply { topMargin = c.dp(8); marginStart = c.dp(18); marginEnd = c.dp(18) })
-        }
-        // THE NOTE I KEEP ON THEM (iOS MTPeerHeader note): grey, under their own lines
-        Book.chat(ref)?.note?.takeIf { it.isNotEmpty() }?.let { n ->
-            head.addView(bubble(c.text(n, 15f, MT.gray, center = true)),   // USER-DATA: my note on this person
-                lp().apply { topMargin = c.dp(8); marginStart = c.dp(18); marginEnd = c.dp(18) })
-        }
+        val f = Book.shownFace(ref)
+        face.draw(if (f.exists()) BitmapFactory.decodeFile(f.path) else null, name, PeerSafety.isBlocked(ref),
+            about?.bio.orEmpty(), PeerAbout.url(about?.link ?: ""), Book.chat(ref)?.note.orEmpty())
     }
 
     // ── the four plates (iOS MTPeerAction): message, voice call, video call, more; a blocked person is not called ──
-    val actions = c.hstack { setPadding(dp(16), dp(14), dp(16), dp(6)) }
+    val actions = c.hstack { setPadding(dp(16), dp(10), dp(16), dp(6)) }
     fun drawActions() {
         actions.removeAllViews()
         fun plate(icon: Int, label: Int, work: (View) -> Unit) {
@@ -229,9 +181,9 @@ fun peerInfoPage(act: MainActivity, ref: String, onClose: () -> Unit): View {
             actions.addView(FrameLayout(c).apply {
                 background = c.glassPlate().apply { cornerRadius = dp(22).toFloat() }
                 contentDescription = c.getString(label)
-                addView(c.icon(icon, Color.WHITE), FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
+                addView(c.icon(icon, Color.WHITE), FrameLayout.LayoutParams(dp(20), dp(20), Gravity.CENTER))
                 pressable { work(this) }
-            }, lp(0, c.dp(48), 1f))
+            }, lp(0, c.dp(44), 1f))   // the touch target's height, the glyph 20 (iOS actionFace)
         }
         plate(R.drawable.ic_peer_message, R.string.pi_message) { onClose() }   // opened from the chat: back to it
         if (!PeerSafety.isBlocked(ref)) {
@@ -247,14 +199,15 @@ fun peerInfoPage(act: MainActivity, ref: String, onClose: () -> Unit): View {
     }
 
     // ── the rows (iOS MTInfoSectionsView): the fingerprint and the contact; then report and block ──
-    fun row(icon: Int, title: String, detail: String? = null, red: Boolean = false, chevron: Boolean = false, work: () -> Unit): View = c.hstack {
+    fun row(icon: Int, title: String, detail: String? = null, red: Boolean = false, chevron: Boolean = false, tint: Int? = null,
+            work: () -> Unit): View = c.hstack {
         gravity = Gravity.CENTER_VERTICAL
         setPadding(dp(16), dp(12), dp(14), dp(12))
         minimumHeight = dp(52)
-        addView(c.icon(icon, if (red) SysColor.red else MT.gray), lp(dp(22), dp(22)).apply { marginEnd = dp(14) })
+        addView(c.icon(icon, tint ?: if (red) SysColor.red else MT.gray), lp(dp(22), dp(22)).apply { marginEnd = dp(14) })
         addView(c.vstack(Gravity.NO_GRAVITY) {
             addView(c.text(title, 17f, if (red) SysColor.red else Color.WHITE))
-            if (detail != null) addView(c.text(detail, 13f, MT.gray))
+            if (detail != null) addView(c.text(detail, 11f, tint ?: MT.gray))   // the detail in the glyph's own tint (iOS disclosure)
         }, lp(0, WRAP, 1f))
         if (chevron) addView(c.icon(R.drawable.ic_chevron_right, Color.rgb(89, 89, 89), 18), lp(dp(18), dp(18)))
         pressable(work)
@@ -271,8 +224,10 @@ fun peerInfoPage(act: MainActivity, ref: String, onClose: () -> Unit): View {
         sections.removeAllViews()
         val verified = PeerSafety.isVerified(ref)
         val first = mutableListOf<View>()
-        if (Book.secret(ref) != null) first.add(row(if (verified) R.drawable.ic_set_check_circle else R.drawable.ic_shield,
-            c.getString(R.string.pi_fingerprint), c.getString(if (verified) R.string.pi_verified else R.string.pi_not_verified), chevron = true) {
+        // grey until compared, green once compared (iOS info.fingerprint: checkmark.shield.fill, shield.lefthalf.filled)
+        if (Book.secret(ref) != null) first.add(row(if (verified) R.drawable.ic_checkmark_shield else R.drawable.ic_shield,
+            c.getString(R.string.pi_fingerprint), c.getString(if (verified) R.string.pi_verified else R.string.pi_not_verified), chevron = true,
+            tint = if (verified) MT.green else MT.gray) {
             act.push { close -> safetyPage(act, ref, name) { close(); redrawAll() } }
         })
         // SHARE CONTACT (iOS shareContact): the correspondent's own daily link, handed to us to hand on; without a fresh one it is
@@ -333,18 +288,97 @@ fun peerInfoPage(act: MainActivity, ref: String, onClose: () -> Unit): View {
             }), lp().apply { topMargin = c.dp(22) })
     }
 
-    // ── the strip and the panes ──
+    // ── the strip and the panes (iOS MTTabStrip): the system's glass 44 points tall, the chosen word on the system's grey pill ──
     var tab = Tab.WALL   // a page opens on its wall
-    val strip = c.hstack { setPadding(dp(4), dp(4), dp(4), dp(4)); background = c.glassPlate() }
+    val strip = c.hstack { setPadding(dp(3), dp(3), dp(3), dp(3)); background = c.glassPlate() }
+    val roll = HorizontalScrollView(c).apply {
+        isHorizontalScrollBarEnabled = false
+        setPadding(dp(16), 0, dp(16), 0); clipToPadding = false
+        addView(strip)
+    }
     val pane = c.vstack(Gravity.NO_GRAVITY) { setPadding(dp(16), 0, dp(16), 0) }
     lateinit var drawPane: () -> Unit
+
+    // ── THE ITEM LAW AND THE SELECTION (iOS MTProfileItem, selectionBar): a hold opens the chat's menu of the letter, «Select» in it
+    // begins the page's own selection; the bar at the foot forwards the chosen through the chat's picker or deletes them for me ──
+    var selecting = false
+    val chosen = linkedSetOf<String>()
+    val foot = FrameLayout(c).apply { visibility = View.GONE }
+    lateinit var drawFoot: () -> Unit
+    fun endSelecting() { selecting = false; chosen.clear(); drawPane(); drawFoot() }
+    // the page closes first, then the chat beneath jumps to the letter or another chat opens (iOS dismiss, ui.showLetter)
+    fun leaveFor(to: String, mid: String?) { onClose(); toChat(to, mid) }
+    fun forward(letters: List<Msg>) {
+        val sendable = letters.filter { canForward(it) }
+        if (sendable.isNotEmpty()) act.push { close -> forwardPage(act, ref, sendable, close) { to -> close(); leaveFor(to, null) } }
+    }
+    val law = ItemLaw(
+        selecting = { selecting },
+        chosen = { m -> m.mid in chosen },
+        toggle = { m -> if (!chosen.remove(m.mid)) chosen.add(m.mid); drawPane(); drawFoot() },
+        menu = { m ->
+            letterMenu(act, ref, m, onReply = {}, onEdit = {}, onForward = { forward(listOf(m)) },
+                onSelect = { selecting = true; chosen.clear(); chosen.add(m.mid); drawPane(); drawFoot() },
+                onShowInChat = { leaveFor(ref, m.mid) })
+        },
+        redraw = { drawPane() })
+    drawFoot = {
+        foot.removeAllViews()
+        foot.visibility = if (selecting) View.VISIBLE else View.GONE
+        body.setPadding(0, c.dp(56), 0, c.dp(if (selecting) 104 else 40))   // the bar's room under the last row (iOS safeAreaInset)
+        if (selecting) {
+            val letters = (Book.chat(ref)?.msgs ?: emptyList()).filter { it.mid in chosen }
+            val any = letters.isNotEmpty()
+            fun key(glyph: Int, words: Int, tint: Int, on: Boolean, mirrored: Boolean = false, work: () -> Unit) = FrameLayout(c).apply {
+                contentDescription = c.getString(words)
+                addView(c.icon(glyph, tint, 20).apply { if (mirrored) scaleX = -1f }, FrameLayout.LayoutParams(c.dp(20), c.dp(20), Gravity.CENTER))
+                if (on) pressable(work)
+            }
+            foot.addView(c.hstack {
+                gravity = Gravity.CENTER_VERTICAL
+                setBackgroundColor(Color.argb(235, 44, 44, 46))   // the menus' own material (iOS .ultraThinMaterial)
+                setPadding(dp(16), dp(10), dp(16), dp(10))
+                addView(key(R.drawable.ic_close, R.string.cancel, Color.rgb(204, 204, 204), true) { endSelecting() }, lp(dp(44), dp(44)))
+                addView(View(c), lp(0, 1, 1f))
+                addView(c.text(letters.size.toString(), 17f, MT.gray).apply { fontFeatureSettings = "tnum" }, lp(WRAP, WRAP))
+                addView(View(c), lp(0, 1, 1f))
+                addView(key(R.drawable.ic_reply, R.string.ld_forward, if (any) Color.WHITE else MT.gray, any, mirrored = true) {
+                    endSelecting(); forward(letters)
+                }, lp(dp(44), dp(44)))
+                addView(key(R.drawable.ic_delete, R.string.delete, if (any) SysColor.red else MT.gray, any) {
+                    val mids = letters.map { it.mid }.toSet()
+                    Book.edit(ref) { ch -> ch.msgs.removeAll { it.mid in mids } }
+                    endSelecting()
+                }, lp(dp(44), dp(44)).apply { marginStart = dp(18) })
+            }, FrameLayout.LayoutParams(MATCH, WRAP))
+        }
+    }
+    // the chosen word rides into view, a hundred points of its neighbour showing beside it (iOS reveal)
+    fun reveal() {
+        val v = strip.getChildAt(tab.ordinal) ?: return
+        val w = roll.width
+        if (w == 0) return
+        val from = roll.paddingLeft + v.left
+        val to = roll.paddingLeft + v.right
+        var x = roll.scrollX
+        if (x + w - c.dp(100) < to) x = to - w + c.dp(100)
+        if (from - c.dp(100) < x) x = from - c.dp(100)
+        roll.smoothScrollTo(x.coerceIn(0, maxOf(0, strip.width + roll.paddingLeft + roll.paddingRight - w)), 0)
+    }
     fun drawStrip() {
         strip.removeAllViews()
-        for (t in Tab.values()) strip.addView(c.text(c.getString(t.title), 16f, if (t == tab) Color.WHITE else MT.gray, bold = t == tab).apply {
-            setPadding(dp(16), dp(9), dp(16), dp(9))
-            if (t == tab) background = c.rounded(Color.argb(60, 255, 255, 255), 20)
-            pressable { tab = t; drawStrip(); drawPane() }
-        })
+        for (t in Tab.values()) strip.addView(c.text(c.getString(t.title), 15f, if (t == tab) Color.WHITE else Color.argb(153, 235, 235, 245), center = true).apply {
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            setPadding(dp(16), 0, dp(16), 0)
+            if (t == tab) background = c.rounded(Color.rgb(58, 58, 60), 19)   // iOS .systemGray4
+            setOnClickListener { if (t != tab) { tab = t; drawStrip(); drawPane() } }
+        }, lp(WRAP, c.dp(38)))
+        roll.post { reveal() }
+    }
+    // THE PANES ARE TURNED BY THE FINGER (iOS MTSwipePanes): one step along the strip, stopping at its ends
+    fun turnPane(step: Int) {
+        val j = tab.ordinal + step
+        if (j in Tab.values().indices) { tab = Tab.values()[j]; drawStrip(); drawPane() }
     }
     drawPane = {
         pane.removeAllViews()
@@ -367,27 +401,32 @@ fun peerInfoPage(act: MainActivity, ref: String, onClose: () -> Unit): View {
             addView(c.icon(tab.icon, MT.gray), lp(dp(42), dp(42)))
             addView(c.text(c.getString(tab.empty), 15f, MT.gray, center = true), lp().apply { topMargin = dp(10) })
         }, lp())
-        else paneRows(act, tab, msgs.reversed(), pane)   // newest on top
+        else paneRows(act, tab, msgs.reversed(), pane, law)   // newest on top
     }
 
     redrawAll = { drawHead(); drawActions(); drawSections(); drawPane() }
-    body.addView(head, lp())
+    body.addView(face.view, lp())
     body.addView(actions, lp())
     body.addView(sections, lp())
-    body.addView(HorizontalScrollView(c).apply {
-        isHorizontalScrollBarEnabled = false
-        setPadding(dp(16), 0, dp(16), 0); clipToPadding = false
-        addView(strip)
-    }, lp().apply { topMargin = c.dp(24) })
+    body.addView(roll, lp().apply { topMargin = c.dp(24) })
     body.addView(pane, lp())
     drawStrip()
     redrawAll()
 
-    val listener: () -> Unit = { drawHead(); drawPane() }
+    val listener: () -> Unit = { drawHead(); drawPane(); if (selecting) drawFoot() }
+    // the one player's turn redraws the music's glyphs, and only its turn: the clock's ticks change nothing here
+    var heard = MusicPlayer.current?.uri to MusicPlayer.playing
+    val music: () -> Unit = {
+        val now = MusicPlayer.current?.uri to MusicPlayer.playing
+        if (now != heard) { heard = now; if (tab == Tab.MUSIC) drawPane() }
+    }
     return FrameLayout(c).apply {
         setBackgroundColor(Color.BLACK)
         addView(CrestGround(c), FrameLayout.LayoutParams(MATCH, MATCH))
-        addView(ScrollView(c).apply { isVerticalScrollBarEnabled = false; addView(body) }, FrameLayout.LayoutParams(MATCH, MATCH))
+        // a stroke begun on the strip rolls the strip and turns nothing; the page scrolled up closes the open face
+        addView(PanesScroll(c, skip = { y -> y in roll.top.toFloat()..roll.bottom.toFloat() }, turn = { turnPane(it) }).apply {
+            isVerticalScrollBarEnabled = false; addView(body); face.attach(this)
+        }, FrameLayout.LayoutParams(MATCH, MATCH))
         // the back mark on its own round of glass, over the page
         addView(FrameLayout(c).apply {
             background = c.glassPlate(oval = true)
@@ -401,10 +440,34 @@ fun peerInfoPage(act: MainActivity, ref: String, onClose: () -> Unit): View {
             addView(c.icon(R.drawable.ic_more_horiz, Color.WHITE), FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
             pressable { act.push { close -> peerEditPage(act, ref, close) } }
         }, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.TOP or Gravity.END).apply { setMargins(0, dp(6), dp(14), 0) })
+        addView(foot, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM))
         addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
-            override fun onViewAttachedToWindow(v: View) { Book.listen(listener) }
-            override fun onViewDetachedFromWindow(v: View) { Book.unlisten(listener) }
+            override fun onViewAttachedToWindow(v: View) { Book.listen(listener); MusicPlayer.listeners.add(music) }
+            override fun onViewDetachedFromWindow(v: View) { Book.unlisten(listener); MusicPlayer.listeners.remove(music) }
         })
+    }
+}
+
+/**
+ * THE PANES ARE TURNED BY THE FINGER (iOS MTSwipePanes): a quick sideways stroke over the page moves to the next tab and back.
+ * The page keeps its own scrolling and every row its own tap; a stroke that turned the pane opens nothing under it.
+ */
+private class PanesScroll(c: Context, private val skip: (Float) -> Boolean, private val turn: (Int) -> Unit) : ScrollView(c) {
+    private var turned = false
+    private val stroke = GestureDetector(c, object : GestureDetector.SimpleOnGestureListener() {
+        override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean {
+            val from = e1 ?: return false
+            if (skip(from.y + scrollY) || abs(vx) < 2 * abs(vy) || abs(e2.x - from.x) < dp(48)) return false
+            turned = true
+            turn(if (vx < 0) 1 else -1)
+            return true
+        }
+    })
+    override fun dispatchTouchEvent(e: MotionEvent): Boolean {
+        if (e.actionMasked == MotionEvent.ACTION_DOWN) turned = false
+        stroke.onTouchEvent(e)
+        if (turned && e.actionMasked == MotionEvent.ACTION_UP) e.action = MotionEvent.ACTION_CANCEL
+        return super.dispatchTouchEvent(e)
     }
 }
 
@@ -412,66 +475,127 @@ fun peerInfoPage(act: MainActivity, ref: String, onClose: () -> Unit): View {
 private fun dayWord(c: Context, at: Long) =
     if (DateUtils.isToday(at)) c.getString(R.string.today) else DateUtils.formatDateTime(c, at, DateUtils.FORMAT_SHOW_DATE)
 
-/** A pane's rows, cut by day: tiles three to a row for media and video, glass rows for files, links, music and voices. */
-private fun paneRows(act: MainActivity, tab: Tab, msgs: List<Msg>, into: LinearLayout) {
+/**
+ * A pane's rows, cut by day: tiles three to a row for media and video, glass rows for files, links, music and voices, each under
+ * the item law. Music and voices play through the one player, the pane's own in feed order as the queue whichever day the tap lands
+ * in (iOS musicList, playVoice); the one playing wears the pause.
+ */
+private fun paneRows(act: MainActivity, tab: Tab, msgs: List<Msg>, into: LinearLayout, law: ItemLaw) {
     val c: Context = act
+    val feed = msgs.reversed()   // the conversation's own order: a queue walks forward from the one tapped
     val days = msgs.groupBy { dayWord(c, it.at) }   // groupBy keeps the order of first appearance: newest day first
+    val tracks = if (tab == Tab.MUSIC) feed.mapNotNull { m -> itemOf(m)?.let { i -> i.file?.let { f -> Track(Uri.fromFile(f), i.name ?: f.name) } } } else emptyList()
+    val voices = if (tab == Tab.VOICE) feed.filter { m -> itemOf(m)?.file != null } else emptyList()
+    fun playVoice(m: Msg) {
+        val f = itemOf(m)?.file ?: return
+        val next = voices.getOrNull(voices.indexOf(m) + 1)
+        VoicePlayer.toggle(f.path, onProgress = { _, _ -> }, stopped = { law.redraw() }, then = next?.let { n -> { playVoice(n) } })
+        // their voice played here: its sender is told once, silently, as from the bubble (iOS notePlayed)
+        if (!m.mine && VoicePlayer.playing == f.path) Thread { Post.notePlayed(m.mid) }.start()
+        law.redraw()
+    }
     for ((day, items) in days) {
         into.addView(c.text(day, 12f, MT.gray), lp().apply { topMargin = c.dp(14); bottomMargin = c.dp(6) })
         when (tab) {
             Tab.MEDIA, Tab.VIDEO -> items.chunked(3).forEach { three ->
                 into.addView(c.hstack {
-                    three.forEachIndexed { i, m -> addView(tile(act, m), lp(0, c.dp(120), 1f).apply { if (i > 0) marginStart = c.dp(3) }) }
+                    three.forEachIndexed { i, m -> addView(tile(act, m, law), lp(0, c.dp(120), 1f).apply { if (i > 0) marginStart = c.dp(3) }) }
                     repeat(3 - three.size) { addView(View(c), lp(0, c.dp(120), 1f).apply { marginStart = c.dp(3) }) }
                 }, lp().apply { bottomMargin = c.dp(3) })
             }
             Tab.LINKS -> items.forEach { m -> linksIn(m.text).forEach { u ->
-                into.addView(glassRow(c, R.drawable.ic_link, u.host ?: u.toString(), u.toString(), m) {
+                into.addView(glassRow(c, R.drawable.ic_link, u.host ?: u.toString(), u.toString(), m, law) {
                     runCatching { act.startActivity(Intent(Intent.ACTION_VIEW, u)) }
                 }, lp().apply { bottomMargin = c.dp(8) })
             } }
-            Tab.FILES, Tab.MUSIC -> items.forEach { m ->
+            Tab.FILES -> items.forEach { m ->
+                val it = itemOf(m) ?: return@forEach
+                into.addView(glassRow(c, R.drawable.ic_set_doc, it.name ?: it.file?.name ?: c.getString(R.string.pi_file),
+                    android.text.format.Formatter.formatShortFileSize(c, it.size), m, law) {
+                    it.file?.let { f -> openMedia(act, f, "doc") }
+                }, lp().apply { bottomMargin = c.dp(8) })
+            }
+            Tab.MUSIC -> items.forEach { m ->
                 val it = itemOf(m) ?: return@forEach
                 val title = it.name ?: it.file?.name ?: c.getString(R.string.pi_file)
-                into.addView(glassRow(c, if (tab == Tab.MUSIC) R.drawable.ic_play_fill else R.drawable.ic_set_doc,
-                    if (tab == Tab.MUSIC) title.substringBeforeLast('.') else title,
-                    android.text.format.Formatter.formatShortFileSize(c, it.size), m) {
-                    it.file?.let { f -> openMedia(act, f, "doc") }
+                val uri = it.file?.let { f -> Uri.fromFile(f) }
+                val on = uri != null && MusicPlayer.current?.uri == uri && MusicPlayer.playing
+                into.addView(glassRow(c, if (on) R.drawable.ic_pause_fill else R.drawable.ic_play_fill, title.substringBeforeLast('.'),
+                    android.text.format.Formatter.formatShortFileSize(c, it.size), m, law) {
+                    // the one playing pauses and goes on; another starts the queue at itself
+                    if (uri != null) {
+                        if (MusicPlayer.current?.uri == uri) MusicPlayer.toggle()
+                        else tracks.indexOfFirst { t -> t.uri == uri }.takeIf { i -> i != -1 }?.let { i -> MusicPlayer.play(act, tracks, i) }
+                    }
                 }, lp().apply { bottomMargin = c.dp(8) })
             }
             Tab.VOICE -> items.forEach { m ->
                 val it = itemOf(m) ?: return@forEach
                 val s = it.du.toInt()
-                into.addView(glassRow(c, R.drawable.ic_play_fill, c.getString(R.string.pi_voice_message), "%d:%02d".format(s / 60, s % 60), m) {
-                    it.file?.let { f -> VoicePlayer.toggle(f.path, onProgress = { _, _ -> }, stopped = {}) }
-                }, lp().apply { bottomMargin = c.dp(8) })
+                val on = it.file != null && VoicePlayer.playing == it.file.path
+                into.addView(glassRow(c, if (on) R.drawable.ic_pause_fill else R.drawable.ic_play_fill, c.getString(R.string.pi_voice_message),
+                    "%d:%02d".format(s / 60, s % 60), m, law) { playVoice(m) }, lp().apply { bottomMargin = c.dp(8) })
             }
             Tab.WALL -> {}
         }
     }
 }
 
-/** One tile: the picture's own face (drawn off the main thread), a play mark on a film; a tap opens it whole. */
-private fun tile(act: MainActivity, m: Msg): View {
-    val c: Context = act
-    val it = itemOf(m)
-    return FrameLayout(c).apply {
-        setBackgroundColor(Color.argb(40, 255, 255, 255))
-        val img = ImageView(c).apply { scaleType = ImageView.ScaleType.CENTER_CROP }
-        addView(img, FrameLayout.LayoutParams(MATCH, MATCH))
-        val man = m.meta?.let { j -> runCatching { JSONObject(j) }.getOrNull() } ?: Media.inline(m.text)
-        Thread {
-            val pic = it?.file?.let { f -> Media.preview(c, f, it.kind, 360) } ?: Media.thumbOf(man)
-            if (pic != null) MainThread.post { img.setImageBitmap(pic) }
-        }.start()
-        if (it?.kind == "vid") addView(c.icon(R.drawable.ic_play_fill, Color.WHITE), FrameLayout.LayoutParams(c.dp(28), c.dp(28), Gravity.CENTER))
-        val f = it?.file
-        if (f != null) setOnClickListener { _ -> openMedia(act, f, it.kind) }
+/** What a pane's item asks of its page (iOS MTProfileItem's inputs): the selection, the item's mark, its menu, the pane drawn again. */
+private class ItemLaw(val selecting: () -> Boolean, val chosen: (Msg) -> Boolean, val toggle: (Msg) -> Unit, val menu: (Msg) -> Unit,
+                      val redraw: () -> Unit)
+
+/**
+ * THE ITEM LAW (iOS MTProfileItem, one for every pane): the hit area is the item's frame; a tap opens it, a hold opens the chat's
+ * own menu of the letter, and while the page selects a tap marks it, the mark in the corner. The press shrinks the item a little.
+ */
+private fun itemLaw(c: Context, face: View, m: Msg, law: ItemLaw, open: () -> Unit): View = FrameLayout(c).apply {
+    addView(face, FrameLayout.LayoutParams(MATCH, MATCH))
+    if (law.selecting()) {
+        val on = law.chosen(m)
+        // iOS checkmark.circle.fill in the accent (white since the gold left) or the empty circle, 22 points, 6 from the corner
+        addView(FrameLayout(c).apply {
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; if (on) setColor(Color.WHITE) else setStroke(c.dp(1.5f), Color.WHITE) }
+            if (on) addView(c.icon(R.drawable.ic_check, Color.BLACK, 14), FrameLayout.LayoutParams(c.dp(14), c.dp(14), Gravity.CENTER))
+        }, FrameLayout.LayoutParams(c.dp(22), c.dp(22), Gravity.TOP or Gravity.END).apply { setMargins(0, c.dp(6), c.dp(6), 0) })
+    }
+    setOnClickListener { if (law.selecting()) law.toggle(m) else open() }
+    setOnLongClickListener { law.menu(m); true }
+    setOnTouchListener { v, e ->
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> v.animate().scaleX(0.965f).scaleY(0.965f).setDuration(150).start()
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> v.animate().scaleX(1f).scaleY(1f).setDuration(150).start()
+        }
+        false
     }
 }
 
+/** One tile: the picture's own face (the gallery's cache, drawn off the main thread), a play mark on a film; a tap opens it whole. */
+private fun tile(act: MainActivity, m: Msg, law: ItemLaw): View {
+    val c: Context = act
+    val item = itemOf(m)
+    val f = item?.file
+    val kind = item?.kind ?: "img"
+    val face = FrameLayout(c).apply {
+        setBackgroundColor(Color.argb(40, 255, 255, 255))
+        val img = ImageView(c).apply { scaleType = ImageView.ScaleType.CENTER_CROP }
+        addView(img, FrameLayout.LayoutParams(MATCH, MATCH))
+        val held = f?.let { tileCache.get(it.path) }
+        if (held != null) img.setImageBitmap(held)
+        else {
+            val man = m.meta?.let { j -> runCatching { JSONObject(j) }.getOrNull() } ?: Media.inline(m.text)
+            tileWork.execute {
+                val pic = f?.let { x -> Media.preview(c, x, kind, 360)?.also { b -> tileCache.put(x.path, b) } } ?: Media.thumbOf(man)
+                if (pic != null) img.post { img.setImageBitmap(pic) }
+            }
+        }
+        if (kind == "vid") addView(c.icon(R.drawable.ic_play_fill, Color.WHITE), FrameLayout.LayoutParams(c.dp(28), c.dp(28), Gravity.CENTER))
+    }
+    return itemLaw(c, face, m, law) { if (f != null) openMedia(act, f, kind) }
+}
+
 /** A row on the bar's own glass (iOS glassRow): the square plate with the glyph, the long plate with the words and the time. */
-private fun glassRow(c: Context, icon: Int, title: String, detail: String, m: Msg, work: () -> Unit): View = c.hstack {
+private fun glassRow(c: Context, icon: Int, title: String, detail: String, m: Msg, law: ItemLaw, open: () -> Unit): View = itemLaw(c, c.hstack {
     gravity = Gravity.CENTER_VERTICAL
     addView(FrameLayout(c).apply {
         background = c.glassPlate().apply { cornerRadius = dp(16).toFloat() }
@@ -487,8 +611,7 @@ private fun glassRow(c: Context, icon: Int, title: String, detail: String, m: Ms
         }, lp(0, WRAP, 1f))
         addView(c.text(android.text.format.DateFormat.getTimeFormat(c).format(Date(m.at)), 11f, MT.gray), lp(WRAP, WRAP).apply { marginStart = dp(8) })
     }, lp(0, dp(56), 1f))
-    pressable(work)
-}
+}, m, law, open)
 
 // ─────────────────────────── the fingerprint (iOS SafetyNumberView) ───────────────────────────
 

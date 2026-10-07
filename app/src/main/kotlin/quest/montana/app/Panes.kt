@@ -38,11 +38,12 @@ private fun moments(): List<Moment> = Book.all().flatMap { ch ->
     }
 }.sortedBy { it.at }
 
-/** The tiles' small drawings, decoded off the frame once and kept by their size (iOS mtTileSharp, MontanaCaches). */
-private val tileCache = object : android.util.LruCache<String, android.graphics.Bitmap>(24 * 1024 * 1024) {
+/** The tiles' small drawings, decoded off the frame once and kept by their size (iOS mtTileSharp, MontanaCaches): one cache for the
+ *  gallery and the correspondent's page, by the file's path. */
+val tileCache = object : android.util.LruCache<String, android.graphics.Bitmap>(24 * 1024 * 1024) {
     override fun sizeOf(key: String, value: android.graphics.Bitmap) = value.byteCount
 }
-private val tileWork = java.util.concurrent.Executors.newSingleThreadExecutor()
+val tileWork = java.util.concurrent.Executors.newSingleThreadExecutor()
 
 /**
  * THE GALLERY (iOS GalleryTabView, the author's word 25.09): every moment of every conversation in the order the platform's photos
