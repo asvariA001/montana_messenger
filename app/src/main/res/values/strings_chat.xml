@@ -33,6 +33,10 @@
     <string name="camera_off">Camera is off for Montana</string>
     <string name="camera_unavailable">The camera is unavailable.</string>
     <string name="open_settings">Open Settings</string>
+    <string name="feed_fresh">No messages yet</string>
+    <string name="feed_fresh_note">Write the first one — it will wait for them on a node</string>
+    <string name="feed_no_network">No connection to the network</string>
+    <string name="feed_no_network_note">Messages will be sent as soon as a door answers</string>
     <string name="gr_member">Member</string>
     <string name="gr_out_note">You are no longer a member: the messages stay here to read.</string>
     <string name="gr_choose">Choose members</string>

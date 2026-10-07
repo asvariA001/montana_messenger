@@ -33,6 +33,10 @@
     <string name="camera_off">Montana 的相机已关闭</string>
     <string name="camera_unavailable">摄像头不可用。</string>
     <string name="open_settings">打开设置</string>
+    <string name="feed_fresh">还没有消息</string>
+    <string name="feed_fresh_note">写下第一条 — 它会在节点上等待对方</string>
+    <string name="feed_no_network">未连接到网络</string>
+    <string name="feed_no_network_note">一旦有节点应答，消息就会发送</string>
     <string name="gr_member">成员</string>
     <string name="gr_out_note">您已不再是成员：消息仍可在此阅读。</string>
     <string name="gr_choose">选择成员</string>

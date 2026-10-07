@@ -33,6 +33,10 @@
     <string name="camera_off">Камера выключена для Montana</string>
     <string name="camera_unavailable">Камера недоступна.</string>
     <string name="open_settings">Открыть Настройки</string>
+    <string name="feed_fresh">Сообщений пока нет</string>
+    <string name="feed_fresh_note">Напишите первое — оно дождётся на узле</string>
+    <string name="feed_no_network">Нет связи с сетью</string>
+    <string name="feed_no_network_note">Сообщения уйдут, как только ответит дверь</string>
     <string name="gr_member">Участник</string>
     <string name="gr_out_note">Вы больше не участник: сообщения остаются здесь для чтения.</string>
     <string name="gr_choose">Выберите участников</string>

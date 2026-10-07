@@ -320,11 +320,12 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     val group = Groups.isKey(ref)   // a group's feed: no pipe, no presence, no doors (iOS MTGroup.isKey)
     val column = c.vstack(Gravity.NO_GRAVITY) { setPadding(dp(10), dp(8), dp(10), dp(8)) }
     val draftRow = FrameLayout(c).apply { setPadding(c.dp(10), 0, c.dp(10), c.dp(8)); visibility = View.GONE }
+    val feedFrame = FrameLayout(c)
     val scroll = ScrollView(c).apply {
         isVerticalScrollBarEnabled = false
         isFillViewport = true
         // the feed, and under it their live draft (iOS LiveDraftBubble at the feed's foot)
-        addView(FrameLayout(c).apply { addView(c.vstack(Gravity.NO_GRAVITY) { addView(column, lp()); addView(draftRow, lp()) }, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM)) })
+        addView(feedFrame.apply { addView(c.vstack(Gravity.NO_GRAVITY) { addView(column, lp()); addView(draftRow, lp()) }, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM)) })
     }
     fun toBottom() = scroll.post { scroll.scrollTo(0, scroll.getChildAt(0)?.height ?: 0) }
 
@@ -340,6 +341,33 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     // is raised again by the system each time the window comes forward (SHOW_AUTO_EDITOR_FORWARD_NAV, the Pixel's own record 07.10 22:35)
     fun hideKeys() { c.getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(field.windowToken, 0); field.clearFocus() }
     fun showKeys() { field.requestFocus(); c.getSystemService(InputMethodManager::class.java).showSoftInput(field, 0) }
+
+    // AN EMPTY FEED SAYS WHICH EMPTINESS IT IS (iOS MTFeedEmpty, MontanaMessageFeed 227-265; feedEmptyKind, MontanaConversation
+    // 2324-2334): a chat that never had a word invites the first one and a tap opens the keyboard; one whose words cannot leave
+    // says so — a blank made the person wait for a letter that could not come.
+    val emptyGlyph = c.icon(R.drawable.ic_antenna_slash, MT.gray, 30)
+    val emptyTitle = c.text("", 17f, Color.WHITE, bold = true, center = true)
+    val emptyNote = c.text("", 13f, MT.gray, center = true)
+    val emptyView = c.vstack(Gravity.CENTER_HORIZONTAL) {
+        visibility = View.GONE
+        setPadding(dp(40), 0, dp(40), 0)
+        addView(emptyGlyph, LinearLayout.LayoutParams(dp(30), dp(30)).apply { bottomMargin = dp(10) })
+        addView(emptyTitle, lp())
+        addView(emptyNote, lp().apply { topMargin = dp(10) })
+        setOnClickListener { showKeys() }
+    }
+    feedFrame.addView(emptyView, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.CENTER))
+    fun drawEmpty(empty: Boolean) {
+        if (!empty) { emptyView.visibility = View.GONE; return }
+        val cm = c.getSystemService(android.net.ConnectivityManager::class.java)
+        val net = cm?.getNetworkCapabilities(cm.activeNetwork)?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+        val offline = !net || Signal.aliveHosts().isEmpty()
+        emptyGlyph.visibility = if (offline) View.VISIBLE else View.GONE
+        emptyTitle.setText(if (offline) R.string.feed_no_network else R.string.feed_fresh)
+        emptyNote.setText(if (offline) R.string.feed_no_network_note else R.string.feed_fresh_note)
+        emptyView.isClickable = !offline   // only the one state with something to do takes a tap (iOS allowsHitTesting)
+        emptyView.visibility = View.VISIBLE
+    }
 
     // THE LINE OVER THE FIELD (iOS the reply/edit strip): what the next letter answers, or which letter is being changed.
     val stripTitle = c.text("", 13f, MT.blue, bold = true)
@@ -413,6 +441,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             b.tag = m.mid
             column.addView(b, lp().apply { topMargin = c.dp(3) })
         }
+        drawEmpty(column.childCount == 0)
     }
 
     // ── sending (iOS sendMessage) ──
