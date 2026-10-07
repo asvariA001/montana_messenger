@@ -162,6 +162,8 @@
     <!-- The side drawer and the settings (iOS MontanaSideDrawer, SettingsTabView) -->
     <string name="app_calls">Звонки</string>
     <string name="app_feed">Лента</string>
+    <string name="app_groups">Группы</string>
+    <string name="app_channels">Каналы</string>
     <string name="app_music">Музыка</string>
     <string name="app_gallery">Галерея</string>
     <string name="app_chess">Шахматы</string>

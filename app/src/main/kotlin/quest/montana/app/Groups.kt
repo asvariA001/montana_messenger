@@ -136,6 +136,8 @@ object Groups {
     fun peopleLine(c: Context, key: String): String? = state(key)?.count?.let { c.resources.getQuantityString(R.plurals.gr_members, it, it) }
     /** Out of the group — it left, or the owner took it out: the chat says so instead of a field (iOS isOut). */
     fun isOut(key: String) = state(key)?.left == true
+    /** A channel, not a group: its page is the channels' (iOS kind == .channel). */
+    fun isChannel(key: String) = state(key)?.kind == CHANNEL
     /** Everyone writes in a group, the owner alone in a channel (iOS canWrite). */
     fun canWrite(key: String): Boolean { val g = state(key) ?: return false; return !g.left && (g.kind == GROUP || g.mine) }
     /** The moment the group stood here: its row stands by it until its first letter (iOS stand puts the row at the top). */

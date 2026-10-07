@@ -21,6 +21,12 @@ fun listedChats(): List<Chat> = Book.all()
     .sortedByDescending { it.last?.at ?: Groups.bornAt(it.ref) }
     .sortedBy { ChatMarks.pinPlace(it.ref) ?: Int.MAX_VALUE }   // a stable sort: the newest-first order stays under the pins
 
+/** THE CHATS PAGE'S ROWS (iOS bare): the groups and the channels live in their own pages (the author's words 06.10.2026 11:5x). */
+fun chatRows(): List<Chat> = listedChats().filter { !Groups.isKey(it.ref) }
+
+/** THE GROUPS' OR THE CHANNELS' PAGE ROWS (iOS groupRows(channel:)): the rows of its kind alone. */
+fun groupRows(channel: Boolean): List<Chat> = listedChats().filter { Groups.isKey(it.ref) && Groups.isChannel(it.ref) == channel }
+
 fun archivedChats(): List<Chat> = Book.all().filter { stands(it) && ChatMarks.isArchived(it.ref) }
 
 /** A row stands on letters; a group stands from its invitation, by the moment it stood here (iOS MTGroup.stand: the row at once). */

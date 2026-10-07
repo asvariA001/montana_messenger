@@ -162,6 +162,8 @@
     <!-- The side drawer and the settings (iOS MontanaSideDrawer, SettingsTabView) -->
     <string name="app_calls">通话</string>
     <string name="app_feed">动态</string>
+    <string name="app_groups">群组</string>
+    <string name="app_channels">频道</string>
     <string name="app_music">音乐</string>
     <string name="app_gallery">相册</string>
     <string name="app_chess">国际象棋</string>

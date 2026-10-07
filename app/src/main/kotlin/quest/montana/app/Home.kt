@@ -103,7 +103,7 @@ fun Context.glassPlate(oval: Boolean = false) = GradientDrawable().apply {
 private val barGlyph = Color.rgb(204, 204, 204)
 
 /** The pages under the bar (iOS UIState.Pane); the network's page comes with the network. */
-enum class Pane { CHATS, CONTACTS, CALLS, FEED, MUSIC, GALLERY }
+enum class Pane { CHATS, CONTACTS, CALLS, FEED, MUSIC, GALLERY, GROUPS, CHANNELS }
 
 fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
     val c = act
@@ -112,7 +112,8 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
     val panes = FrameLayout(c)
     val music = MusicPage(act)
     val views = mapOf(Pane.CHATS to chatsPane(act), Pane.CONTACTS to contactsPane(act), Pane.CALLS to callsPane(act),
-        Pane.FEED to feedPane(c), Pane.MUSIC to music.view, Pane.GALLERY to galleryPane(c))
+        Pane.FEED to feedPane(c), Pane.MUSIC to music.view, Pane.GALLERY to galleryPane(c),
+        Pane.GROUPS to groupsPane(act, channel = false), Pane.CHANNELS to groupsPane(act, channel = true))
     views.values.forEach { v -> v.visibility = View.GONE; panes.addView(v, FrameLayout.LayoutParams(MATCH, MATCH)) }
     views.getValue(Pane.CHATS).visibility = View.VISIBLE
     // THE FLOATING PLAYER stands on the chats, the feed and the music while a track stands (iOS playerBar).
@@ -401,6 +402,9 @@ private fun sideDrawer(act: MainActivity, onPane: (Pane) -> Unit, onProfile: () 
         addView(row(glyph(R.drawable.ic_bar_calls), R.string.app_calls) { onPane(Pane.CALLS) }, lp())
         addView(row(feedMark(), R.string.app_feed) { onPane(Pane.FEED) }, lp())
         addView(row(glyph(R.drawable.ic_bar_chats), R.string.chats) { onPane(Pane.CHATS) }, lp())
+        // the groups and the channels, apps of their own under the chats (iOS MTApplication .groups, .channels: person.3.fill, megaphone.fill)
+        addView(row(glyph(R.drawable.ic_app_groups), R.string.app_groups) { onPane(Pane.GROUPS) }, lp())
+        addView(row(glyph(R.drawable.ic_app_channels), R.string.app_channels) { onPane(Pane.CHANNELS) }, lp())
         addView(row(glyph(R.drawable.ic_bar_play), R.string.app_music) { onPane(Pane.MUSIC) }, lp())
         addView(row(glyph(R.drawable.ic_app_gallery), R.string.app_gallery) { onPane(Pane.GALLERY) }, lp())
         addView(row(android.widget.ImageView(c).apply { setImageResource(R.drawable.chess_knight) }, R.string.app_chess, null), lp())
@@ -469,14 +473,16 @@ class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (
 
     /** The puck goes under the pane's slot; the dynamic glyph wears the music's or the gallery's face (iOS slot(of:)). */
     fun showPane(p: Pane, animated: Boolean = true) {
-        slot = when (p) { Pane.CONTACTS -> 1; Pane.CALLS -> 2; Pane.FEED -> 3; Pane.CHATS -> 4; Pane.MUSIC, Pane.GALLERY -> 5 }
+        // the groups and the channels are opened from the drawer: no glyph of the bar is theirs, the puck stands away (iOS slot nil)
+        slot = when (p) { Pane.CONTACTS -> 1; Pane.CALLS -> 2; Pane.FEED -> 3; Pane.CHATS -> 4; Pane.MUSIC, Pane.GALLERY -> 5; Pane.GROUPS, Pane.CHANNELS -> -1 }
         if (p == Pane.MUSIC) media.setImageResource(R.drawable.ic_bar_play)
         if (p == Pane.GALLERY) media.setImageResource(R.drawable.ic_app_gallery)
         place(animated)
     }
 
     private fun place(animated: Boolean) {
-        if (width == 0) return
+        puck.visibility = if (slot < 0) View.INVISIBLE else View.VISIBLE
+        if (width == 0 || slot < 0) return
         val w = width / 7f
         val lpk = puck.layoutParams as LayoutParams
         val pw = (w - dp(6)).toInt(); val ph = height - dp(12)
@@ -690,7 +696,7 @@ private fun chatsPane(act: MainActivity): View {
                 }
                 // a meeting that never carried a word leaves no row (iOS: the list stands on letters) — the silent question
                 // of a scan must not raise an empty person here; the pinned stand first (listedChats)
-                val all = listedChats()
+                val all = chatRows()   // the groups and the channels stand in their own pages (iOS bare, 06.10)
                 if (all.isEmpty() && archived == 0) rows.addView(emptyCard, lp())
                 for (ch in all) {
                     rows.addView(listRow(act, ch, inArchive = false, sel = sel), lp())
@@ -719,6 +725,32 @@ private fun chatsPane(act: MainActivity): View {
         }
         addView(write, FrameLayout.LayoutParams(dp(60), dp(60), Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, dp(16), dp(36)) })
         addView(bar, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM).apply { bottomMargin = dp(26) })
+    }
+}
+
+/**
+ * THE GROUPS' PAGE AND THE CHANNELS' PAGE (iOS ChatsTabView .groups / .channels, the author's words 06.10.2026 11:5x-12:0x MSK:
+ * «in the side panel, under Chats, separate apps Groups and Channels — whole apps of their own, where groups and channels are
+ * created and where they live; the chats list does not show them»): the rows of its kind alone, drawn as the chats list draws them.
+ */
+private fun groupsPane(act: MainActivity, channel: Boolean): View {
+    val c = act
+    val rows = c.vstack(Gravity.NO_GRAVITY)
+    fun fill() {
+        rows.removeAllViews()
+        for (ch in groupRows(channel)) {
+            rows.addView(listRow(act, ch, inArchive = false, sel = null), lp())
+            rows.addView(View(c).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = c.dp(82) })
+        }
+    }
+    val onBook: () -> Unit = { act.onMain { fill() } }
+    rows.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+        override fun onViewAttachedToWindow(v: View) { Book.listen(onBook); ChatMarks.listen(onBook); fill() }
+        override fun onViewDetachedFromWindow(v: View) { Book.unlisten(onBook); ChatMarks.unlisten(onBook) }
+    })
+    return ScrollView(c).apply {
+        isVerticalScrollBarEnabled = false
+        addView(c.vstack(Gravity.NO_GRAVITY) { addView(rows, lp()); gap(120) })   // the floating player's room at the foot
     }
 }
 
