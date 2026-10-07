@@ -38,39 +38,51 @@ fun picturesBeside(f: File): List<File> {
 }
 
 /**
- * THE VIEWER (iOS QLPreviewController over the conversation's pictures): the page follows the finger sideways and settles; pinch
- * and a double tap enlarge, a drag moves the enlarged picture; a pull down lets the picture go and closes; one tap hides and
- * shows the bar. The bar carries only the close and the system share, as the platform's viewer carries Done and share.
+ * THE ALBUM (iOS MontanaPhotoViewer through PhotoPresenter.present(_:among:), MontanaProfile 1641-1875; MontanaMedia 3085-3114):
+ * the conversation's pictures as pages — the page follows the finger sideways and settles; a tap in the outer 15 % of the
+ * width turns the page, a tap elsewhere hides or shows the strip; pinch and a double tap enlarge; a pull down lets the picture
+ * go and closes. Under the pages the strip of covers: the centred cover is the page, a tap on a cover turns to it, and the
+ * picture fits above the strip's band, never under it. No buttons: the platform's back closes it, as the pull does.
  */
 fun openPictures(act: MainActivity, start: File) {
     val c: Context = act
     val files = picturesBeside(start)
+    val paged = 1 < files.size
     var at = files.indexOfFirst { it.path == start.path }.coerceAtLeast(0)
     lateinit var close: () -> Unit
-    val pager = PicturePager(act, files, at) { at = it }
-    val bar = FrameLayout(c)
-    pager.onTap = { bar.animate().alpha(if (bar.alpha > 0.5f) 0f else 1f).setDuration(180).start() }
-    pager.onPull = { f -> bar.alpha = 1f - min(1f, f * 3); }
+    var chrome = true
+    var foot = c.dp(34)
+    val strip = if (paged) CoverStrip(act, files, at) else null
+    val pager = PicturePager(act, files, at) { at = it; strip?.follow(it) }
+    // the strip owns a band at the bottom and the photo fits above it (iOS stripBand: 120 + 10 + the safe inset)
+    fun lay() {
+        pager.setPadding(0, 0, 0, if (strip != null && chrome) c.dp(130) + foot else 0)
+        strip?.animate()?.alpha(if (chrome && !pager.zoomed) 1f else 0f)?.setDuration(220)?.start()
+    }
+    pager.onTapAt = { x ->
+        if (paged && !pager.zoomed && x < 0.15f) pager.turn(-1)
+        else if (paged && !pager.zoomed && 0.85f < x) pager.turn(1)
+        else { chrome = !chrome; lay() }
+    }
+    pager.onPull = { f -> strip?.alpha = if (chrome && f < 0.01f) 1f else 0f }   // steps aside the moment the hands work
+    pager.onZoomed = { strip?.animate()?.alpha(if (chrome && !it) 1f else 0f)?.setDuration(220)?.start() }
     pager.onGone = { close() }
-    bar.addView(c.icon(R.drawable.ic_close, Color.WHITE).apply { setPadding(c.dp(12), c.dp(12), c.dp(12), c.dp(12)); pressable { close() } },
-        FrameLayout.LayoutParams(c.dp(48), c.dp(48), Gravity.TOP or Gravity.START).apply { setMargins(c.dp(8), c.dp(8), 0, 0) })
-    bar.addView(c.icon(R.drawable.ic_share, Color.WHITE).apply {
-        setPadding(c.dp(12), c.dp(12), c.dp(12), c.dp(12))
-        pressable {
-            val f = files[at]
-            val send = Intent(Intent.ACTION_SEND).setType(c.contentResolver.getType(Media.uri(c, f)) ?: "image/*")
-                .putExtra(Intent.EXTRA_STREAM, Media.uri(c, f)).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            act.startActivity(Intent.createChooser(send, null))
-        }
-    }, FrameLayout.LayoutParams(c.dp(48), c.dp(48), Gravity.TOP or Gravity.END).apply { setMargins(0, c.dp(8), c.dp(8), 0) })
+    strip?.onPick = { i -> pager.goTo(i) }
     val page = FrameLayout(c).apply {
         setBackgroundColor(Color.BLACK)
         isClickable = true
         addView(pager, FrameLayout.LayoutParams(MATCH, MATCH))
-        addView(bar, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.TOP))
+        if (strip != null) addView(strip, FrameLayout.LayoutParams(MATCH, c.dp(120), Gravity.BOTTOM))
+        setOnApplyWindowInsetsListener { _, ins ->
+            foot = max(ins.getInsets(android.view.WindowInsets.Type.systemBars()).bottom, c.dp(16))
+            (strip?.layoutParams as? FrameLayout.LayoutParams)?.let { it.bottomMargin = foot; strip?.layoutParams = it }
+            lay(); ins
+        }
     }
     pager.ground = page
     close = act.overlay(page)
+    page.requestApplyInsets()
+    lay()
 }
 
 /**
@@ -141,6 +153,8 @@ class ZoomPicture(c: Context) : ImageView(c) {
  */
 class PicturePager(private val act: MainActivity, private val files: List<File>, start: Int, private val onPage: (Int) -> Unit) : FrameLayout(act) {
     var onTap: () -> Unit = {}
+    var onTapAt: (Float) -> Unit = {}   // where across the page the tap landed, 0…1 (iOS MTAlbumPage onTap)
+    var onZoomed: (Boolean) -> Unit = {}
     var onPull: (Float) -> Unit = {}
     var onGone: () -> Unit = {}
     var ground: View? = null
@@ -158,13 +172,23 @@ class PicturePager(private val act: MainActivity, private val files: List<File>,
         override fun onScale(d: ScaleGestureDetector): Boolean { views[1].zoomBy(d.scaleFactor, d.focusX, d.focusY); return true }
     })
     private val taps = GestureDetector(act, object : GestureDetector.SimpleOnGestureListener() {
-        override fun onSingleTapConfirmed(e: MotionEvent): Boolean { onTap(); return true }
-        override fun onDoubleTap(e: MotionEvent): Boolean { views[1].toggleAt(e.x, e.y); return true }
+        override fun onSingleTapConfirmed(e: MotionEvent): Boolean { onTapAt(e.x / max(1, width)); onTap(); return true }
+        override fun onDoubleTap(e: MotionEvent): Boolean { views[1].toggleAt(e.x, e.y); postDelayed({ onZoomed(views[1].zoomed) }, 260); return true }
     })
 
     init {
         views.forEach { addView(it, LayoutParams(MATCH, MATCH)) }
         load()
+    }
+
+    private var turning = false
+    val zoomed get() = views[1].zoomed
+    /** An edge tap turns the page the way a swipe would (iOS MontanaPhotoViewer.turn); one turn at a time. */
+    fun turn(d: Int) { if (!turning && at + d in files.indices) settle(d) }
+    /** The strip chose a page: a neighbour slides in, a far one stands at once. */
+    fun goTo(i: Int) {
+        if (turning || i == at || i !in files.indices) return
+        if (abs(i - at) == 1) settle(i - at) else { at = i; load() }
     }
 
     private fun bitmap(i: Int, done: (Bitmap?) -> Unit) {
@@ -251,21 +275,125 @@ class PicturePager(private val act: MainActivity, private val files: List<File>,
                     }
                 }
                 axis = 0
+                onZoomed(views[1].zoomed)
             }
         }
         return true
     }
 
     private fun settle(go: Int) {
+        turning = true
         val from = views[1].translationX
         val to = -go * width.toFloat()
         ValueAnimator.ofFloat(from, to).apply {
             duration = 220
             addUpdateListener { place(it.animatedValue as Float) }
             addListener(object : android.animation.AnimatorListenerAdapter() {
-                override fun onAnimationEnd(a: android.animation.Animator) { if (go != 0) { at += go; load() } }
+                override fun onAnimationEnd(a: android.animation.Animator) { turning = false; if (go != 0) { at += go; load() } }
             })
             start()
         }
+    }
+}
+
+/** The strip's covers, small pictures born off the frame and kept for the album's life (iOS mtCoverCache, 256 px). */
+private val stripCovers = object : android.util.LruCache<String, Bitmap>(16 * 1024 * 1024) { override fun sizeOf(key: String, value: Bitmap) = value.byteCount }
+
+/**
+ * THE STRIP OF COVERS (iOS MontanaPhotoViewer.thumbStrip, MontanaProfile 1822-1873): the album covers' own scroll — the centred
+ * cover large and flat, its neighbours turned in perspective and receding, overlapping by more than a quarter; the scroll snaps
+ * to a cover, and the centred cover IS the page; a tap on a cover turns to it. 96 points a cover, 120 the strip.
+ */
+class CoverStrip(private val act: MainActivity, private val files: List<File>, start: Int) : FrameLayout(act) {
+    var onPick: (Int) -> Unit = {}
+    private val side = act.dp(96)
+    private val step = side * 0.72f   // iOS HStack(spacing: -side * 0.28)
+    private var pos = start.toFloat()
+    private val covers = HashMap<Int, ImageView>()
+    private var downX = 0f
+    private var lastX = 0f
+    private var moved = false
+    private var tracker: VelocityTracker? = null
+    private var glide: ValueAnimator? = null
+    private val slop = ViewConfiguration.get(act).scaledTouchSlop
+
+    override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) { super.onLayout(changed, l, t, r, b); place() }
+
+    /** The page turned by a swipe or an edge tap: the strip follows it to its cover. */
+    fun follow(i: Int) { if (glide == null && tracker == null && i.toFloat() != pos) slide(i, tell = false) }
+
+    private fun cover(i: Int): ImageView = covers.getOrPut(i) {
+        ImageView(act).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            setBackgroundColor(Color.rgb(51, 51, 51))
+            outlineProvider = object : android.view.ViewOutlineProvider() {
+                override fun getOutline(v: View, o: android.graphics.Outline) = o.setRoundRect(0, 0, v.width, v.height, v.dp(6).toFloat())
+            }
+            clipToOutline = true
+            cameraDistance = 8000 * resources.displayMetrics.density
+            this@CoverStrip.addView(this, LayoutParams(side, side, Gravity.CENTER_VERTICAL or Gravity.START))
+            val f = files[i]
+            val kept = stripCovers.get(f.path)
+            if (kept != null) setImageBitmap(kept)
+            else act.background {
+                val b = Media.preview(act, f, "img", 256) ?: return@background
+                stripCovers.put(f.path, b)
+                act.onMain { setImageBitmap(b) }
+            }
+        }
+    }
+
+    private fun place() {
+        val w = width
+        if (w == 0) return
+        val reach = w / 2f / step + 2
+        val first = max(0, (pos - reach).toInt())
+        val last = min(files.size - 1, (pos + reach).toInt() + 1)
+        covers.keys.filter { it < first || last < it }.forEach { k -> removeView(covers.remove(k)) }
+        for (i in first..last) {
+            val v = cover(i)
+            val cx = w / 2f + (i - pos) * step
+            v.translationX = cx - side / 2f
+            // the distance from the strip's centre, -1…1 across one cover: the centred cover flat and full, a neighbour turned away
+            val t = ((cx - w / 2f) / (side * 1.1f)).coerceIn(-1f, 1f)
+            v.rotationY = -t * 55f
+            v.scaleX = 1 - 0.28f * abs(t); v.scaleY = v.scaleX
+            v.alpha = 1 - 0.35f * abs(t)
+            v.translationZ = -abs(i - pos) * act.dp(4)
+        }
+    }
+
+    private fun slide(to: Int, tell: Boolean) {
+        glide?.cancel()
+        glide = ValueAnimator.ofFloat(pos, to.toFloat()).apply {
+            duration = 240
+            addUpdateListener { pos = it.animatedValue as Float; place() }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(a: android.animation.Animator) { glide = null; pos = to.toFloat(); place(); if (tell) onPick(to) }
+            })
+            start()
+        }
+    }
+
+    override fun onTouchEvent(e: MotionEvent): Boolean {
+        if (tracker == null) tracker = VelocityTracker.obtain()
+        tracker?.addMovement(e)
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> { glide?.cancel(); glide = null; downX = e.x; lastX = e.x; moved = false; parent?.requestDisallowInterceptTouchEvent(true) }
+            MotionEvent.ACTION_MOVE -> {
+                if (slop < abs(e.x - downX)) moved = true
+                if (moved) { pos = (pos - (e.x - lastX) / step).coerceIn(-0.4f, files.size - 0.6f); place() }
+                lastX = e.x
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                tracker?.computeCurrentVelocity(1000)
+                val vx = tracker?.xVelocity ?: 0f
+                tracker?.recycle(); tracker = null
+                // a drag snaps to the cover it carries to; a tap turns to the cover under the finger
+                val to = if (moved) Math.round(pos - vx / step * 0.25f) else Math.round(pos + (e.x - width / 2f) / step)
+                slide(to.coerceIn(0, files.size - 1), tell = true)
+            }
+        }
+        return true
     }
 }
