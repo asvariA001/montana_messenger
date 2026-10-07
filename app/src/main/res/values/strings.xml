@@ -508,4 +508,14 @@
     <string name="chess_pot_footer">Both players put the stake into the game\'s pot, and every move mints its maker\'s level times a thousand into it. The winner takes the whole pot; a draw gives each their own back.</string>
     <string name="chess_accept">Accept</string>
     <string name="chess_decline">Decline</string>
+    <string name="wall_comments">Comments</string>
+    <string name="wall_write_comment">Write a comment</string>
+    <string name="wall_no_comments">No comments yet</string>
+    <string name="wall_only_writers">Only people who may write on this wall can comment</string>
+    <string name="wall_like">Like</string>
+    <string name="wall_keepers">Keepers</string>
+    <string name="wall_repost">Repost</string>
+    <string name="wall_downloads">Downloads</string>
+    <string name="wall_views">Views</string>
+    <string name="wall_send">Send</string>
 </resources>

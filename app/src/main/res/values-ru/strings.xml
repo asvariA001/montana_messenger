@@ -507,4 +507,14 @@
     <string name="chess_pot_footer">Оба игрока кладут ставку в банк партии, а каждый ход чеканит в него уровень сделавшего ход, умноженный на тысячу. Победитель забирает весь банк; при ничьей каждому возвращается своё.</string>
     <string name="chess_accept">Принять</string>
     <string name="chess_decline">Отклонить</string>
+    <string name="wall_comments">Комментарии</string>
+    <string name="wall_write_comment">Написать комментарий</string>
+    <string name="wall_no_comments">Пока нет комментариев</string>
+    <string name="wall_only_writers">Комментировать могут те, кому можно писать на этой стене</string>
+    <string name="wall_like">Нравится</string>
+    <string name="wall_keepers">Хранители</string>
+    <string name="wall_repost">Репост</string>
+    <string name="wall_downloads">Скачивания</string>
+    <string name="wall_views">Просмотры</string>
+    <string name="wall_send">Отправить</string>
 </resources>

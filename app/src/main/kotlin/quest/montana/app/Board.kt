@@ -75,10 +75,11 @@ object Board {
     }
     private val emptyVersion by lazy { wireTag("0r".toByteArray()) }
 
-    private fun send(ref: String, w: JSONObject) {
-        if (Groups.isKey(ref) || PeerSafety.isBlocked(ref) || Book.secret(ref) == null) return
+    private fun send(ref: String, w: JSONObject): Boolean {
+        if (Groups.isKey(ref) || PeerSafety.isBlocked(ref) || Book.secret(ref) == null) return false
         Post.send(ref, Marks.mintMid(), MARK + w.toString())
         Log.d("Montana", "wall_tx t=" + w.optString("t") + " to=" + ref.take(10))
+        return true
     }
 
     /** The page of a correspondent's wall, asked of its owner — once a minute per wall at most (iOS ask). */
@@ -186,6 +187,8 @@ object Board {
             val y = JSONObject().put("id", c.optString("id")).put("by", c.optString("by").take(64)).put("glyph", c.optString("glyph").take(8))
                 .put("text", c.optString("text").take(COMMENT_LIMIT)).put("at", c.optDouble("at", 0.0))
             c.optString("fc").takeIf { it.isNotEmpty() && it.length <= FACE_LIMIT }?.let { y.put("fc", it) }
+            c.optString("h").takeIf { it.length == 64 }?.let { y.put("h", it) }
+            c.optString("pv").takeIf { it.length == 64 }?.let { y.put("pv", it) }
             if (c.optBoolean("m")) y.put("m", true)
             if (c.optBoolean("o")) y.put("o", true)
             cs.put(y)
@@ -233,6 +236,115 @@ object Board {
         }.start()
     }
 
+    // ── the visitor's marks (iOS like, view, comment) ──
+    fun post(wall: String, id: String): JSONObject? = synchronized(lock) {
+        ensure()
+        val ps = pages[wall]?.optJSONArray("ps") ?: return null
+        (0 until ps.length()).mapNotNull { ps.optJSONObject(it) }.firstOrNull { it.optString("id") == id }
+    }
+    fun canWrite(wall: String) = synchronized(lock) { ensure(); pages[wall]?.optBoolean("w") == true }
+    private fun patch(wall: String, id: String, change: (JSONObject) -> Unit) {
+        synchronized(lock) {
+            ensure()
+            val ps = pages[wall]?.optJSONArray("ps") ?: return
+            for (i in 0 until ps.length()) ps.optJSONObject(i)?.takeIf { it.optString("id") == id }?.let(change)
+            save()
+        }
+        changed()
+    }
+
+    /** A like given or taken back (iOS like): the word to the wall's owner and the page here at once; the owner's next page says it exact. */
+    fun like(wall: String, p: JSONObject) {
+        val on = !p.optBoolean("liked")
+        val id = p.optString("id")
+        if (!send(wall, JSONObject().put("t", "like").put("id", id).put("on", on))) return
+        patch(wall, id) { s -> if (on) s.put("liked", true) else s.remove("liked"); s.put("likes", maxOf(0, s.optInt("likes") + (if (on) 1 else -1))) }
+    }
+
+    /**
+     * THE POSTS I SAW ARE NAMED TO THEIR WALL, EACH ONCE (iOS view and tellSeen, the author's words 06.10 00:4x): a post drawn on the
+     * screen joins its wall's list of the moment, and two seconds later the list leaves as one word. A wall whose page counts no
+     * views is told nothing; the number shown is the owner's alone.
+     */
+    private val seenDue = HashMap<String, MutableList<String>>()
+    private val viewed: MutableList<String> by lazy { Prefs.str("board.viewed", "").split('\n').filter { it.isNotEmpty() }.toMutableList() }
+    fun view(wall: String, p: JSONObject) {
+        if (p.optBoolean("mine") || !p.has("views")) return
+        val id = p.optString("id")
+        val first = synchronized(lock) {
+            if ((wall + "#" + id) in viewed || seenDue[wall]?.contains(id) == true) return
+            val due = seenDue.getOrPut(wall) { mutableListOf() }
+            due.add(id); due.size == 1
+        }
+        if (first) MainThread.later(2000, Runnable { Thread { tellSeen(wall) }.start() })
+    }
+    private fun tellSeen(wall: String) {
+        val ids = synchronized(lock) { seenDue.remove(wall) } ?: return
+        if (ids.isEmpty() || !send(wall, JSONObject().put("t", "view").put("vs", JSONArray(ids)))) return
+        synchronized(lock) {
+            viewed.addAll(ids.map { wall + "#" + it })
+            while (viewed.size > 4000) viewed.removeAt(0)
+            Prefs.setStr("board.viewed", viewed.joinToString("\n"))
+        }
+    }
+
+    /** iOS seal: SHA-256 of the comment's name, its moment in UTC to the millisecond, the seal before it and its words. */
+    private const val ZERO_HASH = "0000000000000000000000000000000000000000000000000000000000000000"
+    fun seal(id: String, at: Double, prev: String, text: String): String =
+        Wire.hex(Wire.sha((id + "\n" + stamp(at) + "\n" + prev + "\n" + text).toByteArray(Charsets.UTF_8)))
+    private fun moment(at: Double, zone: java.util.TimeZone, pattern: String): String {
+        var sec = at.toLong()
+        var ms = ((at - sec) * 1000 + 0.5).toInt()
+        if (ms == 1000) { ms = 0; sec += 1 }
+        if (ms < 0) ms = 0
+        val f = java.text.SimpleDateFormat(pattern, java.util.Locale.US).apply { timeZone = zone }
+        return f.format(java.util.Date(sec * 1000)) + "." + ms.toString().padStart(3, '0')
+    }
+    fun stamp(at: Double) = moment(at, java.util.TimeZone.getTimeZone("UTC"), "yyyy-MM-dd'T'HH:mm:ss") + "Z"
+    /** A comment's number in its chain and its moment on this phone's clock (iOS numberLine, without the prime sum). */
+    fun numberLine(n: Int, at: Double) = n.toString() + " · " + moment(at, java.util.TimeZone.getDefault(), "dd.MM.yyyy HH:mm:ss")
+
+    /** My small face for a comment, as the commenter sends it (iOS commentFace): a JPEG under the bound every build keeps. */
+    private fun commentFace(): String? {
+        val raw = SelfFace.bytes(Book.ctx) ?: return null
+        val b = BitmapFactory.decodeByteArray(raw, 0, raw.size) ?: return null
+        val side = 96
+        val small = Bitmap.createScaledBitmap(b, side, maxOf(1, b.height * side / maxOf(1, b.width)), true)
+        val out = java.io.ByteArrayOutputStream()
+        small.compress(Bitmap.CompressFormat.JPEG, 70, out)
+        return Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP).takeIf { it.length <= FACE_LIMIT }
+    }
+
+    /**
+     * A COMMENT (iOS comment): sealed into the post's chain after the last seal this phone holds, sent to the wall's owner with
+     * one coin when the book holds one (the author's words 04.10 02:50: four of five burn, the fifth to the post's writer), and
+     * shown here at once as my own; the wall is asked again so the owner's page brings every comment.
+     */
+    fun comment(wall: String, p: JSONObject, text: String) {
+        val t = text.trim().take(COMMENT_LIMIT)
+        if (t.isEmpty()) return
+        val id = p.optString("id")
+        val name = Prefs.userName.trim()
+        val glyph = name.take(1).uppercase()
+        val at = System.currentTimeMillis() / 1000.0
+        val cid = java.util.UUID.randomUUID().toString().uppercase()
+        val prev = post(wall, id)?.optJSONArray("comments")?.let { cs -> cs.optJSONObject(cs.length() - 1)?.optString("h")?.takeIf { it.isNotEmpty() } } ?: ZERO_HASH
+        val h = seal(cid, at, prev, t)
+        val face = commentFace()
+        val r = java.util.UUID.randomUUID().toString().uppercase()
+        val paid = CoinBook.spend(1L, "post:" + id, wall, "cmt:" + r)
+        val w = JSONObject().put("t", "cmt").put("id", id).put("at", at).put("tx", t).put("bn", name).put("bg", glyph)
+            .put("cid", cid).put("hh", h).put("pv", prev)
+        if (face != null) w.put("fc", face)
+        if (paid) w.put("c", 1).put("r", r)
+        if (!send(wall, w)) return
+        synchronized(lock) { askedAt[wall] = System.currentTimeMillis() }
+        send(wall, JSONObject().put("t", "ask"))   // iOS askAfterAct: the owner answers with the page as it stands
+        val said = JSONObject().put("id", cid).put("by", name).put("glyph", glyph).put("text", t).put("at", at).put("m", true).put("h", h).put("pv", prev)
+        if (face != null) said.put("fc", face)
+        patch(wall, id) { s -> (s.optJSONArray("comments") ?: JSONArray().also { s.put("comments", it) }).put(said); s.put("commentCount", s.optInt("commentCount") + 1) }
+    }
+
     fun nameOf(c: Context, ref: String) = Book.chat(ref)?.name?.takeIf { it.isNotBlank() } ?: c.getString(R.string.wall_someone)
 }
 
@@ -249,7 +361,9 @@ private fun poster(b64: String?): Bitmap? = b64?.takeIf { it.isNotEmpty() }?.let
 }
 
 /** ONE POST OF THE FEED (iOS MTBoardCell in MTFeedTabView): whose wall, the writer, the words, the pictures, the counts. */
-private fun postCell(c: Context, it: Board.Item): View = c.vstack(Gravity.NO_GRAVITY) {
+private fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false): View = act.vstack(Gravity.NO_GRAVITY) {
+    val c: Context = act
+    val openComments = { act.push { close -> wallCommentsPage(act, it.wall, it.post.optString("id"), close) } }
     val p = it.post
     val own = p.optBoolean("own")
     // WHOSE WALL A POST STANDS ON, when its writer is not the wall's owner (iOS wallLink)
@@ -293,19 +407,112 @@ private fun postCell(c: Context, it: Board.Item): View = c.vstack(Gravity.NO_GRA
             addView(tile, lp())
             Board.bring(m, p.optString("id"), i) { f -> Thread { Media.preview(c, f, "img", 1600)?.let { b -> MainThread.post { tile.setImageBitmap(b) } } }.start() }
         }
-        // THE COUNTS (iOS counters): the comments, and the eye with the views where the wall's owner counts them
-        gap(10)
+        // THE COUNTS (iOS counters 445-487): like, comments, keepers, reposts; in the corner the downloads and the eye with the views
+        // where the wall's owner counts them. Keeping and reposting come with this phone's own wall (W3): their counts stand.
+        gap(4)
         addView(c.hstack {
             gravity = Gravity.CENTER_VERTICAL
-            addView(c.icon(R.drawable.ic_set_textbubble, MT.gray, 18)); gap(4)
-            addView(c.text(p.optInt("commentCount").toString(), 13f, MT.gray, bold = true))
+            fun mark(glyph: Int, n: Int, tint: Int, words: Int, onTap: (() -> Unit)?) = addView(c.hstack {
+                gravity = Gravity.CENTER_VERTICAL
+                contentDescription = c.getString(words)
+                addView(c.icon(glyph, tint, 18)); gap(4)
+                addView(c.text(n.toString(), 13f, MT.gray, bold = true))
+                if (onTap != null) pressable(onTap)
+            }, lp(WRAP, dp(44)).apply { marginEnd = dp(14) })
+            val liked = p.optBoolean("liked")
+            mark(if (liked) R.drawable.ic_heart_fill else R.drawable.ic_heart, p.optInt("likes"), if (liked) MT.red else MT.gray, R.string.wall_like) { Board.like(it.wall, p) }
+            mark(R.drawable.ic_set_textbubble, p.optInt("commentCount"), MT.gray, R.string.wall_comments, if (whole) null else openComments)
+            mark(R.drawable.ic_tray_down, p.optInt("keepers"), if (p.optBoolean("kept")) android.graphics.Color.WHITE else MT.gray, R.string.wall_keepers, null)
+            mark(R.drawable.ic_repost, p.optInt("reposts"), if (p.optBoolean("reposted")) android.graphics.Color.WHITE else MT.gray, R.string.wall_repost, null)
             spacer()
+            addView(c.icon(R.drawable.ic_arrow_circle_down, MT.gray, 16).apply { contentDescription = c.getString(R.string.wall_downloads) }); gap(4)
+            addView(c.text(p.optInt("downloads").toString(), 13f, MT.gray, bold = true))
             if (p.has("views")) {
-                addView(c.icon(R.drawable.ic_set_eye, MT.gray, 18)); gap(4)
+                gap(12)
+                addView(c.icon(R.drawable.ic_set_eye, MT.gray, 16).apply { contentDescription = c.getString(R.string.wall_views) }); gap(4)
                 addView(c.text(p.optInt("views").toString(), 13f, MT.gray, bold = true))
             }
         }, lp())
+        if (!whole) pressable(openComments)
     }, lp())
+    // A POST ON THE SCREEN IS A POST SEEN (iOS MTBoardCell.onAppear, 06.10): its wall is told once
+    addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+        override fun onViewAttachedToWindow(v: View) { Board.view(it.wall, it.post) }
+        override fun onViewDetachedFromWindow(v: View) {}
+    })
+}
+
+/**
+ * THE COMMENTS OF A POST (iOS MTBoardComments 2246-2440): the post whole on top, its chain newest first, each comment under its
+ * writer's head with its number in the chain and its moment; the field below for one who may write on the wall, else the words
+ * that say who may.
+ */
+fun wallCommentsPage(act: MainActivity, wall: String, id: String, onClose: () -> Unit): View {
+    val c: Context = act
+    val body = c.vstack(Gravity.NO_GRAVITY) { setPadding(dp(12), 0, dp(12), dp(16)) }
+    fun draw() {
+        body.removeAllViews()
+        val p = Board.post(wall, id) ?: return
+        body.addView(postCell(act, Board.Item(wall, p), whole = true), lp().apply { setMargins(0, c.dp(6), 0, c.dp(10)) })
+        val cs = p.optJSONArray("comments") ?: JSONArray()
+        if (cs.length() == 0) { body.addView(c.text(c.getString(R.string.wall_no_comments), 15f, MT.gray), lp()); return }
+        val base = p.optInt("commentCount") - cs.length()
+        for (i in cs.length() - 1 downTo 0) {
+            val k = cs.optJSONObject(i) ?: continue
+            val name = k.optString("by").ifEmpty { c.getString(R.string.wall_someone) }
+            val face = when {
+                k.optBoolean("m") -> SelfFace.bytes(c)?.let { b -> BitmapFactory.decodeByteArray(b, 0, b.size) }
+                k.optBoolean("o") -> Book.face(wall).takeIf { f -> f.exists() }?.let { f -> BitmapFactory.decodeFile(f.path) }
+                else -> null
+            } ?: poster(k.optString("fc"))
+            body.addView(c.vstack(Gravity.NO_GRAVITY) {
+                setPadding(0, dp(10), 0, dp(6))
+                addView(c.hstack {
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(c.avatar(face, name, 36), lp(dp(36), dp(36))); gap(10)
+                    addView(c.text(name, 15f, android.graphics.Color.WHITE, bold = true).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))
+                }, lp())
+                val words = k.optString("text")
+                if (words.isNotEmpty()) addView(c.text(words, 16f).apply { setPadding(dp(46), dp(2), 0, 0) }, lp())
+                addView(c.text(Board.numberLine(base + i + 1, k.optDouble("at")), 11f, MT.gray).apply { setPadding(dp(46), dp(2), 0, 0) }, lp())
+            }, lp())
+        }
+    }
+    val field = android.widget.EditText(c).apply {
+        hint = c.getString(R.string.wall_write_comment); setTextColor(android.graphics.Color.WHITE); setHintTextColor(MT.gray)
+        background = c.rounded(android.graphics.Color.rgb(38, 38, 38), 18); setPadding(dp(12), dp(10), dp(12), dp(10)); maxLines = 5
+    }
+    val foot: View = if (Board.canWrite(wall)) c.hstack {
+        gravity = Gravity.CENTER_VERTICAL
+        setPadding(dp(12), dp(8), dp(12), dp(8))
+        addView(field, lp(0, WRAP, 1f)); gap(8)
+        addView(c.icon(R.drawable.ic_arrow_circle_up, android.graphics.Color.WHITE, 30).apply {
+            contentDescription = c.getString(R.string.wall_send)
+            pressable {
+                val p = Board.post(wall, id) ?: return@pressable
+                Thread { Board.comment(wall, p, field.text.toString()) }.start()
+                field.setText("")
+            }
+        }, lp(dp(44), dp(44)))
+    } else c.text(c.getString(R.string.wall_only_writers), 13f, MT.gray, center = true).apply { setPadding(dp(16), dp(14), dp(16), dp(14)) }
+    val bar = FrameLayout(c).apply {
+        addView(c.icon(R.drawable.ic_close, android.graphics.Color.WHITE).apply { setPadding(dp(10), dp(10), dp(10), dp(10)); pressable(onClose) },
+            FrameLayout.LayoutParams(c.dp(44), c.dp(44), Gravity.CENTER_VERTICAL or Gravity.START).apply { marginStart = c.dp(8) })
+        addView(c.text(c.getString(R.string.wall_comments), 17f, android.graphics.Color.WHITE, bold = true, center = true), FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
+    }
+    val again: () -> Unit = { draw() }
+    return FrameLayout(c).apply {
+        setBackgroundColor(android.graphics.Color.BLACK)
+        addView(c.vstack(Gravity.NO_GRAVITY) {
+            addView(bar, lp(MATCH, dp(52)))
+            addView(ScrollView(c).apply { addView(body) }, lp(MATCH, 0, 1f))
+            addView(foot, lp())
+        }, FrameLayout.LayoutParams(MATCH, MATCH))
+        addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: View) { Board.listen(again); draw() }
+            override fun onViewDetachedFromWindow(v: View) { Board.unlisten(again) }
+        })
+    }
 }
 
 /**
@@ -313,7 +520,8 @@ private fun postCell(c: Context, it: Board.Item): View = c.vstack(Gravity.NO_GRA
  * people's walls will appear here» while there is none. The moment the page is looked at, every wall it draws is asked for (iOS
  * mtPaneLive, lookFeed).
  */
-class FeedPane(c: Context) : FrameLayout(c) {
+class FeedPane(private val act: MainActivity) : FrameLayout(act) {
+    private val c: Context = act
     private val column = c.vstack(Gravity.NO_GRAVITY)
     private val empty = c.text(c.getString(R.string.no_posts), 17f, MT.gray, center = true)
     private val again: () -> Unit = { if (isShown) draw() }
@@ -327,7 +535,7 @@ class FeedPane(c: Context) : FrameLayout(c) {
     private fun draw() {
         val items = Board.feed()
         column.removeAllViews()
-        for (it in items) column.addView(postCell(context, it), lp().apply { setMargins(dp(12), dp(6), dp(12), dp(6)) })
+        for (it in items) column.addView(postCell(act, it), lp().apply { setMargins(dp(12), dp(6), dp(12), dp(6)) })
         empty.visibility = if (items.isEmpty()) View.VISIBLE else View.GONE
     }
     override fun onAttachedToWindow() { super.onAttachedToWindow(); Board.listen(again); draw() }

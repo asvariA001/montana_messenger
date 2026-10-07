@@ -507,4 +507,14 @@
     <string name="chess_pot_footer">双方将赌注放入对局奖池，每走一步都会按走棋者的等级乘以一千铸币放入奖池。胜者拿走整个奖池；和棋时各自取回自己的部分。</string>
     <string name="chess_accept">接受</string>
     <string name="chess_decline">拒绝</string>
+    <string name="wall_comments">评论</string>
+    <string name="wall_write_comment">写评论</string>
+    <string name="wall_no_comments">还没有评论</string>
+    <string name="wall_only_writers">只有可以在这面墙上发帖的人才能评论</string>
+    <string name="wall_like">赞</string>
+    <string name="wall_keepers">保存者</string>
+    <string name="wall_repost">转发</string>
+    <string name="wall_downloads">下载次数</string>
+    <string name="wall_views">浏览量</string>
+    <string name="wall_send">发送</string>
 </resources>
