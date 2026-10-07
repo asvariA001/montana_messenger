@@ -276,7 +276,25 @@ fun privacyPage(act: MainActivity, onForget: () -> Unit, onBack: () -> Unit): Vi
     val c: Context = act
     fun sw(res: Int, color: Int, word: Int, key: String, caption: Int? = null) =
         c.switchLine(res, color, c.getString(word), Prefs.bool(key, true), caption?.let { c.getString(it) }, tint = MT.gold) { Prefs.setBool(key, it) }
-    return settingsPage(act, c.getString(R.string.privacy), onBack) {
+    // THE SYSTEM'S OWN ANSWERS (iOS PrivacyView, its first section): the local network — this phone announces itself on no
+    // network yet (the mesh comes with the network), so it says «Disconnected» and leads to where the system keeps it; the
+    // location — asked here when never asked, changed where the system keeps it, the same answer the place page reads. iOS's
+    // photos and contacts rows say what the system holds of a standing access; Android's pickers hold none, nothing to say.
+    val place = c.text("", 15f, MT.gray)
+    fun placeAllowed() = c.checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED ||
+        c.checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+    fun drawPlace() { place.text = c.getString(if (placeAllowed()) R.string.st_allowed else if (Prefs.bool("locAsked", false)) R.string.st_denied else R.string.st_not_asked) }
+    fun systemSettings() = runCatching { act.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:" + c.packageName))) }
+    drawPlace()
+    val page = settingsPage(act, c.getString(R.string.privacy), onBack) {
+        section(null, null,
+            c.settingsRow(R.drawable.ic_language, SysColor.blue, c.getString(R.string.local_network), c.text(c.getString(R.string.st_disconnected), 15f, MT.gray)) { systemSettings() },
+            c.settingsRow(R.drawable.ic_compose_location, SysColor.blue, c.getString(R.string.location), place) {
+                if (!placeAllowed() && !Prefs.bool("locAsked", false)) {
+                    Prefs.setBool("locAsked", true)
+                    act.requestPermissions(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION), 7)
+                } else systemSettings()
+            })
         section(null, null,
             sw(R.drawable.ic_set_eye, SysColor.teal, R.string.online_status, "presenceSharing", R.string.online_status_sub),
             sw(R.drawable.ic_set_check_circle, SysColor.green, R.string.read_receipts, "readReceiptsEnabled"),
@@ -298,6 +316,15 @@ fun privacyPage(act: MainActivity, onForget: () -> Unit, onBack: () -> Unit): Vi
             }
         })
     }
+    // the system's answer is read again while the page stands: a return from the system's settings, the question answered
+    var live = false
+    lateinit var beat: Runnable
+    beat = Runnable { if (live) { drawPlace(); MainThread.later(1000, beat) } }
+    page.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+        override fun onViewAttachedToWindow(v: View) { live = true; beat.run() }
+        override fun onViewDetachedFromWindow(v: View) { live = false }
+    })
+    return page
 }
 
 /**

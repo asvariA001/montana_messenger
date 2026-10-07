@@ -58,6 +58,9 @@
     <string name="pi_new_contact">Create new contact</string>
     <string name="pi_existing_contact">Add to existing</string>
     <string name="pi_link_unavailable">The contact link is not available yet: the person must open Montana once.</string>
+    <string name="local_network">Local Network</string>
+    <string name="st_allowed">Allowed</string>
+    <string name="st_denied">Denied</string>
     <plurals name="gr_members"><item quantity="one">%d member</item><item quantity="other">%d members</item></plurals>
     <string name="lw_photo">Photo</string>
     <string name="lw_video">Video</string>
