@@ -56,6 +56,7 @@ class EarService : Service() {
         DeviceVault.init(applicationContext)
         Prefs.init(applicationContext)
         Book.ctx = applicationContext
+        Diary.start(applicationContext)   // the ear may stand before any page: its lines are the diary's too
         wake = getSystemService(PowerManager::class.java)?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "montana:ear")?.apply { setReferenceCounted(false) }
         CallEngine.warm(applicationContext)
     }
