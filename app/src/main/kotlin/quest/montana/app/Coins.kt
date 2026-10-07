@@ -104,6 +104,7 @@ object CoinBook {
     private var read = false
     private val entries = ArrayList<CoinEntry>()
     private val taken = HashSet<String>()
+    private val onTarget = HashMap<String, Long>()
     var balance = 0L; private set
     var earned = 0L; private set
     var tapped = 0L; private set
@@ -152,6 +153,7 @@ object CoinBook {
     private fun times(a: Long, b: Long): Long? = runCatching { Math.multiplyExact(a, b) }.getOrNull()
 
     private fun count(e: CoinEntry) {
+        e.on?.let { onTarget[it] = sat(onTarget[it] ?: 0L, e.c) }
         when (e.k) {
             CoinEntry.EARN -> if (e.ref.startsWith(Pantheon.PREFIX)) tapped = sat(tapped, e.c) else earned = sat(earned, e.c)
             CoinEntry.RECEIVE -> received = sat(received, e.c)
@@ -260,6 +262,21 @@ object CoinBook {
         if (coins <= 0 || ref.isEmpty() || e.id in taken) return false
         return take(e)
     }
+    /** Coins given on a letter or into a game's pot; refused (false) when the balance is short or the name was taken (iOS spend). */
+    @Synchronized fun spend(coins: Long, on: String, peer: String, ref: String): Boolean {
+        ensure()
+        val e = CoinEntry(CoinEntry.SPEND, coins, ref, peer, on, moment(ref))
+        if (coins <= 0 || ref.isEmpty() || e.id in taken || balance < coins) return false
+        return take(e)
+    }
+    /** Coins already counted elsewhere, minted once under their name: a game's pot at its end (iOS mint). */
+    @Synchronized fun mint(coins: Long, ref: String, peer: String? = null): Long {
+        ensure()
+        if (coins <= 0 || ref.isEmpty() || ("earn:" + ref) in taken || plus(balance, coins) == null) return 0
+        return if (take(CoinEntry(CoinEntry.EARN, coins, ref, peer, null, nowS()))) coins else 0
+    }
+    /** How many coins stand on a letter or a pot, given and received alike (iOS coins(on:)). */
+    @Synchronized fun coins(on: String): Long { ensure(); return onTarget[on] ?: 0L }
     @Synchronized fun holds(k: String, ref: String): Boolean { ensure(); return (k + ":" + ref) in taken }
     fun received(ref: String): Boolean = holds(CoinEntry.RECEIVE, ref)
     /** The moves, newest first, for the history. */
@@ -270,7 +287,7 @@ object CoinBook {
         windows.clear()
         val d = File(Book.ctx.filesDir, "Coins")
         if (d.exists()) d.renameTo(File(File(Book.ctx.filesDir, "CoinsForgotten").apply { mkdirs() }, System.currentTimeMillis().toString()))
-        entries.clear(); taken.clear()
+        entries.clear(); taken.clear(); onTarget.clear()
         balance = 0; earned = 0; tapped = 0; received = 0; sent = 0; spent = 0; burned = 0
         changed()
     }

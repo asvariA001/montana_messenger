@@ -143,9 +143,13 @@ def apk(p, code, name, key, check):
         run([os.path.join(p.java_home, "bin", "javac"), "-nowarn", "--release", "17", "-cp", jar, "-d", classes]
             + files(gen, ".java"), env=env)
         say("3/6 Kotlin")
+        # kotlinc's own launcher holds the compiler to 512 MB unless JAVA_OPTS names more; the app outgrew it on 08.10.2026
+        # (OutOfMemoryError in Pipes.kt's code generation once chess came in), so every builder gives it the same 2 GB
+        kenv = dict(env)
+        kenv["JAVA_OPTS"] = "-Xmx2g -Xms128M"
         r = subprocess.run([p.kotlinc, "-nowarn", "-jvm-target", "17", "-no-reflect", "-no-stdlib",
                             "-cp", os.pathsep.join([jar, p.stdlib, classes, engine_jar]), "-d", classes, "-Xjvm-default=all"]
-                           + files(os.path.join(APP, "kotlin"), ".kt"), env=env, cwd=ROOT, capture_output=True, text=True)
+                           + files(os.path.join(APP, "kotlin"), ".kt"), env=kenv, cwd=ROOT, capture_output=True, text=True)
         for line in (r.stdout + r.stderr).splitlines():
             if not line.startswith("warning:"):
                 print(line)

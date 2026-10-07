@@ -276,6 +276,8 @@ class ChessLetter(
         /** The author's word of the pot, 06.10.2026 16:10:00 UTC: a game invited from it on has a pot. */
         const val POT_SINCE = 1_791_303_000_000L
         fun isStep(text: String): Boolean = text.startsWith(MARK) && parse(text)?.isStep == true
+        /** A step that does not end the game rides a silent push: only the invitation and the closing letter ring. */
+        fun silent(text: String): Boolean = text.startsWith(MARK) && parse(text)?.let { it.isStep && !it.rings } == true
         private fun isUuid(s: String): Boolean = s.length == 36 && s.withIndex().all { (i, ch) ->
             if (i == 8 || i == 13 || i == 18 || i == 23) ch == '-' else ch in '0'..'9' || ch in 'a'..'f' || ch in 'A'..'F'
         }
@@ -356,6 +358,12 @@ class ChessGame private constructor(val id: String, val whiteIsMine: Boolean, va
     var pooled = false; private set
     var stake = 0L; private set
     var accepted = false; private set
+    var mintedMine = 0L; private set
+    var mintedTheirs = 0L; private set
+    /** The pot's two parts: the stakes put in, and the coins the accepted moves minted (iOS stakes, movesPool, pot). */
+    val stakes: Long get() = stake * (if (accepted) 2 else 1)
+    val movesPool: Long get() = mintedMine + mintedTheirs
+    val pot: Long get() = movesPool + stakes
     val mySide: ChessSide get() = if (whiteIsMine) ChessSide.WHITE else ChessSide.BLACK
     val canClaimDraw: Boolean get() = 100 <= position.halfmoves || 3 <= (repetitions[position.repetitionKey] ?: 0)
     /** The side whose clock runs: the side to move, while a game under a clock is being played. */
@@ -365,12 +373,13 @@ class ChessGame private constructor(val id: String, val whiteIsMine: Boolean, va
         g.status = status; g.position = position; g.positions = positions.toMutableList(); g.moves = moves.toMutableList()
         g.notation = notation.toMutableList(); g.whiteMs = whiteMs; g.blackMs = blackMs; g.drawOfferedBy = drawOfferedBy
         g.repetitions = repetitions.toMutableMap(); g.waitingForHistory = waitingForHistory; g.acceptedIDs = acceptedIDs.toMutableSet()
-        g.pooled = pooled; g.stake = stake; g.accepted = accepted
+        g.pooled = pooled; g.stake = stake; g.accepted = accepted; g.mintedMine = mintedMine; g.mintedTheirs = mintedTheirs
     }
     private fun take(g: ChessGame) {
         status = g.status; position = g.position; positions = g.positions; moves = g.moves; notation = g.notation; last = g.last
         whiteMs = g.whiteMs; blackMs = g.blackMs; drawOfferedBy = g.drawOfferedBy; repetitions = g.repetitions
         waitingForHistory = g.waitingForHistory; acceptedIDs = g.acceptedIDs; pooled = g.pooled; stake = g.stake; accepted = g.accepted
+        mintedMine = g.mintedMine; mintedTheirs = g.mintedTheirs
     }
 
     companion object {
@@ -509,6 +518,7 @@ class ChessGame private constructor(val id: String, val whiteIsMine: Boolean, va
         position = next; positions.add(next); moves.add(move); notation.add(word)
         drawOfferedBy = if (event.offerDraw == true) actor else null
         last = event
+        if (pooled) { if (entry.mine) mintedMine += event.coins ?: 0L else mintedTheirs += event.coins ?: 0L }
         val key = position.repetitionKey
         repetitions[key] = (repetitions[key] ?: 0) + 1
         if (position.legalMoves().isEmpty()) { if (position.checked(position.turn)) win(actor) else status = Status.DRAWN }

@@ -243,7 +243,7 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume(); CallScreen.front = this; main.removeCallbacks(boxRound); main.post(boxRound); EarService.start(this)
         Thread { Update.look(applicationContext) }.start()   // a newer build on the site rings its notice (Update)
-        Thread { CoinBook.warm(); CoinSend.settle() }.start()   // every coin letter the chats hold stands in the book (iOS MTCoinSend.settle)
+        Thread { CoinBook.warm(); CoinSend.settle(); ChessSend.settleAll() }.start()   // every coin letter the chats hold stands in the book (iOS MTCoinSend.settle)
     }
     // the ear stays when the app leaves the screen: EarService holds it (the app closed is heard as the app open)
     override fun onPause() { super.onPause(); CoinBook.closeWindows(); if (CallScreen.front === this) CallScreen.front = null; main.removeCallbacks(boxRound) }

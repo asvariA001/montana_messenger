@@ -149,7 +149,7 @@ object Marks {
     private val SILENT = listOf(READ, DELIVERED, TYPING, REACTION, AVATAR, NAME, ABOUT, "​​PG:", "​​QC:", DELETE,
         CONVDEL_MARK, "​​DF:", "​​WH:", "​​PA:", "​​EX:", "​​CG:", Presence.WATCH, PLAYED,
         Presence.APP, EDIT, PIN_MARK, "​​SP:", "​​WL:", SAME_ASK, SAME_YES, "​​PX:", LiveDraft.MARK)
-    fun isSilent(t: String) = SILENT.any { t.startsWith(it) }
+    fun isSilent(t: String) = SILENT.any { t.startsWith(it) } || ChessLetter.silent(t)
 
     /** A letter's name: t<birth ms>-<UUID> (iOS ChatStore.mintMid). */
     private var lastMs = 0L
@@ -222,7 +222,7 @@ class Chat(val ref: String, var name: String, var perm: Boolean = false, var unr
     fun json(): JSONObject = JSONObject().put("ref", ref).put("n", name).put("p", perm).put("u", unread)
         .put("pn", pin ?: "").put("nt", note)
         .put("msgs", JSONArray().apply { msgs.forEach { put(it.json()) } })
-    val last: Msg? get() = msgs.lastOrNull()
+    val last: Msg? get() = msgs.lastOrNull { !ChessLetter.isStep(it.text) }   // a game's step is the board's, never the list's record
     /** My word stands over theirs (iOS MTNameBook.display: mine, then declared). */
     val shown: String get() = pin?.ifBlank { null } ?: name
     companion object {
@@ -728,6 +728,8 @@ object Post {
             text.startsWith(Marks.MISSED) -> { Calls.missedLetter(ref, text.removePrefix(Marks.MISSED)); receipt(ref, sid) }
             Marks.isService(text) && !text.startsWith(Marks.VOICE) && !text.startsWith(Marks.MEDIA) && !text.startsWith(Marks.STICKER) && !text.startsWith(Marks.LONG) -> {}
             // A BLOCKED PERSON'S LETTERS DO NOT REACH THE FEED (iOS MontanaSafety: the block is enforced on every road).
+            // A STEP OF A GAME (iOS MTChessLetter.isStep): the board reads it; no bubble, no unread, the closing letter alone rings
+            ChessLetter.isStep(text) && !PeerSafety.isBlocked(ref) -> ChessSend.landed(ref, mid, text)
             PeerSafety.isBlocked(ref) -> {}
             else -> {
                 var isNew = false
