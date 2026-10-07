@@ -89,20 +89,13 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
             privRow(R.drawable.ic_hub, R.string.priv_servers_title, R.string.priv_servers_sub)
         })
         spacer()
-        // THE ACCOUNT ALREADY HOLDS A SEED (iOS 28.09): the first act on a new phone of the same account is to go on as
-        // that person. More than one seed — the person chooses; nothing opens by the order of writing.
-        val carried = MontanaBackupID.held()
-        if (carried.isNotEmpty()) {
-            addView(GoldButton(c, c.getString(R.string.continue_backup)) {
-                if (carried.size == 1) openCarried(carried[0].words) else chooseCarried(carried)
-            }, lp())
-            gap(18)
-        }
-        lateinit var create: GoldButton
-        create = GoldButton(c, c.getString(R.string.create)) { createSeed(create) }
+        // EVERY ACT OF THE PATH IS A DOOR (iOS intro 2281-2291): the main act rimmed in the platform's blue, the second clear;
+        // the account's door left this page for the page of opening (the author's word 29.09, 23:25)
+        lateinit var create: PathDoor
+        create = PathDoor(c, c.getString(R.string.create), MT.blue) { createSeed(create) }
         addView(create, lp())
         gap(18)
-        addView(c.outlineButton(c.getString(R.string.open_identity)) { go(4) }, lp())
+        addView(PathDoor(c, c.getString(R.string.open_identity)) { go(4) }, lp())
         gap(18)
         addView(c.text(versionFooter(c), 11f, MT.withAlpha(MT.gray, 0.7f), center = true))
         addView(c.backLink { montanaRoad = false; go(0) })
@@ -163,7 +156,7 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
     }
 
     /** A person is born as an identity by their own act — the tap on «Create» — and by no other event. */
-    private fun createSeed(button: GoldButton) {
+    private fun createSeed(button: PathDoor) {
         if (bornWords != null) { go(1); return }
         if (creating) return
         creating = true
@@ -189,7 +182,7 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
     // ── 1: full control — full responsibility ──
     private fun responsibility() = page {
         val c = context
-        lateinit var next: GoldButton
+        lateinit var next: PathDoor
         spacer()
         addView(c.icon(R.drawable.ic_gpp_maybe, MT.orange, 52))
         gap(18)
@@ -199,7 +192,7 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
         gap(18)
         addView(c.toggleRow(c.getString(R.string.resp_toggle)) { next.setOn(it) }, lp())
         spacer()
-        next = GoldButton(c, c.getString(R.string.show_words)) { go(2) }.apply { setOn(false) }
+        next = PathDoor(c, c.getString(R.string.show_words), MT.blue) { go(2) }.apply { setOn(false) }
         addView(next, lp())
         gap(10)
         addView(c.backLink { go(0) })
@@ -231,24 +224,15 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
         }
         addView(ScrollView(c).apply { addView(grid) }, lp(MATCH, 0, 1f))
         gap(14)
-        lateinit var copy: TextView
-        copy = c.text(c.getString(R.string.copy), 12f, MT.gold, center = true).apply {
-            setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_content_copy, 0, 0, 0)
-            compoundDrawableTintList = android.content.res.ColorStateList.valueOf(MT.gold)
-            compoundDrawablePadding = dp(6)
-            setPadding(dp(12), dp(8), dp(12), dp(8))
-            pressable {
-                copySecret(c, words.joinToString(" "))
-                copy.text = c.getString(R.string.copied); copy.setTextColor(MT.green)
-                copy.setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_check, 0, 0, 0)
-                copy.compoundDrawableTintList = android.content.res.ColorStateList.valueOf(MT.green)
-            }
-        }
-        addView(copy, lp(WRAP, WRAP))
-        lateinit var done: GoldButton
+        // copying the words is an act of the path too: a clear door (iOS 2653-2655)
+        lateinit var copy: PathDoor
+        copy = PathDoor(c, c.getString(R.string.copy)) { copySecret(c, words.joinToString(" ")); copy.setTitle(c.getString(R.string.copied)) }
+        addView(copy, lp())
+        gap(10)
+        lateinit var done: PathDoor
         addView(c.toggleRow(c.getString(R.string.seed_saved)) { done.setOn(it) }, lp())
         gap(14)
-        done = GoldButton(c, c.getString(R.string.seed_done)) { go(3) }.apply { setOn(false) }
+        done = PathDoor(c, c.getString(R.string.seed_done), MT.blue) { go(3) }.apply { setOn(false) }
         addView(done, lp())
         gap(10)
         addView(c.backLink { go(1) })
@@ -295,11 +279,11 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
         gap(16)
         addView(error, lp())
         gap(16)
-        lateinit var restore: GoldButton
-        restore = GoldButton(c, c.getString(R.string.restore)) {
+        lateinit var restore: PathDoor
+        restore = PathDoor(c, c.getString(R.string.restore), MT.blue) {
             val words = input.text.toString().lowercase().split(' ', '\n', ',').filter { it.isNotEmpty() }
             fun say(s: String) { error.text = s; error.visibility = View.VISIBLE }
-            if (words.size != 24) { say(c.getString(R.string.words_count, words.size)); return@GoldButton }
+            if (words.size != 24) { say(c.getString(R.string.words_count, words.size)); return@PathDoor }
             error.visibility = View.GONE
             restore.setBusy(true); restore.setTitle(c.getString(R.string.restoring))
             act.background {
@@ -316,6 +300,21 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
             }
         }
         addView(restore, lp())
+        // THE ACCOUNT ALREADY HOLDS A SEED (iOS recover 2357-2387): beside the words, a clear door; more than one — the person
+        // chooses. The account is asked while the page stands, every three seconds: its record comes after the sign-in.
+        val carried = PathDoor(c, c.getString(R.string.continue_backup)) {
+            val all = MontanaBackupID.held()
+            if (all.size == 1) openCarried(all[0].words) else if (all.isNotEmpty()) chooseCarried(all)
+        }.apply { visibility = View.GONE }
+        addView(carried, lp().apply { topMargin = dp(16) })
+        val ask = object : Runnable {
+            override fun run() {
+                if (!carried.isAttachedToWindow) return
+                carried.visibility = if (MontanaBackupID.held().isEmpty()) View.GONE else View.VISIBLE
+                carried.postDelayed(this, 3000)
+            }
+        }
+        carried.post(ask)
         spacer()
         addView(c.backLink { go(0) })
     }
@@ -372,7 +371,7 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
         spacer()
         // The person may walk on without the copy while nothing is being laid into this device: a copy half laid is
         // not a state to leave in (iOS canGoOn).
-        val without = c.outlineButton(c.getString(R.string.go_on_without_copy)) { walkedOn = true; HomeNodeWatch.onChange = null; onDone() }
+        val without = PathDoor(c, c.getString(R.string.go_on_without_copy)) { walkedOn = true; HomeNodeWatch.onChange = null; onDone() }
         addView(without, lp())
         fun show() {
             val f = HomeNodeWatch.fetching ?: HomeNodeWatch.restoring

@@ -301,7 +301,8 @@ fun termsGate(act: MainActivity, onAgree: (() -> Unit)?, onClose: (() -> Unit)? 
         setBackgroundColor(Color.BLACK)
         addView(c.topBar(c.getString(R.string.terms_title), onBack = onClose))
         addView(ScrollView(c).apply { addView(body) }, lp(MATCH, 0, 1f))
-        if (onAgree != null) addView(GoldButton(c, c.getString(R.string.i_agree), onAgree), lp().apply { setMargins(dp(20), dp(12), dp(20), dp(12)) })
+        // agreeing to the terms is the path's door too (iOS MTLoginDoorStyle 2653-2655), the page's main act
+        if (onAgree != null) addView(PathDoor(c, c.getString(R.string.i_agree), MT.blue, onAgree), lp().apply { setMargins(dp(20), dp(12), dp(20), dp(12)) })
     }
 }
 

@@ -123,6 +123,35 @@ class GoldButton(ctx: Context, title: String, onClick: () -> Unit) : LinearLayou
     fun setOn(on: Boolean) { isEnabled = on; alpha = if (on) 1f else 0.4f }
 }
 
+/**
+ * THE DOOR OF THE PATH (iOS MTLoginDoorStyle, MontanaSettings 2651-2689): every act from the first screen to the chats —
+ * create, open, show and copy the words, restore, open from the account, go on without the copy, agree to the terms — wears
+ * this one plate, never a fill of its own: the 52-point capsule of the dark material with its rim (the face before the
+ * platform's glass), the page's main act rimmed in the platform's blue, a second act clear; the word white and semibold, an
+ * act not yet open dimmed to 0.4. Gold is the sign's alone.
+ */
+class PathDoor(ctx: Context, title: String, tint: Int? = null, onClick: () -> Unit) : LinearLayout(ctx) {
+    private val label = ctx.text(title, 17f, Color.WHITE, bold = true, center = true).apply { singleLineEllipsis() }
+    private val spinner = ProgressBar(ctx).apply { indeterminateTintList = ColorStateList.valueOf(Color.WHITE); visibility = View.GONE }
+    init {
+        orientation = HORIZONTAL; gravity = Gravity.CENTER
+        background = android.graphics.drawable.GradientDrawable().apply {
+            cornerRadius = ctx.dp(26).toFloat()
+            setColor(Color.argb(150, 28, 28, 30))
+            // the rim of a clear door is the platform's faint light, of a tinted one its own colour (iOS rim, at 0.45)
+            setStroke(ctx.dp(1), if (tint != null) MT.withAlpha(tint, 0.45f) else MT.withAlpha(Color.WHITE, 0.6f * 0.45f))
+        }
+        minimumHeight = ctx.dp(52)
+        setPadding(ctx.dp(18), 0, ctx.dp(18), 0)
+        addView(spinner, LayoutParams(ctx.dp(18), ctx.dp(18)).apply { marginEnd = ctx.dp(8) })
+        addView(label)
+        pressable(onClick)
+    }
+    fun setTitle(s: String) { label.text = s }
+    fun setBusy(busy: Boolean) { spinner.visibility = if (busy) View.VISIBLE else View.GONE; setOn(!busy) }
+    fun setOn(on: Boolean) { isEnabled = on; alpha = if (on) 1f else 0.4f }
+}
+
 /** The outlined button: the word in [color], a 1pt stroke, corner 14. */
 fun Context.outlineButton(title: String, color: Int = MT.gold, stroke: Int = MT.gold, onClick: () -> Unit) =
     text(title, 17f, color, bold = true, center = true).apply {
