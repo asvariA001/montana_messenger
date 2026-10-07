@@ -80,8 +80,13 @@ object Signal {
             doorFails.remove(door); deathStreak.remove(door); deadUntil.remove(door)
             was
         }
-        if (revived) Log.d("Montana", "sig_door alive " + host(door))
+        if (revived) {
+            Log.d("Montana", "sig_door alive " + host(door))
+            // A DOOR THAT ANSWERS AFTER SILENCE DRAINS THE QUEUE AT ONCE (iOS 1672): the letters that waited for it leave now
+            if (draining.compareAndSet(false, true)) Thread { try { Post.flush() } finally { draining.set(false) } }.start()
+        }
     }
+    private val draining = java.util.concurrent.atomic.AtomicBoolean(false)
     fun doorAlive(door: String) = synchronized(deadUntil) { (deadUntil[door] ?: 0L) <= System.currentTimeMillis() }
     private fun host(door: String) = android.net.Uri.parse(door).host ?: door
     /** The doors alive for me, in the list's order — what I name to the peer with every word (iOS signalDoors 497-499). */
