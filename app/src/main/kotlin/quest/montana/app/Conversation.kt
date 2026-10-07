@@ -40,6 +40,8 @@ fun letterWords(c: Context, t: String, meta: String? = null): String = when {
     t.startsWith(Marks.MEDIA) -> mediaWords(c, meta?.let { runCatching { JSONObject(it) }.getOrNull() } ?: Media.inline(t))
     t.startsWith(Marks.STICKER) -> t.removePrefix(Marks.STICKER)
     t.startsWith(Marks.LONG) -> c.getString(R.string.long_letter)
+    // a shared secret's every preview names no title and no content (iOS MTRowLetter.preview)
+    SecretLetter.isOne(t) -> "\uD83D\uDD11 " + c.getString(R.string.pw_shared)
     else -> t
 }
 /** The same words for a letter of the book: its manifest, once read, names what it carries. */
@@ -943,6 +945,8 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat): ReplySwipe = ReplySwip
             val call = Calls.info(m.text) != null
             if (Stickers.body(c, m, this)) Unit else if (m.text.startsWith(Marks.MEDIA)) mediaBody(c, m, this)
             else if (call) Calls.body(c, m, this)   // a call's row carries its moment inside, as iOS callBubble
+            // A SECRET SHARED FROM PASSWORDS (iOS MTSecretLetter): the key and the title; the receiver's tap saves it
+            else if (SecretLetter.parse(m.text) != null) addView(c.secretPlate(c as? MainActivity, SecretLetter.parse(m.text)!!, mine), lp(WRAP, WRAP))
             // A PLACE LETTER (iOS MTPlaceLetter.parse → the map plate): the pin, the name and the spot instead of the link's words
             else if (PlaceLetter.parse(c, m.text) != null) addView(c.placePlate(PlaceLetter.parse(c, m.text)!!, mine), lp(WRAP, WRAP))
             else addView(c.text(letterWords(c, m.text), 16f, BubbleStyle.text(mine)).apply { maxWidth = dp(260); setTextIsSelectable(false) }, lp(WRAP, WRAP))   // USER-DATA: the letter

@@ -378,7 +378,7 @@ object Book {
         }
         File(ctx.filesDir, "faces").deleteRecursively()
         DeviceVault.delete(Post.OUTBOX)
-        Meeting.wipe(); SamePair.wipe(); Groups.wipe(); PeerLinks.wipe()
+        Meeting.wipe(); SamePair.wipe(); Groups.wipe(); PeerLinks.wipe(); PasswordVault.wipe()
         changed()
     }
 }

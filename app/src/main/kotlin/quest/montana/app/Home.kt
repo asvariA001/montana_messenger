@@ -224,7 +224,8 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
         onPane = { p -> shell.close { choose(p) } },
         onProfile = { shell.close { act.showProfile() } },
         onSettings = { shell.close { act.push { settingsRoot(act, onForget, it) } } },
-        onCard = { shell.close { act.push { businessCardPage(act, it) } } }), FrameLayout.LayoutParams(MATCH, MATCH))
+        onCard = { shell.close { act.push { businessCardPage(act, it) } } },
+        onPasswords = { shell.close { act.push { passwordsPage(act, it) } } }), FrameLayout.LayoutParams(MATCH, MATCH))
     return shell
 }
 
@@ -371,7 +372,7 @@ class DrawerShell(private val act: MainActivity) : FrameLayout(act) {
  * pages Android does not have yet stand in their places, quieter, and take no tap. The plus of a second login is iOS's
  * multi-login, which Android does not have.
  */
-private fun sideDrawer(act: MainActivity, onPane: (Pane) -> Unit, onProfile: () -> Unit, onSettings: () -> Unit, onCard: () -> Unit): View {
+private fun sideDrawer(act: MainActivity, onPane: (Pane) -> Unit, onProfile: () -> Unit, onSettings: () -> Unit, onCard: () -> Unit, onPasswords: () -> Unit): View {
     val c: Context = act
     fun row(icon: View, word: Int, onTap: (() -> Unit)?) = c.hstack {
         setPadding(0, dp(16), 0, dp(16))
@@ -412,6 +413,8 @@ private fun sideDrawer(act: MainActivity, onPane: (Pane) -> Unit, onProfile: () 
         addView(row(glyph(R.drawable.ic_app_wallet), R.string.app_wallet, null), lp())
         addView(row(glyph(R.drawable.ic_language), R.string.app_network, null), lp())
         addView(row(glyph(R.drawable.ic_app_card), R.string.app_card, onCard), lp())   // the business card (iOS MTCardFromDrawer, the author's word 28.09)
+        // PASSWORDS (iOS MTApplication .passwords, key.fill, the author's word 06.10.2026 17:4x MSK): a page of its own over the tabs
+        addView(row(glyph(R.drawable.ic_key), R.string.pw_title, onPasswords), lp())
         spacer()
         addView(row(glyph(R.drawable.ic_settings), R.string.settings, onSettings), lp())
         addView(c.text(appVersionFull(c), 11f, MT.gray).apply { setPadding(dp(52), 0, 0, dp(8)) }, lp())   // USER-DATA: the build's own number
