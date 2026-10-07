@@ -517,4 +517,5 @@
     <string name="wall_downloads">下载次数</string>
     <string name="wall_views">浏览量</string>
     <string name="wall_send">发送</string>
+    <string name="call_end_ask">结束通话？</string>
 </resources>

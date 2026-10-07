@@ -518,4 +518,5 @@
     <string name="wall_downloads">Downloads</string>
     <string name="wall_views">Views</string>
     <string name="wall_send">Send</string>
+    <string name="call_end_ask">End the call?</string>
 </resources>

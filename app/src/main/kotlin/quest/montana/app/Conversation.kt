@@ -194,7 +194,10 @@ fun chatRow(act: MainActivity, chat: Chat): View {
         addView(c.peerFace(chat.ref, chat.shown, 54), lp(dp(54), dp(54)).apply { marginEnd = dp(12) })
         addView(c.vstack(Gravity.NO_GRAVITY) {
             addView(c.hstack {
+                gravity = Gravity.CENTER_VERTICAL
+                addView(callHandset(act, true, chat.ref), lp(dp(44), dp(44)))   // 15.8 (iOS ChatRow 2143)
                 addView(c.text(chat.shown.ifBlank { c.getString(R.string.peer) }, 17f, Color.WHITE, bold = true).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))   // USER-DATA: the name
+                addView(callHandset(act, false, chat.ref), lp(dp(44), dp(44)))   // 15.8 (iOS ChatRow 2150)
                 // a muted chat wears the struck bell after its name (iOS ChatRow muted)
                 if (ChatMarks.isMuted(chat.ref)) addView(c.icon(R.drawable.ic_bell_off, MT.gray, 14), lp(dp(14), dp(14)).apply { marginEnd = dp(6) })
                 if (last != null) {
@@ -755,6 +758,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     val top = c.hstack {
         gravity = Gravity.CENTER_VERTICAL
         setPadding(dp(8), dp(4), dp(8), dp(4))
+        addView(callHandset(act, true, null), lp(dp(44), dp(44)))   // 15.8: back to the folded call (iOS chatTop 1847)
         addView(roundMark(R.drawable.ic_arrow_back_ios_new, R.string.back) { hideKeys(); onClose() }, lp(dp(44), dp(44)))
         addView(c.hstack {
             gravity = Gravity.CENTER_VERTICAL
@@ -786,6 +790,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 setOnMenuItemClickListener { item -> act.callOut(ref, video = item.itemId == 1); true }
             }.show()
         }, lp(dp(44), dp(44)))
+        addView(callHandset(act, false, null), lp(dp(44), dp(44)))   // 15.8: end it (iOS chatTop 1852)
         layoutParams = LinearLayout.LayoutParams(MATCH, dp(52))
     }
 

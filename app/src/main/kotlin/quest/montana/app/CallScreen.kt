@@ -85,7 +85,22 @@ object CallScreen {
     /** The call ended: the screen and the pill go, and the screen's choices end with the call. */
     fun hide() = MainThread.post { dropPill(); chromeHidden = false; corner = 1; val c = close; close = null; c?.invoke() }
 
-    private fun dropPill() { pill?.invoke(); pill = null }
+    private fun dropPill() { pill?.invoke(); pill = null; foldChanged(null) }
+
+    /** The call folded into its pill, and whose (iOS CallUIModel.foldedLive, peer): the handsets beside a name watch it. */
+    @Volatile var foldedRef: String? = null
+        private set
+    private val foldWatch = mutableListOf<() -> Unit>()
+    fun watchFold(w: () -> Unit) = synchronized(foldWatch) { foldWatch.add(w) }
+    fun unwatchFold(w: () -> Unit) = synchronized(foldWatch) { foldWatch.remove(w) }
+    private fun foldChanged(ref: String?) {
+        if (foldedRef == ref) return
+        foldedRef = ref
+        val ws = synchronized(foldWatch) { foldWatch.toList() }
+        MainThread.post { ws.forEach { it() } }
+    }
+    /** The green handset: the folded call opens again (iOS model.fold(false, why: "handset")). */
+    fun unfold(act: MainActivity) { foldedRef?.let { show(act, it) } }
 
     /** The ring's face (iOS incomingScreen 6504-6533): the light and the kind of call, the name at forty, Decline and Accept. */
     private fun ringPage(act: MainActivity, ref: String): View {
@@ -550,6 +565,7 @@ object CallScreen {
         val gone = act.floating(v, 40)
         var live = true
         pill = { live = false; gone() }
+        foldChanged(ref)
         MainThread.later(1000, object : Runnable {
             override fun run() { if (!live) return; tick(); MainThread.later(1000, this) }
         })
@@ -626,4 +642,30 @@ private class Picture(c: Context) : TextureView(c), TextureView.SurfaceTextureLi
         return true
     }
     override fun onSurfaceTextureUpdated(st: SurfaceTexture) {}
+}
+
+/**
+ * THE TWO HANDSETS BESIDE A NAME (iOS CallInlineHandset, MontanaCall 5638-5676): with a call folded, green left of the name
+ * returns to it, red right ends it and asks first, in the platform's own dialog; the face 26, the finger's target 44.
+ * A null peer: any folded call (the chat's head); a peer: only the call with that person (the list's row).
+ */
+fun callHandset(act: MainActivity, green: Boolean, peer: String?): View = FrameLayout(act).apply {
+    val c: Context = act
+    addView(FrameLayout(c).apply {
+        background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(if (green) SysColor.green else SysColor.red) }
+        addView(c.icon(if (green) R.drawable.ic_peer_phone else R.drawable.ic_phone_down, Color.WHITE, 12), FrameLayout.LayoutParams(dp(12), dp(12), Gravity.CENTER))
+    }, FrameLayout.LayoutParams(dp(26), dp(26), Gravity.CENTER))
+    contentDescription = c.getString(if (green) R.string.call_pill else R.string.call_end)
+    val update = { val f = CallScreen.foldedRef; visibility = if (f != null && (peer == null || peer == f)) View.VISIBLE else View.GONE }
+    update()
+    pressable {
+        if (green) CallScreen.unfold(act)
+        else android.app.AlertDialog.Builder(c).setTitle(R.string.call_end_ask)
+            .setPositiveButton(R.string.call_end) { _, _ -> Thread { Calls.hangUp(if (peer == null) "handset-chat" else "handset-row") }.start() }
+            .setNegativeButton(android.R.string.cancel, null).show()
+    }
+    addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+        override fun onViewAttachedToWindow(v: View) { CallScreen.watchFold(update); update() }
+        override fun onViewDetachedFromWindow(v: View) { CallScreen.unwatchFold(update) }
+    })
 }
