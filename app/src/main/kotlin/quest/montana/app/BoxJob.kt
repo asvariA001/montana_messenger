@@ -45,6 +45,7 @@ class BoxJob : JobService() {
         stopped = false
         Thread {
             try { Post.fetch() } catch (e: Exception) { Log.w("Montana", "box job: ${e.javaClass.simpleName}") }
+            if (!stopped) Update.look(applicationContext)   // a newer build on the site rings its notice with the app closed
             if (!stopped) jobFinished(params, false)
         }.start()
         return true

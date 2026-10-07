@@ -57,6 +57,7 @@ class MainActivity : Activity() {
         Scheduled.run()   // the app's clock for letters sent later (Schedule.kt)
         CallEngine.warm(this)   // the call engine stands from launch, as iOS MontanaCall.shared
         // «Share → Montana» from another app, else an invitation's link
+        if (takeUpdate(intent)) return
         if (takeCall(intent)) return
         if (!takeShared(intent, hasSeed && termsAccepted)) intent?.data?.let { openLink(it.toString()) }
     }
@@ -90,6 +91,14 @@ class MainActivity : Activity() {
         android.Manifest.permission.CAMERA.takeIf { video && checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED }
     ).toTypedArray()
 
+    /** The new version's notice tapped (Update): the app brings it and hands it to the system's installer. */
+    private fun takeUpdate(i: Intent?): Boolean {
+        if (i?.action != Update.ACTION) return false
+        i.action = null
+        Update.take(this)
+        return true
+    }
+
     /** iOS acceptCall: the call's screen stands at once («Connecting…»), not after the voice joins. */
     private fun takeTheCall(answer: Boolean) {
         if (answer) Calls.answer()
@@ -100,6 +109,7 @@ class MainActivity : Activity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        if (takeUpdate(intent)) return
         if (takeCall(intent)) return
         if (!takeShared(intent, hasSeed && termsAccepted)) intent.data?.let { openLink(it.toString()) }
     }
@@ -230,7 +240,10 @@ class MainActivity : Activity() {
             main.postDelayed(this, 8000)
         }
     }
-    override fun onResume() { super.onResume(); CallScreen.front = this; main.removeCallbacks(boxRound); main.post(boxRound); EarService.start(this) }
+    override fun onResume() {
+        super.onResume(); CallScreen.front = this; main.removeCallbacks(boxRound); main.post(boxRound); EarService.start(this)
+        Thread { Update.look(applicationContext) }.start()   // a newer build on the site rings its notice (Update)
+    }
     // the ear stays when the app leaves the screen: EarService holds it (the app closed is heard as the app open)
     override fun onPause() { super.onPause(); if (CallScreen.front === this) CallScreen.front = null; main.removeCallbacks(boxRound) }
 
