@@ -39,6 +39,8 @@
     <!-- the contacts page (iOS ContactsTabView: the menu about a person) -->
     <string name="ct_write">发消息</string>
     <string name="ct_profile">个人资料</string>
+    <string name="ct_audio_call">语音通话</string>
+    <string name="ct_video_call">视频通话</string>
     <!-- the deletion of a chat, for both or for me (iOS MontanaDeleteChatSheet) -->
     <string name="dl_q">永久删除与 %1$s 的聊天？</string>
     <string name="dl_both">为双方删除</string>

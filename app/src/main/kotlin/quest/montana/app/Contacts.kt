@@ -37,14 +37,16 @@ fun contactRow(act: MainActivity, ch: Chat): View {
 }
 
 /**
- * THE DEEDS ABOUT A PERSON (iOS ContactsTabView.deeds): Write · Profile · Archive / Unarchive · Delete · Block / Unblock.
- * The calls of iOS wait for the calls themselves.
+ * THE DEEDS ABOUT A PERSON (iOS ContactsTabView.deeds, ContentView.swift:2676-2688): Write · Profile · Audio call ·
+ * Video call · Archive / Unarchive · Delete · Block / Unblock — unconditional, as the calls are now wired (act.callOut).
  */
 private fun contactMenu(act: MainActivity, ch: Chat) {
     val ref = ch.ref
     val deeds = mutableListOf(
         Deed(R.string.ct_write, R.drawable.ic_compose) { act.push { close -> conversationPage(act, ref, close) } },
         Deed(R.string.ct_profile, R.drawable.ic_person) { act.push { close -> peerInfoPage(act, ref, close) } },
+        Deed(R.string.ct_audio_call, R.drawable.ic_peer_phone) { act.callOut(ref) },
+        Deed(R.string.ct_video_call, R.drawable.ic_peer_video) { act.callOut(ref, video = true) },
         if (ChatMarks.isContactArchived(ref)) Deed(R.string.cl_unarchive, R.drawable.ic_unarchive) { ChatMarks.toggleContactArchive(ref) }
         else Deed(R.string.cl_archive, R.drawable.ic_archive) { ChatMarks.toggleContactArchive(ref) },
         Deed(R.string.cl_delete, R.drawable.ic_delete, red = true) { askDeleteChat(act, ref) },
