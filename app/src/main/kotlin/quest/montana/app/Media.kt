@@ -89,8 +89,38 @@ object Media {
             mime.startsWith("video/") -> "vid"
             else -> "doc"
         }
+        // a picture leaves in the one shape of a photo on its way out; a moving one keeps its frames
+        if (kind == "img" && ext != "gif") photoForSend(bytes)?.let { return Picked(it, kind, "jpg", name) }
         return Picked(bytes, kind, if (kind == "img" && ext == "jpeg") "jpg" else ext, name)
     }
+
+    /**
+     * THE ONE SHAPE OF A PHOTO ON ITS WAY OUT (iOS MontanaMedia.photoForSend, MontanaMediaKit 984-1005, the author's word 09.09; fork
+     * atom 1420): 1600 points on the long side, JPEG 0.85, sampled down at decode so the original never stands whole in memory, its
+     * orientation honoured. The original's own record — the camera, the moment, the place it was taken — does not ride: the new JPEG
+     * carries none. Android sent the gallery's and the camera's originals whole, twelve megapixels and the place with them. Null:
+     * a picture this road cannot read (a HEIF before Android 9), which then leaves as it came.
+     */
+    fun photoForSend(bytes: ByteArray, maxDim: Int = 1600, quality: Int = 85): ByteArray? = runCatching {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        val big = maxOf(bounds.outWidth, bounds.outHeight)
+        if (big <= 0) return null
+        var sample = 1
+        while (maxDim <= big / (sample * 2)) sample *= 2
+        val raw = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample }) ?: return null
+        val turn = when (android.media.ExifInterface(java.io.ByteArrayInputStream(bytes)).getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, 1)) {
+            6 -> 90f; 3 -> 180f; 8 -> 270f; else -> 0f
+        }
+        val scale = minOf(1f, maxDim.toFloat() / maxOf(raw.width, raw.height))
+        val m = android.graphics.Matrix().apply { postScale(scale, scale); if (turn != 0f) postRotate(turn) }
+        val shaped = Bitmap.createBitmap(raw, 0, 0, raw.width, raw.height, m, true)
+        val out = ByteArrayOutputStream()
+        shaped.compress(Bitmap.CompressFormat.JPEG, quality, out)
+        if (shaped !== raw) shaped.recycle()
+        raw.recycle()
+        out.toByteArray()
+    }.getOrNull()
 
     /** The picture's small face that rides the manifest (iOS thumbBase64): 120 points, a JPEG of at most 16 KB. */
     private fun thumb(b: Bitmap): String? {
