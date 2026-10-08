@@ -156,13 +156,13 @@ fun callsPane(act: MainActivity): View {
         override fun onViewDetachedFromWindow(v: View) { Book.unlisten(again) }
     })
     return FrameLayout(c).apply {
-        addView(ScrollView(c).apply {
+        addView(CoinPull(c, ScrollView(c).apply {
             isVerticalScrollBarEnabled = false
             addView(c.vstack(Gravity.NO_GRAVITY) {
                 addView(rows, lp())
                 gap(120)
             })
-        }, FrameLayout.LayoutParams(MATCH, MATCH))
+        }), FrameLayout.LayoutParams(MATCH, MATCH))   // one law for every page under the bar (iOS MontanaTimePanel)
         addView(empty, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
         addView(foot, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM).apply { bottomMargin = c.dp(26) })
     }

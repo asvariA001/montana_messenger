@@ -737,7 +737,7 @@ private fun chatsPane(act: MainActivity): View {
         })
     }
     return FrameLayout(c).apply {
-        addView(list, FrameLayout.LayoutParams(MATCH, MATCH))
+        addView(CoinPull(c, list), FrameLayout.LayoutParams(MATCH, MATCH))   // the coin's pull refreshes the feed (iOS MontanaCoinSpinner)
         // «WRITE» (iOS composeButton): the one door to the code and the link — the QR opens here and nowhere else.
         write = FrameLayout(c).apply {
             background = c.glassPlate(oval = true)
@@ -795,7 +795,7 @@ private fun contactsPane(act: MainActivity): View {
     val c = act
     return FrameLayout(c).apply {
         // THE PEOPLE (iOS ContactsTabView): pins, then presence, then name; «No contacts yet» while there are none (Contacts.kt)
-        addView(contactsList(act), FrameLayout.LayoutParams(MATCH, MATCH))
+        addView(CoinPull(c, contactsList(act)), FrameLayout.LayoutParams(MATCH, MATCH))   // one law for every page under the bar
         addView(FrameLayout(c).apply {
             background = c.glassPlate(oval = true)
             contentDescription = c.getString(R.string.share)
