@@ -83,8 +83,11 @@ fun Context.coinDelta(coins: Long): View = text((if (coins < 0) "−" else "+") 
     maxLines = 1
 }
 
-/** THE COIN LETTER'S BUBBLE (iOS the coin letter in MontanaBubble): our coin on its face, the number, and which way it went. */
-fun Context.coinPlate(m: Msg, coin: CoinLetter.Coin, mine: Boolean): View = hstack {
+/**
+ * THE COIN LETTER'S BUBBLE (iOS the coin letter in MontanaBubble): our coin on its face, the number, and which way it went; a tap
+ * opens the move it made in this phone's book (iOS onTapCoin, MontanaConversation 2733, MTCoinMovePage).
+ */
+fun Context.coinPlate(m: Msg, coin: CoinLetter.Coin, mine: Boolean, act: MainActivity? = null, ref: String? = null): View = hstack {
     gravity = Gravity.CENTER_VERTICAL
     addView(MintCoin(context, 44), lp(dp(44), dp(44)))
     gap(12)
@@ -96,6 +99,10 @@ fun Context.coinPlate(m: Msg, coin: CoinLetter.Coin, mine: Boolean): View = hsta
         val words = if (mine) (if (back) R.string.coin_letter_back else R.string.coin_letter_sent) else R.string.coin_letter_received
         addView(text(getString(words), 15f, BubbleStyle.text(mine)).apply { setPadding(0, dp(2), 0, 0) }, lp(WRAP, WRAP))
     }, lp(WRAP, WRAP))
+    if (act != null && ref != null) pressable {
+        val peer = Book.chat(ref)?.shown?.ifBlank { null } ?: context.getString(R.string.peer)
+        act.push { back -> coinMovePage(act, CoinSend.wire(m.mid), mine, peer, back) }
+    }
 }
 
 /** A row of the list with its value at the trailing edge (iOS LabeledContent). */
@@ -150,6 +157,11 @@ fun walletPage(act: MainActivity, onClose: () -> Unit): View {
     val inMontana = c.text("", 15f, MT.gray, center = true)
     val pi = c.text("", 13f, MT.gray, center = true)
     val rows = c.vstack(Gravity.NO_GRAVITY)
+    // THE TIMECHAINS (iOS MTTimeChainRows): each source's chain, its length, the first letters of its head and its seal, every chain read
+    // whole off the screen's thread — at the opening, then three quiet seconds after the book's moves change (iOS, T1's stalls 04.10)
+    var heads: Map<String, TimeChain.Head> = emptyMap()
+    var headsDue = false
+    var headsAt = -1
 
     fun capsule(word: Int, glyph: Int?, filled: Boolean, onTap: () -> Unit) = c.hstack {
         gravity = Gravity.CENTER
@@ -184,6 +196,10 @@ fun walletPage(act: MainActivity, onClose: () -> Unit): View {
         pi.text = "π " + PiLevels.revealed(place) + " · " + place   // USER-DATA: the level of π and π revealed to it
         send.isEnabled = 0 < b; send.alpha = if (0 < b) 1f else 0.4f
         rows.removeAllViews()
+        val chains = TimeChain.SOURCES.mapNotNull { s ->
+            heads[s]?.takeIf { 0 < it.n }?.let { h -> c.settingsRow(null, 0, c.chainName(s), value = c.chainHead(h, 8)) { act.push { back -> timeChainPage(act, s, back) } } }
+        }
+        if (chains.isNotEmpty()) rows.section(c.getString(R.string.tc_title), null, *chains.toTypedArray())
         rows.section(c.getString(R.string.coin_minting), c.getString(R.string.coin_counted_here),
             c.labeled(c.getString(R.string.coin_from_pantheon), CoinText.count(CoinBook.tapped)),
             c.labeled(c.getString(R.string.coin_received_n), CoinText.count(CoinBook.received)),
@@ -254,11 +270,19 @@ fun walletPage(act: MainActivity, onClose: () -> Unit): View {
     body.addView(rows, lp())
     val page = walletFrame(act, c.getString(R.string.coin_title), onClose, true, null, body)
     val again: () -> Unit = { draw() }
+    fun readHeads() { headsAt = CoinBook.size(); TimeChain.heads { h -> heads = h; if (page.isAttachedToWindow) draw() } }
+    val moved: () -> Unit = {
+        if (!headsDue && CoinBook.size() != headsAt) {
+            headsDue = true
+            MainThread.later(3000, Runnable { headsDue = false; if (page.isAttachedToWindow) readHeads() })
+        }
+    }
     page.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
-        override fun onViewAttachedToWindow(v: View) { CoinBook.listen(again); Pantheon.listen(again); draw(); coin.turnOnce() }
-        override fun onViewDetachedFromWindow(v: View) { CoinBook.unlisten(again); Pantheon.unlisten(again); Pantheon.released(); CoinBook.closeWindows() }
+        override fun onViewAttachedToWindow(v: View) { CoinBook.listen(again); CoinBook.listen(moved); Pantheon.listen(again); draw(); coin.turnOnce() }
+        override fun onViewDetachedFromWindow(v: View) { CoinBook.unlisten(again); CoinBook.unlisten(moved); Pantheon.unlisten(again); Pantheon.released(); CoinBook.closeWindows() }
     })
-    Thread { CoinBook.warm(); MainThread.post { draw() } }.start()
+    // the book read first, so its past is in the chains before their heads are read (one queue, in order)
+    Thread { CoinBook.warm(); MainThread.post { draw(); readHeads() } }.start()
     return page
 }
 
@@ -439,8 +463,140 @@ fun coinHistoryPage(act: MainActivity, onBack: () -> Unit): View {
                         android.text.format.DateFormat.getTimeFormat(c).format(Date((e.at * 1000).toLong())), 12f, MT.gray))
                 }, lp(0, WRAP, 1f))
                 addView(c.coinDelta(e.signed), lp(WRAP, WRAP))
+                // a move opens its source's TimeChain, where its link stands with its seal (iOS MTCoinHistoryPage)
+                val source = TimeChain.source(e)
+                pressable { act.push { back -> timeChainPage(act, source, back) } }
             }, lp())
         }
     }, lp().apply { topMargin = c.dp(12) })
     return walletFrame(act, c.getString(R.string.coin_history), onBack, false, null, body)
+}
+
+/** A source's word in the catalogue, one table for every place that names it (iOS MTTimeChainRows.key). */
+fun Context.chainName(source: String): String = getString(when (source) {
+    "chess" -> R.string.tc_src_chess
+    "pantheon" -> R.string.coin_from_pantheon
+    "vpnwall" -> R.string.tc_src_vpnwall
+    "vpnpay" -> R.string.tc_src_vpnpay
+    "timer" -> R.string.tc_src_timer
+    "chats" -> R.string.tc_src_chats
+    "groups" -> R.string.tc_src_groups
+    "channels" -> R.string.tc_src_channels
+    "comments" -> R.string.tc_src_comments
+    "wall" -> R.string.tc_src_wall
+    "received" -> R.string.coin_received_n
+    "spent" -> R.string.tc_src_spent
+    "pi" -> R.string.coin_levels
+    "calls" -> R.string.tc_src_calls
+    "letters" -> R.string.tc_src_letters
+    "system" -> R.string.tc_src_system
+    else -> R.string.coin_sent_n
+})
+
+private fun Context.mono(s: String, sizeSp: Float, color: Int): TextView = text(s, sizeSp, color).apply { typeface = android.graphics.Typeface.MONOSPACE }
+/** The platform's seal: whole and green when every seal holds from the genesis, broken and red when one does not (iOS checkmark.seal.fill, xmark.seal.fill). */
+private fun Context.sealGlyph(whole: Boolean, sizeDp: Int): View = icon(if (whole) R.drawable.ic_seal_whole else R.drawable.ic_seal_broken, if (whole) MT.green else MT.red, sizeDp)
+/** A chain's length and the first letters of its head's seal, then its seal. */
+private fun Context.chainHead(h: TimeChain.Head, letters: Int): View = hstack {
+    gravity = Gravity.CENTER_VERTICAL
+    addView(mono(h.n.toString() + " · " + h.hash.take(letters), 13f, MT.gray), lp(WRAP, WRAP))   // USER-DATA: the chain's length and its head
+    gap(6)
+    addView(sealGlyph(h.whole, 18), lp(dp(18), dp(18)))
+}
+/** A seal in full, its title over it; the seal can be selected and copied. */
+private fun Context.sealRow(title: String, seal: String): View = vstack(Gravity.NO_GRAVITY) {
+    setPadding(dp(16), dp(10), dp(16), dp(10))
+    addView(text(title, 15f), lp(WRAP, WRAP))
+    addView(mono(seal, 12f, MT.gray).apply { setTextIsSelectable(true) }, lp(MATCH, WRAP))   // USER-DATA: a SHA-256 seal
+}
+/** A moment on this phone's clock, its date and its time to the second (iOS .abbreviated, .standard). */
+private fun chainMoment(at: Double): String =
+    java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM, java.text.DateFormat.MEDIUM).format(Date((at * 1000).toLong()))
+
+/**
+ * A TIMECHAIN, LINK BY LINK (iOS MTTimeChainPage, the author's word 04.10.2026 00:46 MSK: «the detailed timechain»): every link of one
+ * source's chain, the newest first — its number, its moment, the coins, its seal and the seal it stands on, the move's own name — and
+ * whether every seal holds from the genesis.
+ */
+fun timeChainPage(act: MainActivity, source: String, onBack: () -> Unit): View {
+    val c: Context = act
+    val body = c.vstack(Gravity.NO_GRAVITY)
+    val plate = c.plate {}
+    body.addView(plate, lp().apply { topMargin = c.dp(12) })
+    TimeChain.chain(source) { links, head ->
+        plate.addView(c.hstack {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+            minimumHeight = dp(48)
+            addView(c.mono(head.n.toString() + " · " + head.hash.take(16), 13f, Color.WHITE), lp(0, WRAP, 1f))   // USER-DATA: the chain's length and its head
+            addView(c.sealGlyph(head.whole, 22), lp(dp(22), dp(22)))
+        }, lp())
+        // the newest five hundred, as the history: the head above counts them all
+        for (l in links.asReversed().take(500)) {
+            plate.divider()
+            plate.addView(c.vstack(Gravity.NO_GRAVITY) {
+                setPadding(dp(16), dp(10), dp(16), dp(10))
+                addView(c.hstack {
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(c.text("#" + l.n, 15f, Color.WHITE, bold = true), lp(0, WRAP, 1f))   // USER-DATA: the link's number in its chain
+                    // USER-DATA: the coins the link moved, signed by its way; a link of the wall's posts moves none
+                    if (0L < l.c) addView(c.text((if (l.k in setOf("earn", "receive", "keep")) "+" else "−") + CoinText.count(l.c), 17f, Color.WHITE), lp(WRAP, WRAP))
+                }, lp())
+                addView(c.text(chainMoment(l.at / 1000.0), 12f, MT.gray), lp(WRAP, WRAP))   // USER-DATA: the link's moment, on this phone's clock
+                addView(c.mono(l.hash.take(16) + " ← " + l.prev.take(16), 11f, MT.gray), lp(WRAP, WRAP))   // USER-DATA: the link's seal and the seal it stands on
+                addView(c.mono(l.ref, 11f, MT.gray).apply {   // USER-DATA: the move's own name
+                    alpha = 0.6f; setSingleLine(true); ellipsize = android.text.TextUtils.TruncateAt.MIDDLE
+                }, lp(MATCH, WRAP))
+            }, lp())
+        }
+    }
+    return walletFrame(act, c.chainName(source), onBack, false, null, body)
+}
+
+/**
+ * ONE COIN MOVE ON ITS OWN PAGE (iOS MTCoinMovePage, MTWalletScreen 560-662; the author's words 05.10.2026 «a tap on the coins opens this
+ * transaction» and 06.10.2026 16:2x MSK «a Local TimeChain and a Global TimeChain, in which the hashes are one in the network's
+ * consensus by the set»): the coins, who they came from or went to, the moment; the link this phone's chain sealed for it, with its
+ * seal and the seal before it; the letter's seal, the same on every device that holds the transfer; and the system chain's link when
+ * the book had lost the move and the system restored it. The phone's own node and its count of the genesis machines reached (iOS
+ * MTNetworkNode) is not on Android, so its row is not drawn rather than drawn empty.
+ */
+fun coinMovePage(act: MainActivity, ref: String, mine: Boolean, peer: String, onBack: () -> Unit): View {
+    val c: Context = act
+    val body = c.vstack(Gravity.NO_GRAVITY)
+    val kind = if (mine) CoinEntry.SEND else CoinEntry.RECEIVE
+    val move = CoinBook.moves().firstOrNull { it.ref == ref && it.k == kind }
+    if (move == null) {
+        body.addView(c.text(c.getString(R.string.tc_not_yet), 16f, MT.gray).apply { setPadding(dp(16), dp(22), dp(16), dp(14)) }, lp())
+        return walletFrame(act, c.getString(R.string.tc_transaction), onBack, false, null, body)
+    }
+    val amount = c.hstack {
+        setPadding(dp(16), dp(12), dp(16), dp(12))
+        minimumHeight = dp(48)
+        addView(c.text(c.getString(R.string.tc_amount), 16f), lp(0, WRAP, 1f))
+        // USER-DATA: the coins the move carried, signed by its way
+        addView(c.text((if (mine) "−" else "+") + CoinText.count(move.c), 16f, if (mine) Color.WHITE else MT.green), lp(WRAP, WRAP))
+    }
+    body.section(c.getString(if (mine) R.string.coin_sent_n else R.string.coin_received_n), null, amount,
+        c.labeled(c.getString(if (mine) R.string.tc_to else R.string.tc_from), peer),   // USER-DATA: the person
+        c.labeled(c.getString(R.string.tc_date), chainMoment(move.at)))   // USER-DATA: the move's moment on this phone's clock
+    // the local link and the system's restoring link stand where iOS puts them, filled when their chains are read
+    val local = c.vstack(Gravity.NO_GRAVITY)
+    body.addView(local, lp())
+    LetterSeal.seal(ref)?.let { seal ->
+        body.section(c.getString(R.string.tc_global), c.getString(R.string.tc_global_note), c.sealRow(c.getString(R.string.tc_seal), seal))
+    }
+    val system = c.vstack(Gravity.NO_GRAVITY)
+    body.addView(system, lp())
+    TimeChain.read(TimeChain.source(ref, kind)) { links ->
+        val l = links.lastOrNull { it.ref == ref } ?: return@read
+        local.section(c.getString(R.string.tc_local), null, c.labeled(c.getString(R.string.tc_link), "#" + l.n),   // USER-DATA: the link's number
+            c.sealRow(c.getString(R.string.tc_seal), l.hash), c.sealRow(c.getString(R.string.tc_prev_seal), l.prev))
+    }
+    TimeChain.read("system") { links ->
+        val l = links.lastOrNull { it.ref == TimeChain.RESTORE + ref } ?: return@read
+        system.section(c.getString(R.string.tc_src_system), null, c.labeled(c.getString(R.string.tc_restored), "#" + l.n),   // USER-DATA: the restoring link's number
+            c.sealRow(c.getString(R.string.tc_seal), l.hash))
+    }
+    return walletFrame(act, c.getString(R.string.tc_transaction), onBack, false, null, body)
 }

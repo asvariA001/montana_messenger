@@ -112,6 +112,7 @@ object CoinBook {
     var sent = 0L; private set
     var spent = 0L; private set
     var burned = 0L; private set
+    private var level = 0   // the last level of π the balance filled, joined to the chain «pi»
 
     private val listeners = mutableListOf<() -> Unit>()
     fun listen(l: () -> Unit) { synchronized(listeners) { listeners.add(l) } }
@@ -138,6 +139,15 @@ object CoinBook {
             }
         }
         Log.i("Montana", "coin_book read moves=" + entries.size + " balance=" + balance)
+        // THE CHAINS TAKE THE BOOK'S PAST (iOS adopt, MTWalletCore 2028-2031): every level of π the moves filled, then every move in
+        // the book's order, each passed by its name where its chain holds it already, so a link a dying process left out joins again
+        var sum = 0L
+        for (e in entries) {
+            sum += e.signed
+            val place = PiLevels.place(sum)
+            if (level < place) { for (n in level + 1..place) TimeChain.note("pi", "level", n.toLong(), "level:" + n, e.at); level = place }
+        }
+        TimeChain.appendPast(entries.toList())
     }
 
     private fun adopt(e: CoinEntry) {
@@ -170,8 +180,19 @@ object CoinBook {
         balance = next
         count(e)
         write(listOf(e))
+        TimeChain.append(e, now = true)   // every move joins its source's chain in the same turn it is on disk (iOS keep)
+        reached(e.at)
         changed()
         return true
+    }
+
+    /** A LEVEL OF π REACHED IS A LINK (iOS reached): the first time the balance fills a level, the level joins its chain at the move's moment. */
+    private fun reached(at: Double) {
+        val place = PiLevels.place(balance)
+        if (level < place) {
+            for (n in level + 1..place) TimeChain.note("pi", "level", n.toLong(), "level:" + n, at)
+            level = place
+        }
     }
 
     /** Lines appended; a line cut short by an ended process is ended first, so the next move stands on a line of its own. */
@@ -208,6 +229,7 @@ object CoinBook {
         w.coins += c
         balance += c
         if (prefix == Pantheon.PREFIX) tapped = sat(tapped, c) else earned = sat(earned, c)
+        reached(nowS())
         changed()
         return c
     }
@@ -218,9 +240,10 @@ object CoinBook {
         val e = CoinEntry(CoinEntry.EARN, w.coins, w.ref, at = w.at)
         entries.add(e); taken.add(e.id)
         write(listOf(e))
+        TimeChain.append(e)   // the window's one move, its one link
     }
-    /** Every open window into the book now: the app leaves the screen, the person leaves. */
-    @Synchronized fun closeWindows() { for (p in windows.keys.toList()) close(p) }
+    /** Every open window into the book now, and every waiting link into its chain: the app leaves the screen, the person leaves. */
+    @Synchronized fun closeWindows() { for (p in windows.keys.toList()) close(p); TimeChain.flush() }
 
     /** THE LIMIT OF A SECOND (iOS priced): all the minting of one second shares its thirteen coins; what it leaves out is not minted. */
     private fun priced(coins: Long, seconds: Int): Long {
@@ -281,6 +304,8 @@ object CoinBook {
     fun received(ref: String): Boolean = holds(CoinEntry.RECEIVE, ref)
     /** The coins of one move by its kind and name (a coin letter's transfer, read when its row is gone: CoinSend.arrived). */
     @Synchronized fun amount(k: String, ref: String): Long? { ensure(); return entries.lastOrNull { it.k == k && it.ref == ref }?.c }
+    /** How many moves the book holds: the wallet reads its chains' heads again when it moves (iOS .task(id: book.entries.count)). */
+    @Synchronized fun size(): Int { ensure(); return entries.size }
     /** The moves, newest first, for the history. */
     @Synchronized fun moves(): List<CoinEntry> { ensure(); return entries.asReversed().toList() }
 
@@ -288,9 +313,11 @@ object CoinBook {
     @Synchronized fun setAside() {
         windows.clear()
         val d = File(Book.ctx.filesDir, "Coins")
-        if (d.exists()) d.renameTo(File(File(Book.ctx.filesDir, "CoinsForgotten").apply { mkdirs() }, System.currentTimeMillis().toString()))
+        val place = File(File(Book.ctx.filesDir, "CoinsForgotten").apply { mkdirs() }, System.currentTimeMillis().toString())
+        if (d.exists()) d.renameTo(place)
+        TimeChain.setAside(place)   // the person's chains leave with their book
         entries.clear(); taken.clear(); onTarget.clear()
-        balance = 0; earned = 0; tapped = 0; received = 0; sent = 0; spent = 0; burned = 0
+        balance = 0; earned = 0; tapped = 0; received = 0; sent = 0; spent = 0; burned = 0; level = 0
         changed()
     }
 }
@@ -484,7 +511,7 @@ object CoinSend {
         if (!CoinBook.holds(CoinEntry.SEND, name)) return
         val again = moves(CoinEntry.SEND, AGAIN + name)
         val back = moves(CoinEntry.RECEIVE, BACK + name)
-        if (m.state == -1 && again == back) CoinBook.receive(coin.c, ref, BACK + name + ":" + (back + 1))
+        if (m.state == -1 && again == back) giveBack(coin.c, ref, BACK + name + ":" + (back + 1), "red")
         else if (m.state != -1 && again != back) CoinBook.retake(coin.c, ref, AGAIN + name + ":" + (again + 1))
     }
     /** Whether a coin letter of mine stands red with its coins back (the bubble says so). */
@@ -520,8 +547,13 @@ object CoinSend {
         if (!CoinBook.holds(CoinEntry.SEND, name)) return
         val back = moves(CoinEntry.RECEIVE, BACK + name)
         if (moves(CoinEntry.SEND, AGAIN + name) != back) return
-        CoinBook.receive(coin.c, ref, BACK + name + ":" + (back + 1))
-        Log.i("Montana", "coin_back coins=" + coin.c + " letter=gone")
+        giveBack(coin.c, ref, BACK + name + ":" + (back + 1), "gone")
+    }
+    /** The one back move of a coin letter (iOS giveBack): its coins come home under the letter's next back name, and the system chain says why. */
+    private fun giveBack(c: Long, ref: String, back: String, why: String) {
+        if (!CoinBook.receive(c, ref, back)) return
+        TimeChain.note("system", "back", c, back)
+        Log.i("Montana", "coin_back coins=" + c + " letter=" + why)
     }
 
     /**
@@ -553,9 +585,14 @@ object CoinSend {
                 if (m.mine) { hold(m, chat.ref); continue }
                 val coin = coinOf(m) ?: continue
                 if (CoinBook.received(wire(m.mid))) continue
-                if (credits(coin, m.mid, chat.ref) && CoinBook.receive(coin.c, chat.ref, wire(m.mid))) { letters++; coins += coin.c }
+                if (!credits(coin, m.mid, chat.ref) || !CoinBook.receive(coin.c, chat.ref, wire(m.mid))) continue
+                // THE SYSTEM'S OWN BRANCH OF THE TIMECHAIN (iOS settle, MTWalletCore 2602-2605): the credit stands in the received chain as
+                // any other, and the system chain says why — a coin letter the book had lost, restored by its wire name, coins and moment
+                TimeChain.note("system", "restore", coin.c, TimeChain.RESTORE + wire(m.mid))
+                letters++; coins += coin.c
             }
         }
+        if (0 < letters) TimeChain.flush()
         Log.i("Montana", "coin_settle letters=" + letters + " coins=" + coins + " balance=" + CoinBook.balance)
     }
 }

@@ -544,4 +544,32 @@
     <string name="p2p_spare">запасная</string>
     <string name="p2p_no_answer">Не отвечает</string>
     <string name="recovered_history">Восстановленная история</string>
+    <!-- the wallet's TimeChains (iOS MTTimeChainRows, MTTimeChainPage, MTCoinMovePage) -->
+    <string name="tc_title">TimeChains</string>
+    <string name="tc_src_chess">Монеты шахмат</string>
+    <string name="tc_src_vpnwall">Монеты ВПН СТЕНЫ</string>
+    <string name="tc_src_vpnpay">Плата за ВПН</string>
+    <string name="tc_src_timer">Таймер</string>
+    <string name="tc_src_chats">Монеты из чатов</string>
+    <string name="tc_src_groups">Монеты из групп</string>
+    <string name="tc_src_channels">Монеты из каналов</string>
+    <string name="tc_src_comments">Монеты за комментарии</string>
+    <string name="tc_src_wall">Стена</string>
+    <string name="tc_src_spent">Монеты на реакциях</string>
+    <string name="tc_src_calls">Сожжено за звонки</string>
+    <string name="tc_src_letters">Сожжено за письма</string>
+    <string name="tc_src_system">Системная ветка</string>
+    <string name="tc_transaction">Транзакция</string>
+    <string name="tc_amount">Сумма</string>
+    <string name="tc_from">От кого</string>
+    <string name="tc_to">Кому</string>
+    <string name="tc_date">Дата</string>
+    <string name="tc_link">Звено</string>
+    <string name="tc_seal">Печать</string>
+    <string name="tc_prev_seal">Предыдущая печать</string>
+    <string name="tc_local">Локальный TimeChain</string>
+    <string name="tc_global">Глобальный TimeChain</string>
+    <string name="tc_global_note">Одна печать на каждом устройстве, где есть этот перевод</string>
+    <string name="tc_restored">Восстановлено системой</string>
+    <string name="tc_not_yet">Ещё нет в вашей книге</string>
 </resources>

@@ -545,4 +545,32 @@
     <string name="p2p_spare">spare</string>
     <string name="p2p_no_answer">no answer</string>
     <string name="recovered_history">Recovered history</string>
+    <!-- the wallet's TimeChains (iOS MTTimeChainRows, MTTimeChainPage, MTCoinMovePage) -->
+    <string name="tc_title">TimeChains</string>
+    <string name="tc_src_chess">Coins from chess</string>
+    <string name="tc_src_vpnwall">Coins from the VPN Wall</string>
+    <string name="tc_src_vpnpay">Paid for the VPN</string>
+    <string name="tc_src_timer">Timer</string>
+    <string name="tc_src_chats">Coins from chats</string>
+    <string name="tc_src_groups">Coins from groups</string>
+    <string name="tc_src_channels">Coins from channels</string>
+    <string name="tc_src_comments">Coins for comments</string>
+    <string name="tc_src_wall">Wall</string>
+    <string name="tc_src_spent">Coins on reactions</string>
+    <string name="tc_src_calls">Burned for calls</string>
+    <string name="tc_src_letters">Burned for letters</string>
+    <string name="tc_src_system">System chain</string>
+    <string name="tc_transaction">Transaction</string>
+    <string name="tc_amount">Amount</string>
+    <string name="tc_from">From</string>
+    <string name="tc_to">To</string>
+    <string name="tc_date">Date</string>
+    <string name="tc_link">Chain link</string>
+    <string name="tc_seal">Seal</string>
+    <string name="tc_prev_seal">Previous seal</string>
+    <string name="tc_local">Local TimeChain</string>
+    <string name="tc_global">Global TimeChain</string>
+    <string name="tc_global_note">One seal on every device that holds this transfer</string>
+    <string name="tc_restored">Restored by the system</string>
+    <string name="tc_not_yet">Not in your book yet</string>
 </resources>

@@ -544,4 +544,32 @@
     <string name="p2p_spare">备用</string>
     <string name="p2p_no_answer">无应答</string>
     <string name="recovered_history">已恢复的历史记录</string>
+    <!-- the wallet's TimeChains (iOS MTTimeChainRows, MTTimeChainPage, MTCoinMovePage) -->
+    <string name="tc_title">TimeChains</string>
+    <string name="tc_src_chess">国际象棋的硬币</string>
+    <string name="tc_src_vpnwall">VPN 墙的硬币</string>
+    <string name="tc_src_vpnpay">VPN 费用</string>
+    <string name="tc_src_timer">计时器</string>
+    <string name="tc_src_chats">来自聊天的硬币</string>
+    <string name="tc_src_groups">来自群组的硬币</string>
+    <string name="tc_src_channels">来自频道的硬币</string>
+    <string name="tc_src_comments">评论的硬币</string>
+    <string name="tc_src_wall">留言墙</string>
+    <string name="tc_src_spent">用于回应的硬币</string>
+    <string name="tc_src_calls">通话燃烧</string>
+    <string name="tc_src_letters">消息燃烧</string>
+    <string name="tc_src_system">系统链</string>
+    <string name="tc_transaction">交易</string>
+    <string name="tc_amount">数量</string>
+    <string name="tc_from">来自</string>
+    <string name="tc_to">收件人</string>
+    <string name="tc_date">日期</string>
+    <string name="tc_link">链环</string>
+    <string name="tc_seal">印记</string>
+    <string name="tc_prev_seal">上一印记</string>
+    <string name="tc_local">本地 TimeChain</string>
+    <string name="tc_global">全局 TimeChain</string>
+    <string name="tc_global_note">持有此转账的每台设备上都是同一印记</string>
+    <string name="tc_restored">由系统恢复</string>
+    <string name="tc_not_yet">尚未记入你的账本</string>
 </resources>
