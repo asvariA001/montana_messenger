@@ -248,7 +248,7 @@ object Calls {
         val req = JSONObject().put("conv", cw).put("from_id", Wire.subId(cw, twin)).put("env", env)
         var saw404 = false
         var sawOther = false
-        for (door in MontanaCard.doors) {
+        for (door in Signal.byProof(MontanaCard.doors)) {   // the doors that answered on this path first (iOS 484)
             val (code, text) = Wire.post(door, "/wake-voip", req, 8000)
             val o = text?.let { runCatching { JSONObject(it) }.getOrNull() }
             val sent = o?.optInt("sent", o.optInt("woken", -1)) ?: -1

@@ -60,7 +60,7 @@ object Signal {
     private val deadUntil = HashMap<String, Long>()
     /** No answer, or the door's own failure: two in a row and it rests a minute, then two, four, eight at most. A refusal is an answer. */
     fun doorFailed(door: String, code: Int) {
-        if (code != -1 && code < 500) { doorAnswered(door); return }
+        if (code != -1 && code < 500) { doorAnswered(door, proved = false); return }
         val now = System.currentTimeMillis()
         val rest = synchronized(deadUntil) {
             if ((deadUntil[door] ?: 0L) > now) return
@@ -74,10 +74,11 @@ object Signal {
         }
         Log.d("Montana", "sig_door dead " + host(door) + " code=" + code + " — not asked for " + rest / 1000 + "s")
     }
-    fun doorAnswered(door: String) {
+    fun doorAnswered(door: String, proved: Boolean = true) {
         val revived = synchronized(deadUntil) {
             val was = deathStreak.containsKey(door) || deadUntil.containsKey(door)
             doorFails.remove(door); deathStreak.remove(door); deadUntil.remove(door)
+            if (proved) proof[host(door)] = System.currentTimeMillis()
             was
         }
         if (revived) {
@@ -88,6 +89,17 @@ object Signal {
     }
     private val draining = java.util.concurrent.atomic.AtomicBoolean(false)
     fun doorAlive(door: String) = synchronized(deadUntil) { (deadUntil[door] ?: 0L) <= System.currentTimeMillis() }
+    /** PROOF OF A DOOR (iOS doorProof): the moment it last answered me with 200 since the path changed — keyed by host. */
+    private val proof = HashMap<String, Long>()
+    /**
+     * THE PROVEN DOORS FIRST (iOS MontanaWakePush 484, measured 13.09 15:20: the first knock stood five seconds on a door that had
+     * never answered on this network while three others had answered a second before): proof is what the app already knows — the
+     * freshest first, an unproven door after them, a resting one last; with no proof at all, the network's own order.
+     */
+    fun byProof(doors: List<String>): List<String> = synchronized(deadUntil) {
+        val now = System.currentTimeMillis()
+        doors.sortedWith(compareBy({ if (now < (deadUntil[it] ?: 0L)) 2 else if (proof.containsKey(host(it))) 0 else 1 }, { -(proof[host(it)] ?: 0L) }))
+    }
     private fun host(door: String) = android.net.Uri.parse(door).host ?: door
     /** The doors alive for me, in the list's order — what I name to the peer with every word (iOS signalDoors 497-499). */
     fun aliveHosts(): List<String> = MontanaCard.doors.filter { doorAlive(it) }.map { host(it) }
@@ -106,7 +118,7 @@ object Signal {
         }
     }
     private fun forgive(why: String) {
-        synchronized(deadUntil) { deadUntil.clear(); doorFails.clear(); deathStreak.clear() }
+        synchronized(deadUntil) { deadUntil.clear(); doorFails.clear(); deathStreak.clear(); proof.clear() }   // proof on one path says nothing of another
         Log.d("Montana", "sig_lane " + why + " — every door forgiven")
     }
 
