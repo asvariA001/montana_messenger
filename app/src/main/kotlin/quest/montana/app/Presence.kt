@@ -308,6 +308,59 @@ object Signal {
         }
     }
 
+    /**
+     * THE LAST WORD OF EVERY PEER, IN ONE QUESTION (iOS sweepPresence, WakePush 3180-3269; the author's word 11.09: «T2 does not see
+     * that T1 was online until the chat is opened»): the lane hands over a minute of words, the node keeps each side's last sealed word
+     * for the box's term (/signal-last), and this asks for all of them at once — at the app's return and on the coin. A swept word is a
+     * stamp, never a live word (Presence.stamp). It opens by the node's own moment (Wire.openBoxed): iOS opens it by the minute of the
+     * question, so there a word older than two minutes never opens (HANDOVER, session 7).
+     */
+    fun sweep() {
+        val twin = MontanaSeed.twin ?: return
+        val q = ArrayList<JSONObject>()
+        val chatOf = HashMap<String, String>()
+        val w0 = Wire.day()
+        for (ref in Book.refs()) {
+            val secret = Book.secret(ref) ?: continue
+            for (w in (w0 - 1)..w0) {
+                val cw = Wire.convW(secret, w)
+                chatOf[cw] = ref
+                q.add(JSONObject().put("conv", cw).put("from_id", Wire.subId(cw, twin)))
+            }
+        }
+        if (q.isEmpty()) return
+        val best = HashMap<String, Pair<String, Long>>()   // per conversation, the newest word across the doors (env, the node's second)
+        var doors = 0
+        for (door in Doors.ordered("signal").filter { doorAlive(it) }) {
+            for (start in q.indices step 128) {
+                val part = org.json.JSONArray(q.subList(start, minOf(start + 128, q.size)))
+                val (code, text) = Wire.post(door, "/signal-last", JSONObject().put("q", part), 6000)
+                // a door that does not know the question answers 404 and is skipped (iOS [P2P-COMPAT])
+                val rows = (if (code == 200 && text != null) runCatching { JSONObject(text).optJSONArray("last") }.getOrNull() else null) ?: continue
+                doors++
+                for (i in 0 until rows.length()) {
+                    val r = rows.optJSONObject(i) ?: continue
+                    val chat = chatOf[r.optString("conv")] ?: continue
+                    val env = r.optString("env"); val at = r.optLong("at")
+                    if (env.isNotEmpty() && (best[chat]?.second ?: 0L) < at) best[chat] = env to at
+                }
+            }
+        }
+        var words = 0
+        for ((chat, w) in best) {
+            val secret = Book.secret(chat) ?: continue
+            val sealed = runCatching { Base64.decode(w.first, Base64.DEFAULT) }.getOrNull() ?: continue
+            val plain = Wire.openBoxed(sealed, secret, w.second) ?: continue
+            val a = plain.indexOf(0); if (a < 0) continue
+            val b = (a + 1 until plain.size).firstOrNull { plain[it] == 0.toByte() } ?: continue
+            if (String(plain, a + 1, b - a - 1, Charsets.UTF_8) != "chat") continue
+            val text = inflate(plain.copyOfRange(b + 1, plain.size))?.takeIf { it.isNotEmpty() } ?: continue
+            Presence.stamp(chat, String(text, Charsets.UTF_8), w.second * 1000)
+            words++
+        }
+        Log.d("Montana", "presence_sweep convs=" + chatOf.size / 2 + " doors=" + doors + " words=" + words)
+    }
+
     private val holders = HashMap<String, MutableSet<String>>()
     private val running = HashMap<String, Int>()
 
@@ -384,6 +437,7 @@ object Presence {
     private const val TYPING_LIFE = 5_000L
     private const val WORD_LIFE = 45_000L
     const val BEAT = 20_000L
+    private const val CLOCK_SLACK = 2_000L   // iOS clockSlackS: two clocks and the node's whole second may differ by this much
 
     private val typingUntil = HashMap<String, Long>()
     private val inChatUntil = HashMap<String, Long>()
@@ -493,7 +547,7 @@ object Presence {
                 val payload = text.removePrefix(if (chat) WATCH else APP)
                 // THE DOORS THEY ASK (iOS ChatStore 3910-3912, WakePush 3252): my words for them go there
                 payload.indexOf('@').takeIf { it >= 0 }?.let { Signal.notePeerDoor(ref, payload.substring(it + 1)) }
-                Prefs.setBool("phide_$ref", payload.drop(1).contains('h'))
+                hides(ref, payload.drop(1).contains('h'), at ?: now)
                 val open = payload.startsWith("1")
                 if (age <= WORD_LIFE) Board.heardPresence(ref, payload)   // their wall's version (iOS heardHeld, wallHeard)
                 if (age <= WORD_LIFE) heardHeld(ref, payload)   // only a word said now says what their screen holds
@@ -507,8 +561,8 @@ object Presence {
                         if (!chat) onlineUntil.remove(ref)
                     }
                 }
-                if (!chat && payload.drop(1).startsWith("B")) Prefs.setBool("peerGone.$ref", true)
-                else if (open) Prefs.remove("peerGone.$ref")
+                if (!chat && payload.drop(1).startsWith("B")) gone(ref, at ?: now)
+                else if (open) back(ref, at ?: now)
             }
             else -> return
         }
@@ -525,6 +579,45 @@ object Presence {
     }
 
     private fun seenAt(ref: String) = Prefs.str("seenAt.$ref", "0").toLongOrNull() ?: 0L
+
+    /**
+     * A SWEPT WORD IS A STAMP (iOS sweepPresence 3232-3264): history never lights «online» or «in chat» (13.09 15:15 — a «1» swept
+     * twelve seconds after a phone locked lit «in chat» for a locked phone); it says when the peer was there, its hiding, its doors
+     * and «gone». The word's own moment stands unless it runs ahead of the node's by more than the clocks' slack: a clock set ahead
+     * said it, and the node's moment stands (iOS 24.09). A draft or a typing word is proof of the moment alone.
+     */
+    fun stamp(ref: String, text: String, nodeAt: Long) {
+        if (PeerSafety.isBlocked(ref)) return
+        val at = said(text)?.let { if (it - nodeAt > CLOCK_SLACK + 1000) nodeAt else it } ?: nodeAt
+        val app = text.startsWith(APP)
+        if (app || text.startsWith(WATCH)) {
+            val payload = text.removePrefix(if (app) APP else WATCH)
+            hides(ref, payload.drop(1).contains('h'), at)
+            payload.indexOf('@').takeIf { it >= 0 }?.let { Signal.notePeerDoor(ref, payload.substring(it + 1)) }
+            if (app && payload.drop(1).startsWith("B")) gone(ref, at) else if (app) back(ref, at)
+        }
+        noteSeen(ref, at)
+        changed()
+    }
+
+    /** THE PEER'S HIDING, BY ITS MOMENT (iOS notePeerHides 322-329): an older word never undoes a newer one. */
+    private fun hides(ref: String, h: Boolean, at: Long) {
+        if (at < (Prefs.str("phideAt_$ref", "0").toLongOrNull() ?: 0L)) return
+        Prefs.setStr("phideAt_$ref", at.toString())
+        Prefs.setBool("phide_$ref", h)
+    }
+    /** «GONE FOR GOOD» AND ITS END, BY THEIR MOMENTS (iOS peerGone / peerBack 1720-1732): a word older than the farewell ends nothing. */
+    private fun gone(ref: String, at: Long) {
+        if (at < goneAt(ref)) return
+        Prefs.setStr("peerGoneAt.$ref", at.toString())
+        Prefs.setBool("peerGone.$ref", true)
+        inChatUntil.remove(ref); typingUntil.remove(ref); onlineUntil.remove(ref)
+    }
+    private fun back(ref: String, at: Long) {
+        if (!Prefs.bool("peerGone.$ref", false) || at <= goneAt(ref)) return
+        Prefs.remove("peerGone.$ref"); Prefs.remove("peerGoneAt.$ref")
+    }
+    private fun goneAt(ref: String) = Prefs.str("peerGoneAt.$ref", "0").toLongOrNull() ?: 0L
 
     /** THE MOMENT BEHIND THE LINE, as a number to sort by (iOS presenceStamp): a live word above every stamp, «gone» at the bottom. */
     fun stamp(ref: String): Long {

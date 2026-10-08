@@ -255,6 +255,7 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume(); CallScreen.front = this; main.removeCallbacks(boxRound); main.post(boxRound); EarService.start(this)
         Thread { Update.look(applicationContext) }.start()   // a newer build on the site rings its notice (Update)
+        if (hasSeed && termsAccepted) Thread { Signal.sweep() }.start()   // every peer's last word, one question (iOS ContentView 471)
         Thread { CoinBook.warm(); CoinSend.settle(); ChessSend.settleAll() }.start()   // every coin letter the chats hold stands in the book (iOS MTCoinSend.settle)
     }
     // the ear stays when the app leaves the screen: EarService holds it (the app closed is heard as the app open)

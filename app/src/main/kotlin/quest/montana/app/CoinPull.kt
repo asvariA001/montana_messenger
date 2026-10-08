@@ -17,7 +17,9 @@ import android.widget.ImageView
  * a web page, refreshes — and what turns while it does is the Montana coin, face and back, the size of a row's avatar. The coin is not
  * there before the feed is drawn forty points; let go past 140 and the feed refreshes, short of it nothing; the turn is the pull — the
  * back up at the trigger, the whole round at 240, never a second one; let go past the trigger, the round it has begun completes in
- * 0.35 s while the feed keeps a gap of 82 open. The refresh is the activation road (iOS 829-831): the box asked, the queue drained.
+ * 0.35 s while the feed keeps a gap of 82 open. The refresh is the activation road (iOS pullRefresh 828-835): the box asked, the queue
+ * drained, the waiting files retried (Post.fetch), every peer's last word swept (Signal.sweep); the mesh needs no raising here — the
+ * channels are knocked every five seconds while the app lives (Channels.start), and Android has no extension's stash to drain.
  * One law for every page under the bar (iOS MontanaTimePanel 150-162): the page hands its list in and draws nothing of it itself.
  */
 class CoinPull(c: Context, private val list: View, private val onRefresh: () -> Unit = { activationRoad() }) : FrameLayout(c) {
@@ -33,7 +35,7 @@ class CoinPull(c: Context, private val list: View, private val onRefresh: () -> 
         fun angle(pull: Float) = 360f * ((pull - START) / (FULL - START)).coerceIn(0f, 1f)
 
         /** The activation road (iOS 829-831: drainInbox, onForeground, drainAll): the box asked, every waiting letter tried. */
-        fun activationRoad() { Thread { runCatching { Post.fetch() }; runCatching { Post.flush() } }.start() }
+        fun activationRoad() { Thread { runCatching { Post.fetch() }; runCatching { Signal.sweep() } }.start() }
     }
 
     private val density = resources.displayMetrics.density
