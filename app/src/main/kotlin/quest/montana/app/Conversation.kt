@@ -383,6 +383,9 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             pressable { if (editing != null) field.setText(""); replyTo = null; editing = null; this@hstack.visibility = View.GONE }
         }, lp(dp(36), dp(36)))
     }
+    // THE REPLY'S AND THE EDIT'S PLATE CARRIES THE EYE TO ITS LETTER ON A TAP (iOS build 1868, barPlate onTap — the pinned plate's road),
+    // the keys staying up; its cross keeps its own tap
+    strip.setOnClickListener { (editing ?: replyTo)?.let { toQuoted(it.mid) } }
     fun showStrip() {
         val r = replyTo; val e = editing
         strip.visibility = if (r == null && e == null) View.GONE else View.VISIBLE

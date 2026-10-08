@@ -108,7 +108,9 @@ object Wire {
      */
     fun putBlob(bid: String, data: ByteArray, cargo: String? = null, last: Boolean = false, assumeAbsent: Boolean = false): Boolean {
         if (!assumeAbsent && blobsHave(listOf(bid))?.contains(bid) == true) { Log.d("Montana", "blob_put already on the node id=" + bid.take(8)); return true }
-        return MontanaCard.doors.any { door -> putBlobAt(door, bid, data, cargo, last) }
+        // A CHUNK GOES TO THE NEXT LIVE DOOR THE MOMENT THE FIRST ONE DIES (iOS build 1894): the doors that answered on this path
+        // first, a resting one last, and every answer taught to the door book — a dead door held a piece its whole minute
+        return Signal.byProof(MontanaCard.doors).any { door -> putBlobAt(door, bid, data, cargo, last) }
     }
     /**
      * What the node already holds of these chunks (iOS blobsPresent, askHave 1945-1985): only the chunks asked about count — a store
@@ -127,7 +129,9 @@ object Wire {
     private fun putBlobAt(door: String, bid: String, data: ByteArray, cargo: String?, last: Boolean): Boolean {
         val body = JSONObject().put("bid", bid).put("data", Base64.encodeToString(data, Base64.NO_WRAP))
         if (cargo != null) { body.put("cg", cargo); if (last) body.put("last", true) }
-        return post(door, "/blob-put", body, 60_000).first == 200
+        val code = post(door, "/blob-put", body, 60_000).first
+        if (code == 200) Signal.doorAnswered(door) else Signal.doorFailed(door, code)
+        return code == 200
     }
 
     /** A blob of the node (iOS getBlob): POST /blob-get {bid} → {data}. */
