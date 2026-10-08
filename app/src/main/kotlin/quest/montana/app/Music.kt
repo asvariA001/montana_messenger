@@ -117,7 +117,7 @@ object MusicPlayer {
     private var app: Context? = null
     private val main = Handler(Looper.getMainLooper())
     val listeners = mutableListOf<() -> Unit>()
-    private fun said() = listeners.toList().forEach { it() }
+    private fun said() { listeners.toList().forEach { it() }; Playing.changed() }
     private fun changed() { said(); app?.let { MusicService.sync(it) } }
     val current: Track? get() = queue.getOrNull(index)
     var refused: (() -> Unit)? = null
@@ -196,13 +196,41 @@ fun fmtDuration(s: Double): String {
     return if (t >= 3600) String.format("%d:%02d:%02d", t / 3600, t % 3600 / 60, t % 60) else String.format("%d:%02d", t / 60, t % 60)
 }
 
-// ─────────────────────────── the mini player's face (iOS MTMiniFace, MTPlayerPlate) ───────────────────────────
+// ─────────────────────────── the one bar (iOS MontanaPlayerBar, MTMiniFace) ───────────────────────────
 
 /**
- * THE MINI'S FACE: the play on its square glass plate, the name inside the long glass plate with the length at its end.
- * On the bar the plate is the scrubber — it fills with a transparent grey as the track plays and a swipe along it takes the
- * music — with the fifteen-second skips beside it and the cross; on a row of the music list it stands still. The playing
- * track wears the platform's thin blue ring.
+ * WHAT PLAYS, ONE ANSWER (iOS MontanaPlayerBar.standing, the one gate): an open note, else a voice, else a track — the bar shows
+ * the first that stands; every player says its changes here, and every bar redraws from here. The speed is one for voices and
+ * notes (iOS voiceRate: 1 → 1.5 → 2, kept across launches).
+ */
+object Playing {
+    enum class Kind { TRACK, VOICE, NOTE }
+    val kind: Kind? get() = when {
+        NoteOpen.close != null -> Kind.NOTE
+        VoicePlayer.playing != null -> Kind.VOICE
+        MusicPlayer.current != null -> Kind.TRACK
+        else -> null
+    }
+    private val listeners = mutableListOf<() -> Unit>()
+    fun listen(l: () -> Unit) { synchronized(listeners) { listeners.add(l) } }
+    fun unlisten(l: () -> Unit) { synchronized(listeners) { listeners.remove(l) } }
+    fun changed() { MainThread.post { synchronized(listeners) { listeners.toList() }.forEach { it() } } }
+    var rate: Float
+        get() = Prefs.str("voiceRate", "1").toFloatOrNull() ?: 1f
+        set(v) = Prefs.setStr("voiceRate", v.toString())
+    /** One tap around 1 → 1.5 → 2 (iOS onSide), heard at once by the voice and the note. */
+    fun nextRate() {
+        rate = if (2f <= rate) 1f else if (1.5f <= rate) 2f else 1.5f
+        VoicePlayer.applyRate(); NoteOpen.applyRate?.invoke(); changed()
+    }
+    fun rateWord() = if (rate == 1f) "1×" else if (rate == 2f) "2×" else "1.5×"   // USER-DATA: a number, not a word
+}
+
+/**
+ * THE ONE MINI PLAYER (iOS MTMiniFace, the author's word 22.09): one face for the track, the voice and the video note — the play on
+ * its round glass plate, the long glass plate that is the scrubber with the name running inside it, at its end the track's timer
+ * (its two faces) or, for a voice and a note, the speed; for a track the fifteen-second skips beside it; and the cross. On a row of
+ * the music list it stands still. The playing track wears the platform's thin blue ring.
  */
 class MiniFace(ctx: Context, private val bar: Boolean) : LinearLayout(ctx) {
     private val h = dp(44)
@@ -214,6 +242,8 @@ class MiniFace(ctx: Context, private val bar: Boolean) : LinearLayout(ctx) {
     private val side = ctx.text("", 13f, MT.gray)
     private var remaining = false
     private var scrub: Double? = null
+    private var back15: View? = null
+    private var fwd15: View? = null
     var onSeek: (Double) -> Unit = {}
 
     init {
@@ -223,7 +253,7 @@ class MiniFace(ctx: Context, private val bar: Boolean) : LinearLayout(ctx) {
         play.background = ctx.glassPlate(oval = true)
         play.addView(playGlyph, FrameLayout.LayoutParams(dp(20), dp(20), Gravity.CENTER))
         addView(play, LayoutParams(h, h))
-        if (bar) addView(square(R.drawable.ic_back15) { MusicPlayer.skip(-15) }, LayoutParams(h, h).apply { marginStart = dp(10) })
+        if (bar) back15 = square(R.drawable.ic_back15) { MusicPlayer.skip(-15) }.also { addView(it, LayoutParams(h, h).apply { marginStart = dp(10) }) }
         plate.background = ctx.glassPlate()
         plate.clipToOutline = true
         plate.outlineProvider = object : android.view.ViewOutlineProvider() {
@@ -234,11 +264,20 @@ class MiniFace(ctx: Context, private val bar: Boolean) : LinearLayout(ctx) {
         plate.addView(side, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER_VERTICAL or Gravity.END).apply { marginEnd = dp(14) })
         addView(plate, LayoutParams(0, h, 1f).apply { marginStart = dp(10) })
         if (bar) {
-            addView(square(R.drawable.ic_fwd15) { MusicPlayer.skip(15) }, LayoutParams(h, h).apply { marginStart = dp(10) })
-            addView(square(R.drawable.ic_close) { MusicPlayer.stop() }, LayoutParams(h, h).apply { marginStart = dp(10) })
-            play.pressable { MusicPlayer.toggle() }
-            // THE PLATE IS THE SCRUBBER: the finger holds the value while it moves, the player is asked once, at the release;
-            // a tap on the side room turns the timer's two faces (the position, or the remaining time with a minus).
+            fwd15 = square(R.drawable.ic_fwd15) { MusicPlayer.skip(15) }.also { addView(it, LayoutParams(h, h).apply { marginStart = dp(10) }) }
+            addView(square(R.drawable.ic_close) {
+                when (Playing.kind) { Playing.Kind.NOTE -> NoteOpen.close?.invoke(); Playing.Kind.VOICE -> VoicePlayer.stop(); else -> MusicPlayer.stop() }
+            }, LayoutParams(h, h).apply { marginStart = dp(10) })
+            play.pressable {
+                when (Playing.kind) {
+                    Playing.Kind.NOTE -> NoteOpen.toggle?.invoke()
+                    Playing.Kind.VOICE -> if (VoicePlayer.paused) VoicePlayer.resume() else VoicePlayer.pause()
+                    else -> MusicPlayer.toggle()
+                }
+            }
+            onSeek = { f -> when (Playing.kind) { Playing.Kind.NOTE -> NoteOpen.seek?.invoke(f); Playing.Kind.VOICE -> VoicePlayer.seekTo(f); else -> MusicPlayer.seek(f) } }
+            // THE PLATE IS THE SCRUBBER: the finger holds the value while it moves, the player is asked once, at the release; a tap
+            // on the side room is the side's — the timer's two faces for a track, the speed for a voice and a note (iOS onSide)
             plate.setOnTouchListener { v, e ->
                 val f = (e.x / v.width).toDouble().coerceIn(0.0, 1.0)
                 when (e.actionMasked) {
@@ -246,7 +285,8 @@ class MiniFace(ctx: Context, private val bar: Boolean) : LinearLayout(ctx) {
                     MotionEvent.ACTION_MOVE -> { scrub = f; show(f); true }
                     MotionEvent.ACTION_UP -> {
                         val held = scrub; scrub = null
-                        if (held != null) onSeek(held) else if (e.x > v.width - dp(64)) { remaining = !remaining; show(MusicPlayer.fraction) }
+                        if (held != null) onSeek(held)
+                        else if (e.x > v.width - dp(64)) { if (Playing.kind == Playing.Kind.TRACK) { remaining = !remaining; live() } else Playing.nextRate() }
                         true
                     }
                     MotionEvent.ACTION_CANCEL -> { scrub = null; true }
@@ -270,17 +310,36 @@ class MiniFace(ctx: Context, private val bar: Boolean) : LinearLayout(ctx) {
         ring(isCurrent)
     }
 
-    /** The bar: the playing track, its place on the plate. */
+    /** The bar: whatever plays (Playing.kind), its name and its place on the plate. */
     fun live() {
-        val t = MusicPlayer.current ?: return
-        title.text = t.title   // USER-DATA: the track's own name
-        playGlyph.setImageResource(if (MusicPlayer.playing) R.drawable.ic_pause_fill else R.drawable.ic_play_fill)
-        if (scrub == null) show(MusicPlayer.fraction)
+        val kind = Playing.kind ?: return
+        val track = kind == Playing.Kind.TRACK
+        back15?.visibility = if (track) View.VISIBLE else View.GONE
+        fwd15?.visibility = if (track) View.VISIBLE else View.GONE
+        val sounding = when (kind) {
+            Playing.Kind.NOTE -> NoteOpen.sounding?.invoke() == true
+            Playing.Kind.VOICE -> !VoicePlayer.paused
+            Playing.Kind.TRACK -> MusicPlayer.playing
+        }
+        title.text = when (kind) {   // USER-DATA: the track's own name, or the speaker's name as the person sees it
+            Playing.Kind.NOTE -> NoteOpen.title
+            Playing.Kind.VOICE -> VoicePlayer.sender
+            Playing.Kind.TRACK -> MusicPlayer.current?.title.orEmpty()
+        }
+        playGlyph.setImageResource(if (sounding) R.drawable.ic_pause_fill else R.drawable.ic_play_fill)
+        if (scrub == null) show(when (kind) {
+            Playing.Kind.NOTE -> NoteOpen.fraction?.invoke() ?: 0.0
+            Playing.Kind.VOICE -> VoicePlayer.fraction
+            Playing.Kind.TRACK -> MusicPlayer.fraction
+        })
     }
 
     private fun show(f: Double) {
-        val d = MusicPlayer.duration
-        side.text = if (d <= 0) "" else if (remaining) "-" + fmtDuration(d - f * d) else fmtDuration(f * d)   // USER-DATA: a time
+        if (bar && Playing.kind != Playing.Kind.TRACK) side.text = Playing.rateWord()
+        else {
+            val d = MusicPlayer.duration
+            side.text = if (d <= 0) "" else if (remaining) "-" + fmtDuration(d - f * d) else fmtDuration(f * d)   // USER-DATA: a time
+        }
         val lp = fill.layoutParams as FrameLayout.LayoutParams
         val w = (plate.width * f).toInt()
         if (lp.width != w) { lp.width = w; fill.layoutParams = lp }
@@ -293,10 +352,16 @@ class MiniFace(ctx: Context, private val bar: Boolean) : LinearLayout(ctx) {
     }
 }
 
-/** THE FLOATING PLAYER at the foot of the chats, the feed and the music (iOS MontanaPlayerBar): shown while a track stands. */
-fun miniBar(act: MainActivity): MiniFace = MiniFace(act, bar = true).apply {
-    onSeek = { MusicPlayer.seek(it) }
-    visibility = View.GONE
+/** THE FLOATING PLAYER at the foot of the chats, the feed and the music (iOS MontanaPlayerBar): shown while anything plays. */
+fun miniBar(act: MainActivity): MiniFace = MiniFace(act, bar = true).apply { visibility = View.GONE }
+
+/** The one bar where a page stands on its own (the chat above its field, the open note): it follows Playing while attached. */
+fun liveBar(act: MainActivity): MiniFace = miniBar(act).apply {
+    val update: () -> Unit = { val on = Playing.kind != null; visibility = if (on) View.VISIBLE else View.GONE; if (on) live() }
+    addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+        override fun onViewAttachedToWindow(v: View) { Playing.listen(update); update() }
+        override fun onViewDetachedFromWindow(v: View) { Playing.unlisten(update) }
+    })
 }
 
 // ─────────────────────────── the music page (iOS MusicTabView) ───────────────────────────

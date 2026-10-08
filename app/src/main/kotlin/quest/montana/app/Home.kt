@@ -116,16 +116,16 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
         Pane.GROUPS to groupsPane(act, channel = false), Pane.CHANNELS to groupsPane(act, channel = true), Pane.MESH to meshPane(act), Pane.P2P to p2pPane(act))
     views.values.forEach { v -> v.visibility = View.GONE; panes.addView(v, FrameLayout.LayoutParams(MATCH, MATCH)) }
     views.getValue(Pane.CHATS).visibility = View.VISIBLE
-    // THE FLOATING PLAYER stands on the chats, the feed and the music while a track stands (iOS playerBar).
+    // THE FLOATING PLAYER stands on the chats, the feed and the music while anything plays (iOS playerBar).
     val player = miniBar(act)
     panes.addView(player, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM).apply { bottomMargin = c.dp(8) })
     fun showPlayer() {
-        val on = MusicPlayer.current != null && pane in setOf(Pane.CHATS, Pane.FEED, Pane.MUSIC)
+        val on = Playing.kind != null && pane in setOf(Pane.CHATS, Pane.FEED, Pane.MUSIC)
         player.visibility = if (on) View.VISIBLE else View.GONE
         if (on) player.live()
         music.reserve(on && pane == Pane.MUSIC)
     }
-    MusicPlayer.listeners += { if (player.isAttachedToWindow) showPlayer() }
+    Playing.listen { if (player.isAttachedToWindow) showPlayer() }   // a track, a voice or a note: the one gate (iOS MontanaPlayerBar.Gate)
     // THE ONE SEARCH (iOS searchResults, [C-1]): the same field and the same results stand on the chats, the contacts and the
     // calls pages; while the search is on, the system's back puts it away first.
     val results = SearchResults(act).apply { visibility = View.GONE }

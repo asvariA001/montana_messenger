@@ -95,40 +95,73 @@ object VoiceTape {
     }
 }
 
-/** ONE VOICE PLAYS AT A TIME (iOS the chat's one player): a new press stops the one before; a queue's next follows the end (iOS auto-next). */
+/**
+ * ONE VOICE PLAYS AT A TIME (iOS VoicePlayer, the chat's one player): a new voice stops the one before; a tap on the voice that
+ * plays rests it and plays it on (iOS: pause, not stop); a queue's next follows the end (iOS auto-next). The voice plays at the
+ * one speed of voices and notes (Playing.rate), says whose it is to the one bar (sender), and while it plays a track steps
+ * aside with its place and plays on after it (iOS stepAside, 26.09); a voice that starts closes an open note.
+ */
 object VoicePlayer {
     private var player: MediaPlayer? = null
     var playing: String? = null; private set
+    var paused = false; private set
+    var sender = ""; private set   // whose voice, as the person sees the name (iOS nowSender)
     private var onStop: (() -> Unit)? = null
+    private var progress: ((Int, Int) -> Unit)? = null
+    private var musicAside = false
 
-    fun toggle(path: String, onProgress: (Int, Int) -> Unit, stopped: () -> Unit, then: (() -> Unit)? = null) {
-        if (playing == path) { stop(); return }
+    /** This voice sounds now — not only chosen: a rested voice is chosen and silent. */
+    fun sounding(path: String?) = path != null && playing == path && !paused
+
+    fun toggle(path: String, onProgress: (Int, Int) -> Unit, stopped: () -> Unit, then: (() -> Unit)? = null, sender: String = "") {
+        if (playing == path) { if (paused) resume() else pause(); return }
         stop()
         NoteOpen.close?.invoke()   // one thing plays: a voice closes the open note (iOS MontanaVideoDock)
         val p = runCatching { MediaPlayer().apply { setDataSource(path); prepare() } }.getOrNull() ?: return
-        player = p; playing = path; onStop = stopped
+        if (MusicPlayer.playing) { MusicPlayer.pause(); musicAside = true }
+        player = p; playing = path; paused = false; onStop = stopped; progress = onProgress; this.sender = sender
         p.setOnCompletionListener { stop(); then?.invoke() }
-        p.start()
-        val tick = object : Runnable {
+        p.start(); speed(p)
+        tick(path)
+        Playing.changed()
+    }
+    // the speed is set on a sounding player only: on a rested one the platform starts it
+    private fun speed(p: MediaPlayer) { runCatching { p.playbackParams = p.playbackParams.setSpeed(Playing.rate) } }
+    fun applyRate() { val p = player ?: return; if (!paused) speed(p) }
+    private fun tick(path: String) {
+        val t = object : Runnable {
             override fun run() {
                 val cur = player ?: return
-                if (playing != path) return
-                onProgress(cur.currentPosition, cur.duration)
+                if (playing != path || paused) return
+                runCatching { progress?.invoke(cur.currentPosition, cur.duration) }
+                Playing.changed()
                 MainThread.later(100, this)
             }
         }
-        MainThread.later(0, tick)
+        MainThread.later(0, t)
+    }
+    fun pause() { val p = player ?: return; runCatching { p.pause() }; paused = true; Playing.changed() }
+    fun resume() {
+        val p = player ?: return
+        val path = playing ?: return
+        runCatching { p.start(); speed(p) }; paused = false; tick(path); Playing.changed()
     }
     fun seek(path: String, ms: Int) { if (playing == path) player?.seekTo(ms) }
+    fun seekTo(f: Double) { val p = player ?: return; runCatching { p.seekTo((f * p.duration).toInt()) }; Playing.changed() }
+    val fraction: Double get() = player?.let { p -> runCatching { p.currentPosition.toDouble() / maxOf(1, p.duration) }.getOrNull() } ?: 0.0
     fun stop() {
+        val had = player != null
         player?.runCatching { stop(); release() }
-        player = null; playing = null
+        player = null; playing = null; paused = false; progress = null
         onStop?.invoke(); onStop = null
+        // the track that stepped aside for the voice plays on from its place (iOS noteClosed, 26.09)
+        if (musicAside) { musicAside = false; if (!MusicPlayer.playing) MusicPlayer.resume() }
+        if (had) Playing.changed()
     }
 }
 
 /** A voice letter in its bubble: the play mark, the running line and the time (iOS MTVoiceBubble). */
-fun voiceBody(c: Context, m: Msg, du: Double, into: LinearLayout, wave: FloatArray? = null) {
+fun voiceBody(c: Context, m: Msg, du: Double, into: LinearLayout, wave: FloatArray? = null, chat: Chat? = null) {
     val tint = BubbleStyle.text(m.mine)
     val path = m.file?.takeIf { File(it).exists() }
     fun fmt(ms: Int) = "%d:%02d".format(ms / 60000, (ms / 1000) % 60)
@@ -142,7 +175,7 @@ fun voiceBody(c: Context, m: Msg, du: Double, into: LinearLayout, wave: FloatArr
         played = BubbleStyle.text(m.mine); rest = (BubbleStyle.time(m.mine) and 0x00FFFFFF) or 0x80000000.toInt()
     }
     val mark = ImageView(c).apply {
-        setImageResource(if (VoicePlayer.playing == path && path != null) R.drawable.ic_pause_fill else R.drawable.ic_play_fill)
+        setImageResource(if (VoicePlayer.sounding(path)) R.drawable.ic_pause_fill else R.drawable.ic_play_fill)
         imageTintList = android.content.res.ColorStateList.valueOf(tint)
         setPadding(c.dp(8), c.dp(8), c.dp(8), c.dp(8))
         alpha = if (path == null) 0.4f else 1f
@@ -150,13 +183,21 @@ fun voiceBody(c: Context, m: Msg, du: Double, into: LinearLayout, wave: FloatArr
     mark.setOnClickListener {
         // automatic download off, a voice of theirs waits: the play key asks for it (iOS: a tap starts the queued download)
         val p = path ?: run { if (Media.waiting(c, m)) Media.tapped(c, m); return@setOnClickListener }
+        // USER-DATA: whose voice it is, as the one bar names it (iOS nowSender)
+        val who = if (m.mine) Prefs.userName.trim() else chat?.shown.orEmpty()
         VoicePlayer.toggle(p, onProgress = { cur, dur -> bar.progress = cur.toFloat() / maxOf(1, dur); time.text = fmt(cur) },
-            stopped = { mark.setImageResource(R.drawable.ic_play_fill); bar.progress = 0f; time.text = fmt(total) })
-        mark.setImageResource(if (VoicePlayer.playing == p) R.drawable.ic_pause_fill else R.drawable.ic_play_fill)
+            stopped = { mark.setImageResource(R.drawable.ic_play_fill); bar.progress = 0f; time.text = fmt(total) }, sender = who)
+        mark.setImageResource(if (VoicePlayer.sounding(p)) R.drawable.ic_pause_fill else R.drawable.ic_play_fill)
         // their voice played here: its sender is told once, silently (iOS notePlayed) — the road to their «Listened»
         if (!m.mine && VoicePlayer.playing == p) Thread { Post.notePlayed(m.mid) }.start()
     }
     bar.onSeek = { f -> if (path != null) VoicePlayer.seek(path, (f * total).toInt()) }
+    // the bar rests and plays this voice too: the play mark follows what the one player does (iOS: the bubble reads the one player)
+    val follow: () -> Unit = { mark.setImageResource(if (VoicePlayer.sounding(path)) R.drawable.ic_pause_fill else R.drawable.ic_play_fill) }
+    mark.addOnAttachStateChangeListener(object : android.view.View.OnAttachStateChangeListener {
+        override fun onViewAttachedToWindow(v: android.view.View) { Playing.listen(follow) }
+        override fun onViewDetachedFromWindow(v: android.view.View) { Playing.unlisten(follow) }
+    })
     into.addView(c.hstack {
         gravity = Gravity.CENTER_VERTICAL
         addView(mark, lp(c.dp(40), c.dp(40)))

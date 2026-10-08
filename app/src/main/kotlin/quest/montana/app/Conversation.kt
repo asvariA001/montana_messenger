@@ -1024,6 +1024,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             addView(scroll, lp(MATCH, 0, 1f))
             addView(strip, lp())
             addView(stagedStrip, lp())
+            addView(liveBar(act), lp().apply { bottomMargin = dp(2) })   // the one player bar above the field (iOS MontanaPlayerBar in the chat)
             addView(recStrip, lp())
             addView(bar.apply { if ((group && !Groups.canWrite(ref)) || Post.closed(ref)) visibility = View.GONE }, lp())
             addView(closedNote, lp())
@@ -1388,7 +1389,7 @@ private fun mediaBody(c: Context, m: Msg, into: LinearLayout, chat: Chat? = null
     val tint = BubbleStyle.text(m.mine)
     if (kind == "aud") {
         val wv = man?.optString("wv")?.takeIf { it.isNotEmpty() }?.let { runCatching { android.util.Base64.decode(it, android.util.Base64.DEFAULT) }.getOrNull() }
-        voiceBody(c, m, man?.optDouble("du", 0.0) ?: 0.0, into, wv?.let { b -> FloatArray(b.size) { (b[it].toInt() and 0xFF) / 255f } })
+        voiceBody(c, m, man?.optDouble("du", 0.0) ?: 0.0, into, wv?.let { b -> FloatArray(b.size) { (b[it].toInt() and 0xFF) / 255f } }, chat)
         return
     }
     if (kind == "vid" && man?.optBoolean("r") == true) { noteBody(c, m, f, man, into, chat); return }
@@ -1546,8 +1547,19 @@ private fun noteBody(c: Context, m: Msg, f: java.io.File?, man: JSONObject?, int
     (into.background as? android.graphics.drawable.Drawable)?.let { into.background = null; into.setPadding(0, 0, 0, 0) }
 }
 
-/** The open note's close, while one stands: one thing plays — a voice that starts closes it (iOS VoicePlayer, MontanaVideoDock). */
-object NoteOpen { var close: (() -> Unit)? = null }
+/**
+ * THE OPEN NOTE'S HANDLES, while one stands (iOS MontanaVideoDock): its close — a voice that starts closes it — and what the one bar
+ * asks of it: rest and play, the place, the speed, the name. Set by the open note, cleared when it closes.
+ */
+object NoteOpen {
+    var close: (() -> Unit)? = null
+    var toggle: (() -> Unit)? = null
+    var seek: ((Double) -> Unit)? = null
+    var fraction: (() -> Double)? = null
+    var sounding: (() -> Boolean)? = null
+    var applyRate: (() -> Unit)? = null
+    var title = ""
+}
 
 /**
  * THE NOTE'S OPEN SIZE, one rule for the player and the recorder (iOS MontanaNoteOpen.side 1558-1566, the author's word 15.09): as
@@ -1561,6 +1573,9 @@ internal fun noteSide(c: Context): Int {
     val reach = ((0.5 + 72.0 / 400.0 / 3) / Math.sqrt(2.0) + 72.0 / 400.0).toFloat()   // iOS badgeReach + badgeRadius, in sides from the centre
     return c.dp(maxOf(120f, minOf((w / 2 - 6) / reach, w - 36, h - 40)).toInt())
 }
+
+/** A note is a spoken word: it plays at the voice's speed (iOS: one speed for both); set on a sounding player only. */
+private fun speed(p: android.media.MediaPlayer) { runCatching { p.playbackParams = p.playbackParams.setSpeed(Playing.rate) } }
 
 private fun roundNote(m: Msg): Boolean {
     if (!m.text.startsWith(Marks.MEDIA)) return false
@@ -1594,29 +1609,28 @@ private fun playNote(act: MainActivity, f: java.io.File, chat: Chat?) {
         addView(ring, FrameLayout.LayoutParams(side + c.dp(16), side + c.dp(16), Gravity.CENTER))
         addView(tv.round(), FrameLayout.LayoutParams(side, side, Gravity.CENTER))
         addView(glyph, FrameLayout.LayoutParams(c.dp(54), c.dp(54), Gravity.CENTER))
-        setOnClickListener {
-            val p = player ?: return@setOnClickListener
-            if (p.isPlaying) { p.pause(); glyph.visibility = View.VISIBLE } else { p.start(); glyph.visibility = View.GONE }
-        }
+        setOnClickListener { NoteOpen.toggle?.invoke() }
     }
     val page = FrameLayout(c).apply {
         setBackgroundColor(Color.argb(158, 0, 0, 0))   // iOS black 0.62: a tap on it closes the note
         setOnClickListener { close() }
         addView(circle, FrameLayout.LayoutParams(side + c.dp(16), side + c.dp(16), Gravity.CENTER))
+        // THE BAR BELOW OWNS SEEK, SPEED AND CLOSE (iOS MontanaNoteOpen, MontanaPlayerBar): the one bar at the foot of the note's stage
+        addView(liveBar(act).apply { isClickable = true }, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM).apply { bottomMargin = c.dp(16) })
     }
     tv.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
         override fun onSurfaceTextureAvailable(st: android.graphics.SurfaceTexture, sw: Int, sh: Int) {
             player = runCatching { android.media.MediaPlayer().apply {
-                setDataSource(current.path); setSurface(android.view.Surface(st)); prepare(); start()
+                setDataSource(current.path); setSurface(android.view.Surface(st)); prepare(); start(); speed(this)
                 // the end opens the chat's next note (the voice's own law), else closes this one (iOS 1431-1442)
                 setOnCompletionListener { mp ->
                     val i = notes.indexOfFirst { it.path == current.path }
                     val next = if (0 <= i) notes.getOrNull(i + 1) else null
                     if (next == null) close()
-                    else runCatching { mp.reset(); mp.setDataSource(next.path); mp.prepare(); mp.start(); current = next; ring.progress = 0f }.onFailure { close() }
+                    else runCatching { mp.reset(); mp.setDataSource(next.path); mp.prepare(); mp.start(); speed(mp); current = next; ring.progress = 0f; Playing.changed() }.onFailure { close() }
                 }
             } }.getOrNull()
-            val tick = object : Runnable { override fun run() { val p = player ?: return; runCatching { ring.progress = p.currentPosition.toFloat() / maxOf(1, p.duration) }; MainThread.later(50, this) } }
+            val tick = object : Runnable { override fun run() { val p = player ?: return; runCatching { ring.progress = p.currentPosition.toFloat() / maxOf(1, p.duration) }; Playing.changed(); MainThread.later(100, this) } }
             MainThread.later(50, tick)
         }
         override fun onSurfaceTextureSizeChanged(st: android.graphics.SurfaceTexture, sw: Int, sh: Int) {}
@@ -1624,8 +1638,25 @@ private fun playNote(act: MainActivity, f: java.io.File, chat: Chat?) {
         override fun onSurfaceTextureUpdated(st: android.graphics.SurfaceTexture) {}
     }
     val done = act.overlay(page)
-    close = { player?.runCatching { stop(); release() }; player = null; NoteOpen.close = null; done(); if (musicWas && !MusicPlayer.playing) MusicPlayer.resume() }
+    close = {
+        player?.runCatching { stop(); release() }; player = null
+        NoteOpen.close = null; NoteOpen.toggle = null; NoteOpen.seek = null; NoteOpen.fraction = null; NoteOpen.sounding = null; NoteOpen.applyRate = null
+        done(); if (musicWas && !MusicPlayer.playing) MusicPlayer.resume()
+        Playing.changed()
+    }
     NoteOpen.close = close
+    NoteOpen.title = chat?.shown.orEmpty()   // USER-DATA: whose note, as the bar names it
+    NoteOpen.toggle = {
+        player?.let { p ->
+            if (p.isPlaying) { p.pause(); glyph.visibility = View.VISIBLE } else { p.start(); speed(p); glyph.visibility = View.GONE }
+            Playing.changed()
+        }
+    }
+    NoteOpen.seek = { f -> player?.let { p -> runCatching { p.seekTo((f * p.duration).toInt()) } }; Playing.changed() }
+    NoteOpen.fraction = { player?.let { p -> runCatching { p.currentPosition.toDouble() / maxOf(1, p.duration) }.getOrNull() } ?: 0.0 }
+    NoteOpen.sounding = { player?.let { p -> runCatching { p.isPlaying }.getOrNull() } == true }
+    NoteOpen.applyRate = { player?.let { p -> if (runCatching { p.isPlaying }.getOrNull() == true) speed(p) } }
+    Playing.changed()
 }
 
 
