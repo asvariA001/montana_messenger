@@ -160,7 +160,15 @@ object VoicePlayer {
     }
 }
 
-/** A voice letter in its bubble: the play mark, the running line and the time (iOS MTVoiceBubble). */
+/**
+ * A VOICE MESSAGE IS A CAPSULE OF OUR LETTERS' GLASS (iOS voiceCapsuleBubble, MontanaBubble 948-1069 at build 2155; the author's
+ * words 28.09): the letter's own fill and rim at the call bubble's height (rowPlate 54) in the shape of a capsule; in it the play
+ * glyph on the round of glass (40, MTVoiceRound), the voice's wave as long as the voice — 60 points and 8 a second, never under 76
+ * nor past four fifths of the window less 111 — in 2-point lines at a 4-point pitch, light blue on one's own and white on theirs,
+ * whole at rest and filling while it plays; its length, the place while it plays. A tap anywhere on the capsule plays and rests it;
+ * the finger on the wave takes the place. Under it the microphone with the length and the stamp stand on their quiet pills
+ * (MTVoicePill, letterBubble).
+ */
 fun voiceBody(c: Context, m: Msg, du: Double, into: LinearLayout, wave: FloatArray? = null, chat: Chat? = null) {
     val tint = BubbleStyle.text(m.mine)
     val path = m.file?.takeIf { File(it).exists() }
@@ -169,15 +177,21 @@ fun voiceBody(c: Context, m: Msg, du: Double, into: LinearLayout, wave: FloatArr
     val total = if (du > 0) (du * 1000).toInt() else path?.let { p ->
         runCatching { android.media.MediaMetadataRetriever().use { r -> r.setDataSource(p); r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toInt() } }.getOrNull()
     } ?: 0
-    val time = c.text(fmt(total), 13f, BubbleStyle.time(m.mine))
+    val d = c.resources.displayMetrics.density
+    val window = c.resources.displayMetrics.widthPixels / d
+    val waveDp = minOf(maxOf(76f, window * 0.8f - 111f), maxOf(76f, 60f + total / 1000f * 8f))
+    val ink = if (m.mine) Color.rgb(158, 222, 255) else Color.WHITE   // iOS (0.62, 0.87, 1.0) on one's own, white on theirs
+    val time = c.text(fmt(total), 13f, MT.withAlpha(BubbleStyle.text(m.mine), 0.85f)).apply { fontFeatureSettings = "tnum" }
     val bar = WaveView(c).apply {
-        bars = wave?.takeIf { it.isNotEmpty() } ?: FloatArray(60) { 0.25f }
-        played = BubbleStyle.text(m.mine); rest = (BubbleStyle.time(m.mine) and 0x00FFFFFF) or 0x80000000.toInt()
+        bars = resampleWave(wave, maxOf(8, (waveDp / 4).toInt()))
+        barDp = 2f
+        played = ink; rest = MT.withAlpha(ink, if (VoicePlayer.playing == path && path != null) 0.4f else 0.9f)
     }
     val mark = ImageView(c).apply {
         setImageResource(if (VoicePlayer.sounding(path)) R.drawable.ic_pause_fill else R.drawable.ic_play_fill)
-        imageTintList = android.content.res.ColorStateList.valueOf(tint)
-        setPadding(c.dp(8), c.dp(8), c.dp(8), c.dp(8))
+        imageTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
+        background = c.voiceRoundPlate()   // the round of glass with the quiet prism sheen (iOS MTVoiceRound)
+        setPadding(c.dp(12), c.dp(12), c.dp(12), c.dp(12))
         alpha = if (path == null) 0.4f else 1f
     }
     mark.setOnClickListener {
@@ -186,25 +200,38 @@ fun voiceBody(c: Context, m: Msg, du: Double, into: LinearLayout, wave: FloatArr
         // USER-DATA: whose voice it is, as the one bar names it (iOS nowSender)
         val who = if (m.mine) Prefs.userName.trim() else chat?.shown.orEmpty()
         VoicePlayer.toggle(p, onProgress = { cur, dur -> bar.progress = cur.toFloat() / maxOf(1, dur); time.text = fmt(cur) },
-            stopped = { mark.setImageResource(R.drawable.ic_play_fill); bar.progress = 0f; time.text = fmt(total) }, sender = who)
+            stopped = { mark.setImageResource(R.drawable.ic_play_fill); bar.progress = 0f; bar.rest = MT.withAlpha(ink, 0.9f); time.text = fmt(total) }, sender = who)
+        bar.rest = MT.withAlpha(ink, 0.4f)
         mark.setImageResource(if (VoicePlayer.sounding(p)) R.drawable.ic_pause_fill else R.drawable.ic_play_fill)
         // their voice played here: its sender is told once, silently (iOS notePlayed) — the road to their «Listened»
         if (!m.mine && VoicePlayer.playing == p) Thread { Post.notePlayed(m.mid) }.start()
     }
     bar.onSeek = { f -> if (path != null) VoicePlayer.seek(path, (f * total).toInt()) }
     // the bar rests and plays this voice too: the play mark follows what the one player does (iOS: the bubble reads the one player)
-    val follow: () -> Unit = { mark.setImageResource(if (VoicePlayer.sounding(path)) R.drawable.ic_pause_fill else R.drawable.ic_play_fill) }
+    val follow: () -> Unit = {
+        mark.setImageResource(if (VoicePlayer.sounding(path)) R.drawable.ic_pause_fill else R.drawable.ic_play_fill)
+        val chosen = path != null && VoicePlayer.playing == path
+        val want = MT.withAlpha(ink, if (chosen) 0.4f else 0.9f)
+        if (bar.rest != want) bar.rest = want
+    }
     mark.addOnAttachStateChangeListener(object : android.view.View.OnAttachStateChangeListener {
         override fun onViewAttachedToWindow(v: android.view.View) { Playing.listen(follow) }
         override fun onViewDetachedFromWindow(v: android.view.View) { Playing.unlisten(follow) }
     })
+    // the capsule: the letter's own plate is laid down and the capsule wears it, the pills stand under it on the feed
+    into.background = null
+    into.setPadding(0, 0, 0, 0)
     into.addView(c.hstack {
         gravity = Gravity.CENTER_VERTICAL
-        addView(mark, lp(c.dp(40), c.dp(40)))
-        addView(if (path == null) android.widget.ProgressBar(c).apply { isIndeterminate = true } else bar, lp(c.dp(150), WRAP))
-        addView(time, lp(WRAP, WRAP).apply { marginStart = c.dp(4) })
+        background = BubbleStyle.capsule(c, m.mine)
+        minimumHeight = c.dp(54)
+        setPadding(c.dp(8), 0, c.dp(14), 0)
+        addView(android.widget.FrameLayout(c).apply { addView(mark, android.widget.FrameLayout.LayoutParams(c.dp(40), c.dp(40), Gravity.CENTER)) }, lp(c.dp(44), c.dp(44)))
+        addView(if (path == null) android.widget.ProgressBar(c).apply { isIndeterminate = true } else bar,
+            lp(if (path == null) c.dp(28) else c.dp(waveDp.toInt()), WRAP).apply { marginStart = c.dp(3) })
+        addView(time, lp(WRAP, WRAP).apply { marginStart = c.dp(8) })
+        setOnClickListener { mark.performClick() }   // the whole capsule plays (iOS primaryTap: «a tap anywhere on the bubble»)
     }, LinearLayout.LayoutParams(WRAP, WRAP))
-    if (path == null) into.getChildAt(into.childCount - 1).let { (it as LinearLayout).getChildAt(1).layoutParams.width = c.dp(28) }
 }
 
 
@@ -216,7 +243,8 @@ class WaveView(c: Context) : View(c) {
     var bars = FloatArray(0); set(v) { field = v; invalidate() }
     var progress = 0f; set(v) { field = v; invalidate() }
     var played = Color.WHITE
-    var rest = Color.GRAY
+    var rest = Color.GRAY; set(v) { field = v; invalidate() }
+    var barDp = 3f   // the line's width; the capsule's wave draws 2 at a 4-point pitch (iOS 1044)
     var onSeek: ((Float) -> Unit)? = null
     private var live: ArrayList<Float>? = null
     private var peak = 4000f / 32767   // iOS referenceFull: −18 dBFS is the whole height
@@ -243,7 +271,7 @@ class WaveView(c: Context) : View(c) {
     override fun onMeasure(w: Int, h: Int) = setMeasuredDimension(MeasureSpec.getSize(w), dp(28))
 
     override fun onDraw(canvas: android.graphics.Canvas) {
-        val w = dp(3).toFloat(); val gap = dp(2).toFloat()
+        val w = barDp * resources.displayMetrics.density; val gap = dp(2).toFloat()
         paint.strokeWidth = w
         val mid = height / 2f; val maxH = height - w
         val l = live
@@ -266,5 +294,17 @@ class WaveView(c: Context) : View(c) {
             canvas.drawLine(x, mid - h / 2 + w / 2, x, mid + h / 2 - w / 2, paint)
         }
         paint.strokeWidth = minOf(w, step * 0.6f)
+    }
+}
+
+/** The voice's samples as the capsule's lines: each line the loudest of its share of the samples; a flat quiet line with none. */
+fun resampleWave(src: FloatArray?, n: Int): FloatArray {
+    if (src == null || src.isEmpty()) return FloatArray(n) { 0.25f }
+    return FloatArray(n) { i ->
+        val a = i * src.size / n
+        val b = maxOf(a + 1, (i + 1) * src.size / n)
+        var top = 0f
+        for (j in a until minOf(b, src.size)) top = maxOf(top, src[j])
+        top
     }
 }

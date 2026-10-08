@@ -70,6 +70,8 @@ object BubbleStyle {
 
     /** The bubble's fill and rim (iOS MTBubbleStyle.fill / outline, the native skin). */
     fun drawable(c: Context, mine: Boolean): Drawable = BubbleDrawable(c.dp(18).toFloat(), c.resources.displayMetrics.density, mine, style)
+    /** The letter's own fill and rim at the call bubble's height (54): the shape at that height is a capsule (iOS voiceCapsuleBubble). */
+    fun capsule(c: Context, mine: Boolean): Drawable = BubbleDrawable(c.dp(27).toFloat(), c.resources.displayMetrics.density, mine, style)
 
     private class BubbleDrawable(val radius: Float, val density: Float, val mine: Boolean, val style: String) : Drawable() {
         private val fill = Paint(Paint.ANTI_ALIAS_FLAG)

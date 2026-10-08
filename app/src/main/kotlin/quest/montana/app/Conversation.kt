@@ -110,6 +110,15 @@ private fun rowPoster(c: Context, m: Msg, kind: String): android.graphics.Bitmap
  * quiet prism sheen (MTVoiceRound), the round note's window with its poster (MontanaNoteFrame), the photo and the video's
  * poster, and the quiet plate with the system's glyph for music, a file, a link.
  */
+/** THE VOICE'S ROUND OF GLASS, ONE OWNER (iOS MTVoiceRound, MontanaBubble 3379-3397): the glass circle, the quiet prism sheen (cyan,
+ *  purple, pink at 0.22) and the thin rim — the capsule's round in the feed and the list's thumbnail of a voice. */
+fun Context.voiceRoundPlate(): android.graphics.drawable.Drawable = android.graphics.drawable.LayerDrawable(arrayOf(glassPlate(oval = true), GradientDrawable().apply {
+    shape = GradientDrawable.OVAL
+    gradientType = GradientDrawable.SWEEP_GRADIENT
+    colors = intArrayOf(Color.argb(56, 50, 173, 230), Color.argb(56, 175, 82, 222), Color.argb(56, 255, 45, 85), Color.argb(56, 50, 173, 230))
+    setStroke(1, Color.argb(89, 255, 255, 255))
+}))
+
 fun Context.letterThumb(m: Msg, kind: String, sideDp: Int = 20): View {
     val side = dp(sideDp)
     fun plate(glyph: Int) = FrameLayout(this).apply {
@@ -118,12 +127,7 @@ fun Context.letterThumb(m: Msg, kind: String, sideDp: Int = 20): View {
     }
     return when (kind) {
         "aud" -> FrameLayout(this).apply {
-            background = android.graphics.drawable.LayerDrawable(arrayOf(glassPlate(oval = true), GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                gradientType = GradientDrawable.SWEEP_GRADIENT
-                colors = intArrayOf(Color.argb(56, 50, 173, 230), Color.argb(56, 175, 82, 222), Color.argb(56, 255, 45, 85), Color.argb(56, 50, 173, 230))
-                setStroke(1, Color.argb(89, 255, 255, 255))
-            }))
+            background = voiceRoundPlate()
             addView(icon(R.drawable.ic_play_fill, Color.WHITE), FrameLayout.LayoutParams(side * 2 / 5, side * 2 / 5, Gravity.CENTER))
         }
         "vnote", "img", "vid" -> {
@@ -1311,13 +1315,31 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
             else addView(c.text(letterWords(c, m.text), 16f, BubbleStyle.text(mine)).apply { maxWidth = dp(260); setTextIsSelectable(false) }, lp(WRAP, WRAP))   // USER-DATA: the letter
             // THE LINK'S CARD UNDER THE WORDS (iOS the link card in the bubble), drawn from the letter's own bytes
             LinkCard.parse(m.lp)?.let { addView(linkCardView(c, it, mine), lp(WRAP, WRAP)) }
+            // A VOICE'S STAMP STANDS UNDER ITS CAPSULE (iOS voiceCapsuleBubble 982-994): the microphone with the length and the stamp,
+            // each on its quiet pill (MTVoicePill: black 0.38, a white 0.18 rim), white, on the feed under the capsule
+            val voiceMan = if (m.text.startsWith(Marks.MEDIA)) (m.meta?.let { runCatching { JSONObject(it) }.getOrNull() } ?: Media.inline(m.text)) else null
+            val voice = 1 == members.size && voiceMan?.optString("k") == "aud"
+            val metaInk = if (voice) Color.WHITE else BubbleStyle.time(mine)
+            fun pill(v: View) = v.apply {
+                background = GradientDrawable().apply { cornerRadius = dp(100).toFloat(); setColor(Color.argb(97, 0, 0, 0)); setStroke(1, Color.argb(46, 255, 255, 255)) }
+                setPadding(dp(8), dp(3), dp(8), dp(3))
+            }
             if (!call) addView(c.hstack {
                 gravity = Gravity.CENTER_VERTICAL
-                if (m.edited) addView(c.text(c.getString(R.string.edited) + " ", 11f, BubbleStyle.time(mine)))
-                addView(c.text(android.text.format.DateFormat.getTimeFormat(c).format(Date(m.at)), 11f, BubbleStyle.time(mine)))
-                // no ticks in the bubble (iOS 15.47): the words stand under the last own letter; only «not sent» marks the corner
-                if (mine && m.state == -1) addView(c.failedMark(), lp(dp(12), dp(12)).apply { marginStart = dp(4) })
-            }, lp(WRAP, WRAP))
+                if (voice) addView(pill(c.hstack {
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(c.icon(R.drawable.ic_mic, Color.WHITE, 10), lp(dp(10), dp(10)).apply { marginEnd = dp(4) })
+                    addView(c.text(fmtDuration(voiceMan?.optDouble("du", 0.0) ?: 0.0), 11f, Color.WHITE).apply { fontFeatureSettings = "tnum" })   // USER-DATA: a duration
+                }), lp(WRAP, WRAP).apply { marginEnd = dp(4) })
+                val meta = c.hstack {
+                    gravity = Gravity.CENTER_VERTICAL
+                    if (m.edited) addView(c.text(c.getString(R.string.edited) + " ", 11f, metaInk))
+                    addView(c.text(android.text.format.DateFormat.getTimeFormat(c).format(Date(m.at)), 11f, metaInk))
+                    // no ticks in the bubble (iOS 15.47): the words stand under the last own letter; only «not sent» marks the corner
+                    if (mine && m.state == -1) addView(c.failedMark(), lp(dp(12), dp(12)).apply { marginStart = dp(4) })
+                }
+                addView(if (voice) pill(meta) else meta, lp(WRAP, WRAP))
+            }, lp(WRAP, WRAP).apply { if (voice) topMargin = dp(8) })
         }, lp(WRAP, WRAP))
         if (m.reactions.isNotEmpty()) addView(c.hstack {
             m.reactions.groupingBy { it }.eachCount().forEach { (e, n) ->
