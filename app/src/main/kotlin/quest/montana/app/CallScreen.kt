@@ -54,8 +54,7 @@ import kotlin.math.roundToInt
  * and the red end over every page.
  */
 object CallScreen {
-    private const val SIDE = 76   // iOS grid() default (MontanaCall.swift 6509-6514, 6990): the ring and pill's own circle
-    private const val COL = 100   // the ring's own column; the live call's grid now cuts its own from the width (gridMetrics)
+    private const val SIDE = 76   // the face's construction default (MontanaCall.swift 6990); CallGrid and RingGrid cut the live circle from the width before the first draw
     private const val MINI_W = 110   // iOS MTCallMini: the corner picture's fixed frame
     private const val MINI_H = 156
     private const val FOLD_MS = 6000L   // iOS chromeFoldS: a video call's buttons step aside after six untouched seconds
@@ -110,7 +109,7 @@ object CallScreen {
         val name = Book.chat(ref)?.shown?.ifBlank { null } ?: c.getString(R.string.peer)
         val title = if (Calls.ringVideo()) R.string.call_title_video else R.string.call_title_audio
         val column = c.vstack(Gravity.CENTER_HORIZONTAL) {
-            gap(22)
+            addView(NotchGap(c), lp(MATCH, WRAP))
             addView(c.hstack {
                 gravity = Gravity.CENTER_VERTICAL
                 addView(c.icon(R.drawable.ic_dot, SysColor.green, 11), lp(dp(11), dp(11)).apply { marginEnd = dp(6) })
@@ -119,13 +118,13 @@ object CallScreen {
             gap(10)
             addView(bigName(c, name), lp(MATCH, dp(52)).apply { leftMargin = dp(16); rightMargin = dp(16) })
             addView(View(c), lp(MATCH, 0, 1f))
-            // iOS 6520-6527: Decline and Accept, seventy-two apart
+            // iOS incomingScreen 6566-6574: Decline and Accept wear the live call's own grid(_:) circle, seventy-two apart
             val decline = button(c, R.string.call_decline, R.drawable.ic_phone_down, SysColor.red, { false }) { Thread { Calls.hangUp() }.start() }
             val accept = button(c, R.string.call_accept, R.drawable.ic_peer_phone, SysColor.green, { false }) {
                 val cl = close; close = null; ringing = false; cl?.invoke()
                 act.answerCall()
             }
-            addView(c.hstack { addView(decline, lp(dp(COL), WRAP)); gap(72); addView(accept, lp(dp(COL), WRAP)) }, lp(WRAP, WRAP))
+            addView(RingGrid(c, listOf(decline, accept)), lp(WRAP, WRAP))
             gap(46)
         }
         return Page(c).apply {
@@ -264,6 +263,8 @@ object CallScreen {
             pressable { performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY); CallLine.stopShare() }
         }
         videoLit = { listOf(videoBtn, shareBtn).forEach { b -> b.tag?.let { (it as () -> Unit)() } } }
+        // «Swap» while a second call waits parked (iOS model.hasParked, MontanaCall.swift 6854-6856) has no road here:
+        // Calls carries one line only, so Hold stays Hold -- there is never a second call to swap to.
         val holdBtn = button(c, R.string.call_hold, R.drawable.ic_pause_fill, null, { CallLine.held }) { CallLine.setHeld(!CallLine.held) }
         hold = { holdBtn.tag?.let { (it as () -> Unit)() } }
         // iOS grid(_:) (6506-6515) cuts the circle, the column and the gap from the width; the row (6835-6905) stands
@@ -336,15 +337,19 @@ object CallScreen {
             miniBox.visibility = if (shown) View.VISIBLE else View.GONE
             shade.visibility = if (!shown && !CallLine.peerSharing) View.VISIBLE else View.GONE
         }
-        // THE CORNER PICTURE'S PLACE (iOS MTCallMini.center, MontanaCall.swift 6325-6339): ten points under the top row's
-        // measured bottom (c4431becfb2f) — the bottom corners always reach the safe bottom, fourteen off it: the picture is a
-        // layer under the buttons now (5412540aa627), never clamped above the grid's top
+        // THE CORNER PICTURE'S PLACE, THE 2155 FORM (iOS MTCallMini, MontanaCall.swift 6321-6338): one fact for each edge,
+        // read off chromeVisible, not a number measured a frame late -- the top panel up: ten points under its measured
+        // bottom; buttons up (CallUIModel.buttonsTop, 6879-6880): ten points over the grid's own measured top; either
+        // edge down: fourteen off the safe side. Where the buttons stand, the touch is theirs (6406-6428, blockRect):
+        // Android needs no such mask -- column is laid out after pictures, so a button under the finger claims the
+        // touch before it ever reaches miniBox underneath.
         var placed = false
         fun placeMini(glide: Boolean) {
             if (miniBox.visibility != View.VISIBLE || pictures.width == 0) return
             val up = column.visibility == View.VISIBLE
             val topEdge = if (up && events.bottom > 0) events.bottom + c.dp(10) else column.paddingTop + c.dp(14)
-            val bottomEdge = pictures.height - column.paddingBottom - c.dp(14)
+            val raised = if (grid.top > 0) grid.top - c.dp(10) else pictures.height - column.paddingBottom - c.dp(220)
+            val bottomEdge = if (up) raised else pictures.height - column.paddingBottom - c.dp(14)
             val x = (if (corner % 2 == 0) c.dp(14) else pictures.width - c.dp(14) - c.dp(MINI_W)).toFloat()
             val y = (if (corner < 2) topEdge else maxOf(topEdge, bottomEdge - c.dp(MINI_H))).toFloat()
             if (glide && placed) miniBox.animate().translationX(x).translationY(y).setDuration(300).start()
@@ -439,9 +444,22 @@ object CallScreen {
         return page
     }
 
-    private fun bigName(c: Context, name: String) = c.text(name, 40f, Color.WHITE, bold = true, center = true).apply {   // USER-DATA: the peer's name
-        singleLineEllipsis()
-        setAutoSizeTextTypeUniformWithConfiguration(24, 40, 1, TypedValue.COMPLEX_UNIT_SP)
+    // iOS 6562-6564 / 6762-6764: the name at forty bold standing up, twenty-eight lying down, scaled no smaller than six tenths (minimumScaleFactor 0.6).
+    private fun bigName(c: Context, name: String): View = object : TextView(c) {
+        init {   // USER-DATA: the peer's name
+            text = name
+            setTextColor(Color.WHITE)
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            singleLineEllipsis()
+        }
+        override fun onMeasure(widthSpec: Int, heightSpec: Int) {
+            val landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+            val max = if (landscape) 28 else 40
+            val min = if (landscape) 17 else 24
+            setAutoSizeTextTypeUniformWithConfiguration(min, max, 1, TypedValue.COMPLEX_UNIT_SP)
+            super.onMeasure(widthSpec, heightSpec)
+        }
     }
 
     /** A mark of the chat's own (iOS MontanaCallMark): the glass circle, its glyph, the finger's forty-four. */
@@ -646,6 +664,42 @@ private class CallGrid(c: Context, private val buttons: List<View>) : ViewGroup(
             btn.layout(x, y, x + colPx, y + rowH)
             x += colPx + gapPx
         }
+    }
+}
+
+/**
+ * iOS incomingScreen's row (MontanaCall.swift 6566-6574): Decline and Accept wear the exact circle and column the
+ * live call's grid(_:) cuts from the width (gridMetrics) -- only the row's own gap is iOS's fixed seventy-two,
+ * never the grid's own.
+ */
+private class RingGrid(c: Context, private val buttons: List<View>) : ViewGroup(c) {
+    init { buttons.forEach { addView(it) } }
+    override fun onMeasure(widthSpec: Int, heightSpec: Int) {
+        val landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        val (side, col, _) = gridMetrics(MeasureSpec.getSize(widthSpec), resources.displayMetrics.density, landscape)
+        val colPx = dp(col)
+        val glyphPx = dp((side * 0.34f).roundToInt())
+        buttons.forEach { btn ->
+            val face = (btn as ViewGroup).getChildAt(0) as ViewGroup
+            (face.layoutParams as LinearLayout.LayoutParams).apply { width = dp(side); height = dp(side) }
+            (face.getChildAt(0).layoutParams as FrameLayout.LayoutParams).apply { width = glyphPx; height = glyphPx }
+            btn.measure(MeasureSpec.makeMeasureSpec(colPx, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED))
+        }
+        setMeasuredDimension(colPx * 2 + dp(72), buttons[0].measuredHeight)
+    }
+    override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
+        val colPx = buttons[0].measuredWidth
+        val x1 = colPx + dp(72)
+        buttons[0].layout(0, 0, colPx, buttons[0].measuredHeight)
+        buttons[1].layout(x1, 0, x1 + colPx, buttons[1].measuredHeight)
+    }
+}
+
+/** iOS incomingScreen's Spacer (MontanaCall.swift 6556): the room under the notch, six lying down, twenty-two standing up. */
+private class NotchGap(c: Context) : View(c) {
+    override fun onMeasure(widthSpec: Int, heightSpec: Int) {
+        val landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        setMeasuredDimension(MeasureSpec.getSize(widthSpec), dp(if (landscape) 6 else 22))
     }
 }
 
