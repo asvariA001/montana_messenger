@@ -163,7 +163,8 @@ object Notify {
         val c = Book.ctx
         val nm = c.getSystemService(NotificationManager::class.java) ?: return
         if (!Prefs.bool("notifMessages", true)) return
-        if (ChatMarks.isMuted(ref)) return   // muted: no banner and no sound (iOS willPresent «why=muted»)
+        // A MUTED OR ARCHIVED CHAT SAYS NOTHING (iOS MTQuietChats, MontanaNotify 190-193; build 2083): no banner, no sound, no count
+        if (ChatMarks.isMuted(ref) || ChatMarks.isArchived(ref)) return
         // THE SOUND IS THE PERSON'S SWITCH (iOS MontanaNotify 379, NotificationService 400): a channel's sound is the platform's
         // once made, so the quiet letters have a channel of their own
         val sound = Prefs.bool("notifSound", true)
