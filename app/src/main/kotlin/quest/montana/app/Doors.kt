@@ -64,18 +64,9 @@ object Doors {
         return all.filter { it !in mute }.ifEmpty { all }
     }
 
-    /**
-     * The machines' bare doors of the network's list, host and port (iOS MontanaNodes.list with the raw dress): a door behind a
-     * delivery network («wss://…») waits for a web-socket wire on this side; before the list is learned there is none to hold.
-     */
-    fun bare(): List<Pair<String, Int>> = Prefs.str(LEARNED, "").split('\n').map { it.trim() }
-        .filter { it.isNotEmpty() && !it.startsWith("#") && !it.lowercase().startsWith("wss://") && !it.startsWith("[") }
-        .mapNotNull { e -> e.substringAfterLast(':', "").toIntOrNull()?.takeIf { it in 1..65535 }?.let { e.substringBeforeLast(':') to it } }
-        .distinct()
-
-    /** A door of the list as iOS names it (MontanaNodes.Node.label 42-46): «host:port», «[v6]:port», «wss/host:443». */
-    class Door(val host: String, val port: Int, val wss: Boolean) {
-        val label: String get() = (if (wss) "wss/" else "") + (if (host.contains(':')) "[" + host + "]:" + port else host + ":" + port)
+    /** A door of the list (iOS MontanaNodes.Node 38-52): a bare one, or one behind a delivery network with the web socket's path. */
+    class Door(val host: String, val port: Int, val path: String?) {
+        val label: String get() = Channels.labelOf(host, port, path != null)
     }
 
     /** iOS MontanaNodes.parse 185-228: a comment goes by the line; «wss://name/path» is a door behind a delivery network on 443; the port defaults to the direct one. */
@@ -89,11 +80,13 @@ object Doors {
                 if (w.isEmpty() || w.startsWith("#")) continue
                 var host = w
                 var port = Channels.PORT
-                var wss = false
+                var path: String? = null
                 if (w.lowercase().startsWith("wss://")) {
-                    val hostPart = w.drop(6).substringBefore('/')
+                    val body = w.drop(6)
+                    val hostPart = body.substringBefore('/')
                     if (hostPart.isEmpty()) continue
-                    wss = true; port = 443; w = hostPart; host = hostPart
+                    path = if (body.contains('/')) "/" + body.substringAfter('/') else "/"
+                    port = 443; w = hostPart; host = hostPart
                 }
                 if (w.startsWith("[")) {
                     val close = w.indexOf(']')
@@ -105,7 +98,7 @@ object Doors {
                     w.substringAfterLast(':').toIntOrNull()?.takeIf { it in 1..65535 }?.let { host = w.substringBeforeLast(':'); port = it }
                 }
                 if (host.isEmpty()) continue
-                val d = Door(host, port, wss)
+                val d = Door(host, port, path)
                 if (out.none { it.label == d.label }) out.add(d)
             }
         }

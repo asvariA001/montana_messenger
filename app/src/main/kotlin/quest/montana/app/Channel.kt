@@ -106,8 +106,8 @@ class OverlayFrame(val type: Int, val dst: ByteArray, val msgId: ByteArray, val 
  * sealed under its direction's key. Both sides register (the key and its tag, a challenge, its signature, the verdict); the
  * channel stands when both are confirmed. Measured from the Mac against both nodes, 08.10 12:3x (timechain/P2P-MAP.md).
  */
-class Channel(val host: String, val port: Int, val ref: String = "", private val accepted: Socket? = null) {
-    val label = (if (accepted != null) "in:" else "") + host + ":" + port
+class Channel(val host: String, val port: Int, val ref: String = "", private val accepted: Socket? = null, private val wsPath: String? = null) {
+    val label = (if (accepted != null) "in:" else "") + Channels.labelOf(host, port, wsPath != null)
     val dialAt = System.currentTimeMillis()
     @Volatile var ready = false
         private set
@@ -173,11 +173,19 @@ class Channel(val host: String, val port: Int, val ref: String = "", private val
         val raw = Socket()
         socket = raw
         raw.connect(InetSocketAddress(host, port), 5000)   // iOS 956-984: five seconds to stand, or the next road's turn
-        val s: Socket = if (port == 443) tls(raw) ?: return null else raw
+        // the dress is the door's (iOS dial 797-822): behind a delivery network the web socket over plain TLS; on 443 TLS marked
+        // as the node; else the bare stream — above the wire the bytes are the same for every dress
+        val s: Socket = if (wsPath != null) tls(raw, node = false) ?: return null else if (port == 443) tls(raw, node = true) ?: return null else raw
         socket = s
         s.soTimeout = 8000   // the handshake's own budget (iOS handshakeBudget 687)
-        input = DataInputStream(s.getInputStream())
-        out = s.getOutputStream()
+        if (wsPath != null) {
+            val (i, o) = Ws.open(s, host, wsPath) ?: return fail("ws-rise")
+            input = DataInputStream(i)
+            out = o
+        } else {
+            input = DataInputStream(s.getInputStream())
+            out = s.getOutputStream()
+        }
         val kem = read()?.takeIf { it.size == 1184 } ?: return fail("noise-key")
         val seed = MtBindings.nativeRandom(32) ?: return fail("noise-seed")
         val st = LongArray(1)
@@ -224,11 +232,11 @@ class Channel(val host: String, val port: Int, val ref: String = "", private val
         return keys.copyOfRange(0, 32)       // and reads initiator → responder
     }
 
-    private fun tls(raw: Socket): Socket? {
-        // ALPN on the platform's own socket stands from Android 10; an older phone waits for the web-socket door
-        if (Build.VERSION.SDK_INT < 29) { close("tls-no-alpn"); return null }
+    private fun tls(raw: Socket, node: Boolean): Socket? {
+        // ALPN on the platform's own socket stands from Android 10; an older phone takes the web-socket door, which asks for none
+        if (node && Build.VERSION.SDK_INT < 29) { close("tls-no-alpn"); return null }
         val s = (SSLSocketFactory.getDefault() as SSLSocketFactory).createSocket(raw, host, port, true) as SSLSocket
-        s.sslParameters = s.sslParameters.apply { applicationProtocols = arrayOf("mt-node"); serverNames = listOf(SNIHostName(host)) }
+        s.sslParameters = s.sslParameters.apply { if (node) applicationProtocols = arrayOf("mt-node"); serverNames = listOf(SNIHostName(host)) }
         s.soTimeout = 8000
         s.startHandshake()
         // the platform's socket checks the chain, not the name: the name is checked here, as a browser checks it
@@ -350,7 +358,11 @@ object Channels {
     /** The people reached phone to phone: standing channels bound to a correspondent (iOS startPeerScan 697: live, ref not empty). */
     fun peers(): Int = synchronized(live) { live.values.count { it.ready && it.ref.isNotEmpty() } }
 
-    private fun doorLabels(): Set<String> = Doors.bare().map { it.first + ":" + it.second }.toSet()
+    /** A door's name, one place for the list, the book and the channel (iOS MontanaNodes.Node.label 42-46, doorKey 60-65). */
+    fun labelOf(host: String, port: Int, wss: Boolean): String =
+        (if (wss) "wss/" else "") + (if (host.contains(':')) "[" + host + "]:" + port else host + ":" + port)
+
+    private fun doorLabels(): Set<String> = Doors.list().map { it.label }.toSet()
 
     /** The doors standing now (iOS livePathKeys, doorsHeld 444-446). */
     fun heldLabels(): Set<String> {
@@ -382,13 +394,13 @@ object Channels {
         val book = Doors.book()
         val held = heldLabels()
         val heldNodes = book.filterKeys { it in held }.values.map { it.first }.toSet()
-        val doors = Doors.bare()
-        val skip = doors.map { it.first + ":" + it.second }.filter { it in held || book[it]?.first?.let { o -> o in heldNodes } == true }
+        val doors = Doors.list()
+        val skip = doors.map { it.label }.filter { it in held || book[it]?.first?.let { o -> o in heldNodes } == true }
         // a door left out says so, once while the fact stands (iOS node_skip 276-285)
         val line = skip.sorted().joinToString(" ") { it + "=" + (if (it in held) "held" else "node-held-elsewhere") }
         if (line != lastSkip) { lastSkip = line; if (line.isNotEmpty()) Log.d("Montana", "node_skip " + line) }
-        for ((host, port) in doors) {
-            val label = host + ":" + port
+        for (d in doors) {
+            val label = d.label
             if (label in skip) continue
             val c = synchronized(live) {
                 if (live.containsKey(label)) return@synchronized null
@@ -398,7 +410,7 @@ object Channels {
                 val spread = 0.8 + Math.random() * 0.6   // the spread of a retry, not a quantity of the protocol
                 val ceiling = if (cur?.third == true) STEP_DEAD_MAX else STEP_MAX
                 tried[label] = Triple(now, minOf(ceiling, step * 2 * spread), cur?.third ?: false)
-                Channel(host, port).also { live[label] = it }
+                Channel(d.host, d.port, wsPath = d.path).also { live[label] = it }
             } ?: continue
             knockedOnce = true
             Log.d("Montana", "node_knock at=" + label)
@@ -622,7 +634,7 @@ object Channels {
     private fun dialPeer(ip: String, port: Int, ref: String) {
         val ident = NodeIdentity.device() ?: return
         val c = synchronized(live) {
-            val label = ip + ":" + port
+            val label = labelOf(ip, port, false)
             if (live.containsKey(label)) return@synchronized null
             Channel(ip, port, ref).also { live[label] = it }
         } ?: return
