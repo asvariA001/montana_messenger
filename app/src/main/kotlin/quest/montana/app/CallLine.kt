@@ -167,6 +167,9 @@ object CallLine {
         val l = build(ref, seed) ?: return@execute
         l.holding = true
         l.caller = true
+        // THE HOLD HAS A CEILING (iOS startCall 1771-1772, b23f80900c0f): «call-ringing» or «call-answer» usually release it,
+        // but a ring word the network drops must not hold the candidates past the far phone's own life — eight seconds, then anyway.
+        MainThread.later(8000) { if (synchronized(gate) { line === l }) work.execute { unhold(l, "time") } }
         // a video call carries my camera from the dial (iOS startCall, birthLocalVideo): its line in the offer, the camera in it —
         // and without the camera granted the line still stands, to receive
         if (withVideo) {
@@ -190,16 +193,17 @@ object CallLine {
         l.answerTaken = true
         armConnect(l)
         log("answer in")
-        l.pc.setRemoteDescription(sdp(onSet = { l.remoteSet = true; drain(l); unhold(l); if (l.vtrack != null) bound(l) },
+        l.pc.setRemoteDescription(sdp(onSet = { l.remoteSet = true; drain(l); unhold(l, "answer"); if (l.vtrack != null) bound(l) },
             onFail = { e -> log("answer refused: " + e); Calls.hangUp("answer-refused") }), SessionDescription(SessionDescription.Type.ANSWER, answer))
     }
 
-    /** The far phone said its first word: the candidates held for it leave in one batch (iOS releaseHeldIce). */
-    fun release(ref: String, epoch: String) = work.execute { mine(ref, epoch)?.let { unhold(it) } }
+    /** The far phone said its first word: the candidates held for it leave in one batch (iOS releaseHeldIce 1772, 2339, 2350). */
+    fun release(ref: String, epoch: String) = work.execute { mine(ref, epoch)?.let { unhold(it, "ringing") } }
 
-    private fun unhold(l: Line) {
+    private fun unhold(l: Line, why: String) {
         if (!l.holding) return
         l.holding = false
+        log("ice hold released by " + why)
         flush(l)
     }
 
@@ -324,12 +328,17 @@ object CallLine {
                 }
             }
             PeerConnection.IceConnectionState.FAILED -> { lost = true; Calls.hangUp("ice-failed") }
-            // a break that does not heal in fifteen seconds ends the call; the restart of the checks is a later step
-            PeerConnection.IceConnectionState.DISCONNECTED -> {
-                lost = true
-                MainThread.later(15_000) {
-                    if (synchronized(gate) { line === l }) work.execute {
-                        if (l.pc.iceConnectionState() == PeerConnection.IceConnectionState.DISCONNECTED) Calls.hangUp("ice-lost")
+            // THE SUSPICION GETS A GRACE (iOS peerConnection(_:didChange:) 5092-5102, b23f80900c0f): «disconnected» is a few
+            // missed checks, not a verdict — measured 22:51:34, it healed in 1.4s and the person heard the break cue for a blip.
+            // The red light and the fifteen-second deadline wait for it to still stand 2.5s later; a quick heal shows nothing.
+            PeerConnection.IceConnectionState.DISCONNECTED -> MainThread.later(2_500) {
+                if (synchronized(gate) { line === l }) work.execute {
+                    if (l.pc.iceConnectionState() != PeerConnection.IceConnectionState.DISCONNECTED) return@execute log("disconnected healed within the grace — no break declared")
+                    lost = true
+                    MainThread.later(15_000) {
+                        if (synchronized(gate) { line === l }) work.execute {
+                            if (l.pc.iceConnectionState() == PeerConnection.IceConnectionState.DISCONNECTED) Calls.hangUp("ice-lost")
+                        }
                     }
                 }
             }
