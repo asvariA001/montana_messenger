@@ -481,6 +481,7 @@ object Post {
     const val OUTBOX = "outbox"
     private val outLock = Any()
     private val fetchLock = Any()
+    private var fetchAgain = false   // a hint that came while a pickup ran: one more round when it ends
     private var fetching = false
 
     // ── sending ──
@@ -667,8 +668,15 @@ object Post {
     /** ONE PICKUP AT A TIME (iOS fetchBox): the labels of every live invitation and every pipe, across the box's term. */
     fun fetch() {
         MainThread.post { Presence.watchApp(Book.ctx) }
-        synchronized(fetchLock) { if (fetching) return; fetching = true }
-        try { fetchOnce() } catch (e: Exception) { Log.w("Montana", "box fetch: ${e.javaClass.simpleName}") }
+        // A «YOU HAVE A LETTER» IS NEVER THROWN AWAY, ONLY DEFERRED (iOS build 1910): a hint that lands while a pickup runs asked a
+        // box the running pickup may already have passed — it is kept, and the pickup goes round once more when it ends
+        synchronized(fetchLock) { if (fetching) { fetchAgain = true; return }; fetching = true }
+        try {
+            do {
+                synchronized(fetchLock) { fetchAgain = false }
+                fetchOnce()
+            } while (synchronized(fetchLock) { fetchAgain })
+        } catch (e: Exception) { Log.w("Montana", "box fetch: ${e.javaClass.simpleName}") }
         finally { synchronized(fetchLock) { fetching = false } }
         SamePair.askUnasked()
         Book.refs().filter { SamePair.merged(it) == null }.forEach { announce(it) }   // a folded pipe only forwards
