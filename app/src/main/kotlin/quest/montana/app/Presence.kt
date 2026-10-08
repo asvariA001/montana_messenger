@@ -53,12 +53,51 @@ object Signal {
             if (epoch != "chat" || Calls.busy() || doors.isEmpty()) for (b in callDoors()) if (b !in doors) doors.add(b)
             if (doors.isEmpty()) { Log.d("Montana", "sig_tx SKIP no-door"); return@Thread }
             for (door in doors) {
-                // a chat word that waited past its door's death does not dial it (iOS 3033-3037)
-                if (epoch == "chat" && !doorAlive(door) && !Calls.busy()) continue
-                val (code, _) = onLane { Wire.post(door, "/signal", req, 8000, it) }
-                if (code == 200) doorAnswered(door) else if (code != CUT) doorFailed(door, code)
+                // ONE LANE PER DOOR (iOS 3031-3053): the word waits its turn; a chat word of this conversation replaces the one still waiting
+                onSignalLane(door, if (epoch == "chat") ref else null) {
+                    try {
+                        // a chat word that waited past its door's death does not dial it; a call's word knocks every door (iOS 3033-3037)
+                        if (epoch == "chat" && !doorAlive(door) && !Calls.busy()) return@onSignalLane
+                        val (code, _) = onLane { Wire.post(door, "/signal", req, 8000, it) }
+                        if (code == 200) doorAnswered(door) else if (code != CUT) doorFailed(door, code)
+                    } finally { leaveSignalLane(door) }
+                }
             }
         }.start()
+    }
+
+    /**
+     * THE SIGNAL LANE OF A DOOR IS ONE LANE (iOS 2954-2995, 29.09; T1 23:31:45Z on 1988: twenty-five posts in flight the moment a tunnel
+     * came up, 912 goroutines and 40 MB in 2.4 s, the extension killed): a door takes two words at a time; the rest wait in the order they
+     * were said, a newer chat word of a conversation replacing the older one still waiting, and beyond sixteen the oldest chat word gives
+     * way. Under the lock only the two tables move; the word itself runs after it.
+     */
+    private const val LANE_WIDTH = 2
+    private const val LANE_DEPTH = 16
+    private val laneBusy = HashMap<String, Int>()
+    private val laneQueue = HashMap<String, ArrayDeque<Pair<String?, () -> Unit>>>()
+
+    private fun onSignalLane(door: String, key: String?, run: () -> Unit) {
+        synchronized(laneBusy) {
+            if ((laneBusy[door] ?: 0) >= LANE_WIDTH) {
+                val q = laneQueue.getOrPut(door) { ArrayDeque() }
+                if (key != null) q.removeAll { it.first == key }
+                if (q.size >= LANE_DEPTH) { val i = q.indexOfFirst { it.first != null }; if (i >= 0) q.removeAt(i) }
+                q.addLast(key to run)
+                return
+            }
+            laneBusy[door] = (laneBusy[door] ?: 0) + 1
+        }
+        Thread { run() }.start()
+    }
+
+    private fun leaveSignalLane(door: String) {
+        val next = synchronized(laneBusy) {
+            laneBusy[door] = maxOf(0, (laneBusy[door] ?: 1) - 1)
+            val q = laneQueue[door]
+            if (q != null && q.isNotEmpty()) { laneBusy[door] = (laneBusy[door] ?: 0) + 1; q.removeFirst().second } else null
+        }
+        next?.let { Thread { it() }.start() }
     }
 
     // ── the doors' life (iOS WakePush baseFailed 318-346, signalDoorAnswered 451-459, the path change 516-528) ──
@@ -229,11 +268,19 @@ object Signal {
         val cm = c.getSystemService(android.net.ConnectivityManager::class.java) ?: return
         runCatching {
             cm.registerDefaultNetworkCallback(object : android.net.ConnectivityManager.NetworkCallback() {
-                override fun onAvailable(n: android.net.Network) = forgive("path available")
-                override fun onLost(n: android.net.Network) = forgive("path lost")
+                // THE DOORS ARE JUDGED AGAIN ONCE, ON THE FIRST SATISFIED PATH AFTER THE NETWORK CHANGED (iOS 1989, MontanaNetWitness):
+                // not on the change itself — a path lost and found again inside a second judged every door twice for nothing
+                override fun onAvailable(n: android.net.Network) {
+                    val sig = n.toString()
+                    if (sig == judgedOn) return
+                    judgedOn = sig
+                    forgive("path available")
+                }
+                override fun onLost(n: android.net.Network) = cut("path lost — the questions on its socket are cut", posts = true)
             })
         }
     }
+    @Volatile private var judgedOn: String? = null
     private fun forgive(why: String) {
         synchronized(deadUntil) { deadUntil.clear(); doorFails.clear(); deathStreak.clear(); proof.clear(); chosen = null }   // proof on one path says nothing of another
         Wire.forgetGone()   // a new path may reach a store the old one could not
