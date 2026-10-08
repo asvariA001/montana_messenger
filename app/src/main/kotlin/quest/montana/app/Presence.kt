@@ -497,6 +497,8 @@ object Presence {
     private val beat = object : Runnable {
         override fun run() { if (appOpen) { Thread { sayApp(true) }.start(); MainThread.later(BEAT, this) } }
     }
+    /** The app stands on the person's screen (iOS: the scene is active). */
+    val shown: Boolean get() = appOpen
     fun appShown() { if (appOpen) return; appOpen = true; MainThread.post { beat.run() } }
     fun appHidden() { if (!appOpen) return; appOpen = false; Thread { sayApp(false) }.start() }
     fun log(s: String) = Log.d("Montana", "presence: $s")
@@ -511,6 +513,7 @@ object Presence {
         watching = true
         Signal.watchPath(c)
         Channels.start()   // the phone holds its nodes for the app's whole life (iOS MontanaNodes.open)
+        Mesh.start(c)   // and, while the person lets it, is findable on the local network (iOS startLocalMeshIfAccepted)
         (c.applicationContext as android.app.Application).registerActivityLifecycleCallbacks(object : android.app.Application.ActivityLifecycleCallbacks {
             override fun onActivityResumed(a: android.app.Activity) = appShown()
             override fun onActivityPaused(a: android.app.Activity) = appHidden()

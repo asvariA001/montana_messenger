@@ -329,6 +329,8 @@ object Channels {
     private val seen = HashSet<String>()
     @Volatile private var owner: ByteArray? = null
     @Volatile private var started = false
+    @Volatile var listening = false   // the direct port stands: the local network's offer may name it
+        private set
 
     /** Begin holding the network's machines, once, for the app's whole life. */
     fun start() {
@@ -337,6 +339,15 @@ object Channels {
         Thread { while (true) { runCatching { knock(); keepPaths() }; Thread.sleep(5000) } }.start()   // iOS maintainPaths: every five seconds
         Thread { listen() }.start()
         Thread { while (true) { Thread.sleep(8000); runCatching { warm() } } }.start()
+    }
+
+    /** The people reached phone to phone: standing channels bound to a correspondent (iOS startPeerScan 697: live, ref not empty). */
+    fun peers(): Int = synchronized(live) { live.values.count { it.ready && it.ref.isNotEmpty() } }
+
+    /** The network's machines held now (iOS MontanaNodes.liveNodes, read by the wall's badge). */
+    fun nodesHeld(): Int {
+        val doors = Doors.bare().map { it.first + ":" + it.second }.toSet()
+        return synchronized(live) { live.values.count { it.ready && it.label in doors } }
     }
 
     /** The device forgets the person: the owner branch goes, and the channels it named close with it. */
@@ -476,11 +487,16 @@ object Channels {
      * owner (MontanaPath.hopMin = 1). The box's road goes on beside it, and the receiving side drops the second copy by its mid.
      */
     fun lay(secret: ByteArray, mid: String, body: ByteArray): Boolean {
+        // THE NEAR ROAD FIRST (iOS sendP2P 995-1007): with nodes on this local network the envelope is laid before every standing
+        // channel under its pipe's tag and no bound of owners is asked — a near transport is not a path; their channels rise as it goes
+        val lan = Mesh.lanNodes()
+        for ((ip, port) in lan) dialPeer(ip, port, "")
         val cs = synchronized(live) { live.values.filter { it.ready } }
         // the correspondent's own channel never counts as a carrier (iOS ownerRefsOfLiveChannels(excluding:) 1008)
         val to = Wire.reference(secret)
         val owners = cs.filter { it.ref != to }.mapNotNull { c -> c.peerOwnerRef?.let { Wire.hex(it) } }.toSet().size
-        if (owners < 1) return false
+        val near = lan.isNotEmpty() && cs.isNotEmpty()
+        if (!near && owners < 1) return false
         val w = Wire.minute()
         val tag = Wire.pipeTag(secret, w)
         val sealed = Wire.seal(Wire.bodyKey(secret, w), body) ?: return false
@@ -491,7 +507,7 @@ object Channels {
         }
         val frame = OverlayFrame(OverlayFrame.RELAY, tag + ByteArray(16), id, byteArrayOf(0x01) + tag + sealed).encode()
         val used = cs.count { it.send(NetMsg.OVERLAY_FRAME, frame) }
-        if (used > 0) Log.d("Montana", "sent_route mid=" + mid.take(8) + " route=node nodes=" + used)
+        if (used > 0) Log.d("Montana", "sent_route mid=" + mid.take(8) + (if (near) " route=lan carrier=lan-node" else " route=node") + " nodes=" + used)
         return used > 0
     }
 
@@ -504,7 +520,10 @@ object Channels {
         val others = synchronized(live) { live.values.filter { it.ready && it !== from && !(it.peerTag contentEquals from.peerTag) } }
         val body = of.encode()
         if (underTag) {
-            for (o in others) o.send(NetMsg.OVERLAY_FRAME, body)
+            // A NEAR FRAME STAYS NEAR (iOS 1378-1391): one that came by the local network goes on to neighbours, never out into the
+            // internet — that would be a letter on a road without a path and without one hop's seal
+            val near = !isGlobal(from.host)
+            for (o in others) if (!near || !isGlobal(o.host)) o.send(NetMsg.OVERLAY_FRAME, body)
             return
         }
         val w = Wire.minute()
@@ -528,6 +547,8 @@ object Channels {
         val server = runCatching { java.net.ServerSocket().apply { reuseAddress = true; bind(InetSocketAddress(PORT)) } }.getOrNull()
         if (server == null) { Log.d("Montana", "listen_fail port=" + PORT); return }
         Log.d("Montana", "listen port=" + PORT)
+        listening = true
+        Mesh.portUp()
         while (true) {
             val s = runCatching { server.accept() }.getOrNull()
             if (s == null) { Thread.sleep(1000); continue }
@@ -561,7 +582,7 @@ object Channels {
     private fun keepPaths() {
         val now = System.currentTimeMillis()
         val callPeer = if (Calls.busy()) Calls.peer() else null
-        val v6Here = selfV6().isNotEmpty()
+        val v6Here = candidates().any { it.contains(':') }   // iOS 554: any IPv6 of our own interfaces, not only a global one
         val entries = synchronized(book) { book.mapValues { it.value.toList() } }
         var attempts = 0
         for ((ref, eps) in entries) {
@@ -587,12 +608,23 @@ object Channels {
         }
     }
 
-    /** The global IPv6 of a real interface (iOS MontanaSelfEndpoint.candidates): a tunnel's address is not the phone's own. */
-    private fun selfV6(): List<String> = runCatching {
+    /**
+     * Every address this phone holds on a real interface (iOS MontanaSelfEndpoint.candidates, MontanaOverlayBook 63-91): a loopback
+     * is nobody's road, a tunnel's address carries nothing for the mesh, a link-local one does not leave the link.
+     */
+    fun candidates(): List<String> = runCatching {
         java.net.NetworkInterface.getNetworkInterfaces().toList().filter { it.isUp && !it.isLoopback && !it.name.startsWith("tun") }
-            .flatMap { it.inetAddresses.toList() }.filterIsInstance<java.net.Inet6Address>()
-            .mapNotNull { it.hostAddress?.substringBefore('%') }.filter { isGlobal(it) }
+            .flatMap { it.inetAddresses.toList() }.mapNotNull { it.hostAddress?.substringBefore('%') }
+            .filter { publishable(it) }.distinct()
     }.getOrDefault(emptyList())
+
+    private fun publishable(ip: String): Boolean {
+        val low = ip.lowercase()
+        return !(low.startsWith("fe80") || low == "::1" || low.startsWith("169.254.") || low == "127.0.0.1")
+    }
+
+    /** The global IPv6 of a real interface (iOS selfEndpoint 35): the one address of my own a correspondent can dial. */
+    private fun selfV6(): List<String> = candidates().filter { it.contains(':') && isGlobal(it) }
 
     /**
      * THE ONE ADDRESS OF MY OWN A CORRESPONDENT CAN DIAL BY TCP (iOS MontanaNATService.selfEndpoint 27-39): a global IPv6 of a real

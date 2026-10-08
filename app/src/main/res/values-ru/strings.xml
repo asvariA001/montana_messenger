@@ -524,4 +524,11 @@
     <string name="wall_gold">Золотой фон</string>
     <string name="wall_montana">Монтана</string>
     <string name="wall_burgundy">Бургунди</string>
+    <string name="app_mesh_wall">МЭШ стена</string>
+    <string name="app_p2p_wall">П2П стена</string>
+    <string name="mesh_wall_caption">Мэш стена: люди рядом с вами, от телефона к телефону, без сервера между</string>
+    <string name="mesh_seen_as">Как вас видят другие</string>
+    <string name="mesh_seen_only">Понять, что это вы, может только тот, с кем у вас уже есть переписка.</string>
+    <string name="mesh_findable">Находиться в меш-сети</string>
+    <string name="mesh_findable_off">Выключено: это устройство нигде себя не объявляет и ничего ни для кого не несёт.</string>
 </resources>

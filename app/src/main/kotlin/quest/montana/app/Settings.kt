@@ -276,8 +276,8 @@ fun privacyPage(act: MainActivity, onForget: () -> Unit, onBack: () -> Unit): Vi
     val c: Context = act
     fun sw(res: Int, color: Int, word: Int, key: String, caption: Int? = null) =
         c.switchLine(res, color, c.getString(word), Prefs.bool(key, true), caption?.let { c.getString(it) }, tint = MT.gold) { Prefs.setBool(key, it) }
-    // THE SYSTEM'S OWN ANSWERS (iOS PrivacyView, its first section): the local network — this phone announces itself on no
-    // network yet (the mesh comes with the network), so it says «Disconnected» and leads to where the system keeps it; the
+    // THE SYSTEM'S OWN ANSWERS (iOS PrivacyView, its first section): the local network — «Connected» while this phone is findable
+    // on the mesh, the one switch owning the concept (iOS MontanaSettings 1731, 1765), and it leads to where the system keeps it; the
     // location — asked here when never asked, changed where the system keeps it, the same answer the place page reads. iOS's
     // photos and contacts rows say what the system holds of a standing access; Android's pickers hold none, nothing to say.
     val place = c.text("", 15f, MT.gray)
@@ -288,7 +288,7 @@ fun privacyPage(act: MainActivity, onForget: () -> Unit, onBack: () -> Unit): Vi
     drawPlace()
     val page = settingsPage(act, c.getString(R.string.privacy), onBack) {
         section(null, null,
-            c.settingsRow(R.drawable.ic_language, SysColor.blue, c.getString(R.string.local_network), c.text(c.getString(R.string.st_disconnected), 15f, MT.gray)) { systemSettings() },
+            c.settingsRow(R.drawable.ic_language, SysColor.blue, c.getString(R.string.local_network), c.text(c.getString(if (Mesh.discoverable) R.string.st_connected else R.string.st_disconnected), 15f, MT.gray)) { systemSettings() },
             c.settingsRow(R.drawable.ic_compose_location, SysColor.blue, c.getString(R.string.location), place) {
                 if (!placeAllowed() && !Prefs.bool("locAsked", false)) {
                     Prefs.setBool("locAsked", true)

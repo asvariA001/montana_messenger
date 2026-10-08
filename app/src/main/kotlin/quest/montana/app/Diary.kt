@@ -146,8 +146,18 @@ object Diary {
         while (true) {
             // the voice outranks the journal
             if (Calls.talking() == null) runCatching { pass(c) }
-            Thread.sleep(600_000)   // the ordinary rhythm: ten minutes
+            Thread.sleep(pause())
         }
+    }
+
+    /**
+     * THE PAUSE (iOS pauseNs 3853-3858, liveSleepNs and idleSleepNs 3842-3843): ten minutes while a person looks, a quarter hour once
+     * they do not. With the stores off, a fixed rhythm knocked on dead doors for as long as the app stood open (iOS measured 03.09
+     * 20:10): each refusal by every door doubles the looking pause, up to the quarter hour; one journal that lands resets it.
+     */
+    private fun pause(): Long {
+        if (!Presence.shown) return 900_000L
+        return minOf(900_000L, 600_000L shl minOf(refused, 5))
     }
 
     /** The finished generations first, the oldest first, each forgotten once it landed whole; then the live file. */

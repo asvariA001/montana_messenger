@@ -525,4 +525,11 @@
     <string name="wall_gold">Gold ground</string>
     <string name="wall_montana">Montana</string>
     <string name="wall_burgundy">Burgundy</string>
+    <string name="app_mesh_wall">Mesh wall</string>
+    <string name="app_p2p_wall">P2P wall</string>
+    <string name="mesh_wall_caption">Mesh wall: the people around you, phone to phone, with no server between</string>
+    <string name="mesh_seen_as">How others see you</string>
+    <string name="mesh_seen_only">Only people you already share a conversation with can tell it is you.</string>
+    <string name="mesh_findable">Findable on the mesh</string>
+    <string name="mesh_findable_off">Off: this device announces itself nowhere and carries nothing for anybody.</string>
 </resources>
