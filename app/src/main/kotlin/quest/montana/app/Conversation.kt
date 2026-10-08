@@ -1464,6 +1464,39 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
 }
 
 /**
+ * WHAT A PERSON REACHES FOR FIRST (iOS MTReactions 93-142): every answer sent is counted, and the quick row offers what a
+ * person reaches for most, filled out with the common ones while he has no history yet.
+ */
+object QuickReactions {
+    private const val KEY = "reactionUse"
+    private val common = listOf("👍", "❤️", "🔥", "😂", "😮", "😢", "🎉", "🙏", "👏")
+
+    /** A new answer sent is counted once (iOS note(_:) 97-102); only when it is set, never when it is taken off. */
+    fun note(e: String) {
+        val use = runCatching { JSONObject(Prefs.str(KEY, "{}")) }.getOrNull() ?: JSONObject()
+        use.put(e, use.optInt(e, 0) + 1)
+        Prefs.setStr(KEY, use.toString())
+    }
+
+    /** The most used first, then the common ones — never fewer than asked for, never a repeat (iOS top(_:) 133-142). */
+    fun top(n: Int): List<String> {
+        val use = runCatching { JSONObject(Prefs.str(KEY, "{}")) }.getOrNull() ?: JSONObject()
+        val mine = use.keys().asSequence().sortedWith(compareByDescending<String> { use.optInt(it, 0) }.thenBy { it }).toList()
+        val out = mutableListOf<String>()
+        for (e in mine + common) if (e !in out) { out.add(e); if (out.size == n) break }
+        return out
+    }
+
+    /** HOW MANY ANSWERS THE ROW HOLDS (iOS fitCount 126-130): the glyph measured by the platform, the capsule's own padding and
+     * the page's side margins; never fewer than five, never more than seven. */
+    fun fitCount(c: Context, widthPx: Int): Int {
+        val glyph = Math.ceil(c.text("😀", 28f).paint.measureText("😀").toDouble()).toInt()
+        val room = widthPx - c.dp(14) * 2 - c.dp(8) * 2
+        return (room / (glyph + c.dp(12)).toFloat()).toInt().coerceIn(5, 7)
+    }
+}
+
+/**
  * THE LETTER'S MENU (iOS MontanaMessageMenu): the room dims, the quick reactions stand over the letter, the actions under it —
  * Reply · Copy · Edit (one's own words) · Delete, which asks «for me» or «for everyone». The correspondent's page opens the same
  * cloud with its own rows (iOS onShowInChat).
@@ -1503,13 +1536,15 @@ fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Unit, onEd
             // THE RUNG AND ITS MOMENT over the actions (iOS MontanaMessageMenu ladder): the same line as under the bubble, with the time
             if (m.mine) actions.addView(c.deliveryLine(ref, m, withMoment = true).apply { setPadding(dp(16), dp(11), dp(16), dp(11)) }, lp())
             if (writes) row(c.getString(R.string.reply), R.drawable.ic_reply) { onReply() }
-            if (!Marks.isService(m.text)) row(c.getString(R.string.copy), R.drawable.ic_content_copy) {
+            // EDIT STICKER (iOS MontanaMessageMenu 474-476, MontanaConversation 2251-2254): a letter's own card sticker, re-cut into a new one
+            if (Stickers.editable(m)) row(c.getString(R.string.sticker_edit), R.drawable.ic_pencil) { Stickers.editFromLetter(act, ref, m) }
+            // COPY (iOS MontanaMessageMenu 483-485): the letter's own text, whatever it carries — not narrowed to a kind
+            if (m.text.isNotEmpty()) row(c.getString(R.string.copy), R.drawable.ic_content_copy) {
                 c.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("", m.text))
             }
             if (canEdit) row(c.getString(R.string.edit), R.drawable.ic_pencil) { onEdit() }
-            // PIN · FORWARD (iOS MontanaMessageMenu 488-492): the pin asks «for both / for me», the unpin is told at once
-            if (!Marks.isService(m.text) || m.text.startsWith(Marks.MEDIA))
-                row(c.getString(if (MsgPins.isPinned(ref, m.mid)) R.string.ld_unpin else R.string.ld_pin), R.drawable.ic_pin) { pinOrUnpin(act, ref, m) }
+            // PIN · FORWARD (iOS MontanaMessageMenu 487-488): the pin asks «for both / for me», the unpin is told at once — every letter
+            row(c.getString(if (MsgPins.isPinned(ref, m.mid)) R.string.ld_unpin else R.string.ld_pin), R.drawable.ic_pin) { pinOrUnpin(act, ref, m) }
             if (canForward(m)) row(c.getString(R.string.ld_forward), R.drawable.ic_reply, mirrored = true) { onForward() }
         }
         // «Delete» asks in place (iOS confirmingDelete 403-414): for everyone, for me — any bubble, mine or theirs, the mid is the same
@@ -1528,8 +1563,8 @@ fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Unit, onEd
             row(c.getString(R.string.delete_for_me), R.drawable.ic_delete, red = true) { Book.edit(ref) { ch -> ch.msgs.removeAll { it.mid in mids } } }
             row(c.getString(R.string.cancel), R.drawable.ic_close, keep = true) { fillActions() }
         }
-        // «Report» on their letter (iOS 499-502): the report of its sender
-        if (profile == null && !m.mine && !group) row(c.getString(R.string.pi_report), R.drawable.ic_report, red = true) {
+        // «Report» on their letter (iOS 499-502): the report of its sender, in a group's chat too — iOS carries no such guard
+        if (profile == null && !m.mine) row(c.getString(R.string.pi_report), R.drawable.ic_report, red = true) {
             val name = Book.chat(ref)?.shown?.ifBlank { null } ?: c.getString(R.string.peer)
             act.push { cl -> reportPage(act, ref, name, cl) }
         }
@@ -1540,13 +1575,15 @@ fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Unit, onEd
         if (actions.childCount - before == 2) actions.removeViewAt(before)   // the row's own hairline under the wide gap goes
     }
     fillActions()
-    // THE QUICK REACTIONS (iOS MTReactions.common): a press puts it on or takes it off; the peer hears RC:{sid,txt,e,op}.
+    // THE QUICK REACTIONS FIT THE WIDTH AND LEARN FROM USE (iOS MTReactions 93-142, 239-262): five to seven answers — what this
+    // person reaches for most stand first, filled out with the common ones — never a fixed nine on a narrow screen.
     val reactions = HorizontalScrollView(c).apply {
         isHorizontalScrollBarEnabled = false
         background = c.rounded(Color.argb(235, 44, 44, 46), 24)
         addView(c.hstack {
             setPadding(dp(8), dp(4), dp(8), dp(4))
-            for (e in listOf("👍", "❤️", "🔥", "😂", "😮", "😢", "🎉", "🙏", "👏")) addView(c.text(e, 28f).apply {
+            val count = QuickReactions.fitCount(c, c.resources.displayMetrics.widthPixels)
+            for (e in QuickReactions.top(count)) addView(c.text(e, 28f).apply {
                 setPadding(dp(6), dp(4), dp(6), dp(4))
                 pressable {
                     close()
@@ -1564,7 +1601,7 @@ fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Unit, onEd
                         if (group) Groups.signal(ref, word) else Post.send(ref, Marks.mintMid(), word)
                     }
                     if (prev != null) tell(prev, false)
-                    if (added) tell(e, true)
+                    if (added) { tell(e, true); QuickReactions.note(e) }
                 }
             })
         })

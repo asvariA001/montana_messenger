@@ -114,6 +114,23 @@ object Stickers {
         Thread { Media.send(c, ref, Media.Picked(bytes, "img", f.extension, CARD), "") }.start()
     }
 
+    /** A LETTER'S OWN CARD STICKER CAN BE RE-CUT (iOS onEditSticker: MontanaMessageMenu 474-476, MontanaConversation 2251-2254):
+     * Android narrows this to a letter of mine, with its picture already on this phone — the other person's set carries no
+     * passport yet (the header above: «not yet here»). */
+    fun editable(m: Msg): Boolean = m.mine && isPicture(m) && m.file != null
+
+    /** EDIT STICKER (iOS MontanaStickerEditor via the .stickerEdit sheet, MontanaConversation 2139-2149): the letter's own
+     * picture opens in the editor; what the check keeps is a NEW sticker of my set, sent at once — the letter it came from
+     * is never touched. */
+    fun editFromLetter(act: MainActivity, ref: String, m: Msg) {
+        val c: Context = act
+        val f = m.file?.let { File(it) }?.takeIf { it.exists() } ?: return
+        act.background {
+            val b = BitmapFactory.decodeFile(f.path)
+            if (b != null) act.onMain { editor(act, b) { bytes, ext -> val n = add(c, bytes, ext); sendPicture(c, ref, n) } }
+        }
+    }
+
     /** Light or not a sticker (iOS MontanaStickerCut.encode, HEIC 0.8): the platform's own light format with transparency. */
     private fun encode(b: Bitmap): Pair<ByteArray, String> {
         val out = ByteArrayOutputStream()

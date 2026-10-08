@@ -4,6 +4,7 @@
     <string name="reply_to">Ответ %1$s</string>
     <string name="edit">Изменить</string>
     <string name="editing">Редактирование</string>
+    <string name="sticker_edit">Изменить стикер</string>
     <string name="delete_for_me">Удалить у меня</string>
     <string name="delete_for_everyone">Удалить у всех</string>
     <string name="delete_message_q">Удалить сообщение?</string>
