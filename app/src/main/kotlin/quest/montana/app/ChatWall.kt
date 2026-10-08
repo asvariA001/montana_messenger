@@ -407,8 +407,8 @@ class WallPlacer(c: Context, private val image: Bitmap) : View(c) {
         return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { drawInto(Canvas(it)) }
     }
 
-    private companion object {
-        /** The picture mirrored and blurred once, small — drawn large it is smooth (iOS mirrorBlur, radius width/40). */
+    companion object {
+        /** The picture mirrored and blurred once, small — drawn large it is smooth (iOS mirrorBlur, radius width/40); the feed's narrow picture stands on it too. */
         fun mirrorBlur(b: Bitmap): Bitmap {
             val small = maxOf(8, b.width / 40)
             val h = maxOf(8, (b.height * small / b.width.toFloat()).toInt())

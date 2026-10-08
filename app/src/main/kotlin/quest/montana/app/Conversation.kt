@@ -1367,19 +1367,31 @@ private fun mediaBody(c: Context, m: Msg, into: LinearLayout) {
         return
     }
     if (kind == "vid" && man?.optBoolean("r") == true) { noteBody(c, m, f, man, into); return }
+    var capRoom = c.dp(240)
     if (kind == "img" || kind == "vid") {
         val pic = (f?.let { Media.preview(c, it, kind, 800) } ?: Media.thumbOf(man))
+        // ONE PLATE FOR A PICTURE AND A VIDEO (iOS mediaBubble 1526-1574, the author's word 15.09): as wide as the widest of its contents —
+        // the picture fitted, or the caption's own bubble — never the picture alone; a picture narrower than the plate keeps its fitted
+        // size in the middle and the sides are a mirrored blur of the picture itself. A card's words are not drawn under it.
+        val fit = mediaBox(c, pic?.width ?: 4, pic?.height ?: 3)
+        val words = man?.optString("cap")?.takeIf { it.isNotEmpty() && BusinessCard.lines(it) == null }
+        val boxW = minOf(c.dp(PLATE_CEILING), maxOf(fit.first, words?.let { captionWidth(c, it, c.text(it, 16f, tint).paint) } ?: 0))
+        val narrow = pic != null && fit.first < boxW - 1
+        capRoom = boxW
         into.addView(FrameLayout(c).apply {
-            val w = c.dp(240)
-            val h = if (pic != null) (w * pic.height / maxOf(1, pic.width)).coerceIn(c.dp(120), c.dp(320)) else c.dp(180)
-            addView(ImageView(c).apply {
+            outlineProvider = object : android.view.ViewOutlineProvider() {
+                override fun getOutline(v: View, o: android.graphics.Outline) = o.setRoundRect(0, 0, v.width, v.height, v.dp(12).toFloat())
+            }
+            clipToOutline = true
+            if (pic == null) setBackgroundColor(Color.rgb(51, 51, 51))   // iOS Color(white: 0.2): a picture still on its way
+            if (narrow && pic != null) addView(ImageView(c).apply {
                 scaleType = ImageView.ScaleType.CENTER_CROP
-                if (pic != null) setImageBitmap(pic) else setBackgroundColor(Color.argb(60, 255, 255, 255))
-                outlineProvider = object : android.view.ViewOutlineProvider() {
-                    override fun getOutline(v: View, o: android.graphics.Outline) = o.setRoundRect(0, 0, v.width, v.height, v.dp(12).toFloat())
-                }
-                clipToOutline = true
-            }, FrameLayout.LayoutParams(w, h))
+                setImageBitmap(WallPlacer.mirrorBlur(pic)); setColorFilter(Color.argb(56, 0, 0, 0))   // iOS .overlay(black 0.22)
+            }, FrameLayout.LayoutParams(MATCH, MATCH))
+            if (pic != null) addView(ImageView(c).apply {
+                scaleType = if (narrow) ImageView.ScaleType.FIT_CENTER else ImageView.ScaleType.CENTER_CROP
+                setImageBitmap(pic)
+            }, FrameLayout.LayoutParams(if (narrow) fit.first else MATCH, MATCH, Gravity.CENTER))
             // automatic download off: the attachment waits for a tap (iOS queuePendingMedia), the platform's arrow down on it
             if (f == null && Media.waiting(c, m)) addView(c.icon(R.drawable.ic_arrow_circle_down, Color.WHITE).apply {
                 background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.argb(140, 0, 0, 0)) }
@@ -1392,7 +1404,7 @@ private fun mediaBody(c: Context, m: Msg, into: LinearLayout) {
             }, FrameLayout.LayoutParams(c.dp(52), c.dp(52), Gravity.CENTER))
             if (f != null) setOnClickListener { (c as? MainActivity)?.let { a -> openMedia(a, f, kind) } }
             else if (Media.waiting(c, m)) setOnClickListener { Media.tapped(c, m) }
-        }, LinearLayout.LayoutParams(WRAP, WRAP).apply { bottomMargin = c.dp(4) })
+        }, LinearLayout.LayoutParams(boxW, fit.second).apply { bottomMargin = c.dp(4) })
     } else {
         val name = man?.optString("n")?.ifEmpty { null } ?: ("file." + (man?.optString("e") ?: ""))
         val size = man?.optLong("sz") ?: 0L
@@ -1425,7 +1437,26 @@ private fun mediaBody(c: Context, m: Msg, into: LinearLayout) {
         addView(c.text(c.getString(R.string.bc_add_contacts), 15f, tint), lp(WRAP, WRAP))
         pressable { (c as? MainActivity)?.let { a -> cardToContacts(a, card) } }
     }, lp(WRAP, WRAP))
-    else if (card == null) cap?.let { into.addView(c.text(it, 16f, tint).apply { maxWidth = c.dp(240) }) }   // USER-DATA: the caption
+    else if (card == null) cap?.let { into.addView(c.text(it, 16f, tint).apply { maxWidth = capRoom }) }   // USER-DATA: the caption
+}
+
+private const val PLATE_CEILING = 300   // iOS MessageBubble.plateCeiling, points
+
+/** THE PICTURE'S BOX (iOS mediaBox 1390-1397): the long side at the plate's ceiling, the short one never under 130. */
+private fun mediaBox(c: Context, w0: Int, h0: Int): Pair<Int, Int> {
+    val w = maxOf(w0, 1).toFloat()
+    val h = maxOf(h0, 1).toFloat()
+    val long = PLATE_CEILING.toFloat()
+    return if (h <= w) c.dp(PLATE_CEILING) to c.dp(Math.round(maxOf(130f, long * h / w)))
+    else c.dp(Math.round(maxOf(130f, long * w / h))) to c.dp(PLATE_CEILING)
+}
+
+/** The caption's own bubble width (iOS captionNaturalWidth 1418-1427): the words wrapped inside the ceiling, plus their padding. */
+private fun captionWidth(c: Context, words: String, paint: android.text.TextPaint): Int {
+    val l = android.text.StaticLayout.Builder.obtain(words, 0, words.length, paint, c.dp(PLATE_CEILING - 20)).build()
+    var w = 0f
+    for (i in 0 until l.lineCount) w = maxOf(w, l.getLineWidth(i))
+    return Math.ceil(w.toDouble()).toInt() + c.dp(20)
 }
 
 /** THE FILE WHOLE: a picture on black, a film in the platform's own player; any other file to the system's viewer. */
