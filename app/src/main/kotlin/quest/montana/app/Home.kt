@@ -90,14 +90,34 @@ class CrestGround(c: Context) : FrameLayout(c) {
 }
 
 /**
- * THE GLASS OF A PLATE (iOS montanaOctagonFace(bar: true), MTGlassCirclePlate): the platform draws no glass of other
- * views, so the plate is what the eye sees of it over the dark crest — a thin light fill and a lighter rim.
+ * THE GLASS OF A PLATE (iOS montanaOctagonFace(bar: true), MontanaOctagon.barMaterial = .ultraThinMaterial, MTGlassCirclePlate):
+ * ONE TONE, NOT SEE-THROUGH (Anna's word 08.10.2026 16:5x: «на кнопках однотонное стекло — а не прозрачное»). The system's thin
+ * material blurs whatever runs beneath into one even tone; the platform here blurs nothing behind a view, so the plate is that
+ * tone itself — the menus' own material, near-opaque — with the thin light rim of the iOS plate (white 0.18). A feed running under
+ * the bars reads as one quiet plate under the glyph, never as letters through it.
  */
 fun Context.glassPlate(oval: Boolean = false) = GradientDrawable().apply {
     if (oval) shape = GradientDrawable.OVAL else cornerRadius = dp(100).toFloat()
-    setColor(Color.argb(28, 255, 255, 255))
-    setStroke(dp(1).coerceAtMost(3), Color.argb(38, 255, 255, 255))
+    setColor(GLASS_TONE)
+    setStroke(dp(1).coerceAtMost(3), Color.argb(46, 255, 255, 255))
 }
+/** The one tone of the glass (the menus' material, iOS .ultraThinMaterial over the dark ground). */
+val GLASS_TONE = Color.argb(235, 44, 44, 46)
+
+/** A list's own top padding before the bar's room was added to it: the room is laid over it, never over itself again. */
+private val ownTop = java.util.WeakHashMap<View, Int>()
+private fun roomAbove(v: View, room: Int) {
+    val own = ownTop.getOrPut(v) { v.paddingTop }
+    if (v.paddingTop != own + room) v.setPadding(v.paddingLeft, own + room, v.paddingRight, v.paddingBottom)
+}
+/** The page's scrolling lists take the bar's room above and draw beneath it; false — the page has none. */
+private fun underlap(v: View, room: Int): Boolean {
+    if (v is android.widget.ScrollView) { v.clipToPadding = false; roomAbove(v, room); return true }
+    var any = false
+    if (v is android.view.ViewGroup) for (i in 0 until v.childCount) if (underlap(v.getChildAt(i), room)) any = true
+    return any
+}
+private fun underlapPage(page: View, room: Int) { if (!underlap(page, room)) roomAbove(page, room) }
 
 /** The glyph inside a bar button (iOS MontanaOctagon.barGlyph: Color(white: 0.8)). */
 private val barGlyph = Color.rgb(204, 204, 204)
@@ -207,14 +227,23 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
     }
     bar = HomeBar(act, onDrawer = { shell.open() }, onPane = ::choose)
     bar.showPane(Pane.CHATS, animated = false)
-    shell.page.addView(c.vstack(Gravity.NO_GRAVITY) {
+    // THE LISTS RUN UNDER THE BAR (iOS: the list's top inset is measured from the bar as drawn, MontanaOctagon 111-112; Anna's word
+    // 08.10.2026 16:5x «лента под кнопками должна проходить»): the time panel and the search have no ground of their own — every
+    // page's list keeps their height as its own room above and scrolls on beneath them; a page with nothing that scrolls keeps the
+    // room itself, so nothing of it stands under the bar.
+    val head = c.vstack(Gravity.NO_GRAVITY) {
         addView(bar, lp(MATCH, dp(60)).apply { setMargins(dp(12), dp(4), dp(12), dp(2)) })
         addView(search, lp(MATCH, dp(56)))
-        addView(FrameLayout(c).apply {
-            addView(panes, FrameLayout.LayoutParams(MATCH, MATCH))
-            addView(results, FrameLayout.LayoutParams(MATCH, MATCH))
-        }, lp(MATCH, 0, 1f))
+    }
+    shell.page.addView(FrameLayout(c).apply {
+        addView(panes, FrameLayout.LayoutParams(MATCH, MATCH))
+        addView(results, FrameLayout.LayoutParams(MATCH, MATCH))
+        addView(head, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.TOP))
     }, 1, FrameLayout.LayoutParams(MATCH, MATCH))
+    head.addOnLayoutChangeListener { _, _, top, _, bottom, _, _, _, _ ->
+        views.values.forEach { underlapPage(it, bottom - top) }
+        underlapPage(results, bottom - top)
+    }
     results.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
         val again: () -> Unit = { results.again() }
         override fun onViewAttachedToWindow(v: View) { Book.listen(again) }

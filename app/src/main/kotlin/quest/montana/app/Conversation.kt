@@ -392,6 +392,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     var hideBar: () -> Unit = {}   // the field is born below; it hides once the conversation is closed
     val closedNote = c.text(c.getString(if (ref.startsWith("arc:")) R.string.recovered_history else R.string.pipe_closed_note), 13f, MT.gray, center = true).apply {
         setPadding(dp(24), dp(12), dp(24), dp(14)); visibility = if (Post.closed(ref)) View.VISIBLE else View.GONE
+        background = c.glassPlate().apply { cornerRadius = dp(18).toFloat() }
     }
     fun drawEmpty(empty: Boolean) {
         if (!empty) { emptyView.visibility = View.GONE; return }
@@ -410,7 +411,8 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     val stripWords = c.text("", 14f, Color.WHITE).apply { singleLineEllipsis() }
     val strip = c.hstack {
         visibility = View.GONE
-        setPadding(dp(16), dp(6), dp(8), dp(2))
+        background = c.glassPlate().apply { cornerRadius = dp(18).toFloat() }   // the feed runs under it: the plate carries the glass
+        setPadding(dp(16), dp(6), dp(8), dp(6))
         addView(View(c).apply { setBackgroundColor(MT.blue) }, lp(dp(3), dp(34)).apply { marginEnd = dp(8) })
         addView(c.vstack(Gravity.NO_GRAVITY) { addView(stripTitle); addView(stripWords) }, lp(0, WRAP, 1f))
         addView(c.icon(R.drawable.ic_close, MT.gray).apply {
@@ -693,7 +695,8 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     val recStrip = c.hstack {
         visibility = View.GONE
         gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(18), dp(6), dp(18), dp(6))
+        background = c.glassPlate()   // iOS: the recording strip's capsule wears the field's glass (montanaFieldGlass)
+        setPadding(dp(10), dp(4), dp(10), dp(4))
         addView(voiceBin, lp(dp(40), dp(40)).apply { marginEnd = dp(10) })
         addView(dot, lp(dp(10), dp(10)).apply { marginEnd = dp(8) })
         addView(liveTime, lp(WRAP, WRAP).apply { marginEnd = dp(12) })
@@ -966,7 +969,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     fun jumpTo(mid: String) {
         val found = column.findViewWithTag<View>(mid) ?: return
         scroll.post {
-            scroll.smoothScrollTo(0, (found.top + column.top - scroll.height / 3).coerceAtLeast(0))
+            scroll.smoothScrollTo(0, (found.top + column.top + scroll.paddingTop - scroll.height / 3).coerceAtLeast(0))
             found.setBackgroundColor(Color.argb(60, 255, 255, 255))
             found.postDelayed({ found.background = null }, 1200)
         }
@@ -1017,20 +1020,40 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     return FrameLayout(c).apply {
         setBackgroundColor(Color.BLACK)
         addView(c.chatGround(ref), FrameLayout.LayoutParams(MATCH, MATCH))   // the chat's own ground, or the pages' crest (iOS MTWallpaper)
-        addView(c.vstack(Gravity.NO_GRAVITY) {
+        // THE FEED RUNS UNDER THE BARS (iOS MTFeedFrame.underlap, MontanaOctagon 107-114, the author's word 21.09; Anna's word
+        // 08.10.2026 16:5x «лента под кнопками должна проходить»): the header and the compose panel have no ground of their own —
+        // the letters scroll on under them and show between the plates; the plates alone carry the glass. The feed's own room above
+        // and below is the bars' height as drawn, so the first and the last letter rest clear of them, and a feed at its end stays
+        // at its end when the panel grows (a reply line, a recording, the keyboard).
+        val head = c.vstack(Gravity.NO_GRAVITY) {
             addView(top)
             // THE PINNED PLATE under the header (iOS the pinned bar): shown while a letter of this chat is pinned
             addView(pinnedPlate(act, ref) { mid -> jumpTo(mid) }, lp().apply { marginStart = dp(10); marginEnd = dp(10); bottomMargin = dp(4) })
-            addView(scroll, lp(MATCH, 0, 1f))
-            addView(strip, lp())
+        }
+        val under = c.vstack(Gravity.NO_GRAVITY) {
+            addView(strip, lp().apply { marginStart = dp(10); marginEnd = dp(10); bottomMargin = dp(4) })
             addView(stagedStrip, lp())
             addView(liveBar(act), lp().apply { bottomMargin = dp(2) })   // the one player bar above the field (iOS MontanaPlayerBar in the chat)
-            addView(recStrip, lp())
+            addView(recStrip, lp().apply { marginStart = dp(10); marginEnd = dp(10); bottomMargin = dp(4) })
             addView(bar.apply { if ((group && !Groups.canWrite(ref)) || Post.closed(ref)) visibility = View.GONE }, lp())
-            addView(closedNote, lp())
+            addView(closedNote, lp().apply { marginStart = dp(10); marginEnd = dp(10); bottomMargin = dp(6) })
             addView(foot, lp())
             addView(groupFoot, lp())
-        }, FrameLayout.LayoutParams(MATCH, MATCH))
+        }
+        scroll.clipToPadding = false
+        addView(scroll, FrameLayout.LayoutParams(MATCH, MATCH))
+        addView(head, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.TOP))
+        addView(under, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM))
+        fun room() {
+            val t = head.height
+            val b = under.height
+            if (scroll.paddingTop == t && scroll.paddingBottom == b) return
+            val atEnd = !scroll.canScrollVertically(1)
+            scroll.setPadding(0, t, 0, b)
+            if (atEnd) toBottom()
+        }
+        head.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> room() }
+        under.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> room() }
         plateHome = this; addView(lockPlate, plateLp())
         setOnApplyWindowInsetsListener { v, insets ->
             val b = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.ime())
@@ -1061,7 +1084,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         redraw()
         val found = jump?.let { column.findViewWithTag<View>(it) }
         if (found == null) toBottom() else scroll.post {
-            scroll.scrollTo(0, (found.top + column.top - scroll.height / 3).coerceAtLeast(0))
+            scroll.scrollTo(0, (found.top + column.top + scroll.paddingTop - scroll.height / 3).coerceAtLeast(0))
             found.setBackgroundColor(Color.argb(60, 255, 255, 255))
             found.postDelayed({ found.background = null }, 1200)
         }

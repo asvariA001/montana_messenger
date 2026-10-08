@@ -83,7 +83,7 @@ class CoinPull(c: Context, private val list: View, private val onRefresh: () -> 
         coin.setImageResource(if (front) R.drawable.coin_face else R.drawable.coin_back)
         coin.scaleX = if (front) 1f else -1f   // the rotation mirrors whatever is behind the edge: mirrored back again
         coin.rotationY = a
-        coin.translationY = maxOf(0f, (pull - SIDE) / 2f) * density
+        coin.translationY = list.paddingTop + maxOf(0f, (pull - SIDE) / 2f) * density   // the list's room under the bar is above the gap
         if (held) { val s = 0.6f + 0.4f * fraction; coin.scaleY = s; coin.scaleX *= s; coin.alpha = fraction }
     }
 
@@ -118,7 +118,7 @@ class CoinPull(c: Context, private val list: View, private val onRefresh: () -> 
                 val t = v.animatedValue as Float
                 pull = gap0 * (1 - t)
                 list.translationY = pull * density
-                coin.translationY = maxOf(0f, (pull - SIDE) / 2f) * density
+                coin.translationY = list.paddingTop + maxOf(0f, (pull - SIDE) / 2f) * density
                 coin.alpha = a0 * (1 - t)
             }
             start()
