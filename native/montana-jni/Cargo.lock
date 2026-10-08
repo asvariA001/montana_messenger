@@ -532,6 +532,7 @@ dependencies = [
  "mt-messenger-e2e",
  "mt-mnemonic",
  "mt-names",
+ "mt-noise-pq",
  "sha2",
  "zeroize",
 ]
