@@ -335,6 +335,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     var selecting = false
     val picked = linkedSetOf<String>()
     lateinit var drawFoot: () -> Unit
+    var toQuoted: (String) -> Unit = {}
 
     val field = EditText(c).apply { setText(Prefs.str("draft.$ref", "")) }
     // THE KEYBOARD AWAY IS THE FIELD LET GO (iOS inputFocused = false with hideKeyboard): a field kept focused under a hidden keyboard
@@ -439,6 +440,9 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             // the pull to the left answers, as the menu's «Reply»; in a group, while this phone writes into it
             if (!group || Groups.canWrite(ref)) b.onReply = { replyTo = m; editing = null; showStrip(); showKeys() }
             b.tag = m.mid
+            // TEXT WITH A QUOTE — A TAP GOES TO THE ORIGINAL (iOS MontanaBubble 475, jumpTo 2999-3012)
+            val q = m.qm
+            if (q != null && m.qt != FORWARDED_QUOTE && !Marks.isService(m.text)) b.getChildAt(0).setOnClickListener { toQuoted(q) }
             column.addView(b, lp().apply { topMargin = c.dp(3) })
         }
         drawEmpty(column.childCount == 0)
@@ -885,6 +889,8 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         }
     }
     jumpHere = { jumpTo(it) }
+    // a letter folded into a media group is reached by its plate's row (iOS rowLead)
+    toQuoted = { q -> jumpTo(Book.chat(ref)?.let { ch -> feedRows(ch.msgs).firstOrNull { r -> r.any { it.mid == q } }?.get(0)?.mid } ?: q) }
     // THE FOOT WHILE THE CHAT SELECTS (iOS the selection bar): Forward and Delete for the chosen letters, in place of the field
     val foot = FrameLayout(c).apply { visibility = View.GONE }
     drawFoot = {
