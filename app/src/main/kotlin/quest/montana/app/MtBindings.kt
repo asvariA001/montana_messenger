@@ -44,6 +44,29 @@ object MtBindings {
     /** ss, contact root, ct → the first letter's secret[32] (mt_name_first_secret). */
     @JvmStatic external fun nativeFirstSecret(ss: ByteArray, root: ByteArray, ct: ByteArray): ByteArray?
 
+    /** seed[32] → a machine's answering identity, ML-DSA-65 pk[1952] ‖ sk[4032] (mt_mldsa_keypair_from_seed). */
+    @JvmStatic external fun nativeMldsaKeypair(seed: ByteArray): ByteArray?
+    /** sk[4032], msg → an ML-DSA-65 signature[3309] (mt_sign). */
+    @JvmStatic external fun nativeSign(sk: ByteArray, msg: ByteArray): ByteArray?
+    /** pk[1952], msg, sig[3309] → whether it is pk's signature of msg (mt_verify). */
+    @JvmStatic external fun nativeVerify(pk: ByteArray, msg: ByteArray, sig: ByteArray): Boolean
+
+    // The channel's handshake, Noise_PQ XX (mt_noise_*): the states between the messages stay in the core, Kotlin holds an
+    // address and hands it back exactly once (every call consumes the state it is given, answer or refusal); a state
+    // abandoned between messages is freed by nativeNoiseFree.
+    /** Initiator: the responder's KEM pk[1184], a fresh seed[32] → msg1[2272]; out[0] — the state for msg2. */
+    @JvmStatic external fun nativeNoiseInitiator1(kemPk: ByteArray, seed: ByteArray, out: LongArray): ByteArray?
+    /** Initiator: msg2[6349] under the state of msg1 → the state for msg3, 0 when msg2 is refused. */
+    @JvmStatic external fun nativeNoiseInitiator2(state: Long, msg2: ByteArray): Long
+    /** Initiator: the state of msg2 → msg3[5261] ‖ sk_i_to_r[32] ‖ sk_r_to_i[32] ‖ channel_hash[32]. */
+    @JvmStatic external fun nativeNoiseInitiator3(state: Long): ByteArray?
+    /** Responder: its KEM sk[2400], a fresh seed[32], msg1[2272] → msg2[6349]; out[0] — the state for msg3. */
+    @JvmStatic external fun nativeNoiseResponder1(kemSk: ByteArray, seed: ByteArray, msg1: ByteArray, out: LongArray): ByteArray?
+    /** Responder: msg3[5261] under the state of msg2 → sk_i_to_r[32] ‖ sk_r_to_i[32] ‖ channel_hash[32]. */
+    @JvmStatic external fun nativeNoiseResponder3(state: Long, msg3: ByteArray): ByteArray?
+    /** A state abandoned between messages: kind 1 — after msg1, 2 — after msg2, 3 — the responder's. */
+    @JvmStatic external fun nativeNoiseFree(kind: Int, state: Long)
+
     const val PUBKEY = 1952
     const val SECKEY = 4032
 }

@@ -137,13 +137,86 @@ pub fn first_secret(ss: &[u8], root: &[u8], ct: &[u8]) -> Zeroizing<[u8; 32]> {
     Zeroizing::new(mt_names::first_secret(ss, root, ct))
 }
 
+// ─────────── the channel's doors: a machine's answering identity, its signature, the Noise_PQ XX handshake ───────────
+
+/// seed[32] → a machine's answering identity, ML-DSA-65 pk[1952] ‖ sk[4032] (mt_mldsa_keypair_from_seed).
+pub fn mldsa_keypair(seed: &[u8; 32]) -> Option<Zeroizing<Vec<u8>>> {
+    let (pk, sk) = keypair_from_seed(seed).ok()?;
+    let mut out = Zeroizing::new(Vec::with_capacity(PUBKEY_LEN + SECKEY_LEN));
+    out.extend_from_slice(pk.as_bytes());
+    out.extend_from_slice(sk.as_bytes());
+    Some(out)
+}
+
+/// An ML-DSA-65 signature[3309] of `msg` under sk[4032] (mt_sign).
+pub fn sign(sk: &[u8], msg: &[u8]) -> Option<Vec<u8>> {
+    let sk = mt_crypto::SecretKey::from_slice(sk)?;
+    mt_crypto::sign(&sk, msg).ok().map(|s| s.as_bytes().to_vec())
+}
+
+/// Whether sig[3309] is pk[1952]'s signature of `msg` (mt_verify).
+pub fn verify(pk: &[u8], msg: &[u8], sig: &[u8]) -> bool {
+    match (mt_crypto::PublicKey::from_slice(pk), mt_crypto::Signature::from_slice(sig)) {
+        (Some(p), Some(s)) => mt_crypto::verify(&p, msg, &s),
+        _ => false,
+    }
+}
+
+/// Initiator: the responder's KEM pk[1184] and a fresh identity seed[32] → msg1[2272] and the state for msg2 (mt_noise_initiator_msg1).
+pub fn noise_initiator_msg1(responder_kem_pk: &[u8], seed: &[u8; 32]) -> Option<(Vec<u8>, mt_noise_pq::InitiatorMsg1Sent)> {
+    let pk = mt_crypto::MlkemPublicKey::from_slice(responder_kem_pk)?;
+    let (id_pk, id_sk) = keypair_from_seed(seed).ok()?;
+    let (wire, state) = mt_noise_pq::initiator_send_msg1(&pk, id_sk, id_pk).ok()?;
+    Some((wire[..].to_vec(), state))
+}
+
+/// Initiator: msg2[6349] read under the state of msg1 → the state for msg3; a forged msg2 is refused (mt_noise_initiator_msg2).
+pub fn noise_initiator_msg2(state: mt_noise_pq::InitiatorMsg1Sent, msg2: &[u8]) -> Option<mt_noise_pq::InitiatorMsg2Received> {
+    if msg2.len() != mt_noise_pq::NOISE_PQ_MSG2_SIZE { return None; }
+    mt_noise_pq::initiator_receive_msg2(msg2, state).ok()
+}
+
+/// Initiator: msg3[5261] ‖ the session, sk_i_to_r[32] ‖ sk_r_to_i[32] ‖ channel_hash[32] (mt_noise_initiator_msg3).
+pub fn noise_initiator_msg3(state: mt_noise_pq::InitiatorMsg2Received) -> Option<Zeroizing<Vec<u8>>> {
+    let (wire, s) = mt_noise_pq::initiator_send_msg3(state).ok()?;
+    let mut out = Zeroizing::new(Vec::with_capacity(mt_noise_pq::NOISE_PQ_MSG3_SIZE + 96));
+    out.extend_from_slice(&wire[..]);
+    session(&mut out, &s);
+    Some(out)
+}
+
+/// Responder: its KEM sk[2400], a fresh identity seed[32] and msg1[2272] → msg2[6349] and the state for msg3 (mt_noise_responder_msg1).
+pub fn noise_responder_msg1(kem_sk: &[u8], seed: &[u8; 32], msg1: &[u8]) -> Option<(Vec<u8>, mt_noise_pq::ResponderMsg2Sent)> {
+    let sk = mt_crypto::MlkemSecretKey::from_slice(kem_sk)?;
+    if msg1.len() != mt_noise_pq::NOISE_PQ_MSG1_SIZE { return None; }
+    let (id_pk, id_sk) = keypair_from_seed(seed).ok()?;
+    let st1 = mt_noise_pq::responder_receive_msg1(msg1, &sk, id_sk, id_pk).ok()?;
+    let (wire, st2) = mt_noise_pq::responder_send_msg2(st1).ok()?;
+    Some((wire[..].to_vec(), st2))
+}
+
+/// Responder: msg3[5261] under the state of msg2 → the session, sk_i_to_r ‖ sk_r_to_i ‖ channel_hash (mt_noise_responder_msg3).
+pub fn noise_responder_msg3(state: mt_noise_pq::ResponderMsg2Sent, msg3: &[u8]) -> Option<Zeroizing<Vec<u8>>> {
+    if msg3.len() != mt_noise_pq::NOISE_PQ_MSG3_SIZE { return None; }
+    let s = mt_noise_pq::responder_receive_msg3(msg3, state).ok()?;
+    let mut out = Zeroizing::new(Vec::with_capacity(96));
+    session(&mut out, &s);
+    Some(out)
+}
+
+fn session(out: &mut Vec<u8>, s: &mt_noise_pq::NoisePqSession) {
+    out.extend_from_slice(&s.sk_i_to_r);
+    out.extend_from_slice(&s.sk_r_to_i);
+    out.extend_from_slice(&s.transcript_hash);
+}
+
 // ─────────── JNI: class quest.montana.app.MtBindings ───────────
 
 #[cfg(target_os = "android")]
 mod jni_doors {
     use super::*;
-    use jni::objects::{JByteArray, JClass, JString};
-    use jni::sys::{jbyteArray, jint, jstring};
+    use jni::objects::{JByteArray, JClass, JLongArray, JString};
+    use jni::sys::{jboolean, jbyteArray, jint, jlong, jstring, JNI_FALSE, JNI_TRUE};
     use jni::JNIEnv;
 
     fn words(env: &mut JNIEnv, s: &JString) -> Option<Zeroizing<String>> {
@@ -326,6 +399,115 @@ mod jni_doors {
         };
         archive_ingest(&base, &chat, &h, &o, &s)
     }
+    // ── the channel's doors ──
+
+    #[no_mangle]
+    pub extern "system" fn Java_quest_montana_app_MtBindings_nativeMldsaKeypair<'l>(
+        mut env: JNIEnv<'l>, _c: JClass<'l>, seed: JByteArray<'l>,
+    ) -> jbyteArray {
+        let Some(s) = key32(&mut env, &seed) else { return std::ptr::null_mut() };
+        match mldsa_keypair(&s) { Some(k) => bytes(&mut env, &k[..]), None => std::ptr::null_mut() }
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_quest_montana_app_MtBindings_nativeSign<'l>(
+        mut env: JNIEnv<'l>, _c: JClass<'l>, sk: JByteArray<'l>, msg: JByteArray<'l>,
+    ) -> jbyteArray {
+        let (Ok(s), Ok(m)) = (env.convert_byte_array(&sk), env.convert_byte_array(&msg)) else { return std::ptr::null_mut() };
+        let s = Zeroizing::new(s);
+        match sign(&s, &m) { Some(sig) => bytes(&mut env, &sig), None => std::ptr::null_mut() }
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_quest_montana_app_MtBindings_nativeVerify<'l>(
+        env: JNIEnv<'l>, _c: JClass<'l>, pk: JByteArray<'l>, msg: JByteArray<'l>, sig: JByteArray<'l>,
+    ) -> jboolean {
+        let (Ok(p), Ok(m), Ok(s)) = (env.convert_byte_array(&pk), env.convert_byte_array(&msg), env.convert_byte_array(&sig)) else { return JNI_FALSE };
+        if verify(&p, &m, &s) { JNI_TRUE } else { JNI_FALSE }
+    }
+
+    /// A state between two messages of the handshake lives in the core as a box; Kotlin holds only its address.
+    fn hold<T>(env: &mut JNIEnv, out: &JLongArray, state: T) -> bool {
+        let h = Box::into_raw(Box::new(state));
+        if env.set_long_array_region(out, 0, &[h as jlong]).is_ok() { return true; }
+        // SAFETY: `h` was made by Box::into_raw just above and handed to nobody; it is taken back once, here.
+        drop(unsafe { Box::from_raw(h) });
+        false
+    }
+
+    /// # Safety
+    /// `h` is an address `hold` (or a consuming door) gave Kotlin for a state of exactly the type `T`, and Kotlin hands
+    /// each address back once (MtBindings: every call consumes the state it is given) — the box is taken back whole.
+    unsafe fn take<T>(h: jlong) -> Option<T> {
+        if h == 0 { return None; }
+        Some(*Box::from_raw(h as *mut T))
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_quest_montana_app_MtBindings_nativeNoiseInitiator1<'l>(
+        mut env: JNIEnv<'l>, _c: JClass<'l>, kem_pk: JByteArray<'l>, seed: JByteArray<'l>, out: JLongArray<'l>,
+    ) -> jbyteArray {
+        let (Ok(pk), Some(s)) = (env.convert_byte_array(&kem_pk), key32(&mut env, &seed)) else { return std::ptr::null_mut() };
+        let Some((msg1, state)) = noise_initiator_msg1(&pk, &s) else { return std::ptr::null_mut() };
+        if !hold(&mut env, &out, state) { return std::ptr::null_mut(); }
+        bytes(&mut env, &msg1)
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_quest_montana_app_MtBindings_nativeNoiseInitiator2<'l>(
+        env: JNIEnv<'l>, _c: JClass<'l>, state: jlong, msg2: JByteArray<'l>,
+    ) -> jlong {
+        // SAFETY: `state` is the address nativeNoiseInitiator1 held for an InitiatorMsg1Sent; consumed here, whatever the answer.
+        let Some(st) = (unsafe { take::<mt_noise_pq::InitiatorMsg1Sent>(state) }) else { return 0 };
+        let Ok(m) = env.convert_byte_array(&msg2) else { return 0 };
+        noise_initiator_msg2(st, &m).map(|s| Box::into_raw(Box::new(s)) as jlong).unwrap_or(0)
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_quest_montana_app_MtBindings_nativeNoiseInitiator3<'l>(
+        mut env: JNIEnv<'l>, _c: JClass<'l>, state: jlong,
+    ) -> jbyteArray {
+        // SAFETY: `state` is the address nativeNoiseInitiator2 gave for an InitiatorMsg2Received; consumed here.
+        let Some(st) = (unsafe { take::<mt_noise_pq::InitiatorMsg2Received>(state) }) else { return std::ptr::null_mut() };
+        match noise_initiator_msg3(st) { Some(o) => bytes(&mut env, &o[..]), None => std::ptr::null_mut() }
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_quest_montana_app_MtBindings_nativeNoiseResponder1<'l>(
+        mut env: JNIEnv<'l>, _c: JClass<'l>, kem_sk: JByteArray<'l>, seed: JByteArray<'l>, msg1: JByteArray<'l>, out: JLongArray<'l>,
+    ) -> jbyteArray {
+        let (Ok(sk), Some(s), Ok(m)) = (env.convert_byte_array(&kem_sk), key32(&mut env, &seed), env.convert_byte_array(&msg1)) else {
+            return std::ptr::null_mut();
+        };
+        let sk = Zeroizing::new(sk);
+        let Some((msg2, state)) = noise_responder_msg1(&sk, &s, &m) else { return std::ptr::null_mut() };
+        if !hold(&mut env, &out, state) { return std::ptr::null_mut(); }
+        bytes(&mut env, &msg2)
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_quest_montana_app_MtBindings_nativeNoiseResponder3<'l>(
+        mut env: JNIEnv<'l>, _c: JClass<'l>, state: jlong, msg3: JByteArray<'l>,
+    ) -> jbyteArray {
+        // SAFETY: `state` is the address nativeNoiseResponder1 held for a ResponderMsg2Sent; consumed here, whatever the answer.
+        let Some(st) = (unsafe { take::<mt_noise_pq::ResponderMsg2Sent>(state) }) else { return std::ptr::null_mut() };
+        let Ok(m) = env.convert_byte_array(&msg3) else { return std::ptr::null_mut() };
+        match noise_responder_msg3(st, &m) { Some(o) => bytes(&mut env, &o[..]), None => std::ptr::null_mut() }
+    }
+
+    /// A state abandoned between messages (the peer fell silent): kind 1 — after msg1, 2 — after msg2, 3 — the responder's.
+    #[no_mangle]
+    pub extern "system" fn Java_quest_montana_app_MtBindings_nativeNoiseFree(_e: JNIEnv, _c: JClass, kind: jint, state: jlong) {
+        // SAFETY: `state` is an address held for the type `kind` names and never handed back before; taken back once, dropped.
+        unsafe {
+            match kind {
+                1 => drop(take::<mt_noise_pq::InitiatorMsg1Sent>(state)),
+                2 => drop(take::<mt_noise_pq::InitiatorMsg2Received>(state)),
+                3 => drop(take::<mt_noise_pq::ResponderMsg2Sent>(state)),
+                _ => {}
+            }
+        }
+    }
 }
 
 // ─────────── proof: every door answers as the iOS door (mt-bindings C ABI) ───────────
@@ -485,6 +667,90 @@ mod tests {
         assert_eq!(archive_ingest(a.to_str().unwrap(), "c1", &hk, &owner, &sealed), 0); // held already: merged, not doubled
         assert!(archive_ingest(a.to_str().unwrap(), "c1", &[8u8; 32], &owner, &sealed) < 0); // another key: refused
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn mldsa_keypair_matches_ios() {
+        let seed: [u8; 32] = core::array::from_fn(|i| (i * 5 + 1) as u8);
+        let mut pk = vec![0u8; 1952];
+        let mut sk = vec![0u8; 4032];
+        assert_eq!(unsafe { ffi_c::mt_mldsa_keypair_from_seed(seed.as_ptr(), pk.as_mut_ptr(), sk.as_mut_ptr()) }, 0);
+        let ours = mldsa_keypair(&seed).unwrap();
+        assert_eq!(&ours[..1952], &pk[..]);
+        assert_eq!(&ours[1952..], &sk[..]);
+    }
+
+    #[test]
+    fn signatures_cross_with_ios() {
+        let k = mldsa_keypair(&[3u8; 32]).unwrap();
+        let (pk, sk) = (&k[..1952], &k[1952..]);
+        let msg = b"mt-overlay-register\0nonce-and-channel-hash";
+        let ours = sign(sk, msg).unwrap();
+        assert_eq!(ours.len(), 3309);
+        assert_eq!(unsafe { ffi_c::mt_verify(pk.as_ptr(), msg.as_ptr(), msg.len(), ours.as_ptr()) }, 0);
+        let mut theirs = vec![0u8; 3309];
+        assert_eq!(unsafe { ffi_c::mt_sign(sk.as_ptr(), msg.as_ptr(), msg.len(), theirs.as_mut_ptr()) }, 0);
+        assert!(verify(pk, msg, &theirs));
+        // another message, or another key, is refused: a verifier that only checked the length would pass these
+        assert!(!verify(pk, b"another message", &theirs));
+        let other = mldsa_keypair(&[4u8; 32]).unwrap();
+        assert!(!verify(&other[..1952], msg, &theirs));
+    }
+
+    fn responder_kem() -> (Vec<u8>, Vec<u8>) {
+        let seed: [u8; 64] = core::array::from_fn(|i| (i * 11 + 2) as u8);
+        let k = mlkem_keypair(&seed).unwrap();
+        (k[..1184].to_vec(), k[1184..].to_vec())
+    }
+
+    #[test]
+    fn our_initiator_meets_the_ios_responder() {
+        use mt_bindings::ffi_noise as n;
+        let (kpk, ksk) = responder_kem();
+        let (msg1, st1) = noise_initiator_msg1(&kpk, &[7u8; 32]).unwrap();
+        assert_eq!(msg1.len(), 2272);
+        let mut msg2 = vec![0u8; 6349];
+        let mut rst: *mut std::ffi::c_void = std::ptr::null_mut();
+        assert_eq!(unsafe { n::mt_noise_responder_msg1(ksk.as_ptr(), [8u8; 32].as_ptr(), msg1.as_ptr(), msg2.as_mut_ptr(), &mut rst) }, 0);
+        let st2 = noise_initiator_msg2(st1, &msg2).unwrap();
+        let out = noise_initiator_msg3(st2).unwrap();
+        assert_eq!(out.len(), 5261 + 96);
+        let (mut i2r, mut r2i, mut ch) = ([0u8; 32], [0u8; 32], [0u8; 32]);
+        assert_eq!(unsafe { n::mt_noise_responder_msg3(&mut rst, out.as_ptr(), i2r.as_mut_ptr(), r2i.as_mut_ptr(), ch.as_mut_ptr()) }, 0);
+        // each direction's key is the same direction's key on the other side: a pair handed back swapped fails here
+        assert_eq!(&out[5261..5293], &i2r[..]);
+        assert_eq!(&out[5293..5325], &r2i[..]);
+        assert_eq!(&out[5325..], &ch[..]);
+        assert_ne!(i2r, r2i);
+    }
+
+    #[test]
+    fn the_ios_initiator_meets_our_responder() {
+        use mt_bindings::ffi_noise as n;
+        let (kpk, ksk) = responder_kem();
+        let mut msg1 = vec![0u8; 2272];
+        let mut ist: *mut std::ffi::c_void = std::ptr::null_mut();
+        assert_eq!(unsafe { n::mt_noise_initiator_msg1(kpk.as_ptr(), [5u8; 32].as_ptr(), msg1.as_mut_ptr(), &mut ist) }, 0);
+        let (msg2, rst) = noise_responder_msg1(&ksk, &[6u8; 32], &msg1).unwrap();
+        assert_eq!(msg2.len(), 6349);
+        let mut ist2: *mut std::ffi::c_void = std::ptr::null_mut();
+        assert_eq!(unsafe { n::mt_noise_initiator_msg2(&mut ist, msg2.as_ptr(), &mut ist2) }, 0);
+        let mut msg3 = vec![0u8; 5261];
+        let (mut i2r, mut r2i, mut ch) = ([0u8; 32], [0u8; 32], [0u8; 32]);
+        assert_eq!(unsafe { n::mt_noise_initiator_msg3(&mut ist2, msg3.as_mut_ptr(), i2r.as_mut_ptr(), r2i.as_mut_ptr(), ch.as_mut_ptr()) }, 0);
+        let keys = noise_responder_msg3(rst, &msg3).unwrap();
+        assert_eq!(&keys[..32], &i2r[..]);
+        assert_eq!(&keys[32..64], &r2i[..]);
+        assert_eq!(&keys[64..], &ch[..]);
+    }
+
+    #[test]
+    fn a_forged_msg2_is_refused() {
+        let (kpk, ksk) = responder_kem();
+        let (msg1, st1) = noise_initiator_msg1(&kpk, &[7u8; 32]).unwrap();
+        let (mut msg2, _rst) = noise_responder_msg1(&ksk, &[8u8; 32], &msg1).unwrap();
+        msg2[0] ^= 1;
+        assert!(noise_initiator_msg2(st1, &msg2).is_none());
     }
 
     #[test]

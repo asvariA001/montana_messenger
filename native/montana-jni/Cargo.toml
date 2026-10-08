@@ -21,6 +21,8 @@ mt-codec    = { path = "../../../Montana Protocol/Code/crates/mt-codec" }
 mt-messenger-e2e = { path = "../../../Montana Protocol/Code/crates/mt-messenger-e2e" }
 # The first letter's secret (mt_name_first_secret on iOS).
 mt-names    = { path = "../../../Montana Protocol/Code/crates/mt-names" }
+# The channel's handshake, Noise_PQ XX (mt_noise_* on iOS): a direct channel to a node or a phone.
+mt-noise-pq = { path = "../../../Montana Protocol/Code/crates/mt-noise-pq" }
 zeroize     = { version = "=1.8.1", default-features = false }
 jni         = { version = "0.21", default-features = false }
 
