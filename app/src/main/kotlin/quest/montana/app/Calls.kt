@@ -354,7 +354,9 @@ object Calls {
         // iOS: «missed» means the person never reacted — an answer whose call did not connect is «Connection failed»
         row(r.ref, r.video, incoming = !r.out, dur = dur, missed = !r.answered)
         // a call of ours nobody took leaves the far phone its «missed» letter (iOS missedCallMark); one of theirs, the banner here
-        if (r.out) { if (!r.answered) Post.send(r.ref, Marks.mintMid(), Marks.MISSED + JSONObject().put("v", r.video).put("s", r.seed)) }
+        // LOUD ONLY FOR A PHONE THAT NEVER RANG (iOS MontanaCall 5722, 13.09: the author's three notifications for one call): a phone
+        // that said «ringing» has shown its person the call and written its own missed row — the letter still rides, silent
+        if (r.out) { if (!r.answered) Post.send(r.ref, Marks.mintMid(), Marks.MISSED + JSONObject().put("v", r.video).put("s", r.seed), quiet = r.ringing) }
         else if (!r.answered && why != "declined") Notify.letter(r.ref, rowText(r.video, true, 0, true))   // iOS postMissedCallBanner
         log("end " + why)
     }

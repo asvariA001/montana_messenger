@@ -446,7 +446,8 @@ object Post {
 
     // ── sending ──
     /** Queue a letter and knock at once; a letter that no door took waits in the outbox and rides the next round. */
-    fun send(to0: String, mid: String, text: String, qt: String? = null, qm: String? = null, lp: String? = null) {
+    /** `quiet` — a letter of the person's that asks no banner this once (iOS enqueue silent: a missed call the far phone already rang for). */
+    fun send(to0: String, mid: String, text: String, qt: String? = null, qm: String? = null, lp: String? = null, quiet: Boolean = false) {
         if (Groups.isKey(to0)) return   // a group's feed has no pipe: nothing is ever queued to it (iOS: a group's key has no doors)
         val to = if (SamePair.speaksOfPipe(text)) to0 else SamePair.root(to0)   // a folded pipe's words go by its conversation's pipe
         synchronized(outLock) {
@@ -456,7 +457,7 @@ object Post {
                 if (lp != null) { a.getJSONObject(i).put("lp", lp); DeviceVault.set(OUTBOX, a.toString().toByteArray()) }
                 return
             }
-            a.put(JSONObject().put("to", to).put("m", mid).put("t", text).put("qt", qt ?: "").put("qm", qm ?: "").put("lp", lp ?: ""))
+            a.put(JSONObject().put("to", to).put("m", mid).put("t", text).put("qt", qt ?: "").put("qm", qm ?: "").put("lp", lp ?: "").apply { if (quiet) put("q", true) })
             DeviceVault.set(OUTBOX, a.toString().toByteArray())
         }
         Thread { flush() }.start()
@@ -481,9 +482,9 @@ object Post {
                 if (Marks.isService(text) && !text.startsWith(Marks.MEDIA) && !text.startsWith(Marks.VOICE) && !text.startsWith(Marks.SAME_ASK)) false
                 else {
                     val words = if (text.toByteArray().size > 300) sealLong(mid, text) else text
-                    words != null && Meeting.knockFirst(secret, intro.first, intro.second, mid, words, Marks.isSilent(text))
+                    words != null && Meeting.knockFirst(secret, intro.first, intro.second, mid, words, Marks.isSilent(text) || o.optBoolean("q"))
                 }
-            } else knock(secret, mid, text, o.optString("qt").ifEmpty { null }, o.optString("qm").ifEmpty { null }, o.optString("lp").ifEmpty { null })
+            } else knock(secret, mid, text, o.optString("qt").ifEmpty { null }, o.optString("qm").ifEmpty { null }, o.optString("lp").ifEmpty { null }, o.optBoolean("q"))
             if (sent) {
                 done.add(mid)
                 Book.edit(SamePair.root(to)) { c -> c.msgs.find { it.mid == mid }?.advance(1) }   // a letter queued on a pipe since folded settles in the conversation
@@ -499,7 +500,7 @@ object Post {
     }
 
     /** ONE KNOCK (iOS MTNodeWire.knockLetter): the body is sealed afresh at every door, the first door that boxes it ends the walk. */
-    private fun knock(secret: ByteArray, mid: String, text0: String, qt: String?, qm: String?, lp: String? = null): Boolean {
+    private fun knock(secret: ByteArray, mid: String, text0: String, qt: String?, qm: String?, lp: String? = null, quiet: Boolean = false): Boolean {
         val twin = MontanaSeed.twin ?: return false
         // A LETTER TOO LONG FOR ONE ENVELOPE rides as a blob under a key of its own, the envelope carries the reference (iOS sealLongLetter).
         val text = if (text0.toByteArray().size > Wire.ENVELOPE - 400) sealLong(mid, text0) ?: return false else text0
@@ -519,7 +520,7 @@ object Post {
         val plain = body + ByteArray(Wire.ENVELOPE - body.size)
         val cw = Wire.convW(secret, Wire.day())
         // a service word asks the node for a silent push (iOS wake: body["silent"]), judged by its words, not by a long letter's reference
-        val silent = Marks.isSilent(text0)
+        val silent = Marks.isSilent(text0) || quiet
         for (door in MontanaCard.doors) {
             val env = Wire.seal(Wire.bodyKey(secret, Wire.minute()), plain) ?: return false
             val (code, _) = Wire.post(door, "/wake", JSONObject().put("conv", cw).put("from_id", Wire.subId(cw, twin)).put("mid", mid)
