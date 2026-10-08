@@ -506,6 +506,8 @@
     <string name="chess_invite_correspondent">Invite a correspondent</string>
     <string name="chess_no_correspondents">No correspondents found</string>
     <string name="chess_stake_field">Stake</string>
+    <string name="chess_ask_new">Start a new game?</string>
+    <string name="coin_balance_line">%1$s coins</string>
     <string name="chess_invite_failed">Invitation could not be sent</string>
     <string name="chess_pot_footer">Both players put the stake into the game\'s pot, and every move mints its maker\'s level times a thousand into it. The winner takes the whole pot; a draw gives each their own back.</string>
     <string name="chess_accept">Accept</string>

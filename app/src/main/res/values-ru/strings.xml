@@ -505,6 +505,8 @@
     <string name="chess_invite_correspondent">Пригласить собеседника</string>
     <string name="chess_no_correspondents">Собеседники не найдены</string>
     <string name="chess_stake_field">Ставка</string>
+    <string name="chess_ask_new">Начать новую партию?</string>
+    <string name="coin_balance_line">Монет: %1$s</string>
     <string name="chess_invite_failed">Не удалось отправить приглашение</string>
     <string name="chess_pot_footer">Оба игрока кладут ставку в банк партии, а каждый ход чеканит в него уровень сделавшего ход, умноженный на тысячу. Победитель забирает весь банк; при ничьей каждому возвращается своё.</string>
     <string name="chess_accept">Принять</string>

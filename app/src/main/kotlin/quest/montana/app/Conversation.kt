@@ -881,6 +881,31 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         presenceDot.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(if (w?.second == true) SysColor.green else SysColor.red) }
     }
     drawPresence()
+    // THE PAIR'S MARKS BESIDE THE NAME (iOS chatRow 1866-1870 at 2155): the wallet with the balance short at its corner and the chess,
+    // ringed while the pair's game is played, beside the handset -- in a pair's own chat (coinStands); a group wears none of them
+    val coinStands = !group && CoinSend.canPay(ref)
+    val rounds = mutableListOf<View>()     // the marks' plates: 44, or 40 where the row is short (iOS ViewThatFits)
+    val gapped = mutableListOf<View>()     // the marks that stand the row's gap after the mark before them
+    val handsets = mutableListOf<View>()   // the folded call's two handsets, outside the fitted row (iOS chatTop 1847, 1852)
+    var nameBubble: View? = null
+    val walletBadge = c.text("", 13f, Color.WHITE, bold = true).apply {   // iOS MTCountBadge(word:): the platform's red capsule of 20
+        background = c.rounded(SysColor.red, 10)
+        gravity = Gravity.CENTER
+        minWidth = c.dp(20)
+        setPadding(c.dp(6), 0, c.dp(6), 0)
+        translationX = c.dp(8).toFloat(); translationY = -c.dp(6).toFloat()
+        visibility = View.GONE
+    }
+    val ringInk = GradientDrawable().apply { shape = GradientDrawable.OVAL; setStroke(Math.round(1.5f * c.resources.displayMetrics.density), MT.blue) }
+    val chessRing = View(c).apply { background = ringInk; visibility = View.GONE }   // iOS MTMiniFace.playingRing, 1.5 inside the plate
+    fun playedGame(): String? = ChessGame.current(ChessSend.entries(ref))?.takeIf { ChessSend.state(ref, it)?.status?.finished == false }
+    fun drawMarks() {
+        if (!coinStands) return
+        val bal = CoinBook.balance
+        walletBadge.text = if (0L < bal) PiLevels.short(c, bal) else ""   // USER-DATA: the balance, short
+        walletBadge.visibility = if (0L < bal) View.VISIBLE else View.GONE
+        chessRing.visibility = if (playedGame() != null) View.VISIBLE else View.GONE
+    }
     fun drawHead() {
         val ch = Book.chat(ref) ?: return
         title.text = ch.shown.ifBlank { c.getString(R.string.peer) }
@@ -894,6 +919,31 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     val openPage = { hideKeys(); act.push { close -> if (group) groupPage(act, ref, close) else peerInfoPage(act, ref, close) { to, mid ->
         if (to != ref) { onClose(); act.push { c2 -> conversationPage(act, to, c2) } } else if (mid != null) jumpHere(mid)
     } } }
+    // THE CHESS MARK'S TAP (iOS chessMark 1975-1986): an invitation waiting for my answer is answered in the feed, a played game opens
+    // its board; with none the platform's question asks for a new game and takes the stake under the balance (iOS 2054-2067)
+    fun chessTap() {
+        val id = playedGame()
+        if (id != null && ChessSend.awaitsMe(ref, id)) {
+            val invite = Book.chat(ref)?.msgs?.lastOrNull { m -> ChessSend.letterOf(m)?.let { l -> l.game == id && l.kind == ChessLetter.INVITE } == true }
+            if (invite != null) { jumpHere(invite.mid); return }
+        }
+        if (id != null) { act.push { chessBoardPage(act, ref, id, true, it) }; return }
+        val field = EditText(c).apply { inputType = android.text.InputType.TYPE_CLASS_NUMBER; hint = c.getString(R.string.chess_stake_field) }
+        val box = FrameLayout(c).apply { setPadding(c.dp(20), 0, c.dp(20), 0); addView(field, FrameLayout.LayoutParams(MATCH, WRAP)) }
+        AlertDialog.Builder(c)
+            .setTitle(R.string.chess_ask_new)
+            .setMessage(c.getString(R.string.coin_balance_line, CoinText.count(CoinBook.balance)))   // USER-DATA: the balance
+            .setView(box)
+            .setPositiveButton(R.string.chess_new_game) { _, _ ->
+                val stake = field.text.toString().filter { it.isDigit() }.take(13).toLongOrNull() ?: 0L
+                val game = ChessSend.invite(c, ref, ChessSend.CHAT_CLOCK, stake)
+                if (game != null) act.push { chessBoardPage(act, ref, game, true, it) }
+                else if (0L < stake) AlertDialog.Builder(c).setTitle(R.string.coin_not_enough).setMessage(R.string.coin_not_enough_sub)
+                    .setPositiveButton(R.string.ok, null).show()
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
     // one round of the bar (iOS MTBarRoundMark): the glass circle of 44 with the bar's grey glyph (MontanaOctagon.barGlyph)
     fun roundMark(res: Int, label: Int, onTap: (View) -> Unit): View = FrameLayout(c).apply {
         background = c.glassPlate(oval = true)
@@ -906,9 +956,10 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     val top = c.hstack {
         gravity = Gravity.CENTER_VERTICAL
         setPadding(dp(8), dp(4), dp(8), dp(4))
-        addView(callHandset(act, true, null), lp(dp(44), dp(44)))   // 15.8: back to the folded call (iOS chatTop 1847)
-        addView(roundMark(R.drawable.ic_arrow_back_ios_new, R.string.back) { hideKeys(); onClose() }, lp(dp(44), dp(44)))
+        addView(callHandset(act, true, null).also { handsets.add(it) }, lp(dp(44), dp(44)))   // 15.8: back to the folded call (iOS chatTop 1847)
+        addView(roundMark(R.drawable.ic_arrow_back_ios_new, R.string.back) { hideKeys(); onClose() }.also { rounds.add(it) }, lp(dp(44), dp(44)))
         addView(c.hstack {
+            nameBubble = this
             gravity = Gravity.CENTER_VERTICAL
             background = c.glassPlate()
             setPadding(dp(4), 0, dp(14), 0)
@@ -927,6 +978,21 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 }.show(); true
             }
         }, lp(0, dp(44), 1f).apply { marginStart = dp(6); if (!group) marginEnd = dp(6) })
+        if (coinStands) {
+            // THE WALLET BESIDE THE COIN (iOS walletMark): the wallet page over the chat, the one road a coin's link takes
+            addView(FrameLayout(c).apply {
+                clipChildren = false
+                addView(roundMark(R.drawable.ic_app_wallet, R.string.app_wallet) { hideKeys(); act.push { walletPage(act, it) } }.also { rounds.add(it) },
+                    FrameLayout.LayoutParams(MATCH, MATCH))
+                addView(walletBadge, FrameLayout.LayoutParams(WRAP, c.dp(20), Gravity.TOP or Gravity.END))
+            }, lp(dp(44), dp(44)))
+            // THE CHESS MARK (iOS chessMark): the game's knight on the marks' round, the platform's blue ring while the game is played
+            addView(FrameLayout(c).apply {
+                addView(roundMark(R.drawable.chess_knight, R.string.app_chess) { hideKeys(); chessTap() }.also { rounds.add(it) },
+                    FrameLayout.LayoutParams(MATCH, MATCH))
+                addView(chessRing, FrameLayout.LayoutParams(MATCH, MATCH))
+            }.also { gapped.add(it) }, lp(dp(44), dp(44)).apply { marginStart = dp(6) })
+        }
         // THE HANDSET AS IT WAS (iOS handsetMark, a pair's chat): the calls' menu behind the one bar glyph — a voice call or a video call
         if (!group) addView(roundMark(R.drawable.ic_bar_calls, R.string.pi_voice_call) { v ->
             hideKeys()
@@ -937,10 +1003,29 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 menu.add(0, 1, 1, R.string.pi_video_call).setIcon(R.drawable.ic_peer_video).iconTintList = ink
                 setOnMenuItemClickListener { item -> act.callOut(ref, video = item.itemId == 1); true }
             }.show()
-        }, lp(dp(44), dp(44)))
-        addView(callHandset(act, false, null), lp(dp(44), dp(44)))   // 15.8: end it (iOS chatTop 1852)
+        }.also { rounds.add(it); if (coinStands) gapped.add(it) }, lp(dp(44), dp(44)).apply { if (coinStands) marginStart = dp(6) })
+        addView(callHandset(act, false, null).also { handsets.add(it) }, lp(dp(44), dp(44)))   // 15.8: end it (iOS chatTop 1852)
         layoutParams = LinearLayout.LayoutParams(MATCH, dp(52))
     }
+    // THE ROW FITS ANY SCREEN (iOS chatTop's ViewThatFits): rounds of 44 a gap of 6 apart while the name's bubble keeps 120, rounds of
+    // 40 with no gap where it keeps less; every mark's target stays 44 -- the marks yield their glass, never the name its place
+    fun fit(w: Int) {
+        val n = rounds.size
+        val calls = handsets.count { it.visibility == View.VISIBLE }
+        val wide = c.dp(120) <= w - c.dp(16) - (n + calls) * c.dp(44) - n * c.dp(6)
+        val inset = if (wide) 0 else c.dp(2)
+        for (r in rounds) r.background = android.graphics.drawable.InsetDrawable(c.glassPlate(oval = true), inset)
+        chessRing.background = android.graphics.drawable.InsetDrawable(ringInk, inset)
+        for (v in gapped) (v.layoutParams as LinearLayout.LayoutParams).marginStart = if (wide) c.dp(6) else 0
+        (nameBubble?.layoutParams as? LinearLayout.LayoutParams)?.apply {
+            marginStart = if (wide) c.dp(6) else c.dp(2)
+            if (!group) marginEnd = if (wide) c.dp(6) else c.dp(2)
+        }
+        top.requestLayout()
+    }
+    top.clipChildren = false
+    top.addOnLayoutChangeListener { _, l, _, r, _, ol, _, or2, _ -> if (r - l != or2 - ol) top.post { fit(r - l) } }
+    drawMarks()
 
     val groupFoot = FrameLayout(c).apply { visibility = View.GONE }.also { if (group) fillGroupFoot(c, ref, it) }
     var lane = false   // the live lane stands while the page does
@@ -966,7 +1051,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             return@listener
         }
         val before = column.childCount
-        redraw(); drawHead()
+        redraw(); drawHead(); drawMarks()
         if (group) {
             drawPresence(); fillGroupFoot(c, ref, groupFoot)
             // taken out of the group, or let back in: the field follows (iOS composeSlot)
