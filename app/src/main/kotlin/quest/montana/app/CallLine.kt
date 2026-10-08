@@ -8,6 +8,9 @@ import android.media.AudioDeviceInfo
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.projection.MediaProjection
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
 import android.os.Build
 import android.util.Log
 import org.json.JSONArray
@@ -48,6 +51,12 @@ import java.util.concurrent.Executors
 object CallLine {
     private const val CONNECT_MS = 60_000L   // iOS armHardTimeout: an answered call that never connects ends in a minute
     private const val PASS = "turnPass"   // iOS rememberTurnPass: {u, c, uris, stun}; the name is the pass's own moment
+    // THE ONE OWNER'S OWN CLOCK (iOS restartSettleS/restartCalleeLeadS/restartMax/reconnectDeadlineS/disconnectGraceS, b23f80900c0f)
+    private const val RESTART_SETTLE_MS = 9_000L     // a transport over a relay forms in seconds; asking sooner aborts it
+    private const val RESTART_CALLEE_LEAD_MS = 1_500L
+    private const val RESTART_MAX = 3                 // three fresh transports in a row failed — then the call is honestly lost
+    private const val RECONNECT_DEADLINE_MS = 30_000L
+    private const val DISCONNECT_GRACE_MS = 2_500L
 
     private class Line(val ref: String, val seed: String, val pc: PeerConnection, val source: AudioSource, val track: AudioTrack) {
         val out = ArrayList<IceCandidate>()
@@ -59,6 +68,12 @@ object CallLine {
         var caller = false   // this side offered the call (iOS isInitiator): in a glare of two offers mid-call it keeps its own
         var seenOffer: String? = null   // iOS seenRestartOffer, seenRestartAnswer: the second road's copy is buried
         var seenAnswer: String? = null
+        // the one owner of «ask for fresh checks» (iOS requestIceRestart, b23f80900c0f)
+        var restartAskedAt = 0L   // iOS restartAskedAt (.distantPast here is 0): never asked until set
+        var iceRestarts = 0   // iOS iceRestarts: fresh transports asked since the break was declared
+        var routeKey = ""   // iOS routeKey: the wifi/cellular letters of the route in hand
+        var routeRestartAt = 0L   // iOS routeRestartAt: one ask per route change, debounced two seconds
+        var routeCallback: ConnectivityManager.NetworkCallback? = null   // iOS routeMonitor
         // my picture (iOS birthLocalVideo): the camera, its frames' helper, the source and the track «mt_video»
         var cam: CameraVideoCapturer? = null
         var helper: SurfaceTextureHelper? = null
@@ -321,6 +336,9 @@ object CallLine {
         when (s) {
             PeerConnection.IceConnectionState.CONNECTED, PeerConnection.IceConnectionState.COMPLETED -> {
                 lost = false
+                l.iceRestarts = 0
+                l.restartAskedAt = 0L
+                startRouteWatch(l)
                 if (l.connectedAt == 0L) {
                     l.connectedAt = System.currentTimeMillis()
                     CallService.sync()
@@ -330,14 +348,18 @@ object CallLine {
             PeerConnection.IceConnectionState.FAILED -> { lost = true; Calls.hangUp("ice-failed") }
             // THE SUSPICION GETS A GRACE (iOS peerConnection(_:didChange:) 5092-5102, b23f80900c0f): «disconnected» is a few
             // missed checks, not a verdict — measured 22:51:34, it healed in 1.4s and the person heard the break cue for a blip.
-            // The red light and the fifteen-second deadline wait for it to still stand 2.5s later; a quick heal shows nothing.
-            PeerConnection.IceConnectionState.DISCONNECTED -> MainThread.later(2_500) {
+            // The red light waits for it to still stand 2.5s later; a quick heal shows nothing. Past the grace the one
+            // owner is asked for fresh checks at once, then every three seconds while the break holds (iOS
+            // scheduleIceRestart 5147-5165): the thirty-second deadline is the verdict if none of them form.
+            PeerConnection.IceConnectionState.DISCONNECTED -> MainThread.later(DISCONNECT_GRACE_MS) {
                 if (synchronized(gate) { line === l }) work.execute {
                     if (l.pc.iceConnectionState() != PeerConnection.IceConnectionState.DISCONNECTED) return@execute log("disconnected healed within the grace — no break declared")
                     lost = true
-                    MainThread.later(15_000) {
-                        if (synchronized(gate) { line === l }) work.execute {
-                            if (l.pc.iceConnectionState() == PeerConnection.IceConnectionState.DISCONNECTED) Calls.hangUp("ice-lost")
+                    scheduleIceRestart(l)
+                    MainThread.later(RECONNECT_DEADLINE_MS) {
+                        if (synchronized(gate) { line === l } && lost) work.execute {
+                            log("reconnecting past the deadline — " + l.iceRestarts + " fresh transports asked, none formed — ending")
+                            Calls.hangUp("ice-lost")
                         }
                     }
                 }
@@ -353,6 +375,7 @@ object CallLine {
             line?.takeIf { it.seed == seed }?.also { line = null }
         } ?: return 0
         work.execute {
+            stopRouteWatch(l)
             runCatching { l.pc.dispose() }
             runCatching { l.screen?.stopCapture() }
             runCatching { l.screen?.dispose() }
@@ -877,6 +900,99 @@ object CallLine {
                 if (l.vtrack != null) bound(l)
             }, onFail = { e -> log("restart offer refused here: " + e) }), tuned)
         }, onFail = { e -> log("restart offer unbuilt: " + e) }), MediaConstraints())
+    }
+
+    // ── FRESH CHECKS, ONE OWNER (iOS requestIceRestart 5166-5182, startRouteWatch 5112-5143, scheduleIceRestart
+    // 5147-5165, b23f80900c0f) ──
+
+    /** The system names a route change (Wi-Fi<->cellular, after the connect): the side whose route changed asks for
+     * fresh checks at once, debounced two seconds against flaps; the dial's own dirty-route road is the setup half,
+     * untouched here. */
+    private fun startRouteWatch(l: Line) {
+        if (l.routeCallback != null) return
+        val cm = Book.ctx.getSystemService(ConnectivityManager::class.java) ?: return
+        val cb = object : ConnectivityManager.NetworkCallback() {
+            override fun onCapabilitiesChanged(n: Network, caps: NetworkCapabilities) {
+                if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) return
+                val key = (if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) "w" else "") +
+                    (if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) "c" else "")
+                work.execute { routeChanged(l, key) }
+            }
+        }
+        runCatching { cm.registerDefaultNetworkCallback(cb) }.onFailure { return }
+        l.routeCallback = cb
+    }
+
+    private fun stopRouteWatch(l: Line) {
+        val cb = l.routeCallback ?: return
+        l.routeCallback = null
+        runCatching { Book.ctx.getSystemService(ConnectivityManager::class.java)?.unregisterNetworkCallback(cb) }
+    }
+
+    private fun routeChanged(l: Line, key: String) {
+        if (synchronized(gate) { line !== l } || l.connectedAt == 0L) return
+        val old = l.routeKey
+        l.routeKey = key
+        if (old.isEmpty() || old == key) return
+        val now = System.currentTimeMillis()
+        if (now - l.routeRestartAt <= 2_000) return
+        l.routeRestartAt = now
+        log("route changed " + old + "->" + key + " — ice restart asked")
+        requestIceRestart(l, "route " + old + "->" + key)
+    }
+
+    /** THE ONE OWNER OF «ASK FOR FRESH CHECKS» (iOS requestIceRestart 5168-5182): the route watch above and the
+     * reconnect clock below only knock here — never over an ask still forming (nine seconds), unless the machine
+     * already says failed; the caller asks at once, the callee after a lead so the caller's own ask lands first. */
+    private fun requestIceRestart(l: Line, reason: String) {
+        val forming = System.currentTimeMillis() - l.restartAskedAt
+        if (forming < RESTART_SETTLE_MS && l.pc.iceConnectionState() != PeerConnection.IceConnectionState.FAILED)
+            return log("restart held — one forming " + (forming / 1000) + "s (" + reason + ")")
+        l.restartAskedAt = System.currentTimeMillis()
+        val lead = if (l.caller) 0L else RESTART_CALLEE_LEAD_MS
+        MainThread.later(lead) {
+            work.execute {
+                if (synchronized(gate) { line !== l }) return@execute
+                if (lost) l.iceRestarts++
+                log("restart asked (" + reason + ")" + (if (lead > 0) " after the caller's lead" else ""))
+                sendIceRestartOffer(l)
+            }
+        }
+    }
+
+    /** THE RECONNECT CLOCK ONLY KNOCKS (iOS scheduleIceRestart 5147-5165): it asks once at once, then every three
+     * seconds while the break holds, up to three fresh transports — requestIceRestart above decides which knock
+     * actually leaves. */
+    private fun scheduleIceRestart(l: Line) {
+        requestIceRestart(l, "reconnecting")
+        knock(l)
+    }
+
+    private fun knock(l: Line) {
+        MainThread.later(3_000) {
+            work.execute {
+                if (synchronized(gate) { line !== l } || !lost || l.iceRestarts >= RESTART_MAX) return@execute
+                requestIceRestart(l, "reconnecting")
+                knock(l)
+            }
+        }
+    }
+
+    /** The restart offer itself (iOS sendIceRestartOffer 5183, sendRenegotiationOffer 5184-5215): fresh checks ride
+     * «call-restart», «rsn» ice, the connection's own IceRestart constraint — it goes regardless of a busy signaling
+     * state, unlike a media offer (reoffer): the reconnect road owns its own timing. */
+    private fun sendIceRestartOffer(l: Line) {
+        if (synchronized(gate) { line !== l }) return
+        log("restart offer n=" + l.iceRestarts)
+        val mc = MediaConstraints().apply { mandatory.add(MediaConstraints.KeyValuePair("IceRestart", "true")) }
+        l.pc.createOffer(sdp(onMade = { d ->
+            val tuned = SessionDescription(d.type, tune(d.description, 40000))
+            l.pc.setLocalDescription(sdp(onSet = {
+                say(l, JSONArray().put(word(l, "call-restart").put("sdp", JSONObject().put("type", "offer").put("sdp", tuned.description))
+                    .put("caps", caps()).put("rsn", "ice")))
+                if (l.vtrack != null) bound(l)
+            }, onFail = { e -> log("restart offer refused here: " + e) }), tuned)
+        }, onFail = { e -> log("restart offer unbuilt: " + e) }), mc)
     }
 
     /**
