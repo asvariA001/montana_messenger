@@ -591,8 +591,13 @@ object Post {
                 if (lp != null) { a.getJSONObject(i).put("lp", lp); DeviceVault.set(OUTBOX, a.toString().toByteArray()) }
                 return
             }
-            a.put(JSONObject().put("to", to).put("m", mid).put("t", text).put("qt", qt ?: "").put("qm", qm ?: "").put("lp", lp ?: "").apply { if (quiet) put("q", true) })
-            DeviceVault.set(OUTBOX, a.toString().toByteArray())
+            // ONE STATE, ONE LETTER (iOS DeliveryEngine 799-802, 08.09: forty-three read marks waiting their turn burnt the pair's ring
+            // budget, T3 to T1): a read mark says «read up to here», so a newer one makes the queued one meaningless — the last word stands
+            val q = if (!text.startsWith(Marks.READ)) a else JSONArray().also { keep ->
+                for (i in 0 until a.length()) a.getJSONObject(i).let { o -> if (!(o.optString("to") == to && o.optString("t").startsWith(Marks.READ))) keep.put(o) }
+            }
+            q.put(JSONObject().put("to", to).put("m", mid).put("t", text).put("qt", qt ?: "").put("qm", qm ?: "").put("lp", lp ?: "").apply { if (quiet) put("q", true) })
+            DeviceVault.set(OUTBOX, q.toString().toByteArray())
         }
         Thread { flush() }.start()
     }
