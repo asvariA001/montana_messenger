@@ -20,6 +20,7 @@ object Archive {
     private const val HEADS = "mt.history.heads.form"    // folder → the head's form (iOS headsKey 845)
     private const val NAMES = "mt.history.nameheads"     // folder → the name sealed last (iOS nameHeadsKey 925)
     private const val DEVICE = "mt.history.device"       // this install's sixteen bytes (iOS writerTag16, local)
+    private const val PUSHED = "mt.history.pushed"       // folder → the next block number the twin has not been handed (iOS cursorKey 612)
     private val q = Executors.newSingleThreadExecutor { r -> Thread(r, "archive").apply { isDaemon = true } }
     @Volatile private var keys: Keys? = null
 
@@ -35,7 +36,7 @@ object Archive {
      * THE KEYS, ONCE, ON THE ARCHIVE'S OWN THREAD (iOS keys 390-420): history and media from the phrase's entropy, the owner branch from
      * its seed; and none of it before the frozen vectors of the Canon reproduce — a history sealed under a wrong key is a history lost.
      */
-    private fun keys(): Keys? {
+    @Synchronized private fun keys(): Keys? {
         keys?.let { return it }
         val words = MontanaSeed.mnemonic ?: return null
         if (!historyKeyKAT() || !Wire.pipeAgreesWithCanon()) {
@@ -293,6 +294,58 @@ object Archive {
             chats++; added += built.size
         }
         Log.d("Montana", "archive_restore chats=" + chats + " rows=" + added + " headed=" + headed + " heads=s" + hs + "/a" + ha + "/n" + hn + " faces=" + faces)
+    }
+
+    // ── HISTORY ACROSS A PERSON'S OWN DEVICES (iOS 595-769) ──
+
+    /**
+     * Every block this device wrote and the twin has not been handed (iOS replicate 721-745): each folder's blocks of this writer from the
+     * cursor on, each by its own wire name — the digest a media piece is named by, so the shape of what travels says nothing of what it
+     * is — down the channel that stands with the person's own reference; the cursor moves past what the channel took.
+     */
+    fun replicate() = q.execute {
+        val twin = MontanaSeed.twin ?: return@execute
+        keys() ?: return@execute
+        val wt = MtBindings.nativeWriterTag(device()) ?: return@execute
+        val base = root()?.path ?: return@execute
+        val cursor = map(PUSHED)
+        var sent = 0
+        for (chat in File(base, "Chats").listFiles()?.filter { it.isDirectory }?.map { it.name }.orEmpty()) {
+            val from = cursor.optLong(chat, 0L)
+            val stream = MtBindings.nativeArchiveExport(base, chat, wt, from) ?: continue
+            var top = from
+            var i = 0
+            while (i + 4 <= stream.size) {
+                val n = u32(stream, i)
+                i += 4
+                if (n <= 0 || stream.size < i + n) break
+                val sealed = stream.copyOfRange(i, i + n)
+                i += n
+                val id = MtBindings.nativeArchiveBlockId(sealed)?.takeIf { it.size == 12 } ?: continue
+                var seq = 0L
+                for (b in 0 until 8) seq = seq or ((id[4 + b].toLong() and 0xff) shl (8 * b))
+                if (Channels.sendBlob(twin, Wire.hex(Wire.sha(sealed)), sealed)) { sent++; top = maxOf(top, seq + 1) }
+            }
+            if (top != from) cursor.put(chat, top)
+        }
+        keep(PUSHED, cursor)
+        if (sent > 0) Log.d("Montana", "history_push blocks=" + sent)
+    }
+
+    /**
+     * A sealed piece arrived (iOS absorb 750-769): if it opens under this person's history key it is a block of their own history — filed
+     * by the core, which drops a block it already holds, into the folder its conversation is filed under, and that folder is read
+     * into the feed again. False: the piece belongs to another road and is left untouched.
+     */
+    fun absorb(sealed: ByteArray): Boolean {
+        val k = keys() ?: return false
+        val conv = MtBindings.nativeArchivePeekConv(k.hk, k.owner, sealed) ?: return false
+        val c = Wire.hex(conv)
+        val folder = map(FOLDERS).optString(c).ifEmpty { c }
+        val base = root()?.path ?: return false
+        val rc = MtBindings.nativeArchiveIngest(base, folder, k.hk, k.owner, sealed)
+        if (rc == 1) { Log.d("Montana", "history_rx block filed"); restoreSoon(listOf(folder)) }
+        return rc >= 0
     }
 
     /** No conversation, no trace of it on disk (iOS deleteChatFolder 706-712). */

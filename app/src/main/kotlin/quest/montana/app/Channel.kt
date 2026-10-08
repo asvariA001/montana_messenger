@@ -113,7 +113,11 @@ class Channel(val host: String, val port: Int, ref: String = "", private val acc
         private set
 
     /** Named once: a first letter over a direct channel names the one at its other end (iOS MontanaP2P 1516-1520). */
-    fun name(r: String) { if (ref.isEmpty() && r.isNotEmpty()) ref = r }
+    fun name(r: String) {
+        if (ref.isNotEmpty() || r.isEmpty()) return
+        ref = r
+        if (ready && r == MontanaSeed.twin) Archive.replicate()   // named as the person's own other device: handed its history (iOS 995)
+    }
     val dialAt = System.currentTimeMillis()
     @Volatile var ready = false
         private set
@@ -463,6 +467,8 @@ object Channels {
             c.peerTag?.let { Doors.remember(c.label, Wire.hex(it), c.standMs) }
             fold()
         }
+        // the person's own other device stands: it is handed the history it has not seen (iOS DeliveryEngine 995)
+        if (c.ref.isNotEmpty() && c.ref == MontanaSeed.twin) Archive.replicate()
         // the owner reference leaves before anything else (iOS maybeReady 1130-1146): without it the node cannot count this owner
         Thread { ownerSecret()?.let { c.send(NetMsg.OWNER_REF, Wire.ownerRef(it, c.channelHash)) } }.start()
     }
@@ -815,6 +821,23 @@ object Channels {
     }
 
     /**
+     * A SEALED PIECE STRAIGHT TO A CORRESPONDENT (iOS sendBlob 721-725, send 728-766, sendOverlayMessage 1198-1216): 0x00 ‖ its name[64] ‖
+     * the bytes, addressed to their position in this window, down the channel that stands named with them; false — no such channel.
+     */
+    fun sendBlob(ref: String, blobId: String, sealed: ByteArray): Boolean {
+        if (blobId.length != 64 || ref.isEmpty()) return false
+        val c = synchronized(live) { live.values.firstOrNull { it.ready && it.ref == ref && it.peerTag != null } } ?: return false
+        val tag = c.peerTag ?: return false
+        val id = MtBindings.nativeRandom(16) ?: return false
+        synchronized(seen) {
+            if (originated.size > FRAME_MEMORY) originated.clear()
+            originated.add(Wire.hex(id))
+        }
+        val payload = byteArrayOf(0x00) + blobId.toByteArray(Charsets.US_ASCII) + sealed
+        return c.send(NetMsg.OVERLAY_FRAME, OverlayFrame(OverlayFrame.RELAY, Wire.windowPos(tag, Wire.minute()), id, payload).encode())
+    }
+
+    /**
      * 0x00 ‖ id[64] ‖ sealed (iOS handleOverlayFrame 1430-1454): a wake — «mt-wake» and forty bytes — or a point of rendezvous —
      * «mt-wake-point», sixteen and eight (iOS MontanaWake 38-84) — says something waits, and the queue is tried at once (iOS drainAll);
      * a block of history belongs to the archive (stage Б of the fork, not on this side yet); anything else is a piece a neighbour
@@ -833,6 +856,7 @@ object Channels {
             Post.flush()
             return
         }
+        if (Archive.absorb(sealed)) return   // a block of this person's own history, from their other device (iOS 1451)
         Media.Blobs.put(id, sealed)
         Log.d("Montana", "blob_rx bytes=" + sealed.size)
     }
