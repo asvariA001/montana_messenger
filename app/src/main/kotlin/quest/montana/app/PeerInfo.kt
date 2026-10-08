@@ -78,7 +78,16 @@ object PeerAbout {
 /** THE BLOCK AND THE VERIFIED NUMBER (iOS MontanaSafety / SafetyStore): one owner each; every road asks here. */
 object PeerSafety {
     fun isBlocked(ref: String) = Prefs.bool("block.$ref", false)
-    fun setBlocked(ref: String, on: Boolean) = Prefs.setBool("block.$ref", on)
+    /**
+     * THE BLOCK IS SAID TO THE BLOCKED AS «GONE» (iOS ChatStore.toggleBlocked 972-984, E2E.announceBlocked 1441-1474, the author's word
+     * 15.09): my face taken back and one presence word «gone»; the unblocked one meets me anew — my name, my face, my presence.
+     * Android only kept a flag: the blocked person kept my picture and saw me as before.
+     */
+    fun setBlocked(ref: String, on: Boolean) {
+        if (isBlocked(ref) == on) return
+        Prefs.setBool("block.$ref", on)
+        if (on) { Presence.drop(ref); Post.blocked(ref) } else Post.unblocked(ref)
+    }
     fun isVerified(ref: String) = Prefs.bool("fpVerified.$ref", false)
     fun setVerified(ref: String, on: Boolean) = Prefs.setBool("fpVerified.$ref", on)
 

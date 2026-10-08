@@ -227,6 +227,12 @@ object Presence {
         for (ref in Book.refs()) if (SamePair.merged(ref) == null && !PeerSafety.isBlocked(ref)) Signal.post(ref, APP + (if (open) "1" else "0") + saidTail())
     }
 
+    /** A blocked person's live words leave with the block (iOS toggleBlocked 979: typing and watching removed). */
+    fun drop(ref: String) {
+        typingUntil.remove(ref); inChatUntil.remove(ref); onlineUntil.remove(ref)
+        changed()
+    }
+
     // ── what I hear ──
     /** A word of the lane from `ref` (iOS append's presence branches + liveWordMoves). */
     fun hear(ref: String, text: String) {

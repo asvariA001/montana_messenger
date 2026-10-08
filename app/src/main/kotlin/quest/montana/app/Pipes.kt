@@ -528,6 +528,7 @@ object Post {
      * The face rides as AV:+base64 JPEG — a long letter by construction; an empty AV: says «no face».
      */
     fun announce(ref: String) {
+        if (PeerSafety.isBlocked(ref)) return   // a blocked person keeps no face, no name, no words of mine (iOS silenced)
         val name = Prefs.userName.trim()
         if (name.isNotEmpty() && Prefs.str("annName2." + ref, "") != name && !inFlight("N", ref, name)) {
             val mid = Marks.mintMid(); flight("N", ref, name, mid); send(ref, mid, Marks.NAME + name)
@@ -552,6 +553,23 @@ object Post {
     private fun inFlight(kind: String, ref: String, value: String): Boolean {
         val f = Prefs.str("annFly" + kind + "." + ref, "").split("\n")
         return f.size == 3 && f[0] == value && System.currentTimeMillis() - (f[2].toLongOrNull() ?: 0L) < 3_600_000L
+    }
+    /**
+     * BLOCKED (iOS E2E.announceBlocked 1441-1465): what the blocked person's phone is told — my face taken back (an empty AV:) and
+     * one presence word «0B», seen long ago, no face; both ride the durable road, as the iPhone's queue carries them.
+     */
+    fun blocked(ref: String) {
+        if (Book.secret(ref) == null) return
+        for (k in listOf("annFace2.", "annFlyF.")) Prefs.remove(k + ref)
+        send(ref, Marks.mintMid(), Marks.AVATAR)
+        send(ref, Marks.mintMid(), Presence.APP + "0B" + Presence.saidTail())
+    }
+    /** UNBLOCKED (iOS announceUnblocked 1466-1474): the person is told I am here again — my name, my face, my presence. */
+    fun unblocked(ref: String) {
+        if (Book.secret(ref) == null) return
+        for (k in listOf("annName2.", "annFace2.", "annFlyN.", "annFlyF.")) Prefs.remove(k + ref)
+        announce(ref)
+        if (Presence.sharing) Thread { Signal.post(ref, Presence.APP + "1" + Presence.saidTail()) }.start()
     }
     private fun announcedDelivered(ref: String, mid: String) {
         for ((kind, mark) in listOf("N" to "annName2.", "F" to "annFace2.")) {
@@ -647,6 +665,10 @@ object Post {
     private fun letter(ref: String, plain: ByteArray): Boolean {
         val f = Wire.fields(plain)
         if (f[0].isEmpty() || f[1].isEmpty()) return false
+        // THE ONE QUESTION EVERY INCOMING ROAD ASKS, WHERE THE BYTES ENTER (iOS ChatStore.refuses 874-879, 15.09): the feed's door
+        // refused a blocked person's row while their name, face, deletions, edits, answers, pins, a call's ring and the erasure of
+        // the chat still landed here. Taken from the box and said nothing — no receipt, no word of mine goes back.
+        if (PeerSafety.isBlocked(ref) || PeerSafety.isBlocked(SamePair.root(ref))) return true
         Meeting.firstDone(ref)   // a word sealed under the pipe by the other side: the introduction is over
         var text = f[1]
         if (text.startsWith(Marks.LONG)) text = fetchLong(text)?.ifEmpty { text } ?: return false   // later: the letter waits in the box
@@ -876,7 +898,8 @@ object Post {
     /** «Read» covering the newest letter of theirs on the screen, by their birth millisecond (iOS sendReadMark). */
     fun markRead(ref: String) {
         val c = Book.chat(ref) ?: return
-        if (!Prefs.bool("readReceiptsEnabled", true)) { Book.edit(ref) { it.unread = 0 }; return }
+        // a blocked person hears no word of mine (iOS sendReadMark 2842: read_skip why=blocked)
+        if (!Prefs.bool("readReceiptsEnabled", true) || PeerSafety.isBlocked(ref)) { Book.edit(ref) { it.unread = 0 }; return }
         val upTo = c.msgs.filter { !it.mine }.mapNotNull { Marks.birthMs(it.mid) }.maxOrNull()
         Book.edit(ref) { it.unread = 0 }
         send(ref, Marks.mintMid(), Marks.READ + (upTo?.toString() ?: ""))
