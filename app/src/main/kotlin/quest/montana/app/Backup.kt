@@ -104,7 +104,9 @@ object MontanaBackup {
 
     /** «Forget this device»: every file of the person's history leaves with the seed (iOS clearData). */
     fun forget(c: Context) {
-        (listOf(MontanaPaths.archive(c), MontanaPaths.store(c), MontanaPaths.taken(c)) + MontanaPaths.places(c).values)
+        // the sealed log of the chats stays (iOS sealForForget): only the words reopen it; the rest of the archive's root goes
+        MontanaPaths.archive(c).listFiles()?.filter { it.name != MontanaPaths.chats(c).name }?.forEach { it.deleteRecursively() }
+        (listOf(MontanaPaths.store(c), MontanaPaths.taken(c)) + MontanaPaths.places(c).values)
             .forEach { it.deleteRecursively() }
         shelf(c)?.deleteRecursively()
     }

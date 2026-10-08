@@ -402,6 +402,7 @@ object Book {
         m[ref] = secret
         val o = JSONObject(); m.forEach { (k, v) -> o.put(k, Base64.encodeToString(v, Base64.NO_WRAP)) }
         if (!DeviceVault.set(SECRETS, o.toString().toByteArray())) { m.remove(ref); return null }
+        Archive.head(ref)   // the pipe is born: its folder and its secret's head are sealed now (iOS MTPipe 432)
         ref
     }
 
@@ -436,7 +437,26 @@ object Book {
 
     /** Any change to a chat: written, and the screens told. */
     fun edit(ref: String, work: (Chat) -> Unit) {
-        synchronized(lock) { ensure(); val c = chats[ref] ?: return; work(c); save(c) }
+        val born = ArrayList<Msg>()
+        var renamed: String? = null
+        synchronized(lock) {
+            ensure(); val c = chats[ref] ?: return
+            // THE ONE ROAD FROM A ROW TO THE ARCHIVE (iOS archiveRow): rows are born in many places here, so the archive reads them where
+            // every one passes — a row new to the feed, or a media row whose file has just landed; the name the chat wears, when it changes
+            val before = HashMap<String, Boolean>(c.msgs.size * 2)
+            for (m in c.msgs) before[m.mid] = m.file != null
+            val name0 = c.name
+            work(c); save(c)
+            for (m in c.msgs) {
+                if (m.mid.startsWith("arc:")) continue   // a row the archive gave back is the archive's already (iOS applyRestored)
+                val had = before[m.mid]
+                val media = m.text.startsWith(Marks.MEDIA)
+                if ((had == null && (!media || m.file != null)) || (had == false && media && m.file != null)) born.add(m)
+            }
+            if (c.name != name0) renamed = c.name
+        }
+        for (m in born) Archive.row(ref, m)
+        renamed?.let { Archive.nameHead(ref, it) }
         changed()
     }
 
@@ -450,6 +470,7 @@ object Book {
             DeviceVault.set(SECRETS, o.toString().toByteArray())
         }
         SamePair.drop(dead)
+        dead.forEach { Archive.drop(it) }   // no conversation, no trace of it on disk (iOS deleteChatFolder)
         face(ref).delete(); myFace(ref).delete()
         ChatWall.forget(ref)
         changed()
@@ -524,10 +545,10 @@ object Book {
         DeviceVault.delete(Post.OUTBOX)
         Meeting.wipe(); SamePair.wipe(); Groups.wipe(); PeerLinks.wipe(); PasswordVault.wipe()
         CoinBook.setAside()   // the book of a person forgotten leaves with them (iOS MTCoinPlace.setAside)
-        // NOTHING OF THE PERSON OUTLIVES THEM ON THIS PHONE (iOS SeedScope.forget; the absolute privacy, 29.07): the iPhone seals the
-        // history under the words before they leave (sealForForget) — Android has no such archive yet, so whatever the words could
-        // not reopen goes. The chats' files, the letters set for later, the words still waiting to leave, the pins and marks of the
-        // chats, the card, the read marks, the walls held, the stickers and the grounds stood on this phone after it.
+        // NOTHING OF THE PERSON OUTLIVES THEM ON THIS PHONE BUT WHAT THE WORDS ALONE REOPEN (iOS SeedScope.forget; the absolute privacy,
+        // 29.07): the history was sealed under the words before they left (Archive.sealForForget, iOS sealForForget) and stays in
+        // Montana/Chats; everything else goes — the chats' files, the letters set for later, the words still waiting to leave, the
+        // pins and marks of the chats, the card, the read marks, the walls held, the stickers and the grounds.
         Media.wipe(ctx); Scheduled.wipe(); ChatMarks.wipe(); MsgPins.wipe(); BusinessCard.forget(); Post.PeerRead.wipe()
         Board.wipe(); Stickers.wipe(ctx); ChatWall.wipe()
         changed()
@@ -1088,6 +1109,7 @@ object Post {
         val person = Book.chat(ref)?.msgs?.any { !Marks.isService(it.text) || it.text.startsWith(Marks.MEDIA) || it.text.startsWith(Marks.VOICE) } == true
         if (!person) { buryChat(ref); Log.i("Montana", "pipe_closed empty"); return }
         Prefs.setBool("pipeClosed." + ref, true)
+        Archive.closeHead(ref)   // the folder says so: no restore revives the pipe from the secret it holds (iOS closeHead)
         Book.edit(ref) {}
         Log.i("Montana", "pipe_closed kept")
     }

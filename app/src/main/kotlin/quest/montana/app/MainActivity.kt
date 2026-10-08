@@ -151,12 +151,15 @@ class MainActivity : Activity() {
             !termsAccepted -> termsGate(this, onAgree = { Prefs.termsAccepted = true; termsAccepted = true; render() })
             showWelcome -> welcome(this) { showWelcome = false; render() }
             else -> mainScreen(this) {
-                // «Forget this device» (iOS: Privacy): the seed and everything of the person leave.
-                MontanaSeed.clear(); Prefs.forgetPerson(); SelfFace.clear(this); SavedMessages.forget(this)
-                MontanaHomeNode.forget(this); MontanaBackup.forget(this); MontanaCard.forget(); Book.wipe()
-                MontanaBackupID.withdrawOwn(this)   // this installation's record leaves the account; a twin's stands
-                hasSeed = false; termsAccepted = false
-                render()
+                // «Forget this device» (iOS: Privacy): first the archive seals what the words can reopen — every head, name and face
+                // (iOS sealForForget) — then the seed and everything of the person leave; the sealed history stays for the 24 words.
+                Archive.sealForForget {
+                    MontanaSeed.clear(); Archive.forgetKeys(); Prefs.forgetPerson(); SelfFace.clear(this); SavedMessages.forget(this)
+                    MontanaHomeNode.forget(this); MontanaBackup.forget(this); MontanaCard.forget(); Book.wipe()
+                    MontanaBackupID.withdrawOwn(this)   // this installation's record leaves the account; a twin's stands
+                    hasSeed = false; termsAccepted = false
+                    render()
+                }
             }
         }
         show(page)
