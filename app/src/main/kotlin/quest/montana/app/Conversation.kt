@@ -175,7 +175,7 @@ object Notify {
         val title = if (Prefs.bool("notifSender", true)) chat?.shown?.ifBlank { null } ?: c.getString(R.string.peer) else "Montana"
         val shown = if (!Prefs.bool("notifPreview", true)) c.getString(R.string.new_message)
             else if (ContentFilter.hides(false, text)) c.getString(R.string.filter_hidden)   // the banner folds as the feed does (iOS NotificationService 399)
-            else letterWords(c, text)
+            else letterWords(c, text).ifBlank { c.getString(R.string.new_message) }   // no notification without words (iOS build 2070)
         val body = if (who.isNullOrEmpty()) shown else "$who: $shown"   // a group's letter says who wrote it (iOS presentGroup)
         val open = PendingIntent.getActivity(c, ref.hashCode(),
             c.packageManager.getLaunchIntentForPackage(c.packageName)?.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP) ?: Intent(),
