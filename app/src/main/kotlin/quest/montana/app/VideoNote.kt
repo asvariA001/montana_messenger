@@ -30,6 +30,7 @@ import android.opengl.GLES11Ext
 import android.opengl.GLES20
 import android.os.Handler
 import android.os.HandlerThread
+import android.util.Log
 import android.view.Surface
 import android.view.TextureView
 import android.view.View
@@ -172,13 +173,22 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
     } catch (_: Exception) { release(); false }
 
     private fun setupCodecs() {
-        val vf = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, SQUARE, SQUARE).apply {
+        fun format(high: MediaCodecInfo.CodecProfileLevel?) = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, SQUARE, SQUARE).apply {
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
             setInteger(MediaFormat.KEY_BIT_RATE, bitRate())
             setInteger(MediaFormat.KEY_FRAME_RATE, 30)
             setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
+            if (high != null) { setInteger(MediaFormat.KEY_PROFILE, high.profile); setInteger(MediaFormat.KEY_LEVEL, high.level) }
         }
-        video = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC).apply { configure(vf, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE) }
+        // THE PICTURE AT ITS BEST (iOS 1687: H.264 High, CABAC, at the chosen rate): the High profile where this encoder carries it;
+        // an encoder that refuses it is laid again with the platform's own profile, as before
+        val enc = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
+        val high = runCatching { enc.codecInfo.getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC).profileLevels
+            .firstOrNull { it.profile == MediaCodecInfo.CodecProfileLevel.AVCProfileHigh } }.getOrNull()
+        runCatching { enc.configure(format(high), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE) }
+            .onFailure { enc.reset(); enc.configure(format(null), null, null, MediaCodec.CONFIGURE_FLAG_ENCODE) }
+        Log.d("Montana", "vnote_codec profile=" + (if (high != null) "high" else "default"))
+        video = enc
         val af = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC, 48_000, 1).apply {
             setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)
             setInteger(MediaFormat.KEY_BIT_RATE, 64_000)   // the spoken word's own quality (iOS MontanaVoiceSound)

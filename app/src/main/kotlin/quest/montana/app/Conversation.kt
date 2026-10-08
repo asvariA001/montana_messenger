@@ -780,6 +780,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         noteControls = controls
         val page = FrameLayout(c).apply {
             setBackgroundColor(Color.argb(170, 0, 0, 0))
+            keepScreenOn = true   // the screen stays awake while a note records (iOS 1687)
             addView(controls, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM).apply { bottomMargin = c.dp(60) })
             addView(ring, FrameLayout.LayoutParams(side + c.dp(16), side + c.dp(16), Gravity.CENTER))
             addView(tv.round().apply {
