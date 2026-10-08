@@ -340,8 +340,10 @@ object Media {
                 val bid = ch.getString("bid"); val cs = ch.getInt("cs")
                 var piece: ByteArray? = null
                 for (attempt in 0 until 3) {
-                    if (Wire.isGone(bid)) break   // every door called it gone: asked once, not every opening of the chat (iOS 2438)
-                    val sealed = Wire.getChunk(bid)
+                    // a piece a neighbour brought ahead of its manifest is assembled from this phone's own store (iOS MontanaBlobStore)
+                    val near = Blobs.get(bid)
+                    if (near == null && Wire.isGone(bid)) break   // every door called it gone: asked once, not every opening of the chat (iOS 2438)
+                    val sealed = near ?: Wire.getChunk(bid)
                     if (sealed != null && Wire.hex(Wire.sha(sealed)) == bid) {   // the name is the bytes: integrity
                         piece = Wire.open(bk, sealed)?.let { if (cs <= it.size) it.copyOf(cs) else it }
                         if (piece != null) break
@@ -354,14 +356,46 @@ object Media {
         return tmp.renameTo(dest)
     }
 
-    /** The file is assembled — the node's pieces serve nobody (iOS dropChunks). */
+    /** The file is assembled — the node's pieces serve nobody (iOS dropChunks), nor the ones a neighbour brought. */
     private fun drop(man: JSONObject) {
         val a = man.optJSONArray("chunks") ?: return
         val bids = JSONArray(); for (i in 0 until a.length()) bids.put(a.getJSONObject(i).optString("bid"))
+        Blobs.drop((0 until bids.length()).map { bids.optString(it) })
         for (door in MontanaCard.doors) Wire.post(door, "/blob-drop", JSONObject().put("bids", bids), 8000)
     }
 
     // ── showing ──
+
+    /**
+     * THE PIECES A NEIGHBOUR BROUGHT (iOS MontanaBlobStore, MontanaP2PTelemetry 183-259): a manifest sent over the mesh rides with its
+     * sealed pieces and the recipient assembles from its own store — a phone with no node at all still opens a neighbour's picture.
+     * A piece lies under its name, the digest of its bytes; it is packaging: dropped once its file is whole, and any piece older than
+     * a quarter hour goes at the next arrival (iOS graceSeconds 900, the bound of what nobody named).
+     */
+    object Blobs {
+        private const val GRACE_MS = 900_000L
+        private fun dir(): File? = runCatching { File(Book.ctx.filesDir, "Montana/Blobs").apply { mkdirs() } }.getOrNull()
+
+        fun put(id: String, sealed: ByteArray) {
+            if (id.length != 64 || Wire.hex(Wire.sha(sealed)) != id) return   // the name is the bytes
+            val d = dir() ?: return
+            val edge = System.currentTimeMillis() - GRACE_MS
+            d.listFiles()?.forEach { if (it.lastModified() < edge) it.delete() }
+            val f = File(d, id)
+            if (!f.exists()) runCatching { f.writeBytes(sealed) }
+        }
+
+        fun get(id: String): ByteArray? {
+            if (id.length != 64) return null
+            val f = File(dir() ?: return null, id)
+            return if (f.exists()) runCatching { f.readBytes() }.getOrNull() else null
+        }
+
+        fun drop(ids: List<String>) {
+            val d = dir() ?: return
+            for (id in ids) if (id.length == 64) File(d, id).delete()
+        }
+    }
 
     /** A picture fit for a bubble: the file sampled down, the first frame of a film, or null. */
     fun preview(c: Context, f: File, kind: String, maxPx: Int = 900): Bitmap? = runCatching {

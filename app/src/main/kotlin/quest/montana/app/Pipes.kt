@@ -830,15 +830,20 @@ object Post {
      * new pipe's key, at the point of one of my cards — that card alone is tried, the body's seal is the proof (the box's letter
      * carries a key confirmation instead), and the letter lands as the box's first letter lands. One nobody here can open is said aloud.
      */
-    fun firstOffChannel(root: ByteArray, ct: ByteArray, sealed: ByteArray) {
+    fun firstOffChannel(point: ByteArray?, ct: ByteArray, sealed: ByteArray) {
         val w = Wire.minute()
         var plain: ByteArray? = null
-        val secret = MontanaCard.acceptAt(ct, root) { s ->
-            plain = listOf(w, w - 1, w + 1).firstNotNullOfOrNull { Wire.open(Wire.bodyKey(s, it), sealed) }
-            plain != null
+        var root: ByteArray? = null
+        // a letter that named no point (a frame at my window's position) walks every card, each one presenting the seal (iOS 1212-1217)
+        val secret = (point?.let { listOf(it) } ?: MontanaCard.outstandingRoots()).firstNotNullOfOrNull { r ->
+            MontanaCard.acceptAt(ct, r) { s ->
+                plain = listOf(w, w - 1, w + 1).firstNotNullOfOrNull { Wire.open(Wire.bodyKey(s, it), sealed) }
+                plain != null
+            }?.also { root = r }
         }
         val body = plain
-        if (secret == null || body == null) {
+        val card = root
+        if (secret == null || body == null || card == null) {
             Log.d("Montana", "first_refused bytes=" + sealed.size + " — there is no card here for this introduction")
             return
         }
@@ -846,7 +851,7 @@ object Post {
         var text = f[1]
         if (f[0].isEmpty() || text.isEmpty()) return
         if (text.startsWith(Marks.LONG)) text = fetchLong(text)?.ifEmpty { text } ?: return
-        land(secret, root, f[0], text, f[2])
+        land(secret, card, f[0], text, f[2])
     }
 
     /** The pipe a first letter gives birth to: the chat with the writer's name, the face beside the pipe read, the letter placed and answered. */

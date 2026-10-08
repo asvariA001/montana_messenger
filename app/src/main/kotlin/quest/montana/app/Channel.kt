@@ -524,7 +524,7 @@ object Channels {
         // an acknowledgement goes back down the channel it came by and addresses nobody (iOS 1423-1428)
         c.send(NetMsg.OVERLAY_FRAME, OverlayFrame(OverlayFrame.ACK, ByteArray(32), of.msgId, ByteArray(0)).encode())
         Log.d("Montana", "of_mine by=" + (if (conv != null) "pipe" else if (root != null) "first-point" else "window-pos") + " bytes=" + of.payload.size)
-        if (conv != null || root != null) Thread { open(conv, root, of.payload) }.start()   // the channel's read loop never waits on a letter's landing
+        Thread { open(conv, root, of.payload) }.start()   // the channel's read loop never waits on a letter's landing
     }
 
     /**
@@ -535,6 +535,7 @@ object Channels {
      */
     private fun open(conv: String?, root: ByteArray?, env: ByteArray) {
         val (from, sealed) = when (env.firstOrNull()?.toInt()) {
+            0x00 -> { pieceOrWake(env); return }
             0x01 -> {
                 if (env.size <= 17) return
                 val f = myPipes()[Wire.hex(env.copyOfRange(1, 17))] ?: return Unit.also { Log.d("Montana", "open_refused — not our pipe") }
@@ -544,10 +545,10 @@ object Channels {
                 if (env.size <= 1 + 1088) return
                 val sealed = env.copyOfRange(1 + 1088, env.size)
                 // the pipe already stands: the label is older than the envelope (iOS 1456-1482); else the point names the card
-                if (conv == null) { Post.firstOffChannel(root ?: return, env.copyOfRange(1, 1 + 1088), sealed); return }
+                if (conv == null) { Post.firstOffChannel(root, env.copyOfRange(1, 1 + 1088), sealed); return }
                 conv to sealed
             }
-            else -> return   // a piece, a wake, a point of rendezvous: later steps of the fork
+            else -> return
         }
         val secret = Book.secret(from) ?: return
         val w = Wire.minute()
@@ -781,6 +782,29 @@ object Channels {
     private fun nearer(a: ByteArray, b: ByteArray): Boolean {
         for (i in a.indices) { val x = a[i].toInt() and 0xff; val y = b[i].toInt() and 0xff; if (x != y) return x < y }
         return false
+    }
+
+    /**
+     * 0x00 ‖ id[64] ‖ sealed (iOS handleOverlayFrame 1430-1454): a wake — «mt-wake» and forty bytes — or a point of rendezvous —
+     * «mt-wake-point», sixteen and eight (iOS MontanaWake 38-84) — says something waits, and the queue is tried at once (iOS drainAll);
+     * a block of history belongs to the archive (stage Б of the fork, not on this side yet); anything else is a piece a neighbour
+     * brought ahead of its manifest, kept under its name.
+     */
+    private fun pieceOrWake(env: ByteArray) {
+        if (env.size <= 65) return
+        val id = String(env, 1, 64, Charsets.US_ASCII)
+        val sealed = env.copyOfRange(65, env.size)
+        val wake = "mt-wake".toByteArray()
+        val point = "mt-wake-point".toByteArray()
+        val isWake = sealed.size == wake.size + 40 && sealed.copyOf(wake.size).contentEquals(wake)
+        val isPoint = sealed.size == point.size + 24 && sealed.copyOf(point.size).contentEquals(point)
+        if (isWake || isPoint) {
+            Log.d("Montana", if (isWake) "wake_rx" else "rendezvous_rx")
+            Post.flush()
+            return
+        }
+        Media.Blobs.put(id, sealed)
+        Log.d("Montana", "blob_rx bytes=" + sealed.size)
     }
 
     /**
