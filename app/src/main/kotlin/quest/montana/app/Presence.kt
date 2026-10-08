@@ -355,7 +355,10 @@ object Signal {
                 if (door.isEmpty()) { Thread.sleep(2000); continue }
                 val gen = laneGen.get()
                 val cw = Wire.convW(secret, Wire.day())
-                val (code, text) = Wire.post(door, "/signal-fetch", JSONObject().put("conv", cw).put("from_id", Wire.subId(cw, twin)).put("wait", 12), 15_000, asking)
+                // WHILE A CALL IS BUILT THE QUESTIONS ARE SHORT (iOS fetchSignals 3286-3299): a silently dead one costs six seconds, not
+                // thirty — three while it rings or connects, ten in a joined call, twelve at rest (the doors' nginx holds fifteen)
+                val wait = if (Calls.busy() && CallLine.connectedAt == 0L) 3 else if (CallLine.connectedAt > 0L) 10 else 12
+                val (code, text) = Wire.post(door, "/signal-fetch", JSONObject().put("conv", cw).put("from_id", Wire.subId(cw, twin)).put("wait", wait), (wait + 3) * 1000, asking)
                 // CUT BY OUR OWN HAND (iOS 3304-3307, 3317): the fresh lane asks now, and a question we cut says nothing of the door
                 if (gen != laneGen.get()) { fails = 0; continue }
                 EarService.awake()   // the answer woke the phone: it stays up for the word and the next question (the app closed)
