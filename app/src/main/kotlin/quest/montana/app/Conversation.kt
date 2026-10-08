@@ -484,14 +484,23 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             if (selecting) {
                 // WHILE THE CHAT SELECTS a letter is a choice: a circle on the left, a tap chooses (iOS the selection rows); a plate whole
                 val chosen = m.mid in picked
+                val circle = FrameLayout(c).apply {
+                    background = if (chosen) c.rounded(MT.gold, 11) else c.rounded(Color.TRANSPARENT, 11, Color.WHITE)
+                    if (chosen) addView(c.icon(R.drawable.ic_check, Color.BLACK, 14), FrameLayout.LayoutParams(dp(14), dp(14), Gravity.CENTER))
+                }
                 column.addView(c.hstack {
-                    gravity = Gravity.CENTER_VERTICAL
-                    addView(FrameLayout(c).apply {
-                        background = if (chosen) c.rounded(MT.gold, 11) else c.rounded(Color.TRANSPARENT, 11, Color.WHITE)
-                        if (chosen) addView(c.icon(R.drawable.ic_check, Color.BLACK, 14), FrameLayout.LayoutParams(dp(14), dp(14), Gravity.CENTER))
-                    }, lp(dp(22), dp(22)).apply { marginEnd = dp(8) })
+                    gravity = Gravity.TOP
+                    addView(circle, lp(dp(22), dp(22)).apply { marginEnd = dp(8) })
                     addView(b.apply { isClickable = false }, lp(0, WRAP, 1f))
                     pressable { val mids = row.map { it.mid }; if (chosen) picked.removeAll(mids.toSet()) else picked.addAll(mids); redraw(); drawFoot() }
+                    // THE CIRCLE STANDS LEVEL WITH THE MEDIA, NOT THE WHOLE BUBBLE (iOS MTSaveBeside item 21, MontanaBubble.swift
+                    // 250-253 and 1709-1714, build 1771): a letter's picture or film names its own vertical middle, so a caption
+                    // or reactions under it do not pull the circle down with them; a letter without media centres on itself.
+                    b.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+                        val plate = b.findViewWithTag<View>(MEDIA_PLATE_TAG)
+                        val mid = if (plate != null) mediaPlateOffset(plate, b) + plate.height / 2f else b.height / 2f
+                        circle.translationY = mid - circle.height / 2f
+                    }
                 }, lp().apply { topMargin = c.dp(3) })
                 continue
             }
@@ -1578,6 +1587,21 @@ fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Unit, onEd
 }
 
 
+/** THE MEDIA PLATE'S OWN TAG (iOS .mtMediaMiddle): the selection circle beside a letter finds this view to stand level
+ *  with it, not with the whole bubble (item 21). */
+private const val MEDIA_PLATE_TAG = "media_plate"
+
+/** How far a tagged view stands below `ancestor`, summing every parent's own top (iOS alignmentGuide, carried up the stacks). */
+private fun mediaPlateOffset(v: View, ancestor: View): Int {
+    var y = 0
+    var cur: View = v
+    while (cur !== ancestor) {
+        y += cur.top
+        cur = cur.parent as? View ?: return y
+    }
+    return y
+}
+
 /**
  * A MEDIA LETTER IN ITS BUBBLE (iOS MessageBubble media): the picture itself, a film's first frame under the play mark, or
  * a file's name and size; the small face that rode the manifest stands while the file is on its way; the caption under it.
@@ -1607,6 +1631,7 @@ private fun mediaBody(c: Context, m: Msg, into: LinearLayout, chat: Chat? = null
         val narrow = pic != null && fit.first < boxW - 1
         capRoom = boxW
         into.addView(FrameLayout(c).apply {
+            tag = MEDIA_PLATE_TAG   // THE MEDIA'S OWN MIDDLE (iOS .mtMediaMiddle, item 21): the selection circle beside this letter stands level with this plate, not with the caption or the reactions under it
             outlineProvider = object : android.view.ViewOutlineProvider() {
                 override fun getOutline(v: View, o: android.graphics.Outline) = o.setRoundRect(0, 0, v.width, v.height, v.dp(12).toFloat())
             }
