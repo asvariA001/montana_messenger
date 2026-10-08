@@ -340,7 +340,8 @@ object Media {
                 val bid = ch.getString("bid"); val cs = ch.getInt("cs")
                 var piece: ByteArray? = null
                 for (attempt in 0 until 3) {
-                    val sealed = Wire.getBlob(bid)
+                    if (Wire.isGone(bid)) break   // every door called it gone: asked once, not every opening of the chat (iOS 2438)
+                    val sealed = Wire.getChunk(bid)
                     if (sealed != null && Wire.hex(Wire.sha(sealed)) == bid) {   // the name is the bytes: integrity
                         piece = Wire.open(bk, sealed)?.let { if (cs <= it.size) it.copyOf(cs) else it }
                         if (piece != null) break

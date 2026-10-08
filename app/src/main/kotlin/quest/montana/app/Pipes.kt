@@ -134,6 +134,27 @@ object Wire {
         return code == 200
     }
 
+    /**
+     * CHUNKS EVERY DOOR HAS ALREADY CALLED GONE (iOS MontanaWakePush 2438-2453, 22.09; fork atoms 1829, 1884): the cargo of a letter
+     * does not come back by being asked twice — a chunk every door answered 404 for is not asked again in this process, and the
+     * memory is forgotten the moment a resting door answers again (a store that was silent may hold what the others did not).
+     * Only a chunk of a letter's cargo is judged so; a silent door is not a gone chunk.
+     */
+    private val goneChunks = HashSet<String>()
+    fun forgetGone() = synchronized(goneChunks) { goneChunks.clear() }
+    fun isGone(bid: String) = synchronized(goneChunks) { bid in goneChunks }
+    fun getChunk(bid: String): ByteArray? {
+        if (isGone(bid)) return null
+        var gone = MontanaCard.doors.isNotEmpty()
+        for (door in MontanaCard.doors) {
+            val (code, text) = post(door, "/blob-get", JSONObject().put("bid", bid))
+            if (code == 200 && text != null) runCatching { JSONObject(text).optString("data").takeIf { it.isNotEmpty() }?.let { return Base64.decode(it, Base64.DEFAULT) } }
+            if (code != 404) gone = false
+        }
+        if (gone) { synchronized(goneChunks) { goneChunks.add(bid) }; Log.d("Montana", "blob_dl gone at every door id=" + bid.take(8) + " — not asked again until a door revives") }
+        return null
+    }
+
     /** A blob of the node (iOS getBlob): POST /blob-get {bid} → {data}. */
     fun getBlob(bid: String): ByteArray? {
         for (door in MontanaCard.doors) {

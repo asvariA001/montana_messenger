@@ -83,6 +83,7 @@ object Signal {
         }
         if (revived) {
             Log.d("Montana", "sig_door alive " + host(door))
+            Wire.forgetGone()   // a door that was silent answers: what it holds is new knowledge (iOS door_alive, forgetGoneChunks)
             // A DOOR THAT ANSWERS AFTER SILENCE DRAINS THE QUEUE AT ONCE (iOS 1672): the letters that waited for it leave now
             if (draining.compareAndSet(false, true)) Thread { try { Post.flush() } finally { draining.set(false) } }.start()
         }
@@ -120,6 +121,7 @@ object Signal {
     private fun forgive(why: String) {
         synchronized(deadUntil) { deadUntil.clear(); doorFails.clear(); deathStreak.clear(); proof.clear() }   // proof on one path says nothing of another
         Log.d("Montana", "sig_lane " + why + " — every door forgiven")
+        Wire.forgetGone()   // a new path may reach a store the old one could not
     }
 
     /**
