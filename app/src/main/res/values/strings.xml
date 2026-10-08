@@ -293,6 +293,8 @@
     <string name="pi_report">Report</string>
     <string name="pi_block">Block</string>
     <string name="pi_unblock">Unblock</string>
+    <string name="blocked_users">Blocked users</string>
+    <string name="nobody_blocked">Nobody is blocked.</string>
     <string name="pi_block_q">Block this person?</string>
     <string name="pi_block_note">You will not receive messages, calls, typing or presence from this person. They will see neither your photo nor when you were last seen.</string>
     <string name="pi_block_contact">Block contact</string>

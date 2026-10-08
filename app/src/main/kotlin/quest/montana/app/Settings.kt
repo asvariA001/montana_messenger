@@ -270,7 +270,7 @@ fun supportPage(act: MainActivity, onBack: () -> Unit): View {
  * PRIVACY: the switches of what this person shares, the Google Account's copy of the words (the twin of iOS «Identity in
  * Apple Account»), the seed phrase, and the one act that forgets the device. The system accesses of iOS (local network,
  * location, photos, contacts) have no row here: the app asks Android for none of them — the photo picker is the system's
- * and needs no permission. The wall's rules and the blocked people come with the wall and the contacts.
+ * and needs no permission. The wall's rules come with the wall.
  */
 fun privacyPage(act: MainActivity, onForget: () -> Unit, onBack: () -> Unit): View {
     val c: Context = act
@@ -306,7 +306,8 @@ fun privacyPage(act: MainActivity, onForget: () -> Unit, onBack: () -> Unit): Vi
             // THE DIARY LEAVES ONLY BY THE PERSON'S YES (iOS MontanaSettings 1852-1861, MontanaDiagConsent; App Review 5.1.1(ii), 08.10):
             // off, nothing of the diary leaves this phone; the doc glyph stands for the iPhone's stethoscope, which the set lacks
             c.switchLine(R.drawable.ic_set_doc, SysColor.gray, c.getString(R.string.diag_share), Diary.consented, c.getString(R.string.diag_share_sub), tint = MT.gold) { Diary.setConsent(it) })
-        section(null, null, sw(R.drawable.ic_set_eye_slash, SysColor.purple, R.string.filter_objectionable, "objectionableFilterOn"))
+        section(null, null, sw(R.drawable.ic_set_eye_slash, SysColor.purple, R.string.filter_objectionable, "objectionableFilterOn"),
+            c.settingsRow(R.drawable.ic_hand, SysColor.red, c.getString(R.string.blocked_users)) { act.push { blockedPage(act, it) } })
         section(null, null, c.switchLine(R.drawable.ic_key, SysColor.blue, c.getString(R.string.identity_google), MontanaBackupID.on(c),
             c.getString(R.string.identity_google_sub), tint = MT.gold) { MontanaBackupID.setOn(c, it) })
         section(null, null, c.settingsRow(R.drawable.ic_key, MT.gold, c.getString(R.string.seed_phrase)) { act.push { seedPage(act, it) } })
@@ -330,6 +331,37 @@ fun privacyPage(act: MainActivity, onForget: () -> Unit, onBack: () -> Unit): Vi
         override fun onViewDetachedFromWindow(v: View) { live = false }
     })
     return page
+}
+
+/**
+ * THE BLOCKED LIST (iOS MontanaBlockedView, Settings → Privacy, MontanaSafety 245-266): every blocked person, the name on one line,
+ * and «Unblock» beside it — the word is the control, the name is not, so a tap on a name never lets a blocked person back.
+ */
+fun blockedPage(act: MainActivity, onBack: () -> Unit): View {
+    val c: Context = act
+    lateinit var list: LinearLayout
+    fun draw() {
+        list.removeAllViews()
+        val people = Book.refs().filter { PeerSafety.isBlocked(it) }
+            .map { ref -> ref to (Book.chat(ref)?.shown?.ifBlank { null } ?: c.getString(R.string.peer)) }
+            .sortedBy { it.second.lowercase() }
+        if (people.isEmpty()) {
+            list.section(null, null, c.text(c.getString(R.string.nobody_blocked), 16f, MT.gray).apply { setPadding(dp(16), dp(14), dp(16), dp(14)) })
+            return
+        }
+        list.section(null, null, *people.map { (ref, name) ->
+            c.hstack {
+                setPadding(dp(16), 0, dp(6), 0)
+                minimumHeight = dp(48)
+                addView(c.text(name, 16f, Color.WHITE).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))   // USER-DATA: a person's name
+                addView(c.text(c.getString(R.string.pi_unblock), 16f, Color.WHITE).apply {
+                    gravity = Gravity.CENTER; setPadding(dp(10), 0, dp(10), 0)
+                    pressable { PeerSafety.setBlocked(ref, false); draw() }
+                }, lp(WRAP, dp(48)))
+            }
+        }.toTypedArray())
+    }
+    return settingsPage(act, c.getString(R.string.blocked_users), onBack) { list = this; draw() }
 }
 
 /**

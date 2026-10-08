@@ -292,6 +292,8 @@
     <string name="pi_report">举报</string>
     <string name="pi_block">屏蔽</string>
     <string name="pi_unblock">取消屏蔽</string>
+    <string name="blocked_users">已屏蔽的用户</string>
+    <string name="nobody_blocked">没有被屏蔽的用户。</string>
     <string name="pi_block_q">要屏蔽此人吗？</string>
     <string name="pi_block_note">您将不会收到此人的消息、通话、输入状态或在线状态。对方将看不到您的头像，也看不到您的最后在线时间。</string>
     <string name="pi_block_contact">屏蔽联系人</string>

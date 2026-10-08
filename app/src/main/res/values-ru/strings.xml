@@ -292,6 +292,8 @@
     <string name="pi_report">Пожаловаться</string>
     <string name="pi_block">Заблокировать</string>
     <string name="pi_unblock">Разблокировать</string>
+    <string name="blocked_users">Заблокированные</string>
+    <string name="nobody_blocked">Никто не заблокирован.</string>
     <string name="pi_block_q">Заблокировать этого человека?</string>
     <string name="pi_block_note">Вы не будете получать сообщения, звонки, набор и присутствие от этого человека. Он не увидит ни вашего фото, ни когда вы были в сети.</string>
     <string name="pi_block_contact">Заблокировать контакт</string>
