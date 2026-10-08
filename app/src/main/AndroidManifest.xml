@@ -58,8 +58,6 @@
         android:icon="@mipmap/ic_launcher_glass"
         android:label="@string/app_name"
         android:supportsRtl="true"
-        <!-- The predictive back's own opt-in (MainActivity.registerBack): without it the system keeps routing every
-             back through the deprecated onBackPressed and the registered OnBackInvokedCallback never fires. -->
         android:enableOnBackInvokedCallback="true"
         android:theme="@style/Theme.Montana">
         <activity
