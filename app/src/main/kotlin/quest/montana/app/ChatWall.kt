@@ -87,6 +87,8 @@ object ChatWall {
     }
     fun image(file: String): Bitmap? = File(folder(), file).takeIf { it.exists() }?.let { BitmapFactory.decodeFile(it.path) }
     fun forget(ref: String) = set(ref, Choice.General)
+    /** The person forgotten: the pictures their chats and their page stood on leave with them (Book.wipe); the choices lived in the person's preferences. */
+    fun wipe() = File(Book.ctx.filesDir, "wallpapers").deleteRecursively()
 }
 
 /**

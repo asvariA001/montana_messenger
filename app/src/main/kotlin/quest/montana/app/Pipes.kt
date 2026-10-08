@@ -390,6 +390,12 @@ object Book {
         DeviceVault.delete(Post.OUTBOX)
         Meeting.wipe(); SamePair.wipe(); Groups.wipe(); PeerLinks.wipe(); PasswordVault.wipe()
         CoinBook.setAside()   // the book of a person forgotten leaves with them (iOS MTCoinPlace.setAside)
+        // NOTHING OF THE PERSON OUTLIVES THEM ON THIS PHONE (iOS SeedScope.forget; the absolute privacy, 29.07): the iPhone seals the
+        // history under the words before they leave (sealForForget) — Android has no such archive yet, so whatever the words could
+        // not reopen goes. The chats' files, the letters set for later, the words still waiting to leave, the pins and marks of the
+        // chats, the card, the read marks, the walls held, the stickers and the grounds stood on this phone after it.
+        Media.wipe(ctx); Scheduled.wipe(); ChatMarks.wipe(); MsgPins.wipe(); BusinessCard.forget(); Post.PeerRead.wipe()
+        Board.wipe(); Stickers.wipe(ctx); ChatWall.wipe()
         changed()
     }
 }
@@ -888,6 +894,7 @@ object Post {
         private const val KEY = "peerReadMap"
         private val lock = Any()
         private fun map(): JSONObject = DeviceVault.get(KEY)?.toString(Charsets.UTF_8)?.let { runCatching { JSONObject(it) }.getOrNull() } ?: JSONObject()
+        fun wipe() = synchronized(lock) { DeviceVault.delete(KEY) }
         fun upTo(ref: String): Long? = synchronized(lock) { map().optLong(ref, 0L).takeIf { it > 0L } }
         fun note(ref: String, ms: Long) = synchronized(lock) {
             val m = map()

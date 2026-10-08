@@ -30,6 +30,8 @@ object MsgPins {
     private val listeners = mutableListOf<() -> Unit>()
 
     fun listen(l: () -> Unit) { synchronized(listeners) { listeners.add(l) } }
+    /** The person forgotten: the pins of every chat leave with them (Book.wipe). */
+    fun wipe() = synchronized(lock) { map = null; DeviceVault.delete(KEY) }
     fun unlisten(l: () -> Unit) { synchronized(listeners) { listeners.remove(l) } }
 
     private fun ensure(): MutableMap<String, MutableList<String>> = map ?: mutableMapOf<String, MutableList<String>>().also { m ->

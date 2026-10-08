@@ -52,6 +52,11 @@ object Board {
     private fun changed() { val ls = synchronized(listeners) { listeners.toList() }; MainThread.post { ls.forEach { it() } } }
 
     private fun store() = File(File(Book.ctx.filesDir, "board").apply { mkdirs() }, "pages.json")
+    /** The person forgotten: the walls this phone held and the files brought for a look leave with them (Book.wipe). */
+    fun wipe() = synchronized(lock) {
+        pages.clear(); firstSeen.clear(); askedAt.clear(); answeredAt.clear(); loaded = false
+        File(Book.ctx.filesDir, "board").deleteRecursively(); lookDir().deleteRecursively()
+    }
     private fun ensure() {
         if (loaded) return
         loaded = true

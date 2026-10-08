@@ -46,6 +46,8 @@ class BusinessCard(var name: String, var phone: String, var email: String, var o
         const val MARK = "\uD83D\uDCC7 "   // iOS MontanaCardPlate.mark
         const val ASPECT = 85.60f / 53.98f       // ISO/IEC 7810 ID-1, the one standard size a card has
         private const val KEY = "businessCard"
+        /** The person forgotten: their card leaves with them (Book.wipe). */
+        fun forget() = DeviceVault.delete(KEY)
         fun kept(): BusinessCard {
             val o = DeviceVault.get(KEY)?.let { runCatching { JSONObject(String(it, Charsets.UTF_8)) }.getOrNull() }
             val card = BusinessCard(o?.optString("name") ?: "", o?.optString("phone") ?: "", o?.optString("email") ?: "", o?.optString("other") ?: "")

@@ -141,6 +141,11 @@ object Media {
     // ── the intents that wait (iOS: a media intent rides the drain) ──
     private const val INTENTS = "mediaIntents"
     private val intentLock = Any()
+    /** The person forgotten: every file of every chat and every picture still waiting to leave go with them (Book.wipe). */
+    fun wipe(c: Context) {
+        synchronized(intentLock) { DeviceVault.delete(INTENTS) }
+        File(c.filesDir, "media").deleteRecursively()
+    }
     private fun intents(): JSONArray = DeviceVault.get(INTENTS)?.let { runCatching { JSONArray(String(it, Charsets.UTF_8)) }.getOrNull() } ?: JSONArray()
     private fun keepIntent(ref: String, mid: String, local: File, provisional: String, caption: String, qt: String?) = synchronized(intentLock) {
         val a = intents().put(JSONObject().put("ref", ref).put("mid", mid).put("f", local.path).put("p", provisional).put("cap", caption).put("qt", qt ?: ""))

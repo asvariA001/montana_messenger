@@ -47,6 +47,8 @@ object Stickers {
     private val GLYPHS = listOf("❤️", "😂", "👍", "🔥", "🥰", "😢", "😮", "🙏", "🎉", "😎", "🤔", "👋", "💯", "😘", "🤝", "✨")
 
     private fun dir(c: Context) = File(c.filesDir, "stickers").apply { mkdirs() }
+    /** The person forgotten: their stickers leave with them (Book.wipe); the list of names lived in the person's preferences. */
+    fun wipe(c: Context) = File(c.filesDir, "stickers").deleteRecursively()
     fun file(c: Context, name: String) = File(dir(c), name)
     fun names(c: Context): List<String> = Prefs.str(SHELF, "").split('\n').filter { it.isNotEmpty() && file(c, it).exists() }
     private fun keep(list: List<String>) = Prefs.setStr(SHELF, list.joinToString("\n"))

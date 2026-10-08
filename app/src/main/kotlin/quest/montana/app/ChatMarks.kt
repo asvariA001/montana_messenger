@@ -22,6 +22,11 @@ object ChatMarks {
     private val contactPins = mutableListOf<String>()      // the contacts page's own pins (iOS pinnedContacts)
     private val contactArchive = mutableSetOf<String>()    // the contacts page's own archive (iOS archivedContacts)
     private val listeners = mutableListOf<() -> Unit>()
+    /** The person forgotten: every mark of every chat leaves with them (Book.wipe). */
+    fun wipe() = synchronized(lock) {
+        pinned.clear(); muted.clear(); archived.clear(); forcedUnread.clear(); contactPins.clear(); contactArchive.clear()
+        loaded = false; DeviceVault.delete(KEY)
+    }
 
     fun listen(l: () -> Unit) { synchronized(listeners) { listeners.add(l) } }
     fun unlisten(l: () -> Unit) { synchronized(listeners) { listeners.remove(l) } }

@@ -58,6 +58,7 @@ object Diary {
         val m = ROW.find(row) ?: return
         val ms = m.groupValues[1].toLong() * 1000 + m.groupValues[2].padEnd(3, '0').take(3).toLong()
         val words = (if (m.groupValues[4] == "AndroidRuntime") "CRASH " else "") + m.groupValues[5]
+        if (!d.isDirectory) d.mkdirs()   // «Forget this device» takes the folder with the person; the diary goes on in a new one
         val f = File(d, FILE)
         runCatching { f.appendText(iso.format(java.util.Date(ms)) + hide(" " + words) + "\n") }
         if (f.length() >= ROTATE) rotate(d, f)

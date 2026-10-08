@@ -22,6 +22,8 @@ object Scheduled {
 
     private fun all(): JSONArray = DeviceVault.get(KEY)?.let { runCatching { JSONArray(String(it, Charsets.UTF_8)) }.getOrNull() } ?: JSONArray()
     private fun save(a: JSONArray) = DeviceVault.set(KEY, a.toString().toByteArray(Charsets.UTF_8))
+    /** The person forgotten: the letters they set for later never leave for anyone (Book.wipe). */
+    fun wipe() = synchronized(lock) { DeviceVault.delete(KEY) }
 
     fun add(ref: String, words: String, at: Long) = synchronized(lock) {
         save(all().put(JSONObject().put("ref", ref).put("t", words).put("at", at)))
