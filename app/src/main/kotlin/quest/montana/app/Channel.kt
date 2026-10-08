@@ -517,12 +517,14 @@ object Channels {
         val me = NodeIdentity.device() ?: return
         val underTag = (16 until 32).all { of.dst[it] == 0.toByte() }
         val conv = if (underTag) myPipes()[Wire.hex(of.dst.copyOfRange(0, 16))] else null
-        val mine = conv != null || (!underTag && Wire.myPositions(me.tag).any { it.contentEquals(of.dst) })
+        // the point of a first letter, and the card it is opened under (iOS MTPipeBook.addressed 649-664: one question for both marks)
+        val root = if (underTag && conv == null) firstPoints()[Wire.hex(of.dst.copyOfRange(0, 16))] else null
+        val mine = conv != null || root != null || (!underTag && Wire.myPositions(me.tag).any { it.contentEquals(of.dst) })
         if (!mine) { carry(c, of, underTag, me); return }
         // an acknowledgement goes back down the channel it came by and addresses nobody (iOS 1423-1428)
         c.send(NetMsg.OVERLAY_FRAME, OverlayFrame(OverlayFrame.ACK, ByteArray(32), of.msgId, ByteArray(0)).encode())
-        Log.d("Montana", "of_mine by=" + (if (conv != null) "pipe" else "window-pos") + " bytes=" + of.payload.size)
-        if (conv != null) Thread { open(conv, of.payload) }.start()   // the channel's read loop never waits on a letter's landing
+        Log.d("Montana", "of_mine by=" + (if (conv != null) "pipe" else if (root != null) "first-point" else "window-pos") + " bytes=" + of.payload.size)
+        if (conv != null || root != null) Thread { open(conv, root, of.payload) }.start()   // the channel's read loop never waits on a letter's landing
     }
 
     /**
@@ -531,14 +533,20 @@ object Channels {
      * 0x02 ‖ a first letter's ciphertext ‖ the body, under a pipe that already stands — the tag is older than the envelope, so it
      * opens with the pipe's secret. The words land at the same door as the box's (Post.letter): the second copy is dropped by its mid.
      */
-    private fun open(conv: String, env: ByteArray) {
+    private fun open(conv: String?, root: ByteArray?, env: ByteArray) {
         val (from, sealed) = when (env.firstOrNull()?.toInt()) {
             0x01 -> {
                 if (env.size <= 17) return
                 val f = myPipes()[Wire.hex(env.copyOfRange(1, 17))] ?: return Unit.also { Log.d("Montana", "open_refused — not our pipe") }
                 f to env.copyOfRange(17, env.size)
             }
-            0x02 -> if (env.size <= 1 + 1088) return else conv to env.copyOfRange(1 + 1088, env.size)
+            0x02 -> {
+                if (env.size <= 1 + 1088) return
+                val sealed = env.copyOfRange(1 + 1088, env.size)
+                // the pipe already stands: the label is older than the envelope (iOS 1456-1482); else the point names the card
+                if (conv == null) { Post.firstOffChannel(root ?: return, env.copyOfRange(1, 1 + 1088), sealed); return }
+                conv to sealed
+            }
             else -> return   // a piece, a wake, a point of rendezvous: later steps of the fork
         }
         val secret = Book.secret(from) ?: return
@@ -555,27 +563,44 @@ object Channels {
      * owner (MontanaPath.hopMin = 1). The box's road goes on beside it, and the receiving side drops the second copy by its mid.
      */
     fun lay(secret: ByteArray, mid: String, body: ByteArray): Boolean {
+        val w = Wire.minute()
+        val tag = Wire.pipeTag(secret, w)
+        val sealed = Wire.seal(Wire.bodyKey(secret, w), body) ?: return false
+        return under(tag, mid, byteArrayOf(0x01) + tag + sealed, Wire.reference(secret))
+    }
+
+    /**
+     * A FIRST LETTER AT THE POINT OF FIRST CONTACT (iOS sendP2P 935-958, MTPipeBook.outgoingTag 500-510): while the introduction is
+     * unanswered the other side holds no secret yet, so the letter goes where its card's root says for this window — 0x02 ‖ the
+     * ciphertext ‖ the body sealed with the new pipe's key; whoever holds the card opens it, the rest carry it.
+     */
+    fun layFirst(secret: ByteArray, root: ByteArray, ct: ByteArray, mid: String, body: ByteArray): Boolean {
+        val w = Wire.minute()
+        val tag = MtBindings.nativeFirstTag(root, w) ?: return false
+        val sealed = Wire.seal(Wire.bodyKey(secret, w), body) ?: return false
+        return under(tag, mid, byteArrayOf(0x02) + ct + sealed, Wire.reference(secret))
+    }
+
+    /** One road under a tag for both shapes of a letter: the near road first, then the nodes when the path is assembled. */
+    private fun under(tag: ByteArray, mid: String, payload: ByteArray, to: String): Boolean {
         // THE NEAR ROAD FIRST (iOS sendP2P 995-1007): with nodes on this local network the envelope is laid before every standing
-        // channel under its pipe's tag and no bound of owners is asked — a near transport is not a path; their channels rise as it goes
+        // channel under its tag and no bound of owners is asked — a near transport is not a path; their channels rise as it goes
         val lan = Mesh.lanNodes()
         for ((ip, port) in lan) dialPeer(ip, port, "")
         val cs = synchronized(live) { live.values.filter { it.ready } }
         // the correspondent's own channel never counts as a carrier (iOS ownerRefsOfLiveChannels(excluding:) 1008)
-        val to = Wire.reference(secret)
         val owners = cs.filter { it.ref != to }.mapNotNull { c -> c.peerOwnerRef?.let { Wire.hex(it) } }.toSet().size
         val near = lan.isNotEmpty() && cs.isNotEmpty()
         if (!near && owners < 1) return false
-        val w = Wire.minute()
-        val tag = Wire.pipeTag(secret, w)
-        val sealed = Wire.seal(Wire.bodyKey(secret, w), body) ?: return false
         val id = MtBindings.nativeRandom(16) ?: return false
         synchronized(seen) {
             if (originated.size > FRAME_MEMORY) originated.clear()
             originated.add(Wire.hex(id))
         }
-        val frame = OverlayFrame(OverlayFrame.RELAY, tag + ByteArray(16), id, byteArrayOf(0x01) + tag + sealed).encode()
+        val frame = OverlayFrame(OverlayFrame.RELAY, tag + ByteArray(16), id, payload).encode()
         val used = cs.count { it.send(NetMsg.OVERLAY_FRAME, frame) }
-        if (used > 0) Log.d("Montana", "sent_route mid=" + mid.take(8) + (if (near) " route=lan carrier=lan-node" else " route=node") + " nodes=" + used)
+        if (used > 0) Log.d("Montana", "sent_route mid=" + mid.take(8) + (if (near) " route=lan carrier=lan-node" else " route=node") + " nodes=" + used +
+            (if (payload[0] == 0x02.toByte()) " first=1" else ""))
         return used > 0
     }
 
@@ -756,6 +781,26 @@ object Channels {
     private fun nearer(a: ByteArray, b: ByteArray): Boolean {
         for (i in a.indices) { val x = a[i].toInt() and 0xff; val y = b[i].toInt() and 0xff; if (x != y) return x < y }
         return false
+    }
+
+    /**
+     * THE POINTS THIS PHONE LISTENS AT FOR SOMEBODY WRITING FIRST (iOS listeningFirstContactPoints 568-595): one per card handed out and
+     * not spent, one per introduction still unanswered, each across the accepted windows, rebuilt once a window. A point names the
+     * root it is opened under, so the card is known before any cryptography (iOS firstContactRoot 554-562).
+     */
+    private var pointsAt = -1L
+    private var points = emptyMap<String, ByteArray>()
+    private fun firstPoints(): Map<String, ByteArray> = synchronized(this) {
+        val w = Wire.minute()
+        if (w != pointsAt) {
+            val m = HashMap<String, ByteArray>()
+            for (r in Meeting.awaitingRoots() + MontanaCard.outstandingRoots()) {
+                for (k in longArrayOf(w - 1, w, w + 1)) MtBindings.nativeFirstTag(r, k)?.let { m[Wire.hex(it)] = r }
+            }
+            points = m
+            pointsAt = w
+        }
+        points
     }
 
     /** The tags of my pipes across the accepted windows (iOS MTPipeBook.tagIndex 624-637): rebuilt once a window. */

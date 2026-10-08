@@ -43,6 +43,8 @@ object MtBindings {
     @JvmStatic external fun nativeMlkemEncaps(pk: ByteArray): ByteArray?
     /** ss, contact root, ct → the first letter's secret[32] (mt_name_first_secret). */
     @JvmStatic external fun nativeFirstSecret(ss: ByteArray, root: ByteArray, ct: ByteArray): ByteArray?
+    /** root[1184], window → the point of first contact[16] a first letter knocks at in that window (mt_name_first_tag). */
+    @JvmStatic external fun nativeFirstTag(root: ByteArray, window: Long): ByteArray?
 
     /** seed[32] → a machine's answering identity, ML-DSA-65 pk[1952] ‖ sk[4032] (mt_mldsa_keypair_from_seed). */
     @JvmStatic external fun nativeMldsaKeypair(seed: ByteArray): ByteArray?

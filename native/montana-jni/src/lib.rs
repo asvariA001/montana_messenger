@@ -137,6 +137,11 @@ pub fn first_secret(ss: &[u8], root: &[u8], ct: &[u8]) -> Zeroizing<[u8; 32]> {
     Zeroizing::new(mt_names::first_secret(ss, root, ct))
 }
 
+/// Where a first letter knocks in a window: SHA-256("mt-name-tag" ‖ 0 ‖ root ‖ W little-endian)[0..16] (mt_name_first_tag).
+pub fn first_tag(root: &[u8], window: u64) -> [u8; 16] {
+    mt_names::first_tag(root, window)
+}
+
 // ─────────── the channel's doors: a machine's answering identity, its signature, the Noise_PQ XX handshake ───────────
 
 /// seed[32] → a machine's answering identity, ML-DSA-65 pk[1952] ‖ sk[4032] (mt_mldsa_keypair_from_seed).
@@ -365,6 +370,15 @@ mod jni_doors {
     }
 
     #[no_mangle]
+    pub extern "system" fn Java_quest_montana_app_MtBindings_nativeFirstTag<'l>(
+        mut env: JNIEnv<'l>, _c: JClass<'l>, root: JByteArray<'l>, window: jlong,
+    ) -> jbyteArray {
+        let Ok(r) = env.convert_byte_array(&root) else { return std::ptr::null_mut() };
+        let Ok(w) = u64::try_from(window) else { return std::ptr::null_mut() };
+        bytes(&mut env, &first_tag(&r, w))
+    }
+
+    #[no_mangle]
     pub extern "system" fn Java_quest_montana_app_MtBindings_nativeHistoryKey<'l>(
         mut env: JNIEnv<'l>, _c: JClass<'l>, ent: JByteArray<'l>,
     ) -> jbyteArray {
@@ -565,6 +579,19 @@ mod tests {
         assert_eq!(unsafe { ffi_c::mt_mlkem_decaps(sk.as_ptr(), ct.as_ptr(), ios_ss.as_mut_ptr()) }, 0);
         assert_eq!(ios_ss, ss);
         assert_eq!(&first_secret(&mine[..], pk, &ct)[..], &theirs[..]);
+    }
+
+    #[test]
+    fn first_tag_is_the_ios_door() {
+        // A root of no pattern and three windows, the third past 2^32: a window written big-endian, a window cut to 32 bits,
+        // or another domain over the root each give other bytes than the iOS door does.
+        let root: Vec<u8> = (0..1184).map(|i| ((i * 37 + 11) % 251) as u8).collect();
+        for w in [1000u64, 1001, (1u64 << 32) + 7] {
+            let mut theirs = [0u8; 16];
+            assert_eq!(unsafe { mt_bindings::ffi_names::mt_name_first_tag(root.as_ptr(), root.len(), w, theirs.as_mut_ptr()) }, 0);
+            assert_eq!(first_tag(&root, w), theirs);
+        }
+        assert_ne!(first_tag(&root, 1000), first_tag(&root, 1001));
     }
 
     #[test]

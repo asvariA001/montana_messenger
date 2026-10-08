@@ -43,6 +43,19 @@ object Meeting {
         ct to inv
     }
 
+    /** The card root an unanswered introduction knocks at (iOS MTPipeBook.root(for:)): the card book read backwards. */
+    fun root(ref: String): ByteArray? = synchronized(gate) {
+        if (!jmap(FIRSTS).has(ref)) return null
+        val m = jmap(CARDS)
+        m.keys().asSequence().firstOrNull { m.optString(it) == ref }?.let { MontanaCard.unb64url(it) }?.takeIf { it.size == 1184 }
+    }
+
+    /** The roots of every introduction still unanswered (iOS MTPipeBook.roots): points this phone listens at too. */
+    fun awaitingRoots(): List<ByteArray> = synchronized(gate) {
+        val f = jmap(FIRSTS); val m = jmap(CARDS)
+        m.keys().asSequence().filter { f.has(m.optString(it)) }.mapNotNull { MontanaCard.unb64url(it) }.filter { it.size == 1184 }.toList()
+    }
+
     /** The other side wrote under the pipe: the introduction is over, the ciphertext is spent (iOS firstContactDone). */
     /**
      * A WORD OF THEIRS ENDS THE INTRODUCTION ON EVERY ROAD (iOS build 1961, 26.09: T3 kept a peer in the introduction while their name

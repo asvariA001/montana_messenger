@@ -132,6 +132,24 @@ object MontanaCard {
         (map(DAILY).keys + map(PERM).keys).distinct().mapNotNull { unb64url(it) }.filter { it.size == 32 }
     }
 
+    /** The roots of the cards handed out and not spent — the points a first letter may knock at (iOS outstandingRoots). */
+    fun outstandingRoots(): List<ByteArray> = synchronized(lock) {
+        (map(DAILY).values + map(PERM).values).filter { keyHeld(it) }.map { it.copyOf(1184) }
+    }
+
+    /**
+     * THE OFFERING SIDE, OFF A CHANNEL (iOS accept(firstLetter:root:confirmed:), openFirst 1198-1211): the point the letter knocked at
+     * named the card, so exactly that one is tried; decapsulation never refuses (implicit rejection, FIPS 203), so the proof is the
+     * body's own seal under the secret it gives. The secret, or null.
+     */
+    fun acceptAt(ct: ByteArray, root: ByteArray, proof: (ByteArray) -> Boolean): ByteArray? {
+        val sk = synchronized(lock) { map(KEYS)[b64url(root)] } ?: return null
+        val ss = MtBindings.nativeMlkemDecaps(sk, ct) ?: return null
+        val secret = MtBindings.nativeFirstSecret(ss, root, ct)
+        ss.fill(0)
+        return secret?.takeIf(proof)
+    }
+
     /** Did the letter come through the permanent card's point? (iOS isPermanentRoot) */
     fun isPermanentRoot(root: ByteArray): Boolean = synchronized(lock) { map(PERM).values.any { it.copyOf(1184).contentEquals(root) } }
 

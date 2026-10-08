@@ -604,6 +604,8 @@ object Post {
                 if (Marks.isService(text) && !text.startsWith(Marks.MEDIA) && !text.startsWith(Marks.VOICE) && !text.startsWith(Marks.SAME_ASK)) false
                 else {
                     val words = if (text.toByteArray().size > 300) sealLong(mid, text) else text
+                    // the live road beside the invitation's box: at the point the card names, under the new pipe's seal (iOS sendP2P 935-958)
+                    if (words != null) Meeting.root(to)?.let { root -> Channels.layFirst(secret, root, intro.first, mid, letterHead(mid, words)) }
                     words != null && Meeting.knockFirst(secret, intro.first, intro.second, mid, words, Marks.isSilent(text) || o.optBoolean("q"))
                 }
             } else knock(secret, mid, text, o.optString("qt").ifEmpty { null }, o.optString("qm").ifEmpty { null }, o.optString("lp").ifEmpty { null }, o.optBoolean("q"))
@@ -621,12 +623,16 @@ object Post {
         }
     }
 
+    /** A letter's body up to its glyph (iOS sendP2P 902-908): mid ‖ 0 ‖ words ‖ 0 ‖ my name ‖ 0 ‖ glyph — one shape for the box and the channels. */
+    private fun letterHead(mid: String, text: String): ByteArray =
+        mid.toByteArray() + 0 + text.toByteArray() + 0 + Prefs.userName.trim().toByteArray() + 0 + byteArrayOf(0)
+
     /** ONE KNOCK (iOS MTNodeWire.knockLetter): the body is sealed afresh at every door, the first door that boxes it ends the walk. */
     private fun knock(secret: ByteArray, mid: String, text0: String, qt: String?, qm: String?, lp: String? = null, quiet: Boolean = false): Boolean {
         val twin = MontanaSeed.twin ?: return false
         // A LETTER TOO LONG FOR ONE ENVELOPE rides as a blob under a key of its own, the envelope carries the reference (iOS sealLongLetter).
         val text = if (text0.toByteArray().size > Wire.ENVELOPE - 400) sealLong(mid, text0) ?: return false else text0
-        var body = mid.toByteArray() + 0 + text.toByteArray() + 0 + Prefs.userName.trim().toByteArray() + 0 + byteArrayOf(0)
+        var body = letterHead(mid, text)
         val quoted = !qt.isNullOrEmpty()
         if (quoted) {
             val tail = qt!!.take(200).toByteArray() + 0 + (qm ?: "").toByteArray() + 0
@@ -816,8 +822,37 @@ object Post {
         // a long first letter (the question of MTSamePair always is one) rides as a blob; unfolded before the pipe is born
         if (text.startsWith(Marks.LONG)) text = fetchLong(text)?.ifEmpty { text } ?: return false
         val (secret, root) = MontanaCard.acceptFirst(ct, inv64, f[4]) ?: return true   // not ours to open: buried, never retried
+        return land(secret, root, mid, text, f[2])
+    }
+
+    /**
+     * A FIRST LETTER OFF A CHANNEL (iOS MontanaP2P 1483-1535, openFirst 1198-1218): 0x02 ‖ the ciphertext ‖ the body sealed with the
+     * new pipe's key, at the point of one of my cards — that card alone is tried, the body's seal is the proof (the box's letter
+     * carries a key confirmation instead), and the letter lands as the box's first letter lands. One nobody here can open is said aloud.
+     */
+    fun firstOffChannel(root: ByteArray, ct: ByteArray, sealed: ByteArray) {
+        val w = Wire.minute()
+        var plain: ByteArray? = null
+        val secret = MontanaCard.acceptAt(ct, root) { s ->
+            plain = listOf(w, w - 1, w + 1).firstNotNullOfOrNull { Wire.open(Wire.bodyKey(s, it), sealed) }
+            plain != null
+        }
+        val body = plain
+        if (secret == null || body == null) {
+            Log.d("Montana", "first_refused bytes=" + sealed.size + " — there is no card here for this introduction")
+            return
+        }
+        val f = Wire.fields(body)
+        var text = f[1]
+        if (f[0].isEmpty() || text.isEmpty()) return
+        if (text.startsWith(Marks.LONG)) text = fetchLong(text)?.ifEmpty { text } ?: return
+        land(secret, root, f[0], text, f[2])
+    }
+
+    /** The pipe a first letter gives birth to: the chat with the writer's name, the face beside the pipe read, the letter placed and answered. */
+    private fun land(secret: ByteArray, root: ByteArray, mid: String, text: String, name0: String): Boolean {
         val ref = Book.establish(secret) ?: return false
-        val name = f[2].takeIf { it.isNotBlank() && it.length <= 64 } ?: ""
+        val name = name0.takeIf { it.isNotBlank() && it.length <= 64 } ?: ""
         val fresh = Book.chat(ref) == null
         Book.open(ref, name, MontanaCard.isPermanentRoot(root))
         if (fresh) Thread { readPipeFace(ref, secret) }.start()
