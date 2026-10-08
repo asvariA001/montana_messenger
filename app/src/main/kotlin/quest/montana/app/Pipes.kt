@@ -40,6 +40,41 @@ object Wire {
     /** The local name of a correspondence: SHA-256(secret)[0..16] in hex (iOS MTPipeBook.reference). */
     fun reference(secret: ByteArray) = hex(sha(secret).copyOf(16))
 
+    // ── the pipe's quantities and the overlay's (iOS MTPipe 15-112, MontanaOverlayKey.tag, MontanaWindowPos) ──
+    /** The one composition of the set (iOS MTPipe.domained): SHA-256(domain ‖ 0 ‖ parts…). */
+    fun domained(domain: String, vararg parts: ByteArray): ByteArray = sha(d(domain), *parts)
+    /** The tag of a pipe: where a letter is laid in this window, and nowhere else (iOS MTPipe.tag). */
+    fun pipeTag(secret: ByteArray, w: Long) = domained("mt-tag", secret, le8(w)).copyOf(16)
+    /** The label of one step, from the secret two neighbouring machines share (iOS MTPipe.stepLabel). */
+    fun stepLabel(secret: ByteArray, w: Long) = domained("mt-step", secret, le8(w)).copyOf(16)
+    /** The seal a hop lays so the owners inside one delivery are counted distinct (iOS MTPipe.relaySeal). */
+    fun relaySeal(owner: ByteArray, label: ByteArray) = domained("mt-relay-seal", owner, label).copyOf(16)
+    /** How one sender tells two owners apart among its entries; two senders get references that do not join (iOS MTPipe.ownerRef). */
+    fun ownerRef(owner: ByteArray, secret: ByteArray) = domained("mt-owner-ref", owner, secret).copyOf(16)
+    /** The owner branch of a seed, one value on every machine of one person (iOS MTPipe.ownerSecret: the role seed «mt-owner-key»). */
+    fun ownerSecret(master: ByteArray): ByteArray? = MtBindings.nativeRoleSeed(master, "mt-owner-key")
+    /** A machine's address on the overlay, from its answering key (iOS MontanaOverlayKey.tag). */
+    fun overlayTag(authPub: ByteArray) = domained("mt-overlay", authPub)
+    /** A machine's position in a window: whoever is acquainted with it recognises it, an outsider joins nothing (iOS MontanaWindowPos.of). */
+    fun windowPos(overlay: ByteArray, w: Long) = domained("mt-pos", overlay, le8(w))
+    /** My positions in the accepted windows — the neighbouring ones too, because clocks drift (iOS MontanaWindowPos.mine). */
+    fun myPositions(overlay: ByteArray): List<ByteArray> = minute().let { w -> listOf(w - 1, w, w + 1).map { windowPos(overlay, it) } }
+    /**
+     * THE HOLDER OF A TAG (iOS MTPipe.holder 103-112): the machine whose commitment is the least one standing above the tag, the
+     * lowest of all when none stands above it — the ring closes rather than ending.
+     */
+    fun holder(tag: ByteArray, commitments: List<ByteArray>): ByteArray? {
+        val sorted = commitments.sortedWith { a, b -> order16(a, b) }
+        return sorted.firstOrNull { order16(tag, it) < 0 } ?: sorted.firstOrNull()
+    }
+    /** The order of Swift's lexicographicallyPrecedes over the first sixteen bytes: unsigned, a shorter prefix first. */
+    private fun order16(a: ByteArray, b: ByteArray): Int {
+        val n = minOf(16, a.size, b.size)
+        for (i in 0 until n) { val x = a[i].toInt() and 0xff; val y = b[i].toInt() and 0xff; if (x != y) return x - y }
+        return minOf(16, a.size) - minOf(16, b.size)
+    }
+    private fun unhex(h: String) = ByteArray(h.length / 2) { h.substring(2 * it, 2 * it + 2).toInt(16).toByte() }
+
     fun seal(key: ByteArray, plain: ByteArray): ByteArray? {
         val nonce = MtBindings.nativeRandom(12) ?: return null
         return MtBindings.nativeSealBlob(key, nonce, plain)
@@ -83,6 +118,34 @@ object Wire {
             && convW(s32, 29738) == "f5f2941435d76c0a80dd229722ef42382695e88fdd1fabf89d71f317bef05430"
             && hex(bodyKey(s32, 0x0102030405060708)) == "e55fbc1e0f95c4fe012b476c4dd1a51c9455e24641248f4f1557ed57f8c14f35"
             && hex(bodyKey(s32, 1000)) == "e25542e65a84d1a5b5c72a13172ecb62319c18f21a59978a53e7dac2c22a966a"
+    }
+
+    /**
+     * The iOS vectors of the pipe (MTPipe.agreesWithCanon 160-194), and our own for the window position and the overlay address:
+     * they stand on thirty-two distinct bytes and a window with bits at both ends, so a window laid most-significant first
+     * (c9b2d923…) or a hash without its domain (274f6dfc…, 95b95398…) fails them. Derived from the set's formula apart from this code.
+     * The channel stands on this check; the box keeps its own (agreesWithCanon), so a drift here can never silence the letters.
+     */
+    fun pipeAgreesWithCanon(): Boolean {
+        fun r(b: Int, n: Int) = ByteArray(n) { b.toByte() }
+        val s32 = ByteArray(32) { it.toByte() }
+        val owner = r(0x99, 32)
+        val ring = listOf(r(0x10, 32), r(0x90, 32))
+        return hex(pipeTag(r(0x44, 32), 1000)) == "1d99467017fe1d0cc7c7ba29df6fd1b6"
+            && hex(pipeTag(r(0x44, 32), 1001)) == "c146445f67c990e25256dd88dfb39a49"
+            && hex(pipeTag(r(0x55, 32), 1000)) == "783b2b17dffaab016d1aca852f60ea3e"
+            && hex(stepLabel(r(0x51, 32), 1000)) == "4b8cb5c6442a52d0750bfb4fac0ba39d"
+            && hex(stepLabel(r(0x52, 32), 1000)) == "401d8ab71a2e2554ab30c11aab1ae97d"
+            && hex(stepLabel(r(0x51, 32), 1001)) == "1cc3ac539a8b1d2701e489455a8b04d5"
+            && hex(relaySeal(owner, r(0xAA, 16))) == "2c2231f087682d4daef313938a2da5e0"
+            && hex(relaySeal(owner, r(0xBB, 16))) == "3e83b1e1610e48bfc13929a602617d79"
+            && hex(ownerRef(owner, r(0x44, 32))) == "f4f72dafb742470e49defbd3c2326c27"
+            && hex(ownerRef(owner, r(0x45, 32))) == "d24f63a8c1220ea9c176ec706b8a256f"
+            && holder(unhex("45468cdd9bcdebe6f622c46257c27fe3"), ring).contentEquals(ring[1])
+            && holder(r(0xFF, 16), ring).contentEquals(ring[0])
+            && hex(windowPos(s32, 0x0102030405060708)) == "6f241143b5736f8ee9af63cd2db6fbf59b5bbc22069cc045307e8862e3ed6f8f"
+            && hex(windowPos(s32, 1000)) == "db09ddb4cd56d677bd1f9fdc00a6894bc088b2cb8a382eaeb1f76644f2f95eec"
+            && hex(overlayTag(ByteArray(1952) { ((it * 7 + 3) % 256).toByte() })) == "f2c55658958eee8b961a4d63c2ec60a793cf9f22c373d115f3021523e3f0eabe"
     }
 
     /**
