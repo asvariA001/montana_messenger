@@ -83,6 +83,12 @@ object Signal {
             (60_000L shl (streak - 1)).also { deadUntil[door] = now + it }
         }
         Log.d("Montana", "sig_door dead " + host(door) + " code=" + code + " — not asked for " + rest / 1000 + "s")
+        // the elected door is left only past its death, and the next live one is elected at the next write (iOS baseFailed 347-350)
+        if (elected() == door) {
+            elected = null
+            Prefs.remove(ELECTED)
+            Log.d("Montana", "door_elected " + host(door) + " died — the next live door is elected")
+        }
         // THE STANDING QUESTION LEAVES A DEAD DOOR NOW (iOS baseFailed 351-354): the lane is cut and re-elected the same instant
         if (wasChosen) cut("door " + host(door) + " dead — the standing question leaves it")
     }
@@ -118,6 +124,27 @@ object Signal {
     /** The doors alive for me, in the network's order — what I name to the peer with every word (iOS signalDoors 500-503). */
     fun aliveHosts(): List<String> = Doors.ordered("signal").filter { doorAlive(it) }.map { host(it) }
     fun proveDoor(door: String) { synchronized(deadUntil) { proof[host(door)] = System.currentTimeMillis() } }
+
+    // ═══ THE ELECTED DOOR (iOS 1638, the author's word; MontanaWakePush 281-316) ═══
+    // The phone elects ONE live node and works with it: every write starts at the elected door and walks on only past its death; a
+    // read that looks for what another phone wrote — the box, the chunks — sweeps every store, since that phone elected its own.
+    // iOS also sets it first in the order of the signal doors (orderedBases); that order stays the network's here — two phones that
+    // elected different doors would otherwise ask their conversation's door at two places (the finding for iOS, HANDOVER 08.10 11:2x).
+    private const val ELECTED = "mt.door.elected"
+    @Volatile private var elected: String? = null
+    fun elected(): String? = elected ?: Prefs.str(ELECTED, "").ifEmpty { null }?.also { elected = it }
+
+    /** The doors of a write (iOS electedFirst 294-297 over the capability's doors, base 300-316): the elected first, elected now if none stands. */
+    fun writeOrder(cap: String): List<String> {
+        val all = Doors.ordered(cap)
+        val e = elected()
+        if (e != null && e in all) return listOf(e) + all.filter { it != e }
+        val pick = all.firstOrNull { doorAlive(it) } ?: all.firstOrNull() ?: return all
+        elected = pick
+        Prefs.setStr(ELECTED, pick)
+        Log.d("Montana", "door_elected " + host(pick))
+        return listOf(pick) + all.filter { it != pick }
+    }
 
     // ═══ ONE DOOR FOR SIGNALS (iOS 410-445, 15.2) ═══
     // Measured 04.09 22:40-23:00: each draft word went to three doors, the question walked a fourth rule — the two sides never shared

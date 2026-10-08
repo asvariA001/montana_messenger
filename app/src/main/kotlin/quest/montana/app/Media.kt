@@ -361,7 +361,7 @@ object Media {
         val a = man.optJSONArray("chunks") ?: return
         val bids = JSONArray(); for (i in 0 until a.length()) bids.put(a.getJSONObject(i).optString("bid"))
         Blobs.drop((0 until bids.length()).map { bids.optString(it) })
-        for (door in MontanaCard.doors) Wire.post(door, "/blob-drop", JSONObject().put("bids", bids), 8000)
+        for (door in Doors.ordered("blob")) Wire.post(door, "/blob-drop", JSONObject().put("bids", bids), 8000)   // the drop goes to every store (iOS 1638)
     }
 
     // ── showing ──

@@ -199,7 +199,7 @@ object Meeting {
         val face = SelfFace.bytes(Book.ctx) ?: ByteArray(0)
         val bid = Wire.hex(Wire.sha("mt-pipe-f".toByteArray() + byteArrayOf(0), secret))
         val key = Wire.sha("mt-pipe-fk".toByteArray() + byteArrayOf(0), secret)
-        Wire.seal(key, face)?.let { sealed -> MontanaCard.doors.any { d ->
+        Wire.seal(key, face)?.let { sealed -> Signal.writeOrder("blob").any { d ->
             Wire.post(d, "/blob-put", JSONObject().put("bid", bid).put("data", Base64.encodeToString(sealed, Base64.NO_WRAP)).put("over", true), 30_000).first == 200
         } }
     }
@@ -220,11 +220,12 @@ object Meeting {
         body += ByteArray(1536 - body.size)
         val letterKey = Wire.rdvLetterSecret(inv)
         val cw = Wire.rdvConvW(inv, Wire.day())
-        for (door in MontanaCard.doors) {
+        for (door in Signal.writeOrder("box")) {   // the elected door first (iOS 1638)
             val env = Wire.seal(Wire.bodyKey(letterKey, Wire.minute()), body) ?: return false
             val (code, _) = Wire.post(door, "/wake", JSONObject().put("conv", cw).put("from_id", Wire.subId(cw, twin)).put("mid", mid)
                 .put("env", Base64.encodeToString(env, Base64.NO_WRAP)).apply { if (silent) put("silent", true) })   // a service word: no banner
-            if (code == 200) return true
+            if (code == 200) { Signal.doorAnswered(door); return true }
+            Signal.doorFailed(door, code)
         }
         return false
     }

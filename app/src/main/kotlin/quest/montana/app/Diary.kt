@@ -218,7 +218,7 @@ object Diary {
             .put("lang", java.util.Locale.getDefault().language.take(2)).put("skew_ms", 0)
         val body = JSONObject().put("dg", dg).put("file", "tele").put("dev", dev).put("lines", JSONArray(lines))
         val bytes = body.toString().length
-        for (door in MontanaCard.doors) {
+        for (door in Signal.writeOrder("diag")) {   // the elected door first (iOS MontanaDiagShip.put over bases(for: "diag"))
             val (code, _) = Wire.post(door, "/diag-put", body, 10_000 + bytes / 25)   // the deadline grows with the body
             if (code == 200) { Signal.doorAnswered(door); refused = 0; return true }
             Signal.doorFailed(door, code)

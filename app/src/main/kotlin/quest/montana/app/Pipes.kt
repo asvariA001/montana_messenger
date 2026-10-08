@@ -181,7 +181,7 @@ object Wire {
         if (!assumeAbsent && blobsHave(listOf(bid))?.contains(bid) == true) { Log.d("Montana", "blob_put already on the node id=" + bid.take(8)); return true }
         // A CHUNK GOES TO THE NEXT LIVE DOOR THE MOMENT THE FIRST ONE DIES (iOS build 1894): the doors that answered on this path
         // first, a resting one last, and every answer taught to the door book — a dead door held a piece its whole minute
-        return Signal.byProof(MontanaCard.doors).any { door -> putBlobAt(door, bid, data, cargo, last) }
+        return Signal.writeOrder("blob").any { door -> putBlobAt(door, bid, data, cargo, last) }   // the elected store first (iOS 2007)
     }
     /**
      * What the node already holds of these chunks (iOS blobsPresent, askHave 1945-1985): only the chunks asked about count — a store
@@ -189,7 +189,7 @@ object Wire {
      */
     fun blobsHave(bids: List<String>): Set<String>? {
         val asked = bids.toSet()
-        for (door in MontanaCard.doors) {
+        for (door in Signal.writeOrder("blob")) {
             val (code, text) = post(door, "/blob-have", JSONObject().put("bids", JSONArray(bids)), 10_000)
             if (code != 200 || text == null) continue
             val h = runCatching { JSONObject(text).getJSONArray("have") }.getOrNull() ?: continue
@@ -216,8 +216,9 @@ object Wire {
     fun isGone(bid: String) = synchronized(goneChunks) { bid in goneChunks }
     fun getChunk(bid: String): ByteArray? {
         if (isGone(bid)) return null
-        var gone = MontanaCard.doors.isNotEmpty()
-        for (door in MontanaCard.doors) {
+        val stores = Doors.ordered("blob")   // another phone's chunk: every store of the network's list (iOS 1638)
+        var gone = stores.isNotEmpty()
+        for (door in stores) {
             val (code, text) = post(door, "/blob-get", JSONObject().put("bid", bid))
             if (code == 200 && text != null) runCatching { JSONObject(text).optString("data").takeIf { it.isNotEmpty() }?.let { return Base64.decode(it, Base64.DEFAULT) } }
             if (code != 404) gone = false
@@ -228,7 +229,7 @@ object Wire {
 
     /** A blob of the node (iOS getBlob): POST /blob-get {bid} → {data}. */
     fun getBlob(bid: String): ByteArray? {
-        for (door in MontanaCard.doors) {
+        for (door in Doors.ordered("blob")) {
             val (code, text) = post(door, "/blob-get", JSONObject().put("bid", bid))
             if (code == 200 && text != null) runCatching { JSONObject(text).optString("data").takeIf { it.isNotEmpty() }?.let { return Base64.decode(it, Base64.DEFAULT) } }
         }
@@ -671,11 +672,13 @@ object Post {
         val cw = Wire.convW(secret, Wire.day())
         // a service word asks the node for a silent push (iOS wake: body["silent"]), judged by its words, not by a long letter's reference
         val silent = Marks.isSilent(text0) || quiet
-        for (door in MontanaCard.doors) {
+        // the elected door first, the next only past its death (iOS 1638)
+        for (door in Signal.writeOrder("box")) {
             val env = Wire.seal(Wire.bodyKey(secret, Wire.minute()), plain) ?: return false
             val (code, _) = Wire.post(door, "/wake", JSONObject().put("conv", cw).put("from_id", Wire.subId(cw, twin)).put("mid", mid)
                 .put("env", Base64.encodeToString(env, Base64.NO_WRAP)).apply { if (silent) put("silent", true) })
-            if (code == 200) return true
+            if (code == 200) { Signal.doorAnswered(door); return true }
+            Signal.doorFailed(door, code)
         }
         return false
     }
@@ -807,8 +810,8 @@ object Post {
             val page = JSONObject().put("subs", JSONArray(chunk)).put("sids", JSONArray(chunk.map { Wire.subId(it, twin) }))
             val seen = HashSet<String>()
             val rows = mutableListOf<JSONObject>()
-            // THE READ SWEEPS EVERY STORE: a letter lies on the one node whose door took it.
-            for (door in MontanaCard.doors) {
+            // THE READ SWEEPS EVERY STORE of the network's list: a letter lies on the one node the writer elected (iOS 1638)
+            for (door in Doors.ordered("box")) {
                 val (code, text) = Wire.post(door, "/fetch", page, 6000)
                 if (code != 200 || text == null) continue
                 val ls = runCatching { JSONObject(text).optJSONArray("letters") }.getOrNull() ?: continue
@@ -825,7 +828,7 @@ object Post {
         }
         if (taken.isNotEmpty()) {
             val body = JSONObject().put("mids", JSONArray(taken))
-            for (door in MontanaCard.doors) Wire.post(door, "/box-del", body, 5000)
+            for (door in Doors.ordered("box")) Wire.post(door, "/box-del", body, 5000)
         }
     }
 
