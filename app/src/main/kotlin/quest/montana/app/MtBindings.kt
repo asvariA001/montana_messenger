@@ -45,6 +45,20 @@ object MtBindings {
     @JvmStatic external fun nativeFirstSecret(ss: ByteArray, root: ByteArray, ct: ByteArray): ByteArray?
     /** root[1184], window → the point of first contact[16] a first letter knocks at in that window (mt_name_first_tag). */
     @JvmStatic external fun nativeFirstTag(root: ByteArray, window: Long): ByteArray?
+    // The archive of letters (iOS MontanaArchive over mt_archive_*): the media branch, the writer, the log, the twin's export, the
+    // reading road and the sealed Media folder — each the core's own, the same composition as the iOS door.
+    @JvmStatic external fun nativeMediaKey(entropy: ByteArray): ByteArray?
+    @JvmStatic external fun nativeWriterTag(device: ByteArray): ByteArray?
+    /** One letter onto the chat's log under the history key: 0, or below zero refused (mt_archive_append). */
+    @JvmStatic external fun nativeArchiveAppend(base: String, chat: String, hk: ByteArray, owner: ByteArray, device: ByteArray, conv: ByteArray, dir: Int, sendTime: Long, content: ByteArray): Int
+    /** writer_tag[4] ‖ block_seq u64 LE of a sealed block, off its nonce (mt_archive_block_id). */
+    @JvmStatic external fun nativeArchiveBlockId(sealed: ByteArray): ByteArray?
+    /** This writer's blocks of one chat from a number on, (u32 LE ‖ sealed)×N (mt_archive_export). */
+    @JvmStatic external fun nativeArchiveExport(base: String, chat: String, writerTag: ByteArray, fromSeq: Long): ByteArray?
+    /** A sealed block opened: block_seq u64 LE ‖ count u32 LE ‖ (conv[32] ‖ dir ‖ at u64 LE ‖ len u32 LE ‖ content)×count (mt_archive_open_block). */
+    @JvmStatic external fun nativeArchiveOpenBlock(hk: ByteArray, owner: ByteArray, sealed: ByteArray): ByteArray?
+    @JvmStatic external fun nativeArchivePutMedia(base: String, chat: String, blobId: String, mk: ByteArray, owner: ByteArray, data: ByteArray): Boolean
+    @JvmStatic external fun nativeArchiveGetMedia(base: String, chat: String, blobId: String, mk: ByteArray, owner: ByteArray): ByteArray?
 
     /** seed[32] → a machine's answering identity, ML-DSA-65 pk[1952] ‖ sk[4032] (mt_mldsa_keypair_from_seed). */
     @JvmStatic external fun nativeMldsaKeypair(seed: ByteArray): ByteArray?

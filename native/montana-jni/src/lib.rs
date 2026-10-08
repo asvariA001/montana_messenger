@@ -92,6 +92,63 @@ pub fn archive_ingest(base: &str, chat: &str, hk: &[u8; 32], owner: &[u8; 32], s
     }
 }
 
+/// entropy[32] → media_key[32]: HKDF-SHA-256(salt=0×32, ikm=entropy, info="mt-media-key"), a branch apart from history (mt_media_key).
+pub fn media_key(entropy: &[u8; 32]) -> Zeroizing<[u8; 32]> {
+    let prk = Zeroizing::new(mt_mnemonic::hmac_sha256(&[0u8; 32], entropy));
+    let okm = Zeroizing::new(mt_mnemonic::hkdf_expand(&prk[..], domain::MSG_MEDIA_KEY, 32));
+    let mut out = Zeroizing::new([0u8; 32]);
+    out.copy_from_slice(&okm);
+    out
+}
+
+/// device_id[16] → writer_tag[4]: SHA-256("mt-history-writer" ‖ 0 ‖ device_id)[0..4], the nonces of one seed's devices kept apart (mt_writer_tag).
+pub fn writer_tag(device: &[u8; 16]) -> [u8; 4] {
+    mt_messenger_e2e::archive::writer_tag(device)
+}
+
+/// One letter sealed under the history key onto the chat's log; the core numbers the block, so no nonce repeats (mt_archive_append).
+#[allow(clippy::too_many_arguments)]
+pub fn archive_append(base: &str, chat: &str, hk: &[u8; 32], owner: &[u8; 32], device: &[u8; 16], conv: &[u8; 32], dir: u8, send_time: u64, content: &[u8]) -> i32 {
+    let store = match mt_messenger_e2e::archive::ArchiveStore::open(base) {
+        Ok(s) => s,
+        Err(_) => return -5, // MT_ERR_IO
+    };
+    match store.append_item(chat, hk, owner, device, conv, dir, send_time, content) {
+        Ok(_) => 0,
+        Err(_) => -5,
+    }
+}
+
+/// (writer_tag, block_seq) of a sealed block, read off its nonce prefix without opening it (mt_archive_block_id).
+pub fn archive_block_id(sealed: &[u8]) -> Option<([u8; 4], u64)> {
+    Some((mt_messenger_e2e::archive::block_writer_tag(sealed)?, mt_messenger_e2e::archive::block_seq_of(sealed)?))
+}
+
+/// This writer's sealed blocks of one chat from a number on, (u32 LE ‖ sealed)×N — what the twin is handed (mt_archive_export).
+pub fn archive_export(base: &str, chat: &str, wt: &[u8; 4], from_seq: u64) -> Option<Vec<u8>> {
+    let store = mt_messenger_e2e::archive::ArchiveStore::open(base).ok()?;
+    store.export_mine(chat, wt, from_seq).ok()
+}
+
+/// One sealed block opened under the history key, in the canonical block encoding — the archive's reading road (mt_archive_open_block).
+pub fn archive_open_block(hk: &[u8; 32], owner: &[u8; 32], sealed: &[u8]) -> Option<Vec<u8>> {
+    let block = mt_messenger_e2e::archive::open_block(hk, owner, sealed)?;
+    Some(mt_messenger_e2e::archive::encode_block(&block))
+}
+
+/// A file sealed under the media key into the chat's Media folder — another app sees ciphertext (mt_archive_put_media).
+pub fn archive_put_media(base: &str, chat: &str, bid: &str, mk: &[u8; 32], owner: &[u8; 32], data: &[u8]) -> bool {
+    match mt_messenger_e2e::archive::ArchiveStore::open(base) {
+        Ok(store) => store.put_media(chat, bid, mk, owner, data).is_ok(),
+        Err(_) => false,
+    }
+}
+
+/// A sealed file of the chat's Media folder opened under the media key, or None (mt_archive_get_media).
+pub fn archive_get_media(base: &str, chat: &str, bid: &str, mk: &[u8; 32], owner: &[u8; 32]) -> Option<Vec<u8>> {
+    mt_messenger_e2e::archive::ArchiveStore::open(base).ok()?.get_media(chat, bid, mk, owner)
+}
+
 /// A card's key: ML-KEM-768 KeyGen from a 64-byte seed, pk[1184] ‖ sk[2400] (mt_mlkem_keypair_from_seed).
 pub fn mlkem_keypair(seed: &[u8; 64]) -> Option<Zeroizing<Vec<u8>>> {
     let (pk, sk) = mt_crypto::keypair_from_seed_mlkem(seed).ok()?;
@@ -413,6 +470,108 @@ mod jni_doors {
         };
         archive_ingest(&base, &chat, &h, &o, &s)
     }
+
+    fn text(env: &mut JNIEnv, s: &JString) -> Option<String> { env.get_string(s).ok().map(String::from) }
+    fn dev16(env: &mut JNIEnv, b: &JByteArray) -> Option<[u8; 16]> {
+        let v = env.convert_byte_array(b).ok()?;
+        if v.len() != 16 { return None; }
+        let mut d = [0u8; 16];
+        d.copy_from_slice(&v);
+        Some(d)
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_quest_montana_app_MtBindings_nativeMediaKey<'l>(
+        mut env: JNIEnv<'l>, _c: JClass<'l>, ent: JByteArray<'l>,
+    ) -> jbyteArray {
+        match key32(&mut env, &ent) {
+            Some(e) => { let mk = media_key(&e); bytes(&mut env, &mk[..]) }
+            None => std::ptr::null_mut(),
+        }
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_quest_montana_app_MtBindings_nativeWriterTag<'l>(
+        mut env: JNIEnv<'l>, _c: JClass<'l>, device: JByteArray<'l>,
+    ) -> jbyteArray {
+        match dev16(&mut env, &device) {
+            Some(d) => bytes(&mut env, &writer_tag(&d)),
+            None => std::ptr::null_mut(),
+        }
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_quest_montana_app_MtBindings_nativeArchiveAppend<'l>(
+        mut env: JNIEnv<'l>, _c: JClass<'l>, base: JString<'l>, chat: JString<'l>, hk: JByteArray<'l>, owner: JByteArray<'l>,
+        device: JByteArray<'l>, conv: JByteArray<'l>, dir: jint, send_time: jlong, content: JByteArray<'l>,
+    ) -> jint {
+        let (Some(b), Some(ch)) = (text(&mut env, &base), text(&mut env, &chat)) else { return -3 };
+        let (Some(h), Some(o), Some(d), Some(cv)) = (key32(&mut env, &hk), key32(&mut env, &owner), dev16(&mut env, &device), key32(&mut env, &conv)) else {
+            return -1;
+        };
+        let (Ok(dir), Ok(t), Ok(body)) = (u8::try_from(dir), u64::try_from(send_time), env.convert_byte_array(&content)) else { return -1 };
+        archive_append(&b, &ch, &h, &o, &d, &cv, dir, t, &body)
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_quest_montana_app_MtBindings_nativeArchiveBlockId<'l>(
+        mut env: JNIEnv<'l>, _c: JClass<'l>, sealed: JByteArray<'l>,
+    ) -> jbyteArray {
+        let Ok(s) = env.convert_byte_array(&sealed) else { return std::ptr::null_mut() };
+        match archive_block_id(&s) {
+            Some((wt, seq)) => { let mut out = wt.to_vec(); out.extend_from_slice(&seq.to_le_bytes()); bytes(&mut env, &out) }
+            None => std::ptr::null_mut(),
+        }
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_quest_montana_app_MtBindings_nativeArchiveExport<'l>(
+        mut env: JNIEnv<'l>, _c: JClass<'l>, base: JString<'l>, chat: JString<'l>, wt: JByteArray<'l>, from_seq: jlong,
+    ) -> jbyteArray {
+        let (Some(b), Some(ch)) = (text(&mut env, &base), text(&mut env, &chat)) else { return std::ptr::null_mut() };
+        let (Ok(w), Ok(from)) = (env.convert_byte_array(&wt), u64::try_from(from_seq)) else { return std::ptr::null_mut() };
+        let Ok(w4) = <[u8; 4]>::try_from(w.as_slice()) else { return std::ptr::null_mut() };
+        match archive_export(&b, &ch, &w4, from) {
+            Some(stream) => bytes(&mut env, &stream),
+            None => std::ptr::null_mut(),
+        }
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_quest_montana_app_MtBindings_nativeArchiveOpenBlock<'l>(
+        mut env: JNIEnv<'l>, _c: JClass<'l>, hk: JByteArray<'l>, owner: JByteArray<'l>, sealed: JByteArray<'l>,
+    ) -> jbyteArray {
+        let (Some(h), Some(o), Ok(s)) = (key32(&mut env, &hk), key32(&mut env, &owner), env.convert_byte_array(&sealed)) else {
+            return std::ptr::null_mut();
+        };
+        match archive_open_block(&h, &o, &s) {
+            Some(plain) => bytes(&mut env, &plain),
+            None => std::ptr::null_mut(),
+        }
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_quest_montana_app_MtBindings_nativeArchivePutMedia<'l>(
+        mut env: JNIEnv<'l>, _c: JClass<'l>, base: JString<'l>, chat: JString<'l>, bid: JString<'l>,
+        mk: JByteArray<'l>, owner: JByteArray<'l>, data: JByteArray<'l>,
+    ) -> jboolean {
+        let (Some(b), Some(ch), Some(id)) = (text(&mut env, &base), text(&mut env, &chat), text(&mut env, &bid)) else { return JNI_FALSE };
+        let (Some(m), Some(o), Ok(d)) = (key32(&mut env, &mk), key32(&mut env, &owner), env.convert_byte_array(&data)) else { return JNI_FALSE };
+        if archive_put_media(&b, &ch, &id, &m, &o, &d) { JNI_TRUE } else { JNI_FALSE }
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_quest_montana_app_MtBindings_nativeArchiveGetMedia<'l>(
+        mut env: JNIEnv<'l>, _c: JClass<'l>, base: JString<'l>, chat: JString<'l>, bid: JString<'l>,
+        mk: JByteArray<'l>, owner: JByteArray<'l>,
+    ) -> jbyteArray {
+        let (Some(b), Some(ch), Some(id)) = (text(&mut env, &base), text(&mut env, &chat), text(&mut env, &bid)) else { return std::ptr::null_mut() };
+        let (Some(m), Some(o)) = (key32(&mut env, &mk), key32(&mut env, &owner)) else { return std::ptr::null_mut() };
+        match archive_get_media(&b, &ch, &id, &m, &o) {
+            Some(plain) => bytes(&mut env, &plain),
+            None => std::ptr::null_mut(),
+        }
+    }
     // ── the channel's doors ──
 
     #[no_mangle]
@@ -693,6 +852,55 @@ mod tests {
         assert_eq!((ours, ios), (1, 1));
         assert_eq!(archive_ingest(a.to_str().unwrap(), "c1", &hk, &owner, &sealed), 0); // held already: merged, not doubled
         assert!(archive_ingest(a.to_str().unwrap(), "c1", &[8u8; 32], &owner, &sealed) < 0); // another key: refused
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn archive_writing_doors_match_ios() {
+        // One letter appended by ours into store a and by the iOS door into store b: the logs are the same bytes (a key, a field
+        // order or a number told otherwise would part them), the export, the block's identity and the opened canon agree, and the
+        // media branch opens under the media key alone.
+        let ent = [0x5au8; 32];
+        let mut ios_mk = [0u8; 32];
+        assert_eq!(unsafe { ffi_c::mt_media_key(ent.as_ptr(), ios_mk.as_mut_ptr()) }, 0);
+        assert_eq!(&media_key(&ent)[..], &ios_mk[..]);
+        assert_ne!(&media_key(&ent)[..], &history_key(&ent)[..]);
+        let dev = [0x21u8; 16];
+        let mut ios_wt = [0u8; 4];
+        assert_eq!(unsafe { ffi_c::mt_writer_tag(dev.as_ptr(), ios_wt.as_mut_ptr()) }, 0);
+        assert_eq!(writer_tag(&dev), ios_wt);
+        let (hk, owner, conv) = ([7u8; 32], [9u8; 32], [3u8; 32]);
+        let tmp = std::env::temp_dir().join(format!("mt-jni-archive-w-{}", std::process::id()));
+        let (a, b) = (tmp.join("a"), tmp.join("b"));
+        assert_eq!(archive_append(a.to_str().unwrap(), "c1", &hk, &owner, &dev, &conv, 0, 1_700_000_123, b"first"), 0);
+        let (bs, chat) = (CString::new(b.to_str().unwrap()).unwrap(), CString::new("c1").unwrap());
+        assert_eq!(unsafe { ffi_c::mt_archive_append(bs.as_ptr(), chat.as_ptr(), hk.as_ptr(), owner.as_ptr(), dev.as_ptr(), conv.as_ptr(), 0, 1_700_000_123, b"first".as_ptr(), 5) }, 0);
+        let log = |root: &std::path::Path| std::fs::read(root.join("Chats").join("c1").join("conversation.mtlog")).unwrap();
+        assert_eq!(log(&a), log(&b));
+        let ours = archive_export(a.to_str().unwrap(), "c1", &ios_wt, 0).unwrap();
+        let mut buf = vec![0u8; 1 << 16];
+        let n = unsafe { ffi_c::mt_archive_export(bs.as_ptr(), chat.as_ptr(), ios_wt.as_ptr(), 0, buf.as_mut_ptr(), buf.len()) };
+        assert_eq!(&ours[..], &buf[..n as usize]);
+        let len = u32::from_le_bytes([ours[0], ours[1], ours[2], ours[3]]) as usize;
+        let sealed = &ours[4..4 + len];
+        let (wt, seq) = archive_block_id(sealed).unwrap();
+        let (mut ios_wt2, mut ios_seq) = ([0u8; 4], 0u64);
+        assert_eq!(unsafe { ffi_c::mt_archive_block_id(sealed.as_ptr(), sealed.len(), ios_wt2.as_mut_ptr(), &mut ios_seq) }, 0);
+        assert_eq!((wt, seq), (ios_wt2, ios_seq));
+        let plain = archive_open_block(&hk, &owner, sealed).unwrap();
+        let mut obuf = vec![0u8; 4096];
+        let on = unsafe { ffi_c::mt_archive_open_block(hk.as_ptr(), owner.as_ptr(), sealed.as_ptr(), sealed.len(), obuf.as_mut_ptr(), obuf.len()) };
+        assert_eq!(&plain[..], &obuf[..on as usize]);
+        assert!(plain.ends_with(b"first"));
+        assert!(archive_open_block(&[8u8; 32], &owner, sealed).is_none());
+        let mk = media_key(&ent);
+        assert!(archive_put_media(a.to_str().unwrap(), "c1", "face", &mk, &owner, b"picture"));
+        let bid = CString::new("face").unwrap();
+        let mut mbuf = vec![0u8; 1024];
+        let mn = unsafe { ffi_c::mt_archive_get_media(CString::new(a.to_str().unwrap()).unwrap().as_ptr(), chat.as_ptr(), bid.as_ptr(), mk.as_ptr(), owner.as_ptr(), mbuf.as_mut_ptr(), mbuf.len()) };
+        assert_eq!(&mbuf[..mn as usize], b"picture");
+        assert_eq!(archive_get_media(a.to_str().unwrap(), "c1", "face", &mk, &owner).as_deref(), Some(&b"picture"[..]));
+        assert!(archive_get_media(a.to_str().unwrap(), "c1", "face", &hk, &owner).is_none());
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
