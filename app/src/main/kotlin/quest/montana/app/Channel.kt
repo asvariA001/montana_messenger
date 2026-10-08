@@ -319,7 +319,7 @@ object Channels {
     private const val PATH_STEP_MIN = 5.0
     private const val PATH_STEP_MAX = 60.0   // iOS MontanaP2PNode 526-527
     const val PORT = 8447   // iOS MontanaDirectPort.value: the mesh's direct channel
-    const val ADDRESS = "​​PA:"   // iOS punchEndpointMark (ContentView 3834): a correspondent's dialable address, inside the pipe only
+    const val ADDRESS = "​​PA:"   // iOS punchEndpointMark (ContentView 3845): a correspondent's dialable address, inside the pipe only
     private val book = HashMap<String, LinkedHashSet<Pair<String, Int>>>()   // a correspondent → the addresses they named (iOS MontanaOverlayBook)
     private val pathAt = HashMap<String, Pair<Long, Double>>()
     private val announcedTo = HashMap<String, Long>()
@@ -403,17 +403,19 @@ object Channels {
     }
 
     /**
-     * A NEIGHBOUR'S CHANNEL THAT CARRIES NOTHING IS CLOSED (iOS retireIdleChannels, 679-687): three minutes without a frame, and
-     * beyond twelve the least recently used goes first; presence brings it back, so being wrong costs one dial. A node's channel
-     * is held for the app's whole life and is never retired here.
+     * A NEIGHBOUR'S CHANNEL THAT CARRIES NOTHING IS CLOSED (iOS retireIdleChannels, MontanaP2P 679-709): three minutes without a
+     * frame closes it; then, beyond twelve standing, the least recently used goes first — a correspondent's channel last, an anchor
+     * of a person the owner vouched for rather than an address (696-704). Presence brings it back, so being wrong costs one dial.
+     * A node's channel is held for the app's whole life and is never retired here.
      */
     private fun retire(cs: List<Channel>) {
         val now = System.currentTimeMillis()
         val doors = Doors.bare().map { it.first + ":" + it.second }.toSet()
-        val peers = cs.filter { it.label !in doors }.sortedBy { it.lastUsed }
-        for ((i, c) in peers.withIndex()) {
-            if (now - c.lastUsed > 180_000L || peers.size - i > 12) c.close("idle")
-        }
+        val (idle, kept) = cs.filter { it.label !in doors }.partition { 180_000L < now - it.lastUsed }
+        for (c in idle) c.close("idle")
+        val anchors = synchronized(book) { book.keys.toSet() }
+        val order = kept.sortedWith(compareBy<Channel>({ it.ref in anchors }, { it.lastUsed }))
+        for (c in order.take(maxOf(0, kept.size - 12))) c.close("evict")
     }
 
     /**
@@ -611,7 +613,7 @@ object Channels {
         Log.d("Montana", "addr_announce")
     }
 
-    /** A word from a correspondent: the pipe lives, and if no road of mine reaches them, my address is named (iOS ChatStore 3938-3947). */
+    /** A word from a correspondent: the pipe lives, and if no road of mine reaches them, my address is named (iOS ChatStore 3976-3986). */
     fun heard(ref: String) {
         if (synchronized(live) { live.values.none { it.ready && it.ref == ref } }) announce(ref)
     }

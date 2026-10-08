@@ -839,7 +839,7 @@ object Post {
         // the chat still landed here. Taken from the box and said nothing — no receipt, no word of mine goes back.
         if (PeerSafety.isBlocked(ref) || PeerSafety.isBlocked(SamePair.root(ref))) return true
         Meeting.firstDone(ref)   // a word sealed under the pipe by the other side: the introduction is over
-        Channels.heard(ref)   // the pipe lives: the moment to name my own address when no road of mine reaches them (iOS ChatStore 3938-3947)
+        Channels.heard(ref)   // the pipe lives: the moment to name my own address when no road of mine reaches them (iOS ChatStore 3976-3986)
         var text = f[1]
         if (text.startsWith(Marks.LONG)) text = fetchLong(text)?.ifEmpty { text } ?: return false   // later: the letter waits in the box
         place(ref, f[0], text, f[2], f[4].ifEmpty { null }, f[5].ifEmpty { null }, f[6].ifEmpty { null })
@@ -857,7 +857,7 @@ object Post {
             return place(speaksFor, mid, text, name, qt, qm, lp)
         }
         when {
-            // THE CORRESPONDENT NAMED THEIR ADDRESS (iOS ChatStore 3921-3929): into the book, dialled at once, mine named back
+            // THE CORRESPONDENT NAMED THEIR ADDRESS (iOS ChatStore 3959-3967): into the book, dialled at once, mine named back
             text.startsWith(Channels.ADDRESS) -> Channels.peerAnnounced(ref, text.removePrefix(Channels.ADDRESS))
             // ONE PERSON, ONE CONVERSATION (iOS MTSamePair): the scanner's question over a pipe just born from my card —
             // answered, and folded when I share an older pipe with them — and the owner's answer to my own question.
