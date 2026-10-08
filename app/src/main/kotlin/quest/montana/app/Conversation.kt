@@ -291,11 +291,13 @@ object Ladder {
     private fun isVoice(m: Msg) = m.text.startsWith(Marks.MEDIA) &&
         ((m.meta?.let { runCatching { JSONObject(it) }.getOrNull() } ?: Media.inline(m.text))?.optString("k") == "aud")
 
-    /** The rung the dots stand on (0…3) and the word's resource. */
+    /** The rung the dots stand on (0…3) and the word's resource: a voice is Listened, a round note Viewed, not merely Read —
+     * each by the correspondent's own playing (iOS MTPlayed, MontanaBubble.swift:1634 at build 2155, atom cbd70b2f08ed). */
     fun of(ref: String, m: Msg): Pair<Int, Int> {
         if (m.state == -1) return 0 to R.string.ladder_failed
-        if (isVoice(m)) {
-            if (m.heard) return 3 to R.string.ladder_listened
+        val played = if (isVoice(m)) R.string.ladder_listened else if (roundNote(m)) R.string.ladder_viewed else null
+        if (played != null) {
+            if (m.heard) return 3 to played
             if (m.state == 3 && Prefs.bool("plcap_$ref", false)) return 2 to R.string.ladder_delivered
         }
         return m.state to when (m.state) {
@@ -1955,7 +1957,7 @@ private fun noteBody(c: Context, m: Msg, f: java.io.File?, man: JSONObject?, int
             setOnClickListener { Media.tapped(c, m) }   // automatic download off: the round note waits for a tap
         }
         else if (f == null) addView(android.widget.ProgressBar(c), FrameLayout.LayoutParams(c.dp(36), c.dp(36), Gravity.CENTER))
-        else setOnClickListener { (c as? MainActivity)?.let { a -> playNote(a, f, chat) } }
+        else setOnClickListener { (c as? MainActivity)?.let { a -> playNote(a, m, f, chat) } }
     }, LinearLayout.LayoutParams(side, side).apply { bottomMargin = c.dp(4) })
     // A note stands without the bubble's plate: the circle is its own shape.
     (into.background as? android.graphics.drawable.Drawable)?.let { into.background = null; into.setPadding(0, 0, 0, 0) }
@@ -2008,9 +2010,12 @@ private fun roundNote(m: Msg): Boolean {
  * note stops a voice, a voice closes the note. The ring stays its clock: the one player bar that keeps the time on iOS (seek, speed,
  * close) Android does not have yet.
  */
-private fun playNote(act: MainActivity, f: java.io.File, chat: Chat?) {
+private fun playNote(act: MainActivity, m: Msg, f: java.io.File, chat: Chat?) {
     NoteOpen.close?.invoke()
     VoicePlayer.stop()
+    // THEIR ROUND NOTE OPENED WITH ITS SOUND: ITS SENDER LEARNS IT ONCE, SILENTLY (iOS notePlayed, MontanaConversation.swift:3101
+    // at build 2155, atom cbd70b2f08ed) -- the road to their «Viewed»; opening the chat alone says nothing.
+    if (!m.mine) Thread { Post.notePlayed(m.mid) }.start()
     // A TRACK STEPS ASIDE WITH ITS PLACE (iOS VoicePlayer.stepAside / noteClosed, 26.09): the music rests for the note and plays on after it
     val musicWas = MusicPlayer.playing
     if (musicWas) MusicPlayer.pause()

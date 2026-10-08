@@ -271,6 +271,7 @@
     <string name="ladder_read">Read</string>
     <string name="ladder_failed">Not sent</string>
     <string name="ladder_listened">Listened</string>
+    <string name="ladder_viewed">Viewed</string>
     <!-- the correspondent's page (iOS MontanaPeerInfoScreen) -->
     <string name="pi_wall">Wall</string>
     <string name="pi_media">Media</string>

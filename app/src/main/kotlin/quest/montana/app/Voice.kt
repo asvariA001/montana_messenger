@@ -267,7 +267,14 @@ fun voiceBody(c: Context, m: Msg, du: Double, into: LinearLayout, wave: FloatArr
         // their voice played here: its sender is told once, silently (iOS notePlayed) — the road to their «Listened»
         if (!m.mine && VoicePlayer.playing == p) Thread { Post.notePlayed(m.mid) }.start()
     }
-    bar.onSeek = { f -> if (path != null) VoicePlayer.seek(path, (f * total).toInt()) }
+    // THE FINGER'S PLACE STARTS THE VOICE (iOS onSeek, MontanaBubble.swift:844 at build 2155, atom 5cc9cb3879cf): already
+    // sounding, the touch only seeks it; at rest, the chosen place starts it -- no place is left waiting for the round's button.
+    bar.onSeek = { f ->
+        if (path != null) {
+            val to = (f * total).toInt()
+            if (VoicePlayer.sounding(path)) VoicePlayer.seek(path, to) else { mark.performClick(); VoicePlayer.seek(path, to) }
+        }
+    }
     // the bar rests and plays this voice too: the play mark follows what the one player does (iOS: the bubble reads the one player)
     val follow: () -> Unit = {
         mark.setImageResource(if (VoicePlayer.sounding(path)) R.drawable.ic_pause_fill else R.drawable.ic_play_fill)

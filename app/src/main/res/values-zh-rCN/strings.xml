@@ -270,6 +270,7 @@
     <string name="ladder_read">已读</string>
     <string name="ladder_failed">未发送</string>
     <string name="ladder_listened">已收听</string>
+    <string name="ladder_viewed">已观看</string>
     <!-- the correspondent's page (iOS MontanaPeerInfoScreen) -->
     <string name="pi_wall">留言墙</string>
     <string name="pi_media">媒体</string>

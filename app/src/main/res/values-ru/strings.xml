@@ -270,6 +270,7 @@
     <string name="ladder_read">Прочитано</string>
     <string name="ladder_failed">Не отправлено</string>
     <string name="ladder_listened">Прослушано</string>
+    <string name="ladder_viewed">Просмотрено</string>
     <!-- the correspondent's page (iOS MontanaPeerInfoScreen) -->
     <string name="pi_wall">Стена</string>
     <string name="pi_media">Медиа</string>
