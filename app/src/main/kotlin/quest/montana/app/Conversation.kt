@@ -573,6 +573,39 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             }
         }.start()
     }
+    // A PICTURE PASTED, OR HANDED OVER BY THE KEYBOARD, IS AN ATTACHMENT, NOT WORDS (iOS paste, MontanaBubble 2166-2188; attachPasted,
+    // MontanaConversation 3052-3087; the author's word 10.09; fork atom 1443): an opaque one waits above the field as a photo in the
+    // one shape of a photo on its way out; a see-through one is a sticker, kept as PNG, on the card-sticker road; a GIF keeps its
+    // frames. Android took no picture into the field at all. The keyboard's grant lasts only while it hands the picture over, so
+    // the bytes are read at once and shaped off the screen.
+    fun seeThrough(b: android.graphics.Bitmap): Boolean {
+        if (!b.hasAlpha()) return false
+        val small = android.graphics.Bitmap.createScaledBitmap(b, 64, 64, true)
+        for (y in 0 until 64) for (x in 0 until 64) if (android.graphics.Color.alpha(small.getPixel(x, y)) < 128) return true
+        return false
+    }
+    fun pasted(bytes: ByteArray) {
+        val gif = 4 <= bytes.size && String(bytes, 0, 4, Charsets.US_ASCII) == "GIF8"
+        val bmp = if (gif) null else android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        if (bmp != null && seeThrough(bmp)) {
+            val png = java.io.ByteArrayOutputStream().also { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+            Media.send(c, ref, Media.Picked(png, "img", "png", Stickers.CARD), "")
+            MainThread.post { toBottom() }
+            return
+        }
+        val p = if (gif) Media.Picked(bytes, "img", "gif", null) else Media.Picked(Media.photoForSend(bytes) ?: return, "img", "jpg", null)
+        val face = stagedFace(c, p)
+        MainThread.post { staged.add(p to face); drawStaged(); toBottom() }
+    }
+    if (android.os.Build.VERSION.SDK_INT >= 31) field.setOnReceiveContentListener(arrayOf("image/*")) { _, payload ->
+        val clip = payload.clip
+        val held = ArrayList<ByteArray>()
+        for (i in 0 until clip.itemCount) clip.getItemAt(i).uri?.let { u ->
+            runCatching { c.contentResolver.openInputStream(u)?.use { it.readBytes() } }.getOrNull()?.let { held.add(it) }
+        }
+        // pictures in hand: the pictures alone ride, as the iPhone's paste takes images over words; none: the words paste as ever
+        if (held.isEmpty()) payload else { Thread { held.forEach { pasted(it) } }.start(); null }
+    }
     // THE GALLERY OF THE ROW (iOS openGallery → MTGalleryPick): the phone's latest pictures at once, the camera the first tile,
     // «All photos» the system's own picker with its ten; what is chosen waits above the field
     bar.onGallery = { hideKeys(); galleryPick(act, onPick = { stage(it) },
