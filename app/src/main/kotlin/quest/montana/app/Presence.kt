@@ -136,6 +136,7 @@ object Signal {
             val sealed = runCatching { Base64.decode(e, Base64.DEFAULT) }.getOrNull() ?: continue
             val w0 = Wire.minute()
             val plain = listOf(w0, w0 - 1, w0 + 1).firstNotNullOfOrNull { w -> Wire.open(Wire.bodyKey(secret, w), sealed) } ?: continue
+            Meeting.firstDone(ref)   // a word under the pipe proves the other side holds it, on this road too (iOS 1961)
             val a = plain.indexOf(0); if (a < 0) continue
             val b = (a + 1 until plain.size).firstOrNull { plain[it] == 0.toByte() } ?: continue
             val epoch = String(plain, a + 1, b - a - 1, Charsets.UTF_8)

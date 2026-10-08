@@ -44,8 +44,15 @@ object Meeting {
     }
 
     /** The other side wrote under the pipe: the introduction is over, the ciphertext is spent (iOS firstContactDone). */
-    fun firstDone(ref: String) = synchronized(gate) {
-        val m = jmap(FIRSTS); if (m.has(ref)) { m.remove(ref); jsave(FIRSTS, m) }
+    /**
+     * A WORD OF THEIRS ENDS THE INTRODUCTION ON EVERY ROAD (iOS build 1961, 26.09: T3 kept a peer in the introduction while their name
+     * and face kept arriving, and held its letters behind it): the box's letter and the lane's word alike; the queue that waited for
+     * the pipe leaves at once. True when this word ended it.
+     */
+    fun firstDone(ref: String): Boolean {
+        val ended = synchronized(gate) { val m = jmap(FIRSTS); m.has(ref).also { if (it) { m.remove(ref); jsave(FIRSTS, m) } } }
+        if (ended) { Log.i("Montana", "first_done the pipe stands — the queue leaves now"); Thread { Post.flush() }.start() }
+        return ended
     }
 
     fun forget(ref: String) = synchronized(gate) {
