@@ -212,6 +212,18 @@ object Presence {
     }
 
     val sharing get() = Prefs.bool("presenceSharing", true)
+    /**
+     * THE PERSON HIDES, AND SAYS SO ONCE (iOS MontanaPresencePrivacy.setSharing, E2E.presenceFarewell 849-855): one honest word
+     * «0h» to everyone I speak presence to — an old reader takes the digit and the word dies, a new one reads the tail and coarsens
+     * my stamp at once — then silence; shown again, «here» at once. Android went silent without the word: their phones kept my exact
+     * moment and, for the word's life, «online».
+     */
+    fun setSharing(v: Boolean) {
+        if (v == sharing) return
+        Prefs.setBool("presenceSharing", v)
+        if (v) Thread { sayApp(true) }.start()
+        else Thread { for (ref in Book.refs()) if (SamePair.merged(ref) == null && !PeerSafety.isBlocked(ref)) Signal.post(ref, APP + "0h") }.start()
+    }
     /** The moment a word was said, as iOS says it (E2E.saidTail): «T» + seconds + «.» + three digits of milliseconds. */
     fun saidTail(now: Long = System.currentTimeMillis()) = "T" + (now / 1000) + "." + (1000 + now % 1000).toString().drop(1)
     private val saidRe = Regex("T(\\d{9,11})\\.(\\d{3})")

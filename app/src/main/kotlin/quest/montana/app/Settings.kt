@@ -296,7 +296,8 @@ fun privacyPage(act: MainActivity, onForget: () -> Unit, onBack: () -> Unit): Vi
                 } else systemSettings()
             })
         section(null, null,
-            sw(R.drawable.ic_set_eye, SysColor.teal, R.string.online_status, "presenceSharing", R.string.online_status_sub),
+            // the switch speaks: hidden, one farewell word; shown, «here» at once (iOS MontanaPresencePrivacy.setSharing)
+            c.switchLine(R.drawable.ic_set_eye, SysColor.teal, c.getString(R.string.online_status), Presence.sharing, c.getString(R.string.online_status_sub), tint = MT.gold) { Presence.setSharing(it) },
             sw(R.drawable.ic_set_check_circle, SysColor.green, R.string.read_receipts, "readReceiptsEnabled"),
             sw(R.drawable.ic_set_keyboard, SysColor.indigo, R.string.live_chat, "liveTypingEnabled"),
             // «Sync contacts» (iOS ContactsTabView.upsertSystemCard 2463-2476) writes a person's Montana name into the phone's
