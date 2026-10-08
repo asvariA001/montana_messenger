@@ -639,6 +639,7 @@ object Post {
             if (body.size + tail.size <= Wire.ENVELOPE) body += tail
         }
         if (body.size > Wire.ENVELOPE) return false
+        Channels.lay(secret, mid, body)   // the live road beside the box: laid before the nodes under the pipe's tag (iOS sendP2P)
         val plain = body + ByteArray(Wire.ENVELOPE - body.size)
         val cw = Wire.convW(secret, Wire.day())
         // a service word asks the node for a silent push (iOS wake: body["silent"]), judged by its words, not by a long letter's reference
@@ -825,6 +826,9 @@ object Post {
         if (fresh) CodeMet.met()   // the page of the code that brought them closes (iOS onMet)
         return true
     }
+
+    /** A letter off one of the phone's own channels lands where the box's letters land (iOS: one door, MontanaDeliveryEngine.receive). */
+    fun fromChannel(ref: String, plain: ByteArray) { letter(ref, plain) }
 
     /** A letter under a pipe's label: a person's word becomes a row, a word of the wire changes the feed. */
     private fun letter(ref: String, plain: ByteArray): Boolean {

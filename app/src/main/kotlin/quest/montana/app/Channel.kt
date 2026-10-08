@@ -360,7 +360,54 @@ object Channels {
         // an acknowledgement goes back down the channel it came by and addresses nobody (iOS 1423-1428)
         c.send(NetMsg.OVERLAY_FRAME, OverlayFrame(OverlayFrame.ACK, ByteArray(32), of.msgId, ByteArray(0)).encode())
         Log.d("Montana", "of_mine by=" + (if (conv != null) "pipe" else "window-pos") + " bytes=" + of.payload.size)
-        // the envelope itself is opened by the next step of the fork; until then the node's box stays the letter's first road
+        if (conv != null) Thread { open(conv, of.payload) }.start()   // the channel's read loop never waits on a letter's landing
+    }
+
+    /**
+     * MY LETTER OFF A CHANNEL (iOS handleOverlayFrame 1455-1572): 0x01 ‖ the pipe's tag ‖ the body sealed with the pipe's key — the
+     * conversation is named by the letter's own tag, never by the channel it came by, and the pipe's seal is the proof of the sender;
+     * 0x02 ‖ a first letter's ciphertext ‖ the body, under a pipe that already stands — the tag is older than the envelope, so it
+     * opens with the pipe's secret. The words land at the same door as the box's (Post.letter): the second copy is dropped by its mid.
+     */
+    private fun open(conv: String, env: ByteArray) {
+        val (from, sealed) = when (env.firstOrNull()?.toInt()) {
+            0x01 -> {
+                if (env.size <= 17) return
+                val f = myPipes()[Wire.hex(env.copyOfRange(1, 17))] ?: return Unit.also { Log.d("Montana", "open_refused — not our pipe") }
+                f to env.copyOfRange(17, env.size)
+            }
+            0x02 -> if (env.size <= 1 + 1088) return else conv to env.copyOfRange(1 + 1088, env.size)
+            else -> return   // a piece, a wake, a point of rendezvous: later steps of the fork
+        }
+        val secret = Book.secret(from) ?: return
+        val w = Wire.minute()
+        val plain = listOf(w, w - 1, w + 1).firstNotNullOfOrNull { Wire.open(Wire.bodyKey(secret, it), sealed) }
+            ?: return Unit.also { Log.d("Montana", "open_refused — the pipe seal did not match, a forgery or a foreign window") }
+        Post.fromChannel(from, plain)
+    }
+
+    /**
+     * A LETTER LAID BEFORE THE NODES UNDER ITS PIPE'S TAG (iOS MontanaP2PNode.sendP2P 963-971 and 1047-1057, sendUnderTag 1289-1304):
+     * 0x01 ‖ the pipe's tag of this window ‖ the body sealed with the pipe's key of this window — whoever holds the tag opens it,
+     * the rest carry it, and the node reads zero bytes. Only when the path is assembled: a standing channel whose machine named its
+     * owner (MontanaPath.hopMin = 1). The box's road goes on beside it, and the receiving side drops the second copy by its mid.
+     */
+    fun lay(secret: ByteArray, mid: String, body: ByteArray): Boolean {
+        val cs = synchronized(live) { live.values.filter { it.ready } }
+        val owners = cs.mapNotNull { c -> c.peerOwnerRef?.let { Wire.hex(it) } }.toSet().size
+        if (owners < 1) return false
+        val w = Wire.minute()
+        val tag = Wire.pipeTag(secret, w)
+        val sealed = Wire.seal(Wire.bodyKey(secret, w), body) ?: return false
+        val id = MtBindings.nativeRandom(16) ?: return false
+        synchronized(seen) {
+            if (originated.size > FRAME_MEMORY) originated.clear()
+            originated.add(Wire.hex(id))
+        }
+        val frame = OverlayFrame(OverlayFrame.RELAY, tag + ByteArray(16), id, byteArrayOf(0x01) + tag + sealed).encode()
+        val used = cs.count { it.send(NetMsg.OVERLAY_FRAME, frame) }
+        if (used > 0) Log.d("Montana", "sent_route mid=" + mid.take(8) + " route=node nodes=" + used)
+        return used > 0
     }
 
     /**
