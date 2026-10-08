@@ -3,8 +3,16 @@ package quest.montana.app
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import android.media.AudioAttributes
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import android.media.MediaPlayer
 import android.media.MediaRecorder
+import android.os.PowerManager
 import android.view.Gravity
 import android.view.View
 import android.widget.ImageView
@@ -117,11 +125,17 @@ object VoicePlayer {
         if (playing == path) { if (paused) resume() else pause(); return }
         stop()
         NoteOpen.close?.invoke()   // one thing plays: a voice closes the open note (iOS MontanaVideoDock)
-        val p = runCatching { MediaPlayer().apply { setDataSource(path); prepare() } }.getOrNull() ?: return
+        // THE RECEIVER IS THE CATEGORY'S OWN DEFAULT (iOS: no .defaultToSpeaker on the voice's playAndRecord category,
+        // ContentView.swift:3244 at build 2155) -- the loudspeaker only by the proximity sensor's own word, armProximity below.
+        val p = runCatching { MediaPlayer().apply {
+            setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
+            setDataSource(path); prepare()
+        } }.getOrNull() ?: return
         if (MusicPlayer.playing) { MusicPlayer.pause(); musicAside = true }
         player = p; playing = path; paused = false; onStop = stopped; progress = onProgress; this.sender = sender
         p.setOnCompletionListener { stop(); then?.invoke() }
         p.start(); speed(p)
+        armProximity()
         tick(path)
         Playing.changed()
     }
@@ -140,11 +154,12 @@ object VoicePlayer {
         }
         MainThread.later(0, t)
     }
-    fun pause() { val p = player ?: return; runCatching { p.pause() }; paused = true; Playing.changed() }
+    // a rested voice gives the ear's sensor back (iOS VoicePlayer.pause, MontanaMedia.swift:442)
+    fun pause() { val p = player ?: return; runCatching { p.pause() }; paused = true; disarmProximity(); Playing.changed() }
     fun resume() {
         val p = player ?: return
         val path = playing ?: return
-        runCatching { p.start(); speed(p) }; paused = false; tick(path); Playing.changed()
+        runCatching { p.start(); speed(p) }; paused = false; armProximity(); tick(path); Playing.changed()
     }
     fun seek(path: String, ms: Int) { if (playing == path) player?.seekTo(ms) }
     fun seekTo(f: Double) { val p = player ?: return; runCatching { p.seekTo((f * p.duration).toInt()) }; Playing.changed() }
@@ -153,10 +168,56 @@ object VoicePlayer {
         val had = player != null
         player?.runCatching { stop(); release() }
         player = null; playing = null; paused = false; progress = null
+        disarmProximity()
         onStop?.invoke(); onStop = null
         // the track that stepped aside for the voice plays on from its place (iOS noteClosed, 26.09)
         if (musicAside) { musicAside = false; if (!MusicPlayer.playing) MusicPlayer.resume() }
         if (had) Playing.changed()
+    }
+
+    // ── THE EAR (iOS armProximity/disarmProximity/routeVoice, MontanaMedia.swift:454-479, and the category's own default and
+    // override, ContentView.swift:3233-3249 MontanaAudioSession.playVoice / 3269-3278 routeVoice, at build 2155): the receiver
+    // is where a voice lands untouched; the proximity sensor's own word is the only thing that lifts it onto the loudspeaker,
+    // and only while the phone is away from the ear.
+    private fun am() = Book.ctx.getSystemService(AudioManager::class.java)
+    private var sensorMgr: SensorManager? = null
+    private var proximitySensor: Sensor? = null
+    private var earWake: PowerManager.WakeLock? = null
+    private var proximityArmed = false
+    private val outsidePorts = setOf(AudioDeviceInfo.TYPE_WIRED_HEADSET, AudioDeviceInfo.TYPE_WIRED_HEADPHONES, AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+        AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, AudioDeviceInfo.TYPE_USB_HEADSET, AudioDeviceInfo.TYPE_USB_DEVICE, AudioDeviceInfo.TYPE_HEARING_AID,
+        AudioDeviceInfo.TYPE_BLE_HEADSET, AudioDeviceInfo.TYPE_BLE_SPEAKER)
+    // the headset holds the sound, not the sensor (iOS MontanaAudioRoute.isExternal, MontanaMedia.swift:476)
+    private fun externalOutput() = runCatching { am()?.getDevices(AudioManager.GET_DEVICES_OUTPUTS)?.any { it.type in outsidePorts } == true }.getOrDefault(false)
+    private val proximityListener = object : SensorEventListener {
+        @Suppress("DEPRECATION")
+        override fun onSensorChanged(e: SensorEvent) {
+            val near = e.values.isNotEmpty() && e.values[0] < maxOf(1f, proximitySensor?.maximumRange ?: 5f)
+            am()?.isSpeakerphoneOn = !near   // the loudspeaker is lifted at the ear (iOS routeVoice, ContentView.swift:3274-3276)
+        }
+        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+    }
+    @Suppress("DEPRECATION")
+    private fun armProximity() {
+        if (proximityArmed || externalOutput()) return
+        proximityArmed = true
+        am()?.isSpeakerphoneOn = false   // the receiver is the category's own default (iOS ContentView.swift:3244: no .defaultToSpeaker)
+        val sm = Book.ctx.getSystemService(SensorManager::class.java) ?: return
+        val sensor = sm.getDefaultSensor(Sensor.TYPE_PROXIMITY) ?: return
+        sensorMgr = sm; proximitySensor = sensor
+        sm.registerListener(proximityListener, sensor, SensorManager.SENSOR_DELAY_UI)
+        val pm = Book.ctx.getSystemService(PowerManager::class.java)
+        if (pm?.isWakeLockLevelSupported(PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK) == true)
+            earWake = pm.newWakeLock(PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK, "montana:voice-ear").apply { setReferenceCounted(false); acquire() }
+    }
+    @Suppress("DEPRECATION")
+    private fun disarmProximity() {
+        if (!proximityArmed) return
+        proximityArmed = false
+        sensorMgr?.unregisterListener(proximityListener)
+        sensorMgr = null; proximitySensor = null
+        earWake?.takeIf { it.isHeld }?.release(); earWake = null
+        am()?.isSpeakerphoneOn = false
     }
 }
 
