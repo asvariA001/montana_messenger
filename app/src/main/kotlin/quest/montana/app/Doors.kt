@@ -73,6 +73,85 @@ object Doors {
         .mapNotNull { e -> e.substringAfterLast(':', "").toIntOrNull()?.takeIf { it in 1..65535 }?.let { e.substringBeforeLast(':') to it } }
         .distinct()
 
+    /** A door of the list as iOS names it (MontanaNodes.Node.label 42-46): «host:port», «[v6]:port», «wss/host:443». */
+    class Door(val host: String, val port: Int, val wss: Boolean) {
+        val label: String get() = (if (wss) "wss/" else "") + (if (host.contains(':')) "[" + host + "]:" + port else host + ":" + port)
+    }
+
+    /** iOS MontanaNodes.parse 185-228: a comment goes by the line; «wss://name/path» is a door behind a delivery network on 443; the port defaults to the direct one. */
+    private fun doors(raw: String): List<Door> {
+        val out = ArrayList<Door>()
+        for (line in raw.split('\n')) {
+            val t = line.trim()
+            if (t.isEmpty() || t.startsWith("#")) continue
+            for (piece in t.split(',', ' ')) {
+                var w = piece.trim()
+                if (w.isEmpty() || w.startsWith("#")) continue
+                var host = w
+                var port = Channels.PORT
+                var wss = false
+                if (w.lowercase().startsWith("wss://")) {
+                    val hostPart = w.drop(6).substringBefore('/')
+                    if (hostPart.isEmpty()) continue
+                    wss = true; port = 443; w = hostPart; host = hostPart
+                }
+                if (w.startsWith("[")) {
+                    val close = w.indexOf(']')
+                    if (close < 0) continue
+                    host = w.substring(1, close)
+                    val rest = w.substring(close + 1)
+                    if (rest.startsWith(":")) rest.drop(1).toIntOrNull()?.takeIf { it in 1..65535 }?.let { port = it }
+                } else if (w.count { it == ':' } == 1) {
+                    w.substringAfterLast(':').toIntOrNull()?.takeIf { it in 1..65535 }?.let { host = w.substringBeforeLast(':'); port = it }
+                }
+                if (host.isEmpty()) continue
+                val d = Door(host, port, wss)
+                if (out.none { it.label == d.label }) out.add(d)
+            }
+        }
+        return out
+    }
+
+    private const val SHIPPED = "api.montana.quest:443\nmontana.xxx:443\nwss://door.montana.quest/ws"   // iOS nodes.txt, line for line
+
+    /** iOS MontanaNodes.list 230-240: the network's list once learned, else the shipped one; a machine is not its own node. */
+    fun list(): List<Door> {
+        val own = Channels.candidates().toSet()
+        return doors(Prefs.str(LEARNED, "")).ifEmpty { doors(SHIPPED) }.filter { it.host !in own }
+    }
+
+    // THE MACHINES BEHIND THE DOORS (iOS MontanaNodes 162-183, the network's word 15.22): which doors are one machine — the page
+    // groups by that word always, the handshake only colours the state. Absent in an older node's answer.
+    private const val MACHINES = "mt.nodes.machines"
+    fun machines(): List<Pair<String, Set<String>>> = runCatching {
+        val arr = org.json.JSONArray(Prefs.str(MACHINES, "[]"))
+        (0 until arr.length()).mapNotNull { i ->
+            val m = arr.optJSONObject(i) ?: return@mapNotNull null
+            val id = m.optString("id")
+            val ds = m.optJSONArray("doors") ?: return@mapNotNull null
+            if (id.isEmpty()) null else id to doors((0 until ds.length()).joinToString("\n") { ds.optString(it) }).map { it.label }.toSet()
+        }
+    }.getOrDefault(emptyList())
+
+    // THE DOOR BOOK (iOS MontanaNodes.book 70-89): which door led to WHICH machine and in how long — an identity behind a door is
+    // learned only by a handshake through it, so the first probing is unavoidable while a second must not happen.
+    private const val BOOK = "mt.doorbook"
+    fun book(): Map<String, Pair<String, Int>> = runCatching {
+        val o = JSONObject(Prefs.str(BOOK, "{}"))
+        o.keys().asSequence().mapNotNull { k ->
+            val parts = o.optString(k).split(':')
+            val ms = parts.getOrNull(1)?.toIntOrNull()
+            if (parts.size == 2 && parts[0].isNotEmpty() && ms != null) k to (parts[0] to ms) else null
+        }.toMap()
+    }.getOrDefault(emptyMap())
+
+    @Synchronized fun remember(door: String, overlay: String, ms: Int) {
+        if (door.isEmpty()) return
+        val o = runCatching { JSONObject(Prefs.str(BOOK, "{}")) }.getOrDefault(JSONObject())
+        o.put(door, overlay + ":" + ms)
+        Prefs.setStr(BOOK, o.toString())
+    }
+
     /** Asked in the last round and did not answer (iOS silentDoors): not alive for the lane. */
     fun silent(door: String) = synchronized(caps) { door in silent }
 
@@ -116,13 +195,23 @@ object Doors {
             conn.connectTimeout = 8000; conn.readTimeout = 8000
             val t = if (conn.responseCode == 200) conn.inputStream.use { it.readBytes().toString(Charsets.UTF_8) } else null
             conn.disconnect()
-            t?.let { JSONObject(it).optJSONArray("doors") }
+            t?.let { JSONObject(it).takeIf { j -> j.optJSONArray("doors") != null } }
         } catch (_: Exception) { null }
         if (named != null) {
-            val raw = (0 until named.length()).map { named.optString(it) }.filter { it.isNotEmpty() }.joinToString("\n")
+            val ds = named.getJSONArray("doors")
+            val raw = (0 until ds.length()).map { ds.optString(it) }.filter { it.isNotEmpty() }.joinToString("\n")
             if (parse(raw).isNotEmpty() && raw != Prefs.str(LEARNED, "")) {
                 Prefs.setStr(LEARNED, raw)
                 Log.d("Montana", "doors_learned n=" + parse(raw).size)
+            }
+            // the network names its machines too (iOS MontanaWakePush 147-153): which doors are one node
+            named.optJSONArray("nodes")?.let { nodes ->
+                val keep = org.json.JSONArray()
+                for (i in 0 until nodes.length()) {
+                    val n = nodes.optJSONObject(i) ?: continue
+                    if (n.optString("id").isNotEmpty() && n.optJSONArray("doors") != null) keep.put(JSONObject().put("id", n.optString("id")).put("doors", n.optJSONArray("doors")))
+                }
+                if (keep.toString() != Prefs.str(MACHINES, "")) { Prefs.setStr(MACHINES, keep.toString()); Log.d("Montana", "machines_learned n=" + keep.length()) }
             }
         }
         if (pass == 0 && !before.containsAll(hosts())) verify(1)

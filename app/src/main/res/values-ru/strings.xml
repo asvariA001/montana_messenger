@@ -531,4 +531,11 @@
     <string name="mesh_seen_only">Понять, что это вы, может только тот, с кем у вас уже есть переписка.</string>
     <string name="mesh_findable">Находиться в меш-сети</string>
     <string name="mesh_findable_off">Выключено: это устройство нигде себя не объявляет и ничего ни для кого не несёт.</string>
+    <string name="p2p_wall_caption">П2П стена: узлы, до которых дотягивается этот телефон</string>
+    <string name="p2p_reachable">Узлы</string>
+    <string name="p2p_held">держим</string>
+    <string name="p2p_lost">потерян</string>
+    <string name="p2p_open">Открыта</string>
+    <string name="p2p_spare">запасная</string>
+    <string name="p2p_no_answer">Не отвечает</string>
 </resources>

@@ -102,8 +102,8 @@ fun Context.glassPlate(oval: Boolean = false) = GradientDrawable().apply {
 /** The glyph inside a bar button (iOS MontanaOctagon.barGlyph: Color(white: 0.8)). */
 private val barGlyph = Color.rgb(204, 204, 204)
 
-/** The pages under the bar (iOS UIState.Pane); the P2P wall (the globe's page) comes with its own step. */
-enum class Pane { CHATS, CONTACTS, CALLS, FEED, MUSIC, GALLERY, GROUPS, CHANNELS, MESH }
+/** The pages under the bar (iOS UIState.Pane): the mesh wall from the drawer, the P2P wall the globe's page. */
+enum class Pane { CHATS, CONTACTS, CALLS, FEED, MUSIC, GALLERY, GROUPS, CHANNELS, MESH, P2P }
 
 fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
     val c = act
@@ -113,7 +113,7 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
     val music = MusicPage(act)
     val views = mapOf(Pane.CHATS to chatsPane(act), Pane.CONTACTS to contactsPane(act), Pane.CALLS to callsPane(act),
         Pane.FEED to feedPane(act), Pane.MUSIC to music.view, Pane.GALLERY to galleryPane(act),
-        Pane.GROUPS to groupsPane(act, channel = false), Pane.CHANNELS to groupsPane(act, channel = true), Pane.MESH to meshPane(act))
+        Pane.GROUPS to groupsPane(act, channel = false), Pane.CHANNELS to groupsPane(act, channel = true), Pane.MESH to meshPane(act), Pane.P2P to p2pPane(act))
     views.values.forEach { v -> v.visibility = View.GONE; panes.addView(v, FrameLayout.LayoutParams(MATCH, MATCH)) }
     views.getValue(Pane.CHATS).visibility = View.VISIBLE
     // THE FLOATING PLAYER stands on the chats, the feed and the music while a track stands (iOS playerBar).
@@ -164,15 +164,15 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
     val shell = DrawerShell(act)
     // THE PAGES FOLLOW THE FINGER (iOS turnOrder, turnStroke): the pane moves by the finger and the page beside it slides in
     // from its side — the next on a stroke to the left, the one before on a stroke to the right; at the release a moving finger
-    // says the way, a still one the distance. The order is the bar's: contacts, calls, the feed, the chats, and the dynamic
-    // glyph's page — the music, or the gallery when it was the last opened. The network's page comes with the network.
+    // says the way, a still one the distance. The order is the bar's: contacts, calls, the feed, the chats, the dynamic glyph's
+    // page — the music, or the gallery when it was the last opened — and the globe's P2P wall.
     shell.turner = object : DrawerShell.Turner {
         var next: Pane? = null
         var side = 0
         fun order(): List<Pane> {
             val media = if (pane == Pane.MUSIC || pane == Pane.GALLERY) pane
                         else if (Prefs.str("lastMediaPane", "music") == "gallery") Pane.GALLERY else Pane.MUSIC
-            return listOf(Pane.CONTACTS, Pane.CALLS, Pane.FEED, Pane.CHATS, media)
+            return listOf(Pane.CONTACTS, Pane.CALLS, Pane.FEED, Pane.CHATS, media, Pane.P2P)   // iOS turnOrder
         }
         override fun begin(side: Int): Boolean {
             val o = order(); val i = o.indexOf(pane); val j = i + side
@@ -413,10 +413,10 @@ private fun sideDrawer(act: MainActivity, onPane: (Pane) -> Unit, onProfile: () 
         addView(row(glyph(R.drawable.ic_app_gallery), R.string.app_gallery) { onPane(Pane.GALLERY) }, lp())
         addView(row(android.widget.ImageView(c).apply { setImageResource(R.drawable.chess_knight) }, R.string.app_chess, onChess), lp())   // chess (iOS MTChessPage)
         addView(row(glyph(R.drawable.ic_app_wallet), R.string.app_wallet, onWallet), lp())   // TimeCoin (iOS MTWalletPage)
-        // THE WALLS BESIDE THE FEED (iOS MTApplication .meshWall, .p2pWall; the author's word 29.09): the mesh wall opens; the P2P
-        // wall — the nodes this phone reaches — stands in its place, quieter, until its step
+        // THE WALLS BESIDE THE FEED (iOS MTApplication .meshWall, .p2pWall; the author's word 29.09): the people around, phone to
+        // phone; the nodes this phone reaches
         addView(row(glyph(R.drawable.ic_set_antenna), R.string.app_mesh_wall) { onPane(Pane.MESH) }, lp())
-        addView(row(glyph(R.drawable.ic_language), R.string.app_p2p_wall, null), lp())
+        addView(row(glyph(R.drawable.ic_language), R.string.app_p2p_wall) { onPane(Pane.P2P) }, lp())
         addView(row(glyph(R.drawable.ic_app_card), R.string.app_card, onCard), lp())   // the business card (iOS MTCardFromDrawer, the author's word 28.09)
         // PASSWORDS (iOS MTApplication .passwords, key.fill, the author's word 06.10.2026 17:4x MSK): a page of its own over the tabs
         addView(row(glyph(R.drawable.ic_key), R.string.pw_title, onPasswords), lp())
@@ -435,8 +435,8 @@ private fun sideDrawer(act: MainActivity, onPane: (Pane) -> Unit, onProfile: () 
 /**
  * THE TIME PANEL (iOS chatsTopBarPlate): ONE glass capsule at the bar's height, and on it seven glyphs with equal shares of
  * the width, left to right — the drawer, the contacts, the calls, THE LOGO AT THE CENTRE, the chats, the player and the
- * globe. One puck stands under the chosen glyph and flows to the one tapped next. The calls, the feed under the logo, the
- * player and the network are pages Android does not have yet: their glyphs stand in their places and take no tap.
+ * globe. One puck stands under the chosen glyph and flows to the one tapped next; the globe is the network's lamp and opens
+ * the P2P wall.
  */
 class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (Pane) -> Unit) : FrameLayout(act) {
     private val puck = View(act).apply {
@@ -445,6 +445,7 @@ class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (
     private val row = act.hstack { }
     private var slot = CHATS
     private lateinit var media: ImageView
+    private lateinit var globe: ImageView
 
     init {
         background = act.glassPlate()
@@ -466,9 +467,21 @@ class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (
         // THE DYNAMIC GLYPH: the last opened of the player and the gallery; a tap opens that one again.
         media = glyph(R.drawable.ic_bar_play, 26) { onPane(if (Prefs.str("lastMediaPane", "music") == "gallery") Pane.GALLERY else Pane.MUSIC) }
         if (Prefs.str("lastMediaPane", "music") == "gallery") media.setImageResource(R.drawable.ic_app_gallery)
-        // THE GLOBE (iOS MTBarGlobe): the network's lamp — unknown wears grey; Android knocks on no node yet.
-        glyph(R.drawable.ic_language, 26, tint = Color.rgb(115, 115, 115))
+        // THE GLOBE (iOS MTBarGlobe, MontanaTransportIcon): the network's lamp — green while a machine is held, red while none is,
+        // grey before the first knock (unknown is not «no»); a tap chooses the P2P wall (the author's word 25.09)
+        globe = glyph(R.drawable.ic_language, 26, tint = Color.rgb(115, 115, 115)) { onPane(Pane.P2P) }
         addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> place(false) }
+        val lamp = object : Runnable {
+            override fun run() {
+                val up = Channels.nodesHeld() > 0
+                globe.imageTintList = android.content.res.ColorStateList.valueOf(if (up) MT.green else if (Channels.knocked) MT.red else Color.rgb(115, 115, 115))
+                postDelayed(this, 2000)
+            }
+        }
+        addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: View) { post(lamp) }
+            override fun onViewDetachedFromWindow(v: View) { removeCallbacks(lamp) }
+        })
     }
 
     private fun glyph(res: Int, sizeDp: Int, tint: Int = barGlyph, onTap: ((View) -> Unit)? = null): ImageView {
@@ -483,7 +496,7 @@ class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (
     /** The puck goes under the pane's slot; the dynamic glyph wears the music's or the gallery's face (iOS slot(of:)). */
     fun showPane(p: Pane, animated: Boolean = true) {
         // the groups and the channels are opened from the drawer: no glyph of the bar is theirs, the puck stands away (iOS slot nil)
-        slot = when (p) { Pane.CONTACTS -> 1; Pane.CALLS -> 2; Pane.FEED -> 3; Pane.CHATS -> 4; Pane.MUSIC, Pane.GALLERY -> 5; Pane.GROUPS, Pane.CHANNELS, Pane.MESH -> -1 }
+        slot = when (p) { Pane.CONTACTS -> 1; Pane.CALLS -> 2; Pane.FEED -> 3; Pane.CHATS -> 4; Pane.MUSIC, Pane.GALLERY -> 5; Pane.P2P -> 6; Pane.GROUPS, Pane.CHANNELS, Pane.MESH -> -1 }
         if (p == Pane.MUSIC) media.setImageResource(R.drawable.ic_bar_play)
         if (p == Pane.GALLERY) media.setImageResource(R.drawable.ic_app_gallery)
         place(animated)

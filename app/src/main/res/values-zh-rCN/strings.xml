@@ -531,4 +531,11 @@
     <string name="mesh_seen_only">只有与您已有对话的人才能认出是您。</string>
     <string name="mesh_findable">可在网格中被发现</string>
     <string name="mesh_findable_off">已关闭：本设备不在任何地方宣告自身，也不为任何人传递内容。</string>
+    <string name="p2p_wall_caption">P2P 墙：这部手机能连到的节点</string>
+    <string name="p2p_reachable">节点</string>
+    <string name="p2p_held">已连接</string>
+    <string name="p2p_lost">已失去</string>
+    <string name="p2p_open">已连接</string>
+    <string name="p2p_spare">备用</string>
+    <string name="p2p_no_answer">无应答</string>
 </resources>

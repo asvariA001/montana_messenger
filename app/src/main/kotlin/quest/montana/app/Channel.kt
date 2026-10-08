@@ -120,6 +120,7 @@ class Channel(val host: String, val port: Int, val ref: String = "", private val
     var channelHash = ByteArray(0)
         private set
     var ownerAsks = 0
+    @Volatile var standMs = 0   // how long this door took to stand: a measure of the path, not the machine (iOS LiveChannel.ms)
     @Volatile var lastUsed = System.currentTimeMillis()
     val sentAt = java.util.concurrent.ConcurrentHashMap<String, Long>()   // only the addressee's ack comes back (iOS 1217-1221)
     private var socket: Socket? = null
@@ -331,6 +332,11 @@ object Channels {
     @Volatile private var started = false
     @Volatile var listening = false   // the direct port stands: the local network's offer may name it
         private set
+    @Volatile private var knockedOnce = false
+    @Volatile private var lastSkip = ""
+
+    /** A knock has happened in this life of the app (iOS MontanaNodes.knockedOnce): until then «no node» means «not asked yet». */
+    val knocked: Boolean get() = knockedOnce
 
     /** Begin holding the network's machines, once, for the app's whole life. */
     fun start() {
@@ -344,11 +350,22 @@ object Channels {
     /** The people reached phone to phone: standing channels bound to a correspondent (iOS startPeerScan 697: live, ref not empty). */
     fun peers(): Int = synchronized(live) { live.values.count { it.ready && it.ref.isNotEmpty() } }
 
-    /** The network's machines held now (iOS MontanaNodes.liveNodes, read by the wall's badge). */
-    fun nodesHeld(): Int {
-        val doors = Doors.bare().map { it.first + ":" + it.second }.toSet()
-        return synchronized(live) { live.values.count { it.ready && it.label in doors } }
+    private fun doorLabels(): Set<String> = Doors.bare().map { it.first + ":" + it.second }.toSet()
+
+    /** The doors standing now (iOS livePathKeys, doorsHeld 444-446). */
+    fun heldLabels(): Set<String> {
+        val doors = doorLabels()
+        return synchronized(live) { live.values.filter { it.ready && it.label in doors }.map { it.label }.toSet() }
     }
+
+    /** The machines behind the standing doors: two doors to one machine converge into one (iOS nodeIdentities 1822-1826). */
+    fun heldNodes(): Set<String> {
+        val doors = doorLabels()
+        return synchronized(live) { live.values.filter { it.ready && it.label in doors }.mapNotNull { c -> c.peerTag?.let { Wire.hex(it) } }.toSet() }
+    }
+
+    /** How many machines are held (iOS MontanaNodes.liveNodes 378-382): the lamp and the badges stand on it — a network, not a count of wires. */
+    fun nodesHeld(): Int = heldNodes().size
 
     /** The device forgets the person: the owner branch goes, and the channels it named close with it. */
     fun forget() {
@@ -360,8 +377,19 @@ object Channels {
     private fun knock() {
         val ident = NodeIdentity.device() ?: return
         val now = System.currentTimeMillis()
-        for ((host, port) in Doors.bare()) {
+        // ONE MACHINE, ONE CHANNEL (iOS doorsToKnock 110-131): a door is skipped exactly when its machine is already held through
+        // another door right now — a shadow cast by live holding, gone the instant the holding goes, never by a measurement
+        val book = Doors.book()
+        val held = heldLabels()
+        val heldNodes = book.filterKeys { it in held }.values.map { it.first }.toSet()
+        val doors = Doors.bare()
+        val skip = doors.map { it.first + ":" + it.second }.filter { it in held || book[it]?.first?.let { o -> o in heldNodes } == true }
+        // a door left out says so, once while the fact stands (iOS node_skip 276-285)
+        val line = skip.sorted().joinToString(" ") { it + "=" + (if (it in held) "held" else "node-held-elsewhere") }
+        if (line != lastSkip) { lastSkip = line; if (line.isNotEmpty()) Log.d("Montana", "node_skip " + line) }
+        for ((host, port) in doors) {
             val label = host + ":" + port
+            if (label in skip) continue
             val c = synchronized(live) {
                 if (live.containsKey(label)) return@synchronized null
                 val cur = tried[label]
@@ -372,6 +400,7 @@ object Channels {
                 tried[label] = Triple(now, minOf(ceiling, step * 2 * spread), cur?.third ?: false)
                 Channel(host, port).also { live[label] = it }
             } ?: continue
+            knockedOnce = true
             Log.d("Montana", "node_knock at=" + label)
             Thread { serve(c, ident) }.start()
         }
@@ -389,8 +418,15 @@ object Channels {
     }
 
     private fun up(c: Channel) {
+        c.standMs = (System.currentTimeMillis() - c.dialAt).toInt()
         val paths = synchronized(live) { live.values.count { it.ready } }
-        Log.d("Montana", "path_up at=" + c.label + " ms=" + (System.currentTimeMillis() - c.dialAt) + " paths=" + paths)
+        Log.d("Montana", "path_up at=" + c.label + " ms=" + c.standMs + " paths=" + paths)
+        // the door named its machine — the knowledge outlives the channel, or the probing repeats at every opening (iOS 1169-1171);
+        // an extra path to a machine already held closes at once
+        if (c.label in doorLabels()) {
+            c.peerTag?.let { Doors.remember(c.label, Wire.hex(it), c.standMs) }
+            fold()
+        }
         // the owner reference leaves before anything else (iOS maybeReady 1130-1146): without it the node cannot count this owner
         Thread { ownerSecret()?.let { c.send(NetMsg.OWNER_REF, Wire.ownerRef(it, c.channelHash)) } }.start()
     }
@@ -398,6 +434,26 @@ object Channels {
     /** The owner branch of this person's seed (iOS ownerSecretCached 1115-1122): stretched once aside, then warm. */
     private fun ownerSecret(): ByteArray? = owner ?: synchronized(this) {
         owner ?: MontanaSeed.mnemonic?.let { MtBindings.nativeMnemonicToMasterSeed(it) }?.let { Wire.ownerSecret(it) }?.also { owner = it }
+    }
+
+    /**
+     * ONE MACHINE, ONE CHANNEL (iOS foldedDoors 431-440, MontanaP2P 1172-1176): of the doors standing to one machine the fastest
+     * stays — by its time to stand, then by its name — and the rest close at once; the door book keeps them out of the next knock.
+     */
+    private fun fold() {
+        val doors = doorLabels()
+        val rows = synchronized(live) { live.values.filter { it.ready && it.label in doors && it.peerTag != null } }
+        val best = HashMap<String, Channel>()
+        for (r in rows) {
+            val k = Wire.hex(r.peerTag!!)
+            val b = best[k]
+            if (b != null && (b.standMs < r.standMs || (b.standMs == r.standMs && b.label <= r.label))) continue
+            best[k] = r
+        }
+        for (r in rows) if (best[Wire.hex(r.peerTag!!)] !== r) {
+            Log.d("Montana", "path_fold at=" + r.label + " ms=" + r.standMs)
+            r.close("fold")
+        }
     }
 
     /** Every eight seconds (iOS startKeepalive 627-677): each standing channel kept warm, a nameless neighbour given ours again. */
@@ -421,7 +477,7 @@ object Channels {
      */
     private fun retire(cs: List<Channel>) {
         val now = System.currentTimeMillis()
-        val doors = Doors.bare().map { it.first + ":" + it.second }.toSet()
+        val doors = doorLabels()
         val (idle, kept) = cs.filter { it.label !in doors }.partition { 180_000L < now - it.lastUsed }
         for (c in idle) c.close("idle")
         val anchors = synchronized(book) { book.keys.toSet() }
