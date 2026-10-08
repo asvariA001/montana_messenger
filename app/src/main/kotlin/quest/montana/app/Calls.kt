@@ -129,9 +129,18 @@ object Calls {
             return
         }
         val fresh = synchronized(gate) {
-            val r = ring
             if (seedState(seed) == "dead") return log("dead seed")
-            if (r != null && r.seed != seed) return log("busy: another call rings")
+            val r0 = ring
+            if (r0 != null && r0.seed != seed) {
+                // A NEW SEED OF THE SAME PERSON OF AN ESTABLISHED CALL SUPERSEDES IT (iOS MontanaCall.swift handleSignalBody,
+                // 24.09, build 4543d66a9265): their phone came back without our call — iOS ends an app whose person changes a
+                // privacy switch in Settings — and called anew. A call only ringing, or of another person, is left alone, simply
+                // busy; an established one ends here without a farewell (end(..., silent = true)): a call-end keyed by the peer
+                // would end the NEW call that superseded it.
+                if (r0.ref == ref && r0.answered) end(r0, "superseded", silent = true)
+                else return log("busy: another call rings")
+            }
+            val r = ring
             if (r != null) { if (r.offer == null) r.offer = offer; false }
             else { ring = Ring(ref, seed, video).also { it.offer = offer }; true }
         }
@@ -347,7 +356,7 @@ object Calls {
         Signal.postWord(ref, epochOf(seed), JSONArray().put(w).toString().toByteArray())
     }
 
-    private fun end(r: Ring, why: String) {
+    private fun end(r: Ring, why: String, silent: Boolean = false) {
         synchronized(gate) { if (ring !== r) return; ring = null }
         noteSeed(r.seed, "dead")
         tone(false)
@@ -356,14 +365,18 @@ object Calls {
         CallScreen.hide()
         Signal.release(r.ref, "call")
         hide()
-        // iOS: «missed» means the person never reacted — an answer whose call did not connect is «Connection failed»
-        row(r.ref, r.video, incoming = !r.out, dur = dur, missed = !r.answered)
-        // a call of ours nobody took leaves the far phone its «missed» letter (iOS missedCallMark); one of theirs, the banner here
-        // LOUD ONLY FOR A PHONE THAT NEVER RANG (iOS MontanaCall 5722, 13.09: the author's three notifications for one call): a phone
-        // that said «ringing» has shown its person the call and written its own missed row — the letter still rides, silent
-        if (r.out) { if (!r.answered) Post.send(r.ref, Marks.mintMid(), Marks.MISSED + JSONObject().put("v", r.video).put("s", r.seed), quiet = r.ringing) }
-        else if (!r.answered && why != "declined") Notify.letter(r.ref, rowText(r.video, true, 0, true))   // iOS postMissedCallBanner
-        log("end " + why)
+        // THE SUPERSEDED CALL LEAVES NO ROW AND NO FAREWELL (iOS call_superseded, 24.09, build 4543d66a9265): it never
+        // reached the person, so no row of its own is written, and a call-end keyed by the peer would end the NEW call.
+        if (!silent) {
+            // iOS: «missed» means the person never reacted — an answer whose call did not connect is «Connection failed»
+            row(r.ref, r.video, incoming = !r.out, dur = dur, missed = !r.answered)
+            // a call of ours nobody took leaves the far phone its «missed» letter (iOS missedCallMark); one of theirs, the banner here
+            // LOUD ONLY FOR A PHONE THAT NEVER RANG (iOS MontanaCall 5722, 13.09: the author's three notifications for one call): a phone
+            // that said «ringing» has shown its person the call and written its own missed row — the letter still rides, silent
+            if (r.out) { if (!r.answered) Post.send(r.ref, Marks.mintMid(), Marks.MISSED + JSONObject().put("v", r.video).put("s", r.seed), quiet = r.ringing) }
+            else if (!r.answered && why != "declined") Notify.letter(r.ref, rowText(r.video, true, 0, true))   // iOS postMissedCallBanner
+        }
+        log("end " + why + (if (silent) " silent" else ""))
     }
 
     /**
@@ -490,6 +503,26 @@ object Calls {
             o.keys().asSequence().toList().filter { now - (o.optJSONObject(it)?.optLong("at") ?: 0L) > 7 * 86_400_000L }.forEach { o.remove(it) }
             Prefs.setStr(SEEDS, o.toString())
         }
+    }
+
+    private val goneSaid = HashSet<String>()
+
+    /** THE FAR PHONE'S FRESH CHECKS FOR A CALL WE LOST ARE ANSWERED (iOS MontanaWakePush.swift answerGone, 24.09, build
+     * 4543d66a9265, fixed again in 2b921f39a583): without this word the far phone stood «reconnecting» to its own thirty-second
+     * deadline over a call nobody here held any more. Answered once per epoch, and only an epoch this phone's own graveyard says
+     * it once held and ended — a call still in hand, or an epoch never seen here, says nothing (a candidate may precede a birth
+     * and must stay buried). Called from CallLine.heard on a restart ask with no line to answer it. */
+    fun answerGone(ref: String, epoch: String) {
+        if (epoch.isEmpty()) return
+        synchronized(gate) {
+            if (ring?.let { epochOf(it.seed) == epoch } == true) return   // a call still in hand is not gone
+            if (!goneSaid.add(epoch)) return
+        }
+        val dead = seeds().let { o -> o.keys().asSequence().any { epochOf(it) == epoch && o.optJSONObject(it)?.optString("st") == "dead" } }
+        if (!dead) return
+        val w = JSONObject().put("t", "cal").put("ctrl", "call-gone").put("ts", System.currentTimeMillis()).put("e", epoch).put("s", epoch)
+        Signal.postWord(ref, epoch, JSONArray().put(w).toString().toByteArray())
+        log("call-gone tx epoch=" + epoch)
     }
 
     private fun log(s: String) { Log.d("Montana", "call: " + s) }

@@ -612,7 +612,14 @@ object CallLine {
 
     /** The far side's words about the picture and the descriptions (iOS handleSignalBody 2391-2543). */
     fun heard(ref: String, epoch: String, ctrl: String, w: JSONObject) = work.execute {
-        val l = mine(ref, epoch) ?: return@execute
+        val l = mine(ref, epoch) ?: run {
+            // THE FAR PHONE'S FRESH CHECKS FOR A CALL WE LOST ARE ANSWERED, NOT LEFT SILENT (iOS answerGone, MontanaWakePush.swift,
+            // 24.09, build 4543d66a9265): without this word the far phone stood «reconnecting» to its own thirty-second deadline
+            // over a call nobody here held any more. Only a restart ask is answered — a candidate may precede a birth and must
+            // stay buried; Calls.answerGone itself answers only an epoch this phone's own graveyard says it once held and lost.
+            if (ctrl == "call-restart" || ctrl == "call-restart-answer") Calls.answerGone(ref, epoch)
+            return@execute
+        }
         when (ctrl) {
             "call-video-ask" -> { asked = true; log("video: consent asked by peer") }
             "call-video-ok" -> { askRound++; log("video: consent granted"); if (asking) { asking = false; upgrade(l) } }
