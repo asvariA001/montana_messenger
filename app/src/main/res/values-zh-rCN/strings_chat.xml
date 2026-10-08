@@ -132,4 +132,5 @@
     <!-- the camera of the gallery's first tile (the platform camera's own modes) -->
     <string name="cam_video">视频</string>
     <string name="cam_photo">照片</string>
+    <string name="reactions_all">全部表情</string>   <!-- the chevron after the quick reactions row, iOS MontanaMessageMenu.swift 244-251 -->
 </resources>

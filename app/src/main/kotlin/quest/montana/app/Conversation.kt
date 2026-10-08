@@ -1463,6 +1463,61 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
     }, FrameLayout.LayoutParams(WRAP, WRAP, if (mine) Gravity.END else Gravity.START))
 }
 
+/** THE FIELD'S OWN VOCABULARY (iOS emojiCategories, MontanaConversation.swift 34-104): every emoji of the panel, category by
+ * category — the field has no panel of its own on Android yet, so the list is named here, for the opened reactions first and
+ * whoever draws the panel next ([C-1]: one vocabulary, not a second guess at what a person may feel). */
+private val fieldEmojiPanel: List<String> = listOf(
+    "😀","😃","😄","😁","😆","😅","🤣","😂","🙂","🙃","🫠","😉","😊","😇","🥰","😍",
+    "🤩","😘","😗","☺️","😚","😙","🥲","😋","😛","😜","🤪","😝","🤑","🤗","🤭","🫢",
+    "🤫","🤔","🫡","🤐","🤨","😐","😑","😶","🫥","😏","😒","🙄","😬","🤥","😌","😔",
+    "😪","🤤","😴","😷","🤒","🤕","🤢","🤮","🤧","🥵","🥶","🥴","😵","🤯","🤠","🥳",
+    "🥸","😎","🤓","🧐","😕","🫤","😟","🙁","☹️","😮","😯","😲","😳","🥺","🥹","😦",
+    "😧","😨","😰","😥","😢","😭","😱","😖","😣","😞","😓","😩","😫","🥱","😤","😡",
+    "😠","🤬","😈","👿","💀","💩","🤡","👻","👽","🤖",
+    "👍","👎","👌","🤌","🤏","✌️","🤞","🫰","🤟","🤘","🤙","👈","👉","👆","👇","☝️",
+    "🫵","✋","🤚","🖐️","🖖","👋","🤝","🙏","✍️","💅","🤳","💪","🦾","👏","🙌","🫶",
+    "👐","🤲","🫱","🫲","🫳","🫴","👊","✊","🤛","🤜","🦵","🦶","👂","🦻","👃","🧠",
+    "🫀","🫁","🦷","🦴","👀","👁️","👅","👄","🫦",
+    "❤️","🧡","💛","💚","💙","💜","🖤","🤍","🤎","💔","❣️","💕","💞","💓","💗","💖",
+    "💘","💝","💟","♥️","💋","💌","💐","🌹","🌷","🌸","🌺","🌻","🌼","💮","🏵️","🌈",
+    "✨","⭐","🌟","💫","⚡","🔥","💥","💯","🎉","🎊","🎁",
+    "🐶","🐱","🐭","🐹","🐰","🦊","🐻","🐼","🐻‍❄️","🐨","🐯","🦁","🐮","🐷","🐸","🐵",
+    "🙈","🙉","🙊","🐒","🐔","🐧","🐦","🐤","🐣","🦆","🦅","🦉","🦇","🐺","🐗","🐴",
+    "🦄","🐝","🪲","🐛","🦋","🐌","🐞","🐜","🦗","🕷️","🦂","🐢","🐍","🦎","🐙","🦑",
+    "🦐","🦀","🐡","🐠","🐟","🐬","🐳","🐋","🦈","🐊","🐅","🐆","🦓","🦍","🐘","🦛",
+    "🐪","🐫","🦒","🦘","🐃","🐄","🐎","🐖","🐏","🐑","🐐","🦌","🐕","🐩","🐈","🐓",
+    "🦃","🕊️","🐇","🐿️","🦔",
+    "🍏","🍎","🍐","🍊","🍋","🍌","🍉","🍇","🍓","🫐","🍈","🍒","🍑","🥭","🍍","🥥",
+    "🥝","🍅","🍆","🥑","🥦","🥬","🥒","🌶️","🫑","🌽","🥕","🫒","🧄","🧅","🥔","🍠",
+    "🥐","🥯","🍞","🥖","🥨","🧀","🥚","🍳","🧈","🥞","🧇","🥓","🥩","🍗","🍖","🌭",
+    "🍔","🍟","🍕","🥪","🌮","🌯","🫔","🥙","🧆","🥗","🍝","🍜","🍲","🍛","🍣","🍱",
+    "🍤","🍙","🍚","🍘","🍥","🥟","🦪","🍦","🍰","🎂","🧁","🍫","🍬","🍭","🍮","🍯",
+    "☕","🍵","🧃","🥤","🍺","🍻","🥂","🍷","🥃","🍸","🍹","🍾",
+    "⚽","🏀","🏈","⚾","🥎","🎾","🏐","🏉","🥏","🎱","🪀","🏓","🏸","🏒","🏑","🥍",
+    "🏏","🥅","⛳","🪁","🎣","🤿","🥊","🥋","🎽","🛹","🛼","🛷","⛸️","🥌","🎿","⛷️",
+    "🏂","🏋️","🤼","🤸","⛹️","🤾","🏌️","🏇","🧘","🏄","🏊","🤽","🚣","🧗","🚴","🚵",
+    "🏆","🥇","🥈","🥉","🏅","🎖️","🎗️","🎫","🎟️","🎪","🤹","🎭","🎨","🎬","🎤","🎧",
+    "🎼","🎹","🥁","🎷","🎺","🎸","🪕","🎻","🎲","♟️","🎯","🎳","🎮","🎰","🧩",
+    "🚗","🚕","🚙","🚌","🚎","🏎️","🚓","🚑","🚒","🚐","🛻","🚚","🚛","🚜","🛵","🏍️",
+    "🛺","🚲","🛴","🚨","🚔","🚍","🚘","🚖","✈️","🛫","🛬","🛩️","💺","🚁","🚀","🛸",
+    "🚉","🚊","🚝","🚄","🚅","🚈","🚂","🚆","🚇","🚢","⛴️","🚤","🛥️","⛵","🚧","⛽",
+    "🗺️","🗿","🗽","🗼","🏰","🏯","🏟️","🎡","🎢","🎠","⛲","⛱️","🏖️","🏝️","🏜️","🌋",
+    "⛰️","🏔️","🗻","🏕️","⛺","🏠","🏡","🏘️","🏢","🏬","🏣","🏤","🏥","🏦","🏨","🌃",
+    "🌆","🌇","🌉","🌁",
+    "⌚","📱","💻","⌨️","🖥️","🖨️","🖱️","💽","💾","💿","📀","📷","📸","📹","🎥","📞",
+    "☎️","📟","📠","📺","📻","🧭","⏰","⏱️","⌛","⏳","🔋","🔌","💡","🔦","🕯️","🧯",
+    "💸","💵","💴","💶","💷","🪙","💰","💳","💎","⚖️","🧰","🔧","🔨","⚙️","🧲","🔫",
+    "💣","🧨","🔪","🛡️","🚬","⚰️","🔮","🧿","🪬","💈","🔭","🔬","🩺","💊","💉","🩸",
+    "🌡️","🧹","🧺","🧻","🚽","🚿","🛁","🧼","🪥","🔑","🗝️","🚪","🛋️","🛏️","🖼️","🎁",
+    "🎈","🎀","🎊","🎉","📦","📫","✉️","📝","📚","📖","🔖","📌","📍","✂️","🖊️","📎",
+    "❤️","💯","✅","❌","⭕","🚫","❗","❓","❕","❔","‼️","⁉️","💢","♨️","🔅","🔆",
+    "✔️","☑️","🔘","⚪","⚫","🔴","🟠","🟡","🟢","🔵","🟣","🟤","🔺","🔻","🔸","🔹",
+    "🔶","🔷","🔳","🔲","▪️","▫️","◾","◽","◼️","◻️","⬛","⬜","🟥","🟧","🟨","🟩",
+    "🟦","🟪","🟫","🔈","🔉","🔊","🔇","📢","📣","🔔","🔕","➕","➖","➗","✖️","♾️",
+    "💲","💱","™️","©️","®️","🔝","🔚","🔙","🔛","🔜","✳️","✴️","❇️","🔟","🆗",
+    "🆕","🆒","🆓","🆙","🆖","🅰️","🅱️","🆎","🅾️","🔠","🔡","🔢","🔣","🔤"
+)
+
 /**
  * WHAT A PERSON REACHES FOR FIRST (iOS MTReactions 93-142): every answer sent is counted, and the quick row offers what a
  * person reaches for most, filled out with the common ones while he has no history yet.
@@ -1476,6 +1531,7 @@ object QuickReactions {
         val use = runCatching { JSONObject(Prefs.str(KEY, "{}")) }.getOrNull() ?: JSONObject()
         use.put(e, use.optInt(e, 0) + 1)
         Prefs.setStr(KEY, use.toString())
+        vocabulary = emptyList()   // the nine in front are about to stand in another order (iOS note(_:) 101)
     }
 
     /** The most used first, then the common ones — never fewer than asked for, never a repeat (iOS top(_:) 133-142). */
@@ -1494,6 +1550,18 @@ object QuickReactions {
         val room = widthPx - c.dp(14) * 2 - c.dp(8) * 2
         return (room / (glyph + c.dp(12)).toFloat()).toInt().coerceIn(5, 7)
     }
+
+    /** THE WHOLE CHOICE AS ONE LIST, EACH NAME ONCE (iOS MTReactions.all 104-119): the nine reached for most stand first, then
+     * every emoji of the field's panel — one list, so a grid built from two lists cannot hold the same name in two places. */
+    private var vocabulary: List<String> = emptyList()
+    val all: List<String>
+        get() {
+            if (vocabulary.isEmpty()) {
+                val seen = HashSet<String>()
+                vocabulary = (top(9) + fieldEmojiPanel).filter { seen.add(it) }
+            }
+            return vocabulary
+        }
 }
 
 /**
@@ -1577,7 +1645,44 @@ fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Unit, onEd
     fillActions()
     // THE QUICK REACTIONS FIT THE WIDTH AND LEARN FROM USE (iOS MTReactions 93-142, 239-262): five to seven answers — what this
     // person reaches for most stand first, filled out with the common ones — never a fixed nine on a narrow screen.
-    val reactions = HorizontalScrollView(c).apply {
+    fun react(e: String) {
+        close()
+        var added = false
+        val prev = m.myReact
+        Book.edit(ref) { ch ->
+            ch.msgs.find { it.mid == m.mid }?.let { t ->
+                t.myReact?.let { old -> t.reactions.remove(old) }
+                if (prev == e) t.myReact = null else { t.reactions.add(e); t.myReact = e; added = true }
+            }
+        }
+        fun tell(emoji: String, add: Boolean) {
+            val word = Marks.REACTION + JSONObject().put("sid", "mid:" + m.mid).put("txt", m.text.take(200)).put("e", emoji).put("op", if (add) "add" else "del")
+            // a group's answer rides the group's own carrier to every phone of it (iOS react → MTGroup.signal)
+            if (group) Groups.signal(ref, word) else Post.send(ref, Marks.mintMid(), word)
+        }
+        if (prev != null) tell(prev, false)
+        if (added) { tell(e, true); QuickReactions.note(e) }
+    }
+    // THE WHOLE CHOICE AS A GRID (iOS cloud's reactionsOpen 355-374): the nine reached for most, then every emoji of the
+    // field's panel, each name once (QuickReactions.all) — nine to a row, a choice here reacting exactly as a quick one does
+    val grid = ScrollView(c).apply {
+        isVerticalScrollBarEnabled = false
+        visibility = View.GONE
+        background = c.rounded(Color.argb(235, 44, 44, 46), 20, Color.argb(26, 255, 255, 255))
+        addView(c.vstack(Gravity.NO_GRAVITY) {
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            val rows = QuickReactions.all.chunked(9)
+            for ((i, row) in rows.withIndex()) {
+                if (i > 0) gap(6)
+                addView(c.hstack {
+                    for (e in row) addView(c.text(e, 28f, center = true).apply { pressable { react(e) } }, lp(0, WRAP, 1f))
+                    repeat(9 - row.size) { addView(View(c), lp(0, WRAP, 1f)) }
+                }, lp(MATCH, WRAP))
+            }
+        })
+    }
+    lateinit var reactions: HorizontalScrollView
+    reactions = HorizontalScrollView(c).apply {
         isHorizontalScrollBarEnabled = false
         background = c.rounded(Color.argb(235, 44, 44, 46), 24)
         addView(c.hstack {
@@ -1585,25 +1690,15 @@ fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Unit, onEd
             val count = QuickReactions.fitCount(c, c.resources.displayMetrics.widthPixels)
             for (e in QuickReactions.top(count)) addView(c.text(e, 28f).apply {
                 setPadding(dp(6), dp(4), dp(6), dp(4))
-                pressable {
-                    close()
-                    var added = false
-                    val prev = m.myReact
-                    Book.edit(ref) { ch ->
-                        ch.msgs.find { it.mid == m.mid }?.let { t ->
-                            t.myReact?.let { old -> t.reactions.remove(old) }
-                            if (prev == e) t.myReact = null else { t.reactions.add(e); t.myReact = e; added = true }
-                        }
-                    }
-                    fun tell(emoji: String, add: Boolean) {
-                        val word = Marks.REACTION + JSONObject().put("sid", "mid:" + m.mid).put("txt", m.text.take(200)).put("e", emoji).put("op", if (add) "add" else "del")
-                        // a group's answer rides the group's own carrier to every phone of it (iOS react → MTGroup.signal)
-                        if (group) Groups.signal(ref, word) else Post.send(ref, Marks.mintMid(), word)
-                    }
-                    if (prev != null) tell(prev, false)
-                    if (added) { tell(e, true); QuickReactions.note(e) }
-                }
+                pressable { react(e) }
             })
+            // THE CHEVRON OPENS EVERY REACTION (iOS MontanaMessageMenu.reactionsRow 244-251): the row's last key, a 17-point
+            // glyph wearing the 44-point target, turns the quick row into the grid above
+            addView(FrameLayout(c).apply {
+                addView(c.icon(R.drawable.ic_chevron_down, Color.argb(191, 255, 255, 255), 17), FrameLayout.LayoutParams(dp(17), dp(17), Gravity.CENTER))
+                contentDescription = c.getString(R.string.reactions_all)
+                pressable { reactions.visibility = View.GONE; grid.visibility = View.VISIBLE }
+            }, lp(dp(44), dp(44)))
         })
     }
     val chat = Book.chat(ref)
@@ -1614,7 +1709,7 @@ fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Unit, onEd
         pressable { close() }
         addView(c.vstack(if (m.mine) Gravity.END else Gravity.START) {
             setPadding(dp(14), 0, dp(14), 0)
-            if (!group || !Groups.isOut(ref)) { addView(reactions, lp(WRAP, WRAP)); gap(8) }
+            if (!group || !Groups.isOut(ref)) { addView(reactions, lp(WRAP, WRAP)); addView(grid, lp(MATCH, dp(220))); gap(8) }
             addView(copy, lp())
             gap(8)
             addView(actions, lp(dp(250), WRAP))

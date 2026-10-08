@@ -132,4 +132,5 @@
     <!-- the camera of the gallery's first tile (the platform camera's own modes) -->
     <string name="cam_video">Video</string>
     <string name="cam_photo">Photo</string>
+    <string name="reactions_all">All reactions</string>   <!-- the chevron after the quick reactions row, iOS MontanaMessageMenu.swift 244-251 -->
 </resources>
