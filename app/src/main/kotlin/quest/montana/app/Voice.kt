@@ -62,7 +62,7 @@ object VoiceTape {
     /** The tape starts; false when the microphone is not ours (the question is asked, the next hold records). */
     fun start(act: MainActivity): Boolean {
         if (!granted(act)) { act.requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), 7); return false }
-        stop(keep = false)
+        if (rec != null) return false   // one tape at a time: a second start over a rolling one is nothing (iOS VoiceRecorder.start guard, build 1519 / 2155 MontanaMedia.swift:112)
         val f = File(act.cacheDir, "tape-${System.currentTimeMillis()}.m4a")
         return try {
             rec = MediaRecorder(act).apply {
