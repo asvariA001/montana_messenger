@@ -618,7 +618,13 @@ object Post {
         send(ref, Marks.mintMid(), Marks.AVATAR)
         send(ref, Marks.mintMid(), Presence.APP + "0B" + Presence.saidTail())
     }
-    /** UNBLOCKED (iOS announceUnblocked 1466-1474): the person is told I am here again — my name, my face, my presence. */
+    /** THEIR SCREEN HOLDS A STALE FACE OR NAME OF MINE (iOS heardHeld 663-664: forgetFace / forgetName, then send again): the receipted mark is forgotten and announced anew. */
+    fun announceAgain(ref: String, face: Boolean, name: Boolean) {
+        if (face) for (k in listOf("annFace2.", "annFlyF.")) Prefs.remove(k + ref)
+        if (name) for (k in listOf("annName2.", "annFlyN.")) Prefs.remove(k + ref)
+        announce(ref)
+    }
+    /** UNBLOCKED (iOS announceUnblocked 1458-1466): the person is told I am here again — my name, my face, my presence. */
     fun unblocked(ref: String) {
         if (Book.secret(ref) == null) return
         for (k in listOf("annName2.", "annFace2.", "annFlyN.", "annFlyF.")) Prefs.remove(k + ref)

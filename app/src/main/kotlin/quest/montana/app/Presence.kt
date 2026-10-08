@@ -243,12 +243,54 @@ object Presence {
 
     // ── what I say ──
     fun sayTyping(ref: String) { if (sharing) Signal.post(ref, TYPING + saidTail()) }
-    fun sayChat(ref: String, open: Boolean) { if (sharing) Signal.post(ref, WATCH + (if (open) "1" else "0") + saidTail() + doorTail()) }
+    fun sayChat(ref: String, open: Boolean) { if (sharing) Signal.post(ref, WATCH + (if (open) "1" else "0") + saidTail() + heldTail(ref) + doorTail()) }
+
+    /** The tag a word names a thing by (iOS Announced.wireTag, MontanaDeliveryEngine 417-422): SHA-256's first four bytes, big-endian, in digits; none — «0». */
+    fun wireTag(d: ByteArray?): String {
+        if (d == null || d.isEmpty()) return "0"
+        val h = java.security.MessageDigest.getInstance("SHA-256").digest(d)
+        return (((h[0].toLong() and 0xff) shl 24) or ((h[1].toLong() and 0xff) shl 16) or ((h[2].toLong() and 0xff) shl 8) or (h[3].toLong() and 0xff)).toString()
+    }
+    private val heldFace = HashMap<String, Pair<Long, String>>()   // ref -> (the face file's moment, its tag): a file is new every update
+    /**
+     * WHAT I HOLD OF YOU, in every presence word (iOS heldTail, MontanaE2E 543-568; fork atom 1778): «F» + the tag of your face on my
+     * screen, «N» + the tag of your name — digits only, after the moment, so every older reader reads nothing of it. The peer compares
+     * with what it is and sends again what my screen holds stale.
+     */
+    private fun heldTail(ref: String): String {
+        val f = Book.face(ref)
+        val face = if (!f.exists()) "0" else synchronized(heldFace) {
+            heldFace[ref]?.takeIf { it.first == f.lastModified() }?.second ?: wireTag(f.readBytes()).also { heldFace[ref] = f.lastModified() to it }
+        }
+        val n = Book.chat(ref)?.name.orEmpty()
+        return "F" + face + "N" + wireTag(if (n.isEmpty()) null else n.toByteArray(Charsets.UTF_8))
+    }
+    /**
+     * WHAT THEY HOLD OF ME, heard in their word (iOS heardHeld 629-667): their screen's tags of my face and my name against what I am —
+     * a difference forgets the receipted mark and announces anew, at most once a minute a person. Android read nothing of it: an
+     * iPhone that held an old face of this phone kept it for ever.
+     */
+    private val heldAskedAt = HashMap<String, Long>()
+    private fun heardHeld(ref: String, payload: String) {
+        fun digits(after: Char): String? {
+            val i = payload.indexOf(after); if (i < 0) return null
+            return payload.substring(i + 1).takeWhile { it.isDigit() }.ifEmpty { null }
+        }
+        val f = digits('F') ?: return
+        val n = digits('N') ?: return
+        val faceOff = f != wireTag(SelfFace.bytes(Book.ctx))
+        val nameOff = n != wireTag(Prefs.userName.trim().takeIf { it.isNotEmpty() }?.toByteArray(Charsets.UTF_8))
+        if (!faceOff && !nameOff) return
+        val now = System.currentTimeMillis()
+        synchronized(heldAskedAt) { if (now - (heldAskedAt[ref] ?: 0L) < 60_000L) return; heldAskedAt[ref] = now }
+        Log.d("Montana", "held_differs face=" + (if (faceOff) 1 else 0) + " name=" + (if (nameOff) 1 else 0))
+        Thread { Post.announceAgain(ref, faceOff, nameOff) }.start()
+    }
     /** «@DOORS» — the doors alive for me, in the chat word's tail (iOS doorTail 685-691): UPPERCASE, so no old reader takes a host's «h» for hiding. */
     private fun doorTail() = Signal.aliveHosts().joinToString(",").let { if (it.isEmpty()) "" else "@" + it.uppercase() }
     fun sayApp(open: Boolean) {
         if (!sharing) return
-        for (ref in Book.refs()) if (SamePair.merged(ref) == null && !PeerSafety.isBlocked(ref)) Signal.post(ref, APP + (if (open) "1" else "0") + saidTail())
+        for (ref in Book.refs()) if (SamePair.merged(ref) == null && !PeerSafety.isBlocked(ref)) Signal.post(ref, APP + (if (open) "1" else "0") + saidTail() + heldTail(ref))
     }
 
     /** A blocked person's live words leave with the block (iOS toggleBlocked 979: typing and watching removed). */
@@ -279,6 +321,7 @@ object Presence {
                 Prefs.setBool("phide_$ref", payload.drop(1).contains('h'))
                 val open = payload.startsWith("1")
                 if (age <= WORD_LIFE) Board.heardPresence(ref, payload)   // their wall's version (iOS heardHeld, wallHeard)
+                if (age <= WORD_LIFE) heardHeld(ref, payload)   // only a word said now says what their screen holds
                 if (age <= WORD_LIFE) {
                     if (open) {
                         if (chat) inChatUntil[ref] = now + WORD_LIFE - age
