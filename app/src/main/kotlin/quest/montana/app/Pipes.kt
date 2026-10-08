@@ -486,7 +486,17 @@ object Post {
             val o = items.getJSONObject(i)
             val to = o.getString("to"); val mid = o.getString("m")
             val secret = Book.secret(to)
-            if (secret == null) { done.add(mid); Groups.copyLost(mid); continue }   // the pipe is gone — nobody to deliver to; a group's copy says so on its row
+            if (secret == null) {
+                // THE LETTER HAS NO ROAD (iOS MTRefusal.noRoad, the one door into red, ContentView 3083-3111): the pipe is gone — nobody to
+                // deliver to. Its row turns red instead of standing at the clock for ever, and a coin letter's coins come back with the red
+                // (iOS hold): a coin letter on its way may not be deleted, so a row with no road would have held its coins for good.
+                done.add(mid); Groups.copyLost(mid)
+                var red: Msg? = null
+                val chat = SamePair.root(to)
+                Book.edit(chat) { c -> c.msgs.find { it.mid == mid && it.mine }?.let { m -> if (m.advance(-1)) red = m } }
+                red?.let { CoinSend.hold(it, chat) }
+                continue
+            }
             // WHILE THE INTRODUCTION IS UNANSWERED every letter a person wrote rides the invitation's box with the ciphertext;
             // the words of the wire (receipts, reads, name, face) wait for the pipe to stand (iOS first_hold).
             val intro = Meeting.first(to)
