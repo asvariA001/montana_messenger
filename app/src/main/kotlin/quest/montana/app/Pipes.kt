@@ -101,10 +101,33 @@ object Wire {
     } catch (_: Exception) { -1 to null }
 
     /** A blob onto the node (iOS putBlob): POST /blob-put {bid, data}; true once a door holds it. */
-    fun putBlob(bid: String, data: ByteArray, cargo: String? = null, last: Boolean = false): Boolean = MontanaCard.doors.any { door ->
+    /**
+     * A CHUNK ALREADY ON THE NODE IS NOT SENT AGAIN (iOS putBlob 1000-1012, 08.09): the name is the content — one small question first,
+     * the bytes only when the node lacks them. A walk that knows its chunks are new (their key was drawn this moment) says so and
+     * skips the question; a retry after a road that broke mid-answer asks, so a chunk the node took is not carried twice.
+     */
+    fun putBlob(bid: String, data: ByteArray, cargo: String? = null, last: Boolean = false, assumeAbsent: Boolean = false): Boolean {
+        if (!assumeAbsent && blobsHave(listOf(bid))?.contains(bid) == true) { Log.d("Montana", "blob_put already on the node id=" + bid.take(8)); return true }
+        return MontanaCard.doors.any { door -> putBlobAt(door, bid, data, cargo, last) }
+    }
+    /**
+     * What the node already holds of these chunks (iOS blobsPresent, askHave 1945-1985): only the chunks asked about count — a store
+     * naming others is a stale index and is not believed; null when no door answered.
+     */
+    fun blobsHave(bids: List<String>): Set<String>? {
+        val asked = bids.toSet()
+        for (door in MontanaCard.doors) {
+            val (code, text) = post(door, "/blob-have", JSONObject().put("bids", JSONArray(bids)), 10_000)
+            if (code != 200 || text == null) continue
+            val h = runCatching { JSONObject(text).getJSONArray("have") }.getOrNull() ?: continue
+            return (0 until h.length()).map { h.optString(it) }.filter { it in asked }.toSet()
+        }
+        return null
+    }
+    private fun putBlobAt(door: String, bid: String, data: ByteArray, cargo: String?, last: Boolean): Boolean {
         val body = JSONObject().put("bid", bid).put("data", Base64.encodeToString(data, Base64.NO_WRAP))
         if (cargo != null) { body.put("cg", cargo); if (last) body.put("last", true) }
-        post(door, "/blob-put", body, 60_000).first == 200
+        return post(door, "/blob-put", body, 60_000).first == 200
     }
 
     /** A blob of the node (iOS getBlob): POST /blob-get {bid} → {data}. */
@@ -513,7 +536,7 @@ object Post {
         val mk = MtBindings.nativeRandom(32) ?: return null
         val sealed = Wire.seal(mk, mid.toByteArray() + 0 + text.toByteArray()) ?: return null
         val bid = Wire.hex(Wire.sha(sealed))
-        if (!Wire.putBlob(bid, sealed)) return null
+        if (!Wire.putBlob(bid, sealed, assumeAbsent = true)) return null   // a key drawn this moment: new by construction
         val link = Marks.LONG + JSONObject().put("r", bid).put("k", Base64.encodeToString(mk, Base64.NO_WRAP))
         Prefs.setStr("longRef.$mid", link)
         return link

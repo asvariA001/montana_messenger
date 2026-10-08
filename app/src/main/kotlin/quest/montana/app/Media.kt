@@ -211,7 +211,7 @@ object Media {
         val cargo = Wire.hex(Wire.sha(sealedPieces.joinToString("") { it.first }.toByteArray())).take(32)
         sealedPieces.forEachIndexed { i, (bid, sealed) ->
             var ok = false
-            for (attempt in 0 until 3) { if (Wire.putBlob(bid, sealed, cargo, i == sealedPieces.size - 1)) { ok = true; break }; Thread.sleep(1500L shl attempt) }
+            for (attempt in 0 until 3) { if (Wire.putBlob(bid, sealed, cargo, i == sealedPieces.size - 1, assumeAbsent = attempt == 0)) { ok = true; break }; Thread.sleep(1500L shl attempt) }   // the key is this moment's: new at the first try, asked at a retry
             if (!ok) return null
         }
         val m = JSONObject().put("k", p.kind).put("e", p.ext).put("bk", Base64.encodeToString(bk, Base64.NO_WRAP)).put("sz", total).put("chunks", chunks)
@@ -228,7 +228,7 @@ object Media {
         val mk = MtBindings.nativeRandom(32) ?: return null
         val sealed = Wire.seal(mk, json.toByteArray()) ?: return null
         val mbid = Wire.hex(Wire.sha(sealed))
-        if (!Wire.putBlob(mbid, sealed)) return null
+        if (!Wire.putBlob(mbid, sealed, assumeAbsent = true)) return null   // sealed under a key drawn this moment: new by construction
         return (Marks.MEDIA + JSONObject().put("mref", mbid).put("mk", Base64.encodeToString(mk, Base64.NO_WRAP)).put("sz", total)) to json
     }
 
