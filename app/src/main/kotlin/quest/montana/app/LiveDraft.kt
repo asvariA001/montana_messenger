@@ -82,6 +82,9 @@ object LiveDraft {
         val body = doors(JSONObject().put("t", said[ref] ?: "").put("c", -1).put("n", stamp()).put("rq", 1))
         Signal.post(ref, MARK + Base64.encodeToString(body.toString().toByteArray(), Base64.NO_WRAP))
     }
+    /** Every correspondent gets the current link — launch, foreground, key rotation; nothing if they already have it
+     *  (iOS E2E.sendLinkToAll / sendLinkIfNeeded, ContentView.swift:472). */
+    fun sayLinkToAll() { for (ref in Book.refs()) sayLink(ref) }
 
     // ── what I hear ──
     /** A draft word of theirs off the lane. true — a keystroke said now (it lights «typing…»). */

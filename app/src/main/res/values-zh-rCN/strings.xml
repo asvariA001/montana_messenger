@@ -290,6 +290,8 @@
     <string name="pi_verified">身份已核对</string>
     <string name="pi_not_verified">未验证</string>
     <string name="pi_share_contact">分享联系人</string>
+    <string name="pi_contact_share_msg">%1$s 在 Montana！</string>
+    <string name="pi_asking_link">正在请求联系人链接…</string>
     <string name="pi_report">举报</string>
     <string name="pi_block">屏蔽</string>
     <string name="pi_unblock">取消屏蔽</string>

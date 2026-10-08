@@ -206,6 +206,9 @@ object Doors {
                 }
                 if (keep.toString() != Prefs.str(MACHINES, "")) { Prefs.setStr(MACHINES, keep.toString()); Log.d("Montana", "machines_learned n=" + keep.length()) }
             }
+            // THE BARRED (iOS MontanaWakePush.swift:155-158, Guideline 1.2): the addresses the network's operators barred after a
+            // report ride this same answer; every install refuses their letters on every road ([P2P-COMPAT]: an absent key changes nothing).
+            named.optJSONArray("barred")?.let { arr -> PeerSafety.setBarred((0 until arr.length()).map { arr.optString(it) }) }
         }
         if (pass == 0 && !before.containsAll(hosts())) verify(1)
     }

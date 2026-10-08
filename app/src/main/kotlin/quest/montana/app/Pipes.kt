@@ -921,7 +921,10 @@ object Post {
         // THE ONE QUESTION EVERY INCOMING ROAD ASKS, WHERE THE BYTES ENTER (iOS ChatStore.refuses 874-879, 15.09): the feed's door
         // refused a blocked person's row while their name, face, deletions, edits, answers, pins, a call's ring and the erasure of
         // the chat still landed here. Taken from the box and said nothing — no receipt, no word of mine goes back.
-        if (PeerSafety.isBlocked(ref) || PeerSafety.isBlocked(SamePair.root(ref))) return true
+        // THE NETWORK'S BAR RIDES THE SAME GATE (iOS ChatStore.refuses, MontanaChatStore.swift:879): barred after a report, refused
+        // like a block, both here and at the root a folded pipe speaks for.
+        if (PeerSafety.isBlocked(ref) || PeerSafety.isBlocked(SamePair.root(ref)) ||
+            PeerSafety.isBarred(ref) || PeerSafety.isBarred(SamePair.root(ref))) return true
         Meeting.firstDone(ref)   // a word sealed under the pipe by the other side: the introduction is over
         Channels.heard(ref)   // the pipe lives: the moment to name my own address when no road of mine reaches them (iOS ChatStore 3976-3986)
         var text = f[1]

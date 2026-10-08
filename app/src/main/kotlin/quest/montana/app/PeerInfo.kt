@@ -92,6 +92,18 @@ object PeerSafety {
     fun setVerified(ref: String, on: Boolean) = Prefs.setBool("fpVerified.$ref", on)
 
     /**
+     * THE BARRED ADDRESSES (iOS MontanaSafety.barred/setBarred, MontanaSafety.swift:28-41; ChatStore.refuses, MontanaChatStore.swift:879;
+     * MontanaWakePush.swift:155-158): an address the network's operators barred after a report is refused like a blocked one — the
+     * node itself cannot bar anyone, it sees labels, never identities, so the bar rides the doors' answer down to the phones.
+     */
+    fun isBarred(ref: String) = ref in Prefs.str("barredPeers", "").split('\n').filter { it.isNotEmpty() }
+    fun setBarred(list: List<String>) {
+        val clean = list.map { it.trim() }.filter { it.isNotEmpty() }
+        if (clean.toSet() == Prefs.str("barredPeers", "").split('\n').filter { it.isNotEmpty() }.toSet()) return
+        Prefs.setStr("barredPeers", clean.joinToString("\n"))
+    }
+
+    /**
      * THE CORRESPONDENCE'S NUMBER (iOS MTPipe.fingerprint): 5200 rounds of SHA-256("mt-safety" ‖ 0 ‖ h) over the pipe's secret,
      * six groups of five digits. Both sides derive it from the same secret; a stranger in the middle would have had to replace
      * exactly that secret, and the number changes the moment they do.
@@ -248,23 +260,31 @@ fun peerInfoPage(act: MainActivity, ref: String, onClose: () -> Unit,
             tint = if (verified) MT.green else MT.gray) {
             act.push { close -> safetyPage(act, ref, name) { close(); redrawAll() } }
         })
-        // SHARE CONTACT (iOS shareContact): the correspondent's own daily link, handed to us to hand on; without a fresh one it is
-        // asked for, and a peer that does not answer within six seconds is asleep or older — said honestly
+        // SHARE CONTACT (iOS shareContact, MontanaPeerInfoScreen.swift:349-360; MontanaConv.contactMessage, MontanaPQ.swift:212-216):
+        // the correspondent's own daily link, handed to us to hand on, said as «<name> is in Montana!» then the link; without a
+        // fresh one it is asked for, with «Asking for the contact link…» standing on the screen, and a peer that does not answer
+        // within six seconds is asleep or older — said honestly
         first.add(row(R.drawable.ic_share, c.getString(R.string.pi_share_contact)) {
             fun share(link: String) = runCatching {
+                val text = c.getString(R.string.pi_contact_share_msg, name) + "\n" + link
                 act.startActivity(android.content.Intent.createChooser(android.content.Intent(android.content.Intent.ACTION_SEND)
-                    .setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT, link), null))
+                    .setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT, text), null))
             }
             PeerLinks.fresh(ref)?.let { share(it); return@row }
             LiveDraft.askLink(ref)
+            var cancelled = false
+            val asking = AlertDialog.Builder(c).setMessage(R.string.pi_asking_link)
+                .setNegativeButton(R.string.cancel) { d, _ -> cancelled = true; d.dismiss() }.show()
             val asked = System.currentTimeMillis()
             lateinit var wait: Runnable
             wait = Runnable {
-                val got = PeerLinks.fresh(ref)
-                when {
-                    got != null -> share(got)
-                    System.currentTimeMillis() - asked < 6000 -> MainThread.later(300, wait)
-                    else -> AlertDialog.Builder(c).setMessage(R.string.pi_link_unavailable).setPositiveButton(android.R.string.ok, null).show()
+                if (!cancelled) {
+                    val got = PeerLinks.fresh(ref)
+                    when {
+                        got != null -> { asking.dismiss(); share(got) }
+                        System.currentTimeMillis() - asked < 6000 -> MainThread.later(300, wait)
+                        else -> { asking.dismiss(); AlertDialog.Builder(c).setMessage(R.string.pi_link_unavailable).setPositiveButton(android.R.string.ok, null).show() }
+                    }
                 }
             }
             MainThread.later(300, wait)

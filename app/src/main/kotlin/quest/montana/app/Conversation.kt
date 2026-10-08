@@ -251,9 +251,17 @@ fun chatRow(act: MainActivity, chat: Chat): View {
                     // one pick never says two things at once — read on the feed's tail, where a plate stands whole
                     val stage = if (!last.mine) last else feedRows(chat.msgs.takeLast(30).filter { !ChessLetter.isStep(it.text) }).lastOrNull()
                         ?.takeIf { r -> r.any { it.mid == last.mid } }?.minWithOrNull(compareBy<Msg>({ it.state }, { -it.statusMoment })) ?: last
-                    if (last.mine) addView(if (stage.state == -1) c.failedMark() else c.deliveryDots(Ladder.of(chat.ref, stage).first),
-                        lp(WRAP, WRAP).apply { marginEnd = dp(6) })
-                    addView(c.text(rowTime(c, last.at), 13f, MT.gray))
+                    addView(FrameLayout(c).apply {
+                        addView(c.hstack {
+                            gravity = Gravity.CENTER_VERTICAL
+                            if (last.mine) addView(if (stage.state == -1) c.failedMark() else c.deliveryDots(Ladder.of(chat.ref, stage).first),
+                                lp(WRAP, WRAP).apply { marginEnd = dp(6) })
+                            addView(c.text(rowTime(c, last.at), 13f, MT.gray))
+                        }, FrameLayout.LayoutParams(WRAP, WRAP))
+                        // THE BLOCKED PERSON'S ROW WEARS THE MARK UNDER THE CLOCK (iOS ChatRow, MontanaChatsList.swift:2168, build 1565)
+                        if (PeerSafety.isBlocked(chat.ref)) addView(c.icon(R.drawable.ic_nosign, SysColor.red, 11),
+                            FrameLayout.LayoutParams(dp(11), dp(11), Gravity.BOTTOM or Gravity.END).apply { topMargin = dp(14) })
+                    }, lp(WRAP, WRAP))
                 }
             }, lp())
             addView(c.hstack {
