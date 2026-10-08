@@ -438,7 +438,10 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 continue
             }
             // THE LADDER UNDER EVERY OWN BUBBLE (the author's word 29.09: «у каждого сообщения, по отдельности»): each letter its own rung
-            if (m.mine) (b.getChildAt(0) as LinearLayout).addView(c.deliveryLine(ref, row.last()),
+            // A PLATE STANDS WHERE ITS SLOWEST LETTER STANDS (iOS MTLadder, MontanaBubble 2047-2065, the author's word 29.09): «not sent»
+            // below the clock, and of the letters on the lowest rung the one that reached it last names the moment — the line spoke
+            // the plate's last letter, «Read» while a video of the same pick still rode
+            if (m.mine) (b.getChildAt(0) as LinearLayout).addView(c.deliveryLine(ref, row.minWithOrNull(compareBy<Msg>({ it.state }, { -it.statusMoment })) ?: row.last()),
                 LinearLayout.LayoutParams(WRAP, WRAP).apply { topMargin = c.dp(3); marginEnd = c.dp(4) })
             // THE MENU OPENS ON EVERY LETTER (iOS: the long press is the bubble's, whatever it holds): a picture, a film, a circle, a
             // voice or a link's card keeps its own tap, and its long press opens the letter's menu as the words' does
