@@ -167,24 +167,29 @@ object Signal {
 
     // ── the lanes (iOS sigSessions and postLane: networkPathChanged 520-537, cutStandingQuestion 538-551) ──
     private const val CUT = -2
-    private val asking = HashSet<java.net.HttpURLConnection>()
+    private val asking = HashSet<java.net.HttpURLConnection>()   // the long questions in flight (iOS sigSessions)
     private val laneGen = java.util.concurrent.atomic.AtomicInteger()
-    /** A post on the lane: cut by our own hand, it leaves again at once on the fresh lane — and the cut teaches nothing of the door. */
+    private val posting = HashSet<java.net.HttpURLConnection>()   // the words in flight (iOS postLane)
+    private val postGen = java.util.concurrent.atomic.AtomicInteger()
+    /** A post on the lane: cut by a path change, it leaves again at once on the fresh path — and the cut teaches nothing of the door. */
     private fun onLane(ask: (MutableSet<java.net.HttpURLConnection>) -> Pair<Int, String?>): Pair<Int, String?> {
         repeat(2) {
-            val gen = laneGen.get()
-            val got = ask(asking)
-            if (gen == laneGen.get()) return got
+            val gen = postGen.get()
+            val got = ask(posting)
+            if (gen == postGen.get()) return got
         }
         return CUT to null
     }
     /**
      * THE STANDING QUESTION IS CUT (iOS cutStandingQuestion 538-551) — one move for two facts: the network path changed, the lane's
-     * door died. Every request in flight fails this instant, and each conversation asks again at once, at its door as it stands now.
+     * door died. Every question in flight fails this instant, and each conversation asks again at once, at its door as it stands now.
+     * The words in flight are cut by a path change only (iOS networkPathChanged 529-537 swaps the post lane): a word on its way to
+     * a door that just died is that door's own answer to wait for.
      */
-    private fun cut(why: String) {
+    private fun cut(why: String, posts: Boolean = false) {
         laneGen.incrementAndGet()
-        val held = synchronized(asking) { asking.toList().also { asking.clear() } }
+        if (posts) postGen.incrementAndGet()
+        val held = synchronized(asking) { asking.toList().also { asking.clear() } } + if (posts) synchronized(posting) { posting.toList().also { posting.clear() } } else emptyList()
         Thread { for (c in held) runCatching { c.disconnect() } }.start()
         Log.d("Montana", "sig_lane " + why + " — asking again now")
     }
@@ -205,7 +210,7 @@ object Signal {
     private fun forgive(why: String) {
         synchronized(deadUntil) { deadUntil.clear(); doorFails.clear(); deathStreak.clear(); proof.clear(); chosen = null }   // proof on one path says nothing of another
         Wire.forgetGone()   // a new path may reach a store the old one could not
-        cut(why + " — every door forgiven, every lane cut")   // the questions in flight stood on the old path's socket (iOS 520-537)
+        cut(why + " — every door forgiven, every lane cut", posts = true)   // the questions in flight stood on the old path's socket (iOS 520-537)
     }
 
     /**
