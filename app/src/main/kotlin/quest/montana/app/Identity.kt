@@ -123,6 +123,7 @@ object MontanaSeed {
         DeviceVault.delete(MN)
         DeviceVault.delete(TWIN)
         NodeIdentity.forget()   // a machine's value outliving the person would join the two for anyone listening (iOS MontanaOverlayKey.forget)
+        NodeKem.forget()
         Channels.forget()
     }
 

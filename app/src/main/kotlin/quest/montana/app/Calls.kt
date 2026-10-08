@@ -176,6 +176,8 @@ object Calls {
 
     /** A call stands in any state — ringing, dialling, talking (iOS stateSnapshot other than «idle»): its words knock every door. */
     fun busy(): Boolean = synchronized(gate) { ring != null }
+    /** The correspondent of the call in hand, in any state (iOS MontanaCall.peerSnapshot): while it stands the radio is theirs. */
+    fun peer(): String? = synchronized(gate) { ring?.ref }
 
     /** The ring in hand is a video call's (its letter's «v», its word's «video»): its screen and its questions say so. */
     fun ringVideo(): Boolean = synchronized(gate) { ring?.video == true }

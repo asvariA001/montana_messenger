@@ -39,6 +39,28 @@ object NodeIdentity {
     fun forget() = synchronized(this) { cache = null; DeviceVault.delete(KEY) }
 }
 
+/**
+ * THIS MACHINE'S SEALING KEY (iOS MontanaNodeKem.device, MontanaNetFrames 282-321): what a neighbour encapsulates to when it dials
+ * this phone. Device-local and drawn at random for the reason the identity is: a key from the seed would be one key for every
+ * device of one person, forever. Forgotten with the person.
+ */
+object NodeKem {
+    private const val KEY = "mt.node.kem"
+    @Volatile private var cache: Pair<ByteArray, ByteArray>? = null
+
+    fun device(): Pair<ByteArray, ByteArray>? = cache ?: synchronized(this) {
+        cache ?: run {
+            val seed = DeviceVault.get(KEY)?.takeIf { it.size == 64 }
+                ?: MtBindings.nativeRandom(64)?.takeIf { DeviceVault.set(KEY, it) }
+                ?: return@run null
+            val k = MtBindings.nativeMlkemKeypair(seed)?.takeIf { it.size == 1184 + 2400 } ?: return@run null
+            (k.copyOfRange(0, 1184) to k.copyOfRange(1184, k.size)).also { cache = it }
+        }
+    }
+
+    fun forget() = synchronized(this) { cache = null; DeviceVault.delete(KEY) }
+}
+
 /** The messages inside a channel (iOS MontanaNetMsg, MontanaNetFrames 88-118): type[1] ‖ length[4] big-endian ‖ body. */
 object NetMsg {
     const val REGISTER_INIT = 0x10
@@ -84,8 +106,8 @@ class OverlayFrame(val type: Int, val dst: ByteArray, val msgId: ByteArray, val 
  * sealed under its direction's key. Both sides register (the key and its tag, a challenge, its signature, the verdict); the
  * channel stands when both are confirmed. Measured from the Mac against both nodes, 08.10 12:3x (timechain/P2P-MAP.md).
  */
-class Channel(val host: String, val port: Int) {
-    val label = host + ":" + port
+class Channel(val host: String, val port: Int, val ref: String = "", private val accepted: Socket? = null) {
+    val label = (if (accepted != null) "in:" else "") + host + ":" + port
     val dialAt = System.currentTimeMillis()
     @Volatile var ready = false
         private set
@@ -98,6 +120,7 @@ class Channel(val host: String, val port: Int) {
     var channelHash = ByteArray(0)
         private set
     var ownerAsks = 0
+    @Volatile var lastUsed = System.currentTimeMillis()
     val sentAt = java.util.concurrent.ConcurrentHashMap<String, Long>()   // only the addressee's ack comes back (iOS 1217-1221)
     private var socket: Socket? = null
     private var out: OutputStream? = null
@@ -107,44 +130,20 @@ class Channel(val host: String, val port: Int) {
     private var nonce: ByteArray? = null
     private var myReg = false
     private var peerReg = false
+    private var held1 = 0L   // the handshake's states between messages, freed if the channel dies between them
+    private var held2 = 0L
+    private var held3 = 0L
 
-    /** Dial, greet and read until the channel dies — on the caller's thread, from the first byte to the last. */
+    /** Greet — as the one dialling or as the one dialled — and read until the channel dies, on the caller's thread. */
     fun run(ident: NodeIdentity.Ident, up: (Channel) -> Unit, frame: (Channel, OverlayFrame) -> Unit) {
-        var held1 = 0L
-        var held2 = 0L
         try {
-            val raw = Socket()
-            socket = raw
-            raw.connect(InetSocketAddress(host, port), 5000)   // iOS 956-984: five seconds to stand, or the next road's turn
-            val s: Socket = if (port == 443) tls(raw) ?: return else raw
-            socket = s
-            s.soTimeout = 8000   // the handshake's own budget (iOS handshakeBudget 687)
-            input = DataInputStream(s.getInputStream())
-            out = s.getOutputStream()
-            val kem = read()?.takeIf { it.size == 1184 } ?: return close("noise-key")
-            val seed = MtBindings.nativeRandom(32) ?: return close("noise-seed")
-            val st = LongArray(1)
-            val msg1 = MtBindings.nativeNoiseInitiator1(kem, seed, st)
-            held1 = st[0]
-            if (msg1 == null) return close("noise-msg1")
-            write(msg1)
-            val msg2 = read()?.takeIf { it.size == 6349 } ?: return close("noise-msg2")
-            val s1 = held1
-            held1 = 0L   // the core consumes it, answer or refusal
-            held2 = MtBindings.nativeNoiseInitiator2(s1, msg2)
-            if (held2 == 0L) return close("noise-msg2-open")
-            val s2 = held2
-            held2 = 0L
-            val done = MtBindings.nativeNoiseInitiator3(s2)?.takeIf { it.size == 5261 + 96 } ?: return close("noise-msg3")
-            write(done.copyOfRange(0, 5261))
-            val rk = done.copyOfRange(5293, 5325)
-            channelHash = done.copyOfRange(5325, 5357)
-            sendKey = done.copyOfRange(5261, 5293)
-            Log.d("Montana", "noise_done at=" + label + " ms=" + (System.currentTimeMillis() - dialAt))
+            val rk = (if (accepted != null) respond() else dial()) ?: return
+            Log.d("Montana", (if (accepted != null) "noise_srv_done" else "noise_done") + " at=" + label + " ms=" + (System.currentTimeMillis() - dialAt))
             send(NetMsg.REGISTER_INIT, ident.pk + ident.tag)
             while (true) {
                 val f = read() ?: return close("peer-closed")
                 val plain = Wire.open(rk, f) ?: return close("bad-frame")
+                lastUsed = System.currentTimeMillis()
                 if (plain.size == 1 && plain[0] == 0x02.toByte()) continue   // the other side's keepalive
                 val (type, body) = NetMsg.decode(plain) ?: continue
                 when (type) {
@@ -161,8 +160,67 @@ class Channel(val host: String, val port: Int) {
         } finally {
             if (held1 != 0L) MtBindings.nativeNoiseFree(1, held1)
             if (held2 != 0L) MtBindings.nativeNoiseFree(2, held2)
+            if (held3 != 0L) MtBindings.nativeNoiseFree(3, held3)
             runCatching { socket?.close() }
         }
+    }
+
+    private fun fail(why: String): ByteArray? { close(why); return null }
+
+    /** The one dialling (iOS dial 770-839, initiatorHandshake 987-1020): the far side's KEM key, msg1, msg2, msg3 — the reading key back. */
+    private fun dial(): ByteArray? {
+        val raw = Socket()
+        socket = raw
+        raw.connect(InetSocketAddress(host, port), 5000)   // iOS 956-984: five seconds to stand, or the next road's turn
+        val s: Socket = if (port == 443) tls(raw) ?: return null else raw
+        socket = s
+        s.soTimeout = 8000   // the handshake's own budget (iOS handshakeBudget 687)
+        input = DataInputStream(s.getInputStream())
+        out = s.getOutputStream()
+        val kem = read()?.takeIf { it.size == 1184 } ?: return fail("noise-key")
+        val seed = MtBindings.nativeRandom(32) ?: return fail("noise-seed")
+        val st = LongArray(1)
+        val msg1 = MtBindings.nativeNoiseInitiator1(kem, seed, st)
+        held1 = st[0]
+        if (msg1 == null) return fail("noise-msg1")
+        write(msg1)
+        val msg2 = read()?.takeIf { it.size == 6349 } ?: return fail("noise-msg2")
+        val s1 = held1
+        held1 = 0L   // the core consumes it, answer or refusal
+        held2 = MtBindings.nativeNoiseInitiator2(s1, msg2)
+        if (held2 == 0L) return fail("noise-msg2-open")
+        val s2 = held2
+        held2 = 0L
+        val done = MtBindings.nativeNoiseInitiator3(s2)?.takeIf { it.size == 5261 + 96 } ?: return fail("noise-msg3")
+        write(done.copyOfRange(0, 5261))
+        channelHash = done.copyOfRange(5325, 5357)
+        sendKey = done.copyOfRange(5261, 5293)
+        return done.copyOfRange(5293, 5325)
+    }
+
+    /** The one dialled (iOS acceptInbound 1591-1644): my KEM key first, then msg1 → msg2 → msg3; the keys are the dialler's mirror. */
+    private fun respond(): ByteArray? {
+        val s = accepted ?: return null
+        socket = s
+        s.soTimeout = 8000
+        input = DataInputStream(s.getInputStream())
+        out = s.getOutputStream()
+        val kem = NodeKem.device() ?: return fail("no-kem")
+        write(kem.first)
+        val msg1 = read()?.takeIf { it.size == 2272 } ?: return fail("noise-msg1")
+        val seed = MtBindings.nativeRandom(32) ?: return fail("noise-seed")
+        val st = LongArray(1)
+        val msg2 = MtBindings.nativeNoiseResponder1(kem.second, seed, msg1, st)
+        held3 = st[0]
+        if (msg2 == null) return fail("noise-msg2")
+        write(msg2)
+        val msg3 = read()?.takeIf { it.size == 5261 } ?: return fail("noise-msg3")
+        val s3 = held3
+        held3 = 0L   // the core consumes it, answer or refusal
+        val keys = MtBindings.nativeNoiseResponder3(s3, msg3)?.takeIf { it.size == 96 } ?: return fail("noise-msg3-open")
+        channelHash = keys.copyOfRange(64, 96)
+        sendKey = keys.copyOfRange(32, 64)   // the one dialled sends responder → initiator
+        return keys.copyOfRange(0, 32)       // and reads initiator → responder
     }
 
     private fun tls(raw: Socket): Socket? {
@@ -195,7 +253,7 @@ class Channel(val host: String, val port: Int) {
     private fun sealed(plain: ByteArray): Boolean {
         val k = sendKey ?: return false
         val s = Wire.seal(k, plain) ?: return false
-        return runCatching { write(s) }.isSuccess
+        return runCatching { write(s) }.isSuccess.also { if (it) lastUsed = System.currentTimeMillis() }
     }
 
     /** The frame that keeps a standing channel warm (iOS startKeepalive 627-636): [0x02], sealed. */
@@ -258,6 +316,13 @@ object Channels {
     private const val STEP_MIN = 2.0
     private const val STEP_MAX = 15.0
     private const val STEP_DEAD_MAX = 600.0   // iOS MontanaNodes 249-255
+    private const val PATH_STEP_MIN = 5.0
+    private const val PATH_STEP_MAX = 60.0   // iOS MontanaP2PNode 526-527
+    const val PORT = 8447   // iOS MontanaDirectPort.value: the mesh's direct channel
+    const val ADDRESS = "​​PA:"   // iOS punchEndpointMark (ContentView 3834): a correspondent's dialable address, inside the pipe only
+    private val book = HashMap<String, LinkedHashSet<Pair<String, Int>>>()   // a correspondent → the addresses they named (iOS MontanaOverlayBook)
+    private val pathAt = HashMap<String, Pair<Long, Double>>()
+    private val announcedTo = HashMap<String, Long>()
     private val live = HashMap<String, Channel>()   // a door's label → its channel, standing or being greeted
     private val tried = HashMap<String, Triple<Long, Double, Boolean>>()   // a door's label → (knocked at, the next step in s, refused)
     private val originated = HashSet<String>()
@@ -269,7 +334,8 @@ object Channels {
     fun start() {
         if (started) return
         started = true
-        Thread { while (true) { runCatching { knock() }; Thread.sleep(2000) } }.start()
+        Thread { while (true) { runCatching { knock(); keepPaths() }; Thread.sleep(5000) } }.start()   // iOS maintainPaths: every five seconds
+        Thread { listen() }.start()
         Thread { while (true) { Thread.sleep(8000); runCatching { warm() } } }.start()
     }
 
@@ -326,12 +392,27 @@ object Channels {
     /** Every eight seconds (iOS startKeepalive 627-677): each standing channel kept warm, a nameless neighbour given ours again. */
     private fun warm() {
         val cs = synchronized(live) { live.values.filter { it.ready } }
+        retire(cs)
         for (c in cs) {
             c.keepalive()
             if (c.peerOwnerRef == null && c.ownerAsks < 10) {
                 c.ownerAsks++
                 ownerSecret()?.let { c.send(NetMsg.OWNER_REF, Wire.ownerRef(it, c.channelHash)) }
             }
+        }
+    }
+
+    /**
+     * A NEIGHBOUR'S CHANNEL THAT CARRIES NOTHING IS CLOSED (iOS retireIdleChannels, 679-687): three minutes without a frame, and
+     * beyond twelve the least recently used goes first; presence brings it back, so being wrong costs one dial. A node's channel
+     * is held for the app's whole life and is never retired here.
+     */
+    private fun retire(cs: List<Channel>) {
+        val now = System.currentTimeMillis()
+        val doors = Doors.bare().map { it.first + ":" + it.second }.toSet()
+        val peers = cs.filter { it.label !in doors }.sortedBy { it.lastUsed }
+        for ((i, c) in peers.withIndex()) {
+            if (now - c.lastUsed > 180_000L || peers.size - i > 12) c.close("idle")
         }
     }
 
@@ -394,7 +475,9 @@ object Channels {
      */
     fun lay(secret: ByteArray, mid: String, body: ByteArray): Boolean {
         val cs = synchronized(live) { live.values.filter { it.ready } }
-        val owners = cs.mapNotNull { c -> c.peerOwnerRef?.let { Wire.hex(it) } }.toSet().size
+        // the correspondent's own channel never counts as a carrier (iOS ownerRefsOfLiveChannels(excluding:) 1008)
+        val to = Wire.reference(secret)
+        val owners = cs.filter { it.ref != to }.mapNotNull { c -> c.peerOwnerRef?.let { Wire.hex(it) } }.toSet().size
         if (owners < 1) return false
         val w = Wire.minute()
         val tag = Wire.pipeTag(secret, w)
@@ -433,6 +516,137 @@ object Channels {
             if (nearer(d, bestDist)) { best = o; bestDist = d }
         }
         if (best != null) best.send(NetMsg.OVERLAY_FRAME, body) else Log.d("Montana", "of_relay_drop — nobody is nearer than us")
+    }
+
+    /**
+     * THE PHONE ANSWERS ON ITS DIRECT PORT (iOS MontanaP2PDirect listener 526-560, acceptInbound 1591-1644): a neighbour or a
+     * correspondent who was named this phone's address dials it, and the greeting is the same, mirrored.
+     */
+    private fun listen() {
+        val server = runCatching { java.net.ServerSocket().apply { reuseAddress = true; bind(InetSocketAddress(PORT)) } }.getOrNull()
+        if (server == null) { Log.d("Montana", "listen_fail port=" + PORT); return }
+        Log.d("Montana", "listen port=" + PORT)
+        while (true) {
+            val s = runCatching { server.accept() }.getOrNull()
+            if (s == null) { Thread.sleep(1000); continue }
+            val ip = s.inetAddress?.hostAddress?.substringBefore('%')
+            val ident = NodeIdentity.device()
+            if (ip == null || ident == null) { runCatching { s.close() }; continue }
+            Log.d("Montana", "conn_in")
+            val c = Channel(ip, s.port, accepted = s)
+            synchronized(live) { live[c.label] = c }
+            Thread { serve(c, ident) }.start()
+        }
+    }
+
+    /** A correspondent's own door, by TCP (iOS ensureChannel): the channel a node gets, bound to the correspondent's name. */
+    private fun dialPeer(ip: String, port: Int, ref: String) {
+        val ident = NodeIdentity.device() ?: return
+        val c = synchronized(live) {
+            val label = ip + ":" + port
+            if (live.containsKey(label)) return@synchronized null
+            Channel(ip, port, ref).also { live[label] = it }
+        } ?: return
+        Thread { serve(c, ident) }.start()
+    }
+
+    /**
+     * THE PATHS TO CORRESPONDENTS ARE KEPT (iOS maintainPaths 530-573): the addresses a correspondent named are dialled on our own
+     * cadence, each backing off from five seconds to a minute, four dials a round at most; one who stands on a channel forgets the
+     * rest. A call owns the radio: while it stands only its correspondent is walked. An IPv6 door of theirs is dialled only from
+     * an IPv6 of our own (8d611789f1): without one the dial dies before it leaves.
+     */
+    private fun keepPaths() {
+        val now = System.currentTimeMillis()
+        val callPeer = if (Calls.busy()) Calls.peer() else null
+        val v6Here = selfV6().isNotEmpty()
+        val entries = synchronized(book) { book.mapValues { it.value.toList() } }
+        var attempts = 0
+        for ((ref, eps) in entries) {
+            if (callPeer != null && ref != callPeer) continue
+            if (synchronized(live) { live.values.any { it.ready && it.ref == ref } }) {
+                synchronized(pathAt) { for (e in eps) pathAt.remove(e.first + ":" + e.second) }
+                continue
+            }
+            for ((ip, port) in eps) {
+                if (!isGlobal(ip) || !(v6Here || !ip.contains(':'))) continue
+                if (attempts >= 4) return
+                val key = ip + ":" + port
+                val due = synchronized(pathAt) {
+                    val cur = pathAt[key]
+                    val step = cur?.second ?: PATH_STEP_MIN
+                    if (now - (cur?.first ?: 0L) < step * 1000) false else { pathAt[key] = now to minOf(step * 2, PATH_STEP_MAX); true }
+                }
+                if (!due) continue
+                attempts++
+                Log.d("Montana", "path_try")
+                dialPeer(ip, port, ref)
+            }
+        }
+    }
+
+    /** The global IPv6 of a real interface (iOS MontanaSelfEndpoint.candidates): a tunnel's address is not the phone's own. */
+    private fun selfV6(): List<String> = runCatching {
+        java.net.NetworkInterface.getNetworkInterfaces().toList().filter { it.isUp && !it.isLoopback && !it.name.startsWith("tun") }
+            .flatMap { it.inetAddresses.toList() }.filterIsInstance<java.net.Inet6Address>()
+            .mapNotNull { it.hostAddress?.substringBefore('%') }.filter { isGlobal(it) }
+    }.getOrDefault(emptyList())
+
+    /**
+     * THE ONE ADDRESS OF MY OWN A CORRESPONDENT CAN DIAL BY TCP (iOS MontanaNATService.selfEndpoint 27-39): a global IPv6 of a real
+     * interface with the direct port. A carrier-NAT IPv4 is never named — nobody can dial it. (A port the router forwards: the
+     * router's own word is asked by iOS MontanaPortMap — not on this side yet.)
+     */
+    private fun selfEndpoint(): String? = selfV6().firstOrNull()?.let { "[" + it + "]:" + PORT }
+
+    /** My dialable address to a correspondent (iOS MontanaNATService.announce 41-56): a silent word in the pipe, once a minute each. */
+    fun announce(ref: String) {
+        val now = System.currentTimeMillis()
+        synchronized(announcedTo) {
+            if (now - (announcedTo[ref] ?: 0L) < 60_000L) return
+            announcedTo[ref] = now
+        }
+        val mine = selfEndpoint() ?: return
+        Post.send(ref, Marks.mintMid(), ADDRESS + mine, quiet = true)
+        Log.d("Montana", "addr_announce")
+    }
+
+    /** A word from a correspondent: the pipe lives, and if no road of mine reaches them, my address is named (iOS ChatStore 3938-3947). */
+    fun heard(ref: String) {
+        if (synchronized(live) { live.values.none { it.ready && it.ref == ref } }) announce(ref)
+    }
+
+    /** A correspondent named their address (iOS MontanaNATService.peerAnnounced 58-66): into the book, dialled at once, mine named back. */
+    fun peerAnnounced(ref: String, endpoint: String) {
+        val (ip, port) = split(endpoint) ?: return
+        synchronized(book) { book.getOrPut(ref) { LinkedHashSet() }.add(ip to port) }
+        Log.d("Montana", "addr_peer")
+        dialPeer(ip, port, ref)
+        announce(ref)
+    }
+
+    /** «[v6]:port» or «v4:port» (iOS MontanaEndpointParse.split): a string without a port is not an address. */
+    private fun split(ep: String): Pair<String, Int>? {
+        val e = ep.trim()
+        if (e.startsWith("[")) {
+            val close = e.indexOf(']')
+            if (close < 0) return null
+            val p = e.substring(close + 1).removePrefix(":").toIntOrNull()?.takeIf { it in 1..65535 } ?: return null
+            return e.substring(1, close) to p
+        }
+        if (e.count { it == ':' } != 1) return null
+        val p = e.substringAfter(':').toIntOrNull()?.takeIf { it in 1..65535 } ?: return null
+        return e.substringBefore(':') to p
+    }
+
+    /** A global address (iOS MontanaTransport.isGlobalIP, MontanaNetFrames 47-54): not private, not link-local, not a loopback. */
+    fun isGlobal(raw: String): Boolean {
+        val ip = raw.substringBefore('%')
+        val low = ip.lowercase()
+        if (ip.startsWith("10.") || ip.startsWith("192.168.") || ip.startsWith("169.254.") || ip == "127.0.0.1") return false
+        if (ip.startsWith("172.")) { val o = ip.split('.').getOrNull(1)?.toIntOrNull(); if (o != null && o in 16..31) return false }
+        if (low.startsWith("fe80") || low.startsWith("fc") || low.startsWith("fd") || low == "::1") return false
+        return true
     }
 
     /** The distance between two claims: a bytewise exclusive OR (iOS MontanaP2PDirect.distance 1800-1806). */
