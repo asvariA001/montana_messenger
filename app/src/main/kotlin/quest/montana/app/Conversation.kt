@@ -1339,7 +1339,8 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                     if (mine && m.state == -1) addView(c.failedMark(), lp(dp(12), dp(12)).apply { marginStart = dp(4) })
                 }
                 addView(if (voice) pill(meta) else meta, lp(WRAP, WRAP))
-            }, lp(WRAP, WRAP).apply { if (voice) topMargin = dp(8) })
+            // iOS 966: the voice's stack leans to its own side -- their pills stand at the capsule's left edge, mine at its right
+            }, lp(WRAP, WRAP).apply { if (voice) { topMargin = dp(8); if (!mine) gravity = Gravity.START } })
         }, lp(WRAP, WRAP))
         if (m.reactions.isNotEmpty()) addView(c.hstack {
             m.reactions.groupingBy { it }.eachCount().forEach { (e, n) ->
