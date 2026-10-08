@@ -123,7 +123,7 @@ object Meeting {
         val root64 = MontanaCard.b64url(root)
         synchronized(gate) { jmap(CARDS).optString(root64).takeIf { it.isNotEmpty() && Book.secret(it) != null } }?.let { known ->
             if (inv != null) synchronized(gate) { jsave(SCANS, jmap(SCANS).put(MontanaCard.b64url(inv), known)) }
-            if (name.isNotEmpty()) Book.edit(known) { it.name = name }
+            if (name.isNotEmpty() && Book.admitState(known, "name", 0L)) Book.edit(known) { it.name = name }   // a card is undated: never over the peer's dated word
             return Outcome.Opened(known)
         }
         // One encapsulation, and the correspondence exists; the ciphertext waits for the first letter (iOS MontanaCard.meet).

@@ -138,7 +138,7 @@ object Calls {
         say(ref, seed, "call-ringing")   // the caller hears that it rings here (iOS 2218), for the birth and for each copy
         if (!fresh) { synchronized(gate) { ring?.takeIf { it.seed == seed } }?.let { voice(it) }; return }
         noteSeed(seed, "alive")
-        if (name.isNotBlank() && name.length <= 64) Book.edit(ref) { it.name = name.trim() }   // iOS onCallerNamed
+        if (name.isNotBlank() && name.length <= 64 && Book.admitState(ref, "name", 0L)) Book.edit(ref) { it.name = name.trim() }   // iOS onCallerNamed; undated, never over a dated word
         Signal.hold(ref, "call")
         show(ref, video)
         CallScreen.ring(ref)   // the app in front rings on its own screen too (iOS incomingScreen)

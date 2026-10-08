@@ -323,6 +323,20 @@ object Book {
         chats[ref] ?: Chat(ref, name, perm).also { chats[ref] = it; save(it); saveIndex() }
     }.also { changed() }
 
+    /**
+     * A STATE WORD IS APPLIED IN THE ORDER IT WAS SPOKEN, NOT RECEIVED (iOS ChatStore.stateIsCurrent 965-971, MTNameBook.admitDeclared
+     * 458-473; fork atom 1822): the box hands letters over in its own order and more than once, and seven writers of a name in any
+     * order let a card minted a year ago overwrite yesterday's rename. A word older than the one held is refused out loud; an undated
+     * one (a card, a call) never beats a dated word; the moment is kept per person and per kind.
+     */
+    fun admitState(ref: String, kind: String, at: Long): Boolean {
+        val key = "stateAt." + kind + "." + ref
+        val held = Prefs.str(key, "").toLongOrNull()
+        if (held != null && at < held) { Log.d("Montana", "state_stale " + kind + " older than the held one by " + (held - at) / 1000 + "s"); return false }
+        if (held == null || held < at) Prefs.setStr(key, at.toString())
+        return true
+    }
+
     /** Any change to a chat: written, and the screens told. */
     fun edit(ref: String, work: (Chat) -> Unit) {
         synchronized(lock) { ensure(); val c = chats[ref] ?: return; work(c); save(c) }
@@ -804,9 +818,11 @@ object Post {
             text.startsWith(CONVDEL_MARK) -> { receipt(ref, sid); Book.chat(ref)?.msgs?.toList()?.forEach { CoinSend.release(it, ref) }; buryChat(ref) }
             text.startsWith(Marks.NAME) -> {
                 val n = text.removePrefix(Marks.NAME).trim()
-                if (n.isNotEmpty() && n.length <= 64) Book.edit(ref) { it.name = n }
+                if (n.isNotEmpty() && n.length <= 64 && Book.admitState(ref, "name", Marks.birthMs(sid) ?: 0L)) Book.edit(ref) { it.name = n }
                 receipt(ref, sid)
             }
+            // the face as the name: a word older than the one that stands changes nothing (iOS stateIsCurrent)
+            text.startsWith(Marks.AVATAR) && !Book.admitState(ref, "face", Marks.birthMs(sid) ?: 0L) -> receipt(ref, sid)
             text.startsWith(Marks.AVATAR) -> {
                 val b64 = text.removePrefix(Marks.AVATAR)
                 val face = if (b64.isEmpty()) null else runCatching { Base64.decode(b64, Base64.DEFAULT) }.getOrNull()
