@@ -150,8 +150,32 @@ fun Context.letterThumb(m: Msg, kind: String, sideDp: Int = 20): View {
 /** The face of a correspondent: the face laid beside the pipe, else the drawn initial (iOS MontanaAvatar). */
 fun Context.peerFace(ref: String, name: String, sizeDp: Int): View {
     val f = Book.shownFace(ref)
-    val bmp = if (f.exists()) BitmapFactory.decodeFile(f.path) else null
+    val bmp = if (sizeDp <= 64) SmallPicture.of(f) else if (f.exists()) BitmapFactory.decodeFile(f.path) else null
     return avatar(bmp, name.ifBlank { "?" }, sizeDp)
+}
+
+/**
+ * EVERY SMALL PICTURE IN A ROW IS BORN SMALL (iOS MontanaSmallPicture, MontanaMedia 1754-1760, the author's word 16.09): a face of 64
+ * or less is drawn from a copy 192 px on its long side, decoded once and kept while its file stands unchanged — never the whole
+ * photograph decoded again for every row.
+ */
+object SmallPicture {
+    private const val SIDE = 192
+    private val kept = object : android.util.LruCache<String, android.graphics.Bitmap>(4 * 1024 * 1024) {
+        override fun sizeOf(key: String, value: android.graphics.Bitmap) = value.byteCount
+    }
+    fun of(f: java.io.File): android.graphics.Bitmap? {
+        if (!f.exists()) return null
+        val key = f.path + "@" + f.lastModified()
+        kept.get(key)?.let { return it }
+        val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(f.path, o)
+        var step = 1
+        while (SIDE <= maxOf(o.outWidth, o.outHeight) / (step * 2)) step *= 2
+        val b = BitmapFactory.decodeFile(f.path, BitmapFactory.Options().apply { inSampleSize = step }) ?: return null
+        kept.put(key, b)
+        return b
+    }
 }
 
 // ─────────────────────────── the banner (iOS MontanaNotify) ───────────────────────────
@@ -1553,6 +1577,9 @@ private fun roundNote(m: Msg): Boolean {
 private fun playNote(act: MainActivity, f: java.io.File, chat: Chat?) {
     NoteOpen.close?.invoke()
     VoicePlayer.stop()
+    // A TRACK STEPS ASIDE WITH ITS PLACE (iOS VoicePlayer.stepAside / noteClosed, 26.09): the music rests for the note and plays on after it
+    val musicWas = MusicPlayer.playing
+    if (musicWas) MusicPlayer.pause()
     val c: Context = act
     val side = noteSide(c)
     val notes = chat?.msgs?.filter { roundNote(it) }?.mapNotNull { m -> m.file?.let { java.io.File(it) }?.takeIf { it.exists() } }.orEmpty()
@@ -1596,7 +1623,7 @@ private fun playNote(act: MainActivity, f: java.io.File, chat: Chat?) {
         override fun onSurfaceTextureUpdated(st: android.graphics.SurfaceTexture) {}
     }
     val done = act.overlay(page)
-    close = { player?.runCatching { stop(); release() }; player = null; NoteOpen.close = null; done() }
+    close = { player?.runCatching { stop(); release() }; player = null; NoteOpen.close = null; done(); if (musicWas && !MusicPlayer.playing) MusicPlayer.resume() }
     NoteOpen.close = close
 }
 
