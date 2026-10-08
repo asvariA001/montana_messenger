@@ -36,13 +36,6 @@ fun contactRow(act: MainActivity, ch: Chat): View {
     }
 }
 
-/** «Block this person?» — the profile's own question and note (PeerInfo), then the block. */
-private fun askBlock(act: MainActivity, ref: String) {
-    AlertDialog.Builder(act).setTitle(R.string.pi_block_q).setMessage(R.string.pi_block_note)
-        .setPositiveButton(R.string.pi_block) { _, _ -> PeerSafety.setBlocked(ref, true); Book.edit(ref) {} }
-        .setNegativeButton(R.string.cancel, null).show()
-}
-
 /**
  * THE DEEDS ABOUT A PERSON (iOS ContactsTabView.deeds): Write · Profile · Archive / Unarchive · Delete · Block / Unblock.
  * The calls of iOS wait for the calls themselves.
@@ -57,7 +50,7 @@ private fun contactMenu(act: MainActivity, ch: Chat) {
         Deed(R.string.cl_delete, R.drawable.ic_delete, red = true) { askDeleteChat(act, ref) },
     )
     deeds += if (PeerSafety.isBlocked(ref)) Deed(R.string.pi_unblock, R.drawable.ic_set_lock) { PeerSafety.setBlocked(ref, false); Book.edit(ref) {} }
-             else Deed(R.string.pi_block, R.drawable.ic_set_lock, red = true) { askBlock(act, ref) }
+             else Deed(R.string.pi_block, R.drawable.ic_set_lock, red = true) { askBlock(act, ref) { Book.edit(ref) {} } }   // the lists hear the book
     holdMenu(act, contactRow(act, ch), deeds)
 }
 

@@ -54,26 +54,72 @@ fun buryChat(ref: String) = Thread { Post.flush(); ChatMarks.forget(ref); Book.f
 fun deleteForBoth(ref: String) { Post.send(ref, Marks.mintMid(), CONVDEL_MARK); buryChat(ref) }
 
 /**
- * THE DELETION ASKED ONCE (iOS MontanaDeleteChatSheet): «Permanently delete the chat with …?» — for me and them, when a pipe
- * still stands; for me only. The correspondent's side is erased only by the first.
+ * THE DELETION ASKED ONCE (iOS MontanaDeleteChatSheet, ContentView 4442-4467): «Permanently delete the chat with …?» on the person's
+ * face — for me and them, when a pipe still stands; for me only. The correspondent's side is erased only by the first.
  */
 fun askDeleteChat(act: MainActivity, ref: String, done: () -> Unit = {}) {
     val name = Book.chat(ref)?.shown?.ifBlank { null } ?: act.getString(R.string.peer)
+    val question = act.getString(R.string.dl_q, name)   // USER-DATA: the name
     // A COIN LETTER OF MINE ON ITS WAY IN THIS CHAT (iOS MontanaDeleteChatSheet coinsTravel, ChatStore.deleteChat 5427-5429): the
     // question says so and offers no deletion — the erasure would take the letter off the road with its coins
-    if (CoinSend.travelsIn(ref)) {
-        AlertDialog.Builder(act).setTitle(act.getString(R.string.dl_q, name)).setMessage(R.string.coins_travel_chat)   // USER-DATA: the name
-            .setNegativeButton(R.string.cancel, null).show()
-        return
-    }
+    if (CoinSend.travelsIn(ref)) { faceSheet(act, ref, question, act.getString(R.string.coins_travel_chat), emptyList()); return }
     val both = Book.secret(ref) != null
-    val words = listOfNotNull(if (both) act.getString(R.string.dl_both) else null, act.getString(R.string.dl_mine)).toTypedArray()
-    AlertDialog.Builder(act).setTitle(act.getString(R.string.dl_q, name))   // USER-DATA: the name
-        .setItems(words) { _, which ->
-            if (both && which == 0) deleteForBoth(ref) else { ChatMarks.forget(ref); Book.forget(ref) }
-            done()
+    faceSheet(act, ref, question, null, listOfNotNull(
+        if (both) FaceDeed(act.getString(R.string.dl_both), true) { deleteForBoth(ref); done() } else null,
+        FaceDeed(act.getString(R.string.dl_mine), false) { ChatMarks.forget(ref); Book.forget(ref); done() }))
+}
+
+/** «Block this person?» on the person's face (iOS MontanaBlockSheet 4469-4483): one question for the profile and the contacts. */
+fun askBlock(act: MainActivity, ref: String, done: () -> Unit = {}) =
+    faceSheet(act, ref, act.getString(R.string.pi_block_q), act.getString(R.string.pi_block_note),
+        listOf(FaceDeed(act.getString(R.string.pi_block_contact), true) { PeerSafety.setBlocked(ref, true); done() }))
+
+/** One deed of the face-sheet: its words, red when it destroys, and what it does. */
+class FaceDeed(val words: String, val destructive: Boolean, val work: () -> Unit)
+
+/**
+ * THE ONE SHEET FOR A QUESTION ABOUT A PERSON (iOS MontanaFaceSheet, ContentView 4485-4547, the author's word 15.09: the block's
+ * confirmation wears the same look as the deletion's): the face, the question, an optional note in small type, the deeds in order
+ * of descending consequence on one plate, «Cancel» on a plate of its own; a tap on the dim is «Cancel».
+ */
+fun faceSheet(act: MainActivity, ref: String, question: String, note: String?, deeds: List<FaceDeed>) {
+    val c: Context = act
+    var close: () -> Unit = {}
+    lateinit var card: LinearLayout
+    fun leave(then: () -> Unit) {
+        card.animate().translationY(c.dp(40).toFloat()).alpha(0f).setDuration(150).withEndAction { close(); then() }.start()
+    }
+    fun plate() = android.graphics.drawable.GradientDrawable().apply { cornerRadius = c.dp(14).toFloat(); setColor(Color.argb(235, 44, 44, 46)) }
+    fun deed(words: String, red: Boolean, bold: Boolean, work: () -> Unit) =
+        c.text(words, 17f, if (red) SysColor.red else Color.WHITE, bold = bold, center = true).apply {
+            gravity = Gravity.CENTER; setPadding(0, c.dp(16), 0, c.dp(16)); pressable { leave(work) }
         }
-        .setNegativeButton(R.string.cancel, null).show()
+    card = c.vstack(Gravity.NO_GRAVITY) {
+        setPadding(dp(8), 0, dp(8), dp(8))
+        isClickable = true   // a tap on the card is not a tap on the dim
+        addView(c.vstack(Gravity.CENTER_HORIZONTAL) {
+            background = plate()
+            addView(c.vstack(Gravity.CENTER_HORIZONTAL) {
+                setPadding(dp(20), dp(20), dp(20), dp(16))
+                addView(c.peerFace(ref, Book.chat(ref)?.shown.orEmpty(), 72), lp(dp(72), dp(72)))
+                addView(c.text(question, 15f, Color.WHITE, center = true), lp().apply { topMargin = dp(12) })
+                if (note != null) addView(c.text(note, 13f, MT.gray, center = true), lp().apply { topMargin = dp(12) })
+            }, lp())
+            for (d in deeds) {
+                addView(View(c).apply { setBackgroundColor(Color.argb(31, 255, 255, 255)) }, lp(MATCH, 1))
+                addView(deed(d.words, d.destructive, false, d.work), lp())
+            }
+        }, lp())
+        addView(deed(c.getString(R.string.cancel), false, true) {}.apply { background = plate() }, lp().apply { topMargin = dp(8) })
+    }
+    val page = FrameLayout(c).apply {
+        setBackgroundColor(Color.argb(115, 0, 0, 0))   // iOS black 0.45
+        setOnClickListener { leave {} }
+        addView(card, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM))
+    }
+    card.translationY = c.dp(40).toFloat(); card.alpha = 0f
+    close = act.overlay(page)
+    card.animate().translationY(0f).alpha(1f).setDuration(300).setInterpolator(android.view.animation.DecelerateInterpolator()).start()
 }
 
 /** Pin or unpin; a sixth pin is refused as iOS refuses it — quietly, the row stays where it was. */

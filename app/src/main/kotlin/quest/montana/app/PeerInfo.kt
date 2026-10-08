@@ -303,9 +303,7 @@ fun peerInfoPage(act: MainActivity, ref: String, onClose: () -> Unit,
         })
         second.add(row(R.drawable.ic_hand, c.getString(if (blocked) R.string.pi_unblock else R.string.pi_block), red = true) {
             if (blocked) { PeerSafety.setBlocked(ref, false); redrawAll() }
-            else AlertDialog.Builder(c).setTitle(R.string.pi_block_q).setMessage(R.string.pi_block_note)
-                .setPositiveButton(R.string.pi_block_contact) { _, _ -> PeerSafety.setBlocked(ref, true); redrawAll() }
-                .setNegativeButton(R.string.cancel, null).show()
+            else askBlock(act, ref) { redrawAll() }
         })
         sections.addView(glassGroup(*second.toTypedArray()), lp().apply { topMargin = c.dp(22) })
     }
