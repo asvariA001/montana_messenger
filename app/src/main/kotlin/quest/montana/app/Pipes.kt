@@ -85,20 +85,28 @@ object Wire {
             && hex(bodyKey(s32, 1000)) == "e25542e65a84d1a5b5c72a13172ecb62319c18f21a59978a53e7dac2c22a966a"
     }
 
-    /** One POST of JSON to a door: the code and the body (a door that does not answer is -1). */
-    fun post(door: String, path: String, body: JSONObject, timeout: Int = 8000): Pair<Int, String?> = try {
-        val raw = body.toString().toByteArray(Charsets.UTF_8)
-        val conn = URL(door + path).openConnection() as HttpURLConnection
-        conn.requestMethod = "POST"; conn.doOutput = true
-        conn.connectTimeout = timeout; conn.readTimeout = timeout
-        conn.setRequestProperty("content-type", "application/json")
-        conn.setFixedLengthStreamingMode(raw.size)
-        conn.outputStream.use { it.write(raw) }
-        val code = conn.responseCode
-        val text = if (code == 200) conn.inputStream.use { it.readBytes().toString(Charsets.UTF_8) } else null
-        conn.disconnect()
-        code to text
-    } catch (_: Exception) { -1 to null }
+    /**
+     * One POST of JSON to a door: the code and the body (a door that does not answer is -1). `lane` — the signal lane's book of
+     * requests in flight: a path change or the lane door's death cuts every one of them at once (Signal.cut).
+     */
+    fun post(door: String, path: String, body: JSONObject, timeout: Int = 8000, lane: MutableSet<HttpURLConnection>? = null): Pair<Int, String?> {
+        var held: HttpURLConnection? = null
+        return try {
+            val raw = body.toString().toByteArray(Charsets.UTF_8)
+            val conn = URL(door + path).openConnection() as HttpURLConnection
+            held = conn
+            lane?.let { synchronized(it) { it.add(conn) } }
+            conn.requestMethod = "POST"; conn.doOutput = true
+            conn.connectTimeout = timeout; conn.readTimeout = timeout
+            conn.setRequestProperty("content-type", "application/json")
+            conn.setFixedLengthStreamingMode(raw.size)
+            conn.outputStream.use { it.write(raw) }
+            val code = conn.responseCode
+            val text = if (code == 200) conn.inputStream.use { it.readBytes().toString(Charsets.UTF_8) } else null
+            conn.disconnect()
+            code to text
+        } catch (_: Exception) { -1 to null } finally { held?.let { c -> lane?.let { synchronized(it) { it.remove(c) } } } }
+    }
 
     /** A blob onto the node (iOS putBlob): POST /blob-put {bid, data}; true once a door holds it. */
     /**

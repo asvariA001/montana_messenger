@@ -33,10 +33,10 @@ object Signal {
         i.end(); out.toByteArray()
     }.getOrNull()
 
-    /** One word on the lane to every door: per-node stores do not talk, and the other side asks whichever it asks. */
+    /** One word on the lane, at the door the other side asks (iOS postSignal): per-node stores do not talk to each other. */
     fun post(ref: String, text: String) = postWord(ref, "chat", text.toByteArray())
 
-    /** A word of any epoch (iOS postSignal): «chat» for the live words, a call's own epoch for its words (Calls). */
+    /** A word of any epoch (iOS postSignal 3000-3054): «chat» for the live words, a call's own epoch for its words (Calls). */
     fun postWord(ref: String, epoch: String, payload: ByteArray) {
         val twin = MontanaSeed.twin ?: return
         val secret = Book.secret(ref) ?: return
@@ -45,11 +45,18 @@ object Signal {
             val sealed = Wire.seal(Wire.bodyKey(secret, Wire.minute()), body) ?: return@Thread
             val cw = Wire.convW(secret, Wire.day())
             val req = JSONObject().put("conv", cw).put("from_id", Wire.subId(cw, twin)).put("env", Base64.encodeToString(sealed, Base64.NO_WRAP))
-            // a chat word passes a door resting dead for me; a call's word knocks every door (iOS postSignal 3010-3033)
-            val doors = if (epoch == "chat") MontanaCard.doors.filter { doorAlive(it) }.ifEmpty { MontanaCard.doors } else MontanaCard.doors
+            // THE PEER NAMED THE DOORS THEY ASK — the word goes to the conversation's door and nowhere else; a peer who has not (an old
+            // build, a fresh chat before its first beacon) gets it on every living door, and whichever it asks, the word is there
+            // (iOS postSignal 3008-3013)
+            val doors = (if (peerDoors(ref) != null) listOf(signalDoor(ref)) else Doors.ordered("signal").filter { doorAlive(it) }).filter { it.isNotEmpty() }.toMutableList()
+            // A CALL KNOCKS EVERY DOOR (iOS 3014-3021, 15.13): a door dead a minute ago is the very door the path may carry again now
+            if (epoch != "chat" || Calls.busy() || doors.isEmpty()) for (b in callDoors()) if (b !in doors) doors.add(b)
+            if (doors.isEmpty()) { Log.d("Montana", "sig_tx SKIP no-door"); return@Thread }
             for (door in doors) {
-                val (code, _) = Wire.post(door, "/signal", req, 8000)
-                if (code == 200) doorAnswered(door) else doorFailed(door, code)
+                // a chat word that waited past its door's death does not dial it (iOS 3033-3037)
+                if (epoch == "chat" && !doorAlive(door) && !Calls.busy()) continue
+                val (code, _) = onLane { Wire.post(door, "/signal", req, 8000, it) }
+                if (code == 200) doorAnswered(door) else if (code != CUT) doorFailed(door, code)
             }
         }.start()
     }
@@ -62,6 +69,7 @@ object Signal {
     fun doorFailed(door: String, code: Int) {
         if (code != -1 && code < 500) { doorAnswered(door, proved = false); return }
         val now = System.currentTimeMillis()
+        var wasChosen = false
         val rest = synchronized(deadUntil) {
             if ((deadUntil[door] ?: 0L) > now) return
             val n = (doorFails[door] ?: 0) + 1
@@ -70,9 +78,13 @@ object Signal {
             doorFails[door] = 0
             val streak = minOf((deathStreak[door] ?: 0) + 1, 4)
             deathStreak[door] = streak
+            wasChosen = chosen == door
+            if (wasChosen) chosen = null
             (60_000L shl (streak - 1)).also { deadUntil[door] = now + it }
         }
         Log.d("Montana", "sig_door dead " + host(door) + " code=" + code + " — not asked for " + rest / 1000 + "s")
+        // THE STANDING QUESTION LEAVES A DEAD DOOR NOW (iOS baseFailed 351-354): the lane is cut and re-elected the same instant
+        if (wasChosen) cut("door " + host(door) + " dead — the standing question leaves it")
     }
     fun doorAnswered(door: String, proved: Boolean = true) {
         val revived = synchronized(deadUntil) {
@@ -89,7 +101,8 @@ object Signal {
         }
     }
     private val draining = java.util.concurrent.atomic.AtomicBoolean(false)
-    fun doorAlive(door: String) = synchronized(deadUntil) { (deadUntil[door] ?: 0L) <= System.currentTimeMillis() }
+    /** Alive for me (iOS doorAlive 468-474): not silent in the last round of the doors, not resting dead by my own two silences. */
+    fun doorAlive(door: String) = !Doors.silent(door) && synchronized(deadUntil) { (deadUntil[door] ?: 0L) <= System.currentTimeMillis() }
     /** PROOF OF A DOOR (iOS doorProof): the moment it last answered me with 200 since the path changed — keyed by host. */
     private val proof = HashMap<String, Long>()
     /**
@@ -102,8 +115,79 @@ object Signal {
         doors.sortedWith(compareBy({ if (now < (deadUntil[it] ?: 0L)) 2 else if (proof.containsKey(host(it))) 0 else 1 }, { -(proof[host(it)] ?: 0L) }))
     }
     private fun host(door: String) = android.net.Uri.parse(door).host ?: door
-    /** The doors alive for me, in the list's order — what I name to the peer with every word (iOS signalDoors 497-499). */
-    fun aliveHosts(): List<String> = MontanaCard.doors.filter { doorAlive(it) }.map { host(it) }
+    /** The doors alive for me, in the network's order — what I name to the peer with every word (iOS signalDoors 500-503). */
+    fun aliveHosts(): List<String> = Doors.ordered("signal").filter { doorAlive(it) }.map { host(it) }
+    fun proveDoor(door: String) { synchronized(deadUntil) { proof[host(door)] = System.currentTimeMillis() } }
+
+    // ═══ ONE DOOR FOR SIGNALS (iOS 410-445, 15.2) ═══
+    // Measured 04.09 22:40-23:00: each draft word went to three doors, the question walked a fourth rule — the two sides never shared
+    // one. The lane has one decision point: elected by the network's order among the doors holding the signal, kept while it answers.
+    private var chosen: String? = null
+    fun signalDoor(): String {
+        val order = Doors.ordered("signal")
+        var fresh: String? = null
+        val pick = synchronized(deadUntil) {
+            val now = System.currentTimeMillis()
+            val all = order.filter { (deadUntil[it] ?: 0L) <= now }
+            val c = chosen
+            if (c != null && c in all) c else (all.firstOrNull() ?: order.firstOrNull())?.also { chosen = it; fresh = it } ?: ""
+        }
+        fresh?.let { Log.d("Montana", "sig_door elected " + host(it)) }
+        return pick
+    }
+
+    // ── where the peer listens (iOS notePeerDoor/peerDoors 554-573) ──
+    private val peerBook = HashMap<String, Pair<List<String>, Long>>()
+    /** The doors alive for the peer, in their order, named in their word — the draft's «d», the beacon's «@» tail. */
+    fun notePeerDoor(ref: String, named: String) {
+        val hs = named.lowercase().split(',').filter { h -> h.isNotEmpty() && h.length <= 64 && h.all { it.isLetterOrDigit() || it == '.' || it == '-' } }
+        if (hs.isEmpty() || hs.size > 16) return
+        val old = synchronized(peerBook) { peerBook.put(ref, hs to System.currentTimeMillis())?.first }
+        if (old != hs) Log.d("Montana", "sig_door peer listens at " + hs.joinToString(","))
+    }
+    /** What they named, while it is fresh — three beats of twenty seconds; else null, and a word knocks every living door. */
+    fun peerDoors(ref: String): List<String>? = synchronized(peerBook) { peerBook[ref]?.takeIf { System.currentTimeMillis() - it.second < 60_000L }?.first }
+    /**
+     * THE DOOR OF A CONVERSATION (iOS signalDoor(for:) 505-518) — one rule both sides compute alike: the first door, in the network's
+     * own order, alive for me and named alive by the peer. Measured 05.09: one phone under its tunnel could not reach the first
+     * door, the other on cellular could not reach the second — each posted into the other's hole. No common door yet — mine.
+     */
+    fun signalDoor(ref: String): String {
+        val mine = signalDoor()
+        val theirs = peerDoors(ref) ?: return mine
+        return Doors.ordered("signal").firstOrNull { doorAlive(it) && host(it) in theirs } ?: mine
+    }
+    /** THE DOORS OF A CALL (iOS callDoors 475-492): alive and proven first, alive after them, the doors resting dead last. */
+    fun callDoors(): List<String> {
+        val all = Doors.ordered("signal")
+        val alive = all.filter { doorAlive(it) }
+        val proven = synchronized(deadUntil) { proof.keys.toSet() }
+        return alive.filter { host(it) in proven } + alive.filter { host(it) !in proven } + all.filter { it !in alive }
+    }
+
+    // ── the lanes (iOS sigSessions and postLane: networkPathChanged 520-537, cutStandingQuestion 538-551) ──
+    private const val CUT = -2
+    private val asking = HashSet<java.net.HttpURLConnection>()
+    private val laneGen = java.util.concurrent.atomic.AtomicInteger()
+    /** A post on the lane: cut by our own hand, it leaves again at once on the fresh lane — and the cut teaches nothing of the door. */
+    private fun onLane(ask: (MutableSet<java.net.HttpURLConnection>) -> Pair<Int, String?>): Pair<Int, String?> {
+        repeat(2) {
+            val gen = laneGen.get()
+            val got = ask(asking)
+            if (gen == laneGen.get()) return got
+        }
+        return CUT to null
+    }
+    /**
+     * THE STANDING QUESTION IS CUT (iOS cutStandingQuestion 538-551) — one move for two facts: the network path changed, the lane's
+     * door died. Every request in flight fails this instant, and each conversation asks again at once, at its door as it stands now.
+     */
+    private fun cut(why: String) {
+        laneGen.incrementAndGet()
+        val held = synchronized(asking) { asking.toList().also { asking.clear() } }
+        Thread { for (c in held) runCatching { c.disconnect() } }.start()
+        Log.d("Montana", "sig_lane " + why + " — asking again now")
+    }
 
     private var pathWatched = false
     /** THE NETWORK PATH CHANGED (iOS 516-528): dead on one path says nothing of another — every door is forgiven at once. */
@@ -119,9 +203,9 @@ object Signal {
         }
     }
     private fun forgive(why: String) {
-        synchronized(deadUntil) { deadUntil.clear(); doorFails.clear(); deathStreak.clear(); proof.clear() }   // proof on one path says nothing of another
-        Log.d("Montana", "sig_lane " + why + " — every door forgiven")
+        synchronized(deadUntil) { deadUntil.clear(); doorFails.clear(); deathStreak.clear(); proof.clear(); chosen = null }   // proof on one path says nothing of another
         Wire.forgetGone()   // a new path may reach a store the old one could not
+        cut(why + " — every door forgiven, every lane cut")   // the questions in flight stood on the old path's socket (iOS 520-537)
     }
 
     /**
@@ -148,11 +232,11 @@ object Signal {
     private val holders = HashMap<String, MutableSet<String>>()
     private val running = HashMap<String, Int>()
 
-    /** THE LANE OF ONE CONVERSATION stands while anyone holds it — the open chat, a call ringing — one long question per door. */
+    /** THE LANE OF ONE CONVERSATION stands while anyone holds it — the open chat, a call ringing — one long question, at its door. */
     fun hold(ref: String, why: String) {
         val start = synchronized(holders) {
             holders.getOrPut(ref) { mutableSetOf() }.add(why)
-            ((running[ref] ?: 0) == 0).also { if (it) running[ref] = MontanaCard.doors.size }
+            ((running[ref] ?: 0) == 0).also { if (it) running[ref] = 1 }
         }
         if (start) listen(ref)
     }
@@ -172,11 +256,11 @@ object Signal {
     }
 
     /**
-     * THE LONG QUESTION (iOS fetchSignals): each door asked with a wait of twelve seconds — the doors' gate cuts at fifteen —
-     * and asked again the moment it answers, while the lane is held.
+     * THE LONG QUESTION (iOS fetchSignals 3270-3321): the conversation's door asked with a wait of twelve seconds — the doors' gate
+     * cuts at fifteen — and asked again the moment it answers, while the lane is held.
      */
     private fun listen(ref: String) {
-        for (door in MontanaCard.doors) Thread {
+        Thread {
             var fails = 0
             while (true) {
                 val twin = MontanaSeed.twin
@@ -187,10 +271,14 @@ object Signal {
                     ok
                 }
                 if (!go || twin == null || secret == null) return@Thread
-                // the standing question leaves a door resting dead for me; a path change forgives it (iOS 442-445, 516-528)
-                if (!doorAlive(door)) { Thread.sleep(2000); continue }
+                // ONE QUESTION, AT THE CONVERSATION'S DOOR (iOS fetchSignals 3276-3277): the first door alive for both, or mine
+                val door = signalDoor(ref)
+                if (door.isEmpty()) { Thread.sleep(2000); continue }
+                val gen = laneGen.get()
                 val cw = Wire.convW(secret, Wire.day())
-                val (code, text) = Wire.post(door, "/signal-fetch", JSONObject().put("conv", cw).put("from_id", Wire.subId(cw, twin)).put("wait", 12), 15_000)
+                val (code, text) = Wire.post(door, "/signal-fetch", JSONObject().put("conv", cw).put("from_id", Wire.subId(cw, twin)).put("wait", 12), 15_000, asking)
+                // CUT BY OUR OWN HAND (iOS 3304-3307, 3317): the fresh lane asks now, and a question we cut says nothing of the door
+                if (gen != laneGen.get()) { fails = 0; continue }
                 EarService.awake()   // the answer woke the phone: it stays up for the word and the next question (the app closed)
                 if (code != 200 || text == null) { doorFailed(door, code); fails++; Thread.sleep(minOf(10_000L, 1000L * fails)); continue }
                 doorAnswered(door)
@@ -321,6 +409,8 @@ object Presence {
             text.startsWith(WATCH) || text.startsWith(APP) -> {
                 val chat = text.startsWith(WATCH)
                 val payload = text.removePrefix(if (chat) WATCH else APP)
+                // THE DOORS THEY ASK (iOS ChatStore 3910-3912, WakePush 3252): my words for them go there
+                payload.indexOf('@').takeIf { it >= 0 }?.let { Signal.notePeerDoor(ref, payload.substring(it + 1)) }
                 Prefs.setBool("phide_$ref", payload.drop(1).contains('h'))
                 val open = payload.startsWith("1")
                 if (age <= WORD_LIFE) Board.heardPresence(ref, payload)   // their wall's version (iOS heardHeld, wallHeard)

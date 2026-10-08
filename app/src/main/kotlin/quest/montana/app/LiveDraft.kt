@@ -87,6 +87,7 @@ object LiveDraft {
     /** A draft word of theirs off the lane. true — a keystroke said now (it lights «typing…»). */
     fun hear(ref: String, word: String): Boolean {
         val j = runCatching { JSONObject(String(Base64.decode(word.removePrefix(MARK), Base64.DEFAULT), Charsets.UTF_8)) }.getOrNull() ?: return false
+        j.optString("d").takeIf { it.isNotEmpty() }?.let { Signal.notePeerDoor(ref, it) }   // the doors they ask (iOS handleMeshDraft 1032)
         val n = j.optLong("n", 0)
         if (n > 0) { if (n <= (heardAt[ref] ?: 0)) return false; heardAt[ref] = n }   // an older word is an echo of the road
         // THEIR DAILY LINK, handed to us to hand on (iOS MTPeerLinks.note); their ask for mine is answered at once (iOS rq)
