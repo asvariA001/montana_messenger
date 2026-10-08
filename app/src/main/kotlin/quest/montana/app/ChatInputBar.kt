@@ -7,7 +7,9 @@ import android.text.Editable
 import android.text.InputType
 import android.text.TextWatcher
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
+import android.view.VelocityTracker
 import android.view.ViewOutlineProvider
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
@@ -15,6 +17,7 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.Toast
+import kotlin.math.abs
 
 /**
  * THE COMPOSE BAR (iOS ChatInputBar): one bar for every chat, in two shapes the person chooses with its own arrow — and the
@@ -179,81 +182,151 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
     }
 
     /**
-     * THE RECORDING BUTTON (iOS MTComposeMark .voice / .video): the artwork, grown by a third and cut round. A tap switches
-     * the microphone and the camera, and the choice is remembered; a hold would record — Android records nothing yet.
+     * THE RECORDING BUTTON (iOS MTComposeMark .voice / .video under MontanaHoldControl): the artwork, grown by a third and cut round.
+     * It tracks its own touch as the iOS control does (MontanaHoldControl 25-149, the author's word 19.09): a press shorter than 0.19 s
+     * is a tap — it switches the microphone and the camera, and the choice is remembered; a longer one records. Held, the key is the
+     * send artwork riding up with the finger towards the lock and fading towards the bin (iOS swollen, MTHoldOverlayView 941-965).
+     * ONE VERDICT WHEN THE FINGER LEAVES, on the dominant axis only: a hundred points left or a flick left past four hundred a second
+     * drops the tape, sixty up or a flick up locks it, anything else sends; on the way, a hundred and fifty left drops and a hundred
+     * and ten up locks. The system taking the touch never throws a tape away: a second later it locks and rolls on.
      */
     private inner class RecordKey(c: Context) : FrameLayout(c) {
-        private val face = ImageView(c).apply { scaleType = ImageView.ScaleType.FIT_CENTER; scaleX = 1.33f; scaleY = 1.33f }
+        private val face = ImageView(c).apply { scaleType = ImageView.ScaleType.FIT_CENTER }
+        private var recording = false
+        private var recordingNote = false
+        private var locked = false
+        private var processing = false   // this touch is still the key's to judge
+        private var began = false        // the press outlived the mode timeout: a tape was asked for
+        private var lastDown = 0L
+        private var downX = 0f
+        private var downY = 0f
+        private var velocity: VelocityTracker? = null
+        private val begin = Runnable { if (processing) { began = true; scaleX = 1f; scaleY = 1f; start() } }
         init {
             addView(face, LayoutParams(MATCH, MATCH))
             outlineProvider = object : ViewOutlineProvider() {
                 override fun getOutline(v: View, o: Outline) { o.setOval(0, 0, v.width, v.height) }
             }
-            clipToOutline = true
             draw()
+            // the tap's deed, and an accessibility click's: a locked tape's key is its send arrow, otherwise the mark switches
             setOnClickListener {
-                // a locked tape's key is its send arrow (iOS: the crown's arrow sends); otherwise a tap switches the mark
                 if (locked) { finish(cancel = false); return@setOnClickListener }
                 Prefs.setStr(MODE_KEY, if (video) "mic" else "video")
                 draw()
             }
-            // THE HOLD RECORDS (iOS: hold the mark, speak, let go to send, slide left to drop) — when the page gives the voice's deeds.
-            setOnLongClickListener {
-                // The mark's mode decides the tape: the microphone's voice or the camera's round note (iOS MTComposeMark).
-                val start = if (video) onNoteStart else onVoiceStart
-                if (start == null) { notYet(); return@setOnLongClickListener true }
-                recordingNote = video
-                recording = start.invoke()
-                if (recording) { startX = lastX; startY = lastY; field.isEnabled = false; field.hint = c.getString(R.string.voice_hint); onRecLift?.invoke(0f) }
-                true
-            }
-            setOnTouchListener { v, e ->
-                lastX = e.rawX; lastY = e.rawY
-                if (recording && !locked) when (e.actionMasked) {
-                    android.view.MotionEvent.ACTION_MOVE -> {
-                        v.parent?.requestDisallowInterceptTouchEvent(true)
-                        // THE WAY UP TO THE LOCK (iOS lockWay 72): the plate's padlock closes as the finger rises
-                        val lift = ((startY - e.rawY) / dp(LOCK_WAY)).coerceIn(0f, 1f)
-                        onRecLift?.invoke(lift)
-                        if (lift >= 1f) {
-                            locked = true; draw(); field.hint = ""; onRecLocked?.invoke()   // no «release to send» over a locked tape (iOS)
-                            v.performHapticFeedback(android.view.HapticFeedbackConstants.CONFIRM)
-                        } else if (startX - e.rawX > dp(120)) finish(cancel = true)
-                    }
-                    android.view.MotionEvent.ACTION_UP -> { finish(cancel = false); return@setOnTouchListener true }
-                    android.view.MotionEvent.ACTION_CANCEL -> finish(cancel = true)
+            setOnTouchListener { v, e -> track(v, e); true }
+        }
+        override fun onAttachedToWindow() {
+            super.onAttachedToWindow()
+            // the swell rides above the bar (iOS: a window of its own over every layer): nothing between the key and the page cuts it
+            var p = parent
+            repeat(4) { (p as? android.view.ViewGroup)?.let { it.clipChildren = false; it.clipToPadding = false }; p = p?.parent }
+        }
+        private fun track(v: View, e: MotionEvent) {
+            val d = resources.displayMetrics.density
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    // a second press right after the first is a bounce, not a hold (iOS 85-88)
+                    if (e.eventTime - lastDown < BOUNCE_MS) { processing = false; return }
+                    lastDown = e.eventTime
+                    processing = true; began = false
+                    downX = e.rawX; downY = e.rawY
+                    velocity?.recycle(); velocity = VelocityTracker.obtain().also { it.addMovement(e) }
+                    v.parent?.requestDisallowInterceptTouchEvent(true)
+                    if (!locked) { scaleX = 0.94f; scaleY = 0.94f; postDelayed(begin, MODE_TIMEOUT_MS) }   // the small mark sinks under the finger
                 }
-                else if (locked && e.actionMasked == android.view.MotionEvent.ACTION_UP && e.eventTime - e.downTime > 400) return@setOnTouchListener true   // the finger that locked it lets go: the tape rolls on
-                false
+                MotionEvent.ACTION_MOVE -> {
+                    velocity?.addMovement(e)
+                    if (!processing || !began) return
+                    val dx = minOf(0f, (e.rawX - downX) / d)
+                    val dy = minOf(0f, (e.rawY - downY) / d)
+                    if (dx < -CANCEL_WAY_LIVE) { processing = false; finish(cancel = true); return }
+                    if (dy < -LOCK_WAY_LIVE) { processing = false; lockTape(); return }
+                    ride(minOf(1f, -dy / LOCK_WAY), dx < -CANCEL_WAY)
+                }
+                MotionEvent.ACTION_UP -> {
+                    removeCallbacks(begin); if (!began) { scaleX = 1f; scaleY = 1f }
+                    if (!processing) return
+                    processing = false
+                    if (!began) { performClick(); return }
+                    var dx = minOf(0f, (e.rawX - downX) / d)
+                    var dy = minOf(0f, (e.rawY - downY) / d)
+                    // ONE AXIS DECIDES (iOS 121-123): a thumb rolling off the key diagonally is judged by its dominant way
+                    if (abs(dx) > abs(dy)) dy = 0f else dx = 0f
+                    val vt = velocity
+                    vt?.addMovement(e); vt?.computeCurrentVelocity(1000)
+                    val vx = (vt?.xVelocity ?: 0f) / d
+                    val vy = (vt?.yVelocity ?: 0f) / d
+                    if (vx < -FLICK || dx < -CANCEL_WAY) finish(cancel = true)
+                    else if (vy < -FLICK || dy < -LOCK_WAY_END) lockTape()
+                    else finish(cancel = false)
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    removeCallbacks(begin); if (!began) { scaleX = 1f; scaleY = 1f }
+                    if (!processing) return
+                    processing = false
+                    // THE SYSTEM TOOK THE TOUCH, NOT THE PERSON (iOS 132-142): the tape is not thrown away — a second later it locks
+                    if (began) postDelayed({ lockTape() }, 1000)
+                }
             }
         }
-        private var recording = false
-        private var locked = false
-        private var startX = 0f
-        private var startY = 0f
-        private var lastX = 0f
-        private var lastY = 0f
+        private fun start() {
+            // the mark's mode decides the tape: the microphone's voice or the camera's round note (iOS MTComposeMark)
+            val start = if (video) onNoteStart else onVoiceStart
+            if (start == null) { processing = false; notYet(); return }
+            recordingNote = video
+            recording = start.invoke()
+            if (!recording) { processing = false; return }
+            field.isEnabled = false
+            draw(); ride(0f, false)
+        }
+        /** The swell under the finger (iOS swollen 941-965, «Release to send / cancel» over the strip): up with the finger, faint towards the bin. */
+        private fun ride(lift: Float, away: Boolean) {
+            translationY = -lift * dp(LOCK_WAY)
+            alpha = if (away) 0.45f else 1f
+            scaleX = if (away) 0.9f else 1f; scaleY = scaleX
+            field.hint = c.getString(if (away) R.string.release_cancel else R.string.release_send)
+            field.setHintTextColor(if (away) SysColor.red else Color.WHITE)
+            onRecLift?.invoke(lift)
+        }
+        private fun rest() { translationY = 0f; alpha = 1f; scaleX = 1f; scaleY = 1f }
+        /** Let go at the lock, or carried past it, or the system took the touch: the tape rolls on hands-free and this key sends it. */
+        private fun lockTape() {
+            if (!recording || locked) return
+            locked = true; rest(); field.hint = ""   // no «release to send» over a locked tape (iOS)
+            onRecLocked?.invoke()
+            performHapticFeedback(android.view.HapticFeedbackConstants.CONFIRM)
+        }
         private fun finish(cancel: Boolean) {
             if (!recording) return
-            recording = false
-            if (locked) { locked = false; draw() }
+            recording = false; locked = false
+            rest(); draw()
             onRecIdle?.invoke()
-            field.isEnabled = true; field.hint = c.getString(R.string.message_hint)
+            field.isEnabled = true; field.hint = c.getString(R.string.message_hint); field.setHintTextColor(MT.gray)
             if (recordingNote) onNoteEnd?.invoke(cancel) else onVoiceEnd?.invoke(cancel)
         }
-        private var recordingNote = false
         fun endHold() = finish(cancel = false)
         fun cancelHold() = finish(cancel = true)
         private val video get() = Prefs.str(MODE_KEY, "mic") == "video"
+        /** While a tape rolls the key is the send artwork, whole (iOS swell: MTComposeMark .send); at rest the mode's artwork, cut round. */
         private fun draw() {
-            if (locked) { face.setImageResource(R.drawable.send_button); contentDescription = c.getString(R.string.send); return }
+            face.scaleX = if (recording) 1f else 1.33f; face.scaleY = face.scaleX
+            clipToOutline = !recording
+            if (recording) { face.setImageResource(R.drawable.send_button); contentDescription = c.getString(R.string.send); return }
             face.setImageResource(if (video) R.drawable.video_record_button else R.drawable.voice_record_button)
             contentDescription = c.getString(if (video) R.string.record_video else R.string.record_voice)
         }
     }
 
     private companion object {
-        const val LOCK_WAY = 72                            // iOS lockWay: the finger's way up to the lock, in points
+        const val LOCK_WAY = 72                            // iOS lockWay: the swell's way up to the lock plate, in points
+        const val MODE_TIMEOUT_MS = 190L                   // iOS MontanaHoldControl.modeTimeout: a shorter press is a tap
+        const val BOUNCE_MS = 400L                         // a press this soon after the last one is a bounce (iOS beginTracking)
+        const val CANCEL_WAY = 100f                        // iOS cancelWay at the release, cancelWayLive on the way
+        const val CANCEL_WAY_LIVE = 150f
+        const val LOCK_WAY_END = 60f                       // iOS lockWayEnd at the release, lockWayLive on the way
+        const val LOCK_WAY_LIVE = 110f
+        const val FLICK = 400f                             // iOS flick, points a second
         const val TIER = 36                                // iOS MontanaOctagon.composeHeight
         val GLYPH = Color.rgb(204, 204, 204)               // iOS MontanaOctagon.barGlyph
         const val OPEN_KEY = "composeOpen"

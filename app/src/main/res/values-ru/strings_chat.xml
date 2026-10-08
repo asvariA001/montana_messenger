@@ -19,7 +19,8 @@
     <string name="open_word">Открыть</string>
     <string name="media_failed">Файл не дошёл до узла</string>
     <string name="loading_file">Загрузка…</string>
-    <string name="voice_hint">Запись… отпустите, чтобы отправить; влево — отмена</string>
+    <string name="release_send">Отпустите, чтобы отправить</string>   <!-- iOS «Release to send», over a held tape -->
+    <string name="release_cancel">Отпустите, чтобы отменить</string>
     <string name="invite_spent">Приглашение погашено. Попросите новый код.</string>
     <string name="invite_refused">Приглашение не открылось. Проверьте ссылку или попробуйте ещё раз.</string>
     <string name="invite_nameless">Имена на Android пока не поддерживаются — попросите ссылку-визитку.</string>

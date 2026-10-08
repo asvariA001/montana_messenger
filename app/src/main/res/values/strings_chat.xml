@@ -19,7 +19,8 @@
     <string name="open_word">Open</string>
     <string name="media_failed">The file did not reach the node</string>
     <string name="loading_file">Loading…</string>
-    <string name="voice_hint">Recording… release to send, slide left to cancel</string>
+    <string name="release_send">Release to send</string>   <!-- iOS «Release to send», over a held tape -->
+    <string name="release_cancel">Release to cancel</string>
     <string name="invite_spent">Invitation expired. Ask for a new code.</string>
     <string name="invite_refused">The invitation could not be opened. Check the link or try again.</string>
     <string name="invite_nameless">Names are not supported on Android yet — ask for a card link.</string>

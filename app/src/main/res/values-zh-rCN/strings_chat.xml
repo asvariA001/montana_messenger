@@ -19,7 +19,8 @@
     <string name="open_word">打开</string>
     <string name="media_failed">文件未到达节点</string>
     <string name="loading_file">加载中…</string>
-    <string name="voice_hint">录音中… 松开发送，左滑取消</string>
+    <string name="release_send">松开发送</string>   <!-- iOS «Release to send», over a held tape -->
+    <string name="release_cancel">松开取消</string>
     <string name="invite_spent">邀请已失效。请索取新的邀请码。</string>
     <string name="invite_refused">无法打开邀请。请检查链接或重试。</string>
     <string name="invite_nameless">Android 暂不支持名称——请索取名片链接。</string>
