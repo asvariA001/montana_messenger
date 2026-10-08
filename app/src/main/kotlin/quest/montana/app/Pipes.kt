@@ -197,10 +197,15 @@ object Wire {
         }
         return null
     }
+    /**
+     * THE CARGO'S OWN DEADLINE (iOS MTNodeWire.cargoTimeoutS 301-306, 17.09): the knock's five seconds plus a second per sixteen
+     * kilobytes — 64 KB waits 9 s, 512 KB waits 37 s; one rule for every road. A fixed minute held a dead door's piece a minute.
+     */
+    fun cargoTimeoutMs(bytes: Int): Int = 5_000 + (maxOf(0, bytes).toLong() * 1000 / 16_384).toInt()
     private fun putBlobAt(door: String, bid: String, data: ByteArray, cargo: String?, last: Boolean): Boolean {
         val body = JSONObject().put("bid", bid).put("data", Base64.encodeToString(data, Base64.NO_WRAP))
         if (cargo != null) { body.put("cg", cargo); if (last) body.put("last", true) }
-        val code = post(door, "/blob-put", body, 60_000).first
+        val code = post(door, "/blob-put", body, cargoTimeoutMs(data.size)).first
         if (code == 200) Signal.doorAnswered(door) else Signal.doorFailed(door, code)
         return code == 200
     }
