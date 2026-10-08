@@ -502,11 +502,16 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         } else {
             val r = replyTo
             replyTo = null
-            val mid = Marks.mintMid()
-            val qt = r?.let { letterWords(c, it).take(200) }
-            Book.edit(ref) { it.msgs.add(Msg(mid, words, true, Marks.birthMs(mid) ?: System.currentTimeMillis(), qt = qt, qm = r?.mid)) }
-            Post.send(ref, mid, words, qt, r?.mid)
-            LinkPreview.attend(ref, mid, words, qt, r?.mid)   // a link's card follows the letter (iOS MTLinkCards.attend)
+            // A LONG LETTER LEAVES IN PIECES (iOS breakOutgoingText 5917-5945, send 5973-5989): up to 4500 characters a bubble, backing off
+            // to the last line break or period, each piece a letter of its own; the quote rides with the first piece only
+            Groups.pieces(words).forEachIndexed { i, piece ->
+                val mid = Marks.mintMid()
+                val qt = if (i == 0) r?.let { letterWords(c, it).take(200) } else null
+                val qm = if (i == 0) r?.mid else null
+                Book.edit(ref) { it.msgs.add(Msg(mid, piece, true, Marks.birthMs(mid) ?: System.currentTimeMillis(), qt = qt, qm = qm)) }
+                Post.send(ref, mid, piece, qt, qm)
+                LinkPreview.attend(ref, mid, piece, qt, qm)   // a link's card follows the letter (iOS MTLinkCards.attend)
+            }
         }
         showStrip()
         toBottom()

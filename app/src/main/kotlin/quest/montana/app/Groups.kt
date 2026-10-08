@@ -724,7 +724,7 @@ object Groups {
         return p.substring(0, end)
     }
     /** Long words are cut into letters of up to the piece's characters, backing off to the last line break or period (iOS breakOutgoingText). */
-    private fun pieces(text: String): List<String> {
+    fun pieces(text: String): List<String> {
         if (graphemes(text) <= PIECE_CHARS) return listOf(text)
         val out = mutableListOf<String>()
         val cut = BreakIterator.getCharacterInstance().apply { setText(text) }
