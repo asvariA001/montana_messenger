@@ -1745,6 +1745,9 @@ private fun mediaBody(c: Context, m: Msg, into: LinearLayout, chat: Chat? = null
     val byExt = when (f?.extension?.lowercase()) { "jpg", "jpeg", "png", "gif", "webp", "heic", "heif" -> "img"; "mp4", "mov", "m4v", "webm", "3gp" -> "vid"; else -> "doc" }
     val kind = man?.optString("k")?.ifEmpty { null } ?: byExt
     val tint = BubbleStyle.text(m.mine)
+    // A MOVING PICTURE IS A GIF, NOT A STILL PICTURE (iOS MontanaGif.isGif, 23.09): the file's own extension says so; one not
+    // yet on the phone falls back to the waiting plate below, as any other picture does.
+    val isGif = kind == "img" && f?.extension?.lowercase() == "gif"
     if (kind == "aud") {
         val wv = man?.optString("wv")?.takeIf { it.isNotEmpty() }?.let { runCatching { android.util.Base64.decode(it, android.util.Base64.DEFAULT) }.getOrNull() }
         voiceBody(c, m, man?.optDouble("du", 0.0) ?: 0.0, into, wv?.let { b -> FloatArray(b.size) { (b[it].toInt() and 0xFF) / 255f } }, chat)
@@ -1752,7 +1755,9 @@ private fun mediaBody(c: Context, m: Msg, into: LinearLayout, chat: Chat? = null
     }
     if (kind == "vid" && man?.optBoolean("r") == true) { noteBody(c, m, f, man, into, chat); return }
     var capRoom = c.dp(240)
-    if (kind == "img" || kind == "vid") {
+    if (isGif && f != null) {
+        capRoom = gifBody(c, m, f, into)
+    } else if (kind == "img" || kind == "vid") {
         val pic = (f?.let { Media.preview(c, it, kind, 800) } ?: Media.thumbOf(man))
         // ONE PLATE FOR A PICTURE AND A VIDEO (iOS mediaBubble 1526-1574, the author's word 15.09): as wide as the widest of its contents —
         // the picture fitted, or the caption's own bubble — never the picture alone; a picture narrower than the plate keeps its fitted
@@ -1827,13 +1832,63 @@ private fun mediaBody(c: Context, m: Msg, into: LinearLayout, chat: Chat? = null
 
 private const val PLATE_CEILING = 300   // iOS MessageBubble.plateCeiling, points
 
-/** THE PICTURE'S BOX (iOS mediaBox 1390-1397): the long side at the plate's ceiling, the short one never under 130. */
-private fun mediaBox(c: Context, w0: Int, h0: Int): Pair<Int, Int> {
+/** THE PICTURE'S BOX (iOS mediaBox 1390-1397): the long side at the plate's ceiling, the short one never under 130 (in
+ *  proportion to a smaller ceiling, iOS MessageBubble.mediaBox 23.09, so a moving picture keeps the photo's own shape rules). */
+private fun mediaBox(c: Context, w0: Int, h0: Int, ceiling: Int = PLATE_CEILING): Pair<Int, Int> {
     val w = maxOf(w0, 1).toFloat()
     val h = maxOf(h0, 1).toFloat()
-    val long = PLATE_CEILING.toFloat()
-    return if (h <= w) c.dp(PLATE_CEILING) to c.dp(Math.round(maxOf(130f, long * h / w)))
-    else c.dp(Math.round(maxOf(130f, long * w / h))) to c.dp(PLATE_CEILING)
+    val long = ceiling.toFloat()
+    val minShort = maxOf(1f, 130f * ceiling / PLATE_CEILING)
+    return if (h <= w) c.dp(ceiling) to c.dp(Math.round(maxOf(minShort, long * h / w)))
+    else c.dp(Math.round(maxOf(minShort, long * w / h))) to c.dp(ceiling)
+}
+
+private val gifFrozen = HashSet<String>()   // a moving picture's mid, held on the frame the finger stopped it on (iOS gifFrozen, 23.09)
+private var gifCeilingCache = -1
+
+/** THE MOVING PICTURE'S CEILING IS THE DEVICE'S, NOT THE WINDOW'S (iOS MessageBubble.gifCeiling, 23.09): 0.6 of the device's
+ *  short side, read once for the run so a turn never changes the plate's shape, and never above the plate's own ceiling. */
+private fun gifCeilingDp(c: Context): Int {
+    if (gifCeilingCache < 0) {
+        val dm = c.resources.displayMetrics
+        val short = minOf(dm.widthPixels, dm.heightPixels) / dm.density
+        gifCeilingCache = minOf(PLATE_CEILING, Math.round(short * 0.6f))
+    }
+    return gifCeilingCache
+}
+
+/**
+ * A LETTER'S MOVING PICTURE PLAYS BY THE PLATFORM'S OWN ANIMATOR (iOS MTGifView/MTGifPlayer, 23.09): ImageDecoder reads the
+ * file's frames one at a time into an AnimatedImageDrawable; nothing of ours decodes every frame ahead. The plate's shape
+ * comes from the file's header alone. A tap freezes it on the frame it stands on (stop keeps that frame); the next tap lets
+ * it go on (start resumes) — never a new window. Below API 28, or where the platform refuses, the first frame stands still.
+ */
+private fun gifBody(c: Context, m: Msg, f: java.io.File, into: LinearLayout): Int {
+    val shape = runCatching {
+        val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(f.path, o)
+        if (0 < o.outWidth && 0 < o.outHeight) o.outWidth to o.outHeight else null
+    }.getOrNull()
+    val fit = mediaBox(c, shape?.first ?: 4, shape?.second ?: 3, gifCeilingDp(c))
+    into.addView(FrameLayout(c).apply {
+        tag = MEDIA_PLATE_TAG
+        outlineProvider = object : android.view.ViewOutlineProvider() {
+            override fun getOutline(v: View, o: android.graphics.Outline) = o.setRoundRect(0, 0, v.width, v.height, v.dp(12).toFloat())
+        }
+        clipToOutline = true
+        val iv = ImageView(c).apply { scaleType = ImageView.ScaleType.FIT_CENTER }
+        if (android.os.Build.VERSION.SDK_INT >= 28) runCatching {
+            val d = android.graphics.ImageDecoder.decodeDrawable(android.graphics.ImageDecoder.createSource(f)) as? android.graphics.drawable.AnimatedImageDrawable
+            if (d != null) { iv.setImageDrawable(d); if (gifFrozen.contains(m.mid)) d.stop() else d.start() }
+        }
+        if (iv.drawable == null) Media.preview(c, f, "img")?.let { iv.setImageBitmap(it) }
+        addView(iv, FrameLayout.LayoutParams(MATCH, MATCH))
+        setOnClickListener {
+            if (!gifFrozen.remove(m.mid)) gifFrozen.add(m.mid)
+            (iv.drawable as? android.graphics.drawable.AnimatedImageDrawable)?.let { d -> if (gifFrozen.contains(m.mid)) d.stop() else d.start() }
+        }
+    }, LinearLayout.LayoutParams(fit.first, fit.second).apply { bottomMargin = c.dp(4) })
+    return fit.first
 }
 
 /** The caption's own bubble width (iOS captionNaturalWidth 1418-1427): the words wrapped inside the ceiling, plus their padding. */
