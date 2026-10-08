@@ -347,7 +347,7 @@
     <string name="wall_sky">Небо</string>
     <string name="wall_dusk">Сумерки</string>
     <string name="wall_water">Вода</string>
-    <string name="wall_aurora">Сияние</string>
+    <string name="wall_aurora">Индиго</string>
     <string name="wall_rose">Роза</string>
     <string name="wall_forest">Лес</string>
     <!-- the presence line (iOS presenceWord, MontanaSeen) -->

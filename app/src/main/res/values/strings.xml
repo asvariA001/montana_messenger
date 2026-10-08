@@ -348,7 +348,7 @@
     <string name="wall_sky">Sky</string>
     <string name="wall_dusk">Dusk</string>
     <string name="wall_water">Water</string>
-    <string name="wall_aurora">Aurora</string>
+    <string name="wall_aurora">Indigo</string>
     <string name="wall_rose">Rose</string>
     <string name="wall_forest">Forest</string>
     <!-- the presence line (iOS presenceWord, MontanaSeen) -->

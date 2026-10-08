@@ -347,7 +347,7 @@
     <string name="wall_sky">天空</string>
     <string name="wall_dusk">暮色</string>
     <string name="wall_water">水</string>
-    <string name="wall_aurora">极光</string>
+    <string name="wall_aurora">靛蓝</string>
     <string name="wall_rose">玫瑰</string>
     <string name="wall_forest">森林</string>
     <!-- the presence line (iOS presenceWord, MontanaSeen) -->
