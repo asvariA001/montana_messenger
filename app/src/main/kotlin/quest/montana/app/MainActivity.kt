@@ -25,6 +25,10 @@ class MainActivity : Activity() {
 
     /** What the system back gesture does on the current page; null — leave the app. */
     var back: (() -> Unit)? = null
+    /** The pushed page the platform's own predictive back drags one to one with the finger (iOS MontanaSlideHost's
+     *  screen-edge pan, ContentView.swift:817-910); null when the current back target has no page to slide — the
+     *  drawer's own close, a search field closing (Home.kt:320, Screens.kt:215). */
+    private var slidingPage: View? = null
 
     // The screen's state (iOS RootView @State)
     private var hasSeed = false
@@ -51,6 +55,7 @@ class MainActivity : Activity() {
             WindowInsets.CONSUMED
         }
         setContentView(surface)
+        registerBack()
         hasSeed = MontanaSeed.hasSeed
         termsAccepted = Prefs.termsAccepted
         render()
@@ -219,19 +224,62 @@ class MainActivity : Activity() {
         page.animate().alpha(1f).setDuration(220).start()
     }
 
-    /** A page over the current one, full screen; back or the returned close takes it away. */
+    /**
+     * A page over the current one, full screen: rides in from the trailing edge and leaves the same way — the
+     * platform's own predictive back drags it one to one with the finger on API 34 (registerBack below), a plain
+     * press settles it on older systems; the returned close does the same slide (iOS MontanaSlideHost's screen-edge
+     * pan, ContentView.swift:687-910). The screen's left edge stays the system gesture's, not a view's own pan — the
+     * drawer already made that choice (Home.kt's DrawerShell, line 266).
+     */
     fun overlay(page: View): () -> Unit {
         val keepBack = back
+        val keepSliding = slidingPage
         var open = true
-        val close = { if (open) { open = false; surface.removeView(page); back = keepBack } }
-        page.alpha = 0f
         // the page's marks stand inside the system bars, as every page's do
         page.setPadding(root.paddingLeft, root.paddingTop, root.paddingRight, root.paddingBottom)
         surface.addView(page, FrameLayout.LayoutParams(MATCH, MATCH))
-        page.animate().alpha(1f).setDuration(180).start()
+        val width = surface.width.takeIf { it > 0 }?.toFloat() ?: resources.displayMetrics.widthPixels.toFloat()
+        page.translationX = width
+        val close = {
+            if (open) {
+                open = false
+                back = keepBack; slidingPage = keepSliding
+                settle(page, width, out = true) { surface.removeView(page) }
+            }
+        }
+        settle(page, width, out = false)
         back = close
+        slidingPage = page
         return close
     }
+
+    /** The slide itself, scaled by how far the page already stands (the drawer's same spring, Home.kt's
+     *  DrawerShell.settle): a page the predictive back already dragged near its edge does not visibly restart. */
+    private fun settle(page: View, width: Float, out: Boolean, onDone: (() -> Unit)? = null) {
+        val to = if (out) width else 0f
+        val ms = (220 * kotlin.math.abs(to - page.translationX) / width.coerceAtLeast(1f)).toLong().coerceIn(90, 220)
+        page.animate().translationX(to).setDuration(ms).setInterpolator(android.view.animation.DecelerateInterpolator(1.6f))
+            .withEndAction { onDone?.invoke() }.start()
+    }
+
+    /**
+     * THE PLATFORM'S OWN BACK (iOS MontanaSlideHost's screen-edge pan, ContentView.swift:817-910): the screen's left
+     * edge is the system gesture's, not a view's own pan (the drawer's same choice, Home.kt's DrawerShell, line 266)
+     * — a pushed page rides the predictive back the system already tracks one to one with the finger (BackEvent.touchX)
+     * on API 34; older systems and the three-button bar have no such preview, and still leave by the same slide, never
+     * a fade.
+     */
+    private fun registerBack() {
+        if (Build.VERSION.SDK_INT < 33) return   // no OnBackInvokedDispatcher below 33: the deprecated onBackPressed is the only road
+        val callback = if (Build.VERSION.SDK_INT >= 34) object : android.window.OnBackAnimationCallback {
+            override fun onBackStarted(e: android.window.BackEvent) { slidingPage?.animate()?.cancel() }
+            override fun onBackProgressed(e: android.window.BackEvent) { slidingPage?.let { it.translationX = e.touchX.coerceAtLeast(0f) } }
+            override fun onBackInvoked() = commitBack()
+            override fun onBackCancelled() { slidingPage?.let { settle(it, surface.width.toFloat(), out = false) } }
+        } else android.window.OnBackInvokedCallback { commitBack() }
+        onBackInvokedDispatcher.registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, callback)
+    }
+    private fun commitBack() { val b = back; if (b != null) b() else finish() }
 
     /** The terms over the current page (iOS: a sheet from the doors' footer); back or its mark closes it. */
     fun showTermsSheet() {
@@ -275,7 +323,7 @@ class MainActivity : Activity() {
         if (asks.isEmpty()) takeTheCall(true) else requestPermissions(asks, ASK_CALL_MIC)
     }
 
-    @Deprecated("the platform's back for targetSdk 35 without predictive back")
+    @Deprecated("registerBack's OnBackInvokedCallback takes every system back from API 33; this is the road below it")
     override fun onBackPressed() {
         val b = back
         if (b != null) b() else @Suppress("DEPRECATION") super.onBackPressed()
