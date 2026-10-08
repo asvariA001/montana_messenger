@@ -687,6 +687,9 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                     override fun onPreDraw(): Boolean { scroll.viewTreeObserver.removeOnPreDrawListener(this); pose(); return true }
                 })
                 scroll.post { scroll.post { land() } }
+                // A NEWBORN IS NEVER LEFT UNSEEN: a view's post waits for its attachment, the main looper's does not -- land() is a no-op
+                // once it ran, so this only lifts the alpha 0 of a pass whose posts never came
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ land() }, 600)
             }
             // the rows whose letter left go first, so every kept row already stands in its order
             val keys = HashSet<String>(want.size * 2)
