@@ -436,6 +436,9 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     }
 
     // ── the feed ──
+    // THE FIRST UNREAD AT THIS OPENING (iOS firstUnreadId, MontanaConversation 1225, 2661): the quiet «Unread messages» line stands
+    // before it while the page does; read before the page marks the chat read
+    val firstUnread = Book.chat(ref)?.let { ch -> if (0 < ch.unread) ch.msgs.filter { !it.mine }.takeLast(ch.unread).firstOrNull()?.mid else null }
     fun redraw() {
         val chat = Book.chat(ref) ?: return
         column.removeAllViews()
@@ -447,12 +450,16 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             val day = cal.get(java.util.Calendar.YEAR) * 1000L + cal.get(java.util.Calendar.DAY_OF_YEAR)
             if (day != lastDay) {
                 lastDay = day
-                val words = if (DateUtils.isToday(m.at)) c.getString(R.string.today) else DateUtils.formatDateTime(c, m.at, DateUtils.FORMAT_SHOW_DATE)
+                val words = dayWords(c, m.at)
                 column.addView(FrameLayout(c).apply {
                     addView(c.text(words, 13f, Color.WHITE).apply { background = c.glassPlate(); setPadding(dp(10), dp(3), dp(10), dp(3)) },
                         FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
                 }, lp().apply { topMargin = c.dp(8); bottomMargin = c.dp(8) })
             }
+            // «unread messages» (iOS unreadDivider 3014-3022): the caption in grey across the feed on its quiet band
+            if (firstUnread != null && row.any { it.mid == firstUnread }) column.addView(c.text(c.getString(R.string.unread_messages), 11f, MT.gray, center = true).apply {
+                setBackgroundColor(Color.rgb(31, 31, 31)); setPadding(0, dp(5), 0, dp(5))
+            }, lp().apply { topMargin = c.dp(2); bottomMargin = c.dp(2) })
             val b = letterBubble(c, m, chat, row)
             if (selecting) {
                 // WHILE THE CHAT SELECTS a letter is a choice: a circle on the left, a tap chooses (iOS the selection rows); a plate whole
@@ -1052,8 +1059,56 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             scroll.setPadding(0, t, 0, b)
             if (atEnd) toBottom()
         }
-        head.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> room() }
-        under.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> room() }
+        // THE WAY TO THE NEWEST (iOS ScrollDownButton 384-399, MontanaConversation 2928-2940): the chevron in the compose tier's glass,
+        // on the microphone's own vertical line, ten points above the panel; on past 260 points from the newest, off under 60
+        val downKey = FrameLayout(c).apply {
+            addView(FrameLayout(c).apply {
+                background = c.glassPlate(oval = true)
+                addView(c.icon(R.drawable.ic_chevron_down, Color.rgb(204, 204, 204)), FrameLayout.LayoutParams(dp(20), dp(20), Gravity.CENTER))
+            }, FrameLayout.LayoutParams(dp(36), dp(36), Gravity.CENTER))
+            contentDescription = c.getString(R.string.to_newest)
+            visibility = View.GONE
+            pressable { scroll.smoothScrollTo(0, (scroll.getChildAt(0)?.height ?: 0) + scroll.paddingTop + scroll.paddingBottom) }
+        }
+        addView(downKey, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.BOTTOM or Gravity.END).apply { marginEnd = dp(12) })
+        // THE DAY THE FINGER IS READING (iOS MTDayHeader 359-372, stage 13.1): the pill of the topmost row's day under the header while
+        // the feed travels, gone a second after the last movement; a sign, never a target
+        val dayPill = c.text("", 13f, Color.WHITE).apply {
+            background = c.glassPlate(); setPadding(dp(10), dp(3), dp(10), dp(3)); alpha = 0f
+            isClickable = false; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        addView(dayPill, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
+        val dayAway = Runnable { dayPill.animate().alpha(0f).setDuration(180).start() }
+        var downOn = false
+        scroll.setOnScrollChangeListener { _, _, y, _, _ ->
+            val d = resources.displayMetrics.density
+            val content = scroll.getChildAt(0) ?: return@setOnScrollChangeListener
+            val fromEnd = (content.height + scroll.paddingTop + scroll.paddingBottom - scroll.height - y) / d
+            if (!downOn && 260 < fromEnd) { downOn = true; downKey.visibility = View.VISIBLE; downKey.alpha = 0f; downKey.animate().alpha(1f).setDuration(180).start() }
+            else if (downOn && fromEnd < 60) { downOn = false; downKey.animate().alpha(0f).setDuration(180).withEndAction { if (!downOn) downKey.visibility = View.GONE }.start() }
+            // the topmost row under the header: its letter's day
+            val holder = column.parent as? View ?: return@setOnScrollChangeListener
+            val edge = y + scroll.paddingTop - content.top - holder.top - column.top
+            var words: String? = null
+            for (i in 0 until column.childCount) {
+                val v = column.getChildAt(i)
+                if (v.bottom <= edge) continue
+                val mid = v.tag as? String ?: (v as? android.view.ViewGroup)?.let { g -> (0 until g.childCount).firstNotNullOfOrNull { j -> g.getChildAt(j).tag as? String } }
+                val at = mid?.let { id -> Book.chat(ref)?.msgs?.firstOrNull { it.mid == id }?.at } ?: continue
+                words = dayWords(c, at); break
+            }
+            if (words != null) {
+                if (dayPill.text != words) dayPill.text = words
+                if (dayPill.alpha < 1f) dayPill.animate().alpha(1f).setDuration(180).start()
+                dayPill.removeCallbacks(dayAway); dayPill.postDelayed(dayAway, 1000)
+            }
+        }
+        fun lift() {
+            (downKey.layoutParams as FrameLayout.LayoutParams).let { lp -> val want = under.height + dp(10); if (lp.bottomMargin != want) { lp.bottomMargin = want; downKey.layoutParams = lp } }
+            (dayPill.layoutParams as FrameLayout.LayoutParams).let { lp -> val want = head.height + dp(6); if (lp.topMargin != want) { lp.topMargin = want; dayPill.layoutParams = lp } }
+        }
+        head.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> room(); lift() }
+        under.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> room(); lift() }
         plateHome = this; addView(lockPlate, plateLp())
         setOnApplyWindowInsetsListener { v, insets ->
             val b = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.ime())
@@ -1599,6 +1654,10 @@ internal fun noteSide(c: Context): Int {
 
 /** A note is a spoken word: it plays at the voice's speed (iOS: one speed for both); set on a sounding player only. */
 private fun speed(p: android.media.MediaPlayer) { runCatching { p.playbackParams = p.playbackParams.setSpeed(Playing.rate) } }
+
+/** The words of a day, one owner for the feed's separators and its floating pill (iOS dayLabel, MTDayLabel). */
+private fun dayWords(c: Context, at: Long): String =
+    if (DateUtils.isToday(at)) c.getString(R.string.today) else DateUtils.formatDateTime(c, at, DateUtils.FORMAT_SHOW_DATE)
 
 private fun roundNote(m: Msg): Boolean {
     if (!m.text.startsWith(Marks.MEDIA)) return false

@@ -21,6 +21,8 @@
     <string name="loading_file">Loading…</string>
     <string name="release_send">Release to send</string>   <!-- iOS «Release to send», over a held tape -->
     <string name="release_cancel">Release to cancel</string>
+    <string name="unread_messages">Unread messages</string>   <!-- iOS «Unread messages» -->
+    <string name="to_newest">To the newest</string>   <!-- the chevron to the feed's newest end, for the reader -->
     <string name="invite_spent">Invitation expired. Ask for a new code.</string>
     <string name="invite_refused">The invitation could not be opened. Check the link or try again.</string>
     <string name="invite_nameless">Names are not supported on Android yet — ask for a card link.</string>
