@@ -737,7 +737,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         val tv = TextureView(c)
         val ring = NoteRing(c); val time = c.text("0:00", 15f, Color.WHITE)
         noteRing = ring; noteTime = time
-        val side = c.dp(280)
+        val side = noteSide(c)   // the player's open size: one rule for both (iOS 1605)
         lateinit var notePause: FrameLayout
         notePause = ctl(R.drawable.ic_pause_fill, R.string.rec_pause) { note?.togglePause(); paint(notePause, note?.paused == true) }
         val controls = c.hstack {
@@ -1179,7 +1179,7 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
             }
             val call = Calls.info(m.text) != null
             if (1 < members.size) albumBody(c, members, this)   // the plate of a media group (Album.kt)
-            else if (Stickers.body(c, m, this)) Unit else if (m.text.startsWith(Marks.MEDIA)) mediaBody(c, m, this)
+            else if (Stickers.body(c, m, this)) Unit else if (m.text.startsWith(Marks.MEDIA)) mediaBody(c, m, this, chat)
             else if (call) Calls.body(c, m, this)   // a call's row carries its moment inside, as iOS callBubble
             // A GAME'S INVITATION (iOS the chess letter's bubble): the knight, the seat and the clock; Accept and Decline while it waits for me
             else if (ChessSend.letterOf(m)?.kind == ChessLetter.INVITE) addView(c.chessPlate(c as? MainActivity, chat.ref, m, ChessSend.letterOf(m)!!, mine), lp(WRAP, WRAP))
@@ -1355,7 +1355,7 @@ fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Unit, onEd
  * a file's name and size; the small face that rode the manifest stands while the file is on its way; the caption under it.
  * A press opens it whole: a picture or a film in the app, a file in the system's viewer.
  */
-private fun mediaBody(c: Context, m: Msg, into: LinearLayout) {
+private fun mediaBody(c: Context, m: Msg, into: LinearLayout, chat: Chat? = null) {
     val man = m.meta?.let { runCatching { JSONObject(it) }.getOrNull() } ?: Media.inline(m.text)
     val f = m.file?.let { java.io.File(it) }?.takeIf { it.exists() }
     val byExt = when (f?.extension?.lowercase()) { "jpg", "jpeg", "png", "gif", "webp", "heic", "heif" -> "img"; "mp4", "mov", "m4v", "webm", "3gp" -> "vid"; else -> "doc" }
@@ -1366,7 +1366,7 @@ private fun mediaBody(c: Context, m: Msg, into: LinearLayout) {
         voiceBody(c, m, man?.optDouble("du", 0.0) ?: 0.0, into, wv?.let { b -> FloatArray(b.size) { (b[it].toInt() and 0xFF) / 255f } })
         return
     }
-    if (kind == "vid" && man?.optBoolean("r") == true) { noteBody(c, m, f, man, into); return }
+    if (kind == "vid" && man?.optBoolean("r") == true) { noteBody(c, m, f, man, into, chat); return }
     var capRoom = c.dp(240)
     if (kind == "img" || kind == "vid") {
         val pic = (f?.let { Media.preview(c, it, kind, 800) } ?: Media.thumbOf(man))
@@ -1502,7 +1502,7 @@ internal fun openMedia(act: MainActivity, f: java.io.File, kind: String) {
 
 
 /** A ROUND NOTE IN ITS BUBBLE (iOS videoNoteBubble): the circle with the note's own first frame; a press plays it large, with sound. */
-private fun noteBody(c: Context, m: Msg, f: java.io.File?, man: JSONObject?, into: LinearLayout) {
+private fun noteBody(c: Context, m: Msg, f: java.io.File?, man: JSONObject?, into: LinearLayout, chat: Chat?) {
     val side = c.dp(220)
     val pic = f?.let { Media.preview(c, it, "vid", 600) } ?: Media.thumbOf(man)
     into.addView(FrameLayout(c).apply {
@@ -1515,42 +1515,89 @@ private fun noteBody(c: Context, m: Msg, f: java.io.File?, man: JSONObject?, int
             setOnClickListener { Media.tapped(c, m) }   // automatic download off: the round note waits for a tap
         }
         else if (f == null) addView(android.widget.ProgressBar(c), FrameLayout.LayoutParams(c.dp(36), c.dp(36), Gravity.CENTER))
-        else setOnClickListener { (c as? MainActivity)?.let { a -> playNote(a, f) } }
+        else setOnClickListener { (c as? MainActivity)?.let { a -> playNote(a, f, chat) } }
     }, LinearLayout.LayoutParams(side, side).apply { bottomMargin = c.dp(4) })
     // A note stands without the bubble's plate: the circle is its own shape.
     (into.background as? android.graphics.drawable.Drawable)?.let { into.background = null; into.setPadding(0, 0, 0, 0) }
 }
 
-/** The note large, with sound, the ring for its time; a tap or its end closes it (iOS MontanaNotePlayback's own window). */
-private fun playNote(act: MainActivity, f: java.io.File) {
+/** The open note's close, while one stands: one thing plays — a voice that starts closes it (iOS VoicePlayer, MontanaVideoDock). */
+object NoteOpen { var close: (() -> Unit)? = null }
+
+/**
+ * THE NOTE'S OPEN SIZE, one rule for the player and the recorder (iOS MontanaNoteOpen.side 1558-1566, the author's word 15.09): as
+ * wide as the screen lets the circle and its badge stand whole — the badge reaches past the rim by badgeReach + badgeRadius of the
+ * side — never wider than the screen less 36, never taller than it less 40, never under 120.
+ */
+internal fun noteSide(c: Context): Int {
+    val dm = c.resources.displayMetrics
+    val w = dm.widthPixels / dm.density
+    val h = dm.heightPixels / dm.density
+    val reach = ((0.5 + 72.0 / 400.0 / 3) / Math.sqrt(2.0) + 72.0 / 400.0).toFloat()   // iOS badgeReach + badgeRadius, in sides from the centre
+    return c.dp(maxOf(120f, minOf((w / 2 - 6) / reach, w - 36, h - 40)).toInt())
+}
+
+private fun roundNote(m: Msg): Boolean {
+    if (!m.text.startsWith(Marks.MEDIA)) return false
+    val man = m.meta?.let { runCatching { JSONObject(it) }.getOrNull() } ?: Media.inline(m.text)
+    return man?.optString("k") == "vid" && man.optBoolean("r")
+}
+
+/**
+ * THE OPEN NOTE (iOS MontanaVideoDock 1375-1537, MontanaNoteOpen 1552-1619; the author's words 15.09 and 18.09): the note rises to
+ * the middle of the screen at the side its circle and its badge may take; a tap on it plays and rests it, the play glyph over it at
+ * rest; a tap on the dim closes it; its end opens the chat's next note in the feed's order, else closes it. One thing plays: the open
+ * note stops a voice, a voice closes the note. The ring stays its clock: the one player bar that keeps the time on iOS (seek, speed,
+ * close) Android does not have yet.
+ */
+private fun playNote(act: MainActivity, f: java.io.File, chat: Chat?) {
+    NoteOpen.close?.invoke()
+    VoicePlayer.stop()
     val c: Context = act
-    lateinit var close: () -> Unit
-    val side = c.dp(300)
+    val side = noteSide(c)
+    val notes = chat?.msgs?.filter { roundNote(it) }?.mapNotNull { m -> m.file?.let { java.io.File(it) }?.takeIf { it.exists() } }.orEmpty()
+    var current = f
+    var close: () -> Unit = {}
     val ring = NoteRing(c)
     val tv = TextureView(c)
+    val glyph = c.icon(R.drawable.ic_play_fill, Color.argb(230, 255, 255, 255)).apply { visibility = View.GONE }
     var player: android.media.MediaPlayer? = null
-    val page = FrameLayout(c).apply {
-        setBackgroundColor(Color.argb(200, 0, 0, 0))
-        isClickable = true
-        pressable { close() }
+    val circle = FrameLayout(c).apply {
         addView(ring, FrameLayout.LayoutParams(side + c.dp(16), side + c.dp(16), Gravity.CENTER))
         addView(tv.round(), FrameLayout.LayoutParams(side, side, Gravity.CENTER))
+        addView(glyph, FrameLayout.LayoutParams(c.dp(54), c.dp(54), Gravity.CENTER))
+        setOnClickListener {
+            val p = player ?: return@setOnClickListener
+            if (p.isPlaying) { p.pause(); glyph.visibility = View.VISIBLE } else { p.start(); glyph.visibility = View.GONE }
+        }
+    }
+    val page = FrameLayout(c).apply {
+        setBackgroundColor(Color.argb(158, 0, 0, 0))   // iOS black 0.62: a tap on it closes the note
+        setOnClickListener { close() }
+        addView(circle, FrameLayout.LayoutParams(side + c.dp(16), side + c.dp(16), Gravity.CENTER))
     }
     tv.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-        override fun onSurfaceTextureAvailable(st: android.graphics.SurfaceTexture, w: Int, h: Int) {
+        override fun onSurfaceTextureAvailable(st: android.graphics.SurfaceTexture, sw: Int, sh: Int) {
             player = runCatching { android.media.MediaPlayer().apply {
-                setDataSource(f.path); setSurface(android.view.Surface(st)); prepare(); start()
-                setOnCompletionListener { close() }
+                setDataSource(current.path); setSurface(android.view.Surface(st)); prepare(); start()
+                // the end opens the chat's next note (the voice's own law), else closes this one (iOS 1431-1442)
+                setOnCompletionListener { mp ->
+                    val i = notes.indexOfFirst { it.path == current.path }
+                    val next = if (0 <= i) notes.getOrNull(i + 1) else null
+                    if (next == null) close()
+                    else runCatching { mp.reset(); mp.setDataSource(next.path); mp.prepare(); mp.start(); current = next; ring.progress = 0f }.onFailure { close() }
+                }
             } }.getOrNull()
             val tick = object : Runnable { override fun run() { val p = player ?: return; runCatching { ring.progress = p.currentPosition.toFloat() / maxOf(1, p.duration) }; MainThread.later(50, this) } }
             MainThread.later(50, tick)
         }
-        override fun onSurfaceTextureSizeChanged(st: android.graphics.SurfaceTexture, w: Int, h: Int) {}
+        override fun onSurfaceTextureSizeChanged(st: android.graphics.SurfaceTexture, sw: Int, sh: Int) {}
         override fun onSurfaceTextureDestroyed(st: android.graphics.SurfaceTexture): Boolean { player?.runCatching { stop(); release() }; player = null; return true }
         override fun onSurfaceTextureUpdated(st: android.graphics.SurfaceTexture) {}
     }
     val done = act.overlay(page)
-    close = { player?.runCatching { stop(); release() }; player = null; done() }
+    close = { player?.runCatching { stop(); release() }; player = null; NoteOpen.close = null; done() }
+    NoteOpen.close = close
 }
 
 

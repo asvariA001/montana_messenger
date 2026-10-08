@@ -104,6 +104,7 @@ object VoicePlayer {
     fun toggle(path: String, onProgress: (Int, Int) -> Unit, stopped: () -> Unit, then: (() -> Unit)? = null) {
         if (playing == path) { stop(); return }
         stop()
+        NoteOpen.close?.invoke()   // one thing plays: a voice closes the open note (iOS MontanaVideoDock)
         val p = runCatching { MediaPlayer().apply { setDataSource(path); prepare() } }.getOrNull() ?: return
         player = p; playing = path; onStop = stopped
         p.setOnCompletionListener { stop(); then?.invoke() }
