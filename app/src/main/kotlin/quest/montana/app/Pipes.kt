@@ -174,6 +174,7 @@ object Marks {
     const val DELETE = "​​DL:"     // + "mid:" + the letter's mid
     const val EDIT = "​​ED:"       // {sid, tx}
     const val NAME = "​​NM:"       // + the display name
+    const val PIPE_CLOSED = "\u200B\u200BPX:"   // the pipe closed at the other end (iOS pipeClosedMark): never a row
     const val AVATAR = "\u200B\u200BAV:"     // + the face as base64 JPEG; empty — «no face»
     const val TYPING = "​​TY:"
     const val VOICE = "​​VC:"
@@ -864,6 +865,10 @@ object Post {
             text.startsWith(PIN_MARK) -> applyPin(ref, text.removePrefix(PIN_MARK))
             // THE CONVERSATION WIPED AT BOTH (iOS convDelMark): the receipt settles their queue, then it is buried here too
             // a coin letter of mine not proven delivered gives its coins back before its row goes (iOS removeConversationLocally 3484)
+            // THE PIPE CLOSED AT THE OTHER END (iOS pipeClosedMark, MontanaChatStore 4166-4172 and peerClosedPipe 3531-3548; fork atom
+            // 1927): receipted, then a folded pipe simply dies, a meeting that never carried a word leaves no row, and a conversation keeps
+            // its history, readable, with a note where the field stood. Android swallowed the word unreceipted and wrote on into nothing.
+            text.startsWith(Marks.PIPE_CLOSED) -> { receipt(ref, sid); peerClosed(ref) }
             text.startsWith(CONVDEL_MARK) -> { receipt(ref, sid); Book.chat(ref)?.msgs?.toList()?.forEach { CoinSend.release(it, ref) }; buryChat(ref) }
             text.startsWith(Marks.NAME) -> {
                 val n = text.removePrefix(Marks.NAME).trim()
@@ -959,6 +964,17 @@ object Post {
         if (held.isEmpty()) pendingEdits.remove(ref)
         tx
     }
+
+    private fun peerClosed(ref: String) {
+        if (SamePair.merged(ref) != null) { Book.forget(ref); Log.i("Montana", "pipe_closed folded"); return }
+        val person = Book.chat(ref)?.msgs?.any { !Marks.isService(it.text) || it.text.startsWith(Marks.MEDIA) || it.text.startsWith(Marks.VOICE) } == true
+        if (!person) { buryChat(ref); Log.i("Montana", "pipe_closed empty"); return }
+        Prefs.setBool("pipeClosed." + ref, true)
+        Book.edit(ref) {}
+        Log.i("Montana", "pipe_closed kept")
+    }
+    /** The other side closed this conversation: it is read, not answered (iOS closedChats). */
+    fun closed(ref: String) = Prefs.bool("pipeClosed." + ref, false)
 
     /** «Delivered» for a letter of theirs — under its own name, so the queue holds one per letter (iOS receiptMid). */
     private fun receipt(ref: String, mid: String) = send(ref, "rcpt-$mid", Marks.DELIVERED + mid)

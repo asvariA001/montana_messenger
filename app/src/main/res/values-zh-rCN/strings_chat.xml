@@ -39,6 +39,7 @@
     <string name="feed_no_network_note">一旦有节点应答，消息就会发送</string>
     <string name="diag_share">共享诊断信息</string>
     <string name="diag_share_sub">不含消息内容、姓名和地址的事件记录会发送到 Montana 节点以帮助修复缺陷，并保存七天。关闭后，此手机不会发送任何内容。</string>
+    <string name="pipe_closed_note">对方已关闭此对话：这些消息可以阅读，无法回复。要再次写信，请建立新的联系。</string>
     <string name="coins_travel">硬币正在途中</string>
     <string name="coins_travel_note">硬币信件会保留硬币，直到送达或硬币退回。之后即可删除。</string>
     <string name="coins_travel_chat">此聊天中的硬币信件仍在途中。送达或硬币退回后即可删除聊天。</string>

@@ -358,6 +358,12 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         setOnClickListener { showKeys() }
     }
     feedFrame.addView(emptyView, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.CENTER))
+    // THE OTHER SIDE CLOSED THIS CONVERSATION (iOS peerClosedPipe, the closed composer's note; fork atom 1927): its letters are read,
+    // not answered — the words stand where the field stood
+    var hideBar: () -> Unit = {}   // the field is born below; it hides once the conversation is closed
+    val closedNote = c.text(c.getString(R.string.pipe_closed_note), 13f, MT.gray, center = true).apply {
+        setPadding(dp(24), dp(12), dp(24), dp(14)); visibility = if (Post.closed(ref)) View.VISIBLE else View.GONE
+    }
     fun drawEmpty(empty: Boolean) {
         if (!empty) { emptyView.visibility = View.GONE; return }
         val cm = c.getSystemService(android.net.ConnectivityManager::class.java)
@@ -449,6 +455,8 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             column.addView(b, lp().apply { topMargin = c.dp(3) })
         }
         drawEmpty(column.childCount == 0)
+        // the other side closed it: read, not answered (iOS closedChats) — the note where the field stood
+        if (Post.closed(ref)) { hideBar(); closedNote.visibility = View.VISIBLE }
     }
 
     // ── sending (iOS sendMessage) ──
@@ -938,7 +946,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     drawFoot = {
         foot.removeAllViews()
         foot.visibility = if (selecting) View.VISIBLE else View.GONE
-        bar.visibility = if (selecting || (group && !Groups.canWrite(ref))) View.GONE else View.VISIBLE
+        bar.visibility = if (selecting || (group && !Groups.canWrite(ref)) || Post.closed(ref)) View.GONE else View.VISIBLE
         if (selecting) {
             strip.visibility = View.GONE
             fun done() { selecting = false; picked.clear(); redraw(); drawFoot() }
@@ -972,6 +980,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         } else showStrip()
     }
 
+    hideBar = { bar.visibility = View.GONE }
     return FrameLayout(c).apply {
         setBackgroundColor(Color.BLACK)
         addView(c.chatGround(ref), FrameLayout.LayoutParams(MATCH, MATCH))   // the chat's own ground, or the pages' crest (iOS MTWallpaper)
@@ -983,7 +992,8 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             addView(strip, lp())
             addView(stagedStrip, lp())
             addView(recStrip, lp())
-            addView(bar.apply { if (group && !Groups.canWrite(ref)) visibility = View.GONE }, lp())
+            addView(bar.apply { if ((group && !Groups.canWrite(ref)) || Post.closed(ref)) visibility = View.GONE }, lp())
+            addView(closedNote, lp())
             addView(foot, lp())
             addView(groupFoot, lp())
         }, FrameLayout.LayoutParams(MATCH, MATCH))

@@ -39,6 +39,7 @@
     <string name="feed_no_network_note">Messages will be sent as soon as a door answers</string>
     <string name="diag_share">Share diagnostics</string>
     <string name="diag_share_sub">Event records with no message content, names or addresses go to Montana\'s nodes to help fix defects and are kept for seven days. Off, nothing leaves this phone.</string>
+    <string name="pipe_closed_note">The other side closed this conversation: these messages can be read, not answered. To write again, open a new contact.</string>
     <string name="coins_travel">The coins are on their way</string>
     <string name="coins_travel_note">A coin letter keeps its coins until it is delivered or they come back. Then it can be deleted.</string>
     <string name="coins_travel_chat">A coin letter in this chat is on its way. The chat can be deleted once it is delivered or its coins come back.</string>
