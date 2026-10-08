@@ -106,8 +106,14 @@ class OverlayFrame(val type: Int, val dst: ByteArray, val msgId: ByteArray, val 
  * sealed under its direction's key. Both sides register (the key and its tag, a challenge, its signature, the verdict); the
  * channel stands when both are confirmed. Measured from the Mac against both nodes, 08.10 12:3x (timechain/P2P-MAP.md).
  */
-class Channel(val host: String, val port: Int, val ref: String = "", private val accepted: Socket? = null, private val wsPath: String? = null) {
+class Channel(val host: String, val port: Int, ref: String = "", private val accepted: Socket? = null, private val wsPath: String? = null) {
     val label = (if (accepted != null) "in:" else "") + Channels.labelOf(host, port, wsPath != null)
+    /** The correspondent this channel is with: given by the dial, or by the first letter that came over it (iOS peerMontanaAddrStr). */
+    @Volatile var ref = ref
+        private set
+
+    /** Named once: a first letter over a direct channel names the one at its other end (iOS MontanaP2P 1516-1520). */
+    fun name(r: String) { if (ref.isEmpty() && r.isNotEmpty()) ref = r }
     val dialAt = System.currentTimeMillis()
     @Volatile var ready = false
         private set
@@ -157,6 +163,9 @@ class Channel(val host: String, val port: Int, val ref: String = "", private val
                 }
             }
         } catch (e: Exception) {
+            // no descriptor left is this process's fault, not the road's (iOS MontanaP2P 867): remembered, so no door is judged by it
+            val m = e.message.orEmpty()
+            if (m.contains("EMFILE") || m.contains("Too many open files")) Channels.noteLocalFault(m)
             close((if (ready) "read-" else "dial-") + e.javaClass.simpleName)
         } finally {
             if (held1 != 0L) MtBindings.nativeNoiseFree(1, held1)
@@ -341,6 +350,18 @@ object Channels {
     @Volatile var listening = false   // the direct port stands: the local network's offer may name it
         private set
     @Volatile private var knockedOnce = false
+    @Volatile private var localFaultAt = 0L
+
+    /**
+     * A LOCAL FAULT IS NOT A DOOR'S WORD (iOS MontanaP2P 1746-1762, the measure of 05.09: «Too many open files» on a network switch,
+     * every door doubled its step to the dead ceiling and both nodes stayed lost seven minutes after the descriptors were free): a
+     * fault of our own is remembered for half a minute, and while it stands no door verdict moves and the walk knocks again.
+     */
+    fun noteLocalFault(why: String) {
+        localFaultAt = System.currentTimeMillis()
+        Log.d("Montana", "local_fault " + why.take(80))
+    }
+    fun localFaultRecent(): Boolean = System.currentTimeMillis() - localFaultAt < 30_000L
     @Volatile private var lastSkip = ""
 
     /** A knock has happened in this life of the app (iOS MontanaNodes.knockedOnce): until then «no node» means «not asked yet». */
@@ -422,8 +443,11 @@ object Channels {
         c.run(ident, { up(it) }, { ch, of -> received(ch, of) })
         synchronized(live) {
             live.remove(c.label)
-            // a door that stood is knocked again at once; one that did not keeps its step and is judged refused
-            if (c.ready) tried.remove(c.label) else tried[c.label]?.let { tried[c.label] = Triple(it.first, it.second, true) }
+            // a door that stood is knocked again at once; one that did not keeps its step and is judged refused — unless the fault was
+            // this process's own: then the door keeps the fast step and is knocked after it, not judged (iOS MontanaNodes 309-316)
+            if (c.ready) tried.remove(c.label)
+            else if (localFaultRecent()) tried[c.label] = Triple(System.currentTimeMillis(), STEP_MIN, false)
+            else tried[c.label]?.let { tried[c.label] = Triple(it.first, it.second, true) }
         }
         Log.d("Montana", (if (c.closeWhy == "peer-closed") "chan_peer_close" else "node_shut") + " at=" + c.label + " why=" + c.closeWhy +
             " ready=" + (if (c.ready) 1 else 0) + " after_ms=" + (System.currentTimeMillis() - c.dialAt))
@@ -524,7 +548,7 @@ object Channels {
         // an acknowledgement goes back down the channel it came by and addresses nobody (iOS 1423-1428)
         c.send(NetMsg.OVERLAY_FRAME, OverlayFrame(OverlayFrame.ACK, ByteArray(32), of.msgId, ByteArray(0)).encode())
         Log.d("Montana", "of_mine by=" + (if (conv != null) "pipe" else if (root != null) "first-point" else "window-pos") + " bytes=" + of.payload.size)
-        Thread { open(conv, root, of.payload) }.start()   // the channel's read loop never waits on a letter's landing
+        Thread { open(c, conv, root, of.payload) }.start()   // the channel's read loop never waits on a letter's landing
     }
 
     /**
@@ -533,7 +557,7 @@ object Channels {
      * 0x02 ‖ a first letter's ciphertext ‖ the body, under a pipe that already stands — the tag is older than the envelope, so it
      * opens with the pipe's secret. The words land at the same door as the box's (Post.letter): the second copy is dropped by its mid.
      */
-    private fun open(conv: String?, root: ByteArray?, env: ByteArray) {
+    private fun open(c: Channel, conv: String?, root: ByteArray?, env: ByteArray) {
         val (from, sealed) = when (env.firstOrNull()?.toInt()) {
             0x00 -> { pieceOrWake(env); return }
             0x01 -> {
@@ -545,7 +569,13 @@ object Channels {
                 if (env.size <= 1 + 1088) return
                 val sealed = env.copyOfRange(1 + 1088, env.size)
                 // the pipe already stands: the label is older than the envelope (iOS 1456-1482); else the point names the card
-                if (conv == null) { Post.firstOffChannel(root, env.copyOfRange(1, 1 + 1088), sealed); return }
+                if (conv == null) {
+                    val ref = Post.firstOffChannel(root, env.copyOfRange(1, 1 + 1088), sealed) ?: return
+                    // a node is a carrier by construction and names nobody; a direct channel IS with them — named, its owner row
+                    // reads the name too, and the peer's own channel never counts as a carrier (iOS 1513-1520, atom d2f3eae344 F-2)
+                    if (c.label !in doorLabels()) c.name(ref)
+                    return
+                }
                 conv to sealed
             }
             else -> return

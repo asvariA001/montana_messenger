@@ -830,7 +830,7 @@ object Post {
      * new pipe's key, at the point of one of my cards — that card alone is tried, the body's seal is the proof (the box's letter
      * carries a key confirmation instead), and the letter lands as the box's first letter lands. One nobody here can open is said aloud.
      */
-    fun firstOffChannel(point: ByteArray?, ct: ByteArray, sealed: ByteArray) {
+    fun firstOffChannel(point: ByteArray?, ct: ByteArray, sealed: ByteArray): String? {
         val w = Wire.minute()
         var plain: ByteArray? = null
         var root: ByteArray? = null
@@ -845,13 +845,13 @@ object Post {
         val card = root
         if (secret == null || body == null || card == null) {
             Log.d("Montana", "first_refused bytes=" + sealed.size + " — there is no card here for this introduction")
-            return
+            return null
         }
         val f = Wire.fields(body)
         var text = f[1]
-        if (f[0].isEmpty() || text.isEmpty()) return
-        if (text.startsWith(Marks.LONG)) text = fetchLong(text)?.ifEmpty { text } ?: return
-        land(secret, card, f[0], text, f[2])
+        if (f[0].isEmpty() || text.isEmpty()) return null
+        if (text.startsWith(Marks.LONG)) text = fetchLong(text)?.ifEmpty { text } ?: return null
+        return if (land(secret, card, f[0], text, f[2])) Wire.reference(secret) else null
     }
 
     /** The pipe a first letter gives birth to: the chat with the writer's name, the face beside the pipe read, the letter placed and answered. */
