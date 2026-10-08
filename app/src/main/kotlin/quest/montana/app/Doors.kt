@@ -64,6 +64,15 @@ object Doors {
         return all.filter { it !in mute }.ifEmpty { all }
     }
 
+    /**
+     * The machines' bare doors of the network's list, host and port (iOS MontanaNodes.list with the raw dress): a door behind a
+     * delivery network («wss://…») waits for a web-socket wire on this side; before the list is learned there is none to hold.
+     */
+    fun bare(): List<Pair<String, Int>> = Prefs.str(LEARNED, "").split('\n').map { it.trim() }
+        .filter { it.isNotEmpty() && !it.startsWith("#") && !it.lowercase().startsWith("wss://") && !it.startsWith("[") }
+        .mapNotNull { e -> e.substringAfterLast(':', "").toIntOrNull()?.takeIf { it in 1..65535 }?.let { e.substringBeforeLast(':') to it } }
+        .distinct()
+
     /** Asked in the last round and did not answer (iOS silentDoors): not alive for the lane. */
     fun silent(door: String) = synchronized(caps) { door in silent }
 

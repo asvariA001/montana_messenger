@@ -510,6 +510,7 @@ object Presence {
         if (watching) return
         watching = true
         Signal.watchPath(c)
+        Channels.start()   // the phone holds its nodes for the app's whole life (iOS MontanaNodes.open)
         (c.applicationContext as android.app.Application).registerActivityLifecycleCallbacks(object : android.app.Application.ActivityLifecycleCallbacks {
             override fun onActivityResumed(a: android.app.Activity) = appShown()
             override fun onActivityPaused(a: android.app.Activity) = appHidden()

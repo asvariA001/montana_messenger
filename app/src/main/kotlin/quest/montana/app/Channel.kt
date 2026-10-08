@@ -1,0 +1,414 @@
+package quest.montana.app
+
+import android.os.Build
+import android.util.Log
+import java.io.DataInputStream
+import java.io.OutputStream
+import java.net.InetSocketAddress
+import java.net.Socket
+import javax.net.ssl.HttpsURLConnection
+import javax.net.ssl.SNIHostName
+import javax.net.ssl.SSLSocket
+import javax.net.ssl.SSLSocketFactory
+
+// ─────────────────────────── the phone's own channels to the network's machines (iOS MontanaP2PDirect, MontanaNetFrames, MontanaNodes.open) ───────────────────────────
+
+/**
+ * A MACHINE'S ANSWERING IDENTITY (iOS MontanaOverlayKey.device, MontanaNetFrames 194-243): drawn by the core at random once per
+ * device and kept sealed beside the other local secrets — never derived from the seed, so two devices of one person answer under
+ * two values and nothing joins their appearances. Forgotten where the device forgets the person.
+ */
+object NodeIdentity {
+    private const val KEY = "mt.node.identity"
+    class Ident(val pk: ByteArray, val sk: ByteArray, val tag: ByteArray)
+    @Volatile private var cache: Ident? = null
+
+    fun device(): Ident? = cache ?: synchronized(this) {
+        cache ?: run {
+            var born = false
+            val seed = DeviceVault.get(KEY)?.takeIf { it.size == 32 }
+                ?: MtBindings.nativeRandom(32)?.takeIf { DeviceVault.set(KEY, it) }?.also { born = true }
+                ?: return@run null
+            val k = MtBindings.nativeMldsaKeypair(seed)?.takeIf { it.size == MtBindings.PUBKEY + MtBindings.SECKEY } ?: return@run null
+            val pk = k.copyOfRange(0, MtBindings.PUBKEY)
+            if (born) Log.d("Montana", "NODE identity born (device-local, never derived from the seed)")
+            Ident(pk, k.copyOfRange(MtBindings.PUBKEY, k.size), Wire.overlayTag(pk)).also { cache = it }
+        }
+    }
+
+    fun forget() = synchronized(this) { cache = null; DeviceVault.delete(KEY) }
+}
+
+/** The messages inside a channel (iOS MontanaNetMsg, MontanaNetFrames 88-118): type[1] ‖ length[4] big-endian ‖ body. */
+object NetMsg {
+    const val REGISTER_INIT = 0x10
+    const val REGISTER_CHALLENGE = 0x11
+    const val REGISTER_PROOF = 0x12
+    const val REGISTER_RESULT = 0x13
+    const val OWNER_REF = 0x14
+    const val OVERLAY_FRAME = 0x20
+
+    fun encode(type: Int, body: ByteArray): ByteArray = byteArrayOf(type.toByte()) + be4(body.size) + body
+    fun decode(d: ByteArray): Pair<Int, ByteArray>? {
+        if (d.size < 5) return null
+        val n = be4(d, 1)
+        if (n < 0 || d.size != 5 + n) return null
+        return (d[0].toInt() and 0xff) to d.copyOfRange(5, 5 + n)
+    }
+    fun be4(n: Int) = byteArrayOf((n ushr 24).toByte(), (n ushr 16).toByte(), (n ushr 8).toByte(), n.toByte())
+    fun be4(d: ByteArray, at: Int) =
+        ((d[at].toInt() and 0xff) shl 24) or ((d[at + 1].toInt() and 0xff) shl 16) or ((d[at + 2].toInt() and 0xff) shl 8) or (d[at + 3].toInt() and 0xff)
+}
+
+/** A cell of the overlay (iOS MontanaOverlayFrame, MontanaNetFrames 120-157): 0x02 ‖ type ‖ dst[32] ‖ msgId[16] ‖ length[4] BE ‖ payload. */
+class OverlayFrame(val type: Int, val dst: ByteArray, val msgId: ByteArray, val payload: ByteArray) {
+    fun encode(): ByteArray = byteArrayOf(0x02, type.toByte()) + dst + msgId + NetMsg.be4(payload.size) + payload
+
+    companion object {
+        const val RELAY = 0x01
+        const val ACK = 0x03
+        fun decode(d: ByteArray): OverlayFrame? {
+            if (d.size < 54 || d[0] != 0x02.toByte()) return null
+            val n = NetMsg.be4(d, 50)
+            if (n < 0 || d.size != 54 + n) return null
+            return OverlayFrame(d[1].toInt() and 0xff, d.copyOfRange(2, 34), d.copyOfRange(34, 50), d.copyOfRange(54, 54 + n))
+        }
+    }
+}
+
+/**
+ * ONE CHANNEL TO ONE DOOR (iOS MontanaP2PDirect: dial 770-839, initiatorHandshake 987-1020, the registration 1025-1147). A node on
+ * 443 is reached inside an ordinary secure connection marked from inside as the node (ALPN «mt-node»): a tunnel, an operator and a
+ * filter pass what looks like a visit to a site, and the shell is stripped at the node's front. Frames: four bytes of length,
+ * big-endian, then the body, at most 1 MiB. The node speaks first — its KEM key — then Noise_PQ XX, and every frame after it is
+ * sealed under its direction's key. Both sides register (the key and its tag, a challenge, its signature, the verdict); the
+ * channel stands when both are confirmed. Measured from the Mac against both nodes, 08.10 12:3x (timechain/P2P-MAP.md).
+ */
+class Channel(val host: String, val port: Int) {
+    val label = host + ":" + port
+    val dialAt = System.currentTimeMillis()
+    @Volatile var ready = false
+        private set
+    @Volatile var peerTag: ByteArray? = null
+        private set
+    @Volatile var peerOwnerRef: ByteArray? = null
+        private set
+    @Volatile var closeWhy = ""
+        private set
+    var channelHash = ByteArray(0)
+        private set
+    var ownerAsks = 0
+    val sentAt = java.util.concurrent.ConcurrentHashMap<String, Long>()   // only the addressee's ack comes back (iOS 1217-1221)
+    private var socket: Socket? = null
+    private var out: OutputStream? = null
+    private var input: DataInputStream? = null
+    @Volatile private var sendKey: ByteArray? = null
+    private var peerPk: ByteArray? = null
+    private var nonce: ByteArray? = null
+    private var myReg = false
+    private var peerReg = false
+
+    /** Dial, greet and read until the channel dies — on the caller's thread, from the first byte to the last. */
+    fun run(ident: NodeIdentity.Ident, up: (Channel) -> Unit, frame: (Channel, OverlayFrame) -> Unit) {
+        var held1 = 0L
+        var held2 = 0L
+        try {
+            val raw = Socket()
+            socket = raw
+            raw.connect(InetSocketAddress(host, port), 5000)   // iOS 956-984: five seconds to stand, or the next road's turn
+            val s: Socket = if (port == 443) tls(raw) ?: return else raw
+            socket = s
+            s.soTimeout = 8000   // the handshake's own budget (iOS handshakeBudget 687)
+            input = DataInputStream(s.getInputStream())
+            out = s.getOutputStream()
+            val kem = read()?.takeIf { it.size == 1184 } ?: return close("noise-key")
+            val seed = MtBindings.nativeRandom(32) ?: return close("noise-seed")
+            val st = LongArray(1)
+            val msg1 = MtBindings.nativeNoiseInitiator1(kem, seed, st)
+            held1 = st[0]
+            if (msg1 == null) return close("noise-msg1")
+            write(msg1)
+            val msg2 = read()?.takeIf { it.size == 6349 } ?: return close("noise-msg2")
+            val s1 = held1
+            held1 = 0L   // the core consumes it, answer or refusal
+            held2 = MtBindings.nativeNoiseInitiator2(s1, msg2)
+            if (held2 == 0L) return close("noise-msg2-open")
+            val s2 = held2
+            held2 = 0L
+            val done = MtBindings.nativeNoiseInitiator3(s2)?.takeIf { it.size == 5261 + 96 } ?: return close("noise-msg3")
+            write(done.copyOfRange(0, 5261))
+            val rk = done.copyOfRange(5293, 5325)
+            channelHash = done.copyOfRange(5325, 5357)
+            sendKey = done.copyOfRange(5261, 5293)
+            Log.d("Montana", "noise_done at=" + label + " ms=" + (System.currentTimeMillis() - dialAt))
+            send(NetMsg.REGISTER_INIT, ident.pk + ident.tag)
+            while (true) {
+                val f = read() ?: return close("peer-closed")
+                val plain = Wire.open(rk, f) ?: return close("bad-frame")
+                if (plain.size == 1 && plain[0] == 0x02.toByte()) continue   // the other side's keepalive
+                val (type, body) = NetMsg.decode(plain) ?: continue
+                when (type) {
+                    NetMsg.REGISTER_INIT -> registerInit(body)
+                    NetMsg.REGISTER_CHALLENGE -> if (body.size == 16) MtBindings.nativeSign(ident.sk, signable(ident.tag, body))?.let { send(NetMsg.REGISTER_PROOF, it) }
+                    NetMsg.REGISTER_PROOF -> registerProof(body, up)
+                    NetMsg.REGISTER_RESULT -> if (body.firstOrNull() == 0.toByte()) { myReg = true; maybeReady(up) }
+                    NetMsg.OWNER_REF -> if (body.size == 16 && peerOwnerRef == null) { peerOwnerRef = body; Log.d("Montana", "owner_ref at=" + label) }
+                    NetMsg.OVERLAY_FRAME -> OverlayFrame.decode(body)?.let { frame(this, it) }
+                }
+            }
+        } catch (e: Exception) {
+            close((if (ready) "read-" else "dial-") + e.javaClass.simpleName)
+        } finally {
+            if (held1 != 0L) MtBindings.nativeNoiseFree(1, held1)
+            if (held2 != 0L) MtBindings.nativeNoiseFree(2, held2)
+            runCatching { socket?.close() }
+        }
+    }
+
+    private fun tls(raw: Socket): Socket? {
+        // ALPN on the platform's own socket stands from Android 10; an older phone waits for the web-socket door
+        if (Build.VERSION.SDK_INT < 29) { close("tls-no-alpn"); return null }
+        val s = (SSLSocketFactory.getDefault() as SSLSocketFactory).createSocket(raw, host, port, true) as SSLSocket
+        s.sslParameters = s.sslParameters.apply { applicationProtocols = arrayOf("mt-node"); serverNames = listOf(SNIHostName(host)) }
+        s.soTimeout = 8000
+        s.startHandshake()
+        // the platform's socket checks the chain, not the name: the name is checked here, as a browser checks it
+        if (!HttpsURLConnection.getDefaultHostnameVerifier().verify(host, s.session)) { close("tls-name"); return null }
+        return s
+    }
+
+    private fun read(): ByteArray? {
+        val i = input ?: return null
+        val n = i.readInt()
+        if (n <= 0 || n > (1 shl 20)) return null   // at most 1 MiB a frame (iOS readFrame 1931-1939)
+        return ByteArray(n).also { i.readFully(it) }
+    }
+
+    private fun write(body: ByteArray) {
+        val o = out ?: return
+        synchronized(o) { o.write(NetMsg.be4(body.size) + body); o.flush() }
+    }
+
+    /** One sealed message of the channel (iOS sendNet 1032-1035): false — the channel could not take it. */
+    fun send(type: Int, body: ByteArray): Boolean = sealed(NetMsg.encode(type, body))
+
+    private fun sealed(plain: ByteArray): Boolean {
+        val k = sendKey ?: return false
+        val s = Wire.seal(k, plain) ?: return false
+        return runCatching { write(s) }.isSuccess
+    }
+
+    /** The frame that keeps a standing channel warm (iOS startKeepalive 627-636): [0x02], sealed. */
+    fun keepalive() { sealed(byteArrayOf(0x02)) }
+
+    private fun registerInit(body: ByteArray) {
+        if (body.size != 1984) return   // the key 1952 ‖ its tag 32
+        val pk = body.copyOfRange(0, 1952)
+        val tag = body.copyOfRange(1952, 1984)
+        if (!Wire.overlayTag(pk).contentEquals(tag)) return   // &3.3: the tag is the key's own
+        peerPk = pk
+        peerTag = tag
+        // the challenge lives the whole greeting and goes inside a signature: drawn from the gathered source
+        val n = MtBindings.nativeRandom(16) ?: return close("no-nonce")
+        nonce = n
+        send(NetMsg.REGISTER_CHALLENGE, n)
+    }
+
+    private fun registerProof(body: ByteArray, up: (Channel) -> Unit) {
+        val pk = peerPk
+        val tag = peerTag
+        val n = nonce
+        if (body.size != 3309 || pk == null || tag == null || n == null || !MtBindings.nativeVerify(pk, signable(tag, n), body)) {
+            send(NetMsg.REGISTER_RESULT, byteArrayOf(0x01))
+            return
+        }
+        peerReg = true
+        send(NetMsg.REGISTER_RESULT, byteArrayOf(0x00))
+        maybeReady(up)
+    }
+
+    /** &5.1 proof of ownership (iOS MontanaOverlayProof 245-265): «mt-reg» ‖ 0 ‖ the tag ‖ the challenge ‖ the channel's hash. */
+    private fun signable(resource: ByteArray, challenge: ByteArray) = "mt-reg".toByteArray() + byteArrayOf(0) + resource + challenge + channelHash
+
+    private fun maybeReady(up: (Channel) -> Unit) {
+        if (ready || !myReg || !peerReg) return
+        ready = true
+        // the node keeps the channel warm every eight seconds: thirty silent seconds are a dead road, not a quiet one
+        runCatching { socket?.soTimeout = 30_000 }
+        Log.d("Montana", "reg_ready at=" + label + " ms=" + (System.currentTimeMillis() - dialAt))
+        up(this)
+    }
+
+    /** The channel ends, and its first reason stands: a later one is only the echo of the first. */
+    fun close(why: String) {
+        if (closeWhy.isEmpty()) closeWhy = why
+        runCatching { socket?.close() }
+    }
+}
+
+/**
+ * THE PHONE HOLDS ITS NODES (iOS MontanaNodes.open 263-330, MontanaP2PDirect 627-677): a node is a meeting and transit point, and
+ * the link to it is held for as long as the app lives. Every bare door of the network's list is knocked unless it stands; a door
+ * that did not stand waits its step — two seconds, doubled with a spread at every knock, under fifteen, and up to ten minutes
+ * once it refused. Every eight seconds each standing channel is kept warm, and a neighbour that has not named its owner is given
+ * ours again, ten times at most. A frame that arrives is acknowledged when it is mine and carried on when it is not.
+ */
+object Channels {
+    private const val FRAME_MEMORY = 8192   // iOS frameMemory 468
+    private const val STEP_MIN = 2.0
+    private const val STEP_MAX = 15.0
+    private const val STEP_DEAD_MAX = 600.0   // iOS MontanaNodes 249-255
+    private val live = HashMap<String, Channel>()   // a door's label → its channel, standing or being greeted
+    private val tried = HashMap<String, Triple<Long, Double, Boolean>>()   // a door's label → (knocked at, the next step in s, refused)
+    private val originated = HashSet<String>()
+    private val seen = HashSet<String>()
+    @Volatile private var owner: ByteArray? = null
+    @Volatile private var started = false
+
+    /** Begin holding the network's machines, once, for the app's whole life. */
+    fun start() {
+        if (started) return
+        started = true
+        Thread { while (true) { runCatching { knock() }; Thread.sleep(2000) } }.start()
+        Thread { while (true) { Thread.sleep(8000); runCatching { warm() } } }.start()
+    }
+
+    /** The device forgets the person: the owner branch goes, and the channels it named close with it. */
+    fun forget() {
+        owner = null
+        val cs = synchronized(live) { live.values.toList() }
+        for (c in cs) c.close("forgotten")
+    }
+
+    private fun knock() {
+        val ident = NodeIdentity.device() ?: return
+        val now = System.currentTimeMillis()
+        for ((host, port) in Doors.bare()) {
+            val label = host + ":" + port
+            val c = synchronized(live) {
+                if (live.containsKey(label)) return@synchronized null
+                val cur = tried[label]
+                val step = cur?.second ?: STEP_MIN
+                if (now - (cur?.first ?: 0L) < step * 1000) return@synchronized null
+                val spread = 0.8 + Math.random() * 0.6   // the spread of a retry, not a quantity of the protocol
+                val ceiling = if (cur?.third == true) STEP_DEAD_MAX else STEP_MAX
+                tried[label] = Triple(now, minOf(ceiling, step * 2 * spread), cur?.third ?: false)
+                Channel(host, port).also { live[label] = it }
+            } ?: continue
+            Log.d("Montana", "node_knock at=" + label)
+            Thread { serve(c, ident) }.start()
+        }
+    }
+
+    private fun serve(c: Channel, ident: NodeIdentity.Ident) {
+        c.run(ident, { up(it) }, { ch, of -> received(ch, of) })
+        synchronized(live) {
+            live.remove(c.label)
+            // a door that stood is knocked again at once; one that did not keeps its step and is judged refused
+            if (c.ready) tried.remove(c.label) else tried[c.label]?.let { tried[c.label] = Triple(it.first, it.second, true) }
+        }
+        Log.d("Montana", (if (c.closeWhy == "peer-closed") "chan_peer_close" else "node_shut") + " at=" + c.label + " why=" + c.closeWhy +
+            " ready=" + (if (c.ready) 1 else 0) + " after_ms=" + (System.currentTimeMillis() - c.dialAt))
+    }
+
+    private fun up(c: Channel) {
+        val paths = synchronized(live) { live.values.count { it.ready } }
+        Log.d("Montana", "path_up at=" + c.label + " ms=" + (System.currentTimeMillis() - c.dialAt) + " paths=" + paths)
+        // the owner reference leaves before anything else (iOS maybeReady 1130-1146): without it the node cannot count this owner
+        Thread { ownerSecret()?.let { c.send(NetMsg.OWNER_REF, Wire.ownerRef(it, c.channelHash)) } }.start()
+    }
+
+    /** The owner branch of this person's seed (iOS ownerSecretCached 1115-1122): stretched once aside, then warm. */
+    private fun ownerSecret(): ByteArray? = owner ?: synchronized(this) {
+        owner ?: MontanaSeed.mnemonic?.let { MtBindings.nativeMnemonicToMasterSeed(it) }?.let { Wire.ownerSecret(it) }?.also { owner = it }
+    }
+
+    /** Every eight seconds (iOS startKeepalive 627-677): each standing channel kept warm, a nameless neighbour given ours again. */
+    private fun warm() {
+        val cs = synchronized(live) { live.values.filter { it.ready } }
+        for (c in cs) {
+            c.keepalive()
+            if (c.peerOwnerRef == null && c.ownerAsks < 10) {
+                c.ownerAsks++
+                ownerSecret()?.let { c.send(NetMsg.OWNER_REF, Wire.ownerRef(it, c.channelHash)) }
+            }
+        }
+    }
+
+    /**
+     * A FRAME THAT ARRIVED (iOS handleOverlayFrame 1315-1428): an ack ends its wait; our own frame back and a repeat go no further;
+     * a frame under the tag of one of my pipes, or at my position in an accepted window, is mine — acknowledged down the channel
+     * it came by; anything else is carried on.
+     */
+    private fun received(c: Channel, of: OverlayFrame) {
+        val id = Wire.hex(of.msgId)
+        if (of.type == OverlayFrame.ACK) {
+            c.sentAt.remove(id)?.let { Log.d("Montana", "e2e_ack rtt_ms=" + (System.currentTimeMillis() - it)) }
+            return
+        }
+        synchronized(seen) {
+            if (id in originated) return
+            if (id in seen) return
+            if (seen.size > FRAME_MEMORY) seen.clear()
+            seen.add(id)
+        }
+        val me = NodeIdentity.device() ?: return
+        val underTag = (16 until 32).all { of.dst[it] == 0.toByte() }
+        val conv = if (underTag) myPipes()[Wire.hex(of.dst.copyOfRange(0, 16))] else null
+        val mine = conv != null || (!underTag && Wire.myPositions(me.tag).any { it.contentEquals(of.dst) })
+        if (!mine) { carry(c, of, underTag, me); return }
+        // an acknowledgement goes back down the channel it came by and addresses nobody (iOS 1423-1428)
+        c.send(NetMsg.OVERLAY_FRAME, OverlayFrame(OverlayFrame.ACK, ByteArray(32), of.msgId, ByteArray(0)).encode())
+        Log.d("Montana", "of_mine by=" + (if (conv != null) "pipe" else "window-pos") + " bytes=" + of.payload.size)
+        // the envelope itself is opened by the next step of the fork; until then the node's box stays the letter's first road
+    }
+
+    /**
+     * NOT MINE (iOS 1367-1421): an envelope under a foreign label goes on to every other channel — its holder opens it, the rest
+     * carry it, and a repeat is free because every machine filters by the frame's id. A frame at a position goes to the neighbour
+     * standing at it, else to the one nearest it and strictly nearer than me, else its road ends here.
+     */
+    private fun carry(from: Channel, of: OverlayFrame, underTag: Boolean, me: NodeIdentity.Ident) {
+        val others = synchronized(live) { live.values.filter { it.ready && it !== from && !(it.peerTag contentEquals from.peerTag) } }
+        val body = of.encode()
+        if (underTag) {
+            for (o in others) o.send(NetMsg.OVERLAY_FRAME, body)
+            return
+        }
+        val w = Wire.minute()
+        others.firstOrNull { o -> o.peerTag?.let { Wire.windowPos(it, w).contentEquals(of.dst) } == true }?.let { it.send(NetMsg.OVERLAY_FRAME, body); return }
+        val myDist = distance(Wire.windowPos(me.tag, w), of.dst)
+        var best: Channel? = null
+        var bestDist = myDist
+        for (o in others) {
+            val t = o.peerTag ?: continue
+            val d = distance(Wire.windowPos(t, w), of.dst)
+            if (nearer(d, bestDist)) { best = o; bestDist = d }
+        }
+        if (best != null) best.send(NetMsg.OVERLAY_FRAME, body) else Log.d("Montana", "of_relay_drop — nobody is nearer than us")
+    }
+
+    /** The distance between two claims: a bytewise exclusive OR (iOS MontanaP2PDirect.distance 1800-1806). */
+    private fun distance(a: ByteArray, b: ByteArray) = if (a.size != b.size) ByteArray(32) { -1 } else ByteArray(a.size) { (a[it].toInt() xor b[it].toInt()).toByte() }
+    private fun nearer(a: ByteArray, b: ByteArray): Boolean {
+        for (i in a.indices) { val x = a[i].toInt() and 0xff; val y = b[i].toInt() and 0xff; if (x != y) return x < y }
+        return false
+    }
+
+    /** The tags of my pipes across the accepted windows (iOS MTPipeBook.tagIndex 624-637): rebuilt once a window. */
+    private var pipesAt = -1L
+    private var pipes = emptyMap<String, String>()
+    private fun myPipes(): Map<String, String> = synchronized(this) {
+        val w = Wire.minute()
+        if (w != pipesAt) {
+            val m = HashMap<String, String>()
+            for (ref in Book.refs()) {
+                val s = Book.secret(ref) ?: continue
+                for (k in longArrayOf(w - 1, w, w + 1)) m[Wire.hex(Wire.pipeTag(s, k))] = ref
+            }
+            pipes = m
+            pipesAt = w
+        }
+        pipes
+    }
+}
