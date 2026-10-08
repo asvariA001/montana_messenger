@@ -125,6 +125,19 @@ object Diary {
         return s
     }
 
+    /**
+     * THE DIARY LEAVES THE PHONE ONLY BY THE PERSON'S YES (iOS MontanaDiagConsent, MontanaWakePush 3732-3751; App Review 5.1.1(ii),
+     * 08.10): the switch stands in Privacy. Every Android build is one anyone may install, so it is born off, as the iPhone's builds
+     * from TestFlight and the App Store are; off, the diary's id leaves, so a later yes starts a diary nobody can join to the one
+     * before. The diary is still written here — only nothing of it leaves.
+     */
+    private const val CONSENT = "diagShare"
+    val consented get() = Prefs.bool(CONSENT, false)
+    fun setConsent(v: Boolean) {
+        Prefs.setBool(CONSENT, v)
+        if (!v) Prefs.remove("diagId")
+    }
+
     // ── the shipper (iOS MontanaDiagShip 3722-3833, shipOnce 4032-4100) ──
     private val dg: String get() = Prefs.str("diagId", "").ifEmpty { java.util.UUID.randomUUID().toString().uppercase().also { Prefs.setStr("diagId", it) } }
 
@@ -139,6 +152,7 @@ object Diary {
 
     /** The finished generations first, the oldest first, each forgotten once it landed whole; then the live file. */
     @Synchronized private fun pass(c: Context) {
+        if (!consented) return   // the one road out asks the person's yes first (iOS MontanaDiagShip.put)
         val d = dir ?: return
         var wm = Prefs.str("diagWm", "0").toLongOrNull() ?: 0L
         var born = Prefs.str("diagGen", "")

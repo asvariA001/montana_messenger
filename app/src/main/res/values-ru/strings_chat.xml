@@ -37,6 +37,8 @@
     <string name="feed_fresh_note">Напишите первое — оно дождётся на узле</string>
     <string name="feed_no_network">Нет связи с сетью</string>
     <string name="feed_no_network_note">Сообщения уйдут, как только ответит дверь</string>
+    <string name="diag_share">Отправлять диагностику</string>
+    <string name="diag_share_sub">Записи событий без содержимого писем, имён и адресов уходят на узлы Montana, чтобы чинить ошибки, и хранятся семь дней. Выключено — с телефона ничего не уходит.</string>
     <string name="coins_travel">Монеты в пути</string>
     <string name="coins_travel_note">Письмо с монетами держит их, пока его не доставят или монеты не вернутся. Тогда его можно удалить.</string>
     <string name="coins_travel_chat">Письмо с монетами в этом чате ещё в пути. Чат можно удалить, когда его доставят или монеты вернутся.</string>
