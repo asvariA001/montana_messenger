@@ -2,6 +2,7 @@ package quest.montana.app
 
 import android.content.Context
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Outline
@@ -22,6 +23,7 @@ import android.view.MotionEvent
 import android.view.TextureView
 import android.view.View
 import android.view.ViewConfiguration
+import android.view.ViewGroup
 import android.view.ViewOutlineProvider
 import android.widget.FrameLayout
 import android.widget.ImageView
@@ -51,9 +53,8 @@ import java.util.concurrent.TimeUnit
  * and the red end over every page.
  */
 object CallScreen {
-    private const val SIDE = 76   // iOS grid(): the circle of a column in portrait
-    private const val COL = 100
-    private const val GAP = 24
+    private const val SIDE = 76   // iOS grid() default (MontanaCall.swift 6509-6514, 6990): the ring and pill's own circle
+    private const val COL = 100   // the ring's own column; the live call's grid now cuts its own from the width (gridMetrics)
     private const val MINI_W = 110   // iOS MTCallMini: the corner picture's fixed frame
     private const val MINI_H = 156
     private const val FOLD_MS = 6000L   // iOS chromeFoldS: a video call's buttons step aside after six untouched seconds
@@ -264,11 +265,9 @@ object CallScreen {
         videoLit = { listOf(videoBtn, shareBtn).forEach { b -> b.tag?.let { (it as () -> Unit)() } } }
         val holdBtn = button(c, R.string.call_hold, R.drawable.ic_pause_fill, null, { CallLine.held }) { CallLine.setHeld(!CallLine.held) }
         hold = { holdBtn.tag?.let { (it as () -> Unit)() } }
-        val grid = c.vstack(Gravity.CENTER_HORIZONTAL) {
-            addView(c.hstack { addView(route.first, lp(dp(COL), WRAP)); gap(GAP); addView(videoBtn, lp(dp(COL), WRAP)); gap(GAP); addView(mute, lp(dp(COL), WRAP)) }, lp(WRAP, WRAP))
-            gap(30)
-            addView(c.hstack { addView(holdBtn, lp(dp(COL), WRAP)); gap(GAP); addView(end, lp(dp(COL), WRAP)); gap(GAP); addView(shareBtn, lp(dp(COL), WRAP)) }, lp(WRAP, WRAP))
-        }
+        // iOS grid(_:) (6506-6515) cuts the circle, the column and the gap from the width; the row (6835-6905) stands
+        // two of three in portrait, turns to one of six lying on its side (vClass == .compact, 6499)
+        val grid = CallGrid(c, listOf(route.first, videoBtn, mute, holdBtn, end, shareBtn))
         val top = c.hstack {
             gravity = Gravity.CENTER_VERTICAL
             addView(back, lp(dp(44), dp(44)))
@@ -287,7 +286,7 @@ object CallScreen {
             addView(turnPlate, lp(WRAP, WRAP).apply { leftMargin = dp(16); rightMargin = dp(16); bottomMargin = dp(12) })
             addView(grid, lp(WRAP, WRAP))
             addView(stopShare, lp(dp(56), dp(56)))
-            gap(46)
+            addView(GridFloor(c), lp(MATCH, WRAP))   // iOS 6888/6904: twelve under the row lying on its side, forty-six standing up
         }
         // ── the pictures (iOS 6599-6616): the big slot, the switch over it, the dial's shade, the corner slot ──
         val big = Picture(c)
@@ -591,6 +590,66 @@ object CallScreen {
             addView(c.text(name.take(1).uppercase(), 160f, Color.argb(56, 255, 255, 255), bold = true, center = true),   // USER-DATA: the name's first letter
                 FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
         }
+    }
+}
+
+/**
+ * iOS grid(_:) (MontanaCall.swift 6506-6515): the circle, the column and the gap are cut from the width, not a fixed
+ * number -- three columns in portrait, one row of six lying on its side (vClass == .compact, 6499).
+ */
+private fun gridMetrics(widthPx: Int, density: Float, landscape: Boolean): Triple<Int, Int, Int> {
+    val w = (widthPx / density).toInt()
+    return if (landscape) {
+        val gap = 12   // iOS 6508
+        val col = minOf(84, (w - 32 - 5 * gap) / 6)   // iOS 6509
+        Triple(maxOf(44, minOf(64, col - 4)), col, gap)   // iOS 6510
+    } else {
+        val gap = 24   // iOS 6512
+        val col = minOf(100, (w - 32 - 2 * gap) / 3)   // iOS 6513
+        Triple(maxOf(44, minOf(76, col - 4)), col, gap)   // iOS 6514
+    }
+}
+
+/**
+ * iOS fullScreen's grid (6835-6905): the system two rows of three in portrait, one row of six lying on its side
+ * (vClass == .compact, 6499) -- re-measured from the width on every layout, the six columns never rebuilt.
+ */
+private class CallGrid(c: Context, private val buttons: List<View>) : ViewGroup(c) {
+    private var colPx = 0
+    private var gapPx = 0
+    private var rowH = 0
+    init { buttons.forEach { addView(it) } }
+    override fun onMeasure(widthSpec: Int, heightSpec: Int) {
+        val landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        val (side, col, gap) = gridMetrics(MeasureSpec.getSize(widthSpec), resources.displayMetrics.density, landscape)
+        colPx = dp(col); gapPx = dp(gap)
+        val sidePx = dp(side)
+        buttons.forEach { btn ->
+            val face = (btn as ViewGroup).getChildAt(0)
+            (face.layoutParams as LinearLayout.LayoutParams).apply { width = sidePx; height = sidePx }
+            btn.measure(MeasureSpec.makeMeasureSpec(colPx, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED))
+        }
+        rowH = buttons[0].measuredHeight
+        val width = if (landscape) 6 * colPx + 5 * gapPx else 3 * colPx + 2 * gapPx
+        val height = if (landscape) rowH else rowH * 2 + dp(30)   // iOS VStack(spacing: 30), 6890
+        setMeasuredDimension(width, height)
+    }
+    override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
+        val landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        var x = 0; var y = 0
+        buttons.forEachIndexed { i, btn ->
+            if (!landscape && i == 3) { x = 0; y = rowH + dp(30) }
+            btn.layout(x, y, x + colPx, y + rowH)
+            x += colPx + gapPx
+        }
+    }
+}
+
+/** iOS 6888/6904: the room under the grid -- twelve points lying on its side, forty-six standing up. */
+private class GridFloor(c: Context) : View(c) {
+    override fun onMeasure(widthSpec: Int, heightSpec: Int) {
+        val landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        setMeasuredDimension(MeasureSpec.getSize(widthSpec), dp(if (landscape) 12 else 46))
     }
 }
 
