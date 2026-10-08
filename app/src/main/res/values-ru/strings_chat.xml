@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="reply">Ответить</string>
+    <string name="reply_to">Ответ %1$s</string>
     <string name="edit">Изменить</string>
     <string name="editing">Редактирование</string>
     <string name="delete_for_me">Удалить у меня</string>

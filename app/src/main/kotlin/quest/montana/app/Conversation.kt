@@ -411,13 +411,14 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     }
 
     // THE LINE OVER THE FIELD (iOS the reply/edit strip): what the next letter answers, or which letter is being changed.
-    val stripTitle = c.text("", 13f, MT.blue, bold = true)
+    val stripLead = c.hstack()   // the reply's glyph and thumbnail (iOS barPlate's HStack, MontanaConversation.swift:2578-2587); the edit's own bar; showStrip fills it
+    val stripTitle = c.text("", 12f, MT.blue, bold = true)
     val stripWords = c.text("", 14f, Color.WHITE).apply { singleLineEllipsis() }
     val strip = c.hstack {
         visibility = View.GONE
         background = c.glassPlate().apply { cornerRadius = dp(18).toFloat() }   // the feed runs under it: the plate carries the glass
         setPadding(dp(16), dp(6), dp(8), dp(6))
-        addView(View(c).apply { setBackgroundColor(MT.blue) }, lp(dp(3), dp(34)).apply { marginEnd = dp(8) })
+        addView(stripLead, lp(WRAP, WRAP).apply { marginEnd = dp(8) })
         addView(c.vstack(Gravity.NO_GRAVITY) { addView(stripTitle); addView(stripWords) }, lp(0, WRAP, 1f))
         addView(c.icon(R.drawable.ic_close, MT.gray).apply {
             setPadding(dp(8), dp(8), dp(8), dp(8))
@@ -430,12 +431,27 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     fun showStrip() {
         val r = replyTo; val e = editing
         strip.visibility = if (r == null && e == null) View.GONE else View.VISIBLE
-        if (e != null) { stripTitle.text = c.getString(R.string.editing); stripWords.text = letterWords(c, e) }
-        else if (r != null) {
-            stripTitle.text = if (r.mine) Prefs.userName.ifBlank { c.getString(R.string.reply) }
+        stripLead.removeAllViews()
+        if (e != null) {
+            stripTitle.text = c.getString(R.string.editing); stripWords.text = letterWords(c, e)
+            stripLead.addView(View(c).apply { setBackgroundColor(MT.blue) }, lp(c.dp(3), c.dp(34)))
+        } else if (r != null) {
+            // THE REPLY'S GLYPH AND THUMBNAIL (iOS replyPreview, MontanaConversation.swift:3269-3272; barPlate, 2576-2599): the
+            // arrow at the bar's own 14pt (2580) and the quoted letter's small picture at composeHeight - 8 = 28dp (3272;
+            // composeHeight 36, MontanaBubble.swift:2331) when ChatStore.rowMediaKind names a kind for it (MontanaChatStore.swift:
+            // 368-377, which names the reply bar at 365-366) — a letter of plain words shows none, as MTLetterThumb's failable
+            // init returns nil for it.
+            stripTitle.text = c.getString(R.string.reply_to, if (r.mine) Prefs.userName.ifBlank { c.getString(R.string.coin_you) }
                 else if (group) Groups.speakerName(c, r.from)   // a group's letter is its speaker's (iOS speakerName)
-                else Book.chat(ref)?.shown?.ifBlank { null } ?: c.getString(R.string.peer)
-            stripWords.text = letterWords(c, r)   // USER-DATA
+                else Book.chat(ref)?.shown?.ifBlank { null } ?: c.getString(R.string.peer))
+            stripLead.addView(c.icon(R.drawable.ic_reply, MT.blue, 14), lp(c.dp(14), c.dp(14)))
+            val kind = rowKind(r)
+            if (kind != null) {
+                stripLead.addView(c.letterThumb(r, kind, 28), lp(c.dp(28), c.dp(28)).apply { marginStart = c.dp(8) })
+                stripWords.text = bareWords(letterWords(c, r))   // USER-DATA: the glyph the thumbnail already shows (iOS MontanaRowWords.bare)
+            } else {
+                stripWords.text = letterWords(c, r)   // USER-DATA
+            }
         }
     }
 

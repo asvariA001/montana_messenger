@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="reply">Reply</string>
+    <string name="reply_to">Reply to %1$s</string>   <!-- iOS «Reply to %@», MontanaConversation.swift:3270 -->
     <string name="edit">Edit</string>
     <string name="editing">Editing</string>
     <string name="delete_for_me">Delete for me</string>
