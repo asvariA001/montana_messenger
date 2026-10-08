@@ -38,6 +38,7 @@ import org.webrtc.VideoSink
 import java.util.Locale
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import kotlin.math.roundToInt
 
 /**
  * THE CALL'S OWN SCREEN (iOS CallOverlayView, MontanaCall.swift 6442-6860). In hand (fullScreen): the ground of the peer's face
@@ -335,14 +336,15 @@ object CallScreen {
             miniBox.visibility = if (shown) View.VISIBLE else View.GONE
             shade.visibility = if (!shown && !CallLine.peerSharing) View.VISIBLE else View.GONE
         }
-        // THE CORNER PICTURE'S PLACE (iOS MTCallMini.center 6279): ten points under the top panel or over the buttons while they
-        // stand, fourteen from the safe edge when they step aside, fourteen from the side
+        // THE CORNER PICTURE'S PLACE (iOS MTCallMini.center, MontanaCall.swift 6325-6339): ten points under the top row's
+        // measured bottom (c4431becfb2f) — the bottom corners always reach the safe bottom, fourteen off it: the picture is a
+        // layer under the buttons now (5412540aa627), never clamped above the grid's top
         var placed = false
         fun placeMini(glide: Boolean) {
             if (miniBox.visibility != View.VISIBLE || pictures.width == 0) return
             val up = column.visibility == View.VISIBLE
             val topEdge = if (up && events.bottom > 0) events.bottom + c.dp(10) else column.paddingTop + c.dp(14)
-            val bottomEdge = if (up && grid.visibility == View.VISIBLE && grid.top > 0) grid.top - c.dp(10) else pictures.height - column.paddingBottom - c.dp(14)
+            val bottomEdge = pictures.height - column.paddingBottom - c.dp(14)
             val x = (if (corner % 2 == 0) c.dp(14) else pictures.width - c.dp(14) - c.dp(MINI_W)).toFloat()
             val y = (if (corner < 2) topEdge else maxOf(topEdge, bottomEdge - c.dp(MINI_H))).toFloat()
             if (glide && placed) miniBox.animate().translationX(x).translationY(y).setDuration(300).start()
@@ -624,9 +626,11 @@ private class CallGrid(c: Context, private val buttons: List<View>) : ViewGroup(
         val (side, col, gap) = gridMetrics(MeasureSpec.getSize(widthSpec), resources.displayMetrics.density, landscape)
         colPx = dp(col); gapPx = dp(gap)
         val sidePx = dp(side)
+        val glyphPx = dp((side * 0.34f).roundToInt())   // iOS gridBtn/routeBtn (MontanaCall.swift 6979, 6994): the glyph is side * 0.34, not a fixed 26
         buttons.forEach { btn ->
-            val face = (btn as ViewGroup).getChildAt(0)
+            val face = (btn as ViewGroup).getChildAt(0) as ViewGroup
             (face.layoutParams as LinearLayout.LayoutParams).apply { width = sidePx; height = sidePx }
+            (face.getChildAt(0).layoutParams as FrameLayout.LayoutParams).apply { width = glyphPx; height = glyphPx }
             btn.measure(MeasureSpec.makeMeasureSpec(colPx, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED))
         }
         rowH = buttons[0].measuredHeight
