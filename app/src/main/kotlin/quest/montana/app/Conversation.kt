@@ -461,28 +461,126 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     // THE FIRST UNREAD AT THIS OPENING (iOS firstUnreadId, MontanaConversation 1225, 2661): the quiet «Unread messages» line stands
     // before it while the page does; read before the page marks the chat read
     val firstUnread = Book.chat(ref)?.let { ch -> if (0 < ch.unread) ch.msgs.filter { !it.mine }.takeLast(ch.unread).firstOrNull()?.mid else null }
+    // THE ROWS ARE KEPT BY THEIR LETTER (iOS MTFeedListView.apply, MontanaMessageFeed 821-913 at 2155: the snapshot names each cell
+    // by its letter's MID and reconfigures only a cell whose fingerprint moved): every child of the column is named -- a letter's row
+    // by its first letter, a day's line and the unread line by the letter they stand before -- and carries the signature of what it
+    // shows. A pass keeps a row whose signature stands, builds anew in its own place a row whose signature moved, lays a new row at
+    // its index and takes away a row whose letter left; the column is never cleared, so a voice playing keeps its row while another
+    // letter lands, and a pass that moved nothing touches no view (iOS «feed saw nothing», 858). The column was built whole again at
+    // every word of the book, any chat's.
+    class FeedRow(val key: String, val sig: List<Any?>, val letter: Boolean) { var view: View? = null }
+    val feed = ArrayList<FeedRow>()
+    var laid = false
+    // the chat a row reads at a tap (the next round note, the voice's sender): one object every pass refreshes, so a kept row never
+    // reads the letters of the pass that built it
+    val feedChat = Chat(ref, "")
+    // THE BIRTH IN FLIGHT (iOS animateBirth, MontanaMessageFeed 928-966): where each row on the screen stood before the pass, the rows
+    // the spring was carrying, the newborns waiting unseen for their rise, and the one spring
+    var flight: android.animation.ValueAnimator? = null
+    var landing = false
+    val stood = HashMap<String, Float>()
+    val flying = HashSet<String>()
+    val newborn = HashSet<View>()
+    // every row that rides stands where it stood: a pass with a newborn holds each row on the screen, a pass without one only the
+    // rows the spring was carrying (iOS: no birth, no motion)
+    fun pose() {
+        if (!landing) return
+        val y0 = mediaPlateOffset(column, scroll) - scroll.scrollY
+        val all = newborn.isNotEmpty()
+        for (r in feed) {
+            val v = r.view ?: continue
+            val from = stood[r.key] ?: continue
+            if (v !in newborn && (all || r.key in flying)) v.translationY = from - (y0 + v.top)
+        }
+    }
+    fun fadeIn(v: View) = v.animate().alpha(1f).setDuration(Math.round(LetterMotion.fade * 1000))
+        .setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+    // THE RISE (iOS animateBirth 936-966), once the pass is laid and the feed has taken its place (toBottom), before the frame shows
+    // it: every row already stands at its final size in its final place; the newborn starts 0.9 of its height below it and fades in
+    // as it rises, and each row the settled layout moved rides from where it stood, on the same spring. Nothing is aimed at a guessed
+    // place, nothing is measured in flight.
+    fun land() {
+        if (!landing) return
+        pose()
+        landing = false
+        val y0 = mediaPlateOffset(column, scroll) - scroll.scrollY
+        val births = ArrayList<View>()
+        for (r in feed) {
+            val v = r.view ?: continue
+            if (v !in newborn) continue
+            val y = y0 + v.top
+            if (0 < y + v.height && y < scroll.height) births.add(v) else v.alpha = 1f
+        }
+        val ways = ArrayList<Pair<View, Float>>()
+        for (r in feed) {
+            val v = r.view ?: continue
+            if (v in newborn) continue
+            if (r.key in stood && (births.isNotEmpty() || r.key in flying) && 0.5f < Math.abs(v.translationY)) ways.add(v to v.translationY)
+            else v.translationY = 0f
+            if (v.alpha < 1f) fadeIn(v)
+        }
+        val moved = ways.size
+        if (births.isNotEmpty()) {
+            // THE NEWBORN RISES FROM UNDER THE FIELD'S GLASS (iOS: from below the feed's edge, the feed running under the bars): no
+            // parent on its way up clips it -- each row keeps its own clip, so the reply's pull keeps its edge
+            column.clipToPadding = false
+            var up = column.parent as? android.view.ViewGroup
+            while (up != null) { up.clipChildren = false; if (up === scroll) break; up = up.parent as? android.view.ViewGroup }
+        }
+        for (v in births) { v.translationY = v.height * LetterMotion.RISE; ways.add(v to v.translationY); fadeIn(v) }
+        newborn.clear(); stood.clear(); flying.clear()
+        if (ways.isEmpty()) return
+        val d = LetterMotion.duration
+        val b = LetterMotion.bounce
+        val settle = LetterMotion.settle(d, b)
+        flight = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = Math.round(settle * 1000)
+            interpolator = android.view.animation.LinearInterpolator()
+            addUpdateListener { a -> val k = LetterMotion.left(a.animatedFraction * settle, d, b).toFloat(); for ((v, w) in ways) v.translationY = w * k }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                var cut = false
+                override fun onAnimationCancel(a: android.animation.Animator) { cut = true }
+                override fun onAnimationEnd(a: android.animation.Animator) { if (!cut) for ((v, _) in ways) v.translationY = 0f }
+            })
+            start()
+        }
+        android.util.Log.d("Montana", "row_birth born=" + births.size + " moved=" + moved)
+    }
     fun redraw() {
         val chat = Book.chat(ref) ?: return
-        column.removeAllViews()
-        var lastDay = -1L
-        // A MEDIA GROUP IS ONE ROW (iOS buildRows): its letters stand as one plate, chosen, forwarded and deleted together
-        for (row in feedRows(chat.msgs.filter { !ChessLetter.isStep(it.text) })) {
+        feedChat.name = chat.name; feedChat.pin = chat.pin
+        feedChat.msgs.clear(); feedChat.msgs.addAll(chat.msgs)
+        // the pass's own switches, read once: every row's signature takes the same answer
+        val skin = BubbleStyle.style
+        val canPull = !group || Groups.canWrite(ref)
+        val played = Prefs.bool("plcap_$ref", false)
+        val auto by lazy { Media.autoAllowed(c) }
+        val byMid by lazy { chat.msgs.associateBy { it.mid } }
+        val speakers = HashMap<String?, String>()
+        val lines = HashMap<String?, String>()
+        // WHAT A ROW SHOWS (iOS fingerprint, MontanaConversation 2855-2879): each letter's words, rung, edit, answers, file, manifest
+        // and link card; the quote's name and the speaker's line; the filter's fold; the choice while the chat selects; the pass's
+        // switches -- the skin, the reply's pull, the «played» word of the rung, the automatic download a waiting file obeys
+        fun signOf(row: List<Msg>): List<Any?> {
             val m = row[0]
-            val cal = java.util.Calendar.getInstance().apply { timeInMillis = m.at }
-            val day = cal.get(java.util.Calendar.YEAR) * 1000L + cal.get(java.util.Calendar.DAY_OF_YEAR)
-            if (day != lastDay) {
-                lastDay = day
-                val words = dayWords(c, m.at)
-                column.addView(FrameLayout(c).apply {
-                    addView(c.text(words, 13f, Color.WHITE).apply { background = c.glassPlate(); setPadding(dp(10), dp(3), dp(10), dp(3)) },
-                        FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
-                }, lp().apply { topMargin = c.dp(8); bottomMargin = c.dp(8) })
+            val s = ArrayList<Any?>(10 * row.size + 12)
+            for (x in row) { s.add(x.mid); s.add(x.text); s.add(x.state); s.add(x.edited); s.add(x.heard); s.add(x.reactions.toList()); s.add(x.myReact); s.add(x.file); s.add(x.meta); s.add(x.lp) }
+            s.add(skin); s.add(canPull); s.add(m.mine && played); s.add(selecting); s.add(selecting && m.mid in picked)
+            if (m.qt != null && m.qt != FORWARDED_QUOTE) {
+                val whose = m.qm?.let { byMid[it] }
+                s.add(if (whose?.mine == true) Prefs.userName else if (group) speakers.getOrPut(whose?.from) { Groups.speakerName(c, whose?.from) } else chat.shown)
             }
-            // «unread messages» (iOS unreadDivider 3014-3022): the caption in grey across the feed on its quiet band
-            if (firstUnread != null && row.any { it.mid == firstUnread }) column.addView(c.text(c.getString(R.string.unread_messages), 11f, MT.gray, center = true).apply {
-                setBackgroundColor(Color.rgb(31, 31, 31)); setPadding(0, dp(5), 0, dp(5))
-            }, lp().apply { topMargin = c.dp(2); bottomMargin = c.dp(2) })
-            val b = letterBubble(c, m, chat, row)
+            if (group && !m.mine) s.add(lines.getOrPut(m.from) { Groups.speakerLine(c, m, ref) ?: "" })
+            if (!m.mine) s.add(ContentFilter.folded(m))
+            if (!m.mine && row.any { it.file == null && it.text.startsWith(Marks.MEDIA) }) s.add(auto)
+            // A ROW THAT READS BEYOND ITS LETTERS is built at every pass, as the whole column was: a game's invitation reads the game
+            // (Accept and Decline while it waits for me), a coin letter the road of its coins
+            if (m.text.startsWith(ChessLetter.MARK) || m.text.startsWith(CoinLetter.MARK)) s.add(Any())
+            return s
+        }
+        // ONE LETTER'S ROW, drawn as the column always drew it
+        fun letterRow(m: Msg, row: List<Msg>): View {
+            val b = letterBubble(c, m, feedChat, row)
             if (selecting) {
                 // WHILE THE CHAT SELECTS a letter is a choice: a circle on the left, a tap chooses (iOS the selection rows); a plate whole
                 val chosen = m.mid in picked
@@ -490,7 +588,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                     background = if (chosen) c.rounded(MT.gold, 11) else c.rounded(Color.TRANSPARENT, 11, Color.WHITE)
                     if (chosen) addView(c.icon(R.drawable.ic_check, Color.BLACK, 14), FrameLayout.LayoutParams(dp(14), dp(14), Gravity.CENTER))
                 }
-                column.addView(c.hstack {
+                return c.hstack {
                     gravity = Gravity.TOP
                     addView(circle, lp(dp(22), dp(22)).apply { marginEnd = dp(8) })
                     addView(b.apply { isClickable = false }, lp(0, WRAP, 1f))
@@ -503,8 +601,8 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                         val mid = if (plate != null) mediaPlateOffset(plate, b) + plate.height / 2f else b.height / 2f
                         circle.translationY = mid - circle.height / 2f
                     }
-                }, lp().apply { topMargin = c.dp(3) })
-                continue
+                    layoutParams = lp().apply { topMargin = c.dp(3) }
+                }
             }
             // THE LADDER UNDER EVERY OWN BUBBLE (the author's word 29.09: «у каждого сообщения, по отдельности»): each letter its own rung
             // A PLATE STANDS WHERE ITS SLOWEST LETTER STANDS (iOS MTLadder, MontanaBubble 2047-2065, the author's word 29.09): «not sent»
@@ -524,8 +622,96 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             // TEXT WITH A QUOTE — A TAP GOES TO THE ORIGINAL (iOS MontanaBubble 475, jumpTo 2999-3012)
             val q = m.qm
             if (q != null && m.qt != FORWARDED_QUOTE && !Marks.isService(m.text)) b.getChildAt(0).setOnClickListener { toQuoted(q) }
-            column.addView(b, lp().apply { topMargin = c.dp(3) })
+            b.layoutParams = lp().apply { topMargin = c.dp(3) }
+            return b
         }
+        // the column as this pass wants it: each child named, its signature, and how it is built when it must be
+        val want = ArrayList<FeedRow>()
+        val makers = ArrayList<() -> View>()
+        val used = HashSet<String>()
+        fun lay(key: String, sig: List<Any?>, letter: Boolean, make: () -> View) {
+            var k = key
+            while (!used.add(k)) k += "'"   // a name stands once, whatever the book holds twice
+            want.add(FeedRow(k, sig, letter)); makers.add(make)
+        }
+        var lastDay = -1L
+        // A MEDIA GROUP IS ONE ROW (iOS buildRows): its letters stand as one plate, chosen, forwarded and deleted together
+        for (row in feedRows(chat.msgs.filter { !ChessLetter.isStep(it.text) })) {
+            val m = row[0]
+            val cal = java.util.Calendar.getInstance().apply { timeInMillis = m.at }
+            val day = cal.get(java.util.Calendar.YEAR) * 1000L + cal.get(java.util.Calendar.DAY_OF_YEAR)
+            if (day != lastDay) {
+                lastDay = day
+                val words = dayWords(c, m.at)
+                lay("day:" + m.mid, listOf(words), false) {
+                    FrameLayout(c).apply {
+                        addView(c.text(words, 13f, Color.WHITE).apply { background = c.glassPlate(); setPadding(dp(10), dp(3), dp(10), dp(3)) },
+                            FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
+                        layoutParams = lp().apply { topMargin = c.dp(8); bottomMargin = c.dp(8) }
+                    }
+                }
+            }
+            // «unread messages» (iOS unreadDivider 3014-3022): the caption in grey across the feed on its quiet band
+            if (firstUnread != null && row.any { it.mid == firstUnread }) lay("unread:" + m.mid, emptyList(), false) {
+                c.text(c.getString(R.string.unread_messages), 11f, MT.gray, center = true).apply {
+                    setBackgroundColor(Color.rgb(31, 31, 31)); setPadding(0, dp(5), 0, dp(5))
+                    layoutParams = lp().apply { topMargin = c.dp(2); bottomMargin = c.dp(2) }
+                }
+            }
+            lay(m.mid, signOf(row), true) { letterRow(m, row) }
+        }
+        if (want.size != feed.size || want.indices.any { want[it].key != feed[it].key || want[it].sig != feed[it].sig }) {
+            val began = System.nanoTime()
+            val old = HashMap<String, FeedRow>(feed.size * 2)
+            for (r in feed) old[r.key] = r
+            // THE BIRTH FOLLOWS THE NEWEST END (iOS grewNewest, MontanaMessageFeed 846-848 and 911): the newest letter before the pass
+            // still stands and a letter now stands after it; the rows laid on opening, or older ones read in, are born still
+            val prevLast = feed.lastOrNull { it.letter }?.key
+            val lastKept = if (prevLast == null) -1 else want.indexOfFirst { it.key == prevLast }
+            val motion = laid && LetterMotion.on
+            val grew = motion && 0 <= lastKept && (lastKept + 1 until want.size).any { want[it].letter }
+            if (motion && !landing && (grew || flight?.isRunning == true)) {
+                // where every row on the screen stands before the pass, its flight included (iOS before, 868-875)
+                flight?.cancel()
+                val y0 = mediaPlateOffset(column, scroll) - scroll.scrollY
+                for (r in feed) {
+                    val v = r.view ?: continue
+                    if (!v.isLaidOut) continue
+                    val y = y0 + v.top + v.translationY
+                    if (0f < y + v.height && y < scroll.height) stood[r.key] = y
+                    if (v.translationY != 0f || v.alpha < 1f) flying.add(r.key)
+                }
+                landing = true
+                // the pass's first frame already shows every row where it stood; the rise starts once the feed has taken its place
+                scroll.viewTreeObserver.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
+                    override fun onPreDraw(): Boolean { scroll.viewTreeObserver.removeOnPreDrawListener(this); pose(); return true }
+                })
+                scroll.post { scroll.post { land() } }
+            }
+            // the rows whose letter left go first, so every kept row already stands in its order
+            val keys = HashSet<String>(want.size * 2)
+            for (w in want) keys.add(w.key)
+            var gone = 0
+            for (r in feed) { val v = r.view ?: continue; if (r.key !in keys) { newborn.remove(v); column.removeView(v); gone++ } }
+            var built = 0
+            var born = 0
+            for ((i, w) in want.withIndex()) {
+                val was = old[w.key]
+                val prior = was?.view
+                val v = if (was != null && prior != null && was.sig == w.sig) prior else { built++; makers[i]() }
+                w.view = v
+                if (prior != null && prior !== v) {
+                    // built anew in its own place: what its flight had reached stays with it
+                    v.translationY = prior.translationY; v.alpha = prior.alpha
+                    if (newborn.remove(prior)) newborn.add(v)
+                    column.removeView(prior)
+                } else if (prior == null && grew && lastKept < i) { v.alpha = 0f; newborn.add(v); born++ }   // unseen until it rises
+                if (column.getChildAt(i) !== v) { if (v.parent === column) column.removeView(v); column.addView(v, i) }
+            }
+            feed.clear(); feed.addAll(want)
+            android.util.Log.d("Montana", "feed_pass rows=" + want.size + " built=" + built + " born=" + born + " gone=" + gone + " ms=" + (System.nanoTime() - began) / 1_000_000)
+        }
+        laid = true
         drawEmpty(column.childCount == 0)
         // the other side closed it: read, not answered (iOS closedChats) — the note where the field stood
         if (Post.closed(ref)) { hideBar(); closedNote.visibility = View.VISIBLE }
@@ -1992,6 +2178,33 @@ internal fun noteSide(c: Context): Int {
 
 /** A note is a spoken word: it plays at the voice's speed (iOS: one speed for both); set on a sounding player only. */
 private fun speed(p: android.media.MediaPlayer) { runCatching { p.playbackParams = p.playbackParams.setSpeed(Playing.rate) } }
+
+/**
+ * THE LETTER'S MOTION (iOS MTLetterMotion, MontanaChatMotion.swift 5-33 at 2155; the birth's own numbers born in 1708 and softened
+ * in 1710, MontanaBubble 1511-1520 and 1515-1522 there): one spring for the feed, the person's own -- the springiness and the
+ * duration the Appearance page keeps under the iOS keys, bounded as iOS bounds a malformed preference (0…0.4 around 0.18, 0.25…0.8
+ * around 0.55; 6-23); the newborn starts 0.9 of its height below its place (12) and fades in over the spring's first half, never
+ * past 0.28 (24). The platform's «remove animations» stands for iOS Reduce Motion (MontanaMessageFeed 937).
+ */
+private object LetterMotion {
+    const val RISE = 0.9f
+    private fun read(key: String, lo: Double, hi: Double, def: Double): Double = Prefs.dbl(key, def).let { if (it.isFinite()) it.coerceIn(lo, hi) else def }
+    val duration: Double get() = read("chatSpringDuration", 0.25, 0.8, 0.55)
+    val bounce: Double get() = read("chatSpringBounce", 0.0, 0.4, 0.18)
+    val fade: Double get() = minOf(0.28, duration / 2)
+    val on: Boolean get() = android.animation.ValueAnimator.areAnimatorsEnabled()
+    /** What is left of the way `t` seconds in, on iOS spring(duration:bounce:): the natural frequency 2π/duration, the damping ratio
+     *  1 − bounce, set off at rest -- critically damped at bounce 0, as 1710 drew it, with no overshoot. */
+    fun left(t: Double, d: Double, b: Double): Double {
+        val w = 2 * Math.PI / d
+        val z = 1 - b
+        if (1.0 <= z) return Math.exp(-w * t) * (1 + w * t)
+        val wd = w * Math.sqrt(1 - z * z)
+        return Math.exp(-z * w * t) * (Math.cos(wd * t) + z * w / wd * Math.sin(wd * t))
+    }
+    /** How long the spring runs: until what is left falls to about a thousandth of the way; then the row stands. */
+    fun settle(d: Double, b: Double): Double = (if (b <= 0.0) 9.0 else 7.0 / (1 - b)) * d / (2 * Math.PI)
+}
 
 /** The words of a day, one owner for the feed's separators and its floating pill (iOS dayLabel, MTDayLabel). */
 private fun dayWords(c: Context, at: Long): String =
