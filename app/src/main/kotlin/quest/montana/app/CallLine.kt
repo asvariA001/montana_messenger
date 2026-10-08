@@ -616,7 +616,9 @@ object CallLine {
         val egl = CallEngine.egl ?: return false
         return runCatching {
             val en = Camera2Enumerator(Book.ctx)
-            val name = en.deviceNames.firstOrNull { en.isFrontFacing(it) == front } ?: en.deviceNames.firstOrNull() ?: return false
+            // THE BACK CAMERA IS NEVER THE MACHINE'S CHOICE (iOS MontanaCall 1340-1343, the author's word 22.09: an iPhone showed its
+            // room to the caller): the side the person chose, or no picture at all — the other camera is the flip mark's tap alone
+            val name = en.deviceNames.firstOrNull { en.isFrontFacing(it) == front } ?: return false.also { log("camera: none on the chosen side — the call goes on with sound") }
             val cam = en.createCapturer(name, null) ?: return false
             val src = f.createVideoSource(false)
             val helper = SurfaceTextureHelper.create("mt_camera", egl.eglBaseContext)
@@ -824,7 +826,7 @@ object CallLine {
         val egl = CallEngine.egl ?: return
         runCatching {
             val en = Camera2Enumerator(Book.ctx)
-            val name = en.deviceNames.firstOrNull { en.isFrontFacing(it) == front } ?: en.deviceNames.firstOrNull() ?: return
+            val name = en.deviceNames.firstOrNull { en.isFrontFacing(it) == front } ?: return   // the chosen side or none (iOS 1340)
             val cam = en.createCapturer(name, null) ?: return
             runCatching { l.helper?.dispose() }
             val helper = SurfaceTextureHelper.create("mt_camera", egl.eglBaseContext)
