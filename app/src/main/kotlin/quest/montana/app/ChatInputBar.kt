@@ -37,7 +37,7 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
     private val fieldRow = LinearLayout(c).apply { orientation = HORIZONTAL; gravity = Gravity.BOTTOM }
     private val actionRow = LinearLayout(c).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
     private val plate = FrameLayout(c)                 // the field's glass, with the emoji key inside while folded
-    private val unfoldKey = glassKey(R.drawable.ic_chevron_down, R.string.compose_open) { setOpen(true) }
+    private val unfoldKey = glassKey(R.drawable.ic_chevron_down, R.string.compose_open) { if (!record.active) setOpen(true) }
     private val emojiInside = ImageView(c).apply {
         setImageResource(R.drawable.ic_face_smiling); imageTintList = android.content.res.ColorStateList.valueOf(GLYPH)
         contentDescription = c.getString(R.string.emoji)
@@ -102,7 +102,7 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
             emojiInside.visibility = View.GONE
             field.setPadding(dp(14), dp(8), dp(14), dp(8))
             val keys = listOf(
-                glassKey(R.drawable.ic_chevron_up, R.string.compose_fold) { setOpen(false) },
+                glassKey(R.drawable.ic_chevron_up, R.string.compose_fold) { if (!record.active) setOpen(false) },
                 glassKey(R.drawable.ic_face_smiling, R.string.emoji) { showKeys() }.apply { setOnLongClickListener { onStickers?.invoke(); onStickers != null } },
                 glassKey(R.drawable.ic_compose_photo, R.string.gallery) { onGallery?.invoke() ?: notYet() },
                 glassKey(R.drawable.ic_compose_card, R.string.business_card) { onCard?.invoke() ?: notYet() },
@@ -193,6 +193,10 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
     private inner class RecordKey(c: Context) : FrameLayout(c) {
         private val face = ImageView(c).apply { scaleType = ImageView.ScaleType.FIT_CENTER }
         private var recording = false
+        /** A HOLD ROLLING KEEPS THE ROW STILL (iOS MontanaConversation.swift:787,847 «guard !recording else
+         * return», in unfoldKey and the fold arrow alike): a shape change under a rolling tape would move
+         * the swollen button's own coordinates out from under the finger. Read by the two keys above. */
+        val active: Boolean get() = recording
         private var recordingNote = false
         private var locked = false
         private var processing = false   // this touch is still the key's to judge
