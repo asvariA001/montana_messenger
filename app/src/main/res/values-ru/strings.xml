@@ -538,4 +538,5 @@
     <string name="p2p_open">Открыта</string>
     <string name="p2p_spare">запасная</string>
     <string name="p2p_no_answer">Не отвечает</string>
+    <string name="recovered_history">Восстановленная история</string>
 </resources>

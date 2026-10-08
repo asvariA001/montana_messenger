@@ -1114,7 +1114,7 @@ object Post {
         Log.i("Montana", "pipe_closed kept")
     }
     /** The other side closed this conversation: it is read, not answered (iOS closedChats). */
-    fun closed(ref: String) = Prefs.bool("pipeClosed." + ref, false)
+    fun closed(ref: String) = ref.startsWith("arc:") || Prefs.bool("pipeClosed." + ref, false)   // a recovered history is read, never answered
 
     /** «Delivered» for a letter of theirs — under its own name, so the queue holds one per letter (iOS receiptMid). */
     private fun receipt(ref: String, mid: String) = send(ref, "rcpt-$mid", Marks.DELIVERED + mid)

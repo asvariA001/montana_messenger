@@ -52,8 +52,13 @@ object Archive {
         return Keys(hk, mk, owner).also { keys = it }
     }
 
-    /** The person left: the keys leave with them (iOS forgetKeys 348). */
-    fun forgetKeys() { keys = null }
+    /** The person left: the keys leave with them (iOS forgetKeys 348), and the next person's launch reads the archive afresh. */
+    fun forgetKeys() { keys = null; launched = false }
+
+    @Volatile private var launched = false
+
+    /** The cold start's reading (iOS ChatStore 2361-2368, 2533): once a process, after the feed stands — rows go only where it has none. */
+    fun atLaunch() { if (!launched) { launched = true; restoreSoon() } }
 
     /** This install's sixteen bytes (iOS writerTag16 438-442): local by nature, they part the nonces of one seed's devices. */
     private fun device(): ByteArray = DeviceVault.get(DEVICE)?.takeIf { it.size == 16 }
@@ -152,6 +157,142 @@ object Archive {
         val bytes = Book.face(ref).takeIf { it.isFile }?.readBytes()?.takeIf { it.isNotEmpty() } ?: return
         val base = root()?.path ?: return
         MtBindings.nativeArchivePutMedia(base, folder(k, ref), FACE, k.mk, k.owner, bytes)
+    }
+
+    // ── THE READING ROAD (iOS 832-1082; ChatStore restoreFromArchive 3006-3077, applyRestored 3084-3130) ──
+
+    private class Rec(val dir: Int, val at: Long, val content: ByteArray)
+    private class Item(val at: Long, val mine: Boolean, val text: String)
+
+    private fun u32(d: ByteArray, o: Int) = (d[o].toInt() and 0xff) or ((d[o + 1].toInt() and 0xff) shl 8) or
+        ((d[o + 2].toInt() and 0xff) shl 16) or ((d[o + 3].toInt() and 0xff) shl 24)
+
+    /** The sealed blocks of one folder in file order: (u32 LE length ‖ sealed)×N, the layout the core writes (iOS readLog 964-976). */
+    private fun readLog(f: File): List<ByteArray> {
+        val d = runCatching { f.readBytes() }.getOrNull() ?: return emptyList()
+        val out = ArrayList<ByteArray>()
+        var i = 0
+        while (i + 4 <= d.size) {
+            val n = u32(d, i)
+            i += 4
+            if (n <= 0 || d.size < i + n) break
+            out.add(d.copyOfRange(i, i + n))
+            i += n
+        }
+        return out
+    }
+
+    /** One block's canon (iOS openBlock 979-1001): block_seq u64 ‖ count u32 at 8 ‖ (conv[32] ‖ dir ‖ at u64 ‖ len u32 ‖ content)×count, LE. */
+    private fun opened(d: ByteArray): List<Rec> {
+        if (d.size <= 12) return emptyList()
+        val out = ArrayList<Rec>()
+        var o = 12
+        for (x in 0 until u32(d, 8)) {
+            if (d.size < o + 45) break
+            o += 32
+            val dir = d[o].toInt() and 0xff
+            o += 1
+            var at = 0L
+            for (b in 0 until 8) at = at or ((d[o + b].toLong() and 0xff) shl (8 * b))
+            o += 8
+            val n = u32(d, o)
+            o += 4
+            if (n < 0 || d.size < o + n) break
+            out.add(Rec(dir, at, d.copyOfRange(o, o + n)))
+            o += n
+        }
+        return out
+    }
+
+    /**
+     * The rows of a restored conversation (iOS ChatStore 3041-3066): one per signature — the second, mine or theirs, the words, joined
+     * by the bar — named «arc:» and twelve bytes of its hash, read history; a media row is its record again, the file found by its name
+     * in this phone's media store, if it stayed.
+     */
+    private fun rows(items: List<Item>): List<Msg> {
+        val seen = HashSet<String>()
+        val out = ArrayList<Msg>()
+        for (it in items.sortedBy { it.at }) {
+            val sig = it.at.toString() + "|" + (if (it.mine) 1 else 0) + "|" + it.text
+            if (!seen.add(sig)) continue
+            val mid = "arc:" + Wire.hex(Wire.sha(sig.toByteArray()).copyOf(12))
+            val state = if (it.mine) 1 else 3
+            if (!it.text.startsWith(Marks.MEDIA)) { out.add(Msg(mid, it.text, it.mine, it.at * 1000, state = state)); continue }
+            val rec = runCatching { JSONObject(it.text.removePrefix(Marks.MEDIA)) }.getOrNull() ?: continue
+            val f = rec.optString("f").ifEmpty { null } ?: continue   // a record without a file's name is not a row (iOS 3056)
+            val man = JSONObject().put("k", rec.optString("k")).put("e", f.substringAfterLast('.', ""))
+            rec.optString("n").takeIf { n -> n.isNotEmpty() }?.let { n -> man.put("n", n) }
+            rec.optString("cap").takeIf { c -> c.isNotEmpty() }?.let { c -> man.put("cap", c) }
+            rec.optDouble("d", 0.0).takeIf { d -> d > 0 }?.let { d -> man.put("du", d) }
+            val file = File(Media.dir(Book.ctx), f).takeIf { x -> x.isFile }?.path
+            out.add(Msg(mid, Marks.MEDIA + man.toString(), it.mine, it.at * 1000, state = state, file = file))
+        }
+        return out
+    }
+
+    /** Read the archive into the feed, off the screen's thread; `only` — the folders a twin's block just reached. */
+    fun restoreSoon(only: List<String>? = null) = q.execute { runCatching { restore(only) }.onFailure { Log.w("Montana", "archive_restore " + it.javaClass.simpleName) } }
+
+    /**
+     * EVERY FOLDER OPENED UNDER THE SEED (iOS restore 1015-1077): the head gives the conversation back — «s:» re-establishes the pipe,
+     * «x:» names it without reviving it, «a:» and a bare name of an older build name it when the book holds it, «n:» is its name; a
+     * folder without a head is named by the book's own labels. Rows go only into conversations the feed holds no row of — the feed is
+     * the truth, its edits and deletions are never resurrected (iOS 3036-3043); a folder nobody can answer is «Recovered history».
+     */
+    private fun restore(only: List<String>?) {
+        val k = keys() ?: return
+        val chatsDir = File(root() ?: return, "Chats")
+        val folders = only ?: chatsDir.listFiles()?.filter { it.isDirectory && !it.name.startsWith(".") }?.map { it.name } ?: return
+        val book = HashMap<String, String>()
+        for (r in Book.refs()) book[label(k, r)] = r
+        var chats = 0; var added = 0; var headed = 0; var hs = 0; var ha = 0; var hn = 0; var faces = 0
+        for (folder in folders) {
+            var ref: String? = null
+            var name: String? = null
+            var secret: ByteArray? = null
+            var closedThere = false
+            val items = ArrayList<Item>()
+            for (sealed in readLog(File(File(chatsDir, folder), "conversation.mtlog"))) {
+                val plain = MtBindings.nativeArchiveOpenBlock(k.hk, k.owner, sealed) ?: continue
+                for (r in opened(plain)) {
+                    val s = String(r.content, Charsets.UTF_8)
+                    if (r.dir == HEAD_DIR) {
+                        when {
+                            s.startsWith("s:") -> runCatching { Base64.decode(s.drop(2), Base64.DEFAULT) }.getOrNull()?.takeIf { it.size == 32 }?.let { secret = it; hs++ }
+                            s.startsWith("x:") -> closedThere = true
+                            s.startsWith("a:") -> { ha++; if (ref == null && Book.secret(s.drop(2)) != null) ref = s.drop(2) }
+                            s.startsWith("n:") -> { hn++; name = s.drop(2) }
+                            ref == null && Book.secret(s) != null -> ref = s   // the head of build 1345: the bare name
+                        }
+                        continue
+                    }
+                    if (s.isNotEmpty()) items.add(Item(r.at, r.dir == 0, s))
+                }
+            }
+            secret?.let { sec ->
+                ref = if (closedThere) Wire.reference(sec).also { Prefs.setBool("pipeClosed." + it, true) } else Book.establish(sec)
+            }
+            if (ref == null) ref = book[folder]
+            if (items.isEmpty() && ref == null) continue
+            if (ref != null) headed++
+            val key = ref ?: ("arc:" + folder)
+            if (Book.chat(key)?.msgs?.isNotEmpty() == true) continue
+            val built = rows(items)
+            if (built.isEmpty()) continue
+            val shown = name?.trim()?.takeIf { it.isNotEmpty() } ?: if (ref == null) Book.ctx.getString(R.string.recovered_history) else ""
+            Book.open(key, shown, false)
+            Book.edit(key) { c ->
+                if (c.name.isEmpty() && shown.isNotEmpty()) c.name = shown
+                if (c.msgs.isEmpty()) { c.msgs.addAll(built); c.msgs.sortBy { it.at }; c.unread = 0 }
+            }
+            val r0 = ref
+            if (r0 != null && !Book.face(r0).isFile) {
+                val base = root()?.path
+                if (base != null) MtBindings.nativeArchiveGetMedia(base, folder, FACE, k.mk, k.owner)?.takeIf { it.isNotEmpty() }?.let { Book.face(r0).writeBytes(it); faces++ }
+            }
+            chats++; added += built.size
+        }
+        Log.d("Montana", "archive_restore chats=" + chats + " rows=" + added + " headed=" + headed + " heads=s" + hs + "/a" + ha + "/n" + hn + " faces=" + faces)
     }
 
     /** No conversation, no trace of it on disk (iOS deleteChatFolder 706-712). */

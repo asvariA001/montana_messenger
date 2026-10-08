@@ -538,4 +538,5 @@
     <string name="p2p_open">已连接</string>
     <string name="p2p_spare">备用</string>
     <string name="p2p_no_answer">无应答</string>
+    <string name="recovered_history">已恢复的历史记录</string>
 </resources>

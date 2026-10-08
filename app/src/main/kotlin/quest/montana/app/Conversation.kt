@@ -366,7 +366,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     // THE OTHER SIDE CLOSED THIS CONVERSATION (iOS peerClosedPipe, the closed composer's note; fork atom 1927): its letters are read,
     // not answered — the words stand where the field stood
     var hideBar: () -> Unit = {}   // the field is born below; it hides once the conversation is closed
-    val closedNote = c.text(c.getString(R.string.pipe_closed_note), 13f, MT.gray, center = true).apply {
+    val closedNote = c.text(c.getString(if (ref.startsWith("arc:")) R.string.recovered_history else R.string.pipe_closed_note), 13f, MT.gray, center = true).apply {
         setPadding(dp(24), dp(12), dp(24), dp(14)); visibility = if (Post.closed(ref)) View.VISIBLE else View.GONE
     }
     fun drawEmpty(empty: Boolean) {
