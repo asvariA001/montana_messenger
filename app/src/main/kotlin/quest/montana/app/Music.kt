@@ -140,6 +140,9 @@ object MusicPlayer {
         if (CallSound.refused("music")) return   // the call holds the sound (iOS MontanaMedia 372)
         val a = c.applicationContext
         app = a
+        // THE TRACK IN HAND KEEPS ITS MOMENT BEFORE THE NEXT ONE TAKES THE PLAYER (iOS VoicePlayer.toggle:386 at 2155,
+        // MTPlayPlaces.keep, the author's word 26.09).
+        mp?.takeIf { prepared }?.let { p -> current?.let { t -> PlayPlaces.keep(t.file, p.currentPosition / 1000.0, p.duration / 1000.0, false) } }
         queue = list; index = i
         release()
         val t = current ?: return
@@ -148,7 +151,8 @@ object MusicPlayer {
             setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
             // the processor stays awake while it plays: the screen goes dark, the music goes on
             setWakeMode(a, PowerManager.PARTIAL_WAKE_LOCK)
-            setOnPreparedListener { prepared = true; it.start(); playing = true; tick(); changed() }
+            // A LONG LISTEN GOES ON WHERE IT STOPPED (iOS VoicePlayer.toggle:411-414 at 2155, MTPlayPlaces.at, 26.09).
+            setOnPreparedListener { prepared = true; PlayPlaces.at(t.file, it.duration / 1000.0, false)?.let { at -> runCatching { it.seekTo((at * 1000).toInt()) } }; it.start(); playing = true; tick(); changed() }
             setOnCompletionListener { if (index + 1 < queue.size) play(a, queue, index + 1) else { playing = false; seek(0.0); changed() } }
             setOnErrorListener { _, _, _ -> playing = false; changed(); refused?.invoke(); true }
             try { setDataSource(a, t.uri); prepareAsync() } catch (_: Exception) { refused?.invoke() }
@@ -157,7 +161,11 @@ object MusicPlayer {
     }
 
     fun toggle() { if (playing) pause() else resume() }
-    fun pause() { mp?.takeIf { prepared }?.pause(); playing = false; changed() }
+    fun pause() {
+        // iOS VoicePlayer.pause:444 at 2155, MTPlayPlaces.keep, 26.09
+        mp?.takeIf { prepared }?.let { p -> current?.let { t -> PlayPlaces.keep(t.file, p.currentPosition / 1000.0, p.duration / 1000.0, false) } }
+        mp?.takeIf { prepared }?.pause(); playing = false; changed()
+    }
     fun resume() {
         val p = mp?.takeIf { prepared } ?: return
         if (CallSound.refused("music")) return   // iOS MontanaMedia 482
@@ -173,7 +181,11 @@ object MusicPlayer {
         if (positionMs > 3000 || index <= 0) seek(0.0) else play(a, queue, index - 1)
     }
     /** The bar's cross: the track stops and the bar leaves (iOS MontanaPlayerBar close). */
-    fun stop() { release(); dropFocus(); queue = emptyList(); index = -1; changed() }
+    fun stop() {
+        // iOS VoicePlayer.release:526 at 2155, MTPlayPlaces.keep, 26.09
+        mp?.takeIf { prepared }?.let { p -> current?.let { t -> PlayPlaces.keep(t.file, p.currentPosition / 1000.0, p.duration / 1000.0, false) } }
+        release(); dropFocus(); queue = emptyList(); index = -1; changed()
+    }
 
     val fraction: Double get() = mp?.takeIf { prepared && it.duration > 0 }?.let { it.currentPosition.toDouble() / it.duration } ?: 0.0
     val duration: Double get() = mp?.takeIf { prepared }?.duration?.div(1000.0) ?: (current?.length ?: 0.0)
@@ -188,6 +200,35 @@ object MusicPlayer {
         if (!playing) return
         said()
         main.postDelayed({ tick() }, 500)
+    }
+}
+
+/**
+ * WHERE A LONG LISTEN STOPPED (iOS MTPlayPlaces, MontanaMedia.swift:647-666 at 2155, the author's word 26.09: «the mini
+ * player must remember the place where it stopped playing and not be reset by recording or listening to a voice or a
+ * video message»): a track of ten minutes and more, a voice of five, keeps its moment -- between five seconds in and
+ * five before its end -- and the next play of the same file starts there. One key of the preferences, written when a
+ * listen stops, never by the clock, bounded to the newest two hundred.
+ */
+object PlayPlaces {
+    private const val KEY = "playPlaces"
+    private const val MOST = 200
+    private fun long(of: Double, voice: Boolean) = of >= (if (voice) 300.0 else 600.0)
+    private fun all(): org.json.JSONObject = runCatching { org.json.JSONObject(Prefs.str(KEY, "{}")) }.getOrDefault(org.json.JSONObject())
+    fun keep(file: String, at: Double, of: Double, voice: Boolean) {
+        if (file.isEmpty() || !long(of, voice)) return
+        val o = all()
+        if (at > 5 && at < of - 5) o.put(file, org.json.JSONArray().put(at).put(System.currentTimeMillis() / 1000.0)) else o.remove(file)
+        if (o.length() > MOST) {
+            val oldest = o.keys().asSequence().sortedBy { o.getJSONArray(it).optDouble(1, 0.0) }.take(o.length() - MOST).toList()
+            for (k in oldest) o.remove(k)
+        }
+        Prefs.setStr(KEY, o.toString())
+    }
+    fun at(file: String, of: Double, voice: Boolean): Double? {
+        if (!long(of, voice)) return null
+        val t = all().optJSONArray(file)?.optDouble(0, -1.0) ?: return null
+        return t.takeIf { it > 5 && it < of - 5 }
     }
 }
 

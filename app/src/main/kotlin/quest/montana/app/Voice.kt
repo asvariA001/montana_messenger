@@ -177,6 +177,9 @@ object VoicePlayer {
         if (MusicPlayer.playing) { MusicPlayer.pause(); musicAside = true }
         player = p; playing = path; paused = false; onStop = stopped; progress = onProgress; this.sender = sender
         p.setOnCompletionListener { stop(); then?.invoke() }
+        // A LONG LISTEN GOES ON WHERE IT STOPPED (iOS VoicePlayer.toggle:411-414 at 2155, MTPlayPlaces.at, the author's word
+        // 26.09): a voice of five minutes and more starts at its kept moment.
+        PlayPlaces.at(path, p.duration / 1000.0, true)?.let { at -> runCatching { p.seekTo((at * 1000).toInt()) } }
         p.start(); speed(p)
         armProximity()
         tick(path)
@@ -198,7 +201,11 @@ object VoicePlayer {
         MainThread.later(0, t)
     }
     // a rested voice gives the ear's sensor back (iOS VoicePlayer.pause, MontanaMedia.swift:442)
-    fun pause() { val p = player ?: return; runCatching { p.pause() }; paused = true; disarmProximity(); Playing.changed() }
+    fun pause() {
+        val p = player ?: return
+        playing?.let { f -> PlayPlaces.keep(f, p.currentPosition / 1000.0, p.duration / 1000.0, true) }   // iOS MTPlayPlaces.keep, 26.09
+        runCatching { p.pause() }; paused = true; disarmProximity(); Playing.changed()
+    }
     fun resume() {
         val p = player ?: return
         if (CallSound.refused("voice message")) return   // iOS MontanaMedia 482
@@ -210,6 +217,8 @@ object VoicePlayer {
     val fraction: Double get() = player?.let { p -> runCatching { p.currentPosition.toDouble() / maxOf(1, p.duration) }.getOrNull() } ?: 0.0
     fun stop() {
         val had = player != null
+        // iOS VoicePlayer.release:526 at 2155, MTPlayPlaces.keep, 26.09
+        player?.let { p -> playing?.let { f -> PlayPlaces.keep(f, p.currentPosition / 1000.0, p.duration / 1000.0, true) } }
         player?.runCatching { stop(); release() }
         player = null; playing = null; paused = false; progress = null
         disarmProximity()
