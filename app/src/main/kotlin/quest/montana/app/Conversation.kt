@@ -418,7 +418,6 @@ fun Context.failedMark(): View = text("!", 9f, Color.WHITE, bold = true, center 
  * (for me / for everyone). The feed follows the book live: a letter that lands, a receipt, a reaction redraw it.
  */
 private var noteRing: NoteRing? = null
-private var noteTime: TextView? = null
 
 /** `jump` — a letter found by the search: the chat opens on it, and it glows once (iOS openChat(jump:)). */
 fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: String? = null): View {
@@ -1107,7 +1106,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     var note: NoteRecorder? = null
     var noteClose: (() -> Unit)? = null
     val noteTick = object : Runnable {
-        override fun run() { val n = note ?: return; noteRing?.progress = (n.elapsed / NoteRecorder.MAX_SECONDS).toFloat(); val s = n.elapsed.toInt(); noteTime?.text = "%d:%02d".format(s / 60, s % 60); MainThread.later(100, this) }
+        override fun run() { val n = note ?: return; noteRing?.progress = (n.elapsed / NoteRecorder.MAX_SECONDS).toFloat(); MainThread.later(100, this) }
     }
     bar.onNoteStart = start@{
         if (c.checkSelfPermission(android.Manifest.permission.CAMERA) != android.content.pm.PackageManager.PERMISSION_GRANTED ||
@@ -1115,8 +1114,10 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             act.requestPermissions(arrayOf(android.Manifest.permission.CAMERA, android.Manifest.permission.RECORD_AUDIO), 8); return@start false
         }
         val tv = TextureView(c)
-        val ring = NoteRing(c); val time = c.text("0:00", 15f, Color.WHITE)
-        noteRing = ring; noteTime = time
+        // NOTHING UNDER THE CIRCLE (iOS MontanaVideoNoteHold, MontanaFeeds.swift:1641-1643 at 2155, the author's word 22.09): the
+        // grey glass ring is the clock, the buttons stand on their own row; no seconds are written anywhere on the recorder
+        val ring = NoteRing(c)
+        noteRing = ring
         val side = noteSide(c)   // the player's open size: one rule for both (iOS 1605)
         lateinit var notePause: FrameLayout
         notePause = ctl(R.drawable.ic_pause_fill, R.string.rec_pause) { note?.togglePause(); paint(notePause, note?.paused == true) }
@@ -1163,7 +1164,6 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                     }
                 })
             }, FrameLayout.LayoutParams(side, side, Gravity.CENTER))
-            addView(time.apply { setShadowLayer(6f, 0f, 0f, Color.BLACK) }, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER).apply { topMargin = side / 2 + c.dp(30) })
         }
         noteClose = act.overlay(page)
         movePlate(page)
@@ -1562,6 +1562,11 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 if ((Book.chat(ref)?.unread ?: 0) > 0) Thread { Post.markRead(ref) }.start()
             }
             override fun onViewDetachedFromWindow(v: View) {
+                // A TAPE LEFT RECORDING BEHIND A CLOSED CHAT IS NOBODY'S (iOS ChatConversationView.onDisappear,
+                // MontanaConversation.swift:1666 at 2155: «if rec.isRecording { rec.cancel(why: "chat-left") }»): a note left rolling
+                // behind a closed chat rolled on and the next one was refused. The recorder's own page lies over the chat, so it
+                // never detaches it; with nothing held the cancel does nothing.
+                bar.cancelRecording()
                 if (Book.openChat == ref) Book.openChat = null; Book.unlisten(listener)
                 Presence.unlisten(presenceListener); LiveDraft.unlisten(draftListener)
                 // words left in the field stand on their screen as a checkpoint, frozen, not typing (iOS «ck»)
