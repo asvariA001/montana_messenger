@@ -951,34 +951,65 @@ fun openWriter(act: MainActivity, w: String) {
 
 /** A LINK THE POST'S WRITER READ (iOS MTWallLink, MontanaBoardViews.swift:544-642 at 2155, atom 5a84afb1f68f): the picture the
  * writer's own read brought -- its shape held between three quarters and two, corners 10, a circled play or note mark on it for a
- * video or a track -- the site in caption grey on one line, the title semibold on two, six apart; a tap opens the address, which
- * is how a video or a track starts. A visitor never touches the site before that tap: the 2155 iPhone asks YouTube for the
- * stream the moment the post is drawn (prepare, 620-627) -- the visitor's phone, untapped, against its own words at 541-543 --
- * and that read is not carried here; the in-post play of atom 2d3d5127f89b waits for the author's word. */
+ * video or a track -- the site in caption grey on one line, the title semibold on two, six apart. A visitor never touches the site
+ * before a tap (atom 2d3d5127f89b in the head's form, 6d7be772 of 09.10.2026): a media file itself plays in the picture at the first
+ * tap, with its sound and the speaker mark; the second tap quiets it and opens it whole; a service's page opens in that service. */
 private fun wallLinkView(act: MainActivity, card: LinkCard): View {
     val c: Context = act
     val kind = LinkPreview.playKind(card.u)
     val ratio = ((card.w ?: 16).toFloat() / maxOf(card.h ?: 9, 1).toFloat()).coerceIn(0.75f, 2f)
     val b64 = card.i.orEmpty()
+    var stage: FrameLayout? = null
+    var tile: ImageView? = null
+    var glyph: View? = null
+    var speaker: View? = null
+    var clip: WallLinkClip? = null
+    var sound = false
+    val playable = card.u.takeIf { kind != null && LinkPreview.mediaFile(it) }
+    fun open() { Log.d("Montana", "post_link open " + (kind ?: "page")); act.openLink(card.u) }
+    // iOS press(): the first tap fetches the file and plays it here with its sound; the next quiets it and opens it whole
+    fun press() {
+        val st = stage
+        val now = clip
+        if (now == null) {
+            if (playable == null || st == null) { open(); return }
+            val v = WallLinkClip(c, playable) { tile?.visibility = View.INVISIBLE }
+            st.addView(v, 0, FrameLayout.LayoutParams(MATCH, MATCH))
+            clip = v; sound = true; v.sound(true)
+            glyph?.visibility = View.GONE; speaker?.visibility = View.VISIBLE
+            Log.d("Montana", "post_link play " + kind)
+            return
+        }
+        if (!sound) { sound = true; now.sound(true); speaker?.visibility = View.VISIBLE }
+        else { sound = false; now.sound(false); speaker?.visibility = View.GONE; FilmActivity.openRemote(c, playable ?: return) }
+    }
     return c.vstack(Gravity.NO_GRAVITY) {
         var above = false
         if (b64.isNotEmpty()) {
-            val tile = object : ImageView(c) {
+            val pic = object : ImageView(c) {
                 override fun onMeasure(w: Int, h: Int) { val wd = MeasureSpec.getSize(w); setMeasuredDimension(wd, (wd / ratio).toInt()) }
-            }.apply {
-                scaleType = ImageView.ScaleType.CENTER_CROP
+            }.apply { scaleType = ImageView.ScaleType.CENTER_CROP }
+            tile = pic
+            // the poster is decoded off the screen's thread and kept (iOS MTBoardPoster.decoded, 561)
+            WallPoster.kept(b64)?.let { pic.setImageBitmap(it) } ?: WallPoster.decode(b64) { pic.setImageBitmap(it) }
+            val box = FrameLayout(c).apply {
                 outlineProvider = object : ViewOutlineProvider() {
                     override fun getOutline(v: View, o: android.graphics.Outline) { o.setRoundRect(0, 0, v.width, v.height, c.dp(10).toFloat()) }
                 }
                 clipToOutline = true
-            }
-            // the poster is decoded off the screen's thread and kept (iOS MTBoardPoster.decoded, 561)
-            WallPoster.kept(b64)?.let { tile.setImageBitmap(it) } ?: WallPoster.decode(b64) { tile.setImageBitmap(it) }
-            addView(FrameLayout(c).apply {
-                addView(tile, FrameLayout.LayoutParams(MATCH, WRAP))
+                addView(pic, FrameLayout.LayoutParams(MATCH, WRAP))
                 if (kind != null) addView(c.icon(if (kind == "aud") R.drawable.ic_music_note_circle_fill else R.drawable.ic_play_circle_fill,
-                    android.graphics.Color.WHITE), FrameLayout.LayoutParams(dp(44), dp(44), Gravity.CENTER))
-            }, lp())
+                    android.graphics.Color.WHITE).also { glyph = it }, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.CENTER))
+                // the speaker while the sound is on: body semibold on a black 0.45 round, 8 in from the corner (iOS 596-604)
+                addView(FrameLayout(c).apply {
+                    background = c.rounded(android.graphics.Color.argb(115, 0, 0, 0), 100)
+                    addView(c.icon(R.drawable.ic_set_speaker, android.graphics.Color.WHITE, 17), FrameLayout.LayoutParams(dp(17), dp(17), Gravity.CENTER))
+                    visibility = View.GONE
+                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                }.also { speaker = it }, FrameLayout.LayoutParams(dp(33), dp(33), Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, dp(8), dp(8)) })
+            }
+            stage = box
+            addView(box, lp())
             above = true
         }
         card.s?.takeIf { it.isNotEmpty() }?.let {
@@ -997,8 +1028,41 @@ private fun wallLinkView(act: MainActivity, card: LinkCard): View {
         // one element to the reader: Video, Music or Link, and the title its writer read (iOS 558-559)
         contentDescription = c.getString(if (kind == "aud") R.string.pi_music else if (kind == "vid") R.string.pi_video else R.string.pf_link) +
             ", " + (card.t ?: card.u)
-        pressable { act.openLink(card.u) }
+        pressable { press() }
     }
+}
+
+/** THE LINK'S FILE PLAYING IN ITS PICTURE (iOS MontanaClipPlayer, MontanaFeeds.swift:1004-1048): the platform's player on a texture
+ * that takes the picture's rounded corners, filling it as the aspect-fill layer does, from the start again after its last frame; it
+ * is born only at the tap, and the picture scrolled away lets the player go. The poster stays over it until the first frame stands
+ * (a track has none: its poster stays). */
+private class WallLinkClip(c: Context, private val url: String, private val shown: () -> Unit) : android.view.TextureView(c), android.view.TextureView.SurfaceTextureListener {
+    private var player: android.media.MediaPlayer? = null
+    private var loud = false
+    private var vw = 0
+    private var vh = 0
+    init { surfaceTextureListener = this }
+    fun sound(on: Boolean) { loud = on; val v = if (on) 1f else 0f; player?.runCatching { setVolume(v, v) } }
+    private fun fill() {
+        if (vw == 0 || vh == 0 || width == 0 || height == 0) return
+        val sx = width.toFloat() / vw; val sy = height.toFloat() / vh; val k = maxOf(sx, sy)
+        setTransform(android.graphics.Matrix().apply { setScale(k / sx, k / sy, width / 2f, height / 2f) })
+    }
+    override fun onSurfaceTextureAvailable(st: android.graphics.SurfaceTexture, w: Int, h: Int) {
+        player = runCatching { android.media.MediaPlayer().apply {
+            setDataSource(context, android.net.Uri.parse(url))
+            setSurface(android.view.Surface(st))
+            isLooping = true
+            setOnVideoSizeChangedListener { _, x, y -> vw = x; vh = y; fill() }
+            setOnInfoListener { _, what, _ -> if (what == android.media.MediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START) shown(); false }
+            setOnPreparedListener { mp -> val v = if (loud) 1f else 0f; mp.setVolume(v, v); mp.start() }
+            setOnErrorListener { _, what, extra -> Log.d("Montana", "post_link failed what=" + what + " extra=" + extra); true }
+            prepareAsync()
+        } }.getOrNull()
+    }
+    override fun onSurfaceTextureSizeChanged(st: android.graphics.SurfaceTexture, w: Int, h: Int) { fill() }
+    override fun onSurfaceTextureDestroyed(st: android.graphics.SurfaceTexture): Boolean { player?.runCatching { release() }; player = null; return true }
+    override fun onSurfaceTextureUpdated(st: android.graphics.SurfaceTexture) {}
 }
 
 /** ONE POST OF THE FEED (iOS MTBoardCell in MTFeedTabView): whose wall, the writer, the words, the pictures, the counts. */

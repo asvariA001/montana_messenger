@@ -113,6 +113,11 @@ object LinkPreview {
         return null
     }
 
+    /** A MEDIA FILE ITSELF, the one thing that plays in place: a service's page plays in that service (iOS MTWallLink.playable,
+     * MontanaBoardViews.swift at the head 6d7be772; App Review 5.2.2 and 5.2.3). */
+    fun mediaFile(url: String): Boolean =
+        (runCatching { URL(url).path.substringAfterLast('.', "") }.getOrNull()?.lowercase() ?: "") in setOf("mp4", "mov", "m4v", "webm", "mp3", "m4a", "aac", "wav", "flac")
+
     /** The page's head only (≤ 64 KB, 3 s), its og:* read by a tiny reader — no browser engine (iOS build(for:)). */
     private fun buildFor(url: String): LinkCard? {
         synchronized(read) { read[url]?.let { return it }; if (url in readNothing) return null }
