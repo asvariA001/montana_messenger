@@ -192,6 +192,10 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
             if (runCatching { offsetDescendantRectToMyCoords(record, r) }.isSuccess) {
                 r.left -= dp(10); r.top -= dp(8); r.right += dp(40); r.bottom += dp(8)
                 touchDelegate = TouchDelegate(r, record)
+                // THE HOLD IS THE KEY'S, NOT THE SYSTEM'S BACK (measured on A1 09.10.2026 21:46 MSK: the key stands at the right edge,
+                // where the platform's back gesture lives; it took the finger -- startBackNavigation -- and the tape was left locked):
+                // the key and its reach are kept out of the system's edge gestures
+                if (29 <= android.os.Build.VERSION.SDK_INT) systemGestureExclusionRects = listOf(Rect(r))
             }
         }
     }
@@ -246,7 +250,6 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
             // the tap's deed, and an accessibility click's: a locked tape's key is its send arrow, otherwise the mark switches
             setOnClickListener {
                 if (locked) { finish(cancel = false); return@setOnClickListener }
-                VoiceTape.standDown()   // the hold ended as a tap: the readied tape is not wanted (iOS MontanaMedia.swift:101-109 at 2155)
                 Prefs.setStr(MODE_KEY, if (video) "mic" else "video")
                 draw()
             }
@@ -269,12 +272,7 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
                     downX = e.rawX; downY = e.rawY
                     velocity?.recycle(); velocity = VelocityTracker.obtain().also { it.addMovement(e) }
                     v.parent?.requestDisallowInterceptTouchEvent(true)
-                    if (!locked) {
-                        scaleX = 0.94f; scaleY = 0.94f; postDelayed(begin, MODE_TIMEOUT_MS)   // the small mark sinks under the finger
-                        // THE TAPE IS READIED UNDER THE FINGER (iOS VoiceRecorder.prewarm, MontanaMedia.swift:76-99 at
-                        // 2155, atom 92fba2cb8154): born on its own thread while the mode timeout runs.
-                        if (!video) VoiceTape.prewarm(act)
-                    }
+                    if (!locked) { scaleX = 0.94f; scaleY = 0.94f; postDelayed(begin, MODE_TIMEOUT_MS) }   // the small mark sinks under the finger
                 }
                 MotionEvent.ACTION_MOVE -> {
                     velocity?.addMovement(e)
