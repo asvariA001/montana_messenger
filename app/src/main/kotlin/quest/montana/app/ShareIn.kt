@@ -65,7 +65,7 @@ fun sharePage(act: MainActivity, s: Shared, onClose: () -> Unit): View {
                 addView(c.peerFace(ch.ref, ch.shown, 46), lp(dp(46), dp(46)).apply { marginEnd = dp(12) })
                 addView(c.text(ch.shown.ifBlank { c.getString(R.string.peer) }, 17f, Color.WHITE, bold = true).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))   // USER-DATA: the name
                 addView(FrameLayout(c).apply {
-                    background = if (on) c.rounded(Color.WHITE, 12) else c.rounded(Color.TRANSPARENT, 12, MT.gray)
+                    background = if (on) c.rounded(MT.blue, 12) else c.rounded(Color.TRANSPARENT, 12, MT.gray)   // the platform's own blue tick (iOS ShareViewController 836 at 2155)
                     if (on) addView(c.icon(R.drawable.ic_check, Color.BLACK, 16), FrameLayout.LayoutParams(dp(16), dp(16), Gravity.CENTER))
                 }, lp(dp(24), dp(24)))
                 pressable { if (!chosen.remove(ch.ref)) chosen.add(ch.ref); fill(); send.setOn(chosen.isNotEmpty()) }
