@@ -4,6 +4,7 @@ import android.animation.ValueAnimator
 import android.app.AlertDialog
 import android.content.Context
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -275,18 +276,26 @@ fun selectionBar(act: MainActivity, sel: ChatSelection): View {
     }
 }
 
-/** The «Archive» row at the head of the list (iOS: the archive's row over the chats), shown while something is archived. */
+/**
+ * THE «ARCHIVE» ROW (iOS ContactsTabView.archiveRow, ContentView.swift:2697-2716: «the chats page's, one to one»), in the App
+ * Library's measure (72, the face 48, the gap 16, the side 18): a circle of white 0.15 with the grey archive box 24 and a rim of
+ * white 0.45, «Archive» 17 semibold over its count 16 in grey, the platform's chevron 14 in grey at the end.
+ */
 fun archiveEntry(act: MainActivity, count: Int, onOpen: (() -> Unit)? = null): View {
     val c: Context = act
     return c.hstack {
         gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(16), dp(10), dp(16), dp(10))
+        setPadding(dp(18), 0, dp(18), 0)
+        minimumHeight = dp(72)
         addView(FrameLayout(c).apply {
-            background = c.glassPlate(oval = true)
-            addView(c.icon(R.drawable.ic_archive, MT.gold, 24), FrameLayout.LayoutParams(dp(24), dp(24), Gravity.CENTER))
-        }, lp(dp(54), dp(54)).apply { marginEnd = dp(12) })
-        addView(c.text(c.getString(R.string.cl_archive), 17f, Color.WHITE, bold = true), lp(0, WRAP, 1f))
-        addView(c.text(count.toString(), 15f, MT.gray))
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.rgb(38, 38, 38)); setStroke(dp(1), Color.argb(115, 255, 255, 255)) }
+            addView(c.icon(R.drawable.ic_archive, MT.gray, 24), FrameLayout.LayoutParams(dp(24), dp(24), Gravity.CENTER))
+        }, lp(dp(48), dp(48)).apply { marginEnd = dp(16) })
+        addView(c.vstack(Gravity.NO_GRAVITY) {
+            addView(c.text(c.getString(R.string.cl_archive), 17f, Color.WHITE, bold = true), lp())
+            addView(c.text(count.toString(), 16f, MT.gray), lp().apply { topMargin = dp(3) })   // USER-DATA: a count
+        }, lp(0, WRAP, 1f))
+        addView(c.icon(R.drawable.ic_chevron_right, MT.gray, 14), lp(dp(14), dp(14)))
         pressable { onOpen?.invoke() ?: act.push { archivePage(act, it) } }
     }
 }
