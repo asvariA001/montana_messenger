@@ -790,15 +790,36 @@ object CallLine {
     private fun servers(fresh: Boolean = false): List<PeerConnection.IceServer> {
         val p = pass(fresh) ?: return emptyList<PeerConnection.IceServer>().also { log("NO ICE SERVERS — host-only call") }
         val list = ArrayList<PeerConnection.IceServer>()
-        val stun = strings(p.optJSONArray("stun"))
+        // NOT ONE ADDRESS OF A FAMILY THIS PHONE DOES NOT HOLD (iOS reachableRelay, ContentView 3405, MontanaCall 1095-1110, atom
+        // 82296a6b5364): a road of a family the phone does not hold is a wall, and every packet sent at it burns its whole
+        // retransmission budget first (13.09: twenty of a call's twenty-four seconds went into two IPv6 addresses of our relay on a
+        // cellular network with no IPv6). A relay named by name is left alone: the system resolves what it can reach.
+        val allStun = strings(p.optJSONArray("stun"))
+        val allUris = strings(p.optJSONArray("uris"))
+        val stun = reachable(allStun)
+        val reachableUris = reachable(allUris)
+        if (stun.size != allStun.size || reachableUris.size != allUris.size) log("turn_cred dropped " + (allStun.size - stun.size + allUris.size - reachableUris.size) + " of a family this phone has not")
         if (stun.isNotEmpty()) list.add(PeerConnection.IceServer.builder(stun).createIceServer())
         // iOS turnRank: the TLS door on 443 first — it survives dead UDP and DPI — then the other TLS, tcp, udp
-        val uris = strings(p.optJSONArray("uris")).sortedBy { u ->
+        val uris = reachableUris.sortedBy { u ->
             if (u.startsWith("turns:")) (if (u.contains(":443")) 0 else 1) else if (u.contains("transport=tcp")) 2 else 3
         }
         if (uris.isNotEmpty()) list.add(PeerConnection.IceServer.builder(uris).setUsername(p.optString("u")).setPassword(p.optString("c")).createIceServer())
         log("servers stun=" + stun.size + " relay=" + uris.size)
         return list
+    }
+
+    /** The families this phone holds now (iOS MontanaNet.hasV4/hasV6): a literal relay address of another family is dropped. */
+    private fun reachable(urls: List<String>): List<String> {
+        val lp = runCatching { Book.ctx.getSystemService(ConnectivityManager::class.java).let { it.getLinkProperties(it.activeNetwork) } }.getOrNull() ?: return urls
+        val addrs = lp.linkAddresses.map { it.address }.filter { !it.isLoopbackAddress && !it.isLinkLocalAddress }
+        val v4 = addrs.any { it is java.net.Inet4Address }
+        val v6 = addrs.any { it is java.net.Inet6Address }
+        return urls.filter { u ->
+            val host = u.substringAfter(':').substringBefore('?')
+            if (host.startsWith("[")) v6
+            else host.substringBeforeLast(':').split('.').let { it.size == 4 && it.all { p -> p.toIntOrNull() != null } }.let { literal -> if (literal) v4 else true }
+        }
     }
 
     private fun strings(a: JSONArray?) = (0 until (a?.length() ?: 0)).mapNotNull { a?.optString(it)?.ifEmpty { null } }
