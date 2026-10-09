@@ -189,6 +189,26 @@ object Diary {
     @Synchronized private fun pass(c: Context) {
         if (!consented) return   // the one road out asks the person's yes first (iOS MontanaDiagShip.put)
         val d = dir ?: return
+        try { shipAll(c, d) } finally { tellTail(d) }
+    }
+    /**
+     * THE SHIPPER'S LEDGER GOES INTO THE TELEMETRY (iOS shipOnce 4097-4103, 25.09): what the diary could not say about its own hole --
+     * its words lay in the hole. The unsent tail in steps of 64 KB, with the standing refusal if any; said when it
+     * changes, so a day that never caught up is read the next morning.
+     */
+    private var lastTail: String? = null
+    private fun tellTail(d: File) {
+        val wm = Prefs.str("diagWm", "0").toLongOrNull() ?: 0L
+        val born = Prefs.str("diagGen", "")
+        var pending = 0L
+        val files = (KEEP downTo 0).map { gen(d, it) } + File(d, FILE)
+        for (f in files) if (f.exists()) pending += if (birth(f) == born) maxOf(0L, f.length() - wm) else f.length()
+        val words = FILE + "=" + pending / 65_536 * 64 + "KB" + (if (0 < refused) " refused=" + refused else "")
+        if (words == lastTail) return
+        lastTail = words
+        android.util.Log.d("Montana", "diag_tail " + words)
+    }
+    private fun shipAll(c: Context, d: File) {
         var wm = Prefs.str("diagWm", "0").toLongOrNull() ?: 0L
         var born = Prefs.str("diagGen", "")
         fun keep() { Prefs.setStr("diagWm", wm.toString()); Prefs.setStr("diagGen", born) }
@@ -244,7 +264,8 @@ object Diary {
         val body = JSONObject().put("dg", dg).put("file", "tele").put("dev", dev).put("lines", JSONArray(lines))
         val bytes = body.toString().length
         for (door in Signal.writeOrder("diag")) {   // the elected door first (iOS MontanaDiagShip.put over bases(for: "diag"))
-            val (code, _) = Wire.post(door, "/diag-put", body, 10_000 + bytes / 25)   // the deadline grows with the body
+            // THE DEADLINE GROWS WITH THE BODY BY THE CARGO ROAD'S ONE RULE (iOS MontanaWakePush 3772-3775, MTNodeWire.cargoTimeoutS 306)
+            val (code, _) = Wire.post(door, "/diag-put", body, Wire.cargoTimeoutMs(bytes))
             if (code == 200) { Signal.doorAnswered(door); refused = 0; return true }
             Signal.doorFailed(door, code)
         }
