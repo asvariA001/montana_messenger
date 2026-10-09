@@ -259,9 +259,9 @@ object Signal {
         Thread { for (c in held) runCatching { c.disconnect() } }.start()
         Log.d("Montana", "sig_lane " + why + " — asking again now")
     }
-    /** A CALL'S BIRTH CUTS THE STANDING QUESTION TOO (iOS MontanaCall.setState "born" 3294-3299, cutStandingQuestion
-     * 538-551, build cf9b083f5567): the long question of a phone at rest stands to its own deadline while the call
-     * needs the short one — without this the caller stood deaf on a question already seconds into its old wait. */
+    /** A CALL'S BIRTH CUTS THE STANDING QUESTION TOO (iOS MontanaCall.setState 4405-4412, cutStandingQuestion
+     * MontanaWakePush 534-547, atom cf9b083f5567): the long question of a phone at rest stands to its own deadline while
+     * the call needs the short one — measured on iOS 13.09 15:20, the caller stood deaf fifteen seconds without it. */
     fun cutForCall() = cut("call born")
 
     private var pathWatched = false

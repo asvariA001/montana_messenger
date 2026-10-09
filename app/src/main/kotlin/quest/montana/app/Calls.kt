@@ -160,7 +160,7 @@ object Calls {
         say(ref, seed, "call-ringing")   // the caller hears that it rings here (iOS 2218), for the birth and for each copy
         if (!fresh) { synchronized(gate) { ring?.takeIf { it.seed == seed } }?.let { voice(it) }; return }
         noteSeed(seed, "alive")
-        Signal.cutForCall()   // iOS MontanaCall.setState "born" (build cf9b083f5567): the short question is the call's from here
+        Signal.cutForCall()   // iOS MontanaCall.setState 4405-4412 «born» (atom cf9b083f5567): the ring stands, so the fresh question is the call's short one
         if (name.isNotBlank() && name.length <= 64 && Book.admitState(ref, "name", 0L)) Book.edit(ref) { it.name = name.trim() }   // iOS onCallerNamed; undated, never over a dated word
         Signal.hold(ref, "call")
         show(ref, video)
@@ -234,7 +234,7 @@ object Calls {
             Ring(ref, seed, video, out = true).also { ring = it }
         }
         noteSeed(seed, "alive")
-        Signal.cutForCall()   // iOS MontanaCall.setState "born" (build cf9b083f5567): the short question is the call's from here
+        Signal.cutForCall()   // iOS MontanaCall.setState 4405-4412 «born» (atom cf9b083f5567): the ring stands, so the fresh question is the call's short one
         Signal.hold(ref, "call")
         CallService.start(Book.ctx, ref) { refused(r, "service-refused") }
         MainThread.later(1200) { pipsOn(r) }   // the searching pips until the far phone's own word «ringing» (iOS 1855, 4548-4556)

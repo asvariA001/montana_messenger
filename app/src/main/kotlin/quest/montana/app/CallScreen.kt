@@ -220,11 +220,14 @@ object CallScreen {
             val tint = if (CallLine.lost) SysColor.red else SysColor.green   // iOS MTCallLight: red while the link is lost
             // THE LIGHT WEARS THE BATTERY (iOS MTCallLight, MontanaCall.swift 5427-5433, build bd83db719a66): while the
             // power floor holds the picture down, the same light carries the battery glyph instead of the dot.
+            // The battery is a wide glyph (SF battery.25percent at .footnote): its slot widens, the dot's height kept.
             val glyph = if (CallLine.powerSaving) R.drawable.ic_battery_quarter else R.drawable.ic_dot
-            light.setImageResource(glyph)
-            light.setColorFilter(tint)
-            vlight.setImageResource(glyph)
-            vlight.setColorFilter(tint)
+            val wide = c.dp(if (CallLine.powerSaving) 23 else 11)
+            for (v in listOf(light, vlight)) {
+                v.setImageResource(glyph)
+                v.setColorFilter(tint)
+                v.layoutParams?.let { if (it.width != wide) { it.width = wide; v.layoutParams = it } }
+            }
             val since = CallLine.connectedAt
             val tail = if (since > 0L) ((System.currentTimeMillis() - since) / 1000).toInt().let { String.format(Locale.ROOT, "%d:%02d", it / 60, it % 60) }
                 else c.getString(Calls.stage() ?: R.string.call_connecting)   // «Calling…», «Ringing…», then «Connecting…»

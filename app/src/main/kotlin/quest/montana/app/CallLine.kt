@@ -177,7 +177,7 @@ object CallLine {
     private fun pictureWatch(l: Line) {
         MainThread.later(2000) {
             if (synchronized(gate) { line !== l }) return@later
-            if (video) applyPowerFloor(l)   // iOS applyLadder's own tick (3730): the power facts ride the picture's own rhythm
+            if (video && l.connectedAt > 0L) applyPowerFloor(l)   // iOS applyLadder 3725-3728: a connected video call's tick reads the power facts
             if (video && remoteLive) {
                 if (System.currentTimeMillis() - lastRemoteFrameAt < 2000) pictureStallSamples = 0 else pictureStallSamples++
                 val paused = pictureStallSamples >= 2
@@ -790,19 +790,25 @@ object CallLine {
         } else if (track != null) l.pc.addTrack(track, listOf("mt_stream"))
     }
 
-    /** The ceiling of my picture (iOS setVideoCeiling 3788 on the ladder's modest step): 700 kbit/s and no less than 300,
-     * motion kept before sharpness. UNDER THE POWER FLOOR the encoder's work falls fourfold (iOS setVideoCeiling
-     * 3812-3816): half the resolution, fifteen frames a second — the picture stays, the heat and the drain fall. */
+    // THE LADDER'S STEPS (iOS videoLadder 3458, modestStep 3849): a pair stands on the modest step, 700 kbit/s, and the power
+    // floor may hold it lower -- the ceiling written is always videoLadder[max(step, floor)] (iOS boostVideo 3838, ladderFloor 3851).
+    private val LADDER = intArrayOf(2_000_000, 1_200_000, 700_000, 400_000, 250_000, 0)
+    private const val MODEST = 2
+
+    /** The ceiling of my picture (iOS setVideoCeiling 3802-3824): the step's bitrate, and at least half of it but never more than
+     * 300 kbit/s, motion kept before sharpness. UNDER THE POWER FLOOR the encoder's work falls fourfold (iOS 3816-3819): a camera
+     * at half its resolution and fifteen frames a second; a shared screen keeps its pixels and slows to eight -- letters stay letters. */
     private fun bound(l: Line, floor: Int = powerFloorNow) {
         runCatching {
             val s = l.pc.transceivers.firstOrNull { it.mediaType == MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO }?.sender ?: return
             val p = s.parameters
+            val bps = LADDER[maxOf(MODEST, floor)]
             p.encodings.firstOrNull()?.let {
-                it.maxBitrateBps = 700_000; it.minBitrateBps = 300_000
-                it.scaleResolutionDownBy = if (floor > 0) 2.0 else 1.0
-                it.maxFramerate = if (floor > 0) 15 else null
+                it.maxBitrateBps = bps; it.minBitrateBps = minOf(300_000, bps / 2)
+                it.scaleResolutionDownBy = if (floor > 0 && !sharing) 2.0 else 1.0
+                it.maxFramerate = if (floor > 0) (if (sharing) 8 else 15) else null
             }
-            // a shared screen keeps its letters sharp and gives up motion; a camera the reverse (iOS 3790-3808)
+            // a shared screen keeps its letters sharp and gives up motion; a camera the reverse (iOS 3804-3809, 3822)
             p.degradationPreference = if (sharing) RtpParameters.DegradationPreference.MAINTAIN_RESOLUTION else RtpParameters.DegradationPreference.MAINTAIN_FRAMERATE
             s.setParameters(p)
         }.onFailure { log("ceiling: " + it.message) }
@@ -827,12 +833,13 @@ object CallLine {
         return 0
     }
 
-    /** iOS applyLadder 3733-3746: the floor re-applies the ceiling the instant it moves, and the call's light learns of it. */
+    /** iOS applyLadder 3733-3746: the floor re-applies the ceiling the instant it moves, and the call's light learns of it
+     * (nothing about saving is written on the screen, the author's word 11.09 at 3742). */
     private fun applyPowerFloor(l: Line) {
         val floor = powerFloor()
         if (floor == powerFloorNow) return
         powerFloorNow = floor
-        if (l.vtrack != null) bound(l, floor)
+        work.execute { if (l.vtrack != null) bound(l) }   // the line's own queue writes the encoder, as every other ceiling
         val saving = floor > 0
         if (powerSaving != saving) { powerSaving = saving; moved() }
         log("power floor " + floor)
