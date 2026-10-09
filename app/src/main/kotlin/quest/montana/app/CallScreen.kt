@@ -568,7 +568,7 @@ object CallScreen {
             icon.setImageResource(f.icon)
             icon.setColorFilter(if (f.lit) Color.BLACK else barGlyph)
             face.background = if (f.lit) c.rounded(Color.WHITE, SIDE / 2) else c.glassPlate(oval = true)
-            caption.text = f.verbatim ?: c.getString(f.caption)   // USER-DATA: the device's own name, as the system names it
+            caption.text = c.getString(f.caption)
             face.contentDescription = caption.text
         }
         paint()

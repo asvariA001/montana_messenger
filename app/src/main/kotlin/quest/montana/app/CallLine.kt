@@ -511,9 +511,7 @@ object CallLine {
 
     // ── where the sound goes (iOS MontanaAudioRoute 7214-7285) ──
 
-    // iOS Face.caption (MontanaAudioRoute.Face, MontanaCall.swift 7368-7361, atom e155a20899e7): a catalogue word, or the
-    // device's own name (verbatim) when the system names it — never the generic word while a device plays the call.
-    data class Face(val caption: Int, val verbatim: String?, val icon: Int, val lit: Boolean, val menu: Boolean)
+    data class Face(val caption: Int, val icon: Int, val lit: Boolean, val menu: Boolean)
     class Way(val name: String, val chosen: Boolean, val take: () -> Unit)
 
     // the devices outside the phone that carry a call (iOS externalPorts: headphones, Bluetooth, a car, USB)
@@ -522,26 +520,18 @@ object CallLine {
         AudioDeviceInfo.TYPE_BLE_HEADSET, AudioDeviceInfo.TYPE_BLE_SPEAKER)
 
     /**
-     * THE AUDIO BUTTON IS NAMED BY WHERE THE SOUND IS (iOS MontanaAudioRoute.face 7373-7385, the author's word 24.09, atom
-     * e155a20899e7: «with the phone alone no menu — one press moves the sound; on the loudspeaker the button is Speaker and
-     * lit, at the ear it is Phone with the phone's glyph; headphones, a car, any other source — named as the system names
-     * it»). The phone alone — «Speaker», lit on the loudspeaker, no menu; with a device in reach — the current route's own
-     * name, never a generic word, and a menu over the system's own ways.
+     * THE AUDIO BUTTON'S FACE (iOS MontanaAudioRoute.face 7261): the phone alone — «Speaker», lit on the loudspeaker; a device
+     * outside the phone in reach — «Audio» with the glyph of where the sound is, lit unless it stands at the ear, and a menu.
      */
     fun face(): Face {
         val am = am()
-        if (am == null || Build.VERSION.SDK_INT < 31) return Face(R.string.call_speaker, null, R.drawable.ic_speaker_wave3, speaker, false)
+        if (am == null || Build.VERSION.SDK_INT < 31) return Face(R.string.call_speaker, R.drawable.ic_speaker_wave3, speaker, false)
         val now = am.communicationDevice
         val onSpeaker = now?.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
-        if (am.availableCommunicationDevices.none { it.type in OUTSIDE }) return Face(R.string.call_speaker, null, R.drawable.ic_speaker_wave3, onSpeaker, false)
+        if (am.availableCommunicationDevices.none { it.type in OUTSIDE }) return Face(R.string.call_speaker, R.drawable.ic_speaker_wave3, onSpeaker, false)
         val ext = now?.takeIf { it.type in OUTSIDE }
-        if (ext != null) {
-            val name = ext.productName?.toString()?.ifBlank { null }   // USER-DATA: the device's own name, as the system names it
-            return if (name != null) Face(0, name, R.drawable.ic_route_headphones, true, true)
-            else Face(R.string.call_audio, null, R.drawable.ic_route_headphones, true, true)
-        }
-        if (onSpeaker) return Face(R.string.call_speaker, null, R.drawable.ic_speaker_wave3, true, true)
-        return Face(R.string.call_route_phone, null, R.drawable.ic_route_phone, false, true)
+        val icon = if (ext != null) R.drawable.ic_route_headphones else if (onSpeaker) R.drawable.ic_speaker_wave3 else R.drawable.ic_route_phone
+        return Face(R.string.call_audio, icon, ext != null || onSpeaker, true)
     }
 
     /** The menu's ways, as the system's own output menu names them: the phone, the loudspeaker, each device by its name. */
