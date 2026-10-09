@@ -738,7 +738,8 @@ private fun safetyPage(act: MainActivity, ref: String, name: String, onClose: ()
             status.setTextColor(if (v) MT.green else MT.gray)
             mark.text = c.getString(if (v) R.string.pi_fp_unverify else R.string.pi_fp_verified)
             mark.setTextColor(if (v) Color.WHITE else Color.BLACK)
-            mark.background = c.rounded(if (v) Color.argb(76, 142, 142, 147) else MT.gold, 10)
+            // NO YELLOW WORD (iOS MontanaScreens.swift:254, 2155: Color.accentColor, white in the dark): the fill lost its gold with every other word.
+            mark.background = c.rounded(if (v) Color.argb(76, 142, 142, 147) else Color.WHITE, 10)
         }
         addView(status, lp().apply { topMargin = c.dp(14) })
         if (digits.isNotEmpty()) addView(QrView(c).apply { code = QrCode.encode("mt:fp:$digits", QrCode.Ecc.M) },
@@ -752,9 +753,10 @@ private fun safetyPage(act: MainActivity, ref: String, name: String, onClose: ()
         }, lp().apply { topMargin = c.dp(18) })
         // THEIR QR READ BY THE CAMERA (iOS SafetyNumberView's scan): only a fingerprint of this shape is compared — any other
         // code keeps the camera looking; the same number verifies, a different one unverifies and is said (it is evidence)
-        if (digits.isNotEmpty()) addView(c.text(c.getString(R.string.sn_scan), 17f, MT.gold, bold = true, center = true).apply {
+        // NO YELLOW WORD (iOS MontanaScreens.swift:261-262, 2155: Color.accentColor, white in the dark): the text and the stroke alike.
+        if (digits.isNotEmpty()) addView(c.text(c.getString(R.string.sn_scan), 17f, Color.WHITE, bold = true, center = true).apply {
             setPadding(0, dp(12), 0, dp(12))
-            background = c.rounded(Color.TRANSPARENT, 10, MT.gold)
+            background = c.rounded(Color.TRANSPARENT, 10, Color.WHITE)
             pressable {
                 act.push { close ->
                     scannerPage(act, close) { code ->
@@ -792,7 +794,8 @@ fun reportPage(act: MainActivity, ref: String, name: String, onClose: () -> Unit
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(dp(16), dp(12), dp(16), dp(12))
                 addView(c.text(c.getString(words), 16f), lp(0, WRAP, 1f))
-                addView(c.icon(R.drawable.ic_check, MT.gold, 20).apply { tag = key }, lp(dp(20), dp(20)))
+                // NO YELLOW WORD (iOS MontanaSafety.swift:176, 2155: Color.accentColor, white in the dark): the chosen reason's mark.
+                addView(c.icon(R.drawable.ic_check, Color.WHITE, 20).apply { tag = key }, lp(dp(20), dp(20)))
             }
         }
         fun mark() = rows.forEach { r -> (r as LinearLayout).getChildAt(1).visibility = if (r.getChildAt(1).tag == reason) View.VISIBLE else View.INVISIBLE }
