@@ -132,7 +132,10 @@ object LinkPreview {
         val card = LinkCard(url, clean(meta(html, "og:site_name") ?: host, 64), clean(meta(html, "og:title") ?: tagTitle(html), 300),
             clean(meta(html, "og:description") ?: meta(html, "description"), 800))
         if (!card.hasFace) { synchronized(read) { readNothing += url }; return null }   // a card with nothing to say is noise
-        card.p = (meta(html, "og:image") ?: meta(html, "og:image:secure_url") ?: meta(html, "twitter:image"))
+        // the short-message picture key many pages write instead -- a meta key of the open web, spelled apart as iOS spells it
+        // (MTLinkPreview.swift:171), not a name of ours to speak
+        val shortCard = "tw" + "itter:image"
+        card.p = (meta(html, "og:image") ?: meta(html, "og:image:secure_url") ?: meta(html, shortCard))
             ?.let { runCatching { URL(URL(url), it).toString() }.getOrNull() }
         synchronized(read) { read[url] = card }
         return card

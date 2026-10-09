@@ -349,8 +349,8 @@ class MainActivity : Activity() {
         onBackInvokedDispatcher.registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, callback)
     }
     /**
-     * THE BACK NEVER LEAVES THE APP (the author's word 09.10.2026 11:5x MSK: «боковой свайп для выхода из апп убери - у нас свайп слева
-     * это открытие боковой панели»): a page goes back as before; at the root the left edge's stroke opens the drawer it was dragging
+     * THE BACK NEVER LEAVES THE APP (the author's word 09.10.2026 11:5x MSK: «take away the side swipe that leaves the app -- our swipe from
+     * the left opens the side panel»): a page goes back as before; at the root the left edge's stroke opens the drawer it was dragging
      * (iOS MontanaDrawerHost: the drawer opens by a drag from the screen's left edge), and any other back there does nothing.
      */
     private fun commitBack() {

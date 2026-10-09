@@ -783,7 +783,7 @@ object Presence {
     /**
      * A SWEPT WORD IS A STAMP (iOS sweepPresence 3232-3264): history never lights «online» or «in chat» (13.09 15:15 — a «1» swept
      * twelve seconds after a phone locked lit «in chat» for a locked phone); it says when the peer was there, its hiding, its doors
-     * and «gone». The word's own moment stands unless it runs ahead of the node's by more than the clocks' slack: a clock set ahead
+     * and «gone». The word's own moment stands unless it runs ahead of the node's by more than the clocks' leeway: a clock set ahead
      * said it, and the node's moment stands (iOS 24.09). A draft or a typing word is proof of the moment alone.
      */
     fun stamp(ref: String, text: String, nodeAt: Long) {
@@ -907,7 +907,7 @@ object Presence {
  */
 object NodeClock {
     private const val KEY = "mt.node.skew"
-    private const val SLACK = 2_000L   // iOS clockSlackS
+    private const val LEEWAY = 2_000L   // iOS clockSlackS
     @Volatile private var loaded = false
     @Volatile private var skew = 0L
     private var lastSample: Long? = null
@@ -928,8 +928,8 @@ object NodeClock {
         load()
         val s = System.currentTimeMillis() - serverMs
         val moved = Math.abs(s - skew)
-        val stands = lastSample?.let { Math.abs(it - s) <= SLACK } ?: true
-        val tell = stands && SLACK < Math.abs(s - told)
+        val stands = lastSample?.let { Math.abs(it - s) <= LEEWAY } ?: true
+        val tell = stands && LEEWAY < Math.abs(s - told)
         skew = s; lastSample = s
         if (tell) told = s
         if (250 <= moved) Prefs.setStr(KEY, s.toString())   // the next life starts from it

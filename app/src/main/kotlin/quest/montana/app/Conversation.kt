@@ -191,7 +191,7 @@ object SmallPicture {
 }
 
 /**
- * A BUBBLE'S PICTURE FOLLOWS ITS ROW (the author's word 09.10.2026 11:5x MSK: «нажимаю на чат долго думает при открытии»; measured on
+ * A BUBBLE'S PICTURE FOLLOWS ITS ROW (the author's word 09.10.2026 11:5x MSK: «I tap a chat and it thinks long while opening»; measured on
  * A1, build 249: a chat of 32 rows took 1063 ms to lay, and its four films had their first frames read by ThumbnailUtils on the main
  * thread -- a second tap, queued behind it, opened the chat twice): the row stands at once with the manifest's own small picture, the
  * full one and its mirrored blur are read on one worker, kept while their file stands unchanged, and laid in place when they come
@@ -467,8 +467,8 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     }
     var keysAway: () -> Unit = {}   // the field is born below
     var barTop: () -> Int = { Int.MAX_VALUE }   // the bar's top on the screen, once it stands
-    // THE KEYBOARD GOES WHERE THE IPHONE'S GOES (the author's word 09.10.2026 11:5x MSK: «поведение клавиатуры сделай как на айос - она
-    // тут висит когда не нужно»): a tap anywhere on the feed puts it away, unless a control under the finger took the tap (iOS
+    // THE KEYBOARD GOES WHERE THE IPHONE'S GOES (the author's word 09.10.2026 11:5x MSK: «make the keyboard behave as on iOS -- here it
+    // hangs when it is not needed»): a tap anywhere on the feed puts it away, unless a control under the finger took the tap (iOS
     // backgroundTap and MTTouchClaim, MontanaMessageFeed.swift:735-752, 980-986); a finger dragging the feed down onto the bar takes it
     // down (iOS keyboardDismissMode .interactive, 66-71: the keyboard rides under the dragging touch, a release below its top lets it go).
     val scroll = object : ScrollView(c) {
@@ -771,7 +771,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                     layoutParams = lp().apply { topMargin = c.dp(3) }
                 }
             }
-            // THE LADDER UNDER EVERY OWN BUBBLE (the author's word 29.09: «у каждого сообщения, по отдельности»): each letter its own rung
+            // THE LADDER UNDER EVERY OWN BUBBLE (the author's word 29.09: «on every message, each on its own»): each letter its own rung
             // A PLATE STANDS WHERE ITS SLOWEST LETTER STANDS (iOS MTLadder, MontanaBubble 2047-2065, the author's word 29.09): «not sent»
             // below the clock, and of the letters on the lowest rung the one that reached it last names the moment — the line spoke
             // the plate's last letter, «Read» while a video of the same pick still rode
@@ -1576,8 +1576,8 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     return FrameLayout(c).apply {
         setBackgroundColor(Color.BLACK)
         addView(c.chatGround(ref), FrameLayout.LayoutParams(MATCH, MATCH))   // the chat's own ground, or the pages' crest (iOS MTWallpaper)
-        // THE FEED RUNS UNDER THE BARS (iOS MTFeedFrame.underlap, MontanaOctagon 107-114, the author's word 21.09; Anna's word
-        // 08.10.2026 16:5x «лента под кнопками должна проходить»): the header and the compose panel have no ground of their own —
+        // THE FEED RUNS UNDER THE BARS (iOS MTFeedFrame.underlap, MontanaOctagon 107-114, the author's word 21.09; the word of
+        // 08.10.2026 16:5x «the feed must run under the buttons»): the header and the compose panel have no ground of their own —
         // the letters scroll on under them and show between the plates; the plates alone carry the glass. The feed's own room above
         // and below is the bars' height as drawn, so the first and the last letter rest clear of them, and a feed at its end stays
         // at its end when the panel grows (a reply line, a recording, the keyboard).

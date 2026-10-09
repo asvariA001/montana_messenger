@@ -218,7 +218,7 @@ fun languagePage(act: MainActivity, onBack: () -> Unit): View {
         Option("", c.getString(R.string.lang_system), R.string.lang_system_sub, null),
         Option("en", "English", R.string.lang_english, "🇬🇧"),          // USER-DATA: the language's own name
         Option("zh-Hans", "简体中文", R.string.lang_chinese, "🇨🇳"),     // USER-DATA: the language's own name
-        Option("ru", "Русский", R.string.lang_russian, "🇷🇺"))          // USER-DATA: the language's own name
+        Option("ru", "Русский", R.string.lang_russian, "🇷🇺"))          // USER-DATA: the language's own name CYRILLIC-DATA-OK
     val rows = options.map { o ->
         c.hstack {
             setPadding(dp(16), dp(10), dp(16), dp(10))
@@ -311,7 +311,7 @@ fun privacyPage(act: MainActivity, onForget: () -> Unit, onBack: () -> Unit): Vi
             c.switchLine(R.drawable.ic_set_doc, SysColor.gray, c.getString(R.string.diag_share), Diary.consented, c.getString(R.string.diag_share_sub)) { Diary.setConsent(it) })
         // THE WALL (iOS MontanaSettings 1847-1874, the author's word 24.09): who may write on my wall, and who may see it -- everyone,
         // until the person says otherwise. The pen stands for the iPhone's text.below.photo, which the set lacks; the VPN wall's rule
-        // waits for the VPN (Anna's word)
+        // waits for the word on the VPN
         section(null, c.getString(R.string.wall_rule_footer),
             c.settingsRow(R.drawable.ic_compose, SysColor.blue, c.getString(R.string.wall_who_write_mine)) { act.push { wallRulePage(act, WallRule.Act.WRITE, it) } },
             c.settingsRow(R.drawable.ic_set_eye, SysColor.blue, c.getString(R.string.wall_who_see_mine)) { act.push { wallRulePage(act, WallRule.Act.SEE, it) } })

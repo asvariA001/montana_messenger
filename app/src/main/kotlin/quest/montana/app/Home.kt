@@ -122,7 +122,7 @@ private fun mainGround(c: Context): View = FrameLayout(c).apply {
 
 /**
  * THE GLASS OF A PLATE (iOS montanaOctagonFace(bar: true), MontanaOctagon.barMaterial = .ultraThinMaterial, MTGlassCirclePlate):
- * ONE TONE, NOT SEE-THROUGH (Anna's word 08.10.2026 16:5x: «на кнопках однотонное стекло — а не прозрачное»). The system's thin
+ * ONE TONE, NOT SEE-THROUGH (the word of 08.10.2026 16:5x: «one-tone glass on the buttons, not see-through»). The system's thin
  * material blurs whatever runs beneath into one even tone; the platform here blurs nothing behind a view, so the plate is that
  * tone itself — the menus' own material, near-opaque — with the thin light rim of the iOS plate (white 0.18). A feed running under
  * the bars reads as one quiet plate under the glyph, never as letters through it.
@@ -285,8 +285,8 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
     bar.onTurn = { searchFolds() }
     foldSearch = { searchFolds() }
     CoinPull.onSettled = { bar.turn(!bar.open, "coin") }   // every page under the bar: the coin's full turn presses the panel
-    // THE LISTS RUN UNDER THE BAR (iOS: the list's top inset is measured from the bar as drawn, MontanaOctagon 111-112; Anna's word
-    // 08.10.2026 16:5x «лента под кнопками должна проходить»): the time panel and the search have no ground of their own — every
+    // THE LISTS RUN UNDER THE BAR (iOS: the list's top inset is measured from the bar as drawn, MontanaOctagon 111-112; the word of
+    // 08.10.2026 16:5x «the feed must run under the buttons»): the time panel and the search have no ground of their own — every
     // page's list keeps their height as its own room above and scrolls on beneath them; a page with nothing that scrolls keeps the
     // room itself, so nothing of it stands under the bar.
     val head = c.vstack(Gravity.NO_GRAVITY) {
@@ -788,7 +788,7 @@ private class SearchRow(val c: Context, onChange: (String, Boolean) -> Unit) : L
     fun clear() { hideKeys(); field.setText(""); field.clearFocus() }
 }
 
-/** Words compared as a person reads them: case and marks aside, «ё» as «е» (iOS .caseInsensitive, .diacriticInsensitive). */
+/** Words compared as a person reads them: case and marks aside, the dotted e as the plain one (iOS .caseInsensitive, .diacriticInsensitive). */
 private fun fold(s: String) = java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD).replace(Regex("\\p{Mn}+"), "").lowercase()
 
 /**

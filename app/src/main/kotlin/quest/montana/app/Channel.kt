@@ -840,7 +840,7 @@ object Channels {
     /**
      * 0x00 ‖ id[64] ‖ sealed (iOS handleOverlayFrame 1430-1454): a wake — «mt-wake» and forty bytes — or a point of rendezvous —
      * «mt-wake-point», sixteen and eight (iOS MontanaWake 38-84) — says something waits, and the queue is tried at once (iOS drainAll);
-     * a block of history belongs to the archive (stage Б of the fork, not on this side yet); anything else is a piece a neighbour
+     * a block of history belongs to the archive (stage B of the fork, not on this side yet); anything else is a piece a neighbour
      * brought ahead of its manifest, kept under its name.
      */
     private fun pieceOrWake(env: ByteArray) {

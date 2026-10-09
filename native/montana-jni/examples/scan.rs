@@ -98,10 +98,10 @@ fn main() {
                 println!("{{\"bid\":\"{}\",\"data\":\"{}\"}}", bid, b64(&sealed));
                 chunks.push(format!("{{\"bid\":\"{}\",\"cs\":{}}}", bid, piece.len()));
             }
-            let man = format!("{{\"k\":\"{}\",\"e\":\"{}\",\"bk\":\"{}\",\"sz\":{},\"chunks\":[{}],\"cap\":\"с Мака\"}}", a[5], a[6], b64(&bk), data.len(), chunks.join(","));
+            let man = format!("{{\"k\":\"{}\",\"e\":\"{}\",\"bk\":\"{}\",\"sz\":{},\"chunks\":[{}],\"cap\":\"from the Mac\"}}", a[5], a[6], b64(&bk), data.len(), chunks.join(","));
             let text = format!("\u{200b}\u{200b}MD:{}", man);
             let mut body = Vec::new();
-            for f in [&a[3], &text, &"Мак".to_string(), &String::new()] { body.extend_from_slice(f.as_bytes()); body.push(0); }
+            for f in [&a[3], &text, &"Mac".to_string(), &String::new()] { body.extend_from_slice(f.as_bytes()); body.push(0); }
             body.resize(2048, 0);
             let env = seal(&body_key(&secret, now() / 60), &body);
             let cw = hex(&sha(&[b"mt-wake-conv\0", &secret, &(now() / 86400).to_le_bytes()]));

@@ -638,8 +638,8 @@ object CoinSend {
         else if (m.state != -1 && again != back) CoinBook.retake(coin.c, ref, AGAIN + name + ":" + (again + 1))
     }
     /**
-     * A COIN LETTER THAT DID NOT ARRIVE IN A DAY COMES HOME (the author's word 09.10.2026 11:3x MSK: «если монеты не дошли в
-     * течении 24 часов то нужно их обратно возвращать»; measured 08.10: 727 639 coins rode a letter to an account that no longer
+     * A COIN LETTER THAT DID NOT ARRIVE IN A DAY COMES HOME (the author's word 09.10.2026 11:3x MSK: «if the coins have
+     * not arrived within 24 hours they must be returned»; measured 08.10: 727 639 coins rode a letter to an account that no longer
      * exists, never receipted, held for good). The node's box keeps a letter one day from the moment it took it, so a coin letter of
      * mine with no receipt a day after the box took it (after its birth, if no box ever did) can draw none: it leaves the queue, its
      * row turns red and hold gives its coins back. A receipt that still comes takes them again (hold, arrived): nothing is paid twice.
