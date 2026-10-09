@@ -399,7 +399,13 @@ object Media {
                 // THE MANIFEST LANDS BEFORE THE FILE: the row folds into its group and shows its small face while the pieces travel
                 keepManifest(ref, mid, man)
                 val dest = file(c, mid, man.optString("e"))
-                if (!download(man, dest)) return@Thread
+                if (!download(man, dest)) {
+                    // THE ROW STAYS, THE SENDER IS TOLD (iOS MontanaChatStore 4635-4649, atom aeabdc576605): a cargo every store called
+                    // gone is knowledge -- the bubble stands without its file and the sender hears it once; a silent store is no verdict
+                    val chunks = man.optJSONArray("chunks")
+                    if (!Groups.isKey(ref) && chunks != null && (0 until chunks.length()).any { Wire.isGone(chunks.getJSONObject(it).optString("bid")) }) Post.cargoLost(ref, mid)
+                    return@Thread
+                }
                 Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.let { it.file = dest.path; it.meta = man.toString() } }
                 // a group's copy was receipted by the group (Groups.handle), and its pieces serve every other member of it
                 if (!Groups.isKey(ref)) { Post.receiptFor(ref, mid); drop(man) }

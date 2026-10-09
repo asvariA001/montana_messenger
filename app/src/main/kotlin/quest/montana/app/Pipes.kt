@@ -237,6 +237,18 @@ object Wire {
         return null
     }
 
+    /** A long letter's blob and the stores' verdict (iOS askBlob): the bytes, or null with «gone» when every door answered 404. */
+    fun getBlobVerdict(bid: String): Pair<ByteArray?, Boolean> {
+        val stores = Doors.ordered("blob")
+        var gone = stores.isNotEmpty()
+        for (door in stores) {
+            val (code, text) = post(door, "/blob-get", JSONObject().put("bid", bid))
+            if (code == 200 && text != null) runCatching { JSONObject(text).optString("data").takeIf { it.isNotEmpty() }?.let { return Base64.decode(it, Base64.DEFAULT) to false } }
+            if (code != 404) gone = false
+        }
+        return null to gone
+    }
+
     /** A blob of the node (iOS getBlob): POST /blob-get {bid} → {data}. */
     fun getBlob(bid: String): ByteArray? {
         for (door in Doors.ordered("blob")) {
@@ -768,13 +780,67 @@ object Post {
     }
 
     /** The words behind a long letter's reference: the words, null — later (no door answered), "" — gone for good. */
-    private fun fetchLong(text: String): String? {
-        val o = runCatching { JSONObject(text.removePrefix(Marks.LONG)) }.getOrNull() ?: return ""
-        val mk = runCatching { Base64.decode(o.getString("k"), Base64.DEFAULT) }.getOrNull() ?: return ""
-        val sealed = Wire.getBlob(o.optString("r")) ?: return null
-        val plain = Wire.open(mk, sealed) ?: return ""
-        val sep = plain.indexOf(0).takeIf { it >= 0 } ?: return ""
-        return String(plain, sep + 1, plain.size - sep - 1, Charsets.UTF_8)
+    private fun fetchLong(text: String): String? = fetchLongV(text).first
+
+    /** The words, and whether every store said the cargo is gone (iOS askBlob's verdict) when there are none yet. */
+    private fun fetchLongV(text: String): Pair<String?, Boolean> {
+        val o = runCatching { JSONObject(text.removePrefix(Marks.LONG)) }.getOrNull() ?: return "" to false
+        val mk = runCatching { Base64.decode(o.getString("k"), Base64.DEFAULT) }.getOrNull() ?: return "" to false
+        val (sealed, gone) = Wire.getBlobVerdict(o.optString("r"))
+        if (sealed == null) return null to gone
+        val plain = Wire.open(mk, sealed) ?: return "" to false
+        val sep = plain.indexOf(0).takeIf { it >= 0 } ?: return "" to false
+        return String(plain, sep + 1, plain.size - sep - 1, Charsets.UTF_8) to false
+    }
+
+    // A DEAD CARGO IS NOT ASKED FOR EVERY ROUND, AND THE LETTER'S AGE IS THE LETTER'S (iOS MontanaWakePush 2644-2737, atoms
+    // 85a73a5b7ca0, 3d14a47ac6c3): a long letter whose cargo no store answered for was asked at every pickup for ever. The record
+    // lies beside the box (the device's vault) so the burial arrives on the wall clock, whatever happens to the process: the retry
+    // doubles from fifteen seconds to an hour and the letter keeps its own hour; «no such cargo» from every door three times over
+    // ten minutes buries the reference, as does the box's own term, a day; the sender is told once, by the cargo-lost word.
+    private const val LB = "mt.longblob.wait"
+    private const val CARGO_LOST = "​​CG:"
+    private fun lbLoad(): JSONObject = DeviceVault.get(LB)?.let { runCatching { JSONObject(String(it, Charsets.UTF_8)) }.getOrNull() } ?: JSONObject()
+    private fun lbSave(o: JSONObject) { DeviceVault.set(LB, o.toString().toByteArray(Charsets.UTF_8)) }
+    @Synchronized private fun lbForget(mid: String) { val o = lbLoad(); if (o.has(mid)) { o.remove(mid); lbSave(o) } }
+    @Synchronized private fun lbDueNow(mid: String): Boolean = lbLoad().optJSONObject(mid)?.optDouble("next", 0.0)?.let { it <= System.currentTimeMillis() / 1000.0 } ?: true
+    /** True when the reference is buried: the box lets it go. */
+    @Synchronized private fun lbFailed(mid: String, conv: String, gone: Boolean, bornAt: Double?): Boolean {
+        val now = System.currentTimeMillis() / 1000.0
+        val all = lbLoad()
+        val rec = all.optJSONObject(mid) ?: JSONObject()
+        val born = minOf(rec.optDouble("born", now), bornAt ?: now)
+        val n = rec.optInt("tries", 0)
+        rec.put("born", born).put("tries", n + 1)
+        if (gone) { if (!rec.has("goneAt")) rec.put("goneAt", now); rec.put("goneN", rec.optInt("goneN", 0) + 1) }
+        val goneN = rec.optInt("goneN", 0)
+        val goneFor = now - rec.optDouble("goneAt", now)
+        if (3 <= goneN && 600 <= goneFor) {
+            all.remove(mid); lbSave(all)
+            Log.d("Montana", "lb_dead mid=" + mid.take(8) + " every door answered «no such cargo» " + goneN + " times over " + (goneFor / 60).toInt() + " min — the reference is buried")
+            return true
+        }
+        if (86_400 < now - born) {
+            all.remove(mid); lbSave(all)
+            Log.d("Montana", "lb_dead mid=" + mid.take(8) + " asked " + (n + 1) + " rounds over " + ((now - born) / 3600).toInt() + "h — the reference is buried")
+            return true
+        }
+        if (gone && !rec.has("told") && conv.isNotEmpty()) {
+            rec.put("told", now)
+            send(conv, Marks.mintMid(), CARGO_LOST + mid, quiet = true)   // the sender is told once, never on a mere «later»
+        }
+        val delay = minOf(15.0 * Math.pow(2.0, n.toDouble()), 3600.0)
+        rec.put("next", now + delay)
+        all.put(mid, rec); lbSave(all)
+        Log.d("Montana", "lb_wait mid=" + mid.take(8) + " retry in " + delay.toInt() + "s try=" + (n + 1) + " verdict=" + (if (gone) "gone" else "later"))
+        return false
+    }
+    /** A file whose cargo every store called gone: the row stands, and the sender is told once (iOS 4635-4649). */
+    fun cargoLost(conv: String, mid: String) {
+        if (Prefs.bool("cgTold.$mid", false)) return
+        Prefs.setBool("cgTold.$mid", true)
+        Log.d("Montana", "cargo_lost mid=" + mid.take(8) + " — the row stands, the sender is told")
+        send(conv, Marks.mintMid(), CARGO_LOST + mid, quiet = true)
     }
 
     /**
@@ -991,7 +1057,14 @@ object Post {
         Meeting.firstDone(ref)   // a word sealed under the pipe by the other side: the introduction is over
         Channels.heard(ref)   // the pipe lives: the moment to name my own address when no road of mine reaches them (iOS ChatStore 3976-3986)
         var text = f[1]
-        if (text.startsWith(Marks.LONG)) text = fetchLong(text)?.ifEmpty { text } ?: return false   // later: the letter waits in the box
+        if (text.startsWith(Marks.LONG)) {
+            // THE LETTER KEEPS ITS OWN HOUR (iOS lbDueNow 2672-2681): a pickup asks only a letter whose hour has come
+            if (!lbDueNow(f[0])) return false
+            val (words, gone) = fetchLongV(text)
+            if (words == null) return lbFailed(f[0], ref, gone, Marks.birthMs(f[0])?.let { it / 1000.0 })   // later: the letter waits in the box
+            lbForget(f[0])
+            text = words.ifEmpty { text }
+        }
         place(ref, f[0], text, f[2], f[4].ifEmpty { null }, f[5].ifEmpty { null }, f[6].ifEmpty { null })
         return true
     }
