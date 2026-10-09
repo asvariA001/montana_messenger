@@ -282,12 +282,18 @@ object Board {
         (0 until ps.length()).mapNotNull { ps.optJSONObject(it) }.firstOrNull { it.optString("id") == id }
     }
     fun canWrite(wall: String) = synchronized(lock) { ensure(); pages[wall]?.optBoolean("w") == true }
-    /** A WALL READ AS ITS OWNER SENT IT (iOS posts(on:), MontanaBoard.swift:723): every post of one person's own page, in
-     * the order their build laid it there -- pinned first. */
+    /** A WALL READ AS ITS OWNER SENT IT (iOS posts(on:), MontanaBoard.swift:723): every post of one person's own page, the
+     * pinned first, then by the newest record of its chain -- its birth or its latest comment (iOS lastAt 1306), so a comment
+     * of mine lifts its post here at once. */
     fun posts(wall: String): List<Item> = synchronized(lock) {
         ensure()
         val ps = pages[wall]?.optJSONArray("ps") ?: return emptyList()
         (0 until ps.length()).mapNotNull { ps.optJSONObject(it)?.let { p -> Item(wall, p) } }
+            .sortedWith(compareByDescending<Item> { it.post.optBoolean("pinned") }.thenByDescending { lastAt(it.post) })
+    }
+    private fun lastAt(p: JSONObject): Double {
+        val cs = p.optJSONArray("comments") ?: return p.optDouble("at", 0.0)
+        return (0 until cs.length()).maxOfOrNull { cs.optJSONObject(it)?.optDouble("at", 0.0) ?: 0.0 }?.let { maxOf(it, p.optDouble("at", 0.0)) } ?: p.optDouble("at", 0.0)
     }
     /** THE LOOK ASKS (iOS look, MontanaBoard.swift:609-613, the author's word 25.09): a person's page not held, or held
      * more than ten minutes ago, is asked for the moment their page opens; a page already fresh is drawn at once and
