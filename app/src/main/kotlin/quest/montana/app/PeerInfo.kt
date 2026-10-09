@@ -805,7 +805,7 @@ fun reportPage(act: MainActivity, ref: String, name: String, onClose: () -> Unit
             addView(c.text(c.getString(R.string.pi_block_too), 16f), lp(0, WRAP, 1f))
             addView(Switch(c).apply { isChecked = true; setOnCheckedChangeListener { _, v -> blockToo = v } })
         })
-        section(null, c.getString(R.string.pi_reports_go, mail), c.text(c.getString(R.string.pi_send_report), 16f, MT.blue).apply {
+        section(null, c.getString(R.string.pi_reports_go, mail), c.text(c.getString(R.string.pi_send_report), 16f, Color.WHITE).apply {   // iOS .accentColor, white since the gold left (MontanaSafety.swift:204, 2155)
             setPadding(dp(16), dp(14), dp(16), dp(14))
             pressable {
                 if (blockToo) PeerSafety.setBlocked(ref, true)
