@@ -182,7 +182,6 @@ object VoicePlayer {
     private fun am() = Book.ctx.getSystemService(AudioManager::class.java)
     private var sensorMgr: SensorManager? = null
     private var proximitySensor: Sensor? = null
-    private var earWake: PowerManager.WakeLock? = null
     private var proximityArmed = false
     private val outsidePorts = setOf(AudioDeviceInfo.TYPE_WIRED_HEADSET, AudioDeviceInfo.TYPE_WIRED_HEADPHONES, AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
         AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, AudioDeviceInfo.TYPE_USB_HEADSET, AudioDeviceInfo.TYPE_USB_DEVICE, AudioDeviceInfo.TYPE_HEARING_AID,
@@ -206,9 +205,7 @@ object VoicePlayer {
         val sensor = sm.getDefaultSensor(Sensor.TYPE_PROXIMITY) ?: return
         sensorMgr = sm; proximitySensor = sensor
         sm.registerListener(proximityListener, sensor, SensorManager.SENSOR_DELAY_UI)
-        val pm = Book.ctx.getSystemService(PowerManager::class.java)
-        if (pm?.isWakeLockLevelSupported(PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK) == true)
-            earWake = pm.newWakeLock(PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK, "montana:voice-ear").apply { setReferenceCounted(false); acquire() }
+        Proximity.hold("voice", true)   // the sensor's one owner (iOS MontanaMedia.swift 459, 24.09)
     }
     @Suppress("DEPRECATION")
     private fun disarmProximity() {
@@ -216,7 +213,7 @@ object VoicePlayer {
         proximityArmed = false
         sensorMgr?.unregisterListener(proximityListener)
         sensorMgr = null; proximitySensor = null
-        earWake?.takeIf { it.isHeld }?.release(); earWake = null
+        Proximity.hold("voice", false)   // never off while the sensor says «near»: the owner waits for «far» (iOS 470)
         am()?.isSpeakerphoneOn = false
     }
 }

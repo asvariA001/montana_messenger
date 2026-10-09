@@ -168,6 +168,7 @@ object Calls {
         Signal.cutForCall()   // iOS MontanaCall.setState 4405-4412 «born» (atom cf9b083f5567): the ring stands, so the fresh question is the call's short one
         if (name.isNotBlank() && name.length <= 64 && Book.admitState(ref, "name", 0L)) Book.edit(ref) { it.name = name.trim() }   // iOS onCallerNamed; undated, never over a dated word
         Signal.hold(ref, "call")
+        CallLine.updateProximity()   // a call in any state holds the sensor while its sound stands at the ear (iOS 4401)
         show(ref, video)
         CallScreen.ring(ref)   // the app in front rings on its own screen too (iOS incomingScreen)
         MainThread.later(LIFE_MS) { synchronized(gate) { ring?.takeIf { it.seed == seed && !it.answered } }?.let { end(it, "timeout") } }
@@ -241,6 +242,7 @@ object Calls {
         noteSeed(seed, "alive")
         Signal.cutForCall()   // iOS MontanaCall.setState 4405-4412 «born» (atom cf9b083f5567): the ring stands, so the fresh question is the call's short one
         Signal.hold(ref, "call")
+        CallLine.updateProximity()
         CallService.start(Book.ctx, ref) { refused(r, "service-refused") }
         MainThread.later(1200) { pipsOn(r) }   // the searching pips until the far phone's own word «ringing» (iOS 1855, 4548-4556)
         Thread { knock(r) }.start()

@@ -203,7 +203,17 @@ object CallLine {
         }
     }
 
-    private fun moved() = MainThread.post { changed?.invoke() }
+    private fun moved() = MainThread.post { updateProximity(); changed?.invoke() }
+
+    /** THE CALL HOLDS THE SENSOR WHILE ITS SOUND STANDS AT THE EAR (iOS updateProximity 4398-4403): a call in any state, a
+     * voice call, not on the loudspeaker, no headset or car holding the sound. Re-asked at every change of the call and of
+     * the route -- a headset that comes or goes moves it too. */
+    fun updateProximity() = Proximity.hold("call", Calls.busy() && !video && !Calls.ringVideo() && !speaker && !outsideNow())
+    private fun outsideNow(): Boolean {
+        val am = am() ?: return false
+        return if (Build.VERSION.SDK_INT >= 31) am.communicationDevice?.let { it.type in OUTSIDE } == true
+        else runCatching { am.getDevices(AudioManager.GET_DEVICES_OUTPUTS).any { it.type in OUTSIDE } }.getOrDefault(false)
+    }
 
     /** The moment the voice joined, for the call's clock; 0 — not yet. */
     val connectedAt: Long get() = synchronized(gate) { line?.connectedAt ?: 0L }
@@ -618,7 +628,7 @@ object CallLine {
         if (Build.VERSION.SDK_INT >= 31) runCatching { am.addOnCommunicationDeviceChangedListener(java.util.concurrent.Executor { it.run() }, routeWatch) }
         route(speaker)
     }
-    private val routeWatch = AudioManager.OnCommunicationDeviceChangedListener { d -> log("audio_route_change now=" + way(d?.type)) }
+    private val routeWatch = AudioManager.OnCommunicationDeviceChangedListener { d -> log("audio_route_change now=" + way(d?.type)); MainThread.post { updateProximity() } }
     private fun way(t: Int?): String = when (t) {
         null -> "none"
         android.media.AudioDeviceInfo.TYPE_BUILTIN_EARPIECE -> "earpiece"
@@ -643,7 +653,7 @@ object CallLine {
     }
 
     /** The loudspeaker, or whatever the system holds for a call (the earpiece, the headset): its own communication device. */
-    fun setSpeaker(on: Boolean) { speaker = on; synchronized(gate) { line }?.speakerDecided = true; route(on) }
+    fun setSpeaker(on: Boolean) { speaker = on; synchronized(gate) { line }?.speakerDecided = true; route(on); MainThread.post { updateProximity() } }
 
     @Suppress("DEPRECATION")
     private fun route(on: Boolean) {
@@ -676,8 +686,16 @@ object CallLine {
         val onSpeaker = now?.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
         if (am.availableCommunicationDevices.none { it.type in OUTSIDE }) return Face(R.string.call_speaker, R.drawable.ic_speaker_wave3, onSpeaker, false)
         val ext = now?.takeIf { it.type in OUTSIDE }
-        val icon = if (ext != null) R.drawable.ic_route_headphones else if (onSpeaker) R.drawable.ic_speaker_wave3 else R.drawable.ic_route_phone
+        val icon = if (ext != null) glyphOf(ext.type) else if (onSpeaker) R.drawable.ic_speaker_wave3 else R.drawable.ic_route_phone
         return Face(R.string.call_audio, icon, ext != null || onSpeaker, true)
+    }
+
+    // WHERE THE SOUND IS, BY ITS DEVICE'S OWN GLYPH (iOS MontanaAudioRoute.glyph 7319-7331): headphones for a headset and any
+    // Bluetooth (the iPhone tells AirPods by their name, which Android's devices do not carry), the loudspeaker box
+    // (hifispeaker) for any other device outside the phone
+    private fun glyphOf(t: Int) = when (t) {
+        AudioDeviceInfo.TYPE_USB_DEVICE, AudioDeviceInfo.TYPE_BLE_SPEAKER -> R.drawable.ic_hifispeaker
+        else -> R.drawable.ic_route_headphones
     }
 
     /** The menu's ways, as the system's own output menu names them: the phone, the loudspeaker, each device by its name. */
@@ -1532,4 +1550,63 @@ object CallLine {
     }
 
     private fun log(s: String) { Log.d("Montana", "call line: " + s) }
+}
+
+/**
+ * THE PROXIMITY SENSOR HAS ONE OWNER (iOS MTProximity, MontanaCall.swift 7430-7483, atom f0da6cb01947; the author's word 24.09:
+ * «during a call I covered it with a finger and took the finger away, and the screen stayed off, black and dead»). The screen's
+ * sensor switch is one for the whole phone, and every hand -- «call», «voice» -- holds and lets go of it here by its name; it
+ * stands on while any hand holds it. NEVER OFF WHILE «NEAR» (the reference's rule): with no hand left and the sensor covered,
+ * the switch goes off only at «far» (the platform's own RELEASE_FLAG_WAIT_FOR_NO_PROXIMITY). Every change of the sensor and of
+ * the switch is a diary line (proximity): a dark screen says who held the sensor and what the sensor said last.
+ */
+object Proximity {
+    private val holders = sortedSetOf<String>()
+    private var lock: PowerManager.WakeLock? = null
+    @Volatile private var near = false
+    private val ear = object : android.hardware.SensorEventListener {
+        override fun onSensorChanged(e: android.hardware.SensorEvent) {
+            val max = e.sensor?.maximumRange ?: 5f
+            val now = e.values.isNotEmpty() && e.values[0] < minOf(max, 5f)
+            if (now == near) return
+            near = now
+            note(if (now) "near" else "far", "sensor")
+            if (!now && holders.isEmpty()) stopListening()
+        }
+        override fun onAccuracyChanged(s: android.hardware.Sensor?, a: Int) {}
+    }
+    private var listening = false
+
+    /** A hand holds the sensor (true) or lets it go (false); from any thread. */
+    fun hold(who: String, on: Boolean) {
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) { MainThread.post { hold(who, on) }; return }
+        if (on == holders.contains(who)) return   // this hand already stands so
+        if (on) holders.add(who) else holders.remove(who)
+        val pm = Book.ctx.getSystemService(PowerManager::class.java)
+        if (holders.isNotEmpty()) {
+            if (lock?.isHeld == true) return note("hold", who)
+            if (pm?.isWakeLockLevelSupported(PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK) != true) return note("absent", who)   // the phone has no sensor
+            lock = pm.newWakeLock(PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK, "montana:ear").apply { setReferenceCounted(false); acquire() }
+            listen()
+            note("on", who)
+        } else {
+            val l = lock ?: return
+            lock = null
+            if (l.isHeld) runCatching { l.release(PowerManager.RELEASE_FLAG_WAIT_FOR_NO_PROXIMITY) }
+            note(if (near) "off-at-far" else "off", who)   // covered: the switch goes off when the sensor says «far»
+            if (!near) stopListening()
+        }
+    }
+    private fun listen() {
+        if (listening) return
+        val sm = Book.ctx.getSystemService(android.hardware.SensorManager::class.java) ?: return
+        val s = sm.getDefaultSensor(android.hardware.Sensor.TYPE_PROXIMITY) ?: return
+        listening = sm.registerListener(ear, s, android.hardware.SensorManager.SENSOR_DELAY_UI)
+    }
+    private fun stopListening() {
+        if (!listening) return
+        listening = false
+        Book.ctx.getSystemService(android.hardware.SensorManager::class.java)?.unregisterListener(ear)
+    }
+    private fun note(what: String, why: String) { Log.d("Montana", "proximity " + what + " by=" + why + " holders=" + holders.joinToString(",")) }
 }

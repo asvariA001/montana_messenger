@@ -602,6 +602,7 @@ object CallScreen {
                 paint()
                 return@pressable
             }
+            face.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)   // the press that opens the route menu is felt too (iOS atom bae0da066289)
             val ways = CallLine.ways(c)
             PopupMenu(c, face).apply {
                 ways.forEachIndexed { i, w -> menu.add(0, i, i, w.name).apply { isCheckable = true; isChecked = w.chosen } }
