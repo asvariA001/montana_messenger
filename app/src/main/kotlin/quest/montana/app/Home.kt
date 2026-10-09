@@ -89,6 +89,37 @@ class CrestGround(c: Context) : FrameLayout(c) {
     }
 }
 
+/** THE SAME SOFTENING THE CREST WEARS, FOR ANY GROUND MY PAGE CHOSE (iOS MTSoftGround.soften 699-709 and MontanaChatBackdrop.
+ * wearsPageGround 459-474 at 2155, radius 36 light 0.72): a photo or a named ground behind the pages reads as unreadably soft
+ * and dimmed as the crest already does. */
+private fun View.softenPageGround() {
+    if (Build.VERSION.SDK_INT < 31) return
+    val px = dp(36f).toFloat()
+    setRenderEffect(RenderEffect.createChainEffect(
+        RenderEffect.createColorFilterEffect(android.graphics.ColorMatrixColorFilter(
+            android.graphics.ColorMatrix().apply { setScale(0.72f, 0.72f, 0.72f, 1f) })),
+        RenderEffect.createBlurEffect(px, px, Shader.TileMode.CLAMP)))
+}
+
+/** MY PAGE'S GROUND, UNDER EVERY PAGE (iOS MontanaFeeds.swift MTUnderBarGround 568-578 at 2155, and the author's word 26.09:
+ * «the ground of the pages -- the contacts, the calls, the feed, the chats, the music, the VPN, the gallery and absolutely
+ * all -- must be the one set as the page's ground»): the crest while nothing is chosen, else the ground chosen for my page,
+ * softened the same way -- live under every pane; a choice made in Appearance redraws it at once. */
+private fun mainGround(c: Context): View = FrameLayout(c).apply {
+    fun fillIn() {
+        removeAllViews()
+        val choice = ChatWall.choice(ChatWall.PAGE)
+        if (choice == ChatWall.Choice.General) addView(CrestGround(c), FrameLayout.LayoutParams(MATCH, MATCH))
+        else addView(c.groundView(choice).apply { softenPageGround() }, FrameLayout.LayoutParams(MATCH, MATCH))
+    }
+    fillIn()
+    val l: () -> Unit = { fillIn() }
+    addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+        override fun onViewAttachedToWindow(v: View) { ChatWall.listen(l); fillIn() }
+        override fun onViewDetachedFromWindow(v: View) { ChatWall.unlisten(l) }
+    })
+}
+
 /**
  * THE GLASS OF A PLATE (iOS montanaOctagonFace(bar: true), MontanaOctagon.barMaterial = .ultraThinMaterial, MTGlassCirclePlate):
  * ONE TONE, NOT SEE-THROUGH (Anna's word 08.10.2026 16:5x: «на кнопках однотонное стекло — а не прозрачное»). The system's thin
@@ -127,7 +158,7 @@ enum class Pane { CHATS, CONTACTS, CALLS, FEED, MUSIC, GALLERY, GROUPS, CHANNELS
 
 fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
     val c = act
-    act.setGround(CrestGround(c))
+    act.setGround(mainGround(c))
     var pane = Pane.CHATS   // iOS: the chats are the first page of a launch
     val panes = FrameLayout(c)
     val music = MusicPage(act)
@@ -146,7 +177,7 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
         player.visibility = if (on) View.VISIBLE else View.GONE
         if (on) player.live()
         music.reserve(on && pane == Pane.MUSIC)
-        feed.reserve(on && pane == Pane.FEED)
+        feed.reserve(on && pane == Pane.FEED)   // the write button steps above the bar, as the music's plus (iOS MTFeedTabView reserve)
     }
     Playing.listen { if (player.isAttachedToWindow) showPlayer() }   // a track, a voice or a note: the one gate (iOS MontanaPlayerBar.Gate)
     // THE ONE SEARCH (iOS searchResults, [C-1]): the same field and the same results stand on the chats, the contacts and the

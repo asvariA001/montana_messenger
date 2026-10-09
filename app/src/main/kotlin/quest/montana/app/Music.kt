@@ -164,7 +164,6 @@ object MusicPlayer {
         app?.let { takeFocus(it) }
         p.start(); playing = true; tick(); changed()
     }
-    fun skip(seconds: Int) { val p = mp?.takeIf { prepared } ?: return; p.seekTo((p.currentPosition + seconds * 1000).coerceIn(0, p.duration)); changed() }
     fun seek(f: Double) { val p = mp?.takeIf { prepared } ?: return; p.seekTo((f * p.duration).toInt()); changed() }
     /** Forward turns the page even on the last track — the first follows (iOS next). */
     fun next() { val a = app ?: return; if (queue.isEmpty()) return; play(a, queue, if (index + 1 < queue.size) index + 1 else 0) }
@@ -253,8 +252,9 @@ class MiniFace(ctx: Context, private val bar: Boolean) : LinearLayout(ctx) {
     private val side = ctx.text("", 13f, MT.gray)
     private var remaining = false
     private var scrub: Double? = null
-    private var back15: View? = null
-    private var fwd15: View? = null
+    private var prevBtn: View? = null
+    private var nextBtn: View? = null
+    private var closeBtn: View? = null
     var onSeek: (Double) -> Unit = {}
 
     init {
@@ -264,7 +264,10 @@ class MiniFace(ctx: Context, private val bar: Boolean) : LinearLayout(ctx) {
         play.background = ctx.glassPlate(oval = true)
         play.addView(playGlyph, FrameLayout.LayoutParams(dp(20), dp(20), Gravity.CENTER))
         addView(play, LayoutParams(h, h))
-        if (bar) back15 = square(R.drawable.ic_back15) { MusicPlayer.skip(-15) }.also { addView(it, LayoutParams(h, h).apply { marginStart = dp(10) }) }
+        // THE TRACK BEFORE AND THE TRACK AFTER (iOS MTMiniFace.onPrev/onNext, MontanaMusicPlayer.swift:1206-1238 at 2155, the
+        // author's word 29.09 on build 2000: «the buttons should have switched to the next track, not seek»): the queue's own
+        // turn, as the lock screen's buttons (MusicPlayer.prev/next) -- a track's bar alone, never a voice's or a note's.
+        if (bar) prevBtn = square(R.drawable.ic_skip_prev) { MusicPlayer.prev() }.also { addView(it, LayoutParams(h, h).apply { marginStart = dp(10) }) }
         plate.background = ctx.glassPlate()
         plate.clipToOutline = true
         plate.outlineProvider = object : android.view.ViewOutlineProvider() {
@@ -275,10 +278,10 @@ class MiniFace(ctx: Context, private val bar: Boolean) : LinearLayout(ctx) {
         plate.addView(side, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER_VERTICAL or Gravity.END).apply { marginEnd = dp(14) })
         addView(plate, LayoutParams(0, h, 1f).apply { marginStart = dp(10) })
         if (bar) {
-            fwd15 = square(R.drawable.ic_fwd15) { MusicPlayer.skip(15) }.also { addView(it, LayoutParams(h, h).apply { marginStart = dp(10) }) }
-            addView(square(R.drawable.ic_close) {
+            nextBtn = square(R.drawable.ic_skip_next) { MusicPlayer.next() }.also { addView(it, LayoutParams(h, h).apply { marginStart = dp(10) }) }
+            closeBtn = square(R.drawable.ic_close) {
                 when (Playing.kind) { Playing.Kind.NOTE -> NoteOpen.close?.invoke(); Playing.Kind.VOICE -> VoicePlayer.stop(); else -> MusicPlayer.stop() }
-            }, LayoutParams(h, h).apply { marginStart = dp(10) })
+            }.also { addView(it, LayoutParams(h, h).apply { marginStart = dp(10) }) }
             play.pressable {
                 when (Playing.kind) {
                     Playing.Kind.NOTE -> NoteOpen.toggle?.invoke()
@@ -325,8 +328,8 @@ class MiniFace(ctx: Context, private val bar: Boolean) : LinearLayout(ctx) {
     fun live() {
         val kind = Playing.kind ?: return
         val track = kind == Playing.Kind.TRACK
-        back15?.visibility = if (track) View.VISIBLE else View.GONE
-        fwd15?.visibility = if (track) View.VISIBLE else View.GONE
+        prevBtn?.visibility = if (track) View.VISIBLE else View.GONE
+        nextBtn?.visibility = if (track) View.VISIBLE else View.GONE
         val sounding = when (kind) {
             Playing.Kind.NOTE -> NoteOpen.sounding?.invoke() == true
             Playing.Kind.VOICE -> !VoicePlayer.paused
@@ -338,6 +341,9 @@ class MiniFace(ctx: Context, private val bar: Boolean) : LinearLayout(ctx) {
             Playing.Kind.TRACK -> MusicPlayer.current?.title.orEmpty()
         }
         playGlyph.setImageResource(if (sounding) R.drawable.ic_pause_fill else R.drawable.ic_play_fill)
+        // THE THIN BLUE RING ON EVERY PAGE (iOS MTMiniFace.playingRing, the author's word 29.09): the bar wears it fixed,
+        // wherever it floats -- never conditioned, as the still row's own ring is, on «is this the one that plays».
+        ring(true)
         if (scrub == null) show(when (kind) {
             Playing.Kind.NOTE -> NoteOpen.fraction?.invoke() ?: 0.0
             Playing.Kind.VOICE -> VoicePlayer.fraction
@@ -358,8 +364,14 @@ class MiniFace(ctx: Context, private val bar: Boolean) : LinearLayout(ctx) {
 
     private fun ring(on: Boolean) {
         val blue = if (on) MT.blue else null
-        play.foreground = blue?.let { GradientDrawable().apply { shape = GradientDrawable.OVAL; setStroke(dp(1), it) } }
+        fun oval() = blue?.let { GradientDrawable().apply { shape = GradientDrawable.OVAL; setStroke(dp(1), it) } }
+        play.foreground = oval()
         plate.foreground = blue?.let { GradientDrawable().apply { cornerRadius = dp(100).toFloat(); setStroke(dp(1), it) } }
+        // EVERY BUTTON WEARS THE RING (iOS MTMiniFace.trackButton/onClose overlay, MontanaMusicPlayer.swift:1213-1244 at 2155,
+        // the author's word 29.09 on build 2000: «all the buttons in the system's outline, as the play and the central one»).
+        prevBtn?.foreground = oval()
+        nextBtn?.foreground = oval()
+        closeBtn?.foreground = oval()
     }
 }
 

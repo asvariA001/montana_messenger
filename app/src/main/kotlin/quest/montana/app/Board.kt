@@ -1773,14 +1773,29 @@ class FeedPane(private val act: MainActivity) : FrameLayout(act) {
     // atom f056cf90ad09): the posts scroll clear of the bar while it stands -- 60 more than the tab bar's own room, as
     // the music page's plus moves for it (MusicPage.reserve).
     private val foot = View(c)
+    // THE WRITE BUTTON, THE PAGE'S OWN CORNER (iOS MTFeedTabView.mtPageAction, MontanaBoardViews.swift:2889-2897 at 2155): the
+    // one glyph that opens the composer on my own wall, above the floating player's room when it stands (reserve, as the
+    // music's plus, Music.kt MusicPage.reserve).
+    private val write = FrameLayout(c).apply {
+        background = c.glassPlate(oval = true)
+        contentDescription = c.getString(R.string.pi_write_wall)
+        addView(c.icon(R.drawable.ic_compose, android.graphics.Color.rgb(204, 204, 204)), LayoutParams(dp(30), dp(30), Gravity.CENTER))
+        pressable { act.push { close -> newPostPage(act, close) } }
+    }
     init {
         addView(ScrollView(c).apply {
             isVerticalScrollBarEnabled = false
             addView(c.vstack(Gravity.NO_GRAVITY) { addView(goingColumn, lp()); addView(column, lp()); addView(foot, lp(MATCH, dp(120))) })
         }, LayoutParams(MATCH, MATCH))
         addView(empty, LayoutParams(WRAP, WRAP, Gravity.CENTER))
+        addView(write, LayoutParams(dp(60), dp(60), Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, dp(16), dp(36)) })
     }
-    fun reserve(on: Boolean) { foot.layoutParams = lp(MATCH, dp(if (on) 180 else 120)); foot.requestLayout() }
+    /** The bar stands: the posts keep room under it and the write button steps above it, as the music's plus. */
+    fun reserve(on: Boolean) {
+        foot.layoutParams = lp(MATCH, dp(if (on) 180 else 120)); foot.requestLayout()
+        (write.layoutParams as LayoutParams).bottomMargin = dp(if (on) 96 else 36)
+        write.requestLayout()
+    }
     private fun draw() {
         val items = Board.feed()
         column.removeAllViews()
