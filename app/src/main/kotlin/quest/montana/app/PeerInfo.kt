@@ -550,7 +550,7 @@ fun peerInfoPage(act: MainActivity, ref: String, onClose: () -> Unit,
     }
     return FrameLayout(c).apply {
         setBackgroundColor(Color.BLACK)
-        addView(c.chatGround(ChatWall.PAGE), FrameLayout.LayoutParams(MATCH, MATCH))   // my page's ground, as every page wears it (iOS MontanaPeerInfoScreen.swift:104, rule 30)
+        addView(c.chatGround(PageGround.keyOf(ref)), FrameLayout.LayoutParams(MATCH, MATCH))   // the ground they sent, mine where they sent none (iOS MTFacePage 377-406)
         // a stroke begun on the strip rolls the strip and turns nothing; the page scrolled up closes the open face
         val rows = PanesScroll(c, skip = { y -> y in bar.top.toFloat()..bar.bottom.toFloat() }, turn = { turnPane(it) }).apply {
             isVerticalScrollBarEnabled = false; clipToPadding = false; addView(body); face.attach(this)
@@ -941,7 +941,7 @@ fun peerEditPage(act: MainActivity, ref: String, onClose: () -> Unit): View {
     fun keysAway() = c.getSystemService(android.view.inputmethod.InputMethodManager::class.java).hideSoftInputFromWindow(body.windowToken, 0)
     return FrameLayout(c).apply {
         setBackgroundColor(Color.BLACK)
-        addView(c.chatGround(ChatWall.PAGE), FrameLayout.LayoutParams(MATCH, MATCH))   // my page's ground, as every page wears it (iOS MontanaPeerInfoScreen.swift:104, rule 30)
+        addView(c.chatGround(PageGround.keyOf(ref)), FrameLayout.LayoutParams(MATCH, MATCH))   // the ground they sent, mine where they sent none (iOS MTFacePage 377-406)
         addView(ScrollView(c).apply { isVerticalScrollBarEnabled = false; addView(body) }, FrameLayout.LayoutParams(MATCH, MATCH))
         addView(c.text(c.getString(R.string.pe_edit), 17f, Color.WHITE, bold = true, center = true),
             FrameLayout.LayoutParams(WRAP, dp(44), Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(6) })

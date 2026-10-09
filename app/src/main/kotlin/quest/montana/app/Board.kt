@@ -79,6 +79,8 @@ object Board {
         return ((b(0) shl 24) or (b(1) shl 16) or (b(2) shl 8) or b(3)).toString()
     }
     private val emptyVersion by lazy { wireTag("0r".toByteArray()) }
+    /** My wall's version in every presence word (iOS spokenVersion): my wall is still empty here, so its version is the one my answer to an ask carries. */
+    fun spokenVersion(): String = emptyVersion
 
     private fun send(ref: String, w: JSONObject): Boolean {
         if (Groups.isKey(ref) || PeerSafety.isBlocked(ref) || Book.secret(ref) == null) return false

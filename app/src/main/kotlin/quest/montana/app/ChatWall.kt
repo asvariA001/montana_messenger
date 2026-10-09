@@ -77,6 +77,7 @@ object ChatWall {
         if (old != null && old != (c as? Choice.Photo)?.file) File(folder(), old).delete()   // a picture no chat wears leaves
         val ls = synchronized(listeners) { listeners.toList() }
         MainThread.post { ls.forEach { it() } }
+        if (ref == PAGE) Thread { PageGround.changed() }.start()   // my page's ground to every correspondent who reads it (iOS MTPageGround.changed)
     }
     /** Beside the faces, outside the media: the pictures grounds stand on. */
     fun folder(): File = File(Book.ctx.filesDir, "wallpapers").apply { mkdirs() }
@@ -337,7 +338,8 @@ fun wallpaperPreview(act: MainActivity, ref: String, choice: ChatWall.Choice, pi
         addView(c.vstack(Gravity.NO_GRAVITY) {
             addView(barOf(c, c.getString(R.string.wall_preview), { onDone(false) }) {
                 if (placer != null) {
-                    val file = placer.render()?.let { ChatWall.keep(it) }
+                    // my page's ground is kept light, as it leaves the phone; a chat's ground stays the lossless PNG (iOS lightData)
+                    val file = placer.render()?.let { if (ref == ChatWall.PAGE) PageGround.keepLight(it) else ChatWall.keep(it) }
                     if (file != null) ChatWall.set(ref, ChatWall.Choice.Photo(file))
                 } else ChatWall.set(ref, choice)
                 onDone(true)

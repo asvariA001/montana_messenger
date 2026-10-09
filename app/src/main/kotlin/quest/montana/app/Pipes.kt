@@ -797,9 +797,9 @@ object Post {
      * written at the send outlived a lost letter, and the face was never announced again until it changed. Until the
      * receipt the value is on its way — an hour, as the iPhone's queue holds an unanswered letter — and is not said twice.
      */
-    private fun flight(kind: String, ref: String, value: String, mid: String) =
+    fun flight(kind: String, ref: String, value: String, mid: String) =
         Prefs.setStr("annFly" + kind + "." + ref, value + "\n" + mid + "\n" + System.currentTimeMillis())
-    private fun inFlight(kind: String, ref: String, value: String): Boolean {
+    fun inFlight(kind: String, ref: String, value: String): Boolean {
         val f = Prefs.str("annFly" + kind + "." + ref, "").split("\n")
         return f.size == 3 && f[0] == value && System.currentTimeMillis() - (f[2].toLongOrNull() ?: 0L) < 3_600_000L
     }
@@ -827,7 +827,7 @@ object Post {
         if (Presence.sharing) Thread { Signal.post(ref, Presence.APP + "1" + Presence.saidTail()) }.start()
     }
     private fun announcedDelivered(ref: String, mid: String) {
-        for ((kind, mark) in listOf("N" to "annName2.", "F" to "annFace2.")) {
+        for ((kind, mark) in listOf("N" to "annName2.", "F" to "annFace2.", "G" to "annGround.")) {
             val f = Prefs.str("annFly" + kind + "." + ref, "").split("\n")
             if (f.size == 3 && f[1] == mid) { Prefs.setStr(mark + ref, f[0]); Prefs.remove("annFly" + kind + "." + ref) }
         }
@@ -1051,6 +1051,16 @@ object Post {
                     PeerAbout.note(ref, o.optString("b"), o.optString("l"), o.optDouble("at", System.currentTimeMillis() / 1000.0))
                 }
                 Book.edit(ref) {}
+                receipt(ref, sid)
+            }
+            // THE PEER'S PAGE GROUND AS STATE (iOS ChatStore 4062-4074): applied if it is the latest word, receipted either way — the
+            // receipt is the sender's one proof that my screen holds their ground; a build that speaks the word reads it
+            text.startsWith(PageGround.MARK) -> {
+                runCatching {
+                    val o = JSONObject(text.removePrefix(PageGround.MARK))
+                    PageGround.note(ref, o.optString("g"), o.optDouble("at", System.currentTimeMillis() / 1000.0))
+                }
+                PageGround.noteCapable(ref)
                 receipt(ref, sid)
             }
             text.startsWith(Marks.PLAYED) -> {

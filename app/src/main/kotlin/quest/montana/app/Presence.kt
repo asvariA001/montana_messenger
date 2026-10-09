@@ -490,7 +490,9 @@ object Presence {
             heldFace[ref]?.takeIf { it.first == f.lastModified() }?.second ?: wireTag(f.readBytes()).also { heldFace[ref] = f.lastModified() to it }
         }
         val n = Book.chat(ref)?.name.orEmpty()
-        return "F" + face + "N" + wireTag(if (n.isEmpty()) null else n.toByteArray(Charsets.UTF_8))
+        // «W» + my wall's version and «G» + the tag of their page's ground on my screen, after the name's digits (iOS heldTail 566-567):
+        // uppercase and digits, unread by every older build — they stop at the first letter after the digits they read
+        return "F" + face + "N" + wireTag(if (n.isEmpty()) null else n.toByteArray(Charsets.UTF_8)) + "W" + Board.spokenVersion() + "G" + PageGround.heldTag(ref)
     }
     /**
      * WHAT THEY HOLD OF ME, heard in their word (iOS heardHeld 629-667): their screen's tags of my face and my name against what I am —
@@ -550,6 +552,8 @@ object Presence {
                 hides(ref, payload.drop(1).contains('h'), at ?: now)
                 val open = payload.startsWith("1")
                 if (age <= WORD_LIFE) Board.heardPresence(ref, payload)   // their wall's version (iOS heardHeld, wallHeard)
+                // WHAT A WORD PROVES OF ITS BUILD IS READ FROM EVERY WORD, LATE ONES TOO (iOS heardCapable 615-624): their «G» says they read the ground
+                if (PageGround.groundHeld(payload) != null) PageGround.noteCapable(ref)
                 if (age <= WORD_LIFE) heardHeld(ref, payload)   // only a word said now says what their screen holds
                 if (age <= WORD_LIFE) {
                     if (open) {
