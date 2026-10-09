@@ -263,6 +263,8 @@ object NamePlane {
         Channels.dropFirstPoints()
         lostWord = Book.ctx.getString(R.string.name_lost)
         changed()
+        // never a silent disappearance (iOS montanaMeetVerdict): the person is told by the platform's own word
+        MainThread.post { android.widget.Toast.makeText(Book.ctx, Book.ctx.getString(R.string.name_lost), android.widget.Toast.LENGTH_LONG).show() }
     }
 
     /** The name held before a new one: released with a link nobody has seen; a keeper out of reach leaves it to lapse by its term. */

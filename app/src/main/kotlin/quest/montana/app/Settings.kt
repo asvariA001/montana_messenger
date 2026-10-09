@@ -97,7 +97,8 @@ fun LinearLayout.section(header: String? = null, footer: String? = null, vararg 
  * A SETTINGS PAGE (iOS List on the page's ground, the inline title): the crest behind, the bar with its one mark — the back
  * chevron on a pushed page, the cross on the settings' root — and the list that scrolls.
  */
-fun settingsPage(act: MainActivity, title: String, onLead: () -> Unit, cross: Boolean = false, build: LinearLayout.() -> Unit): View {
+fun settingsPage(act: MainActivity, title: String, onLead: () -> Unit, cross: Boolean = false, trailing: View? = null,
+                 build: LinearLayout.() -> Unit): View {
     val c: Context = act
     val bar = FrameLayout(c).apply {
         setPadding(dp(8), 0, dp(8), 0)
@@ -105,6 +106,8 @@ fun settingsPage(act: MainActivity, title: String, onLead: () -> Unit, cross: Bo
             setPadding(dp(10), dp(10), dp(10), dp(10)); pressable(onLead)
         }, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.CENTER_VERTICAL or Gravity.START))
         addView(c.text(title, 17f, Color.WHITE, bold = true, center = true), FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
+        // the page's own act at the right of its bar (iOS the toolbar's trailing mark: «Done» as the platform's checkmark)
+        trailing?.let { addView(it, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.CENTER_VERTICAL or Gravity.END)) }
     }
     return FrameLayout(c).apply {
         setBackgroundColor(Color.BLACK)
