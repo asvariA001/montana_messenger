@@ -179,7 +179,7 @@ fun newPostPage(act: MainActivity, onClose: () -> Unit): View {
             }, lp(dp(44), dp(44)))
         }, lp())
         // a file on its way from the picker: the platform's wheel where its row will stand
-        if (0 < taking) taken.addView(ProgressBar(c).apply { indeterminateTintList = ColorStateList.valueOf(Color.WHITE) }, lp(MATCH, dp(44)).apply { setMargins(0, dp(6), 0, dp(6)) })
+        if (0 < taking) taken.addView(ProgressBar(c).apply { indeterminateTintList = ColorStateList.valueOf(Color.WHITE) }, lp(MATCH, c.dp(44)).apply { setMargins(0, c.dp(6), 0, c.dp(6)) })
         taken.visibility = if (files.isEmpty() && taking == 0) View.GONE else View.VISIBLE
         dress()
     }
@@ -204,7 +204,7 @@ fun newPostPage(act: MainActivity, onClose: () -> Unit): View {
         val o = MyWall.sending().firstOrNull { it.id == pid } ?: return
         barSlot.addView(goingBar(act, o, onRetry = {
             Thread { val ok = MyWall.publish(pid); MainThread.post { if (ok && !closed) leave() } }.start()
-        }, onDiscard = null), FrameLayout.LayoutParams(MATCH, WRAP).apply { setMargins(dp(16), dp(6), dp(16), dp(6)) })
+        }, onDiscard = null), FrameLayout.LayoutParams(MATCH, WRAP).apply { setMargins(c.dp(16), c.dp(6), c.dp(16), c.dp(6)) })
     }
     fun post() {
         if (sending != null || empty() || 0 < taking) return
