@@ -2637,8 +2637,8 @@ private fun noteFly(forward: Boolean, scale0: Float, dx0: Float, dy0: Float, cir
  * rest; a tap on the dim closes it; its end opens the chat's next note in the feed's order, else closes it. THE STAGE'S OWN DIM AND
  * BLUR (iOS MontanaNoteOpen's black 0.62 at line 1598, the recorder's own blur(10), the author's word 15.09 at build 1608): the feed
  * behind is dimmed and blurred as the recorder's is, and takes no touches. One thing plays: the open note stops a voice, a voice
- * closes the note. The ring stays its clock: the one player bar that keeps the time on iOS (seek, speed, close) Android does not
- * have yet.
+ * closes the note. NO RING WHILE IT PLAYS (iOS MontanaNoteOpen, MontanaFeeds.swift:1602 at 2155, the author's word 23.09): the clean
+ * picture -- the one player bar below keeps the time, the seek, the speed and the close.
  */
 private fun playNote(act: MainActivity, m: Msg, f: java.io.File, chat: Chat?, origin: android.graphics.Rect) {
     NoteOpen.close?.invoke()
@@ -2654,12 +2654,10 @@ private fun playNote(act: MainActivity, m: Msg, f: java.io.File, chat: Chat?, or
     val notes = chat?.msgs?.filter { roundNote(it) }?.mapNotNull { m -> m.file?.let { java.io.File(it) }?.takeIf { it.exists() } }.orEmpty()
     var current = f
     var close: () -> Unit = {}
-    val ring = NoteRing(c)
     val tv = TextureView(c)
     val glyph = c.icon(R.drawable.ic_play_fill, Color.argb(230, 255, 255, 255)).apply { visibility = View.GONE }
     var player: android.media.MediaPlayer? = null
     val circle = FrameLayout(c).apply {
-        addView(ring, FrameLayout.LayoutParams(side + c.dp(16), side + c.dp(16), Gravity.CENTER))
         addView(tv.round(), FrameLayout.LayoutParams(side, side, Gravity.CENTER))
         addView(glyph, FrameLayout.LayoutParams(c.dp(54), c.dp(54), Gravity.CENTER))
         setOnClickListener { NoteOpen.toggle?.invoke() }
@@ -2697,10 +2695,10 @@ private fun playNote(act: MainActivity, m: Msg, f: java.io.File, chat: Chat?, or
                     val i = notes.indexOfFirst { it.path == current.path }
                     val next = if (0 <= i) notes.getOrNull(i + 1) else null
                     if (next == null) close()
-                    else runCatching { mp.reset(); mp.setDataSource(next.path); mp.prepare(); mp.start(); speed(mp); current = next; ring.progress = 0f; Playing.changed() }.onFailure { close() }
+                    else runCatching { mp.reset(); mp.setDataSource(next.path); mp.prepare(); mp.start(); speed(mp); current = next; Playing.changed() }.onFailure { close() }
                 }
             } }.getOrNull()
-            val tick = object : Runnable { override fun run() { val p = player ?: return; runCatching { ring.progress = p.currentPosition.toFloat() / maxOf(1, p.duration) }; Playing.changed(); MainThread.later(100, this) } }
+            val tick = object : Runnable { override fun run() { val p = player ?: return; Playing.changed(); MainThread.later(100, this) } }
             MainThread.later(50, tick)
         }
         override fun onSurfaceTextureSizeChanged(st: android.graphics.SurfaceTexture, sw: Int, sh: Int) {}
