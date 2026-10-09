@@ -104,9 +104,11 @@ object CallScreen {
      * with a word in the person's language, not a screen that simply closes. Android carries no network-filter probe
      * (iOS MontanaNetProbe) to tell a filtered network from a plain failure, so this build speaks the one general word.
      */
-    fun tellNoRoad() = MainThread.post {
+    fun tellNoRoad(filtered: Boolean = NetProbe.filtersCalls) = MainThread.post {
         val act = front ?: return@post
-        android.app.AlertDialog.Builder(act).setTitle(R.string.call_no_road_title).setMessage(R.string.call_no_road_body)
+        // UNDER THE PERMITTED-LIST FILTER THE WORDS SAY SO (iOS tellNoRoad(filtered:) 623-636): the line's one verdict, NetProbe
+        android.app.AlertDialog.Builder(act).setTitle(if (filtered) R.string.call_filtered_title else R.string.call_no_road_title)
+            .setMessage(if (filtered) R.string.call_filtered_body else R.string.call_no_road_body)
             .setPositiveButton(R.string.ok, null).show()
     }
 

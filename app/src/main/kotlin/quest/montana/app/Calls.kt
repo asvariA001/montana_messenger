@@ -241,6 +241,14 @@ object Calls {
      */
     fun dial(ref: String, video: Boolean = false): Boolean {
         if (PeerSafety.isBlocked(ref) || Book.secret(ref) == null) return false
+        // UNDER THE PERMITTED-LIST FILTER A CALL HAS NO ROAD (iOS startCall 1755-1763): the doors may stand on a permitted cascade,
+        // the media cannot -- the relay and the reflector are ours and stand on no list; the far phone is not rung for nothing
+        if (NetProbe.filtersCalls) {
+            log("call_refused filtered — this network passes permitted destinations only")
+            Log.d("Montana", "E2E-CALL refused why=whitelist dir=out")
+            CallScreen.tellNoRoad(filtered = true)
+            return false
+        }
         val seed = Base64.encodeToString(ByteArray(32).also { SecureRandom().nextBytes(it) }, Base64.NO_WRAP)
         val r = synchronized(gate) {
             if (ring != null) return false.also { log("busy: a call is in hand") }
@@ -581,7 +589,8 @@ object Calls {
             " rang=" + (if (r.ringing) 1 else 0) + " " + sp.summary.ifEmpty { "talk_s=0" } + " end=" + reason + " " + ledger + " last_ok_s=" + r.lastOkS +
             " bell=" + (if (r.bell) 1 else 0) + " side=" + side)
         Log.d("Montana", "E2E-CALL end dir=" + dir + " video=" + v + " talk_s=" + sp.dur + " end=" + reason + " door=" + door +
-            " rang=" + (if (r.ringing) 1 else 0) + " " + ledger + " bell=" + (if (r.bell) 1 else 0) + " " + sp.end.ifEmpty { "paths=-" } + " side=" + side)
+            " rang=" + (if (r.ringing) 1 else 0) + " " + ledger + " bell=" + (if (r.bell) 1 else 0) + " " + sp.end.ifEmpty { "paths=-" } +
+            " probe=" + NetProbe.verdictWord + " side=" + side)
     }
 
     /**

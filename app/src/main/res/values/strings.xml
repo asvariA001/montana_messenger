@@ -640,4 +640,6 @@
     <string name="call_will_end_body">Android restarts Montana when an access is turned off in Settings, and the call ends.</string>
     <string name="call_sound_busy_title">Unavailable during a call</string>
     <string name="call_sound_busy_body">While a call lasts, the sound belongs to it.</string>
+    <string name="call_filtered_title">Calls are filtered on this network</string>
+    <string name="call_filtered_body">This network passes only permitted destinations. A call cannot go through it until the filter is lifted.</string>
 </resources>

@@ -182,6 +182,12 @@ object Doors {
         }
         for (d in found.keys) Signal.proveDoor(d)   // the round's answer is proof for the call's walk (iOS 115)
         Log.d("Montana", "accel_paths ok=" + doors.filter { found[it] != null }.joinToString(",") { host(it) + "[" + found[it].orEmpty().sorted().joinToString("|") + "]" } + " of=" + doors.size)
+        // THE MODE OF THE NETWORK (iOS MontanaWakePush 172-181, atoms c0b52069608a, b3f67ba312fd): a silent door is a question --
+        // the mode is measured then, at most once a minute -- and the round runs once an hour on its own, so a verdict has open
+        // lines to stand against
+        val mute = doors.filter { found[it] == null }.map { host(it) }
+        val alive = doors.filter { found[it] != null }.map { host(it) }
+        if ((mute.isNotEmpty() && NetProbe.minutePassed()) || NetProbe.hourPassed()) runCatching { NetProbe.round(mute, alive) }
         val first = doors.firstOrNull { found[it] != null } ?: return
         val named = try {
             val conn = URL(first + "/doors").openConnection() as HttpURLConnection

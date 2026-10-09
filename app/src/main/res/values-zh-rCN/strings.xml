@@ -635,4 +635,6 @@
     <string name="call_will_end_body">在设置中关闭某项权限时，Android 会重启 Montana，通话将结束。</string>
     <string name="call_sound_busy_title">通话期间不可用</string>
     <string name="call_sound_busy_body">通话进行时，声音归通话所用。</string>
+    <string name="call_filtered_title">此网络已过滤通话</string>
+    <string name="call_filtered_body">此网络仅允许访问许可的目的地。在过滤解除前无法通话。</string>
 </resources>

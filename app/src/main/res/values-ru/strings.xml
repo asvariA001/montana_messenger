@@ -635,4 +635,6 @@
     <string name="call_will_end_body">Android перезапускает Montana, когда в Настройках выключают доступ, и звонок завершается.</string>
     <string name="call_sound_busy_title">Недоступно во время звонка</string>
     <string name="call_sound_busy_body">Пока идёт звонок, звук принадлежит ему.</string>
+    <string name="call_filtered_title">На этой сети звонки фильтруются</string>
+    <string name="call_filtered_body">Эта сеть пропускает только разрешённые адреса. Звонок не пройдёт, пока фильтр не снят.</string>
 </resources>
