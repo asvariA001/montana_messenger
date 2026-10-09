@@ -877,7 +877,7 @@ private fun safetyPage(act: MainActivity, ref: String, name: String, onClose: ()
 /** A report by mail to the network's address: the reason, «block this person too», the platform's own mail road. */
 // A post whose writer the wall never named is reported through its wall, and nobody is offered to be blocked for another's words
 // (iOS MontanaReportSheet(offersBlock:), MontanaBoardViews.swift:58-60 at 2155).
-fun reportPage(act: MainActivity, ref: String, name: String, onClose: () -> Unit, offersBlock: Boolean = true): View {
+fun reportPage(act: MainActivity, ref: String, name: String, offersBlock: Boolean = true, onClose: () -> Unit): View {
     val c: Context = act
     val reasons = listOf("spam" to R.string.pi_spam, "abuse" to R.string.pi_abuse, "hate" to R.string.pi_hate,
         "illegal" to R.string.pi_illegal, "other" to R.string.pi_other)

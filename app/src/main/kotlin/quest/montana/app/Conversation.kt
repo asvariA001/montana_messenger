@@ -1960,7 +1960,7 @@ fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Unit, onEd
         // «Report» on their letter (iOS 499-502): the report of its sender, in a group's chat too — iOS carries no such guard
         if (profile == null && !m.mine) row(c.getString(R.string.pi_report), R.drawable.ic_report, red = true) {
             val name = Book.chat(ref)?.shown?.ifBlank { null } ?: c.getString(R.string.peer)
-            act.push { cl -> reportPage(act, ref, name, cl) }
+            act.push { cl -> reportPage(act, ref, name, onClose = cl) }
         }
         // «SELECT» stands apart at the foot (iOS 503-504: after a wider gap)
         actions.addView(View(c).apply { setBackgroundColor(line) }, lp(MATCH, c.dp(6)))

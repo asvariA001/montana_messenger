@@ -1076,8 +1076,8 @@ private fun sharePost(act: MainActivity, p: JSONObject) {
 private fun reportPost(act: MainActivity, wall: String, p: JSONObject) {
     val w = Board.writer(wall, p)
     val name = p.optString("byName")
-    if (!w.isNullOrEmpty()) act.push { close -> reportPage(act, w, name, close) }
-    else act.push { close -> reportPage(act, wall, name, close, offersBlock = false) }
+    if (!w.isNullOrEmpty()) act.push { close -> reportPage(act, w, name, onClose = close) }
+    else act.push { close -> reportPage(act, wall, name, offersBlock = false, onClose = close) }
 }
 
 /** THE PAGE A POST STANDS ON (iOS MTBoardPlaylist and MTBoardShown.all, MontanaBoardViews.swift:799-801, 3016-3020 at 2155): the feed's
