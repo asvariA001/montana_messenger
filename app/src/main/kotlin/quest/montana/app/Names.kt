@@ -164,8 +164,53 @@ object Names {
     /** The keeper said the name is ours: held from this window, the chain spent up to `step` — the last link the keeper holds. */
     fun hold(p: Prepared, window: Long, step: Int, until: Double?) = save(Record(p.name, window, window, step, p.blind, p.commitment, until))
 
-    /** The name went to somebody else while this phone thought it held it, or the person left: the record goes. */
-    fun forget() = DeviceVault.delete(VAULT)
+    /** The name went to somebody else while this phone thought it held it, or the person left: the record goes, and its pair. */
+    fun forget() {
+        held = null
+        DeviceVault.delete(VAULT)
+    }
+
+    /**
+     * THE PAIR OF THE NAME THIS PHONE HOLDS (iOS contactPair at every listening and every accept): kept beside the name it was
+     * drawn for, so a frame on a channel never draws ML-KEM again; a new name, a lapse or a forgetting lets it go.
+     */
+    @Volatile private var held: Triple<String, ByteArray, ByteArray>? = null
+    fun heldPair(): Pair<ByteArray, ByteArray>? {
+        val n = heldName ?: return null
+        held?.takeIf { it.first == n }?.let { return it.second to it.third }
+        val master = MontanaSeed.mnemonic?.let { MtBindings.nativeMnemonicToMasterSeed(it) } ?: return null
+        val pair = slot(n)?.let { contactPair(master, it) }
+        master.fill(0)
+        pair ?: return null
+        held = Triple(n, pair.first, pair.second)
+        return pair
+    }
+    /** The root strangers encapsulate to — the point this phone listens at for its name (iOS listeningFirstContactPoints 585-588). */
+    fun heldRoot(): ByteArray? = heldPair()?.first
+
+    /**
+     * THE HOLDER'S SIDE (iOS MontanaFirstContact.accept(firstLetter:masterSeed:confirmed:) 193-206): the first letter's ciphertext
+     * decapsulated under the name's own key, the secret every later tag stands on. Decapsulation never refuses (implicit rejection,
+     * FIPS 203), so the proof is the body's own seal under the secret it gives: the garbage of a foreign letter opens nothing.
+     */
+    fun acceptFirst(ct: ByteArray, proof: (ByteArray) -> Boolean): ByteArray? {
+        val (root, sk) = heldPair() ?: return null
+        val ss = MtBindings.nativeMlkemDecaps(sk, ct) ?: return null
+        val secret = MtBindings.nativeFirstSecret(ss, root, ct)
+        ss.fill(0)
+        if (secret == null || !proof(secret)) { Log.d("Montana", "first_ghost card=name"); return null }
+        return secret
+    }
+
+    // ── the names this phone met, each with the root it resolved to (iOS MTPipeBook.rememberName / contactRoot(forName:)) ──
+    private const val BOOK = "mt.names.book"
+    private fun book(): JSONObject = DeviceVault.get(BOOK)?.let { runCatching { JSONObject(String(it, Charsets.UTF_8)) }.getOrNull() } ?: JSONObject()
+    fun rootFor(name: String): ByteArray? = book().optString(name).takeIf { it.isNotEmpty() }?.let { Base64.decode(it, Base64.NO_WRAP) }
+    fun remember(name: String, root: ByteArray): Boolean = synchronized(this) {
+        if (name.isEmpty() || root.size != 1184) return false
+        DeviceVault.set(BOOK, book().put(name, Base64.encodeToString(root, Base64.NO_WRAP)).toString().toByteArray(Charsets.UTF_8))
+    }
+    fun wipeBook() = DeviceVault.delete(BOOK)
 
     /** The chain of the name this phone holds: where a keeper's «last link» is looked up. A link not in it is somebody else's. */
     fun heldChain(master: ByteArray): List<ByteArray>? {

@@ -76,6 +76,8 @@ object Meeting {
         firstDone(ref)
     }
     fun wipe() { listOf(FIRSTS, SCANS, CARDS).forEach(DeviceVault::delete) }
+    /** A root this phone met a person by (iOS MontanaMeeting.cardMet(root:)): a name heard before may stand from memory. */
+    fun metAtRoot(root: ByteArray): Boolean = synchronized(gate) { jmap(CARDS).optString(MontanaCard.b64url(root)).isNotEmpty() }
 
     /** A folded conversation's cards and links open the older one (iOS MontanaMeeting.repoint). */
     fun repoint(newer: String, older: String) = synchronized(gate) {

@@ -574,4 +574,5 @@
     <string name="tc_global_note">Одна печать на каждом устройстве, где есть этот перевод</string>
     <string name="tc_restored">Восстановлено системой</string>
     <string name="tc_not_yet">Ещё нет в вашей книге</string>
+    <string name="name_lost">Имя больше не ваше: узел, который хранит имена, держит под ним другой ключ.</string>
 </resources>

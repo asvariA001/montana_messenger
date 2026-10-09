@@ -150,9 +150,11 @@ object Wire {
 
     /**
      * One POST of JSON to a door: the code and the body (a door that does not answer is -1). `lane` — the signal lane's book of
-     * requests in flight: a path change or the lane door's death cuts every one of them at once (Signal.cut).
+     * requests in flight: a path change or the lane door's death cuts every one of them at once (Signal.cut). `whole` — the body of
+     * a refusal too: where the code alone does not say it (the plane of names: a 404 is «nobody holds it» only in the keeper's words).
      */
-    fun post(door: String, path: String, body: JSONObject, timeout: Int = 8000, lane: MutableSet<HttpURLConnection>? = null): Pair<Int, String?> {
+    fun post(door: String, path: String, body: JSONObject, timeout: Int = 8000, lane: MutableSet<HttpURLConnection>? = null,
+             whole: Boolean = false): Pair<Int, String?> {
         var held: HttpURLConnection? = null
         return try {
             val raw = body.toString().toByteArray(Charsets.UTF_8)
@@ -165,7 +167,8 @@ object Wire {
             conn.setFixedLengthStreamingMode(raw.size)
             conn.outputStream.use { it.write(raw) }
             val code = conn.responseCode
-            val text = if (code == 200) conn.inputStream.use { it.readBytes().toString(Charsets.UTF_8) } else null
+            val text = if (code == 200) conn.inputStream.use { it.readBytes().toString(Charsets.UTF_8) }
+                else if (whole) conn.errorStream?.use { it.readBytes().toString(Charsets.UTF_8) } else null
             conn.disconnect()
             code to text
         } catch (_: Exception) { -1 to null } finally { held?.let { c -> lane?.let { synchronized(it) { it.remove(c) } } } }
@@ -927,11 +930,15 @@ object Post {
         var plain: ByteArray? = null
         var root: ByteArray? = null
         // a letter that named no point (a frame at my window's position) walks every card, each one presenting the seal (iOS 1212-1217)
+        val opens: (ByteArray) -> Boolean = { s ->
+            plain = listOf(w, w - 1, w + 1).firstNotNullOfOrNull { Wire.open(Wire.bodyKey(s, it), sealed) }
+            plain != null
+        }
         val secret = (point?.let { listOf(it) } ?: MontanaCard.outstandingRoots()).firstNotNullOfOrNull { r ->
-            MontanaCard.acceptAt(ct, r) { s ->
-                plain = listOf(w, w - 1, w + 1).firstNotNullOfOrNull { Wire.open(Wire.bodyKey(s, it), sealed) }
-                plain != null
-            }?.also { root = r }
+            MontanaCard.acceptAt(ct, r, opens)?.also { root = r }
+        } ?: Names.heldRoot()?.takeIf { mine -> point == null || point.contentEquals(mine) }?.let { mine ->
+            // a stranger who knocked at the name I hold (iOS openFirst 1206-1217): the name's own key, the same seal as the proof
+            Names.acceptFirst(ct, opens)?.also { root = mine }
         }
         val body = plain
         val card = root

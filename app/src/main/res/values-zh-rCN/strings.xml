@@ -574,4 +574,5 @@
     <string name="tc_global_note">持有此转账的每台设备上都是同一印记</string>
     <string name="tc_restored">由系统恢复</string>
     <string name="tc_not_yet">尚未记入你的账本</string>
+    <string name="name_lost">你的名字已不再属于你：保存名字的节点在它下面保存着另一个密钥。</string>
 </resources>

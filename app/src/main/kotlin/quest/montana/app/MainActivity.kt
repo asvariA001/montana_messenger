@@ -369,6 +369,7 @@ class MainActivity : Activity() {
         if (hasSeed && termsAccepted) Thread { LiveDraft.sayLinkToAll() }.start()   // the daily link, preloaded to every correspondent (iOS ContentView.swift:472)
         if (hasSeed && termsAccepted) Thread { Book.healFacesFromCards() }.start()   // a faceless correspondent is read from their card at once (iOS MontanaChatStore.swift:1916, atom 796a76a34ae0)
         if (hasSeed && termsAccepted) Thread { MontanaCard.keepLiveCardsUp(applicationContext) }.start()   // the live cards turn and top up on every return (iOS MontanaApp.swift:297)
+        if (hasSeed && termsAccepted) Thread { NamePlane.keepInStep() }.start()   // the name renewed when due, its point listened at (iOS keepInStep)
         Thread { CoinBook.warm(); CoinSend.settle(); ChessSend.settleAll() }.start()   // every coin letter the chats hold stands in the book (iOS MTCoinSend.settle)
     }
     // the ear stays when the app leaves the screen: EarService holds it (the app closed is heard as the app open)
