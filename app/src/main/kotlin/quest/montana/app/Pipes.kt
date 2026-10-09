@@ -248,7 +248,8 @@ object Wire {
     private val goneChunks = HashSet<String>()
     fun forgetGone() = synchronized(goneChunks) { goneChunks.clear() }
     fun isGone(bid: String) = synchronized(goneChunks) { bid in goneChunks }
-    fun getChunk(bid: String): ByteArray? {
+    /** `busy` is raised when a door refused this moment (429 or 5xx: iOS BlobAnswer.busy, 1636-1691) -- a third answer, never «gone». */
+    fun getChunk(bid: String, busy: BooleanArray? = null): ByteArray? {
         if (isGone(bid)) return null
         val stores = Doors.ordered("blob")   // another phone's chunk: every store of the network's list (iOS 1638)
         var gone = stores.isNotEmpty()
@@ -256,6 +257,7 @@ object Wire {
             val (code, text) = post(door, "/blob-get", JSONObject().put("bid", bid))
             if (code == 200 && text != null) runCatching { JSONObject(text).optString("data").takeIf { it.isNotEmpty() }?.let { return Base64.decode(it, Base64.DEFAULT) } }
             if (code != 404) gone = false
+            if (code == 429 || code in 500..599) busy?.set(0, true)
         }
         if (gone) { synchronized(goneChunks) { goneChunks.add(bid) }; Log.d("Montana", "blob_dl gone at every door id=" + bid.take(8) + " — not asked again until a door revives") }
         return null
