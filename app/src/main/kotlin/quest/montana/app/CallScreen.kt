@@ -416,6 +416,14 @@ object CallScreen {
             }
         }
         var foldAt = 0L
+        // AN AUDIO CALL ON A PHONE STANDS UPRIGHT (iOS MTCallUpright, MontanaCall.swift 6919-6935, atom 4513e11ddfeb, the
+        // author's word 24.09: «during an audio call from the phone the screen must not turn, it stays vertical»). A video
+        // call, a folded call (the page detached, below) and a tablet keep the system's own free rotation.
+        val phone = c.resources.configuration.smallestScreenWidthDp < 600
+        fun upright() {
+            act.requestedOrientation = if (!CallLine.video && phone) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
         fun redraw() {
             val v = CallLine.video
             val mine = CallLine.sharing
@@ -480,14 +488,6 @@ object CallScreen {
             val now = System.currentTimeMillis()
             if (foldAt == 0L) foldAt = now + FOLD_MS
             else if (now >= foldAt) { foldAt = 0L; chromeHidden = true; redraw() }
-        }
-        // AN AUDIO CALL ON A PHONE STANDS UPRIGHT (iOS MTCallUpright, MontanaCall.swift 6919-6935, atom 4513e11ddfeb, the
-        // author's word 24.09: «during an audio call from the phone the screen must not turn, it stays vertical»). A video
-        // call, a folded call (the page detached, below) and a tablet keep the system's own free rotation.
-        val phone = c.resources.configuration.smallestScreenWidthDp < 600
-        fun upright() {
-            act.requestedOrientation = if (!CallLine.video && phone) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         }
         line()
         var live = true
