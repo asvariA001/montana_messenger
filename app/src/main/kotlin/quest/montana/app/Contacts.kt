@@ -93,22 +93,30 @@ private fun contactLine(act: MainActivity, ch: Chat): View {
     return SwipeRow(act, row, contactTiles(act, ch))
 }
 
-/** The rows of people, redrawn when the book, the marks or a presence change; «No contacts yet» while there are none. */
-private fun contactRows(act: MainActivity, archived: Boolean): View {
+/**
+ * The rows of people, redrawn when the book, the marks or a presence change; «No contacts yet» in the middle of the page while there
+ * are none (iOS ContactsTabView.body 2771-2774). THE ARCHIVE ROW IS SUMMONED (iOS archiveShown, onPull 2762-2766: «as on the chats: a
+ * pull-down summons the archive row, a pull-up folds it»): it stands while it is summoned and there is an archive, riding in from the
+ * top in 0.3 s; `reveal` is the page's hand on it.
+ */
+private class ContactRows(val view: android.widget.LinearLayout, val reveal: (Boolean) -> Unit)
+
+private fun contactRows(act: MainActivity, archived: Boolean): ContactRows {
     val c: Context = act
     val rows = c.vstack(Gravity.NO_GRAVITY)
+    var revealed = false
     fun fill() {
         rows.removeAllViews()
         if (!archived) {
             val n = ChatMarks.contactArchiveCount()
-            if (n > 0) {
-                rows.addView(archiveEntry(act, n) { act.push { close -> settingsPage(act, c.getString(R.string.cl_archive), close) { addView(contactRows(act, archived = true), lp()) } } }, lp())
+            if (revealed && n > 0) {
+                rows.addView(archiveEntry(act, n) { act.push { close -> settingsPage(act, c.getString(R.string.cl_archive), close) { addView(contactRows(act, archived = true).view, lp()) } } }, lp())
                 rows.addView(View(c).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = c.dp(82) })
             }
         }
         val people = contactPeople(archived)
+        rows.gravity = if (people.isEmpty()) Gravity.CENTER else Gravity.NO_GRAVITY
         if (people.isEmpty()) {
-            rows.addView(View(c), lp(MATCH, c.dp(60)))
             rows.addView(c.text(c.getString(if (archived) R.string.cl_archive_empty else R.string.no_contacts), 17f, MT.gray, center = true), lp())
         }
         people.forEach { ch ->
@@ -122,14 +130,38 @@ private fun contactRows(act: MainActivity, archived: Boolean): View {
         override fun onViewAttachedToWindow(v: View) { Book.listen(again); ChatMarks.listen(again); Presence.listen(again); fill() }
         override fun onViewDetachedFromWindow(v: View) { Book.unlisten(again); ChatMarks.unlisten(again); Presence.unlisten(again) }
     })
-    return rows
+    return ContactRows(rows) reveal@{ on ->
+        if (on == revealed || (on && ChatMarks.contactArchiveCount() == 0)) return@reveal
+        val head = if (revealed) rows.getChildAt(0) else null
+        if (on) {
+            revealed = true
+            fill()
+            rows.getChildAt(0)?.let { v ->
+                v.translationY = -c.dp(72).toFloat(); v.alpha = 0f
+                v.animate().translationY(0f).alpha(1f).setDuration(300).setInterpolator(android.view.animation.AccelerateDecelerateInterpolator()).start()
+            }
+        } else if (head != null) {
+            revealed = false
+            head.animate().translationY(-c.dp(72).toFloat()).alpha(0f).setDuration(300).setInterpolator(android.view.animation.AccelerateDecelerateInterpolator())
+                .withEndAction { fill() }.start()
+        } else { revealed = false; fill() }
+    }
 }
 
-/** THE PAGE'S LIST (iOS MontanaTimePanelList on the contacts): the rows in a scroll, room at the foot for the share button. */
-fun contactsList(act: MainActivity): View = ScrollView(act).apply {
-    isVerticalScrollBarEnabled = false
-    addView(act.vstack(Gravity.NO_GRAVITY) {
-        addView(contactRows(act, archived = false), lp())
-        gap(120)
-    })
+/**
+ * THE PAGE'S LIST (iOS MontanaTimePanelList on the contacts): the rows in a scroll that fills the page, room at the foot for the share
+ * button; the coin's pull past 25 summons the archive row, a stroke up past 25 folds it (iOS onPull 2762-2766).
+ */
+fun contactsList(act: MainActivity): View {
+    val rows = contactRows(act, archived = false)
+    val scroll = ScrollView(act).apply {
+        isVerticalScrollBarEnabled = false
+        isFillViewport = true
+        addView(act.vstack(Gravity.NO_GRAVITY) {
+            addView(rows.view, lp(MATCH, 0, 1f))
+            gap(120)
+        })
+        setOnScrollChangeListener { _, _, y, _, _ -> if (act.dp(25) < y) rows.reveal(false) }
+    }
+    return CoinPull(act, scroll).apply { onPull = { pull -> if (25f < pull) rows.reveal(true) } }
 }

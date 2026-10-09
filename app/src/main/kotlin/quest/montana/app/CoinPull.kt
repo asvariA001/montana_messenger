@@ -23,6 +23,8 @@ import android.widget.ImageView
  * One law for every page under the bar (iOS MontanaTimePanel 150-162): the page hands its list in and draws nothing of it itself.
  */
 class CoinPull(c: Context, private val list: View, private val onRefresh: () -> Unit = { activationRoad() }) : FrameLayout(c) {
+    /** The pull as the page hears it (iOS MontanaTimePanelList onPull): how far the feed is drawn down, in points. */
+    var onPull: ((Float) -> Unit)? = null
     companion object {
         const val SIDE = 58f       // the row's avatar circle
         const val START = 40f      // the coin is not there before the feed is drawn this far
@@ -69,7 +71,7 @@ class CoinPull(c: Context, private val list: View, private val onRefresh: () -> 
     override fun onTouchEvent(e: MotionEvent): Boolean {
         if (!pulling) return super.onTouchEvent(e)
         when (e.actionMasked) {
-            MotionEvent.ACTION_MOVE -> { pull = maxOf(0f, (e.y - downY) / density * 0.55f); draw(angle(pull), held = true) }   // the feed's own give, as a rubber band
+            MotionEvent.ACTION_MOVE -> { pull = maxOf(0f, (e.y - downY) / density * 0.55f); draw(angle(pull), held = true); onPull?.invoke(pull) }   // the feed's own give, as a rubber band
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> { pulling = false; release() }
         }
         return true

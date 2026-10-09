@@ -835,7 +835,7 @@ private fun contactsPane(act: MainActivity): View {
     val c = act
     return FrameLayout(c).apply {
         // THE PEOPLE (iOS ContactsTabView): pins, then presence, then name; «No contacts yet» while there are none (Contacts.kt)
-        addView(CoinPull(c, contactsList(act)), FrameLayout.LayoutParams(MATCH, MATCH))   // one law for every page under the bar
+        addView(contactsList(act), FrameLayout.LayoutParams(MATCH, MATCH))   // the coin's pull inside: one law for every page under the bar
         addView(FrameLayout(c).apply {
             background = c.glassPlate(oval = true)
             contentDescription = c.getString(R.string.share)
