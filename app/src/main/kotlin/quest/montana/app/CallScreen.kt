@@ -118,9 +118,7 @@ object CallScreen {
     fun tellCameraOff() = MainThread.post {
         val act = front ?: return@post
         android.app.AlertDialog.Builder(act).setTitle(R.string.call_cam_off_title).setMessage(R.string.call_cam_off_body)
-            .setPositiveButton(R.string.open_settings) { _, _ ->
-                runCatching { act.startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.fromParts("package", act.packageName, null))) }
-            }
+            .setPositiveButton(R.string.open_settings) { _, _ -> SystemSettings.open(act, callWarned = true) }
             .setNegativeButton(R.string.continue_with_voice, null).show()
     }
 
@@ -870,6 +868,26 @@ private class GridFloor(c: Context) : View(c) {
  * screens; a tap on it brings the app back with the call screen. Whether it stands is the platform's own word
  * (onPictureInPictureModeChanged), never a flag that could outlive it; a call that ends with the window up takes it away.
  */
+/**
+ * THE ONE DOOR TO THE APP'S PAGE IN SETTINGS (iOS MontanaSystemSettings, MontanaP2PNode.swift 1305-1330, atom 4543d66a9265):
+ * Android ends the app when an access is turned off there, and a call standing then pauses or ends with it -- the platform
+ * does not warn; this door does, while a call stands, and the person decides knowing it: a call whose peer rebuilds goes on
+ * when the person comes back within a minute (Calls.rejoinHeldCall). A road whose own words already say it passes callWarned.
+ */
+object SystemSettings {
+    fun open(act: MainActivity, callWarned: Boolean = false) {
+        val go = { runCatching { act.startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.fromParts("package", act.packageName, null))) } }
+        if (callWarned || Calls.held() == null) { go(); return }
+        val goesOn = CallLine.peerRebuilds && CallLine.connectedAt > 0L
+        Log.d("Montana", "privacy_access call warned before settings goes_on=" + (if (goesOn) 1 else 0))
+        android.app.AlertDialog.Builder(act).setTitle(if (goesOn) R.string.call_will_pause else R.string.call_will_end)
+            .setMessage(if (goesOn) R.string.call_will_pause_body else R.string.call_will_end_body)
+            .setNegativeButton(R.string.cancel, null)
+            .setPositiveButton(R.string.open_settings) { _, _ -> Log.d("Montana", "privacy_access settings opened under a call"); go() }
+            .show()
+    }
+}
+
 object CallFloat {
     @Volatile var standing = false
         private set

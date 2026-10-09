@@ -629,4 +629,8 @@
     <string name="open_settings">打开设置</string>
     <string name="continue_with_voice">继续语音通话</string>
     <string name="call_cam_off_body">您的视频未发送。请在设置中允许 Montana 使用相机，然后重新打开视频。</string>
+    <string name="call_will_pause">通话将暂停</string>
+    <string name="call_will_end">通话将结束</string>
+    <string name="call_will_pause_body">在设置中关闭某项权限时，Android 会重启 Montana。请在一分钟内回到 Montana，通话将继续。</string>
+    <string name="call_will_end_body">在设置中关闭某项权限时，Android 会重启 Montana，通话将结束。</string>
 </resources>

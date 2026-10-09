@@ -634,4 +634,8 @@
     <string name="open_settings">Open Settings</string>
     <string name="continue_with_voice">Continue with voice</string>
     <string name="call_cam_off_body">Your video is not sent. Allow the camera for Montana in Settings, then turn the video on again.</string>
+    <string name="call_will_pause">The call will pause</string>
+    <string name="call_will_end">The call will end</string>
+    <string name="call_will_pause_body">Android restarts Montana when an access is turned off in Settings. Come back to Montana within a minute, and the call goes on.</string>
+    <string name="call_will_end_body">Android restarts Montana when an access is turned off in Settings, and the call ends.</string>
 </resources>
