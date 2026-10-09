@@ -203,11 +203,17 @@ object CallLine {
         override fun onFrame(f: VideoFrame) {
             if (!remoteLive) { remoteLive = true; moved() }
             if (!sniffed) { sniffed = true; work.execute { arrived() } }
+            val s = peerShape
+            if (s == null || s.first != f.rotatedWidth || s.second != f.rotatedHeight) { peerShape = f.rotatedWidth to f.rotatedHeight; moved() }
             theirs.onFrame(f)
         }
     }
 
-    private fun moved() = MainThread.post { updateProximity(); changed?.invoke() }
+    private fun moved() = MainThread.post { updateProximity(); CallFloat.refresh(why = "model"); changed?.invoke() }
+
+    /** The peer's picture's own shape (its frames, rotated as drawn): the window over other apps takes it (iOS MTFloatFeed.onSize). */
+    @Volatile var peerShape: Pair<Int, Int>? = null
+        private set
 
     /** THE CALL HOLDS THE SENSOR WHILE ITS SOUND STANDS AT THE EAR (iOS updateProximity 4398-4403): a call in any state, a
      * voice call, not on the loudspeaker, no headset or car holding the sound. Re-asked at every change of the call and of
@@ -545,7 +551,7 @@ object CallLine {
         held = false
         heldByPeer = false
         video = false; asking = false; asked = false; offerMine = false; remoteLive = false; peerSharing = false; swapped = false
-        front = true; sniffed = false; askRound++; sharing = false; peerPaused = false; selfPaused = false; cameraTold = false
+        front = true; sniffed = false; askRound++; sharing = false; peerPaused = false; selfPaused = false; cameraTold = false; peerShape = null
         powerFloorNow = 0; powerSaving = false; signal = 2   // the counters and the lights belong to one call (iOS 3066-3072)
         l.measureGen++   // no tick of the ended call survives into the next one (iOS K-9, 3081)
         breakTone(false)

@@ -77,7 +77,14 @@ object CallScreen {
         ringing = false
         chromeHidden = false   // iOS fullScreen .onAppear (MontanaCall.swift 6915): every reopening starts with the buttons in hand
         close = act.overlay(callPage(act, ref))
+        CallFloat.refresh(act, "show")
     }
+
+    /** The call screen folds into its pill under the window that rose from it (iOS willStart 6209-6211); a ring has no fold. */
+    fun fold() = MainThread.post { if (!ringing) close?.invoke() }
+
+    /** The call's own ground for the window over other apps (one owner of its drawing, iOS MTCallGround). */
+    fun groundOf(c: Context, ref: String, name: String): View = ground(c, ref, name)
 
     /** A call rings while the app stands in front (iOS incomingScreen: the in-app ring). */
     fun ring(ref: String) = MainThread.post {
@@ -226,7 +233,9 @@ object CallScreen {
             addView(clock, lp(WRAP, WRAP))
         }
         val events = c.text("", 17f, Color.WHITE, bold = true, center = true).apply { singleLineEllipsis(); setShadowLayer(dp(3).toFloat(), 0f, 0f, haze) }
-        val back = mark(c, R.drawable.ic_chevron_down, R.string.call_back) { close?.invoke() }
+        // THE FOLD IS THE APP'S LEAVING (iOS 6702-6708, the author's word 29.09): the mark asks the platform's own window to
+        // rise; with no window to ask (a ring, a system without it, the person's switch off) it folds the call into the app
+        val back = mark(c, R.drawable.ic_chevron_down, R.string.call_back) { if (!CallFloat.foldAway(act, "back")) close?.invoke() }
         val flip = mark(c, R.drawable.ic_camera_rotate, R.string.call_camera) { CallLine.switchCamera() }
         val roomL = View(c)   // the mask's twin room keeps the name in the centre (iOS 6665); the mask itself is not in this build
         val roomR = View(c)
@@ -400,6 +409,7 @@ object CallScreen {
         // corner stands whether my camera runs or not (iOS shown = pip && !peerSharing): a sleeping camera wears my own face.
         var coverSaid = ""
         fun sides() {
+            if (CallFloat.standing) return   // the window over other apps holds the peer's picture while it stands
             // the sharer sees the peer's ground, not the screen it shares (iOS 6566-6574): no picture is drawn
             if (CallLine.sharing) {
                 CallLine.theirs.into = null; CallLine.own.into = null; miniBox.visibility = View.GONE
@@ -848,6 +858,112 @@ private class GridFloor(c: Context) : View(c) {
  * the finger — the switch over it is a sibling layer (the law of the platform view). A camera fills its room, cut to its shape;
  * a shared screen is fitted whole, its room taking the frame's own shape.
  */
+/**
+ * THE CALL'S WINDOW OVER OTHER APPS (iOS MTCallFloat, MontanaCall.swift 5997-6260; atoms e0cf5ed44256, 78a602cb45d7,
+ * caca0a041069, 9dc4853b6793, 2fefcf4e8cfe, e135ac1d6ea2): the platform's own picture in picture. A call of any kind that
+ * stands arms it -- not an incoming ring, whose own screen rules it: a video call shows the peer's picture in it, a voice call
+ * (and a picture that does not flow or stands covered) the peer's cover, the call's own ground. It rises by itself when the
+ * person leaves the app -- the platform's auto-enter, the person's own switch in Settings deciding -- and the call screen's
+ * fold mark asks it to rise (the author's word 29.09: «our own fold button must count as the app folded away»). Its shape is
+ * the peer's picture's from its birth (upright 1080x1920 until the picture says otherwise) and follows the picture as it
+ * turns. On Android the window IS the app: the app's return is the window's own end, so the peer is never seen on two
+ * screens; a tap on it brings the app back with the call screen. Whether it stands is the platform's own word
+ * (onPictureInPictureModeChanged), never a flag that could outlive it; a call that ends with the window up takes it away.
+ */
+object CallFloat {
+    @Volatile var standing = false
+        private set
+    private var at: java.lang.ref.WeakReference<MainActivity>? = null
+    private var face: FrameLayout? = null
+    private var picture: Picture? = null
+    private var cover: View? = null
+    private var shape = android.util.Rational(1080, 1920)
+    private var armed = false
+    private var foldAsked: String? = null
+
+    private fun supported(act: MainActivity) = act.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE)
+    /** iOS want = state != idle && state != incoming: a call dialled or answered. */
+    private fun want() = Calls.held() != null
+    private fun params(): android.app.PictureInPictureParams = android.app.PictureInPictureParams.Builder().setAspectRatio(shape).apply {
+        if (Build.VERSION.SDK_INT >= 31) { setAutoEnterEnabled(want()); setSeamlessResizeEnabled(true) }
+    }.build()
+
+    /** Re-asked at every move of the call and at every showing of its screen: armed while a call stands, its shape the peer's. */
+    fun refresh(act: MainActivity? = at?.get(), why: String) {
+        val a = act ?: return
+        at = java.lang.ref.WeakReference(a)
+        if (!supported(a)) return
+        CallLine.peerShape?.let { (w, h) ->
+            val r = android.util.Rational(w, h).let { if (it.toFloat() < 0.42f) android.util.Rational(42, 100) else if (it.toFloat() > 2.39f) android.util.Rational(239, 100) else it }
+            if (r != shape) { shape = r; Log.d("Montana", "call_float shape " + w + "x" + h) }
+        }
+        val w = want()
+        if (w != armed) { armed = w; Log.d("Montana", "call_float " + (if (w) "armed kind=" + (if (CallLine.video) "video" else "voice") else "disarmed") + " why=" + why) }
+        runCatching { a.setPictureInPictureParams(params()) }
+        // the window stands on the call: a call that ends under it takes it away (iOS e135ac1d6ea2)
+        if (!w && a.isInPictureInPictureMode) { Log.d("Montana", "call_float the call ended under the window -- it goes"); a.moveTaskToBack(false) }
+        paint()
+    }
+
+    /** The fold mark's ask (iOS foldAway 6146-6167): false when there is no window to ask, and the fold takes its old road. */
+    fun foldAway(act: MainActivity, why: String): Boolean {
+        if (!supported(act) || !want() || act.isInPictureInPictureMode) { Log.d("Montana", "call_float fold by=" + why + " refused"); return false }
+        foldAsked = why
+        val ok = runCatching { act.enterPictureInPictureMode(params()) }.getOrDefault(false)
+        Log.d("Montana", "call_float fold by=" + why + (if (ok) ": asked to rise size=" + shape else " refused by the system"))
+        if (!ok) foldAsked = null
+        return ok
+    }
+
+    /** The person left the app on a system older than the platform's auto-enter (Android 12): the window is asked here. */
+    fun leaving(act: MainActivity) {
+        if (Build.VERSION.SDK_INT < 31 && supported(act) && want() && !act.isInPictureInPictureMode)
+            runCatching { act.enterPictureInPictureMode(params()) }
+    }
+
+    /** The platform's own word: the window stands, or it is gone. */
+    fun changed(act: MainActivity, inPip: Boolean) {
+        standing = inPip
+        if (inPip) {
+            val ref = Calls.held() ?: return
+            val c: Context = act
+            val name = Book.chat(ref)?.shown?.ifBlank { null } ?: c.getString(R.string.peer)
+            val p = Picture(c)
+            val g = CallScreen.groundOf(c, ref, name)
+            val f = FrameLayout(c).apply {
+                setBackgroundColor(Color.BLACK)
+                isClickable = true
+                addView(g, FrameLayout.LayoutParams(MATCH, MATCH))
+                addView(p, FrameLayout.LayoutParams(MATCH, MATCH, Gravity.CENTER))
+            }
+            (act.window.decorView as FrameLayout).addView(f, FrameLayout.LayoutParams(MATCH, MATCH))
+            face = f; picture = p; cover = g
+            CallLine.theirs.into = p
+            if (foldAsked != null) CallScreen.fold()   // the fold mark's ask: the call screen folds away under the window
+            Log.d("Montana", "call_float stands" + (foldAsked?.let { " by=" + it } ?: "") + " peer_live=" + (if (CallLine.remoteLive) 1 else 0))
+            foldAsked = null
+            paint()
+        } else {
+            face?.let { runCatching { (act.window.decorView as FrameLayout).removeView(it) } }
+            if (CallLine.theirs.into === picture) CallLine.theirs.into = null
+            picture?.release()
+            face = null; picture = null; cover = null
+            Log.d("Montana", "call_float gone")
+            CallLine.changed?.invoke()   // the call screen takes its pictures back
+            // a tap on the window brings the app back with the call screen (iOS restore); a window closed leaves the app away
+            MainThread.later(400) { if (CallScreen.front === act && want()) CallScreen.unfold(act) }
+        }
+    }
+
+    /** The picture while it flows and is not covered, else the cover (iOS drawCover 6130-6144). */
+    private fun paint() {
+        val p = picture ?: return
+        val live = CallLine.video && CallLine.remoteLive && !(CallLine.held || CallLine.heldByPeer || CallLine.peerPaused)
+        p.visibility = if (live) View.VISIBLE else View.INVISIBLE
+        cover?.visibility = if (live) View.INVISIBLE else View.VISIBLE
+    }
+}
+
 private class Picture(c: Context) : TextureView(c), TextureView.SurfaceTextureListener, VideoSink {
     private val egl = EglRenderer("mt_picture")
     @Volatile private var ready = false

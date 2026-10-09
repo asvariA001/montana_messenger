@@ -380,6 +380,14 @@ class MainActivity : Activity() {
     // the ear stays when the app leaves the screen: EarService holds it (the app closed is heard as the app open)
     override fun onPause() { super.onPause(); CoinBook.closeWindows(); if (CallScreen.front === this) CallScreen.front = null; main.removeCallbacks(boxRound) }
 
+    // THE CALL'S WINDOW OVER OTHER APPS (CallFloat): the person leaving on a system before the platform's auto-enter, and the
+    // platform's own word that the window stands or is gone
+    override fun onUserLeaveHint() { super.onUserLeaveHint(); CallFloat.leaving(this) }
+    override fun onPictureInPictureModeChanged(inPip: Boolean, cfg: android.content.res.Configuration) {
+        super.onPictureInPictureModeChanged(inPip, cfg)
+        CallFloat.changed(this, inPip)
+    }
+
     /** A small view over every page and every overlay (the call's pill), at the foot above the system bar; the close takes it away. */
     fun floating(v: View, bottomDp: Int): () -> Unit {
         val deck = window.decorView as FrameLayout

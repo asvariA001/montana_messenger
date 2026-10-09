@@ -63,7 +63,9 @@
         <activity
             android:name="quest.montana.app.MainActivity"
             android:exported="true"
-            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
+            android:supportsPictureInPicture="true"
+            android:resizeableActivity="true"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|uiMode"
             android:windowSoftInputMode="adjustResize"
             android:launchMode="singleTask">
             <!-- AN INVITATION OPENS THE APP (iOS handleLink): the card's web link on both sites (montana.quest; montana.xxx, where the Business writes, iOS MontanaCard.linkHosts) and its scheme form, as the system camera reads them. -->
