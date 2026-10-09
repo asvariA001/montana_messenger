@@ -11,7 +11,9 @@ import android.media.projection.MediaProjection
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.os.BatteryManager
 import android.os.Build
+import android.os.PowerManager
 import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
@@ -130,6 +132,12 @@ object CallLine {
         private set
     @Volatile private var lastRemoteFrameAt = 0L
     @Volatile private var pictureStallSamples = 0
+    // THE POWER FLOOR (iOS MontanaPower.swift 12-29, MontanaCall.swift applyLadder 3730-3746, build 41d0cac99d59): the
+    // battery, the charger, Low Power Mode and the thermal state, read every two seconds while a picture rides the
+    // line; under pressure the call's light wears the battery instead of its dot (iOS MTCallLight, build bd83db719a66).
+    @Volatile var powerSaving = false
+        private set
+    @Volatile private var powerFloorNow = 0
     @Volatile var peerSharing = false   // their screen rides the video line
         private set
     @Volatile var sharing = false   // my screen rides it (iOS screenSharing)
@@ -169,6 +177,7 @@ object CallLine {
     private fun pictureWatch(l: Line) {
         MainThread.later(2000) {
             if (synchronized(gate) { line !== l }) return@later
+            if (video) applyPowerFloor(l)   // iOS applyLadder's own tick (3730): the power facts ride the picture's own rhythm
             if (video && remoteLive) {
                 if (System.currentTimeMillis() - lastRemoteFrameAt < 2000) pictureStallSamples = 0 else pictureStallSamples++
                 val paused = pictureStallSamples >= 2
@@ -448,6 +457,7 @@ object CallLine {
         heldByPeer = false
         video = false; asking = false; asked = false; offerMine = false; remoteLive = false; peerSharing = false; swapped = false
         front = true; sniffed = false; askRound++; sharing = false; peerPaused = false; lastRemoteFrameAt = 0L; pictureStallSamples = 0
+        powerFloorNow = 0; powerSaving = false
         theirs.into = null; own.into = null
         moved()
         val at = l.connectedAt
@@ -780,16 +790,52 @@ object CallLine {
         } else if (track != null) l.pc.addTrack(track, listOf("mt_stream"))
     }
 
-    /** The ceiling of my picture (iOS setVideoCeiling 3788 on the ladder's modest step): 700 kbit/s and no less than 300, motion kept before sharpness. */
-    private fun bound(l: Line) {
+    /** The ceiling of my picture (iOS setVideoCeiling 3788 on the ladder's modest step): 700 kbit/s and no less than 300,
+     * motion kept before sharpness. UNDER THE POWER FLOOR the encoder's work falls fourfold (iOS setVideoCeiling
+     * 3812-3816): half the resolution, fifteen frames a second — the picture stays, the heat and the drain fall. */
+    private fun bound(l: Line, floor: Int = powerFloorNow) {
         runCatching {
             val s = l.pc.transceivers.firstOrNull { it.mediaType == MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO }?.sender ?: return
             val p = s.parameters
-            p.encodings.firstOrNull()?.let { it.maxBitrateBps = 700_000; it.minBitrateBps = 300_000 }
+            p.encodings.firstOrNull()?.let {
+                it.maxBitrateBps = 700_000; it.minBitrateBps = 300_000
+                it.scaleResolutionDownBy = if (floor > 0) 2.0 else 1.0
+                it.maxFramerate = if (floor > 0) 15 else null
+            }
             // a shared screen keeps its letters sharp and gives up motion; a camera the reverse (iOS 3790-3808)
             p.degradationPreference = if (sharing) RtpParameters.DegradationPreference.MAINTAIN_RESOLUTION else RtpParameters.DegradationPreference.MAINTAIN_FRAMERATE
             s.setParameters(p)
         }.onFailure { log("ceiling: " + it.message) }
+    }
+
+    /**
+     * THE POWER FACTS (iOS MontanaPower.swift 12-29, build 41d0cac99d59): the battery, the charger, Low Power Mode and
+     * the thermal state. The ceiling the picture may not rise above: 2 (700 kbit/s, half resolution, 15 fps) under Low
+     * Power Mode, a serious thermal state, or a battery at 15% or less off the charger; 4 under a critical thermal
+     * state. Android's thermal scale is finer than iOS's four words — SEVERE meets iOS's «serious», CRITICAL meets
+     * iOS's «critical».
+     */
+    private fun powerFloor(): Int {
+        val bm = Book.ctx.getSystemService(BatteryManager::class.java)
+        val pm = Book.ctx.getSystemService(PowerManager::class.java)
+        val level = bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
+        val charging = bm?.isCharging == true
+        val lowPower = pm?.isPowerSaveMode == true
+        val thermal = if (Build.VERSION.SDK_INT >= 29) (pm?.currentThermalStatus ?: PowerManager.THERMAL_STATUS_NONE) else PowerManager.THERMAL_STATUS_NONE
+        if (thermal >= PowerManager.THERMAL_STATUS_CRITICAL) return 4
+        if (lowPower || thermal >= PowerManager.THERMAL_STATUS_SEVERE || (!charging && level in 0..15)) return 2
+        return 0
+    }
+
+    /** iOS applyLadder 3733-3746: the floor re-applies the ceiling the instant it moves, and the call's light learns of it. */
+    private fun applyPowerFloor(l: Line) {
+        val floor = powerFloor()
+        if (floor == powerFloorNow) return
+        powerFloorNow = floor
+        if (l.vtrack != null) bound(l, floor)
+        val saving = floor > 0
+        if (powerSaving != saving) { powerSaving = saving; moved() }
+        log("power floor " + floor)
     }
 
     /** Their «yes» (iOS upgradeToVideo 3190): my camera into the connection, the new picture offered, the loudspeaker taken. */
