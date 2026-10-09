@@ -188,7 +188,8 @@ object Doors {
             conn.connectTimeout = 8000; conn.readTimeout = 8000
             val t = if (conn.responseCode == 200) conn.inputStream.use { it.readBytes().toString(Charsets.UTF_8) } else null
             conn.disconnect()
-            t?.let { JSONObject(it).takeIf { j -> j.optJSONArray("doors") != null } }
+            // the answer counts when it names doors (iOS MontanaWakePush.swift:145: !doors.isEmpty): the machines and the barred ride it
+            t?.let { JSONObject(it).takeIf { j -> (j.optJSONArray("doors")?.length() ?: 0) > 0 } }
         } catch (_: Exception) { null }
         if (named != null) {
             val ds = named.getJSONArray("doors")

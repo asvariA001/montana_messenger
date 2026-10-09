@@ -82,9 +82,23 @@ object LiveDraft {
         val body = doors(JSONObject().put("t", said[ref] ?: "").put("c", -1).put("n", stamp()).put("rq", 1))
         Signal.post(ref, MARK + Base64.encodeToString(body.toString().toByteArray(), Base64.NO_WRAP))
     }
-    /** Every correspondent gets the current link — launch, foreground, key rotation; nothing if they already have it
-     *  (iOS E2E.sendLinkToAll / sendLinkIfNeeded, ContentView.swift:472). */
-    fun sayLinkToAll() { for (ref in Book.refs()) sayLink(ref) }
+    /**
+     * THE DAILY LINK, PRELOADED (iOS E2E.sendLinkIfNeeded, MontanaE2E.swift:1467-1478; the author's word 15.09: share contact
+     * must not wait): my current short link rides to a correspondent as a silent durable letter — the draft word's shape, by
+     * the queue, not the live lanes (iOS sendDraftWord durable, 478-482) — once per link per peer; the receiver keeps it a day.
+     */
+    fun sayLinkIfNeeded(ref: String) {
+        if (PeerSafety.isBlocked(ref) || Book.secret(ref) == null) return
+        val (link, born) = MontanaCard.currentShortWithBorn(Book.ctx) ?: return
+        val key = "linkSent." + ref
+        if (Prefs.str(key, "") == link) return
+        Prefs.setStr(key, link)
+        val body = doors(JSONObject().put("t", said[ref] ?: "").put("c", -1).put("n", stamp()).put("rl", link).put("rb", born))
+        Post.send(ref, Marks.mintMid(), MARK + Base64.encodeToString(body.toString().toByteArray(), Base64.NO_WRAP), quiet = true)
+        android.util.Log.d("Montana", "link_tx durable to=" + ref.take(10))
+    }
+    /** Every correspondent gets the current link — launch, foreground, rotation; nothing if they have it (iOS sendLinkToAll 1479-1482). */
+    fun sayLinkToAll() { for (ref in Book.refs()) sayLinkIfNeeded(ref) }
 
     // ── what I hear ──
     /** A draft word of theirs off the lane. true — a keystroke said now (it lights «typing…»). */

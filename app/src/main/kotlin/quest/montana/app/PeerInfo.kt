@@ -76,6 +76,17 @@ object PeerAbout {
 }
 
 /** THE BLOCK AND THE VERIFIED NUMBER (iOS MontanaSafety / SafetyStore): one owner each; every road asks here. */
+/**
+ * A LINK GOES AS A LINK (iOS MTShare.web, MontanaE2E.swift:267-274; the author's word 07.10.2026 00:1x MSK: «Share gives one link
+ * that opens in the browser, not a text that turned into a file»): a string that is a web address goes alone; null — it is none.
+ */
+fun webLink(s: String): String? {
+    val t = s.trim()
+    val u = runCatching { Uri.parse(t) }.getOrNull() ?: return null
+    val scheme = u.scheme?.lowercase()
+    return if ((scheme == "https" || scheme == "http") && !u.host.isNullOrEmpty()) t else null
+}
+
 object PeerSafety {
     fun isBlocked(ref: String) = Prefs.bool("block.$ref", false)
     /**
@@ -101,6 +112,7 @@ object PeerSafety {
         val clean = list.map { it.trim() }.filter { it.isNotEmpty() }
         if (clean.toSet() == Prefs.str("barredPeers", "").split('\n').filter { it.isNotEmpty() }.toSet()) return
         Prefs.setStr("barredPeers", clean.joinToString("\n"))
+        android.util.Log.d("Montana", "barred n=" + clean.size)
     }
 
     /**
@@ -260,13 +272,14 @@ fun peerInfoPage(act: MainActivity, ref: String, onClose: () -> Unit,
             tint = if (verified) MT.green else MT.gray) {
             act.push { close -> safetyPage(act, ref, name) { close(); redrawAll() } }
         })
-        // SHARE CONTACT (iOS shareContact, MontanaPeerInfoScreen.swift:349-360; MontanaConv.contactMessage, MontanaPQ.swift:212-216):
-        // the correspondent's own daily link, handed to us to hand on, said as «<name> is in Montana!» then the link; without a
-        // fresh one it is asked for, with «Asking for the contact link…» standing on the screen, and a peer that does not answer
-        // within six seconds is asleep or older — said honestly
+        // SHARE CONTACT (iOS shareContact, MontanaPeerInfoScreen.swift:379-390): the correspondent's own daily link, handed to us to
+        // hand on. A LINK GOES AS A LINK (iOS MTShare.web, MontanaE2E.swift:267-274, the author's word 07.10 00:1x): a web address
+        // goes alone, so the receiving app opens it in the browser; anything else goes as «<name> is in Montana!» and the link
+        // (MontanaConv.contactMessage, MontanaPQ.swift:212-216). Without a fresh link it is asked for, «Asking for the contact
+        // link…» standing on the screen, and a peer that does not answer within six seconds is asleep or older — said honestly
         first.add(row(R.drawable.ic_share, c.getString(R.string.pi_share_contact)) {
             fun share(link: String) = runCatching {
-                val text = c.getString(R.string.pi_contact_share_msg, name) + "\n" + link
+                val text = webLink(link) ?: (c.getString(R.string.pi_contact_share_msg, name) + "\n" + link)
                 act.startActivity(android.content.Intent.createChooser(android.content.Intent(android.content.Intent.ACTION_SEND)
                     .setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT, text), null))
             }

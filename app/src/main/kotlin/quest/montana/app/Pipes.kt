@@ -1059,6 +1059,9 @@ object Post {
             text.startsWith(Marks.RING) -> Calls.ringLetter(ref, text.removePrefix(Marks.RING))
             // THE CALLER'S «MISSED» (iOS missedCallMark): the row of a call this phone never saw, receipted either way
             text.startsWith(Marks.MISSED) -> { Calls.missedLetter(ref, text.removePrefix(Marks.MISSED)); receipt(ref, sid) }
+            // A DRAFT WORD BY THE QUEUE (iOS ChatStore 3884-3898): the daily link, a checkpoint, an ask — read as the live lane reads
+            // it (Presence.hear), never a row; the durable link rode here and was dropped unread
+            text.startsWith(LiveDraft.MARK) -> Presence.hear(ref, text)
             Marks.isService(text) && !text.startsWith(Marks.VOICE) && !text.startsWith(Marks.MEDIA) && !text.startsWith(Marks.STICKER) && !text.startsWith(Marks.LONG) -> {}
             // A BLOCKED PERSON'S LETTERS DO NOT REACH THE FEED (iOS MontanaSafety: the block is enforced on every road).
             // A STEP OF A GAME (iOS MTChessLetter.isStep): the board reads it; no bubble, no unread, the closing letter alone rings
