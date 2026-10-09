@@ -2283,7 +2283,15 @@ private fun noteBody(c: Context, m: Msg, f: java.io.File?, man: JSONObject?, int
             setOnClickListener { Media.tapped(c, m) }   // automatic download off: the round note waits for a tap
         }
         else if (f == null) addView(android.widget.ProgressBar(c), FrameLayout.LayoutParams(c.dp(36), c.dp(36), Gravity.CENTER))
-        else setOnClickListener { (c as? MainActivity)?.let { a -> playNote(a, m, f, chat) } }
+        else setOnClickListener { v ->
+            (c as? MainActivity)?.let { a ->
+                val loc = IntArray(2); v.getLocationOnScreen(loc)
+                // THE FLIGHT'S ORIGIN (iOS onTapNote's noteFrameBox.rect, MontanaBubble.swift:24,34 at build 1598, carried to
+                // MontanaFeeds.swift:1365 at 2155): the circle's own place on the screen at the tap, so the open note (playNote
+                // below) can grow from here and shrink back there on close.
+                playNote(a, m, f, chat, android.graphics.Rect(loc[0], loc[1], loc[0] + v.width, loc[1] + v.height))
+            }
+        }
     }, LinearLayout.LayoutParams(side, side).apply { bottomMargin = c.dp(4) })
     // A note stands without the bubble's plate: the circle is its own shape.
     (into.background as? android.graphics.drawable.Drawable)?.let { into.background = null; into.setPadding(0, 0, 0, 0) }
@@ -2357,13 +2365,37 @@ private fun roundNote(m: Msg): Boolean {
 }
 
 /**
+ * THE FLIGHT (iOS MontanaNoteOpen's origin/grown and MontanaVideoDock's origin/closing, MontanaFeeds.swift:1583-1616 and 1521-1530
+ * at 2155, spring(response: 0.32, dampingFraction: 0.85) at line 1613): the circle starts at `scale0`/`dx0`/`dy0` away from the
+ * identity transform (the bubble it flew out of) and eases to it on open, back on close -- the same step-response curve as
+ * LetterMotion's spring (above), read with its own response and dampingFraction instead of duration and bounce.
+ */
+private fun noteFly(forward: Boolean, scale0: Float, dx0: Float, dy0: Float, circle: View, dim: View, onEnd: () -> Unit) {
+    val duration = LetterMotion.settle(0.32, 0.15)
+    android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+        setDuration((duration * 1000).toLong())
+        interpolator = android.view.animation.LinearInterpolator()
+        addUpdateListener { a ->
+            val grown = (1 - LetterMotion.left(a.animatedFraction.toDouble() * duration, 0.32, 0.15)).toFloat().coerceIn(0f, 1f)
+            val p = if (forward) grown else 1f - grown
+            circle.scaleX = scale0 + (1f - scale0) * p; circle.scaleY = circle.scaleX
+            circle.translationX = dx0 * (1f - p); circle.translationY = dy0 * (1f - p)
+            dim.alpha = p
+        }
+        addListener(object : android.animation.AnimatorListenerAdapter() { override fun onAnimationEnd(a: android.animation.Animator) { onEnd() } })
+    }.start()
+}
+
+/**
  * THE OPEN NOTE (iOS MontanaVideoDock 1375-1537, MontanaNoteOpen 1552-1619; the author's words 15.09 and 18.09): the note rises to
  * the middle of the screen at the side its circle and its badge may take; a tap on it plays and rests it, the play glyph over it at
- * rest; a tap on the dim closes it; its end opens the chat's next note in the feed's order, else closes it. One thing plays: the open
- * note stops a voice, a voice closes the note. The ring stays its clock: the one player bar that keeps the time on iOS (seek, speed,
- * close) Android does not have yet.
+ * rest; a tap on the dim closes it; its end opens the chat's next note in the feed's order, else closes it. THE STAGE'S OWN DIM AND
+ * BLUR (iOS MontanaNoteOpen's black 0.62 at line 1598, the recorder's own blur(10), the author's word 15.09 at build 1608): the feed
+ * behind is dimmed and blurred as the recorder's is, and takes no touches. One thing plays: the open note stops a voice, a voice
+ * closes the note. The ring stays its clock: the one player bar that keeps the time on iOS (seek, speed, close) Android does not
+ * have yet.
  */
-private fun playNote(act: MainActivity, m: Msg, f: java.io.File, chat: Chat?) {
+private fun playNote(act: MainActivity, m: Msg, f: java.io.File, chat: Chat?, origin: android.graphics.Rect) {
     NoteOpen.close?.invoke()
     VoicePlayer.stop()
     // THEIR ROUND NOTE OPENED WITH ITS SOUND: ITS SENDER LEARNS IT ONCE, SILENTLY (iOS notePlayed, MontanaConversation.swift:3101
@@ -2386,13 +2418,27 @@ private fun playNote(act: MainActivity, m: Msg, f: java.io.File, chat: Chat?) {
         addView(tv.round(), FrameLayout.LayoutParams(side, side, Gravity.CENTER))
         addView(glyph, FrameLayout.LayoutParams(c.dp(54), c.dp(54), Gravity.CENTER))
         setOnClickListener { NoteOpen.toggle?.invoke() }
+        visibility = View.INVISIBLE   // the flight sets its first frame (the bubble's own place) before it is ever shown
     }
+    val dim = View(c).apply { setBackgroundColor(Color.argb(158, 0, 0, 0)); alpha = 0f }   // iOS black 0.62: fades in with the flight
     val page = FrameLayout(c).apply {
-        setBackgroundColor(Color.argb(158, 0, 0, 0))   // iOS black 0.62: a tap on it closes the note
         setOnClickListener { close() }
+        addView(dim, FrameLayout.LayoutParams(MATCH, MATCH))
         addView(circle, FrameLayout.LayoutParams(side + c.dp(16), side + c.dp(16), Gravity.CENTER))
         // THE BAR BELOW OWNS SEEK, SPEED AND CLOSE (iOS MontanaNoteOpen, MontanaPlayerBar): the one bar at the foot of the note's stage
         addView(liveBar(act).apply { isClickable = true }, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM).apply { bottomMargin = c.dp(16) })
+    }
+    var scale0 = 1f; var dx0 = 0f; var dy0 = 0f; var leaving = false
+    circle.post {
+        val loc = IntArray(2); circle.getLocationOnScreen(loc)
+        val fcx = loc[0] + circle.width / 2f; val fcy = loc[1] + circle.height / 2f
+        scale0 = origin.width().toFloat() / circle.width.toFloat()
+        dx0 = origin.centerX() - fcx; dy0 = origin.centerY() - fcy
+        circle.pivotX = circle.width / 2f; circle.pivotY = circle.height / 2f
+        circle.scaleX = scale0; circle.scaleY = scale0
+        circle.translationX = dx0; circle.translationY = dy0
+        circle.visibility = View.VISIBLE
+        noteFly(forward = true, scale0 = scale0, dx0 = dx0, dy0 = dy0, circle = circle, dim = dim) {}
     }
     tv.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
         override fun onSurfaceTextureAvailable(st: android.graphics.SurfaceTexture, sw: Int, sh: Int) {
@@ -2413,12 +2459,22 @@ private fun playNote(act: MainActivity, m: Msg, f: java.io.File, chat: Chat?) {
         override fun onSurfaceTextureDestroyed(st: android.graphics.SurfaceTexture): Boolean { player?.runCatching { stop(); release() }; player = null; return true }
         override fun onSurfaceTextureUpdated(st: android.graphics.SurfaceTexture) {}
     }
-    val done = act.overlay(page)
+    // THE STAGE DIMS AND BLURS AS THE RECORDER'S DOES (iOS black 0.62 at MontanaFeeds.swift:1598, blur(10) the author's word
+    // 15.09 at build 1608): the cloud stands at once (no page-slide) and blurs what is under it, as act.cloud already does for
+    // every other full-screen panel; the dim view above fades in with the flight.
+    val done = act.cloud(page) { close() }
     close = {
-        player?.runCatching { stop(); release() }; player = null
-        NoteOpen.close = null; NoteOpen.toggle = null; NoteOpen.seek = null; NoteOpen.fraction = null; NoteOpen.sounding = null; NoteOpen.applyRate = null
-        done(); if (musicWas && !MusicPlayer.playing) MusicPlayer.resume()
-        Playing.changed()
+        if (!leaving) {
+            leaving = true
+            // THE FLIGHT BACK (iOS MontanaVideoDock.close, MontanaFeeds.swift:1521-1530 at 2155): the circle shrinks into its
+            // bubble first, the player lets go only once that flight has settled.
+            noteFly(forward = false, scale0 = scale0, dx0 = dx0, dy0 = dy0, circle = circle, dim = dim) {
+                player?.runCatching { stop(); release() }; player = null
+                NoteOpen.close = null; NoteOpen.toggle = null; NoteOpen.seek = null; NoteOpen.fraction = null; NoteOpen.sounding = null; NoteOpen.applyRate = null
+                done(); if (musicWas && !MusicPlayer.playing) MusicPlayer.resume()
+                Playing.changed()
+            }
+        }
     }
     NoteOpen.close = close
     NoteOpen.title = chat?.shown.orEmpty()   // USER-DATA: whose note, as the bar names it
