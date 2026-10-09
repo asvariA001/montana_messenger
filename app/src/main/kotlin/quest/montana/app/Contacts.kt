@@ -3,6 +3,7 @@ package quest.montana.app
 import android.app.AlertDialog
 import android.content.Context
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.View
 import android.widget.FrameLayout
@@ -21,19 +22,37 @@ fun contactPeople(archived: Boolean = false): List<Chat> = Book.all()
         .thenByDescending { Presence.stamp(it.ref) }
         .thenBy(String.CASE_INSENSITIVE_ORDER) { it.shown })
 
-/** ONE PERSON'S ROW (iOS ContactsTabView.cell): the face, the name, the presence line in grey under it; the page's pin at the end. */
+/**
+ * ONE PERSON'S ROW (iOS ContactsTabView.cell, ContentView.swift:2644-2665) in the App Library's measure (MTLibraryRow,
+ * MontanaChatsList.swift:2258-2276: the line 72 high, the face 48, the gap 16, the side 18): the face with the platform's presence
+ * dot at its lower right while the word is live (MTPresenceBadge, MontanaConversation.swift:4473-4486), the name 17 semibold, the
+ * presence line 16 in grey under it, 3 apart; the page's pin at the end, 12 and turned 45 as the chats' pin.
+ */
 fun contactRow(act: MainActivity, ch: Chat): View {
     val c: Context = act
+    val word = Presence.word(c, ch.ref)
     return c.hstack {
         gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(16), dp(10), dp(16), dp(10))
-        addView(c.peerFace(ch.ref, ch.shown, 54), lp(dp(54), dp(54)).apply { marginEnd = dp(12) })
+        setPadding(dp(18), 0, dp(18), 0)
+        minimumHeight = dp(72)
+        addView(FrameLayout(c).apply {
+            clipChildren = false
+            addView(c.peerFace(ch.ref, ch.shown, 48), FrameLayout.LayoutParams(dp(48), dp(48)))
+            if (word?.second == true) addView(presenceBadge(c), FrameLayout.LayoutParams(dp(13), dp(13), Gravity.BOTTOM or Gravity.END))
+        }, lp(dp(48), dp(48)).apply { marginEnd = dp(16) })
         addView(c.vstack(Gravity.NO_GRAVITY) {
             addView(c.text(ch.shown, 17f, Color.WHITE, bold = true).apply { singleLineEllipsis() }, lp())   // USER-DATA: the name
-            addView(c.text(Presence.word(c, ch.ref)?.first ?: "", 15f, MT.gray).apply { singleLineEllipsis() }, lp())
+            addView(c.text(word?.first ?: "", 16f, MT.gray).apply { singleLineEllipsis() }, lp().apply { topMargin = dp(3) })
         }, lp(0, WRAP, 1f))
-        if (ChatMarks.isContactPinned(ch.ref)) addView(c.icon(R.drawable.ic_pin, MT.gray, 14), lp(dp(14), dp(14)).apply { marginStart = dp(6) })
+        if (ChatMarks.isContactPinned(ch.ref)) addView(c.icon(R.drawable.ic_pin, MT.gray, 12).apply { rotation = 45f }, lp(dp(12), dp(12)).apply { marginStart = dp(6) })
     }
+}
+
+/** THE PLATFORM'S PRESENCE DOT (iOS MTPresenceDot in MTPresenceBadge): green 9, 2 of the platform's material around it. */
+fun presenceBadge(c: Context): View = FrameLayout(c).apply {
+    background = c.glassPlate(oval = true)
+    addView(View(c).apply { background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(SysColor.green) } },
+        FrameLayout.LayoutParams(c.dp(9), c.dp(9), Gravity.CENTER))
 }
 
 /**
@@ -56,11 +75,14 @@ private fun contactMenu(act: MainActivity, ch: Chat) {
     holdMenu(act, contactRow(act, ch), deeds)
 }
 
-/** The swipes (iOS swipeTrailing of the contacts): pin, archive, delete — the pin and the archive are this page's own; no calls. */
+/**
+ * The swipes (iOS swipeTrailing of the contacts, ContentView.swift:2689-2696): pin or unpin, archive or bring back, delete — every
+ * tile of the same glass (SwipeTile.glass), the pin and the archive this page's own; no calls on a swipe (the author's word 26.09).
+ */
 private fun contactTiles(act: MainActivity, ch: Chat) = listOf(
-    Tile(R.drawable.ic_pin) { ChatMarks.toggleContactPin(ch.ref) },
+    Tile(if (ChatMarks.isContactPinned(ch.ref)) R.drawable.ic_pin_slash else R.drawable.ic_pin) { ChatMarks.toggleContactPin(ch.ref) },
     Tile(if (ChatMarks.isContactArchived(ch.ref)) R.drawable.ic_unarchive else R.drawable.ic_archive) { ChatMarks.toggleContactArchive(ch.ref) },
-    Tile(R.drawable.ic_delete, red = true) { askDeleteChat(act, ch.ref) },
+    Tile(R.drawable.ic_delete) { askDeleteChat(act, ch.ref) },
 )
 
 /** One person as the page draws them: a tap opens the chat itself (the author's word 17.09), a hold the menu, a stroke the tiles. */
