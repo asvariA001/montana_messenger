@@ -347,6 +347,7 @@ private val CROWN_MARKS = setOf(0x1F451, 0x2654, 0x2655, 0x265A, 0x265B)
  * types or a correspondent sends wears a crown or one of its look-alikes.
  */
 fun stripCrown(s: String): String {
+    if (s.codePoints().noneMatch { it in CROWN_MARKS }) return s   // a name with no crown stands as typed, its spaces too (iOS plain 10)
     val plain = StringBuilder()
     var afterMark = false
     var i = 0
@@ -555,12 +556,15 @@ object Book {
      * their phone to wake and announce it again -- once a life per pipe, not on every redraw.
      */
     fun healFacesFromCards() {
+        var asked = 0
         for (ref in refs()) {
-            if (Groups.isKey(ref) || ref in faceHealed || face(ref).exists() || myFace(ref).exists()) continue
+            if (Groups.isKey(ref) || face(ref).exists() || myFace(ref).exists()) continue
             val link = PeerLinks.any(ref) ?: continue
-            faceHealed.add(ref)
+            if (!synchronized(faceHealed) { faceHealed.add(ref) }) continue   // every return asks from its own thread: once a life, by one of them
+            asked++
             Meeting.healFace(ref, link)
         }
+        if (0 < asked) Log.d("Montana", "face_heal from_cards=" + asked)   // iOS MontanaChatStore 1926
     }
 
     /**
