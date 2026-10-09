@@ -2430,9 +2430,12 @@ private fun playNote(act: MainActivity, m: Msg, f: java.io.File, chat: Chat?, or
     }
     var scale0 = 1f; var dx0 = 0f; var dy0 = 0f; var leaving = false
     circle.post {
+        // The flight scales the picture's own circle onto the bubble's: the stage's frame stands 16 dp wider than the picture.
+        val inner = tv.width
+        if (inner == 0 || origin.width() == 0) { circle.visibility = View.VISIBLE; dim.alpha = 1f; return@post }
         val loc = IntArray(2); circle.getLocationOnScreen(loc)
         val fcx = loc[0] + circle.width / 2f; val fcy = loc[1] + circle.height / 2f
-        scale0 = origin.width().toFloat() / circle.width.toFloat()
+        scale0 = origin.width().toFloat() / inner.toFloat()
         dx0 = origin.centerX() - fcx; dy0 = origin.centerY() - fcy
         circle.pivotX = circle.width / 2f; circle.pivotY = circle.height / 2f
         circle.scaleX = scale0; circle.scaleY = scale0
@@ -2466,6 +2469,7 @@ private fun playNote(act: MainActivity, m: Msg, f: java.io.File, chat: Chat?, or
     close = {
         if (!leaving) {
             leaving = true
+            player?.runCatching { if (isPlaying) pause() }   // iOS MontanaVideoDock.close: pause() first, then the flight back
             // THE FLIGHT BACK (iOS MontanaVideoDock.close, MontanaFeeds.swift:1521-1530 at 2155): the circle shrinks into its
             // bubble first, the player lets go only once that flight has settled.
             noteFly(forward = false, scale0 = scale0, dx0 = dx0, dy0 = dy0, circle = circle, dim = dim) {
