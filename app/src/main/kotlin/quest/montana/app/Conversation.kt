@@ -1356,7 +1356,9 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     val draftListener: () -> Unit = { drawDraft() }
     val presenceListener: () -> Unit = { drawPresence() }
     lateinit var chatBeat: Runnable
-    chatBeat = Runnable { if (lane) { Presence.sayChat(ref, true); MainThread.later(Presence.BEAT, chatBeat) } }   // the 20-second beat (iOS P-109)
+    // the 20-second beat (iOS P-109); THE BEAT SPEAKS ONLY WHILE THE APP IS ON THE SCREEN (iOS chatPresenceMoved 826-830): a chat
+    // left open behind a locked phone said «in chat» after the app's own farewell
+    chatBeat = Runnable { if (lane) { if (Presence.shown) Presence.sayChat(ref, true); MainThread.later(Presence.BEAT, chatBeat) } }
     var folded = false
     val listener: () -> Unit = listener@{
         // THIS CHAT WAS FOLDED INTO THE OLDER ONE WITH THE SAME PERSON (iOS foldConversation → openChatRequest): the older opens instead.

@@ -33,7 +33,8 @@ object LiveDraft {
     private val h = android.os.Handler(android.os.Looper.getMainLooper())
     private var lastStamp = 0L
     /** The moment a word was said, strictly growing (iOS draftStamp): two words in one millisecond keep their order. */
-    @Synchronized private fun stamp(): Long { lastStamp = maxOf(System.currentTimeMillis(), lastStamp + 1); return lastStamp }
+    // ONE COUNTER FOR EVERY WORD THIS PHONE SAYS, BY THE NODE'S CLOCK (iOS draftStamp, E2E 1013): the draft's «n» and the presence «T» in one row
+    private fun stamp(): Long = Presence.saidMs()
 
     // ── what I say ──
     /** «d» — the doors alive for me, in the one builder of the word (iOS sendDraftWord 474-475): the peer picks the first we share. */
@@ -117,7 +118,7 @@ object LiveDraft {
         val landed = text.isNotEmpty() && Book.chat(SamePair.root(ref))?.msgs?.takeLast(5)?.any { !it.mine && it.text == text } == true
         if (text.isEmpty() || landed) shown.remove(ref) else shown[ref] = Draft(text, j.optInt("c", -1), j.optString("rm"))
         changed()
-        val fresh = n == 0L || System.currentTimeMillis() - n <= 7_000
+        val fresh = n == 0L || NodeClock.now() - n <= 7_000   // the draft's «n» is the node's already (iOS 1087: nodeNow - n <= typingWordLife)
         return text.isNotEmpty() && !landed && !j.has("ck") && !state && fresh
     }
     fun of(ref: String): Draft? = shown[ref]

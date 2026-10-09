@@ -68,8 +68,8 @@ object Calls {
     fun ringLetter(ref: String, json: String) {
         val o = runCatching { JSONObject(json) }.getOrNull() ?: return
         val t = (o.optDouble("t", 0.0) * 1000).toLong()
-        if (t > 0 && System.currentTimeMillis() - t > LIFE_MS) return log("ring letter stale")
-        if (t > 0) log("ring letter age=" + (System.currentTimeMillis() - t) + " ms")   // how long the call took to reach this phone
+        if (t > 0 && NodeClock.now() - t > LIFE_MS) return log("ring letter stale")   // the age by the node's clock on both ends (iOS 3996, K-11)
+        if (t > 0) log("ring letter age=" + (NodeClock.now() - t) + " ms")   // how long the call took to reach this phone
         incoming(ref, o.optString("s"), o.optBoolean("v"), o.optString("n"), null, t)
     }
 
@@ -80,14 +80,14 @@ object Calls {
             val w = words.optJSONObject(k) ?: continue
             // EVERY CALL WORD OF THEIRS IS PRESENCE (iOS handleSignal 2026-2036, notePeerSeen 1243-1245): stamped now, whatever it
             // says; only the invitation of a call already ended here proves nothing
-            if (!(w.optString("ctrl") == "call" && seedState(w.optString("s")) == "dead")) Presence.noteSeen(ref, System.currentTimeMillis())
+            if (!(w.optString("ctrl") == "call" && seedState(w.optString("s")) == "dead")) Presence.noteSeen(ref, System.currentTimeMillis(), "call")
             // WHAT THE FAR BUILD CAN DO IS LEARNED FROM EVERY WORD OF THE CALL IN HAND (iOS learnPeerCaps 922-932)
             w.optJSONObject("caps")?.let { CallLine.learnCaps(ref, w.optString("e").ifEmpty { epoch }, it) }
             when (val ctrl = w.optString("ctrl")) {
                 "call" -> if (w.optString("rsn") == "rejoin") rejoinHeard(ref, w) else {
                     val ts = w.optLong("ts")
-                    if (ts > 0 && System.currentTimeMillis() - ts > LIFE_MS) { log("call word stale"); continue }
-                    if (ts > 0) log("call word age=" + (System.currentTimeMillis() - ts) + " ms")
+                    if (ts > 0 && NodeClock.now() - ts > LIFE_MS) { log("call word stale"); continue }   // by the node's clock (iOS 2195, K-11)
+                    if (ts > 0) log("call word age=" + (NodeClock.now() - ts) + " ms")
                     incoming(ref, w.optString("s"), w.optBoolean("video"), w.optString("n"), w.optJSONObject("sdp")?.optString("sdp"), ts)
                 }
                 "call-end", "call-gone" -> {
@@ -153,7 +153,8 @@ object Calls {
                 // YOUNGER THAN OURS (iOS MontanaCall.swift handleSignalBody, the critic 24.09, build 1500771e4d2b): a delayed
                 // invitation of a call the peer placed BEFORE ours must not end a living call — only a word younger than our
                 // call's own birth may supersede it; a word with no moment at all is trusted only once our own line is lost.
-                val youngerThanOurs = if (ts > 0) ts > r0.startedAt else CallLine.lost
+                // our call's birth read on the node's clock (iOS 2170-2175: startedAt + skew), the clock the word's moment is said by
+                val youngerThanOurs = if (ts > 0) ts > r0.startedAt + (NodeClock.now() - System.currentTimeMillis()) else CallLine.lost
                 if (r0.ref == ref && r0.answered && youngerThanOurs) end(r0, "superseded", silent = true)
                 else {
                     // THE REFUSAL NAMES THE CALL IT REFUSES (iOS MontanaCall.swift:2277-2280, build 2d2005d61c14): a
@@ -275,7 +276,7 @@ object Calls {
     }
 
     private fun ringWords(r: Ring, loud: Boolean) = JSONObject().put("v", r.video).put("s", r.seed).put("n", Prefs.userName.trim())
-        .put("t", System.currentTimeMillis() / 1000.0).apply { if (loud) put("b", 1) }.toString()
+        .put("t", NodeClock.now() / 1000.0).apply { if (loud) put("b", 1) }.toString()
 
     /** The knock goes on for the whole ring (iOS 1800-1840): every five seconds until «ringing», an answer or the end. */
     private fun knock(r: Ring) {
@@ -344,7 +345,7 @@ object Calls {
     /** The offer on the lane every two seconds until the far phone rings or answers, six times at most (iOS 1895-1918). */
     private fun offerOut(r: Ring, n: Int) {
         val sdp = synchronized(gate) { if (ring !== r || r.ringing || r.answered) null else r.offer } ?: return
-        val w = JSONObject().put("t", "cal").put("ctrl", "call").put("ts", System.currentTimeMillis()).put("e", epochOf(r.seed))
+        val w = JSONObject().put("t", "cal").put("ctrl", "call").put("ts", NodeClock.now()).put("e", epochOf(r.seed))
             .put("sdp", JSONObject().put("type", "offer").put("sdp", sdp)).put("video", r.video).put("caps", CallLine.caps())
             .put("n", Prefs.userName.trim()).put("s", r.seed)
         Signal.postWord(r.ref, epochOf(r.seed), JSONArray().put(w).toString().toByteArray())
@@ -418,7 +419,7 @@ object Calls {
     }
 
     private fun say(ref: String, seed: String, ctrl: String) {
-        val w = JSONObject().put("t", "cal").put("ctrl", ctrl).put("ts", System.currentTimeMillis()).put("e", epochOf(seed))
+        val w = JSONObject().put("t", "cal").put("ctrl", ctrl).put("ts", NodeClock.now()).put("e", epochOf(seed))
         Signal.postWord(ref, epochOf(seed), JSONArray().put(w).toString().toByteArray())
     }
 
@@ -462,7 +463,7 @@ object Calls {
         if (seed.isEmpty()) return
         if (seedState(seed) == "dead") {
             log("call_rejoin rx of a call that ended here — call-end")
-            Signal.postWord(ref, epochOf(seed), JSONArray().put(JSONObject().put("t", "cal").put("ctrl", "call-end").put("ts", System.currentTimeMillis())
+            Signal.postWord(ref, epochOf(seed), JSONArray().put(JSONObject().put("t", "cal").put("ctrl", "call-end").put("ts", NodeClock.now())
                 .put("e", epochOf(seed))).toString().toByteArray())
             return
         }
@@ -738,7 +739,7 @@ object Calls {
         val dead = seeds().let { o -> o.keys().asSequence().any {
             epochOf(it) == epoch && o.optJSONObject(it)?.optString("st") == "dead" && o.optJSONObject(it)?.optBoolean("en") == true } }
         if (!dead) return
-        val w = JSONObject().put("t", "cal").put("ctrl", "call-gone").put("ts", System.currentTimeMillis()).put("e", epoch).put("s", epoch)
+        val w = JSONObject().put("t", "cal").put("ctrl", "call-gone").put("ts", NodeClock.now()).put("e", epoch).put("s", epoch)
         Signal.postWord(ref, epoch, JSONArray().put(w).toString().toByteArray())
         log("call-gone tx epoch=" + epoch)
     }

@@ -167,6 +167,8 @@ object Wire {
             conn.setFixedLengthStreamingMode(raw.size)
             conn.outputStream.use { it.write(raw) }
             val code = conn.responseCode
+            // the node's clock, in passing: the lane's answer and the diary's ship, one owner (iOS learnSkew 3304, 3789)
+            if (path == "/signal-fetch" || path == "/diag-put") NodeClock.learn(conn)
             val text = if (code == 200) conn.inputStream.use { it.readBytes().toString(Charsets.UTF_8) }
                 else if (whole) conn.errorStream?.use { it.readBytes().toString(Charsets.UTF_8) } else null
             conn.disconnect()
@@ -1020,29 +1022,11 @@ object Post {
                 SamePair.settle(ref)
                 SamePair.proven(text.removePrefix(Marks.SAME_YES), ref)?.let { Book.join(ref, it) }
             }
-            text.startsWith(Marks.DELIVERED) -> {
-                val d = text.removePrefix(Marks.DELIVERED)
-                announcedDelivered(ref, d)   // a receipt of my name or my face writes the mark (iOS recordDelivered)
-                // a group's copy witnesses the group's row, never a row of the pipe (iOS markDelivered → MTGroup.copyDelivered)
-                if (Groups.copyDelivered(d)) return
-                // THE READ WORD MAY HAVE OUTRUN THIS RECEIPT (iOS markDelivered 4221-4226): a film is told «delivered» only once
-                // its file is whole there, while «read» leaves the moment the chat is open — the mark remembers, the letter catches up
-                val u = PeerRead.upTo(ref)
-                var row: Msg? = null
-                Book.edit(ref) { c ->
-                    c.msgs.find { it.mid == d && it.mine }?.let { m ->
-                        row = m
-                        if (m.advance(2) && u != null && (Marks.birthMs(m.mid) ?: Long.MAX_VALUE) <= u) m.advance(3)
-                    }
-                }
-                // a coin letter whose row is gone: its coins that came back are taken again (iOS markDelivered 4266, MTCoinSend.arrived)
-                // a red one delivered after all, its coins home: they are taken again, every door of the ladder asks (iOS hold)
-                row?.let { CoinSend.hold(it, ref) } ?: CoinSend.arrived(d, ref)
-            }
+            text.startsWith(Marks.DELIVERED) -> markDelivered(ref, text.removePrefix(Marks.DELIVERED))
             text.startsWith(Marks.READ) -> {
                 val upTo = text.removePrefix(Marks.READ).toLongOrNull()
                 if (upTo != null) PeerRead.note(ref, upTo)
-                Presence.noteSeen(ref, System.currentTimeMillis())   // reading is being there (not a word a phone says by itself)
+                Presence.noteSeen(ref, System.currentTimeMillis(), "read")   // reading is being there (not a word a phone says by itself)
                 // the door lets «read» only onto what was delivered — the bulk word never paints a letter they do not have
                 Book.edit(ref) { c -> c.msgs.filter { it.mine && (upTo == null || (Marks.birthMs(it.mid) ?: 0) <= upTo) }.forEach { it.advance(3) } }
             }
@@ -1142,7 +1126,7 @@ object Post {
             else -> {
                 var isNew = false
                 if (lp != null) Log.d("Montana", "link card: rides the letter mid=" + mid.take(8))
-                Presence.noteSeen(ref, Marks.birthMs(mid))   // a person's own word stamps the moment it was written (iOS append)
+                Presence.noteSeen(ref, Marks.birthMs(mid), "letter")   // a person's own word stamps the moment it was written (iOS append)
                 Book.edit(ref) { c ->
                     val had = c.msgs.find { it.mid == mid }
                     // THE SAME LETTER AGAIN, NOW WITH ITS CARD (iOS attachPreview's copy): the card joins the row, nothing else moves
@@ -1219,8 +1203,29 @@ object Post {
     fun closed(ref: String) = ref.startsWith("arc:") || Prefs.bool("pipeClosed." + ref, false)   // a recovered history is read, never answered
 
     /** «Delivered» for a letter of theirs — under its own name, so the queue holds one per letter (iOS receiptMid). */
-    private fun receipt(ref: String, mid: String) = send(ref, "rcpt-$mid", Marks.DELIVERED + mid)
+    // THE ONE RECEIPT DOOR also says the letter stands whole here: its name rides every presence word after «K» (iOS HeldLetters.note)
+    private fun receipt(ref: String, mid: String) { HeldLetters.note(ref, mid); send(ref, "rcpt-$mid", Marks.DELIVERED + mid) }
     fun receiptFor(ref: String, mid: String) = receipt(ref, mid)
+
+    /** THE ONE DELIVERY DOOR (iOS markDelivered): a receipt, or a presence word naming the letter whole (HeldLetters, «by=word»). */
+    fun markDelivered(ref: String, d: String) {
+        announcedDelivered(ref, d)   // a receipt of my name or my face writes the mark (iOS recordDelivered)
+        // a group's copy witnesses the group's row, never a row of the pipe (iOS markDelivered → MTGroup.copyDelivered)
+        if (Groups.copyDelivered(d)) return
+        // THE READ WORD MAY HAVE OUTRUN THIS RECEIPT (iOS markDelivered 4221-4226): a film is told «delivered» only once
+        // its file is whole there, while «read» leaves the moment the chat is open — the mark remembers, the letter catches up
+        val u = PeerRead.upTo(ref)
+        var row: Msg? = null
+        Book.edit(ref) { c ->
+            c.msgs.find { it.mid == d && it.mine }?.let { m ->
+                row = m
+                if (m.advance(2) && u != null && (Marks.birthMs(m.mid) ?: Long.MAX_VALUE) <= u) m.advance(3)
+            }
+        }
+        // a coin letter whose row is gone: its coins that came back are taken again (iOS markDelivered 4266, MTCoinSend.arrived)
+        // a red one delivered after all, its coins home: they are taken again, every door of the ladder asks (iOS hold)
+        row?.let { CoinSend.hold(it, ref) } ?: CoinSend.arrived(d, ref)
+    }
 
     /**
      * A VOICE OF THEIRS WAS PLAYED HERE (iOS notePlayed): its sender is told once, silently. Opening the chat plays nothing

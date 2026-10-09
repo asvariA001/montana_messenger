@@ -216,7 +216,7 @@ object Diary {
         val version = runCatching { c.packageManager.getPackageInfo(c.packageName, 0).longVersionCode.toString() }.getOrDefault("?")
         val dev = JSONObject().put("model", Build.MANUFACTURER + " " + Build.MODEL).put("ios", "Android " + Build.VERSION.RELEASE)
             .put("build", version).put("tz", java.util.TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 1000)
-            .put("lang", java.util.Locale.getDefault().language.take(2)).put("skew_ms", 0)
+            .put("lang", java.util.Locale.getDefault().language.take(2)).put("skew_ms", NodeClock.skewMs)
         val body = JSONObject().put("dg", dg).put("file", "tele").put("dev", dev).put("lines", JSONArray(lines))
         val bytes = body.toString().length
         for (door in Signal.writeOrder("diag")) {   // the elected door first (iOS MontanaDiagShip.put over bases(for: "diag"))

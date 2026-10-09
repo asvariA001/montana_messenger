@@ -392,7 +392,7 @@ object CallLine {
         .put("sframe", false).put("av", false).put("rejoin", true)   // this build rebuilds a call in place and goes back into it (iOS caps.rejoin)
 
     private fun word(l: Line, ctrl: String) =
-        JSONObject().put("t", "cal").put("ctrl", ctrl).put("ts", System.currentTimeMillis()).put("e", Calls.epochOf(l.seed))
+        JSONObject().put("t", "cal").put("ctrl", ctrl).put("ts", NodeClock.now()).put("e", Calls.epochOf(l.seed))
 
     private fun say(l: Line, words: JSONArray) = Signal.postWord(l.ref, Calls.epochOf(l.seed), words.toString().toByteArray())
 
