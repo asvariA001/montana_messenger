@@ -24,6 +24,24 @@ private fun callRecords(): List<CallRecord> = Book.refs().flatMap { ref ->
 }.sortedByDescending { it.at }
 
 /**
+ * THE MISSED CALLS UNSEEN (iOS ChatStore.missedCallsUnseen and clearMissedCallsBadge, MontanaChatStore.swift:585-614): derived, never
+ * a counter -- the incoming missed rows of the log newer than the moment the calls page was last seen; the first run of this
+ * construction sees the past, as the iPhone's does.
+ */
+object CallsSeen {
+    private const val KEY = "callsSeenAt"
+    private fun stamp(): Long {
+        Prefs.str(KEY, "").toLongOrNull()?.let { return it }
+        val now = System.currentTimeMillis()
+        Prefs.setStr(KEY, now.toString())
+        return now
+    }
+    fun unseen(): Int { val t = stamp(); return callRecords().count { it.info.incoming && it.info.missed && t < it.at } }
+    /** The calls page is looked at (iOS onChange of the pane, ContentView.swift:3010-3012). */
+    fun clear() { if (unseen() != 0) Prefs.setStr(KEY, System.currentTimeMillis().toString()) }
+}
+
+/**
  * THE TIME MARK FOR A FACE NOT CHOSEN (iOS MTTimeMarkAvatar, MontanaShapes.swift:529-540, the calls' AvatarCircle timeMarkWhenMissing):
  * «absence is a complete, stable visual answer of its own» -- the black round with the sign (the iPhone's Logo, the same file) at
  * 28 of the side and a rim of white 0.35; a chosen face stands as it is.

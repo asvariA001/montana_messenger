@@ -209,6 +209,22 @@ private fun isAvatarEmoji(g: String): Boolean {
 /** iOS MontanaAvatar.glyphScale (MontanaAvatarKit.swift:31-34): a letter 0.40 of the circle, a glyph -- the face itself -- 0.62. */
 fun avatarGlyphScale(g: String): Float = if (g.isNotEmpty() && isAvatarEmoji(g)) 0.62f else 0.40f
 
+/**
+ * THE PLATFORM'S COUNT BADGE (iOS MTCountBadge, ContentView.swift:1436-1455): a red capsule 20 high, the number 13 semibold, 6 at
+ * its sides and never narrower than 20; above 99 «99+»; nothing at all at zero.
+ */
+fun Context.countBadge(): TextView = text("", 13f, Color.WHITE, bold = true).apply {
+    background = rounded(SysColor.red, 10)
+    gravity = Gravity.CENTER
+    minWidth = dp(20)
+    setPadding(dp(6), 0, dp(6), 0)
+    visibility = View.GONE
+}
+fun TextView.showCount(n: Int) {
+    text = if (99 < n) "99+" else n.toString()   // USER-DATA: a count
+    visibility = if (0 < n) View.VISIBLE else View.GONE
+}
+
 /** The face (iOS AvatarCircle): the photo, or the avatar's own initial, bold and white, on a black circle. */
 fun Context.avatar(face: Bitmap?, name: String, sizeDp: Int): View {
     val box = FrameLayout(this)

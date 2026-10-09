@@ -162,13 +162,13 @@
     <string name="brightness">Brightness</string>
     <!-- The side drawer and the settings (iOS MontanaSideDrawer, SettingsTabView) -->
     <string name="app_calls">Calls</string>
-    <string name="app_feed">Feed</string>
+    <string name="app_feed">Wall of Thoughts</string>
     <string name="app_groups">Groups</string>
     <string name="app_channels">Channels</string>
     <string name="app_music">Music</string>
     <string name="app_gallery">Gallery</string>
     <string name="app_chess">Chess</string>
-    <string name="app_wallet">Wallet</string>
+    <string name="app_wallet">TimeCoin</string>
     <string name="app_network">Network</string>
     <string name="app_card">Business card</string>
     <string name="notif_sounds">Notifications and Sounds</string>

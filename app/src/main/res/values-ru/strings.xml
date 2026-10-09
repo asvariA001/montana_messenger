@@ -161,13 +161,13 @@
     <string name="brightness">Яркость</string>
     <!-- The side drawer and the settings (iOS MontanaSideDrawer, SettingsTabView) -->
     <string name="app_calls">Звонки</string>
-    <string name="app_feed">Лента</string>
+    <string name="app_feed">Стена Мыслей</string>
     <string name="app_groups">Группы</string>
     <string name="app_channels">Каналы</string>
     <string name="app_music">Музыка</string>
     <string name="app_gallery">Галерея</string>
     <string name="app_chess">Шахматы</string>
-    <string name="app_wallet">Кошелёк</string>
+    <string name="app_wallet">Монета Времени</string>
     <string name="app_network">Сеть</string>
     <string name="app_card">Визитка</string>
     <string name="notif_sounds">Уведомления и звуки</string>

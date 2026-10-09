@@ -168,6 +168,8 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
     /** The pane stands: the bar's puck under it, the dynamic glyph's memory, the music's walk, the player's place. */
     fun arrived(p: Pane) {
         pane = p
+        if (p == Pane.CALLS) CallsSeen.clear()   // the calls page is looked at: the missed calls are seen (iOS 3010-3012)
+        bar.badges()
         if (p == Pane.MUSIC || p == Pane.GALLERY) Prefs.setStr("lastMediaPane", if (p == Pane.MUSIC) "music" else "gallery")
         bar.showPane(p)
         if (p == Pane.MUSIC) MusicFolders.walk(act)          // what was put into the lent folders since comes in
@@ -259,7 +261,7 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
         onCard = { shell.close { act.push { businessCardPage(act, it) } } },
         onPasswords = { shell.close { act.push { passwordsPage(act, it) } } },
         onWallet = { shell.close { act.push { walletPage(act, it) } } },
-        onChess = { shell.close { act.push { chessLobbyPage(act, it) } } }), FrameLayout.LayoutParams(MATCH, MATCH))
+        onChess = { shell.close { act.push { chessLobbyPage(act, it) } } }).also { d -> shell.onReveal = { (d.tag as? Runnable)?.run() } }, FrameLayout.LayoutParams(MATCH, MATCH))
     return shell
 }
 
@@ -334,7 +336,11 @@ class DrawerShell(private val act: MainActivity) : FrameLayout(act) {
         if (!open && was) act.back = keepBack
     }
 
+    /** Asked each time the drawer comes out: its rows' counts are read then (iOS MTApplication.badge, read by every pass). */
+    var onReveal: (() -> Unit)? = null
+
     private fun reveal() {
+        onReveal?.invoke()
         dim.bringToFront()
         drawer.visibility = View.VISIBLE
         dim.visibility = View.VISIBLE
@@ -418,11 +424,19 @@ class DrawerShell(private val act: MainActivity) : FrameLayout(act) {
  */
 private fun sideDrawer(act: MainActivity, onPane: (Pane) -> Unit, onProfile: () -> Unit, onSettings: () -> Unit, onCard: () -> Unit, onPasswords: () -> Unit, onWallet: () -> Unit, onChess: () -> Unit): View {
     val c: Context = act
-    fun row(icon: View, word: Int, onTap: (() -> Unit)?) = c.hstack {
+    // A ROW OF THE 1949 LIST (iOS MontanaSideDrawer.row, ContentView.swift:1713-1728): the icon 30, the word 22 bold, the page's own
+    // count -- 22 apart, the count beside the word, not at the far edge
+    val counts = ArrayList<Pair<android.widget.TextView, () -> Int>>()
+    fun row(icon: View, word: Int, count: (() -> Int)? = null, onTap: (() -> Unit)?) = c.hstack {
         setPadding(0, dp(16), 0, dp(16))
         addView(icon, lp(dp(30), dp(30)))
         gap(22)
-        addView(c.text(c.getString(word), 22f, Color.WHITE, bold = true).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))
+        addView(c.text(c.getString(word), 22f, Color.WHITE, bold = true).apply { singleLineEllipsis() }, lp(WRAP, WRAP))
+        if (count != null) {
+            val badge = c.countBadge()
+            counts.add(badge to count)
+            addView(badge, lp(WRAP, dp(20)).apply { marginStart = dp(22) })
+        }
         if (onTap != null) pressable(onTap) else alpha = 0.35f
     }
     fun glyph(res: Int) = c.icon(res, Color.WHITE, 30)
@@ -445,25 +459,26 @@ private fun sideDrawer(act: MainActivity, onPane: (Pane) -> Unit, onProfile: () 
         addView(face, lp(dp(88), WRAP).apply { marginStart = -dp(20) })
         gap(14)
         addView(row(glyph(R.drawable.ic_bar_contacts), R.string.contacts) { onPane(Pane.CONTACTS) }, lp())
-        addView(row(glyph(R.drawable.ic_bar_calls), R.string.app_calls) { onPane(Pane.CALLS) }, lp())
+        addView(row(glyph(R.drawable.ic_bar_calls), R.string.app_calls, { CallsSeen.unseen() }) { onPane(Pane.CALLS) }, lp())
         addView(row(feedMark(), R.string.app_feed) { onPane(Pane.FEED) }, lp())
-        addView(row(glyph(R.drawable.ic_bar_chats), R.string.chats) { onPane(Pane.CHATS) }, lp())
+        // THE COUNTS (iOS MTApplication.badge, ContentView.swift:1489-1498): the chats with something unread, the groups' and the channels' each their own
+        addView(row(glyph(R.drawable.ic_bar_chats), R.string.chats, { Book.all().count { !Groups.isKey(it.ref) && ChatMarks.hasUnread(it) } }) { onPane(Pane.CHATS) }, lp())
         // the groups and the channels, apps of their own under the chats (iOS MTApplication .groups, .channels: person.3.fill, megaphone.fill)
-        addView(row(glyph(R.drawable.ic_app_groups), R.string.app_groups) { onPane(Pane.GROUPS) }, lp())
-        addView(row(glyph(R.drawable.ic_app_channels), R.string.app_channels) { onPane(Pane.CHANNELS) }, lp())
+        addView(row(glyph(R.drawable.ic_app_groups), R.string.app_groups, { Book.all().count { Groups.isKey(it.ref) && !Groups.isChannel(it.ref) && ChatMarks.hasUnread(it) } }) { onPane(Pane.GROUPS) }, lp())
+        addView(row(glyph(R.drawable.ic_app_channels), R.string.app_channels, { Book.all().count { Groups.isChannel(it.ref) && ChatMarks.hasUnread(it) } }) { onPane(Pane.CHANNELS) }, lp())
         addView(row(glyph(R.drawable.ic_bar_play), R.string.app_music) { onPane(Pane.MUSIC) }, lp())
         addView(row(glyph(R.drawable.ic_app_gallery), R.string.app_gallery) { onPane(Pane.GALLERY) }, lp())
-        addView(row(android.widget.ImageView(c).apply { setImageResource(R.drawable.chess_knight) }, R.string.app_chess, onChess), lp())   // chess (iOS MTChessPage)
-        addView(row(glyph(R.drawable.ic_app_wallet), R.string.app_wallet, onWallet), lp())   // TimeCoin (iOS MTWalletPage)
+        addView(row(android.widget.ImageView(c).apply { setImageResource(R.drawable.chess_knight) }, R.string.app_chess, onTap = onChess), lp())   // chess (iOS MTChessPage)
+        addView(row(glyph(R.drawable.ic_app_wallet), R.string.app_wallet, onTap = onWallet), lp())   // TimeCoin (iOS MTWalletPage)
         // THE WALLS BESIDE THE FEED (iOS MTApplication .meshWall, .p2pWall; the author's word 29.09): the people around, phone to
         // phone; the nodes this phone reaches
         addView(row(glyph(R.drawable.ic_set_antenna), R.string.app_mesh_wall) { onPane(Pane.MESH) }, lp())
         addView(row(glyph(R.drawable.ic_language), R.string.app_p2p_wall) { onPane(Pane.P2P) }, lp())
-        addView(row(glyph(R.drawable.ic_app_card), R.string.app_card, onCard), lp())   // the business card (iOS MTCardFromDrawer, the author's word 28.09)
+        addView(row(glyph(R.drawable.ic_app_card), R.string.app_card, onTap = onCard), lp())   // the business card (iOS MTCardFromDrawer, the author's word 28.09)
         // PASSWORDS (iOS MTApplication .passwords, key.fill, the author's word 06.10.2026 17:4x MSK): a page of its own over the tabs
-        addView(row(glyph(R.drawable.ic_key), R.string.pw_title, onPasswords), lp())
+        addView(row(glyph(R.drawable.ic_key), R.string.pw_title, onTap = onPasswords), lp())
         spacer()
-        addView(row(glyph(R.drawable.ic_settings), R.string.settings, onSettings), lp())
+        addView(row(glyph(R.drawable.ic_settings), R.string.settings, onTap = onSettings), lp())
         addView(c.text(appVersionFull(c), 11f, MT.gray).apply { setPadding(dp(52), 0, 0, dp(8)) }, lp())   // USER-DATA: the build's own number
     }
     return ScrollView(c).apply {
@@ -471,6 +486,7 @@ private fun sideDrawer(act: MainActivity, onPane: (Pane) -> Unit, onProfile: () 
         isVerticalScrollBarEnabled = false
         overScrollMode = View.OVER_SCROLL_NEVER
         addView(column)
+        tag = Runnable { for ((badge, count) in counts) badge.showCount(count()) }   // the drawer's counts, read when it comes out
     }
 }
 
@@ -486,6 +502,14 @@ class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (
     }
     private val row = act.hstack { }
     private var slot = CHATS
+    // THE BADGES ON THE TIME PANEL (iOS MontanaChatsList.swift:369, 394, glyphBadge 461-465): the missed calls unseen where the calls
+    // live, the chats with something unread where the chats live -- the platform's corner badge, 10 right and 4 up of the glyph's corner
+    private val callsBadge = act.countBadge()
+    private val chatsBadge = act.countBadge()
+    fun badges() {
+        callsBadge.showCount(CallsSeen.unseen())
+        chatsBadge.showCount(Book.all().count { ChatMarks.hasUnread(it) })
+    }
     private lateinit var media: ImageView
     private lateinit var globe: ImageView
 
@@ -495,7 +519,7 @@ class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (
         addView(row, LayoutParams(MATCH, MATCH))
         glyph(R.drawable.ic_bar_drawer, 26) { onDrawer(it) }
         glyph(R.drawable.ic_bar_contacts, 26) { onPane(Pane.CONTACTS) }
-        glyph(R.drawable.ic_bar_calls, 26) { onPane(Pane.CALLS) }
+        glyph(R.drawable.ic_bar_calls, 26, badge = callsBadge) { onPane(Pane.CALLS) }
         // THE LOGO ON THE GLASS (iOS MTFeedGlyph): the gold sign on a round glass plate, a quarter of its side around it.
         row.addView(FrameLayout(act).apply {
             addView(FrameLayout(act).apply {
@@ -505,7 +529,7 @@ class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (
             }, LayoutParams(dp(36), dp(36), Gravity.CENTER))
             pressable { onPane(Pane.FEED) }   // the logo opens the feed of my people's walls (iOS 25.09)
         }, lp(0, MATCH, 1f))
-        glyph(R.drawable.ic_bar_chats, 24) { onPane(Pane.CHATS) }
+        glyph(R.drawable.ic_bar_chats, 24, badge = chatsBadge) { onPane(Pane.CHATS) }
         // THE DYNAMIC GLYPH: the last opened of the player and the gallery; a tap opens that one again.
         media = glyph(R.drawable.ic_bar_play, 26) { onPane(if (Prefs.str("lastMediaPane", "music") == "gallery") Pane.GALLERY else Pane.MUSIC) }
         if (Prefs.str("lastMediaPane", "music") == "gallery") media.setImageResource(R.drawable.ic_app_gallery)
@@ -520,16 +544,25 @@ class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (
                 postDelayed(this, 2000)
             }
         }
+        val heard: () -> Unit = { act.onMain { badges() } }
         addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
-            override fun onViewAttachedToWindow(v: View) { post(lamp) }
-            override fun onViewDetachedFromWindow(v: View) { removeCallbacks(lamp) }
+            override fun onViewAttachedToWindow(v: View) { post(lamp); Book.listen(heard); ChatMarks.listen(heard); badges() }
+            override fun onViewDetachedFromWindow(v: View) { removeCallbacks(lamp); Book.unlisten(heard); ChatMarks.unlisten(heard) }
         })
     }
 
-    private fun glyph(res: Int, sizeDp: Int, tint: Int = barGlyph, onTap: ((View) -> Unit)? = null): ImageView {
-        val box = FrameLayout(act)
+    private fun glyph(res: Int, sizeDp: Int, tint: Int = barGlyph, badge: android.widget.TextView? = null, onTap: ((View) -> Unit)? = null): ImageView {
+        val box = FrameLayout(act).apply { clipChildren = false }
         val icon = act.icon(res, tint)
         box.addView(icon, LayoutParams(dp(sizeDp), dp(sizeDp), Gravity.CENTER))
+        if (badge != null) {
+            box.addView(badge, LayoutParams(WRAP, dp(20), Gravity.CENTER))
+            // its top-trailing at the glyph's top-trailing, then 10 to the right and 4 up (iOS .offset(x: 10, y: -4))
+            badge.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
+                v.translationX = dp(sizeDp) / 2f + dp(10) - v.width / 2f
+                v.translationY = -dp(sizeDp) / 2f - dp(4) + v.height / 2f
+            }
+        }
         if (onTap != null) box.pressable { onTap(box) }
         row.addView(box, lp(0, MATCH, 1f))
         return icon
