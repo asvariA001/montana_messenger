@@ -230,14 +230,24 @@ object VoicePlayer {
  * the finger on the wave takes the place. Under it the microphone with the length and the stamp stand on their quiet pills
  * (MTVoicePill, letterBubble).
  */
+/** A voice's length read off its own file once, while the file stands unchanged — not at every pass of the feed (BubblePicture's word). */
+object VoiceLength {
+    private val kept = HashMap<String, Int>()
+    fun of(p: String): Int? {
+        val key = p + "@" + File(p).lastModified()
+        synchronized(kept) { kept[key]?.let { return it } }
+        val ms = runCatching { android.media.MediaMetadataRetriever().use { r -> r.setDataSource(p); r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toInt() } }.getOrNull() ?: return null
+        synchronized(kept) { kept[key] = ms }
+        return ms
+    }
+}
+
 fun voiceBody(c: Context, m: Msg, du: Double, into: LinearLayout, wave: FloatArray? = null, chat: Chat? = null) {
     val tint = BubbleStyle.text(m.mine)
     val path = m.file?.takeIf { File(it).exists() }
     fun fmt(ms: Int) = "%d:%02d".format(ms / 60000, (ms / 1000) % 60)
     // The length is the sender's word; a letter without it is measured from the file itself.
-    val total = if (du > 0) (du * 1000).toInt() else path?.let { p ->
-        runCatching { android.media.MediaMetadataRetriever().use { r -> r.setDataSource(p); r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toInt() } }.getOrNull()
-    } ?: 0
+    val total = if (du > 0) (du * 1000).toInt() else path?.let { p -> VoiceLength.of(p) } ?: 0
     val d = c.resources.displayMetrics.density
     val window = c.resources.displayMetrics.widthPixels / d
     val waveDp = minOf(maxOf(76f, window * 0.8f - 111f), maxOf(76f, 60f + total / 1000f * 8f))

@@ -183,6 +183,38 @@ object SmallPicture {
     }
 }
 
+/**
+ * A BUBBLE'S PICTURE FOLLOWS ITS ROW (the author's word 09.10.2026 11:5x MSK: «нажимаю на чат долго думает при открытии»; measured on
+ * A1, build 249: a chat of 32 rows took 1063 ms to lay, and its four films had their first frames read by ThumbnailUtils on the main
+ * thread -- a second tap, queued behind it, opened the chat twice): the row stands at once with the manifest's own small picture, the
+ * full one and its mirrored blur are read on one worker, kept while their file stands unchanged, and laid in place when they come
+ * (iOS: the feed's cells are drawn at once and their pictures follow).
+ */
+object BubblePicture {
+    class Shot(val pic: android.graphics.Bitmap, val blur: android.graphics.Bitmap)
+    private val kept = object : android.util.LruCache<String, Shot>(32 * 1024 * 1024) {
+        override fun sizeOf(key: String, value: Shot) = value.pic.byteCount + value.blur.byteCount
+    }
+    private val worker = java.util.concurrent.Executors.newSingleThreadExecutor()
+    private val waiting = HashMap<String, MutableList<(Shot) -> Unit>>()
+    private fun key(f: java.io.File, kind: String, px: Int) = f.path + "@" + f.lastModified() + "@" + kind + "@" + px
+    fun kept(f: java.io.File, kind: String, px: Int): Shot? = kept.get(key(f, kind, px))
+    fun load(c: Context, f: java.io.File, kind: String, px: Int, done: (Shot) -> Unit) {
+        val k = key(f, kind, px)
+        kept.get(k)?.let { done(it); return }
+        synchronized(waiting) {
+            waiting[k]?.let { it.add(done); return }
+            waiting[k] = mutableListOf(done)
+        }
+        worker.execute {
+            val shot = Media.preview(c, f, kind, px)?.let { Shot(it, WallPlacer.mirrorBlur(it)) }
+            if (shot != null) kept.put(k, shot)
+            val all = synchronized(waiting) { waiting.remove(k) } ?: emptyList()
+            if (shot != null) MainThread.post { all.forEach { it(shot) } }
+        }
+    }
+}
+
 // ─────────────────────────── the banner (iOS MontanaNotify) ───────────────────────────
 
 object Notify {
@@ -1988,7 +2020,12 @@ private fun mediaBody(c: Context, m: Msg, into: LinearLayout, chat: Chat? = null
     if (isGif && f != null) {
         capRoom = gifBody(c, m, f, into)
     } else if (kind == "img" || kind == "vid") {
-        val pic = (f?.let { Media.preview(c, it, kind, 800) } ?: Media.thumbOf(man))
+        // the full picture when it is kept, else the manifest's small one of the same shape while the full one is read behind
+        // (BubblePicture); with neither, nothing to size the plate by: it is read here, as before
+        val full = f?.let { BubblePicture.kept(it, kind, 800) }
+        val pic = full?.pic ?: Media.thumbOf(man) ?: f?.let { Media.preview(c, it, kind, 800) }
+        var blurView: ImageView? = null
+        var picView: ImageView? = null
         // ONE PLATE FOR A PICTURE AND A VIDEO (iOS mediaBubble 1526-1574, the author's word 15.09): as wide as the widest of its contents —
         // the picture fitted, or the caption's own bubble — never the picture alone; a picture narrower than the plate keeps its fitted
         // size in the middle and the sides are a mirrored blur of the picture itself. A card's words are not drawn under it.
@@ -2005,13 +2042,19 @@ private fun mediaBody(c: Context, m: Msg, into: LinearLayout, chat: Chat? = null
             clipToOutline = true
             if (pic == null) setBackgroundColor(Color.rgb(51, 51, 51))   // iOS Color(white: 0.2): a picture still on its way
             if (narrow && pic != null) addView(ImageView(c).apply {
+                blurView = this
                 scaleType = ImageView.ScaleType.CENTER_CROP
-                setImageBitmap(WallPlacer.mirrorBlur(pic)); setColorFilter(Color.argb(56, 0, 0, 0))   // iOS .overlay(black 0.22)
+                setImageBitmap(full?.blur ?: WallPlacer.mirrorBlur(pic)); setColorFilter(Color.argb(56, 0, 0, 0))   // iOS .overlay(black 0.22)
             }, FrameLayout.LayoutParams(MATCH, MATCH))
             if (pic != null) addView(ImageView(c).apply {
+                picView = this
                 scaleType = if (narrow) ImageView.ScaleType.FIT_CENTER else ImageView.ScaleType.CENTER_CROP
                 setImageBitmap(pic)
             }, FrameLayout.LayoutParams(if (narrow) fit.first else MATCH, MATCH, Gravity.CENTER))
+            if (full == null && f != null && pic != null) BubblePicture.load(c, f, kind, 800) { s ->
+                picView?.setImageBitmap(s.pic)
+                blurView?.setImageBitmap(s.blur)
+            }
             // automatic download off: the attachment waits for a tap (iOS queuePendingMedia), the platform's arrow down on it
             if (f == null && Media.waiting(c, m)) addView(c.icon(R.drawable.ic_arrow_circle_down, Color.WHITE).apply {
                 background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.argb(140, 0, 0, 0)) }
@@ -2174,11 +2217,15 @@ internal fun openMedia(act: MainActivity, f: java.io.File, kind: String) {
 /** A ROUND NOTE IN ITS BUBBLE (iOS videoNoteBubble): the circle with the note's own first frame; a press plays it large, with sound. */
 private fun noteBody(c: Context, m: Msg, f: java.io.File?, man: JSONObject?, into: LinearLayout, chat: Chat?) {
     val side = c.dp(220)
-    val pic = f?.let { Media.preview(c, it, "vid", 600) } ?: Media.thumbOf(man)
+    // the note's first frame follows its row as a picture's does (BubblePicture): the manifest's small frame stands meanwhile
+    val full = f?.let { BubblePicture.kept(it, "vid", 600) }
+    val pic = full?.pic ?: Media.thumbOf(man)
     into.addView(FrameLayout(c).apply {
         addView(ImageView(c).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
             if (pic != null) setImageBitmap(pic) else setBackgroundColor(Color.argb(60, 255, 255, 255))
+            if (full == null && f != null) BubblePicture.load(c, f, "vid", 600) { s -> background = null
+                setImageBitmap(s.pic) }
         }.round(), FrameLayout.LayoutParams(side, side))
         if (f == null && Media.waiting(c, m)) {
             addView(c.icon(R.drawable.ic_arrow_circle_down, Color.WHITE), FrameLayout.LayoutParams(c.dp(36), c.dp(36), Gravity.CENTER))
