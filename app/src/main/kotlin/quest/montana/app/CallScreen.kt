@@ -16,6 +16,7 @@ import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.TextUtils
 import android.text.style.StyleSpan
+import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
@@ -72,6 +73,7 @@ object CallScreen {
         if (close != null && !ringing) return
         close?.invoke()
         ringing = false
+        chromeHidden = false   // iOS fullScreen .onAppear (MontanaCall.swift 6915): every reopening starts with the buttons in hand
         close = act.overlay(callPage(act, ref))
     }
 
@@ -87,6 +89,8 @@ object CallScreen {
     fun hide() = MainThread.post { dropPill(); chromeHidden = false; corner = 1; val c = close; close = null; c?.invoke() }
 
     private fun dropPill() { pill?.invoke(); pill = null; foldChanged(null) }
+
+    private fun log(s: String) { Log.d("Montana", "call screen: " + s) }
 
     /** The call folded into its pill, and whose (iOS CallUIModel.foldedLive, peer): the handsets beside a name watch it. */
     @Volatile var foldedRef: String? = null
@@ -385,7 +389,7 @@ object CallScreen {
         }
         again = { redraw() }
         // the picture is the switch (iOS 6602-6610): a tap hides the buttons, the next brings them back
-        tap.setOnClickListener { chromeHidden = !chromeHidden; foldAt = 0L; redraw() }
+        tap.setOnClickListener { chromeHidden = !chromeHidden; foldAt = 0L; redraw(); log(if (chromeHidden) "call_chrome hidden by tap" else "call_chrome shown by tap") }
         // THE CORNER PICTURE'S TOUCH (iOS MTCallMiniTouch 6359): a tap that does not move swaps the pictures, a finger that moves
         // drags it, and it settles in the nearest corner
         val slop = ViewConfiguration.get(c).scaledTouchSlop
@@ -400,7 +404,7 @@ object CallScreen {
                         if (dragging) { v.translationX = tx0 + dx; v.translationY = ty0 + dy }
                     }
                     MotionEvent.ACTION_UP -> {
-                        if (!dragging) { v.performClick(); CallLine.swapped = !CallLine.swapped; sides() }
+                        if (!dragging) { v.performClick(); CallLine.swapped = !CallLine.swapped; sides(); log("call_pip tapped — swap") }
                         else {
                             corner = (if (v.translationX + v.width / 2f > pictures.width / 2f) 1 else 0) +
                                 (if (v.translationY + v.height / 2f > pictures.height / 2f) 2 else 0)
