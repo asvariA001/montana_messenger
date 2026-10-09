@@ -341,6 +341,10 @@ object CallScreen {
         // picture wears their own blurred face instead of the stale frame, whichever slot it rides (sides()).
         val remoteCoverBig = ground(c, ref, name).apply { visibility = View.GONE; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }
         val remoteCoverMini = ground(c, ref, name).apply { visibility = View.GONE; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }
+        // MY OWN PICTURE'S COVER (iOS MTCallSurface 6274, MTCallGround(own: true) 6452-6457, atom 8bb2dae00749): my own face,
+        // the same haze, while I hold, while my camera is off, and while the system has taken my camera
+        val selfCoverBig = ground(c, ref, name, own = true).apply { visibility = View.GONE; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }
+        val selfCoverMini = ground(c, ref, name, own = true).apply { visibility = View.GONE; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }
         val miniBox = FrameLayout(c).apply {
             setBackgroundColor(Color.BLACK)
             outlineProvider = object : ViewOutlineProvider() {
@@ -350,6 +354,7 @@ object CallScreen {
             foreground = c.rounded(Color.TRANSPARENT, 12, Color.argb(64, 255, 255, 255))
             addView(mini, FrameLayout.LayoutParams(MATCH, MATCH))
             addView(remoteCoverMini, FrameLayout.LayoutParams(MATCH, MATCH))
+            addView(selfCoverMini, FrameLayout.LayoutParams(MATCH, MATCH))
             visibility = View.GONE
         }
         val shade = View(c).apply {
@@ -359,6 +364,7 @@ object CallScreen {
         val pictures = FrameLayout(c).apply {
             addView(big, FrameLayout.LayoutParams(MATCH, MATCH, Gravity.CENTER))
             addView(remoteCoverBig, FrameLayout.LayoutParams(MATCH, MATCH, Gravity.CENTER))
+            addView(selfCoverBig, FrameLayout.LayoutParams(MATCH, MATCH, Gravity.CENTER))
             addView(tap, FrameLayout.LayoutParams(MATCH, MATCH))
             addView(shade, FrameLayout.LayoutParams(MATCH, MATCH))
             addView(miniBox, FrameLayout.LayoutParams(c.dp(MINI_W), c.dp(MINI_H), Gravity.TOP or Gravity.START))
@@ -371,17 +377,20 @@ object CallScreen {
             addView(column, FrameLayout.LayoutParams(MATCH, MATCH))
             inner = column
         }
-        // WHICH PICTURE FILLS WHICH SLOT has one owner (iOS CallUIModel.applySides 5512): their picture, once drawn, fills the
-        // screen and mine rides the corner — until the corner is tapped; before theirs comes, mine fills the screen
+        // WHICH PICTURE FILLS WHICH SLOT has one owner (iOS CallUIModel.applySides 5558-5567): their picture, once drawn, fills
+        // the screen and mine rides the corner — until the corner is tapped; before theirs comes, mine fills the screen. The
+        // corner stands whether my camera runs or not (iOS shown = pip && !peerSharing): a sleeping camera wears my own face.
+        var coverSaid = ""
         fun sides() {
             // the sharer sees the peer's ground, not the screen it shares (iOS 6566-6574): no picture is drawn
             if (CallLine.sharing) {
                 CallLine.theirs.into = null; CallLine.own.into = null; miniBox.visibility = View.GONE
                 remoteCoverBig.visibility = View.GONE; remoteCoverMini.visibility = View.GONE
+                selfCoverBig.visibility = View.GONE; selfCoverMini.visibility = View.GONE
                 return
             }
             val pip = CallLine.video && CallLine.remoteLive
-            val shown = pip && !CallLine.peerSharing && CallLine.camera
+            val shown = pip && !CallLine.peerSharing
             val bigLocal = !pip || (CallLine.swapped && shown)
             CallLine.theirs.into = if (!pip) null else if (bigLocal) mini else big
             CallLine.own.into = if (bigLocal) big else if (shown) mini else null
@@ -395,6 +404,12 @@ object CallScreen {
             val covered = pip && (CallLine.held || CallLine.heldByPeer || (CallLine.peerPaused && !CallLine.peerSharing))
             remoteCoverBig.visibility = if (covered && !bigLocal) View.VISIBLE else View.GONE
             remoteCoverMini.visibility = if (covered && bigLocal && shown) View.VISIBLE else View.GONE
+            // THE COVERS HAVE ONE OWNER (iOS applyCovers 5484-5497): mine while I hold, my camera is off or the system took it
+            val ownCovered = CallLine.video && (CallLine.held || !CallLine.camera || CallLine.selfPaused)
+            selfCoverBig.visibility = if (ownCovered && bigLocal) View.VISIBLE else View.GONE
+            selfCoverMini.visibility = if (ownCovered && !bigLocal && shown) View.VISIBLE else View.GONE
+            val said = "remote=" + (if (covered) 1 else 0) + " self=" + (if (ownCovered) 1 else 0)
+            if (said != coverSaid) { coverSaid = said; Log.d("Montana", "call_cover " + said) }
         }
         // THE CORNER PICTURE'S PLACE, THE 2155 FORM (iOS MTCallMini, MontanaCall.swift 6321-6338): one fact for each edge,
         // read off chromeVisible, not a number measured a frame late -- the top panel up: ten points under its measured
@@ -686,9 +701,10 @@ object CallScreen {
     }
 
     /** iOS MTCallGround: the blue-grey wash, the face filling it as a haze, and the face itself at seven tenths, softened. */
-    private fun ground(c: Context, ref: String, name: String): View = FrameLayout(c).apply {
+    private fun ground(c: Context, ref: String, name: String, own: Boolean = false): View = FrameLayout(c).apply {
         background = GradientDrawable(GradientDrawable.Orientation.TR_BL, intArrayOf(Color.rgb(33, 38, 48), Color.rgb(41, 51, 71), Color.rgb(26, 28, 33)))
-        val face = Book.shownFace(ref).takeIf { it.exists() }?.let { BitmapFactory.decodeFile(it.path) }
+        // my own face for the cover over my own picture (iOS MTCallGround own: MontanaSelfFace.image, 6457)
+        val face = if (own) SelfFace.load(c) else Book.shownFace(ref).takeIf { it.exists() }?.let { BitmapFactory.decodeFile(it.path) }
         val soft = Build.VERSION.SDK_INT >= 31
         val m = c.resources.displayMetrics
         val side = (minOf(m.widthPixels, m.heightPixels) * 0.7f).toInt()
@@ -702,7 +718,7 @@ object CallScreen {
                 if (soft) setRenderEffect(blur(8))
             }, FrameLayout.LayoutParams(side, side, Gravity.CENTER))
         } else {
-            addView(c.text(name.take(1).uppercase(), 160f, Color.argb(56, 255, 255, 255), bold = true, center = true),   // USER-DATA: the name's first letter
+            addView(c.text((if (own) Prefs.userName.trim() else name).take(1).uppercase(), 160f, Color.argb(56, 255, 255, 255), bold = true, center = true),   // USER-DATA: the name's first letter
                 FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
         }
     }

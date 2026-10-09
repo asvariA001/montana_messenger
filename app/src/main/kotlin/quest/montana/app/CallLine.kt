@@ -162,6 +162,10 @@ object CallLine {
     // cover that stands while either side holds the call (iOS applyCovers 5491-5495).
     @Volatile var peerPaused = false
         private set
+    // MY OWN CAMERA WAS TAKEN BY THE SYSTEM (iOS CallUIModel.selfPaused 5482, noteSelfPicture 3900-3906): its own two words --
+    // taken (disconnected, a fault) and given back (its first frame) -- never a guess from frames
+    @Volatile var selfPaused = false
+        private set
     // THE LIGHT BEFORE THE CALL'S NAME (iOS MTCallLight 5424-5435, CallUIModel.signal 5466): 2 green -- clean at the top
     // step, 1 yellow -- held below it, 0 red -- squeezed now; a break reddens it whatever the ladder says.
     @Volatile var signal = 2
@@ -541,7 +545,7 @@ object CallLine {
         held = false
         heldByPeer = false
         video = false; asking = false; asked = false; offerMine = false; remoteLive = false; peerSharing = false; swapped = false
-        front = true; sniffed = false; askRound++; sharing = false; peerPaused = false
+        front = true; sniffed = false; askRound++; sharing = false; peerPaused = false; selfPaused = false
         powerFloorNow = 0; powerSaving = false; signal = 2   // the counters and the lights belong to one call (iOS 3066-3072)
         l.measureGen++   // no tick of the ended call survives into the next one (iOS K-9, 3081)
         breakTone(false)
@@ -885,13 +889,14 @@ object CallLine {
         override fun onCameraDisconnected() = cameraReset(l, gen, "disconnected")
         override fun onCameraFreezed(error: String) {}
         override fun onCameraOpening(name: String) {}
-        override fun onFirstFrameAvailable() {}
+        override fun onFirstFrameAvailable() { if (selfPaused) { selfPaused = false; log("cam_ok first frame -- my picture is back"); moved() } }
         override fun onCameraClosed() {}
     }
 
     private fun cameraReset(l: Line, gen: Int, why: String) = work.execute {
         if (synchronized(gate) { line !== l } || l.camGen != gen || l.vtrack == null) return@execute
         log("cam_reset " + why + " — raising at once")
+        if (!selfPaused) { selfPaused = true; moved() }   // until the raised camera's first frame (iOS noteSelfPicture 1468)
         val cam = l.cam
         l.cam = null
         runCatching { cam?.stopCapture() }
