@@ -57,6 +57,19 @@ class MainActivity : Activity() {
             v.setPadding(b.left, b.top, b.right, b.bottom)
             WindowInsets.CONSUMED
         }
+        // THE KEYBOARD'S RISE AND FALL ARE MEASURED (iOS MTKeyboard will-show/will-hide to did-show/did-hide, atom b19d306a9d08): the
+        // platform's own animation of the keys begins and ends the one frame meter; nothing of the insets' own handling changes
+        if (30 <= Build.VERSION.SDK_INT) root.setWindowInsetsAnimationCallback(object : android.view.WindowInsetsAnimation.Callback(android.view.WindowInsetsAnimation.Callback.DISPATCH_MODE_CONTINUE_ON_SUBTREE) {
+            private fun keys(a: android.view.WindowInsetsAnimation) = (a.typeMask and WindowInsets.Type.ime()) != 0
+            override fun onStart(a: android.view.WindowInsetsAnimation, bounds: android.view.WindowInsetsAnimation.Bounds): android.view.WindowInsetsAnimation.Bounds {
+                if (keys(a)) Motion.moveBegan(root)
+                return bounds
+            }
+            override fun onProgress(insets: WindowInsets, running: MutableList<android.view.WindowInsetsAnimation>): WindowInsets = insets
+            override fun onEnd(a: android.view.WindowInsetsAnimation) {
+                if (keys(a)) Motion.moveEnded("keyboard:" + (if (root.rootWindowInsets?.isVisible(WindowInsets.Type.ime()) == true) "rise" else "fall"))
+            }
+        })
         setContentView(surface)
         registerBack()
         hasSeed = MontanaSeed.hasSeed
@@ -366,7 +379,9 @@ class MainActivity : Activity() {
         sheet = termsGate(this, onAgree = null, onClose = close)
         sheet.translationY = root.height.toFloat()
         root.addView(sheet, FrameLayout.LayoutParams(MATCH, MATCH))
-        sheet.animate().translationY(0f).setDuration(280).setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+        Motion.moveBegan(sheet)   // a sheet risen, measured to its end (iOS montanaMotionMeter on the sheets, atom 2f90be6bfda9)
+        sheet.animate().translationY(0f).setDuration(280).setInterpolator(android.view.animation.DecelerateInterpolator())
+            .withEndAction { Motion.moveEnded("sheet:rise") }.start()
         back = close
     }
 

@@ -207,6 +207,7 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
             next = o[j]; this.side = side
             views.getValue(pane).animate().cancel()
             views.getValue(o[j]).apply { animate().cancel(); alpha = 1f; visibility = View.VISIBLE; translationX = side * panes.width.toFloat() }
+            Motion.moveBegan(panes)   // the pane turned by the finger, measured to the settle's end (iOS MTTurnDrag's completion)
             return true
         }
         override fun move(dx: Float) {
@@ -227,6 +228,7 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
             }.start()
             nv.animate().translationX(if (go) 0f else side * w).setDuration(ms).setInterpolator(android.view.animation.DecelerateInterpolator()).withEndAction {
                 if (!go) { nv.visibility = View.GONE; nv.translationX = 0f }
+                Motion.moveEnded("pane:" + (if (go) to.name.lowercase() else "stay"))
             }.start()
             if (go) arrived(to)
             next = null
@@ -347,9 +349,12 @@ class DrawerShell(private val act: MainActivity) : FrameLayout(act) {
         reveal()
         val to = if (open) width78.toFloat() else 0f
         val ms = (280 * kotlin.math.abs(to - page.translationX) / width78.coerceAtLeast(1)).toLong().coerceIn(120, 320)
+        // THE DRAWER'S MOTION IS MEASURED (iOS MTFrameMeter.moveBegan/moveEnded by the animator's completion, atom b19d306a9d08)
+        Motion.moveBegan(page)
         dim.animate().alpha(if (open) DIM else 0f).setDuration(ms).start()
         page.animate().translationX(to).setDuration(ms).setInterpolator(android.view.animation.DecelerateInterpolator(1.6f)).withEndAction {
             if (!open) { dim.visibility = View.GONE; drawer.visibility = View.INVISIBLE }
+            Motion.moveEnded("drawer:" + (if (open) "open" else "close"))
             then()
         }.start()
         if (open && !was) { keepBack = act.back; act.back = { close() } }
@@ -557,10 +562,14 @@ class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (
         onTurn?.invoke(to)
         badges()
         turning?.cancel()
+        Motion.moveBegan(null)   // the time panel's fold, measured to the spring's end (iOS turnPanel, atom b19d306a9d08)
         turning = android.animation.ValueAnimator.ofFloat(fold, if (to) 1f else 0f).apply {
             duration = 600
             interpolator = SwiftSpring(0.45, 0.82, 0.6)   // the coin's own spring (iOS .spring(response: 0.45, dampingFraction: 0.82))
             addUpdateListener { applyFold(it.animatedValue as Float) }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(a: android.animation.Animator) { Motion.moveEnded("panel:" + (if (to) "open" else "fold")) }
+            })
             start()
         }
     }
