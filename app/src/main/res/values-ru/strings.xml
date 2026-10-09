@@ -662,4 +662,7 @@
     <string name="picture_cache_header">КЕШ КАРТИНОК</string>
     <string name="picture_cache_clear">Очистить</string>
     <string name="picture_cache_footer">Картинки хранятся в памяти, чтобы чаты и стены открывались без ожидания. Они остаются, пока вы не очистите их здесь.</string>
+    <string name="share_preparing">Подготовка</string>
+    <string name="share_sending">Отправка…</string>
+    <string name="share_still_on_way">Часть вложений ещё в пути — Montana отправит их сама.</string>
 </resources>

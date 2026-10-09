@@ -662,4 +662,7 @@
     <string name="picture_cache_header">图片缓存</string>
     <string name="picture_cache_clear">清除</string>
     <string name="picture_cache_footer">图片保存在内存中，让聊天和墙面无需等待即可打开。它们会一直保留，直到你在这里清除。</string>
+    <string name="share_preparing">准备中</string>
+    <string name="share_sending">发送中…</string>
+    <string name="share_still_on_way">部分内容仍在发送中——Montana 会自动完成。</string>
 </resources>

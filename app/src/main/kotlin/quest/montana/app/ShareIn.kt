@@ -67,18 +67,43 @@ fun sharePage(act: MainActivity, s: Shared, onClose: () -> Unit): View {
         maxHeight = c.dp(120)   // iOS textViewDidChange 353-358: 44 to 120 high, the words past it scroll inside the field
     }
     fun hideKeys() { act.getSystemService(android.view.inputmethod.InputMethodManager::class.java).hideSoftInputFromWindow(field.windowToken, 0) }
+    // THE SEND'S OWN ROAD IN THE SHEET (iOS ShareViewController road, status and progress 150-151, 237-240, showStage 390-409 and
+    // beginSend 415-426 at 2155; atom 8bf2e50c1cdb): the round send gives way to the words and the platform's bar while the pick is
+    // shaped and handed over -- the item's number on a batch, the stage, the whole per cents -- and the faces take no finger meanwhile
+    val roadWords = c.text("", 15f, Color.WHITE)
+    val roadBar = android.widget.ProgressBar(c, null, android.R.attr.progressBarStyleHorizontal).apply {
+        max = 100; progressTintList = android.content.res.ColorStateList.valueOf(MT.blue)   // the platform's own blue (iOS 238)
+    }
+    val road = c.vstack(Gravity.NO_GRAVITY) {
+        background = c.glassPlate().apply { cornerRadius = c.dp(22).toFloat() }
+        setPadding(dp(16), dp(14), dp(16), dp(14))
+        visibility = View.GONE
+        isClickable = true   // a finger on the road reaches nothing under it
+        addView(roadWords, lp())
+        addView(roadBar, lp().apply { topMargin = dp(10) })
+    }
+    val shield = View(c).apply { isClickable = true; visibility = View.GONE }   // the faces and the search take no finger while it goes
+    lateinit var barView: View   // the round send's bar, built below: the road takes its place
+    fun stage(word: Int, i: Int, n: Int, f: Double) = act.onMain {
+        val pct = (f.coerceIn(0.0, 1.0) * 100).toInt()
+        roadBar.progress = pct
+        roadWords.text = (if (1 < n) "$i/$n  " else "") + c.getString(word) + "  " + pct + "%"
+    }
     // THE ONE BIRTH OF A SEND (iOS beginSend): the finger on the round send, to the chats the finger chose
     fun send() {
         val to = chosen.toList()
         if (to.isEmpty()) return
         val words = field.text.toString().trim()
         hideKeys()
+        barView.visibility = View.GONE; road.visibility = View.VISIBLE; shield.visibility = View.VISIBLE
+        roadWords.text = c.getString(R.string.share_sending)
         Thread {
             var failed = false
             // a text handed as a file is a text letter (textFace); the files first, each read once and sent to every chosen chat;
             // the words ride the first picture as its caption
             val texts = ArrayList<String>()
-            val picked = s.files.mapNotNull { u ->
+            val picked = s.files.withIndex().mapNotNull { (i, u) ->
+                stage(R.string.share_preparing, i + 1, s.files.size, i.toDouble() / maxOf(1, s.files.size))
                 textFace(c, u)?.let { texts.add(it); return@mapNotNull null }
                 val mime = c.contentResolver.getType(u) ?: ""
                 Media.read(c, u, asDoc = !(mime.startsWith("image/") || mime.startsWith("video/"))).also { if (it == null) failed = true }
@@ -86,7 +111,8 @@ fun sharePage(act: MainActivity, s: Shared, onClose: () -> Unit): View {
             val captioned = picked.firstOrNull { it.kind == "img" || it.kind == "vid" }
             // pictures shared together are one group in every chat (iOS MTMediaGroup, the share sheet's own, 20.09)
             val pictures = picked.filter { it.kind == "img" || it.kind == "vid" }
-            for (ref in to) {
+            for ((n, ref) in to.withIndex()) {
+                stage(R.string.share_sending, n + 1, to.size, n.toDouble() / to.size)
                 val slots = MediaGroup.slots(pictures.size)
                 picked.forEach { p ->
                     val at = pictures.indexOfFirst { it === p }
@@ -95,10 +121,14 @@ fun sharePage(act: MainActivity, s: Shared, onClose: () -> Unit): View {
                 if (words.isNotEmpty() && captioned == null) sendWords(ref, words)
                 texts.forEach { sendWords(ref, it) }
             }
-            act.onMain { if (failed) Toast.makeText(c, R.string.media_failed, Toast.LENGTH_LONG).show() }
+            stage(R.string.share_sending, to.size, to.size, 1.0)
+            // A PICK THAT DID NOT ALL GO IS SAID IN THE SHEET, THEN THE SHEET GOES (iOS 556-562): Montana sends the rest itself
+            if (failed) { act.onMain { roadWords.text = c.getString(R.string.share_still_on_way) }; Thread.sleep(1800) }
+            act.onMain {
+                onClose()
+                if (to.size == 1) act.push { close -> conversationPage(act, to[0], close) }
+            }
         }.start()
-        onClose()
-        if (to.size == 1) act.push { close -> conversationPage(act, to[0], close) }
     }
     // THE WALL IS WRITTEN ON, NEVER SENT TO (iOS didSelectItemAt 310-311): its circle chooses nothing and opens the wall's one new-post
     // page with all that was handed in already taken (iOS MTBoard.takeFromSheet and laySheet, MontanaBoard 1934-1991, then
@@ -132,6 +162,7 @@ fun sharePage(act: MainActivity, s: Shared, onClose: () -> Unit): View {
             pressable { send() }
         }, lp(dp(44), dp(44)))
     }
+    barView = bar
     val wDp = c.resources.displayMetrics.widthPixels / c.resources.displayMetrics.density
     val cols = maxOf(4, ((wDp - 24) / 84).toInt())   // iOS sizeForItemAt 799: four columns at the least, one more for every 84 of the width
     val grid = c.vstack(Gravity.NO_GRAVITY) { setPadding(dp(12), dp(4), dp(12), dp(12)) }   // iOS insetForSectionAt 805
@@ -224,7 +255,9 @@ fun sharePage(act: MainActivity, s: Shared, onClose: () -> Unit): View {
                 addView(empty, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.TOP))
             }, lp(MATCH, 0, 1f))
         }, FrameLayout.LayoutParams(MATCH, MATCH))
+        addView(shield, FrameLayout.LayoutParams(MATCH, MATCH))
         addView(bar, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM).apply { setMargins(dp(12), 0, dp(12), dp(10)) })
+        addView(road, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM).apply { setMargins(dp(12), 0, dp(12), dp(10)) })
     }
 }
 
