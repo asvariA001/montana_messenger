@@ -724,6 +724,8 @@ private fun chatsPane(act: MainActivity): View {
     val bar = FrameLayout(c).apply { visibility = View.GONE }
     lateinit var write: View
     lateinit var redrawRows: () -> Unit
+    var archiveRevealed = false   // the archive's row is summoned by a pull (iOS archiveRevealed)
+    var revealArchive: (Boolean) -> Unit = {}
     val sel = ChatSelection { s ->
         redrawRows()
         bar.removeAllViews()
@@ -735,28 +737,32 @@ private fun chatsPane(act: MainActivity): View {
         isVerticalScrollBarEnabled = false
         addView(c.vstack(Gravity.NO_GRAVITY) {
             // The local room: stands in the list from the first moment; a tap opens it (iOS: the row opens its conversation).
-            val preview = c.text("", 15f, MT.gray).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
-            val time = c.text("", 13f, MT.gray)
+            val preview = c.text("", 16f, MT.gray).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
+            val time = c.text("", 14f, MT.gray)
             val face = FrameLayout(c)
             fun refresh() {
                 // Saved Messages wears one's own face (iOS MTSelfFace, the author's word 11.09): read again on every return
                 face.removeAllViews()
-                face.addView(c.avatar(SelfFace.load(c), Prefs.userName, 54))
+                face.addView(c.avatar(SelfFace.load(c), Prefs.userName, 48))
                 val last = SavedMessages.last(c)
                 preview.text = last?.text ?: ""   // USER-DATA: one's own last letter
                 preview.visibility = if (last == null) View.GONE else View.VISIBLE
                 time.text = last?.let { rowTime(c, it.at) } ?: ""
             }
             refresh()
+            // the local room's line in the chats page's measure (iOS ChatRow with library: 72, the face 48, the gap 16, the side 18; 22 and 20)
             addView(c.hstack {
-                setPadding(dp(16), dp(10), dp(16), dp(10))
-                addView(face, lp(dp(54), dp(54)).apply { marginEnd = dp(12) })
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(18), 0, dp(18), 0)
+                minimumHeight = dp(72)
+                addView(face, lp(dp(48), dp(48)).apply { marginEnd = dp(16) })
                 addView(c.vstack(Gravity.NO_GRAVITY) {
                     addView(c.hstack {
+                        gravity = Gravity.CENTER_VERTICAL
                         addView(c.text(c.getString(R.string.saved_messages), 17f, Color.WHITE, bold = true), lp(0, WRAP, 1f))
                         addView(time)
-                    }, lp())
-                    addView(preview, lp())
+                    }, lp(MATCH, dp(22)))
+                    addView(preview, lp(MATCH, dp(20)).apply { topMargin = dp(4) })
                 }, lp(0, WRAP, 1f))
                 pressable {
                     act.push { close ->
@@ -785,9 +791,10 @@ private fun chatsPane(act: MainActivity): View {
             }
             fun fillRows() {
                 rows.removeAllViews()
-                // THE ARCHIVE'S ROW over the chats while something is archived (iOS ArchivedChatsView behind «Archive»)
+                // THE ARCHIVE'S ROW over the chats while it is summoned and something is archived (iOS archiveRevealed: a pull-down
+                // summons it, a stroke up folds it -- the contacts' one law, «as on the chats»)
                 val archived = archivedChats().size
-                if (archived > 0 && !sel.on) {
+                if (archiveRevealed && archived > 0 && !sel.on) {
                     rows.addView(archiveEntry(act, archived), lp())
                     rows.addView(View(c).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = dp(82) })
                 }
@@ -801,6 +808,16 @@ private fun chatsPane(act: MainActivity): View {
                 }
             }
             redrawRows = { fillRows() }
+            revealArchive = { on ->
+                if (on != archiveRevealed && !(on && archivedChats().isEmpty())) {
+                    archiveRevealed = on
+                    fillRows()
+                    if (on) rows.getChildAt(0)?.let { v ->
+                        v.translationY = -c.dp(72).toFloat(); v.alpha = 0f
+                        v.animate().translationY(0f).alpha(1f).setDuration(300).setInterpolator(android.view.animation.AccelerateDecelerateInterpolator()).start()
+                    }
+                }
+            }
             fillRows()
             val onBook: () -> Unit = { act.onMain { fillRows() } }
             rows.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
@@ -811,8 +828,9 @@ private fun chatsPane(act: MainActivity): View {
             gap(120)   // the floating player's room at the foot
         })
     }
+    list.setOnScrollChangeListener { _, _, y, _, _ -> if (c.dp(25) < y) revealArchive(false) }   // a stroke up folds the archive's row
     return FrameLayout(c).apply {
-        addView(CoinPull(c, list), FrameLayout.LayoutParams(MATCH, MATCH))   // the coin's pull refreshes the feed (iOS MontanaCoinSpinner)
+        addView(CoinPull(c, list).apply { onPull = { pull -> if (25f < pull) revealArchive(true) } }, FrameLayout.LayoutParams(MATCH, MATCH))   // the coin's pull refreshes the feed (iOS MontanaCoinSpinner) and summons the archive's row
         // «WRITE» (iOS composeButton): the one door to the code and the link — the QR opens here and nowhere else.
         write = FrameLayout(c).apply {
             background = c.glassPlate(oval = true)

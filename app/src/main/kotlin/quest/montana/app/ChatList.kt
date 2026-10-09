@@ -172,12 +172,12 @@ class Tile(val glyph: Int, val red: Boolean = false, val deed: () -> Unit)
  */
 fun rowTiles(act: MainActivity, chat: Chat, inArchive: Boolean): List<Tile> = listOf(
     Tile(if (ChatMarks.hasUnread(chat)) R.drawable.ic_mark_read else R.drawable.ic_dot) { ChatMarks.toggleUnread(chat) },
-    Tile(R.drawable.ic_pin) { pin(chat.ref) },
+    Tile(if (ChatMarks.isPinned(chat.ref)) R.drawable.ic_pin_slash else R.drawable.ic_pin) { pin(chat.ref) },   // pin.slash.fill on a pinned chat (iOS 782)
     Tile(if (ChatMarks.isMuted(chat.ref)) R.drawable.ic_set_bell else R.drawable.ic_bell_off) { ChatMarks.toggleMute(chat.ref) },
     Tile(if (inArchive) R.drawable.ic_unarchive else R.drawable.ic_archive) {
         if (inArchive) ChatMarks.unarchive(chat.ref) else ChatMarks.archive(chat.ref)
     },
-    Tile(R.drawable.ic_delete, red = true) { askDeleteChat(act, chat.ref) },
+    Tile(R.drawable.ic_delete) { askDeleteChat(act, chat.ref) },   // every tile the same glass (iOS swipeTrailing 778-786)
 )
 
 /**
