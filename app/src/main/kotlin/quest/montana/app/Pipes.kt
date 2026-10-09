@@ -895,7 +895,7 @@ object Post {
             // on that network, and the drain stood behind it). One deadline for all; a burial is a cleanup, never delivery, so it
             // never waits in line behind a door that rests.
             val doors = Doors.ordered("box")
-            val awake = doors.filter { Presence.doorAlive(it) }
+            val awake = doors.filter { Signal.doorAlive(it) }   // the one door book (Presence.kt, object Signal)
             for (door in (awake.ifEmpty { doors })) Thread { Wire.post(door, "/box-del", body, 5000) }.start()
         }
     }
