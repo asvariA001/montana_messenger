@@ -343,6 +343,10 @@ object CallLine {
             override fun onAddTrack(r: RtpReceiver, s: Array<out MediaStream>) { made?.let { added(it, r) } }
             override fun onDataChannel(d: DataChannel) {}
             override fun onRenegotiationNeeded() {}
+            // THE ENGINE'S OWN GATHER FAILURES (iOS didFailToGatherIceCandidate, atom 319c1ca96b0a): by scheme and code, never an address
+            override fun onIceCandidateError(e: org.webrtc.IceCandidateErrorEvent) {
+                log("ice_gather_fail scheme=" + e.url.substringBefore(':') + " code=" + e.errorCode)
+            }
         }) ?: return null.also { log("no connection"); Calls.hangUp("connection-unbuilt") }
         // iOS buildPC: one voice track «mt_audio» in the stream «mt_stream», the person's mute applied to it at birth
         val source = f.createAudioSource(MediaConstraints())
@@ -418,6 +422,7 @@ object CallLine {
         val words = JSONArray()
         for (c in l.out) words.put(word(l, "call-ice").put("candidate",
             JSONObject().put("candidate", c.sdp).put("sdpMid", c.sdpMid).put("sdpMLineIndex", c.sdpMLineIndex)))
+        log("ice_tx " + kinds(l.out))
         l.out.clear()
         l.flushes++
         say(l, words)
@@ -426,10 +431,38 @@ object CallLine {
     /** The caller's candidates (iOS «call-ice» 2368): into the line once it holds the offer, kept until then. */
     fun remoteIce(ref: String, epoch: String, cs: List<IceCandidate>) = work.execute {
         val l = mine(ref, epoch)
+        if (l != null) log("ice_rx " + kinds(cs))
         if (l != null && l.remoteSet) { cs.forEach { l.pc.addIceCandidate(it) }; return@execute }
         synchronized(gate) {
             cs.forEach { waiting.add(epoch to it) }
             while (waiting.size > 64) waiting.removeAt(0)
+        }
+    }
+
+    /** THE CANDIDATES BY TYPE, TRANSPORT AND FAMILY (iOS ice_tx/ice_rx, atom 319c1ca96b0a): whether a relay ever existed is
+     * said, never an address -- «relay/tcp/4=1 host/udp/6=2». */
+    private fun kinds(cs: List<IceCandidate>): String {
+        val n = java.util.TreeMap<String, Int>()
+        for (c in cs) {
+            val t = c.sdp.removePrefix("a=").split(' ')
+            if (t.size < 8) continue
+            val key = t[7] + "/" + t[2].lowercase() + "/" + (if (':' in t[4]) "6" else "4")
+            n[key] = (n[key] ?: 0) + 1
+        }
+        return if (n.isEmpty()) "none" else n.entries.joinToString(" ") { it.key + "=" + it.value }
+    }
+
+    /** THE PAIR TABLE AT A FAILED VERDICT (iOS call_pairs, atom 319c1ca96b0a): each pair's local and remote type, its transport
+     * and its state -- what the engine tried before it said «failed». */
+    private fun notePairs(l: Line, why: String) = runCatching {
+        l.pc.getStats { r ->
+            val all = r.statsMap
+            val rows = all.values.filter { it.type == "candidate-pair" }.take(12).map { p ->
+                val lc = all[p.members["localCandidateId"] as? String]?.members
+                val rc = all[p.members["remoteCandidateId"] as? String]?.members
+                (lc?.get("candidateType") ?: "?").toString() + "/" + (lc?.get("protocol") ?: "?") + "-" + (rc?.get("candidateType") ?: "?") + ":" + (p.members["state"] ?: "?")
+            }
+            log("call_pairs " + why + " n=" + rows.size + " " + rows.joinToString(" "))
         }
     }
 
@@ -671,6 +704,7 @@ object CallLine {
      */
     private fun setupPathFailed(l: Line) {
         if (synchronized(gate) { line !== l } || l.connectedAt != 0L) return
+        notePairs(l, "failed ask=" + l.setupAsks)
         l.setupAsks++
         if (l.setupAsks > SETUP_ASK_MAX) {
             log("no path after " + (l.setupAsks - 1) + " fresh asks, the last on the relay alone — ending")

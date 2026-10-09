@@ -61,7 +61,8 @@ object Diary {
         if (!d.isDirectory) d.mkdirs()   // «Forget this device» takes the folder with the person; the diary goes on in a new one
         val f = File(d, FILE)
         runCatching { f.appendText(iso.format(java.util.Date(ms)) + hide(" " + words) + "\n") }
-        if (f.length() >= ROTATE) rotate(d, f)
+        // THE TRACE OF A CALL IS NOT ROTATED UNDER THE CALL (iOS MontanaLog.holdRotation, atom 319c1ca96b0a): four rings at most
+        if (f.length() >= ROTATE && !(Calls.busy() && f.length() < 4 * ROTATE)) rotate(d, f)
         if (m.groupValues[3] == "E" || m.groupValues[4] == "AndroidRuntime") failure()
     }
 
