@@ -115,7 +115,13 @@ object CallLine {
         var powerTicks = 0
         var breakRound = 0   // a deadline armed by an earlier break never ends a later one
         var lastIce = "new"
-        val sum = Summary()
+        var sum = Summary()   // the call's story outlives a connection rebuilt in place: it is handed over
+        // THE CALL OUTLIVES ITS CONNECTION (iOS rejoinHeldCall 3533-3587, rebuildInPlace 3612-3640, rebuildForRejoin 3656-3713):
+        // a connection built in place of a dead one -- by the run that came back, or by the living side -- until it stands
+        var rejoining = false
+        var rebuiltInPlace = false
+        var rejoinUntil = 0L   // the run that came back waits for its peer until the call's window closes
+        var seenRejoin: String? = null   // the peer's rejoin offer, taken once
     }
 
     /** THE CALL TELLS ITS OWN STORY IN ONE LINE (iOS 3864-3884, the summary 3021-3064): gathered while it lives, spoken at its end. */
@@ -144,6 +150,17 @@ object CallLine {
         private set
     @Volatile var lost = false   // the link broke and has not healed (iOS «reconnecting»): the call's light is red
         private set
+    /** THE PEER REBUILDS A CALL IN PLACE (iOS peerRebuilds, learnPeerCaps 922-932): its caps said «rejoin» once in this call. A break
+     * then waits for it as long as a ring rings -- its run comes back within it. */
+    @Volatile var peerRebuilds = false
+        private set
+    fun learnCaps(ref: String, epoch: String, caps: JSONObject?) {
+        if (caps?.optBoolean("rejoin") != true || peerRebuilds) return
+        if (mine(ref, epoch) == null && Calls.peer() != ref) return
+        peerRebuilds = true
+        log("call_caps the peer rebuilds in place")
+        Calls.holdOnDisk(force = true)   // the record says it at once: a run that dies now goes back into the call
+    }
 
     // ── THE PICTURE'S STATE, read by the call's screen (iOS isVideo; CallUIModel video, videoAskPending, videoAskIncoming,
     // videoAsk, remoteLive, peerSharing, pipSwapped; wantFrontCamera) ──
@@ -299,9 +316,10 @@ object CallLine {
 
     private fun armConnect(l: Line) = MainThread.later(CONNECT_MS) { if (synchronized(gate) { line === l } && l.connectedAt == 0L) Calls.hangUp("connect-timeout") }
 
-    /** One connection for one call (iOS rtcConfig + buildPC), on the line's queue; the phone's sound turns to the call. */
-    private fun build(ref: String, seed: String): Line? {
-        if (synchronized(gate) { line != null }) return null
+    /** One connection for one call (iOS rtcConfig + buildPC), on the line's queue; the phone's sound turns to the call. A connection
+     * built in place of a dead one (`replacing`) takes its call's clock, its side and its story; the sound already stands. */
+    private fun build(ref: String, seed: String, replacing: Line? = null): Line? {
+        if (synchronized(gate) { line != null && line !== replacing }) return null
         val f = CallEngine.factory ?: return null.also { log("no engine"); Calls.hangUp("engine-missing") }
         val cfg = PeerConnection.RTCConfiguration(servers()).apply {
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
@@ -330,6 +348,21 @@ object CallLine {
         pc.addTrack(track, listOf("mt_stream"))
         val l = Line(ref, seed, pc, source, track)
         made = l
+        if (replacing != null) {
+            l.connectedAt = replacing.connectedAt; l.caller = replacing.caller; l.speakerDecided = replacing.speakerDecided
+            l.sum = replacing.sum; l.breakRound = replacing.breakRound; l.routeKey = replacing.routeKey
+            synchronized(gate) { line = l }
+            // the dead connection goes, its call does not: its camera and its picture are the new connection's to raise
+            stopRouteWatch(replacing)
+            replacing.measureGen++
+            cameraOff(replacing)
+            runCatching { replacing.remote?.dispose() }
+            runCatching { replacing.pc.dispose() }
+            runCatching { replacing.source.dispose() }
+            remoteLive = false; peerSharing = false; sniffed = false
+            moved()
+            return l
+        }
         synchronized(gate) { line = l }
         audioOn()
         return l
@@ -349,7 +382,7 @@ object CallLine {
 
     // iOS myCaps, as this build is: SFrame off, no answer read off the wake road, no rejoin
     fun caps(): JSONObject = JSONObject().put("tier", "android-native").put("ver", 1).put("opus_max", 40000).put("hw_aec", true)
-        .put("sframe", false).put("av", false).put("rejoin", false)
+        .put("sframe", false).put("av", false).put("rejoin", true)   // this build rebuilds a call in place and goes back into it (iOS caps.rejoin)
 
     private fun word(l: Line, ctrl: String) =
         JSONObject().put("t", "cal").put("ctrl", ctrl).put("ts", System.currentTimeMillis()).put("e", Calls.epochOf(l.seed))
@@ -358,7 +391,8 @@ object CallLine {
 
     /** The answer travels an unreliable road: said again every two seconds until the voice joins (iOS answerResendTimer). */
     private fun sendAnswer(l: Line, sdp: String, n: Int) {
-        if (synchronized(gate) { line !== l } || l.connectedAt != 0L) return
+        // a connection built in place keeps its call's clock: its answer is said until the new connection stands
+        if (synchronized(gate) { line !== l } || (l.connectedAt != 0L && !l.rejoining)) return
         say(l, JSONArray().put(word(l, "call-answer").put("sdp", JSONObject().put("type", "answer").put("sdp", sdp)).put("caps", caps())))
         if (n == 0) log("answer sent")
         if (n < 15) MainThread.later(2000) { work.execute { sendAnswer(l, sdp, n + 1) } }
@@ -421,6 +455,16 @@ object CallLine {
                 }
                 // THE MEASUREMENT STARTS HERE AND ONLY HERE (iOS 5048-5055): a reconnect never starts a second loop
                 if (!l.measuring) { l.measuring = true; measure(l, ++l.measureGen) }
+                if (l.rejoining) {
+                    // A CONNECTION BUILT IN PLACE STANDS (iOS 5072-5080): the call goes on, a rejoin that stood counts no fall, and
+                    // a video call speaks aloud again as at its first connect
+                    l.rejoining = false
+                    l.speakerDecided = false
+                    autoSpeaker(l)
+                    log("call_rejoin the new connection stands — the call goes on")
+                    Calls.rejoinStood()
+                }
+                Calls.holdOnDisk(force = true)   // the record of the call that lives (iOS holdOnDisk 3505-3521)
                 raiseVideoCeiling(l)   // the link is proven: in five seconds the pair is read and the ceiling set (iOS 5056)
             }
             // A FAILED PATH BEFORE THE FIRST CONNECT IS ANSWERED, NOT FINAL (iOS setupPathFailed, MontanaCall.swift, atom
@@ -447,22 +491,140 @@ object CallLine {
      * checks are asked at once and every three seconds (iOS scheduleIceRestart 5147-5165), and the thirty-second deadline
      * is the verdict if none of them form.
      */
-    private fun enterBreak(l: Line, why: String) {
-        if (synchronized(gate) { line !== l } || lost || l.connectedAt == 0L) return
+    private fun enterBreak(l: Line, why: String, fresh: Boolean = false) {
+        if (synchronized(gate) { line !== l } || l.connectedAt == 0L) return
+        if (lost) { if (fresh) armDeadline(l); return }   // a rebuild inside a break waits anew by its own window
         lost = true
-        l.sum.breaks++
-        val round = ++l.breakRound
+        if (!fresh) l.sum.breaks++
         log("call_reconnect break by " + why)
         breakTone(true)
         moved()
-        scheduleIceRestart(l)
-        MainThread.later(RECONNECT_DEADLINE_MS) {
+        armDeadline(l)
+        if (!fresh) scheduleIceRestart(l)   // a fresh connection is checked by its own offer, not asked again
+    }
+
+    /**
+     * THE WAIT OF A BREAK (iOS armReconnectDeadline 3489-3501): the run that came back waits for its peer's answer until the
+     * call's window closes (its peer may be in Settings too), at least twenty seconds; a peer that rebuilds in place is waited
+     * for as long as a ring rings -- its run comes back within it; any other peer, the thirty seconds of checks.
+     */
+    private fun armDeadline(l: Line) {
+        val round = ++l.breakRound
+        val wait = if (l.rejoining) maxOf(REJOIN_ANSWER_MS, l.rejoinUntil - System.currentTimeMillis())
+            else if (peerRebuilds) Calls.LIFE_MS else RECONNECT_DEADLINE_MS
+        MainThread.later(wait) {
             if (synchronized(gate) { line === l } && lost && l.breakRound == round) work.execute {
-                log("reconnecting past the deadline — " + l.iceRestarts + " fresh transports asked, none formed — ending")
-                Calls.hangUp("lost")   // iOS endByRule("lost"): a rule ended it, not a hand
+                log("reconnecting past the deadline (" + wait / 1000 + "s) — " + l.iceRestarts + " fresh transports asked, none formed — ending")
+                Calls.hangUp(if (l.rejoining) "rejoin-unanswered" else "lost")   // a rule ended it, not a hand (iOS endByRule)
             }
         }
     }
+    private const val REJOIN_ANSWER_MS = 20_000L   // iOS rejoinAnswerS
+
+    // ═══ THE CALL OUTLIVES ITS PROCESS AND ITS CONNECTION (iOS 3503-3713, atoms dc1b54275bf6, 85e52e1b67b9, c0e89e93b0f9) ═══
+
+    /**
+     * THE RUN GOES BACK INTO THE CALL ITS PROCESS HELD (iOS rejoinHeldCall 3533-3587): the same seed, a new connection, its offer
+     * as «call» with the reason «rejoin» on the node's lane -- no ring on either side. The call keeps its clock; the screen says
+     * the break until the new connection stands, and waits until the call's window closes.
+     */
+    fun rejoin(ref: String, seed: String, withVideo: Boolean, caller: Boolean, connectedAt: Long, until: Long) = work.execute {
+        val l = build(ref, seed) ?: return@execute
+        l.caller = caller
+        l.connectedAt = connectedAt
+        l.rejoining = true
+        l.rejoinUntil = until
+        peerRebuilds = true   // only a peer that rebuilds is gone back into (iOS h.rebuilds)
+        log("call_rejoin tx video=" + (if (withVideo) 1 else 0) + " epoch=" + Calls.epochOf(seed).take(8))
+        if (withVideo) {
+            video = true
+            if (camera(l)) place(l)
+            else l.pc.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO, RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.RECV_ONLY))
+        }
+        enterBreak(l, "rejoin", fresh = true)
+        offerRejoin(l)
+    }
+
+    /**
+     * THE LIVING RUN REBUILDS ITS OWN TRANSPORT (iOS rebuildInPlace 3612-3640): the break's first ask did not form, and a dead
+     * transport is not asked again -- the connection is closed and born anew, the peer answers the rejoin in place; the call
+     * keeps its clock, its system call and its screen. What a hand did by hanging up and dialling again, without the hand.
+     */
+    private fun rebuildInPlace(old: Line, why: String) {
+        if (!lost || old.rebuiltInPlace) return
+        log("call_rejoin tx in place — " + why)
+        val l = build(old.ref, old.seed, replacing = old) ?: return
+        l.rebuiltInPlace = true
+        l.rejoining = true
+        l.rejoinUntil = System.currentTimeMillis() + Calls.LIFE_MS
+        if (video) { if (camera(l)) place(l) else l.pc.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO, RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.RECV_ONLY)) }
+        armDeadline(l)
+        offerRejoin(l)
+    }
+
+    /** The rejoin's own offer (iOS offerRejoin 3588-3611): one road for the run that came back and for the living run's rebuild. */
+    private fun offerRejoin(l: Line) {
+        l.holding = true   // the candidates wait for the peer's answer, eight seconds at most (iOS iceHeldForPeerWord, releaseHeldIce)
+        MainThread.later(8000) { if (synchronized(gate) { line === l }) work.execute { unhold(l, "time") } }
+        l.pc.createOffer(sdp(onMade = { d ->
+            val tuned = SessionDescription(d.type, tune(d.description, 64000))
+            l.pc.setLocalDescription(sdp(onSet = { if (l.vtrack != null) bound(l); sendRejoinOffer(l, tuned.description, 0) },
+                onFail = { e -> log("own rejoin offer refused: " + e); Calls.hangUp("rejoin-offer-refused-here") }), tuned)
+        }, onFail = { e -> log("rejoin offer unbuilt: " + e); Calls.hangUp("rejoin-offer-unbuilt") }), MediaConstraints())
+    }
+
+    /** The rejoin's offer rides the node's lane every two seconds until the peer's answer stands, nine times at most (iOS
+     * sendRejoinOffer 3641-3655): the peer is awake in the call, no ring is needed, and the lane names the call. */
+    private fun sendRejoinOffer(l: Line, sdp: String, n: Int) {
+        if (synchronized(gate) { line !== l } || !l.rejoining || l.remoteSet || 9 <= n) return
+        val w = word(l, "call").put("sdp", JSONObject().put("type", "offer").put("sdp", sdp)).put("video", video).put("caps", caps())
+            .put("s", l.seed).put("rsn", "rejoin").put("n", Prefs.userName.trim())
+        say(l, JSONArray().put(w))
+        log("call_rejoin offer n=" + (n + 1))
+        MainThread.later(2000) { work.execute { sendRejoinOffer(l, sdp, n + 1) } }
+    }
+
+    /**
+     * THE LIVING SIDE REBUILDS IN PLACE (iOS rebuildForRejoin 3656-3713): the peer's run came back with a new connection; the
+     * dead one is closed, a new one answers the rejoin, and the call -- its clock, its system call, its screen -- goes on. A
+     * rejoin carrying this connection's own certificate is a copy, not a rebirth; a copy of the offer already taken is buried.
+     * BOTH RUNS CAME BACK (iOS 2118-2126): the caller's offer stands while nothing has answered it -- the callee's run answers it.
+     */
+    fun rebuildForRejoin(ref: String, epoch: String, offer: String, caps: JSONObject?) = work.execute {
+        val old = mine(ref, epoch) ?: return@execute log("call_rejoin rx for no call held here — buried")
+        if (old.connectedAt == 0L) return@execute log("call_rejoin rx for a call that never stood — buried")
+        if (offer == old.seenRejoin) return@execute log("call_rejoin rx copy — buried")
+        val theirs = fingerprint(offer)
+        if (theirs != null && theirs == old.pc.remoteDescription?.description?.let { fingerprint(it) })
+            return@execute log("call_rejoin rx with this connection's own certificate — no rebirth, buried")
+        if (old.rejoining && old.caller && !old.remoteSet) {
+            log("call_rejoin rx while this run is rejoining too — the caller's offer stands, theirs buried")
+            return@execute
+        }
+        if (caps?.optBoolean("rejoin") == true) peerRebuilds = true
+        log("call_rejoin rx — the peer's new connection replaces the dead one, no ring")
+        val l = build(old.ref, old.seed, replacing = old) ?: return@execute
+        l.seenRejoin = offer
+        l.rejoining = true
+        l.rejoinUntil = System.currentTimeMillis() + Calls.LIFE_MS
+        enterBreak(l, "peer rejoin", fresh = true)
+        l.pc.setRemoteDescription(sdp(onSet = {
+            l.remoteSet = true
+            drain(l)
+            // the offer decides whether the call goes on with video (iOS adoptVideoFromOffer, 3685-3686)
+            if (offer.contains("m=video")) { video = true; if (camera(l)) place(l) } else if (video) { video = false; remoteLive = false }
+            moved()
+            CallService.sync()
+            l.pc.createAnswer(sdp(onMade = { d ->
+                val tuned = SessionDescription(d.type, tune(d.description, 40000))
+                l.pc.setLocalDescription(sdp(onSet = { sendAnswer(l, tuned.description, 0); if (l.vtrack != null) bound(l) },
+                    onFail = { e -> log("own rejoin answer refused: " + e); Calls.hangUp("rejoin-answer-refused-here") }), tuned)
+            }, onFail = { e -> log("rejoin answer unbuilt: " + e); Calls.hangUp("rejoin-answer-unbuilt") }), MediaConstraints())
+        }, onFail = { e -> log("the peer's rejoin offer refused: " + e); Calls.hangUp("rejoin-offer-refused") }), SessionDescription(SessionDescription.Type.OFFER, offer))
+    }
+
+    /** The rejoining run: its own offer stands and waits for the peer's answer (Calls routes «call-answer» here). */
+    fun rejoiningFor(ref: String, epoch: String): Boolean = mine(ref, epoch)?.rejoining == true
 
     /** ...AND ONE DOOR OUT (iOS leaveReconnecting 3715-3723): the ICE machine's «connected» or the path answering again. */
     private fun leaveBreak(l: Line, why: String) {
@@ -552,6 +714,7 @@ object CallLine {
         heldByPeer = false
         video = false; asking = false; asked = false; offerMine = false; remoteLive = false; peerSharing = false; swapped = false
         front = true; sniffed = false; askRound++; sharing = false; peerPaused = false; selfPaused = false; cameraTold = false; peerShape = null
+        peerRebuilds = false
         powerFloorNow = 0; powerSaving = false; signal = 2   // the counters and the lights belong to one call (iOS 3066-3072)
         l.measureGen++   // no tick of the ended call survives into the next one (iOS K-9, 3081)
         breakTone(false)
@@ -1157,6 +1320,7 @@ object CallLine {
         // A pair answers only by its own growth past its last sighting (24.09: a fresh transport drops the dead pairs, and a
         // smaller sum must not read as «the path answers»). Two silent samples, four seconds, declare the break; the first
         // answering sample ends it -- and only after the media flowed once: the opening seconds are silent by nature.
+        Calls.holdOnDisk()   // the last moment the call was known alive, every five seconds (iOS measureTick 3925)
         val pathAnswered = pathNow.any { (id, b) -> b > (l.pathSeen[id] ?: 0L) }
         l.pathSeen = pathNow
         val inNow = aBytes + vBytes
@@ -1490,6 +1654,13 @@ object CallLine {
         MainThread.later(3_000) {
             work.execute {
                 if (synchronized(gate) { line !== l } || !lost || l.iceRestarts >= RESTART_MAX) return@execute
+                // A FRESH TRANSPORT AFTER ONE ASK THAT DID NOT FORM (iOS scheduleIceRestart 5153-5162, 29.09): once the first ask
+                // has had its settle, the caller of a peer that rebuilds builds a new connection in place by the rejoin road; the
+                // callee keeps its asks and answers the rebuild as it answers a run that came back
+                if (l.caller && peerRebuilds && 1 <= l.iceRestarts && !l.rebuiltInPlace && RESTART_SETTLE_MS <= System.currentTimeMillis() - l.restartAskedAt) {
+                    rebuildInPlace(l, "ask n=" + l.iceRestarts + " did not form in " + RESTART_SETTLE_MS / 1000 + "s")
+                    return@execute
+                }
                 requestIceRestart(l, "reconnecting")
                 knock(l)
             }

@@ -41,12 +41,13 @@ object Calls {
     private const val NOTE = 0x4d43   // one incoming call stands on the screen at a time
     private const val SEEDS = "callSeeds"   // seed -> {st, at}: «alive» rang here, «dead» is over (iOS MontanaMissedCall's book, burySeed)
 
-    private class Ring(val ref: String, val seed: String, val video: Boolean, val out: Boolean = false) {
+    private class Ring(val ref: String, val seed: String, val video: Boolean, val out: Boolean = false,
+                       val startedAt: Long = System.currentTimeMillis()) {   // iOS startedAt: this call's own birth by this device's clock (the critic's youngerThanOurs, 24.09, build 1500771e4d2b)
+        var rejoins = 0   // runs that went back into this call and died before its new connection stood (iOS HeldCall.rejoins)
         var offer: String? = null   // incoming: the caller's description, kept for the answer; outgoing: ours, said until it rings
         var answered = false   // incoming: this person answered; outgoing: the far phone did
         var line = false   // the voice was handed its offer
         var ringing = false   // outgoing: the far phone said «call-ringing»
-        val startedAt = System.currentTimeMillis()   // iOS startedAt: this call's own birth by this device's clock (the critic's youngerThanOurs, 24.09, build 1500771e4d2b)
         var refused = false   // the system would not stand this call as its own (iOS callkit-refused/callkit-reset, builds 7492b6b28754/3811dfa0a06f): its own miss rides silent
         var answeredAt = 0L   // iOS answeredAt: the answering hand -- the callee's tap, the caller's received answer
         // THE RING'S LEDGER (iOS 608-611, the author's word 13.09: our part is concrete, the rest is the far side's, and the
@@ -80,8 +81,10 @@ object Calls {
             // EVERY CALL WORD OF THEIRS IS PRESENCE (iOS handleSignal 2026-2036, notePeerSeen 1243-1245): stamped now, whatever it
             // says; only the invitation of a call already ended here proves nothing
             if (!(w.optString("ctrl") == "call" && seedState(w.optString("s")) == "dead")) Presence.noteSeen(ref, System.currentTimeMillis())
+            // WHAT THE FAR BUILD CAN DO IS LEARNED FROM EVERY WORD OF THE CALL IN HAND (iOS learnPeerCaps 922-932)
+            w.optJSONObject("caps")?.let { CallLine.learnCaps(ref, w.optString("e").ifEmpty { epoch }, it) }
             when (val ctrl = w.optString("ctrl")) {
-                "call" -> {
+                "call" -> if (w.optString("rsn") == "rejoin") rejoinHeard(ref, w) else {
                     val ts = w.optLong("ts")
                     if (ts > 0 && System.currentTimeMillis() - ts > LIFE_MS) { log("call word stale"); continue }
                     if (ts > 0) log("call word age=" + (System.currentTimeMillis() - ts) + " ms")
@@ -96,6 +99,9 @@ object Calls {
                 "call-ringing" -> outOf(ref, w, epoch)?.let { ringingHere(it) }
                 "call-answer" -> {
                     val sdp = w.optJSONObject("sdp")?.optString("sdp")?.ifEmpty { null }
+                    // the answer to a rejoin offer of this run, whichever side it first was (iOS 3641-3655)
+                    val e = w.optString("e").ifEmpty { epoch }
+                    if (sdp != null && CallLine.rejoiningFor(ref, e)) { CallLine.answered(ref, e, sdp); continue }
                     val r = outOf(ref, w, epoch)
                     if (r != null && sdp != null) {
                         synchronized(gate) { if (!r.answered) r.answeredAt = System.currentTimeMillis(); r.answered = true }
@@ -413,6 +419,7 @@ object Calls {
         val spoken = CallLine.stop(r.seed)
         val dur = spoken.dur
         story(r, why, spoken)
+        holdOnDisk()   // the call ended: its record goes (iOS 3508-3510)
         CallService.stop()
         CallScreen.hide()
         Signal.release(r.ref, "call")
@@ -432,6 +439,108 @@ object Calls {
             else if (!r.answered && why != "declined") Notify.letter(r.ref, rowText(r.video, true, 0, true))   // iOS postMissedCallBanner
         }
         log("end " + why + (if (silent) " silent" else ""))
+    }
+
+    /**
+     * THE PEER CAME BACK INTO THIS CALL (iOS handleSignalBody «call» rsn rejoin 2108-2132, handleSignal 2026-2035): the same seed,
+     * a new connection, no ring; the dead connection is replaced in place by the line. A rejoin of a call that ended here is
+     * told so at once -- the run that came back would otherwise wait out its window over «Reconnecting…» for a call nobody holds.
+     */
+    private fun rejoinHeard(ref: String, w: JSONObject) {
+        val seed = w.optString("s")
+        val sdp = w.optJSONObject("sdp")?.optString("sdp")?.ifEmpty { null } ?: return
+        if (seed.isEmpty()) return
+        if (seedState(seed) == "dead") {
+            log("call_rejoin rx of a call that ended here — call-end")
+            Signal.postWord(ref, epochOf(seed), JSONArray().put(JSONObject().put("t", "cal").put("ctrl", "call-end").put("ts", System.currentTimeMillis())
+                .put("e", epochOf(seed))).toString().toByteArray())
+            return
+        }
+        val r = synchronized(gate) { ring?.takeIf { it.ref == ref && it.seed == seed && it.answered } }
+        if (r == null) return log("call_rejoin rx for no call held here — buried")
+        CallLine.rebuildForRejoin(ref, epochOf(seed), sdp, w.optJSONObject("caps"))
+    }
+
+    // ═══ THE CALL ON DISK (iOS HeldCall 751-772, holdOnDisk 3505-3521, rejoinHeldCall 3533-3587; atoms dc1b54275bf6,
+    // 85e52e1b67b9, c0e89e93b0f9): the living call stands on disk from its connection to its end, sealed by the device's key --
+    // the peer, the seed, video or voice, the side, since when, whether the peer rebuilds, the last moment it was known alive
+    // (every five seconds), how many runs already went back into it. The next run finds it and goes back into the call. ═══
+    private const val HELD = "mt.call.held"
+    @Volatile private var heldAt = 0L
+    private var launchRead = false
+    private var launchHeld: JSONObject? = null
+
+    /** The record the previous run left, read once, before this run writes its own (iOS init 787-797). */
+    private fun launchRecord(): JSONObject? = synchronized(gate) {
+        if (!launchRead) {
+            launchRead = true
+            launchHeld = DeviceVault.get(HELD)?.let { runCatching { JSONObject(String(it, Charsets.UTF_8)) }.getOrNull() }
+            launchHeld?.let { h ->
+                log("call_lost epoch=" + h.optString("seed").take(8) + " connected=" + (if (h.optLong("connectedAt") > 0L) 1 else 0) +
+                    " rebuilds=" + (if (h.optBoolean("rebuilds")) 1 else 0) + " tries=" + h.optInt("rejoins") +
+                    " age_s=" + (System.currentTimeMillis() - h.optLong("alive")) / 1000 + " — the previous run died holding it")
+            }
+        }
+        launchHeld
+    }
+
+    /** The call in hand written down: forced at its connection and when the peer's caps say «rejoin», else every five seconds. */
+    fun holdOnDisk(force: Boolean = false) {
+        launchRecord()
+        val r = synchronized(gate) { ring?.takeIf { it.answered || it.out } }
+        val at = CallLine.connectedAt
+        if (r == null) {
+            // a held call waiting for its person is not wiped by an end elsewhere: only its judgement removes it (iOS 3508-3512)
+            if (synchronized(gate) { launchHeld == null } && heldAt != 0L) DeviceVault.delete(HELD)
+            heldAt = 0L
+            return
+        }
+        val now = System.currentTimeMillis()
+        if (at == 0L || (!force && now - heldAt < 5000)) return
+        heldAt = now
+        val o = JSONObject().put("peer", r.ref).put("seed", r.seed).put("video", CallLine.video || r.video).put("initiator", r.out)
+            .put("startedAt", r.startedAt).put("connectedAt", at).put("rebuilds", CallLine.peerRebuilds).put("alive", now).put("rejoins", r.rejoins)
+        DeviceVault.set(HELD, o.toString().toByteArray(Charsets.UTF_8))
+    }
+    /** A rejoin that stood is no fall: the next run goes back in (iOS 5076, 24.09 23:20). */
+    fun rejoinStood() { synchronized(gate) { ring?.rejoins = 0 } }
+
+    /**
+     * THE RUN GOES BACK INTO THE CALL ITS PROCESS HELD (iOS rejoinHeldCall 3533-3587): asked when the app faces the person; only a
+     * call that stood connected, with a peer that rebuilds in place, whose last known moment lies inside the call's window, and
+     * that no run went back into twice. Not yet: the person has not come back to the screen, or the peer's pipe is not open.
+     */
+    fun rejoinHeldCall(act: MainActivity, attempt: Int = 0) {
+        val h = launchRecord() ?: return
+        val age = System.currentTimeMillis() - h.optLong("alive")
+        val ok = 0L < h.optLong("connectedAt") && h.optBoolean("rebuilds") && h.optInt("rejoins") < 2 && age < LIFE_MS && synchronized(gate) { ring == null }
+        if (!ok) return judged(h, "not tried connected=" + (if (0L < h.optLong("connectedAt")) 1 else 0) + " rebuilds=" + (if (h.optBoolean("rebuilds")) 1 else 0) +
+            " tries=" + h.optInt("rejoins") + " age_s=" + age / 1000)
+        val ref = h.optString("peer"); val seed = h.optString("seed")
+        if (Book.secret(ref) == null || CallScreen.front !== act) {
+            if (attempt < 40) MainThread.later(250) { rejoinHeldCall(act, attempt + 1) } else judged(h, "not tried — the person or the pipe never came")
+            return
+        }
+        synchronized(gate) { launchHeld = null }
+        val video = h.optBoolean("video"); val out = h.optBoolean("initiator")
+        val r = Ring(ref, seed, video, out, h.optLong("startedAt")).also {
+            it.answered = true; it.ringing = true; it.line = true; it.rejoins = h.optInt("rejoins") + 1; it.answeredAt = h.optLong("connectedAt")
+        }
+        synchronized(gate) { ring = r }
+        noteSeed(seed, "alive")
+        log("call_rejoin tx age_s=" + age / 1000 + " video=" + (if (video) 1 else 0) + " waited_ms=" + attempt * 250 + " epoch=" + epochOf(seed).take(8))
+        Signal.hold(ref, "call")
+        CallService.start(Book.ctx, ref) { refused(r, "service-refused") }
+        CallLine.rejoin(ref, seed, video, out, h.optLong("connectedAt"), h.optLong("alive") + LIFE_MS)
+        CallScreen.show(act, ref)
+        CallLine.updateProximity()
+    }
+    private fun judged(h: JSONObject, why: String) {
+        synchronized(gate) { launchHeld = null }
+        log("call_rejoin " + why)
+        // the call this phone held and will not go back into is over here: «call-gone» answers its asks now (iOS lostEpoch)
+        noteSeed(h.optString("seed"), "dead", engaged = true)
+        if (synchronized(gate) { ring == null }) DeviceVault.delete(HELD)
     }
 
     /**
