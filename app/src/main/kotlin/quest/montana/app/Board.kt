@@ -949,35 +949,54 @@ fun openWriter(act: MainActivity, w: String) {
     if (w.isEmpty()) act.push { close -> myPage(act, close) } else act.push { close -> peerInfoPage(act, w, close) }
 }
 
-/** A link the post's writer read: the card rides with the post, a tap opens the address, which is how a video or a track starts
- * (iOS MTWallLink, MontanaBoardViews.swift:544 at 2155, atom 5a84afb1f68f). A visitor draws these bytes and does not open the page
- * until that tap -- the only honest reader of a link is the person who chose to share it; no inline play, no mute mark here
- * (atom 2d3d5127f89b not ported). */
+/** A LINK THE POST'S WRITER READ (iOS MTWallLink, MontanaBoardViews.swift:544-642 at 2155, atom 5a84afb1f68f): the picture the
+ * writer's own read brought -- its shape held between three quarters and two, corners 10, a circled play or note mark on it for a
+ * video or a track -- the site in caption grey on one line, the title semibold on two, six apart; a tap opens the address, which
+ * is how a video or a track starts. A visitor never touches the site before that tap: the 2155 iPhone asks YouTube for the
+ * stream the moment the post is drawn (prepare, 620-627) -- the visitor's phone, untapped, against its own words at 541-543 --
+ * and that read is not carried here; the in-post play of atom 2d3d5127f89b waits for the author's word. */
 private fun wallLinkView(act: MainActivity, card: LinkCard): View {
     val c: Context = act
     val kind = LinkPreview.playKind(card.u)
     val ratio = ((card.w ?: 16).toFloat() / maxOf(card.h ?: 9, 1).toFloat()).coerceIn(0.75f, 2f)
-    val pic = poster(card.i)
+    val b64 = card.i.orEmpty()
     return c.vstack(Gravity.NO_GRAVITY) {
-        if (pic != null) addView(FrameLayout(c).apply {
-            addView(WallTile(c, ratio).apply {
+        var above = false
+        if (b64.isNotEmpty()) {
+            val tile = object : ImageView(c) {
+                override fun onMeasure(w: Int, h: Int) { val wd = MeasureSpec.getSize(w); setMeasuredDimension(wd, (wd / ratio).toInt()) }
+            }.apply {
                 scaleType = ImageView.ScaleType.CENTER_CROP
-                background = c.rounded(MT.hairline, 10)
-                outlineProvider = ViewOutlineProvider.BACKGROUND
+                outlineProvider = object : ViewOutlineProvider() {
+                    override fun getOutline(v: View, o: android.graphics.Outline) { o.setRoundRect(0, 0, v.width, v.height, c.dp(10).toFloat()) }
+                }
                 clipToOutline = true
-                setImageBitmap(pic)
-            }, FrameLayout.LayoutParams(MATCH, WRAP))
-            if (kind != null) addView(c.icon(if (kind == "aud") R.drawable.ic_music_note else R.drawable.ic_play_fill, android.graphics.Color.WHITE).apply {
-                contentDescription = c.getString(if (kind == "aud") R.string.pi_music else R.string.pi_video)
-            }, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.CENTER))
-        }, lp())
+            }
+            // the poster is decoded off the screen's thread and kept (iOS MTBoardPoster.decoded, 561)
+            WallPoster.kept(b64)?.let { tile.setImageBitmap(it) } ?: WallPoster.decode(b64) { tile.setImageBitmap(it) }
+            addView(FrameLayout(c).apply {
+                addView(tile, FrameLayout.LayoutParams(MATCH, WRAP))
+                if (kind != null) addView(c.icon(if (kind == "aud") R.drawable.ic_music_note_circle_fill else R.drawable.ic_play_circle_fill,
+                    android.graphics.Color.WHITE), FrameLayout.LayoutParams(dp(44), dp(44), Gravity.CENTER))
+            }, lp())
+            above = true
+        }
         card.s?.takeIf { it.isNotEmpty() }?.let {
-            addView(c.text(it, 12f, MT.gray).apply { singleLineEllipsis() }, lp().apply { topMargin = dp(if (pic != null) 6 else 0) })   // USER-DATA: the site the card carries
+            addView(c.text(it, 12f, MT.gray).apply { singleLineEllipsis() }, lp().apply { if (above) topMargin = dp(6) })   // USER-DATA: the site the card carries
+            above = true
         }
         card.t?.takeIf { it.isNotEmpty() }?.let {
-            addView(c.text(it, 15f, android.graphics.Color.WHITE, bold = true).apply { maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END }, lp())   // USER-DATA: the page title the card carries
+            addView(c.text(it, 15f, android.graphics.Color.WHITE).apply {
+                // semibold as the reference's weight (600) where the platform draws weights, bold before it (LinkPreview.kt bubble card)
+                typeface = if (28 <= android.os.Build.VERSION.SDK_INT) android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, 600, false)
+                    else android.graphics.Typeface.DEFAULT_BOLD
+                maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END
+            }, lp().apply { if (above) topMargin = dp(6) })   // USER-DATA: the page title the card carries
         }
         minimumHeight = dp(44)
+        // one element to the reader: Video, Music or Link, and the title its writer read (iOS 558-559)
+        contentDescription = c.getString(if (kind == "aud") R.string.pi_music else if (kind == "vid") R.string.pi_video else R.string.pf_link) +
+            ", " + (card.t ?: card.u)
         pressable { act.openLink(card.u) }
     }
 }
