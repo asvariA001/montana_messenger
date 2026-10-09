@@ -374,6 +374,7 @@
     <string name="rec_pause">Пауза</string>
     <string name="rec_dual">Обе камеры</string>
     <string name="rec_flip">Сменить камеру</string>
+    <string name="rec_flash">Вспышка</string>
     <!-- the calls (Calls.kt): the iOS words, the same in every language -->
     <string name="call_voice">Аудиозвонок</string>
     <string name="call_video">Видеозвонок</string>

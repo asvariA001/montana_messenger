@@ -374,6 +374,7 @@
     <string name="rec_pause">暂停</string>
     <string name="rec_dual">两个摄像头</string>
     <string name="rec_flip">切换摄像头</string>
+    <string name="rec_flash">闪光灯</string>
     <!-- the calls (Calls.kt): the iOS words, the same in every language -->
     <string name="call_voice">语音通话</string>
     <string name="call_video">视频通话</string>

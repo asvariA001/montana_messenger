@@ -426,6 +426,12 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     val column = c.vstack(Gravity.NO_GRAVITY) { setPadding(dp(10), dp(8), dp(10), dp(8)) }
     val draftRow = FrameLayout(c).apply { setPadding(c.dp(10), 0, c.dp(10), c.dp(8)); visibility = View.GONE }
     val feedFrame = FrameLayout(c)
+    // THE FEED BEHIND A TAPE IS BLURRED (iOS MontanaConversation.swift:1446-1452 at 2155: «.blur(radius: holding ? 10 : 0)» while a
+    // voice or a note records; the open note's cloud blurs it on its own): radius 10, off again where every tape ends (onRecIdle)
+    fun blurFeed(on: Boolean) {
+        if (31 <= android.os.Build.VERSION.SDK_INT) feedFrame.setRenderEffect(if (!on) null
+            else android.graphics.RenderEffect.createBlurEffect(c.dp(10).toFloat(), c.dp(10).toFloat(), android.graphics.Shader.TileMode.CLAMP))
+    }
     var keysAway: () -> Unit = {}   // the field is born below
     var barTop: () -> Int = { Int.MAX_VALUE }   // the bar's top on the screen, once it stands
     // THE KEYBOARD GOES WHERE THE IPHONE'S GOES (the author's word 09.10.2026 11:5x MSK: «поведение клавиатуры сделай как на айос - она
@@ -1082,6 +1088,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         noteControls?.visibility = View.VISIBLE
     }
     bar.onRecIdle = {
+        blurFeed(false)
         lockPlate.visibility = View.GONE
         voiceBin.visibility = View.GONE; voicePause.visibility = View.GONE
         noteControls = null
@@ -1090,6 +1097,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     bar.onVoiceStart = {
         val on = VoiceTape.start(act)
         if (on) {
+            blurFeed(true)
             liveWave.bars = FloatArray(0); liveWave.progress = 0f
             recStrip.visibility = View.VISIBLE
             dot.animate().alpha(0.2f).setDuration(600).withEndAction { dot.alpha = 1f }.start()
@@ -1121,10 +1129,19 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         val side = noteSide(c)   // the player's open size: one rule for both (iOS 1605)
         lateinit var notePause: FrameLayout
         notePause = ctl(R.drawable.ic_pause_fill, R.string.rec_pause) { note?.togglePause(); paint(notePause, note?.paused == true) }
+        // THE FILL LIGHT'S MARK (iOS the crown's «flash» seat, MontanaShapes.swift:957-967 at 2155): the bolt, crossed while the
+        // light is off; it stands second, after the bin (the seats' order, 893)
+        lateinit var noteFlash: FrameLayout
+        var flashOn = false
+        noteFlash = ctl(R.drawable.ic_flash_off, R.string.rec_flash) {
+            note?.toggleFlash(); flashOn = !flashOn
+            (noteFlash.getChildAt(0) as? ImageView)?.setImageResource(if (flashOn) R.drawable.ic_flash_on else R.drawable.ic_flash_off)
+        }
         val controls = c.hstack {
             gravity = Gravity.CENTER
-            visibility = View.GONE   // stands once the tape is locked (iOS: the bin, the flip, the pause, and the arrow that sends)
+            visibility = View.GONE   // stands once the tape is locked (iOS: the bin, the flash, the flip, the pause, and the arrow that sends)
             listOf(ctl(R.drawable.ic_close, R.string.cancel) { bar.cancelRecording() },
+                   noteFlash,
                    ctl(R.drawable.ic_camera_rotate, R.string.rec_flip) { note?.flip() },
                    // BOTH CAMERAS (iOS the dual seat): only where the hardware streams a back and a front camera together
                    *(if (NoteRecorder.dualPair(c) != null) arrayOf(ctl(R.drawable.ic_dual_camera, R.string.rec_dual) { note?.toggleDual() }) else emptyArray()),
@@ -1165,11 +1182,26 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 })
             }, FrameLayout.LayoutParams(side, side, Gravity.CENTER))
         }
+        // THE SCREEN AS THE FRONT CAMERA'S LIGHT (iOS MTNoteChrome, MontanaShapes.swift:1037-1039, and applyFlash 2232-2233): the
+        // page behind the circle turns white and the screen goes to full brightness; both come back as the light goes or the page leaves
+        var keptBright: Float? = null
+        fun light(lit: Boolean) {
+            page.setBackgroundColor(if (lit) Color.WHITE else Color.argb(170, 0, 0, 0))
+            val w = act.window; val a = w.attributes
+            if (lit && keptBright == null) { keptBright = a.screenBrightness; a.screenBrightness = 1f; w.attributes = a }
+            if (!lit) keptBright?.let { a.screenBrightness = it; w.attributes = a; keptBright = null }
+        }
+        page.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: View) {}
+            override fun onViewDetachedFromWindow(v: View) { light(false) }
+        })
         noteClose = act.overlay(page)
+        blurFeed(true)
         movePlate(page)
         tv.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
             override fun onSurfaceTextureAvailable(st: android.graphics.SurfaceTexture, w: Int, h: Int) {
                 val r = NoteRecorder(c, tv)
+                r.onLight = { lit -> light(lit) }
                 r.onMax = { MainThread.post { bar.stopRecording() } }
                 if (r.start()) { note = r; MainThread.later(100, noteTick) } else { noteClose?.invoke(); noteClose = null }
             }

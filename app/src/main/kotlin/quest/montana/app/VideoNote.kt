@@ -103,6 +103,14 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
     /** Both cameras: the back fills the circle, the front sits in the badge; a flip swaps them (iOS toggleDual, 18.09). */
     @Volatile var dual = false; private set
     @Volatile private var swapped = false
+    // THE FILL LIGHT (iOS flash / applyFlash, MontanaFeeds.swift:1730-1731 and 2225-2241 at 2155): the white screen at full
+    // brightness for the front camera, the torch for the back -- both while both cameras record; it follows every turn of side
+    @Volatile var flash = false; private set
+    val screenLit: Boolean get() = flash && (front || dual)
+    var onLight: ((Boolean) -> Unit)? = null   // the page's white and brightness, told on the main thread
+    private var relight: (() -> Unit)? = null    // the back camera's request issued again, with the torch as it now stands
+    private fun told() { val lit = screenLit; MainThread.post { onLight?.invoke(lit) } }
+    fun toggleFlash() = h.post { flash = !flash; relight?.invoke(); told() }
 
     // ── THE BADGE UNDER THE FINGER (iOS dragBadge / dragEnded / easeBadge, MontanaFeeds 1811-1831): dragged within its square,
     // it eases to the nearest corner on the rim when let go — a third of the way each frame — and the corner is remembered
@@ -341,6 +349,7 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
     private fun openInto(id: String, st: SurfaceTexture, keepCam: (CameraDevice) -> Unit, keepSession: (CameraCaptureSession) -> Unit) {
         val cm = c.getSystemService(CameraManager::class.java)
         val out = Surface(st)
+        val back = runCatching { cm.getCameraCharacteristics(id).get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK }.getOrDefault(false)
         cm.openCamera(id, object : CameraDevice.StateCallback() {
             override fun onOpened(d: CameraDevice) {
                 if (closing) { d.close(); return }
@@ -349,11 +358,14 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
                 d.createCaptureSession(listOf(out), object : CameraCaptureSession.StateCallback() {
                     override fun onConfigured(s: CameraCaptureSession) {
                         keepSession(s)
-                        runCatching {
+                        fun issue() = runCatching {
                             s.setRepeatingRequest(d.createCaptureRequest(CameraDevice.TEMPLATE_RECORD).apply {
                                 addTarget(out); set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
+                                if (back) set(CaptureRequest.FLASH_MODE, if (flash) CaptureRequest.FLASH_MODE_TORCH else CaptureRequest.FLASH_MODE_OFF)
                             }.build(), null, h)
                         }
+                        issue()
+                        if (back) relight = { issue() } else if (!dual) relight = null   // a front camera alone carries no torch
                     }
                     override fun onConfigureFailed(s: CameraCaptureSession) {}
                 }, h)
@@ -369,6 +381,7 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
         runCatching { session?.close() }; runCatching { cam?.close() }
         front = !front
         openCamera()
+        told()
     }
 
     /**
@@ -380,14 +393,17 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
             dual = false; badgeReady = false
             runCatching { session2?.close() }; runCatching { cam2?.close() }; session2 = null; cam2 = null
             if (swapped) { swapped = false; front = true; runCatching { session?.close() }; runCatching { cam?.close() }; openCamera() }
+            told()
             return@post
         }
         val (back, frontId) = dualPair(c) ?: return@post
         runCatching { session?.close() }; runCatching { cam?.close() }
         front = false; swapped = false
+        camTexture?.setDefaultBufferSize(1280, 720)   // the pair at its fixed size, never a step the single camera took
         openInto(back, camTexture!!, { cam = it }, { session = it })
         openInto(frontId, camTexture2!!, { cam2 = it }, { session2 = it })
         dual = true
+        told()
     }
 
     // ── the voice ──
