@@ -531,9 +531,10 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
             float d = distance(vUv, vec2(0.5));
             float edge = smoothstep(uRadius, uRadius - 0.004, d);
             if (uBadge > 0.5) {
-                // the badge: its own circle over the big one, a light rim around it, nothing outside
-                float rim = smoothstep(uRadius - 0.05, uRadius - 0.04, d);
-                gl_FragColor = vec4(mix(col.rgb, vec3(1.0), rim * 0.85), edge);
+                // THE BADGE WEARS NO RIM (iOS atom 489451eb3bbc, 24.09: «take the black rim off the second circle --
+                // the same clean edge as the big one», MontanaFeeds.swift:2302-2305 at 2155): its own picture, the
+                // same anti-aliased edge as the big circle, nothing mixed in.
+                gl_FragColor = vec4(col.rgb, edge);
             } else {
                 gl_FragColor = mix(vec4(col.rgb * 0.28, 1.0), col, edge);
             }

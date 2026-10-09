@@ -131,9 +131,10 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
     var pane = Pane.CHATS   // iOS: the chats are the first page of a launch
     val panes = FrameLayout(c)
     val music = MusicPage(act)
+    val feed = FeedPane(act)
     var goContacts: () -> Unit = {}   // the calls' «New call» turns to the contacts (set once choose stands)
     val views = mapOf(Pane.CHATS to chatsPane(act), Pane.CONTACTS to contactsPane(act), Pane.CALLS to callsPane(act) { goContacts() },
-        Pane.FEED to feedPane(act), Pane.MUSIC to music.view, Pane.GALLERY to galleryPane(act),
+        Pane.FEED to feed, Pane.MUSIC to music.view, Pane.GALLERY to galleryPane(act),
         Pane.GROUPS to groupsPane(act, channel = false), Pane.CHANNELS to groupsPane(act, channel = true), Pane.MESH to meshPane(act), Pane.P2P to p2pPane(act))
     views.values.forEach { v -> v.visibility = View.GONE; panes.addView(v, FrameLayout.LayoutParams(MATCH, MATCH)) }
     views.getValue(Pane.CHATS).visibility = View.VISIBLE
@@ -145,6 +146,7 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
         player.visibility = if (on) View.VISIBLE else View.GONE
         if (on) player.live()
         music.reserve(on && pane == Pane.MUSIC)
+        feed.reserve(on && pane == Pane.FEED)
     }
     Playing.listen { if (player.isAttachedToWindow) showPlayer() }   // a track, a voice or a note: the one gate (iOS MontanaPlayerBar.Gate)
     // THE ONE SEARCH (iOS searchResults, [C-1]): the same field and the same results stand on the chats, the contacts and the

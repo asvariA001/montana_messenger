@@ -1769,13 +1769,18 @@ class FeedPane(private val act: MainActivity) : FrameLayout(act) {
     // A POST OF MINE ON ITS WAY READ LIVE (iOS MTBoardSendingLive, MontanaBoardViews.swift:2824-2834 at 2155): its bar moves with every
     // piece the node confirms; a post that left its way, or a new one, moves the feed
     private val moved: () -> Unit = { if (isShown) { if (MyWall.sendingAll().map { it.id } != goingIds) draw() else drawGoing() } }
+    // ROOM KEPT AT THE BOTTOM FOR THE FLOATING PLAYER (iOS MTFeedTabView.reserve, MontanaBoardViews.swift:2864 at 2155,
+    // atom f056cf90ad09): the posts scroll clear of the bar while it stands -- 60 more than the tab bar's own room, as
+    // the music page's plus moves for it (MusicPage.reserve).
+    private val foot = View(c)
     init {
         addView(ScrollView(c).apply {
             isVerticalScrollBarEnabled = false
-            addView(c.vstack(Gravity.NO_GRAVITY) { addView(goingColumn, lp()); addView(column, lp()); gap(120) })
+            addView(c.vstack(Gravity.NO_GRAVITY) { addView(goingColumn, lp()); addView(column, lp()); addView(foot, lp(MATCH, dp(120))) })
         }, LayoutParams(MATCH, MATCH))
         addView(empty, LayoutParams(WRAP, WRAP, Gravity.CENTER))
     }
+    fun reserve(on: Boolean) { foot.layoutParams = lp(MATCH, dp(if (on) 180 else 120)); foot.requestLayout() }
     private fun draw() {
         val items = Board.feed()
         column.removeAllViews()
