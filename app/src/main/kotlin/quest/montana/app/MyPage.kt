@@ -37,7 +37,7 @@ fun myPage(act: MainActivity, onClose: () -> Unit): View {
         }, lp())
         val ps = MyWall.posts()
         if (ps.isEmpty()) wall.addView(c.text(c.getString(R.string.pi_wall_empty), 15f, MT.gray, center = true).apply { setPadding(0, dp(28), 0, dp(28)) }, lp())
-        else ps.forEach { p -> wall.addView(postCell(act, Board.Item("", p), onItsWall = true), lp().apply { topMargin = dp(10) }) }
+        else ps.forEach { p -> wall.addView(postCell(act, Board.Item("", p), onItsWall = true), lp().apply { topMargin = c.dp(10) }) }
     }
     drawWall()
     body.addView(wall, lp())
