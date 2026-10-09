@@ -252,7 +252,7 @@ class Profile(private val act: MainActivity, private val onboarding: Boolean, pr
             val sign = Callsign.of(act, MontanaSeed.twin ?: "")
             if (sign.isNotEmpty()) name = sign
         }
-        if (name.isNotBlank()) Prefs.userName = name.trim()
+        if (name.isNotBlank()) Prefs.userName = stripCrown(name.trim())   // my own name never carries a crown (iOS MTCrown.plain, atom d4142dd38143)
         // the bio and the link are kept as typed; what leaves is the bio trimmed and the link only when it is one (iOS keepAbout)
         bioField?.let { Prefs.setStr("profileBio", it.text.toString()) }
         linkField?.let { Prefs.setStr("profileLink", it.text.toString().trim()) }

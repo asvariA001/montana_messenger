@@ -110,6 +110,16 @@ object Meeting {
         val code = t.removePrefix(form).substringBefore('?').substringBefore('#').trimEnd('/')
         return MontanaCard.unb64url(code)?.takeIf { it.size == 32 }
     }
+    /**
+     * A FACE IS FETCHED FROM THE NODE, NOT WAITED FOR (iOS healFacesFromCards → MontanaCard.refaceFromCard, atom
+     * 796a76a34ae0): the same blob the first meeting fetches (face(inv) below), asked again for a correspondent
+     * already met but still faceless, by their last daily link (Book.healFacesFromCards) -- off the main thread, as
+     * every network ask here is.
+     */
+    fun healFace(ref: String, link: String) {
+        val inv = invite(link) ?: return
+        Thread { face(inv)?.let { Book.face(ref).writeBytes(it); Book.edit(ref) {} } }.start()
+    }
     /** A whole card in the link (the old long form montana://c/…): the key and the name themselves. */
     private fun longCard(link: String): ByteArray? {
         val t = normalize(link)
@@ -140,7 +150,7 @@ object Meeting {
                 Thread {
                     expand(inv)?.takeIf { p -> !p.contentEquals(SPENT) && p.size > 1184 }?.let { p ->
                         val nm = String(p, 1184, p.size - 1184, Charsets.UTF_8).trim()
-                        if (nm.isNotEmpty() && Book.admitState(known, "name", 0L)) Book.edit(known) { it.name = nm }
+                        if (nm.isNotEmpty() && Book.admitState(known, "name", 0L)) Book.edit(known) { it.name = stripCrown(nm) }
                     }
                     face(inv)?.let { Book.face(known).writeBytes(it); Book.edit(known) {} }
                 }.start()
@@ -157,7 +167,7 @@ object Meeting {
         val root64 = MontanaCard.b64url(root)
         synchronized(gate) { jmap(CARDS).optString(root64).takeIf { it.isNotEmpty() && Book.secret(it) != null } }?.let { known ->
             if (inv != null) synchronized(gate) { jsave(SCANS, jmap(SCANS).put(MontanaCard.b64url(inv), known)) }
-            if (name.isNotEmpty() && Book.admitState(known, "name", 0L)) Book.edit(known) { it.name = name }   // a card is undated: never over the peer's dated word
+            if (name.isNotEmpty() && Book.admitState(known, "name", 0L)) Book.edit(known) { it.name = stripCrown(name) }   // a card is undated: never over the peer's dated word
             // THE FACE RIDES BESIDE THE NAME ON THIS ROOT TOO (iOS fea4e68ea0da refaceFromCard:1174, the «card-book»/«root» branches).
             if (inv != null) Thread { face(inv)?.let { Book.face(known).writeBytes(it); Book.edit(known) {} } }.start()
             return Outcome.Opened(known)
@@ -174,7 +184,7 @@ object Meeting {
             jsave(CARDS, jmap(CARDS).put(root64, ref))
         }
         val perm = inv != null && isPermanent(inv)
-        Book.open(ref, name, perm)
+        Book.open(ref, stripCrown(name), perm)
         if (inv != null) Thread { face(inv)?.let { Book.face(ref).writeBytes(it); Book.edit(ref) {} } }.start()
         Thread { layPipeFace(secret) }.start()
         // ONE PERSON, ONE CONVERSATION (iOS MTSamePair.ask): whether we already share a pipe is asked at once — the silent

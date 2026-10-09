@@ -340,6 +340,26 @@ class Msg(
     }
 }
 
+private val CROWN_MARKS = setOf(0x1F451, 0x2654, 0x2655, 0x265A, 0x265B)
+/**
+ * A CROWN IS GIVEN, NEVER TYPED (iOS MTCrown.plain, MontanaNameBook.swift:7-21, atom d4142dd38143; the author's word
+ * 03.10: «a system ban on crowns before a name -- only a Royal hands them out, as a verification»): no name a person
+ * types or a correspondent sends wears a crown or one of its look-alikes.
+ */
+fun stripCrown(s: String): String {
+    val plain = StringBuilder()
+    var afterMark = false
+    var i = 0
+    while (i < s.length) {
+        val point = s.codePointAt(i); i += Character.charCount(point)
+        if (point in CROWN_MARKS) { afterMark = true; continue }
+        if (afterMark && (point == 0xFE0F || point == 0xFE0E)) continue
+        afterMark = false
+        plain.appendCodePoint(point)
+    }
+    return plain.toString().split(' ').filter { it.isNotEmpty() }.joinToString(" ")
+}
+
 /**
  * `name` — the word the person gave themselves (their NM:, the card); `pin` — the name my hand set over it (iOS
  * MTNameBook.manual), and `note` — what I keep on them (iOS the card's note). What the screens show is `shown`.
@@ -526,6 +546,23 @@ object Book {
     /** The one face of a person, resolved in one place: mine, then theirs (iOS MTNameBook avatar resolution). */
     fun shownFace(ref: String): File = myFace(ref).takeIf { it.exists() } ?: face(ref)
 
+    private val faceHealed = mutableSetOf<String>()
+    /**
+     * A FACE IS FETCHED FROM THE NODE, NOT WAITED FOR (iOS healFacesFromCards, MontanaChatStore.swift:1916, atom
+     * 796a76a34ae0; the author's words 04.10.2026 03:54-03:57 MSK: «no avatars anywhere on T1 -- fix it at last»; «the
+     * ask reaches only the one whose chat is open -- an architectural hole»): a correspondent already met but still
+     * faceless is read at once from their card's face by their last daily link (PeerLinks.any), rather than wait for
+     * their phone to wake and announce it again -- once a life per pipe, not on every redraw.
+     */
+    fun healFacesFromCards() {
+        for (ref in refs()) {
+            if (Groups.isKey(ref) || ref in faceHealed || face(ref).exists() || myFace(ref).exists()) continue
+            val link = PeerLinks.any(ref) ?: continue
+            faceHealed.add(ref)
+            Meeting.healFace(ref, link)
+        }
+    }
+
     /**
      * THE EDIT PAGE'S «DONE» (iOS mtHandProfileEdit → MTNameBook.setManual/setManualPhoto): a name equal to their own word
      * clears the pin instead of setting it, an empty field restores their name; the photo — bytes set by hand, or null to
@@ -533,7 +570,8 @@ object Book {
      */
     fun saveCard(ref: String, first: String, last: String, note: String, photo: ByteArray?, photoCleared: Boolean) {
         edit(ref) { c ->
-            val full = (first.trim() + " " + last.trim()).trim()
+            // A TYPED NAME LOSES ITS CROWN TOO (iOS MTCrown.plain, atom d4142dd38143): the rename book's own field.
+            val full = stripCrown((first.trim() + " " + last.trim()).trim())
             c.pin = if (full.isEmpty() || full == c.name.trim()) null else full
             c.note = note.trim()
         }
@@ -731,7 +769,7 @@ object Post {
      */
     fun announce(ref: String) {
         if (PeerSafety.isBlocked(ref)) return   // a blocked person keeps no face, no name, no words of mine (iOS silenced)
-        val name = Prefs.userName.trim()
+        val name = stripCrown(Prefs.userName.trim())   // my own name never carries a crown either (iOS MTCrown.plain, atom d4142dd38143)
         if (name.isNotEmpty() && Prefs.str("annName2." + ref, "") != name && !inFlight("N", ref, name)) {
             val mid = Marks.mintMid(); flight("N", ref, name, mid); send(ref, mid, Marks.NAME + name)
         }
@@ -1038,7 +1076,8 @@ object Post {
             text.startsWith(CONVDEL_MARK) -> { receipt(ref, sid); Book.chat(ref)?.msgs?.toList()?.forEach { CoinSend.release(it, ref) }; buryChat(ref) }
             text.startsWith(Marks.NAME) -> {
                 val n = text.removePrefix(Marks.NAME).trim()
-                if (n.isNotEmpty() && n.length <= 64 && Book.admitState(ref, "name", Marks.birthMs(sid) ?: 0L)) Book.edit(ref) { it.name = n }
+                // A CORRESPONDENT'S SENT NAME LOSES ITS CROWN (iOS MTCrown.plain, atom d4142dd38143): only a Royal hands one out.
+                if (n.isNotEmpty() && n.length <= 64 && Book.admitState(ref, "name", Marks.birthMs(sid) ?: 0L)) Book.edit(ref) { it.name = stripCrown(n) }
                 receipt(ref, sid)
             }
             // the face as the name: a word older than the one that stands changes nothing (iOS stateIsCurrent)

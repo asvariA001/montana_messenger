@@ -137,6 +137,9 @@ object PeerLinks {
     /** The link, while its day runs. */
     fun fresh(ref: String): String? = all().optJSONObject(ref)
         ?.takeIf { System.currentTimeMillis() / 1000.0 - it.optDouble("b", 0.0) < 24 * 3600 }?.optString("l")?.ifEmpty { null }
+    /** The last link they handed, whatever its day: the face their card wears on the node outlives the card's day (iOS
+     * MTPeerLinks.any, MontanaE2E.swift:61, atom 796a76a34ae0). */
+    fun any(ref: String): String? = all().optJSONObject(ref)?.optString("l")?.ifEmpty { null }
     fun wipe() = DeviceVault.delete(KEY)
 }
 
