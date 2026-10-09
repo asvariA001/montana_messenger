@@ -151,9 +151,20 @@ object Media {
         }
         Book.edit(ref) { it.msgs.add(Msg(mid, provisional, true, Marks.birthMs(mid) ?: System.currentTimeMillis(), qt = qt, file = local.path)) }
         Thread {
-            if (deliver(c, ref, mid, p, caption, local, qt, group)) return@Thread
+            // THE TRACK'S WAVE IS BORN WITH THE LETTER (iOS MTWaveform, MontanaMediaKit 53-103, 1101-1107, atom bdee948c8ba1): a track
+            // sent as a file is probed once -- sixty points -- and the manifest carries them, so the bars stand at the send and at the
+            // receipt before a byte of the file has arrived; the sender's own row wears the same points
+            val wave = p.wave ?: if (p.kind == "aud" || (p.kind == "doc" && Waveform.isAudio(p.name ?: ("x." + p.ext)))) Waveform.compute(local) else null
+            val pw = if (wave != null && p.wave == null) Picked(p.bytes, p.kind, p.ext, p.name, p.du, wave, p.round) else p
+            var told = provisional
+            if (pw !== p) {
+                told = Marks.MEDIA + JSONObject(provisional.removePrefix(Marks.MEDIA))
+                    .put("wv", Base64.encodeToString(ByteArray(wave!!.size) { (wave[it] * 255).toInt().coerceIn(0, 255).toByte() }, Base64.NO_WRAP))
+                Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid && it.file == local.path }?.let { it.text = told } }
+            }
+            if (deliver(c, ref, mid, pw, caption, local, qt, group)) return@Thread
             // THE INTENT SURVIVES ITS BROKEN UPLOAD (iOS 1675, 1677): the bubble stands at the clock and the upload waits for the drain
-            keepIntent(ref, mid, local, provisional.toString(), caption, qt)
+            keepIntent(ref, mid, local, told, caption, qt)
             Log.w("Montana", "media: the pieces did not reach the node — the intent waits for the drain mid=" + mid.take(8))
         }.start()
     }
@@ -555,4 +566,62 @@ object MediaGroup {
     fun stamp(o: JSONObject, g: Slot?) { if (g != null) o.put("gk", g.key).put("gi", g.index).put("gn", g.count) }
     fun read(o: JSONObject?): Slot? = o?.optString("gk")?.takeIf { it.isNotEmpty() }?.let { Slot(it, o.optInt("gi"), o.optInt("gn")) }
     fun of(m: Msg): Slot? = read(Media.manifestOf(m))
+}
+
+/**
+ * THE TRACK'S WAVE (iOS MTWaveform.compute, MontanaMediaKit 78-102): sixty point probes across the file -- only the probes are
+ * decoded, never the whole file -- each the mean of every eighth sample of the first channel; scaled to a loud probe (the 92nd
+ * percentile, not the loudest one clap), lifted by a soft curve (0.7). One definition of «this name is music» (mtIsAudioName).
+ */
+object Waveform {
+    private const val BARS = 60
+    fun isAudio(name: String) = name.substringAfterLast('.', "").lowercase() in setOf("mp3", "m4a", "aac", "wav", "flac", "aif", "aiff", "caf")
+    fun compute(f: java.io.File): FloatArray? = runCatching {
+        val ex = android.media.MediaExtractor()
+        ex.setDataSource(f.path)
+        val track = (0 until ex.trackCount).firstOrNull { ex.getTrackFormat(it).getString(android.media.MediaFormat.KEY_MIME)?.startsWith("audio/") == true }
+            ?: return@runCatching null.also { ex.release() }
+        ex.selectTrack(track)
+        val fmt = ex.getTrackFormat(track)
+        val durUs = if (fmt.containsKey(android.media.MediaFormat.KEY_DURATION)) fmt.getLong(android.media.MediaFormat.KEY_DURATION) else 0L
+        if (durUs <= 0L) { ex.release(); return@runCatching null }
+        val channels = if (fmt.containsKey(android.media.MediaFormat.KEY_CHANNEL_COUNT)) maxOf(1, fmt.getInteger(android.media.MediaFormat.KEY_CHANNEL_COUNT)) else 1
+        val codec = android.media.MediaCodec.createDecoderByType(fmt.getString(android.media.MediaFormat.KEY_MIME)!!)
+        codec.configure(fmt, null, null, 0)
+        codec.start()
+        val raw = FloatArray(BARS)
+        val info = android.media.MediaCodec.BufferInfo()
+        for (i in 0 until BARS) {
+            ex.seekTo(durUs * i / BARS, android.media.MediaExtractor.SEEK_TO_CLOSEST_SYNC)
+            codec.flush()
+            var acc = 0.0; var cnt = 0; var frames = 0; var spins = 0
+            while (frames < 4096 && spins < 64) {
+                spins++
+                val inIx = codec.dequeueInputBuffer(5_000)
+                if (0 <= inIx) {
+                    val buf = codec.getInputBuffer(inIx)!!
+                    val n = ex.readSampleData(buf, 0)
+                    if (n < 0) codec.queueInputBuffer(inIx, 0, 0, 0, android.media.MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                    else { codec.queueInputBuffer(inIx, 0, n, ex.sampleTime, 0); ex.advance() }
+                }
+                val outIx = codec.dequeueOutputBuffer(info, 5_000)
+                if (0 <= outIx) {
+                    val out = codec.getOutputBuffer(outIx)!!.order(java.nio.ByteOrder.LITTLE_ENDIAN).asShortBuffer()
+                    val total = out.remaining() / channels
+                    var j = 0
+                    while (j < total && frames < 4096) {
+                        if (j % 8 == 0) { acc += Math.abs(out.get(j * channels) / 32768.0); cnt++ }
+                        j++; frames++
+                    }
+                    codec.releaseOutputBuffer(outIx, false)
+                    if (info.flags and android.media.MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) break
+                }
+            }
+            raw[i] = if (0 < cnt) (acc / cnt).toFloat() else 0f
+        }
+        codec.stop(); codec.release(); ex.release()
+        val sorted = raw.sorted()
+        val loud = maxOf(sorted[((sorted.size - 1) * 0.92).toInt()], 1e-6f)
+        FloatArray(BARS) { Math.pow(minOf(1f, raw[it] / loud).toDouble(), 0.7).toFloat() }
+    }.getOrNull()
 }

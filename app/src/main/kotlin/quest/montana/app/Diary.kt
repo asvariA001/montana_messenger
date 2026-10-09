@@ -63,7 +63,31 @@ object Diary {
         runCatching { f.appendText(iso.format(java.util.Date(ms)) + hide(" " + words) + "\n") }
         // THE TRACE OF A CALL IS NOT ROTATED UNDER THE CALL (iOS MontanaLog.holdRotation, atom 319c1ca96b0a): four rings at most
         if (f.length() >= ROTATE && !(Calls.busy() && f.length() < 4 * ROTATE)) rotate(d, f)
-        if (m.groupValues[3] == "E" || m.groupValues[4] == "AndroidRuntime") failure()
+        if (m.groupValues[3] == "E" || m.groupValues[4] == "AndroidRuntime" || isFailure(m.groupValues[5])) failure()
+    }
+
+    /**
+     * WHAT COUNTS AS AN ERROR — A CLOSED LIST (iOS MontanaP2PTrace.isFailure 72-118, atom bdee948c8ba1): a letter refused, dead of age
+     * or red; a call that did not assemble or ring; a door that refused or went dead; a store that failed; any 5xx of a node and any
+     * code=-1; a retry demanded anywhere — the author's classes (16.09: «a send failure, a demanded retry, a call error, a network or
+     * connection error must fly to the diary at once»). Not an error: 404, and the shipment itself.
+     */
+    private val FAILURES = setOf("enqueue_drop", "send_refused", "send_failed", "send_red", "dial_failed", "sig_door", "handshake_timeout",
+        "node_shut", "path_down", "call_refused", "ring_dead", "ring_unreached", "ring_expired", "notify_failed", "media_store_fail",
+        "rx_media_dead", "of_relay_drop", "cam_denied", "cam_fail")
+    private fun isFailure(words: String): Boolean {
+        val w = words.removePrefix("call line: ").removePrefix("call: ")
+        val event = w.substringBefore(' ')
+        val kv = w.substringAfter(' ', "")
+        if (event.startsWith("diag")) return false
+        if (event in FAILURES) return true
+        return when (event) {
+            "call_ice", "ice" -> "failed" in kv.lowercase() || "disconnected" in kv.lowercase()
+            "sig_tx" -> "FAIL" in kv
+            "box_fetch" -> "refused" in kv
+            "blob_get" -> "unreachable" in kv
+            else -> "code=5" in kv || "code=-1" in kv || "retry" in event || "retry" in kv
+        }
     }
 
     /**
