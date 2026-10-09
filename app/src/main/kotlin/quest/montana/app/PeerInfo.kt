@@ -481,6 +481,11 @@ fun peerInfoPage(act: MainActivity, ref: String, onClose: () -> Unit,
         val j = tab.ordinal + step
         if (j in Tab.values().indices) choose(Tab.values()[j])
     }
+    fun emptyPane(): View = c.vstack(Gravity.CENTER_HORIZONTAL) {
+        setPadding(0, dp(36), 0, dp(36))
+        addView(c.icon(tab.icon, MT.gray), lp(dp(42), dp(42)))
+        addView(c.text(c.getString(tab.empty), 15f, MT.gray, center = true), lp().apply { topMargin = dp(10) })
+    }
     drawPane = {
         pane.removeAllViews()
         val msgs = select(tab, Book.chat(ref)?.msgs ?: emptyList())
@@ -496,12 +501,12 @@ fun peerInfoPage(act: MainActivity, ref: String, onClose: () -> Unit,
                 addView(c.text(c.getString(R.string.pi_write_wall), 17f))
                 pressable { notYet() }
             }, lp().apply { topMargin = c.dp(12) })
-        }
-        if (msgs.isEmpty()) pane.addView(c.vstack(Gravity.CENTER_HORIZONTAL) {
-            setPadding(0, dp(36), 0, dp(36))
-            addView(c.icon(tab.icon, MT.gray), lp(dp(42), dp(42)))
-            addView(c.text(c.getString(tab.empty), 15f, MT.gray, center = true), lp().apply { topMargin = dp(10) })
-        }, lp())
+            // THE WALL'S OWN ROWS (iOS MTBoardRows, MontanaPeerInfoScreen.swift:646): a person's page shows their wall --
+            // the same cells the feed draws (Board.postCell), with no "on X's wall" line of its own (onItsWall).
+            val wallPosts = Board.posts(ref)
+            if (wallPosts.isEmpty()) pane.addView(emptyPane(), lp())
+            else wallPosts.forEach { item -> pane.addView(postCell(act, item, onItsWall = true), lp().apply { topMargin = c.dp(10) }) }
+        } else if (msgs.isEmpty()) pane.addView(emptyPane(), lp())
         else paneRows(act, tab, msgs.reversed(), pane, law)   // newest on top
     }
 
@@ -512,6 +517,10 @@ fun peerInfoPage(act: MainActivity, ref: String, onClose: () -> Unit,
     body.addView(bar, lp(MATCH, c.dp(44)).apply { topMargin = c.dp(24); marginStart = c.dp(16); marginEnd = c.dp(16) })
     body.addView(pane, lp())
     redrawAll()
+    // THE LOOK ASKS (iOS look, MontanaBoard.swift:609-613, MontanaPeerInfoScreen.swift:636-638, the author's word 25.09):
+    // the wall not held, or held more than ten minutes, is asked for the moment this page opens.
+    Board.look(ref)
+    val wallHeard: () -> Unit = { if (tab == Tab.WALL) drawPane() }
 
     val listener: () -> Unit = { drawHead(); drawPane(); if (selecting) drawFoot() }
     // the one player's turn redraws the music's glyphs, and only its turn: the clock's ticks change nothing here
@@ -549,8 +558,8 @@ fun peerInfoPage(act: MainActivity, ref: String, onClose: () -> Unit,
         bars.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ -> if (rows.paddingBottom != v.height) v.post { rows.setPadding(0, 0, 0, v.height) } }
         addView(bars, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM))
         addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
-            override fun onViewAttachedToWindow(v: View) { Book.listen(listener); MusicPlayer.listeners.add(music) }
-            override fun onViewDetachedFromWindow(v: View) { Book.unlisten(listener); MusicPlayer.listeners.remove(music) }
+            override fun onViewAttachedToWindow(v: View) { Book.listen(listener); Board.listen(wallHeard); MusicPlayer.listeners.add(music) }
+            override fun onViewDetachedFromWindow(v: View) { Book.unlisten(listener); Board.unlisten(wallHeard); MusicPlayer.listeners.remove(music) }
         })
     }
 }

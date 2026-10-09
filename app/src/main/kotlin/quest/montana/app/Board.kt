@@ -130,11 +130,15 @@ object Board {
         when (t) {
             "page" -> {
                 val src = w.optJSONArray("ps") ?: JSONArray()
-                val ps = JSONArray()
-                for (k in 0 until minOf(src.length(), PAGE_SIZE)) src.optJSONObject(k)?.let { ps.put(held(clean(it), now)) }
+                val fresh = (0 until minOf(src.length(), PAGE_SIZE)).mapNotNull { k -> src.optJSONObject(k)?.let { held(clean(it), now) } }
+                // MY WORDS STAY ON MY SCREEN UNTIL THE OWNER'S PAGE CARRIES THEM (iOS keepMine, MontanaBoard.swift:984-999,
+                // the author's word 25.09): a page fetched before the owner's own build echoes my latest act does not
+                // take my own words off my own screen -- the owner's next page carries them for good.
+                val oldPs = synchronized(lock) { ensure(); pages[ref]?.optJSONArray("ps") }
+                val ps = JSONArray(); keepMine(oldPs, fresh, now).forEach { ps.put(it) }
                 val pg = JSONObject().put("w", w.optBoolean("w", false)).put("ps", ps).put("at", now)
                 if (w.has("v")) pg.put("v", w.optString("v"))
-                synchronized(lock) { ensure(); pages[ref] = pg; save() }
+                synchronized(lock) { pages[ref] = pg; save() }
                 Log.d("Montana", "wall_page posts=" + ps.length() + " from=" + ref.take(10))
                 changed()
             }
@@ -201,6 +205,36 @@ object Board {
         return x.put("comments", cs)
     }
 
+    /** MY WORDS STAY ON MY SCREEN UNTIL THE OWNER'S PAGE CARRIES THEM (iOS keepMine, MontanaBoard.swift:984-999, the
+     * author's word 25.09): a page fetched before the owner's own build echoes my latest act does not take my own words
+     * off my own screen. My comments not yet on the owner's page stay as I sent them for half an hour, in the order
+     * written; my own post not yet on the owner's page stays too, before the first post that is not pinned. */
+    private fun keepMine(oldPs: JSONArray?, fresh: List<JSONObject>, now: Long): List<JSONObject> {
+        if (oldPs == null || oldPs.length() == 0) return fresh
+        val since = now / 1000.0 - 1800.0
+        val out = fresh.toMutableList()
+        for (i in 0 until oldPs.length()) {
+            val o = oldPs.optJSONObject(i) ?: continue
+            val idx = out.indexOfFirst { it.optString("id") == o.optString("id") }
+            if (idx >= 0) {
+                val dst = out[idx]
+                val haveComments = dst.optJSONArray("comments") ?: JSONArray()
+                val have = (0 until haveComments.length()).mapNotNull { haveComments.optJSONObject(it)?.optString("id") }.toSet()
+                val oldComments = o.optJSONArray("comments") ?: JSONArray()
+                val mine = (0 until oldComments.length()).mapNotNull { oldComments.optJSONObject(it) }
+                    .filter { it.optBoolean("m") && it.optString("id") !in have && since < it.optDouble("at") }
+                if (mine.isNotEmpty()) {
+                    val all = ((0 until haveComments.length()).mapNotNull { haveComments.optJSONObject(it) } + mine).sortedBy { it.optDouble("at") }
+                    dst.put("comments", JSONArray(all)).put("commentCount", dst.optInt("commentCount") + mine.size)
+                }
+            } else if (o.optBoolean("mine") && since < o.optDouble("at")) {
+                val before = out.indexOfFirst { !it.optBoolean("pinned") }
+                out.add(if (before == -1) out.size else before, o)
+            }
+        }
+        return out
+    }
+
     class Item(val wall: String, val post: JSONObject)
     /** THE FEED (iOS feed, the author's word 06.10 15:0x): every post of every wall held, each once, strictly by time, the newest on top. */
     fun feed(): List<Item> {
@@ -248,6 +282,20 @@ object Board {
         (0 until ps.length()).mapNotNull { ps.optJSONObject(it) }.firstOrNull { it.optString("id") == id }
     }
     fun canWrite(wall: String) = synchronized(lock) { ensure(); pages[wall]?.optBoolean("w") == true }
+    /** A WALL READ AS ITS OWNER SENT IT (iOS posts(on:), MontanaBoard.swift:723): every post of one person's own page, in
+     * the order their build laid it there -- pinned first. */
+    fun posts(wall: String): List<Item> = synchronized(lock) {
+        ensure()
+        val ps = pages[wall]?.optJSONArray("ps") ?: return emptyList()
+        (0 until ps.length()).mapNotNull { ps.optJSONObject(it)?.let { p -> Item(wall, p) } }
+    }
+    /** THE LOOK ASKS (iOS look, MontanaBoard.swift:609-613, the author's word 25.09): a person's page not held, or held
+     * more than ten minutes ago, is asked for the moment their page opens; a page already fresh is drawn at once and
+     * nothing is sent. */
+    fun look(ref: String) {
+        val stale = synchronized(lock) { ensure(); val pg = pages[ref]; pg == null || System.currentTimeMillis() - pg.optLong("at") >= LOOK_STALE }
+        if (stale) ask(ref)
+    }
     private fun patch(wall: String, id: String, change: (JSONObject) -> Unit) {
         synchronized(lock) {
             ensure()
@@ -393,13 +441,14 @@ private fun poster(b64: String?): Bitmap? = b64?.takeIf { it.isNotEmpty() }?.let
 }
 
 /** ONE POST OF THE FEED (iOS MTBoardCell in MTFeedTabView): whose wall, the writer, the words, the pictures, the counts. */
-private fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false): View = act.vstack(Gravity.NO_GRAVITY) {
+fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWall: Boolean = false): View = act.vstack(Gravity.NO_GRAVITY) {
     val c: Context = act
     val openComments = { act.push { close -> wallCommentsPage(act, it.wall, it.post.optString("id"), close) } }
     val p = it.post
     val own = p.optBoolean("own")
-    // WHOSE WALL A POST STANDS ON, when its writer is not the wall's owner (iOS wallLink)
-    if (!own) addView(c.text(c.getString(R.string.wall_on, Board.nameOf(c, it.wall)), 12f, MT.gray).apply { setPadding(dp(4), 0, 0, dp(6)) }, lp())
+    // WHOSE WALL A POST STANDS ON, when its writer is not the wall's owner and the row is not drawn on that very wall's
+    // own page (iOS onItsWall, MontanaBoardViews.swift: "Drawn on its wall's own page... in the feed, off it")
+    if (!own && !onItsWall) addView(c.text(c.getString(R.string.wall_on, Board.nameOf(c, it.wall)), 12f, MT.gray).apply { setPadding(dp(4), 0, 0, dp(6)) }, lp())
     addView(c.vstack(Gravity.NO_GRAVITY) {
         background = c.rounded(MT.plate, 16)
         setPadding(dp(12), dp(12), dp(12), dp(12))
