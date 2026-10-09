@@ -64,6 +64,7 @@ class MainActivity : Activity() {
         render()
         Scheduled.run()   // the app's clock for letters sent later (Schedule.kt)
         Diary.start(this)   // the diary on disk and its shipper (iOS MontanaLog, MontanaDiagShip; 1340)
+        Thread { Names.agreesWithCanon }.start()   // the core's name derivations against the Canon's own values, said once in the diary (names_canon)
         Exits.witness(this)   // how the last run ended, said once (iOS run sentinel, 1336)
         CallEngine.warm(this)   // the call engine stands from launch, as iOS MontanaCall.shared
         // «Share → Montana» from another app, else an invitation's link
