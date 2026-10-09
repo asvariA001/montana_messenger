@@ -105,8 +105,10 @@ object VoiceTape {
     /** The tape ends: the file and its length in seconds, or null when it was dropped or too short to be a word. */
     fun stop(keep: Boolean): Pair<File, Double>? {
         val r = rec ?: return null
-        rec = null
+        // THE LENGTH IS READ WHILE THE TAPE STILL STANDS (measured on A1 09.10.2026 22:0x MSK): `seconds` answers 0 once `rec` is gone,
+        // and read after it every tape since d482f31 (30.09) measured 0 s, fell under the 0.6 s floor and was thrown away unsent
         val secs = seconds
+        rec = null
         paused = false
         val ok = runCatching { r.stop() }.isSuccess
         r.release()
