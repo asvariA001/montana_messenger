@@ -53,10 +53,9 @@ fun galleryPane(act: MainActivity): View {
     val c: Context = act
     val column = c.vstack(Gravity.NO_GRAVITY)
     val empty = emptyPane(c, R.string.no_photos, PetalsGlyph(c))
-    // THE GRID'S PINCH, THE PLATFORM'S OWN MANNER (iOS MTTileGrid.columnSteps, MontanaMedia.swift:375, 468-481): fewer
-    // columns as the fingers part, more as they close.
-    var columns = 3
-    val columnSteps = intArrayOf(1, 2, 3, 5, 8)
+    // THREE TO A ROW, AS THE WALL'S (iOS GalleryTabView.columns, MontanaFeeds.swift:903, 929 at 2155): the page has no pinch --
+    // the grid that changes its columns under two fingers is the attachment picker's (MTTileGrid, MontanaMedia.swift:2454-2576)
+    val columns = 3
     val scroll = android.widget.ScrollView(c).apply {
         isVerticalScrollBarEnabled = false
         addView(c.vstack(Gravity.NO_GRAVITY) { addView(column, lp()); gap(120) })   // the floating player's room at the foot
@@ -112,7 +111,7 @@ fun galleryPane(act: MainActivity): View {
                 inRow = 0
                 column.addView(row, lp().apply { bottomMargin = c.dp(2) })
             }
-            // a tile is a square, 1/columns of the width less the hairlines between (the pinch below sets columns)
+            // a tile is a square, a third of the width less the hairlines between
             val side = (c.resources.displayMetrics.widthPixels - c.dp(2 * (columns - 1))) / columns
             row!!.addView(tile(m), lp(0, side, 1f).apply { if (inRow > 0) marginStart = c.dp(2) })
             inRow++
@@ -122,28 +121,7 @@ fun galleryPane(act: MainActivity): View {
     }
     var dirty = true
     val again: () -> Unit = { dirty = true; if (scroll.isShown) act.onMain { if (dirty) { dirty = false; fill() } } }
-    // THE PINCH ITSELF (iOS MTTileGrid.Coordinator.pinch, MontanaMedia.swift:468-481): past 1.25 the fingers parted —
-    // fewer, bigger tiles; under 0.8 they closed — more, smaller ones; between, nothing moves.
-    var cumulative = 1f
-    val scaler = android.view.ScaleGestureDetector(c, object : android.view.ScaleGestureDetector.SimpleOnScaleGestureListener() {
-        override fun onScaleBegin(d: android.view.ScaleGestureDetector): Boolean { cumulative = 1f; return true }
-        override fun onScale(d: android.view.ScaleGestureDetector): Boolean { cumulative *= d.scaleFactor; return true }
-        override fun onScaleEnd(d: android.view.ScaleGestureDetector) {
-            val i = columnSteps.indexOf(columns)
-            val next = if (cumulative > 1.25f) maxOf(0, i - 1) else if (cumulative < 0.8f) minOf(columnSteps.size - 1, i + 1) else i
-            if (columnSteps[next] != columns) { columns = columnSteps[next]; fill() }
-        }
-    })
-    return object : FrameLayout(c) {
-        // the pinch wins once a second finger lands; one finger stays the scroll's and the tiles' own tap (Home.kt's
-        // same choice at the drawer's edge, line 266)
-        override fun onInterceptTouchEvent(e: android.view.MotionEvent): Boolean {
-            if (e.pointerCount >= 2) { scaler.onTouchEvent(e); return true }
-            return false
-        }
-        @android.annotation.SuppressLint("ClickableViewAccessibility")
-        override fun onTouchEvent(e: android.view.MotionEvent): Boolean { scaler.onTouchEvent(e); return true }
-    }.apply {
+    return FrameLayout(c).apply {
         addView(scroll, FrameLayout.LayoutParams(MATCH, MATCH))
         addView(empty, FrameLayout.LayoutParams(MATCH, MATCH))
         addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
