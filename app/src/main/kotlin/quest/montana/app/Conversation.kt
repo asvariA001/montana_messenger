@@ -1847,6 +1847,19 @@ object QuickReactions {
         vocabulary = emptyList()   // the nine in front are about to stand in another order (iOS note(_:) 101)
     }
 
+    /** Every answer counted, for a copy (iOS MTReactions 94-100: «reactionUse», one map of answer to count). */
+    fun counts(): Map<String, Int> {
+        val use = runCatching { JSONObject(Prefs.str(KEY, "{}")) }.getOrNull() ?: return emptyMap()
+        return use.keys().asSequence().associateWith { use.optInt(it, 0) }.filterValues { it > 0 }
+    }
+    /** A copy laid (iOS SeedScope.unionKeys 6309; reread → forgetOrder 111-112): an answer counted here keeps its count, the copy adds the others. */
+    fun lay(m: Map<String, Int>) {
+        val use = runCatching { JSONObject(Prefs.str(KEY, "{}")) }.getOrNull() ?: JSONObject()
+        for ((e, n) in m) if (!use.has(e) && n > 0) use.put(e, n)
+        Prefs.setStr(KEY, use.toString())
+        vocabulary = emptyList()
+    }
+
     /** The most used first, then the common ones — never fewer than asked for, never a repeat (iOS top(_:) 133-142). */
     fun top(n: Int): List<String> {
         val use = runCatching { JSONObject(Prefs.str(KEY, "{}")) }.getOrNull() ?: JSONObject()

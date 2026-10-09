@@ -142,6 +142,20 @@ object PeerLinks {
      * MTPeerLinks.any, MontanaE2E.swift:61, atom 796a76a34ae0). */
     fun any(ref: String): String? = all().optJSONObject(ref)?.optString("l")?.ifEmpty { null }
     fun wipe() = DeviceVault.delete(KEY)
+    /** The links and the moments they were born, for a copy (iOS MTPeerLinks, MontanaE2E.swift 46-57: two sealed maps by conversation, «peerRdvLinks» and «.b»). */
+    fun carried(): Pair<Map<String, String>, Map<String, Double>> {
+        val o = all()
+        val links = HashMap<String, String>()
+        val born = HashMap<String, Double>()
+        for (r in o.keys()) o.optJSONObject(r)?.let { e -> e.optString("l").takeIf { it.isNotEmpty() }?.let { links[r] = it; born[r] = e.optDouble("b", 0.0) } }
+        return links to born
+    }
+    /** A copy laid (iOS SeedScope.unionKeys 6311): a correspondent's link held here stands, the copy adds the others. */
+    @Synchronized fun lay(links: Map<String, String>, born: Map<String, Double>) {
+        val o = all()
+        for ((r, l) in links) if (l.isNotEmpty() && !o.has(r)) o.put(r, JSONObject().put("l", l).put("b", born[r] ?: 0.0))
+        DeviceVault.set(KEY, o.toString().toByteArray(Charsets.UTF_8))
+    }
 }
 
 /**

@@ -170,6 +170,15 @@ object Names {
         DeviceVault.delete(VAULT)
     }
 
+    /** The record as the vault holds it, for a copy (iOS «mt.name», MontanaNames.swift 113-132: the same JSON on both phones). */
+    fun record(): ByteArray? = DeviceVault.get(VAULT)
+    /** A copy's record laid (iOS layCard 884-891: the copy's word); a record that names no name lays nothing. */
+    fun lay(d: ByteArray) {
+        if (runCatching { JSONObject(String(d, Charsets.UTF_8)).optString("name") }.getOrNull().isNullOrEmpty()) return
+        held = null
+        DeviceVault.set(VAULT, d)
+    }
+
     /**
      * THE PAIR OF THE NAME THIS PHONE HOLDS (iOS contactPair at every listening and every accept): kept beside the name it was
      * drawn for, so a frame on a channel never draws ML-KEM again; a new name, a lapse or a forgetting lets it go.

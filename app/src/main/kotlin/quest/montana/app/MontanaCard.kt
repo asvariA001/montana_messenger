@@ -36,6 +36,23 @@ object MontanaCard {
 
     private val lock = Any()
 
+    /** The records a copy carries, under the iPhone's own names (iOS SeedScope.dataKeys 6133; MontanaCard.owned 646). */
+    val RECORDS = listOf(KEYS, PERM, DAILY, CURRENT, BORN)
+    fun record(name: String): ByteArray? = if (name in RECORDS) synchronized(lock) { DeviceVault.get(name) } else null
+    /**
+     * A RECORD A COPY LAID GOES IN BY THE CARD'S OWN DOOR, under its lock (iOS MontanaCard.lay, MontanaFirstContact.swift 665-674): the
+     * card keys and the day's cards as a union — what stands here stays, the copy adds what it lacks (SeedScope.unionKeys 6307) — the
+     * permanent card and the day's mark as the copy says them.
+     */
+    fun lay(name: String, d: ByteArray) {
+        if (name !in RECORDS) return
+        synchronized(lock) {
+            if (name != KEYS && name != DAILY) { DeviceVault.set(name, d); return }
+            val o = runCatching { JSONObject(String(d, Charsets.UTF_8)) }.getOrNull() ?: return
+            save(name, o.keys().asSequence().associateWith { Base64.decode(o.getString(it), Base64.NO_WRAP) } + map(name))
+        }
+    }
+
     // ── the bytes ──
     fun b64url(d: ByteArray): String = Base64.encodeToString(d, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
     fun unb64url(s: String): ByteArray? = runCatching { Base64.decode(s, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP) }.getOrNull()

@@ -39,6 +39,10 @@ object CallsSeen {
     fun unseen(): Int { val t = stamp(); return callRecords().count { it.info.incoming && it.info.missed && t < it.at } }
     /** The calls page is looked at (iOS onChange of the pane, ContentView.swift:3010-3012). */
     fun clear() { if (unseen() != 0) Prefs.setStr(KEY, System.currentTimeMillis().toString()) }
+    /** The moment as kept, milliseconds, for a copy (iOS «callsSeenAt», loadCallsSeenAt 593-603: seconds there, the card converts). */
+    fun kept(): Long? = Prefs.str(KEY, "").toLongOrNull()
+    /** A copy laid (iOS layCard 884-891: the copy's word). */
+    fun lay(ms: Long) { if (ms > 0) Prefs.setStr(KEY, ms.toString()) }
 }
 
 /**

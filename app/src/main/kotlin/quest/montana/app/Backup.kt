@@ -546,7 +546,8 @@ object MontanaBackup {
 /**
  * THE ACCOUNT CARD a copy carries (iOS MontanaBackup.seedCard 782-819, layCard 875-925 at 2155): one JSON map of word to word,
  * every value under the iPhone's own key and tag — «d:» a sealed value opened, «b:» bytes, «s:» a word, «n:» a number, «a:» a
- * list of words — so one card lays on both phones. Every fact this phone has an owner for travels both ways in the iPhone's own
+ * list of words, «p:» a property list — so one card lays on both phones. Every fact this phone has an owner for travels both
+ * ways in the iPhone's own
  * form (the names: SeedScope, MontanaChatStore.swift 6117-6229); a key it has no owner for travels as the card last taken back
  * holds it, and that card stays the base of every card made here. Laid by the iPhone's rule (SeedScope.unionKeys 6303-6312): a
  * collection keeps what stands here and takes what it lacks — a copy adds a block, a pin or a name and lifts none; every other
@@ -591,6 +592,8 @@ object Card {
         // the wall's rules (MontanaBoard.swift 44-49, 64-77): the rule a word, the people a list
         "boardRule" to Form.WORD, "boardSight" to Form.WORD,
         "boardAllow" to Form.LINES, "boardDeny" to Form.LINES, "boardSightAllow" to Form.LINES, "boardSightDeny" to Form.LINES,
+        // the posts already named to their walls as seen (MontanaBoard.swift 1186-1203: a list of «wall#post», the copy's word)
+        "board.viewed" to Form.LINES,
         // the person's own words (MontanaProfile.swift 623-625)
         "userName" to Form.WORD, "profileBio" to Form.WORD, "profileLink" to Form.WORD)
 
@@ -599,6 +602,14 @@ object Card {
      * moment (MontanaConversation.swift 318-327), reading the page's ground (MontanaE2E.swift 782-786), saying «played» (796-799).
      */
     private val flags = listOf("phide_", "pgcap_", "plcap_")
+    /**
+     * A moment kept per conversation (iOS SeedScope.dataPrefixes 6170, 6175): when a correspondent last said whether they hide the exact
+     * moment (MontanaConversation.swift 322-325), and the birth of a pair's first coin letter that names itself (MTWalletCore.swift
+     * 2575-2578) — a mark against a copied letter, it moves no coin. The iPhone keeps seconds, this phone milliseconds: the card says seconds.
+     */
+    private val moments = listOf("phideAt_", "coinBinds.")
+    /** The tag of a correspondent's page ground I hold and the moment they said it, «tag@at» on both phones (iOS MontanaFeeds.swift 390-396). */
+    private const val HELD = "pgHeld."
     private const val NODE = "mt.home.node"           // NOT-UI: iOS MontanaHomeNode.hostKey, sealed
     private const val NODE_PIN = "mt.home.node.pin"   // NOT-UI: iOS MontanaHomeNode.pinKey, sealed
 
@@ -615,11 +626,24 @@ object Card {
         }
         for (t in tagged(out, "n:") { k -> flags.any { k.startsWith(it) } }) out.remove(t)
         for (p in flags) for (k in Prefs.keys(p)) runCatching { prefs.getBoolean(k, false) }.getOrNull()?.let { out.put("n:$k", if (it) "1" else "0") }
-        // A chat's own ground by its drawn name (iOS MTWallpaper 173-194); a ground on a picture stays out — its file stands in a
-        // folder no copy reads here (ChatWall.folder)
-        val grounds = Prefs.keys("chatWall.").filter { !it.removePrefix("chatWall.").startsWith("*") }
-        for (t in tagged(out, "s:") { k -> k.startsWith("chatWall.") && !pageGround(k) && (k in grounds || drawn(out.optString("s:$k")) != null) }) out.remove(t)
-        for (k in grounds) Prefs.str(k, "").takeIf { drawn(it) != null }?.let { out.put("s:$k", it) }
+        // The moments said per conversation, in the iPhone's seconds (iOS notePeerHides, MontanaConversation.swift 322-325; MTCoinSend.credits,
+        // MTWalletCore.swift 2575-2578), and the page ground of theirs I hold, «tag@at» on both phones (iOS MTPageGround.held 390-396)
+        for (t in tagged(out, "n:") { k -> moments.any { k.startsWith(it) } }) out.remove(t)
+        for (p in moments) for (k in Prefs.keys(p)) Prefs.str(k, "").toLongOrNull()?.takeIf { it > 0 }?.let { out.put("n:$k", secs(it)) }
+        for (t in tagged(out, "s:") { it.startsWith(HELD) }) out.remove(t)
+        for (k in Prefs.keys(HELD)) Prefs.str(k, "").takeIf { it.isNotEmpty() }?.let { out.put("s:$k", it) }
+        // Every ground — a chat's, my page's, a correspondent's page's — under the iPhone's key (iOS MTWallpaper, MontanaFeeds.swift 156-194);
+        // a ground on a picture with its file in the copy's place of grounds, where the iPhone keeps its pictures (MontanaBackup.places).
+        // A card's ground this phone could not wear stays as the card holds it.
+        val walls = MontanaPaths.places(c).getValue("wallpapers")
+        val grounds = Prefs.keys("chatWall.")
+        val held = grounds.map { groundKey(it) }.toSet()
+        for (t in tagged(out, "s:") { k -> k.startsWith("chatWall.") && (k in held || wearable(groundRef(k), out.optString("s:$k"), walls) != null) }) out.remove(t)
+        for (k in grounds) {
+            val v = Prefs.str(k, "")
+            val w = wearable(k.removePrefix("chatWall."), v, ChatWall.folder()) ?: continue
+            if (w !is ChatWall.Choice.Photo || mirror(File(ChatWall.folder(), w.file), walls)) out.put("s:" + groundKey(k), v)
+        }
         // The list's marks, the blocked, the verified and the barred (iOS 6120-6121, 6131-6132, 6209): sealed lists, lists of words
         for ((k, list) in ChatMarks.carried()) out.put("d:$k", b64(JSONArray(list).toString()))
         out.put("d:blockedChats", b64(JSONArray(PeerSafety.blocked()).toString()))
@@ -647,6 +671,63 @@ object Card {
         for ((k, v) in listOf(NODE to MontanaHomeNode.host, NODE_PIN to MontanaHomeNode.pin)) if (v.isEmpty()) out.remove("d:$k") else out.put("d:$k", b64(v))
         BusinessCard.stored()?.let { out.put("d:businessCard", b64(it.json().toString())) } ?: out.remove("d:businessCard")
         SelfFace.bytes(c)?.let { out.put("b:avatarData", android.util.Base64.encodeToString(it, android.util.Base64.NO_WRAP)) } ?: out.remove("b:avatarData")
+        // The records sealed in the same JSON on both phones (iOS SeedScope.dataKeys 6132-6133): the peers' read marks (ChatStore
+        // notePeerRead 2872-2879), the name held in the network (MontanaNames.swift 113-132), the permanent link, its keys and the
+        // day's cards (MontanaFirstContact.swift 626-868)
+        val records = listOf("peerReadMap" to Post.PeerRead.carried(), "mt.name" to Names.record()) +
+            MontanaCard.RECORDS.map { it to MontanaCard.record(it) }
+        for ((k, v) in records) if (v == null) out.remove("d:$k") else out.put("d:$k", b64(v))
+        // What each correspondent said of themselves (iOS MTPeerAbout, MontanaE2E.swift 74-125: one sealed map of conversation to bio,
+        // link and moment) and the daily links they handed us with their births (MTPeerLinks 45-68: two sealed maps by conversation)
+        PeerAbout.all().takeIf { it.isNotEmpty() }?.let { m ->
+            out.put("d:peerAbout", b64(JSONObject().apply { for ((r, a) in m) put(r, JSONObject().put("bio", a.bio).put("link", a.link).put("at", a.at)) }.toString()))
+        } ?: out.remove("d:peerAbout")
+        val (links, born) = PeerLinks.carried()
+        if (links.isEmpty()) { out.remove("d:peerRdvLinks"); out.remove("d:peerRdvLinks.b") }
+        else { out.put("d:peerRdvLinks", b64(JSONObject(links).toString())); out.put("d:peerRdvLinks.b", b64(JSONObject(born).toString())) }
+        // The people kept as contacts (iOS ContactsTabView.MTContact, ContentView.swift 2430-2436; addToContacts, MontanaPeerInfo.swift
+        // 414-431: one sealed JSON list): the card's record of a person still kept here, and one for every other person kept here, named
+        // by my hand's name as the iPhone's book mirrors it (MTNameBook.syncContact 320-331), the moment of the adding unknown here
+        val people = PeerContact.all().toSet()
+        val contacts = JSONArray()
+        val listed = HashSet<String>()
+        array(out.optString("d:mtContacts"))?.let { a ->
+            for (i in 0 until a.length()) {
+                val o = a.optJSONObject(i) ?: continue
+                if (o.optString("address") in people && listed.add(o.optString("address"))) contacts.put(o)
+            }
+        }
+        val hand = Book.pins()
+        for (r in people) if (listed.add(r)) {
+            val n = hand[r].orEmpty().trim()
+            contacts.put(JSONObject().put("firstName", n.substringBefore(' ')).put("lastName", n.substringAfter(' ', "").trim())
+                .put("address", r).put("username", "").put("addedAt", 0.0))
+        }
+        if (contacts.length() == 0) out.remove("d:mtContacts") else out.put("d:mtContacts", b64(contacts.toString()))
+        // The letters waiting for their moment (iOS ScheduledMsg 31-37, saveScheduled 3237-3241) and the card's notes to oneself still to
+        // come — a note to oneself has no room here (Scheduled waits for a chat), so it travels as the card holds it
+        val waiting = Scheduled.carried()
+        array(out.optString("d:scheduledMsgs"))?.let { a ->
+            val now = System.currentTimeMillis() / 1000.0
+            for (i in 0 until a.length()) {
+                val o = a.optJSONObject(i) ?: continue
+                if ((o.isNull("convRef") || o.optString("convRef").isEmpty()) && now < o.optDouble("fireAt", 0.0)) waiting.put(o)
+            }
+        }
+        if (waiting.length() == 0) out.remove("d:scheduledMsgs") else out.put("d:scheduledMsgs", b64(waiting.toString()))
+        // The letters pinned in every chat (iOS ChatStore.savePinned 3232-3236: one sealed map of chat to letters)
+        MsgPins.carried().takeIf { it.isNotEmpty() }?.let { m ->
+            out.put("d:pinnedMessages", b64(JSONObject().apply { for ((r, l) in m) put(r, JSONArray(l)) }.toString()))
+        } ?: out.remove("d:pinnedMessages")
+        // My own stickers (iOS MontanaStickerBook, MontanaSticker.swift 128, 171-173: names over the media store), each picture laid in
+        // the copy's store, where the iPhone looks for it
+        val store = MontanaPaths.store(c)
+        val stickers = Stickers.names(c).filter { mirror(Stickers.file(c, it), store) }
+        if (stickers.isEmpty()) out.remove("a:montana.stickers.mine") else out.put("a:montana.stickers.mine", b64(JSONArray(stickers).toString()))
+        // The answers counted (iOS MTReactions, MontanaMessageMenu.swift 94-100: a map of answer to count, a property list on the card)
+        QuickReactions.counts().takeIf { it.isNotEmpty() }?.let { out.put("p:reactionUse", b64(plist(it))) } ?: out.remove("p:reactionUse")
+        // The moment the calls page was last seen (iOS ChatStore.loadCallsSeenAt 593-603: a sealed word of seconds)
+        CallsSeen.kept()?.let { out.put("d:callsSeenAt", b64(secs(it))) } ?: out.remove("d:callsSeenAt")
         return Built(out.toString().toByteArray(), out.length())
     }
 
@@ -670,6 +751,18 @@ object Card {
         var card: JSONObject? = null
         var face: ByteArray? = null
         var mesh: Boolean? = null
+        var readMarks: Map<String, Long>? = null
+        var nameRecord: ByteArray? = null
+        val cards = HashMap<String, ByteArray>()
+        var about: Map<String, PeerAbout.About>? = null
+        var links: Map<String, String>? = null
+        var born: Map<String, Double>? = null
+        var contacts: List<String>? = null
+        var waiting: JSONArray? = null
+        var pins: Map<String, List<String>>? = null
+        var stickers: List<String>? = null
+        var reactions: Map<String, Int>? = null
+        var callsSeen: Long? = null
         var laid = 0
         fun one(tagged: String) {
             val tag = tagged.take(2)
@@ -681,7 +774,9 @@ object Card {
                 k == Mesh.KEY -> if (tag == "n:") mesh = (v.toDoubleOrNull() ?: 0.0) != 0.0
                 form != null -> if (tag == form.tag && put(edit, k, form, v)) laid++
                 tag == "n:" && flags.any { k.startsWith(it) } -> { edit.putBoolean(k, (v.toDoubleOrNull() ?: 0.0) != 0.0); laid++ }
-                tag == "s:" && k.startsWith("chatWall.") && !pageGround(k) -> drawn(v)?.let { grounds.add(k.removePrefix("chatWall.") to it) }
+                tag == "n:" && moments.any { k.startsWith(it) } -> ms(v)?.let { edit.putString(k, it.toString()); laid++ }
+                tag == "s:" && k.startsWith(HELD) -> { edit.putString(k, v); laid++ }
+                tag == "s:" && k.startsWith("chatWall.") -> grounds.add(groundRef(k) to v)
                 tag == "d:" && k in ChatMarks.NAMES -> words(v)?.let { marks[k] = it }
                 tag == "d:" && k == "blockedChats" -> blocked = words(v)
                 tag == "a:" && k == "mtVerifiedConversations" -> verified = words(v)
@@ -696,12 +791,29 @@ object Card {
                 tag == "d:" && k == NODE_PIN -> nodePin = unb64(v)?.toString(Charsets.UTF_8)
                 tag == "d:" && k == "businessCard" -> card = unb64(v)?.let { JSONObject(it.toString(Charsets.UTF_8)) }
                 tag == "b:" && k == "avatarData" -> face = unb64(v)
+                tag == "d:" && k == "peerReadMap" -> readMarks = json(v)?.let { o -> o.keys().asSequence().associateWith { o.getLong(it) } }
+                tag == "d:" && k == "mt.name" -> nameRecord = unb64(v)
+                tag == "d:" && k in MontanaCard.RECORDS -> unb64(v)?.let { cards[k] = it }
+                tag == "d:" && k == "peerAbout" -> about = json(v)?.let { o ->
+                    o.keys().asSequence().associateWith { r -> o.getJSONObject(r).let { a -> PeerAbout.About(a.getString("bio"), a.getString("link"), a.getDouble("at")) } }
+                }
+                tag == "d:" && k == "peerRdvLinks" -> links = strings(v)
+                tag == "d:" && k == "peerRdvLinks.b" -> born = json(v)?.let { o -> o.keys().asSequence().associateWith { o.getDouble(it) } }
+                tag == "d:" && k == "mtContacts" -> contacts = array(v)?.let { a -> List(a.length()) { a.optJSONObject(it)?.optString("address").orEmpty() } }
+                tag == "d:" && k == "scheduledMsgs" -> waiting = array(v)
+                tag == "d:" && k == "pinnedMessages" -> pins = json(v)?.let { o ->
+                    o.keys().asSequence().associateWith { r -> o.getJSONArray(r).let { a -> List(a.length()) { a.getString(it) } } }
+                }
+                tag == "a:" && k == "montana.stickers.mine" -> stickers = words(v)
+                tag == "p:" && k == "reactionUse" -> reactions = unb64(v)?.let { counts(it) }
+                tag == "d:" && k == "callsSeenAt" -> callsSeen = unb64(v)?.let { ms(String(it, Charsets.UTF_8)) }
             }
         }
         for (tagged in map.keys()) runCatching { one(tagged) }
         edit.commit()
         // The owners take theirs by their own doors, each on its own: one refusing leaves the others laid.
         val avatars = MontanaPaths.places(c)["avatars"]
+        val walls = MontanaPaths.places(c).getValue("wallpapers")
         listOf<() -> Unit>(
             { if (marks.isNotEmpty()) ChatMarks.lay(marks) },
             { blocked?.let { PeerSafety.layBlocked(it) } },
@@ -709,12 +821,23 @@ object Card {
             { barred?.let { b -> val have = PeerSafety.barred(); PeerSafety.setBarred(have + b.filter { it !in have }) } },
             { names?.let { Book.layPins(it) } },
             { faces?.forEach { (ref, file) -> if (avatars != null && MontanaBackup.plainName(ref) && MontanaBackup.plainName(file)) Book.layMyFace(ref, File(avatars, file)) } },
-            { for ((ref, name) in grounds) ChatWall.set(ref, ChatWall.Choice.Named(name)) },
+            { for ((ref, v) in grounds) wearable(ref, v, walls)?.let { w -> if (w !is ChatWall.Choice.Photo || mirror(File(walls, w.file), ChatWall.folder())) ChatWall.set(ref, w) } },
             { node?.let { MontanaHomeNode.setHost(it) } },
             { nodePin?.let { MontanaHomeNode.setPin(it) } },
             { card?.let { BusinessCard(it.optString("name"), it.optString("phone"), it.optString("email"), it.optString("other")).keep() } },
             { face?.let { SelfFace.set(c, it) } },
-            { mesh?.let { if (it != Mesh.discoverable) Mesh.setDiscoverable(it) } }
+            { mesh?.let { if (it != Mesh.discoverable) Mesh.setDiscoverable(it) } },
+            { readMarks?.let { Post.PeerRead.lay(it) } },
+            { nameRecord?.let { Names.lay(it) } },
+            { for ((k, d) in cards) MontanaCard.lay(k, d) },
+            { about?.let { PeerAbout.lay(it) } },
+            { links?.let { PeerLinks.lay(it, born ?: emptyMap()) } },
+            { contacts?.forEach { if (it.isNotEmpty()) PeerContact.keep(it) } },
+            { waiting?.let { Scheduled.lay(it) } },
+            { pins?.let { MsgPins.lay(it) } },
+            { stickers?.let { Stickers.lay(c, it, MontanaPaths.store(c)) } },
+            { reactions?.let { QuickReactions.lay(it) } },
+            { callsSeen?.let { CallsSeen.lay(it) } }
         ).forEach { runCatching(it) }
         Log.i("Montana", "card laid values=$laid marks=${marks.size} grounds=${grounds.size} of ${map.length()}")
         return keep(c, "card", raw)
@@ -749,11 +872,35 @@ object Card {
     /** The card's entries under one tag whose key passes, taken out before any of them is removed. */
     private fun tagged(o: JSONObject, tag: String, take: (String) -> Boolean): List<String> =
         o.keys().asSequence().filter { it.startsWith(tag) && take(it.substring(2)) }.toList()
-    /** The pages' grounds under the iPhone's keys (iOS MTWallpaper.page, pageKey — MontanaFeeds.swift 160-170): this phone keeps them under its own (ChatWall.PAGE, PageGround.keyOf). */
-    private fun pageGround(k: String) = k == "chatWall.page" || k.startsWith("chatWall.page.")
+    /** A ground's key on the card (iOS MTWallpaper.page, pageKey — MontanaFeeds.swift 160-170): mine «page», a correspondent's page «page.» and them; this phone keeps them under ChatWall.PAGE and PageGround.keyOf. */
+    private fun groundKey(mine: String): String {
+        val r = mine.removePrefix("chatWall.")
+        val peer = PageGround.keyOf("")
+        return "chatWall." + when {
+            r == ChatWall.PAGE -> "page"
+            r.startsWith(peer) -> "page." + r.removePrefix(peer)
+            else -> r
+        }
+    }
+    /** The ref this phone keeps a card's ground under: the way back. */
+    private fun groundRef(k: String): String {
+        val r = k.removePrefix("chatWall.")
+        return when {
+            r == "page" -> ChatWall.PAGE
+            r.startsWith("page.") -> PageGround.keyOf(r.removePrefix("page."))
+            else -> r
+        }
+    }
+    /** A ground's word this phone wears (iOS MTWallpaper.parse 173-178, set 190-194): a drawn name it draws, a picture standing in [dir], my page's «general». */
+    private fun wearable(ref: String, v: String, dir: File): ChatWall.Choice? = when {
+        v.startsWith("photo:") -> v.removePrefix("photo:").takeIf { MontanaBackup.plainName(it) && File(dir, it).isFile }?.let { ChatWall.Choice.Photo(it) }
+        v == "general" && ref == ChatWall.PAGE -> ChatWall.Choice.General
+        else -> drawn(v)?.let { ChatWall.Choice.Named(it) }
+    }
     /** A ground by a drawn name this phone draws too (iOS MTWallpaper.parse 173-178); null for a picture or a name unknown here. */
     private fun drawn(v: String): String? = v.removePrefix("named:").takeIf { v.startsWith("named:") && ChatWall.names.any { n -> n.first == it } }
-    private fun b64(s: String) = android.util.Base64.encodeToString(s.toByteArray(Charsets.UTF_8), android.util.Base64.NO_WRAP)
+    private fun b64(s: String) = b64(s.toByteArray(Charsets.UTF_8))
+    private fun b64(b: ByteArray): String = android.util.Base64.encodeToString(b, android.util.Base64.NO_WRAP)
     private fun unb64(s: String): ByteArray? = runCatching { android.util.Base64.decode(s, android.util.Base64.DEFAULT) }.getOrNull()
     /** A list of words as the iPhone writes it: JSON in base64 (iOS seedCard 790-801). */
     private fun words(s: String): List<String>? = unb64(s)?.let { b ->
@@ -763,6 +910,68 @@ object Card {
     private fun strings(s: String): Map<String, String>? = unb64(s)?.let { b ->
         runCatching { JSONObject(String(b, Charsets.UTF_8)).let { o -> o.keys().asSequence().associateWith { o.getString(it) } } }.getOrNull()
     }
+
+    /** A sealed value the iPhone writes as JSON (iOS seedCard 790-792): an object, or a list. */
+    private fun json(s: String): JSONObject? = unb64(s)?.let { runCatching { JSONObject(String(it, Charsets.UTF_8)) }.getOrNull() }
+    private fun array(s: String): JSONArray? = unb64(s)?.let { runCatching { JSONArray(String(it, Charsets.UTF_8)) }.getOrNull() }
+    /** A moment of this phone, milliseconds, as the iPhone keeps it: seconds, written out whole (read there as a Double, layCard 897). */
+    private fun secs(ms: Long): String = java.math.BigDecimal.valueOf(ms, 3).stripTrailingZeros().toPlainString()
+    /** The iPhone's seconds, in whatever form a number is written, as this phone's milliseconds. */
+    private fun ms(v: String): Long? = v.trim().toBigDecimalOrNull()?.movePointRight(3)?.toLong()
+    /** A file laid into another place under its own name — linked, or copied where a link is refused — never over one standing there. */
+    private fun mirror(src: File, dir: File): Boolean {
+        val dst = File(dir, src.name)
+        if (dst.isFile) return true
+        if (!src.isFile || !(dir.isDirectory || dir.mkdirs())) return false
+        return runCatching { android.system.Os.link(src.path, dst.path) }.recoverCatching { src.copyTo(dst); Unit }.isSuccess
+    }
+    /**
+     * A map of answers to counts out of a property list (iOS seedCard 804-805 «p:», layCard 908-913): the binary form an iPhone writes,
+     * or the XML this phone writes. Only what the card needs is read — one dictionary of words to whole numbers.
+     */
+    private fun counts(b: ByteArray): Map<String, Int>? = runCatching {
+        if (b.size < 40 || String(b, 0, 8, Charsets.US_ASCII) != "bplist00")
+            return@runCatching Regex("""<key>(.*?)</key>\s*<integer>(-?\d+)</integer>""").findAll(String(b, Charsets.UTF_8))
+                .associate { unxml(it.groupValues[1]) to it.groupValues[2].toInt() }
+        fun be(o: Int, n: Int): Long { var v = 0L; for (k in 0 until n) v = (v shl 8) or (b[o + k].toLong() and 0xff); return v }
+        // the trailer: the offsets' width, the references' width, the top object, where the offsets stand
+        val t = b.size - 32
+        val width = b[t + 6].toInt() and 0xff
+        val refWidth = b[t + 7].toInt() and 0xff
+        val table = be(t + 24, 8).toInt()
+        fun at(i: Long) = be(table + i.toInt() * width, width).toInt()
+        fun head(o: Int): Pair<Int, Int> {   // an object's count and where its body begins
+            val low = b[o].toInt() and 0x0f
+            if (low != 0x0f) return low to o + 1
+            val n = 1 shl (b[o + 1].toInt() and 0x0f)
+            return be(o + 2, n).toInt() to o + 2 + n
+        }
+        val dict = at(be(t + 16, 8))
+        require((b[dict].toInt() and 0xf0) == 0xd0)
+        val (n, body) = head(dict)
+        (0 until n).associate { i ->
+            val ko = at(be(body + i * refWidth, refWidth))
+            val vo = at(be(body + (n + i) * refWidth, refWidth))
+            val (kl, ks) = head(ko)
+            val key = when (b[ko].toInt() and 0xf0) {
+                0x50 -> String(b, ks, kl, Charsets.US_ASCII)
+                0x60 -> String(b, ks, kl * 2, Charsets.UTF_16BE)
+                else -> error("a key that is not a word")
+            }
+            require((b[vo].toInt() and 0xf0) == 0x10)
+            key to be(vo + 1, 1 shl (b[vo].toInt() and 0x0f)).toInt()
+        }
+    }.getOrNull()
+    /** The same map as the XML property list (iOS layCard 908-913: PropertyListSerialization reads either form). */
+    private fun plist(m: Map<String, Int>): String = buildString {
+        append("""<?xml version="1.0" encoding="UTF-8"?>""").append('\n')
+        append("""<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">""").append('\n')
+        append("""<plist version="1.0"><dict>""")
+        for ((k, v) in m) append("<key>").append(xml(k)).append("</key><integer>").append(v).append("</integer>")
+        append("</dict></plist>")
+    }
+    private fun xml(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    private fun unxml(s: String) = s.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
 
     /** What a copy handed back and this phone keeps sealed; null when nothing is kept or the device key refuses. */
     fun kept(c: Context, name: String): ByteArray? =

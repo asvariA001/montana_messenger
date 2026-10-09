@@ -1482,6 +1482,16 @@ object Post {
         private fun map(): JSONObject = DeviceVault.get(KEY)?.toString(Charsets.UTF_8)?.let { runCatching { JSONObject(it) }.getOrNull() } ?: JSONObject()
         fun wipe() = synchronized(lock) { DeviceVault.delete(KEY) }
         fun upTo(ref: String): Long? = synchronized(lock) { map().optLong(ref, 0L).takeIf { it > 0L } }
+        /** The marks as kept, for a copy (iOS «peerReadMap», notePeerRead 2872-2879: the same map of conversation to millisecond). */
+        fun carried(): ByteArray? = synchronized(lock) { DeviceVault.get(KEY) }
+        /** A copy laid (iOS SeedScope.unionKeys 6307): a conversation's mark held here stands, the copy adds the others. */
+        fun lay(m: Map<String, Long>) {
+            synchronized(lock) {
+                val have = map()
+                for ((r, ms) in m) if (!have.has(r) && ms > 0) have.put(r, ms)
+                DeviceVault.set(KEY, have.toString().toByteArray(Charsets.UTF_8))
+            }
+        }
         fun note(ref: String, ms: Long) = synchronized(lock) {
             val m = map()
             if (m.optLong(ref, 0L) < ms) { m.put(ref, ms); DeviceVault.set(KEY, m.toString().toByteArray(Charsets.UTF_8)) }

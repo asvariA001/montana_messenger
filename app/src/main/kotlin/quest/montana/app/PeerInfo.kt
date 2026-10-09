@@ -49,6 +49,11 @@ object PeerAbout {
         JSONObject(Prefs.str("about.$ref", "")).let { About(it.optString("b"), it.optString("l"), it.optDouble("at", 0.0)) }
     }.getOrNull()
 
+    /** Every correspondent's words held here, for a copy (iOS MTPeerAbout 75, 99-101: «peerAbout», one map of conversation to bio, link, moment). */
+    fun all(): Map<String, About> = Prefs.keys("about.").mapNotNull { k -> k.removePrefix("about.").let { r -> of(r)?.let { r to it } } }.toMap()
+    /** A copy laid (iOS SeedScope.unionKeys 6311): a correspondent whose words stand here keeps them, the copy adds the others. */
+    fun lay(m: Map<String, About>) { for ((r, a) in m) if (r.isNotEmpty() && of(r) == null) note(r, a.bio, a.link, a.at) }
+
     /** Their word arrived: an older word changes nothing. */
     fun note(ref: String, bio: String, link: String, at: Double) {
         val held = of(ref)
@@ -153,6 +158,8 @@ object PeerSafety {
 object PeerContact {
     fun isKept(ref: String) = Prefs.bool("contact.$ref", false)
     fun keep(ref: String) = Prefs.setBool("contact.$ref", true)
+    /** Every person kept, for a copy (iOS «mtContacts», isInContacts MontanaPeerInfo.swift 395-399: kept when the list names them). */
+    fun all(): List<String> = Prefs.keys("contact.").filter { Prefs.bool(it, false) }.map { it.removePrefix("contact.") }
 }
 
 // ─────────────────────────── the panes (iOS MTMediaTab) ───────────────────────────
