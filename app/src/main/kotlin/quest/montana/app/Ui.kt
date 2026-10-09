@@ -186,7 +186,24 @@ fun Context.plate(build: LinearLayout.() -> Unit) = vstack(Gravity.NO_GRAVITY) {
 
 fun LinearLayout.divider() = addView(View(context).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = dp(16) })
 
-/** The face (iOS AvatarCircle): the photo, or the name's first character, bold and white, on a black circle. */
+/**
+ * THE LETTER OR EMOJI OF A FACE, ONE DERIVATION FOR THE WHOLE CLIENT (iOS MontanaAvatar.initial/isEmoji/glyphScale,
+ * MontanaAvatarKit.swift:22-54, atom 344e5535221e/1783): a glyph the person put first IS their face, drawn as is
+ * and larger, as the face itself; otherwise the first letter, uppercased, at the caption's share.
+ */
+fun avatarInitial(name: String): String {
+    val t = name.trim()
+    if (t.isEmpty()) return "?"
+    val g = t.substring(0, t.offsetByCodePoints(0, 1))
+    return if (isAvatarEmoji(g)) g else g.uppercase()
+}
+private fun isAvatarEmoji(g: String): Boolean {
+    val cp = g.codePointAt(0)
+    return cp > 0x238C && android.icu.lang.UCharacter.hasBinaryProperty(cp, android.icu.lang.UProperty.EMOJI)
+}
+fun avatarGlyphScale(g: String): Float = if (isAvatarEmoji(g)) 0.65f else 0.42f
+
+/** The face (iOS AvatarCircle): the photo, or the avatar's own initial, bold and white, on a black circle. */
 fun Context.avatar(face: Bitmap?, name: String, sizeDp: Int): View {
     val box = FrameLayout(this)
     box.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.BLACK) }
@@ -196,7 +213,7 @@ fun Context.avatar(face: Bitmap?, name: String, sizeDp: Int): View {
     }
     val inner: View = when {
         face != null -> ImageView(this).apply { setImageBitmap(face); scaleType = ImageView.ScaleType.CENTER_CROP }
-        name.isNotBlank() -> text(name.trim().let { it.substring(0, it.offsetByCodePoints(0, 1)) }, sizeDp * 0.42f, Color.WHITE, bold = true, center = true)
+        name.isNotBlank() -> avatarInitial(name).let { g -> text(g, sizeDp * avatarGlyphScale(g), Color.WHITE, bold = true, center = true) }
         else -> icon(R.drawable.ic_add_a_photo, Color.WHITE, (sizeDp * 0.36f).toInt())
     }
     val p = if (inner is ImageView && face == null) FrameLayout.LayoutParams(dp(sizeDp * 0.36f), dp(sizeDp * 0.36f), Gravity.CENTER)

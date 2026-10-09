@@ -68,10 +68,19 @@ object MontanaCard {
         return if (n.isNotEmpty() && n.size <= NAME_LIMIT) root + n else root
     }
 
-    /** A new card: its key drawn by the core from a seed the core drew, the secret half kept here alone (iOS offer). */
-    private fun born(): Pair<ByteArray, ByteArray>? {
+    /**
+     * THE SEED AND THE INVITATION FOR A NEW CARD, drawn with no lock in hand (iOS cardSeed/inviteBytes,
+     * MontanaFirstContact.swift:95-107, atom bb4e037428e4/1740, 19.09): the first draw of a process may gather
+     * entropy from several sources, and a gather held under [lock] stalls acceptAt/acceptFirst, which share it
+     * to read a card's secret half.
+     */
+    private fun cardSeed(): Pair<ByteArray, ByteArray>? {
         val seed = MtBindings.nativeRandom(64) ?: return null
         val inv = MtBindings.nativeRandom(32) ?: return null
+        return seed to inv
+    }
+    /** The card minted from an already-drawn seed, its secret half kept under the lock (iOS offer(seed:), MontanaFirstContact.swift:108-121). */
+    private fun born(seed: ByteArray, inv: ByteArray): Pair<ByteArray, ByteArray>? {
         val kp = MtBindings.nativeMlkemKeypair(seed) ?: return null
         val pk = kp.copyOfRange(0, 1184); val sk = kp.copyOfRange(1184, 1184 + 2400)
         val keys = map(KEYS); keys[b64url(pk)] = sk
@@ -80,51 +89,63 @@ object MontanaCard {
     }
 
     /** THE PERMANENT LINK: born once, shown as long as the person keeps it, laid on the node again every two hours or at a rename. */
-    fun offerPermanent(c: Context): String? = synchronized(lock) {
-        val perm = map(PERM)
-        perm.entries.firstOrNull()?.let { (inv64, payload) ->
-            val inv = unb64url(inv64)
-            if (inv != null && keyHeld(payload)) {
-                val np = withName(payload)
-                val renamed = !np.contentEquals(payload)
-                if (renamed) save(PERM, mapOf(inv64 to np))
-                if (renamed || due("rdvPermUpAt")) { upload(c, inv, np, "rdvPermUpAt"); uploadPermMark(inv) }
-                return PERM_PREFIX + inv64
+    fun offerPermanent(c: Context): String? {
+        synchronized(lock) {
+            val perm = map(PERM)
+            perm.entries.firstOrNull()?.let { (inv64, payload) ->
+                val inv = unb64url(inv64)
+                if (inv != null && keyHeld(payload)) {
+                    val np = withName(payload)
+                    val renamed = !np.contentEquals(payload)
+                    if (renamed) save(PERM, mapOf(inv64 to np))
+                    if (renamed || due("rdvPermUpAt")) { upload(c, inv, np, "rdvPermUpAt"); uploadPermMark(inv) }
+                    return PERM_PREFIX + inv64
+                }
             }
         }
-        val (inv, payload) = born() ?: return null
-        save(PERM, mapOf(b64url(inv) to payload))
-        upload(c, inv, payload, "rdvPermUpAt"); uploadPermMark(inv)
-        PERM_PREFIX + b64url(inv)
+        val (seed, inv) = cardSeed() ?: return null
+        return synchronized(lock) {
+            val (i, payload) = born(seed, inv) ?: return null
+            save(PERM, mapOf(b64url(i) to payload))
+            upload(c, i, payload, "rdvPermUpAt"); uploadPermMark(i)
+            PERM_PREFIX + b64url(i)
+        }
     }
 
     /** THE LINK OF THE DAY: one per device, born exactly a day after the one before; the one before keeps receiving. */
-    fun offerShort(c: Context): String? = synchronized(lock) {
-        val daily = map(DAILY)
-        val cur = text(CURRENT)
-        val bornAt = text(BORN)?.toDoubleOrNull()
-        if (cur != null && bornAt != null && now() - bornAt < LIFETIME) {
-            val payload = daily[cur]; val inv = unb64url(cur)
-            if (payload != null && inv != null && keyHeld(payload)) {
-                if (due("rdvUpAt")) upload(c, inv, payload, "rdvUpAt")
-                return TEMP_PREFIX + cur
+    fun offerShort(c: Context): String? {
+        synchronized(lock) {
+            val daily = map(DAILY)
+            val cur = text(CURRENT)
+            val bornAt = text(BORN)?.toDoubleOrNull()
+            if (cur != null && bornAt != null && now() - bornAt < LIFETIME) {
+                val payload = daily[cur]; val inv = unb64url(cur)
+                if (payload != null && inv != null && keyHeld(payload)) {
+                    if (due("rdvUpAt")) upload(c, inv, payload, "rdvUpAt")
+                    return TEMP_PREFIX + cur
+                }
             }
         }
-        val (inv, payload) = born() ?: return null
-        val keep = mutableMapOf<String, ByteArray>()
-        if (cur != null) daily[cur]?.let { keep[cur] = it }          // the receiving generation: its secret stays
-        keep[b64url(inv)] = payload
-        if (!save(DAILY, keep) || !DeviceVault.set(CURRENT, b64url(inv).toByteArray()) ||
-            !DeviceVault.set(BORN, now().toString().toByteArray())) return null
-        // Yesterday's links answer «spent» at once; the generations older than the one before are buried whole.
-        val keys = map(KEYS)
-        for ((inv64, pl) in daily) {
-            unb64url(inv64)?.let { old -> seal(rdvKey(old), SPENT_MAGIC.toByteArray())?.let { tomb -> Thread { put(rdvBid(old), tomb) }.start() } }
-            if (inv64 != cur) keys.remove(b64url(pl.copyOf(1184)))
+        val (seed, inv) = cardSeed() ?: return null
+        return synchronized(lock) {
+            val daily = map(DAILY)
+            val cur = text(CURRENT)
+            val (i, payload) = born(seed, inv) ?: return null
+            val keep = mutableMapOf<String, ByteArray>()
+            if (cur != null) daily[cur]?.let { keep[cur] = it }          // the receiving generation: its secret stays
+            keep[b64url(i)] = payload
+            if (!save(DAILY, keep) || !DeviceVault.set(CURRENT, b64url(i).toByteArray()) ||
+                !DeviceVault.set(BORN, now().toString().toByteArray())) return null
+            // Yesterday's links answer «spent» at once; the generations older than the one before are buried whole.
+            val keys = map(KEYS)
+            for ((inv64, pl) in daily) {
+                unb64url(inv64)?.let { old -> seal(rdvKey(old), SPENT_MAGIC.toByteArray())?.let { tomb -> Thread { put(rdvBid(old), tomb) }.start() } }
+                if (inv64 != cur) keys.remove(b64url(pl.copyOf(1184)))
+            }
+            save(KEYS, keys)
+            upload(c, i, payload, "rdvUpAt")
+            TEMP_PREFIX + b64url(i)
         }
-        save(KEYS, keys)
-        upload(c, inv, payload, "rdvUpAt")
-        TEMP_PREFIX + b64url(inv)
     }
 
     /** Every live invitation — the daily generations and the permanent one (iOS outstandingInvites). */
