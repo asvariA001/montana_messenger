@@ -1086,6 +1086,30 @@ object Post {
     }
 
     /** The pipe a first letter gives birth to: the chat with the writer's name, the face beside the pipe read, the letter placed and answered. */
+    /**
+     * THE RECEIVER SAYS MY LETTER'S CARGO IS GONE (iOS cargoLostMark, MontanaChatStore 4083-4098; verifyCargoNow and checkCargo,
+     * MontanaDeliveryEngine 1198-1232; atom 7787c49622e5). The report may be stale -- about an old incarnation of the letter while a
+     * resend rides under the same name -- so it never retracts the letter: the stores pass the sentence, every proven store asked, one
+     * silent store is «don't know». Only a cargo truly absent turns a letter still riding red; a delivered letter keeps its row.
+     */
+    private fun cargoReported(ref: String, lost: String) {
+        val m = Book.chat(ref)?.msgs?.find { it.mid == lost && it.mine } ?: return
+        val o = runCatching { JSONObject(m.text.removePrefix(Marks.MEDIA)) }.getOrNull()?.takeIf { m.text.startsWith(Marks.MEDIA) } ?: return
+        val bids = if (o.has("mref")) listOf(o.optString("mref"))
+            else o.optJSONArray("chunks")?.let { a -> (0 until a.length()).map { a.getJSONObject(it).optString("bid") } }.orEmpty()
+        if (bids.none { it.isNotEmpty() }) return
+        Log.d("Montana", "cargo_lost m=" + lost.take(8) + " receiver reported: cargo gone — verifying against the node now")
+        Thread {
+            val have = Wire.blobsHave(bids.filter { it.isNotEmpty() }, everyStore = true) ?: return@Thread
+            val gone = bids.count { it.isNotEmpty() && it !in have }
+            if (gone == 0) return@Thread
+            Log.d("Montana", "cargo_lost m=" + lost.take(8) + " sender check: " + gone + "/" + bids.size + " chunks gone from the node — red if the letter still rides")
+            var red: Msg? = null
+            Book.edit(ref) { c -> c.msgs.find { it.mid == lost && it.mine }?.let { if (it.advance(-1)) red = it } }
+            red?.let { CoinSend.hold(it, ref) }
+        }.start()
+    }
+
     private fun land(secret: ByteArray, root: ByteArray, mid: String, text: String, name0: String): Boolean {
         val ref = Book.establish(secret) ?: return false
         val name = name0.takeIf { it.isNotBlank() && it.length <= 64 } ?: ""
@@ -1182,6 +1206,7 @@ object Post {
                 PageGround.noteCapable(ref)
                 receipt(ref, sid)
             }
+            text.startsWith(CARGO_LOST) -> cargoReported(ref, text.removePrefix(CARGO_LOST))
             text.startsWith(Marks.PLAYED) -> {
                 val d = text.removePrefix(Marks.PLAYED)
                 Prefs.setBool("plcap_$ref", true)
@@ -1262,6 +1287,13 @@ object Post {
                     val had = c.msgs.find { it.mid == mid }
                     // THE SAME LETTER AGAIN, NOW WITH ITS CARD (iOS attachPreview's copy): the card joins the row, nothing else moves
                     if (had != null && lp != null && LinkCard.parse(lp) != null && had.lp == null) { had.lp = lp; Log.d("Montana", "link card: landed on a standing row mid=" + mid.take(8)) }
+                    // THE SAME LETTER WITH NEW CARGO REFILLS ITS ROW (iOS 1638, DeliveryEngine 159-169; the author's invariant: what stands
+                    // in the sender's chat stands in the receiver's): a media row without its file takes the copy's manifest -- the sender
+                    // re-uploaded under the same name -- and the assembly receipts when the file is whole; nothing erased, nothing doubled
+                    if (had != null && text.startsWith(Marks.MEDIA) && had.text != text && had.file?.let { File(it).exists() } != true) {
+                        had.text = text; had.meta = null
+                        Log.d("Montana", "rx_refill m=" + mid.take(8) + " the row stands without its file — the copy's cargo is taken")
+                    }
                     if (had == null) {
                         val at = Marks.birthMs(mid) ?: System.currentTimeMillis()
                         c.msgs.add(Msg(mid, text, false, at, qt = qt, qm = qm, lp = lp?.takeIf { LinkCard.parse(it) != null })); c.msgs.sortBy { it.at }
