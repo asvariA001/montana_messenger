@@ -396,6 +396,8 @@
     <string name="call_hold">Hold</string>
     <string name="call_on_hold">On hold</string>
     <string name="call_lost">Connection lost — reconnecting</string>
+    <string name="call_no_road_title">The call found no road</string>
+    <string name="call_no_road_body">The two phones could not open a path for the voice. Try again in a moment.</string>
     <string name="call_title_audio">Montana Audio Call</string>
     <string name="call_back">Back</string>
     <string name="call_accept">Accept</string>

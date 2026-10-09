@@ -91,6 +91,17 @@ object CallScreen {
 
     private fun dropPill() { pill?.invoke(); pill = null; foldChanged(null) }
 
+    /**
+     * THE PERSON HEARS WHY (iOS tellNoRoad, MontanaCall.swift, atom 319c1ca96b0a, 29.09): a call that found no road ends
+     * with a word in the person's language, not a screen that simply closes. Android carries no network-filter probe
+     * (iOS MontanaNetProbe) to tell a filtered network from a plain failure, so this build speaks the one general word.
+     */
+    fun tellNoRoad() = MainThread.post {
+        val act = front ?: return@post
+        android.app.AlertDialog.Builder(act).setTitle(R.string.call_no_road_title).setMessage(R.string.call_no_road_body)
+            .setPositiveButton(R.string.ok, null).show()
+    }
+
     private fun log(s: String) { Log.d("Montana", "call screen: " + s) }
 
     /** The call folded into its pill, and whose (iOS CallUIModel.foldedLive, peer): the handsets beside a name watch it. */

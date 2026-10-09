@@ -57,6 +57,7 @@ object CallLine {
     private const val RESTART_MAX = 3                 // three fresh transports in a row failed — then the call is honestly lost
     private const val RECONNECT_DEADLINE_MS = 30_000L
     private const val DISCONNECT_GRACE_MS = 2_500L
+    private const val SETUP_ASK_MAX = 2   // iOS setupAskMax (MontanaCall.swift, atom 319c1ca96b0a): fresh asks before a path failed before the connect ends the call
 
     private class Line(val ref: String, val seed: String, val pc: PeerConnection, val source: AudioSource, val track: AudioTrack) {
         val out = ArrayList<IceCandidate>()
@@ -71,6 +72,7 @@ object CallLine {
         // the one owner of «ask for fresh checks» (iOS requestIceRestart, b23f80900c0f)
         var restartAskedAt = 0L   // iOS restartAskedAt (.distantPast here is 0): never asked until set
         var iceRestarts = 0   // iOS iceRestarts: fresh transports asked since the break was declared
+        var setupAsks = 0   // iOS setupAsks (atom 319c1ca96b0a): fresh asks on a path failed before the first connect
         var routeKey = ""   // iOS routeKey: the wifi/cellular letters of the route in hand
         var routeRestartAt = 0L   // iOS routeRestartAt: one ask per route change, debounced two seconds
         var routeCallback: ConnectivityManager.NetworkCallback? = null   // iOS routeMonitor
@@ -370,7 +372,11 @@ object CallLine {
                     autoSpeaker(l)
                 }
             }
-            PeerConnection.IceConnectionState.FAILED -> { lost = true; Calls.hangUp("ice-failed") }
+            // A FAILED PATH BEFORE THE FIRST CONNECT IS ANSWERED, NOT FINAL (iOS setupPathFailed, MontanaCall.swift, atom
+            // 319c1ca96b0a, 29.09): the engine's «failed» here used to end the call at once while both phones still held
+            // each other's candidates; asking again, once on every road with a fresh relay pass and once on the relay
+            // alone, finds the path a flat end never tried.
+            PeerConnection.IceConnectionState.FAILED -> if (l.connectedAt == 0L) setupPathFailed(l) else { lost = true; Calls.hangUp("ice-failed") }
             // THE SUSPICION GETS A GRACE (iOS peerConnection(_:didChange:) 5092-5102, b23f80900c0f): «disconnected» is a few
             // missed checks, not a verdict — measured 22:51:34, it healed in 1.4s and the person heard the break cue for a blip.
             // The red light waits for it to still stand 2.5s later; a quick heal shows nothing. Past the grace the one
@@ -391,6 +397,33 @@ object CallLine {
             }
             else -> {}
         }
+    }
+
+    /**
+     * A FAILED PATH BEFORE THE CONNECT IS ANSWERED, NOT WATCHED (iOS setupPathFailed, MontanaCall.swift, atom
+     * 319c1ca96b0a, 29.09): the first ask tries every road again with a fresh relay pass, the second the relay alone; a
+     * third verdict ends the call by rule and tells the person in their language (CallScreen.tellNoRoad).
+     */
+    private fun setupPathFailed(l: Line) {
+        if (synchronized(gate) { line !== l } || l.connectedAt != 0L) return
+        l.setupAsks++
+        if (l.setupAsks > SETUP_ASK_MAX) {
+            log("no path after " + (l.setupAsks - 1) + " fresh asks, the last on the relay alone — ending")
+            CallScreen.tellNoRoad()
+            Calls.hangUp("no-path")
+            return
+        }
+        val relay = l.setupAsks == SETUP_ASK_MAX
+        log("path failed before the connect — ask n=" + l.setupAsks + " " + (if (relay) "relay only" else "every road, fresh pass"))
+        val cfg = PeerConnection.RTCConfiguration(servers(fresh = true)).apply {
+            sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
+            continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
+            bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE
+            iceTransportsType = if (relay) PeerConnection.IceTransportsType.RELAY else PeerConnection.IceTransportsType.ALL
+        }
+        if (!l.pc.setConfiguration(cfg)) log("the engine refused the new configuration — the ask rides the old one")
+        l.restartAskedAt = 0L
+        requestIceRestart(l, "setup ask n=" + l.setupAsks)
     }
 
     /** The call ended (Calls.end): the line closes, the phone's sound is given back, and the seconds it spoke are returned. */
@@ -423,8 +456,8 @@ object CallLine {
 
     // ── the relay pass (iOS rtcConfig 1045-1109, WakePush fetchTurnCred 1467) ──
 
-    private fun servers(): List<PeerConnection.IceServer> {
-        val p = pass() ?: return emptyList<PeerConnection.IceServer>().also { log("NO ICE SERVERS — host-only call") }
+    private fun servers(fresh: Boolean = false): List<PeerConnection.IceServer> {
+        val p = pass(fresh) ?: return emptyList<PeerConnection.IceServer>().also { log("NO ICE SERVERS — host-only call") }
         val list = ArrayList<PeerConnection.IceServer>()
         val stun = strings(p.optJSONArray("stun"))
         if (stun.isNotEmpty()) list.add(PeerConnection.IceServer.builder(stun).createIceServer())
@@ -443,8 +476,10 @@ object CallLine {
     private fun live(p: JSONObject) = p.optString("u").toDoubleOrNull()?.let { it - System.currentTimeMillis() / 1000.0 > 600 } ?: true
 
     /** The remembered pass, else a fresh one from every door at once — the first answer wins (iOS fetchTurnCred). */
-    private fun pass(): JSONObject? {
-        runCatching { JSONObject(Prefs.str(PASS, "")) }.getOrNull()?.takeIf { it.optJSONArray("uris") != null && live(it) }?.let { return it }
+    // A FRESH ASK AFTER A VERDICT SKIPS THE REMEMBERED PASS (iOS rtcConfig freshPass, atom 319c1ca96b0a): the remembered
+    // one may be the very pass the relay just refused.
+    private fun pass(fresh: Boolean = false): JSONObject? {
+        if (!fresh) runCatching { JSONObject(Prefs.str(PASS, "")) }.getOrNull()?.takeIf { it.optJSONArray("uris") != null && live(it) }?.let { return it }
         val got = java.util.concurrent.LinkedBlockingQueue<JSONObject>()
         for (door in MontanaCard.doors) Thread {
             val (code, text) = Wire.post(door, "/turn-cred", JSONObject(), 6000)

@@ -395,6 +395,8 @@
     <string name="call_hold">保持</string>
     <string name="call_on_hold">通话保持中</string>
     <string name="call_lost">连接中断 — 正在重连</string>
+    <string name="call_no_road_title">通话未找到线路</string>
+    <string name="call_no_road_body">两部手机未能为语音打开通路。请稍后再试。</string>
     <string name="call_title_audio">Montana 语音通话</string>
     <string name="call_back">返回</string>
     <string name="call_accept">接听</string>

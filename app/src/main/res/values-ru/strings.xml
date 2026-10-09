@@ -395,6 +395,8 @@
     <string name="call_hold">Удержать</string>
     <string name="call_on_hold">На удержании</string>
     <string name="call_lost">Связь потеряна — восстанавливаем</string>
+    <string name="call_no_road_title">Звонок не нашёл дороги</string>
+    <string name="call_no_road_body">Два телефона не смогли открыть путь для голоса. Попробуйте ещё раз через минуту.</string>
     <string name="call_title_audio">Аудиовызов Montana</string>
     <string name="call_back">Назад</string>
     <string name="call_accept">Принять</string>
