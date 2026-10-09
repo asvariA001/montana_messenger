@@ -108,7 +108,7 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
     // the gesture at 1675): the camera that fills the main circle right now -- the single one, or whichever of the pair the
     // flip or the swap left there -- scaled from where the last pinch left it, never past the sensor's own ceiling or 8x.
     private var zoomBase = 1f
-    private var zoomNow = 1f
+    private val zoomOf = HashMap<String, Float>()   // each camera keeps its own factor, as each AVCaptureDevice keeps videoZoomFactor
     private var mainSurface: Surface? = null
     private var badgeSurface: Surface? = null
     // THE FILL LIGHT (iOS flash / applyFlash, MontanaFeeds.swift:1730-1731 and 2225-2241 at 2155): the white screen at full
@@ -372,6 +372,8 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
                             s.setRepeatingRequest(d.createCaptureRequest(CameraDevice.TEMPLATE_RECORD).apply {
                                 addTarget(out); set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
                                 if (back) set(CaptureRequest.FLASH_MODE, if (flash) CaptureRequest.FLASH_MODE_TORCH else CaptureRequest.FLASH_MODE_OFF)
+                                // the light's turn keeps the zoom: iOS applyFlash touches the torch alone (2228-2241)
+                                cropFor(cm, id, zoomOf[id] ?: 1f)?.let { set(CaptureRequest.SCALER_CROP_REGION, it) }
                             }.build(), null, h)
                         }
                         issue()
@@ -420,12 +422,18 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
      *  2155): the single camera, or whichever of the pair fills the main circle right now (iOS bigDevice). */
     fun pinch(scale: Float) = h.post {
         val big2 = dual && swapped
-        zoomNow = (zoomBase * scale).coerceAtLeast(1f)
-        applyZoom(if (big2) cam2 else cam, if (big2) session2 else session, if (big2) badgeSurface else mainSurface, zoomNow)
+        val d = (if (big2) cam2 else cam) ?: return@post
+        val cm = c.getSystemService(CameraManager::class.java)
+        // held between 1 and the sensor's own ceiling or 8x, whichever is lower (iOS 2215)
+        val z = (zoomBase * scale).coerceIn(1f, ceiling(cm, d.id))
+        zoomOf[d.id] = z
+        applyZoom(d, if (big2) session2 else session, if (big2) badgeSurface else mainSurface, z)
     }
     /** The gesture's end commits the zoom it leaves (iOS pinchEnded, MontanaFeeds.swift:2219-2223 at 2155: reads the
      *  device's own clamped factor back, so the next pinch starts from what the hardware actually holds). */
-    fun pinchEnded() = h.post { zoomBase = zoomNow }
+    fun pinchEnded() = h.post { val d = (if (dual && swapped) cam2 else cam) ?: return@post; zoomBase = zoomOf[d.id] ?: 1f }
+    private fun ceiling(cm: CameraManager, id: String): Float =
+        minOf(runCatching { cm.getCameraCharacteristics(id).get(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM) }.getOrNull() ?: 1f, 8f)
     private fun applyZoom(d: CameraDevice?, s: CameraCaptureSession?, out: Surface?, zoom: Float) {
         if (d == null || s == null || out == null) return
         val cm = c.getSystemService(CameraManager::class.java)
@@ -444,8 +452,7 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
     private fun cropFor(cm: CameraManager, id: String, zoom: Float): Rect? {
         val chars = runCatching { cm.getCameraCharacteristics(id) }.getOrNull() ?: return null
         val active = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE) ?: return null
-        val maxZ = chars.get(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM) ?: 1f
-        val z = zoom.coerceIn(1f, minOf(maxZ, 8f))
+        val z = zoom.coerceIn(1f, ceiling(cm, id))
         if (z <= 1f) return null
         val w = (active.width() / z).toInt(); val hh = (active.height() / z).toInt()
         val x = active.left + (active.width() - w) / 2; val y = active.top + (active.height() - hh) / 2
