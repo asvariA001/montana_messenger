@@ -47,6 +47,7 @@ object Calls {
         var line = false   // the voice was handed its offer
         var ringing = false   // outgoing: the far phone said «call-ringing»
         val startedAt = System.currentTimeMillis()   // iOS startedAt: this call's own birth by this device's clock (the critic's youngerThanOurs, 24.09, build 1500771e4d2b)
+        var refused = false   // the system would not stand this call as its own (iOS callkit-refused/callkit-reset, builds 7492b6b28754/3811dfa0a06f): its own miss rides silent
     }
     private var tone: ToneGenerator? = null
     private val gate = Any()
@@ -179,11 +180,21 @@ object Calls {
         end(r, why)
     }
 
+    /** THE SYSTEM'S REFUSAL ENDS THE BIRTH EVERYWHERE (iOS startCall's CXStartCallAction completion, MontanaCall.swift
+     * 1817-1824, providerDidReset 4707-4716, build 7492b6b28754): a call whose own foreground service this phone could
+     * not stand ends here and now — the far phone told before the teardown, not left ringing to its own ninety-second
+     * wall over a call this phone no longer holds. */
+    private fun refused(r: Ring, why: String) {
+        if (synchronized(gate) { ring !== r }) return
+        r.refused = true
+        hangUp(why)
+    }
+
     /** «Answer» (iOS acceptCall): the ring stops, the call stands as the system's, and the voice takes the offer. */
     fun answer() {
         val r = synchronized(gate) { ring?.takeIf { !it.out }?.also { it.answered = true } } ?: return
         hide()
-        CallService.start(Book.ctx, r.ref)
+        CallService.start(Book.ctx, r.ref) { refused(r, "service-refused") }
         voice(r)
         // iOS 2639-2647: an offer still on its way is waited for fifteen seconds, then the call honestly ends
         MainThread.later(15_000) { if (synchronized(gate) { ring === r && !r.line }) hangUp("offer-missing") }
@@ -223,7 +234,7 @@ object Calls {
         }
         noteSeed(seed, "alive")
         Signal.hold(ref, "call")
-        CallService.start(Book.ctx, ref)
+        CallService.start(Book.ctx, ref) { refused(r, "service-refused") }
         MainThread.later(1200) { pipsOn(r) }   // the searching pips until the far phone's own word «ringing» (iOS 1855, 4548-4556)
         Thread { knock(r) }.start()
         // one ring letter per call, its name the call's (iOS E2E 1162-1166): the road of a phone the wake does not reach
@@ -261,6 +272,10 @@ object Calls {
      * RUNG when a door rang a phone; NOBODY when every door said 404 — no recipients (iOS 3536-3553); else 0.
      */
     private fun wake(r: Ring, offer: String?): Int {
+        // A BIRTH THAT NO LONGER HOLDS THE MACHINE WAKES NOBODY (iOS startCall's callGen guards, MontanaCall.swift
+        // 1742-1884, build 7492b6b28754): a call ended here — superseded, declined, hung up, refused by the system —
+        // must not wake the far phone, or offer it again, once its own birth is buried.
+        if (synchronized(gate) { ring !== r }) return 0
         val twin = MontanaSeed.twin ?: return 0
         val secret = Book.secret(r.ref) ?: return 0
         fun sealed(o: String): String? {
@@ -385,7 +400,10 @@ object Calls {
             // a call of ours nobody took leaves the far phone its «missed» letter (iOS missedCallMark); one of theirs, the banner here
             // LOUD ONLY FOR A PHONE THAT NEVER RANG (iOS MontanaCall 5722, 13.09: the author's three notifications for one call): a phone
             // that said «ringing» has shown its person the call and written its own missed row — the letter still rides, silent
-            if (r.out) { if (!r.answered) Post.send(r.ref, Marks.mintMid(), Marks.MISSED + JSONObject().put("v", r.video).put("s", r.seed), quiet = r.ringing) }
+            // A BIRTH THE SYSTEM REFUSED RIDES SILENT TOO (iOS build 3811dfa0a06f: refused = endReason.hasPrefix("callkit-"),
+            // "silent: rang || refused"): this phone never truly held the call either, so a loud «missed call» for it is
+            // one notification too many.
+            if (r.out) { if (!r.answered) Post.send(r.ref, Marks.mintMid(), Marks.MISSED + JSONObject().put("v", r.video).put("s", r.seed), quiet = r.ringing || r.refused) }
             else if (!r.answered && why != "declined") Notify.letter(r.ref, rowText(r.video, true, 0, true))   // iOS postMissedCallBanner
         }
         log("end " + why + (if (silent) " silent" else ""))
