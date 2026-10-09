@@ -18,9 +18,11 @@ import android.widget.ScrollView
 import android.widget.TextView
 
 /**
- * THE ONE SHARE OF ONE'S CARD (iOS MontanaCardShare): the code page's «Share» and the contacts page's round button hand out
- * the same message — the words, then the link on its own line — through the system's own share sheet, nothing between the
- * tap and it. The kind is the one the code page chose (permanent by default).
+ * THE ONE SHARE OF ONE'S CARD (iOS MontanaCardShare, ContentView.swift:4558-4567): the code page's «Share» and the contacts
+ * page's round button hand out the correspondent's link. A LINK GOES AS A LINK (iOS MTShare.web, MontanaE2E.swift:266-274;
+ * the author's word 07.10.2026 00:1x MSK: «Share gives one link that opens in the browser, not a text that turned into a
+ * file»): the link alone, through the system's own share sheet; the words stand beside it only while the link fails to
+ * parse as one. The kind is the one the code page chose (permanent by default).
  */
 fun shareCard(act: MainActivity) {
     val permanent = Prefs.str("cardKind", "perm") == "perm"
@@ -28,8 +30,8 @@ fun shareCard(act: MainActivity) {
         val link = if (permanent) MontanaCard.offerPermanent(act) else MontanaCard.offerShort(act)
         act.onMain {
             if (link == null) { android.widget.Toast.makeText(act, R.string.card_failed, android.widget.Toast.LENGTH_LONG).show(); return@onMain }
-            val send = Intent(Intent.ACTION_SEND).setType("text/plain")
-                .putExtra(Intent.EXTRA_TEXT, MontanaCard.inviteMessage(act, permanent) + "\n" + link)
+            val text = webLink(link) ?: (MontanaCard.inviteMessage(act, permanent) + "\n" + link)
+            val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
             act.startActivity(Intent.createChooser(send, null))
         }
     }
