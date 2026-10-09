@@ -102,11 +102,24 @@ object PeerSafety {
     fun isVerified(ref: String) = Prefs.bool("fpVerified.$ref", false)
     fun setVerified(ref: String, on: Boolean) = Prefs.setBool("fpVerified.$ref", on)
 
+    /** Every person blocked here: a copy carries them as the iPhone's «blockedChats» (iOS SeedScope.dataKeys, MontanaChatStore.swift 6132). */
+    fun blocked(): List<String> = Prefs.keys("block.").filter { Prefs.bool(it, false) }.map { it.removePrefix("block.") }
+    /**
+     * A COPY LAID (iOS layCard under SeedScope.unionKeys, MontanaChatStore.swift 6307; takeStored 2134): a block the copy carries
+     * stands here too, and none stands down. Said to nobody — the iPhone lays it as silently (blockedChats' didSet 861-866 only writes).
+     */
+    fun layBlocked(refs: List<String>) { for (r in refs) if (r.isNotEmpty() && !isBlocked(r)) Prefs.setBool("block.$r", true) }
+    /** The correspondences checked face to face (iOS SafetyStore, MontanaScreens.swift 184-195): carried, and laid as a union. */
+    fun verified(): List<String> = Prefs.keys("fpVerified.").filter { Prefs.bool(it, false) }.map { it.removePrefix("fpVerified.") }
+    fun layVerified(refs: List<String>) { for (r in refs) if (r.isNotEmpty()) setVerified(r, true) }
+
     /**
      * THE BARRED ADDRESSES (iOS MontanaSafety.barred/setBarred, MontanaSafety.swift:28-41; ChatStore.refuses, MontanaChatStore.swift:879;
      * MontanaWakePush.swift:155-158): an address the network's operators barred after a report is refused like a blocked one — the
      * node itself cannot bar anyone, it sees labels, never identities, so the bar rides the doors' answer down to the phones.
      */
+    /** The barred addresses as kept (iOS MontanaSafety.barred, MontanaSafety.swift 33): a copy carries them, laid as a union. */
+    fun barred(): List<String> = Prefs.str("barredPeers", "").split('\n').filter { it.isNotEmpty() }
     fun isBarred(ref: String) = ref in Prefs.str("barredPeers", "").split('\n').filter { it.isNotEmpty() }
     fun setBarred(list: List<String>) {
         val clean = list.map { it.trim() }.filter { it.isNotEmpty() }

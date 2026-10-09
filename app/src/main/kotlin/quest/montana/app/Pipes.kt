@@ -590,6 +590,37 @@ object Book {
     /** The one face of a person, resolved in one place: mine, then theirs (iOS MTNameBook avatar resolution). */
     fun shownFace(ref: String): File = myFace(ref).takeIf { it.exists() } ?: face(ref)
 
+    /** My hand's name on every row here, null where it set none (iOS MTNameBook.manual — a copy carries it as «manualNames»). */
+    fun pins(): Map<String, String?> = synchronized(lock) {
+        ensure(); chats.values.filter { !it.ref.startsWith("arc:") }.associate { it.ref to it.pin?.ifBlank { null } }
+    }
+
+    /**
+     * A COPY LAID (iOS layCard under SeedScope.unionKeys, MontanaChatStore.swift 6306; MTNameBook.setManual 44-54): a name my hand
+     * set here stands, a row with none takes the copy's — unless it is the person's own word, which is no pin. A person with no row
+     * here yet keeps it in the card this phone keeps (Card).
+     */
+    fun layPins(m: Map<String, String>) {
+        var any = false
+        synchronized(lock) {
+            ensure()
+            for ((ref, name) in m) {
+                val c = chats[ref] ?: continue
+                val n = name.trim()
+                if (n.isEmpty() || !c.pin.isNullOrBlank() || n == c.name) continue
+                c.pin = n; save(c); any = true
+            }
+        }
+        if (any) changed()
+    }
+
+    /** A COPY LAID (iOS layCard «manualPhotos», a union): the picture my hand set on a person, where this phone holds none. */
+    fun layMyFace(ref: String, src: File): Boolean {
+        val dst = myFace(ref)
+        if (dst.exists() || !src.isFile) return false
+        return runCatching { src.copyTo(dst) }.isSuccess.also { if (it) changed() }
+    }
+
     private val faceHealed = mutableSetOf<String>()
     /**
      * A FACE IS FETCHED FROM THE NODE, NOT WAITED FOR (iOS healFacesFromCards, MontanaChatStore.swift:1916, atom

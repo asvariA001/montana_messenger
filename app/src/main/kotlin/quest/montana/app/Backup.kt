@@ -1,7 +1,9 @@
 package quest.montana.app
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.util.Log
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
@@ -542,49 +544,224 @@ object MontanaBackup {
 }
 
 /**
- * THE ACCOUNT CARD a copy carries (iOS MontanaBackup.layCard): the person's settings and records, each tagged by the
- * store it lived in on iOS. This phone lays what it already has an owner for — the plain words its own settings read
- * (the name among them) — and never over a value already here; the whole card is kept sealed under the device key for
- * the owners still to come (the chats, their names and choices).
+ * THE ACCOUNT CARD a copy carries (iOS MontanaBackup.seedCard 782-819, layCard 875-925 at 2155): one JSON map of word to word,
+ * every value under the iPhone's own key and tag — «d:» a sealed value opened, «b:» bytes, «s:» a word, «n:» a number, «a:» a
+ * list of words — so one card lays on both phones. Every fact this phone has an owner for travels both ways in the iPhone's own
+ * form (the names: SeedScope, MontanaChatStore.swift 6117-6229); a key it has no owner for travels as the card last taken back
+ * holds it, and that card stays the base of every card made here. Laid by the iPhone's rule (SeedScope.unionKeys 6303-6312): a
+ * collection keeps what stands here and takes what it lacks — a copy adds a block, a pin or a name and lifts none; every other
+ * value is the copy's.
  */
 object Card {
-    /** The words this phone's own settings read, by the iOS names: they travel as the iOS card carries them. */
-    private val ownWords = listOf("userName")
-
     class Built(val data: ByteArray, val count: Int)
 
     /**
-     * The card a copy made HERE carries: every entry of the card last taken back (what this phone keeps for the owners
-     * to come), with this phone's own values over it — the name, and the face as the iOS card carries it (avatarData).
+     * How this phone keeps a setting, against the iPhone's tag for it (iOS seedCard 796-803): a number there is a switch here, a
+     * whole number, a fraction or a number kept as a word; a word is a word; a list of words is one word per line.
+     */
+    private enum class Form(val tag: String) { SWITCH("n:"), WHOLE("n:"), FRACTION("n:"), WHOLE_WORD("n:"), FRACTION_WORD("n:"), WORD("s:"), LINES("a:") }
+
+    /**
+     * THE SETTINGS KEPT HERE UNDER THE IPHONE'S OWN NAMES (iOS SeedScope.dataKeys 6122, settingKeys 6206-6218), each in the form
+     * its owner keeps it on this phone.
+     */
+    private val settings: Map<String, Form> = linkedMapOf(
+        // the notifications (MontanaSettings.swift 278-281), the downloads (1186-1187), privacy (1717-1720; MontanaConversation.swift
+        // 310-313), the terms (MontanaSafety.swift 22-25)
+        "notifSound" to Form.SWITCH, "notifPreview" to Form.SWITCH, "notifSender" to Form.SWITCH, "notifLockName" to Form.SWITCH,
+        "autoDownloadCellular" to Form.SWITCH, "autoDownloadWiFi" to Form.SWITCH,
+        "presenceSharing" to Form.SWITCH, "readReceiptsEnabled" to Form.SWITCH, "liveTypingEnabled" to Form.SWITCH,
+        "linkPreviewsEnabled" to Form.SWITCH, "objectionableFilterOn" to Form.SWITCH, "termsAcceptedVersion" to Form.WHOLE,
+        // the bubbles (MontanaSettings.swift 951-967, BT ContentView.swift 74-75): the colours words, the rest fractions; the classic
+        // bubble's colour a whole number there (MontanaBubble.swift 277), a fraction in this phone's store
+        "bubbleStyle" to Form.WORD,
+        "cbMineFill1" to Form.WORD, "cbMineFill2" to Form.WORD, "cbMineOpacity" to Form.FRACTION, "cbMineText" to Form.WORD,
+        "cbMineOutline" to Form.WORD, "cbMineOutlineOp" to Form.FRACTION, "cbMineOutlineW" to Form.FRACTION,
+        "cbPeerFill1" to Form.WORD, "cbPeerFill2" to Form.WORD, "cbPeerOpacity" to Form.FRACTION, "cbPeerText" to Form.WORD,
+        "cbPeerOutline" to Form.WORD, "cbPeerOutlineOp" to Form.FRACTION, "cbPeerOutlineW" to Form.FRACTION,
+        "bubbleColorIndex" to Form.FRACTION,
+        // the feed's motion (MontanaChatMotion.swift 6-9), the note (MontanaFeeds.swift 1718, 1783-1808), the voice (MontanaMedia.swift 324-326)
+        "chatSpringBounce" to Form.FRACTION, "chatSpringDuration" to Form.FRACTION,
+        "noteQuality" to Form.WORD, "vnoteCorner" to Form.WHOLE_WORD, "voiceRate" to Form.FRACTION_WORD,
+        // the field (MontanaBubble.swift 2361-2362, MontanaConversation.swift 661), the panes (ContentView.swift 226-227, 4296;
+        // MontanaChatsList.swift 454), the mesh switch (MontanaNetworkView.swift 123), the daily copies to one's own node
+        // (MontanaHomeNode.swift 23, 39-40)
+        "composeOpen" to Form.SWITCH, "composeMediaMode" to Form.WORD, "lastMediaPane" to Form.WORD, "cardKind" to Form.WORD,
+        "timePanelOpen" to Form.SWITCH, Mesh.KEY to Form.SWITCH, "mt.home.node.on" to Form.SWITCH,
+        // the wall's rules (MontanaBoard.swift 44-49, 64-77): the rule a word, the people a list
+        "boardRule" to Form.WORD, "boardSight" to Form.WORD,
+        "boardAllow" to Form.LINES, "boardDeny" to Form.LINES, "boardSightAllow" to Form.LINES, "boardSightDeny" to Form.LINES,
+        // the person's own words (MontanaProfile.swift 623-625)
+        "userName" to Form.WORD, "profileBio" to Form.WORD, "profileLink" to Form.WORD)
+
+    /**
+     * What a correspondent said of themselves, kept per conversation (iOS SeedScope.dataPrefixes 6170-6171): hiding the exact
+     * moment (MontanaConversation.swift 318-327), reading the page's ground (MontanaE2E.swift 782-786), saying «played» (796-799).
+     */
+    private val flags = listOf("phide_", "pgcap_", "plcap_")
+    private const val NODE = "mt.home.node"           // NOT-UI: iOS MontanaHomeNode.hostKey, sealed
+    private const val NODE_PIN = "mt.home.node.pin"   // NOT-UI: iOS MontanaHomeNode.pinKey, sealed
+
+    /**
+     * The card a copy made HERE carries: the card last taken back, every value this phone owns written over it in the iPhone's
+     * form. An entry this phone owns and no longer holds leaves the card: a copy never brings back what was undone here.
      */
     fun build(c: Context): Built? {
         val out = kept(c, "card")?.let { runCatching { JSONObject(String(it, Charsets.UTF_8)) }.getOrNull() ?: return null } ?: JSONObject()
         val prefs = c.getSharedPreferences("mt.defaults", Context.MODE_PRIVATE)
-        for (k in ownWords) prefs.getString(k, null)?.takeIf { it.isNotEmpty() }?.let { out.put("s:$k", it) }
-        val face = File(c.filesDir, "avatar.jpg")
-        if (face.isFile) out.put("b:avatarData", android.util.Base64.encodeToString(face.readBytes(), android.util.Base64.NO_WRAP))
+        for ((k, form) in settings) {
+            out.remove(form.tag + k)
+            if (prefs.contains(k)) runCatching { said(prefs, k, form) }.getOrNull()?.let { out.put(form.tag + k, it) }
+        }
+        for (t in tagged(out, "n:") { k -> flags.any { k.startsWith(it) } }) out.remove(t)
+        for (p in flags) for (k in Prefs.keys(p)) runCatching { prefs.getBoolean(k, false) }.getOrNull()?.let { out.put("n:$k", if (it) "1" else "0") }
+        // A chat's own ground by its drawn name (iOS MTWallpaper 173-194); a ground on a picture stays out — its file stands in a
+        // folder no copy reads here (ChatWall.folder)
+        val grounds = Prefs.keys("chatWall.").filter { !it.removePrefix("chatWall.").startsWith("*") }
+        for (t in tagged(out, "s:") { k -> k.startsWith("chatWall.") && !pageGround(k) && (k in grounds || drawn(out.optString("s:$k")) != null) }) out.remove(t)
+        for (k in grounds) Prefs.str(k, "").takeIf { drawn(it) != null }?.let { out.put("s:$k", it) }
+        // The list's marks, the blocked, the verified and the barred (iOS 6120-6121, 6131-6132, 6209): sealed lists, lists of words
+        for ((k, list) in ChatMarks.carried()) out.put("d:$k", b64(JSONArray(list).toString()))
+        out.put("d:blockedChats", b64(JSONArray(PeerSafety.blocked()).toString()))
+        out.put("a:mtVerifiedConversations", b64(JSONArray(PeerSafety.verified()).toString()))
+        out.remove("a:barredPeers")
+        PeerSafety.barred().takeIf { it.isNotEmpty() }?.let { out.put("a:barredPeers", b64(JSONArray(it).toString())) }
+        // The words left unsent in every chat (iOS ChatStore.draftsAll 740-744: one sealed map by conversation)
+        val drafts = JSONObject()
+        for (k in Prefs.keys("draft.")) {
+            val ref = k.removePrefix("draft.")
+            if (ref != "savedMessages") Prefs.str(k, "").takeIf { it.isNotEmpty() }?.let { drafts.put(ref, it) }
+        }
+        out.put("d:draftsMap", b64(drafts.toString()))
+        // The names my hand set (iOS MTNameBook 26-55): a person with a row here has this phone's word, one without keeps the card's
+        val names = (strings(out.optString("d:manualNames")) ?: emptyMap()).toMutableMap()
+        for ((ref, pin) in Book.pins()) if (pin == null) names.remove(ref) else names.put(ref, pin)
+        if (names.isEmpty()) out.remove("d:manualNames") else out.put("d:manualNames", b64(JSONObject(names).toString()))
+        // The faces my hand set (iOS MTNameBook 133-157): the card's, while the picture still stands here
+        strings(out.optString("d:manualPhotos"))?.let { m ->
+            val held = m.filterKeys { MontanaBackup.plainName(it) && Book.myFace(it).exists() }
+            if (held.isEmpty()) out.remove("d:manualPhotos") else out.put("d:manualPhotos", b64(JSONObject(held).toString()))
+        }
+        // One's own node and its certificate's digest (iOS MontanaHomeNode.swift 22-48), the business card (MontanaProfile.swift
+        // 113-136), the face as the iPhone carries it (avatarData: the bytes as they are)
+        for ((k, v) in listOf(NODE to MontanaHomeNode.host, NODE_PIN to MontanaHomeNode.pin)) if (v.isEmpty()) out.remove("d:$k") else out.put("d:$k", b64(v))
+        BusinessCard.stored()?.let { out.put("d:businessCard", b64(it.json().toString())) } ?: out.remove("d:businessCard")
+        SelfFace.bytes(c)?.let { out.put("b:avatarData", android.util.Base64.encodeToString(it, android.util.Base64.NO_WRAP)) } ?: out.remove("b:avatarData")
         return Built(out.toString().toByteArray(), out.length())
     }
 
+    /**
+     * A card taken back (iOS layCard 875-925): every value this phone owns goes to its owner in this phone's form — a setting as
+     * the copy says it, a collection as a union — and the whole card is kept for the owners still to come.
+     */
     fun lay(c: Context, raw: ByteArray): Boolean {
         val map = runCatching { JSONObject(String(raw, Charsets.UTF_8)) }.getOrNull() ?: return false
         val prefs = c.getSharedPreferences("mt.defaults", Context.MODE_PRIVATE)
         val edit = prefs.edit()
+        val marks = HashMap<String, List<String>>()
+        val grounds = ArrayList<Pair<String, String>>()
+        var blocked: List<String>? = null
+        var verified: List<String>? = null
+        var barred: List<String>? = null
+        var names: Map<String, String>? = null
+        var faces: Map<String, String>? = null
+        var node: String? = null
+        var nodePin: String? = null
+        var card: JSONObject? = null
+        var face: ByteArray? = null
+        var mesh: Boolean? = null
         var laid = 0
-        for (tagged in map.keys()) {
-            if (!tagged.startsWith("s:")) continue
-            val k = tagged.substring(2)
-            if (prefs.contains(k)) continue
-            edit.putString(k, map.optString(tagged)); laid++
+        fun one(tagged: String) {
+            val tag = tagged.take(2)
+            val k = tagged.drop(2)
+            val v = map.optString(tagged)
+            val form = settings[k]
+            when {
+                // the switch acts the moment it is set, by its owner's own road (iOS SeedScope.reread 6359-6363)
+                k == Mesh.KEY -> if (tag == "n:") mesh = (v.toDoubleOrNull() ?: 0.0) != 0.0
+                form != null -> if (tag == form.tag && put(edit, k, form, v)) laid++
+                tag == "n:" && flags.any { k.startsWith(it) } -> { edit.putBoolean(k, (v.toDoubleOrNull() ?: 0.0) != 0.0); laid++ }
+                tag == "s:" && k.startsWith("chatWall.") && !pageGround(k) -> drawn(v)?.let { grounds.add(k.removePrefix("chatWall.") to it) }
+                tag == "d:" && k in ChatMarks.NAMES -> words(v)?.let { marks[k] = it }
+                tag == "d:" && k == "blockedChats" -> blocked = words(v)
+                tag == "a:" && k == "mtVerifiedConversations" -> verified = words(v)
+                tag == "a:" && k == "barredPeers" -> barred = words(v)
+                // a union (iOS SeedScope.unionKeys 6304): the words this phone already holds for a chat stay
+                tag == "d:" && k == "draftsMap" -> strings(v)?.forEach { (ref, text) ->
+                    if (text.isNotEmpty() && prefs.getString("draft.$ref", null).isNullOrEmpty()) { edit.putString("draft.$ref", text); laid++ }
+                }
+                tag == "d:" && k == "manualNames" -> names = strings(v)
+                tag == "d:" && k == "manualPhotos" -> faces = strings(v)
+                tag == "d:" && k == NODE -> node = unb64(v)?.toString(Charsets.UTF_8)
+                tag == "d:" && k == NODE_PIN -> nodePin = unb64(v)?.toString(Charsets.UTF_8)
+                tag == "d:" && k == "businessCard" -> card = unb64(v)?.let { JSONObject(it.toString(Charsets.UTF_8)) }
+                tag == "b:" && k == "avatarData" -> face = unb64(v)
+            }
         }
+        for (tagged in map.keys()) runCatching { one(tagged) }
         edit.commit()
-        // The face as the iOS card carries it: laid only where this phone has none.
-        val face = File(c.filesDir, "avatar.jpg")
-        if (!face.exists()) map.optString("b:avatarData").takeIf { it.isNotEmpty() }?.let {
-            runCatching { face.writeBytes(android.util.Base64.decode(it, android.util.Base64.NO_WRAP)); laid++ }
-        }
-        Log.i("Montana", "card laid words=$laid of ${map.length()}")
+        // The owners take theirs by their own doors, each on its own: one refusing leaves the others laid.
+        val avatars = MontanaPaths.places(c)["avatars"]
+        listOf<() -> Unit>(
+            { if (marks.isNotEmpty()) ChatMarks.lay(marks) },
+            { blocked?.let { PeerSafety.layBlocked(it) } },
+            { verified?.let { PeerSafety.layVerified(it) } },
+            { barred?.let { b -> val have = PeerSafety.barred(); PeerSafety.setBarred(have + b.filter { it !in have }) } },
+            { names?.let { Book.layPins(it) } },
+            { faces?.forEach { (ref, file) -> if (avatars != null && MontanaBackup.plainName(ref) && MontanaBackup.plainName(file)) Book.layMyFace(ref, File(avatars, file)) } },
+            { for ((ref, name) in grounds) ChatWall.set(ref, ChatWall.Choice.Named(name)) },
+            { node?.let { MontanaHomeNode.setHost(it) } },
+            { nodePin?.let { MontanaHomeNode.setPin(it) } },
+            { card?.let { BusinessCard(it.optString("name"), it.optString("phone"), it.optString("email"), it.optString("other")).keep() } },
+            { face?.let { SelfFace.set(c, it) } },
+            { mesh?.let { if (it != Mesh.discoverable) Mesh.setDiscoverable(it) } }
+        ).forEach { runCatching(it) }
+        Log.i("Montana", "card laid values=$laid marks=${marks.size} grounds=${grounds.size} of ${map.length()}")
         return keep(c, "card", raw)
+    }
+
+    /** This phone's value in the iPhone's form (iOS seedCard 796-803): a number by its digits, a list as JSON in base64. */
+    private fun said(p: SharedPreferences, k: String, f: Form): String? = when (f) {
+        Form.SWITCH -> if (p.getBoolean(k, false)) "1" else "0"
+        Form.WHOLE -> p.getInt(k, 0).toString()
+        Form.FRACTION -> p.getFloat(k, 0f).takeIf { it.isFinite() }?.toString()
+        Form.WHOLE_WORD -> p.getString(k, null)?.toDoubleOrNull()?.toInt()?.toString()
+        Form.FRACTION_WORD -> p.getString(k, null)?.toFloatOrNull()?.takeIf { it.isFinite() }?.toString()
+        Form.WORD -> p.getString(k, null)
+        Form.LINES -> p.getString(k, null)?.let { s -> b64(JSONArray(s.split('\n').filter { it.isNotEmpty() }).toString()) }
+    }
+
+    /** The copy's value in this phone's form (iOS layCard 896-902: a number read as a double, an unreadable one as zero). */
+    private fun put(e: SharedPreferences.Editor, k: String, f: Form, v: String): Boolean {
+        val n = v.toDoubleOrNull() ?: 0.0
+        when (f) {
+            Form.SWITCH -> e.putBoolean(k, n != 0.0)
+            Form.WHOLE -> e.putInt(k, n.toInt())
+            Form.FRACTION -> e.putFloat(k, n.toFloat().takeIf { it.isFinite() } ?: return false)
+            Form.WHOLE_WORD -> e.putString(k, n.toInt().toString())
+            Form.FRACTION_WORD -> e.putString(k, (n.toFloat().takeIf { it.isFinite() } ?: return false).toString())
+            Form.WORD -> e.putString(k, v)
+            Form.LINES -> e.putString(k, (words(v) ?: return false).filter { it.isNotEmpty() }.joinToString("\n"))
+        }
+        return true
+    }
+
+    /** The card's entries under one tag whose key passes, taken out before any of them is removed. */
+    private fun tagged(o: JSONObject, tag: String, take: (String) -> Boolean): List<String> =
+        o.keys().asSequence().filter { it.startsWith(tag) && take(it.substring(2)) }.toList()
+    /** The pages' grounds under the iPhone's keys (iOS MTWallpaper.page, pageKey — MontanaFeeds.swift 160-170): this phone keeps them under its own (ChatWall.PAGE, PageGround.keyOf). */
+    private fun pageGround(k: String) = k == "chatWall.page" || k.startsWith("chatWall.page.")
+    /** A ground by a drawn name this phone draws too (iOS MTWallpaper.parse 173-178); null for a picture or a name unknown here. */
+    private fun drawn(v: String): String? = v.removePrefix("named:").takeIf { v.startsWith("named:") && ChatWall.names.any { n -> n.first == it } }
+    private fun b64(s: String) = android.util.Base64.encodeToString(s.toByteArray(Charsets.UTF_8), android.util.Base64.NO_WRAP)
+    private fun unb64(s: String): ByteArray? = runCatching { android.util.Base64.decode(s, android.util.Base64.DEFAULT) }.getOrNull()
+    /** A list of words as the iPhone writes it: JSON in base64 (iOS seedCard 790-801). */
+    private fun words(s: String): List<String>? = unb64(s)?.let { b ->
+        runCatching { JSONArray(String(b, Charsets.UTF_8)).let { a -> List(a.length()) { a.getString(it) } } }.getOrNull()
+    }
+    /** A map of words to words, the same way (iOS seedCard 802-803; draftsMap, manualNames, manualPhotos). */
+    private fun strings(s: String): Map<String, String>? = unb64(s)?.let { b ->
+        runCatching { JSONObject(String(b, Charsets.UTF_8)).let { o -> o.keys().asSequence().associateWith { o.getString(it) } } }.getOrNull()
     }
 
     /** What a copy handed back and this phone keeps sealed; null when nothing is kept or the device key refuses. */
