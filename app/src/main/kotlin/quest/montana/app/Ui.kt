@@ -194,14 +194,20 @@ fun LinearLayout.divider() = addView(View(context).apply { setBackgroundColor(MT
 fun avatarInitial(name: String): String {
     val t = name.trim()
     if (t.isEmpty()) return "?"
-    val g = t.substring(0, t.offsetByCodePoints(0, 1))
+    // the first CHARACTER as the person sees it (iOS t.first, a grapheme): a flag or a family of joined glyphs is one
+    val chars = android.icu.text.BreakIterator.getCharacterInstance().apply { setText(t) }
+    val g = t.substring(0, chars.next().takeIf { 0 < it } ?: t.offsetByCodePoints(0, 1))
     return if (isAvatarEmoji(g)) g else g.uppercase()
 }
+/** iOS MontanaAvatar.isEmoji (MontanaAvatarKit.swift:22-26): a joined character is a glyph when any of its scalars is; a lone one above U+238C. */
 private fun isAvatarEmoji(g: String): Boolean {
-    val cp = g.codePointAt(0)
-    return cp > 0x238C && android.icu.lang.UCharacter.hasBinaryProperty(cp, android.icu.lang.UProperty.EMOJI)
+    val points = g.codePoints().toArray()
+    if (points.isEmpty()) return false
+    if (1 < points.size) return points.any { android.icu.lang.UCharacter.hasBinaryProperty(it, android.icu.lang.UProperty.EMOJI) }
+    return 0x238C < points[0] && android.icu.lang.UCharacter.hasBinaryProperty(points[0], android.icu.lang.UProperty.EMOJI)
 }
-fun avatarGlyphScale(g: String): Float = if (isAvatarEmoji(g)) 0.65f else 0.42f
+/** iOS MontanaAvatar.glyphScale (MontanaAvatarKit.swift:31-34): a letter 0.40 of the circle, a glyph -- the face itself -- 0.62. */
+fun avatarGlyphScale(g: String): Float = if (g.isNotEmpty() && isAvatarEmoji(g)) 0.62f else 0.40f
 
 /** The face (iOS AvatarCircle): the photo, or the avatar's own initial, bold and white, on a black circle. */
 fun Context.avatar(face: Bitmap?, name: String, sizeDp: Int): View {

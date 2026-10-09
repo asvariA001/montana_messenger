@@ -130,6 +130,14 @@ object MontanaCard {
         return synchronized(lock) {
             val daily = map(DAILY)
             val cur = text(CURRENT)
+            // THE BIRTH LOOKS AGAIN UNDER ITS LOCK (iOS offerShort, MontanaFirstContact.swift:931-941, 24.09): the snapshot above was read
+            // before the randomness, and two askers of one activation both found the day over and both gave birth -- the second wiped
+            // the secret of yesterday's card while letters were still on their way to it. A card born meanwhile is the card.
+            val bornAt = text(BORN)?.toDoubleOrNull()
+            if (cur != null && bornAt != null && now() - bornAt < LIFETIME) {
+                val pl = daily[cur]
+                if (pl != null && keyHeld(pl)) return TEMP_PREFIX + cur
+            }
             val (i, payload) = born(seed, inv) ?: return null
             val keep = mutableMapOf<String, ByteArray>()
             if (cur != null) daily[cur]?.let { keep[cur] = it }          // the receiving generation: its secret stays
