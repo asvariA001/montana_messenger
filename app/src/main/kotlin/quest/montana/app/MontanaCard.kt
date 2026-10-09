@@ -148,6 +148,7 @@ object MontanaCard {
                 // 66e4e7b28a0c): the birth counts once every record is written; until then the orphaned secret is taken back.
                 val orphan = map(KEYS)
                 if (orphan.remove(b64url(payload.copyOf(1184))) != null) save(KEYS, orphan)
+                android.util.Log.d("Montana", "rdv_born FAIL unsettled")
                 return null
             }
             // Yesterday's links answer «spent» at once; the generations older than the one before are buried whole.
@@ -226,10 +227,10 @@ object MontanaCard {
      * is done, and the permanent one -- if the person holds one, whole, its key in place -- tops up alongside it;
      * no card is born here for someone with none.
      */
-    fun keepLiveCardsUp() {
+    fun keepLiveCardsUp(c: Context) {
         if (!MontanaSeed.hasSeed) return   // SILENT-OK: the first screen -- no identity, no card
-        offerShort(MontanaApp.context)
-        if (hasLivePermanent()) offerPermanent(MontanaApp.context)
+        offerShort(c)
+        if (hasLivePermanent()) offerPermanent(c)
     }
     private fun hasLivePermanent(): Boolean = synchronized(lock) { map(PERM).values.firstOrNull()?.let { keyHeld(it) } ?: false }
 
