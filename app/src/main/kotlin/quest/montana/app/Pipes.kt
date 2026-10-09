@@ -189,19 +189,43 @@ object Wire {
         return Signal.writeOrder("blob").any { door -> putBlobAt(door, bid, data, cargo, last) }   // the elected store first (iOS 2007)
     }
     /**
-     * What the node already holds of these chunks (iOS blobsPresent, askHave 1945-1985): only the chunks asked about count — a store
-     * naming others is a stale index and is not believed; null when no door answered.
+     * What the node already holds of these chunks (iOS blobsPresent, askHave 1941-1981): only the chunks asked about count — a store
+     * naming others is a stale index and is not believed, and the diary names it; null is «don't know».
+     * THE QUESTION COSTS ONE ROUND TRIP, NEVER A WALK (iOS 18.09): the stores are asked AT ONCE under the one post deadline of five
+     * seconds — one after another with ten seconds each, a fresh cargo walked the list until a dead door hung it. An upload's savings
+     * ask only the store the bytes are going to; `everyStore` is for a verdict of loss: one silent store makes it «don't know».
      */
-    fun blobsHave(bids: List<String>): Set<String>? {
+    fun blobsHave(bids: List<String>, everyStore: Boolean = false): Set<String>? {
+        if (bids.isEmpty()) return null
+        val doors = Signal.writeOrder("blob").let { if (everyStore) it else it.take(1) }
+        if (doors.isEmpty()) return null
+        val t0 = System.currentTimeMillis()
         val asked = bids.toSet()
-        for (door in Signal.writeOrder("blob")) {
-            val (code, text) = post(door, "/blob-have", JSONObject().put("bids", JSONArray(bids)), 10_000)
-            if (code != 200 || text == null) continue
-            val h = runCatching { JSONObject(text).getJSONArray("have") }.getOrNull() ?: continue
-            return (0 until h.length()).map { h.optString(it) }.filter { it in asked }.toSet()
+        val answers = arrayOfNulls<Set<String>>(doors.size)
+        doors.mapIndexed { i, door -> Thread { answers[i] = askHave(door, bids, asked) }.apply { start() } }
+            .forEach { it.join(POST_DEADLINE_MS + 1_000L) }
+        val have = HashSet<String>(); var silent = 0
+        for (a in answers) if (a != null) have.addAll(a) else silent++
+        val now = System.currentTimeMillis()
+        if (now - haveSaidAt >= 30_000L) {   // folded to a line per half minute (iOS markFolded window 30)
+            haveSaidAt = now
+            Log.d("Montana", "blob_have doors=${doors.size} silent=$silent have=${have.size}/${bids.size} ms=${now - t0}")
         }
-        return null
+        if (have.size == bids.size) return have
+        return if (silent > 0) null else have
     }
+    @Volatile private var haveSaidAt = 0L
+    private fun askHave(door: String, bids: List<String>, asked: Set<String>): Set<String>? {
+        val (code, text) = post(door, "/blob-have", JSONObject().put("bids", JSONArray(bids)), POST_DEADLINE_MS)
+        if (code != 200 || text == null) return null
+        val h = runCatching { JSONObject(text).getJSONArray("have") }.getOrNull() ?: return null
+        val named = (0 until h.length()).map { h.optString(it) }
+        val foreign = named.count { it !in asked }
+        if (foreign > 0) Log.d("Montana", "blob_have_foreign door=${android.net.Uri.parse(door).host ?: door} named=$foreign asked=${bids.size} — ignored")
+        return named.filter { it in asked }.toSet()
+    }
+    // the one deadline of a post to a node (iOS MTNodeWire.postTimeoutS 299)
+    private const val POST_DEADLINE_MS = 5_000
     /**
      * THE CARGO'S OWN DEADLINE (iOS MTNodeWire.cargoTimeoutS 301-306, 17.09): the knock's five seconds plus a second per sixteen
      * kilobytes — 64 KB waits 9 s, 512 KB waits 37 s; one rule for every road. A fixed minute held a dead door's piece a minute.
