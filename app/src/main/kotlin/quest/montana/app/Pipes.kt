@@ -669,6 +669,18 @@ object Post {
     private var fetching = false
 
     // ── sending ──
+    /**
+     * A STATE LETTER'S KIND AND WHAT TWO OF ITS KIND ARE COMPARED BY (iOS MTOutbox.Kind.isState, MTNodeWire 341-348: the name, the
+     * face, «about», the page's ground; aboutTag(ofWord:) and groundTag(ofWord:), MontanaDeliveryEngine 370-390, compare «about» and
+     * the ground by their content, the moment they carry aside); null -- a person's word, which is never folded.
+     */
+    private fun stateOf(t: String): Pair<Int, String>? = when {
+        t.startsWith(Marks.NAME) -> 1 to t
+        t.startsWith(Marks.AVATAR) -> 2 to t
+        t.startsWith(Marks.ABOUT) -> 3 to (runCatching { JSONObject(t.removePrefix(Marks.ABOUT)).let { o -> o.optString("b") + "\n" + o.optString("l") } }.getOrNull() ?: t)
+        t.startsWith(PageGround.MARK) -> 4 to (runCatching { JSONObject(t.removePrefix(PageGround.MARK)).optString("g") }.getOrNull() ?: t)
+        else -> null
+    }
     /** Queue a letter and knock at once; a letter that no door took waits in the outbox and rides the next round. */
     /** `quiet` — a letter of the person's that asks no banner this once (iOS enqueue silent: a missed call the far phone already rang for). */
     fun send(to0: String, mid: String, text: String, qt: String? = null, qm: String? = null, lp: String? = null, quiet: Boolean = false) {
@@ -687,8 +699,22 @@ object Post {
             // and ONE PAGE OF MY WALL per person (iOS enqueue, the critic's N1): a newer page takes the queued one's place
             fun kind(t: String) = if (t.startsWith(Marks.READ)) 1 else if (t.startsWith(Board.MARK) && t.contains("\"t\":\"page\"")) 2 else 0
             val k = kind(text)
-            val q = if (k == 0) a else JSONArray().also { keep ->
+            var q = if (k == 0) a else JSONArray().also { keep ->
                 for (i in 0 until a.length()) a.getJSONObject(i).let { o -> if (!(o.optString("to") == to && kind(o.optString("t")) == k)) keep.put(o) }
+            }
+            // THE SAME STATE ALREADY ON ITS WAY IS NOT QUEUED AGAIN, A NEWER ONE TAKES THE QUEUED ONE'S PLACE (iOS enqueue 807-821,
+            // sameStateWaits 559-570, foldingState 553-556; atom a441e549ec21): at one proof of a peer's build four «about» letters and
+            // three 1.6 MB ground letters left within 60 ms (T1, 25.09) -- the answer is given here, where the record is written
+            val st = stateOf(text)
+            if (st != null) {
+                val twin = (q.length() - 1 downTo 0).map { q.getJSONObject(it) }.firstOrNull { o -> o.optString("to") == to && stateOf(o.optString("t"))?.first == st.first }
+                if (twin != null && stateOf(twin.optString("t"))?.second == st.second) {
+                    Log.d("Montana", "state_twin kind=" + st.first + " — the same state already waits for this peer")
+                    return
+                }
+                if (twin != null) q = JSONArray().also { keep ->
+                    for (i in 0 until q.length()) q.getJSONObject(i).let { o -> if (!(o.optString("to") == to && stateOf(o.optString("t"))?.first == st.first)) keep.put(o) }
+                }
             }
             q.put(JSONObject().put("to", to).put("m", mid).put("t", text).put("qt", qt ?: "").put("qm", qm ?: "").put("lp", lp ?: "").apply { if (quiet) put("q", true) })
             if (!keepOutbox(q)) refused = true
