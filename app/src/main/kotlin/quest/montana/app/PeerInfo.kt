@@ -571,7 +571,11 @@ fun peerInfoPage(act: MainActivity, ref: String, onClose: () -> Unit,
         val rows = PanesScroll(c, skip = { y -> y in bar.top.toFloat()..bar.bottom.toFloat() }, turn = { turnPane(it) }).apply {
             isVerticalScrollBarEnabled = false; clipToPadding = false; addView(body); face.attach(this)
         }
-        addView(rows, FrameLayout.LayoutParams(MATCH, MATCH))
+        // THE ROWS SINK INTO THE GROUND PAST THE MARKS ON TOP AND THE BARS AT THE FOOT (iOS MTPageEdges, MontanaPeerHeader.swift:401)
+        lateinit var foot0: View
+        addView(EdgeSink(c, top = { c.dp(50) }, bottom = { height - paddingTop - paddingBottom - foot0.height }).apply {
+            addView(rows, FrameLayout.LayoutParams(MATCH, MATCH))
+        }, FrameLayout.LayoutParams(MATCH, MATCH))
         // the back mark on its own round of glass, over the page
         addView(FrameLayout(c).apply {
             background = c.glassPlate(oval = true)
@@ -590,6 +594,7 @@ fun peerInfoPage(act: MainActivity, ref: String, onClose: () -> Unit,
         // the same bar as the chat's and the list's, by reference — music and voices started on this page play in it, and a tap on
         // it goes to the letter by the one road (liveBar follows the global Playing state while attached).
         val bars = c.vstack(Gravity.NO_GRAVITY) { addView(foot, lp()); addView(liveBar(act), lp()) }
+        foot0 = bars
         bars.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ -> if (rows.paddingBottom != v.height) v.post { rows.setPadding(0, 0, 0, v.height) } }
         addView(bars, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM))
         addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
