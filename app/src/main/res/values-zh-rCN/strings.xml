@@ -601,4 +601,6 @@
     <string name="name_letter_first">以字母开头。</string>
     <string name="name_sign_end">不能以符号结尾。</string>
     <string name="name_two_signs">不允许两个符号相连。</string>
+    <string name="new_post">新帖子</string>
+    <string name="write_something">写点什么</string>
 </resources>

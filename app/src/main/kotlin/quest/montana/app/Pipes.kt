@@ -643,8 +643,11 @@ object Post {
             }
             // ONE STATE, ONE LETTER (iOS DeliveryEngine 799-802, 08.09: forty-three read marks waiting their turn burnt the pair's ring
             // budget, T3 to T1): a read mark says «read up to here», so a newer one makes the queued one meaningless — the last word stands
-            val q = if (!text.startsWith(Marks.READ)) a else JSONArray().also { keep ->
-                for (i in 0 until a.length()) a.getJSONObject(i).let { o -> if (!(o.optString("to") == to && o.optString("t").startsWith(Marks.READ))) keep.put(o) }
+            // and ONE PAGE OF MY WALL per person (iOS enqueue, the critic's N1): a newer page takes the queued one's place
+            fun kind(t: String) = if (t.startsWith(Marks.READ)) 1 else if (t.startsWith(Board.MARK) && t.contains("\"t\":\"page\"")) 2 else 0
+            val k = kind(text)
+            val q = if (k == 0) a else JSONArray().also { keep ->
+                for (i in 0 until a.length()) a.getJSONObject(i).let { o -> if (!(o.optString("to") == to && kind(o.optString("t")) == k)) keep.put(o) }
             }
             q.put(JSONObject().put("to", to).put("m", mid).put("t", text).put("qt", qt ?: "").put("qm", qm ?: "").put("lp", lp ?: "").apply { if (quiet) put("q", true) })
             DeviceVault.set(OUTBOX, q.toString().toByteArray())
@@ -827,6 +830,7 @@ object Post {
         if (Presence.sharing) Thread { Signal.post(ref, Presence.APP + "1" + Presence.saidTail()) }.start()
     }
     private fun announcedDelivered(ref: String, mid: String) {
+        MyWall.delivered(ref, mid)   // a page of my wall is «sent» at its receipt (iOS MTBoard.delivered)
         for ((kind, mark) in listOf("N" to "annName2.", "F" to "annFace2.", "G" to "annGround.")) {
             val f = Prefs.str("annFly" + kind + "." + ref, "").split("\n")
             if (f.size == 3 && f[1] == mid) { Prefs.setStr(mark + ref, f[0]); Prefs.remove("annFly" + kind + "." + ref) }

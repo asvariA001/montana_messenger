@@ -602,4 +602,6 @@
     <string name="name_letter_first">It starts with a letter.</string>
     <string name="name_sign_end">It does not end with a sign.</string>
     <string name="name_two_signs">Two signs in a row are not allowed.</string>
+    <string name="new_post">New post</string>
+    <string name="write_something">Write something</string>
 </resources>

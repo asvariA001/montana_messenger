@@ -601,4 +601,6 @@
     <string name="name_letter_first">Начинается с буквы.</string>
     <string name="name_sign_end">Не заканчивается знаком.</string>
     <string name="name_two_signs">Два знака подряд запрещены.</string>
+    <string name="new_post">Новая запись</string>
+    <string name="write_something">Напишите что-нибудь</string>
 </resources>

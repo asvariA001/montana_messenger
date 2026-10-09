@@ -492,7 +492,7 @@ object Presence {
         val n = Book.chat(ref)?.name.orEmpty()
         // «W» + my wall's version and «G» + the tag of their page's ground on my screen, after the name's digits (iOS heldTail 566-567):
         // uppercase and digits, unread by every older build — they stop at the first letter after the digits they read
-        return "F" + face + "N" + wireTag(if (n.isEmpty()) null else n.toByteArray(Charsets.UTF_8)) + "W" + Board.spokenVersion() + "G" + PageGround.heldTag(ref)
+        return "F" + face + "N" + wireTag(if (n.isEmpty()) null else n.toByteArray(Charsets.UTF_8)) + "W" + MyWall.spokenVersion(ref) + "G" + PageGround.heldTag(ref)
     }
     /**
      * WHAT THEY HOLD OF ME, heard in their word (iOS heardHeld 629-667): their screen's tags of my face and my name against what I am —

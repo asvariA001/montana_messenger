@@ -54,6 +54,7 @@ object Board {
     private fun store() = File(File(Book.ctx.filesDir, "board").apply { mkdirs() }, "pages.json")
     /** The person forgotten: the walls this phone held and the files brought for a look leave with them (Book.wipe). */
     fun wipe() = synchronized(lock) {
+        MyWall.wipe()
         pages.clear(); firstSeen.clear(); askedAt.clear(); answeredAt.clear(); loaded = false
         File(Book.ctx.filesDir, "board").deleteRecursively(); lookDir().deleteRecursively()
     }
@@ -78,15 +79,14 @@ object Board {
         fun b(i: Int) = h[i].toLong() and 0xff
         return ((b(0) shl 24) or (b(1) shl 16) or (b(2) shl 8) or b(3)).toString()
     }
-    private val emptyVersion by lazy { wireTag("0r".toByteArray()) }
-    /** My wall's version in every presence word (iOS spokenVersion): my wall is still empty here, so its version is the one my answer to an ask carries. */
-    fun spokenVersion(): String = emptyVersion
-
-    private fun send(ref: String, w: JSONObject): Boolean {
-        if (Groups.isKey(ref) || PeerSafety.isBlocked(ref) || Book.secret(ref) == null) return false
-        Post.send(ref, Marks.mintMid(), MARK + w.toString())
+    private fun send(ref: String, w: JSONObject): Boolean = sendWord(ref, w) != null
+    /** A word of the wall to a correspondent: the letter's name, by which its receipt is known (the page's «sent» is written by it). */
+    fun sendWord(ref: String, w: JSONObject): String? {
+        if (Groups.isKey(ref) || PeerSafety.isBlocked(ref) || Book.secret(ref) == null) return null
+        val mid = Marks.mintMid()
+        Post.send(ref, mid, MARK + w.toString())
         Log.d("Montana", "wall_tx t=" + w.optString("t") + " to=" + ref.take(10))
-        return true
+        return mid
     }
 
     /** The page of a correspondent's wall, asked of its owner — once a minute per wall at most (iOS ask). */
@@ -128,6 +128,7 @@ object Board {
         val w = runCatching { JSONObject(text.removePrefix(MARK)) }.getOrNull() ?: return
         val t = w.optString("t")
         Log.d("Montana", "wall_rx t=" + t + " from=" + ref.take(10))
+        MyWall.learnCap(ref)   // a word of the wall is the proof its build speaks it (iOS apply 812)
         val now = System.currentTimeMillis()
         when (t) {
             "page" -> {
@@ -145,11 +146,8 @@ object Board {
                 changed()
             }
             "no", "drop" -> w.optString("id").takeIf { it.isNotEmpty() }?.let { drop(ref, it) }
-            "ask" -> {
-                synchronized(lock) { if (now - (answeredAt[ref] ?: 0L) < 30_000L) return; answeredAt[ref] = now }
-                send(ref, JSONObject().put("t", "page").put("w", false).put("ps", JSONArray()).put("v", emptyVersion))
-            }
-            else -> {}   // the owner's side (post, like, cmt, view…) comes with this phone's own wall
+            "ask" -> MyWall.answer(ref)
+            else -> MyWall.heard(ref, w)   // the owner's side: a post, a mark, a comment, a view on my wall
         }
     }
 
@@ -241,7 +239,8 @@ object Board {
     /** THE FEED (iOS feed, the author's word 06.10 15:0x): every post of every wall held, each once, strictly by time, the newest on top. */
     fun feed(): List<Item> {
         val held = Book.refs().toSet()
-        val all = synchronized(lock) {
+        val own = MyWall.posts().map { Item("", it) }   // my own wall stands in the feed as every other (iOS feed 732)
+        val all = own + synchronized(lock) {
             ensure()
             pages.entries.filter { it.key in held && !PeerSafety.isBlocked(it.key) }.flatMap { e ->
                 val ps = e.value.optJSONArray("ps") ?: JSONArray()
@@ -278,12 +277,12 @@ object Board {
     }
 
     // ── the visitor's marks (iOS like, view, comment) ──
-    fun post(wall: String, id: String): JSONObject? = synchronized(lock) {
+    fun post(wall: String, id: String): JSONObject? = if (wall.isEmpty()) MyWall.post(id) else synchronized(lock) {
         ensure()
         val ps = pages[wall]?.optJSONArray("ps") ?: return null
         (0 until ps.length()).mapNotNull { ps.optJSONObject(it) }.firstOrNull { it.optString("id") == id }
     }
-    fun canWrite(wall: String) = synchronized(lock) { ensure(); pages[wall]?.optBoolean("w") == true }
+    fun canWrite(wall: String) = wall.isEmpty() || synchronized(lock) { ensure(); pages[wall]?.optBoolean("w") == true }
     /** A WALL READ AS ITS OWNER SENT IT (iOS posts(on:), MontanaBoard.swift:723): every post of one person's own page, the
      * pinned first, then by the newest record of its chain -- its birth or its latest comment (iOS lastAt 1306), so a comment
      * of mine lifts its post here at once. */
@@ -316,6 +315,7 @@ object Board {
 
     /** A like given or taken back (iOS like): the word to the wall's owner and the page here at once; the owner's next page says it exact. */
     fun like(wall: String, p: JSONObject) {
+        if (wall.isEmpty()) { MyWall.like(p.optString("id")); return }   // my own wall: my own mark, the version moves
         val on = !p.optBoolean("liked")
         val id = p.optString("id")
         if (!send(wall, JSONObject().put("t", "like").put("id", id).put("on", on))) return
@@ -330,7 +330,7 @@ object Board {
     private val seenDue = HashMap<String, MutableList<String>>()
     private val viewed: MutableList<String> by lazy { Prefs.str("board.viewed", "").split('\n').filter { it.isNotEmpty() }.toMutableList() }
     fun view(wall: String, p: JSONObject) {
-        if (p.optBoolean("mine") || !p.has("views")) return
+        if (wall.isEmpty() || p.optBoolean("mine") || !p.has("views")) return
         val id = p.optString("id")
         val first = synchronized(lock) {
             if ((wall + "#" + id) in viewed || seenDue[wall]?.contains(id) == true) return
@@ -409,6 +409,7 @@ object Board {
      * shown here at once as my own; the wall is asked again so the owner's page brings every comment.
      */
     fun comment(wall: String, p: JSONObject, text: String) {
+        if (wall.isEmpty()) { MyWall.comment(p.optString("id"), text); return }
         val t = text.trim().take(COMMENT_LIMIT)
         if (t.isEmpty()) return
         val id = p.optString("id")
@@ -461,7 +462,8 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
         background = c.rounded(MT.plate, 16)
         setPadding(dp(12), dp(12), dp(12), dp(12))
         val name = p.optString("byName").ifEmpty { c.getString(R.string.wall_someone) }
-        val face = if (own) Book.face(it.wall).takeIf { f -> f.exists() }?.let { f -> BitmapFactory.decodeFile(f.path) } else poster(p.optString("face"))
+        val face = if (own && it.wall.isEmpty()) SelfFace.load(c)   // my own wall: my own face
+            else if (own) Book.face(it.wall).takeIf { f -> f.exists() }?.let { f -> BitmapFactory.decodeFile(f.path) } else poster(p.optString("face"))
         addView(c.hstack {
             gravity = Gravity.CENTER_VERTICAL
             addView(c.avatar(face, name, 40), lp(dp(40), dp(40)))
@@ -471,6 +473,29 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
                 val at = (p.optDouble("at") * 1000).toLong()
                 addView(c.text(android.text.format.DateUtils.getRelativeTimeSpanString(at, System.currentTimeMillis(), 60_000L), 12f, MT.gray), lp())
             }, lp(0, WRAP, 1f))
+            // THE POST'S OWN MENU (iOS MTBoardCell menuItems 404-441): on my own wall — pin or unpin, copy the words, delete; a wall's
+            // owner alone takes a post off it
+            if (it.wall.isEmpty()) addView(c.icon(R.drawable.ic_more_horiz, MT.gray).apply {
+                setPadding(dp(11), dp(11), dp(11), dp(11))
+                contentDescription = c.getString(R.string.pi_more)
+                pressable {
+                    val id = p.optString("id")
+                    android.widget.PopupMenu(c, this).apply {
+                        menu.add(0, 0, 0, if (p.optBoolean("pinned")) R.string.cl_unpin else R.string.cl_pin)
+                        if (p.optString("text").isNotEmpty()) menu.add(0, 1, 1, R.string.copy)
+                        menu.add(0, 2, 2, R.string.delete)
+                        setOnMenuItemClickListener { item ->
+                            when (item.itemId) {
+                                0 -> Thread { MyWall.pin(id) }.start()
+                                1 -> c.getSystemService(android.content.ClipboardManager::class.java)
+                                    .setPrimaryClip(android.content.ClipData.newPlainText("", p.optString("text")))   // USER-DATA: the post's words
+                                2 -> Thread { MyWall.remove(id) }.start()
+                            }
+                            true
+                        }
+                    }.show()
+                }
+            }, lp(dp(44), dp(44)))
         }, lp())
         p.optString("from").takeIf { f -> f.isNotEmpty() }?.let { f ->
             gap(8); addView(c.text(c.getString(R.string.wall_reposted, f), 12f, MT.gray), lp())
