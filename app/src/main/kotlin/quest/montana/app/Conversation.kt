@@ -1124,7 +1124,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         val tv = TextureView(c)
         // NOTHING UNDER THE CIRCLE (iOS MontanaVideoNoteHold, MontanaFeeds.swift:1641-1643 at 2155, the author's word 22.09): the
         // grey glass ring is the clock, the buttons stand on their own row; no seconds are written anywhere on the recorder
-        val ring = NoteRing(c)
+        val ring = NoteRing(c, glass = true)   // the recorder's ring is grey glass (iOS MontanaNoteRing glass, MontanaFeeds.swift:1285-1297)
         noteRing = ring
         val side = noteSide(c)   // the player's open size: one rule for both (iOS 1605)
         lateinit var notePause: FrameLayout
@@ -1222,9 +1222,11 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     bar.onVoiceEnd = { dropped ->
         val wave = VoiceTape.waveform()
         endStrip()
-        VoiceTape.stop(keep = !dropped)?.let { (f, secs) ->
+        val got = VoiceTape.stop(keep = !dropped)
+        if (got != null) {
+            val (f, secs) = got
             Thread { Media.send(c, ref, Media.Picked(f.readBytes(), "aud", "m4a", null, secs, wave), ""); f.delete(); MainThread.post { toBottom() } }.start()
-        }
+        } else if (!dropped) bar.tooShortHint()   // held less than the tape's own least length (iOS tooShortTape, MontanaConversation.swift:3909-3919 at 2155)
     }
 
     // ── the bar (iOS chatTop in MTChatTopBar, 8 from each edge): the back on the marks' round, the name's bubble on the rest of the

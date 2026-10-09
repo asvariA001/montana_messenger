@@ -67,15 +67,12 @@ object VoiceTape {
 
     fun granted(c: Context) = c.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
-    /** The tape starts; false when the microphone is not ours (the question is asked, the next hold records). */
-    fun start(act: MainActivity): Boolean {
-        if (CallSound.refused("voice tape")) return false   // the call holds the sound (iOS MontanaRecording 100)
-        if (!granted(act)) { act.requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), 7); return false }
-        if (rec != null) return false   // one tape at a time: a second start over a rolling one is nothing (iOS VoiceRecorder.start guard, build 1519 / 2155 MontanaMedia.swift:112)
-        Playing.standDown()   // a tape holds what plays, the open note closes (iOS MontanaMedia.swift:111-113 at 2155)
+    private var prepared: Pair<MediaRecorder, File>? = null
+    private var preparing = false
+    private fun born(act: MainActivity): Pair<MediaRecorder, File>? {
         val f = File(act.cacheDir, "tape-${System.currentTimeMillis()}.m4a")
         return try {
-            rec = MediaRecorder(act).apply {
+            val r = MediaRecorder(act).apply {
                 setAudioSource(MediaRecorder.AudioSource.MIC)
                 setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
                 setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
@@ -83,12 +80,47 @@ object VoiceTape {
                 setAudioChannels(1)
                 setAudioEncodingBitRate(64_000)
                 setOutputFile(f.path)
-                prepare(); start()
+                prepare()
             }
-            file = f; began = System.currentTimeMillis(); paused = false; pausedMs = 0
+            r to f
+        } catch (_: Exception) { f.delete(); null }
+    }
+    /** THE TAPE IS READIED UNDER THE FINGER (iOS VoiceRecorder.prewarm, MontanaMedia.swift:76-99 at 2155, atom 92fba2cb8154:
+     * measured 300-1000 ms of the recorder's own birth on the main thread after the hold began): born on its own thread
+     * the moment the finger lands, while the hold's mode timeout runs; the start that follows is one MediaRecorder.start(). */
+    fun prewarm(act: MainActivity) {
+        if (rec != null || prepared != null || preparing || !granted(act)) return
+        preparing = true
+        Thread {
+            val b = born(act)
+            MainThread.post {
+                preparing = false
+                if (b == null) return@post
+                if (rec == null && prepared == null) prepared = b else { b.first.release(); b.second.delete() }
+            }
+        }.start()
+    }
+    /** The hold ended as a tap: the readied tape is not wanted -- its empty file goes (iOS standDown, MontanaMedia.swift:101-109 at 2155). */
+    fun standDown() {
+        val (r, f) = prepared ?: return
+        prepared = null
+        runCatching { r.release() }
+        f.delete()
+    }
+
+    /** The tape starts; false when the microphone is not ours (the question is asked, the next hold records). */
+    fun start(act: MainActivity): Boolean {
+        if (CallSound.refused("voice tape")) return false   // the call holds the sound (iOS MontanaRecording 100)
+        if (!granted(act)) { act.requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), 7); return false }
+        if (rec != null) return false   // one tape at a time: a second start over a rolling one is nothing (iOS VoiceRecorder.start guard, build 1519 / 2155 MontanaMedia.swift:112)
+        Playing.standDown()   // a tape holds what plays, the open note closes (iOS MontanaMedia.swift:111-113 at 2155)
+        val (r, f) = prepared?.also { prepared = null } ?: (born(act) ?: return false)
+        return try {
+            r.start()
+            rec = r; file = f; began = System.currentTimeMillis(); paused = false; pausedMs = 0
             levels.clear(); MainThread.later(25, meter)
             true
-        } catch (_: Exception) { rec?.release(); rec = null; f.delete(); false }
+        } catch (_: Exception) { runCatching { r.release() }; f.delete(); false }
     }
 
     /** The tape ends: the file and its length in seconds, or null when it was dropped or too short to be a word. */

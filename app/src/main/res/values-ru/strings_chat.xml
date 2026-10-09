@@ -23,6 +23,7 @@
     <string name="loading_file">Загрузка…</string>
     <string name="release_send">Отпустите, чтобы отправить</string>   <!-- iOS «Release to send», over a held tape -->
     <string name="release_cancel">Отпустите, чтобы отменить</string>
+    <string name="hold_to_record">Удерживайте для записи</string>   <!-- iOS «Hold to record», MontanaConversation.swift:911 at 2155 -->
     <string name="unread_messages">Непрочитанные сообщения</string>   <!-- iOS «Unread messages» -->
     <string name="to_newest">К новым</string>   <!-- the chevron to the feed's newest end, for the reader -->
     <string name="invite_spent">Приглашение погашено. Попросите новый код.</string>

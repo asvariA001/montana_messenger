@@ -541,14 +541,20 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
     """.trimIndent()
 }
 
-/** THE NOTE'S RING (iOS MontanaNoteRing): the minute's progress around the window. */
-class NoteRing(c: Context) : View(c) {
+/** THE NOTE'S RING (iOS MontanaNoteRing, MontanaFeeds.swift:1282-1300 at 2155): the minute's progress around the window --
+ * grey glass while recording (atom c8beb390bd99: systemGray2 at 0.75, no gold, no timer under the circle -- the ring
+ * alone is the clock), the playback ring's own white otherwise. */
+class NoteRing(c: Context, private val glass: Boolean = false) : View(c) {
     var progress = 0f; set(v) { field = v; invalidate() }
     private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = Color.argb(70, 255, 255, 255) }
-    private val bar = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = Color.WHITE; strokeCap = Paint.Cap.ROUND }
+    private val bar = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND
+        color = if (glass) Color.argb(191, 99, 99, 102) else Color.WHITE   // systemGray2 at 0.75, its dark shade: the app is always dark
+    }
     override fun onDraw(canvas: Canvas) {
-        val w = dp(4).toFloat(); track.strokeWidth = w; bar.strokeWidth = w
-        val r = RectF(w, w, width - w, height - w)
+        val tw = dp(4).toFloat(); val bw = dp(if (glass) 5 else 4).toFloat(); track.strokeWidth = tw; bar.strokeWidth = bw
+        val m = maxOf(tw, bw)
+        val r = RectF(m, m, width - m, height - m)
         canvas.drawOval(r, track)
         canvas.drawArc(r, -90f, 360f * progress.coerceIn(0f, 1f), false, bar)
     }

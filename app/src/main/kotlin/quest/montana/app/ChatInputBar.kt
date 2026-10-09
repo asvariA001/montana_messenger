@@ -3,11 +3,13 @@ package quest.montana.app
 import android.content.Context
 import android.graphics.Color
 import android.graphics.Outline
+import android.graphics.Rect
 import android.text.Editable
 import android.text.InputType
 import android.text.TextWatcher
 import android.view.Gravity
 import android.view.MotionEvent
+import android.view.TouchDelegate
 import android.view.View
 import android.view.VelocityTracker
 import android.view.ViewOutlineProvider
@@ -129,6 +131,7 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
             actionRow.visibility = View.GONE
         }
         syncSend()
+        widenTouchTarget()
     }
 
     /** Pictures wait above the field (iOS hasAttachment): the send artwork stands even without words — it sends them. */
@@ -177,6 +180,30 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
 
     private fun notYet() = Toast.makeText(c, R.string.compose_not_yet, Toast.LENGTH_SHORT).show()
 
+    /**
+     * THE TARGET IS WIDER THAN THE PLATFORM'S LEAST (iOS MontanaHoldControl.point(inside:), MontanaHoldControl.swift:69-75
+     * at 2155, the author's word 22.09: «I do not always hit it»): the record key's own frame stays 36dp, but the finger
+     * lands on it a little past its top and left edges and well past its right and bottom ones (iOS: -10/-8/+40/+16 pt).
+     */
+    private fun widenTouchTarget() {
+        record.post {
+            val r = Rect()
+            record.getDrawingRect(r)   // the key's own frame, carried into the bar's coordinates below
+            if (runCatching { offsetDescendantRectToMyCoords(record, r) }.isSuccess) {
+                r.left -= dp(10); r.top -= dp(8); r.right += dp(40); r.bottom += dp(8)
+                touchDelegate = TouchDelegate(r, record)
+            }
+        }
+    }
+
+    /** A HOLD TOO SHORT FOR A TAPE (iOS tooShortTape, MontanaConversation.swift:3909-3919 at 2155, atom 3f439964b9a6):
+     * the platform's warning tap and the field's own word, instead of silence. */
+    fun tooShortHint() {
+        field.performHapticFeedback(if (android.os.Build.VERSION.SDK_INT >= 30) android.view.HapticFeedbackConstants.REJECT else android.view.HapticFeedbackConstants.LONG_PRESS)
+        field.hint = c.getString(R.string.hold_to_record)   // in the placeholder's own grey, as the iPhone's (MontanaConversation.swift:911)
+        MainThread.later(1600) { field.hint = c.getString(R.string.message_hint) }
+    }
+
     /** One round glass key at the tier's height with the grey glyph (iOS .montanaOctagon(square: true, bar: true)). */
     private fun glassKey(res: Int, label: Int, onTap: () -> Unit): View = FrameLayout(c).apply {
         background = c.glassPlate(oval = true)
@@ -219,6 +246,7 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
             // the tap's deed, and an accessibility click's: a locked tape's key is its send arrow, otherwise the mark switches
             setOnClickListener {
                 if (locked) { finish(cancel = false); return@setOnClickListener }
+                VoiceTape.standDown()   // the hold ended as a tap: the readied tape is not wanted (iOS MontanaMedia.swift:101-109 at 2155)
                 Prefs.setStr(MODE_KEY, if (video) "mic" else "video")
                 draw()
             }
@@ -241,7 +269,12 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
                     downX = e.rawX; downY = e.rawY
                     velocity?.recycle(); velocity = VelocityTracker.obtain().also { it.addMovement(e) }
                     v.parent?.requestDisallowInterceptTouchEvent(true)
-                    if (!locked) { scaleX = 0.94f; scaleY = 0.94f; postDelayed(begin, MODE_TIMEOUT_MS) }   // the small mark sinks under the finger
+                    if (!locked) {
+                        scaleX = 0.94f; scaleY = 0.94f; postDelayed(begin, MODE_TIMEOUT_MS)   // the small mark sinks under the finger
+                        // THE TAPE IS READIED UNDER THE FINGER (iOS VoiceRecorder.prewarm, MontanaMedia.swift:76-99 at
+                        // 2155, atom 92fba2cb8154): born on its own thread while the mode timeout runs.
+                        if (!video) VoiceTape.prewarm(act)
+                    }
                 }
                 MotionEvent.ACTION_MOVE -> {
                     velocity?.addMovement(e)
