@@ -890,7 +890,13 @@ object Post {
         }
         if (taken.isNotEmpty()) {
             val body = JSONObject().put("mids", JSONArray(taken))
-            for (door in Doors.ordered("box")) Wire.post(door, "/box-del", body, 5000)
+            // THE STORES ARE ASKED AT ONCE, AND ONLY THE LIVING ONES (iOS MontanaWakePush.swift:2381-2399, 2155, atom fea4e68ea0da,
+            // 21.09 measured 13:50:13→13:50:23 on the tablet: a walk door by door cost every burial ten seconds to two doors dead
+            // on that network, and the drain stood behind it). One deadline for all; a burial is a cleanup, never delivery, so it
+            // never waits in line behind a door that rests.
+            val doors = Doors.ordered("box")
+            val awake = doors.filter { Presence.doorAlive(it) }
+            for (door in (awake.ifEmpty { doors })) Thread { Wire.post(door, "/box-del", body, 5000) }.start()
         }
     }
 

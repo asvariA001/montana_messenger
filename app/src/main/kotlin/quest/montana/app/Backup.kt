@@ -563,6 +563,13 @@ object Card {
         for (k in ownWords) prefs.getString(k, null)?.takeIf { it.isNotEmpty() }?.let { out.put("s:$k", it) }
         val face = File(c.filesDir, "avatar.jpg")
         if (face.isFile) out.put("b:avatarData", android.util.Base64.encodeToString(face.readBytes(), android.util.Base64.NO_WRAP))
+        // THE CONTACTS LIST'S OWN MARKS AND A PERSON'S SAFETY RIDE THE CARD TOO (iOS MontanaChatStore.swift:4907-4729, 2155, atom
+        // 4803bfbf60ef, the author's word 23.09 "everything in the app"): the list's pins and archive, the contacts page's own
+        // pins and archive, the block list and the verified mark did not reach a copy here -- only the name and the face did.
+        DeviceVault.get("chatMarks")?.let { out.put("b:chatMarks", android.util.Base64.encodeToString(it, android.util.Base64.NO_WRAP)) }
+        val safety = JSONObject()
+        for ((k, v) in prefs.all) if ((k.startsWith("block.") || k.startsWith("fpVerified.")) && v == true) safety.put(k, true)
+        if (safety.length() > 0) out.put("m:peerSafety", safety)
         return Built(out.toString().toByteArray(), out.length())
     }
 
@@ -577,7 +584,13 @@ object Card {
             if (prefs.contains(k)) continue
             edit.putString(k, map.optString(tagged)); laid++
         }
+        // THE LIST'S MARKS AND A PERSON'S SAFETY, LAID BACK ONLY WHERE THIS PHONE HOLDS NONE OF ITS OWN (iOS SeedScope.dataKeys,
+        // MontanaBackup.swift:743-752, 2155, atom 4803bfbf60ef): the same once-only rule the face and the name already use below.
+        map.optJSONObject("m:peerSafety")?.let { o -> for (k in o.keys()) if (!prefs.contains(k)) { edit.putBoolean(k, o.optBoolean(k)); laid++ } }
         edit.commit()
+        if (!DeviceVault.has("chatMarks")) map.optString("b:chatMarks").takeIf { it.isNotEmpty() }?.let {
+            runCatching { DeviceVault.set("chatMarks", android.util.Base64.decode(it, android.util.Base64.NO_WRAP)); laid++ }
+        }
         // The face as the iOS card carries it: laid only where this phone has none.
         val face = File(c.filesDir, "avatar.jpg")
         if (!face.exists()) map.optString("b:avatarData").takeIf { it.isNotEmpty() }?.let {
