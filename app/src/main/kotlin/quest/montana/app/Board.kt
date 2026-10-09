@@ -1047,7 +1047,7 @@ private class WallLinkClip(c: Context, private val url: String, private val show
     // last until the clip plays again or the page asks anew (the author's word 29.09: 130 heals a minute, 36 MB in one).
     private var healStreak = 0
     private var healing = false
-    private val healHandler = Handler(Looper.getMainLooper())
+    private val healHandler = android.os.Handler(android.os.Looper.getMainLooper())
     init { surfaceTextureListener = this }
     fun sound(on: Boolean) { loud = on; val v = if (on) 1f else 0f; player?.runCatching { setVolume(v, v) } }
     private fun fill() {

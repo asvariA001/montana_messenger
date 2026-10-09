@@ -18,7 +18,6 @@ import android.provider.DocumentsContract
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
-import android.view.ViewConfiguration
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ProgressBar
@@ -306,6 +305,7 @@ class MiniFace(ctx: Context, private val bar: Boolean) : LinearLayout(ctx) {
     private var longPressed = false
     private val mainHandler = Handler(Looper.getMainLooper())
     private val longPressRunnable = Runnable { longPressed = true; copyTitle() }
+    private companion object { const val HOLD_MS = 220L }   // iOS montanaLongPress, MontanaNetFrames.swift:9 at 2155
 
     init {
         orientation = HORIZONTAL
@@ -352,7 +352,7 @@ class MiniFace(ctx: Context, private val bar: Boolean) : LinearLayout(ctx) {
                     MotionEvent.ACTION_DOWN -> {
                         v.parent.requestDisallowInterceptTouchEvent(true); scrub = null; longPressed = false
                         downX = e.x; downY = e.y
-                        mainHandler.postDelayed(longPressRunnable, ViewConfiguration.getLongPressTimeout().toLong())
+                        mainHandler.postDelayed(longPressRunnable, HOLD_MS)   // the chat bubble's own threshold (iOS montanaLongPress)
                         true
                     }
                     MotionEvent.ACTION_MOVE -> {
@@ -380,17 +380,19 @@ class MiniFace(ctx: Context, private val bar: Boolean) : LinearLayout(ctx) {
         title.text = displayTitle
     }
     /** THE HOLD COPIES THE NAME (iOS MTNameCopy.copy, MontanaMusicPlayer.swift:1146-1158 at 2155): the name to the clipboard, the
-     * platform's success haptic, and for two seconds the name's room says «Copied», green as the settings' own copy wears. */
+     * platform's success haptic, and for two seconds the name's room says the catalogue's «Copied» after the platform's check, in
+     * the name's own colour (MTCopiedWord, 1163-1167). */
     private fun copyTitle() {
         val name = displayTitle
         if (name.isEmpty()) return
         context.getSystemService(android.content.ClipboardManager::class.java)
             ?.setPrimaryClip(android.content.ClipData.newPlainText("", name))
         performHapticFeedback(if (android.os.Build.VERSION.SDK_INT >= 30) android.view.HapticFeedbackConstants.CONFIRM else android.view.HapticFeedbackConstants.LONG_PRESS)
+        val check = context.getDrawable(R.drawable.ic_check)?.mutate()?.apply { setTint(Color.WHITE); val k = title.textSize.toInt(); setBounds(0, 0, k, k) }
+        title.setCompoundDrawablesRelative(check, null, null, null); title.compoundDrawablePadding = dp(4)
         title.text = context.getString(R.string.copied)
-        title.setTextColor(MT.green)
         copiedUntil = System.currentTimeMillis() + 2000
-        mainHandler.postDelayed({ title.setTextColor(Color.WHITE); showTitle() }, 2000)
+        mainHandler.postDelayed({ if (copiedUntil <= System.currentTimeMillis()) { title.setCompoundDrawablesRelative(null, null, null, null); showTitle() } }, 2000)
     }
 
     private fun square(res: Int, onTap: () -> Unit) = FrameLayout(context).apply {
