@@ -131,7 +131,21 @@ object Meeting {
         val payload: ByteArray = if (inv != null) {
             val inv64 = MontanaCard.b64url(inv)
             // A REPEATED SCAN OF THE SAME CODE returns into the conversation it opened (iOS meet_rescan).
-            synchronized(gate) { jmap(SCANS).optString(inv64).takeIf { it.isNotEmpty() && Book.secret(it) != null } }?.let { return Outcome.Opened(it) }
+            synchronized(gate) { jmap(SCANS).optString(inv64).takeIf { it.isNotEmpty() && Book.secret(it) != null } }?.let { known ->
+                // THE CARD BEHIND A REPEATED LINK IS RE-READ (iOS MontanaFirstContact.swift fc367faf0575 meet_rescan/
+                // renameFromCard:1166, fea4e68ea0da refaceFromCard:1174; measured 16:35: the same link opened the same
+                // empty chat under the callsign of the first scan, and the card behind it — by then wearing the
+                // person's current name and face — was never looked at again). The chat opens at once; the name and
+                // the face are fetched beside, as the weakest witness (never past a dated word).
+                Thread {
+                    expand(inv)?.takeIf { p -> !p.contentEquals(SPENT) && p.size > 1184 }?.let { p ->
+                        val nm = String(p, 1184, p.size - 1184, Charsets.UTF_8).trim()
+                        if (nm.isNotEmpty() && Book.admitState(known, "name", 0L)) Book.edit(known) { it.name = nm }
+                    }
+                    face(inv)?.let { Book.face(known).writeBytes(it); Book.edit(known) {} }
+                }.start()
+                return Outcome.Opened(known)
+            }
             // The card's own invitations are not a meeting with oneself.
             if (MontanaCard.outstandingInvites().any { it.contentEquals(inv) }) return Outcome.Refused
             expand(inv) ?: return Outcome.Refused
@@ -144,6 +158,8 @@ object Meeting {
         synchronized(gate) { jmap(CARDS).optString(root64).takeIf { it.isNotEmpty() && Book.secret(it) != null } }?.let { known ->
             if (inv != null) synchronized(gate) { jsave(SCANS, jmap(SCANS).put(MontanaCard.b64url(inv), known)) }
             if (name.isNotEmpty() && Book.admitState(known, "name", 0L)) Book.edit(known) { it.name = name }   // a card is undated: never over the peer's dated word
+            // THE FACE RIDES BESIDE THE NAME ON THIS ROOT TOO (iOS fea4e68ea0da refaceFromCard:1174, the «card-book»/«root» branches).
+            if (inv != null) Thread { face(inv)?.let { Book.face(known).writeBytes(it); Book.edit(known) {} } }.start()
             return Outcome.Opened(known)
         }
         // One encapsulation, and the correspondence exists; the ciphertext waits for the first letter (iOS MontanaCard.meet).

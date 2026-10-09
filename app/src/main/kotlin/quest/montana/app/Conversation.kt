@@ -156,7 +156,12 @@ fun Context.letterThumb(m: Msg, kind: String, sideDp: Int = 20): View {
 fun Context.peerFace(ref: String, name: String, sizeDp: Int): View {
     val f = Book.shownFace(ref)
     val bmp = if (sizeDp <= 64) SmallPicture.of(f) else if (f.exists()) BitmapFactory.decodeFile(f.path) else null
-    return avatar(bmp, name.ifBlank { "?" }, sizeDp)
+    // THE GLYPH IS THEIRS EVEN UNDER MY NAME FOR THEM (iOS MTNameBook.faceGlyph/.face, MontanaNameBook.swift:104-122,
+    // fork atom 8db297589396, 20.09): the emoji a person wears without a photo is the one THEY declared, not my own
+    // rename of them — my word for them stands in only when they never said one. A group has no declared word of
+    // its own; its title is the only glyph source.
+    val glyph = (if (!Groups.isKey(ref)) Book.chat(ref)?.name?.ifBlank { null } else null) ?: name
+    return avatar(bmp, glyph.ifBlank { "?" }, sizeDp)
 }
 
 /**
