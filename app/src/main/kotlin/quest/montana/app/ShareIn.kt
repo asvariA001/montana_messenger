@@ -101,8 +101,11 @@ fun sharePage(act: MainActivity, s: Shared, onClose: () -> Unit): View {
         act.getSystemService(android.view.inputmethod.InputMethodManager::class.java).hideSoftInputFromWindow(field.windowToken, 0)
         Thread {
             var failed = false
-            // the files first, each read once and sent to every chosen chat; the words ride the first picture as its caption
+            // a text handed as a file is a text letter (textFace); the files first, each read once and sent to every chosen chat;
+            // the words ride the first picture as its caption
+            val texts = ArrayList<String>()
             val picked = s.files.mapNotNull { u ->
+                textFace(c, u)?.let { texts.add(it); return@mapNotNull null }
                 val mime = c.contentResolver.getType(u) ?: ""
                 Media.read(c, u, asDoc = !(mime.startsWith("image/") || mime.startsWith("video/"))).also { if (it == null) failed = true }
             }
@@ -116,6 +119,7 @@ fun sharePage(act: MainActivity, s: Shared, onClose: () -> Unit): View {
                     Media.send(c, ref, p, if (p === captioned) words else "", group = if (at < 0) null else slots[at])
                 }
                 if (words.isNotEmpty() && captioned == null) sendWords(ref, words)
+                texts.forEach { sendWords(ref, it) }
             }
             act.onMain { if (failed) Toast.makeText(c, R.string.media_failed, Toast.LENGTH_LONG).show() }
         }.start()
@@ -131,6 +135,31 @@ fun sharePage(act: MainActivity, s: Shared, onClose: () -> Unit): View {
         addView(send, lp())
     }
 }
+
+/**
+ * A TEXT IS A TEXT, WHATEVER FACE IT WEARS (iOS loadTextFace, ShareViewController 473-477 and 574-592; the author's word 13.09: a
+ * shared link must always arrive as a link). Some apps hand a link or a note as a .txt file — it rode the document road and arrived
+ * as «text.txt», unreadable in the bubble. Text of bubble size is a text letter from any app; only bigger text is a file.
+ */
+private fun textFace(c: Context, u: Uri): String? {
+    val cr = c.contentResolver
+    val name = runCatching { cr.query(u, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { if (it.moveToFirst()) it.getString(0) else null } }
+        .getOrNull() ?: u.lastPathSegment ?: ""
+    val ext = name.substringAfterLast('.', "").lowercase()
+    if (cr.getType(u) != "text/plain" && ext != "txt" && ext != "text") return null
+    val bytes = runCatching {
+        cr.openInputStream(u)?.use { s ->
+            val out = java.io.ByteArrayOutputStream(); val buf = ByteArray(8192)
+            while (out.size() <= TEXT_FILE_MAX) { val n = s.read(buf); if (n < 0) break; out.write(buf, 0, n) }
+            out.toByteArray()
+        }
+    }.getOrNull() ?: return null
+    if (bytes.size > TEXT_FILE_MAX) return null
+    val text = runCatching { Charsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(bytes)).toString() }.getOrNull()?.trim() ?: return null
+    return text.takeIf { it.isNotEmpty() && it.codePointCount(0, it.length) <= TEXT_LETTER_MAX }
+}
+private const val TEXT_FILE_MAX = 64_000   // iOS: a .txt read whole only up to 64 000 bytes
+private const val TEXT_LETTER_MAX = 4_500   // iOS: the bubble's size of a text letter
 
 /**
  * THE SHARE HANDED IN: opened over the main screen when a person exists; before the identity and the terms nothing can be
