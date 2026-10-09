@@ -76,6 +76,7 @@ object CallLine {
         var routeCallback: ConnectivityManager.NetworkCallback? = null   // iOS routeMonitor
         // my picture (iOS birthLocalVideo): the camera, its frames' helper, the source and the track «mt_video»
         var cam: CameraVideoCapturer? = null
+        var camGen = 0   // iOS resumeGen, 24.09, build 51552a7b8d64: voids a fault still arriving off the camera this line has already left
         var helper: SurfaceTextureHelper? = null
         var vsource: VideoSource? = null
         var vtrack: VideoTrack? = null
@@ -682,7 +683,8 @@ object CallLine {
             // THE BACK CAMERA IS NEVER THE MACHINE'S CHOICE (iOS MontanaCall 1340-1343, the author's word 22.09: an iPhone showed its
             // room to the caller): the side the person chose, or no picture at all — the other camera is the flip mark's tap alone
             val name = en.deviceNames.firstOrNull { en.isFrontFacing(it) == front } ?: return false.also { log("camera: none on the chosen side — the call goes on with sound") }
-            val cam = en.createCapturer(name, null) ?: return false
+            val gen = ++l.camGen
+            val cam = en.createCapturer(name, cameraEvents(l, gen)) ?: return false
             val src = f.createVideoSource(false)
             val helper = SurfaceTextureHelper.create("mt_camera", egl.eglBaseContext)
             cam.initialize(helper, Book.ctx, src.capturerObserver)
@@ -696,6 +698,7 @@ object CallLine {
     }
 
     private fun cameraOff(l: Line) {
+        l.camGen++   // voids a camera fault still arriving for the capturer cleared below (iOS resumeGen, 24.09)
         val cam = l.cam; val helper = l.helper; val src = l.vsource; val track = l.vtrack
         l.cam = null; l.helper = null; l.vsource = null; l.vtrack = null
         runCatching { cam?.stopCapture() }
@@ -703,6 +706,33 @@ object CallLine {
         runCatching { helper?.dispose() }
         runCatching { track?.removeSink(own); track?.dispose() }
         runCatching { src?.dispose() }
+    }
+
+    /**
+     * THE CAMERA'S OWN FAULT IS RAISED AT ONCE (iOS AVCaptureSessionRuntimeError, MontanaCall.swift 24.09, build 51552a7b8d64:
+     * -11819 mediaServicesWereReset came with an interruption's end, and the picture returned only after a timed resume probe
+     * had judged silence — two seconds of cover for the peer the fix removed by raising the session the instant the fault is
+     * told, never waiting for a probe). Android's capturer carries no such probe to begin with: raising at once, here, is the
+     * whole of the fix. A fault off a capturer this line has already left (switchCamera's own instance aside, cameraOff, the
+     * share) is silent — the generation it was born under no longer matches (iOS resumeGen).
+     */
+    private fun cameraEvents(l: Line, gen: Int) = object : CameraVideoCapturer.CameraEventsHandler {
+        override fun onCameraError(error: String) = cameraReset(l, gen, "error: " + error)
+        override fun onCameraDisconnected() = cameraReset(l, gen, "disconnected")
+        override fun onCameraFreezed(error: String) {}
+        override fun onCameraOpening(name: String) {}
+        override fun onFirstFrameAvailable() {}
+        override fun onCameraClosed() {}
+    }
+
+    private fun cameraReset(l: Line, gen: Int, why: String) = work.execute {
+        if (synchronized(gate) { line !== l } || l.camGen != gen || l.vtrack == null) return@execute
+        log("cam_reset " + why + " — raising at once")
+        val cam = l.cam
+        l.cam = null
+        runCatching { cam?.stopCapture() }
+        runCatching { cam?.dispose() }
+        startCam(l)
     }
 
     /** My picture into the connection (iOS ensureLocalVideoTrack 1176): into the video line that stands, opened both ways, else a line of its own. */
@@ -890,7 +920,8 @@ object CallLine {
         runCatching {
             val en = Camera2Enumerator(Book.ctx)
             val name = en.deviceNames.firstOrNull { en.isFrontFacing(it) == front } ?: return   // the chosen side or none (iOS 1340)
-            val cam = en.createCapturer(name, null) ?: return
+            val gen = ++l.camGen
+            val cam = en.createCapturer(name, cameraEvents(l, gen)) ?: return
             runCatching { l.helper?.dispose() }
             val helper = SurfaceTextureHelper.create("mt_camera", egl.eglBaseContext)
             l.helper = helper

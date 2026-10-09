@@ -46,6 +46,7 @@ object Calls {
         var answered = false   // incoming: this person answered; outgoing: the far phone did
         var line = false   // the voice was handed its offer
         var ringing = false   // outgoing: the far phone said «call-ringing»
+        val startedAt = System.currentTimeMillis()   // iOS startedAt: this call's own birth by this device's clock (the critic's youngerThanOurs, 24.09, build 1500771e4d2b)
     }
     private var tone: ToneGenerator? = null
     private val gate = Any()
@@ -62,7 +63,7 @@ object Calls {
         val t = (o.optDouble("t", 0.0) * 1000).toLong()
         if (t > 0 && System.currentTimeMillis() - t > LIFE_MS) return log("ring letter stale")
         if (t > 0) log("ring letter age=" + (System.currentTimeMillis() - t) + " ms")   // how long the call took to reach this phone
-        incoming(ref, o.optString("s"), o.optBoolean("v"), o.optString("n"), null)
+        incoming(ref, o.optString("s"), o.optBoolean("v"), o.optString("n"), null, t)
     }
 
     /** The words of a call on the node's lane (iOS handleMeshCallSignal, handleSignal): its birth, and the end of a ring here. */
@@ -78,7 +79,7 @@ object Calls {
                     val ts = w.optLong("ts")
                     if (ts > 0 && System.currentTimeMillis() - ts > LIFE_MS) { log("call word stale"); continue }
                     if (ts > 0) log("call word age=" + (System.currentTimeMillis() - ts) + " ms")
-                    incoming(ref, w.optString("s"), w.optBoolean("video"), w.optString("n"), w.optJSONObject("sdp")?.optString("sdp"))
+                    incoming(ref, w.optString("s"), w.optBoolean("video"), w.optString("n"), w.optJSONObject("sdp")?.optString("sdp"), ts)
                 }
                 "call-end", "call-gone" -> {
                     // «call-gone» names its call in «s» (iOS 24.09); every other word in «e», else by the lane's own epoch
@@ -121,7 +122,7 @@ object Calls {
      * THE BIRTH OF AN INCOMING CALL (iOS handleSignalBody «call»): a dead seed is nobody, the same seed is the same call, and
      * a seedless word is an offer for the call in hand, never a birth.
      */
-    private fun incoming(ref: String, seed: String, video: Boolean, name: String, offer: String?) {
+    private fun incoming(ref: String, seed: String, video: Boolean, name: String, offer: String?, ts: Long = 0L) {
         if (PeerSafety.isBlocked(ref)) return log("blocked caller")   // a blocked person's call is not assembled (iOS 15.09)
         if (seed.isEmpty()) {
             synchronized(gate) { ring?.takeIf { it.ref == ref && it.offer == null }?.offer = offer }
@@ -137,7 +138,11 @@ object Calls {
                 // privacy switch in Settings — and called anew. A call only ringing, or of another person, is left alone, simply
                 // busy; an established one ends here without a farewell (end(..., silent = true)): a call-end keyed by the peer
                 // would end the NEW call that superseded it.
-                if (r0.ref == ref && r0.answered) end(r0, "superseded", silent = true)
+                // YOUNGER THAN OURS (iOS MontanaCall.swift handleSignalBody, the critic 24.09, build 1500771e4d2b): a delayed
+                // invitation of a call the peer placed BEFORE ours must not end a living call — only a word younger than our
+                // call's own birth may supersede it; a word with no moment at all is trusted only once our own line is lost.
+                val youngerThanOurs = if (ts > 0) ts > r0.startedAt else CallLine.lost
+                if (r0.ref == ref && r0.answered && youngerThanOurs) end(r0, "superseded", silent = true)
                 else {
                     // THE REFUSAL NAMES THE CALL IT REFUSES (iOS MontanaCall.swift:2277-2280, build 2d2005d61c14): a
                     // call-end without the refused call's own epoch read as STALE at the caller there, who then heard
@@ -365,7 +370,7 @@ object Calls {
 
     private fun end(r: Ring, why: String, silent: Boolean = false) {
         synchronized(gate) { if (ring !== r) return; ring = null }
-        noteSeed(r.seed, "dead")
+        noteSeed(r.seed, "dead", engaged = r.answered || r.out)
         tone(false)
         val dur = CallLine.stop(r.seed)
         CallService.stop()
@@ -502,11 +507,14 @@ object Calls {
 
     private fun seeds(): JSONObject = runCatching { JSONObject(Prefs.str(SEEDS, "{}")) }.getOrNull() ?: JSONObject()
     private fun seedState(seed: String): String? = seeds().optJSONObject(seed)?.optString("st")?.ifEmpty { null }
-    private fun noteSeed(seed: String, st: String) {
+    // ENGAGED, NOT MERELY RUNG (iOS MontanaCall.lostEpoch, the critic 24.09, build 1500771e4d2b, K1): a second device of the
+    // same person can be rung by the same seed and never take the call — its own «dead» must not let it speak for a call its
+    // twin still holds. Engaged says whether THIS device answered or dialled; answerGone below honours only an engaged «dead».
+    private fun noteSeed(seed: String, st: String, engaged: Boolean = false) {
         if (seed.isEmpty()) return
         synchronized(gate) {
             val o = seeds(); val now = System.currentTimeMillis()
-            o.put(seed, JSONObject().put("st", st).put("at", now))
+            o.put(seed, JSONObject().put("st", st).put("at", now).put("en", engaged))
             o.keys().asSequence().toList().filter { now - (o.optJSONObject(it)?.optLong("at") ?: 0L) > 7 * 86_400_000L }.forEach { o.remove(it) }
             Prefs.setStr(SEEDS, o.toString())
         }
@@ -525,7 +533,8 @@ object Calls {
             if (ring?.let { epochOf(it.seed) == epoch } == true) return   // a call still in hand is not gone
             if (!goneSaid.add(epoch)) return
         }
-        val dead = seeds().let { o -> o.keys().asSequence().any { epochOf(it) == epoch && o.optJSONObject(it)?.optString("st") == "dead" } }
+        val dead = seeds().let { o -> o.keys().asSequence().any {
+            epochOf(it) == epoch && o.optJSONObject(it)?.optString("st") == "dead" && o.optJSONObject(it)?.optBoolean("en") == true } }
         if (!dead) return
         val w = JSONObject().put("t", "cal").put("ctrl", "call-gone").put("ts", System.currentTimeMillis()).put("e", epoch).put("s", epoch)
         Signal.postWord(ref, epoch, JSONArray().put(w).toString().toByteArray())
