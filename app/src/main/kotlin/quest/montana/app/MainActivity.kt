@@ -256,6 +256,31 @@ class MainActivity : Activity() {
         return close
     }
 
+    /**
+     * A CLOUD OVER THE SCREEN (iOS MTPersonMenu and MessageContextOverlay: the platform's ultra-thin material over everything, then
+     * the menu's own spring): the page stands at once, no slide, and all that lies under it is blurred while it stands. `onBack` is
+     * the cloud's own leave; the returned function takes the page away at once.
+     */
+    fun cloud(page: View, onBack: () -> Unit): () -> Unit {
+        val keepBack = back
+        val keepSliding = slidingPage
+        page.setPadding(root.paddingLeft, root.paddingTop, root.paddingRight, root.paddingBottom)
+        val under = (0 until surface.childCount).map { surface.getChildAt(it) }
+        if (31 <= Build.VERSION.SDK_INT) for (v in under) v.setRenderEffect(android.graphics.RenderEffect.createBlurEffect(dp(14).toFloat(), dp(14).toFloat(), android.graphics.Shader.TileMode.CLAMP))
+        surface.addView(page, FrameLayout.LayoutParams(MATCH, MATCH))
+        var open = true
+        back = onBack
+        slidingPage = null
+        return {
+            if (open) {
+                open = false
+                back = keepBack; slidingPage = keepSliding
+                if (31 <= Build.VERSION.SDK_INT) for (v in under) v.setRenderEffect(null)
+                surface.removeView(page)
+            }
+        }
+    }
+
     /** The slide itself, scaled by how far the page already stands (the drawer's same spring, Home.kt's
      *  DrawerShell.settle): a page the predictive back already dragged near its edge does not visibly restart. */
     private fun settle(page: View, width: Float, out: Boolean, onDone: (() -> Unit)? = null) {

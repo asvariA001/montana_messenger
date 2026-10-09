@@ -153,7 +153,7 @@ fun listRow(act: MainActivity, chat: Chat, inArchive: Boolean, sel: ChatSelectio
         }
     }
     row.setOnClickListener { open() }
-    row.setOnLongClickListener { personMenu(act, chat, inArchive, sel); true }
+    row.setOnLongClickListener { personMenu(act, chat, inArchive, sel, row); true }
     return SwipeRow(act, row, rowTiles(act, chat, inArchive), callTiles(act, chat))
 }
 
@@ -184,7 +184,7 @@ fun rowTiles(act: MainActivity, chat: Chat, inArchive: Boolean): List<Tile> = li
  * THE PERSON'S MENU (iOS MTPersonMenu): the room dims, the row stands lifted, and the deeds under it — Pin · Mute · Select ·
  * Mark as read / unread · Archive · Delete. In the archive: Unarchive · Mute · Mark · Delete (ArchivedChatsView's menu).
  */
-fun personMenu(act: MainActivity, chat: Chat, inArchive: Boolean, sel: ChatSelection?) {
+fun personMenu(act: MainActivity, chat: Chat, inArchive: Boolean, sel: ChatSelection?, held: View? = null) {
     val deeds = mutableListOf<Deed>()
     if (inArchive) deeds += Deed(R.string.cl_unarchive, R.drawable.ic_unarchive) { ChatMarks.unarchive(chat.ref) }
     else {
@@ -198,44 +198,95 @@ fun personMenu(act: MainActivity, chat: Chat, inArchive: Boolean, sel: ChatSelec
     deeds += Deed(if (unread) R.string.cl_mark_read else R.string.cl_mark_unread, if (unread) R.drawable.ic_mark_read else R.drawable.ic_dot) { ChatMarks.toggleUnread(chat) }
     if (!inArchive) deeds += Deed(R.string.cl_archive, R.drawable.ic_archive) { ChatMarks.archive(chat.ref) }
     deeds += Deed(R.string.cl_delete, R.drawable.ic_delete, red = true) { askDeleteChat(act, chat.ref) }
-    holdMenu(act, chatRow(act, chat), deeds)
+    holdMenu(act, held, deeds, personPlate(act, chat.ref))
 }
 
 /** One deed of a hold's menu: its words, its glyph, red when it destroys. */
 class Deed(val words: Int, val glyph: Int, val red: Boolean = false, val work: () -> Unit)
 
 /**
- * THE MENU OF A HOLD (iOS MTPersonMenu): the room dims, the held row stands lifted on a plate, the deeds under it; a tap
- * anywhere else lets it go.
+ * THE CLOUD'S PLACE AND SPRING (iOS MTMenuPlace, MontanaMessageMenu.swift:153-167, and MTPersonMenu.body 576-603): the cloud stands
+ * where the held thing stood -- its top 12 over the thing's top, kept 8 from the top and 10 from the foot; a place unknown, the
+ * middle -- over the platform's ultra-thin material (MainActivity.cloud), and rises by the spring (0.94 to 1 from its leading edge,
+ * the light coming up; response 0.32, damping 0.68). A tap off it, or the back, lets it go in 0.15 s; the returned leave does the
+ * same and then runs what it is handed.
  */
-fun holdMenu(act: MainActivity, row: View, deeds: List<Deed>) {
+fun showCloud(act: MainActivity, cloud: View, anchorTop: Int?): (() -> Unit) -> Unit {
     val c: Context = act
-    lateinit var close: () -> Unit
-    val plate = c.vstack(Gravity.NO_GRAVITY) { background = c.rounded(Color.argb(235, 44, 44, 46), 14) }
+    lateinit var gone: () -> Unit
+    var leaving = false
+    val leave: (() -> Unit) -> Unit = { then ->
+        if (!leaving) {
+            leaving = true
+            cloud.animate().alpha(0f).scaleX(0.94f).scaleY(0.94f).setDuration(150).setInterpolator(android.view.animation.DecelerateInterpolator())
+                .withEndAction { gone(); then() }.start()
+        }
+    }
+    val page = FrameLayout(c).apply {
+        setBackgroundColor(Color.argb(51, 0, 0, 0))   // the material's own shade over the blur
+        isClickable = true
+        setOnClickListener { leave {} }
+        addView(cloud.apply { isClickable = true; alpha = 0f }, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.TOP))
+    }
+    gone = act.cloud(page) { leave {} }
+    page.viewTreeObserver.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
+        override fun onPreDraw(): Boolean {
+            page.viewTreeObserver.removeOnPreDrawListener(this)
+            val room = page.height - page.paddingTop - page.paddingBottom
+            val h = cloud.height
+            val pageTop = IntArray(2).also { page.getLocationOnScreen(it) }[1] + page.paddingTop
+            var t = if (anchorTop != null) anchorTop - pageTop - c.dp(12) else (room - h) / 2
+            if (room - c.dp(10) < t + h) t = room - c.dp(10) - h
+            cloud.translationY = maxOf(c.dp(8), t).toFloat()
+            cloud.pivotX = 0f; cloud.pivotY = h / 2f
+            cloud.scaleX = 0.94f; cloud.scaleY = 0.94f
+            cloud.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(320).setInterpolator(android.view.animation.OvershootInterpolator(1.2f)).start()
+            return true
+        }
+    })
+    return leave
+}
+
+/** The person as the row showed them, on the cloud's own plate (iOS MTPersonMenu's head: MontanaChatFace 44, 14 by 8, corner 16). */
+fun personPlate(c: Context, ref: String): View {
+    val name = Book.chat(ref)?.shown?.ifBlank { null } ?: c.getString(R.string.peer)
+    return c.hstack {
+        gravity = Gravity.CENTER_VERTICAL
+        background = c.rounded(Color.argb(235, 44, 44, 46), 16, Color.argb(26, 255, 255, 255))
+        setPadding(dp(14), dp(8), dp(14), dp(8))
+        addView(c.peerFace(ref, name, 44), lp(dp(44), dp(44)).apply { marginEnd = dp(12) })
+        addView(c.text(name, 17f, Color.WHITE).apply { singleLineEllipsis() }, lp(WRAP, WRAP))   // USER-DATA: the name
+    }
+}
+
+/**
+ * THE MENU OF A HOLD (iOS MTPersonMenu, MontanaMessageMenu.swift:560-626: «the chat's own cloud -- the same material, the same rows,
+ * the same spring and the same place-keeping as the menu about a letter»): what was held keeps its place on the screen -- the head
+ * (the person's face and name, when the hold is about a person) at its top -- and the deeds stand under it, 250 wide, each the
+ * menu's own row (MTMenuRow: 16, 14 by 11, the glyph white 0.8 or red); a deed runs once the cloud has gone. The held view itself
+ * stays in its list -- it was lifted out of it before, which a row with a parent could not survive.
+ */
+fun holdMenu(act: MainActivity, held: View?, deeds: List<Deed>, head: View? = null) {
+    val c: Context = act
+    lateinit var leave: (() -> Unit) -> Unit
+    val line = Color.argb(77, 142, 142, 147)   // iOS MTMenuDivider: the gray at three tenths
+    val plate = c.vstack(Gravity.NO_GRAVITY) { background = c.rounded(Color.argb(235, 44, 44, 46), 16, Color.argb(26, 255, 255, 255)) }
     deeds.forEach { d ->
-        if (plate.childCount > 0) plate.addView(View(c).apply { setBackgroundColor(Color.argb(40, 255, 255, 255)) }, lp(MATCH, 1))
-        val tint = if (d.red) SysColor.red else Color.WHITE
+        if (plate.childCount > 0) plate.addView(View(c).apply { setBackgroundColor(line) }, lp(MATCH, 1))
         plate.addView(c.hstack {
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(16), dp(12), dp(16), dp(12))
-            addView(c.text(c.getString(d.words), 17f, tint), lp(0, WRAP, 1f))
-            addView(c.icon(d.glyph, tint, 20), lp(dp(20), dp(20)))
-            pressable { close(); d.work() }
+            setPadding(dp(14), dp(11), dp(14), dp(11))
+            addView(c.text(c.getString(d.words), 16f, if (d.red) SysColor.red else Color.WHITE), lp(0, WRAP, 1f))
+            addView(c.icon(d.glyph, if (d.red) SysColor.red else Color.argb(204, 255, 255, 255), 20), lp(dp(20), dp(20)))
+            pressable { leave(d.work) }
         }, lp())
     }
-    val lifted = row.apply { background = c.rounded(MT.plate, 14); isClickable = false; setOnClickListener(null); setOnLongClickListener(null) }
-    val page = FrameLayout(c).apply {
-        setBackgroundColor(Color.argb(150, 0, 0, 0))
-        isClickable = true
-        pressable { close() }
-        addView(c.vstack(Gravity.NO_GRAVITY) {
-            setPadding(dp(14), 0, dp(14), 0)
-            addView(lifted, lp())
-            gap(8)
-            addView(plate, lp(dp(250), WRAP))
-        }, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.CENTER_VERTICAL))
+    val cloud = c.vstack(Gravity.NO_GRAVITY) {
+        setPadding(dp(12), dp(12), dp(12), dp(12))
+        if (head != null) { addView(head, lp(WRAP, WRAP)); gap(12) }
+        addView(plate, lp(dp(250), WRAP))
     }
-    close = act.overlay(page)
+    leave = showCloud(act, cloud, held?.let { v -> IntArray(2).also { v.getLocationOnScreen(it) }[1] })
 }
 
 /**

@@ -59,7 +59,7 @@ fun presenceBadge(c: Context): View = FrameLayout(c).apply {
  * THE DEEDS ABOUT A PERSON (iOS ContactsTabView.deeds, ContentView.swift:2676-2688): Write · Profile · Audio call ·
  * Video call · Archive / Unarchive · Delete · Block / Unblock — unconditional, as the calls are now wired (act.callOut).
  */
-private fun contactMenu(act: MainActivity, ch: Chat) {
+private fun contactMenu(act: MainActivity, ch: Chat, held: View?) {
     val ref = ch.ref
     val deeds = mutableListOf(
         Deed(R.string.ct_write, R.drawable.ic_compose) { act.push { close -> conversationPage(act, ref, close) } },
@@ -72,7 +72,7 @@ private fun contactMenu(act: MainActivity, ch: Chat) {
     )
     deeds += if (PeerSafety.isBlocked(ref)) Deed(R.string.pi_unblock, R.drawable.ic_set_lock) { PeerSafety.setBlocked(ref, false); Book.edit(ref) {} }
              else Deed(R.string.pi_block, R.drawable.ic_set_lock, red = true) { askBlock(act, ref) { Book.edit(ref) {} } }   // the lists hear the book
-    holdMenu(act, contactRow(act, ch), deeds)
+    holdMenu(act, held, deeds, personPlate(act, ref))
 }
 
 /**
@@ -89,7 +89,7 @@ private fun contactTiles(act: MainActivity, ch: Chat) = listOf(
 private fun contactLine(act: MainActivity, ch: Chat): View {
     val row = contactRow(act, ch)
     row.pressable { act.push { close -> conversationPage(act, ch.ref, close) } }
-    row.setOnLongClickListener { contactMenu(act, ch); true }
+    row.setOnLongClickListener { contactMenu(act, ch, row); true }
     return SwipeRow(act, row, contactTiles(act, ch))
 }
 

@@ -139,9 +139,13 @@ fun callsPane(act: MainActivity): View {
                 row.pressable { act.callOut(r.ref, r.info.video) }   // a tap dials back, a video call's row by video (iOS 2983)
                 // THE HOLD (iOS the call's menu 2960-2966): select, delete
                 row.setOnLongClickListener {
+                    // select, delete, block or unblock (iOS CallsTabView.deeds, ContentView.swift:2960-2969), the person's face at the cloud's head
                     holdMenu(act, row, listOf(
                         Deed(R.string.ld_select, R.drawable.ic_set_check_circle) { selecting = true; selected.clear(); selected.add(k); fill(); drawFoot() },
-                        Deed(R.string.delete, R.drawable.ic_delete, red = true) { delete(r.ref, r.mid) }))
+                        Deed(R.string.delete, R.drawable.ic_delete, red = true) { delete(r.ref, r.mid) },
+                        if (PeerSafety.isBlocked(r.ref)) Deed(R.string.pi_unblock, R.drawable.ic_set_lock) { PeerSafety.setBlocked(r.ref, false); Book.edit(r.ref) {} }
+                        else Deed(R.string.pi_block, R.drawable.ic_set_lock, red = true) { askBlock(act, r.ref) { Book.edit(r.ref) {} } }),
+                        personPlate(act, r.ref))
                     true
                 }
                 rows.addView(SwipeRow(act, row, listOf(Tile(R.drawable.ic_delete, red = true) { delete(r.ref, r.mid) })), lp())
