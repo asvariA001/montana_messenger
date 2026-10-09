@@ -410,6 +410,7 @@
     <string name="call_turn_on_video">开启您的视频？</string>
     <string name="call_turn_on">开启</string>
     <string name="call_camera">相机</string>
+    <string name="call_mask">面具</string>
     <string name="call_title_video">Montana 视频通话</string>
     <!-- a newer build from the site (Update.kt) -->
     <string name="update_channel">更新</string>

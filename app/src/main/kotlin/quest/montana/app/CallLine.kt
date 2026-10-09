@@ -767,6 +767,7 @@ object CallLine {
         l.measureGen++   // no tick of the ended call survives into the next one (iOS K-9, 3081)
         breakTone(false)
         theirs.into = null; own.into = null
+        AvatarMask.set(false, "call-end")   // the mask lives inside one call (iOS MontanaCall.swift 3110)
         moved()
         return spoken
     }
@@ -1093,7 +1094,9 @@ object CallLine {
             val cam = en.createCapturer(name, cameraEvents(l, gen)) ?: return false
             val src = f.createVideoSource(false)
             val helper = SurfaceTextureHelper.create("mt_camera", egl.eglBaseContext)
-            cam.initialize(helper, Book.ctx, src.capturerObserver)
+            // THE MASK'S DOOR STANDS BETWEEN THE CAMERA AND THE SOURCE (iOS FrameCountingCapturerDelegate, MontanaCall.swift
+            // 7221-7224, atom c98a92d589e3): while the mask is on, the camera's frame is read on this phone and never reaches the source
+            cam.initialize(helper, Book.ctx, AvatarMask.Door(src.capturerObserver))
             cam.startCapture(1280, 720, 30)
             val track = f.createVideoTrack("mt_video", src)
             track.addSink(own)
@@ -1479,6 +1482,7 @@ object CallLine {
         runCatching { l.pc.transceivers.firstOrNull { it.mediaType == MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO }?.sender?.setTrack(null, false) }
         cameraOff(l)
         video = false; remoteLive = false; offerMine = false; swapped = false
+        AvatarMask.set(false, "video-end")   // no camera, no mask (iOS MontanaCall.swift 3201)
         moved()
         CallService.sync()
         log("video: ended aloud=" + aloud)
@@ -1614,7 +1618,7 @@ object CallLine {
             runCatching { l.helper?.dispose() }
             val helper = SurfaceTextureHelper.create("mt_camera", egl.eglBaseContext)
             l.helper = helper
-            cam.initialize(helper, Book.ctx, src.capturerObserver)
+            cam.initialize(helper, Book.ctx, AvatarMask.Door(src.capturerObserver))   // the mask's door, as at the camera's birth
             cam.startCapture(1280, 720, 30)
             l.cam = cam
             log("camera back front=" + front)

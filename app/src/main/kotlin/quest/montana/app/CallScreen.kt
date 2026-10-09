@@ -237,8 +237,11 @@ object CallScreen {
         // rise; with no window to ask (a ring, a system without it, the person's switch off) it folds the call into the app
         val back = mark(c, R.drawable.ic_chevron_down, R.string.call_back) { if (!CallFloat.foldAway(act, "back")) close?.invoke() }
         val flip = mark(c, R.drawable.ic_camera_rotate, R.string.call_camera) { CallLine.switchCamera() }
-        val roomL = View(c)   // the mask's twin room keeps the name in the centre (iOS 6665); the mask itself is not in this build
-        val roomR = View(c)
+        val roomL = View(c)   // the mask's twin room keeps the name in the centre (iOS MontanaCall.swift 6709-6713)
+        // THE MASK (iOS MontanaCall.swift 6723-6727, the author's word 30.09, atom c98a92d589e3): a glyph mark with no word on the
+        // platform's 44, beside the camera flip -- the filled masks while it is on (theatermasks.fill)
+        val maskMark = mark(c, R.drawable.ic_theatermasks, R.string.call_mask) { AvatarMask.toggle("tap") }
+        var maskGlyph = R.drawable.ic_theatermasks
         val route = routeButton(c)
         fun line() {
             // iOS MTCallLight 5427-5433: green clean at the top step, yellow (the system's orange) held below it, red squeezed
@@ -345,7 +348,7 @@ object CallScreen {
             addView(back, lp(dp(44), dp(44)))
             addView(roomL, lp(dp(44), dp(44)))
             addView(title, lp(0, dp(44), 1f))
-            addView(roomR, lp(dp(44), dp(44)))
+            addView(maskMark, lp(dp(44), dp(44)))
             addView(flip, lp(dp(44), dp(44)))
         }
         val column = c.vstack(Gravity.CENTER_HORIZONTAL) {
@@ -501,8 +504,12 @@ object CallScreen {
             tap.visibility = if (v && !screen) View.VISIBLE else View.GONE
             column.visibility = if (v && chromeHidden) View.INVISIBLE else View.VISIBLE
             val head = if (v && !screen) View.VISIBLE else View.INVISIBLE
-            roomL.visibility = head; title.visibility = head; roomR.visibility = head
+            roomL.visibility = head; title.visibility = head
             flip.visibility = if (v && !screen && CallLine.camera) View.VISIBLE else View.INVISIBLE
+            // the mask stands with the flip (iOS 6722-6733): without my camera both places stand empty, the name stays centred
+            maskMark.visibility = flip.visibility
+            val glyph = if (AvatarMask.masked) R.drawable.ic_theatermasks_fill else R.drawable.ic_theatermasks
+            if (glyph != maskGlyph) { maskGlyph = glyph; (maskMark.getChildAt(0) as ImageView).setImageResource(glyph) }
             timeLine.visibility = if (v && !screen) View.VISIBLE else View.GONE
             events.visibility = timeLine.visibility
             voiceHead.visibility = if (v || mine) View.GONE else View.VISIBLE

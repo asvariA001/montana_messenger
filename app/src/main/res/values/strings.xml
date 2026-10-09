@@ -411,6 +411,7 @@
     <string name="call_turn_on_video">Turn on your video?</string>
     <string name="call_turn_on">Turn On</string>
     <string name="call_camera">Camera</string>
+    <string name="call_mask">Mask</string>
     <string name="call_title_video">Montana Video Call</string>
     <!-- a newer build from the site (Update.kt) -->
     <string name="update_channel">Updates</string>
