@@ -25,8 +25,8 @@ object WallFiles {
     private val TRACK = setOf("mp3", "m4a", "aac", "wav", "flac", "aif", "aiff", "caf")   // iOS mtIsAudioName (MontanaMediaKit 34-37)
 
     /** iOS MTPostMeasure.kind(ofExtension:) (MontanaMediaKit 44-50). */
-    fun kindOf(ext: String): String = ext.lowercase().let { e >
-        when (e) { in PICTURE > "img"; in FILM > "vid"; in TRACK > "aud"; else > "doc" }
+    fun kindOf(ext: String): String = ext.lowercase().let { e ->
+        when (e) { in PICTURE -> "img"; in FILM -> "vid"; in TRACK -> "aud"; else -> "doc" }
     }
 
     /** iOS MTBoardFrame.own and around (MontanaBoard 126-138): the largest part of the picture in its held shape, around its middle. */
@@ -53,7 +53,7 @@ object WallFiles {
         while (true) {
             val scale = minOf(1.0, side / maxOf(img.width, img.height))
             val small = Bitmap.createScaledBitmap(img, maxOf(1, Math.round(img.width * scale).toInt()), maxOf(1, Math.round(img.height * scale).toInt()), true)
-            val b64 = ByteArrayOutputStream().use { o > small.compress(Bitmap.CompressFormat.JPEG, 60, o); Base64.encodeToString(o.toByteArray(), Base64.NO_WRAP) }
+            val b64 = ByteArrayOutputStream().use { o -> small.compress(Bitmap.CompressFormat.JPEG, 60, o); Base64.encodeToString(o.toByteArray(), Base64.NO_WRAP) }
             if (b64.length <= POSTER_BUDGET || side <= 120.0) return b64
             side = Math.round(side * 0.8).toDouble()
         }
@@ -69,7 +69,7 @@ object WallFiles {
 
     /** A track's or a film's length in seconds (iOS MontanaAudioDuration.of). */
     fun duration(f: File): Double? = runCatching {
-        MediaMetadataRetriever().use { r >
+        MediaMetadataRetriever().use { r ->
             r.setDataSource(f.path)
             r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()?.let { it / 1000.0 }
         }
@@ -82,12 +82,12 @@ object WallFiles {
     fun take(c: Context, uri: Uri): MyWall.Attachment? = runCatching {
         val cr = c.contentResolver
         var name = ""
-        cr.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { q > if (q.moveToFirst()) name = q.getString(0) ?: "" }
+        cr.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { q -> if (q.moveToFirst()) name = q.getString(0) ?: "" }
         val ext = name.substringAfterLast('.', "").lowercase().takeIf { it.isNotEmpty() && it.length <= 8 && it.all(Char::isLetterOrDigit) }
             ?: android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(cr.getType(uri) ?: "")?.lowercase() ?: ""
         val dir = File(File(c.filesDir, "board"), "picked").apply { mkdirs() }
         val dest = File(dir, java.util.UUID.randomUUID().toString().lowercase() + (if (ext.isEmpty()) "" else "." + ext))
-        val copied = cr.openInputStream(uri)?.use { i > dest.outputStream().use { o > i.copyTo(o) } }
+        val copied = cr.openInputStream(uri)?.use { i -> dest.outputStream().use { o -> i.copyTo(o) } }
         if (copied == null) null else MyWall.Attachment(dest, kindOf(ext), name.ifEmpty { dest.name }, ext)
     }.getOrNull()
 }
