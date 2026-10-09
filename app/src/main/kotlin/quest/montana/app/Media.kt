@@ -544,6 +544,10 @@ class MediaProvider : ContentProvider() {
         val c = context ?: return null
         val name = uri.lastPathSegment ?: return null
         if (name.contains('/') || name.startsWith(".")) return null
+        // A WALL'S FILE GOES BY THE SAME DOOR (iOS MTBoardDocPresenter, MontanaBoardViews.swift:1635-1650, and MTBoardMediaPage.share
+        // 3100-3104 at 2155: the post's own file): it lies in the wall's store or in the look's folder, never among the chats' media --
+        // «Open» and the share of a post's file found nothing here
+        if (name.startsWith("wall_")) return listOf(MyWall.storeDir(c), Board.lookIn(c)).map { File(it, name) }.firstOrNull { it.exists() }
         return File(Media.dir(c), name).takeIf { it.exists() }
     }
     override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor? =

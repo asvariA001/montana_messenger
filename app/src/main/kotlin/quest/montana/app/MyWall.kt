@@ -326,6 +326,9 @@ object MyWall {
         }
         if (refuse) { Board.sendWord(ref, JSONObject().put("t", "no").put("id", id)); Log.d("Montana", "wall_refused full"); return }
         saveMine()
+        // THE OWNER'S ROW IS BORN AS THE POST IS TAKEN ONTO THE WALL (iOS apply «post», MontanaBoard.swift:835-836 at 2155): once -- a post
+        // the wall holds already returned above
+        Board.cardRow(ref, id, w.optString("tx"), post.optJSONArray("media")?.optJSONObject(0)?.optString("kind"), mine = false)
     }
     private fun takeComment(ref: String, w: JSONObject, now: Double) {
         if (!WallRule.admits(ref, WallRule.Act.SEE) || !WallRule.admits(ref, WallRule.Act.WRITE)) return
@@ -431,7 +434,9 @@ object MyWall {
         runCatching { part.writeBytes(sealedBytes); part.renameTo(goingFile()) }
     }
     /** The files of my own posts: this phone is each post's first peer (iOS MontanaMediaStore under the post's names). */
-    private fun store() = File(File(Book.ctx.filesDir, "board"), "files").apply { mkdirs() }
+    private fun store() = storeDir(Book.ctx).apply { mkdirs() }
+    /** The folder of the wall's files, for the app's own door to them (MediaProvider): a post's document opens and goes out as a chat's does. */
+    fun storeDir(c: android.content.Context) = File(File(c.filesDir, "board"), "files")
     private fun fileName(pid: String, i: Int, ext: String) = "wall_" + pid + "_" + i + (if (ext.isEmpty()) "" else "." + ext)   // iOS fileName 497-499
     fun ownFile(name: String): File? = File(store(), name).takeIf { it.exists() }
     /** The one store of a post's files on this phone -- my posts' and the posts I keep (iOS MontanaMediaStore under fileName 497-499). */
@@ -574,6 +579,10 @@ object MyWall {
             Going(g.optString("id"), shown, total, done, g.optBoolean("failed"), wall)
         }.sortedByDescending { it.post.optDouble("at") }
     }
+    /** EVERY POST ON ITS WAY, TO ANY WALL, NEWEST FIRST (iOS MTFeedTabView's going, board.outgoing.values, MontanaBoardViews.swift:2875
+     * at 2155): the feed stands them over its posts. */
+    fun sendingAll(): List<Going> = synchronized(lock) { ensure(); going.values.map { it.optString("wall") }.toSet() }.flatMap { sending(it) }
+        .sortedByDescending { it.post.optDouble("at") }
     /**
      * A POST ON ITS WAY GOES ON BY ITSELF (iOS roadBack 1922-1932): every post the node did not take whole, or one a run died under,
      * is laid again when the app comes to the screen; never twice at once. The person's own try again stands as it was.
@@ -585,6 +594,25 @@ object MyWall {
         for (pid in due) Thread { publish(pid) }.start()
     }
     fun pin(id: String) = mutate(id, own = true) { it.put("pinned", !it.optBoolean("pinned")) }
+    /**
+     * THE WORDS OF MY OWN POST, CHANGED (iOS MTBoard.edit, MontanaBoard.swift:1535-1555 at 2155, the author's word 30.09): only on my own
+     * wall and only the words -- a file keeps the name its place gave it at birth, a repost keeps its writer's words. The edit moves the
+     * wall's version (postsTag «e»), so the next page carries the new words to everyone who holds it; no new word rides the wire. A link
+     * card whose address the words no longer lead with goes with them (1545-1547). False: nothing to change.
+     */
+    fun edit(id: String, words: String): Boolean {
+        val t = words.trim().take(TEXT_LIMIT)
+        synchronized(lock) {
+            ensure()
+            val p = mine.firstOrNull { it.optString("id") == id } ?: return false
+            if (p.optString("author").isNotEmpty() || p.has("from") || t == p.optString("text") || (t.isEmpty() && arr(p, "media").length() == 0)) return false
+            p.put("text", t).put("ed", System.currentTimeMillis() / 1000.0)
+            if (LinkPreview.webURLs(t).firstOrNull() != LinkCard.parse(p.optString("lp"))?.u) p.remove("lp")
+        }
+        saveMine(own = true)
+        Log.d("Montana", "wall_edit id=" + id.take(10) + " chars=" + t.length)
+        return true
+    }
     fun like(id: String) = mutate(id, own = true) { toggle(it, "likes", "", !has(arr(it, "likes"), "")) }
     /** A REPOST STANDS ON MY WALL (iOS repost, MontanaBoard.swift:1656-1661 at 2155): once by its name; false -- it stands already. */
     fun repost(post: JSONObject): Boolean {

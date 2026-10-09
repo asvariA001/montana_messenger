@@ -20,8 +20,11 @@ class Shared(val words: String, val files: List<Uri>)
 /** The system's share (ACTION_SEND / ACTION_SEND_MULTIPLE) read into words and files; null for any other intent. */
 fun sharedOf(i: Intent?): Shared? {
     if (i == null || (i.action != Intent.ACTION_SEND && i.action != Intent.ACTION_SEND_MULTIPLE)) return null
+    // A FILE'S PATH IS NEVER ITS WORDS (iOS ShareRead.text, ShareViewController.swift:712, atom 20c5cef6f490): an app that hands a file's
+    // own address as its text sent «file:///...» as a letter -- the file rides the stream, the address is no word of the person's
     val words = listOfNotNull(i.getStringExtra(Intent.EXTRA_SUBJECT)?.takeIf { it.isNotBlank() && i.getStringExtra(Intent.EXTRA_TEXT)?.contains(it) != true },
-        i.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()).joinToString("\n").trim()
+        i.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()?.takeIf { t -> !t.trim().let { it.startsWith("file://", ignoreCase = true) && it.none { ch -> ch.isWhitespace() } } })
+        .joinToString("\n").trim()
     @Suppress("DEPRECATION")
     val files: List<Uri> = if (i.action == Intent.ACTION_SEND_MULTIPLE) {
         (if (Build.VERSION.SDK_INT >= 33) i.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java) else i.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)) ?: emptyList()
@@ -38,74 +41,38 @@ fun sendWords(target: String, words: String) {
 }
 
 /**
- * THE SHARE SHEET (iOS ShareViewController): my own wall first, then the chats, pinned first — a tap chooses one or more; the field over the button
- * holds the words (what the other app handed in stands there already, and it becomes the pictures' caption); «Send» sends to
- * every chosen chat and, when one was chosen, opens it.
+ * THE SHARE SHEET (iOS ShareViewController and SharePickerController at 2155, atom 8bf2e50c1cdb; the author's word 30.09): the platform's
+ * own sheet -- the cross and «Send to Montana», the search on its glass plate (44 high, corner 22, 16 from the edges; buildUI 174-191,
+ * 250-257) and the grid of round faces, four to five columns of the sheet's width (sizeForItemAt 797-806): each face 60 with the thin
+ * white rim and its name in two lines of 11 under it (ShareAvatarCell 819-877). ONE'S OWN WALL IS THE FIRST CIRCLE (ShareChat.wall, the
+ * author's words 29.09 and 02.10 19:17): my own face, as the Saved Messages row wears it, with the platform's write glyph where a tick
+ * would stand; written on, never sent to. ONLY THE FINGER CHOOSES AND ONLY THE FINGER SENDS: a chosen face shrinks into the platform's
+ * blue ring and wears the blue tick (configure 898-902), and once a chat is chosen the bar floats over the grid (updateSendState
+ * 360-364) -- the caption on its own glass and, beside it, the round send of the label's colour with the arrow glyph and no word
+ * (ShareGlass.prominent 105-115, the bar 213-232 and 268-285). The send goes to every chosen chat and, when one was chosen, opens it.
  */
 fun sharePage(act: MainActivity, s: Shared, onClose: () -> Unit): View {
     val c: Context = act
     val chosen = linkedSetOf<String>()
-    lateinit var send: AccentButton
+    val chats = listedChats().filter { !Groups.isKey(it.ref) || Groups.canWrite(it.ref) }   // a group this phone writes into takes it by its carrier (Groups.send, carryMedia)
+    var query = ""
     val field = EditText(c).apply {
         setText(s.words)   // USER-DATA: what the other app handed in
-        hint = c.getString(R.string.message_hint)
+        hint = c.getString(R.string.share_caption)
         setTextColor(Color.WHITE); setHintTextColor(MT.gray)
-        background = c.rounded(MT.plate, 12)
-        setPadding(c.dp(14), c.dp(10), c.dp(14), c.dp(10))
-        maxLines = 5
+        background = null
+        textSize = 17f
+        setPadding(c.dp(14), c.dp(12), c.dp(14), c.dp(12))
+        minHeight = c.dp(44)
+        maxHeight = c.dp(120)   // iOS textViewDidChange 353-358: 44 to 120 high, the words past it scroll inside the field
     }
-    val rows = c.vstack(Gravity.NO_GRAVITY)
-    fun fill() {
-        rows.removeAllViews()
-        // ONE'S OWN WALL, THE FIRST CIRCLE (iOS ShareChat.wall, the author's words 29.09 and 02.10 19:17): my own face, as the Saved
-        // Messages row wears it, and «My wall»; the platform's write glyph where a chat's tick stands. Written on, never sent to: it
-        // chooses nothing and opens the wall's one new-post page with all that was handed in already taken (iOS MTBoard.takeFromSheet
-        // and laySheet, MontanaBoard 1934-1991, then MTBoardComposer.reopen, MontanaBoardViews 2050-2058); only its check posts.
-        rows.addView(c.hstack {
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(4), dp(8), dp(4), dp(8))
-            addView(c.avatar(SelfFace.load(c), Prefs.userName, 46), lp(dp(46), dp(46)).apply { marginEnd = dp(12) })
-            addView(c.text(c.getString(R.string.wall_mine), 17f, Color.WHITE, bold = true).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))
-            addView(c.icon(R.drawable.ic_compose, Color.WHITE), lp(dp(24), dp(24)))
-            pressable {
-                val typed = field.text.toString().trim()
-                act.getSystemService(android.view.inputmethod.InputMethodManager::class.java).hideSoftInputFromWindow(field.windowToken, 0)
-                onClose()
-                // A TEXT HANDED AS A FILE IS THE POST'S WORDS (iOS ShareRead.wallPart and ShareWallHandoff.hand, ShareViewController 722-740, 779 at 2155;
-                // atom 2183eafbeab2): a .txt of bubble size joins the words line by line, only the rest are the post's files
-                Thread {
-                    val texts = ArrayList<String>()
-                    val files = s.files.filter { u -> textFace(c, u)?.let { texts.add(it); false } ?: true }
-                    val words = (listOf(typed) + texts).filter { it.isNotEmpty() }.joinToString("\n")
-                    android.util.Log.d("Montana", "wall_sheet files=" + files.size + " texts=" + texts.size + " chars=" + words.length + " page")
-                    act.onMain { act.push { close -> newPostPage(act, close, sharedWords = words, sharedFiles = files) } }
-                }.start()
-            }
-        }, lp())
-        rows.addView(View(c).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = c.dp(62) })
-        val chats = listedChats().filter { !Groups.isKey(it.ref) || Groups.canWrite(it.ref) }   // a group this phone writes into takes it by its carrier (Groups.send, carryMedia)
-        for (ch in chats) {
-            val on = ch.ref in chosen
-            rows.addView(c.hstack {
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(4), dp(8), dp(4), dp(8))
-                addView(c.peerFace(ch.ref, ch.shown, 46), lp(dp(46), dp(46)).apply { marginEnd = dp(12) })
-                addView(c.text(ch.shown.ifBlank { c.getString(R.string.peer) }, 17f, Color.WHITE, bold = true).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))   // USER-DATA: the name
-                addView(FrameLayout(c).apply {
-                    background = if (on) c.rounded(MT.blue, 12) else c.rounded(Color.TRANSPARENT, 12, MT.gray)   // the platform's own blue tick (iOS ShareViewController 836 at 2155)
-                    if (on) addView(c.icon(R.drawable.ic_check, Color.BLACK, 16), FrameLayout.LayoutParams(dp(16), dp(16), Gravity.CENTER))
-                }, lp(dp(24), dp(24)))
-                pressable { if (!chosen.remove(ch.ref)) chosen.add(ch.ref); fill(); send.setOn(chosen.isNotEmpty()) }
-            }, lp())
-            rows.addView(View(c).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = c.dp(62) })
-        }
-        // the wall stands with no chat at all: the empty word speaks of the chats alone (iOS emptyLabel.isHidden = !chats.isEmpty, 8bf2e50c)
-        if (chats.isEmpty()) rows.addView(c.text(c.getString(R.string.no_chats), 17f, MT.gray, center = true).apply { setPadding(0, c.dp(40), 0, 0) }, lp())
-    }
-    send = AccentButton(c, c.getString(R.string.send)) {
+    fun hideKeys() { act.getSystemService(android.view.inputmethod.InputMethodManager::class.java).hideSoftInputFromWindow(field.windowToken, 0) }
+    // THE ONE BIRTH OF A SEND (iOS beginSend): the finger on the round send, to the chats the finger chose
+    fun send() {
         val to = chosen.toList()
+        if (to.isEmpty()) return
         val words = field.text.toString().trim()
-        act.getSystemService(android.view.inputmethod.InputMethodManager::class.java).hideSoftInputFromWindow(field.windowToken, 0)
+        hideKeys()
         Thread {
             var failed = false
             // a text handed as a file is a text letter (textFace); the files first, each read once and sent to every chosen chat;
@@ -132,14 +99,132 @@ fun sharePage(act: MainActivity, s: Shared, onClose: () -> Unit): View {
         }.start()
         onClose()
         if (to.size == 1) act.push { close -> conversationPage(act, to[0], close) }
-    }.apply { setOn(false) }
+    }
+    // THE WALL IS WRITTEN ON, NEVER SENT TO (iOS didSelectItemAt 310-311): its circle chooses nothing and opens the wall's one new-post
+    // page with all that was handed in already taken (iOS MTBoard.takeFromSheet and laySheet, MontanaBoard 1934-1991, then
+    // MTBoardComposer.reopen, MontanaBoardViews 2050-2058); only its check posts
+    fun openWall() {
+        val typed = field.text.toString().trim()
+        hideKeys()
+        onClose()
+        // A TEXT HANDED AS A FILE IS THE POST'S WORDS (iOS ShareRead.wallPart and ShareWallHandoff.hand, ShareViewController 722-740, 779 at 2155;
+        // atom 2183eafbeab2): a .txt of bubble size joins the words line by line, only the rest are the post's files
+        Thread {
+            val texts = ArrayList<String>()
+            val files = s.files.filter { u -> textFace(c, u)?.let { texts.add(it); false } ?: true }
+            val words = (listOf(typed) + texts).filter { it.isNotEmpty() }.joinToString("\n")
+            android.util.Log.d("Montana", "wall_sheet files=" + files.size + " texts=" + texts.size + " chars=" + words.length + " page")
+            act.onMain { act.push { close -> newPostPage(act, close, sharedWords = words, sharedFiles = files) } }
+        }.start()
+    }
+    val bar = c.hstack {
+        gravity = Gravity.BOTTOM
+        visibility = View.GONE
+        addView(FrameLayout(c).apply {
+            background = c.glassPlate().apply { cornerRadius = c.dp(22).toFloat() }
+            addView(field, FrameLayout.LayoutParams(MATCH, WRAP))
+        }, lp(0, WRAP, 1f))
+        gap(8)
+        addView(FrameLayout(c).apply {
+            background = android.graphics.drawable.GradientDrawable().apply { shape = android.graphics.drawable.GradientDrawable.OVAL; setColor(Color.WHITE) }
+            contentDescription = c.getString(R.string.send)
+            addView(c.icon(R.drawable.ic_arrow_up, Color.BLACK, 20), FrameLayout.LayoutParams(dp(20), dp(20), Gravity.CENTER))
+            pressable { send() }
+        }, lp(dp(44), dp(44)))
+    }
+    val wDp = c.resources.displayMetrics.widthPixels / c.resources.displayMetrics.density
+    val cols = maxOf(4, ((wDp - 24) / 84).toInt())   // iOS sizeForItemAt 799: four columns at the least, one more for every 84 of the width
+    val grid = c.vstack(Gravity.NO_GRAVITY) { setPadding(dp(12), dp(4), dp(12), dp(12)) }   // iOS insetForSectionAt 805
+    val empty = c.text(c.getString(R.string.no_chats), 15f, MT.gray, center = true).apply { setPadding(c.dp(32), c.dp(150), c.dp(32), 0); visibility = View.GONE }
+    // ONE ROUND FACE OF THE GRID (iOS ShareAvatarCell 811-903): the face 60 under the thin white rim; chosen, it shrinks to 0.867 in the
+    // platform's blue ring with the blue tick at its corner; the wall's circle wears the write glyph there; the name under it, two lines of 11
+    fun cell(face: View, title: String, on: Boolean, wall: Boolean, tap: () -> Unit): View = c.vstack(Gravity.CENTER_HORIZONTAL) {
+        setPadding(0, dp(4), 0, dp(4))
+        addView(FrameLayout(c).apply {
+            addView(FrameLayout(c).apply {
+                addView(face, FrameLayout.LayoutParams(MATCH, MATCH))
+                addView(View(c).apply {
+                    background = android.graphics.drawable.GradientDrawable().apply {
+                        shape = android.graphics.drawable.GradientDrawable.OVAL
+                        if (on) setStroke(c.dp(2), MT.blue) else setStroke(c.dp(1), Color.argb(115, 255, 255, 255))
+                    }
+                }, FrameLayout.LayoutParams(MATCH, MATCH))
+                if (on) { scaleX = 0.867f; scaleY = 0.867f }
+            }, FrameLayout.LayoutParams(dp(60), dp(60)))
+            if (on || wall) addView(FrameLayout(c).apply {
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.OVAL; setColor(MT.blue)
+                    if (on) setStroke(c.dp(1), Color.WHITE)
+                }
+                addView(c.icon(if (wall) R.drawable.ic_compose else R.drawable.ic_check, Color.WHITE, 12), FrameLayout.LayoutParams(dp(12), dp(12), Gravity.CENTER))
+            }, FrameLayout.LayoutParams(dp(22), dp(22), Gravity.BOTTOM or Gravity.END))
+        }, lp(dp(62), dp(62)))
+        addView(c.text(title, 11f, Color.WHITE, center = true).apply { maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END },
+            lp(MATCH, WRAP).apply { topMargin = dp(4); marginStart = dp(2); marginEnd = dp(2) })
+        pressable(tap)
+    }
+    fun fill() {
+        grid.removeAllViews()
+        val q = query.trim().lowercase()
+        val cells = ArrayList<View>()
+        val mine = c.getString(R.string.wall_mine)
+        if (q.isEmpty() || mine.lowercase().contains(q)) cells.add(cell(c.avatar(SelfFace.load(c), Prefs.userName, 60), mine, on = false, wall = true) { openWall() })
+        for (ch in chats) {
+            val title = ch.shown.ifBlank { c.getString(R.string.peer) }   // USER-DATA: the name
+            // iOS searchChanged 345-349: the word typed narrows the faces by their names
+            if (q.isNotEmpty() && !title.lowercase().contains(q) && !ch.ref.lowercase().contains(q)) continue
+            cells.add(cell(c.peerFace(ch.ref, ch.shown, 60), title, ch.ref in chosen, wall = false) {
+                if (!chosen.remove(ch.ref)) chosen.add(ch.ref)
+                fill()
+            })
+        }
+        for (k in cells.indices step cols) grid.addView(c.hstack {
+            gravity = Gravity.TOP
+            for (j in 0 until cols) addView(cells.getOrNull(k + j) ?: View(c), lp(0, WRAP, 1f))
+        }, lp().apply { if (0 < k) topMargin = c.dp(4) })   // iOS minimumLineSpacing 195
+        empty.visibility = if (chats.isEmpty()) View.VISIBLE else View.GONE
+        // THE BAR STANDS ONCE THE FINGER CHOSE A CHAT, the grid keeping room under its last row for it (iOS updateSendState 360-364)
+        bar.visibility = if (chosen.isEmpty()) View.GONE else View.VISIBLE
+        grid.setPadding(grid.paddingLeft, grid.paddingTop, grid.paddingRight, c.dp(if (chosen.isEmpty()) 12 else 84))
+    }
+    val search = EditText(c).apply {
+        hint = c.getString(R.string.search)
+        setTextColor(Color.WHITE); setHintTextColor(MT.gray)
+        background = null
+        textSize = 17f
+        setSingleLine(true)
+        gravity = Gravity.CENTER_VERTICAL
+        imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH
+        setPadding(c.dp(38), 0, c.dp(8), 0)   // iOS the magnifier's room, 38, and 8 at the end (187-188, 257)
+        addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(t: CharSequence?, a: Int, b: Int, d: Int) {}
+            override fun onTextChanged(t: CharSequence?, a: Int, b: Int, d: Int) {}
+            override fun afterTextChanged(t: android.text.Editable?) { query = t?.toString() ?: ""; fill() }
+        })
+    }
+    val searchPlate = FrameLayout(c).apply {
+        background = c.glassPlate().apply { cornerRadius = c.dp(22).toFloat() }
+        addView(c.icon(R.drawable.ic_search, MT.gray, 20), FrameLayout.LayoutParams(c.dp(20), c.dp(20), Gravity.CENTER_VERTICAL or Gravity.START).apply { marginStart = c.dp(12) })
+        addView(search, FrameLayout.LayoutParams(MATCH, MATCH))
+    }
     fill()
-    return settingsPage(act, c.getString(R.string.share), onClose, cross = true) {
-        addView(rows, lp())
-        gap(14)
-        addView(field, lp())
-        gap(10)
-        addView(send, lp())
+    return FrameLayout(c).apply {
+        setBackgroundColor(Color.BLACK)
+        addView(c.chatGround(ChatWall.PAGE), FrameLayout.LayoutParams(MATCH, MATCH))   // the pages' one ground under the sheet's glass
+        addView(c.vstack(Gravity.NO_GRAVITY) {
+            addView(FrameLayout(c).apply {
+                setPadding(dp(8), 0, dp(8), 0)
+                addView(c.icon(R.drawable.ic_close, Color.WHITE).apply { setPadding(dp(10), dp(10), dp(10), dp(10)); pressable { hideKeys(); onClose() } },
+                    FrameLayout.LayoutParams(dp(44), dp(44), Gravity.CENTER_VERTICAL or Gravity.START))
+                addView(c.text(c.getString(R.string.share_to_montana), 17f, Color.WHITE, bold = true, center = true), FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
+            }, lp(MATCH, dp(52)))
+            addView(searchPlate, lp(MATCH, dp(44)).apply { setMargins(dp(16), dp(8), dp(16), dp(8)) })
+            addView(FrameLayout(c).apply {
+                addView(android.widget.ScrollView(c).apply { isVerticalScrollBarEnabled = false; addView(grid) }, FrameLayout.LayoutParams(MATCH, MATCH))
+                addView(empty, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.TOP))
+            }, lp(MATCH, 0, 1f))
+        }, FrameLayout.LayoutParams(MATCH, MATCH))
+        addView(bar, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM).apply { setMargins(dp(12), 0, dp(12), dp(10)) })
     }
 }
 

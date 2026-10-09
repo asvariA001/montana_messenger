@@ -644,6 +644,10 @@
     <string name="wall_who_can_see">谁可以查看</string>
     <string name="wall_who_cannot_see">谁不能查看</string>
     <string name="wall_mine">我的留言墙</string>
+    <string name="wall_post">留言墙帖子</string>
+    <string name="wall_edit_post">编辑帖子</string>
+    <string name="share_to_montana">发送到 Montana</string>
+    <string name="share_caption">添加说明…</string>
     <string name="call_cam_off_title">Montana 的相机已关闭</string>
     <string name="continue_with_voice">继续语音通话</string>
     <string name="call_cam_off_body">您的视频未发送。请在设置中允许 Montana 使用相机，然后重新打开视频。</string>
