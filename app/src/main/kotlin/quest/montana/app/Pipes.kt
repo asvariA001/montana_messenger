@@ -667,6 +667,7 @@ object Post {
     private val fetchLock = Any()
     private var fetchAgain = false   // a hint that came while a pickup ran: one more round when it ends
     private var fetching = false
+    private const val CARRY_MS = 30L * 86_400_000L   // iOS MontanaDeliveryEngine.carryDays: at least thirty days (the author's word 07.10)
 
     // ── sending ──
     /**
@@ -804,6 +805,17 @@ object Post {
                 done.add(mid)
                 Book.edit(SamePair.root(to)) { c -> c.msgs.find { it.mid == mid }?.advance(1) }   // a letter queued on a pipe since folded settles in the conversation
                 Groups.copyHeld(mid)   // a group's copy has no row of the pipe: the node holds it, and the group's row moves (iOS copyHeld)
+            } else if (Marks.birthMs(mid)?.let { CARRY_MS <= System.currentTimeMillis() - it } == true) {
+                // THE CARRIAGE IS THE ONE END, AND NEVER A CLOCK'S RED FOR A LETTER A NODE TOOK (iOS carryDays and neverLeft,
+                // MontanaDeliveryEngine 315-316, 1354-1366; atom 4d96053c1090): a letter a door boxed left this queue at once, still
+                // sent; one no node ever took in thirty days turns red by that word -- it never left this phone -- and leaves the queue.
+                // A coin letter never reaches here: its day ends first (CoinSend.expire, the author's word 09.10 11:3x).
+                done.add(mid); Groups.copyLost(mid)
+                Log.d("Montana", "send_failed m=" + mid.take(8) + " — no node ever took it in the carriage's thirty days")
+                var red: Msg? = null
+                val chat = SamePair.root(to)
+                Book.edit(chat) { c -> c.msgs.find { it.mid == mid && it.mine }?.let { m -> if (m.advance(-1)) red = m } }
+                red?.let { CoinSend.hold(it, chat) }
             }
         }
         if (done.isEmpty()) return
