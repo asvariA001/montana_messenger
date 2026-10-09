@@ -167,12 +167,29 @@ private fun itemOf(m: Msg): Item? {
 }
 private fun Item.isMusic() = kind == "doc" && (name ?: file?.name ?: "").substringAfterLast('.', "").lowercase() in AUDIO_EXT
 
-/** The links a letter carries: the platform's own finder, the web alone (iOS MTLinks). */
+/**
+ * A MONTANA LINK, FOUND BY ITS OWN SCHEME (iOS MTLinks.find, MontanaPeerInfo.swift:162-180, atom 20c5cef6f490): the trailing
+ * punctuation a sentence glues on stays outside it.
+ */
+fun montanaLinkMatches(text: String): List<Pair<IntRange, Uri>> {
+    val trail = ".,;:!?)]}>»›\"'’”…"
+    val out = mutableListOf<Pair<IntRange, Uri>>()
+    for (mm in Regex("montana://\\S+", RegexOption.IGNORE_CASE).findAll(text)) {
+        var end = mm.range.last
+        while (end >= mm.range.first && text[end] in trail) end--
+        if (end < mm.range.first) continue
+        out.add((mm.range.first..end) to Uri.parse(text.substring(mm.range.first, end + 1)))
+    }
+    return out
+}
+
+/** The links a letter carries: the platform's own finder, and a Montana link by its own scheme (iOS MTLinks, atom 20c5cef6f490). */
 private fun linksIn(text: String): List<Uri> {
     if (Marks.isService(text) || text.length > 20_000) return emptyList()
     val out = mutableListOf<Uri>()
     val m = android.util.Patterns.WEB_URL.matcher(text)
     while (m.find()) PeerAbout.url(m.group())?.let { out.add(it) }
+    montanaLinkMatches(text).forEach { out.add(it.second) }
     return out
 }
 

@@ -65,9 +65,18 @@ class FaceHead(private val act: MainActivity, private val scene: ViewGroup) {
         line(bubble(c.text(name, 20f, Color.WHITE, bold = true).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END }))   // USER-DATA: their name
         if (blocked) line(blockedPill())
         if (bio.isNotEmpty()) line(bubble(c.text("", 17f, Color.WHITE).apply {
-            // their links live, as the iPhone's MTLinks.linked: a tap on a link opens it, the words around it stay selectable
-            autoLinkMask = Linkify.WEB_URLS; setLinkTextColor(MT.blue); setTextIsSelectable(true)
-            text = bio   // USER-DATA: their bio
+            // THEIR LINKS LIVE, THE WEB'S AND MONTANA'S ALIKE (iOS MontanaPeerHeader.swift:317, MTLinks.linked, atom 20c5cef6f490):
+            // a tap opens either; the words around them stay selectable.
+            val spanned = android.text.SpannableString(bio)
+            Linkify.addLinks(spanned, Linkify.WEB_URLS)
+            for ((range, uri) in montanaLinkMatches(bio)) {
+                spanned.setSpan(object : android.text.style.ClickableSpan() {
+                    override fun onClick(widget: View) { act.openLink(uri.toString()) }
+                }, range.first, range.last + 1, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
+            movementMethod = android.text.method.LinkMovementMethod.getInstance()
+            setLinkTextColor(MT.blue); setTextIsSelectable(true)
+            text = spanned   // USER-DATA: their bio
         }))
         if (link != null) line(bubble(c.text(PeerAbout.shown(link), 17f, MT.blue).apply {   // USER-DATA: their link
             maxLines = 1; ellipsize = TextUtils.TruncateAt.MIDDLE
