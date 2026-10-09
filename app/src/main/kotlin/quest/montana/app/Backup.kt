@@ -610,6 +610,7 @@ object Card {
     private val moments = listOf("phideAt_", "coinBinds.")
     /** The tag of a correspondent's page ground I hold and the moment they said it, «tag@at» on both phones (iOS MontanaFeeds.swift 390-396). */
     private const val HELD = "pgHeld."
+    private const val MIRRORED = "copy.mirrored"   // NOT-UI: the paths of the links the last copy laid, one a line
     private const val NODE = "mt.home.node"           // NOT-UI: iOS MontanaHomeNode.hostKey, sealed
     private const val NODE_PIN = "mt.home.node.pin"   // NOT-UI: iOS MontanaHomeNode.pinKey, sealed
 
@@ -618,6 +619,10 @@ object Card {
      * form. An entry this phone owns and no longer holds leaves the card: a copy never brings back what was undone here.
      */
     fun build(c: Context): Built? {
+        // THE LINKS THIS COPY LAYS ARE NAMED, SO THE NEXT COPY TAKES BACK WHAT IS NO LONGER WORN (the conductor 09.10, absolute
+        // privacy): a ground changed or a sticker taken away never rides a later copy; a file an iPhone's copy brought is not ours to take
+        val laid = HashSet<String>()
+        fun keepMirror(src: File, dir: File): Boolean = mirror(src, dir).also { if (it) laid.add(File(dir, src.name).path) }
         val out = kept(c, "card")?.let { runCatching { JSONObject(String(it, Charsets.UTF_8)) }.getOrNull() ?: return null } ?: JSONObject()
         val prefs = c.getSharedPreferences("mt.defaults", Context.MODE_PRIVATE)
         for ((k, form) in settings) {
@@ -642,7 +647,7 @@ object Card {
         for (k in grounds) {
             val v = Prefs.str(k, "")
             val w = wearable(k.removePrefix("chatWall."), v, ChatWall.folder()) ?: continue
-            if (w !is ChatWall.Choice.Photo || mirror(File(ChatWall.folder(), w.file), walls)) out.put("s:" + groundKey(k), v)
+            if (w !is ChatWall.Choice.Photo || keepMirror(File(ChatWall.folder(), w.file), walls)) out.put("s:" + groundKey(k), v)
         }
         // The list's marks, the blocked, the verified and the barred (iOS 6120-6121, 6131-6132, 6209): sealed lists, lists of words
         for ((k, list) in ChatMarks.carried()) out.put("d:$k", b64(JSONArray(list).toString()))
@@ -722,12 +727,15 @@ object Card {
         // My own stickers (iOS MontanaStickerBook, MontanaSticker.swift 128, 171-173: names over the media store), each picture laid in
         // the copy's store, where the iPhone looks for it
         val store = MontanaPaths.store(c)
-        val stickers = Stickers.names(c).filter { mirror(Stickers.file(c, it), store) }
+        val stickers = Stickers.names(c).filter { keepMirror(Stickers.file(c, it), store) }
         if (stickers.isEmpty()) out.remove("a:montana.stickers.mine") else out.put("a:montana.stickers.mine", b64(JSONArray(stickers).toString()))
         // The answers counted (iOS MTReactions, MontanaMessageMenu.swift 94-100: a map of answer to count, a property list on the card)
         QuickReactions.counts().takeIf { it.isNotEmpty() }?.let { out.put("p:reactionUse", b64(plist(it))) } ?: out.remove("p:reactionUse")
         // The moment the calls page was last seen (iOS ChatStore.loadCallsSeenAt 593-603: a sealed word of seconds)
         CallsSeen.kept()?.let { out.put("d:callsSeenAt", b64(secs(it))) } ?: out.remove("d:callsSeenAt")
+        val before = Prefs.str(MIRRORED, "").split('\n').filter { it.isNotEmpty() }
+        for (path in before) if (path !in laid) runCatching { File(path).delete() }
+        Prefs.setStr(MIRRORED, laid.joinToString("\n"))
         return Built(out.toString().toByteArray(), out.length())
     }
 
