@@ -75,6 +75,7 @@ object MyWall {
     private fun ensure() {
         if (loaded) return
         loaded = true
+        if (!following) { following = true; Book.listen(bookMoved) }   // a wall kept for contacts follows the book (bookMoved)
         val o = runCatching { DeviceVault.unseal(file().readBytes())?.let { JSONObject(String(it, Charsets.UTF_8)) } }.getOrNull()
         o?.optJSONArray("mine")?.let { a -> for (i in 0 until a.length()) a.optJSONObject(i)?.let { mine.add(it) } }
         o?.optJSONArray("cap")?.let { a -> for (i in 0 until a.length()) cap.add(a.optString(i)) }
@@ -146,6 +147,27 @@ object MyWall {
         synchronized(lock) { ensure(); versionKept = postsTag() }
         changed()
         if (own || Presence.sharing) schedulePush()
+    }
+
+    // ── a wall kept for contacts follows the book ──
+    @Volatile private var following = false
+    private var bookKept: Set<String>? = null
+    private var bookReading = false
+    /**
+     * A WALL KEPT FOR CONTACTS FOLLOWS THE BOOK (iOS MTNameBook.invalidateContacts, MontanaNameBook.swift:336-345 at 2155, the critic
+     * 25.09): one taken out of the book is carried the empty page, one put in it the page -- the push reads the rule anew at every
+     * change of the book. The book is the contacts' page (WallRule.byRule CONTACTS), read off the main thread -- one reading on its
+     * way at a time -- and only while a rule of my wall reads it.
+     */
+    private val bookMoved: () -> Unit = {
+        if (WallRule.current(WallRule.Act.SEE) != WallRule.Rule.CONTACTS && WallRule.current(WallRule.Act.WRITE) != WallRule.Rule.CONTACTS) {
+            synchronized(lock) { bookKept = null }
+        } else if (synchronized(lock) { !bookReading.also { bookReading = true } }) Thread {
+            synchronized(lock) { bookReading = false }
+            val now = Book.all().filter { it.shown.isNotBlank() && !Groups.isKey(it.ref) }.map { it.ref }.toSet()
+            val moved = synchronized(lock) { (bookKept != now).also { bookKept = now } }
+            if (moved) renewVersion(own = true)
+        }.start()
     }
 
     // ── the owner carries the wall ──
@@ -379,6 +401,20 @@ object MyWall {
     /** My wall as I see it: every post, the pinned first, newest by its chain. */
     fun posts(): List<JSONObject> = synchronized(lock) { ensure(); ordered().map { seen(it, "", conceal = false) } }
     fun post(id: String): JSONObject? = synchronized(lock) { ensure(); mine.firstOrNull { it.optString("id") == id }?.let { seen(it, "", conceal = false) } }
+    /** The correspondents whose build speaks the wall (iOS cap): the visitor's sweep asks for the walls among them never seen (Board.sweep). */
+    fun speakers(): List<String> = synchronized(lock) { ensure(); cap.toList() }
+    /** WHOSE POST ON MY WALL (iOS writer(of:on:), MontanaBoard.swift:2142-2149 at 2155): "" -- mine, a reference -- its writer's; null --
+     * no post of that name, or a repost whose writer this phone was not told. */
+    fun writerOf(id: String): String? = synchronized(lock) {
+        ensure()
+        mine.firstOrNull { it.optString("id") == id }?.let { p -> if (p.has("from")) p.optString("srcBy", "-").takeIf { it != "-" } else p.optString("author") }
+    }
+    /** WHO WROTE A COMMENT ON MY WALL (iOS commenter, MontanaBoard.swift:2199-2202 at 2155): "" -- I did, a reference -- its writer's. */
+    fun commenterOf(postId: String, cid: String): String? = synchronized(lock) {
+        ensure()
+        val cs = mine.firstOrNull { it.optString("id") == postId }?.optJSONArray("comments")
+        (0 until (cs?.length() ?: 0)).mapNotNull { cs?.optJSONObject(it) }.firstOrNull { it.optString("id") == cid && it.has("ref") }?.optString("ref")
+    }
     // ── a post on its way: its files on the node, then the post (iOS begin, publish, lay 1764-1932) ──
     class Attachment(val file: File, val kind: String, val name: String, val ext: String)
     /** A post on its way as its bar reads it (iOS MTBoardOutgoing 282-298): the bytes the node confirmed of all its files. */

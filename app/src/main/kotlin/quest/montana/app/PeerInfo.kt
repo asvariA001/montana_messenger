@@ -731,18 +731,38 @@ private fun tile(act: MainActivity, m: Msg, law: ItemLaw): View {
         setBackgroundColor(Color.argb(40, 255, 255, 255))
         val img = ImageView(c).apply { scaleType = ImageView.ScaleType.CENTER_CROP }
         addView(img, FrameLayout.LayoutParams(MATCH, MATCH))
-        val held = f?.let { tileCache.get(it.path) }
+        // THE COVER AT THE CELL'S OWN PIXELS (iOS MTCover side, MontanaProfile.swift:1919-1951; MontanaPeerInfoScreen.swift:720 at 2155):
+        // a picture is asked so its SHORT side fills 180 points, kept under its own key beside the gallery's smaller drawing of it
+        val key = f?.let { x -> if (kind == "img") x.path + "#" + c.dp(180) else x.path }
+        val held = key?.let { k -> tileCache.get(k) }
         if (held != null) img.setImageBitmap(held)
         else {
             val man = m.meta?.let { j -> runCatching { JSONObject(j) }.getOrNull() } ?: Media.inline(m.text)
             tileWork.execute {
-                val pic = f?.let { x -> Media.preview(c, x, kind, 360)?.also { b -> tileCache.put(x.path, b) } } ?: Media.thumbOf(man)
+                val drawn = if (f == null) null else if (kind == "img") cellCover(c, f) else Media.preview(c, f, kind, 360)
+                if (drawn != null && key != null) tileCache.put(key, drawn)
+                val pic = drawn ?: Media.thumbOf(man)
                 if (pic != null) img.post { img.setImageBitmap(pic) }
             }
         }
         if (kind == "vid") addView(c.icon(R.drawable.ic_play_fill, Color.WHITE), FrameLayout.LayoutParams(c.dp(28), c.dp(28), Gravity.CENTER))
     }
     return itemLaw(c, face, m, law) { if (f != null) openMedia(act, f, kind) }
+}
+
+/**
+ * THE LONGEST SIDE TO ASK SO THE PICTURE'S SHORT SIDE FILLS THE CELL (iOS MTCover.longest, MontanaProfile.swift:1954-1961 at 2155): 180
+ * points of short side, never more than the picture has -- the gallery's drawing, sampled by 360 pixels, left a long picture's short
+ * side under the cell's.
+ */
+private fun cellCover(c: Context, f: File): android.graphics.Bitmap? {
+    val short = c.dp(180)
+    val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeFile(f.path, o)
+    val long = maxOf(o.outWidth, o.outHeight)
+    val side = minOf(o.outWidth, o.outHeight)
+    if (side <= 0) return Media.preview(c, f, "img", short)
+    return Media.preview(c, f, "img", minOf(long.toLong(), (short.toLong() * long + side - 1) / side).toInt())
 }
 
 /** A row on the bar's own glass (iOS glassRow): the square plate with the glyph, the long plate with the words and the time. */

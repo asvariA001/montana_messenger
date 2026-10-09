@@ -37,6 +37,7 @@ object Board {
     private const val FEED_SIZE = 300
     private const val FIRST_KEPT = 2000
     private const val LOOK_STALE = 600_000L
+    private const val LOOK_BUDGET = 1_000_000_000L   // iOS MTBoardLook.budget: a gigabyte (MontanaBoard.swift:2414 at 2155)
     private const val LOOK_KEEP = 300           // iOS MTBoardLook.keep
 
     private val lock = Any()
@@ -107,6 +108,16 @@ object Board {
         val now = System.currentTimeMillis()
         val due = synchronized(lock) { ensure(); people().filter { r -> now - (pages[r]?.optLong("at") ?: 0L) >= LOOK_STALE } }
         due.forEachIndexed { i, r -> MainThread.later(300L * i, Runnable { Thread { ask(r) }.start() }) }
+    }
+    /**
+     * EVERY WALL NEVER SEEN IS ASKED AT ONCE (iOS sweep, MontanaBoard.swift:591-602 at 2155; ContentView.swift:474): at every return of
+     * the app, every correspondent whose build speaks the wall and whose page never came from its owner -- a page of one post of mine
+     * stood for the wall for ever -- is asked, a third of a second apart.
+     */
+    fun sweep() {
+        val speakers = MyWall.speakers()
+        val unknown = synchronized(lock) { ensure(); speakers.filter { r -> pages[r]?.has("v") != true } }.filter { Book.secret(it) != null }
+        unknown.forEachIndexed { n, r -> MainThread.later(300L * n, Runnable { Thread { ask(r) }.start() }) }
     }
 
     /** iOS heardHeld's wallHeard: «W» and its digits after the name's tag and the bio's tag of a fresh presence word. */
@@ -278,12 +289,24 @@ object Board {
             try {
                 if (Media.download(JSONObject().put("bk", m.optString("key")).put("chunks", chunks), dest)) {
                     Log.d("Montana", "wall_look id=" + pid.take(10) + " i=" + i + " bytes=" + dest.length())
-                    lookDir().listFiles()?.sortedByDescending { it.lastModified() }?.drop(LOOK_KEEP)?.forEach { it.delete() }
+                    trimLook()
                     MainThread.post { then(dest) }
                 }
             } catch (e: Exception) { Log.w("Montana", "wall_look: " + e.javaClass.simpleName) }
             finally { synchronized(going) { going.remove(name) } }
         }.start()
+    }
+    /** THE FOLDER KEEPS THE LATEST SEEN, BY COUNT AND BY THE DISK THEY TAKE (iOS MTBoardLook.trim, MontanaBoard.swift:2480-2494 at
+     * 2155): a gigabyte and three hundred files at most; the oldest go first. */
+    private fun trimLook() {
+        val all = lookDir().listFiles()?.sortedBy { it.lastModified() } ?: return
+        var total = all.sumOf { it.length() }
+        var count = all.size
+        for (f in all) {
+            if (count <= LOOK_KEEP && total <= LOOK_BUDGET) break
+            total -= f.length(); count--
+            f.delete()
+        }
     }
 
     // ── the keepers of a post (iOS keep, becomePeer, unkeep, file, noteDownloaded, reportGone, seedFiles, MontanaBoard 1585-1762) ──
@@ -475,6 +498,37 @@ object Board {
         val stale = synchronized(lock) { ensure(); val pg = pages[ref]; pg == null || System.currentTimeMillis() - pg.optLong("at") >= LOOK_STALE }
         if (stale) ask(ref)
     }
+    /**
+     * WHOSE POST IT IS, AS FAR AS THIS PHONE KNOWS (iOS writer(of:on:), MontanaBoard.swift:2137-2154 at 2155): "" -- mine, a reference
+     * -- a correspondent's, null -- a writer this phone is not told of. On my wall its writer's reference is mine to read; on another's
+     * the post is mine, the owner's own, or -- a repost -- its first writer's, where this phone holds the post as itself.
+     */
+    fun writer(wall: String, p: JSONObject): String? {
+        if (wall.isEmpty()) return MyWall.writerOf(p.optString("id")) ?: if (p.optBoolean("mine")) "" else null
+        if (p.has("from")) return if (p.optBoolean("own")) wall else originalWriter(p.optString("id"), wall)
+        if (p.optBoolean("mine")) return ""
+        return if (p.optBoolean("own")) wall else null
+    }
+    /** The post where it stands as itself -- my wall, else the first wall by its reference this phone holds -- and its writer there
+     * (iOS originalWriter 2190-2194, original(of:besides:) 2182-2188). */
+    private fun originalWriter(id: String, besides: String): String? {
+        MyWall.writerOf(id)?.let { return it }
+        val o = synchronized(lock) {
+            ensure()
+            pages.keys.sorted().filter { it != besides }.firstNotNullOfOrNull { w ->
+                val ps = pages[w]?.optJSONArray("ps") ?: JSONArray()
+                (0 until ps.length()).mapNotNull { ps.optJSONObject(it) }.firstOrNull { q -> q.optString("id") == id && !q.has("from") }?.let { q -> w to q }
+            }
+        } ?: return null
+        return writer(o.first, o.second)
+    }
+    /** WHO WROTE A COMMENT, AS FAR AS THIS PHONE KNOWS (iOS commenter, MontanaBoard.swift:2195-2207 at 2155): on my wall its writer's
+     * reference is mine to read; on another's the owner says which are this visitor's own («m») and which the owner's («o»). */
+    fun commenter(wall: String, postId: String, k: JSONObject): String? {
+        if (wall.isEmpty()) return MyWall.commenterOf(postId, k.optString("id"))
+        if (k.optBoolean("m")) return ""
+        return if (k.optBoolean("o")) wall else null
+    }
     private fun patch(wall: String, id: String, change: (JSONObject) -> Unit) {
         synchronized(lock) {
             ensure()
@@ -621,6 +675,47 @@ private fun poster(b64: String?): Bitmap? = b64?.takeIf { it.isNotEmpty() }?.let
     runCatching { Base64.decode(it, Base64.DEFAULT) }.getOrNull()?.let { d -> BitmapFactory.decodeByteArray(d, 0, d.size) }
 }
 
+/**
+ * A POST'S POSTER, DECODED OFF THE MAIN THREAD AND KEPT (iOS MTBoardPoster, MontanaBoard.swift:2253-2288 at 2155): a tile decoded the
+ * poster its post carries -- a JPEG of up to sixty thousand characters -- on the main thread at every drawing of the feed, and read
+ * it whole again for its shape. Decoded once, off it, and kept by its own words within 32 MB; its shape is read from its header alone.
+ */
+private object WallPoster {
+    private val pictures = object : android.util.LruCache<String, Bitmap>(32_000_000) { override fun sizeOf(key: String, value: Bitmap) = value.byteCount }
+    private val shapes = android.util.LruCache<String, Float>(1024)
+    private val work = java.util.concurrent.Executors.newFixedThreadPool(2)
+    private fun key(b64: String) = b64.length.toString() + ":" + b64.hashCode()
+    /** The poster when it is already decoded; null -- not yet, and nothing is decoded here. */
+    fun kept(b64: String): Bitmap? = if (b64.isEmpty()) null else pictures.get(key(b64))
+    fun decode(b64: String, then: (Bitmap) -> Unit) {
+        if (b64.isEmpty()) return
+        work.execute {
+            val b = pictures.get(key(b64)) ?: poster(b64)?.also { pictures.put(key(b64), it) }
+            if (b != null) MainThread.post { then(b) }
+        }
+    }
+    /** A poster's shape, width over height, from its header: no pixel of it is decoded. */
+    fun shape(b64: String): Float? {
+        if (b64.isEmpty()) return null
+        shapes.get(key(b64))?.let { return it }
+        val d = runCatching { Base64.decode(b64, Base64.DEFAULT) }.getOrNull() ?: return null
+        val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(d, 0, d.size, o)
+        if (o.outWidth <= 0 || o.outHeight <= 0) return null
+        return (o.outWidth.toFloat() / o.outHeight).also { shapes.put(key(b64), it) }
+    }
+}
+
+/** WHAT WAS DRAWN SHARP STAYS DRAWN (iOS MTBoardPicture.cache, MontanaBoardViews.swift:944-948 at 2155): the pictures drawn for the
+ * tiles within 48 MB, by their file, so a post drawn again is sharp on its first frame. */
+private val wallSharp = object : android.util.LruCache<String, Bitmap>(48_000_000) { override fun sizeOf(key: String, value: Bitmap) = value.byteCount }
+
+/** WHERE A WRITER'S NAME LEADS (iOS MTBoardRoute and MTBoardOpen.go, MontanaBoardViews.swift:75-111 at 2155): mine to My page -- the
+ * one the drawer's face opens, face and all -- never to the room of my saved letters; a correspondent's to their page. */
+fun openWriter(act: MainActivity, w: String) {
+    if (w.isEmpty()) act.push { close -> myPage(act, close) } else act.push { close -> peerInfoPage(act, w, close) }
+}
+
 /** ONE POST OF THE FEED (iOS MTBoardCell in MTFeedTabView): whose wall, the writer, the words, the pictures, the counts. */
 fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWall: Boolean = false, sending: Boolean = false): View = act.vstack(Gravity.NO_GRAVITY) {
     val c: Context = act
@@ -631,19 +726,35 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
     // own page (iOS onItsWall, MontanaBoardViews.swift: "Drawn on its wall's own page... in the feed, off it")
     if (!own && !onItsWall) addView(c.text(c.getString(R.string.wall_on, Board.nameOf(c, it.wall)), 12f, MT.gray).apply { setPadding(dp(4), 0, 0, dp(6)) }, lp())
     addView(c.vstack(Gravity.NO_GRAVITY) {
-        background = c.rounded(MT.plate, 16)
+        // THE POST'S PLATE (iOS MTBoardPostPlate, MontanaBoardViews.swift:2548-2560 at 2155; BubbleShape 18, MontanaBubble.swift:62-69):
+        // one-tone glass in a correspondent's bubble's own shape, under the glass's thin light rim -- the clear glass is the buttons'
+        background = c.rounded(GLASS_TONE, 18, android.graphics.Color.argb(46, 255, 255, 255))
         setPadding(dp(12), dp(12), dp(12), dp(12))
         val name = p.optString("byName").ifEmpty { c.getString(R.string.wall_someone) }
         val face = if (own && it.wall.isEmpty()) SelfFace.load(c)   // my own wall: my own face
             else if (own) Book.face(it.wall).takeIf { f -> f.exists() }?.let { f -> BitmapFactory.decodeFile(f.path) } else poster(p.optString("face"))
         addView(c.hstack {
             gravity = Gravity.CENTER_VERTICAL
-            addView(c.avatar(face, name, 40), lp(dp(40), dp(40)))
-            gap(10)
-            addView(c.vstack(Gravity.NO_GRAVITY) {
-                addView(c.text(name, 15f, android.graphics.Color.WHITE, bold = true).apply { singleLineEllipsis() }, lp())
-                val at = (p.optDouble("at") * 1000).toLong()
-                addView(c.text(android.text.format.DateUtils.getRelativeTimeSpanString(at, System.currentTimeMillis(), 60_000L), 12f, MT.gray), lp())
+            // THE BYLINE OPENS ITS WRITER'S ONE PAGE (iOS MTBoardCell.header, MontanaBoardViews.swift:375-386 at 2155; MTBoardOpen 94-111):
+            // the face, the name and when -- one target over its whole room; my name leads to My page, a correspondent's to theirs; a
+            // writer this phone is not told of opens nothing, nor the wall's owner on their own wall's page
+            val w = Board.writer(it.wall, p)
+            val opens = when {
+                w == null -> false
+                w.isEmpty() -> it.wall.isNotEmpty() || !onItsWall   // in the feed my own post opens my page
+                else -> w != it.wall || !onItsWall
+            }
+            addView(c.hstack {
+                gravity = Gravity.CENTER_VERTICAL
+                minimumHeight = dp(44)
+                addView(c.avatar(face, name, 40), lp(dp(40), dp(40)))
+                gap(10)
+                addView(c.vstack(Gravity.NO_GRAVITY) {
+                    addView(c.text(name, 15f, android.graphics.Color.WHITE, bold = true).apply { singleLineEllipsis() }, lp())
+                    val at = (p.optDouble("at") * 1000).toLong()
+                    addView(c.text(android.text.format.DateUtils.getRelativeTimeSpanString(at, System.currentTimeMillis(), 60_000L), 12f, MT.gray), lp())
+                }, lp(0, WRAP, 1f))
+                if (opens && w != null) pressable { openWriter(act, w) }
             }, lp(0, WRAP, 1f))
             // THE POST'S OWN MENU (iOS MTBoardCell menuItems 404-441): on my own wall — pin or unpin, copy the words, delete; a wall's
             // owner alone takes a post off it
@@ -688,19 +799,29 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
             val m = media.optJSONObject(i) ?: continue
             val kind = m.optString("kind")
             if (kind != "img" && kind != "vid") continue
-            val small = poster(m.optString("thumb"))
+            val thumb = m.optString("thumb")
             val fr = m.optJSONObject("fr")
-            val shape = fr?.optDouble("a", 0.0)?.toFloat()?.takeIf { s -> s > 0f } ?: small?.let { b -> b.width.toFloat() / maxOf(1, b.height) } ?: 1f
+            // THE SHAPE FROM THE FRAME, ELSE FROM THE POSTER'S HEADER ALONE (iOS MTBoardPoster.shape, MontanaBoard.swift:2277-2287 at 2155)
+            val shape = fr?.optDouble("a", 0.0)?.toFloat()?.takeIf { s -> s > 0f } ?: WallPoster.shape(thumb) ?: 1f
             gap(10)
+            val posterHeld = WallPoster.kept(thumb)
+            var sharp = false
             val tile = WallTile(c, shape).apply {
                 scaleType = ImageView.ScaleType.CENTER_CROP
                 background = c.rounded(MT.hairline, 12)
                 outlineProvider = ViewOutlineProvider.BACKGROUND
                 clipToOutline = true
-                small?.let { b -> setImageBitmap(b) }
+                posterHeld?.let { b -> setImageBitmap(b) }
             }
             addView(tile, lp())
-            Board.bring(m, p.optString("id"), i) { f -> Thread { Media.preview(c, f, kind, 1600)?.let { b -> MainThread.post { tile.setImageBitmap(b) } } }.start() }
+            // THE SHARP PICTURE, ELSE THE POSTER DECODED OFF THE MAIN THREAD, ELSE THE TILE'S GREY (iOS MTBoardPicture, MontanaBoardViews.swift:
+            // 926-941 at 2155); what was drawn sharp stands sharp on the first frame of the next drawing (iOS MTBoardPicture.cache 944-948)
+            if (posterHeld == null) WallPoster.decode(thumb) { b -> if (!sharp) tile.setImageBitmap(b) }
+            Board.bring(m, p.optString("id"), i) { f ->
+                val held = wallSharp.get(f.path)
+                if (held != null) { sharp = true; tile.setImageBitmap(held) }
+                else Thread { Media.preview(c, f, kind, 1600)?.let { b -> wallSharp.put(f.path, b); MainThread.post { sharp = true; tile.setImageBitmap(b) } } }.start()
+            }
         }
         // THE COUNTS (iOS counters 445-487): like, comments, keepers, reposts; in the corner the downloads and the eye with the views
         // where the wall's owner counts them. Reposting comes with this phone's own wall (W3): its count stands.
@@ -775,6 +896,9 @@ fun wallCommentsPage(act: MainActivity, wall: String, id: String, onClose: () ->
                     gravity = Gravity.CENTER_VERTICAL
                     addView(c.avatar(face, name, 36), lp(dp(36), dp(36))); gap(10)
                     addView(c.text(name, 15f, android.graphics.Color.WHITE, bold = true).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))
+                    // A COMMENTER'S HEAD OPENS THEIR PAGE (iOS MTBoardComments.row, MontanaBoardViews.swift:2338-2349 at 2155): me, the wall's
+                    // owner, and on my own wall every commenter -- the face and the name one target
+                    Board.commenter(wall, id, k)?.let { w -> minimumHeight = dp(44); pressable { openWriter(act, w) } }
                 }, lp())
                 val words = k.optString("text")
                 // EVERY MONTANA LINK OPENS AT A TOUCH (iOS MTBoard.linked, MontanaBoard.swift:1491-1493, atom 20c5cef6f490):
