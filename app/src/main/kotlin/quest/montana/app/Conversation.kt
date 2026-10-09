@@ -954,18 +954,19 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         for (y in 0 until 64) for (x in 0 until 64) if (android.graphics.Color.alpha(small.getPixel(x, y)) < 128) return true
         return false
     }
-    fun pasted(bytes: ByteArray) {
+    fun pasted(bytes: ByteArray): Boolean {
         val gif = 4 <= bytes.size && String(bytes, 0, 4, Charsets.US_ASCII) == "GIF8"
         val bmp = if (gif) null else android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
         if (bmp != null && seeThrough(bmp)) {
             val png = java.io.ByteArrayOutputStream().also { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
             Media.send(c, ref, Media.Picked(png, "img", "png", Stickers.CARD), "")
             MainThread.post { toBottom() }
-            return
+            return true
         }
-        val p = if (gif) Media.Picked(bytes, "img", "gif", null) else Media.Picked(Media.photoForSend(bytes) ?: return, "img", "jpg", null)
+        val p = if (gif) Media.Picked(bytes, "img", "gif", null) else Media.Picked(Media.photoForSend(bytes) ?: return false, "img", "jpg", null)
         val face = stagedFace(c, p)
         MainThread.post { staged.add(p to face); drawStaged(); toBottom() }
+        return true
     }
     if (android.os.Build.VERSION.SDK_INT >= 31) field.setOnReceiveContentListener(arrayOf("image/*")) { _, payload ->
         val clip = payload.clip
@@ -974,7 +975,11 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             runCatching { c.contentResolver.openInputStream(u)?.use { it.readBytes() } }.getOrNull()?.let { held.add(it) }
         }
         // pictures in hand: the pictures alone ride, as the iPhone's paste takes images over words; none: the words paste as ever
-        if (held.isEmpty()) payload else { Thread { held.forEach { pasted(it) } }.start(); null }
+        // the next «thinks long» is measurable (iOS paste_images, MontanaConversation 3083)
+        if (held.isEmpty()) payload else {
+            Thread { val t0 = System.currentTimeMillis(); val n = held.count { pasted(it) }; android.util.Log.d("Montana", "paste_images n=" + n + " ms=" + (System.currentTimeMillis() - t0)) }.start()
+            null
+        }
     }
     // THE GALLERY OF THE ROW (iOS openGallery → MTGalleryPick): the phone's latest pictures at once, the camera the first tile,
     // «All photos» the system's own picker with its ten; what is chosen waits above the field
