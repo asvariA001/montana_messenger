@@ -672,11 +672,12 @@ object Post {
     fun send(to0: String, mid: String, text: String, qt: String? = null, qm: String? = null, lp: String? = null, quiet: Boolean = false) {
         if (Groups.isKey(to0)) return   // a group's feed has no pipe: nothing is ever queued to it (iOS: a group's key has no doors)
         val to = if (SamePair.speaksOfPipe(text)) to0 else SamePair.root(to0)   // a folded pipe's words go by its conversation's pipe
+        var refused = false
         synchronized(outLock) {
             val a = outbox()
             for (i in 0 until a.length()) if (a.getJSONObject(i).optString("m") == mid) {
                 // one letter, one place in the queue; its card, come later, joins the place it already holds (iOS attachPreview)
-                if (lp != null) { a.getJSONObject(i).put("lp", lp); DeviceVault.set(OUTBOX, a.toString().toByteArray()) }
+                if (lp != null) { a.getJSONObject(i).put("lp", lp); keepOutbox(a) }
                 return
             }
             // ONE STATE, ONE LETTER (iOS DeliveryEngine 799-802, 08.09: forty-three read marks waiting their turn burnt the pair's ring
@@ -688,7 +689,17 @@ object Post {
                 for (i in 0 until a.length()) a.getJSONObject(i).let { o -> if (!(o.optString("to") == to && kind(o.optString("t")) == k)) keep.put(o) }
             }
             q.put(JSONObject().put("to", to).put("m", mid).put("t", text).put("qt", qt ?: "").put("qm", qm ?: "").put("lp", lp ?: "").apply { if (quiet) put("q", true) })
-            DeviceVault.set(OUTBOX, q.toString().toByteArray())
+            if (!keepOutbox(q)) refused = true
+        }
+        // THE REFUSAL IS SHOWN, NOT SWALLOWED (iOS enqueue 822-829): with the store unreadable the letter did not land in the queue and
+        // will not ride; its row goes red with a retry, as on any break
+        if (refused) {
+            Log.d("Montana", "enqueue_drop m=" + mid.take(8) + " store unreadable")
+            var red: Msg? = null
+            val chat = SamePair.root(to)
+            Book.edit(chat) { c -> c.msgs.find { it.mid == mid && it.mine }?.let { m -> if (m.advance(-1)) red = m } }
+            red?.let { CoinSend.hold(it, chat) }
+            return
         }
         Thread { flush() }.start()
     }
@@ -698,10 +709,33 @@ object Post {
             val a = outbox()
             val keep = JSONArray()
             for (i in 0 until a.length()) a.getJSONObject(i).let { if (it.optString("m") != mid) keep.put(it) }
-            if (keep.length() != a.length()) DeviceVault.set(OUTBOX, keep.toString().toByteArray())
+            if (keep.length() != a.length()) keepOutbox(keep)
         }
     }
-    private fun outbox(): JSONArray = DeviceVault.get(OUTBOX)?.let { runCatching { JSONArray(String(it, Charsets.UTF_8)) }.getOrNull() } ?: JSONArray()
+    /**
+     * «CANNOT READ» IS NOT «EMPTY» (iOS storeUnreadable, MontanaDeliveryEngine 602-609, 662-700; atom e6cb9251482f): a stored queue
+     * that does not open -- a foreign seal after a device-key change, bytes a later build cannot decode -- read as an empty queue, and
+     * the next write saved that emptiness over it: every unsent letter gone, no red, no line in the diary. The store is judged on every
+     * read: bytes that exist and do not open raise the flag, the diary names it, and while it stands no write lands -- the bytes stay
+     * for a build that can open them. A read that opens lowers it.
+     */
+    @Volatile private var unreadable = false
+    @Volatile private var unreadableSaidAt = 0L
+    private fun outbox(): JSONArray {
+        val raw = DeviceVault.get(OUTBOX)
+        val a = raw?.let { runCatching { JSONArray(String(it, Charsets.UTF_8)) }.getOrNull() }
+        unreadable = a == null && DeviceVault.has(OUTBOX)
+        val now = System.currentTimeMillis()
+        if (unreadable && 300_000L <= now - unreadableSaidAt) {
+            unreadableSaidAt = now
+            Log.d("Montana", "queue_unreadable the stored queue does not open bytes=" + (raw?.size ?: 0) + " — not overwriting")
+        }
+        return a ?: JSONArray()
+    }
+    private fun keepOutbox(a: JSONArray): Boolean {
+        if (unreadable) { Log.d("Montana", "queue_save_refused the stored queue is unreadable — " + a.length() + " items not written over it"); return false }
+        return DeviceVault.set(OUTBOX, a.toString().toByteArray())
+    }
 
     /** Every waiting letter knocks once more; the ones a door boxed leave the queue. */
     fun flush() {
@@ -748,7 +782,7 @@ object Post {
         synchronized(outLock) {
             val a = outbox(); val keep = JSONArray()
             for (i in 0 until a.length()) a.getJSONObject(i).let { if (it.getString("m") !in done) keep.put(it) }
-            DeviceVault.set(OUTBOX, keep.toString().toByteArray())
+            keepOutbox(keep)
         }
     }
 
