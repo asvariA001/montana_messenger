@@ -723,6 +723,25 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             // TEXT WITH A QUOTE — A TAP GOES TO THE ORIGINAL (iOS MontanaBubble 475, jumpTo 2999-3012)
             val q = m.qm
             if (q != null && m.qt != FORWARDED_QUOTE && !Marks.isService(m.text)) b.getChildAt(0).setOnClickListener { toQuoted(q) }
+            // SAVE TO PHOTOS, BESIDE THE BUBBLE (iOS MTSaveBeside/saveBesideBadge/MTSaveMediaBadge, MontanaBubble.swift 383-396,
+            // 861-880, 1891-1923, the author's words 11.09 and 20.09): strictly to the right of a correspondent's photo or film,
+            // level with the media's own middle, never on the picture itself and never on one's own letters; a plate wears one
+            // circle that saves every picture and film on it, once all of them are on disk.
+            saveMediaFiles(row)?.let { files ->
+                val badge = saveMediaBadge(act, files)
+                b.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+                    val plate = b.findViewWithTag<View>(MEDIA_PLATE_TAG)
+                    val mid = if (plate != null) mediaPlateOffset(plate, b) + plate.height / 2f else b.height / 2f
+                    badge.translationY = mid - badge.height / 2f
+                }
+                val beside = c.hstack {
+                    gravity = Gravity.TOP
+                    addView(b, lp(0, WRAP, 1f))
+                    addView(badge, lp(dp(40), dp(40)).apply { marginStart = dp(6) })
+                }
+                beside.layoutParams = lp().apply { topMargin = c.dp(3) }
+                return beside
+            }
             b.layoutParams = lp().apply { topMargin = c.dp(3) }
             return b
         }
@@ -2172,6 +2191,102 @@ private fun mediaBody(c: Context, m: Msg, into: LinearLayout, chat: Chat? = null
         pressable { (c as? MainActivity)?.let { a -> cardToContacts(a, card) } }
     }, lp(WRAP, WRAP))
     else if (card == null) cap?.let { into.addView(c.text(it, 16f, tint).apply { maxWidth = capRoom }) }   // USER-DATA: the caption
+}
+
+/**
+ * A CORRESPONDENT'S PICTURE OR FILM, WHOLE ON DISK (iOS the guard before MTSaveMediaBadge, MontanaBubble.swift 865-880): not a
+ * round note (it plays, it does not save) and not a business card's photo (its own badge offers the contacts instead).
+ */
+private fun saveMediaFile(m: Msg): Pair<java.io.File, Boolean>? {
+    if (m.mine || !m.text.startsWith(Marks.MEDIA)) return null
+    val man = m.meta?.let { runCatching { JSONObject(it) }.getOrNull() } ?: Media.inline(m.text)
+    val f = m.file?.let { java.io.File(it) }?.takeIf { it.exists() } ?: return null
+    val byExt = when (f.extension.lowercase()) { "jpg", "jpeg", "png", "gif", "webp", "heic", "heif" -> "img"; "mp4", "mov", "m4v", "webm", "3gp" -> "vid"; else -> "doc" }
+    val kind = man?.optString("k")?.ifEmpty { null } ?: byExt
+    if (kind != "img" && kind != "vid") return null
+    if (kind == "vid" && man?.optBoolean("r") == true) return null
+    val cap = man?.optString("cap")?.takeIf { it.isNotEmpty() }
+    if (cap != null && BusinessCard.lines(cap) != null) return null
+    return f to (kind == "vid")
+}
+
+/** A PLATE'S FILES (iOS saveBesideBadge, MontanaBubble.swift 871-878): every letter of it a picture or film on disk, or no circle. */
+private fun saveMediaFiles(row: List<Msg>): List<Pair<java.io.File, Boolean>>? {
+    val files = row.map { saveMediaFile(it) ?: return null }
+    return files.takeIf { it.isNotEmpty() }
+}
+
+/**
+ * SAVED TO THE LIBRARY, the notebook and the one road (iOS MontanaSavedToPhotos, MontanaMedia.swift:1275+, the author's word
+ * 11.09): the badge asks here, saves here, and a saved name shows no badge again.
+ */
+private object SavedMedia {
+    private fun key(name: String) = "savedToPhotos.$name"
+    fun has(name: String): Boolean = Prefs.bool(key(name), false)
+    fun save(c: Context, f: java.io.File, video: Boolean): Boolean {
+        val values = android.content.ContentValues().apply {
+            put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, f.name)
+            put(android.provider.MediaStore.MediaColumns.MIME_TYPE, android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(f.extension.lowercase())
+                ?: if (video) "video/mp4" else "image/jpeg")
+            if (android.os.Build.VERSION.SDK_INT >= 29) put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, if (video) "Movies/Montana" else "Pictures/Montana")
+        }
+        val collection = if (video) android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI else android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        val uri = runCatching { c.contentResolver.insert(collection, values) }.getOrNull() ?: return false
+        val ok = runCatching { c.contentResolver.openOutputStream(uri)?.use { out -> f.inputStream().use { it.copyTo(out) } }; true }.getOrDefault(false)
+        if (ok) Prefs.setBool(key(f.name), true)
+        return ok
+    }
+}
+
+/**
+ * THE CIRCLE ITSELF (iOS MTSaveMediaBadge, MontanaBubble.swift:1891-1923): the tray arrow; a tap saves every file the circle
+ * carries -- one picture, or all of a plate's -- and a picture saved before is not saved twice; then the green diskette stays.
+ * Files all saved before show the diskette at once (iOS MontanaSavedToPhotos); a failed save offers the arrow again.
+ */
+private fun saveMediaBadge(act: MainActivity, files: List<Pair<java.io.File, Boolean>>): View {
+    val c: Context = act
+    val circle = FrameLayout(c).apply {
+        background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.argb(115, 0, 0, 0)) }
+    }
+    var phase = if (files.all { SavedMedia.has(it.first.name) }) 2 else 0   // 0 offered, 1 saving, 2 saved
+    fun draw() {
+        circle.removeAllViews()
+        when (phase) {
+            1 -> circle.addView(android.widget.ProgressBar(c).apply { indeterminateTintList = android.content.res.ColorStateList.valueOf(Color.WHITE) },
+                FrameLayout.LayoutParams(c.dp(18), c.dp(18), Gravity.CENTER))
+            2 -> circle.addView(FloppyGlyph(c), FrameLayout.LayoutParams(c.dp(18), c.dp(18), Gravity.CENTER))
+            else -> circle.addView(c.icon(R.drawable.ic_save_media, Color.WHITE, 17), FrameLayout.LayoutParams(c.dp(17), c.dp(17), Gravity.CENTER))
+        }
+    }
+    draw()
+    circle.setOnClickListener {
+        if (phase != 0) return@setOnClickListener
+        phase = 1; draw()
+        act.background {
+            var ok = true
+            for ((f, video) in files) if (!SavedMedia.has(f.name) && !SavedMedia.save(c, f, video)) ok = false
+            act.onMain { phase = if (ok) 2 else 0; draw() }
+        }
+    }
+    return circle
+}
+
+/**
+ * THE DISKETTE, the sign of «saved» (iOS MTFloppyGlyph, MontanaBubble.swift:1925-1952): the body with the cut corner in the
+ * ladder's green, the shutter on top and the label below in black at 0.55.
+ */
+private class FloppyGlyph(c: Context) : View(c) {
+    private val body = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = MT.green }
+    private val ink = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(140, 0, 0, 0) }
+    private val path = android.graphics.Path()
+    override fun onDraw(canvas: android.graphics.Canvas) {
+        val w = width.toFloat(); val h = height.toFloat()
+        path.reset()
+        path.moveTo(0f, 0f); path.lineTo(w * 0.82f, 0f); path.lineTo(w, h * 0.18f); path.lineTo(w, h); path.lineTo(0f, h); path.close()
+        canvas.drawPath(path, body)
+        canvas.drawRect((w - w * 0.50f) / 2f, 0f, (w + w * 0.50f) / 2f, h * 0.30f, ink)
+        canvas.drawRect((w - w * 0.64f) / 2f, h * 0.62f, (w + w * 0.64f) / 2f, h * 0.90f, ink)
+    }
 }
 
 private const val PLATE_CEILING = 300   // iOS MessageBubble.plateCeiling, points

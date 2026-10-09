@@ -96,17 +96,13 @@ object BubbleStyle {
                     }
                 }
                 "montana" -> {
-                    // THE LETTER'S GLASS (iOS MTLetterGlass): the send artwork's gradient at 0.88, under a light rim.
-                    val colors = if (mine) intArrayOf(Color.rgb(80, 223, 253), Color.rgb(19, 178, 252), Color.rgb(5, 140, 254), Color.rgb(0, 88, 253))
-                                 else intArrayOf(Color.rgb(122, 122, 122), Color.rgb(92, 92, 92), Color.rgb(66, 66, 66), Color.rgb(46, 46, 46))
-                    fill.shader = LinearGradient(r.left, r.top, r.right, r.bottom, colors, null, Shader.TileMode.CLAMP)
-                    fill.alpha = (0.88f * 255).toInt()
+                    // THE PLATFORM'S OWN BUBBLES, FLAT (iOS MTLetterPlate, MontanaBubble.swift:121-128, the author's word 29.09:
+                    // «the chat's bubbles as the system's -- no gradient, the system blue with white words, and the system grey
+                    // with the same white»; the native skin is the only skin since 22.09, ContentView.swift:50-58): no gradient,
+                    // no rim -- systemGray5's dark shade for theirs, since the app is always dark.
+                    fill.shader = null
+                    fill.color = if (mine) MT.blue else Color.rgb(44, 44, 46)
                     canvas.drawRoundRect(r, radius, radius, fill)
-                    rim.strokeWidth = density
-                    rim.shader = LinearGradient(r.left, r.top, r.right, r.bottom,
-                        intArrayOf(MT.withAlpha(Color.WHITE, 0.65f), MT.withAlpha(Color.WHITE, 0.08f), MT.withAlpha(if (mine) Color.CYAN else Color.WHITE, 0.6f)),
-                        null, Shader.TileMode.CLAMP)
-                    val i = density / 2; canvas.drawRoundRect(RectF(r.left + i, r.top + i, r.right - i, r.bottom - i), radius, radius, rim)
                 }
                 else -> {
                     fill.shader = null
