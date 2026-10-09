@@ -153,7 +153,9 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
     var keepBack: (() -> Unit)? = null
     var searching = false
     lateinit var search: SearchRow
+    var foldSearch: () -> Unit = {}   // the search folds with the panel unless it is in use (iOS barOpen || searchActive, 748)
     fun showResults() {
+        foldSearch()
         val on = search.active && pane in setOf(Pane.CHATS, Pane.CONTACTS, Pane.CALLS)
         if (on && results.visibility != View.VISIBLE) results.scrollTo(0, 0)
         results.visibility = if (on) View.VISIBLE else View.GONE
@@ -232,6 +234,22 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
     }
     bar = HomeBar(act, onDrawer = { shell.open() }, onPane = ::choose)
     bar.showPane(Pane.CHATS, animated = false)
+    // FOLDED WITH THE BAR (iOS listHead 746-762, the author's word 10.09): the logo folds its glyphs and the search alike; what
+    // stays under it is the search's own hairline (MTRowHairline 2247-2250: white 0.14, half a point, 29 from the leading edge,
+    // twenty under the panel), and a tap on it unfolds both. A search in progress keeps its field.
+    val hair = FrameLayout(c).apply {
+        addView(View(c).apply { setBackgroundColor(Color.argb(36, 255, 255, 255)) },
+            FrameLayout.LayoutParams(MATCH, maxOf(1, c.dp(0.5f)), Gravity.BOTTOM).apply { marginStart = c.dp(29) })
+        pressable { bar.turn(true, "hairline") }
+    }
+    fun searchFolds() {
+        val on = bar.open || search.active
+        search.visibility = if (on) View.VISIBLE else View.GONE
+        hair.visibility = if (on) View.GONE else View.VISIBLE
+    }
+    bar.onTurn = { searchFolds() }
+    foldSearch = { searchFolds() }
+    CoinPull.onSettled = { bar.turn(!bar.open, "coin") }   // every page under the bar: the coin's full turn presses the panel
     // THE LISTS RUN UNDER THE BAR (iOS: the list's top inset is measured from the bar as drawn, MontanaOctagon 111-112; Anna's word
     // 08.10.2026 16:5x «лента под кнопками должна проходить»): the time panel and the search have no ground of their own — every
     // page's list keeps their height as its own room above and scrolls on beneath them; a page with nothing that scrolls keeps the
@@ -239,7 +257,9 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
     val head = c.vstack(Gravity.NO_GRAVITY) {
         addView(bar, lp(MATCH, dp(60)).apply { setMargins(dp(12), dp(4), dp(12), dp(2)) })
         addView(search, lp(MATCH, dp(56)))
+        addView(hair, lp(MATCH, dp(21)))
     }
+    searchFolds()
     shell.page.addView(FrameLayout(c).apply {
         addView(panes, FrameLayout.LayoutParams(MATCH, MATCH))
         addView(results, FrameLayout.LayoutParams(MATCH, MATCH))
@@ -506,10 +526,61 @@ class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (
     // live, the chats with something unread where the chats live -- the platform's corner badge, 10 right and 4 up of the glyph's corner
     private val callsBadge = act.countBadge()
     private val chatsBadge = act.countBadge()
+    private val logoBadge = act.countBadge()
+    /** Unfolded, the missed calls on the calls glyph and the unread on the chats glyph; folded, their sum on the logo (iOS 369-394, panelBadge 486). */
     fun badges() {
-        callsBadge.showCount(CallsSeen.unseen())
-        chatsBadge.showCount(Book.all().count { ChatMarks.hasUnread(it) })
+        val calls = CallsSeen.unseen()
+        val chats = Book.all().count { ChatMarks.hasUnread(it) }
+        callsBadge.showCount(if (open) calls else 0)
+        chatsBadge.showCount(if (open) chats else 0)
+        logoBadge.showCount(if (open) 0 else calls + chats)
     }
+
+    /**
+     * THE PANEL FOLDS AND UNFOLDS IN ONE PLACE (iOS turnPanel 468-479, barSlot 504-518, the author's words 10.09, 21.09, 25.09):
+     * folded, every glyph but the logo has no width and fades into it and takes no touch, the plate hugs the logo at the
+     * screen's centre; the coin's pull turns it, the logo on the folded plate and the search's hairline unfold it and the page
+     * stays; unfolded by default, the last choice kept; every turn is a line of the diary (panel open= by=).
+     */
+    var open = Prefs.bool(OPEN, true)
+        private set
+    var onTurn: ((Boolean) -> Unit)? = null
+    private val slots = ArrayList<View>()
+    private lateinit var logoBox: View
+    private var fold = if (open) 1f else 0f
+    private var turning: android.animation.ValueAnimator? = null
+    fun turn(to: Boolean, by: String) {
+        if (to == open) return
+        open = to
+        Prefs.setBool(OPEN, to)
+        android.util.Log.d("Montana", "panel open=" + (if (to) 1 else 0) + " by=" + by)
+        onTurn?.invoke(to)
+        badges()
+        turning?.cancel()
+        turning = android.animation.ValueAnimator.ofFloat(fold, if (to) 1f else 0f).apply {
+            duration = 600
+            interpolator = SwiftSpring(0.45, 0.82, 0.6)   // the coin's own spring (iOS .spring(response: 0.45, dampingFraction: 0.82))
+            addUpdateListener { applyFold(it.animatedValue as Float) }
+            start()
+        }
+    }
+    private fun applyFold(raw: Float) {
+        val f = raw.coerceIn(0f, 1f)
+        fold = f
+        for (s in slots) {
+            val l = s.layoutParams as? LinearLayout.LayoutParams ?: continue
+            if (l.weight != f) { l.weight = f; s.layoutParams = l }
+            s.alpha = f
+            s.visibility = if (f <= 0f) View.INVISIBLE else View.VISIBLE
+        }
+        val full = ((parent as? View)?.width ?: 0) - dp(24)
+        (layoutParams as? LinearLayout.LayoutParams)?.let { lpb ->
+            val w = if (f >= 1f || full <= 0) LinearLayout.LayoutParams.MATCH_PARENT else (height + (full - height) * f).toInt()
+            if (lpb.width != w || lpb.gravity != Gravity.CENTER_HORIZONTAL) { lpb.width = w; lpb.gravity = Gravity.CENTER_HORIZONTAL; layoutParams = lpb }
+        }
+        post { place(false) }
+    }
+    private var foldLaid = false
     private lateinit var media: ImageView
     private lateinit var globe: ImageView
 
@@ -521,14 +592,22 @@ class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (
         glyph(R.drawable.ic_bar_contacts, 26) { onPane(Pane.CONTACTS) }
         glyph(R.drawable.ic_bar_calls, 26, badge = callsBadge) { onPane(Pane.CALLS) }
         // THE LOGO ON THE GLASS (iOS MTFeedGlyph): the gold sign on a round glass plate, a quarter of its side around it.
-        row.addView(FrameLayout(act).apply {
+        logoBox = FrameLayout(act).apply {
+            clipChildren = false
             addView(FrameLayout(act).apply {
                 background = act.glassPlate(oval = true)
                 addView(ImageView(act).apply { setImageResource(R.drawable.logo); setPadding(dp(9), dp(9), dp(9), dp(9)) },
                     LayoutParams(MATCH, MATCH))
             }, LayoutParams(dp(36), dp(36), Gravity.CENTER))
-            pressable { onPane(Pane.FEED) }   // the logo opens the feed of my people's walls (iOS 25.09)
-        }, lp(0, MATCH, 1f))
+            addView(logoBadge, LayoutParams(WRAP, dp(20), Gravity.CENTER))
+            logoBadge.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
+                v.translationX = dp(36) / 2f + dp(10) - v.width / 2f
+                v.translationY = -dp(36) / 2f - dp(4) + v.height / 2f
+            }
+            // the logo opens the feed of my people's walls (iOS 25.09); folded, it unfolds the panel and the page stays (iOS 379)
+            pressable { if (open) onPane(Pane.FEED) else turn(true, "logo") }
+        }
+        row.addView(logoBox, lp(0, MATCH, 1f))
         glyph(R.drawable.ic_bar_chats, 24, badge = chatsBadge) { onPane(Pane.CHATS) }
         // THE DYNAMIC GLYPH: the last opened of the player and the gallery; a tap opens that one again.
         media = glyph(R.drawable.ic_bar_play, 26) { onPane(if (Prefs.str("lastMediaPane", "music") == "gallery") Pane.GALLERY else Pane.MUSIC) }
@@ -536,7 +615,10 @@ class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (
         // THE GLOBE (iOS MTBarGlobe, MontanaTransportIcon): the network's lamp — green while a machine is held, red while none is,
         // grey before the first knock (unknown is not «no»); a tap chooses the P2P wall (the author's word 25.09)
         globe = glyph(R.drawable.ic_language, 26, tint = Color.rgb(115, 115, 115)) { onPane(Pane.P2P) }
-        addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> place(false) }
+        addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            place(false)
+            if (!foldLaid && width > 0) { foldLaid = true; if (!open) post { applyFold(0f) } }   // a panel left folded is born folded
+        }
         val lamp = object : Runnable {
             override fun run() {
                 val up = Channels.nodesHeld() > 0
@@ -565,6 +647,7 @@ class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (
         }
         if (onTap != null) box.pressable { onTap(box) }
         row.addView(box, lp(0, MATCH, 1f))
+        slots.add(box)
         return icon
     }
 
@@ -577,22 +660,40 @@ class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (
         place(animated)
     }
 
+    private fun slotView(i: Int): View? = when { i < 0 -> null; i < 3 -> slots.getOrNull(i); i == 3 -> logoBox; else -> slots.getOrNull(i - 1) }
     private fun place(animated: Boolean) {
-        puck.visibility = if (slot < 0) View.INVISIBLE else View.VISIBLE
-        if (width == 0 || slot < 0) return
-        val w = width / 7f
+        val v = slotView(slot)
+        // folded, only the logo has a place for the puck (iOS: a folded slot has no width)
+        puck.visibility = if (v == null || (fold < 1f && slot != 3)) View.INVISIBLE else View.VISIBLE
+        if (width == 0 || v == null) return
+        val w = if (v.width > 0) v.width.toFloat() else width / 7f
         val lpk = puck.layoutParams as LayoutParams
         val pw = (w - dp(6)).toInt(); val ph = height - dp(12)
         if (lpk.width != pw || lpk.height != ph) {
             lpk.width = pw; lpk.height = ph; lpk.topMargin = dp(6)
             post { puck.layoutParams = lpk }
         }
-        val x = slot * w + dp(3)
+        val x = (if (v.width > 0) v.left.toFloat() else slot * w) + dp(3)
         if (animated) puck.animate().translationX(x).setDuration(200).setInterpolator(AccelerateDecelerateInterpolator()).start()
         else puck.translationX = x
     }
 
-    private companion object { const val CHATS = 4 }
+    private companion object { const val CHATS = 4; const val OPEN = "timePanelOpen" }
+}
+
+/**
+ * THE PLATFORM'S SPRING, AS SWIFTUI DRAWS IT (.spring(response:dampingFraction:)): the damped oscillator whose undamped period
+ * is the response, read over `seconds` -- one curve for a move the iPhone springs.
+ */
+class SwiftSpring(response: Double, private val damping: Double, private val seconds: Double) : android.view.animation.Interpolator {
+    private val w0 = 2 * Math.PI / response
+    private val wd = w0 * Math.sqrt(1 - damping * damping)
+    override fun getInterpolation(f: Float): Float {
+        if (f >= 1f) return 1f
+        val t = f * seconds
+        val e = Math.exp(-damping * w0 * t)
+        return (1 - e * (Math.cos(wd * t) + damping * w0 / wd * Math.sin(wd * t))).toFloat()
+    }
 }
 
 /**
