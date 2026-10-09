@@ -828,7 +828,8 @@ private fun chatsPane(act: MainActivity): View {
             gap(120)   // the floating player's room at the foot
         })
     }
-    list.setOnScrollChangeListener { _, _, y, _, _ -> if (c.dp(25) < y) revealArchive(false) }   // a stroke up folds the archive's row
+    // THE LIST'S OWN DRAG AND ITS FLING, MEASURED (iOS MTFrameMeter, MontanaMessageFeed.swift:268-437, 1125-1149).
+    Motion.watch(list) { _, _, y, _, _ -> if (c.dp(25) < y) revealArchive(false) }   // a stroke up folds the archive's row
     return FrameLayout(c).apply {
         addView(CoinPull(c, list).apply { onPull = { pull -> if (25f < pull) revealArchive(true) } }, FrameLayout.LayoutParams(MATCH, MATCH))   // the coin's pull refreshes the feed (iOS MontanaCoinSpinner) and summons the archive's row
         // «WRITE» (iOS composeButton): the one door to the code and the link — the QR opens here and nowhere else.

@@ -1484,14 +1484,16 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         addView(dayPill, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
         val dayAway = Runnable { dayPill.animate().alpha(0f).setDuration(180).start() }
         var downOn = false
-        scroll.setOnScrollChangeListener { _, _, y, _, _ ->
+        // THE FEED'S OWN DRAG AND ITS FLING, MEASURED (iOS MTFrameMeter, MontanaMessageFeed.swift:268-437, 1125-1149):
+        // one diary line per gesture, never while the finger and the fling both stand still.
+        Motion.watch(scroll) { _, _, y, _, _ ->
             val d = resources.displayMetrics.density
-            val content = scroll.getChildAt(0) ?: return@setOnScrollChangeListener
+            val content = scroll.getChildAt(0) ?: return@watch
             val fromEnd = (content.height + scroll.paddingTop + scroll.paddingBottom - scroll.height - y) / d
             if (!downOn && 260 < fromEnd) { downOn = true; downKey.visibility = View.VISIBLE; downKey.alpha = 0f; downKey.animate().alpha(1f).setDuration(180).start() }
             else if (downOn && fromEnd < 60) { downOn = false; downKey.animate().alpha(0f).setDuration(180).withEndAction { if (!downOn) downKey.visibility = View.GONE }.start() }
             // the topmost row under the header: its letter's day
-            val holder = column.parent as? View ?: return@setOnScrollChangeListener
+            val holder = column.parent as? View ?: return@watch
             val edge = y + scroll.paddingTop - content.top - holder.top - column.top
             var words: String? = null
             for (i in 0 until column.childCount) {

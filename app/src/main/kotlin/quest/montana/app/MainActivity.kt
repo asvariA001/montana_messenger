@@ -287,8 +287,11 @@ class MainActivity : Activity() {
     private fun settle(page: View, width: Float, out: Boolean, onDone: (() -> Unit)? = null) {
         val to = if (out) width else 0f
         val ms = (220 * kotlin.math.abs(to - page.translationX) / width.coerceAtLeast(1f)).toLong().coerceIn(90, 220)
+        // THE PAGE'S TRANSITION, MEASURED (iOS MTPageMeter, MontanaPeerHeader.swift:507-528; moveBegan/moveEnded named
+        // «motion», MontanaMessageFeed.swift:349-355): one diary line per push and back, to the slide's own end.
+        Motion.moveBegan(page)
         page.animate().translationX(to).setDuration(ms).setInterpolator(android.view.animation.DecelerateInterpolator(1.6f))
-            .withEndAction { onDone?.invoke() }.start()
+            .withEndAction { Motion.moveEnded("page:" + (if (out) "back" else "push")); onDone?.invoke() }.start()
     }
 
     /**
