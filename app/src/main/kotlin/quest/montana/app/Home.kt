@@ -182,6 +182,7 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
         arrived(p)
     }
     val shell = DrawerShell(act)
+    act.drawer = shell
     // THE PAGES FOLLOW THE FINGER (iOS turnOrder, turnStroke): the pane moves by the finger and the page beside it slides in
     // from its side — the next on a stroke to the left, the one before on a stroke to the right; at the release a moving finger
     // says the way, a still one the distance. The order is the bar's: contacts, calls, the feed, the chats, the dynamic glyph's
@@ -263,7 +264,8 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
 /**
  * THE DRAWER LIES UNDER THE PAGE (iOS MontanaDrawerHost): the page slides right by the drawer's width — 0.78 of the screen —
  * and dims; a tap on the dimmed page or the system's back closes it. iOS also opens it by a drag from the screen's left
- * edge; on Android that edge belongs to the system's back gesture, so the grid glyph is the one road in.
+ * edge; on Android that edge is the system's back gesture, and at the app's root that gesture drives this page one to one
+ * with the finger (MainActivity.registerBack: edgeBegin, edgeMove, edgeEnd) — the author's word 09.10 11:5x.
  */
 class DrawerShell(private val act: MainActivity) : FrameLayout(act) {
     /** The pages under the bar turned by the same stroke (iOS turnStroke): side +1 — the next page, from a stroke to the left. */
@@ -291,6 +293,15 @@ class DrawerShell(private val act: MainActivity) : FrameLayout(act) {
     }
 
     private val width78 get() = Math.round(width * 0.78f)
+
+    /** The system's back from the left edge at the app's root takes the page as a finger on it would (MainActivity.registerBack). */
+    fun edgeBegin() { page.animate().cancel(); dim.animate().cancel(); reveal() }
+    fun edgeMove(x: Float) {
+        val t = x.coerceIn(0f, width78.toFloat())
+        page.translationX = t
+        dim.alpha = DIM * t / width78.coerceAtLeast(1)
+    }
+    fun edgeEnd(open: Boolean) = settle(open)
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)

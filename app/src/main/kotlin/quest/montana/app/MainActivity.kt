@@ -23,8 +23,11 @@ class MainActivity : Activity() {
     private val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
 
-    /** What the system back gesture does on the current page; null — leave the app. */
+    /** What the system back gesture does on the current page; null — the app's root, which the back never leaves. */
     var back: (() -> Unit)? = null
+    /** The home's drawer: at the app's root the system's back from the screen's left edge opens it (Home.kt's DrawerShell). */
+    var drawer: DrawerShell? = null
+    private var edgeOpens = false
     /** The pushed page the platform's own predictive back drags one to one with the finger (iOS MontanaSlideHost's
      *  screen-edge pan, ContentView.swift:817-910); null when the current back target has no page to slide — the
      *  drawer's own close, a search field closing (Home.kt:320, Screens.kt:215). */
@@ -272,14 +275,47 @@ class MainActivity : Activity() {
     private fun registerBack() {
         if (Build.VERSION.SDK_INT < 33) return   // no OnBackInvokedDispatcher below 33: the deprecated onBackPressed is the only road
         val callback = if (Build.VERSION.SDK_INT >= 34) object : android.window.OnBackAnimationCallback {
-            override fun onBackStarted(e: android.window.BackEvent) { slidingPage?.animate()?.cancel() }
-            override fun onBackProgressed(e: android.window.BackEvent) { slidingPage?.let { it.translationX = e.touchX.coerceAtLeast(0f) } }
+            override fun onBackStarted(e: android.window.BackEvent) {
+                keysDown()
+                slidingPage?.animate()?.cancel()
+                edgeOpens = back == null && slidingPage == null && e.swipeEdge == android.window.BackEvent.EDGE_LEFT && drawer != null
+                if (edgeOpens) drawer?.edgeBegin()
+            }
+            override fun onBackProgressed(e: android.window.BackEvent) {
+                if (edgeOpens) { drawer?.edgeMove(e.touchX); return }
+                // the left edge drags the page one to one with the finger; the right edge has no such finger on the page — its progress
+                slidingPage?.let { it.translationX = if (e.swipeEdge == android.window.BackEvent.EDGE_RIGHT) e.progress * surface.width else e.touchX.coerceAtLeast(0f) }
+            }
             override fun onBackInvoked() = commitBack()
-            override fun onBackCancelled() { slidingPage?.let { settle(it, surface.width.toFloat(), out = false) } }
+            override fun onBackCancelled() {
+                if (edgeOpens) { edgeOpens = false; drawer?.edgeEnd(false); return }
+                slidingPage?.let { settle(it, surface.width.toFloat(), out = false) }
+            }
         } else android.window.OnBackInvokedCallback { commitBack() }
         onBackInvokedDispatcher.registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, callback)
     }
-    private fun commitBack() { val b = back; if (b != null) b() else finish() }
+    /**
+     * THE BACK NEVER LEAVES THE APP (the author's word 09.10.2026 11:5x MSK: «боковой свайп для выхода из апп убери - у нас свайп слева
+     * это открытие боковой панели»): a page goes back as before; at the root the left edge's stroke opens the drawer it was dragging
+     * (iOS MontanaDrawerHost: the drawer opens by a drag from the screen's left edge), and any other back there does nothing.
+     */
+    private fun commitBack() {
+        val b = back
+        when {
+            b != null -> b()
+            edgeOpens -> { edgeOpens = false; drawer?.edgeEnd(true) }
+            Build.VERSION.SDK_INT < 34 -> drawer?.open()   // no edge is told below 34: the root's back is the drawer's
+        }
+    }
+    /**
+     * THE KEYBOARD LEAVES WITH THE SCREEN (iOS MontanaSlideHost.pan .began, ContentView.swift:880-884, the author's word 18.09: it hung
+     * over the chats after the back swipe): the field that holds it lets go at the first movement of the back.
+     */
+    private fun keysDown() {
+        val f = window.decorView.findFocus() ?: return
+        getSystemService(android.view.inputmethod.InputMethodManager::class.java).hideSoftInputFromWindow(f.windowToken, 0)
+        f.clearFocus()
+    }
 
     /** The terms over the current page (iOS: a sheet from the doors' footer); back or its mark closes it. */
     fun showTermsSheet() {
@@ -327,7 +363,7 @@ class MainActivity : Activity() {
     @Deprecated("registerBack's OnBackInvokedCallback takes every system back from API 33; this is the road below it")
     override fun onBackPressed() {
         val b = back
-        if (b != null) b() else @Suppress("DEPRECATION") super.onBackPressed()
+        if (b != null) b() else drawer?.open()   // the root never leaves the app (commitBack)
     }
 
     // ── work off the main thread (the core's key derivation takes a moment) ──

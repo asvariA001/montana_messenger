@@ -20,6 +20,7 @@ import android.view.Gravity
 import android.view.TextureView
 import android.view.View
 import android.view.WindowInsets
+import android.view.MotionEvent
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.FrameLayout
@@ -364,7 +365,35 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     val column = c.vstack(Gravity.NO_GRAVITY) { setPadding(dp(10), dp(8), dp(10), dp(8)) }
     val draftRow = FrameLayout(c).apply { setPadding(c.dp(10), 0, c.dp(10), c.dp(8)); visibility = View.GONE }
     val feedFrame = FrameLayout(c)
-    val scroll = ScrollView(c).apply {
+    var keysAway: () -> Unit = {}   // the field is born below
+    var barTop: () -> Int = { Int.MAX_VALUE }   // the bar's top on the screen, once it stands
+    // THE KEYBOARD GOES WHERE THE IPHONE'S GOES (the author's word 09.10.2026 11:5x MSK: «поведение клавиатуры сделай как на айос - она
+    // тут висит когда не нужно»): a tap anywhere on the feed puts it away, unless a control under the finger took the tap (iOS
+    // backgroundTap and MTTouchClaim, MontanaMessageFeed.swift:735-752, 980-986); a finger dragging the feed down onto the bar takes it
+    // down (iOS keyboardDismissMode .interactive, 66-71: the keyboard rides under the dragging touch, a release below its top lets it go).
+    val scroll = object : ScrollView(c) {
+        private val slop = android.view.ViewConfiguration.get(c).scaledTouchSlop
+        private var downX = 0f
+        private var downY = 0f
+        private var downT = 0L
+        private var moved = false
+        private fun keysUp() = rootWindowInsets?.isVisible(WindowInsets.Type.ime()) == true
+        override fun dispatchTouchEvent(e: MotionEvent): Boolean {
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> { downX = e.x; downY = e.y; downT = e.eventTime; moved = false }
+                MotionEvent.ACTION_MOVE -> {
+                    if (slop < kotlin.math.abs(e.x - downX) || slop < kotlin.math.abs(e.y - downY)) moved = true
+                    if (moved && downY < e.y && barTop() <= e.rawY.toInt() && keysUp()) keysAway()
+                }
+                MotionEvent.ACTION_UP -> if (!moved && e.eventTime - downT < android.view.ViewConfiguration.getLongPressTimeout() && keysUp()) {
+                    val x = e.x
+                    val y = e.y
+                    post { if (!claimsTap(this, x, y)) keysAway() }   // one turn later: a control's own tap has run by then
+                }
+            }
+            return super.dispatchTouchEvent(e)
+        }
+    }.apply {
         isVerticalScrollBarEnabled = false
         isFillViewport = true
         // the feed, and under it their live draft (iOS LiveDraftBubble at the feed's foot)
@@ -384,6 +413,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     // THE KEYBOARD AWAY IS THE FIELD LET GO (iOS inputFocused = false with hideKeyboard): a field kept focused under a hidden keyboard
     // is raised again by the system each time the window comes forward (SHOW_AUTO_EDITOR_FORWARD_NAV, the Pixel's own record 07.10 22:35)
     fun hideKeys() { c.getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(field.windowToken, 0); field.clearFocus() }
+    keysAway = { hideKeys() }
     fun showKeys() { field.requestFocus(); c.getSystemService(InputMethodManager::class.java).showSoftInput(field, 0) }
 
     // AN EMPTY FEED SAYS WHICH EMPTINESS IT IS (iOS MTFeedEmpty, MontanaMessageFeed 227-265; feedEmptyKind, MontanaConversation
@@ -888,6 +918,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     }
     // THE GALLERY OF THE ROW (iOS openGallery → MTGalleryPick): the phone's latest pictures at once, the camera the first tile,
     // «All photos» the system's own picker with its ten; what is chosen waits above the field
+    barTop = { IntArray(2).also { bar.getLocationOnScreen(it) }[1] }
     bar.onGallery = { hideKeys(); galleryPick(act, onPick = { stage(it) },
         // THE CAMERA TILE (iOS onCamera → CameraPicker → sendCameraImage / sendCameraVideo): a photo or a film, sent once taken
         onCamera = { cameraPage(act) { f, film ->
@@ -2368,4 +2399,21 @@ fun captionPage(act: MainActivity, p: Media.Picked, draft: String, onCancel: () 
 private fun View.holdEverywhere(root: Boolean = true, menu: () -> Unit) {
     if (root || isClickable) setOnLongClickListener { menu(); true }
     if (this is android.view.ViewGroup) for (i in 0 until childCount) getChildAt(i).holdEverywhere(false, menu)
+}
+
+/**
+ * WHETHER A CONTROL TOOK THE TAP (iOS MTTouchClaim: «a control inside claims its touch, and the tap's action, one turn later, leaves
+ * the keyboard to it»): the deepest views under the point, the feed itself aside — one with its own click is a control.
+ */
+private fun claimsTap(v: View, x: Float, y: Float, top: Boolean = true): Boolean {
+    if (!top && v.isEnabled && v.hasOnClickListeners()) return true
+    if (v !is android.view.ViewGroup) return false
+    for (i in v.childCount - 1 downTo 0) {
+        val ch = v.getChildAt(i)
+        if (ch.visibility != View.VISIBLE) continue
+        val cx = x + v.scrollX - ch.left - ch.translationX
+        val cy = y + v.scrollY - ch.top - ch.translationY
+        if (0f <= cx && 0f <= cy && cx < ch.width && cy < ch.height && claimsTap(ch, cx, cy, false)) return true
+    }
+    return false
 }
