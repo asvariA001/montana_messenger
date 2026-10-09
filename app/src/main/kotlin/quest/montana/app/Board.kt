@@ -50,6 +50,8 @@ object Board {
     private val keeping = HashSet<String>()               // a Save on its way, once per post
     private val countedDownload = HashSet<String>()       // a download counted in this run (iOS countedDownload 375)
     private val goneSaid = HashSet<String>()              // a post whose lost files were said once in this run (iOS goneSaid 374)
+    private val fetching = HashSet<String>()              // a post whose file comes from the node now (iOS fetching 366)
+    private val reposting = HashMap<String, JSONObject>() // a repost on its way: {wall, post, sizes, brought, failed} (iOS reposting 368)
 
     private val listeners = mutableListOf<() -> Unit>()
     fun listen(l: () -> Unit) { synchronized(listeners) { listeners.add(l) } }
@@ -60,7 +62,7 @@ object Board {
     /** The person forgotten: the walls this phone held and the files brought for a look leave with them (Book.wipe). */
     fun wipe() = synchronized(lock) {
         MyWall.wipe()
-        pages.clear(); firstSeen.clear(); askedAt.clear(); answeredAt.clear(); kept.clear(); keeping.clear(); countedDownload.clear(); goneSaid.clear(); loaded = false
+        pages.clear(); firstSeen.clear(); askedAt.clear(); answeredAt.clear(); kept.clear(); keeping.clear(); countedDownload.clear(); goneSaid.clear(); fetching.clear(); reposting.clear(); loaded = false
         File(Book.ctx.filesDir, "board").deleteRecursively(); lookDir().deleteRecursively()
     }
     private fun ensure() {
@@ -312,15 +314,20 @@ object Board {
     // ── the keepers of a post (iOS keep, becomePeer, unkeep, file, noteDownloaded, reportGone, seedFiles, MontanaBoard 1585-1762) ──
     /**
      * SAVE (iOS keep 1585-1597, the author's word 24.09): the files come to this phone and stay -- from now on this phone is one of
-     * the post's peers. True when every file of the post is here; one Save of a post at a time.
+     * the post's peers. True when every file of the post is here; one Save of a post at a time. progress hears, file by file, the
+     * pieces this phone holds of it (iOS keep's progress, 1586-1593): the repost's bar reads it.
      */
-    fun keep(wall: String, p: JSONObject): Boolean {
+    fun keep(wall: String, p: JSONObject, progress: ((Int, Int) -> Unit)? = null): Boolean {
         val id = p.optString("id")
         if (!plain(id)) return false
         synchronized(lock) { if (!keeping.add(id)) return false }
         try {
             val ms = p.optJSONArray("media") ?: JSONArray()
-            for (i in 0 until ms.length()) if (file(wall, p, i) == null) return false
+            for (i in 0 until ms.length()) {
+                if (file(wall, p, i) == null) return false
+                // this road brings a file whole, never piece by piece: its pieces are told once it lies here (iOS file 1689, 1696)
+                progress?.invoke(i, ms.optJSONObject(i)?.optJSONArray("chunks")?.length() ?: 0)
+            }
             becomePeer(wall, p)   // a post with no files, or its files already here
             return true
         } finally { synchronized(lock) { keeping.remove(id) } }
@@ -342,9 +349,17 @@ object Board {
         if (!taken) {
             val chunks = m.optJSONArray("chunks") ?: JSONArray()
             if (chunks.length() == 0) return null
-            if (!Media.download(JSONObject().put("bk", m.optString("key")).put("chunks", chunks), dest)) {
-                if ((0 until chunks.length()).any { k -> Wire.isGone(chunks.optJSONObject(k)?.optString("bid") ?: "") }) reportGone(wall, id)
-                return null
+            // THE FILE ON ITS WAY HERE SAYS SO (iOS fetching, MontanaBoard.swift:1704-1705 at 2155): the post's rows wear the wheel
+            synchronized(lock) { fetching.add(id) }
+            changed()
+            try {
+                if (!Media.download(JSONObject().put("bk", m.optString("key")).put("chunks", chunks), dest)) {
+                    if ((0 until chunks.length()).any { k -> Wire.isGone(chunks.optJSONObject(k)?.optString("bid") ?: "") }) reportGone(wall, id)
+                    return null
+                }
+            } finally {
+                synchronized(lock) { fetching.remove(id) }
+                changed()
             }
         }
         becomePeer(wall, p)
@@ -399,6 +414,141 @@ object Board {
         val fs = k.optJSONArray("files") ?: return
         for (i in 0 until fs.length()) fs.optString(i).takeIf { it.isNotEmpty() }?.let { MyWall.storeFile(it).delete() }
     }
+
+    // ── a repost (iOS repost, brought, letRepostGo, MontanaBoard.swift:1631-1666, 1910-1917 at 2155) ──
+    /**
+     * REPOST (iOS repost 1631-1666, the author's word 25.09: «pressing repost shows the same progress bar as a post's publishing»): the
+     * post is kept here -- its files come under the bar a post goes out under -- and stands on my own wall too, named by the wall it came
+     * from, its writer by reference where it was that wall's owner's own; the wall's owner is told. Files that did not all come say so,
+     * with a try again. The repost wears the face its post carried, else -- the owner's own post -- the face this phone holds for them.
+     */
+    fun repost(wall: String, p: JSONObject) {
+        val id = p.optString("id")
+        if (wall.isEmpty() || !plain(id)) return
+        val ms = p.optJSONArray("media") ?: JSONArray()
+        val sizes = JSONArray()
+        val got = JSONArray()
+        for (i in 0 until ms.length()) { sizes.put(maxOf(0L, ms.optJSONObject(i)?.optLong("size") ?: 0L)); got.put(0) }
+        synchronized(lock) {
+            val r = reposting[id]
+            if (r != null && !r.optBoolean("failed")) return   // already on its way
+            reposting[id] = JSONObject().put("wall", wall).put("post", p).put("sizes", sizes).put("brought", got).put("failed", false)
+        }
+        changed()
+        val whole = keep(wall, p) { i, n -> brought(id, i, n) }
+        val ownersOwn = p.optBoolean("own")
+        val worn = p.optString("face").ifEmpty { null } ?: if (ownersOwn) small(Book.face(wall).takeIf { f -> f.exists() }?.readBytes(), 96) else null
+        Log.d("Montana", "wall_repost id=" + id.take(10) + " files=" + ms.length() + " whole=" + (if (whole) 1 else 0))
+        if (!whole) { synchronized(lock) { reposting[id]?.put("failed", true) }; changed(); return }
+        synchronized(lock) { reposting.remove(id) }
+        val post = JSONObject().put("id", id).put("author", "").put("byName", p.optString("byName")).put("byGlyph", p.optString("byGlyph"))
+            .put("at", System.currentTimeMillis() / 1000.0).put("text", p.optString("text")).put("media", JSONArray(ms.toString()))
+            .put("pinned", false).put("keepers", JSONArray().put("")).put("likes", JSONArray()).put("downloads", JSONArray())
+            .put("reposts", JSONArray()).put("comments", JSONArray()).put("from", publicName(wall)).put("src", wall)
+        worn?.let { post.put("face", it) }
+        if (ownersOwn) post.put("srcBy", wall) else if (p.optBoolean("mine")) post.put("srcBy", "")   // "" -- I wrote it
+        p.optString("lp").takeIf { it.isNotEmpty() }?.let { post.put("lp", it) }
+        if (MyWall.repost(post)) {
+            send(wall, JSONObject().put("t", "rp").put("id", id))
+            patch(wall, id) { x -> if (!x.optBoolean("reposted")) { x.put("reposted", true); x.put("reposts", x.optInt("reposts") + 1) } }
+        }
+        changed()
+    }
+    /** A repost on its way as its bar reads it (iOS MTRepostBar 2808, MTBoardOutgoing.done): null -- none for this post on this wall. */
+    fun repostGoing(wall: String, id: String): MyWall.Going? {
+        return synchronized(lock) {
+            val r = reposting[id]?.takeIf { it.optString("wall") == wall } ?: return null
+            val sizes = r.optJSONArray("sizes") ?: JSONArray()
+            val got = r.optJSONArray("brought") ?: JSONArray()
+            var total = 0L
+            var done = 0L
+            for (i in 0 until sizes.length()) { val s = sizes.optLong(i); total += s; done += minOf(s, got.optLong(i) * Media.CHUNK) }
+            MyWall.Going(id, r.optJSONObject("post") ?: JSONObject(), total, done, r.optBoolean("failed"), wall)
+        }
+    }
+    /** A piece more of a repost's file came to this phone (iOS brought 1911-1915). */
+    private fun brought(id: String, i: Int, n: Int) {
+        synchronized(lock) {
+            val b = reposting[id]?.optJSONArray("brought") ?: return
+            if (b.length() <= i || n <= b.optInt(i)) return
+            b.put(i, n)
+        }
+        changed()
+    }
+    /** A repost whose files did not all come, let go by its person (iOS letRepostGo 1917). */
+    fun letRepostGo(id: String) {
+        synchronized(lock) { reposting.remove(id) }
+        changed()
+    }
+    /** The name a wall goes by where others read it (iOS publicName(of:), MontanaBoard.swift:711-715 at 2155): the name its owner gave
+     * themselves -- never the one this phone set for them --, else «Someone». */
+    private fun publicName(wall: String): String =
+        Book.chat(wall)?.name?.trim()?.takeIf { it.isNotEmpty() }?.take(64) ?: Book.ctx.getString(R.string.wall_someone)
+
+    /**
+     * MY POST ON ANOTHER'S WALL LEAVES (iOS lay, MontanaBoard.swift:1873-1897 at 2155): this phone keeps its files -- the post's first
+     * peer --, the word «post» goes to the wall's owner, the owner is asked for the page as it now stands (iOS askAfterAct 1144-1150),
+     * and the post stands on their page here at once, before the first that is not pinned. The pair's chat row the iPhone lays as the
+     * post leaves (ChatStore.appendWallPost, 1890-1892) is not drawn on this phone: no chat here draws a wall's row yet.
+     */
+    fun wrote(wall: String, s: JSONObject, word: JSONObject) {
+        val id = s.optString("id")
+        val ms = s.optJSONArray("media") ?: JSONArray()
+        val files = JSONArray()
+        for (i in 0 until ms.length()) files.put(fileName(id, i, ms.optJSONObject(i)?.optString("ext") ?: ""))
+        synchronized(lock) {
+            ensure()
+            kept[id] = JSONObject().put("post", JSONObject(s.toString())).put("wall", wall).put("files", files)
+            save()
+        }
+        send(wall, word)
+        synchronized(lock) { askedAt[wall] = System.currentTimeMillis() }
+        send(wall, JSONObject().put("t", "ask"))
+        synchronized(lock) {
+            ensure()
+            val pg = pages[wall] ?: JSONObject().put("w", true).put("ps", JSONArray()).put("at", System.currentTimeMillis()).also { pages[wall] = it }
+            val ps = pg.optJSONArray("ps") ?: JSONArray()
+            val list = (0 until ps.length()).mapNotNull { ps.optJSONObject(it) }.filter { it.optString("id") != id }.toMutableList()
+            val before = list.indexOfFirst { !it.optBoolean("pinned") }
+            list.add(if (before == -1) list.size else before, s)
+            pg.put("ps", JSONArray(list))
+            save()
+        }
+        changed()
+    }
+
+    // ── a post's files on this phone (iOS fileName, MTBoardShown.local) and my small face (iOS small, myFace) ──
+    /** A post's file by its wall name (iOS fileName 497-499); null for a post whose name no file may take. */
+    fun fileOf(p: JSONObject, i: Int): String? {
+        val m = p.optJSONArray("media")?.optJSONObject(i) ?: return null
+        val id = p.optString("id")
+        return if (plain(id)) fileName(id, i, m.optString("ext")) else null
+    }
+    /** A post's file on this phone (iOS MTBoardShown.local, MontanaBoardViews.swift:3006-3009 at 2155): the store's -- the writer's, a
+     * keeper's, a touch's -- else the copy a look brought. */
+    fun here(p: JSONObject, i: Int): File? {
+        val name = fileOf(p, i) ?: return null
+        return MyWall.storeFile(name).takeIf { it.exists() } ?: File(lookDir(), name).takeIf { it.exists() }
+    }
+    /** The post's file comes from the node now (iOS fetching 366): its rows wear the wheel. */
+    fun isFetching(id: String) = synchronized(lock) { id in fetching }
+    /** A face drawn square at the given side, cut to fill it, as a base64 JPEG (iOS small, MontanaBoard.swift:2124-2135 at 2155). */
+    fun small(raw: ByteArray?, side: Int): String? {
+        val b = raw?.let { BitmapFactory.decodeByteArray(it, 0, it.size) } ?: return null
+        if (b.width <= 0 || b.height <= 0) return null
+        val s = maxOf(side.toFloat() / b.width, side.toFloat() / b.height)
+        val w = b.width * s
+        val h = b.height * s
+        val drawn = Bitmap.createBitmap(side, side, Bitmap.Config.ARGB_8888)
+        android.graphics.Canvas(drawn).drawBitmap(b, null, android.graphics.RectF((side - w) / 2, (side - h) / 2, (side + w) / 2, (side + h) / 2),
+            android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG))
+        val out = java.io.ByteArrayOutputStream()
+        drawn.compress(Bitmap.CompressFormat.JPEG, 60, out)
+        return Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP).takeIf { it.length <= FACE_LIMIT }
+    }
+    /** MY FACE, SMALL, OVER A POST I WRITE ON ANOTHER'S WALL (iOS myFace, MontanaBoard.swift:2058-2064 at 2155): the wall's owner keeps
+     * it with the post, and a visitor who never met me sees it over my words. */
+    fun myFace(): String? = small(SelfFace.bytes(Book.ctx), 96)
     /**
      * A DOWNLOAD IS COUNTED ONCE PER PERSON (iOS noteDownloaded 1722-1736, the author's word 24.09): when every file of the post has
      * come to this phone -- on the owner's wall, and on this page at once; one counted in a launch before this one is not counted again.
@@ -722,6 +872,12 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
     val openComments = { act.push { close -> wallCommentsPage(act, it.wall, it.post.optString("id"), close) } }
     val p = it.post
     val own = p.optBoolean("own")
+    // A REPOST ON ITS WAY, OVER THE POST IT TAKES (iOS MTRepostBar, MontanaBoardViews.swift:2800-2813 at 2155 -- over the cell in
+    // MTBoardRows 178 and in the feed 2945): the bar a post goes out under, live, with its try again and its letting go
+    if (!sending) Board.repostGoing(it.wall, p.optString("id"))?.let { r ->
+        addView(goingBar(act, r, onRetry = { Thread { Board.repost(r.wall, r.post) }.start() }, onDiscard = { Board.letRepostGo(r.id) }), lp())
+        gap(if (onItsWall) 12 else 4)
+    }
     // WHOSE WALL A POST STANDS ON, when its writer is not the wall's owner and the row is not drawn on that very wall's
     // own page (iOS onItsWall, MontanaBoardViews.swift: "Drawn on its wall's own page... in the feed, off it")
     if (!own && !onItsWall) addView(c.text(c.getString(R.string.wall_on, Board.nameOf(c, it.wall)), 12f, MT.gray).apply { setPadding(dp(4), 0, 0, dp(6)) }, lp())
@@ -756,28 +912,12 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
                 }, lp(0, WRAP, 1f))
                 if (opens && w != null) pressable { openWriter(act, w) }
             }, lp(0, WRAP, 1f))
-            // THE POST'S OWN MENU (iOS MTBoardCell menuItems 404-441): on my own wall — pin or unpin, copy the words, delete; a wall's
-            // owner alone takes a post off it
-            if (it.wall.isEmpty() && !sending) addView(c.icon(R.drawable.ic_more_horiz, MT.gray).apply {
+            // THE POST'S OWN MENU (iOS MTBoardCell menuItems, MontanaBoardViews.swift:404-441 at 2155): on every wall, while the post is
+            // not on its way (postMenu)
+            if (!sending) addView(c.icon(R.drawable.ic_more_horiz, MT.gray).apply {
                 setPadding(dp(11), dp(11), dp(11), dp(11))
                 contentDescription = c.getString(R.string.pi_more)
-                pressable {
-                    val id = p.optString("id")
-                    android.widget.PopupMenu(c, this).apply {
-                        menu.add(0, 0, 0, if (p.optBoolean("pinned")) R.string.cl_unpin else R.string.cl_pin)
-                        if (p.optString("text").isNotEmpty()) menu.add(0, 1, 1, R.string.copy)
-                        menu.add(0, 2, 2, R.string.delete)
-                        setOnMenuItemClickListener { item ->
-                            when (item.itemId) {
-                                0 -> Thread { MyWall.pin(id) }.start()
-                                1 -> c.getSystemService(android.content.ClipboardManager::class.java)
-                                    .setPrimaryClip(android.content.ClipData.newPlainText("", p.optString("text")))   // USER-DATA: the post's words
-                                2 -> Thread { MyWall.remove(id) }.start()
-                            }
-                            true
-                        }
-                    }.show()
-                }
+                pressable { postMenu(act, this, it.wall, p) }
             }, lp(dp(44), dp(44)))
         }, lp())
         p.optString("from").takeIf { f -> f.isNotEmpty() }?.let { f ->
@@ -814,6 +954,8 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
                 posterHeld?.let { b -> setImageBitmap(b) }
             }
             addView(tile, lp())
+            // A TILE'S TOUCH OPENS ITS FILE (iOS MTBoardMediaView.tile, MontanaBoardViews.swift:695-716 at 2155; openTile)
+            tile.pressable { openTile(act, it.wall, p, i, !onItsWall) }
             // THE SHARP PICTURE, ELSE THE POSTER DECODED OFF THE MAIN THREAD, ELSE THE TILE'S GREY (iOS MTBoardPicture, MontanaBoardViews.swift:
             // 926-941 at 2155); what was drawn sharp stands sharp on the first frame of the next drawing (iOS MTBoardPicture.cache 944-948)
             if (posterHeld == null) WallPoster.decode(thumb) { b -> if (!sharp) tile.setImageBitmap(b) }
@@ -823,8 +965,17 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
                 else Thread { Media.preview(c, f, kind, 1600)?.let { b -> wallSharp.put(f.path, b); MainThread.post { sharp = true; tile.setImageBitmap(b) } } }.start()
             }
         }
+        // THE TRACKS AND THE FILES AS ROWS, UNDER THE PICTURES (iOS MTBoardMediaView, MontanaBoardViews.swift:657-667, 718-720 at 2155):
+        // a track in the one player's face, any other file as its row
+        for (i in 0 until media.length()) {
+            val m = media.optJSONObject(i) ?: continue
+            val kind = m.optString("kind")
+            if (kind == "img" || kind == "vid") continue
+            gap(8)
+            addView(if (kind == "aud") trackRow(act, it.wall, p, i, m, !onItsWall) else fileRow(act, it.wall, p, i, m), lp())
+        }
         // THE COUNTS (iOS counters 445-487): like, comments, keepers, reposts; in the corner the downloads and the eye with the views
-        // where the wall's owner counts them. Reposting comes with this phone's own wall (W3): its count stands.
+        // where the wall's owner counts them.
         if (sending) return@vstack
         gap(4)
         addView(c.hstack {
@@ -840,10 +991,13 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
             mark(if (liked) R.drawable.ic_heart_fill else R.drawable.ic_heart, p.optInt("likes"), if (liked) MT.red else MT.gray, R.string.wall_like) { Board.like(it.wall, p) }
             mark(R.drawable.ic_set_textbubble, p.optInt("commentCount"), MT.gray, R.string.wall_comments, if (whole) null else openComments)
             // THE POST'S PEERS ANSWER THE FINGER (iOS counters 452-454): a tap saves the post -- its files come here and stay -- or lets it go
-            mark(R.drawable.ic_tray_down, p.optInt("keepers"), if (p.optBoolean("kept")) android.graphics.Color.WHITE else MT.gray, R.string.wall_keepers) {
+            mark(if (p.optBoolean("kept")) R.drawable.ic_tray_full_fill else R.drawable.ic_tray_down, p.optInt("keepers"), if (p.optBoolean("kept")) android.graphics.Color.WHITE else MT.gray, R.string.wall_keepers) {
                 Thread { if (p.optBoolean("kept")) Board.unkeep(it.wall, p) else Board.keep(it.wall, p) }.start()
             }
-            mark(R.drawable.ic_repost, p.optInt("reposts"), if (p.optBoolean("reposted")) android.graphics.Color.WHITE else MT.gray, R.string.wall_repost, null)
+            // A REPOST FROM ITS MARK (iOS counters 455-457): on another's wall, of a post neither mine nor reposted yet
+            val reposts = it.wall.isNotEmpty() && !p.optBoolean("reposted") && !p.optBoolean("mine")
+            mark(R.drawable.ic_repost, p.optInt("reposts"), if (p.optBoolean("reposted")) android.graphics.Color.WHITE else MT.gray, R.string.wall_repost,
+                if (reposts) ({ Thread { Board.repost(it.wall, p) }.start() }) else null)
             spacer()
             addView(c.icon(R.drawable.ic_arrow_circle_down, MT.gray, 16).apply { contentDescription = c.getString(R.string.wall_downloads) }); gap(4)
             addView(c.text(p.optInt("downloads").toString(), 13f, MT.gray, bold = true))
@@ -860,6 +1014,200 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
         override fun onViewAttachedToWindow(v: View) { Board.view(it.wall, it.post) }
         override fun onViewDetachedFromWindow(v: View) {}
     })
+}
+
+/**
+ * THE POST'S MENU (iOS MTBoardCell.menuItems, MontanaBoardViews.swift:404-441 at 2155), the platform's own menu at the dots: Share -- the
+ * post's link; on my own wall Pin or Unpin; Remove from saved while kept -- on another's wall never for my own post there, whose files I
+ * keep while it stands -- else Save; Repost on another's wall, of a post neither mine nor reposted yet; Copy the words; Report another's
+ * post; on my own wall Delete -- a wall's owner alone takes a post off it. Edit (418-419) is not on this phone yet.
+ */
+private fun postMenu(act: MainActivity, anchor: View, wall: String, p: JSONObject) {
+    val c: Context = act
+    val id = p.optString("id")
+    val mine = p.optBoolean("mine")
+    fun red(res: Int): CharSequence = android.text.SpannableString(c.getString(res)).apply {
+        setSpan(android.text.style.ForegroundColorSpan(MT.red), 0, length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+    }
+    android.widget.PopupMenu(c, anchor).apply {
+        menu.add(0, 0, 0, R.string.share)
+        if (wall.isEmpty()) menu.add(0, 1, 1, if (p.optBoolean("pinned")) R.string.cl_unpin else R.string.cl_pin)
+        if (!p.optBoolean("kept")) menu.add(0, 2, 2, R.string.wall_save)
+        else if (!mine || wall.isEmpty()) menu.add(0, 3, 3, R.string.wall_unsave)
+        if (wall.isNotEmpty() && !p.optBoolean("reposted") && !mine) menu.add(0, 4, 4, R.string.wall_repost)
+        if (p.optString("text").isNotEmpty()) menu.add(0, 5, 5, R.string.copy)
+        if (!mine) menu.add(0, 6, 6, red(R.string.pi_report))
+        if (wall.isEmpty()) menu.add(0, 7, 7, red(R.string.delete))
+        setOnMenuItemClickListener { item ->
+            when (item.itemId) {
+                0 -> sharePost(act, p)
+                1 -> Thread { MyWall.pin(id) }.start()
+                2 -> Thread { Board.keep(wall, p) }.start()
+                3 -> Thread { Board.unkeep(wall, p) }.start()
+                4 -> Thread { Board.repost(wall, p) }.start()
+                5 -> c.getSystemService(android.content.ClipboardManager::class.java)
+                    .setPrimaryClip(android.content.ClipData.newPlainText("", p.optString("text")))   // USER-DATA: the post's words
+                6 -> reportPost(act, wall, p)
+                7 -> Thread { MyWall.remove(id) }.start()
+            }
+            true
+        }
+    }.show()
+}
+
+/**
+ * A POST GOES OUT AS ITS LINK (iOS MTPostLinkItem, MontanaBoardViews.swift:2205-2221 at 2155): the platform's own share with the link
+ * that opens the post inside Montana, titled by its writer and the first of its words. The long link: the nick's short form
+ * (MTBoard.linkPost(_:on:) 1459-1463) is not read on this phone (Board.linkTarget).
+ */
+private fun sharePost(act: MainActivity, p: JSONObject) {
+    val words = p.optString("text").trim()
+    val title = if (words.isEmpty()) p.optString("byName") else p.optString("byName") + " · " + words.take(160)   // USER-DATA: the writer's name and words
+    val send = android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain")
+        .putExtra(android.content.Intent.EXTRA_TEXT, "montana://wall/post/" + p.optString("id")).putExtra(android.content.Intent.EXTRA_TITLE, title)
+    runCatching { act.startActivity(android.content.Intent.createChooser(send, null)) }
+}
+
+/**
+ * A POST REPORTED (iOS MTBoardSheet.reporting, MontanaBoardViews.swift:28-36 at 2155): its writer when this phone knows them, and then
+ * they may be blocked with it; a writer the wall never named is reported through the wall that carried the post, and nobody is blocked
+ * for another's words.
+ */
+private fun reportPost(act: MainActivity, wall: String, p: JSONObject) {
+    val w = Board.writer(wall, p)
+    val name = p.optString("byName")
+    if (!w.isNullOrEmpty()) act.push { close -> reportPage(act, w, name, close) }
+    else act.push { close -> reportPage(act, wall, name, close, offersBlock = false) }
+}
+
+/** THE PAGE A POST STANDS ON (iOS MTBoardPlaylist and MTBoardShown.all, MontanaBoardViews.swift:799-801, 3016-3020 at 2155): the feed's
+ * posts in the feed, the wall's on its own page -- mine read from my own wall. */
+private fun wallPage(wall: String, inFeed: Boolean): List<Board.Item> = when {
+    inFeed -> Board.feed()
+    wall.isEmpty() -> MyWall.posts().map { Board.Item("", it) }
+    else -> Board.posts(wall)
+}
+
+/**
+ * A TILE'S TOUCH OPENS ITS FILE (iOS MTBoardMediaView.tile and open, MontanaBoardViews.swift:695-716, 768-791 at 2155): the file comes by
+ * the touch's own road (Board.file -- this phone becomes the post's peer, the download counts); a picture opens among the pictures of the
+ * page held here, each post once in the page's order (iOS MTBoardShown.all 3013-3037), a film in the one player (iOS VideoPresenter).
+ * The 2155 page of the pictures and the films one screen each, up and down (MTBoardMediaPage 3046-3105), is not on this phone yet.
+ */
+private fun openTile(act: MainActivity, wall: String, p: JSONObject, i: Int, inFeed: Boolean) {
+    val kind = p.optJSONArray("media")?.optJSONObject(i)?.optString("kind") ?: return
+    Thread {
+        val f = Board.file(wall, p, i) ?: return@Thread
+        if (kind == "vid") { MainThread.post { FilmActivity.open(act, f) }; return@Thread }
+        fun pictures(posts: List<Board.Item>): List<File> {
+            val once = HashSet<String>()
+            val out = ArrayList<File>()
+            for (item in posts) {
+                if (!once.add(item.post.optString("id"))) continue
+                val ms = item.post.optJSONArray("media") ?: continue
+                for (j in 0 until ms.length()) if (ms.optJSONObject(j)?.optString("kind") == "img") Board.here(item.post, j)?.let { out.add(it) }
+            }
+            return out
+        }
+        var among = pictures(wallPage(wall, inFeed))
+        if (among.none { it.path == f.path }) among = pictures(listOf(Board.Item(wall, p)))
+        val album = among
+        MainThread.post { openPictures(act, f, album) }
+    }.start()
+}
+
+/**
+ * THE PAGE IS THE PLAYLIST (iOS MTBoardMediaView.open «aud» and MTBoardPlaylist, MontanaBoardViews.swift:797-809, 844-864 at 2155): the
+ * one player plays the touched track, its queue every track of the page the post stands on, each once by its file; a post the page no
+ * longer holds plays its own. This phone's player reads a whole file and no loader plays from the first pieces: the touched track comes
+ * here first by the touch's own road (Board.file), and a track of the page not yet here stands out of the queue.
+ */
+private fun playTrack(act: MainActivity, wall: String, p: JSONObject, i: Int, inFeed: Boolean) {
+    Thread {
+        val f = Board.file(wall, p, i) ?: return@Thread
+        fun tracks(posts: List<Board.Item>): List<Track> {
+            val once = HashSet<String>()
+            val out = ArrayList<Track>()
+            for (item in posts) {
+                val ms = item.post.optJSONArray("media") ?: continue
+                for (j in 0 until ms.length()) {
+                    val mj = ms.optJSONObject(j) ?: continue
+                    if (mj.optString("kind") != "aud") continue
+                    val here = Board.here(item.post, j) ?: continue
+                    if (!once.add(here.name)) continue
+                    out.add(Track(android.net.Uri.fromFile(here), mj.optString("name").ifEmpty { here.name }).apply { length = mj.optDouble("dur", 0.0) })
+                }
+            }
+            return out
+        }
+        var list = tracks(wallPage(wall, inFeed))
+        if (list.none { t -> t.uri.lastPathSegment == f.name }) list = tracks(listOf(Board.Item(wall, p)))
+        val k = list.indexOfFirst { t -> t.uri.lastPathSegment == f.name }
+        val queue = list
+        Log.d("Montana", "music board queue n=" + queue.size + " at=" + (k + 1) + " in=" + (if (inFeed) "feed" else "wall"))
+        if (k != -1) MainThread.post { MusicPlayer.play(act, queue, k) }
+    }.start()
+}
+
+/**
+ * A TRACK OF A POST IS A TRACK OF THE ONE PLAYER (iOS MTBoardMediaView.track, MontanaBoardViews.swift:722-743 at 2155): the playing track
+ * wears the one bar itself (MontanaPlayerBar(row: true)) and every other stands still in the mini's face -- its play, its name without
+ * its extension in the plate, its length; the face runs to the post's own edges (.padding(.horizontal, -16)), the whole row is one
+ * target, and the platform's wheel stands on the play while the post's file comes (busy).
+ */
+private fun trackRow(act: MainActivity, wall: String, p: JSONObject, i: Int, m: JSONObject, inFeed: Boolean): View = FrameLayout(act).apply {
+    val name = Board.fileOf(p, i)
+    val busy = Board.isFetching(p.optString("id"))
+    var shown: Boolean? = null
+    fun draw() {
+        val now = name != null && MusicPlayer.current?.uri?.lastPathSegment == name
+        if (shown == now) return
+        shown = now
+        removeAllViews()
+        val face: MiniFace = if (now) liveBar(act) else MiniFace(act, bar = false).apply {
+            still(Track(android.net.Uri.EMPTY, m.optString("name")).apply { length = m.optDouble("dur", 0.0) }, false, false)
+        }
+        face.setPadding(0, dp(4), 0, dp(4))
+        addView(face, FrameLayout.LayoutParams(MATCH, WRAP))
+        if (!now && busy) addView(android.widget.ProgressBar(act).apply {
+            indeterminateTintList = android.content.res.ColorStateList.valueOf(android.graphics.Color.WHITE)
+        }, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.START or Gravity.CENTER_VERTICAL))
+    }
+    draw()
+    pressable { if (shown != true) playTrack(act, wall, p, i, inFeed) }
+    val heard: () -> Unit = { draw() }
+    addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+        override fun onViewAttachedToWindow(v: View) { MusicPlayer.listeners.add(heard); draw() }
+        override fun onViewDetachedFromWindow(v: View) { MusicPlayer.listeners.remove(heard) }
+    })
+}
+
+/**
+ * A FILE OF A POST AS A ROW (iOS MTBoardMediaView.fileRow, MontanaBoardViews.swift:745-766 at 2155): the document's glyph on its dark
+ * square, its name without its extension and its size, the platform's wheel while the post's file comes; the whole row one target --
+ * the file comes by the touch's own road (Board.file) and opens in the document's page (iOS MTBoardDocPresenter).
+ */
+private fun fileRow(act: MainActivity, wall: String, p: JSONObject, i: Int, m: JSONObject): View {
+    val c: Context = act
+    val name = m.optString("name")
+    val shown = name.substringBeforeLast('.').ifEmpty { name }
+    return c.hstack {
+        gravity = Gravity.CENTER_VERTICAL
+        minimumHeight = dp(44)
+        addView(FrameLayout(c).apply {
+            background = c.rounded(android.graphics.Color.rgb(41, 41, 41), 8)
+            addView(c.icon(R.drawable.ic_compose_doc, MT.gray, 17), FrameLayout.LayoutParams(dp(17), dp(17), Gravity.CENTER))
+        }, lp(dp(36), dp(36)))
+        gap(12)
+        addView(c.vstack(Gravity.NO_GRAVITY) {
+            addView(c.text(shown, 17f).apply { singleLineEllipsis() }, lp())   // USER-DATA: the file's own name
+            addView(c.text(android.text.format.Formatter.formatShortFileSize(c, m.optLong("size")), 12f, MT.gray), lp())
+        }, lp(0, WRAP, 1f))
+        if (Board.isFetching(p.optString("id"))) addView(android.widget.ProgressBar(c).apply {
+            indeterminateTintList = android.content.res.ColorStateList.valueOf(android.graphics.Color.WHITE)
+        }, lp(dp(24), dp(24)))
+        pressable { Thread { Board.file(wall, p, i)?.let { f -> MainThread.post { openDocument(act, f) } } }.start() }
+    }
 }
 
 /**

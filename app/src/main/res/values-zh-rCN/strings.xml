@@ -542,6 +542,8 @@
     <string name="wall_downloads">下载次数</string>
     <string name="wall_views">浏览量</string>
     <string name="wall_send">发送</string>
+    <string name="wall_save">保存</string>
+    <string name="wall_unsave">从已保存中移除</string>
     <string name="call_end_ask">结束通话？</string>
     <string name="filter_hidden">已被过滤隐藏</string>
     <string name="filter_tap">点击显示</string>

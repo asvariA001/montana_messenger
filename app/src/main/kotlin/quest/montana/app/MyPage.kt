@@ -113,7 +113,7 @@ fun goingBar(act: MainActivity, o: MyWall.Going, onRetry: (() -> Unit)?, onDisca
 fun goingCell(act: MainActivity, o: MyWall.Going): View = act.vstack(Gravity.NO_GRAVITY) {
     addView(goingBar(act, o, onRetry = { Thread { MyWall.publish(o.id) }.start() }, onDiscard = { Thread { MyWall.discard(o.id) }.start() }), lp())
     gap(8)
-    addView(postCell(act, Board.Item("", o.post), onItsWall = true, sending = true), lp())
+    addView(postCell(act, Board.Item(o.wall, o.post), onItsWall = true, sending = true), lp())
 }
 
 /**
@@ -121,9 +121,10 @@ fun goingCell(act: MainActivity, o: MyWall.Going): View = act.vstack(Gravity.NO_
  * published»): my face and my name over the words, written where they will stand; under them «Photos and videos» and «Tracks and
  * files», and the files taken, each with its miniature, its name and its size, the cross taking it off. The check mark sets the post
  * on its way (MyWall.begin) and lays its files on the node under the bar at the page's top (MyWall.publish); the page leaves when the
- * post is out, and a post the node did not take keeps its try again here and on the wall.
+ * post is out, and a post the node did not take keeps its try again here and on the wall. Opened from a person's page (wall, their
+ * reference) the post goes to their wall (iOS MTBoardComposer.present(on: owner), MTBoard.begin(on:) 1772).
  */
-fun newPostPage(act: MainActivity, onClose: () -> Unit, sharedWords: String = "", sharedFiles: List<android.net.Uri> = emptyList()): View {
+fun newPostPage(act: MainActivity, onClose: () -> Unit, sharedWords: String = "", sharedFiles: List<android.net.Uri> = emptyList(), wall: String = ""): View {
     val c: Context = act
     val files = mutableListOf<MyWall.Attachment>()
     var taking = 0
@@ -214,7 +215,7 @@ fun newPostPage(act: MainActivity, onClose: () -> Unit, sharedWords: String = ""
         val words = field.text.toString()
         val atts = files.toList()
         Thread {
-            val pid = MyWall.begin(words, atts)
+            val pid = MyWall.begin(words, atts, wall)
             if (pid == null) { MainThread.post { sending = null; failedLine.visibility = View.VISIBLE; drawTaken() }; return@Thread }
             MainThread.post { sending = pid; files.clear(); drawTaken(); showBar() }
             val ok = MyWall.publish(pid)

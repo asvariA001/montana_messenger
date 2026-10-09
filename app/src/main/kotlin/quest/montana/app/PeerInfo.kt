@@ -545,7 +545,9 @@ fun peerInfoPage(act: MainActivity, ref: String, onClose: () -> Unit,
         pane.removeAllViews()
         val msgs = select(tab, Book.chat(ref)?.msgs ?: emptyList())
         if (tab == Tab.WALL) {
-            pane.addView(c.hstack {
+            // THE WRITE BUTTON WHILE THE OWNER LETS ME WRITE (iOS MTBoardRows, MontanaBoardViews.swift:156-161 at 2155): it opens the
+            // one new post's page over their wall (MTBoardComposer.present(on: owner)), and the post goes to them
+            if (Board.canWrite(ref)) pane.addView(c.hstack {
                 gravity = Gravity.CENTER_VERTICAL
                 background = c.glassPlate()
                 setPadding(dp(14), dp(10), dp(14), dp(10))
@@ -554,12 +556,15 @@ fun peerInfoPage(act: MainActivity, ref: String, onClose: () -> Unit,
                     addView(c.icon(R.drawable.ic_compose, Color.WHITE), FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
                 }, lp(dp(44), dp(44)).apply { marginEnd = dp(14) })
                 addView(c.text(c.getString(R.string.pi_write_wall), 17f))
-                pressable { notYet() }
+                pressable { act.push { close -> newPostPage(act, close, wall = ref) } }
             }, lp().apply { topMargin = c.dp(12) })
+            // A POST ON ITS WAY TO THEIR WALL stands at once as it will be published, under the bar of its files (iOS MTBoardRows 167-172)
+            val onItsWay = MyWall.sending(ref)
+            onItsWay.forEach { o -> pane.addView(goingCell(act, o), lp().apply { topMargin = c.dp(10) }) }
             // THE WALL'S OWN ROWS (iOS MTBoardRows, MontanaPeerInfoScreen.swift:646): a person's page shows their wall --
             // the same cells the feed draws (Board.postCell), with no "on X's wall" line of its own (onItsWall).
             val wallPosts = Board.posts(ref)
-            if (wallPosts.isEmpty()) pane.addView(emptyPane(), lp())
+            if (wallPosts.isEmpty() && onItsWay.isEmpty()) pane.addView(emptyPane(), lp())
             else wallPosts.forEach { item -> pane.addView(postCell(act, item, onItsWall = true), lp().apply { topMargin = c.dp(10) }) }
         } else if (msgs.isEmpty()) pane.addView(emptyPane(), lp())
         else paneRows(act, tab, msgs.reversed(), pane, law)   // newest on top
@@ -618,8 +623,8 @@ fun peerInfoPage(act: MainActivity, ref: String, onClose: () -> Unit,
         bars.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ -> if (rows.paddingBottom != v.height) v.post { rows.setPadding(0, 0, 0, v.height) } }
         addView(bars, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM))
         addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
-            override fun onViewAttachedToWindow(v: View) { Book.listen(listener); Board.listen(wallHeard); MusicPlayer.listeners.add(music) }
-            override fun onViewDetachedFromWindow(v: View) { Book.unlisten(listener); Board.unlisten(wallHeard); MusicPlayer.listeners.remove(music) }
+            override fun onViewAttachedToWindow(v: View) { Book.listen(listener); Board.listen(wallHeard); MyWall.listen(wallHeard); MusicPlayer.listeners.add(music) }
+            override fun onViewDetachedFromWindow(v: View) { Book.unlisten(listener); Board.unlisten(wallHeard); MyWall.unlisten(wallHeard); MusicPlayer.listeners.remove(music) }
         })
     }
 }
@@ -870,12 +875,14 @@ private fun safetyPage(act: MainActivity, ref: String, name: String, onClose: ()
 // ─────────────────────────── the report (iOS MontanaReportSheet) ───────────────────────────
 
 /** A report by mail to the network's address: the reason, «block this person too», the platform's own mail road. */
-fun reportPage(act: MainActivity, ref: String, name: String, onClose: () -> Unit): View {
+// A post whose writer the wall never named is reported through its wall, and nobody is offered to be blocked for another's words
+// (iOS MontanaReportSheet(offersBlock:), MontanaBoardViews.swift:58-60 at 2155).
+fun reportPage(act: MainActivity, ref: String, name: String, onClose: () -> Unit, offersBlock: Boolean = true): View {
     val c: Context = act
     val reasons = listOf("spam" to R.string.pi_spam, "abuse" to R.string.pi_abuse, "hate" to R.string.pi_hate,
         "illegal" to R.string.pi_illegal, "other" to R.string.pi_other)
     var reason = "spam"
-    var blockToo = true
+    var blockToo = offersBlock
     val mail = "contact@montana.quest"
     return settingsPage(act, c.getString(R.string.pi_report), onClose, cross = true) {
         val rows = reasons.map { (key, words) ->
@@ -891,7 +898,7 @@ fun reportPage(act: MainActivity, ref: String, name: String, onClose: () -> Unit
         rows.forEachIndexed { i, r -> r.pressable { reason = reasons[i].first; mark() } }
         mark()
         section(c.getString(R.string.pi_reason), null, *rows.toTypedArray())
-        section(null, null, c.hstack {
+        if (offersBlock) section(null, null, c.hstack {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(16), dp(8), dp(14), dp(8))
             addView(c.text(c.getString(R.string.pi_block_too), 16f), lp(0, WRAP, 1f))

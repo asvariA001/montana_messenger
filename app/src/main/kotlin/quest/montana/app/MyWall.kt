@@ -417,8 +417,9 @@ object MyWall {
     }
     // ── a post on its way: its files on the node, then the post (iOS begin, publish, lay 1764-1932) ──
     class Attachment(val file: File, val kind: String, val name: String, val ext: String)
-    /** A post on its way as its bar reads it (iOS MTBoardOutgoing 282-298): the bytes the node confirmed of all its files. */
-    class Going(val id: String, val post: JSONObject, val total: Long, val done: Long, val failed: Boolean) {
+    /** A post on its way as its bar reads it (iOS MTBoardOutgoing 282-298): the bytes the node confirmed of all its files, and the wall
+     * it goes to -- "" my own. */
+    class Going(val id: String, val post: JSONObject, val total: Long, val done: Long, val failed: Boolean, val wall: String = "") {
         val share: Double get() = if (total == 0L) 1.0 else minOf(1.0, done.toDouble() / total)
     }
     private val going = LinkedHashMap<String, JSONObject>()   // id -> the post as it will stand, its files' sizes, the pieces confirmed
@@ -439,9 +440,10 @@ object MyWall {
     /**
      * A NEW POST, AT ONCE AS IT WILL STAND (iOS begin 1768-1818): the files move into this phone's store under the post's own names,
      * a picture in its frame -- its own shape whole -- with its poster, a track's or a film's length; the post stands on its way with
-     * my name and the words, and outlives the run. null: nothing to post, or a file could not be taken.
+     * my name and the words, and outlives the run; written on a person's page (wall, their reference) it goes to their wall, my small
+     * face over it. null: nothing to post, or a file could not be taken.
      */
-    fun begin(text: String, atts: List<Attachment>): String? {
+    fun begin(text: String, atts: List<Attachment>, wall: String = ""): String? {
         val t = text.trim().take(TEXT_LIMIT)
         if (t.isEmpty() && atts.isEmpty()) return null
         val pid = "p" + java.util.UUID.randomUUID().toString().replace("-", "").lowercase().take(24)
@@ -469,9 +471,11 @@ object MyWall {
             .put("at", System.currentTimeMillis() / 1000.0).put("text", t).put("media", media).put("pinned", false)
             .put("keepers", JSONArray().put("")).put("likes", JSONArray()).put("downloads", JSONArray()).put("reposts", JSONArray())
             .put("comments", JSONArray())
+        // MY FACE OVER A POST ON ANOTHER'S WALL (iOS fresh, MontanaBoard.swift:1821-1826 at 2155: face: wall == nil ? nil : myFace())
+        if (wall.isNotEmpty()) Board.myFace()?.let { post.put("face", it) }
         synchronized(lock) {
             ensure()
-            going[pid] = JSONObject().put("id", pid).put("post", post).put("sizes", sizes).put("confirmed", confirmed).put("failed", false)
+            going[pid] = JSONObject().put("id", pid).put("wall", wall).put("post", post).put("sizes", sizes).put("confirmed", confirmed).put("failed", false)
             writeGoing()
         }
         changed()
@@ -511,7 +515,23 @@ object MyWall {
             synchronized(lock) {
                 if (going.remove(pid) == null) return false   // let go by its writer meanwhile
                 writeGoing()
-                mine.add(post.put("media", laid))
+                post.put("media", laid)
+                if (o.optString("wall").isEmpty()) mine.add(post)
+            }
+            val wall = o.optString("wall")
+            if (wall.isNotEmpty()) {
+                // MY POST ON ANOTHER'S WALL (iOS lay, MontanaBoard.swift:1873-1897 at 2155): it stands there as a visitor's own post --
+                // mine, kept here, my small face over it, no views counted by me -- and its word carries the words, the files and the
+                // face (1889: MTBoardWord(t: "post", id, at, tx, md, bn, bg, fc, lp))
+                val shown = seen(post, "", conceal = false).apply { remove("own"); remove("views") }
+                post.optString("face").takeIf { it.isNotEmpty() }?.let { shown.put("face", it) }
+                val word = JSONObject().put("t", "post").put("id", pid).put("at", post.optDouble("at")).put("tx", post.optString("text"))
+                    .put("md", laid).put("bn", post.optString("byName")).put("bg", post.optString("byGlyph"))
+                post.optString("face").takeIf { it.isNotEmpty() }?.let { word.put("fc", it) }
+                Board.wrote(wall, shown, word)
+                changed()
+                Log.d("Montana", "wall_write id=" + pid.take(10) + " files=" + laid.length() + " wall=theirs")
+                return true
             }
             saveMine(own = true)
             Log.d("Montana", "wall_write id=" + pid.take(10) + " files=" + laid.length() + " wall=mine")
@@ -536,16 +556,22 @@ object MyWall {
         for (i in 0 until ms.length()) File(store(), fileName(pid, i, ms.optJSONObject(i)?.optString("ext") ?: "")).delete()
         changed()
     }
-    /** The posts on their way, newest first, each as it will stand (iOS sending(on:) 1919-1921). */
-    fun sending(): List<Going> = synchronized(lock) {
+    /** The posts on their way to a wall -- "" my own --, newest first, each as it will stand (iOS sending(on:) 1919-1921). */
+    fun sending(wall: String = ""): List<Going> = synchronized(lock) {
         ensure()
-        going.values.map { g ->
+        going.values.filter { it.optString("wall") == wall }.map { g ->
             val sizes = g.optJSONArray("sizes") ?: JSONArray()
             val conf = g.optJSONArray("confirmed") ?: JSONArray()
             var total = 0L
             var done = 0L
             for (i in 0 until sizes.length()) { val s = sizes.optLong(i); total += s; done += minOf(s, conf.optLong(i) * Media.CHUNK) }
-            Going(g.optString("id"), seen(g.getJSONObject("post"), "", conceal = false), total, done, g.optBoolean("failed"))
+            // on its way to another's wall it stands as it will there: a visitor's own post, my small face over it (iOS fresh 1821-1826)
+            val shown = seen(g.getJSONObject("post"), "", conceal = false)
+            if (wall.isNotEmpty()) {
+                shown.remove("own"); shown.remove("views")
+                g.getJSONObject("post").optString("face").takeIf { it.isNotEmpty() }?.let { shown.put("face", it) }
+            }
+            Going(g.optString("id"), shown, total, done, g.optBoolean("failed"), wall)
         }.sortedByDescending { it.post.optDouble("at") }
     }
     /**
@@ -560,6 +586,17 @@ object MyWall {
     }
     fun pin(id: String) = mutate(id, own = true) { it.put("pinned", !it.optBoolean("pinned")) }
     fun like(id: String) = mutate(id, own = true) { toggle(it, "likes", "", !has(arr(it, "likes"), "")) }
+    /** A REPOST STANDS ON MY WALL (iOS repost, MontanaBoard.swift:1656-1661 at 2155): once by its name; false -- it stands already. */
+    fun repost(post: JSONObject): Boolean {
+        val id = post.optString("id")
+        synchronized(lock) {
+            ensure()
+            if (mine.any { it.optString("id") == id }) return false
+            mine.add(post)
+        }
+        saveMine(own = true)
+        return true
+    }
     /** My own comment on my own post: sealed after the last seal the post holds. */
     fun comment(id: String, text: String) {
         val t = text.trim().take(COMMENT_LIMIT)
