@@ -69,6 +69,7 @@ object VoiceTape {
 
     /** The tape starts; false when the microphone is not ours (the question is asked, the next hold records). */
     fun start(act: MainActivity): Boolean {
+        if (CallSound.refused("voice tape")) return false   // the call holds the sound (iOS MontanaRecording 100)
         if (!granted(act)) { act.requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), 7); return false }
         if (rec != null) return false   // one tape at a time: a second start over a rolling one is nothing (iOS VoiceRecorder.start guard, build 1519 / 2155 MontanaMedia.swift:112)
         val f = File(act.cacheDir, "tape-${System.currentTimeMillis()}.m4a")
@@ -123,6 +124,7 @@ object VoicePlayer {
 
     fun toggle(path: String, onProgress: (Int, Int) -> Unit, stopped: () -> Unit, then: (() -> Unit)? = null, sender: String = "") {
         if (playing == path) { if (paused) resume() else pause(); return }
+        if (CallSound.refused("voice message")) return   // the call holds the sound (iOS MontanaMedia 372)
         stop()
         NoteOpen.close?.invoke()   // one thing plays: a voice closes the open note (iOS MontanaVideoDock)
         // THE RECEIVER IS THE CATEGORY'S OWN DEFAULT (iOS: no .defaultToSpeaker on the voice's playAndRecord category,
@@ -158,6 +160,7 @@ object VoicePlayer {
     fun pause() { val p = player ?: return; runCatching { p.pause() }; paused = true; disarmProximity(); Playing.changed() }
     fun resume() {
         val p = player ?: return
+        if (CallSound.refused("voice message")) return   // iOS MontanaMedia 482
         val path = playing ?: return
         runCatching { p.start(); speed(p) }; paused = false; armProximity(); tick(path); Playing.changed()
     }

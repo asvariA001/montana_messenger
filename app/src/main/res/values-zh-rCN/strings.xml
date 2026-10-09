@@ -633,4 +633,6 @@
     <string name="call_will_end">通话将结束</string>
     <string name="call_will_pause_body">在设置中关闭某项权限时，Android 会重启 Montana。请在一分钟内回到 Montana，通话将继续。</string>
     <string name="call_will_end_body">在设置中关闭某项权限时，Android 会重启 Montana，通话将结束。</string>
+    <string name="call_sound_busy_title">通话期间不可用</string>
+    <string name="call_sound_busy_body">通话进行时，声音归通话所用。</string>
 </resources>

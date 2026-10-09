@@ -250,6 +250,9 @@ object CallLine {
         val l = build(ref, seed) ?: return@execute
         armConnect(l)
         l.pc.setRemoteDescription(sdp(onSet = {
+            // A BIRTH HAS ONE LIFE (iOS callGen guards, atom 7492b6b28754): a call refused or ended while its offer was being
+            // taken raises no camera and says nothing -- the line in hand is no longer this one
+            if (synchronized(gate) { line !== l }) return@sdp
             l.remoteSet = true
             drain(l)
             // THE OFFER SAYS WHETHER IT IS A VIDEO CALL (iOS adoptVideoFromOffer 1147, produceAndSendAnswer 2706): its video line is

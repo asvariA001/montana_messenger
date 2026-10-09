@@ -888,6 +888,29 @@ object SystemSettings {
     }
 }
 
+/**
+ * THE CALL HOLDS THE SOUND WHILE IT LASTS (iOS MontanaAudioSession.refusedUnderCall, ContentView.swift 3203-3220, atom
+ * 25da76a76fd0): every other road of sound -- a voice message, a track, a voice tape, a round note -- passes here; under a
+ * call none of them starts, and the person who asked is told so in the platform's own alert. True when refused.
+ */
+object CallSound {
+    fun refused(what: String): Boolean {
+        if (!Calls.busy()) return false
+        Log.d("Montana", "audio_refused " + what + " -- the call holds the sound")
+        MainThread.post {
+            val act = CallScreen.front ?: return@post
+            android.app.AlertDialog.Builder(act).setTitle(R.string.call_sound_busy_title).setMessage(R.string.call_sound_busy_body)
+                .setPositiveButton(R.string.ok, null).show()
+        }
+        return true
+    }
+    /** A call is born: a track or a voice that plays stands down (iOS VoicePlayer.yieldToCall at setState «born», 4413). */
+    fun yieldToCall() = MainThread.post {
+        if (MusicPlayer.playing) { MusicPlayer.pause(); Log.d("Montana", "audio_yield music -- a call is born") }
+        if (VoicePlayer.playing != null) { VoicePlayer.stop(); Log.d("Montana", "audio_yield voice -- a call is born") }
+    }
+}
+
 object CallFloat {
     @Volatile var standing = false
         private set

@@ -137,6 +137,7 @@ object MusicPlayer {
     }
 
     fun play(c: Context, list: List<Track>, i: Int) {
+        if (CallSound.refused("music")) return   // the call holds the sound (iOS MontanaMedia 372)
         val a = c.applicationContext
         app = a
         queue = list; index = i
@@ -159,6 +160,7 @@ object MusicPlayer {
     fun pause() { mp?.takeIf { prepared }?.pause(); playing = false; changed() }
     fun resume() {
         val p = mp?.takeIf { prepared } ?: return
+        if (CallSound.refused("music")) return   // iOS MontanaMedia 482
         app?.let { takeFocus(it) }
         p.start(); playing = true; tick(); changed()
     }

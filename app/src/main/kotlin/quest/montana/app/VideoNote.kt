@@ -161,7 +161,7 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
     }
 
     /** The tape starts: the camera, the encoders and the drawing; false when a piece refused. */
-    fun start(): Boolean = try {
+    fun start(): Boolean = if (CallSound.refused("video note")) false else try {   // the call holds the sound (iOS MontanaRecording 100)
         file = File(c.cacheDir, "vnote_${System.currentTimeMillis()}.mp4")
         setupCodecs()
         val ready = java.util.concurrent.CountDownLatch(1)
