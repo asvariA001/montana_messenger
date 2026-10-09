@@ -104,6 +104,7 @@ class MainActivity : Activity() {
     private fun callAsks(video: Boolean): Array<String> = listOfNotNull(
         android.Manifest.permission.RECORD_AUDIO.takeIf { !VoiceTape.granted(this) },
         android.Manifest.permission.CAMERA.takeIf { video && checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED }
+            ?.also { Prefs.setBool(CallLine.CAM_ASKED, true) }   // asked here, the capture road's gate tells a refusal, never asks twice
     ).toTypedArray()
 
     /** The new version's notice tapped (Update): the app brings it and hands it to the system's installer. */

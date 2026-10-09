@@ -545,7 +545,7 @@ object CallLine {
         held = false
         heldByPeer = false
         video = false; asking = false; asked = false; offerMine = false; remoteLive = false; peerSharing = false; swapped = false
-        front = true; sniffed = false; askRound++; sharing = false; peerPaused = false; selfPaused = false
+        front = true; sniffed = false; askRound++; sharing = false; peerPaused = false; selfPaused = false; cameraTold = false
         powerFloorNow = 0; powerSaving = false; signal = 2   // the counters and the lights belong to one call (iOS 3066-3072)
         l.measureGen++   // no tick of the ended call survives into the next one (iOS K-9, 3081)
         breakTone(false)
@@ -843,7 +843,7 @@ object CallLine {
     private fun camera(l: Line): Boolean {
         if (l.vtrack != null) return true
         if (Book.ctx.checkSelfPermission(android.Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED)
-            return false.also { log("camera: not granted — the call goes on with sound") }
+            return false.also { log("cam_denied — the call goes on with sound"); cameraGate() }
         val f = CallEngine.factory ?: return false
         val egl = CallEngine.egl ?: return false
         return runCatching {
@@ -860,10 +860,32 @@ object CallLine {
             val track = f.createVideoTrack("mt_video", src)
             track.addSink(own)
             l.cam = cam; l.helper = helper; l.vsource = src; l.vtrack = track
-            log("camera up front=" + front)
+            log("cam_start auth=authorized front=" + front)   // the start names the system's answer (iOS cam_start auth=, atom 6ebef1dc1ca8)
             true
         }.getOrElse { log("camera: " + it.message); false }
     }
+
+    /**
+     * THE ACCESS GATE LIVES INSIDE THE ONE CAPTURE ROAD (iOS ensureCameraAccess 1581-1601, atom 6ebef1dc1ca8): every start --
+     * the dial, the answer, a mid-call upgrade, an accepted ask, «Turn on» -- passes the system's answer. Undecided: the one
+     * system question, and a «yes» brings the camera into the call at once; refused for good: the refusal is said to the face
+     * once a call (iOS cameraDeniedTold), the call goes on with sound.
+     */
+    @Volatile private var cameraTold = false
+    private fun cameraGate() = MainThread.post {
+        val act = CallScreen.front ?: return@post
+        // iOS's two answers: undecided (never asked) -- the system's question; decided -- the refusal said to the face
+        if (!Prefs.bool(CAM_ASKED, false)) {
+            Prefs.setBool(CAM_ASKED, true)
+            log("cam_ask system prompt")
+            act.askCamera { ok ->
+                log("cam_ask answer=" + (if (ok) "granted" else "denied"))
+                if (ok) work.execute { synchronized(gate) { line }?.let { if (video || asking || it.armedAt != 0L) enableMine(it) } }
+                else if (!cameraTold) { cameraTold = true; CallScreen.tellCameraOff() }
+            }
+        } else if (!cameraTold) { cameraTold = true; CallScreen.tellCameraOff() }
+    }
+    const val CAM_ASKED = "camAskedCall"   // the system's camera question was put for a call once: «undecided» is over
 
     private fun cameraOff(l: Line) {
         l.camGen++   // voids a camera fault still arriving for the capturer cleared below (iOS resumeGen, 24.09)

@@ -1,6 +1,7 @@
 package quest.montana.app
 
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.BitmapFactory
@@ -100,6 +101,20 @@ object CallScreen {
         val act = front ?: return@post
         android.app.AlertDialog.Builder(act).setTitle(R.string.call_no_road_title).setMessage(R.string.call_no_road_body)
             .setPositiveButton(R.string.ok, null).show()
+    }
+
+    /**
+     * THE CAMERA REFUSAL IS SAID TO THE FACE (iOS cameraDenied alert 6531-6545, ensureCameraAccess 1581-1601, atom 6ebef1dc1ca8,
+     * the author's word 20.09): the system's own alert, the road to the app's own page in Settings, and the call goes on with
+     * sound. Android does not restart the app when the switch is turned on, so its words say to turn the video on again.
+     */
+    fun tellCameraOff() = MainThread.post {
+        val act = front ?: return@post
+        android.app.AlertDialog.Builder(act).setTitle(R.string.call_cam_off_title).setMessage(R.string.call_cam_off_body)
+            .setPositiveButton(R.string.open_settings) { _, _ ->
+                runCatching { act.startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.fromParts("package", act.packageName, null))) }
+            }
+            .setNegativeButton(R.string.continue_with_voice, null).show()
     }
 
     private fun log(s: String) { Log.d("Montana", "call screen: " + s) }
@@ -522,7 +537,8 @@ object CallScreen {
         })
         // iOS armChromeFold 5481: a video call that stands, asking nothing of the person, hides its buttons after six seconds
         fun fold() {
-            val want = CallLine.video && CallLine.connectedAt > 0L && !CallLine.peerSharing && !CallLine.sharing && !CallLine.asked &&
+            // iOS armChromeFold 5527-5529: a video call that stands connected -- not broken -- with nothing riding or asked
+            val want = CallLine.video && CallLine.connectedAt > 0L && !CallLine.lost && !CallLine.peerSharing && !CallLine.sharing && !CallLine.asked &&
                 !CallLine.offerMine && !chromeHidden
             if (!want) { foldAt = 0L; return }
             val now = System.currentTimeMillis()
