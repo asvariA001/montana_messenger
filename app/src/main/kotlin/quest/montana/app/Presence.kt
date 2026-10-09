@@ -901,7 +901,7 @@ object NodeClock {
     val skewMs: Long get() { load(); return skew }
     fun learn(conn: java.net.HttpURLConnection) {
         val server = runCatching { conn.getHeaderFieldDate("Date", 0L) }.getOrDefault(0L)
-        if (server >= 0L) learn(server)
+        if (server > 0L) learn(server)   // no Date, or one unread: nothing is learned (iOS learnSkew 1028-1029)
     }
     @Synchronized fun learn(serverMs: Long) {
         load()
