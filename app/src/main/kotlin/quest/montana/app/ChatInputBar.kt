@@ -250,6 +250,7 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
             // the tap's deed, and an accessibility click's: a locked tape's key is its send arrow, otherwise the mark switches
             setOnClickListener {
                 if (locked) { finish(cancel = false); return@setOnClickListener }
+                VoiceTape.standDown()   // the hold ended as a tap: the readied tape is not wanted (iOS MontanaConversation.swift:1047 at 2155)
                 Prefs.setStr(MODE_KEY, if (video) "mic" else "video")
                 draw()
             }
@@ -272,7 +273,10 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
                     downX = e.rawX; downY = e.rawY
                     velocity?.recycle(); velocity = VelocityTracker.obtain().also { it.addMovement(e) }
                     v.parent?.requestDisallowInterceptTouchEvent(true)
-                    if (!locked) { scaleX = 0.94f; scaleY = 0.94f; postDelayed(begin, MODE_TIMEOUT_MS) }   // the small mark sinks under the finger
+                    if (!locked) {
+                        scaleX = 0.94f; scaleY = 0.94f; postDelayed(begin, MODE_TIMEOUT_MS)   // the small mark sinks under the finger
+                        if (!video) VoiceTape.prewarm(act)   // the tape is readied while the timeout runs (iOS MontanaRecording.ready 88-91)
+                    }
                 }
                 MotionEvent.ACTION_MOVE -> {
                     velocity?.addMovement(e)

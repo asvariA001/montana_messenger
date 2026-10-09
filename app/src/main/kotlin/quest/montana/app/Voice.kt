@@ -67,10 +67,9 @@ object VoiceTape {
 
     fun granted(c: Context) = c.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
-    // ONE THREAD FOR THE RECORDER'S WHOLE LIFE (measured on A1 09.10.2026 21:46 MSK, build 369): a MediaRecorder readied on its own
-    // thread and started on the main one recorded nothing -- every stop answered «MPEG4Writer: Stop() called but track is not
-    // started» and the tape was lost; it is born, started and stopped on the main thread, as before 369. iOS readies its
-    // recorder ahead (VoiceRecorder.prewarm, MontanaMedia.swift:76-99) -- the platform's recorder here does not carry that.
+    private var prepared: Pair<MediaRecorder, File>? = null
+    private var preparing = false
+    private var request = 0   // a readying overtaken by a start or a stand-down is thrown away on arrival (iOS request, MontanaMedia.swift:83)
     private fun born(act: MainActivity): Pair<MediaRecorder, File>? {
         val f = File(act.cacheDir, "tape-${System.currentTimeMillis()}.m4a")
         return try {
@@ -87,13 +86,41 @@ object VoiceTape {
             r to f
         } catch (_: Exception) { f.delete(); null }
     }
+    private fun discard(b: Pair<MediaRecorder, File>) { runCatching { b.first.release() }; b.second.delete() }
+    /** THE TAPE IS READIED UNDER THE FINGER (iOS VoiceRecorder.prewarm, MontanaMedia.swift:76-99 and 135-157 at 2155, atom
+     * 92fba2cb8154): born on its own thread the moment the finger lands, while the hold's mode timeout runs; the start that follows
+     * is one MediaRecorder.start(). Under a call nothing is readied -- the call holds the sound (iOS MontanaRecording.swift:89).
+     * Taken out in 370 on a wrong cause: «track is not started» is the second reset of a closed recorder; the lost tapes were
+     * the length read after the recorder was gone (371). */
+    fun prewarm(act: MainActivity) {
+        if (rec != null || prepared != null || preparing || Calls.busy() || !granted(act)) return
+        val ticket = ++request
+        preparing = true
+        Thread {
+            val b = born(act)
+            MainThread.post {
+                if (request != ticket) { b?.let(::discard); return@post }
+                preparing = false
+                if (b == null) return@post
+                if (rec == null) prepared = b else discard(b)
+            }
+        }.start()
+    }
+    /** The hold ended as a tap, or the chat closed: the readied tape is not wanted -- its empty file goes (iOS standDown, MontanaMedia.swift:101-109 at 2155). */
+    fun standDown() {
+        if (rec != null) return
+        request += 1
+        preparing = false
+        prepared?.let { prepared = null; discard(it) }
+    }
     /** The tape starts; false when the microphone is not ours (the question is asked, the next hold records). */
     fun start(act: MainActivity): Boolean {
         if (CallSound.refused("voice tape")) return false   // the call holds the sound (iOS MontanaRecording 100)
         if (!granted(act)) { act.requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), 7); return false }
         if (rec != null) return false   // one tape at a time: a second start over a rolling one is nothing (iOS VoiceRecorder.start guard, build 1519 / 2155 MontanaMedia.swift:112)
         Playing.standDown()   // a tape holds what plays, the open note closes (iOS MontanaMedia.swift:111-113 at 2155)
-        val (r, f) = born(act) ?: return false
+        request += 1; preparing = false   // a readying still on its thread is late now (iOS start, MontanaMedia.swift:115)
+        val (r, f) = prepared?.also { prepared = null } ?: (born(act) ?: return false)
         return try {
             r.start()
             rec = r; file = f; began = System.currentTimeMillis(); paused = false; pausedMs = 0
