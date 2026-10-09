@@ -45,7 +45,7 @@ fun sendWords(target: String, words: String) {
 fun sharePage(act: MainActivity, s: Shared, onClose: () -> Unit): View {
     val c: Context = act
     val chosen = linkedSetOf<String>()
-    lateinit var send: GoldButton
+    lateinit var send: AccentButton
     val field = EditText(c).apply {
         setText(s.words)   // USER-DATA: what the other app handed in
         hint = c.getString(R.string.message_hint)
@@ -65,7 +65,7 @@ fun sharePage(act: MainActivity, s: Shared, onClose: () -> Unit): View {
                 addView(c.peerFace(ch.ref, ch.shown, 46), lp(dp(46), dp(46)).apply { marginEnd = dp(12) })
                 addView(c.text(ch.shown.ifBlank { c.getString(R.string.peer) }, 17f, Color.WHITE, bold = true).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))   // USER-DATA: the name
                 addView(FrameLayout(c).apply {
-                    background = if (on) c.rounded(MT.gold, 12) else c.rounded(Color.TRANSPARENT, 12, MT.gray)
+                    background = if (on) c.rounded(Color.WHITE, 12) else c.rounded(Color.TRANSPARENT, 12, MT.gray)
                     if (on) addView(c.icon(R.drawable.ic_check, Color.BLACK, 16), FrameLayout.LayoutParams(dp(16), dp(16), Gravity.CENTER))
                 }, lp(dp(24), dp(24)))
                 pressable { if (!chosen.remove(ch.ref)) chosen.add(ch.ref); fill(); send.setOn(chosen.isNotEmpty()) }
@@ -74,7 +74,7 @@ fun sharePage(act: MainActivity, s: Shared, onClose: () -> Unit): View {
         }
         if (rows.childCount == 0) rows.addView(c.text(c.getString(R.string.no_chats), 17f, MT.gray, center = true).apply { setPadding(0, c.dp(40), 0, 0) }, lp())
     }
-    send = GoldButton(c, c.getString(R.string.send)) {
+    send = AccentButton(c, c.getString(R.string.send)) {
         val to = chosen.toList()
         val words = field.text.toString().trim()
         act.getSystemService(android.view.inputmethod.InputMethodManager::class.java).hideSoftInputFromWindow(field.windowToken, 0)

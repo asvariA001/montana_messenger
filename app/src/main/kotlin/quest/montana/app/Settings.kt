@@ -133,9 +133,9 @@ fun settingsRoot(act: MainActivity, onForget: () -> Unit, onClose: () -> Unit): 
         section(null, null,
             c.settingsRow(R.drawable.ic_set_bell, SysColor.red, c.getString(R.string.notif_sounds)) { act.push { notificationsPage(act, it) } },
             c.settingsRow(R.drawable.ic_arrow_circle_down, SysColor.indigo, c.getString(R.string.data_storage)) { act.push { dataStoragePage(act, it) } },
-            c.settingsRow(R.drawable.ic_set_server, MT.gold, c.getString(R.string.your_node)) { act.push { NodePage(act, it).view } },
+            c.settingsRow(R.drawable.ic_set_server, SysColor.gray, c.getString(R.string.your_node)) { act.push { NodePage(act, it).view } },
             c.settingsRow(R.drawable.ic_set_lock, SysColor.gray, c.getString(R.string.privacy)) { act.push { privacyPage(act, onForget, it) } },
-            c.settingsRow(R.drawable.ic_set_brush, MT.gold, c.getString(R.string.appearance)) { act.push { AppearancePage(act, it).view } },
+            c.settingsRow(R.drawable.ic_set_brush, SysColor.blue, c.getString(R.string.appearance)) { act.push { AppearancePage(act, it).view } },
             c.settingsRow(R.drawable.ic_language, SysColor.cyan, c.getString(R.string.language)) { act.push { languagePage(act, it) } })
         section(null, null,
             c.settingsRow(R.drawable.ic_set_help, SysColor.blue, c.getString(R.string.ask_question)) { act.push { supportPage(act, it) } },
@@ -221,7 +221,7 @@ fun languagePage(act: MainActivity, onBack: () -> Unit): View {
             setPadding(dp(16), dp(10), dp(16), dp(10))
             addView(FrameLayout(c).apply {
                 background = android.graphics.drawable.GradientDrawable().apply { shape = android.graphics.drawable.GradientDrawable.OVAL; setColor(Color.rgb(41, 41, 41)) }
-                if (o.flag == null) addView(c.icon(R.drawable.ic_language, MT.gold), FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
+                if (o.flag == null) addView(c.icon(R.drawable.ic_language, Color.WHITE), FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
                 else addView(c.text(o.flag, 22f, center = true), FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
             }, lp(dp(44), dp(44)))
             gap(14)
@@ -275,7 +275,7 @@ fun supportPage(act: MainActivity, onBack: () -> Unit): View {
 fun privacyPage(act: MainActivity, onForget: () -> Unit, onBack: () -> Unit): View {
     val c: Context = act
     fun sw(res: Int, color: Int, word: Int, key: String, caption: Int? = null) =
-        c.switchLine(res, color, c.getString(word), Prefs.bool(key, true), caption?.let { c.getString(it) }, tint = MT.gold) { Prefs.setBool(key, it) }
+        c.switchLine(res, color, c.getString(word), Prefs.bool(key, true), caption?.let { c.getString(it) }) { Prefs.setBool(key, it) }
     // THE SYSTEM'S OWN ANSWERS (iOS PrivacyView, its first section): the local network — «Connected» while this phone is findable
     // on the mesh, the one switch owning the concept (iOS MontanaSettings 1731, 1765), and it leads to where the system keeps it; the
     // location — asked here when never asked, changed where the system keeps it, the same answer the place page reads. iOS's
@@ -297,7 +297,7 @@ fun privacyPage(act: MainActivity, onForget: () -> Unit, onBack: () -> Unit): Vi
             })
         section(null, null,
             // the switch speaks: hidden, one farewell word; shown, «here» at once (iOS MontanaPresencePrivacy.setSharing)
-            c.switchLine(R.drawable.ic_set_eye, SysColor.teal, c.getString(R.string.online_status), Presence.sharing, c.getString(R.string.online_status_sub), tint = MT.gold) { Presence.setSharing(it) },
+            c.switchLine(R.drawable.ic_set_eye, SysColor.teal, c.getString(R.string.online_status), Presence.sharing, c.getString(R.string.online_status_sub)) { Presence.setSharing(it) },
             sw(R.drawable.ic_set_check_circle, SysColor.green, R.string.read_receipts, "readReceiptsEnabled"),
             sw(R.drawable.ic_set_keyboard, SysColor.indigo, R.string.live_chat, "liveTypingEnabled"),
             // «Sync contacts» (iOS ContactsTabView.upsertSystemCard 2463-2476) writes a person's Montana name into the phone's
@@ -305,12 +305,12 @@ fun privacyPage(act: MainActivity, onForget: () -> Unit, onBack: () -> Unit): Vi
             sw(R.drawable.ic_set_link, SysColor.blue, R.string.link_previews, "linkPreviewsEnabled", R.string.link_previews_sub),
             // THE DIARY LEAVES ONLY BY THE PERSON'S YES (iOS MontanaSettings 1852-1861, MontanaDiagConsent; App Review 5.1.1(ii), 08.10):
             // off, nothing of the diary leaves this phone; the doc glyph stands for the iPhone's stethoscope, which the set lacks
-            c.switchLine(R.drawable.ic_set_doc, SysColor.gray, c.getString(R.string.diag_share), Diary.consented, c.getString(R.string.diag_share_sub), tint = MT.gold) { Diary.setConsent(it) })
+            c.switchLine(R.drawable.ic_set_doc, SysColor.gray, c.getString(R.string.diag_share), Diary.consented, c.getString(R.string.diag_share_sub)) { Diary.setConsent(it) })
         section(null, null, sw(R.drawable.ic_set_eye_slash, SysColor.purple, R.string.filter_objectionable, "objectionableFilterOn"),
             c.settingsRow(R.drawable.ic_hand, SysColor.red, c.getString(R.string.blocked_users)) { act.push { blockedPage(act, it) } })
         section(null, null, c.switchLine(R.drawable.ic_key, SysColor.blue, c.getString(R.string.identity_google), MontanaBackupID.on(c),
-            c.getString(R.string.identity_google_sub), tint = MT.gold) { MontanaBackupID.setOn(c, it) })
-        section(null, null, c.settingsRow(R.drawable.ic_key, MT.gold, c.getString(R.string.seed_phrase)) { act.push { seedPage(act, it) } })
+            c.getString(R.string.identity_google_sub)) { MontanaBackupID.setOn(c, it) })
+        section(null, null, c.settingsRow(R.drawable.ic_key, SysColor.gray, c.getString(R.string.seed_phrase)) { act.push { seedPage(act, it) } })
         section(null, null, c.text(c.getString(R.string.forget_device), 16f, MT.red, center = true).apply {
             setPadding(dp(16), dp(14), dp(16), dp(14))
             pressable {
@@ -378,23 +378,23 @@ fun seedPage(act: MainActivity, onBack: () -> Unit): View {
     fun locked(word: OwnerWord?) {
         body.removeAllViews()
         body.gap(48)
-        body.addView(c.icon(R.drawable.ic_set_lock, MT.gold, 44), lp(WRAP, WRAP).apply { gravity = Gravity.CENTER_HORIZONTAL })
+        body.addView(c.icon(R.drawable.ic_set_lock, Color.WHITE, 44), lp(WRAP, WRAP).apply { gravity = Gravity.CENTER_HORIZONTAL })
         body.gap(16)
         val say = when (word) { OwnerWord.NO_LOCK -> R.string.sg_no_lock; OwnerWord.FAILED -> R.string.sg_failed; else -> R.string.sg_confirm }
         body.addView(c.text(c.getString(say), 13f, MT.gray, center = true), lp())
         body.gap(16)
-        body.addView(GoldButton(c, c.getString(R.string.sg_unlock)) { ask() }, lp())
+        body.addView(AccentButton(c, c.getString(R.string.sg_unlock)) { ask() }, lp())
     }
     fun promises() {
         body.removeAllViews()
         body.gap(36)
-        body.addView(c.icon(R.drawable.ic_shield, MT.gold, 72), lp(WRAP, WRAP).apply { gravity = Gravity.CENTER_HORIZONTAL })
+        body.addView(c.icon(R.drawable.ic_shield, Color.WHITE, 72), lp(WRAP, WRAP).apply { gravity = Gravity.CENTER_HORIZONTAL })
         body.gap(12)
         body.addView(c.text("⚠ " + c.getString(R.string.sg_for_you), 17f, Color.WHITE, bold = true, center = true), lp())
         body.gap(6)
         body.addView(c.text(c.getString(R.string.sg_wallet), 22f, Color.WHITE, bold = true, center = true), lp())
         body.gap(16)
-        lateinit var go: GoldButton
+        lateinit var go: AccentButton
         val ticks = BooleanArray(2)
         fun promise(i: Int, res: Int) = c.hstack {
             background = c.rounded(MT.plate, 12)
@@ -412,7 +412,7 @@ fun seedPage(act: MainActivity, onBack: () -> Unit): View {
         body.gap(8)
         body.addView(promise(1, R.string.sg_on_paper), lp())
         body.gap(16)
-        go = GoldButton(c, c.getString(R.string.continue_word)) { words() }.apply { setOn(false) }
+        go = AccentButton(c, c.getString(R.string.continue_word)) { words() }.apply { setOn(false) }
         body.addView(go, lp())
     }
     ask = { OwnerCheck.ask(act, c.getString(R.string.sg_reason)) { w -> act.onMain { if (w == OwnerWord.CONFIRMED) promises() else locked(w) } } }
@@ -450,7 +450,7 @@ private fun LinearLayout.seedWords(c: Context) {
     }, lp())
     gap(14)
     lateinit var copy: TextView
-    copy = c.text(c.getString(R.string.copy), 14f, MT.gold, center = true).apply {
+    copy = c.text(c.getString(R.string.copy), 14f, Color.WHITE, center = true).apply {
         setPadding(dp(12), dp(10), dp(12), dp(10))
         pressable {
             val clip = ClipData.newPlainText("Montana", words.joinToString(" "))
@@ -474,7 +474,7 @@ fun dataStoragePage(act: MainActivity, onBack: () -> Unit): View {
     val progress = c.vstack(Gravity.NO_GRAVITY) { setPadding(dp(16), dp(10), dp(16), dp(12)); visibility = View.GONE }
     val progressWord = c.text("", 15f)
     val progressShare = c.text("", 13f, MT.gray)
-    val bar = ProgressBar(c, null, android.R.attr.progressBarStyleHorizontal).apply { max = 100; progressTintList = ColorStateList.valueOf(MT.gold) }
+    val bar = ProgressBar(c, null, android.R.attr.progressBarStyleHorizontal).apply { max = 100; progressTintList = ColorStateList.valueOf(Color.WHITE) }
     progress.addView(c.hstack { addView(progressWord, lp(0, WRAP, 1f)); addView(progressShare) }, lp())
     progress.addView(bar, lp())
     var working = false

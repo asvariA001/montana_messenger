@@ -151,7 +151,7 @@ fun Context.liveDraftBubble(d: LiveDraft.Draft, chat: Chat?): View = FrameLayout
         setPadding(dp(13), dp(8), dp(13), dp(8))
         if (d.replyMid.isNotEmpty()) chat?.msgs?.find { it.mid == d.replyMid }?.let { q ->
             addView(hstack {
-                addView(View(context).apply { setBackgroundColor(MT.gold) }, lp(dp(3), dp(16)).apply { marginEnd = dp(6) })
+                addView(View(context).apply { setBackgroundColor(Color.WHITE) }, lp(dp(3), dp(16)).apply { marginEnd = dp(6) })
                 addView(text(letterWords(context, q), 12f, Color.argb(180, 255, 255, 255)).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })   // USER-DATA
             }, lp().apply { bottomMargin = dp(2) })
         }

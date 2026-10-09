@@ -78,7 +78,7 @@ class Profile(private val act: MainActivity, private val onboarding: Boolean, pr
         view.setBackgroundColor(Color.BLACK)   // the editor's own ground (iOS: black under the page), over the first screens' picture
         act.back = if (onboarding) null else ({ done() })
         val col = c.vstack(Gravity.NO_GRAVITY) {
-            addView(c.topBar(trailing = c.icon(R.drawable.ic_check, MT.gold).apply {
+            addView(c.topBar(trailing = c.icon(R.drawable.ic_check, Color.rgb(204, 204, 204)).apply {
                 setPadding(dp(10), dp(10), dp(10), dp(10)); pressable { done() }
             }.also { it.layoutParams = FrameLayout.LayoutParams(dp(44), dp(44)) }))
             val body = c.vstack(Gravity.NO_GRAVITY) {
@@ -93,7 +93,7 @@ class Profile(private val act: MainActivity, private val onboarding: Boolean, pr
                     val row = c.hstack {
                         setPadding(dp(16), dp(14), dp(16), dp(14))
                         addView(c.icon(R.drawable.ic_photo, Color.WHITE), lp(dp(26), dp(24)).apply { marginEnd = dp(12) })
-                        photoRowText = c.text("", 17f, MT.gold)
+                        photoRowText = c.text("", 17f, Color.WHITE)
                         addView(photoRowText, lp(0, WRAP, 1f))
                     }
                     row.pressable { pickFace() }
@@ -105,7 +105,7 @@ class Profile(private val act: MainActivity, private val onboarding: Boolean, pr
                         addView(c.hstack {
                             setPadding(dp(16), dp(14), dp(16), dp(14))
                             addView(c.icon(R.drawable.ic_photo, Color.WHITE), lp(dp(26), dp(24)).apply { marginEnd = dp(12) })
-                            addView(c.text(c.getString(R.string.pg_change), 17f, MT.gold), lp(0, WRAP, 1f))
+                            addView(c.text(c.getString(R.string.pg_change), 17f, Color.WHITE), lp(0, WRAP, 1f))
                             pressable { act.push { close -> wallpaperPicker(act, ChatWall.PAGE, close) } }
                         }, lp())
                     }
@@ -221,7 +221,7 @@ class Profile(private val act: MainActivity, private val onboarding: Boolean, pr
                 list.addView(c.hstack {
                     setPadding(dp(20), dp(14), dp(20), dp(14))
                     addView(c.text(row, 17f), lp(0, WRAP, 1f))
-                    if (row == name) addView(c.icon(R.drawable.ic_check, MT.gold))
+                    if (row == name) addView(c.icon(R.drawable.ic_check, Color.WHITE))
                     pressable { name = row; Prefs.userName = row; showEditor() }
                 }, lp())
             }

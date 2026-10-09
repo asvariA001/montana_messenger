@@ -44,7 +44,7 @@ object BT {
 }
 
 /** The classic style's own colour of my letters (iOS bubblePalette, chosen by bubbleColorIndex). */
-private val bubblePalette = intArrayOf(MT.gold, Color.rgb(51, 153, 255), Color.rgb(77, 199, 115), Color.rgb(217, 82, 140),
+private val bubblePalette = intArrayOf(SysColor.indigo, Color.rgb(51, 153, 255), Color.rgb(77, 199, 115), Color.rgb(217, 82, 140),
     Color.rgb(153, 115, 242), Color.rgb(242, 115, 64), Color.rgb(51, 179, 179))
 
 fun colorOf(hex: String): Int = try { Color.parseColor("#$hex") } catch (_: IllegalArgumentException) { Color.GRAY }
@@ -343,7 +343,7 @@ private fun swatch(c: Context, color: Int) = GradientDrawable().apply {
 
 /** A row that acts (iOS Button in a List: the accent's words). */
 private fun actionRow(c: Context, res: Int, onTap: () -> Unit) =
-    c.text(c.getString(res), 16f, MT.gold).apply { setPadding(c.dp(16), c.dp(13), c.dp(16), c.dp(13)); pressable(onTap) }
+    c.text(c.getString(res), 16f, Color.WHITE).apply { setPadding(c.dp(16), c.dp(13), c.dp(16), c.dp(13)); pressable(onTap) }
 
 /**
  * A slider over a stored number (iOS Slider): the caption above, the platform's SeekBar in gold. The number is kept in its
@@ -356,7 +356,7 @@ private fun slider(c: Context, word: Int, key: String, def: Double, lo: Double, 
         addView(SeekBar(c).apply {
             max = 1000
             progress = (((Prefs.dbl(key, def).coerceIn(lo, hi) - lo) / (hi - lo)) * 1000).toInt()
-            progressTintList = ColorStateList.valueOf(MT.gold); thumbTintList = ColorStateList.valueOf(MT.gold)
+            progressTintList = ColorStateList.valueOf(Color.WHITE); thumbTintList = ColorStateList.valueOf(Color.WHITE)
             contentDescription = c.getString(word)
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(s: SeekBar, p: Int, fromUser: Boolean) {
@@ -418,7 +418,7 @@ class ColorEditor(act: MainActivity, title: String, start: String, private val k
             addView(c.text(c.getString(word), 12f, MT.gray))
             addView(SeekBar(c).apply {
                 max = 1000; progress = (hsv[i] / top * 1000).toInt()
-                progressTintList = ColorStateList.valueOf(MT.gold); thumbTintList = ColorStateList.valueOf(MT.gold)
+                progressTintList = ColorStateList.valueOf(Color.WHITE); thumbTintList = ColorStateList.valueOf(Color.WHITE)
                 contentDescription = c.getString(word)
                 setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                     override fun onProgressChanged(s: SeekBar, p: Int, fromUser: Boolean) { if (fromUser) { hsv[i] = top * p / 1000f; show() } }

@@ -104,9 +104,9 @@ fun pinnedPlate(act: MainActivity, ref: String, onJump: (String) -> Unit): View 
         gravity = Gravity.CENTER_VERTICAL
         background = c.glassPlate()
         setPadding(dp(12), dp(6), dp(4), dp(6))
-        addView(c.icon(R.drawable.ic_pin, MT.gold, 16), lp(dp(16), dp(16)).apply { marginEnd = dp(10) })
+        addView(c.icon(R.drawable.ic_pin, Color.WHITE, 16), lp(dp(16), dp(16)).apply { marginEnd = dp(10) })
         addView(c.vstack(Gravity.NO_GRAVITY) {
-            addView(c.text(c.getString(R.string.ld_pinned), 12f, MT.gold, bold = true))
+            addView(c.text(c.getString(R.string.ld_pinned), 12f, MT.gray))   // iOS «Pinned message»: caption2, secondary (MontanaConversation 2528)
             addView(words)
         }, lp(0, WRAP, 1f))
         addView(c.icon(R.drawable.ic_close, MT.gray, 18).apply {

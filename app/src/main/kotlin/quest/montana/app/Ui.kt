@@ -24,7 +24,6 @@ import android.widget.TextView
 
 // ─────────── colours (iOS MontanaNetFrames.swift / ContentView.swift) ───────────
 object MT {
-    val gold = Color.rgb(217, 158, 56)          // Color(red: 0.85, green: 0.62, blue: 0.22)
     val gray = Color.rgb(142, 142, 147)         // iOS .gray
     val plate = Color.rgb(31, 31, 31)           // iOS Color(white: 0.12)
     val orange = Color.rgb(255, 159, 10)        // iOS .orange (dark)
@@ -103,15 +102,15 @@ fun View.pressable(onClick: () -> Unit): View {
     return this
 }
 
-/** The gold button (iOS bigButton): gold fill, black headline, corner 14. */
-class GoldButton(ctx: Context, title: String, onClick: () -> Unit) : LinearLayout(ctx) {
+/** The page's act (iOS bigButton, MontanaScreens 579-581 at 2155): the accent's fill -- white in the dark (AccentColor) --, black headline, corner 14. */
+class AccentButton(ctx: Context, title: String, onClick: () -> Unit) : LinearLayout(ctx) {
     private val label = ctx.text(title, 17f, Color.BLACK, bold = true)
     private val spinner = ProgressBar(ctx).apply {
         indeterminateTintList = ColorStateList.valueOf(Color.BLACK); visibility = View.GONE
     }
     init {
         orientation = HORIZONTAL; gravity = Gravity.CENTER
-        background = ctx.rounded(MT.gold, 14)
+        background = ctx.rounded(Color.WHITE, 14)
         setPadding(0, dp(16), 0, dp(16))
         addView(spinner, LayoutParams(dp(18), dp(18)).apply { marginEnd = dp(8) })
         addView(label)
@@ -119,7 +118,7 @@ class GoldButton(ctx: Context, title: String, onClick: () -> Unit) : LinearLayou
     }
     fun setTitle(s: String) { label.text = s }
     fun setBusy(busy: Boolean) { spinner.visibility = if (busy) View.VISIBLE else View.GONE; setOn(!busy) }
-    /** Enabled or dimmed to 0.4, as iOS dims a disabled gold button. */
+    /** Enabled or dimmed to 0.4, as iOS dims a disabled button. */
     fun setOn(on: Boolean) { isEnabled = on; alpha = if (on) 1f else 0.4f }
 }
 
@@ -152,14 +151,6 @@ class PathDoor(ctx: Context, title: String, tint: Int? = null, onClick: () -> Un
     fun setOn(on: Boolean) { isEnabled = on; alpha = if (on) 1f else 0.4f }
 }
 
-/** The outlined button: the word in [color], a 1pt stroke, corner 14. */
-fun Context.outlineButton(title: String, color: Int = MT.gold, stroke: Int = MT.gold, onClick: () -> Unit) =
-    text(title, 17f, color, bold = true, center = true).apply {
-        background = rounded(Color.TRANSPARENT, 14, stroke)
-        setPadding(0, dp(16), 0, dp(16))
-        pressable(onClick)
-    }
-
 /** iOS Button("Back").font(.caption).foregroundColor(.gray) */
 fun Context.backLink(onClick: () -> Unit) =
     text(getString(R.string.back), 12f, MT.gray, center = true).apply { setPadding(dp(16), dp(8), dp(16), dp(8)); pressable(onClick) }
@@ -168,7 +159,7 @@ fun Context.backLink(onClick: () -> Unit) =
 fun Context.toggleRow(title: String, onChange: (Boolean) -> Unit): LinearLayout {
     val sw = Switch(this).apply {
         thumbTintList = ColorStateList.valueOf(Color.WHITE)
-        trackTintList = ColorStateList(arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()), intArrayOf(MT.gold, Color.rgb(57, 57, 61)))
+        trackTintList = ColorStateList(arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()), intArrayOf(MT.green, Color.rgb(57, 57, 61)))   // iOS Toggle: the platform's green
         setOnCheckedChangeListener { _, on -> onChange(on) }
     }
     return hstack {

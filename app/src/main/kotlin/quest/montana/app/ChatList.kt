@@ -141,7 +141,7 @@ fun listRow(act: MainActivity, chat: Chat, inArchive: Boolean, sel: ChatSelectio
     if (sel != null && sel.on) {
         val chosen = chat.ref in sel.chosen
         val mark = FrameLayout(c).apply {
-            background = if (chosen) c.rounded(MT.gold, 12) else c.rounded(Color.TRANSPARENT, 12, MT.gray)
+            background = if (chosen) c.rounded(Color.WHITE, 12) else c.rounded(Color.TRANSPARENT, 12, MT.gray)
             if (chosen) addView(c.icon(R.drawable.ic_check, Color.BLACK, 16), FrameLayout.LayoutParams(dp(16), dp(16), Gravity.CENTER))
         }
         return c.hstack {

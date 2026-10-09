@@ -683,7 +683,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 // WHILE THE CHAT SELECTS a letter is a choice: a circle on the left, a tap chooses (iOS the selection rows); a plate whole
                 val chosen = m.mid in picked
                 val circle = FrameLayout(c).apply {
-                    background = if (chosen) c.rounded(MT.gold, 11) else c.rounded(Color.TRANSPARENT, 11, Color.WHITE)
+                    background = if (chosen) c.rounded(Color.WHITE, 11) else c.rounded(Color.TRANSPARENT, 11, Color.WHITE)
                     if (chosen) addView(c.icon(R.drawable.ic_check, Color.BLACK, 14), FrameLayout.LayoutParams(dp(14), dp(14), Gravity.CENTER))
                 }
                 return c.hstack {
