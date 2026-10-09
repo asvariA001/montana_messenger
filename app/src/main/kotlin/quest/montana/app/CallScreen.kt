@@ -439,6 +439,7 @@ object CallScreen {
             turnPlate.visibility = if (CallLine.offerMine && v && !screen) View.VISIBLE else View.GONE
             page.keepScreenOn = v   // iOS applyScreenHold: a video call holds the screen awake
             sides()
+            upright()
             videoLit?.invoke()
             page.post { placeMini(true) }
         }
@@ -480,6 +481,14 @@ object CallScreen {
             if (foldAt == 0L) foldAt = now + FOLD_MS
             else if (now >= foldAt) { foldAt = 0L; chromeHidden = true; redraw() }
         }
+        // AN AUDIO CALL ON A PHONE STANDS UPRIGHT (iOS MTCallUpright, MontanaCall.swift 6919-6935, atom 4513e11ddfeb, the
+        // author's word 24.09: «during an audio call from the phone the screen must not turn, it stays vertical»). A video
+        // call, a folded call (the page detached, below) and a tablet keep the system's own free rotation.
+        val phone = c.resources.configuration.smallestScreenWidthDp < 600
+        fun upright() {
+            act.requestedOrientation = if (!CallLine.video && phone) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
         line()
         var live = true
         MainThread.later(1000, object : Runnable {
@@ -493,6 +502,8 @@ object CallScreen {
             override fun onViewAttachedToWindow(v: View) { CallLine.changed = hook; redraw() }
             override fun onViewDetachedFromWindow(v: View) {
                 live = false
+                // a folded call frees the turn (iOS MTCallUpright, atom 4513e11ddfeb): the platform shows it, not us
+                act.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
                 if (CallLine.changed === hook) CallLine.changed = null
                 if (CallLine.theirs.into === big || CallLine.theirs.into === mini) CallLine.theirs.into = null
                 if (CallLine.own.into === big || CallLine.own.into === mini) CallLine.own.into = null
@@ -557,7 +568,7 @@ object CallScreen {
             icon.setImageResource(f.icon)
             icon.setColorFilter(if (f.lit) Color.BLACK else barGlyph)
             face.background = if (f.lit) c.rounded(Color.WHITE, SIDE / 2) else c.glassPlate(oval = true)
-            caption.text = c.getString(f.caption)
+            caption.text = f.verbatim ?: c.getString(f.caption)   // USER-DATA: the device's own name, as the system names it
             face.contentDescription = caption.text
         }
         paint()
