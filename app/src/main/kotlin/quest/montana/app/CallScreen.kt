@@ -314,6 +314,11 @@ object CallScreen {
         // ── the pictures (iOS 6599-6616): the big slot, the switch over it, the dial's shade, the corner slot ──
         val big = Picture(c)
         val mini = Picture(c)
+        // THE STALE PICTURE'S COVER (iOS MTCallSurface overlay 6268-6274, MTCallGround 6406, applyCovers 5491-5495):
+        // held, held by the far side, or two witnessed samples without a fresh frame -- the slot carrying their
+        // picture wears their own blurred face instead of the stale frame, whichever slot it rides (sides()).
+        val remoteCoverBig = ground(c, ref, name).apply { visibility = View.GONE; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }
+        val remoteCoverMini = ground(c, ref, name).apply { visibility = View.GONE; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }
         val miniBox = FrameLayout(c).apply {
             setBackgroundColor(Color.BLACK)
             outlineProvider = object : ViewOutlineProvider() {
@@ -322,6 +327,7 @@ object CallScreen {
             clipToOutline = true
             foreground = c.rounded(Color.TRANSPARENT, 12, Color.argb(64, 255, 255, 255))
             addView(mini, FrameLayout.LayoutParams(MATCH, MATCH))
+            addView(remoteCoverMini, FrameLayout.LayoutParams(MATCH, MATCH))
             visibility = View.GONE
         }
         val shade = View(c).apply {
@@ -330,6 +336,7 @@ object CallScreen {
         val tap = View(c).apply { importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }
         val pictures = FrameLayout(c).apply {
             addView(big, FrameLayout.LayoutParams(MATCH, MATCH, Gravity.CENTER))
+            addView(remoteCoverBig, FrameLayout.LayoutParams(MATCH, MATCH, Gravity.CENTER))
             addView(tap, FrameLayout.LayoutParams(MATCH, MATCH))
             addView(shade, FrameLayout.LayoutParams(MATCH, MATCH))
             addView(miniBox, FrameLayout.LayoutParams(c.dp(MINI_W), c.dp(MINI_H), Gravity.TOP or Gravity.START))
@@ -346,7 +353,11 @@ object CallScreen {
         // screen and mine rides the corner — until the corner is tapped; before theirs comes, mine fills the screen
         fun sides() {
             // the sharer sees the peer's ground, not the screen it shares (iOS 6566-6574): no picture is drawn
-            if (CallLine.sharing) { CallLine.theirs.into = null; CallLine.own.into = null; miniBox.visibility = View.GONE; return }
+            if (CallLine.sharing) {
+                CallLine.theirs.into = null; CallLine.own.into = null; miniBox.visibility = View.GONE
+                remoteCoverBig.visibility = View.GONE; remoteCoverMini.visibility = View.GONE
+                return
+            }
             val pip = CallLine.video && CallLine.remoteLive
             val shown = pip && !CallLine.peerSharing && CallLine.camera
             val bigLocal = !pip || (CallLine.swapped && shown)
@@ -357,6 +368,11 @@ object CallScreen {
             big.fit = !bigLocal && CallLine.peerSharing   // a shared screen is fitted on black, never cut
             miniBox.visibility = if (shown) View.VISIBLE else View.GONE
             shade.visibility = if (!shown && !CallLine.peerSharing) View.VISIBLE else View.GONE
+            // THE COVER (iOS applyCovers 5491-5495): held, held by the far side, or the witnessed frames stood
+            // still -- the slot carrying their picture wears their blurred face instead of the stale frame.
+            val covered = pip && (CallLine.held || CallLine.heldByPeer || (CallLine.peerPaused && !CallLine.peerSharing))
+            remoteCoverBig.visibility = if (covered && !bigLocal) View.VISIBLE else View.GONE
+            remoteCoverMini.visibility = if (covered && bigLocal && shown) View.VISIBLE else View.GONE
         }
         // THE CORNER PICTURE'S PLACE, THE 2155 FORM (iOS MTCallMini, MontanaCall.swift 6321-6338): one fact for each edge,
         // read off chromeVisible, not a number measured a frame late -- the top panel up: ten points under its measured
@@ -467,7 +483,9 @@ object CallScreen {
         line()
         var live = true
         MainThread.later(1000, object : Runnable {
-            override fun run() { if (!live) return; line(); fold(); MainThread.later(1000, this) }
+            // sides() here too (iOS applyCovers is didSet-driven; the hold toggle itself calls no moved()): the
+            // cover over a held or stalled picture updates on the same breath as the clock, never later than a second.
+            override fun run() { if (!live) return; line(); sides(); fold(); MainThread.later(1000, this) }
         })
         val hook: () -> Unit = { line(); redraw() }
         // the page goes by the fold, by the system's back or by the call's end; a call still in hand leaves its pill

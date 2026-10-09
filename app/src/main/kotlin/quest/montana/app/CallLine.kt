@@ -119,6 +119,14 @@ object CallLine {
     @Volatile var offerMine = false   // their picture came while my camera sleeps: «Turn on your video?»
     @Volatile var remoteLive = false   // their frames are drawn: a track is not a picture
         private set
+    // THE PEER'S PICTURE HAS ONE WITNESS, ITS OWN FRAMES (iOS notePeerPicture 3907, pictureSeen 3889, 4066-4067): two
+    // samples without a fresh one after the picture once arrived name it stood still, and the call's screen covers
+    // the stale frame with the peer's blurred face -- the same cover that stands while either side holds the call
+    // (iOS applyCovers 5491-5495).
+    @Volatile var peerPaused = false
+        private set
+    @Volatile private var lastRemoteFrameAt = 0L
+    @Volatile private var pictureStallSamples = 0
     @Volatile var peerSharing = false   // their screen rides the video line
         private set
     @Volatile var sharing = false   // my screen rides it (iOS screenSharing)
@@ -144,6 +152,7 @@ object CallLine {
     // their frames pass here first: the first one drawn makes the call a video call (iOS MTFirstFrameSniffer, remoteVideoArrived)
     private val sniff = object : VideoSink {
         override fun onFrame(f: VideoFrame) {
+            lastRemoteFrameAt = System.currentTimeMillis()   // iOS pictureSeen 4066-4067: the frame witness itself
             if (!remoteLive) { remoteLive = true; moved() }
             if (!sniffed) { sniffed = true; work.execute { arrived() } }
             theirs.onFrame(f)
@@ -151,6 +160,20 @@ object CallLine {
     }
 
     private fun moved() = MainThread.post { changed?.invoke() }
+
+    /** THE WATCH ON THEIR PICTURE (iOS measureTick's two-second rhythm 3929, notePeerPicture 3907): two samples
+     * without a fresh frame after the picture once arrived declare it stood still; the first new frame clears it. */
+    private fun pictureWatch(l: Line) {
+        MainThread.later(2000) {
+            if (synchronized(gate) { line !== l }) return@later
+            if (video && remoteLive) {
+                if (System.currentTimeMillis() - lastRemoteFrameAt < 2000) pictureStallSamples = 0 else pictureStallSamples++
+                val paused = pictureStallSamples >= 2
+                if (peerPaused != paused) { peerPaused = paused; moved() }
+            } else pictureStallSamples = 0
+            pictureWatch(l)
+        }
+    }
 
     /** The moment the voice joined, for the call's clock; 0 — not yet. */
     val connectedAt: Long get() = synchronized(gate) { line?.connectedAt ?: 0L }
@@ -259,6 +282,7 @@ object CallLine {
         made = l
         synchronized(gate) { line = l }
         audioOn()
+        pictureWatch(l)
         return l
     }
 
@@ -389,7 +413,7 @@ object CallLine {
         held = false
         heldByPeer = false
         video = false; asking = false; asked = false; offerMine = false; remoteLive = false; peerSharing = false; swapped = false
-        front = true; sniffed = false; askRound++; sharing = false
+        front = true; sniffed = false; askRound++; sharing = false; peerPaused = false; lastRemoteFrameAt = 0L; pictureStallSamples = 0
         theirs.into = null; own.into = null
         moved()
         val at = l.connectedAt
