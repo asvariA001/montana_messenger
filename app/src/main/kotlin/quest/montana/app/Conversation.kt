@@ -269,12 +269,25 @@ object Notify {
 // ─────────────────────────── the chats as rows (iOS MTChatListView rows) ───────────────────────────
 
 /** One conversation in the list: the face, the name, the last letter, its time and the unread count. */
+/**
+ * THE CHATS PAGE'S LINE (iOS ChatRow with library, MontanaChatsList.swift:2121-2226) in the App Library's measure, as the contacts'
+ * and the calls': 72 high, the face 48 with the platform's presence dot while the word is live, the gap 16, the side 18; the two
+ * lines at fixed heights, 22 and 20, 4 apart -- the name 17 semibold, the struck bell 12, the dots and the hour 14; under them one
+ * line of 16: the draft in red first, else the thumbnail and the last letter; at its end the count, the hand's dot or the pin.
+ */
 fun chatRow(act: MainActivity, chat: Chat): View {
     val c: Context = act
     val last = chat.last
     return c.hstack {
-        setPadding(dp(16), dp(10), dp(16), dp(10))
-        addView(c.peerFace(chat.ref, chat.shown, 54), lp(dp(54), dp(54)).apply { marginEnd = dp(12) })
+        gravity = Gravity.CENTER_VERTICAL
+        setPadding(dp(18), 0, dp(18), 0)
+        minimumHeight = dp(72)
+        addView(FrameLayout(c).apply {
+            clipChildren = false
+            addView(c.peerFace(chat.ref, chat.shown, 48), FrameLayout.LayoutParams(dp(48), dp(48)))
+            if (!Groups.isKey(chat.ref) && Presence.word(c, chat.ref)?.second == true)
+                addView(presenceBadge(c), FrameLayout.LayoutParams(dp(13), dp(13), Gravity.BOTTOM or Gravity.END))
+        }, lp(dp(48), dp(48)).apply { marginEnd = dp(16) })
         addView(c.vstack(Gravity.NO_GRAVITY) {
             addView(c.hstack {
                 gravity = Gravity.CENTER_VERTICAL
@@ -282,7 +295,7 @@ fun chatRow(act: MainActivity, chat: Chat): View {
                 addView(c.text(chat.shown.ifBlank { c.getString(R.string.peer) }, 17f, Color.WHITE, bold = true).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))   // USER-DATA: the name
                 addView(callHandset(act, false, chat.ref), lp(dp(44), dp(44)))   // 15.8 (iOS ChatRow 2150)
                 // a muted chat wears the struck bell after its name (iOS ChatRow muted)
-                if (ChatMarks.isMuted(chat.ref)) addView(c.icon(R.drawable.ic_bell_off, MT.gray, 14), lp(dp(14), dp(14)).apply { marginEnd = dp(6) })
+                if (ChatMarks.isMuted(chat.ref)) addView(c.icon(R.drawable.ic_bell_off, MT.gray, 12), lp(dp(12), dp(12)).apply { marginEnd = dp(5) })
                 if (last != null) {
                     // the ladder's dots left of the hour, only when the last word was mine; a letter that did not go, the red mark
                     // THE ROW READS A PLATE AS ITS LINE DOES (iOS ChatStore.ladderLetter, MTLadder): the last plate's slowest letter, so
@@ -294,32 +307,42 @@ fun chatRow(act: MainActivity, chat: Chat): View {
                             gravity = Gravity.CENTER_VERTICAL
                             if (last.mine) addView(if (stage.state == -1) c.failedMark() else c.deliveryDots(Ladder.of(chat.ref, stage).first),
                                 lp(WRAP, WRAP).apply { marginEnd = dp(6) })
-                            addView(c.text(rowTime(c, last.at), 13f, MT.gray))
+                            addView(c.text(rowTime(c, last.at), 14f, MT.gray))
                         }, FrameLayout.LayoutParams(WRAP, WRAP))
                         // THE BLOCKED PERSON'S ROW WEARS THE MARK UNDER THE CLOCK (iOS ChatRow, MontanaChatsList.swift:2168, build 1565)
                         if (PeerSafety.isBlocked(chat.ref)) addView(c.icon(R.drawable.ic_nosign, SysColor.red, 11),
                             FrameLayout.LayoutParams(dp(11), dp(11), Gravity.BOTTOM or Gravity.END).apply { topMargin = dp(14) })
                     }, lp(WRAP, WRAP))
                 }
-            }, lp())
+            }, lp(MATCH, dp(22)))
             addView(c.hstack {
+                gravity = Gravity.CENTER_VERTICAL
+                // A DRAFT STANDS UNDER THE NAME (iOS ChatRow 2175-2181, the author's word 20.09): unsent words are what the person will
+                // see first on opening -- «Draft:» in red and the text, in place of the last letter
+                val draft = Prefs.str("draft." + chat.ref, "").trim().replace('\n', ' ')
+                if (draft.isNotEmpty()) addView(c.text("", 16f, MT.gray).apply {
+                    text = android.text.SpannableStringBuilder(c.getString(R.string.cl_draft)).apply {
+                        setSpan(android.text.style.ForegroundColorSpan(SysColor.red), 0, length, 0)
+                        append(" ").append(draft)   // USER-DATA: the draft text
+                    }
+                    singleLineEllipsis()
+                }, lp(0, WRAP, 1f)) else {
                 // THE THUMBNAIL BEFORE THE WORDS (iOS MTLetterThumb, side 20, spacing 6): the voice's round and the round note's
                 // poster stand in the row as in the player bar; the words then carry no glyph of their own
                 val kind = last?.let { rowKind(it) }
                 if (last != null && kind != null) addView(c.letterThumb(last, kind), lp(dp(20), dp(20)).apply { marginEnd = dp(6); gravity = Gravity.CENTER_VERTICAL })
                 // a letter the filter hides is told as hidden in the row, opened or not (iOS ChatStore 159)
                 val words = last?.let { if (ContentFilter.hides(it.mine, it.text)) c.getString(R.string.filter_hidden) else letterWords(c, it) } ?: ""
-                addView(c.text(if (kind != null) bareWords(words) else words, 15f, MT.gray).apply { maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END }, lp(0, WRAP, 1f))   // USER-DATA: the last letter
-                if (chat.unread > 0) addView(c.text(chat.unread.toString(), 13f, Color.WHITE, bold = true, center = true).apply {
-                    // a muted chat's number is grey, as iOS draws it
-                    background = c.rounded(if (ChatMarks.isMuted(chat.ref)) MT.gray else MT.blue, 11); setPadding(dp(7), dp(1), dp(7), dp(1)); minWidth = dp(22)
+                addView(c.text(if (kind != null) bareWords(words) else words, 16f, MT.gray).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))   // USER-DATA: the last letter
+                }
+                // THE ROW'S END (iOS ChatRow 2200-2214): the hand's mark first -- the blue dot 11; else the count, caption2 bold on the
+                // blue capsule, 7 by 3; else the pin 12, turned 45
+                if (ChatMarks.handMark(chat.ref)) addView(View(c).apply { background = c.rounded(SysColor.blue, 6) }, lp(dp(11), dp(11)).apply { marginStart = dp(6) })
+                else if (chat.unread > 0) addView(c.text(chat.unread.toString(), 11f, Color.WHITE, bold = true, center = true).apply {
+                    background = c.rounded(SysColor.blue, 9); setPadding(dp(7), dp(3), dp(7), dp(3)); minWidth = dp(18)
                 }, lp(WRAP, WRAP).apply { marginStart = dp(6) })
-                // the hand mark «unread» where nothing is unread: the row's dot (iOS forcedUnread)
-                else if (ChatMarks.handMark(chat.ref)) addView(c.icon(R.drawable.ic_dot, MT.blue, 12), lp(dp(12), dp(12)).apply { marginStart = dp(6) })
-                // a pinned chat with nothing unread shows its pin (iOS ChatRow pinned)
-                if (chat.unread == 0 && !ChatMarks.handMark(chat.ref) && ChatMarks.isPinned(chat.ref))
-                    addView(c.icon(R.drawable.ic_pin, MT.gray, 16), lp(dp(16), dp(16)).apply { marginStart = dp(6) })
-            }, lp())
+                else if (ChatMarks.isPinned(chat.ref)) addView(c.icon(R.drawable.ic_pin, MT.gray, 12).apply { rotation = 45f }, lp(dp(12), dp(12)).apply { marginStart = dp(6) })
+            }, lp(MATCH, dp(20)).apply { topMargin = dp(4) })
         }, lp(0, WRAP, 1f))
         pressable { act.push { close -> conversationPage(act, chat.ref, close) } }
         // the list sets the long press itself (ChatList.listRow: the person's menu)

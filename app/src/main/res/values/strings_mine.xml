@@ -64,4 +64,5 @@
     <!-- a letter sent later (iOS «Send later», the send key's hold) -->
     <string name="sl_later">Send later</string>
     <string name="new_call">New Call</string>   <!-- iOS CallsTabView «New Call» -->
+    <string name="cl_draft">Draft:</string>   <!-- iOS ChatRow «Draft:» -->
 </resources>

@@ -62,4 +62,5 @@
     <!-- a letter sent later (iOS «Send later», the send key's hold) -->
     <string name="sl_later">Отправить позже</string>
     <string name="new_call">Новый звонок</string>   <!-- iOS CallsTabView «New Call» -->
+    <string name="cl_draft">Черновик:</string>   <!-- iOS ChatRow «Draft:» -->
 </resources>
