@@ -48,6 +48,11 @@ object Calls {
         var ringing = false   // outgoing: the far phone said «call-ringing»
         val startedAt = System.currentTimeMillis()   // iOS startedAt: this call's own birth by this device's clock (the critic's youngerThanOurs, 24.09, build 1500771e4d2b)
         var refused = false   // the system would not stand this call as its own (iOS callkit-refused/callkit-reset, builds 7492b6b28754/3811dfa0a06f): its own miss rides silent
+        var answeredAt = 0L   // iOS answeredAt: the answering hand -- the callee's tap, the caller's received answer
+        // THE RING'S LEDGER (iOS 608-611, the author's word 13.09: our part is concrete, the rest is the far side's, and the
+        // diary says whose): knocks made, knocks a door rang a phone with, the seconds of the first and the last of those,
+        // whether every door said «nobody», whether the second bell rang
+        var knockN = 0; var knockOk = 0; var firstOkS = -1; var lastOkS = -1; var nobody = false; var bell = false
     }
     private var tone: ToneGenerator? = null
     private val gate = Any()
@@ -93,7 +98,7 @@ object Calls {
                     val sdp = w.optJSONObject("sdp")?.optString("sdp")?.ifEmpty { null }
                     val r = outOf(ref, w, epoch)
                     if (r != null && sdp != null) {
-                        synchronized(gate) { r.answered = true }
+                        synchronized(gate) { if (!r.answered) r.answeredAt = System.currentTimeMillis(); r.answered = true }
                         ringingHere(r)
                         tone(false)
                         CallLine.answered(ref, epochOf(r.seed), sdp)
@@ -193,7 +198,7 @@ object Calls {
 
     /** «Answer» (iOS acceptCall): the ring stops, the call stands as the system's, and the voice takes the offer. */
     fun answer() {
-        val r = synchronized(gate) { ring?.takeIf { !it.out }?.also { it.answered = true } } ?: return
+        val r = synchronized(gate) { ring?.takeIf { !it.out }?.also { if (!it.answered) it.answeredAt = System.currentTimeMillis(); it.answered = true } } ?: return
         hide()
         CallService.start(Book.ctx, r.ref) { refused(r, "service-refused") }
         voice(r)
@@ -254,15 +259,29 @@ object Calls {
     private fun ringWords(r: Ring, loud: Boolean) = JSONObject().put("v", r.video).put("s", r.seed).put("n", Prefs.userName.trim())
         .put("t", System.currentTimeMillis() / 1000.0).apply { if (loud) put("b", 1) }.toString()
 
-    /** The knock goes on for the whole ring (iOS 1786-1829): every five seconds until «ringing», an answer or the end. */
+    /** The knock goes on for the whole ring (iOS 1800-1840): every five seconds until «ringing», an answer or the end. */
     private fun knock(r: Ring) {
         var n = 0
         while (synchronized(gate) { ring === r && !r.ringing && !r.answered }) {
             // EVERY DOOR SAID «NO RECIPIENTS» (iOS 1810-1815): the far phone never registered for calls — knocking on cannot change it
-            if (wake(r, null) == NOBODY) { log("ring_nobody"); break }
+            val got = wake(r, null)
+            if (got == NOBODY) { r.nobody = true; log("ring_nobody"); break }
+            r.knockN++
+            if (got == RUNG) {
+                val sec = ((System.currentTimeMillis() - r.startedAt) / 1000).toInt()
+                r.knockOk++
+                if (r.firstOkS < 0) r.firstOkS = sec
+                r.lastOkS = sec
+            }
             n++
-            // THE SECOND BELL (iOS 1811-1819): ten seconds of knocking without «ringing» — the ring letter goes out loud, once
-            if (n == 3 && synchronized(gate) { ring === r && !r.ringing }) Post.send(r.ref, "ringb-" + epochOf(r.seed), Marks.RING + ringWords(r, loud = true))
+            // THE SECOND BELL (iOS 1825-1833): a door rang the far phone, ten seconds passed, no «ringing» — the ring letter goes
+            // out loud by the message road, once per call; a bell rung sooner lands on a phone already ringing
+            if (n >= 3 && r.knockOk > 0 && !r.bell && synchronized(gate) { ring === r && !r.ringing }) {
+                r.bell = true
+                Post.send(r.ref, "ringb-" + epochOf(r.seed), Marks.RING + ringWords(r, loud = true))
+            }
+            // four knocks, nobody rung, nobody ringing: the phone is asleep or out of reach — the diary says so (iOS 1834-1839)
+            if (n == 4 && r.knockOk == 0 && synchronized(gate) { ring === r && !r.ringing }) log("ring_unreached")
             Thread.sleep(5000)
         }
     }
@@ -359,7 +378,7 @@ object Calls {
         log("call_tone search")
     }
     /** Two pips of 120 ms at 380 Hz, 100 ms apart, soft-edged over 10 ms, then silence to three seconds — the iPhone's samples. */
-    private fun searchPips(): ShortArray {
+    fun searchPips(): ShortArray {
         val sr = 8000
         val out = ShortArray(3 * sr)
         val len = sr * 120 / 1000
@@ -389,7 +408,9 @@ object Calls {
         synchronized(gate) { if (ring !== r) return; ring = null }
         noteSeed(r.seed, "dead", engaged = r.answered || r.out)
         tone(false)
-        val dur = CallLine.stop(r.seed)
+        val spoken = CallLine.stop(r.seed)
+        val dur = spoken.dur
+        story(r, why, spoken)
         CallService.stop()
         CallScreen.hide()
         Signal.release(r.ref, "call")
@@ -409,6 +430,45 @@ object Calls {
             else if (!r.answered && why != "declined") Notify.letter(r.ref, rowText(r.video, true, 0, true))   // iOS postMissedCallBanner
         }
         log("end " + why + (if (silent) " silent" else ""))
+    }
+
+    /**
+     * ONE LINE PER CALL, AND ITS END IN THE DAY-LONG JOURNAL (iOS 3021-3064; atoms 41d0cac99d59, d3fcc97a4974, 2c0ff001b031):
+     * how long the setup took and the road alone (from the answering hand), whether it rang, the line's own story, why it
+     * ended and through which door -- a hand (the reason read from the call's state, iOS handReason 2875-2879), a rule, or the
+     * far side -- and the ring's ledger with the one word of whose side a miss is on (iOS faultSide 612-622).
+     */
+    private fun story(r: Ring, why: String, sp: CallLine.Spoken) {
+        val connected = sp.connectedAt > 0L
+        val reason = when (why) {
+            "declined" -> if (!r.out && !r.answered) "declined" else if (!connected) (if (r.out && !r.ringing) "cancelled-unrung" else "cancelled") else "hung-up"
+            "call-end" -> "peer-ended"
+            "call-gone" -> "peer-gone"
+            "no-answer" -> "timeout"
+            else -> why
+        }
+        val door = when (why) { "declined" -> "hand"; "call-end", "call-gone", "superseded" -> "-"; else -> "rule:" + why }
+        val setup = if (connected) sp.connectedAt - r.startedAt else -1L
+        val connect = if (connected && r.answeredAt > 0L) sp.connectedAt - r.answeredAt else -1L
+        val ringS = if (r.answeredAt > 0L) (r.answeredAt - r.startedAt) / 1000 else -1L
+        val side = when {
+            connected -> "talk"
+            !r.out -> if (r.answered) "net" else "hand"
+            r.answeredAt > 0L -> "net"   // the far hand answered, the road failed
+            r.ringing -> "callee"   // it rang there, nobody picked up
+            r.nobody -> "ours-registration"   // every door: no recipients for them
+            r.knockOk > 0 -> "apple"   // a door rang the far phone, no word «ringing» came
+            r.knockN > 0 -> "ours-road"   // not one door rang a single phone
+            else -> "ours"
+        }
+        val dir = if (r.out) "out" else "in"
+        val v = if (sp.video || (sp.connectedAt == 0L && r.video)) 1 else 0   // iOS isVideo: what the call was at its end
+        val ledger = "knocks=" + r.knockN + "/" + r.knockOk + " first_ok_s=" + r.firstOkS
+        Log.d("Montana", "call_summary dir=" + dir + " video=" + v + " setup_ms=" + setup + " connect_ms=" + connect + " ring_s=" + ringS +
+            " rang=" + (if (r.ringing) 1 else 0) + " " + sp.summary.ifEmpty { "talk_s=0" } + " end=" + reason + " " + ledger + " last_ok_s=" + r.lastOkS +
+            " bell=" + (if (r.bell) 1 else 0) + " side=" + side)
+        Log.d("Montana", "E2E-CALL end dir=" + dir + " video=" + v + " talk_s=" + sp.dur + " end=" + reason + " door=" + door +
+            " rang=" + (if (r.ringing) 1 else 0) + " " + ledger + " bell=" + (if (r.bell) 1 else 0) + " " + sp.end.ifEmpty { "paths=-" } + " side=" + side)
     }
 
     /**

@@ -217,7 +217,10 @@ object CallScreen {
         val roomR = View(c)
         val route = routeButton(c)
         fun line() {
-            val tint = if (CallLine.lost) SysColor.red else SysColor.green   // iOS MTCallLight: red while the link is lost
+            // iOS MTCallLight 5427-5433: green clean at the top step, yellow (the system's orange) held below it, red squeezed
+            // now or broken
+            val level = if (CallLine.lost) 0 else CallLine.signal
+            val tint = if (level >= 2) SysColor.green else if (level == 1) SysColor.orange else SysColor.red
             // THE LIGHT WEARS THE BATTERY (iOS MTCallLight, MontanaCall.swift 5427-5433, build bd83db719a66): while the
             // power floor holds the picture down, the same light carries the battery glyph instead of the dot.
             // The battery is a wide glyph (SF battery.25percent at .footnote): its slot widens, the dot's height kept.

@@ -26,6 +26,7 @@ import org.webrtc.IceCandidate
 import org.webrtc.MediaConstraints
 import org.webrtc.MediaStream
 import org.webrtc.MediaStreamTrack
+import org.webrtc.RTCStatsReport
 import org.webrtc.PeerConnection
 import org.webrtc.RtpParameters
 import org.webrtc.RtpReceiver
@@ -94,6 +95,37 @@ object CallLine {
         var audioBefore = false   // iOS audioBeforeShare: the video line grew for the share alone
         var cameraWas = false   // iOS cameraWasLive: my camera comes back when the share ends
         @Volatile var connectedAt = 0L
+        // THE MEASURE'S OWN STATE (iOS 3862-3895, resetConnectionWitnesses 3528-3531): one connection's witnesses of a break,
+        // the peer's picture stream by stream, the ladder's step and floor, and the summary's counters
+        var measureGen = 0
+        var measuring = false
+        var pathSeen: Map<String, Long> = emptyMap()   // each pair's own count at its last sighting (iOS pathSeen, 24.09)
+        var lastInBytes = 0L
+        var stallSamples = 0
+        var everFlowed = false
+        val pictureSeen = HashMap<String, Long>()   // each incoming video stream's frames (iOS pictureSeen, 23.09)
+        var pictureStall = 0
+        var firstVideoIn = false
+        var lastJournalAt = 0L
+        var ladderStep = MODEST
+        var pathFloor = MODEST   // iOS pathFloor 3850: the modest top until the pair is proven direct
+        var ladderMovedAt = 0L
+        var ladderGoodTicks = 0
+        var lastVideoLost = 0L
+        var powerTicks = 0
+        var breakRound = 0   // a deadline armed by an earlier break never ends a later one
+        var lastIce = "new"
+        val sum = Summary()
+    }
+
+    /** THE CALL TELLS ITS OWN STORY IN ONE LINE (iOS 3864-3884, the summary 3021-3064): gathered while it lives, spoken at its end. */
+    private class Summary {
+        var samples = 0; var relaySamples = 0; var tunnelSamples = 0
+        val paths = sortedSetOf<String>()
+        var breaks = 0; var restarts = 0; var ladderMin = 0; var powerFloorMax = 0
+        var rttSum = 0L; var rttN = 0
+        var lostVideo = 0L; var inBytes = 0L; var outBytes = 0L; var videoDarkS = 0
+        var battStart = -1; var battLast = -1; var charging = false; var thermal = "-"
     }
 
     // the connection's own queue (iOS: the call machine's serial queue) — the order of the words holds, no screen waits on it
@@ -124,14 +156,16 @@ object CallLine {
     @Volatile var offerMine = false   // their picture came while my camera sleeps: «Turn on your video?»
     @Volatile var remoteLive = false   // their frames are drawn: a track is not a picture
         private set
-    // THE PEER'S PICTURE HAS ONE WITNESS, ITS OWN FRAMES (iOS notePeerPicture 3907, pictureSeen 3889, 4066-4067): two
-    // samples without a fresh one after the picture once arrived name it stood still, and the call's screen covers
-    // the stale frame with the peer's blurred face -- the same cover that stands while either side holds the call
-    // (iOS applyCovers 5491-5495).
+    // THE PEER'S PICTURE HAS ONE WITNESS, ITS OWN FRAMES, STREAM BY STREAM (iOS notePeerPicture 3907, pictureSeen 3885-3889,
+    // measureTick 4059-4079): two samples of the measure without a new frame on any incoming video stream after the picture
+    // once arrived name it stood still, and the call's screen covers the stale frame with the peer's blurred face -- the same
+    // cover that stands while either side holds the call (iOS applyCovers 5491-5495).
     @Volatile var peerPaused = false
         private set
-    @Volatile private var lastRemoteFrameAt = 0L
-    @Volatile private var pictureStallSamples = 0
+    // THE LIGHT BEFORE THE CALL'S NAME (iOS MTCallLight 5424-5435, CallUIModel.signal 5466): 2 green -- clean at the top
+    // step, 1 yellow -- held below it, 0 red -- squeezed now; a break reddens it whatever the ladder says.
+    @Volatile var signal = 2
+        private set
     // THE POWER FLOOR (iOS MontanaPower.swift 12-29, MontanaCall.swift applyLadder 3730-3746, build 41d0cac99d59): the
     // battery, the charger, Low Power Mode and the thermal state, read every two seconds while a picture rides the
     // line; under pressure the call's light wears the battery instead of its dot (iOS MTCallLight, build bd83db719a66).
@@ -163,7 +197,6 @@ object CallLine {
     // their frames pass here first: the first one drawn makes the call a video call (iOS MTFirstFrameSniffer, remoteVideoArrived)
     private val sniff = object : VideoSink {
         override fun onFrame(f: VideoFrame) {
-            lastRemoteFrameAt = System.currentTimeMillis()   // iOS pictureSeen 4066-4067: the frame witness itself
             if (!remoteLive) { remoteLive = true; moved() }
             if (!sniffed) { sniffed = true; work.execute { arrived() } }
             theirs.onFrame(f)
@@ -171,21 +204,6 @@ object CallLine {
     }
 
     private fun moved() = MainThread.post { changed?.invoke() }
-
-    /** THE WATCH ON THEIR PICTURE (iOS measureTick's two-second rhythm 3929, notePeerPicture 3907): two samples
-     * without a fresh frame after the picture once arrived declare it stood still; the first new frame clears it. */
-    private fun pictureWatch(l: Line) {
-        MainThread.later(2000) {
-            if (synchronized(gate) { line !== l }) return@later
-            if (video && l.connectedAt > 0L) applyPowerFloor(l)   // iOS applyLadder 3725-3728: a connected video call's tick reads the power facts
-            if (video && remoteLive) {
-                if (System.currentTimeMillis() - lastRemoteFrameAt < 2000) pictureStallSamples = 0 else pictureStallSamples++
-                val paused = pictureStallSamples >= 2
-                if (peerPaused != paused) { peerPaused = paused; moved() }
-            } else pictureStallSamples = 0
-            pictureWatch(l)
-        }
-    }
 
     /** The moment the voice joined, for the call's clock; 0 — not yet. */
     val connectedAt: Long get() = synchronized(gate) { line?.connectedAt ?: 0L }
@@ -294,7 +312,6 @@ object CallLine {
         made = l
         synchronized(gate) { line = l }
         audioOn()
-        pictureWatch(l)
         return l
     }
 
@@ -369,43 +386,97 @@ object CallLine {
     private fun state(l: Line, s: PeerConnection.IceConnectionState) = work.execute {
         if (synchronized(gate) { line !== l }) return@execute
         log("ice " + s)
+        l.lastIce = s.name.lowercase()
         when (s) {
             PeerConnection.IceConnectionState.CONNECTED, PeerConnection.IceConnectionState.COMPLETED -> {
-                lost = false
+                leaveBreak(l, "ice connected")
                 l.iceRestarts = 0
                 l.restartAskedAt = 0L
                 startRouteWatch(l)
                 if (l.connectedAt == 0L) {
                     l.connectedAt = System.currentTimeMillis()
+                    l.sum.battStart = power().level   // iOS 4420: every call's battery at its connect, a voice call's too
                     CallService.sync()
                     autoSpeaker(l)
                 }
+                // THE MEASUREMENT STARTS HERE AND ONLY HERE (iOS 5048-5055): a reconnect never starts a second loop
+                if (!l.measuring) { l.measuring = true; measure(l, ++l.measureGen) }
+                raiseVideoCeiling(l)   // the link is proven: in five seconds the pair is read and the ceiling set (iOS 5056)
             }
             // A FAILED PATH BEFORE THE FIRST CONNECT IS ANSWERED, NOT FINAL (iOS setupPathFailed, MontanaCall.swift, atom
             // 319c1ca96b0a, 29.09): the engine's «failed» here used to end the call at once while both phones still held
             // each other's candidates; asking again, once on every road with a fresh relay pass and once on the relay
-            // alone, finds the path a flat end never tried.
-            PeerConnection.IceConnectionState.FAILED -> if (l.connectedAt == 0L) setupPathFailed(l) else { lost = true; Calls.hangUp("ice-failed") }
+            // alone, finds the path a flat end never tried. AFTER THE CONNECT «failed» IS A BREAK, NOT AN END (iOS 5084-5091):
+            // the side that sees it asks for fresh checks, and the thirty-second deadline is the verdict.
+            PeerConnection.IceConnectionState.FAILED -> if (l.connectedAt == 0L) setupPathFailed(l) else enterBreak(l, "ice failed")
             // THE SUSPICION GETS A GRACE (iOS peerConnection(_:didChange:) 5092-5102, b23f80900c0f): «disconnected» is a few
             // missed checks, not a verdict — measured 22:51:34, it healed in 1.4s and the person heard the break cue for a blip.
-            // The red light waits for it to still stand 2.5s later; a quick heal shows nothing. Past the grace the one
-            // owner is asked for fresh checks at once, then every three seconds while the break holds (iOS
-            // scheduleIceRestart 5147-5165): the thirty-second deadline is the verdict if none of them form.
             PeerConnection.IceConnectionState.DISCONNECTED -> MainThread.later(DISCONNECT_GRACE_MS) {
                 if (synchronized(gate) { line === l }) work.execute {
                     if (l.pc.iceConnectionState() != PeerConnection.IceConnectionState.DISCONNECTED) return@execute log("disconnected healed within the grace — no break declared")
-                    lost = true
-                    scheduleIceRestart(l)
-                    MainThread.later(RECONNECT_DEADLINE_MS) {
-                        if (synchronized(gate) { line === l } && lost) work.execute {
-                            log("reconnecting past the deadline — " + l.iceRestarts + " fresh transports asked, none formed — ending")
-                            Calls.hangUp("ice-lost")
-                        }
-                    }
+                    enterBreak(l, "ice disconnected past the grace")
                 }
             }
             else -> {}
         }
+    }
+
+    /**
+     * THE BREAK HAS ONE DOOR IN (iOS enterReconnecting 3478-3488): the ICE machine past its grace, its «failed» after the
+     * connect, or the path's own silence (the measure) — the light reddens, the break's quiet pips sound under the talk, fresh
+     * checks are asked at once and every three seconds (iOS scheduleIceRestart 5147-5165), and the thirty-second deadline
+     * is the verdict if none of them form.
+     */
+    private fun enterBreak(l: Line, why: String) {
+        if (synchronized(gate) { line !== l } || lost || l.connectedAt == 0L) return
+        lost = true
+        l.sum.breaks++
+        val round = ++l.breakRound
+        log("call_reconnect break by " + why)
+        breakTone(true)
+        moved()
+        scheduleIceRestart(l)
+        MainThread.later(RECONNECT_DEADLINE_MS) {
+            if (synchronized(gate) { line === l } && lost && l.breakRound == round) work.execute {
+                log("reconnecting past the deadline — " + l.iceRestarts + " fresh transports asked, none formed — ending")
+                Calls.hangUp("lost")   // iOS endByRule("lost"): a rule ended it, not a hand
+            }
+        }
+    }
+
+    /** ...AND ONE DOOR OUT (iOS leaveReconnecting 3715-3723): the ICE machine's «connected» or the path answering again. */
+    private fun leaveBreak(l: Line, why: String) {
+        if (!lost) return
+        lost = false
+        l.breakRound++
+        l.iceRestarts = 0
+        l.restartAskedAt = 0L
+        log("call_reconnect back by " + why)
+        breakTone(false)
+        moved()
+    }
+
+    /**
+     * THE BREAK'S OWN SOUND (iOS reconnectVoice 4647-4668, reconnectFile 4616-4645): the tone and the red light are one act —
+     * two low pips every three seconds, the iPhone's own samples (Calls.searchPips), quietly under the talk (0.35): the line
+     * may come back mid-word. Both are silenced by the same return.
+     */
+    private var breakPips: android.media.AudioTrack? = null
+    private fun breakTone(on: Boolean) = MainThread.post {
+        breakPips?.let { runCatching { it.stop(); it.release() } }
+        breakPips = null
+        if (!on || !lost) return@post
+        val pcm = Calls.searchPips()
+        breakPips = runCatching {
+            android.media.AudioTrack.Builder()
+                .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION_SIGNALLING)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build())
+                .setAudioFormat(android.media.AudioFormat.Builder().setEncoding(android.media.AudioFormat.ENCODING_PCM_16BIT).setSampleRate(8000)
+                    .setChannelMask(android.media.AudioFormat.CHANNEL_OUT_MONO).build())
+                .setTransferMode(android.media.AudioTrack.MODE_STATIC).setBufferSizeInBytes(pcm.size * 2).build()
+                .also { t -> t.write(pcm, 0, pcm.size); t.setLoopPoints(0, pcm.size, -1); t.setVolume(0.35f); t.play() }
+        }.getOrNull()
+        log("call_reconnect voice on played=" + (if (breakPips != null) 1 else 0))
     }
 
     /**
@@ -435,12 +506,16 @@ object CallLine {
         requestIceRestart(l, "setup ask n=" + l.setupAsks)
     }
 
-    /** The call ended (Calls.end): the line closes, the phone's sound is given back, and the seconds it spoke are returned. */
-    fun stop(seed: String): Int {
+    /** What a closed line tells its call: the seconds it spoke, the moment it connected, and its part of the call's story. */
+    class Spoken(val dur: Int, val connectedAt: Long, val summary: String, val end: String, val video: Boolean = false)
+
+    /** The call ended (Calls.end): the line closes, the phone's sound is given back, and what it spoke is returned. */
+    fun stop(seed: String): Spoken {
         val l = synchronized(gate) {
             waiting.clear()
             line?.takeIf { it.seed == seed }?.also { line = null }
-        } ?: return 0
+        } ?: return Spoken(0, 0L, "", "")
+        val spoken = story(l)
         work.execute {
             stopRouteWatch(l)
             runCatching { l.pc.dispose() }
@@ -456,12 +531,38 @@ object CallLine {
         held = false
         heldByPeer = false
         video = false; asking = false; asked = false; offerMine = false; remoteLive = false; peerSharing = false; swapped = false
-        front = true; sniffed = false; askRound++; sharing = false; peerPaused = false; lastRemoteFrameAt = 0L; pictureStallSamples = 0
-        powerFloorNow = 0; powerSaving = false
+        front = true; sniffed = false; askRound++; sharing = false; peerPaused = false
+        powerFloorNow = 0; powerSaving = false; signal = 2   // the counters and the lights belong to one call (iOS 3066-3072)
+        l.measureGen++   // no tick of the ended call survives into the next one (iOS K-9, 3081)
+        breakTone(false)
         theirs.into = null; own.into = null
         moved()
+        return spoken
+    }
+
+    /**
+     * THE LINE'S PART OF THE CALL'S ONE LINE (iOS 3021-3053): how it was carried, how much rode a relay or a tunnel, the round
+     * trip, the breaks and restarts it survived, how far the picture stepped down, the dark seconds, the bytes both ways, and
+     * the battery's drain in percent an hour (a call of a minute or more, off the charger); and its part of the day-long
+     * journal's end line (iOS 3061-3064): the paths, the round trip, the breaks, the ICE machine's last word, the setup's asks.
+     */
+    private fun story(l: Line): Spoken {
         val at = l.connectedAt
-        return if (at == 0L) 0 else ((System.currentTimeMillis() - at) / 1000).toInt()
+        val dur = if (at == 0L) 0 else ((System.currentTimeMillis() - at) / 1000).toInt()
+        val sm = l.sum
+        val relayPct = if (sm.samples > 0) sm.relaySamples * 100 / sm.samples else -1
+        val tunPct = if (sm.samples > 0) sm.tunnelSamples * 100 / sm.samples else -1
+        val rtt = if (sm.rttN > 0) (sm.rttSum / sm.rttN).toInt() else -1
+        val paths = if (sm.paths.isEmpty()) "-" else sm.paths.joinToString("+")
+        val b0 = sm.battStart; val b1 = sm.battLast
+        val drain = if (b0 >= 0 && b1 >= 0 && dur >= 60 && !sm.charging) String.format(java.util.Locale.ROOT, "%.1f", (b0 - b1) * 3600.0 / dur) else "-"
+        val summary = "talk_s=" + dur + " paths=" + paths + " relay_pct=" + relayPct + " tun_pct=" + tunPct + " rtt_avg=" + rtt +
+            " breaks=" + sm.breaks + " restarts=" + sm.restarts + " ladder_min_step=" + sm.ladderMin + " video_lost_pkts=" + sm.lostVideo +
+            " video_dark_s=" + sm.videoDarkS + " in_kb=" + sm.inBytes / 1024 + " out_kb=" + sm.outBytes / 1024 + " crypto=dtls-srtp" +
+            " batt=" + b0 + "->" + b1 + " drain_pct_h=" + drain + " thermal=" + sm.thermal + " power_floor_max=" + sm.powerFloorMax
+        val end = "paths=" + paths + " rtt_avg=" + rtt + " breaks=" + sm.breaks + " ice=" + l.lastIce + " asks=" + l.setupAsks +
+            " relay_only=" + (if (l.setupAsks >= SETUP_ASK_MAX) 1 else 0)
+        return Spoken(dur, at, summary, end, video)
     }
 
     // ── the relay pass (iOS rtcConfig 1045-1109, WakePush fetchTurnCred 1467) ──
@@ -790,23 +891,35 @@ object CallLine {
         } else if (track != null) l.pc.addTrack(track, listOf("mt_stream"))
     }
 
-    // THE LADDER'S STEPS (iOS videoLadder 3458, modestStep 3849): a pair stands on the modest step, 700 kbit/s, and the power
-    // floor may hold it lower -- the ceiling written is always videoLadder[max(step, floor)] (iOS boostVideo 3838, ladderFloor 3851).
+    // THE LADDER'S STEPS (iOS videoLadder 3458, modestStep 3849): six steps from 2 Mbit/s down to none; a call starts on the
+    // modest one, 700 kbit/s, and the top opens only for a pair proven direct (raiseVideoCeiling)
     private val LADDER = intArrayOf(2_000_000, 1_200_000, 700_000, 400_000, 250_000, 0)
     private const val MODEST = 2
 
-    /** The ceiling of my picture (iOS setVideoCeiling 3802-3824): the step's bitrate, and at least half of it but never more than
-     * 300 kbit/s, motion kept before sharpness. UNDER THE POWER FLOOR the encoder's work falls fourfold (iOS 3816-3819): a camera
-     * at half its resolution and fifteen frames a second; a shared screen keeps its pixels and slows to eight -- letters stay letters. */
-    private fun bound(l: Line, floor: Int = powerFloorNow) {
+    /** iOS ladderFloor 3851: the step the picture may not rise above -- the power's floor and the path's, the higher of them. */
+    private fun floorOf(l: Line) = maxOf(powerFloorNow, l.pathFloor)
+
+    /** iOS boostVideo 3826-3839: every offer and answer writes the step the ladder stands on, never a top it has left. */
+    private fun bound(l: Line) = ceiling(l, LADDER[maxOf(l.ladderStep, floorOf(l))])
+
+    /**
+     * THE ONE PLACE A VIDEO CEILING IS SET (iOS setVideoCeiling 3792-3824). Zero is the bottom step: the encoding goes quiet,
+     * the track and its owners (the hold, the share) are untouched. At least half the ceiling, never more than 300 kbit/s.
+     * UNDER THE POWER FLOOR the encoder's work falls fourfold (iOS 3816-3819): a camera at half its resolution and fifteen
+     * frames a second; a shared screen keeps its pixels and slows to eight -- letters stay letters.
+     */
+    private fun ceiling(l: Line, bps: Int) {
         runCatching {
             val s = l.pc.transceivers.firstOrNull { it.mediaType == MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO }?.sender ?: return
             val p = s.parameters
-            val bps = LADDER[maxOf(MODEST, floor)]
+            val floor = powerFloorNow
             p.encodings.firstOrNull()?.let {
-                it.maxBitrateBps = bps; it.minBitrateBps = minOf(300_000, bps / 2)
-                it.scaleResolutionDownBy = if (floor > 0 && !sharing) 2.0 else 1.0
-                it.maxFramerate = if (floor > 0) (if (sharing) 8 else 15) else null
+                it.active = bps > 0
+                if (bps > 0) {
+                    it.maxBitrateBps = bps; it.minBitrateBps = minOf(300_000, bps / 2)
+                    it.scaleResolutionDownBy = if (floor > 0 && !sharing) 2.0 else 1.0
+                    it.maxFramerate = if (floor > 0) (if (sharing) 8 else 15) else null
+                }
             }
             // a shared screen keeps its letters sharp and gives up motion; a camera the reverse (iOS 3804-3809, 3822)
             p.degradationPreference = if (sharing) RtpParameters.DegradationPreference.MAINTAIN_RESOLUTION else RtpParameters.DegradationPreference.MAINTAIN_FRAMERATE
@@ -815,34 +928,238 @@ object CallLine {
     }
 
     /**
-     * THE POWER FACTS (iOS MontanaPower.swift 12-29, build 41d0cac99d59): the battery, the charger, Low Power Mode and
-     * the thermal state. The ceiling the picture may not rise above: 2 (700 kbit/s, half resolution, 15 fps) under Low
-     * Power Mode, a serious thermal state, or a battery at 15% or less off the charger; 4 under a critical thermal
-     * state. Android's thermal scale is finer than iOS's four words — SEVERE meets iOS's «serious», CRITICAL meets
-     * iOS's «critical».
+     * THE POWER FACTS (iOS MontanaPower.swift 12-29, atom 41d0cac99d59): the battery, the charger, Low Power Mode and the
+     * thermal state, one reading. Its floor: 2 (700 kbit/s, half resolution, 15 fps) under Low Power Mode, a serious thermal
+     * state, or a battery at 15 % or less off the charger; 4 (250 kbit/s) under a critical thermal state. Android's thermal
+     * scale is finer than iOS's four words: LIGHT and MODERATE read «fair», SEVERE «serious», CRITICAL and above «critical».
      */
-    private fun powerFloor(): Int {
+    private class Power(val level: Int, val charging: Boolean, val lowPower: Boolean, val thermal: String) {
+        val floor = if (thermal == "critical") 4 else if (lowPower || thermal == "serious" || (!charging && level in 0..15)) 2 else 0
+        val word = "batt=" + level + " chg=" + (if (charging) 1 else 0) + " lowpower=" + (if (lowPower) 1 else 0) + " thermal=" + thermal
+    }
+    private fun power(): Power {
         val bm = Book.ctx.getSystemService(BatteryManager::class.java)
         val pm = Book.ctx.getSystemService(PowerManager::class.java)
-        val level = bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
-        val charging = bm?.isCharging == true
-        val lowPower = pm?.isPowerSaveMode == true
-        val thermal = if (Build.VERSION.SDK_INT >= 29) (pm?.currentThermalStatus ?: PowerManager.THERMAL_STATUS_NONE) else PowerManager.THERMAL_STATUS_NONE
-        if (thermal >= PowerManager.THERMAL_STATUS_CRITICAL) return 4
-        if (lowPower || thermal >= PowerManager.THERMAL_STATUS_SEVERE || (!charging && level in 0..15)) return 2
-        return 0
+        val t = if (Build.VERSION.SDK_INT >= 29) (pm?.currentThermalStatus ?: PowerManager.THERMAL_STATUS_NONE) else PowerManager.THERMAL_STATUS_NONE
+        val thermal = when {
+            t >= PowerManager.THERMAL_STATUS_CRITICAL -> "critical"
+            t == PowerManager.THERMAL_STATUS_SEVERE -> "serious"
+            t >= PowerManager.THERMAL_STATUS_LIGHT -> "fair"
+            else -> "nominal"
+        }
+        return Power(bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1, bm?.isCharging == true, pm?.isPowerSaveMode == true, thermal)
     }
 
-    /** iOS applyLadder 3733-3746: the floor re-applies the ceiling the instant it moves, and the call's light learns of it
-     * (nothing about saving is written on the screen, the author's word 11.09 at 3742). */
-    private fun applyPowerFloor(l: Line) {
-        val floor = powerFloor()
-        if (floor == powerFloorNow) return
-        powerFloorNow = floor
-        work.execute { if (l.vtrack != null) bound(l) }   // the line's own queue writes the encoder, as every other ceiling
-        val saving = floor > 0
-        if (powerSaving != saving) { powerSaving = saving; moved() }
-        log("power floor " + floor)
+    /**
+     * THE LADDER (iOS applyLadder 3725-3790): one sample moves it. The power facts first -- a floor that moves re-applies the
+     * ceiling the instant it moves and the call's light wears the battery (nothing about saving is written on the screen,
+     * the author's word 11.09 at 3742). Then the network: a squeeze is a fact of two witnesses of three (the encoder held by
+     * bandwidth, more than eight video packets lost, a round trip past 400 ms) and steps down after eight seconds; one
+     * witness holds the step; a clean channel climbs back only after three good samples and twelve seconds, never above the floor.
+     */
+    private fun applyLadder(l: Line, limit: String, lostDelta: Long, rttMs: Int) {
+        if (!video || l.connectedAt == 0L || lost) return   // iOS guard isVideo, state == "connected"
+        val now = System.currentTimeMillis()
+        val pw = power()
+        l.sum.battLast = pw.level; l.sum.charging = pw.charging; l.sum.thermal = pw.thermal
+        l.powerTicks++
+        if (l.powerTicks % 12 == 1) log("call_power " + pw.word + " floor=" + pw.floor + " step=" + l.ladderStep)
+        if (pw.floor != powerFloorNow) {
+            powerFloorNow = pw.floor
+            l.sum.powerFloorMax = maxOf(l.sum.powerFloorMax, pw.floor)
+            log("call_power floor " + pw.floor + " — " + pw.word)
+            if (l.ladderStep < floorOf(l)) {
+                l.ladderStep = floorOf(l); l.ladderMovedAt = now; l.ladderGoodTicks = 0
+                l.sum.ladderMin = maxOf(l.sum.ladderMin, l.ladderStep)
+            }
+            ceiling(l, LADDER[l.ladderStep])   // re-applied: the floor changes the encoder's shape too
+            val saving = pw.floor > 0
+            if (powerSaving != saving) { powerSaving = saving; moved() }
+        }
+        val witnesses = (if (limit == "bandwidth") 1 else 0) + (if (lostDelta > 8) 1 else 0) + (if (rttMs > 400) 1 else 0)
+        val squeezed = witnesses >= 2
+        // the traffic light: the top step is the floor's -- a pair not proven direct stands at its modest top and is green there
+        val light = if (squeezed) 0 else if (l.ladderStep > floorOf(l)) 1 else 2
+        if (signal != light) { signal = light; moved() }
+        val since = now - l.ladderMovedAt
+        if (squeezed) {
+            l.ladderGoodTicks = 0
+            if (since <= 8_000 || l.ladderStep >= LADDER.size - 1) return
+            l.ladderStep++
+            l.sum.ladderMin = maxOf(l.sum.ladderMin, l.ladderStep)
+            l.ladderMovedAt = now
+            ceiling(l, LADDER[l.ladderStep])
+            log("call_ladder down step=" + l.ladderStep + " cap_kbps=" + LADDER[l.ladderStep] / 1000 + " limit=" + limit + " lost=" + lostDelta + " rtt=" + rttMs)
+        } else if (lostDelta > 8 || rttMs > 400) {
+            l.ladderGoodTicks = 0   // ONE NETWORK WITNESS HOLDS THE STEP (iOS 3768-3777): neither a squeeze nor a clean channel
+        } else {
+            l.ladderGoodTicks++
+            if (l.ladderGoodTicks < 3 || since <= 12_000 || l.ladderStep <= floorOf(l)) return
+            l.ladderStep--
+            l.ladderMovedAt = now
+            l.ladderGoodTicks = 0
+            ceiling(l, LADDER[l.ladderStep])
+            log("call_ladder up step=" + l.ladderStep + " cap_kbps=" + LADDER[l.ladderStep] / 1000 + " rtt=" + rttMs)
+        }
+    }
+
+    /**
+     * THE PATH'S PROOF (iOS raiseVideoCeiling 4097-4142): five seconds after the connect the nominated pair is read -- direct
+     * over UDP on the phone's own radio or Wi-Fi opens the top step; a relay, TCP or a tunnel (the engine names the adapter a
+     * VPN; iOS ridesTunnel 4144-4160) keeps the modest one. The proof moves the path's floor both ways: a pair re-formed after a
+     * restart does not keep the top the old pair earned. The battery glyph is left to the power floor alone -- the iPhone
+     * clears it here (4130) while the floor may still hold the picture down; a light must say what it names.
+     */
+    private fun raiseVideoCeiling(l: Line) {
+        if (!video) return
+        MainThread.later(5000) { work.execute {   // the line's own queue: the connection is never read while it is being closed
+            if (synchronized(gate) { line !== l } || lost) return@execute
+            runCatching { l.pc.getStats { r -> work.execute {
+                if (synchronized(gate) { line !== l } || lost) return@execute
+                val direct = HashSet<String>(); val tunnel = HashSet<String>()
+                for (x in r.statsMap.values) if (x.type == "local-candidate") {
+                    if (x.members["networkType"] == "vpn") { tunnel.add(x.id); continue }
+                    if (x.members["candidateType"] != "relay" && (x.members["protocol"] as? String)?.lowercase() == "udp") direct.add(x.id)
+                }
+                val nominated = r.statsMap.values.filter { it.type == "candidate-pair" && it.members["state"] == "succeeded" && it.members["nominated"] == true }
+                    .mapNotNull { it.members["localCandidateId"] as? String }
+                val isDirect = nominated.any { it in direct }
+                l.pathFloor = if (isDirect) 0 else MODEST
+                if (isDirect) {
+                    l.ladderStep = floorOf(l); l.ladderMovedAt = System.currentTimeMillis(); l.ladderGoodTicks = 0
+                    ceiling(l, LADDER[l.ladderStep])
+                    if (signal != 2) { signal = 2; moved() }
+                    log("video: ceiling raised -- the pair is direct over UDP")
+                } else {
+                    if (l.ladderStep < floorOf(l)) { l.ladderStep = floorOf(l); l.ladderMovedAt = System.currentTimeMillis(); l.ladderGoodTicks = 0 }
+                    ceiling(l, LADDER[l.ladderStep])
+                    val why = if (nominated.any { it in tunnel }) "the pair rides a tunnel" else if (nominated.isEmpty()) "no pair nominated yet" else "the pair goes through a relay or over TCP"
+                    log("video: ceiling held modest (" + LADDER[l.ladderStep] / 1000 + " kbps) -- " + why)
+                }
+            } } }
+        } }
+    }
+
+    // ═══ THE MEASURE (iOS measureStreams 3915-3918, measureTick 3919-4095): one sample every two seconds while the call
+    // stands connected or broken -- the path's witness of a break, the peer's picture, the summary, the journal, the ladder ═══
+
+    private fun measure(l: Line, gen: Int) {
+        if (synchronized(gate) { line !== l } || gen != l.measureGen) { l.measuring = false; return }
+        // the next tick is armed BEFORE the request (iOS 3926-3929): one swallowed reply never kills the measurement
+        MainThread.later(2000) { work.execute { measure(l, gen) } }
+        runCatching { l.pc.getStats { r -> work.execute { sample(l, gen, r) } } }
+    }
+
+    private fun n(v: Any?): Long = (v as? Number)?.toLong() ?: 0L
+    private fun ms(v: Any?): Int = ((v as? Number)?.toDouble()?.times(1000))?.toInt() ?: -1
+
+    private fun sample(l: Line, gen: Int, r: RTCStatsReport) {
+        if (synchronized(gate) { line !== l } || gen != l.measureGen) return
+        var pair = "?"; var rttMs = -1; var kind = "?"; var net = "?"; var tun = 0
+        var aBytes = 0L; var aLost = 0L; var aJit = -1
+        var vBytes = 0L; var vLost = 0L; var vW = 0L; var vH = 0L; var vFps = 0L
+        var outBytes = 0L; var outFrames = 0L; var outLimit = "-"; var outAudio = 0L
+        val pictureNow = HashMap<String, Long>()
+        // THE PATH IS THE NOMINATED PAIR'S, and its own word is the bytes that reached us on each pair -- the peer's media and
+        // its reports on ours; connectivity checks are not in this count, so a relay's keepalive cannot pose as the peer
+        val pathNow = HashMap<String, Long>()
+        var nominatedLocal: String? = null
+        val all = r.statsMap.values
+        for (x in all) if (x.type == "candidate-pair") {
+            if (x.members["nominated"] == true && x.members["state"] == "succeeded") nominatedLocal = x.members["localCandidateId"] as? String
+            pathNow[x.id] = n(x.members["bytesReceived"])
+        }
+        for (x in all) {
+            val m = x.members
+            val media = (m["mediaType"] ?: m["kind"]) as? String ?: ""
+            when (x.type) {
+                "candidate-pair" -> if (m["nominated"] == true) { rttMs = ms(m["currentRoundTripTime"]); pair = m["state"] as? String ?: "?" }
+                // after a renegotiation two streams of one media can coexist, one dead: the live one -- the larger counter -- speaks
+                "outbound-rtp" -> if (media == "video") {
+                    val b = n(m["bytesSent"])
+                    if (b >= outBytes) { outBytes = b; outFrames = n(m["framesSent"]); outLimit = m["qualityLimitationReason"] as? String ?: "-" }
+                } else if (media == "audio") outAudio = maxOf(outAudio, n(m["bytesSent"]))
+                "local-candidate" -> if (x.id == nominatedLocal) {
+                    kind = m["candidateType"] as? String ?: "?"
+                    net = m["networkType"] as? String ?: "?"
+                    tun = if (net == "vpn") 1 else 0
+                }
+                "inbound-rtp" -> {
+                    val bytes = n(m["bytesReceived"]); val lostPk = n(m["packetsLost"])
+                    if (media == "audio") {
+                        if (bytes >= aBytes) { aBytes = bytes; aLost = lostPk; aJit = ms(m["jitter"]) }
+                    } else if (media == "video") {
+                        pictureNow[x.id] = (m["framesReceived"] ?: m["framesDecoded"])?.let { n(it) } ?: bytes
+                        if (bytes >= vBytes) { vBytes = bytes; vLost = lostPk; vW = n(m["frameWidth"]); vH = n(m["frameHeight"]); vFps = n(m["framesPerSecond"]) }
+                    }
+                }
+            }
+        }
+        // THE FIRST RECEIVED FRAME gets its own mark (iOS 4004-4011): the instant a person calls «video started»
+        if (video && vBytes > 0 && !l.firstVideoIn) {
+            l.firstVideoIn = true
+            if (!remoteLive) { remoteLive = true; moved() }   // a belt for a missed first frame
+            log("video_first_in ms=" + (System.currentTimeMillis() - l.connectedAt) + " size=" + vW + "x" + vH + " path=" + kind)
+        }
+        // THE BREAK IS WITNESSED BY THE PATH, NOT BY THE PICTURE (iOS 4012-4046, atom 66882a697917): a far phone gone to the
+        // background stops its camera and its voice falls silent while its reports on our stream keep arriving -- a living call.
+        // A pair answers only by its own growth past its last sighting (24.09: a fresh transport drops the dead pairs, and a
+        // smaller sum must not read as «the path answers»). Two silent samples, four seconds, declare the break; the first
+        // answering sample ends it -- and only after the media flowed once: the opening seconds are silent by nature.
+        val pathAnswered = pathNow.any { (id, b) -> b > (l.pathSeen[id] ?: 0L) }
+        l.pathSeen = pathNow
+        val inNow = aBytes + vBytes
+        if (inNow > 0) l.everFlowed = true
+        if (l.everFlowed) {
+            if (pathAnswered || inNow > l.lastInBytes) {
+                l.lastInBytes = maxOf(l.lastInBytes, inNow)
+                l.stallSamples = 0
+                if (lost) leaveBreak(l, "path answers")
+            } else {
+                l.stallSamples++
+                if (l.stallSamples == 2 && !lost) enterBreak(l, "path silent 4s")
+            }
+        }
+        // the summary is fed by the same sample that feeds the journal and the ladder (iOS 4047-4056); its out bytes count
+        // the voice too (25.09, atom d3fcc97a4974: out_kb=0 stood on a 455-second voice call)
+        val sm = l.sum
+        sm.samples++
+        if (kind != "?") { sm.paths.add(kind); if (kind == "relay") sm.relaySamples++ }
+        if (tun == 1) sm.tunnelSamples++
+        if (rttMs >= 0) { sm.rttSum += rttMs; sm.rttN++ }
+        sm.inBytes = maxOf(sm.inBytes, aBytes + vBytes)
+        sm.outBytes = maxOf(sm.outBytes, outBytes + outAudio)
+        sm.lostVideo = maxOf(sm.lostVideo, vLost)
+        // THE PEER'S PICTURE MOVED when ANY incoming video stream received a frame since the last sample (iOS 4059-4079, atom
+        // b1df5c186009): after a renegotiation a dead stream keeps its larger count while the live one starts from zero
+        if (video && l.firstVideoIn) {
+            val movedNow = pictureNow.any { (id, f) -> f > (l.pictureSeen[id] ?: 0L) }
+            for ((id, f) in pictureNow) l.pictureSeen[id] = maxOf(l.pictureSeen[id] ?: 0L, f)
+            if (movedNow) { l.pictureStall = 0; notePeerPicture(false) }
+            else { sm.videoDarkS += 2; l.pictureStall++; if (l.pictureStall == 2) notePeerPicture(true) }
+        } else if (!video) { l.pictureStall = 0; notePeerPicture(false) }
+        val now = System.currentTimeMillis()
+        if (now - l.lastJournalAt < 5000) return   // the journal keeps its five-second rhythm (iOS 4080-4087)
+        l.lastJournalAt = now
+        val via = if (tun == 1) "tunnel" else net
+        log("call_audio path=" + kind + " pair=" + pair + " rtt_ms=" + rttMs + " bytes=" + aBytes + " lost=" + aLost + " jitter_ms=" + aJit +
+            " via=" + via + " out_bytes=" + outAudio + " mic=" + (if (muted || held) 0 else 1))
+        if (video) {
+            log("call_video path=" + kind + " rtt_ms=" + rttMs + " in_bytes=" + vBytes + " lost=" + vLost + " size=" + vW + "x" + vH + " fps=" + vFps +
+                " out_bytes=" + outBytes + " out_frames=" + outFrames + " limit=" + outLimit + " via=" + via)
+            // one measurement, one owner (iOS 4088-4092): the sample that speaks in the journal also moves the ladder
+            val lostDelta = maxOf(0L, vLost - l.lastVideoLost)
+            l.lastVideoLost = vLost
+            applyLadder(l, outLimit, lostDelta, rttMs)
+        }
+    }
+
+    /** The one writer of the cover over the peer's stale frame (iOS notePeerPicture 3907-3914). */
+    private fun notePeerPicture(paused: Boolean) {
+        if (peerPaused == paused) return
+        peerPaused = paused
+        log("peer_picture " + (if (paused) "paused -- the cover stands" else "back -- the cover goes"))
+        moved()
     }
 
     /** Their «yes» (iOS upgradeToVideo 3190): my camera into the connection, the new picture offered, the loudspeaker taken. */
@@ -1133,6 +1450,7 @@ object CallLine {
      * state, unlike a media offer (reoffer): the reconnect road owns its own timing. */
     private fun sendIceRestartOffer(l: Line) {
         if (synchronized(gate) { line !== l }) return
+        l.sum.restarts++   // iOS sendIceRestartOffer 5183: the summary counts the fresh checks asked
         log("restart offer n=" + l.iceRestarts)
         val mc = MediaConstraints().apply { mandatory.add(MediaConstraints.KeyValuePair("IceRestart", "true")) }
         l.pc.createOffer(sdp(onMade = { d ->
