@@ -6,6 +6,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Outline
 import android.graphics.Paint
+import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.SurfaceTexture
 import android.hardware.camera2.CameraCaptureSession
@@ -103,6 +104,13 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
     /** Both cameras: the back fills the circle, the front sits in the badge; a flip swaps them (iOS toggleDual, 18.09). */
     @Volatile var dual = false; private set
     @Volatile private var swapped = false
+    // A PINCH ZOOMS THE BIG CIRCLE'S CAMERA (iOS pinch/pinchEnded/bigDevice/zoomBase, MontanaFeeds.swift:2207-2224 at 2155,
+    // the gesture at 1675): the camera that fills the main circle right now -- the single one, or whichever of the pair the
+    // flip or the swap left there -- scaled from where the last pinch left it, never past the sensor's own ceiling or 8x.
+    private var zoomBase = 1f
+    private var zoomNow = 1f
+    private var mainSurface: Surface? = null
+    private var badgeSurface: Surface? = null
     // THE FILL LIGHT (iOS flash / applyFlash, MontanaFeeds.swift:1730-1731 and 2225-2241 at 2155): the white screen at full
     // brightness for the front camera, the torch for the back -- both while both cameras record; it follows every turn of side
     @Volatile var flash = false; private set
@@ -330,7 +338,7 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
         // the pair streams at its fixed 1280x720, never at a step one camera alone may take (iOS applyQuality steps the pair down
         // until the hardware carries it; a 1080 source kept from the single road would ask the pair for more)
         if (dual) camTexture?.setDefaultBufferSize(1280, 720) else sizeCamera(cm, id)
-        openInto(id, camTexture!!, { cam = it }, { session = it })
+        openInto(id, camTexture!!, { cam = it }, { session = it }, { mainSurface = it })
     }
     /** THE TEXTURE ASKS FOR THE STEP'S SOURCE before the camera opens (iOS applyQuality, MontanaFeeds.swift:2047-2059 at
      *  2155): the smallest 16:9 format this camera carries that is at least as tall as the chosen step, else the
@@ -346,9 +354,11 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
 
     /** One camera streaming into one texture (the big one's, or the badge's). */
     @SuppressLint("MissingPermission")
-    private fun openInto(id: String, st: SurfaceTexture, keepCam: (CameraDevice) -> Unit, keepSession: (CameraCaptureSession) -> Unit) {
+    private fun openInto(id: String, st: SurfaceTexture, keepCam: (CameraDevice) -> Unit, keepSession: (CameraCaptureSession) -> Unit,
+                          keepSurface: (Surface) -> Unit = {}) {
         val cm = c.getSystemService(CameraManager::class.java)
         val out = Surface(st)
+        keepSurface(out)
         val back = runCatching { cm.getCameraCharacteristics(id).get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK }.getOrDefault(false)
         cm.openCamera(id, object : CameraDevice.StateCallback() {
             override fun onOpened(d: CameraDevice) {
@@ -400,10 +410,46 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
         runCatching { session?.close() }; runCatching { cam?.close() }
         front = false; swapped = false
         camTexture?.setDefaultBufferSize(1280, 720)   // the pair at its fixed size, never a step the single camera took
-        openInto(back, camTexture!!, { cam = it }, { session = it })
-        openInto(frontId, camTexture2!!, { cam2 = it }, { session2 = it })
+        openInto(back, camTexture!!, { cam = it }, { session = it }, { mainSurface = it })
+        openInto(frontId, camTexture2!!, { cam2 = it }, { session2 = it }, { badgeSurface = it })
         dual = true
         told()
+    }
+
+    /** THE BIG CIRCLE'S CAMERA ZOOMS, scaled from where the last pinch left it (iOS pinch, MontanaFeeds.swift:2207-2217 at
+     *  2155): the single camera, or whichever of the pair fills the main circle right now (iOS bigDevice). */
+    fun pinch(scale: Float) = h.post {
+        val big2 = dual && swapped
+        zoomNow = (zoomBase * scale).coerceAtLeast(1f)
+        applyZoom(if (big2) cam2 else cam, if (big2) session2 else session, if (big2) badgeSurface else mainSurface, zoomNow)
+    }
+    /** The gesture's end commits the zoom it leaves (iOS pinchEnded, MontanaFeeds.swift:2219-2223 at 2155: reads the
+     *  device's own clamped factor back, so the next pinch starts from what the hardware actually holds). */
+    fun pinchEnded() = h.post { zoomBase = zoomNow }
+    private fun applyZoom(d: CameraDevice?, s: CameraCaptureSession?, out: Surface?, zoom: Float) {
+        if (d == null || s == null || out == null) return
+        val cm = c.getSystemService(CameraManager::class.java)
+        val back = runCatching { cm.getCameraCharacteristics(d.id).get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK }.getOrDefault(false)
+        val crop = cropFor(cm, d.id, zoom)
+        runCatching {
+            s.setRepeatingRequest(d.createCaptureRequest(CameraDevice.TEMPLATE_RECORD).apply {
+                addTarget(out); set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
+                if (back) set(CaptureRequest.FLASH_MODE, if (flash) CaptureRequest.FLASH_MODE_TORCH else CaptureRequest.FLASH_MODE_OFF)
+                if (crop != null) set(CaptureRequest.SCALER_CROP_REGION, crop)
+            }.build(), null, h)
+        }
+    }
+    /** The sensor's own full frame, shrunk to the zoom step and centred -- the platform's digital zoom (iOS
+     *  dev.videoZoomFactor, capped at the same 8x, MontanaFeeds.swift:2215 at 2155). */
+    private fun cropFor(cm: CameraManager, id: String, zoom: Float): Rect? {
+        val chars = runCatching { cm.getCameraCharacteristics(id) }.getOrNull() ?: return null
+        val active = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE) ?: return null
+        val maxZ = chars.get(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM) ?: 1f
+        val z = zoom.coerceIn(1f, minOf(maxZ, 8f))
+        if (z <= 1f) return null
+        val w = (active.width() / z).toInt(); val hh = (active.height() / z).toInt()
+        val x = active.left + (active.width() - w) / 2; val y = active.top + (active.height() - hh) / 2
+        return Rect(x, y, x + w, y + hh)
     }
 
     // ── the voice ──

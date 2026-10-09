@@ -1232,12 +1232,23 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 setOnClickListener { note?.flip() }
                 // THE BADGE UNDER THE FINGER (iOS MontanaVideoNoteHold 1658-1672): a finger on the badge drags it, and the badge
                 // eases to the nearest corner when let go; a tap anywhere else turns the camera, as before
+                // A PINCH ZOOMS THE BIG CIRCLE'S CAMERA (iOS MagnificationGesture simultaneous with the tap and the drag,
+                // MontanaFeeds.swift:1675 at 2155): two fingers own the pinch, one finger the flip and the badge -- the
+                // platform already hands single- and multi-touch apart by the pointer count.
+                val scale = android.view.ScaleGestureDetector(c, object : android.view.ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                    var acc = 1f
+                    override fun onScaleBegin(d: android.view.ScaleGestureDetector): Boolean { acc = 1f; return true }
+                    override fun onScale(d: android.view.ScaleGestureDetector): Boolean { acc *= d.scaleFactor; note?.pinch(acc); return true }
+                    override fun onScaleEnd(d: android.view.ScaleGestureDetector) { note?.pinchEnded() }
+                })
                 setOnTouchListener(object : View.OnTouchListener {
                     var dragging = false
                     var sx = 0f
                     var sy = 0f
                     override fun onTouch(v: View, e: android.view.MotionEvent): Boolean {
                         val n = note ?: return false
+                        scale.onTouchEvent(e)
+                        if (1 < e.pointerCount || scale.isInProgress) return true
                         val k = v.width / NoteRecorder.SQUARE.toFloat()
                         if (k <= 0f) return false
                         when (e.actionMasked) {
