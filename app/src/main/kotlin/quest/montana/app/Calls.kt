@@ -138,7 +138,13 @@ object Calls {
                 // busy; an established one ends here without a farewell (end(..., silent = true)): a call-end keyed by the peer
                 // would end the NEW call that superseded it.
                 if (r0.ref == ref && r0.answered) end(r0, "superseded", silent = true)
-                else return log("busy: another call rings")
+                else {
+                    // THE REFUSAL NAMES THE CALL IT REFUSES (iOS MontanaCall.swift:2277-2280, build 2d2005d61c14): a
+                    // call-end without the refused call's own epoch read as STALE at the caller there, who then heard
+                    // ringing to the caller's own ninety-second timeout instead of a prompt decline.
+                    say(ref, seed, "call-end")
+                    return log("busy: another call rings")
+                }
             }
             val r = ring
             if (r != null) { if (r.offer == null) r.offer = offer; false }
