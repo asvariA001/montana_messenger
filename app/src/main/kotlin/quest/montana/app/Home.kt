@@ -887,9 +887,6 @@ private fun groupsPane(act: MainActivity, channel: Boolean): View {
 private fun contactsPane(act: MainActivity): View {
     val c = act
     return FrameLayout(c).apply {
-        // THE PAGE'S GROUND UNDER THE BAR (iOS MTUnderBarGround, ContentView.swift:2721, rule 30): my page's ground when one is
-        // chosen, the crest when none -- the tab stood on the bare crest regardless of the choice.
-        addView(c.chatGround(ChatWall.PAGE), FrameLayout.LayoutParams(MATCH, MATCH))
         // THE PEOPLE (iOS ContactsTabView): pins, then presence, then name; «No contacts yet» while there are none (Contacts.kt)
         addView(contactsList(act), FrameLayout.LayoutParams(MATCH, MATCH))   // the coin's pull inside: one law for every page under the bar
         // THE CHATS PAGE'S COMPOSE BUTTON ONE TO ONE (iOS ContactsTabView 2777-2786: «the plate, the size», mtPageAction; MTPageCorner:
