@@ -57,6 +57,10 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
     init {
         orientation = VERTICAL
         setPadding(dp(16), dp(6), dp(16), dp(8))
+        // A TAP BESIDE THE FIELD IS A TAP ON IT (iOS MontanaConversation 2834-2839, atom 0203ae019f6b, the author's word 20.09):
+        // the bar's own room above and below the field and the gaps between the keys wake the field; the keys and the field
+        // stand over this ground and take their own touches first
+        setOnClickListener { if (!field.hasFocus() && !record.active) showKeys() }
         field.apply {
             hint = c.getString(R.string.message_hint)
             setHintTextColor(MT.gray); setTextColor(Color.WHITE)
