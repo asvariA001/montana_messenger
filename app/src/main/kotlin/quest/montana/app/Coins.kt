@@ -497,7 +497,11 @@ object CallMint {
     fun mintSecond() {
         val talk = CallLine.talkSecond() ?: return
         val flow = flows(talk.peer, talk.call)
-        val coins = if (flow) CoinBook.mintInWindow(1, PREFIX, 1, byLevel = true) else CoinBook.burn(1, BURN + talk.ref)
+        // THE ORDINARY CHAT'S BURN WAITS FOR ITS PAIR (the conductor 09.10, coins a risk named to the author): iOS burns a second of an
+        // ordinary chat's call and a bubble of it alike, and a person turns either into minting by the chat's Money Flow. Android has
+        // neither the switch nor the bubble's burn yet (the chats module); a call alone burning would take coins no switch can save,
+        // so the second burns nothing until the switch and the bubble's burn come with it.
+        val coins = if (flow) CoinBook.mintInWindow(1, PREFIX, 1, byLevel = true) else 0L
         val now = System.currentTimeMillis()
         if (60_000L <= now - loggedAt) { loggedAt = now; Log.i("Montana", (if (flow) "call_mint" else "call_burn") + " coins=" + coins) }
     }
