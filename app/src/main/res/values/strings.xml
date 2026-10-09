@@ -631,7 +631,6 @@
     <string name="wall_who_cannot_see">Who cannot see</string>
     <string name="wall_mine">My wall</string>
     <string name="call_cam_off_title">Camera is off for Montana</string>
-    <string name="open_settings">Open Settings</string>
     <string name="continue_with_voice">Continue with voice</string>
     <string name="call_cam_off_body">Your video is not sent. Allow the camera for Montana in Settings, then turn the video on again.</string>
     <string name="call_will_pause">The call will pause</string>

@@ -626,7 +626,6 @@
     <string name="wall_who_cannot_see">Кто не может видеть</string>
     <string name="wall_mine">Моя стена</string>
     <string name="call_cam_off_title">Камера выключена для Montana</string>
-    <string name="open_settings">Открыть Настройки</string>
     <string name="continue_with_voice">Продолжить голосом</string>
     <string name="call_cam_off_body">Ваше видео не отправляется. Разрешите камеру для Montana в Настройках и снова включите видео.</string>
     <string name="call_will_pause">Звонок встанет на паузу</string>
