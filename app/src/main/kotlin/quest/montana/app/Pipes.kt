@@ -691,8 +691,10 @@ object Post {
                 else {
                     val words = if (text.toByteArray().size > 300) sealLong(mid, text) else text
                     // the live road beside the invitation's box: at the point the card names, under the new pipe's seal (iOS sendP2P 935-958)
-                    if (words != null) Meeting.root(to)?.let { root -> Channels.layFirst(secret, root, intro.first, mid, letterHead(mid, words)) }
-                    words != null && Meeting.knockFirst(secret, intro.first, intro.second, mid, words, Marks.isSilent(text) || o.optBoolean("q"))
+                    val laid = words != null && Meeting.root(to)?.let { root -> Channels.layFirst(secret, root, intro.first, mid, letterHead(mid, words)) } == true
+                    // a name has no invitation's box: its first letters ride the point of the name's root alone (iOS outgoingTag 502-510)
+                    if (intro.second.isEmpty()) laid
+                    else words != null && Meeting.knockFirst(secret, intro.first, intro.second, mid, words, Marks.isSilent(text) || o.optBoolean("q"))
                 }
             } else knock(secret, mid, text, o.optString("qt").ifEmpty { null }, o.optString("qm").ifEmpty { null }, o.optString("lp").ifEmpty { null }, o.optBoolean("q"))
             if (sent) {

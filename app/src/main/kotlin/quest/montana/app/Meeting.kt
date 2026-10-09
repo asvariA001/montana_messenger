@@ -19,11 +19,13 @@ object Meeting {
         object Spent : Outcome()
         object Refused : Outcome()
         object Nameless : Outcome()
+        object OwnName : Outcome()   // one's own name opens nothing: a correspondence with oneself is a ghost in both books
     }
     /** The words a meeting that did not open says — the scanner's and the link road's alike (iOS ScanMeetingView 519-522). */
     fun verdict(o: Outcome): Int = when (o) {
         Outcome.Spent -> R.string.invite_spent
         Outcome.Nameless -> R.string.invite_nameless
+        Outcome.OwnName -> R.string.invite_own_name
         else -> R.string.invite_refused
     }
 
@@ -128,17 +130,28 @@ object Meeting {
         if (!t.startsWith("montana://c/")) return null
         return MontanaCard.unb64url(t.removePrefix("montana://c/"))?.takeIf { it.size in 1184..(1184 + 64) }
     }
-    private fun isName(link: String): Boolean {
-        val t = normalize(link).lowercase()
-        return listOf("https://pzr.me/", "https://www.pzr.me/", "http://pzr.me/", "pzr.me/").any { t.startsWith(it) }
+    /**
+     * THE NAME INSIDE AN INVITATION (iOS name(inInvitation:), MontanaFirstContact.swift 154-164): pzr.me and the name, in every shape
+     * a link takes on the way — or the scheme form; a query, a fragment or a closing slash are no part of a name, and a second path
+     * segment means it is not one. Normalized as the set normalizes it, or null.
+     */
+    fun nameIn(link: String): String? {
+        var t = link.trim()
+        val low = t.lowercase()
+        val form = listOf("https://pzr.me/", "https://www.pzr.me/", "http://pzr.me/", "http://www.pzr.me/", "pzr.me/", "www.pzr.me/", "montana://")
+            .firstOrNull { low.startsWith(it) } ?: return null
+        t = t.substring(form.length).substringBefore('?').substringBefore('#').removeSuffix("/")
+        if (t.isEmpty() || '/' in t) return null
+        return Names.normalize(t)
     }
+    private fun isName(link: String): Boolean = nameIn(link) != null
     fun looksLikeInvitation(text: String) = invite(text) != null || longCard(text) != null || isName(text)
 
     // ── the meeting ──
 
     /** Meets whatever was handed over; the network is asked, so this runs off the main thread. */
     fun meet(c: Context, link: String): Outcome {
-        if (isName(link)) return Outcome.Nameless   // the plane of names is not carried by Android yet
+        nameIn(link)?.let { return meetName(it) }
         val inv = invite(link)
         val payload: ByteArray = if (inv != null) {
             val inv64 = MontanaCard.b64url(inv)
@@ -192,6 +205,38 @@ object Meeting {
         // ONE PERSON, ONE CONVERSATION (iOS MTSamePair.ask): whether we already share a pipe is asked at once — the silent
         // first letter, which carries the card's ciphertext to its owner.
         SamePair.ask(ref)
+        return Outcome.Opened(ref)
+    }
+
+    /**
+     * A MEETING BY NAME (iOS MontanaMeeting meetOnce .name, MontanaFirstContact.swift 1767-1814): the plane of names answers the contact
+     * key, ONE ROOT ONE TUNNEL as for a card, then one encapsulation; the correspondence wears the name, stays in the book as a
+     * permanent link does, and its first letters go to the point of the name's root — a name has no invitation's box (iOS outgoingTag).
+     */
+    private fun meetName(n: String): Outcome {
+        if (n == Names.currentName) { Log.d("Montana", "meet_refused why=own-name"); return Outcome.OwnName }
+        val root = when (val a = NamePlane.resolve(n)) {
+            is NamePlane.Answer.Found -> a.root
+            NamePlane.Answer.Unknown -> { Log.d("Montana", "meet_refused why=name-unknown"); return Outcome.Nameless }
+            NamePlane.Answer.Unreachable -> { Log.d("Montana", "meet_refused why=name-unreachable"); return Outcome.Refused }
+        }
+        val root64 = MontanaCard.b64url(root)
+        synchronized(gate) { jmap(CARDS).optString(root64).takeIf { it.isNotEmpty() && Book.secret(it) != null } }?.let { known ->
+            Log.d("Montana", "meet_rescan name-book")
+            return Outcome.Opened(known)
+        }
+        val o = MtBindings.nativeMlkemEncaps(root) ?: return Outcome.Refused
+        val ct = o.copyOf(1088); val ss = o.copyOfRange(1088, 1120)
+        val secret = MtBindings.nativeFirstSecret(ss, root, ct) ?: return Outcome.Refused
+        ss.fill(0); o.fill(0)
+        val ref = Book.establish(secret) ?: return Outcome.Refused
+        synchronized(gate) {
+            jsave(FIRSTS, jmap(FIRSTS).put(ref, JSONObject().put("ct", Base64.encodeToString(ct, Base64.NO_WRAP)).put("inv", "")))
+            jsave(CARDS, jmap(CARDS).put(root64, ref))
+        }
+        Book.open(ref, n, true)   // the name's link keeps the person in the book, as the permanent link it stands in for does
+        Thread { layPipeFace(secret) }.start()
+        SamePair.ask(ref)   // one person, one conversation: the same question, by name
         return Outcome.Opened(ref)
     }
 

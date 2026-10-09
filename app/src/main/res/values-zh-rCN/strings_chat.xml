@@ -27,7 +27,8 @@
     <string name="to_newest">到最新</string>   <!-- the chevron to the feed's newest end, for the reader -->
     <string name="invite_spent">邀请已失效。请索取新的邀请码。</string>
     <string name="invite_refused">无法打开邀请。请检查链接或重试。</string>
-    <string name="invite_nameless">Android 暂不支持名称——请索取名片链接。</string>
+    <string name="invite_nameless">没有人持有这个名字。</string>
+    <string name="invite_own_name">这是你自己的名字。</string>
     <string name="invite_wait">请先创建身份——邀请随后会自动打开。</string>
     <string name="scan">扫描</string>
     <string name="paste_link">粘贴链接</string>

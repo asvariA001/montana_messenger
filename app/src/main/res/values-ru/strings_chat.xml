@@ -27,7 +27,8 @@
     <string name="to_newest">К новым</string>   <!-- the chevron to the feed's newest end, for the reader -->
     <string name="invite_spent">Приглашение погашено. Попросите новый код.</string>
     <string name="invite_refused">Приглашение не открылось. Проверьте ссылку или попробуйте ещё раз.</string>
-    <string name="invite_nameless">Имена на Android пока не поддерживаются — попросите ссылку-визитку.</string>
+    <string name="invite_nameless">Этим именем никто не владеет.</string>
+    <string name="invite_own_name">Это ваше собственное имя.</string>
     <string name="invite_wait">Сначала создайте личность — приглашение откроется сразу после.</string>
     <string name="scan">Сканировать</string>
     <string name="paste_link">Вставить ссылку</string>
