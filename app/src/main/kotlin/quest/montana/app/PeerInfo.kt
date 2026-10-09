@@ -524,9 +524,10 @@ fun peerInfoPage(act: MainActivity, ref: String, onClose: () -> Unit,
         setBackgroundColor(Color.BLACK)
         addView(CrestGround(c), FrameLayout.LayoutParams(MATCH, MATCH))
         // a stroke begun on the strip rolls the strip and turns nothing; the page scrolled up closes the open face
-        addView(PanesScroll(c, skip = { y -> y in bar.top.toFloat()..bar.bottom.toFloat() }, turn = { turnPane(it) }).apply {
-            isVerticalScrollBarEnabled = false; addView(body); face.attach(this)
-        }, FrameLayout.LayoutParams(MATCH, MATCH))
+        val rows = PanesScroll(c, skip = { y -> y in bar.top.toFloat()..bar.bottom.toFloat() }, turn = { turnPane(it) }).apply {
+            isVerticalScrollBarEnabled = false; clipToPadding = false; addView(body); face.attach(this)
+        }
+        addView(rows, FrameLayout.LayoutParams(MATCH, MATCH))
         // the back mark on its own round of glass, over the page
         addView(FrameLayout(c).apply {
             background = c.glassPlate(oval = true)
@@ -540,11 +541,13 @@ fun peerInfoPage(act: MainActivity, ref: String, onClose: () -> Unit,
             addView(c.icon(R.drawable.ic_more_horiz, Color.WHITE), FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
             pressable { act.push { close -> peerEditPage(act, ref, close) } }
         }, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.TOP or Gravity.END).apply { setMargins(0, dp(6), dp(14), 0) })
-        // THE MINI PLAYER STANDS HERE TOO (iOS MontanaPeerInfoScreen.swift:72-84, the author's word 18.09): the same
-        // bar as the chat's and the list's, by reference — music and voices started on this page play in it, and a
-        // tap on it goes to the letter by the one road (liveBar follows the global Playing state while attached).
-        addView(liveBar(act), FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM))
-        addView(foot, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM))
+        // THE BARS OVER THE PAGE'S BOTTOM STAND OUTSIDE ITS ROWS (iOS MontanaPeerInfoScreen.swift:69-84): the selection's bar over
+        // the mini player, both at the foot, and the rows end above them. THE MINI PLAYER STANDS HERE TOO (the author's word 18.09):
+        // the same bar as the chat's and the list's, by reference — music and voices started on this page play in it, and a tap on
+        // it goes to the letter by the one road (liveBar follows the global Playing state while attached).
+        val bars = c.vstack(Gravity.NO_GRAVITY) { addView(foot, lp()); addView(liveBar(act), lp()) }
+        bars.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ -> if (rows.paddingBottom != v.height) v.post { rows.setPadding(0, 0, 0, v.height) } }
+        addView(bars, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM))
         addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
             override fun onViewAttachedToWindow(v: View) { Book.listen(listener); MusicPlayer.listeners.add(music) }
             override fun onViewDetachedFromWindow(v: View) { Book.unlisten(listener); MusicPlayer.listeners.remove(music) }
