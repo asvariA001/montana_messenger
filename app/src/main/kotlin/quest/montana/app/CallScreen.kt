@@ -575,10 +575,12 @@ object CallScreen {
     }
 
     /** A mark of the chat's own (iOS MontanaCallMark): the glass circle, its glyph, the finger's forty-four. */
+    /** THE CALL'S MARK (iOS MontanaCallMark, MontanaShapes.swift 1092-1114, atom 710032f3b132): the bar's glyph colour on the
+     * bar's glass circle with a white 0.28 rim, a 44-point target, a press -- the chat's scroll-down face, one to one. */
     private fun mark(c: Context, glyph: Int, label: Int, work: () -> Unit) = FrameLayout(c).apply {
-        background = c.glassPlate(oval = true)
+        background = c.glassPlate(oval = true).apply { setStroke(c.dp(1), Color.argb(71, 255, 255, 255)) }
         contentDescription = c.getString(label)
-        addView(c.icon(glyph, Color.WHITE, 22), FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
+        addView(c.icon(glyph, barGlyph, 22), FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
         pressable { work() }
     }
 
