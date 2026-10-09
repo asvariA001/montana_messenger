@@ -454,6 +454,13 @@
     <string name="coin_no_moves">No coin moves yet</string>
     <string name="coin_kind_earn">Earned in a chat</string>
     <string name="coin_burned">Burned</string>
+    <string name="coin_by_source">By source</string>
+    <string name="coin_moves_section">Coin moves</string>
+    <string name="coin_no_moves_period">No coin moves in this period</string>
+    <string name="history_period_hour">Hour</string>
+    <string name="history_period_day">Day</string>
+    <string name="history_period_week">Week</string>
+    <string name="history_period_all">All time</string>
     <string name="wall_on">On %1$s\'s wall</string>
     <string name="wall_reposted">Reposted from %1$s</string>
     <string name="wall_someone">Someone</string>
@@ -523,6 +530,7 @@
     <string name="wall_comments">Comments</string>
     <string name="wall_write_comment">Write a comment</string>
     <string name="wall_no_comments">No comments yet</string>
+    <string name="wall_link_not_held">This post is not on this phone yet. Open the writer\'s page, then tap the link again.</string>
     <string name="wall_only_writers">Only people who may write on this wall can comment</string>
     <string name="wall_like">Like</string>
     <string name="wall_keepers">Keepers</string>

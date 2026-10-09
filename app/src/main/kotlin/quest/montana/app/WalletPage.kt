@@ -113,8 +113,10 @@ private fun Context.labeled(title: String, value: String): View = hstack {
     addView(text(value, 16f, MT.gray), lp(WRAP, WRAP))   // USER-DATA: a number of coins
 }
 
-/** A page of the wallet: the bar with the cross or the back chevron, a mark at the trailing edge when it has one, the list that scrolls. */
-private fun walletFrame(act: MainActivity, title: String, onLead: () -> Unit, cross: Boolean, trailing: View?, body: LinearLayout): View {
+/** A page of the wallet: the bar with the cross or the back chevron, a mark at the trailing edge when it has one, the list that
+ * scrolls — a pull of it mints, only where `onPull` names it (iOS MTWalletPage .onPreferenceChange(MTWalletPullKey.self),
+ * MTWalletScreen.swift:343-349 and 367-380). */
+private fun walletFrame(act: MainActivity, title: String, onLead: () -> Unit, cross: Boolean, trailing: View?, body: LinearLayout, onPull: (() -> Unit)? = null): View {
     val c: Context = act
     val bar = FrameLayout(c).apply {
         setPadding(dp(8), 0, dp(8), 0)
@@ -124,12 +126,14 @@ private fun walletFrame(act: MainActivity, title: String, onLead: () -> Unit, cr
         addView(c.text(title, 17f, Color.WHITE, bold = true, center = true), FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
         if (trailing != null) addView(trailing, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.CENTER_VERTICAL or Gravity.END))
     }
+    val scroll = ScrollView(c).apply { addView(body.apply { setPadding(dp(16), 0, dp(16), dp(32)) }) }
+    val list: View = if (onPull != null) CoinPull(c, scroll) { onPull() } else scroll
     return FrameLayout(c).apply {
         setBackgroundColor(Color.BLACK)
         addView(c.chatGround(ChatWall.PAGE), FrameLayout.LayoutParams(MATCH, MATCH))
         addView(c.vstack(Gravity.NO_GRAVITY) {
             addView(bar, lp(MATCH, dp(52)))
-            addView(ScrollView(c).apply { addView(body.apply { setPadding(dp(16), 0, dp(16), dp(32)) }) }, lp(MATCH, 0, 1f))
+            addView(list, lp(MATCH, 0, 1f))
         }, FrameLayout.LayoutParams(MATCH, MATCH))
     }
 }
@@ -268,7 +272,9 @@ fun walletPage(act: MainActivity, onClose: () -> Unit): View {
     pops.isClickable = false
     body.addView(head, lp())
     body.addView(rows, lp())
-    val page = walletFrame(act, c.getString(R.string.coin_title), onClose, true, null, body)
+    // THE PULL MINTS (iOS MTWalletPage.pulled, MTWalletScreen.swift:367-380, build 2093): let go past the trigger, WalletPull mints
+    // once and the book's own change redraws this page below (CoinBook.listen).
+    val page = walletFrame(act, c.getString(R.string.coin_title), onClose, true, null, body) { WalletPull.fire() }
     val again: () -> Unit = { draw() }
     fun readHeads() { headsAt = CoinBook.size(); TimeChain.heads { h -> heads = h; if (page.isAttachedToWindow) draw() } }
     val moved: () -> Unit = {
@@ -437,39 +443,119 @@ fun piLevelsPage(act: MainActivity, onClose: () -> Unit): View {
     return walletFrame(act, c.getString(R.string.coin_levels), onClose, true, null, body)
 }
 
-/** THE HISTORY (iOS MTCoinHistoryPage): every move of the book, the newest first — from where to where, the signed coins and the moment. */
+/** A GROUP OF THE HISTORY (iOS MTCoinGroup, MTWalletScreen.swift:514-540): the moves of one source, one way and one person
+ * within one minute — one row with their sum and count. */
+private class CoinGroup(val source: String, val first: CoinEntry, var signed: Long, var count: Int, val at: Double) {
+    companion object {
+        private const val SHOWN = 60
+        fun recent(moves: List<CoinEntry>): List<CoinGroup> {
+            val out = ArrayList<CoinGroup>()
+            var last = ""
+            for (e in moves) {
+                val source = TimeChain.source(e)
+                val key = source + "|" + e.k + "|" + (e.peer ?: "") + "|" + (e.at / 60).toLong()
+                if (key == last && out.isNotEmpty()) { out[out.size - 1].signed += e.signed; out[out.size - 1].count++; continue }
+                if (out.size == SHOWN) break
+                last = key
+                out.add(CoinGroup(source, e, e.signed, 1, e.at))
+            }
+            return out
+        }
+    }
+}
+
+/** A SOURCE'S TOTALS OVER A PERIOD (iOS MTCoinTotal, MTWalletScreen.swift:542-558): what came in by it and what went out. */
+private class CoinTotal(val source: String, var into: Long = 0, var out: Long = 0) {
+    companion object {
+        fun of(moves: List<CoinEntry>): List<CoinTotal> {
+            val by = LinkedHashMap<String, CoinTotal>()
+            for (e in moves) {
+                val s = TimeChain.source(e)
+                val x = by.getOrPut(s) { CoinTotal(s) }
+                if (0 < e.signed) x.into += e.signed else x.out -= e.signed
+            }
+            return TimeChain.SOURCES.mapNotNull { by[it] }
+        }
+    }
+}
+
+/** From where to where, as a person reads it (iOS MTWalletPage.route, reused by MTCoinHistoryPage's groups, MTWalletScreen.swift:728). */
+private fun Context.coinRoute(e: CoinEntry): String {
+    val me = getString(R.string.coin_you)
+    fun who(ref: String?): String = ref?.let { Book.chat(it)?.shown?.ifBlank { null } } ?: getString(R.string.peer)
+    return when (e.k) {
+        CoinEntry.EARN -> (if (e.ref.startsWith(Pantheon.PREFIX)) getString(R.string.coin_pantheon) else getString(R.string.coin_kind_earn)) + " → " + me
+        CoinEntry.RECEIVE -> who(e.peer) + " → " + me
+        CoinEntry.BURN -> me + " → " + getString(R.string.coin_burned)
+        else -> me + " → " + who(e.peer)
+    }
+}
+
+/** The platform's segmented choice of a period (iOS MTCoinHistoryPage.Period, MTWalletScreen.swift:665-684). */
+private enum class HistoryPeriod(val word: Int, val seconds: Double?) {
+    HOUR(R.string.history_period_hour, 3600.0), DAY(R.string.history_period_day, 86400.0),
+    WEEK(R.string.history_period_week, 604800.0), ALL(R.string.history_period_all, null)
+}
+
+/**
+ * THE HISTORY'S OWN PAGE (iOS MTCoinHistoryPage, MTWalletScreen.swift:664-746, the author's word 04.10.2026 04:02 MSK: «the history
+ * as a link button into it, with the choice of the period and the details of the analysis, grouped neatly»): the platform's
+ * segmented choice of the period, each source's coins in and out over it, and the moves grouped by source, way, person and
+ * minute — each group opening its source's TimeChain.
+ */
 fun coinHistoryPage(act: MainActivity, onBack: () -> Unit): View {
     val c: Context = act
     val body = c.vstack(Gravity.NO_GRAVITY)
-    val me = c.getString(R.string.coin_you)
-    fun who(ref: String?): String = ref?.let { Book.chat(it)?.shown?.ifBlank { null } } ?: c.getString(R.string.peer)
-    val moves = CoinBook.moves().take(500)
-    body.addView(c.plate {
-        if (moves.isEmpty()) addView(c.text(c.getString(R.string.coin_no_moves), 16f, MT.gray).apply { setPadding(dp(16), dp(14), dp(16), dp(14)) }, lp())
-        moves.forEachIndexed { i, e ->
-            if (0 < i) divider()
-            val route = when (e.k) {
-                CoinEntry.EARN -> (if (e.ref.startsWith(Pantheon.PREFIX)) c.getString(R.string.coin_pantheon) else c.getString(R.string.coin_kind_earn)) + " → " + me
-                CoinEntry.RECEIVE -> who(e.peer) + " → " + me
-                CoinEntry.BURN -> me + " → " + c.getString(R.string.coin_burned)
-                else -> me + " → " + who(e.peer)
-            }
-            addView(c.hstack {
+    val lists = c.vstack(Gravity.NO_GRAVITY)
+    var period = HistoryPeriod.DAY
+    fun drawLists() {
+        lists.removeAllViews()
+        val since = period.seconds?.let { System.currentTimeMillis() / 1000.0 - it } ?: 0.0
+        val moves = CoinBook.moves().filter { since <= it.at }
+        if (moves.isEmpty()) {
+            lists.addView(c.text(c.getString(R.string.coin_no_moves_period), 16f, MT.gray).apply { setPadding(dp(16), dp(14), dp(16), dp(14)) }, lp())
+            return
+        }
+        lists.section(c.getString(R.string.coin_by_source), null, *CoinTotal.of(moves).map { x ->
+            c.hstack {
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(dp(16), dp(10), dp(16), dp(10))
-                addView(c.vstack(Gravity.NO_GRAVITY) {
-                    addView(c.text(route, 15f).apply { singleLineEllipsis() })   // USER-DATA: who the coins went between
-                    addView(c.text(android.text.format.DateFormat.getMediumDateFormat(c).format(Date((e.at * 1000).toLong())) + " " +
-                        android.text.format.DateFormat.getTimeFormat(c).format(Date((e.at * 1000).toLong())), 12f, MT.gray))
-                }, lp(0, WRAP, 1f))
-                addView(c.coinDelta(e.signed), lp(WRAP, WRAP))
-                // a move opens its source's TimeChain, where its link stands with its seal (iOS MTCoinHistoryPage)
-                val source = TimeChain.source(e)
-                pressable { act.push { back -> timeChainPage(act, source, back) } }
-            }, lp())
-        }
-    }, lp().apply { topMargin = c.dp(12) })
-    return walletFrame(act, c.getString(R.string.coin_history), onBack, false, null, body)
+                minimumHeight = dp(48)
+                addView(c.text(c.chainName(x.source), 16f), lp(0, WRAP, 1f))
+                addView(c.vstack(Gravity.END) {
+                    if (0L < x.into) addView(c.text("+" + CoinText.count(x.into), 15f, MT.green))   // USER-DATA: the coins in by this source
+                    if (0L < x.out) addView(c.text("−" + CoinText.count(x.out), 15f, Color.WHITE))   // USER-DATA: the coins out by this source
+                }, lp(WRAP, WRAP))
+                pressable { act.push { back -> timeChainPage(act, x.source, back) } }
+            } as View
+        }.toTypedArray())
+        lists.section(c.getString(R.string.coin_moves_section), null, *CoinGroup.recent(moves).map { g ->
+            c.vstack(Gravity.NO_GRAVITY) {
+                setPadding(dp(16), dp(10), dp(16), dp(10))
+                addView(c.hstack {
+                    addView(c.text(c.chainName(g.source), 15f, Color.WHITE, bold = true), lp(0, WRAP, 1f))   // USER-DATA: the source the moves came by
+                    addView(c.text((if (0L < g.signed) "+" else "") + CoinText.count(g.signed), 15f, if (0L < g.signed) MT.green else Color.WHITE), lp(WRAP, WRAP))   // USER-DATA: the coins the group moved
+                }, lp())
+                addView(c.text(c.coinRoute(g.first), 13f, MT.gray))   // USER-DATA: where the coins came from and where they went
+                addView(c.hstack {
+                    addView(c.text(android.text.format.DateFormat.getMediumDateFormat(c).format(Date((g.at * 1000).toLong())) + " " +
+                        android.text.format.DateFormat.getTimeFormat(c).format(Date((g.at * 1000).toLong())), 12f, MT.gray), lp(0, WRAP, 1f))   // USER-DATA: the group's newest move
+                    addView(c.text("× " + g.count, 12f, MT.gray))   // USER-DATA: how many moves the group holds
+                }, lp())
+                pressable { act.push { back -> timeChainPage(act, g.source, back) } }
+            } as View
+        }.toTypedArray())
+    }
+    body.addView(segmented(c, HistoryPeriod.values().map { it.word to it.name }, period.name) { v -> period = HistoryPeriod.valueOf(v); drawLists() }, lp().apply { bottomMargin = c.dp(8) })
+    body.addView(lists, lp())
+    drawLists()
+    val again: () -> Unit = { drawLists() }
+    val page = walletFrame(act, c.getString(R.string.coin_history), onBack, false, null, body)
+    page.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+        override fun onViewAttachedToWindow(v: View) { CoinBook.listen(again) }
+        override fun onViewDetachedFromWindow(v: View) { CoinBook.unlisten(again) }
+    })
+    return page
 }
 
 /** A source's word in the catalogue, one table for every place that names it (iOS MTTimeChainRows.key). */

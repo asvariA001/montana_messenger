@@ -449,6 +449,13 @@
     <string name="coin_no_moves">Движений монет пока нет</string>
     <string name="coin_kind_earn">Заработано в чате</string>
     <string name="coin_burned">Сожжено</string>
+    <string name="coin_by_source">По источникам</string>
+    <string name="coin_moves_section">Движения монет</string>
+    <string name="coin_no_moves_period">За этот период движений монет нет</string>
+    <string name="history_period_hour">Час</string>
+    <string name="history_period_day">День</string>
+    <string name="history_period_week">Неделя</string>
+    <string name="history_period_all">Всё время</string>
     <string name="wall_on">На стене: %1$s</string>
     <string name="wall_reposted">Репост со стены: %1$s</string>
     <string name="wall_someone">Кто-то</string>
@@ -518,6 +525,7 @@
     <string name="wall_comments">Комментарии</string>
     <string name="wall_write_comment">Написать комментарий</string>
     <string name="wall_no_comments">Пока нет комментариев</string>
+    <string name="wall_link_not_held">Этого поста ещё нет на этом телефоне. Откройте страницу автора и нажмите ссылку снова.</string>
     <string name="wall_only_writers">Комментировать могут те, кому можно писать на этой стене</string>
     <string name="wall_like">Нравится</string>
     <string name="wall_keepers">Хранители</string>

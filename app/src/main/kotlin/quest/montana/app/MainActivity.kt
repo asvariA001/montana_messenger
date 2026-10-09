@@ -130,6 +130,17 @@ class MainActivity : Activity() {
         if (!takeShared(intent, hasSeed && termsAccepted)) intent.data?.let { openLink(it.toString()) }
     }
     fun openLink(link: String) {
+        // A WALL'S LINK OPENS THE POST HELD HERE, CHECKED FIRST (iOS MontanaFirstContact.handleLink:1855, MontanaBoardViews.swift
+        // MTBoardComments.open/target:2414-2433): a long link to a post or comment this phone holds opens its comments page,
+        // scrolled to a comment's own link; a wall link to a post not held here is said so, never read as a spent invitation.
+        if (Board.isWallLink(link)) {
+            if (hasSeed && termsAccepted) {
+                val t = Board.linkTarget(link)
+                if (t != null) push { close -> wallCommentsPage(this, t.wall, t.post, close, t.comment) }
+                else sayVerdict(this, R.string.wall_link_not_held)
+            }
+            return
+        }
         // A COIN'S LINK OPENS THE WALLET (iOS handleLink 1871-1877, the author's word 03.10): the coin letter's machine line is no
         // invitation, and the invitation road answered it «could not be opened».
         if (Meeting.normalize(link).startsWith(CoinLetter.LINK.substringBefore("/1/"))) {

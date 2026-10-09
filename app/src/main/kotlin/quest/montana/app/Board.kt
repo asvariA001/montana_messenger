@@ -434,6 +434,27 @@ object Board {
         (0 until ps.length()).mapNotNull { ps.optJSONObject(it) }.firstOrNull { it.optString("id") == id }
     }
     fun canWrite(wall: String) = wall.isEmpty() || synchronized(lock) { ensure(); pages[wall]?.optBoolean("w") == true }
+
+    /** WHICH WALL HOLDS A POST, FOR A WALL'S LINK (iOS MTBoard.place(of:), MontanaBoard.swift:1431-1435): "" for a post of mine,
+     * a correspondent's ref for a post on their page, null for a post this phone does not hold. */
+    fun place(id: String): String? {
+        if (MyWall.post(id) != null) return ""
+        return synchronized(lock) {
+            ensure()
+            pages.entries.firstOrNull { (_, pg) -> (pg.optJSONArray("ps") ?: JSONArray()).let { ps -> (0 until ps.length()).any { i -> ps.optJSONObject(i)?.optString("id") == id } } }?.key
+        }
+    }
+    /** A long wall link, read before every other link (iOS MontanaFirstContact.handleLink:1855, MTBoardComments.target:2421-2433). */
+    class LinkTarget(val wall: String, val post: String, val comment: String?)
+    fun isWallLink(link: String): Boolean = Meeting.normalize(link).startsWith("montana://wall/")
+    /** The post and the comment a long wall link names, among the posts this phone holds; null for a post not held here, or for
+     * the named-nick short form this phone does not resolve (iOS MTBoard.find(name:), not ported). */
+    fun linkTarget(link: String): LinkTarget? {
+        val parts = Meeting.normalize(link).removePrefix("montana://wall/").split("/").filter { it.isNotEmpty() }
+        if (parts.size == 2 && parts[0] == "post") place(parts[1])?.let { return LinkTarget(it, parts[1], null) }
+        if (parts.size == 3 && parts[0] == "comment") place(parts[1])?.let { return LinkTarget(it, parts[1], parts[2]) }
+        return null
+    }
     /** A WALL READ AS ITS OWNER SENT IT (iOS posts(on:), MontanaBoard.swift:723): every post of one person's own page, the
      * pinned first, then by the newest record of its chain -- its birth or its latest comment (iOS lastAt 1306), so a comment
      * of mine lifts its post here at once. */
@@ -725,9 +746,13 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
  * writer's head with its number in the chain and its moment; the field below for one who may write on the wall, else the words
  * that say who may.
  */
-fun wallCommentsPage(act: MainActivity, wall: String, id: String, onClose: () -> Unit): View {
+fun wallCommentsPage(act: MainActivity, wall: String, id: String, onClose: () -> Unit, focus: String? = null): View {
     val c: Context = act
     val body = c.vstack(Gravity.NO_GRAVITY) { setPadding(dp(12), 0, dp(12), dp(16)) }
+    val scroll = ScrollView(c)
+    // A COMMENT'S OWN LINK SCROLLS TO IT, ONCE (iOS MTBoardComments's ScrollViewReader.onAppear, MontanaBoardViews.swift:1591, 2155
+    // build): montana://wall/comment opens this same page already drawn to its one comment.
+    var scrolled = focus == null
     fun draw() {
         body.removeAllViews()
         val p = Board.post(wall, id) ?: return
@@ -744,6 +769,7 @@ fun wallCommentsPage(act: MainActivity, wall: String, id: String, onClose: () ->
                 else -> null
             } ?: poster(k.optString("fc"))
             body.addView(c.vstack(Gravity.NO_GRAVITY) {
+                tag = k.optString("id")
                 setPadding(0, dp(10), 0, dp(6))
                 addView(c.hstack {
                     gravity = Gravity.CENTER_VERTICAL
@@ -760,6 +786,13 @@ fun wallCommentsPage(act: MainActivity, wall: String, id: String, onClose: () ->
                 }, lp())
                 addView(c.text(Board.numberLine(base + i + 1, k.optDouble("at"), k.optString("h")), 11f, MT.gray).apply { setPadding(dp(46), dp(2), 0, 0) }, lp())
             }, lp())
+        }
+        if (!scrolled) {
+            scrolled = true
+            scroll.post {
+                val target = (0 until body.childCount).map { body.getChildAt(it) }.firstOrNull { it.tag == focus }
+                if (target != null) scroll.scrollTo(0, maxOf(0, target.top - (scroll.height - target.height) / 2))
+            }
         }
     }
     val field = android.widget.EditText(c).apply {
@@ -789,7 +822,7 @@ fun wallCommentsPage(act: MainActivity, wall: String, id: String, onClose: () ->
         setBackgroundColor(android.graphics.Color.BLACK)
         addView(c.vstack(Gravity.NO_GRAVITY) {
             addView(bar, lp(MATCH, dp(52)))
-            addView(ScrollView(c).apply { addView(body) }, lp(MATCH, 0, 1f))
+            addView(scroll.apply { addView(body) }, lp(MATCH, 0, 1f))
             addView(foot, lp())
         }, FrameLayout.LayoutParams(MATCH, MATCH))
         addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {

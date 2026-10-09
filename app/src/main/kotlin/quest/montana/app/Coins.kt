@@ -400,6 +400,27 @@ object Pantheon {
 }
 
 /**
+ * THE COIN IN THE PULL MINTS (iOS MTWalletPull, build 2093 MTWalletScreen.swift "@MainActor enum MTWalletPull" 429-449; the author's
+ * words 04.10.2026 03:19, 03:53, 03:56 MSK: «pulling the wallet's page squeezes our coin; it switches the auto minting on — one
+ * second times your box»; «once a second»; «priority one»): a pull let go past the wallet list's trigger mints one second at the
+ * box's rate (the book's own window, CoinBook.mintInWindow) at most once a second. The current build (2155, MTWalletCore.swift
+ * 1387-1447) ties the same pull to a continuous per-second beat shared with the VPN wall's and the calls' own minting — out of
+ * reach here, the VPN named untouched for this task; Android mints once on each release, as the pull did at its birth.
+ */
+object WalletPull {
+    private const val PREFIX = Pantheon.PREFIX + "pull-"
+    private var minted = 0L
+    fun fire(): Long {
+        val now = System.currentTimeMillis()
+        if (now - minted < 1000) return 0
+        minted = now
+        val coins = CoinBook.mintInWindow(1, PREFIX, 1)
+        Log.i("Montana", "wallet_pull coins=" + coins)
+        return coins
+    }
+}
+
+/**
  * A COIN LETTER (iOS MTCoinLetter): coins sent to a person ride the chat's own letter road — the coin and the number on the first
  * line, the machine line under it, its JSON {c, id} in base64 with the URL's two letters. A build that does not know it reads the
  * words; the receiver's book credits it once by the letter's wire name, the same on both phones.

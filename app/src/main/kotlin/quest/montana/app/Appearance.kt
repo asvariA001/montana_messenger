@@ -372,7 +372,7 @@ private fun slider(c: Context, word: Int, key: String, def: Double, lo: Double, 
  * THE SEGMENTED CHOICE (iOS .pickerStyle(.segmented)): the platform has no segmented control of its own, so it is the
  * capsule of equal segments with the chosen one lit — words and a stored value each.
  */
-private fun segmented(c: Context, items: List<Pair<Int, String>>, chosen: String, onPick: (String) -> Unit): View {
+fun segmented(c: Context, items: List<Pair<Int, String>>, chosen: String, onPick: (String) -> Unit): View {
     val row = c.hstack { background = c.rounded(Color.argb(40, 118, 118, 128), 9); setPadding(dp(2), dp(2), dp(2), dp(2)) }
     fun fill(now: String) {
         row.removeAllViews()
