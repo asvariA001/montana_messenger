@@ -514,6 +514,32 @@ object CoinSend {
         if (m.state == -1 && again == back) giveBack(coin.c, ref, BACK + name + ":" + (back + 1), "red")
         else if (m.state != -1 && again != back) CoinBook.retake(coin.c, ref, AGAIN + name + ":" + (again + 1))
     }
+    /**
+     * A COIN LETTER THAT DID NOT ARRIVE IN A DAY COMES HOME (the author's word 09.10.2026 11:3x MSK: «если монеты не дошли в
+     * течении 24 часов то нужно их обратно возвращать»; measured 08.10: 727 639 coins rode a letter to an account that no longer
+     * exists, never receipted, held for good). The node's box keeps a letter one day from the moment it took it, so a coin letter of
+     * mine with no receipt a day after the box took it (after its birth, if no box ever did) can draw none: it leaves the queue, its
+     * row turns red and hold gives its coins back. A receipt that still comes takes them again (hold, arrived): nothing is paid twice.
+     */
+    const val DAY_MS = 24 * 3600_000L
+    fun expire() {
+        val now = System.currentTimeMillis()
+        for (chat in Book.all()) {
+            if (Groups.isKey(chat.ref)) continue
+            for (late in chat.msgs.filter { it.mine && (it.state == 0 || it.state == 1) && coinOf(it) != null && DAY_MS <= now - since(it) }) {
+                Post.unqueue(late.mid)
+                var red: Msg? = null
+                Book.edit(chat.ref) { c -> c.msgs.find { it.mid == late.mid && it.mine }?.let { m -> if (m.advance(-1)) red = m } }
+                red?.let {
+                    hold(it, chat.ref)
+                    Log.i("Montana", "coin_day coins=" + (coinOf(it)?.c ?: 0) + " state_was=" + late.state + " no receipt in a day")
+                }
+            }
+        }
+    }
+    /** Where a coin letter's day starts: the box took it, or it was born and no box ever did. */
+    private fun since(m: Msg): Long = if (m.state == 1 && 0 < m.statusAt) m.statusAt else Marks.birthMs(m.mid) ?: m.at
+
     /** Whether a coin letter of mine stands red with its coins back (the bubble says so). */
     fun returned(m: Msg): Boolean {
         val name = wire(m.mid)

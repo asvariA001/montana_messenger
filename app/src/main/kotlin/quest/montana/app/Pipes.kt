@@ -606,6 +606,15 @@ object Post {
         }
         Thread { flush() }.start()
     }
+    /** A letter taken off the road unsent: it leaves the queue (a coin letter whose day is over, CoinSend.expire). */
+    fun unqueue(mid: String) {
+        synchronized(outLock) {
+            val a = outbox()
+            val keep = JSONArray()
+            for (i in 0 until a.length()) a.getJSONObject(i).let { if (it.optString("m") != mid) keep.put(it) }
+            if (keep.length() != a.length()) DeviceVault.set(OUTBOX, keep.toString().toByteArray())
+        }
+    }
     private fun outbox(): JSONArray = DeviceVault.get(OUTBOX)?.let { runCatching { JSONArray(String(it, Charsets.UTF_8)) }.getOrNull() } ?: JSONArray()
 
     /** Every waiting letter knocks once more; the ones a door boxed leave the queue. */
@@ -791,6 +800,7 @@ object Post {
             } while (synchronized(fetchLock) { fetchAgain })
         } catch (e: Exception) { Log.w("Montana", "box fetch: ${e.javaClass.simpleName}") }
         finally { synchronized(fetchLock) { fetching = false } }
+        CoinSend.expire()   // after the pickup: a receipt it brought counts before a coin letter's day is judged
         SamePair.askUnasked()
         Book.refs().filter { SamePair.merged(it) == null }.forEach { announce(it) }   // a folded pipe only forwards
         Media.fetchPending(Book.ctx)
@@ -954,15 +964,16 @@ object Post {
                 // THE READ WORD MAY HAVE OUTRUN THIS RECEIPT (iOS markDelivered 4221-4226): a film is told «delivered» only once
                 // its file is whole there, while «read» leaves the moment the chat is open — the mark remembers, the letter catches up
                 val u = PeerRead.upTo(ref)
-                var row = false
+                var row: Msg? = null
                 Book.edit(ref) { c ->
                     c.msgs.find { it.mid == d && it.mine }?.let { m ->
-                        row = true
+                        row = m
                         if (m.advance(2) && u != null && (Marks.birthMs(m.mid) ?: Long.MAX_VALUE) <= u) m.advance(3)
                     }
                 }
                 // a coin letter whose row is gone: its coins that came back are taken again (iOS markDelivered 4266, MTCoinSend.arrived)
-                if (!row) CoinSend.arrived(d, ref)
+                // a red one delivered after all, its coins home: they are taken again, every door of the ladder asks (iOS hold)
+                row?.let { CoinSend.hold(it, ref) } ?: CoinSend.arrived(d, ref)
             }
             text.startsWith(Marks.READ) -> {
                 val upTo = text.removePrefix(Marks.READ).toLongOrNull()
