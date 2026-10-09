@@ -142,7 +142,8 @@ object Calls {
                     // THE REFUSAL NAMES THE CALL IT REFUSES (iOS MontanaCall.swift:2277-2280, build 2d2005d61c14): a
                     // call-end without the refused call's own epoch read as STALE at the caller there, who then heard
                     // ringing to the caller's own ninety-second timeout instead of a prompt decline.
-                    say(ref, seed, "call-end")
+                    // the same person only (iOS same_peer=1): another person's call is iOS's second line, which this phone has not
+                    if (r0.ref == ref) say(ref, seed, "call-end")
                     return log("busy: another call rings")
                 }
             }
