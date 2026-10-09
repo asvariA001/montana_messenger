@@ -625,4 +625,5 @@
     <string name="wall_who_cannot_write">Кто не может писать</string>
     <string name="wall_who_can_see">Кто может видеть</string>
     <string name="wall_who_cannot_see">Кто не может видеть</string>
+    <string name="wall_mine">Моя стена</string>
 </resources>

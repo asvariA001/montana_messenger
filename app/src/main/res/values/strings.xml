@@ -626,4 +626,5 @@
     <string name="wall_who_cannot_write">Who cannot write</string>
     <string name="wall_who_can_see">Who can see</string>
     <string name="wall_who_cannot_see">Who cannot see</string>
+    <string name="wall_mine">My wall</string>
 </resources>

@@ -625,4 +625,5 @@
     <string name="wall_who_cannot_write">谁不能发帖</string>
     <string name="wall_who_can_see">谁可以查看</string>
     <string name="wall_who_cannot_see">谁不能查看</string>
+    <string name="wall_mine">我的留言墙</string>
 </resources>

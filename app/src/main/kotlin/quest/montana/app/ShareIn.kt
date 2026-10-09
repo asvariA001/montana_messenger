@@ -38,7 +38,7 @@ fun sendWords(target: String, words: String) {
 }
 
 /**
- * THE SHARE SHEET (iOS ShareViewController): the chats, pinned first — a tap chooses one or more; the field over the button
+ * THE SHARE SHEET (iOS ShareViewController): my own wall first, then the chats, pinned first — a tap chooses one or more; the field over the button
  * holds the words (what the other app handed in stands there already, and it becomes the pictures' caption); «Send» sends to
  * every chosen chat and, when one was chosen, opens it.
  */
@@ -57,7 +57,27 @@ fun sharePage(act: MainActivity, s: Shared, onClose: () -> Unit): View {
     val rows = c.vstack(Gravity.NO_GRAVITY)
     fun fill() {
         rows.removeAllViews()
-        for (ch in listedChats().filter { !Groups.isKey(it.ref) || Groups.canWrite(it.ref) }) {   // a group this phone writes into takes it by its carrier (Groups.send, carryMedia)
+        // ONE'S OWN WALL, THE FIRST CIRCLE (iOS ShareChat.wall, the author's words 29.09 and 02.10 19:17): my own face, as the Saved
+        // Messages row wears it, and «My wall»; the platform's write glyph where a chat's tick stands. Written on, never sent to: it
+        // chooses nothing and opens the wall's one new-post page with all that was handed in already taken (iOS MTBoard.takeFromSheet
+        // and laySheet, MontanaBoard 1934-1991, then MTBoardComposer.reopen, MontanaBoardViews 2050-2058); only its check posts.
+        rows.addView(c.hstack {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(4), dp(8), dp(4), dp(8))
+            addView(c.avatar(SelfFace.load(c), Prefs.userName, 46), lp(dp(46), dp(46)).apply { marginEnd = dp(12) })
+            addView(c.text(c.getString(R.string.wall_mine), 17f, Color.WHITE, bold = true).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))
+            addView(c.icon(R.drawable.ic_compose, Color.WHITE), lp(dp(24), dp(24)))
+            pressable {
+                val words = field.text.toString().trim()
+                act.getSystemService(android.view.inputmethod.InputMethodManager::class.java).hideSoftInputFromWindow(field.windowToken, 0)
+                android.util.Log.d("Montana", "wall_sheet files=" + s.files.size + " chars=" + words.length + " page")
+                onClose()
+                act.push { close -> newPostPage(act, close, sharedWords = words, sharedFiles = s.files) }
+            }
+        }, lp())
+        rows.addView(View(c).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = c.dp(62) })
+        val chats = listedChats().filter { !Groups.isKey(it.ref) || Groups.canWrite(it.ref) }   // a group this phone writes into takes it by its carrier (Groups.send, carryMedia)
+        for (ch in chats) {
             val on = ch.ref in chosen
             rows.addView(c.hstack {
                 gravity = Gravity.CENTER_VERTICAL
@@ -72,7 +92,8 @@ fun sharePage(act: MainActivity, s: Shared, onClose: () -> Unit): View {
             }, lp())
             rows.addView(View(c).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = c.dp(62) })
         }
-        if (rows.childCount == 0) rows.addView(c.text(c.getString(R.string.no_chats), 17f, MT.gray, center = true).apply { setPadding(0, c.dp(40), 0, 0) }, lp())
+        // the wall stands with no chat at all: the empty word speaks of the chats alone (iOS emptyLabel.isHidden = !chats.isEmpty, 8bf2e50c)
+        if (chats.isEmpty()) rows.addView(c.text(c.getString(R.string.no_chats), 17f, MT.gray, center = true).apply { setPadding(0, c.dp(40), 0, 0) }, lp())
     }
     send = AccentButton(c, c.getString(R.string.send)) {
         val to = chosen.toList()

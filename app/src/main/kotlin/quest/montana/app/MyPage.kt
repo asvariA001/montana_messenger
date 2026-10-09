@@ -123,7 +123,7 @@ fun goingCell(act: MainActivity, o: MyWall.Going): View = act.vstack(Gravity.NO_
  * on its way (MyWall.begin) and lays its files on the node under the bar at the page's top (MyWall.publish); the page leaves when the
  * post is out, and a post the node did not take keeps its try again here and on the wall.
  */
-fun newPostPage(act: MainActivity, onClose: () -> Unit): View {
+fun newPostPage(act: MainActivity, onClose: () -> Unit, sharedWords: String = "", sharedFiles: List<android.net.Uri> = emptyList()): View {
     val c: Context = act
     val files = mutableListOf<MyWall.Attachment>()
     var taking = 0
@@ -265,6 +265,10 @@ fun newPostPage(act: MainActivity, onClose: () -> Unit): View {
         addView(failedLine, lp().apply { topMargin = dp(16) })
     }
     drawTaken()
+    // WHAT ANOTHER APP HANDED IN STANDS ON THE PAGE ALREADY TAKEN (iOS MTBoard.laySheet 1974-1991: the words joined, the files held to
+    // what a post takes, then MTBoardComposer.reopen 2054-2058): the words to change, more files to pick, the check to post
+    if (sharedWords.isNotEmpty()) { field.setText(sharedWords); field.setSelection(field.text.length) }
+    take(sharedFiles.take(MEDIA_LIMIT))
     // the bar follows the node's count while the post is on its way
     val heard: () -> Unit = { if (sending != null) showBar() }
     page.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
