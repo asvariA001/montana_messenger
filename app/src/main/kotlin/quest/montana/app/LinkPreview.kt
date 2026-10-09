@@ -4,11 +4,18 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Outline
+import android.graphics.Paint
+import android.graphics.Typeface
 import android.net.Uri
+import android.text.TextPaint
 import android.util.Base64
+import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
+import android.view.ViewOutlineProvider
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -205,28 +212,147 @@ object LinkCompose {
 }
 
 /**
- * THE CARD UNDER THE WORDS (iOS the link card in the bubble): a bar of the bubble's words' colour, the site in bold, the title,
- * the description in three lines; a wide picture lies across under them, a small one stands beside. A tap opens the link —
- * the site is read only now, by the one who chose to open it.
+ * THE CARD'S WORDS FLOW AROUND ITS SMALL PICTURE (iOS MTLinkCardWords.swift 63-168, MontanaBubble.swift 1738-1807 at 2155,
+ * fork atoms 1686646476e0 and 1f5d8cf02eaa): the font is fourteen seventeenths of the letter's own body size (17pt by the
+ * platform's own default — the reference's own number, not a derived one), semibold for the site and the title, regular
+ * for the words, lines breathing by nine hundredths of it; the three blocks stand with NO gap between them. The picture's
+ * 54dp square plus its 6dp gap is cut from the top lines, block by block — the exclusion holds one width for a whole
+ * block, only narrowing between blocks (the reference's own frames(for:) arithmetic) — and the lines below it run the
+ * card's full width.
+ */
+private class LinkCardWordsView(context: Context) : View(context) {
+    class Block(val text: String, val bold: Boolean, val color: Int, val maxLines: Int)
+    var blocks: List<Block> = emptyList()
+    var textSizePx: Float = 0f
+    var cutoutW: Float = 0f
+    var cutoutH: Float = 0f
+    private class Line(val text: String, val paint: TextPaint, val height: Float, val ascent: Float)
+    private var lines: List<Line> = emptyList()
+    private var builtForWidth = -1
+
+    private fun paintFor(b: Block) = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = textSizePx
+        // semibold as the reference's weight (600) where the platform draws weights, bold before it
+        typeface = if (!b.bold) Typeface.DEFAULT else if (28 <= android.os.Build.VERSION.SDK_INT) Typeface.create(Typeface.DEFAULT, 600, false) else Typeface.DEFAULT_BOLD
+        color = b.color
+    }
+
+    // THE REFERENCE'S OWN ARITHMETIC (MTLinkCardWordsView.frames(for:)): the exclusion's height for a block is the cutout
+    // left over from the blocks before it — constant for every line of THIS block — and only between blocks does it
+    // shrink, by that block's own total height.
+    private fun wrapBlock(text: String, avail: Float, cap: Int, paint: TextPaint): List<String> {
+        val words = text.split(Regex("\\s+")).filter { it.isNotEmpty() }
+        if (words.isEmpty()) return emptyList()
+        val out = ArrayList<String>()
+        var wi = 0
+        while (wi < words.size && out.size < cap) {
+            val sb = StringBuilder(words[wi]); wi++
+            while (wi < words.size) {
+                val trial = sb.toString() + " " + words[wi]
+                if (paint.measureText(trial) <= avail) { sb.append(' ').append(words[wi]); wi++ } else break
+            }
+            var text1 = sb.toString()
+            if (paint.measureText(text1) > avail) {
+                val n = paint.breakText(text1, true, avail, null).coerceAtLeast(1)
+                text1 = text1.substring(0, n)
+            }
+            if (out.size == cap - 1 && wi < words.size) {
+                val ell = "…"
+                val n = paint.breakText(text1, true, (avail - paint.measureText(ell)).coerceAtLeast(0f), null)
+                text1 = text1.substring(0, n).trimEnd() + ell
+                wi = words.size
+            }
+            out.add(text1)
+        }
+        return out
+    }
+
+    private fun relayout(width: Int) {
+        if (builtForWidth == width || width <= 0) return
+        builtForWidth = width
+        val spacing = textSizePx * 0.09f
+        var remaining = cutoutH
+        val out = ArrayList<Line>()
+        for (b in blocks) {
+            if (b.text.isEmpty()) continue
+            val paint = paintFor(b)
+            val fm = paint.fontMetrics
+            val lineH = (fm.descent - fm.ascent) + spacing
+            val avail = if (remaining > 0.5f) width - cutoutW else width.toFloat()
+            val wrapped = wrapBlock(b.text, avail, b.maxLines, paint)
+            for (t in wrapped) out.add(Line(t, paint, lineH, fm.ascent))
+            remaining = (remaining - wrapped.size * lineH).coerceAtLeast(0f)
+        }
+        lines = out
+    }
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val width = android.view.View.MeasureSpec.getSize(widthMeasureSpec)
+        relayout(width)
+        val h = lines.sumOf { it.height.toDouble() }
+        setMeasuredDimension(width, Math.ceil(h).toInt())
+    }
+    override fun onDraw(canvas: Canvas) {
+        var y = 0f
+        for (line in lines) {
+            canvas.drawText(line.text, 0f, y - line.ascent, line.paint)
+            y += line.height
+        }
+    }
+}
+
+/** A view cut to a rounded square of the given corner radius, the small and the wide picture of a card alike. */
+private fun View.roundedCorners(c: Context, radiusDp: Int) {
+    clipToOutline = true
+    outlineProvider = object : ViewOutlineProvider() {
+        override fun getOutline(v: View, o: Outline) { o.setRoundRect(0, 0, v.width, v.height, c.dp(radiusDp).toFloat()) }
+    }
+}
+
+/**
+ * THE CARD UNDER THE WORDS (iOS linkCard, MontanaBubble.swift:1738-1807 at 2155): a 3dp accent bar of the bubble's own
+ * link colour, then the three blocks — the site, the title, the words — flowing around a small picture or standing over
+ * a wide one; a wide picture keeps its own shape, held between three quarters and three times as wide as it is tall so
+ * one letter cannot take the whole screen. A tap opens the link — the site is read only now, by the one who chose to
+ * open it.
  */
 fun linkCardView(c: Context, card: LinkCard, mine: Boolean): View {
-    val words = c.vstack(Gravity.NO_GRAVITY) {
-        card.s?.let { addView(c.text(it, 13f, BubbleStyle.text(mine), bold = true).apply { singleLineEllipsis() }, lp()) }   // USER-DATA: the site
-        card.t?.let { addView(c.text(it, 14f, BubbleStyle.text(mine), bold = true).apply { maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END }, lp()) }
-        card.d?.let { addView(c.text(it, 13f, BubbleStyle.time(mine)).apply { maxLines = 3; ellipsize = android.text.TextUtils.TruncateAt.END }, lp()) }
-    }
     val pic = card.i?.let { b64 -> runCatching { Base64.decode(b64, Base64.NO_WRAP) }.getOrNull()?.let { BitmapFactory.decodeByteArray(it, 0, it.size) } }
+    val wide = card.wide && pic != null
+    val accent = if (mine) Color.WHITE else BubbleStyle.text(false)   // iOS MontanaNativeBubble.link(mine:)
+    val bubbleText = BubbleStyle.text(mine)
+    val f = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 14f, c.resources.displayMetrics)   // iOS floor(17 * 14 / 17)
+    val blocks = ArrayList<LinkCardWordsView.Block>()
+    card.s?.takeIf { it.isNotEmpty() }?.let { blocks += LinkCardWordsView.Block(it, true, accent, 2) }   // USER-DATA: the site
+    card.t?.takeIf { it.isNotEmpty() }?.let { blocks += LinkCardWordsView.Block(it, true, bubbleText, 5) }   // USER-DATA: the title
+    card.d?.takeIf { it.isNotEmpty() }?.let { blocks += LinkCardWordsView.Block(it, false, bubbleText, 12) }   // USER-DATA: the words
+    val words = LinkCardWordsView(c).apply {
+        this.blocks = blocks; textSizePx = f
+        if (pic != null && !wide) { cutoutW = c.dp(60).toFloat(); cutoutH = c.dp(60).toFloat() }
+    }
+    val top = FrameLayout(c).apply {
+        addView(words, FrameLayout.LayoutParams(MATCH, WRAP))
+        if (pic != null && !wide) addView(ImageView(c).apply {
+            setImageBitmap(pic); scaleType = ImageView.ScaleType.CENTER_CROP
+            roundedCorners(c, 4)
+        }, FrameLayout.LayoutParams(c.dp(54), c.dp(54), Gravity.TOP or Gravity.END))
+    }
+    val col = c.vstack(Gravity.NO_GRAVITY) {
+        addView(top, lp())
+        if (pic != null && wide) {
+            val ratio = ((card.w ?: 4).toFloat() / maxOf(card.h ?: 3, 1).toFloat()).coerceIn(0.75f, 3.0f)
+            val colWidth = c.dp(260) - c.dp(3) - c.dp(6)
+            addView(ImageView(c).apply {
+                setImageBitmap(pic); scaleType = ImageView.ScaleType.FIT_CENTER
+                roundedCorners(c, 4)
+            }, lp(MATCH, Math.round(colWidth / ratio)).apply { topMargin = c.dp(6) })
+        }
+    }
     return c.hstack {
-        setPadding(0, dp(4), 0, dp(2))
-        addView(View(c).apply { setBackgroundColor(BubbleStyle.text(mine)) }, lp(dp(2), MATCH).apply { marginEnd = dp(8) })
-        addView(c.vstack(Gravity.NO_GRAVITY) {
-            if (pic != null && !card.wide) addView(c.hstack {
-                addView(words, lp(0, WRAP, 1f))
-                addView(ImageView(c).apply { setImageBitmap(pic); scaleType = ImageView.ScaleType.CENTER_CROP }, lp(dp(56), dp(56)).apply { marginStart = dp(8) })
-            }, lp()) else addView(words, lp())
-            if (pic != null && card.wide) addView(ImageView(c).apply { setImageBitmap(pic); adjustViewBounds = true; scaleType = ImageView.ScaleType.FIT_CENTER },
-                lp().apply { topMargin = dp(6) })
-        }, LinearLayout.LayoutParams(dp(260), LinearLayout.LayoutParams.WRAP_CONTENT))   // the bubble's own text width (260dp), no narrower ceiling of its own (iOS: .frame(maxWidth: .infinity))
+        gravity = Gravity.TOP
+        setPadding(0, c.dp(3), 0, 0)
+        addView(View(c).apply { setBackgroundColor(accent) }, lp(c.dp(3), MATCH).apply { marginEnd = c.dp(6) })
+        addView(col, lp(c.dp(260) - c.dp(3) - c.dp(6), WRAP))
         pressable { runCatching { c.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(card.u)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }
     }
 }
