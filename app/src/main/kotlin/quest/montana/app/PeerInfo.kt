@@ -178,7 +178,9 @@ fun montanaLinkMatches(text: String): List<Pair<IntRange, Uri>> {
         var end = mm.range.last
         while (end >= mm.range.first && text[end] in trail) end--
         if (end < mm.range.first) continue
-        out.add((mm.range.first..end) to Uri.parse(text.substring(mm.range.first, end + 1)))
+        val found = text.substring(mm.range.first, end + 1)
+        if (found.lowercase().startsWith(ChessLetter.LINK)) continue   // a game's letter is no link (iOS MTLinks.find 173)
+        out.add((mm.range.first..end) to Uri.parse(found))
     }
     return out
 }
