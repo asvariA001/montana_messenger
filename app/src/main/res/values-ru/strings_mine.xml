@@ -61,4 +61,5 @@
     <string name="sn_mismatch_note">Это код другого чата — или между вами кто-то стоит. Сверьте цифры голосом.</string>
     <!-- a letter sent later (iOS «Send later», the send key's hold) -->
     <string name="sl_later">Отправить позже</string>
+    <string name="new_call">Новый звонок</string>   <!-- iOS CallsTabView «New Call» -->
 </resources>

@@ -63,4 +63,5 @@
     <string name="sn_mismatch_note">This is the code of another chat, or someone stands between you. Compare the digits by voice.</string>
     <!-- a letter sent later (iOS «Send later», the send key's hold) -->
     <string name="sl_later">Send later</string>
+    <string name="new_call">New Call</string>   <!-- iOS CallsTabView «New Call» -->
 </resources>

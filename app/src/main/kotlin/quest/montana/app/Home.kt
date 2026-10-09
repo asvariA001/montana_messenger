@@ -131,7 +131,8 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
     var pane = Pane.CHATS   // iOS: the chats are the first page of a launch
     val panes = FrameLayout(c)
     val music = MusicPage(act)
-    val views = mapOf(Pane.CHATS to chatsPane(act), Pane.CONTACTS to contactsPane(act), Pane.CALLS to callsPane(act),
+    var goContacts: () -> Unit = {}   // the calls' «New call» turns to the contacts (set once choose stands)
+    val views = mapOf(Pane.CHATS to chatsPane(act), Pane.CONTACTS to contactsPane(act), Pane.CALLS to callsPane(act) { goContacts() },
         Pane.FEED to feedPane(act), Pane.MUSIC to music.view, Pane.GALLERY to galleryPane(act),
         Pane.GROUPS to groupsPane(act, channel = false), Pane.CHANNELS to groupsPane(act, channel = true), Pane.MESH to meshPane(act), Pane.P2P to p2pPane(act))
     views.values.forEach { v -> v.visibility = View.GONE; panes.addView(v, FrameLayout.LayoutParams(MATCH, MATCH)) }
@@ -181,6 +182,7 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
         on.animate().alpha(1f).setDuration(200).start()   // iOS .easeInOut(duration: 0.2)
         arrived(p)
     }
+    goContacts = { choose(Pane.CONTACTS) }
     val shell = DrawerShell(act)
     act.drawer = shell
     // THE PAGES FOLLOW THE FINGER (iOS turnOrder, turnStroke): the pane moves by the finger and the page beside it slides in

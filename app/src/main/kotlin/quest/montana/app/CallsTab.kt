@@ -93,7 +93,7 @@ private fun dayLabel(c: Context, at: Long): String {
  * the right deletes a call's row (iOS swipeTrailing), a tap dials back. «Your audio and video calls will appear here» while there
  * are none.
  */
-fun callsPane(act: MainActivity): View {
+fun callsPane(act: MainActivity, onNewCall: () -> Unit = {}): View {
     val c: Context = act
     val rows = c.vstack(Gravity.NO_GRAVITY)
     val empty = c.text(c.getString(R.string.no_calls), 17f, MT.gray, center = true)
@@ -109,27 +109,29 @@ fun callsPane(act: MainActivity): View {
         foot.removeAllViews()
         foot.visibility = if (selecting) View.VISIBLE else View.GONE
         if (!selecting) return
+        // iOS barButton (ContentView.swift:3036-3041): the glyph 18 semibold, white, on the round of the field's tier (36) in a target of 44
         fun key(glyph: Int, words: Int, on: Boolean, work: () -> Unit) = FrameLayout(c).apply {
-            background = c.glassPlate(oval = true)
             contentDescription = c.getString(words)
             alpha = if (on) 1f else 0.5f
-            addView(c.icon(glyph, Color.WHITE, 22), FrameLayout.LayoutParams(c.dp(22), c.dp(22), Gravity.CENTER))
+            addView(View(c).apply { background = c.glassPlate(oval = true) }, FrameLayout.LayoutParams(c.dp(36), c.dp(36), Gravity.CENTER))
+            addView(c.icon(glyph, Color.WHITE, 18), FrameLayout.LayoutParams(c.dp(18), c.dp(18), Gravity.CENTER))
             if (on) pressable(work)
         }
+        // iOS selectionBar (3026-3035): 12 from the sides, 8 above, 6 below, 10 between
         foot.addView(c.hstack {
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(16), dp(8), dp(16), dp(10))
-            addView(key(R.drawable.ic_close, R.string.cancel, true) { endSelecting() }, lp(dp(48), dp(48)))
+            setPadding(dp(12), dp(8), dp(12), dp(6))
+            addView(key(R.drawable.ic_close, R.string.cancel, true) { endSelecting() }, lp(dp(44), dp(44)))
             addView(View(c), lp(0, 1, 1f))
             addView(key(R.drawable.ic_delete, R.string.delete, selected.isNotEmpty()) {
                 selected.toList().forEach { k -> delete(k.substringBefore("/"), k.substringAfter("/")) }
                 endSelecting()
-            }, lp(dp(48), dp(48)))
-            gap(12)
+            }, lp(dp(44), dp(44)))
+            gap(10)
             addView(key(R.drawable.ic_bin_x, R.string.delete, true) {
                 callRecords().forEach { r -> delete(r.ref, r.mid) }
                 endSelecting()
-            }, lp(dp(48), dp(48)))
+            }, lp(dp(44), dp(44)))
         }, FrameLayout.LayoutParams(MATCH, WRAP))
     }
     fill = {
@@ -197,6 +199,16 @@ fun callsPane(act: MainActivity): View {
             })
         }), FrameLayout.LayoutParams(MATCH, MATCH))   // one law for every page under the bar (iOS MontanaTimePanel)
         addView(empty, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
+        // THE CALLS' ACTION (iOS CallsTabView, ContentView.swift:3001-3009, the author's word 01.10: «on the calls create the button»): a new
+        // call is chosen among one's people -- the contacts' page, where a person's row dials; the pages' one corner, away while selecting
+        val action = FrameLayout(c).apply {
+            background = c.glassPlate(oval = true)
+            contentDescription = c.getString(R.string.new_call)
+            addView(c.icon(R.drawable.ic_phone_plus, Color.rgb(204, 204, 204)), FrameLayout.LayoutParams(dp(28), dp(28), Gravity.CENTER))
+            pressable { onNewCall() }
+        }
+        addView(action, FrameLayout.LayoutParams(dp(60), dp(60), Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, dp(16), dp(36)) })
+        foot.viewTreeObserver.addOnGlobalLayoutListener { action.visibility = if (foot.visibility == View.VISIBLE) View.GONE else View.VISIBLE }
         addView(foot, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM).apply { bottomMargin = c.dp(26) })
     }
 }
