@@ -143,7 +143,13 @@ object MontanaCard {
             if (cur != null) daily[cur]?.let { keep[cur] = it }          // the receiving generation: its secret stays
             keep[b64url(i)] = payload
             if (!save(DAILY, keep) || !DeviceVault.set(CURRENT, b64url(i).toByteArray()) ||
-                !DeviceVault.set(BORN, now().toString().toByteArray())) return null
+                !DeviceVault.set(BORN, now().toString().toByteArray())) {
+                // A CARD THAT DID NOT SETTLE IS NO CARD (iOS offerShort, MontanaFirstContact.swift:951-961, 2155, atom
+                // 66e4e7b28a0c): the birth counts once every record is written; until then the orphaned secret is taken back.
+                val orphan = map(KEYS)
+                if (orphan.remove(b64url(payload.copyOf(1184))) != null) save(KEYS, orphan)
+                return null
+            }
             // Yesterday's links answer «spent» at once; the generations older than the one before are buried whole.
             val keys = map(KEYS)
             for ((inv64, pl) in daily) {
@@ -213,6 +219,19 @@ object MontanaCard {
 
     /** When the day's link turns (born + one day), or null. */
     fun renewsAt(): Long? = text(BORN)?.toDoubleOrNull()?.let { ((it + LIFETIME) * 1000).toLong() }
+
+    /**
+     * THE LIVE CARDS STAY UP, BY TERM (iOS keepLiveCardsUp, MontanaFirstContact.swift:884-901, 2155, atoms
+     * 1011d167a187 and 66e4e7b28a0c): on every return to the person the daily card turns itself over when its day
+     * is done, and the permanent one -- if the person holds one, whole, its key in place -- tops up alongside it;
+     * no card is born here for someone with none.
+     */
+    fun keepLiveCardsUp() {
+        if (!MontanaSeed.hasSeed) return   // SILENT-OK: the first screen -- no identity, no card
+        offerShort(MontanaApp.context)
+        if (hasLivePermanent()) offerPermanent(MontanaApp.context)
+    }
+    private fun hasLivePermanent(): Boolean = synchronized(lock) { map(PERM).values.firstOrNull()?.let { keyHeld(it) } ?: false }
 
     /** The person leaves: the card records leave with them (iOS MontanaCard.wipe). */
     fun forget() { listOf(KEYS, PERM, DAILY, CURRENT, BORN).forEach(DeviceVault::delete); Prefs.remove("rdvPermUpAt", "rdvUpAt") }
