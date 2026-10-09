@@ -79,6 +79,10 @@ object MyWall {
         o?.optJSONArray("mine")?.let { a -> for (i in 0 until a.length()) a.optJSONObject(i)?.let { mine.add(it) } }
         o?.optJSONArray("cap")?.let { a -> for (i in 0 until a.length()) cap.add(a.optString(i)) }
         o?.optJSONObject("sent")?.let { s -> s.keys().forEach { k -> sent[k] = s.optString(k) } }
+        // a post on its way outlives the run; one a run died under is due again (iOS saveGoing 455, roadBack 1922)
+        runCatching { DeviceVault.unseal(goingFile().readBytes())?.let { JSONArray(String(it, Charsets.UTF_8)) } }.getOrNull()?.let { a ->
+            for (i in 0 until a.length()) a.optJSONObject(i)?.let { g -> going[g.optString("id")] = g.put("failed", true) }
+        }
         val sealed = sealMissing()
         if (numberMissing() || sealed) write()
         versionKept = postsTag()
@@ -90,7 +94,10 @@ object MyWall {
         runCatching { part.writeBytes(sealedBytes); part.renameTo(file()) }
     }
     /** The person forgotten: their wall leaves with them. */
-    fun wipe() = synchronized(lock) { mine.clear(); cap.clear(); sent.clear(); inFlight.clear(); loaded = false; file().delete() }
+    fun wipe() = synchronized(lock) {
+        mine.clear(); cap.clear(); sent.clear(); inFlight.clear(); going.clear(); loaded = false
+        file().delete(); goingFile().delete(); store().deleteRecursively()
+    }
 
     // ── the shape of a post, owner and visitor ──
     private fun arr(p: JSONObject, k: String): JSONArray = p.optJSONArray(k) ?: JSONArray().also { p.put(k, it) }
@@ -371,20 +378,146 @@ object MyWall {
     /** My wall as I see it: every post, the pinned first, newest by its chain. */
     fun posts(): List<JSONObject> = synchronized(lock) { ensure(); ordered().map { seen(it, "", conceal = false) } }
     fun post(id: String): JSONObject? = synchronized(lock) { ensure(); mine.firstOrNull { it.optString("id") == id }?.let { seen(it, "", conceal = false) } }
-    /** A NEW POST OF MINE, WORDS (iOS begin/fresh/lay for a post with no files): it stands on my wall at once and the wall's version moves. */
-    fun publish(text: String): Boolean {
+    // ── a post on its way: its files on the node, then the post (iOS begin, publish, lay 1764-1932) ──
+    class Attachment(val file: File, val kind: String, val name: String, val ext: String)
+    /** A post on its way as its bar reads it (iOS MTBoardOutgoing 282-298): the bytes the node confirmed of all its files. */
+    class Going(val id: String, val post: JSONObject, val total: Long, val done: Long, val failed: Boolean) {
+        val share: Double get() = if (total == 0L) 1.0 else minOf(1.0, done.toDouble() / total)
+    }
+    private val going = LinkedHashMap<String, JSONObject>()   // id -> the post as it will stand, its files' sizes, the pieces confirmed
+    private val publishing = HashSet<String>()
+    private fun goingFile() = File(File(Book.ctx.filesDir, "board").apply { mkdirs() }, "going.sealed")
+    private fun writeGoing() {
+        val sealedBytes = DeviceVault.seal(JSONArray(going.values.toList()).toString().toByteArray(Charsets.UTF_8)) ?: return
+        val part = File(goingFile().path + ".part")
+        runCatching { part.writeBytes(sealedBytes); part.renameTo(goingFile()) }
+    }
+    /** The files of my own posts: this phone is each post's first peer (iOS MontanaMediaStore under the post's names). */
+    private fun store() = File(File(Book.ctx.filesDir, "board"), "files").apply { mkdirs() }
+    private fun fileName(pid: String, i: Int, ext: String) = "wall_" + pid + "_" + i + (if (ext.isEmpty()) "" else "." + ext)   // iOS fileName 497-499
+    fun ownFile(name: String): File? = File(store(), name).takeIf { it.exists() }
+
+    /**
+     * A NEW POST, AT ONCE AS IT WILL STAND (iOS begin 1768-1818): the files move into this phone's store under the post's own names,
+     * a picture in its frame -- its own shape whole -- with its poster, a track's or a film's length; the post stands on its way with
+     * my name and the words, and outlives the run. null: nothing to post, or a file could not be taken.
+     */
+    fun begin(text: String, atts: List<Attachment>): String? {
         val t = text.trim().take(TEXT_LIMIT)
-        if (t.isEmpty()) return false
+        if (t.isEmpty() && atts.isEmpty()) return null
+        val pid = "p" + java.util.UUID.randomUUID().toString().replace("-", "").lowercase().take(24)
+        val media = JSONArray()
+        val sizes = JSONArray()
+        val confirmed = JSONArray()
+        for ((i, a) in atts.take(MEDIA_LIMIT).withIndex()) {
+            val f = File(store(), fileName(pid, i, a.ext))
+            if (!a.file.renameTo(f) && runCatching { a.file.copyTo(f, overwrite = true) }.isFailure) {
+                Log.w("Montana", "wall_write FAIL file=" + i + " kind=" + a.kind + " taking")
+                return null
+            }
+            val m = JSONObject().put("kind", a.kind).put("name", a.name.take(120)).put("ext", a.ext).put("size", f.length())
+                .put("key", "").put("chunks", JSONArray())
+            if (a.kind == "img" || a.kind == "vid") {
+                val fr = Media.preview(Book.ctx, f, a.kind, 256)?.let { b -> WallFiles.ownFrame(b.width, b.height) }
+                fr?.let { m.put("fr", it) }
+                WallFiles.poster(Book.ctx, f, a.kind, fr)?.let { m.put("thumb", it) }
+            }
+            if (a.kind == "vid" || a.kind == "aud") WallFiles.duration(f)?.let { m.put("dur", it) }
+            media.put(m); sizes.put(f.length()); confirmed.put(0)
+        }
         val name = Prefs.userName.trim()
-        val id = "p" + java.util.UUID.randomUUID().toString().replace("-", "").lowercase().take(24)
-        val post = JSONObject().put("id", id).put("author", "").put("byName", name).put("byGlyph", name.take(1).uppercase())
-            .put("at", System.currentTimeMillis() / 1000.0).put("text", t).put("media", JSONArray()).put("pinned", false)
+        val post = JSONObject().put("id", pid).put("author", "").put("byName", name).put("byGlyph", name.take(1).uppercase())
+            .put("at", System.currentTimeMillis() / 1000.0).put("text", t).put("media", media).put("pinned", false)
             .put("keepers", JSONArray().put("")).put("likes", JSONArray()).put("downloads", JSONArray()).put("reposts", JSONArray())
             .put("comments", JSONArray())
-        synchronized(lock) { ensure(); mine.add(post) }
-        saveMine(own = true)
-        Log.d("Montana", "wall_write id=" + id.take(10) + " files=0 wall=mine")
-        return true
+        synchronized(lock) {
+            ensure()
+            going[pid] = JSONObject().put("id", pid).put("post", post).put("sizes", sizes).put("confirmed", confirmed).put("failed", false)
+            writeGoing()
+        }
+        changed()
+        return pid
+    }
+
+    /**
+     * THE FILES ON THE NODE, THEN THE POST (iOS publish and lay 1828-1901): one lay a post at a time; each file is sealed under its
+     * letter «wall-POST-N» and laid on the node, its pieces counted as the node confirms them -- the post's bar reads that count -- and
+     * when every file lies there the post joins my wall. A file the node did not take leaves the post on its way, said so.
+     */
+    fun publish(pid: String): Boolean {
+        val o = synchronized(lock) {
+            ensure()
+            val g = going[pid] ?: return false
+            if (!publishing.add(pid)) return false
+            g.put("failed", false)
+        }
+        changed()
+        try {
+            val post = o.getJSONObject("post")
+            val ms = post.optJSONArray("media") ?: JSONArray()
+            val laid = JSONArray()
+            for (i in 0 until ms.length()) {
+                val m = ms.getJSONObject(i)
+                val f = File(store(), fileName(pid, i, m.optString("ext")))
+                val sealed = if (f.exists()) Media.layFile(f, "wall-" + pid + "-" + i) { n -> confirmed(pid, i, n) } else null
+                if (sealed == null) {
+                    Log.w("Montana", "wall_write FAIL file=" + i + " kind=" + m.optString("kind"))
+                    synchronized(lock) { o.put("failed", true); if (going.containsKey(pid)) writeGoing() }
+                    changed()
+                    return false
+                }
+                confirmed(pid, i, sealed.second.length())
+                laid.put(JSONObject(m.toString()).put("key", sealed.first).put("chunks", sealed.second))
+            }
+            synchronized(lock) {
+                if (going.remove(pid) == null) return false   // let go by its writer meanwhile
+                writeGoing()
+                mine.add(post.put("media", laid))
+            }
+            saveMine(own = true)
+            Log.d("Montana", "wall_write id=" + pid.take(10) + " files=" + laid.length() + " wall=mine")
+            return true
+        } finally {
+            synchronized(lock) { publishing.remove(pid) }
+        }
+    }
+    /** The node confirmed a piece more of a post's file. */
+    private fun confirmed(pid: String, i: Int, n: Int) {
+        synchronized(lock) {
+            val c = going[pid]?.optJSONArray("confirmed") ?: return
+            if (c.length() <= i || n <= c.optInt(i)) return
+            c.put(i, n)
+        }
+        changed()
+    }
+    /** A post on its way let go by its writer (iOS discard 1909): its files go with it. */
+    fun discard(pid: String) {
+        val g = synchronized(lock) { ensure(); going.remove(pid)?.also { writeGoing() } } ?: return
+        val ms = g.optJSONObject("post")?.optJSONArray("media") ?: JSONArray()
+        for (i in 0 until ms.length()) File(store(), fileName(pid, i, ms.optJSONObject(i)?.optString("ext") ?: "")).delete()
+        changed()
+    }
+    /** The posts on their way, newest first, each as it will stand (iOS sending(on:) 1919-1921). */
+    fun sending(): List<Going> = synchronized(lock) {
+        ensure()
+        going.values.map { g ->
+            val sizes = g.optJSONArray("sizes") ?: JSONArray()
+            val conf = g.optJSONArray("confirmed") ?: JSONArray()
+            var total = 0L
+            var done = 0L
+            for (i in 0 until sizes.length()) { val s = sizes.optLong(i); total += s; done += minOf(s, conf.optLong(i) * Media.CHUNK) }
+            Going(g.optString("id"), seen(g.getJSONObject("post"), "", conceal = false), total, done, g.optBoolean("failed"))
+        }.sortedByDescending { it.post.optDouble("at") }
+    }
+    /**
+     * A POST ON ITS WAY GOES ON BY ITSELF (iOS roadBack 1922-1932): every post the node did not take whole, or one a run died under,
+     * is laid again when the app comes to the screen; never twice at once. The person's own try again stands as it was.
+     */
+    fun roadBack(why: String) {
+        val due = synchronized(lock) { ensure(); going.values.filter { it.optBoolean("failed") && it.optString("id") !in publishing }.map { it.optString("id") } }
+        if (due.isEmpty()) return
+        Log.d("Montana", "wall_retry why=" + why + " n=" + due.size)
+        for (pid in due) Thread { publish(pid) }.start()
     }
     fun pin(id: String) = mutate(id, own = true) { it.put("pinned", !it.optBoolean("pinned")) }
     fun like(id: String) = mutate(id, own = true) { toggle(it, "likes", "", !has(arr(it, "likes"), "")) }

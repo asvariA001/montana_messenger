@@ -259,6 +259,7 @@ object Board {
     /** A picture of a post, brought from the node's pieces into the look's folder; the latest three hundred stay. */
     fun bring(m: JSONObject, pid: String, i: Int, then: (File) -> Unit) {
         val name = fileName(pid, i, m.optString("ext"))
+        MyWall.ownFile(name)?.let { then(it); return }   // a post of mine: this phone is its first peer, nothing to bring
         val dest = File(lookDir(), name)
         if (dest.exists()) { then(dest); return }
         val chunks = m.optJSONArray("chunks")
@@ -450,7 +451,7 @@ private fun poster(b64: String?): Bitmap? = b64?.takeIf { it.isNotEmpty() }?.let
 }
 
 /** ONE POST OF THE FEED (iOS MTBoardCell in MTFeedTabView): whose wall, the writer, the words, the pictures, the counts. */
-fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWall: Boolean = false): View = act.vstack(Gravity.NO_GRAVITY) {
+fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWall: Boolean = false, sending: Boolean = false): View = act.vstack(Gravity.NO_GRAVITY) {
     val c: Context = act
     val openComments = { act.push { close -> wallCommentsPage(act, it.wall, it.post.optString("id"), close) } }
     val p = it.post
@@ -475,7 +476,7 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
             }, lp(0, WRAP, 1f))
             // THE POST'S OWN MENU (iOS MTBoardCell menuItems 404-441): on my own wall — pin or unpin, copy the words, delete; a wall's
             // owner alone takes a post off it
-            if (it.wall.isEmpty()) addView(c.icon(R.drawable.ic_more_horiz, MT.gray).apply {
+            if (it.wall.isEmpty() && !sending) addView(c.icon(R.drawable.ic_more_horiz, MT.gray).apply {
                 setPadding(dp(11), dp(11), dp(11), dp(11))
                 contentDescription = c.getString(R.string.pi_more)
                 pressable {
@@ -519,10 +520,11 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
                 small?.let { b -> setImageBitmap(b) }
             }
             addView(tile, lp())
-            Board.bring(m, p.optString("id"), i) { f -> Thread { Media.preview(c, f, "img", 1600)?.let { b -> MainThread.post { tile.setImageBitmap(b) } } }.start() }
+            Board.bring(m, p.optString("id"), i) { f -> Thread { Media.preview(c, f, kind, 1600)?.let { b -> MainThread.post { tile.setImageBitmap(b) } } }.start() }
         }
         // THE COUNTS (iOS counters 445-487): like, comments, keepers, reposts; in the corner the downloads and the eye with the views
         // where the wall's owner counts them. Keeping and reposting come with this phone's own wall (W3): their counts stand.
+        if (sending) return@vstack
         gap(4)
         addView(c.hstack {
             gravity = Gravity.CENTER_VERTICAL
@@ -550,7 +552,7 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
         if (!whole) pressable(openComments)
     }, lp())
     // A POST ON THE SCREEN IS A POST SEEN (iOS MTBoardCell.onAppear, 06.10): its wall is told once
-    addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+    if (!sending) addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
         override fun onViewAttachedToWindow(v: View) { Board.view(it.wall, it.post) }
         override fun onViewDetachedFromWindow(v: View) {}
     })

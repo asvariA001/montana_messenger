@@ -262,6 +262,71 @@ object Media {
         return (Marks.MEDIA + JSONObject().put("mref", mbid).put("mk", Base64.encodeToString(mk, Base64.NO_WRAP)).put("sz", total)) to json
     }
 
+    // ── a file of a post on the node (iOS MTBoard.seal, MontanaBoard 2033-2052) ──
+    private const val BLOB_SEED = "blobKeySeed"
+    private val seedLock = Any()
+    /**
+     * THE LETTER'S KEY FROM ITS NAME (iOS letterBlobKey, MontanaMediaKit 146-161): SHA-256 of «mt-blob-key», the letter's name and this
+     * phone's own seed -- the same file under the same name gives the same pieces, so a try again goes on where the node left it; the
+     * node never sees the seed, so one file in two letters cannot be linked.
+     */
+    fun letterKey(letter: String): ByteArray? {
+        val seed = synchronized(seedLock) {
+            DeviceVault.get(BLOB_SEED)?.takeIf { it.size == 32 } ?: (MtBindings.nativeRandom(32) ?: return null).also { DeviceVault.set(BLOB_SEED, it) }
+        }
+        return Wire.sha("mt-blob-key".toByteArray(), letter.toByteArray(), seed)
+    }
+    /**
+     * ONE FILE ON THE NODE, PIECE BY PIECE (iOS sealAndUpload and uploadChunks, MontanaMediaKit 233-276, MontanaWakePush 1705-1800):
+     * sealed under its letter's key with the nonce drawn from the key, the piece's number and its bytes; the node asked what it holds
+     * already when the cargo is more than two pieces; the rest laid under the cargo mark, «last» on the final piece, each piece counted
+     * as the node confirms it. The key in base64 and the chunks a post's manifest carries; null -- a piece the node did not take.
+     */
+    fun layFile(f: File, letter: String, confirmed: (Int) -> Unit): Pair<String, JSONArray>? {
+        val bk = letterKey(letter) ?: return null
+        val total = f.length()
+        if (total <= 0L || Int.MAX_VALUE.toLong() < total) return null
+        val count = ((total + CHUNK - 1) / CHUNK).toInt()
+        return java.io.RandomAccessFile(f, "r").use { raf ->
+            val bids = ArrayList<String>(count)
+            val chunks = JSONArray()
+            for (i in 0 until count) {
+                val bid = sealPiece(raf, bk, i, total)?.first ?: return null
+                bids.add(bid)
+                chunks.put(JSONObject().put("bid", bid).put("cs", minOf(CHUNK.toLong(), total - i.toLong() * CHUNK).toInt()))
+            }
+            val cargo = Wire.hex(Wire.sha(bids.joinToString("").toByteArray())).take(32)
+            // a cargo of a couple of pieces is put at once: the put is idempotent by name (iOS 1734-1736)
+            val known = if (2 < count) Wire.blobsHave(bids) ?: emptySet() else emptySet()
+            var done = known.size
+            confirmed(done)
+            for (i in 0 until count) {
+                if (bids[i] in known) continue
+                val sealed = sealPiece(raf, bk, i, total)?.second ?: return null
+                var ok = false
+                for (attempt in 0 until 4) {
+                    if (Wire.putBlob(bids[i], sealed, cargo, i == count - 1, assumeAbsent = true)) { ok = true; break }
+                    if (attempt < 3) Thread.sleep(1500L shl attempt)
+                }
+                if (!ok) return null
+                done++
+                confirmed(done)
+            }
+            Base64.encodeToString(bk, Base64.NO_WRAP) to chunks
+        }
+    }
+    private fun sealPiece(raf: java.io.RandomAccessFile, bk: ByteArray, i: Int, total: Long): Pair<String, ByteArray>? {
+        val off = i.toLong() * CHUNK
+        val len = minOf(CHUNK.toLong(), total - off).toInt()
+        val piece = ByteArray(len)
+        raf.seek(off)
+        raf.readFully(piece)
+        val padded = piece.copyOf(padLen(len))
+        val nonce = Wire.sha(bk, Wire.le8(i.toLong()), padded).copyOf(12)
+        val sealed = MtBindings.nativeSealBlob(bk, nonce, padded) ?: return null
+        return Wire.hex(Wire.sha(sealed)) to sealed
+    }
+
     // ── receiving ──
 
     /** Every media letter of theirs still without its file is asked for (once at a time), and «delivered» follows the file. */

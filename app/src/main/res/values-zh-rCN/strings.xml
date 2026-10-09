@@ -605,4 +605,11 @@
     <string name="name_two_signs">不允许两个符号相连。</string>
     <string name="new_post">新帖子</string>
     <string name="write_something">写点什么</string>
+    <string name="wall_photos_videos">照片和视频</string>
+    <string name="wall_tracks_files">音乐和文件</string>
+    <string name="wall_publishing">正在发布</string>
+    <string name="wall_could_not_post">发布失败</string>
+    <string name="wall_remove">移除</string>
+    <string name="wall_publish">发布</string>
+    <string name="wall_share_of">%1$d%% · %2$s / %3$s</string>
 </resources>

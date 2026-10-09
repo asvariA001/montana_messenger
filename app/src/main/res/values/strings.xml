@@ -606,4 +606,11 @@
     <string name="name_two_signs">Two signs in a row are not allowed.</string>
     <string name="new_post">New post</string>
     <string name="write_something">Write something</string>
+    <string name="wall_photos_videos">Photos and videos</string>
+    <string name="wall_tracks_files">Tracks and files</string>
+    <string name="wall_publishing">Publishing</string>
+    <string name="wall_could_not_post">Could not post</string>
+    <string name="wall_remove">Remove</string>
+    <string name="wall_publish">Publish</string>
+    <string name="wall_share_of">%1$d%% · %2$s of %3$s</string>
 </resources>

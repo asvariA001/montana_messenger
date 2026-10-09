@@ -605,4 +605,11 @@
     <string name="name_two_signs">Два знака подряд запрещены.</string>
     <string name="new_post">Новая запись</string>
     <string name="write_something">Напишите что-нибудь</string>
+    <string name="wall_photos_videos">Фото и видео</string>
+    <string name="wall_tracks_files">Треки и файлы</string>
+    <string name="wall_publishing">Публикуется</string>
+    <string name="wall_could_not_post">Не удалось опубликовать</string>
+    <string name="wall_remove">Убрать</string>
+    <string name="wall_publish">Опубликовать</string>
+    <string name="wall_share_of">%1$d%% · %2$s из %3$s</string>
 </resources>
