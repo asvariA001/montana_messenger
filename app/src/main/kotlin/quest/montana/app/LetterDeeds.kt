@@ -1,6 +1,5 @@
 package quest.montana.app
 
-import android.app.AlertDialog
 import android.content.Context
 import android.graphics.Color
 import android.util.Base64
@@ -71,24 +70,25 @@ object MsgPins {
 fun tellPin(ref: String, m: Msg, pin: Boolean) =
     Post.send(ref, Marks.mintMid(), PIN_MARK + JSONObject().put("sid", "mid:" + m.mid).put("txt", m.text.take(200)).put("op", if (pin) "pin" else "unpin"))
 
-/** A pin or an unpin of theirs (iOS applyPinFromControl): the letter is found by its wire name, else by its words. */
+/** A pin or an unpin of theirs (iOS applyPinFromControl): the letter is found by its wire name, else by its words; a fresh
+ * pin tells the person by the app's own banner, unless this chat stands open (iOS presentPinned). */
 fun applyPin(ref: String, body: String) {
     val o = runCatching { JSONObject(body) }.getOrNull() ?: return
     val op = o.optString("op"); val sid = o.optString("sid").removePrefix("mid:"); val txt = o.optString("txt")
     val chat = Book.chat(ref) ?: return
     val m = chat.msgs.find { sid.isNotEmpty() && it.mid == sid } ?: chat.msgs.lastOrNull { txt.isNotEmpty() && it.text.take(200) == txt } ?: return
-    if (op == "pin") MsgPins.pin(ref, m.mid) else if (op == "unpin") MsgPins.unpin(ref, m.mid)
+    if (op == "pin") { MsgPins.pin(ref, m.mid); Notify.pinned(ref, m.mid, m) } else if (op == "unpin") MsgPins.unpin(ref, m.mid)
 }
 
-/** «Pin this message?» — for both first, for me under it (iOS the face sheet over the chat). An unpin asks nothing and is told. */
+/** «Pin this message?» ON THE PERSON'S FACE (iOS the FaceSheet over the chat, MontanaConversation.swift:1798-1812 at 2155):
+ * for both first, for me under it, no line of its own (note: nil); a group carries no pin for everyone yet, so a group pins
+ * for me alone (1801); an unpin asks nothing and is told. */
 fun pinOrUnpin(act: MainActivity, ref: String, m: Msg) {
     if (MsgPins.isPinned(ref, m.mid)) { MsgPins.unpin(ref, m.mid); tellPin(ref, m, false); return }
-    AlertDialog.Builder(act).setTitle(R.string.ld_pin_q)
-        .setItems(arrayOf(act.getString(R.string.ld_pin_both), act.getString(R.string.ld_pin_me))) { _, which ->
-            MsgPins.pin(ref, m.mid)
-            if (which == 0) tellPin(ref, m, true)
-        }
-        .setNegativeButton(R.string.cancel, null).show()
+    val forMe = FaceDeed(act.getString(R.string.ld_pin_me), false) { MsgPins.pin(ref, m.mid) }
+    faceSheet(act, ref, act.getString(R.string.ld_pin_q), null,
+        if (Groups.isKey(ref)) listOf(forMe)
+        else listOf(FaceDeed(act.getString(R.string.ld_pin_both), false) { MsgPins.pin(ref, m.mid); tellPin(ref, m, true) }, forMe))
 }
 
 /**

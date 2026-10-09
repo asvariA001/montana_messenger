@@ -32,6 +32,7 @@
     <string name="ld_pin_both">Pin for both</string>
     <string name="ld_pin_me">Pin for me</string>
     <string name="ld_pinned">Pinned message</string>
+    <string name="ld_pinned_banner">Pinned a message</string>
     <string name="ld_pin">Pin</string>
     <string name="ld_unpin">Unpin</string>
     <string name="ld_forward">Forward</string>

@@ -1357,7 +1357,18 @@ object Post {
                 Book.edit(ref) { c ->
                     val had = c.msgs.find { it.mid == mid }
                     // THE SAME LETTER AGAIN, NOW WITH ITS CARD (iOS attachPreview's copy): the card joins the row, nothing else moves
-                    if (had != null && lp != null && LinkCard.parse(lp) != null && had.lp == null) { had.lp = lp; Log.d("Montana", "link card: landed on a standing row mid=" + mid.take(8)) }
+                    // THE PICTURE CATCHES UP TOO (iOS enrichLinkPreview, MontanaChatStore.swift at 2155, the critic 22.09): the
+                    // envelope leg rides without the picture, so a card that came by it carried no face until the mesh copy
+                    // behind it filled it in -- and only the picture moves; nothing else of a standing card does.
+                    if (had != null && lp != null) LinkCard.parse(lp)?.let { fresh ->
+                        val old = had.lp?.let { s -> LinkCard.parse(s) }
+                        if (old == null) { had.lp = lp; Log.d("Montana", "link card: landed on a standing row mid=" + mid.take(8)) }
+                        else if (old.i == null && fresh.i != null && fresh.u == old.u) {
+                            old.i = fresh.i; old.w = fresh.w; old.h = fresh.h; old.p = fresh.p ?: old.p
+                            had.lp = old.json()
+                            Log.d("Montana", "link card: the picture caught up mid=" + mid.take(8))
+                        }
+                    }
                     // THE SAME LETTER WITH NEW CARGO REFILLS ITS ROW (iOS 1638, DeliveryEngine 159-169; the author's invariant: what stands
                     // in the sender's chat stands in the receiver's): a media row without its file takes the copy's manifest -- the sender
                     // re-uploaded under the same name -- and the assembly receipts when the file is whole; nothing erased, nothing doubled

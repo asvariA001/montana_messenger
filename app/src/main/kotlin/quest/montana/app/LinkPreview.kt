@@ -56,9 +56,9 @@ object LinkPreview {
     private val read = HashMap<String, LinkCard>()
     private val readNothing = HashSet<String>()
 
-    /** The first link that has a face, each of the first three asked in turn (iOS buildFirstWithFace); whole walk ≤ 4 s. */
-    fun build(text: String): LinkCard? {
-        val until = System.currentTimeMillis() + 4000
+    /** The first link that has a face, each of the first three asked in turn (iOS buildFirstWithFace); whole walk bounded by `ceilingMs` (iOS buildBounded ceiling: 4 s in the background, 3 s for the composer's own plate). */
+    fun build(text: String, ceilingMs: Long = 4000): LinkCard? {
+        val until = System.currentTimeMillis() + ceilingMs
         for (u in webURLs(text).take(3)) {
             if (System.currentTimeMillis() > until) break
             buildFor(u)?.let { return it }
@@ -140,23 +140,68 @@ object LinkPreview {
     private fun clean(s: String?, cap: Int) = s?.replace("\n", " ")?.trim()?.takeIf { it.isNotEmpty() }?.take(cap)
 
     /**
-     * THE CARD ATTENDS A LETTER OF MINE (iOS MTLinkCards.attend): after the letter left, its link is read (three tries: at once,
-     * 4 s, 30 s); the card lands on my row and a same-mid copy of the letter carries it to the correspondent. The picture comes
-     * after, on the row only.
+     * THE CARD THE PERSON SAW RIDES AT ONCE (iOS MTLinkCards.attend, MTLinkPreview.swift:526-600 at 2155, the critic 22.09):
+     * `seen` -- the plate above the field already held it; `refused` -- its cross dropped it. Only a letter whose card was
+     * never read (a send from elsewhere) grows one behind itself (three tries: at once, 4 s, 30 s). The picture, a second
+     * and longer read, lands after, on the row only.
      */
-    fun attend(ref: String, mid: String, text: String, qt: String?, qm: String?) {
-        if (!enabled || Marks.isService(text) || webURLs(text).isEmpty()) return
+    fun attend(ref: String, mid: String, text: String, qt: String?, qm: String?, seen: String? = null, refused: Boolean = false) {
+        LinkCard.parse(seen)?.let { land(ref, mid, text, qt, qm, it); return }
+        if (refused || !enabled || Marks.isService(text) || webURLs(text).isEmpty()) return
         Thread {
             var card: LinkCard? = null
             for (wait in listOf(0L, 4_000L, 30_000L)) { if (wait > 0) Thread.sleep(wait); card = build(text); if (card != null) break }
             // the diary says whether a card was read, never the link itself (iOS lp_give_up, lp_attach)
             val c = card ?: return@Thread run { android.util.Log.d("Montana", "link card: none after three reads mid=" + mid.take(8)); Unit }
             android.util.Log.d("Montana", "link card: built mid=" + mid.take(8) + " picture=" + (c.p != null))
-            Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.lp = c.json() }
-            Post.send(ref, mid, text, qt, qm, lp = c.json(withPicture = false))   // the envelope leg: the card without its picture
-            picture(c)?.let { full -> Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.lp = full.json() } }
+            land(ref, mid, text, qt, qm, c)
         }.start()
     }
+    /** The card lands on my row and a same-mid copy of the letter carries it to the correspondent, without its picture. */
+    private fun land(ref: String, mid: String, text: String, qt: String?, qm: String?, card: LinkCard) {
+        Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.lp = card.json() }
+        Post.send(ref, mid, text, qt, qm, lp = card.json(withPicture = false))   // the envelope leg: the card without its picture
+        picture(card)?.let { full -> Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.lp = full.json() } }
+    }
+}
+
+/**
+ * THE CARD IS SEEN BEFORE IT RIDES (iOS MTLinkPreviewBuilder.Compose, MTLinkPreview.swift:50-94 at 2155, the critic 22.09):
+ * while a link stands in the field, this holder reads its page and the plate above the field shows what will ride; its
+ * cross drops it for this letter alone. One reader, one holder -- the send takes what it sees.
+ */
+object LinkCompose {
+    @Volatile var card: LinkCard? = null; private set
+    @Volatile var url: String = ""; private set
+    private val dropped = HashSet<String>()   // the links this composer was told to leave alone
+    private var gen = 0
+    private val listeners = mutableListOf<() -> Unit>()
+    fun listen(l: () -> Unit) { synchronized(listeners) { listeners.add(l) } }
+    fun unlisten(l: () -> Unit) { synchronized(listeners) { listeners.remove(l) } }
+    private fun fire() { val ls = synchronized(listeners) { listeners.toList() }; MainThread.post { ls.forEach { it() } } }
+
+    /** The field's words, at every change: the first link not dropped becomes the card (iOS Compose.look). */
+    fun look(text: String) {
+        if (!LinkPreview.enabled) { clear(); return }
+        val first = LinkPreview.webURLs(text).firstOrNull { it !in dropped } ?: return clear()
+        if (first == url) return
+        gen++; val my = gen
+        url = first; card = null; fire()
+        Thread {
+            // ONE LINK, THREE SECONDS AT MOST (iOS Compose.look: ceiling 3): the plate is not a place to wait in.
+            val made = LinkPreview.build(first, 3000)
+            if (my == gen && url == first) {
+                if (made != null) card = made else url = ""   // nothing to show: the plate leaves instead of sitting there
+                fire()
+            }
+        }.start()
+    }
+    /** The cross on the plate: this link rides bare, and the plate does not come back for it. */
+    fun drop() { if (url.isNotEmpty()) dropped.add(url); clear() }
+    fun clear() { gen++; card = null; url = ""; fire() }
+    fun sent() { dropped.clear(); clear() }
+    /** What the send should attach: the card the person saw, and nothing else. */
+    val attachable: String? get() = card?.json()
 }
 
 /**
@@ -181,7 +226,7 @@ fun linkCardView(c: Context, card: LinkCard, mine: Boolean): View {
             }, lp()) else addView(words, lp())
             if (pic != null && card.wide) addView(ImageView(c).apply { setImageBitmap(pic); adjustViewBounds = true; scaleType = ImageView.ScaleType.FIT_CENTER },
                 lp().apply { topMargin = dp(6) })
-        }, LinearLayout.LayoutParams(dp(240), LinearLayout.LayoutParams.WRAP_CONTENT))
+        }, LinearLayout.LayoutParams(dp(260), LinearLayout.LayoutParams.WRAP_CONTENT))   // the bubble's own text width (260dp), no narrower ceiling of its own (iOS: .frame(maxWidth: .infinity))
         pressable { runCatching { c.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(card.u)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }
     }
 }

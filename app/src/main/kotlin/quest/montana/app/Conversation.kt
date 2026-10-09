@@ -265,6 +265,39 @@ object Notify {
             .build()
         runCatching { nm.notify(ref.hashCode(), n) }
     }
+    /**
+     * THE PEER PINNED A LETTER (iOS presentPinned, MontanaNotify.swift:334-350 at 2155, the author's word 22.09): the app's own
+     * banner -- the person's name, the pin and the letter's words, or the plain fact when previews are off; nothing while this
+     * chat stands open -- the pinned plate there is the word already.
+     */
+    fun pinned(ref: String, sid: String, m: Msg) {
+        val c = Book.ctx
+        val nm = c.getSystemService(NotificationManager::class.java) ?: return
+        if (!Prefs.bool("notifMessages", true) || ChatMarks.isMuted(ref) || ChatMarks.isArchived(ref) || Book.openChat == ref) return
+        val sound = Prefs.bool("notifSound", true)
+        val channel = if (sound) CHANNEL else QUIET
+        nm.createNotificationChannel(NotificationChannel(channel, c.getString(if (sound) R.string.channel_letters else R.string.channel_letters_quiet), NotificationManager.IMPORTANCE_HIGH).apply {
+            if (!sound) { setSound(null, null); enableVibration(false) }
+        })
+        val title = if (Prefs.bool("notifSender", true)) Book.chat(ref)?.shown?.ifBlank { null } ?: c.getString(R.string.peer) else "Montana"
+        val body = "📌 " + if (Prefs.bool("notifPreview", true)) letterWords(c, m).ifBlank { c.getString(R.string.ld_pinned_banner) } else c.getString(R.string.ld_pinned_banner)
+        val open = PendingIntent.getActivity(c, ref.hashCode(),
+            c.packageManager.getLaunchIntentForPackage(c.packageName)?.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP) ?: Intent(),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val n = Notification.Builder(c, channel)
+            .setSmallIcon(R.drawable.ic_launcher_monochrome)
+            .setContentTitle(title)   // USER-DATA: the correspondent's name
+            .setContentText(body)     // USER-DATA: the letter
+            .setAutoCancel(true)
+            .setContentIntent(open)
+            .setPublicVersion(Notification.Builder(c, channel)
+                .setSmallIcon(R.drawable.ic_launcher_monochrome)
+                .setContentTitle(if (Prefs.bool("notifLockName", true)) title else "Montana")   // USER-DATA: the correspondent's name
+                .setContentText(c.getString(R.string.new_message))
+                .build())
+            .build()
+        runCatching { nm.notify("pin:$ref", sid.hashCode(), n) }
+    }
     fun clear(ref: String) { Book.ctx.getSystemService(NotificationManager::class.java)?.cancel(ref.hashCode()) }
 }
 
@@ -562,6 +595,35 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         }
     }
 
+    // THE CARD IS SEEN BEFORE IT RIDES (iOS linkPlate, MontanaConversation.swift:3246-3263 at 2155, the critic 22.09): a link
+    // in the field grows a plate above it -- the page's title and words, or the link itself while it is read -- and the
+    // cross beside it drops the card for this letter alone.
+    val linkTitle = c.text("", 14f, Color.WHITE, bold = true).apply { singleLineEllipsis() }
+    val linkWords = c.text("", 13f, MT.gray).apply { singleLineEllipsis() }
+    val linkPlate = c.hstack {
+        visibility = View.GONE
+        background = c.glassPlate().apply { cornerRadius = dp(18).toFloat() }
+        setPadding(dp(16), dp(6), dp(8), dp(6))
+        addView(c.icon(R.drawable.ic_set_link, MT.blue, 16), lp(dp(16), dp(16)).apply { marginEnd = dp(10) })
+        addView(c.vstack(Gravity.NO_GRAVITY) { addView(linkTitle); addView(linkWords) }, lp(0, WRAP, 1f))
+        addView(c.icon(R.drawable.ic_close, MT.gray).apply {
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+            pressable { LinkCompose.drop() }
+        }, lp(dp(36), dp(36)))
+    }
+    fun drawLink() {
+        val url = LinkCompose.url
+        linkPlate.visibility = if (url.isEmpty()) View.GONE else View.VISIBLE
+        if (url.isEmpty()) return
+        val card = LinkCompose.card
+        val host = runCatching { java.net.URL(url).host }.getOrNull()
+        linkTitle.text = card?.t ?: card?.s ?: host ?: url   // USER-DATA: the page's own title
+        linkWords.text = card?.d ?: card?.s ?: url           // USER-DATA
+    }
+    drawLink()
+    linkPlate.setOnClickListener { runCatching { c.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(LinkCompose.url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }
+    val linkListener: () -> Unit = { act.onMain { drawLink() } }
+
     // ── the feed ──
     // THE FIRST UNREAD AT THIS OPENING (iOS firstUnreadId, MontanaConversation 1225, 2661): the quiet «Unread messages» line stands
     // before it while the page does; read before the page marks the chat read
@@ -851,6 +913,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
         override fun onTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
         override fun afterTextChanged(s: Editable?) {
+            LinkCompose.look(s?.toString() ?: "")   // the plate above the field follows the words (iOS handleDraftChange:4308 at 2155)
             if (editing == null) Prefs.setStr("draft.$ref", s?.toString() ?: "")
             // a group says neither: it has no pipe of its own (iOS: a group streams no draft)
             if (group) return
@@ -899,6 +962,11 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         } else {
             val r = replyTo
             replyTo = null
+            // THE LETTER TAKES THE CARD THE PERSON SAW (iOS sendMessage:4423-4432 at 2155, the critic 22.09): the plate above
+            // the field held it, the cross could drop it -- the first piece carries exactly that and reads the page no more
+            val seenCard = LinkCompose.attachable
+            val refusedCard = LinkCompose.url.isEmpty() && LinkPreview.webURLs(words).isNotEmpty()
+            LinkCompose.sent()
             // A LONG LETTER LEAVES IN PIECES (iOS breakOutgoingText 5917-5945, send 5973-5989): up to 4500 characters a bubble, backing off
             // to the last line break or period, each piece a letter of its own; the quote rides with the first piece only
             Groups.pieces(words).forEachIndexed { i, piece ->
@@ -907,7 +975,8 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 val qm = if (i == 0) r?.mid else null
                 Book.edit(ref) { it.msgs.add(Msg(mid, piece, true, Marks.birthMs(mid) ?: System.currentTimeMillis(), qt = qt, qm = qm)) }
                 Post.send(ref, mid, piece, qt, qm)
-                LinkPreview.attend(ref, mid, piece, qt, qm)   // a link's card follows the letter (iOS MTLinkCards.attend)
+                // a link's card follows the letter (iOS MTLinkCards.attend); only the first piece carries what the plate saw
+                LinkPreview.attend(ref, mid, piece, qt, qm, seen = if (i == 0) seenCard else null, refused = if (i == 0) refusedCard else false)
             }
         }
         showStrip()
@@ -1506,6 +1575,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         }
         val under = c.vstack(Gravity.NO_GRAVITY) {
             addView(strip, lp().apply { marginStart = dp(10); marginEnd = dp(10); bottomMargin = dp(4) })
+            addView(linkPlate, lp().apply { marginStart = dp(10); marginEnd = dp(10); bottomMargin = dp(4) })
             addView(stagedStrip, lp())
             addView(liveBar(act), lp().apply { bottomMargin = dp(2) })   // the one player bar above the field (iOS MontanaPlayerBar in the chat)
             addView(recStrip, lp().apply { marginStart = dp(10); marginEnd = dp(10); bottomMargin = dp(4) })
@@ -1590,6 +1660,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 Book.openChat = ref; Book.listen(listener); Notify.clear(ref)
                 Presence.listen(presenceListener); lane = true
                 LiveDraft.listen(draftListener); drawDraft()
+                LinkCompose.listen(linkListener); drawLink()
                 Presence.sayChat(ref, true); MainThread.later(Presence.BEAT, chatBeat)
                 Signal.hold(ref, "chat")
                 if (!group) LiveDraft.sayLink(ref)   // our daily link, to hand on (iOS sendLinkWord on a chat's opening)
@@ -1602,7 +1673,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 // never detaches it; with nothing held the cancel does nothing.
                 bar.cancelRecording()
                 if (Book.openChat == ref) Book.openChat = null; Book.unlisten(listener)
-                Presence.unlisten(presenceListener); LiveDraft.unlisten(draftListener)
+                Presence.unlisten(presenceListener); LiveDraft.unlisten(draftListener); LinkCompose.unlisten(linkListener)
                 // words left in the field stand on their screen as a checkpoint, frozen, not typing (iOS «ck»)
                 field.text.toString().takeIf { it.isNotBlank() }?.let { LiveDraft.say(ref, it, field.selectionEnd, checkpoint = true) }
                 Signal.release(ref, "chat")

@@ -373,13 +373,22 @@ class WallPlacer(c: Context, private val image: Bitmap) : View(c) {
         override fun onScale(d: ScaleGestureDetector): Boolean {
             val next = (scale * d.scaleFactor).coerceIn(fill * 0.33f, fill * 3f)
             val k = next / scale; scale = next
-            m.postScale(k, k, d.focusX, d.focusY); invalidate(); return true
+            m.postScale(k, k, d.focusX, d.focusY); clamp(); invalidate(); return true
         }
     })
     private val mover = GestureDetector(c, object : GestureDetector.SimpleOnGestureListener() {
         override fun onDown(e: MotionEvent) = true
-        override fun onScroll(e1: MotionEvent?, e2: MotionEvent, dx: Float, dy: Float): Boolean { m.postTranslate(-dx, -dy); invalidate(); return true }
+        override fun onScroll(e1: MotionEvent?, e2: MotionEvent, dx: Float, dy: Float): Boolean { m.postTranslate(-dx, -dy); clamp(); invalidate(); return true }
     })
+    /** THE ROOM AROUND THE CONTENT IS A WHOLE SCREEN ON EVERY SIDE (iOS MTWallpaperCropView.layoutSubviews, MontanaSettings.swift:
+     * 691-694 at 2155): a shrunk picture is dragged into any corner, an enlarged one past its own edges -- one screen's room, not past it. */
+    private fun clamp() {
+        if (width <= 0 || height <= 0) return
+        val v = FloatArray(9); m.getValues(v)
+        v[Matrix.MTRANS_X] = v[Matrix.MTRANS_X].coerceIn(-(image.width * scale), width.toFloat())
+        v[Matrix.MTRANS_Y] = v[Matrix.MTRANS_Y].coerceIn(-(image.height * scale), height.toFloat())
+        m.setValues(v)
+    }
 
     override fun onSizeChanged(w: Int, h: Int, ow: Int, oh: Int) {
         if (w <= 1 || h <= 1 || fill != 0f) return

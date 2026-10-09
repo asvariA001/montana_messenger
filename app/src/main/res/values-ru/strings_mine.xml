@@ -30,6 +30,7 @@
     <string name="ld_pin_both">Закрепить у обоих</string>
     <string name="ld_pin_me">Закрепить у меня</string>
     <string name="ld_pinned">Закреплённое сообщение</string>
+    <string name="ld_pinned_banner">Закрепил(а) сообщение</string>
     <string name="ld_pin">Закрепить</string>
     <string name="ld_unpin">Открепить</string>
     <string name="ld_forward">Переслать</string>
