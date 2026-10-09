@@ -208,6 +208,9 @@ object Board {
         // short link names a post by it (linkPost)
         if (p.has("n")) x.put("n", maxOf(0, p.optInt("n")))
         p.optString("face").takeIf { it.isNotEmpty() && it.length <= FACE_LIMIT }?.let { x.put("face", it) }
+        // THE LINK CARD RIDES WITH A VISITOR'S OWN PAGE READ TOO (iOS clean carries every field of MTBoardSeen by decoding it, atom
+        // 5a84afb1f68f): the same bound as a post's own arrival (MyWall.takePost 318).
+        p.optString("lp").takeIf { 2 < it.length && it.toByteArray().size < 80_001 }?.let { x.put("lp", it) }
         val md = JSONArray(); val ms = p.optJSONArray("media") ?: JSONArray()
         for (i in 0 until minOf(ms.length(), MEDIA_LIMIT)) ms.optJSONObject(i)?.let { m ->
             val y = JSONObject().put("kind", m.optString("kind")).put("name", m.optString("name").take(120))
@@ -946,6 +949,39 @@ fun openWriter(act: MainActivity, w: String) {
     if (w.isEmpty()) act.push { close -> myPage(act, close) } else act.push { close -> peerInfoPage(act, w, close) }
 }
 
+/** A link the post's writer read: the card rides with the post, a tap opens the address, which is how a video or a track starts
+ * (iOS MTWallLink, MontanaBoardViews.swift:544 at 2155, atom 5a84afb1f68f). A visitor draws these bytes and does not open the page
+ * until that tap -- the only honest reader of a link is the person who chose to share it; no inline play, no mute mark here
+ * (atom 2d3d5127f89b not ported). */
+private fun wallLinkView(act: MainActivity, card: LinkCard): View {
+    val c: Context = act
+    val kind = LinkPreview.playKind(card.u)
+    val ratio = ((card.w ?: 16).toFloat() / maxOf(card.h ?: 9, 1).toFloat()).coerceIn(0.75f, 2f)
+    val pic = poster(card.i)
+    return c.vstack(Gravity.NO_GRAVITY) {
+        if (pic != null) addView(FrameLayout(c).apply {
+            addView(WallTile(c, ratio).apply {
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                background = c.rounded(MT.hairline, 10)
+                outlineProvider = ViewOutlineProvider.BACKGROUND
+                clipToOutline = true
+                setImageBitmap(pic)
+            }, FrameLayout.LayoutParams(MATCH, WRAP))
+            if (kind != null) addView(c.icon(if (kind == "aud") R.drawable.ic_music_note else R.drawable.ic_play_fill, android.graphics.Color.WHITE).apply {
+                contentDescription = c.getString(if (kind == "aud") R.string.pi_music else R.string.pi_video)
+            }, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.CENTER))
+        }, lp())
+        card.s?.takeIf { it.isNotEmpty() }?.let {
+            addView(c.text(it, 12f, MT.gray).apply { singleLineEllipsis() }, lp().apply { topMargin = dp(if (pic != null) 6 else 0) })   // USER-DATA: the site the card carries
+        }
+        card.t?.takeIf { it.isNotEmpty() }?.let {
+            addView(c.text(it, 15f, android.graphics.Color.WHITE, bold = true).apply { maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END }, lp())   // USER-DATA: the page title the card carries
+        }
+        minimumHeight = dp(44)
+        pressable { act.openLink(card.u) }
+    }
+}
+
 /** ONE POST OF THE FEED (iOS MTBoardCell in MTFeedTabView): whose wall, the writer, the words, the pictures, the counts. */
 fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWall: Boolean = false, sending: Boolean = false, field: View? = null): View = act.vstack(Gravity.NO_GRAVITY) {
     val c: Context = act
@@ -1016,6 +1052,9 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
                 setLinkTextColor(MT.blue)
             }, lp())
         }
+        // A LINK THE POST'S WRITER READ RIDES WITH THE POST (iOS MTWallLink, MontanaBoardViews.swift:544 at 2155, atom 5a84afb1f68f):
+        // the picture its writer's own read brought, the site and the title under it.
+        if (field == null) LinkCard.parse(p.optString("lp"))?.let { card -> gap(10); addView(wallLinkView(act, card), lp()) }
         val media = p.optJSONArray("media") ?: JSONArray()
         for (i in 0 until media.length()) {
             val m = media.optJSONObject(i) ?: continue

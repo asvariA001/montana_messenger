@@ -23,6 +23,7 @@ import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
 
 // ─────────────────────────── the link's card (iOS MTLinkPreview) ───────────────────────────
 
@@ -73,9 +74,53 @@ object LinkPreview {
         return null
     }
 
+    /** The card a wall post carries (iOS wallCard, MTLinkPreview.swift:318 at 2155, atom 5a84afb1f68f): the words have four
+     * seconds; a picture not already in the card has two more. A slow picture host keeps the words. */
+    fun wallCard(text: String): LinkCard? {
+        if (!enabled || webURLs(text).isEmpty()) return null
+        val card = build(text) ?: return null
+        if (card.i != null) return card
+        return picture(card, timeoutMs = 2000) ?: card
+    }
+
+    /** The video a YouTube address names, when it names one (iOS youtube, MTLinkPreview.swift:265-278 at 2155, atom 5a84afb1f68f). */
+    class Tube(val id: String, val music: Boolean)
+    private val tubeHosts = setOf("youtu.be", "youtube.com", "m.youtube.com", "music.youtube.com", "youtube-nocookie.com")
+    fun youtube(url: String): Tube? {
+        val u = runCatching { URL(url) }.getOrNull() ?: return null
+        val host = u.host?.lowercase() ?: return null
+        val bare = if (host.startsWith("www.")) host.substring(4) else host
+        if (bare !in tubeHosts) return null
+        val music = bare == "music.youtube.com"
+        val parts = u.path.trim('/').split("/").filter { it.isNotEmpty() }
+        val picked = if (bare == "youtu.be") parts.firstOrNull()
+            else if (1 < parts.size && parts[0] in setOf("shorts", "embed", "live", "v")) parts[1]
+            else u.query?.split("&")?.map { it.split("=", limit = 2) }?.firstOrNull { it.size == 2 && it[0] == "v" }?.get(1)
+        if (picked == null || picked.length != 11 || !picked.all { it.isLetterOrDigit() || it == '-' || it == '_' }) return null
+        return Tube(picked, music)
+    }
+
+    /** Video, music, or an ordinary page; the post draws a play mark for the first two (iOS playKind, MTLinkPreview.swift:299-316
+     * at 2155, atom 5a84afb1f68f). */
+    fun playKind(url: String): String? {
+        youtube(url)?.let { return if (it.music) "aud" else "vid" }
+        val ext = runCatching { URL(url).path.substringAfterLast('.', "") }.getOrNull()?.lowercase() ?: ""
+        if (ext in setOf("mp4", "mov", "m4v", "webm")) return "vid"
+        if (ext in setOf("mp3", "m4a", "aac", "wav", "flac")) return "aud"
+        val host = runCatching { URL(url).host }.getOrNull()?.lowercase() ?: ""
+        val bare = if (host.startsWith("www.")) host.substring(4) else host
+        if (bare == "open.spotify.com" || bare == "spotify.com" || bare.endsWith("soundcloud.com") || bare == "music.apple.com") return "aud"
+        return null
+    }
+
     /** The page's head only (≤ 64 KB, 3 s), its og:* read by a tiny reader — no browser engine (iOS build(for:)). */
     private fun buildFor(url: String): LinkCard? {
         synchronized(read) { read[url]?.let { return it }; if (url in readNothing) return null }
+        youtube(url)?.let { tube ->
+            val card = youtubeCard(url, tube)
+            if (card == null) synchronized(read) { readNothing += url }
+            return card
+        }
         val html = fetch(url, 64 * 1024, 3000, stopAtHead = true)?.let { String(it, Charsets.UTF_8) }
         if (html == null) { synchronized(read) { readNothing += url }; return null }
         val host = runCatching { URL(url).host }.getOrNull()
@@ -88,10 +133,11 @@ object LinkPreview {
         return card
     }
 
-    /** THE PICTURE IS A SECOND READ (iOS picture(for:)): ten seconds of its own; the row keeps it crisp (720, 70 KB). */
-    fun picture(card: LinkCard): LinkCard? {
+    /** THE PICTURE IS A SECOND READ (iOS picture(for:timeout:), MTLinkPreview.swift:179 at 2155, atom 5a84afb1f68f default 10):
+     * the row keeps it crisp (720, 70 KB); a wall post's card allows it two seconds only (wallCard), never the full ten. */
+    fun picture(card: LinkCard, timeoutMs: Int = 10_000): LinkCard? {
         val ref = card.p?.takeIf { card.i == null && (it.startsWith("https://") || it.startsWith("http://")) } ?: return null
-        val raw = fetch(ref, 3 * 1024 * 1024, 10_000) ?: return null
+        val raw = fetch(ref, 3 * 1024 * 1024, timeoutMs) ?: return null
         val b = BitmapFactory.decodeByteArray(raw, 0, raw.size) ?: return null
         val side = maxOf(b.width, b.height)
         val scale = if (side > 720) 720f / side else 1f
@@ -105,6 +151,52 @@ object LinkPreview {
             q = (q * 0.6).toInt()
         }
         return null
+    }
+
+    /** The video's title and channel from YouTube's own oEmbed, two and a half seconds of its own (iOS youtubeWords,
+     * MTLinkPreview.swift:372-382 at 2155, atom 5a84afb1f68f). */
+    private fun youtubeWords(url: String): Pair<String?, String?>? {
+        val ask = "https://www.youtube.com/oembed?url=" + URLEncoder.encode(url, "UTF-8") + "&format=json"
+        val data = fetch(ask, 16384, 2500) ?: return null
+        val o = runCatching { JSONObject(String(data, Charsets.UTF_8)) }.getOrNull() ?: return null
+        return o.optString("title").takeIf { it.isNotEmpty() } to o.optString("author_name").takeIf { it.isNotEmpty() }
+    }
+
+    /** The video's own picture, tried at two hosts, two and a half seconds each (iOS youtubePicture, MTLinkPreview.swift:384-393
+     * at 2155, atom 5a84afb1f68f). */
+    private fun youtubePicture(id: String): ByteArray? {
+        for (host in listOf("i.ytimg.com", "img.youtube.com")) {
+            val data = fetch("https://" + host + "/vi/" + id + "/hqdefault.jpg", 2 * 1024 * 1024, 2500) ?: continue
+            if (BitmapFactory.decodeByteArray(data, 0, data.size) != null) return data
+        }
+        return null
+    }
+
+    /** THE CARD A YOUTUBE ADDRESS BUILDS AT ONCE (iOS youtubeCard, MTLinkPreview.swift:349-368 at 2155, atom 5a84afb1f68f): the
+     * oEmbed title and channel, and the video's own thumbnail scaled to 720 and capped near 40 KB -- no page read, so a YouTube
+     * address shows its picture at once. */
+    private fun youtubeCard(url: String, tube: Tube): LinkCard? {
+        val raw = youtubePicture(tube.id)
+        val words = youtubeWords(url)
+        val card = LinkCard(url, if (tube.music) "YouTube Music" else "YouTube", clean(words?.first, 300), clean(words?.second, 200),
+            null, "https://i.ytimg.com/vi/" + tube.id + "/hqdefault.jpg", 480, 360)
+        val b = raw?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
+        if (b != null) {
+            val side = maxOf(b.width, b.height)
+            val scale = if (side > 720) 720f / side else 1f
+            val small = Bitmap.createScaledBitmap(b, maxOf(1, (b.width * scale).toInt()), maxOf(1, (b.height * scale).toInt()), true)
+            var q = 72
+            var encoded: String? = null
+            repeat(3) {
+                if (encoded != null) return@repeat
+                val out = ByteArrayOutputStream(); small.compress(Bitmap.CompressFormat.JPEG, q, out)
+                if (out.size() <= 40 * 1024) encoded = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP) else q = (q * 0.6).toInt()
+            }
+            if (encoded != null) { card.i = encoded; card.w = b.width; card.h = b.height }
+        }
+        if (card.i == null && !card.hasFace) return null
+        synchronized(read) { read[url] = card }
+        return card
     }
 
     private fun fetch(url: String, limit: Int, timeoutMs: Int, stopAtHead: Boolean = false): ByteArray? = runCatching {

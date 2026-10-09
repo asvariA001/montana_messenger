@@ -472,10 +472,14 @@ object MyWall {
             media.put(m); sizes.put(f.length()); confirmed.put(0)
         }
         val name = Prefs.userName.trim()
+        // THE CARD RIDES WITH THE POST FROM THE START (iOS begin, MontanaBoard.swift:1772-1818 at 2155, atom 5a84afb1f68f): the
+        // first link of the words, read before the post stands on its way, so a YouTube address shows its picture at once.
+        val lp = LinkPreview.wallCard(t)?.json()
         val post = JSONObject().put("id", pid).put("author", "").put("byName", name).put("byGlyph", name.take(1).uppercase())
             .put("at", System.currentTimeMillis() / 1000.0).put("text", t).put("media", media).put("pinned", false)
             .put("keepers", JSONArray().put("")).put("likes", JSONArray()).put("downloads", JSONArray()).put("reposts", JSONArray())
             .put("comments", JSONArray())
+        lp?.let { post.put("lp", it) }
         // MY FACE OVER A POST ON ANOTHER'S WALL (iOS fresh, MontanaBoard.swift:1821-1826 at 2155: face: wall == nil ? nil : myFace())
         if (wall.isNotEmpty()) Board.myFace()?.let { post.put("face", it) }
         synchronized(lock) {
@@ -533,6 +537,7 @@ object MyWall {
                 val word = JSONObject().put("t", "post").put("id", pid).put("at", post.optDouble("at")).put("tx", post.optString("text"))
                     .put("md", laid).put("bn", post.optString("byName")).put("bg", post.optString("byGlyph"))
                 post.optString("face").takeIf { it.isNotEmpty() }?.let { word.put("fc", it) }
+                post.optString("lp").takeIf { it.isNotEmpty() }?.let { word.put("lp", it) }   // the card rides to the wall's owner too
                 Board.wrote(wall, shown, word)
                 changed()
                 Log.d("Montana", "wall_write id=" + pid.take(10) + " files=" + laid.length() + " wall=theirs")
@@ -602,16 +607,36 @@ object MyWall {
      */
     fun edit(id: String, words: String): Boolean {
         val t = words.trim().take(TEXT_LIMIT)
+        var next: String? = null
+        var had: String? = null
         synchronized(lock) {
             ensure()
             val p = mine.firstOrNull { it.optString("id") == id } ?: return false
             if (p.optString("author").isNotEmpty() || p.has("from") || t == p.optString("text") || (t.isEmpty() && arr(p, "media").length() == 0)) return false
             p.put("text", t).put("ed", System.currentTimeMillis() / 1000.0)
-            if (LinkPreview.webURLs(t).firstOrNull() != LinkCard.parse(p.optString("lp"))?.u) p.remove("lp")
+            next = LinkPreview.webURLs(t).firstOrNull()
+            had = LinkCard.parse(p.optString("lp"))?.u
+            if (next != had) p.remove("lp")
         }
         saveMine(own = true)
+        // THE WORDS CHANGED THE LINK: THE CARD IS READ AGAIN (iOS attachCard, MontanaBoard.swift:1560-1569 at 2155, atom
+        // 5a84afb1f68f): the wall's version moves a second time once the new link's card comes, off this thread.
+        if (next != null && next != had) { val pid = id; val url = next!!; Thread { attachCard(pid, url) }.start() }
         Log.d("Montana", "wall_edit id=" + id.take(10) + " chars=" + t.length)
         return true
+    }
+    /** The card of the link the words now carry, read again and laid on the post (iOS attachCard, MontanaBoard.swift:1560-1569 at
+     * 2155, atom 5a84afb1f68f): the version moves with it, so the next page carries the new card to everyone who holds it; a post
+     * edited again before this read lands keeps the newer words' own link. */
+    private fun attachCard(id: String, url: String) {
+        val card = LinkPreview.wallCard(url)?.json() ?: return
+        synchronized(lock) {
+            ensure()
+            val p = mine.firstOrNull { it.optString("id") == id } ?: return
+            if (LinkPreview.webURLs(p.optString("text")).firstOrNull() != url) return
+            p.put("lp", card).put("ed", System.currentTimeMillis() / 1000.0)
+        }
+        saveMine(own = true)
     }
     fun like(id: String) = mutate(id, own = true) { toggle(it, "likes", "", !has(arr(it, "likes"), "")) }
     /** A REPOST STANDS ON MY WALL (iOS repost, MontanaBoard.swift:1656-1661 at 2155): once by its name; false -- it stands already. */
