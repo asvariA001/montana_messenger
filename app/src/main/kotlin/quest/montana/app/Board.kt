@@ -45,6 +45,10 @@ object Board {
     private val firstSeen = HashMap<String, Long>()       // a post -> the moment this phone first held it (iOS held)
     private val askedAt = HashMap<String, Long>()
     private val answeredAt = HashMap<String, Long>()
+    private val kept = HashMap<String, JSONObject>()      // a post -> {post, wall, files, dl}: its files kept here (iOS MTBoardKept 224-229)
+    private val keeping = HashSet<String>()               // a Save on its way, once per post
+    private val countedDownload = HashSet<String>()       // a download counted in this run (iOS countedDownload 375)
+    private val goneSaid = HashSet<String>()              // a post whose lost files were said once in this run (iOS goneSaid 374)
 
     private val listeners = mutableListOf<() -> Unit>()
     fun listen(l: () -> Unit) { synchronized(listeners) { listeners.add(l) } }
@@ -55,7 +59,7 @@ object Board {
     /** The person forgotten: the walls this phone held and the files brought for a look leave with them (Book.wipe). */
     fun wipe() = synchronized(lock) {
         MyWall.wipe()
-        pages.clear(); firstSeen.clear(); askedAt.clear(); answeredAt.clear(); loaded = false
+        pages.clear(); firstSeen.clear(); askedAt.clear(); answeredAt.clear(); kept.clear(); keeping.clear(); countedDownload.clear(); goneSaid.clear(); loaded = false
         File(Book.ctx.filesDir, "board").deleteRecursively(); lookDir().deleteRecursively()
     }
     private fun ensure() {
@@ -64,12 +68,14 @@ object Board {
         val o = runCatching { JSONObject(store().readText()) }.getOrNull() ?: return
         o.optJSONObject("pages")?.let { p -> p.keys().forEach { k -> p.optJSONObject(k)?.let { pages[k] = it } } }
         o.optJSONObject("first")?.let { f -> f.keys().forEach { k -> firstSeen[k] = f.optLong(k) } }
+        o.optJSONObject("kept")?.let { k -> k.keys().forEach { id -> k.optJSONObject(id)?.let { kept[id] = it } } }
     }
     private fun save() {
         val p = JSONObject(); for ((k, v) in pages) p.put(k, v)
         val f = JSONObject(); firstSeen.entries.sortedByDescending { it.value }.take(FIRST_KEPT).forEach { f.put(it.key, it.value) }
+        val k = JSONObject(); for ((id, v) in kept) k.put(id, v)
         val part = File(store().path + ".part")
-        runCatching { part.writeText(JSONObject().put("pages", p).put("first", f).toString()); part.renameTo(store()) }
+        runCatching { part.writeText(JSONObject().put("pages", p).put("first", f).put("kept", k).toString()); part.renameTo(store()) }
     }
 
     /** iOS Announced.wireTag: the first four bytes of SHA-256 as a decimal number; nothing is «0». */
@@ -147,11 +153,14 @@ object Board {
             }
             "no", "drop" -> w.optString("id").takeIf { it.isNotEmpty() }?.let { drop(ref, it) }
             "ask" -> MyWall.answer(ref)
+            // THE OWNER ASKS THIS KEEPER TO LAY A POST'S FILES AGAIN (iOS apply «seed» 964-966): a post whose files this phone keeps
+            "seed" -> w.optString("id").takeIf { it.isNotEmpty() }?.let { seedKept(it) }
             else -> MyWall.heard(ref, w)   // the owner's side: a post, a mark, a comment, a view on my wall
         }
     }
 
     private fun drop(ref: String, id: String) {
+        forgetKept(id)   // iOS apply «no» 840, «drop» 891: a post off its wall is kept here no more
         synchronized(lock) {
             ensure()
             val pg = pages[ref] ?: return
@@ -259,7 +268,7 @@ object Board {
     /** A picture of a post, brought from the node's pieces into the look's folder; the latest three hundred stay. */
     fun bring(m: JSONObject, pid: String, i: Int, then: (File) -> Unit) {
         val name = fileName(pid, i, m.optString("ext"))
-        MyWall.ownFile(name)?.let { then(it); return }   // a post of mine: this phone is its first peer, nothing to bring
+        MyWall.ownFile(name)?.let { then(it); return }   // a post of mine, or one kept here: this phone is its peer, nothing to bring
         val dest = File(lookDir(), name)
         if (dest.exists()) { then(dest); return }
         val chunks = m.optJSONArray("chunks")
@@ -276,6 +285,147 @@ object Board {
             finally { synchronized(going) { going.remove(name) } }
         }.start()
     }
+
+    // ── the keepers of a post (iOS keep, becomePeer, unkeep, file, noteDownloaded, reportGone, seedFiles, MontanaBoard 1585-1762) ──
+    /**
+     * SAVE (iOS keep 1585-1597, the author's word 24.09): the files come to this phone and stay -- from now on this phone is one of
+     * the post's peers. True when every file of the post is here; one Save of a post at a time.
+     */
+    fun keep(wall: String, p: JSONObject): Boolean {
+        val id = p.optString("id")
+        if (!plain(id)) return false
+        synchronized(lock) { if (!keeping.add(id)) return false }
+        try {
+            val ms = p.optJSONArray("media") ?: JSONArray()
+            for (i in 0 until ms.length()) if (file(wall, p, i) == null) return false
+            becomePeer(wall, p)   // a post with no files, or its files already here
+            return true
+        } finally { synchronized(lock) { keeping.remove(id) } }
+    }
+    /**
+     * THE FILE OF A POST ON THIS PHONE (iOS file 1685-1721): kept under its wall name in the one store of the wall's files. The copy
+     * a look brought is taken in -- what was seen is not brought again -- else the node's pieces are fetched. A file come here makes
+     * this phone the post's peer; pieces gone at every door (iOS fetchChunks .lost, MontanaWakePush 2532-2538) are said to the owner.
+     */
+    fun file(wall: String, p: JSONObject, i: Int): File? {
+        val m = p.optJSONArray("media")?.optJSONObject(i) ?: return null
+        val id = p.optString("id")
+        if (!plain(id)) return null
+        val dest = MyWall.storeFile(fileName(id, i, m.optString("ext")))
+        if (dest.exists()) return dest
+        val seen = File(lookDir(), dest.name)
+        val part = File(dest.path + ".part")
+        val taken = seen.exists() && runCatching { seen.copyTo(part, overwrite = true) }.isSuccess && part.renameTo(dest)
+        if (!taken) {
+            val chunks = m.optJSONArray("chunks") ?: JSONArray()
+            if (chunks.length() == 0) return null
+            if (!Media.download(JSONObject().put("bk", m.optString("key")).put("chunks", chunks), dest)) {
+                if ((0 until chunks.length()).any { k -> Wire.isGone(chunks.optJSONObject(k)?.optString("bid") ?: "") }) reportGone(wall, id)
+                return null
+            }
+        }
+        becomePeer(wall, p)
+        noteDownloaded(wall, p)
+        return dest
+    }
+    /**
+     * A FILE FETCHED MAKES THIS PHONE THE POST'S PEER (iOS becomePeer 1598-1623, the author's word 24.09): what it holds of the post
+     * stays, and the wall's owner is told it keeps the post. The writer keeps theirs from the start.
+     */
+    private fun becomePeer(wall: String, p: JSONObject) {
+        val id = p.optString("id")
+        val ms = p.optJSONArray("media") ?: JSONArray()
+        val here = (0 until ms.length()).map { fileName(id, it, ms.optJSONObject(it)?.optString("ext") ?: "") }.filter { MyWall.storeFile(it).exists() }
+        if (wall.isEmpty()) { MyWall.ownMark(id, "keepers", true); return }
+        val tell = synchronized(lock) {
+            ensure()
+            val k = kept[id]
+            if (k != null) {
+                val had = k.optJSONArray("files") ?: JSONArray()
+                val was = (0 until had.length()).map { had.optString(it) }.sorted()
+                val all = (was + here).toSortedSet().toList()
+                if (all == was) return
+                k.put("files", JSONArray(all)); save()
+                false
+            } else {
+                kept[id] = JSONObject().put("post", JSONObject(p.toString()).put("kept", true)).put("wall", wall).put("files", JSONArray(here))
+                save()
+                !p.optBoolean("mine")
+            }
+        }
+        if (!tell) return
+        send(wall, JSONObject().put("t", "keep").put("id", id).put("on", true))
+        patch(wall, id) { x -> if (!x.optBoolean("kept")) { x.put("kept", true); x.put("keepers", x.optInt("keepers") + 1) } }
+    }
+    /** REMOVE FROM SAVED (iOS unkeep 1624-1630): the writer keeps their post while it stands; only the wall's owner takes it down. */
+    fun unkeep(wall: String, p: JSONObject) {
+        val id = p.optString("id")
+        if (wall.isEmpty()) { MyWall.ownMark(id, "keepers", false); return }
+        if (p.optBoolean("mine")) return
+        forgetKept(id)
+        send(wall, JSONObject().put("t", "keep").put("id", id).put("on", false))
+        patch(wall, id) { x -> if (x.optBoolean("kept")) { x.remove("kept"); x.put("keepers", maxOf(0, x.optInt("keepers") - 1)) } }
+    }
+    /**
+     * A POST NO LONGER KEPT HERE (iOS forgetKept 1667-1671): its files stay while my own wall still shows the post; else they go at
+     * once -- iOS leaves them to the sweep of the files no post names (allFiles 509-521), and this phone has no such sweep.
+     */
+    private fun forgetKept(id: String) {
+        val k = synchronized(lock) { ensure(); kept.remove(id)?.also { save() } } ?: return
+        if (MyWall.post(id) != null) return
+        val fs = k.optJSONArray("files") ?: return
+        for (i in 0 until fs.length()) fs.optString(i).takeIf { it.isNotEmpty() }?.let { MyWall.storeFile(it).delete() }
+    }
+    /**
+     * A DOWNLOAD IS COUNTED ONCE PER PERSON (iOS noteDownloaded 1722-1736, the author's word 24.09): when every file of the post has
+     * come to this phone -- on the owner's wall, and on this page at once; one counted in a launch before this one is not counted again.
+     */
+    private fun noteDownloaded(wall: String, p: JSONObject) {
+        val id = p.optString("id")
+        val ms = p.optJSONArray("media") ?: return
+        if (ms.length() == 0) return
+        if (!(0 until ms.length()).all { MyWall.storeFile(fileName(id, it, ms.optJSONObject(it)?.optString("ext") ?: "")).exists() }) return
+        synchronized(lock) { if (!countedDownload.add(id)) return }
+        if (wall.isEmpty()) { MyWall.ownMark(id, "downloads", true); return }
+        synchronized(lock) {
+            ensure()
+            val k = kept[id]
+            if (k?.optBoolean("dl") == true) return   // counted in a launch before this one
+            k?.put("dl", true); save()
+        }
+        send(wall, JSONObject().put("t", "dl").put("id", id))
+        patch(wall, id) { x -> x.put("downloads", x.optInt("downloads") + 1) }
+    }
+    /** Pieces of a post gone at every door (iOS reportGone 1737-1743): said once to the wall's owner; on my own wall I lay them again. */
+    private fun reportGone(wall: String, id: String) {
+        synchronized(lock) { if (!goneSaid.add(id)) return }
+        Log.d("Montana", "wall_gone id=" + id.take(10) + " wall=" + (if (wall.isEmpty()) "mine" else "theirs"))
+        if (wall.isEmpty()) { MyWall.reseed(id); return }
+        send(wall, JSONObject().put("t", "gone").put("id", id))
+    }
+    /** The wall's owner asks this keeper to lay a post's files on the node again (iOS apply «seed» 964-966): the post as it was kept. */
+    private fun seedKept(id: String) {
+        val media = synchronized(lock) { ensure(); kept[id]?.optJSONObject("post")?.optJSONArray("media") } ?: return
+        Thread { seedFiles(id, media) }.start()
+    }
+    /**
+     * A KEEPER LAYS THE FILES ON THE NODE AGAIN UNDER THE SAME KEY (iOS seedFiles 1752-1762): the same bytes sealed by the same key in
+     * the same pieces give the same chunk names, so the manifest every page already carries finds them again.
+     */
+    fun seedFiles(id: String, media: JSONArray) {
+        if (!plain(id)) return
+        var n = 0
+        for (i in 0 until media.length()) {
+            val m = media.optJSONObject(i) ?: continue
+            val f = MyWall.storeFile(fileName(id, i, m.optString("ext")))
+            val key = runCatching { Base64.decode(m.optString("key"), Base64.DEFAULT) }.getOrNull()
+            if (!f.exists() || key == null || key.isEmpty()) continue
+            if (Media.layFile(f, "", key) {} != null) n++
+        }
+        Log.d("Montana", "wall_seed id=" + id.take(10) + " files=" + n + "/" + media.length())
+    }
+    /** A post's name as a file's name: letters, digits and the dash -- a hostile page names no path (iOS names a post «p» and 24 hex). */
+    private fun plain(id: String) = id.isNotEmpty() && id.all { it.isLetterOrDigit() || it == '-' }
 
     // ── the visitor's marks (iOS like, view, comment) ──
     fun post(wall: String, id: String): JSONObject? = if (wall.isEmpty()) MyWall.post(id) else synchronized(lock) {
@@ -532,7 +682,7 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
             Board.bring(m, p.optString("id"), i) { f -> Thread { Media.preview(c, f, kind, 1600)?.let { b -> MainThread.post { tile.setImageBitmap(b) } } }.start() }
         }
         // THE COUNTS (iOS counters 445-487): like, comments, keepers, reposts; in the corner the downloads and the eye with the views
-        // where the wall's owner counts them. Keeping and reposting come with this phone's own wall (W3): their counts stand.
+        // where the wall's owner counts them. Reposting comes with this phone's own wall (W3): its count stands.
         if (sending) return@vstack
         gap(4)
         addView(c.hstack {
@@ -547,7 +697,10 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
             val liked = p.optBoolean("liked")
             mark(if (liked) R.drawable.ic_heart_fill else R.drawable.ic_heart, p.optInt("likes"), if (liked) MT.red else MT.gray, R.string.wall_like) { Board.like(it.wall, p) }
             mark(R.drawable.ic_set_textbubble, p.optInt("commentCount"), MT.gray, R.string.wall_comments, if (whole) null else openComments)
-            mark(R.drawable.ic_tray_down, p.optInt("keepers"), if (p.optBoolean("kept")) android.graphics.Color.WHITE else MT.gray, R.string.wall_keepers, null)
+            // THE POST'S PEERS ANSWER THE FINGER (iOS counters 452-454): a tap saves the post -- its files come here and stay -- or lets it go
+            mark(R.drawable.ic_tray_down, p.optInt("keepers"), if (p.optBoolean("kept")) android.graphics.Color.WHITE else MT.gray, R.string.wall_keepers) {
+                Thread { if (p.optBoolean("kept")) Board.unkeep(it.wall, p) else Board.keep(it.wall, p) }.start()
+            }
             mark(R.drawable.ic_repost, p.optInt("reposts"), if (p.optBoolean("reposted")) android.graphics.Color.WHITE else MT.gray, R.string.wall_repost, null)
             spacer()
             addView(c.icon(R.drawable.ic_arrow_circle_down, MT.gray, 16).apply { contentDescription = c.getString(R.string.wall_downloads) }); gap(4)

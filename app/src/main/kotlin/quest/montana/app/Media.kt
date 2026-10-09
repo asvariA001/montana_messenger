@@ -281,9 +281,11 @@ object Media {
      * sealed under its letter's key with the nonce drawn from the key, the piece's number and its bytes; the node asked what it holds
      * already when the cargo is more than two pieces; the rest laid under the cargo mark, «last» on the final piece, each piece counted
      * as the node confirms it. The key in base64 and the chunks a post's manifest carries; null -- a piece the node did not take.
+     * A KEEPER'S KEY (iOS sealAndUpload 238-240, MontanaMediaKit): a post's keeper lays the same file under the post's own key -- the
+     * same bytes, the same key, the same pieces give the same chunk names the post's manifest already carries.
      */
-    fun layFile(f: File, letter: String, confirmed: (Int) -> Unit): Pair<String, JSONArray>? {
-        val bk = letterKey(letter) ?: return null
+    fun layFile(f: File, letter: String, key: ByteArray? = null, confirmed: (Int) -> Unit): Pair<String, JSONArray>? {
+        val bk = key ?: letterKey(letter) ?: return null
         val total = f.length()
         if (total <= 0L || Int.MAX_VALUE.toLong() < total) return null
         val count = ((total + CHUNK - 1) / CHUNK).toInt()

@@ -275,7 +275,8 @@ object MyWall {
             "cmt" -> takeComment(ref, w, now)
             // ONLY THE WALL'S OWNER TAKES A POST OFF THEIR WALL: a writer's «del» says only that their phone no longer keeps its files
             "del" -> mutate(w.optString("id")) { p -> if (has(arr(p, "keepers"), ref)) toggle(p, "keepers", ref, false) }
-            "gone", "seed" -> Log.d("Montana", "wall_files t=" + w.optString("t") + " — the files of my wall come with the posts' files")
+            // A POST'S FILES GONE FROM THE NODE (iOS apply 961-963): a visitor found them gone -- I lay them again, and I ask its keepers
+            "gone" -> w.optString("id").takeIf { it.isNotEmpty() }?.let { reseed(it) }
             else -> {}   // «hi» is the proof alone; a shape from a newer build is buried in silence
         }
     }
@@ -396,6 +397,8 @@ object MyWall {
     private fun store() = File(File(Book.ctx.filesDir, "board"), "files").apply { mkdirs() }
     private fun fileName(pid: String, i: Int, ext: String) = "wall_" + pid + "_" + i + (if (ext.isEmpty()) "" else "." + ext)   // iOS fileName 497-499
     fun ownFile(name: String): File? = File(store(), name).takeIf { it.exists() }
+    /** The one store of a post's files on this phone -- my posts' and the posts I keep (iOS MontanaMediaStore under fileName 497-499). */
+    fun storeFile(name: String): File = File(store(), name)
 
     /**
      * A NEW POST, AT ONCE AS IT WILL STAND (iOS begin 1768-1818): the files move into this phone's store under the post's own names,
@@ -540,5 +543,23 @@ object MyWall {
         }
         if (author.isNotEmpty()) Board.sendWord(author, JSONObject().put("t", "drop").put("id", id))
         saveMine(own = true)
+    }
+    /**
+     * MY OWN MARK ON A POST OF MY WALL, ONCE (iOS becomePeer 1603-1607, unkeep 1625, noteDownloaded 1730): «keepers» -- this phone
+     * keeps the post's files -- or «downloads»; a mark already as asked moves nothing.
+     */
+    fun ownMark(id: String, k: String, on: Boolean) {
+        val moves = synchronized(lock) { ensure(); mine.firstOrNull { it.optString("id") == id }?.let { has(arr(it, k), "") != on } } ?: return
+        if (moves) mutate(id, own = true) { toggle(it, k, "", on) }
+    }
+    /**
+     * THE FILES OF A POST ON MY WALL ARE GONE FROM THE NODE (iOS reseed 1744-1751): I lay them again under the post's own key if I
+     * keep them, and I ask every keeper of the post to lay theirs.
+     */
+    fun reseed(id: String) {
+        val p = synchronized(lock) { ensure(); mine.firstOrNull { it.optString("id") == id }?.let { JSONObject(it.toString()) } } ?: return
+        val keepers = arr(p, "keepers")
+        if (has(keepers, "") || p.optString("author").isEmpty()) { val ms = arr(p, "media"); Thread { Board.seedFiles(id, ms) }.start() }
+        for (i in 0 until keepers.length()) keepers.optString(i).takeIf { it.isNotEmpty() }?.let { Board.sendWord(it, JSONObject().put("t", "seed").put("id", id)) }
     }
 }
