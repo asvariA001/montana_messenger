@@ -68,11 +68,18 @@ fun sharePage(act: MainActivity, s: Shared, onClose: () -> Unit): View {
             addView(c.text(c.getString(R.string.wall_mine), 17f, Color.WHITE, bold = true).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))
             addView(c.icon(R.drawable.ic_compose, Color.WHITE), lp(dp(24), dp(24)))
             pressable {
-                val words = field.text.toString().trim()
+                val typed = field.text.toString().trim()
                 act.getSystemService(android.view.inputmethod.InputMethodManager::class.java).hideSoftInputFromWindow(field.windowToken, 0)
-                android.util.Log.d("Montana", "wall_sheet files=" + s.files.size + " chars=" + words.length + " page")
                 onClose()
-                act.push { close -> newPostPage(act, close, sharedWords = words, sharedFiles = s.files) }
+                // A TEXT HANDED AS A FILE IS THE POST'S WORDS (iOS ShareRead.wallPart and ShareWallHandoff.hand, ShareViewController 722-740, 779 at 2155;
+                // atom 2183eafbeab2): a .txt of bubble size joins the words line by line, only the rest are the post's files
+                Thread {
+                    val texts = ArrayList<String>()
+                    val files = s.files.filter { u -> textFace(c, u)?.let { texts.add(it); false } ?: true }
+                    val words = (listOf(typed) + texts).filter { it.isNotEmpty() }.joinToString("\n")
+                    android.util.Log.d("Montana", "wall_sheet files=" + files.size + " texts=" + texts.size + " chars=" + words.length + " page")
+                    act.onMain { act.push { close -> newPostPage(act, close, sharedWords = words, sharedFiles = files) } }
+                }.start()
             }
         }, lp())
         rows.addView(View(c).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = c.dp(62) })
