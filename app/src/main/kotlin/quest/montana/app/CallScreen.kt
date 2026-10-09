@@ -6,6 +6,7 @@ import android.content.res.Configuration
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Outline
+import android.graphics.Paint
 import android.graphics.RenderEffect
 import android.graphics.Shader
 import android.graphics.SurfaceTexture
@@ -163,8 +164,24 @@ object CallScreen {
             addView(bigName(c, name), lp(MATCH, dp(52)).apply { leftMargin = dp(16); rightMargin = dp(16) })
             addView(state, lp().apply { leftMargin = dp(16); rightMargin = dp(16); topMargin = dp(2) })
         }
-        // ── the video branch's top (iOS 6660-6696): the name in the row's centre, the time under it, the events under that ──
-        val title = c.text(name, 32f, Color.WHITE).apply {   // USER-DATA: the peer's name
+        // ── the video branch's top (iOS MTCallTopTitle/MTCallTimeLine/MTCallStateLine, MontanaCall.swift 5301-5422, the
+        // call site 6694-6743 in 2155, atom a14135b48a1d): the name in the row's centre, the time under it, the events under that ──
+        // THE NAME IS AS LARGE AS THE MARKS ALLOW (iOS MTCallTopTitle.nameSize, MontanaCall.swift 5311-5315): the largest
+        // semibold size whose own line fits the 44dp row, read from the platform's font metrics, not guessed ("too small" —
+        // the author, 23.09).
+        val nameSp = run {
+            val target = c.dp(44).toFloat()
+            val paint = Paint().apply { typeface = medium }
+            var s = 40f
+            while (s > 12f) {
+                paint.textSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, s, c.resources.displayMetrics)
+                val fm = paint.fontMetrics
+                if (fm.descent - fm.ascent <= target) break
+                s -= 1f
+            }
+            s
+        }
+        val title = c.text(name, nameSp, Color.WHITE).apply {   // USER-DATA: the peer's name
             typeface = medium
             gravity = Gravity.CENTER
             isSingleLine = true
@@ -347,10 +364,26 @@ object CallScreen {
         // edge down: fourteen off the safe side. Where the buttons stand, the touch is theirs (6406-6428, blockRect):
         // Android needs no such mask -- column is laid out after pictures, so a button under the finger claims the
         // touch before it ever reaches miniBox underneath.
+        // AND IT TELLS WHEN IT IS GONE (iOS blockRect, MontanaCall.swift 6324: "(model.chromeVisible && !model.screenSharing)
+        // ? model.bottomRowRect : .zero", plus the .onDisappear at 6887/6903, atom 9efa2d90b61b): the grid goes GONE while a
+        // screen rides but column stays VISIBLE, so grid.top alone would read the stale rect from before the share — up
+        // asks the grid's own visibility too, not only the column's.
         var placed = false
+        var pipLogged = false
+        var pipCorner = -1
+        var pipUp = -1
+        var pipW = 0
+        var pipH = 0
+        // WHERE IT STANDS IS WRITTEN, NOT GUESSED (iOS MTCallMini.note, MontanaCall.swift 6391-6394 in 2155, atom
+        // f4c97f3cc8b0): its corner, its bottom edge, and whether the buttons were up — at birth, at every settle
+        // and when the buttons come or go.
+        fun notePip(why: String, y: Float, up: Boolean) {
+            Log.d("Montana", "call_pip " + why + " corner=" + corner + " bottom=" + (y.toInt() + c.dp(MINI_H)) +
+                " top=" + y.toInt() + " screen=" + pictures.width + "x" + pictures.height + " buttons=" + (if (up) 1 else 0))
+        }
         fun placeMini(glide: Boolean) {
             if (miniBox.visibility != View.VISIBLE || pictures.width == 0) return
-            val up = column.visibility == View.VISIBLE
+            val up = column.visibility == View.VISIBLE && grid.visibility == View.VISIBLE
             val topEdge = if (up && events.bottom > 0) events.bottom + c.dp(10) else column.paddingTop + c.dp(14)
             val raised = if (grid.top > 0) grid.top - c.dp(10) else pictures.height - column.paddingBottom - c.dp(220)
             val bottomEdge = if (up) raised else pictures.height - column.paddingBottom - c.dp(14)
@@ -359,6 +392,12 @@ object CallScreen {
             if (glide && placed) miniBox.animate().translationX(x).translationY(y).setDuration(300).start()
             else { miniBox.animate().cancel(); miniBox.translationX = x; miniBox.translationY = y }
             placed = true
+            val why = if (!pipLogged) "born" else if (pipCorner != corner) "moved" else if ((pipUp == 1) != up) "buttons"
+                else if (pipW != pictures.width || pipH != pictures.height) "screen" else null
+            if (why != null) {
+                notePip(why, y, up)
+                pipLogged = true; pipCorner = corner; pipUp = if (up) 1 else 0; pipW = pictures.width; pipH = pictures.height
+            }
         }
         var foldAt = 0L
         fun redraw() {
