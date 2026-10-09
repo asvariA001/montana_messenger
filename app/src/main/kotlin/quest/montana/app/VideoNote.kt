@@ -54,6 +54,10 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
         const val CIRCLE = 400
         const val MAX_SECONDS = 399.0
         fun bitRate() = when (Prefs.str("noteQuality", "medium")) { "low" -> 900_000; "high" -> 2_500_000; else -> 1_500_000 }
+        /** THE SOURCE AT THE CHOSEN STEP (iOS MontanaNoteQuality.minHeight, MontanaFeeds.swift:1716-1722 at 2155): the
+         *  single camera's own format, at least this tall, before the 480 square is cut from it -- the step sharpens
+         *  the source, not only the encoder's rate (sizeCamera below). */
+        fun minHeight() = when (Prefs.str("noteQuality", "medium")) { "low" -> 480; "high" -> 1080; else -> 720 }
         const val INNER = 144        // iOS inner: the badge on the big circle's rim, in file pixels
         /** The badge's centre from the canvas's middle (iOS reach: (side/2 + inner/6)/√2), bottom-right (iOS corner 3). */
         val REACH = ((CIRCLE / 2f + INNER / 6f) / Math.sqrt(2.0)).toFloat()
@@ -162,6 +166,8 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
 
     /** The tape starts: the camera, the encoders and the drawing; false when a piece refused. */
     fun start(): Boolean = if (CallSound.refused("video note")) false else try {   // the call holds the sound (iOS MontanaRecording 100)
+        // A NOTE KEEPS THE MUSIC (iOS MontanaFeeds.swift:1926-1928 at 2155): read before anything of ours stands down.
+        Playing.standDown(keepingMusic = MusicPlayer.playing)
         file = File(c.cacheDir, "vnote_${System.currentTimeMillis()}.mp4")
         setupCodecs()
         val ready = java.util.concurrent.CountDownLatch(1)
@@ -313,7 +319,21 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
         val cm = c.getSystemService(CameraManager::class.java)
         val want = if (front) CameraCharacteristics.LENS_FACING_FRONT else CameraCharacteristics.LENS_FACING_BACK
         val id = cm.cameraIdList.firstOrNull { cm.getCameraCharacteristics(it).get(CameraCharacteristics.LENS_FACING) == want } ?: cm.cameraIdList.first()
+        // the pair streams at its fixed 1280x720, never at a step one camera alone may take (iOS applyQuality steps the pair down
+        // until the hardware carries it; a 1080 source kept from the single road would ask the pair for more)
+        if (dual) camTexture?.setDefaultBufferSize(1280, 720) else sizeCamera(cm, id)
         openInto(id, camTexture!!, { cam = it }, { session = it })
+    }
+    /** THE TEXTURE ASKS FOR THE STEP'S SOURCE before the camera opens (iOS applyQuality, MontanaFeeds.swift:2047-2059 at
+     *  2155): the smallest 16:9 format this camera carries that is at least as tall as the chosen step, else the
+     *  largest 16:9 one -- the shader's own crop (uCrop below) assumes 16:9 and is not touched here. */
+    private fun sizeCamera(cm: CameraManager, id: String) {
+        val minH = minHeight()
+        val sizes = runCatching { cm.getCameraCharacteristics(id).get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+            ?.getOutputSizes(SurfaceTexture::class.java)?.toList() }.getOrNull().orEmpty()
+        val wide = sizes.filter { kotlin.math.abs(it.width.toFloat() / it.height - 16f / 9f) < 0.05f }
+        val size = wide.filter { it.height >= minH }.minByOrNull { it.width.toLong() * it.height } ?: wide.maxByOrNull { it.width.toLong() * it.height }
+        if (size != null) camTexture?.setDefaultBufferSize(size.width, size.height)
     }
 
     /** One camera streaming into one texture (the big one's, or the badge's). */

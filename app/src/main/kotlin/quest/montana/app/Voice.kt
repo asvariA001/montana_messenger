@@ -72,6 +72,7 @@ object VoiceTape {
         if (CallSound.refused("voice tape")) return false   // the call holds the sound (iOS MontanaRecording 100)
         if (!granted(act)) { act.requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), 7); return false }
         if (rec != null) return false   // one tape at a time: a second start over a rolling one is nothing (iOS VoiceRecorder.start guard, build 1519 / 2155 MontanaMedia.swift:112)
+        Playing.standDown()   // a tape holds what plays, the open note closes (iOS MontanaMedia.swift:111-113 at 2155)
         val f = File(act.cacheDir, "tape-${System.currentTimeMillis()}.m4a")
         return try {
             rec = MediaRecorder(act).apply {

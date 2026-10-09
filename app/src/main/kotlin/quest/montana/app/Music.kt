@@ -226,6 +226,15 @@ object Playing {
         VoicePlayer.applyRate(); NoteOpen.applyRate?.invoke(); changed()
     }
     fun rateWord() = if (rate == 1f) "1×" else if (rate == 2f) "2×" else "1.5×"   // USER-DATA: a number, not a word
+    /** A TAPE HOLDS WHAT PLAYS, THE OPEN NOTE CLOSES (iOS MontanaPlayerBar.standDown, MontanaMusicPlayer.swift:1026-1035 at
+     *  2155): a voice tape always rests whatever sounds; a note's camera keeps a track that was already playing
+     *  (`keepingMusic`, read by the caller before anything stands down) and rests a voice message regardless -- the
+     *  chat's own stepAside (Conversation.kt:2424-2426, 2498) already lets a rested track play on once the tape ends. */
+    fun standDown(keepingMusic: Boolean = false) {
+        NoteOpen.close?.invoke()
+        VoicePlayer.pause()
+        if (!keepingMusic) MusicPlayer.pause()
+    }
 }
 
 /**
