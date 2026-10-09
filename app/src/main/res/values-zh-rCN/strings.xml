@@ -456,6 +456,14 @@
     <string name="history_period_day">天</string>
     <string name="history_period_week">周</string>
     <string name="history_period_all">全部时间</string>
+    <string name="coin_minting_now">正在铸造</string>
+    <string name="coin_wall_rights">来自墙的权利</string>
+    <string name="coin_timechain">TimeChain</string>
+    <string name="coin_right_note">权益仅在核心确认兑付后才成为钱包票据。</string>
+    <string name="coin_window">窗口</string>
+    <string name="coin_window_active">正在参与</string>
+    <string name="coin_window_inactive">未参与</string>
+    <string name="coin_right_share">份额权益</string>
     <string name="wall_on">在%1$s的墙上</string>
     <string name="wall_reposted">转发自 %1$s</string>
     <string name="wall_someone">某人</string>

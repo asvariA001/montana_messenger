@@ -319,7 +319,7 @@ object Signal {
      * stamp, never a live word (Presence.stamp). It opens by the node's own moment (Wire.openBoxed): iOS opens it by the minute of the
      * question, so there a word older than two minutes never opens (HANDOVER, session 7).
      */
-    fun sweep() {
+    fun sweep(quiet: Boolean = false) {
         val twin = MontanaSeed.twin ?: return
         val q = ArrayList<JSONObject>()
         val chatOf = HashMap<String, String>()
@@ -362,9 +362,12 @@ object Signal {
             Presence.stamp(chat, String(text, Charsets.UTF_8), w.second * 1000)
             words++
         }
-        Log.d("Montana", "presence_sweep convs=" + chatOf.size / 2 + " doors=" + doors + " words=" + words)
+        // THE OPEN WALLET ASKS EVERY THREE SECONDS (iOS sweepPresence(quiet:), MontanaWakePush.swift:3262-3264): its sweeps say a line a minute
+        val saidNow = System.currentTimeMillis()
+        if (!quiet || 60_000L <= saidNow - sweepSaidAt) { if (quiet) sweepSaidAt = saidNow; Log.d("Montana", "presence_sweep convs=" + chatOf.size / 2 + " doors=" + doors + " words=" + words) }
     }
 
+    @Volatile private var sweepSaidAt = 0L   // the open wallet's sweeps: one line a minute
     private val holders = HashMap<String, MutableSet<String>>()
     private val running = HashMap<String, Int>()
 
@@ -503,7 +506,8 @@ object Presence {
         val n = Book.chat(ref)?.name.orEmpty()
         // «W» + my wall's version and «G» + the tag of their page's ground on my screen, after the name's digits (iOS heldTail 566-567):
         // uppercase and digits, unread by every older build — they stop at the first letter after the digits they read
-        return "F" + face + "N" + wireTag(if (n.isEmpty()) null else n.toByteArray(Charsets.UTF_8)) + "W" + MyWall.spokenVersion(ref) + "G" + PageGround.heldTag(ref)
+        // «C» + my balance right after the ground's digits (iOS heldTail 565-567): the same uppercase and digits (coinTail)
+        return "F" + face + "N" + wireTag(if (n.isEmpty()) null else n.toByteArray(Charsets.UTF_8)) + "W" + MyWall.spokenVersion(ref) + "G" + PageGround.heldTag(ref) + coinTail()
     }
     /**
      * WHAT THEY HOLD OF ME, heard in their word (iOS heardHeld 629-667): their screen's tags of my face and my name against what I am —
@@ -528,6 +532,13 @@ object Presence {
     }
     /** «@DOORS» — the doors alive for me, in the chat word's tail (iOS doorTail 685-691): UPPERCASE, so no old reader takes a host's «h» for hiding. */
     private fun doorTail() = Signal.aliveHosts().joinToString(",").let { if (it.isEmpty()) "" else "@" + it.uppercase() }
+    /**
+     * THE BALANCE RIDES EVERY PRESENCE WORD (iOS E2E.coinTail, MontanaE2E.swift:588-597; the author's words 04.10.2026 03:03 and 04:19
+     * MSK: «the top is a tunnel, a live set as by a web socket, the update instant from the nodes»): «C» and my balance after the ground's
+     * digits — the lane hands it over at once and the node keeps it as my last word, which an open wallet asks for every few seconds.
+     * Nothing before the book is read, nothing when the owner hid the coins (CoinShow); Android's balance rode no word at all.
+     */
+    private fun coinTail(): String { val coins = CoinBook.said ?: return ""; return if (CoinShow.on) "C" + coins else "" }
     /** App-level presence for one correspondence (iOS appBeacon 731-738): the word, my moment, what I hold of them, their letters I hold whole. */
     private fun appBeacon(ref: String, open: Boolean) {
         if (!sharing || PeerSafety.isBlocked(ref)) return
@@ -585,6 +596,14 @@ object Presence {
         if (Book.openChat == ref || !appOpen) return
         Thread { appBeacon(ref, true) }.start()
     }
+    /** The people in the app now (iOS ChatStore.appOnlineChats): their word «in the app» still lives. */
+    fun appOnline(): List<String> {
+        val now = System.currentTimeMillis()
+        return runCatching { onlineUntil.filterValues { now < it }.keys.toList() }.getOrDefault(emptyList())
+    }
+    /** MY BALANCE MOVED WHILE I AM IN THE APP (iOS E2E.coinBeacon, MontanaE2E.swift:740-745): the people in the app hear it in the app
+     * word itself (coinTail), paced by CoinTell — never from the background, where «in the app» would be a lie. Off the screen's thread. */
+    fun coinBeacon(ref: String) { if (appOpen) appBeacon(ref, true) }
     /** MY «NOW» MOVED (iOS clockCorrected 882-892): the greeting said before the node's clock was known is said again by the right
      * clock -- only while the app stands before the person having greeted, once in ten minutes at most. */
     private var clockSaidAt = 0L
@@ -705,6 +724,7 @@ object Presence {
                 if (PageGround.groundHeld(payload) != null) PageGround.noteCapable(ref)
                 if (fresh) heardHeld(ref, payload)   // only a word said now says what their screen holds
                 heardHeldLetters(ref, payload)   // which of my letters they hold whole (iOS 3909, 3935): a letter once held whole is delivered for good
+                CoinBoard.heard(ref, payload, wordAt)   // the balance the word tells (iOS E2E.heardCoins, MontanaChatStore.swift:3907, 3933)
                 if (chat) {
                     if (liveWordMoves(ref, saidAt, true, open, WORD_LIFE)) {
                         peerWatching(ref, open, saidAt)
@@ -772,6 +792,7 @@ object Presence {
         val app = text.startsWith(APP)
         if (app || text.startsWith(WATCH)) {
             val payload = text.removePrefix(if (app) APP else WATCH)
+            CoinBoard.heard(ref, payload, at)   // the balance the node's last word tells (iOS sweepPresence, MontanaWakePush.swift:3246)
             hides(ref, payload.drop(1).contains('h'), at)
             payload.indexOf('@').takeIf { it >= 0 }?.let { Signal.notePeerDoor(ref, payload.substring(it + 1)) }
             if (app && payload.drop(1).startsWith("B")) gone(ref, at) else if (app) back(ref, at)

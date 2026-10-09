@@ -456,6 +456,14 @@
     <string name="history_period_day">День</string>
     <string name="history_period_week">Неделя</string>
     <string name="history_period_all">Всё время</string>
+    <string name="coin_minting_now">Чеканится сейчас</string>
+    <string name="coin_wall_rights">Права со стены</string>
+    <string name="coin_timechain">TimeChain</string>
+    <string name="coin_right_note">Право становится заметкой кошелька только после подтверждения погашения ядром.</string>
+    <string name="coin_window">Окно</string>
+    <string name="coin_window_active">Активно</string>
+    <string name="coin_window_inactive">Не активно</string>
+    <string name="coin_right_share">Право на долю</string>
     <string name="wall_on">На стене: %1$s</string>
     <string name="wall_reposted">Репост со стены: %1$s</string>
     <string name="wall_someone">Кто-то</string>

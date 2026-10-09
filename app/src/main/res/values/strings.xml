@@ -461,6 +461,14 @@
     <string name="history_period_day">Day</string>
     <string name="history_period_week">Week</string>
     <string name="history_period_all">All time</string>
+    <string name="coin_minting_now">Minting now</string>
+    <string name="coin_wall_rights">Rights from the wall</string>
+    <string name="coin_timechain">TimeChain</string>
+    <string name="coin_right_note">A right becomes a wallet note only after the core confirms its redemption.</string>
+    <string name="coin_window">Window</string>
+    <string name="coin_window_active">Active</string>
+    <string name="coin_window_inactive">Not active</string>
+    <string name="coin_right_share">Right to a share</string>
     <string name="wall_on">On %1$s\'s wall</string>
     <string name="wall_reposted">Reposted from %1$s</string>
     <string name="wall_someone">Someone</string>

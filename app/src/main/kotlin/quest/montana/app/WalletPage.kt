@@ -113,6 +113,18 @@ private fun Context.labeled(title: String, value: String): View = hstack {
     addView(text(value, 16f, MT.gray), lp(WRAP, WRAP))   // USER-DATA: a number of coins
 }
 
+/** One window of the wall's comments, as iOS lays it (MTWalletScreen.swift:296-309): its minutes large, its span, every comment's
+ * moment, its post, whether it is open and its right to a share. */
+private fun Context.wallWindowRow(w: WallWindows.Row): View = vstack(Gravity.NO_GRAVITY) {
+    setPadding(dp(16), dp(10), dp(16), dp(10))
+    addView(text(w.share.toString(), 34f, Color.WHITE, bold = true), lp(WRAP, WRAP))   // USER-DATA: the minutes this comment series minted
+    addView(text(w.span, 12f, MT.gray), lp(WRAP, WRAP))   // USER-DATA: the window from its first comment to its last
+    addView(text(w.marks.joinToString(" | "), 11f, MT.gray).apply { maxLines = 4; ellipsize = android.text.TextUtils.TruncateAt.END }, lp(MATCH, WRAP))   // USER-DATA: every comment's moment
+    addView(text(w.title, 15f).apply { maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END }, lp(MATCH, WRAP))   // USER-DATA: the post whose comments opened the window
+    addView(labeled(getString(R.string.coin_window), getString(if (w.open) R.string.coin_window_active else R.string.coin_window_inactive)).apply { setPadding(0, dp(6), 0, dp(6)); minimumHeight = 0 }, lp())
+    addView(labeled(getString(R.string.coin_right_share), w.share.toString()).apply { setPadding(0, dp(6), 0, dp(6)); minimumHeight = 0 }, lp())
+}
+
 /** A page of the wallet: the bar with the cross or the back chevron, a mark at the trailing edge when it has one, the list that
  * scrolls — a pull of it mints, only where `onPull` names it (iOS MTWalletPage .onPreferenceChange(MTWalletPullKey.self),
  * MTWalletScreen.swift:343-349 and 367-380). */
@@ -166,6 +178,8 @@ fun walletPage(act: MainActivity, onClose: () -> Unit): View {
     var heads: Map<String, TimeChain.Head> = emptyMap()
     var headsDue = false
     var headsAt = -1
+    var windows: List<WallWindows.Row> = emptyList()   // the wall's comment windows, read at the opening, at the pull and at the return (iOS refresh 418-419)
+    val windowRows = c.vstack(Gravity.NO_GRAVITY)
 
     fun capsule(word: Int, glyph: Int?, filled: Boolean, onTap: () -> Unit) = c.hstack {
         gravity = Gravity.CENTER
@@ -184,9 +198,9 @@ fun walletPage(act: MainActivity, onClose: () -> Unit): View {
         fire.visibility = if (lit) View.VISIBLE else View.INVISIBLE
         speed.visibility = fire.visibility
         speed.text = Pantheon.speed.toString() + " / " + Pantheon.CEILING   // USER-DATA: the taps of the last second
-        coin.spinAt(Pantheon.speed)
+        coin.spinAt(maxOf(Pantheon.speed, if (WalletPull.on) 1 else 0))   // at least once a second while the auto minting runs (iOS MTWalletScreen.swift:73-77)
         badge.text = maxOf(1, place).toString()   // the level the minting multiplies by
-        val shownBar = lit && place < PiLevels.all.size
+        val shownBar = (lit || WalletPull.on) && place < PiLevels.all.size   // iOS MTLevelProgress, MTWalletScreen.swift:124-126
         bar.visibility = if (shownBar) View.VISIBLE else View.INVISIBLE
         toLevel.visibility = bar.visibility
         if (place < PiLevels.all.size) {
@@ -204,12 +218,23 @@ fun walletPage(act: MainActivity, onClose: () -> Unit): View {
             heads[s]?.takeIf { 0 < it.n }?.let { h -> c.settingsRow(null, 0, c.chainName(s), value = c.chainHead(h, 8)) { act.push { back -> timeChainPage(act, s, back) } } }
         }
         if (chains.isNotEmpty()) rows.section(c.getString(R.string.tc_title), null, *chains.toTypedArray())
+        // THE WALL'S MINTING STANDS ON THE WALLET (iOS MTWalletScreen.swift:210-214): the rights the comment windows hold, beside the book and never added into it
         rows.section(c.getString(R.string.coin_minting), c.getString(R.string.coin_counted_here),
+            c.labeled(c.getString(R.string.coin_minting_now), windows.filter { it.open }.sumOf { it.share }.toString()),   // USER-DATA: a number of minutes
+            c.labeled(c.getString(R.string.coin_wall_rights), windows.sumOf { it.share }.toString()),   // USER-DATA: a number of minutes
             c.labeled(c.getString(R.string.coin_from_pantheon), CoinText.count(CoinBook.tapped)),
             c.labeled(c.getString(R.string.coin_received_n), CoinText.count(CoinBook.received)),
             c.labeled(c.getString(R.string.coin_sent_n), CoinText.count(CoinBook.sent)),
             c.labeled(c.getString(R.string.coin_in_montana), CoinText.montana(b)))
         rows.section(null, null, c.settingsRow(null, 0, c.getString(R.string.coin_history)) { act.push { coinHistoryPage(act, it) } })
+    }
+    // THE COMMENT WINDOWS OF THE WALL (iOS MTWalletScreen.swift:292-313): each window's minutes, its span, every comment's moment, its
+    // post, whether it is open and its right to a share; none stands — «No comments yet». Drawn when the windows are read, not at every coin.
+    fun drawWindows() {
+        windowRows.removeAllViews()
+        val shown: List<View> = if (windows.isEmpty()) listOf(c.text(c.getString(R.string.wall_no_comments), 16f, MT.gray).apply { setPadding(dp(16), dp(14), dp(16), dp(14)) })
+            else windows.map { c.wallWindowRow(it) }
+        windowRows.section(c.getString(R.string.coin_timechain), c.getString(R.string.coin_right_note), *shown.toTypedArray())
     }
 
     // THE COIN TAKES EVERY FINGER (iOS MTCoinTapPad): each finger that lands mints, its +N rising where it touched; the page holds
@@ -272,9 +297,32 @@ fun walletPage(act: MainActivity, onClose: () -> Unit): View {
     pops.isClickable = false
     body.addView(head, lp())
     body.addView(rows, lp())
-    // THE PULL MINTS (iOS MTWalletPage.pulled, MTWalletScreen.swift:367-380, build 2093): let go past the trigger, WalletPull mints
-    // once and the book's own change redraws this page below (CoinBook.listen).
-    val page = walletFrame(act, c.getString(R.string.coin_title), onClose, true, null, body) { WalletPull.fire() }
+    body.addView(windowRows, lp())
+    // THE WALL'S COMMENT WINDOWS ARE READ OFF THE SCREEN'S THREAD (iOS refresh, MTWalletScreen.swift:418-419): at the opening, at the
+    // pull and at the return to the app — never at every coin
+    lateinit var holder: FrameLayout
+    fun readWindows() { Thread { val w = WallWindows.all(); MainThread.post { windows = w; if (holder.isAttachedToWindow) { draw(); drawWindows() } } }.start() }
+    // THE TOP IS A LIVE SET FROM THE NODES (iOS MTWalletPage .task, MTWalletScreen.swift:361-381): while the wallet stands on the screen
+    // the pairs' last words are asked of the nodes every three seconds, one question after the other — their balances ride them
+    // (CoinBoard); a round that is no longer the page's own stops
+    var asking = 0
+    fun askNodes(round: Int) {
+        if (round != asking || !holder.isAttachedToWindow) return
+        Thread { runCatching { Signal.sweep(quiet = true) }; MainThread.later(3000, Runnable { askNodes(round) }) }.start()
+    }
+    // THE PULL SWITCHES THE AUTO MINTING ON (iOS MTWalletPage.pulled, MTWalletScreen.swift:404-417): let go past the trigger, the pull
+    // mints every second from now on (WalletPull) and the page reads its windows again; the book's own change redraws it (CoinBook.listen).
+    val page = walletFrame(act, c.getString(R.string.coin_title), onClose, true, null, body) { WalletPull.fire(); readWindows() }
+    // THE LOCK ENDS IT, NOT A GLANCE (iOS .onChange(of: phase), MTWalletScreen.swift:382-386): the app gone from the screen — its window
+    // hidden, the screen locked — stops the auto minting and the nodes' questions; a shade or a dialog over it does not. The return reads
+    // the windows again and asks the nodes at once.
+    holder = object : FrameLayout(c) {
+        override fun onWindowVisibilityChanged(visibility: Int) {
+            super.onWindowVisibilityChanged(visibility)
+            if (visibility == View.VISIBLE) { readWindows(); askNodes(++asking) }
+            else if (windowVisibility != View.VISIBLE) { asking++; WalletPull.stop("background") }
+        }
+    }.apply { addView(page, FrameLayout.LayoutParams(MATCH, MATCH)) }
     val again: () -> Unit = { draw() }
     fun readHeads() { headsAt = CoinBook.size(); TimeChain.heads { h -> heads = h; if (page.isAttachedToWindow) draw() } }
     val moved: () -> Unit = {
@@ -284,12 +332,13 @@ fun walletPage(act: MainActivity, onClose: () -> Unit): View {
         }
     }
     page.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
-        override fun onViewAttachedToWindow(v: View) { CoinBook.listen(again); CoinBook.listen(moved); Pantheon.listen(again); draw(); coin.turnOnce() }
-        override fun onViewDetachedFromWindow(v: View) { CoinBook.unlisten(again); CoinBook.unlisten(moved); Pantheon.unlisten(again); Pantheon.released(); CoinBook.closeWindows() }
+        override fun onViewAttachedToWindow(v: View) { CoinBook.listen(again); CoinBook.listen(moved); Pantheon.listen(again); WalletPull.listen(again); draw(); coin.turnOnce() }
+        // the page left: the auto minting stops with it and the nodes are asked no more (iOS .onDisappear, MTWalletScreen.swift:387)
+        override fun onViewDetachedFromWindow(v: View) { CoinBook.unlisten(again); CoinBook.unlisten(moved); Pantheon.unlisten(again); WalletPull.unlisten(again); asking++; WalletPull.stop("page"); Pantheon.released(); CoinBook.closeWindows() }
     })
     // the book read first, so its past is in the chains before their heads are read (one queue, in order)
     Thread { CoinBook.warm(); MainThread.post { draw(); readHeads() } }.start()
-    return page
+    return holder
 }
 
 /**
