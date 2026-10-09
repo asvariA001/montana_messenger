@@ -297,7 +297,7 @@ class PicturePager(private val act: MainActivity, private val files: List<File>,
 }
 
 /** The strip's covers, small pictures born off the frame and kept for the album's life (iOS mtCoverCache, 256 px). */
-private val stripCovers = object : android.util.LruCache<String, Bitmap>(16 * 1024 * 1024) { override fun sizeOf(key: String, value: Bitmap) = value.byteCount }
+private val stripCovers = Caches.kept("strip_covers", object : android.util.LruCache<String, Bitmap>(16 * 1024 * 1024) { override fun sizeOf(key: String, value: Bitmap) = value.byteCount })
 
 /**
  * THE STRIP OF COVERS (iOS MontanaPhotoViewer.thumbStrip, MontanaProfile 1822-1873): the album covers' own scroll — the centred

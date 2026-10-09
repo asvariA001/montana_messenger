@@ -40,9 +40,9 @@ private fun moments(): List<Moment> = Book.all().flatMap { ch ->
 
 /** The tiles' small drawings, decoded off the frame once and kept by their size (iOS mtTileSharp, MontanaCaches): one cache for the
  *  gallery and the correspondent's page, by the file's path. */
-val tileCache = object : android.util.LruCache<String, android.graphics.Bitmap>(24 * 1024 * 1024) {
+val tileCache: android.util.LruCache<String, android.graphics.Bitmap> = Caches.kept("tiles", object : android.util.LruCache<String, android.graphics.Bitmap>(24 * 1024 * 1024) {
     override fun sizeOf(key: String, value: android.graphics.Bitmap) = value.byteCount
-}
+})
 val tileWork = java.util.concurrent.Executors.newSingleThreadExecutor()
 
 /**

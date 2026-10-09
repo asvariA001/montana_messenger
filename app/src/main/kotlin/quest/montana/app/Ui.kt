@@ -171,7 +171,7 @@ fun Context.toggleRow(title: String, onChange: (Boolean) -> Unit): LinearLayout 
 
 /** The page's glass plate: rows on a rounded dark card (iOS MTGlassRowPlate inside a List section). */
 fun Context.plate(build: LinearLayout.() -> Unit) = vstack(Gravity.NO_GRAVITY) {
-    background = rounded(MT.plate, 12)
+    background = rounded(GLASS_TONE, 12, Color.argb(26, 255, 255, 255))   // the settings' cards on one-tone glass (iOS MTGlassCardPlate, MontanaBoardViews.swift:2764)
     build()
 }
 

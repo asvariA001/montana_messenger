@@ -644,4 +644,7 @@
     <string name="call_sound_busy_body">通话进行时，声音归通话所用。</string>
     <string name="call_filtered_title">此网络已过滤通话</string>
     <string name="call_filtered_body">此网络仅允许访问许可的目的地。在过滤解除前无法通话。</string>
+    <string name="picture_cache_header">图片缓存</string>
+    <string name="picture_cache_clear">清除</string>
+    <string name="picture_cache_footer">图片保存在内存中，让聊天和墙面无需等待即可打开。它们会一直保留，直到你在这里清除。</string>
 </resources>

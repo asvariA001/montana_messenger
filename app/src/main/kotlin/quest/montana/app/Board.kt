@@ -681,7 +681,7 @@ private fun poster(b64: String?): Bitmap? = b64?.takeIf { it.isNotEmpty() }?.let
  * it whole again for its shape. Decoded once, off it, and kept by its own words within 32 MB; its shape is read from its header alone.
  */
 private object WallPoster {
-    private val pictures = object : android.util.LruCache<String, Bitmap>(32_000_000) { override fun sizeOf(key: String, value: Bitmap) = value.byteCount }
+    private val pictures = Caches.kept("wall_posters", object : android.util.LruCache<String, Bitmap>(32_000_000) { override fun sizeOf(key: String, value: Bitmap) = value.byteCount })
     private val shapes = android.util.LruCache<String, Float>(1024)
     private val work = java.util.concurrent.Executors.newFixedThreadPool(2)
     private fun key(b64: String) = b64.length.toString() + ":" + b64.hashCode()
@@ -708,7 +708,7 @@ private object WallPoster {
 
 /** WHAT WAS DRAWN SHARP STAYS DRAWN (iOS MTBoardPicture.cache, MontanaBoardViews.swift:944-948 at 2155): the pictures drawn for the
  * tiles within 48 MB, by their file, so a post drawn again is sharp on its first frame. */
-private val wallSharp = object : android.util.LruCache<String, Bitmap>(48_000_000) { override fun sizeOf(key: String, value: Bitmap) = value.byteCount }
+private val wallSharp = Caches.kept("wall_sharp", object : android.util.LruCache<String, Bitmap>(48_000_000) { override fun sizeOf(key: String, value: Bitmap) = value.byteCount })
 
 /** WHERE A WRITER'S NAME LEADS (iOS MTBoardRoute and MTBoardOpen.go, MontanaBoardViews.swift:75-111 at 2155): mine to My page -- the
  * one the drawer's face opens, face and all -- never to the room of my saved letters; a correspondent's to their page. */

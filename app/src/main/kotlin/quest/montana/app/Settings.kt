@@ -552,5 +552,14 @@ fun dataStoragePage(act: MainActivity, onBack: () -> Unit): View {
             c.settingsRow(R.drawable.ic_arrow_circle_up, SysColor.green, c.getString(R.string.create_backup), chevron = false) { make() },
             c.settingsRow(R.drawable.ic_arrow_circle_down, SysColor.orange, c.getString(R.string.restore_backup), chevron = false) { restore() },
             progress)
+        // THE PICTURE CACHE (iOS MontanaSettings.swift:1225-1242 at 2155, MontanaCaches.dropAll; atom 542558a36f0e): the pictures kept
+        // so chats and walls open without waiting are emptied here alone, by the person; the checkmark says it was done
+        val cleared = c.icon(R.drawable.ic_check, MT.gray).apply { visibility = View.INVISIBLE }
+        section(c.getString(R.string.picture_cache_header), c.getString(R.string.picture_cache_footer),
+            c.settingsRow(R.drawable.ic_photo, SysColor.gray, c.getString(R.string.picture_cache_clear), value = cleared, chevron = false) {
+                val n = Caches.dropAll()
+                android.util.Log.d("Montana", "caches cleared=" + n + " by=person")
+                cleared.visibility = View.VISIBLE
+            })
     }
 }

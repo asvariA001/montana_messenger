@@ -94,7 +94,7 @@ fun rowKind(m: Msg): String? {
     }
 }
 
-private val rowPosters = android.util.LruCache<String, android.graphics.Bitmap>(48)
+private val rowPosters = Caches.kept("row_posters", android.util.LruCache<String, android.graphics.Bitmap>(48))
 
 /** The small picture of a letter: the face its manifest carries, else the file's own first frame, kept while the list lives. */
 private fun rowPoster(c: Context, m: Msg, kind: String): android.graphics.Bitmap? {
@@ -171,9 +171,9 @@ fun Context.peerFace(ref: String, name: String, sizeDp: Int): View {
  */
 object SmallPicture {
     private const val SIDE = 192
-    private val kept = object : android.util.LruCache<String, android.graphics.Bitmap>(4 * 1024 * 1024) {
+    private val kept = Caches.kept("small_pictures", object : android.util.LruCache<String, android.graphics.Bitmap>(4 * 1024 * 1024) {
         override fun sizeOf(key: String, value: android.graphics.Bitmap) = value.byteCount
-    }
+    })
     fun of(f: java.io.File): android.graphics.Bitmap? {
         if (!f.exists()) return null
         val key = f.path + "@" + f.lastModified()
@@ -197,9 +197,9 @@ object SmallPicture {
  */
 object BubblePicture {
     class Shot(val pic: android.graphics.Bitmap, val blur: android.graphics.Bitmap)
-    private val kept = object : android.util.LruCache<String, Shot>(32 * 1024 * 1024) {
+    private val kept = Caches.kept("bubble_pictures", object : android.util.LruCache<String, Shot>(32 * 1024 * 1024) {
         override fun sizeOf(key: String, value: Shot) = value.pic.byteCount + value.blur.byteCount
-    }
+    })
     private val worker = java.util.concurrent.Executors.newSingleThreadExecutor()
     private val waiting = HashMap<String, MutableList<(Shot) -> Unit>>()
     private fun key(f: java.io.File, kind: String, px: Int) = f.path + "@" + f.lastModified() + "@" + kind + "@" + px

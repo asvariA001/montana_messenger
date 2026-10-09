@@ -644,4 +644,7 @@
     <string name="call_sound_busy_body">Пока идёт звонок, звук принадлежит ему.</string>
     <string name="call_filtered_title">На этой сети звонки фильтруются</string>
     <string name="call_filtered_body">Эта сеть пропускает только разрешённые адреса. Звонок не пройдёт, пока фильтр не снят.</string>
+    <string name="picture_cache_header">КЕШ КАРТИНОК</string>
+    <string name="picture_cache_clear">Очистить</string>
+    <string name="picture_cache_footer">Картинки хранятся в памяти, чтобы чаты и стены открывались без ожидания. Они остаются, пока вы не очистите их здесь.</string>
 </resources>

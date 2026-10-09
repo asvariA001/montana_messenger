@@ -649,4 +649,7 @@
     <string name="call_sound_busy_body">While a call lasts, the sound belongs to it.</string>
     <string name="call_filtered_title">Calls are filtered on this network</string>
     <string name="call_filtered_body">This network passes only permitted destinations. A call cannot go through it until the filter is lifted.</string>
+    <string name="picture_cache_header">PICTURE CACHE</string>
+    <string name="picture_cache_clear">Clear</string>
+    <string name="picture_cache_footer">Pictures are kept in memory so chats and walls open without waiting. They stay until you clear them here.</string>
 </resources>
