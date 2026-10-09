@@ -163,7 +163,7 @@ object CallScreen {
         // ── the audio branch's line (iOS 6702-6738): the light, «Montana Audio Call — 0:03», the name at forty, the state ──
         val light = c.icon(R.drawable.ic_dot, SysColor.green, 11)
         val status = c.text("", 20f, Color.argb(153, 255, 255, 255)).apply { singleLineEllipsis(); fontFeatureSettings = "tnum" }
-        val state = c.text("", 17f, Color.WHITE, bold = true, center = true).apply { singleLineEllipsis() }
+        val state = c.text("", 17f, Color.WHITE, bold = true, center = true).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END }
         val voiceHead = c.vstack(Gravity.CENTER_HORIZONTAL) {
             gap(20)
             addView(c.hstack {
@@ -232,16 +232,19 @@ object CallScreen {
                 v.layoutParams?.let { if (it.width != wide) { it.width = wide; v.layoutParams = it } }
             }
             val since = CallLine.connectedAt
-            val tail = if (since > 0L) ((System.currentTimeMillis() - since) / 1000).toInt().let { String.format(Locale.ROOT, "%d:%02d", it / 60, it % 60) }
+            // the clock runs only while the call stands connected: a break says «Connecting…» there (iOS statusText 6516-6523,
+            // «reconnecting» -> «Connecting…»; the time line shows the timer for «connected» alone, 5342, 6753)
+            val tail = if (since > 0L && !CallLine.lost) ((System.currentTimeMillis() - since) / 1000).toInt().let { String.format(Locale.ROOT, "%d:%02d", it / 60, it % 60) }
                 else c.getString(Calls.stage() ?: R.string.call_connecting)   // «Calling…», «Ringing…», then «Connecting…»
             status.text = c.getString(R.string.call_title_audio) + " — " + tail
             clock.text = tail
             route.second.invoke()
-            // under the name, the call's own state in bold (iOS 6725-6738); a video call's one line puts a break before a hold (5357)
+            // under the name, the call's own state in bold (iOS 6771-6784): the hold line, then the break's own line, each from
+            // the call's state -- both stand when both are so; a video call's one line puts a break before a hold (5399-5414)
             val held = CallLine.held || CallLine.heldByPeer
-            val word = if (held) R.string.call_on_hold else if (CallLine.lost) R.string.call_lost else null
-            state.visibility = if (word == null) View.GONE else View.VISIBLE
-            if (word != null) state.text = c.getString(word)
+            val words = listOfNotNull(if (held) c.getString(R.string.call_on_hold) else null, if (CallLine.lost) c.getString(R.string.call_lost) else null)
+            state.visibility = if (words.isEmpty()) View.GONE else View.VISIBLE
+            if (words.isNotEmpty()) state.text = words.joinToString("\n")
             events.text = if (CallLine.lost) c.getString(R.string.call_lost) else if (held) c.getString(R.string.call_on_hold) else ""
             hold?.invoke()
             videoLit?.invoke()
