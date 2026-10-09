@@ -273,7 +273,7 @@ fun supportPage(act: MainActivity, onBack: () -> Unit): View {
  * PRIVACY: the switches of what this person shares, the Google Account's copy of the words (the twin of iOS «Identity in
  * Apple Account»), the seed phrase, and the one act that forgets the device. The system accesses of iOS (local network,
  * location, photos, contacts) have no row here: the app asks Android for none of them — the photo picker is the system's
- * and needs no permission. The wall's rules come with the wall.
+ * and needs no permission.
  */
 fun privacyPage(act: MainActivity, onForget: () -> Unit, onBack: () -> Unit): View {
     val c: Context = act
@@ -309,6 +309,12 @@ fun privacyPage(act: MainActivity, onForget: () -> Unit, onBack: () -> Unit): Vi
             // THE DIARY LEAVES ONLY BY THE PERSON'S YES (iOS MontanaSettings 1852-1861, MontanaDiagConsent; App Review 5.1.1(ii), 08.10):
             // off, nothing of the diary leaves this phone; the doc glyph stands for the iPhone's stethoscope, which the set lacks
             c.switchLine(R.drawable.ic_set_doc, SysColor.gray, c.getString(R.string.diag_share), Diary.consented, c.getString(R.string.diag_share_sub)) { Diary.setConsent(it) })
+        // THE WALL (iOS MontanaSettings 1847-1874, the author's word 24.09): who may write on my wall, and who may see it -- everyone,
+        // until the person says otherwise. The pen stands for the iPhone's text.below.photo, which the set lacks; the VPN wall's rule
+        // waits for the VPN (Anna's word)
+        section(null, c.getString(R.string.wall_rule_footer),
+            c.settingsRow(R.drawable.ic_compose, SysColor.blue, c.getString(R.string.wall_who_write_mine)) { act.push { wallRulePage(act, WallRule.Act.WRITE, it) } },
+            c.settingsRow(R.drawable.ic_set_eye, SysColor.blue, c.getString(R.string.wall_who_see_mine)) { act.push { wallRulePage(act, WallRule.Act.SEE, it) } })
         section(null, null, sw(R.drawable.ic_set_eye_slash, SysColor.purple, R.string.filter_objectionable, "objectionableFilterOn"),
             c.settingsRow(R.drawable.ic_hand, SysColor.red, c.getString(R.string.blocked_users)) { act.push { blockedPage(act, it) } })
         section(null, null, c.switchLine(R.drawable.ic_key, SysColor.blue, c.getString(R.string.identity_google), MontanaBackupID.on(c),

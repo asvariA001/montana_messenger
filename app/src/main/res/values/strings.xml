@@ -613,4 +613,17 @@
     <string name="wall_remove">Remove</string>
     <string name="wall_publish">Publish</string>
     <string name="wall_share_of">%1$d%% · %2$s of %3$s</string>
+    <string name="wall_who_write_mine">Who can write on my wall</string>
+    <string name="wall_who_see_mine">Who can see my wall</string>
+    <string name="wall_rule_footer">Everyone means every person you have a conversation with. A wall reaches a person\'s page the moment they open it.</string>
+    <string name="wall_rule_only_me">Only me</string>
+    <string name="wall_rule_everyone">Everyone</string>
+    <string name="wall_rule_contacts">Only contacts</string>
+    <string name="wall_rule_some">Some people</string>
+    <string name="wall_rule_except">Everyone except</string>
+    <string name="wall_choose_people">Choose people</string>
+    <string name="wall_who_can_write">Who can write</string>
+    <string name="wall_who_cannot_write">Who cannot write</string>
+    <string name="wall_who_can_see">Who can see</string>
+    <string name="wall_who_cannot_see">Who cannot see</string>
 </resources>

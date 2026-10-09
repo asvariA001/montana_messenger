@@ -612,4 +612,17 @@
     <string name="wall_remove">Убрать</string>
     <string name="wall_publish">Опубликовать</string>
     <string name="wall_share_of">%1$d%% · %2$s из %3$s</string>
+    <string name="wall_who_write_mine">Кто может писать на моей стене</string>
+    <string name="wall_who_see_mine">Кто может видеть мою стену</string>
+    <string name="wall_rule_footer">«Все» — это каждый, с кем у вас есть переписка. Стена приходит на страницу человека в тот момент, когда он её открывает.</string>
+    <string name="wall_rule_only_me">Только я</string>
+    <string name="wall_rule_everyone">Все</string>
+    <string name="wall_rule_contacts">Только контакты</string>
+    <string name="wall_rule_some">Некоторые</string>
+    <string name="wall_rule_except">Все, кроме</string>
+    <string name="wall_choose_people">Выбрать людей</string>
+    <string name="wall_who_can_write">Кто может писать</string>
+    <string name="wall_who_cannot_write">Кто не может писать</string>
+    <string name="wall_who_can_see">Кто может видеть</string>
+    <string name="wall_who_cannot_see">Кто не может видеть</string>
 </resources>
