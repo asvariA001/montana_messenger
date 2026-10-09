@@ -185,6 +185,22 @@ fun montanaLinkMatches(text: String): List<Pair<IntRange, Uri>> {
     return out
 }
 
+/**
+ * THE WORDS WEARING THEIR LINKS, OPEN AT A TOUCH (iOS MTLinks.marked/MTLinks.linked, MontanaPeerInfo.swift:185-203, atom
+ * 20c5cef6f490): the web's own finder and a Montana link by its own scheme alike; a Montana link opens on the app's own road,
+ * a web link on the platform's.
+ */
+fun linkedWords(text: String, openMontana: (Uri) -> Unit): android.text.SpannableString {
+    val s = android.text.SpannableString(text)
+    android.text.util.Linkify.addLinks(s, android.text.util.Linkify.WEB_URLS)
+    for ((range, uri) in montanaLinkMatches(text)) {
+        s.setSpan(object : android.text.style.ClickableSpan() {
+            override fun onClick(widget: View) { openMontana(uri) }
+        }, range.first, range.last + 1, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+    }
+    return s
+}
+
 /** The links a letter carries: the platform's own finder, and a Montana link by its own scheme (iOS MTLinks, atom 20c5cef6f490). */
 private fun linksIn(text: String): List<Uri> {
     if (Marks.isService(text) || text.length > 20_000) return emptyList()

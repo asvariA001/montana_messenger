@@ -502,7 +502,16 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
             gap(8); addView(c.text(c.getString(R.string.wall_reposted, f), 12f, MT.gray), lp())
         }
         val words = p.optString("text")
-        if (words.isNotEmpty()) { gap(10); addView(c.text(words, 16f).apply { setTextIsSelectable(false) }, lp()) }
+        // EVERY MONTANA LINK OPENS AT A TOUCH (iOS MTPostTextView.lay, MontanaBoardViews.swift:2662-2666, atom 20c5cef6f490):
+        // the web's own finder and a Montana link alike, in the platform's own blue (iOS words.tintColor, MontanaBoardViews.swift:2632).
+        if (words.isNotEmpty()) {
+            gap(10)
+            addView(c.text(linkedWords(words) { u -> act.openLink(u.toString()) }, 16f).apply {
+                setTextIsSelectable(false)
+                movementMethod = android.text.method.LinkMovementMethod.getInstance()
+                setLinkTextColor(MT.blue)
+            }, lp())
+        }
         val media = p.optJSONArray("media") ?: JSONArray()
         for (i in 0 until media.length()) {
             val m = media.optJSONObject(i) ?: continue
@@ -589,7 +598,13 @@ fun wallCommentsPage(act: MainActivity, wall: String, id: String, onClose: () ->
                     addView(c.text(name, 15f, android.graphics.Color.WHITE, bold = true).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))
                 }, lp())
                 val words = k.optString("text")
-                if (words.isNotEmpty()) addView(c.text(words, 16f).apply { setPadding(dp(46), dp(2), 0, 0) }, lp())
+                // EVERY MONTANA LINK OPENS AT A TOUCH (iOS MTBoard.linked, MontanaBoard.swift:1491-1493, atom 20c5cef6f490):
+                // the web's own finder and a Montana link alike, in the system's blue.
+                if (words.isNotEmpty()) addView(c.text(linkedWords(words) { u -> act.openLink(u.toString()) }, 16f).apply {
+                    setPadding(dp(46), dp(2), 0, 0)
+                    movementMethod = android.text.method.LinkMovementMethod.getInstance()
+                    setLinkTextColor(MT.blue)
+                }, lp())
                 addView(c.text(Board.numberLine(base + i + 1, k.optDouble("at"), k.optString("h")), 11f, MT.gray).apply { setPadding(dp(46), dp(2), 0, 0) }, lp())
             }, lp())
         }

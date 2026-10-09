@@ -1701,7 +1701,14 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
             else if (PlaceLetter.parse(c, m.text) != null) addView(c.placePlate(PlaceLetter.parse(c, m.text)!!, mine), lp(WRAP, WRAP))
             // THE FILTER (iOS MontanaBubble 672-691): a letter of theirs with a word of the list stands folded; the tap unfolds it
             else if (ContentFilter.folded(m)) {
-                val words = c.text(letterWords(c, m.text), 16f, BubbleStyle.text(mine)).apply { maxWidth = dp(260); setTextIsSelectable(false); visibility = View.GONE }   // USER-DATA: the letter
+                // EVERY MONTANA LINK OPENS AT A TOUCH (iOS MTMessageText.swift:227-252, MTLinkedText.updateUIView, atom
+                // 20c5cef6f490): the web's own finder and a Montana link alike, underlined in the bubble's own ink (iOS
+                // MontanaShapes.swift:524).
+                val words = c.text(linkedWords(letterWords(c, m.text)) { u -> (c as? MainActivity)?.openLink(u.toString()) }, 16f, BubbleStyle.text(mine)).apply {
+                    maxWidth = dp(260); setTextIsSelectable(false); visibility = View.GONE
+                    movementMethod = android.text.method.LinkMovementMethod.getInstance()
+                    setLinkTextColor(BubbleStyle.text(mine))
+                }   // USER-DATA: the letter
                 val fold = c.vstack(Gravity.NO_GRAVITY) {
                     addView(c.hstack {
                         gravity = Gravity.CENTER_VERTICAL
@@ -1714,7 +1721,14 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                 addView(fold, lp(WRAP, WRAP))
                 addView(words, lp(WRAP, WRAP))
             }
-            else addView(c.text(letterWords(c, m.text), 16f, BubbleStyle.text(mine)).apply { maxWidth = dp(260); setTextIsSelectable(false) }, lp(WRAP, WRAP))   // USER-DATA: the letter
+            // EVERY MONTANA LINK OPENS AT A TOUCH (iOS MTMessageText.swift:227-252, MTLinkedText.updateUIView, atom
+            // 20c5cef6f490): the web's own finder and a Montana link alike, underlined in the bubble's own ink (iOS
+            // MontanaShapes.swift:524).
+            else addView(c.text(linkedWords(letterWords(c, m.text)) { u -> (c as? MainActivity)?.openLink(u.toString()) }, 16f, BubbleStyle.text(mine)).apply {
+                maxWidth = dp(260); setTextIsSelectable(false)
+                movementMethod = android.text.method.LinkMovementMethod.getInstance()
+                setLinkTextColor(BubbleStyle.text(mine))
+            }, lp(WRAP, WRAP))   // USER-DATA: the letter
             // THE LINK'S CARD UNDER THE WORDS (iOS the link card in the bubble), drawn from the letter's own bytes
             LinkCard.parse(m.lp)?.let { addView(linkCardView(c, it, mine), lp(WRAP, WRAP)) }
             // A VOICE'S STAMP STANDS UNDER ITS CAPSULE (iOS voiceCapsuleBubble 982-994): the microphone with the length and the stamp,
