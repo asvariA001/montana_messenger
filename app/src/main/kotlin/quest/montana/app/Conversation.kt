@@ -2251,7 +2251,7 @@ fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Unit, onEd
     val scroller = ScrollView(c).apply {
         isVerticalScrollBarEnabled = false
         isFillViewport = true
-        addView(FrameLayout(c).apply { addView(menuColumn, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.CENTER)) }, ScrollView.LayoutParams(MATCH, MATCH))
+        addView(FrameLayout(c).apply { addView(menuColumn, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.CENTER)) }, FrameLayout.LayoutParams(MATCH, MATCH))
     }
     val page = FrameLayout(c).apply {
         setBackgroundColor(Color.argb(150, 0, 0, 0))
