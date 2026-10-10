@@ -220,7 +220,12 @@ object VoicePlayer {
             // for no answer; a voice with a next one walks on to it
             val atEar = then == null && this.fromPeer && proximityArmed && Proximity.isNear
             Log.d("Montana", "voice_end ear=" + (if (atEar) 1 else 0) + " theirs=" + (if (this.fromPeer) 1 else 0))
+            // A TO B DIRECTLY (iOS finished, MontanaMedia.swift:613-615 at 2155): a voice handed on to the next keeps the track
+            // that stepped aside for it aside -- the track plays on when nothing follows, never in the moment between two voices
+            val aside = then != null && musicAside
+            if (aside) musicAside = false
             stop(); then?.invoke()
+            if (aside) { if (player != null) musicAside = true else if (!MusicPlayer.playing) MusicPlayer.resume() }
             if (atEar) endedAtEar?.invoke()
         }
         // A LONG LISTEN GOES ON WHERE IT STOPPED (iOS VoicePlayer.toggle:411-414 at 2155, MTPlayPlaces.at, the author's word
@@ -418,6 +423,8 @@ fun voiceBody(c: Context, m: Msg, du: Double, into: LinearLayout, wave: FloatArr
         // «nothing playing», MontanaMedia.swift:613-621 at 2155): a bubble the chain reaches without its own tap's
         // onProgress still follows the one player's own clock here.
         if (chosen && total > 0) { bar.progress = VoicePlayer.fraction.toFloat(); time.text = fmt((VoicePlayer.fraction * total).toInt()) }
+        // the chain's bubble rests again when its voice ends, as a tapped one's own stopped puts it
+        else if (!chosen && bar.progress != 0f) { bar.progress = 0f; time.text = fmt(total) }
     }
     mark.addOnAttachStateChangeListener(object : android.view.View.OnAttachStateChangeListener {
         override fun onViewAttachedToWindow(v: android.view.View) { Playing.listen(follow) }
