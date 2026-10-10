@@ -361,7 +361,7 @@ private fun playChatVoice(path: String, queue: List<Triple<String, String, Boole
     val sender = queue.getOrNull(at)?.second ?: ""
     val mine = queue.getOrNull(at)?.third ?: false
     val next = if (at >= 0) queue.getOrNull(at + 1) else null
-    VoicePlayer.toggle(path, onProgress = {}, stopped = {},
+    VoicePlayer.toggle(path, onProgress = { _, _ -> }, stopped = {},
         then = next?.let { n -> { playChatVoice(n.first, queue) } }, sender = sender, fromPeer = !mine)
 }
 
