@@ -201,7 +201,8 @@ struct MontanaPeerInfoScreen: View {
                                  blocked: store.blockedChats.contains(chat.name),
                                  showsCamera: state.editing,
                                  pickerItem: $state.pickerItem,
-                                 onAvatarTap: { if !state.editing { state.modal = .avatar } })
+                                 onAvatarTap: { if !state.editing { state.modal = .avatar } },
+                                 who: data.conv)
                     if !state.editing { actions(data) }
                 }
                 .frame(maxWidth: .infinity)
@@ -449,7 +450,7 @@ struct MontanaPeerInfoScreen: View {
                 }
                 .disabled(selected.isEmpty)
                 Button {
-                    for m in (store.messages[chat.name] ?? []).filter({ selected.contains($0.id) }) { store.deleteLocally(chat: chat.name, m) }
+                    store.deleteLocally(chat: chat.name, (store.messages[chat.name] ?? []).filter { m in selected.contains(m.id) })   // one write for the selection
                     selecting = false; selected = []
                 } label: {
                     Image(systemName: "trash").foregroundColor(selected.isEmpty ? .gray : .red)

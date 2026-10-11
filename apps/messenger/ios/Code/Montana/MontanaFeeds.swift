@@ -318,6 +318,48 @@ enum MTWallpaper {
         return ui
     }
 }
+/// THE CUSTOM BUBBLES' PICTURE GROUND LIVES IN A SEALED FILE, NOT IN THE SETTINGS (the critic B-6; the author's words 11.10.2026
+/// 20:1x MSK: «check the whole architecture of the chats' time chains, so there are no holes by the constitution», 21:5x: «carry
+/// out all 13»). An older build kept the picture raw in the settings («cbBgPhoto», 0.6 MB on T1), and every write of any setting
+/// carried it to the system's preferences service. No build sets it any more; a look that still wears it keeps it: the value is
+/// read from the settings once, sealed under the device key into this device's own folder, and the key leaves.
+enum MTBubbleGround {
+    static let legacyKey = "cbBgPhoto"   // NOT-UI: the settings key of the builds before, read once and removed
+    private static let aad = Data("cbBgPhoto".utf8)
+    private static let url: URL = {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("MontanaAppearance", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        var d = dir; var rv = URLResourceValues(); rv.isExcludedFromBackup = true
+        try? d.setResourceValues(rv)
+        return dir.appendingPathComponent("bubble-ground.sealed")
+    }()
+    private static var held: Data?
+    /// The picture, read once a process (main thread); a file that does not open yet -- the device key not standing -- is
+    /// asked again next time.
+    static var picture: Data {
+        if let held { return held }
+        let ud = UserDefaults.standard
+        if let raw = ud.data(forKey: legacyKey) {
+            if raw.isEmpty || write(raw) { ud.removeObject(forKey: legacyKey) }
+            held = raw
+            return raw
+        }
+        guard let sealed = try? Data(contentsOf: url) else { held = Data(); return Data() }
+        guard let plain = MontanaLocalVault.open(sealed, aad) else { return Data() }
+        held = plain
+        return plain
+    }
+    static func clear() {
+        held = Data()
+        try? FileManager.default.removeItem(at: url)
+        UserDefaults.standard.removeObject(forKey: legacyKey)
+    }
+    private static func write(_ plain: Data) -> Bool {
+        guard let sealed = MontanaLocalVault.seal(plain, aad) else { return false }
+        return (try? sealed.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])) != nil
+    }
+}
 /// MY PAGE'S GROUND ON A CORRESPONDENT'S SCREEN (the author's word 25.09: «from T3 I opened T1's page and see no
 /// background»). The ground rides as my words about myself do (E2E.sendGroundIfNeeded): its content is "" for none,
 /// "n:" + a drawn ground's name, or "p:" + the picture as it is kept, light (MTWallpaper.lightData) -- sent as it lies,
@@ -448,7 +490,6 @@ struct MontanaChatBackdrop: View {
     @AppStorage("cbBgType") private var cbBgType = "gradient"
     @AppStorage("cbBg1") private var cbBg1 = BT.bg1
     @AppStorage("cbBg2") private var cbBg2 = BT.bg2
-    @AppStorage("cbBgPhoto") private var cbBgPhotoData = Data()
     private var own: MTWallpaper.Choice {
         if let candidate { return candidate }
         if let c = conv ?? envConv { return MTWallpaper.choice(for: c) }
@@ -533,7 +574,7 @@ struct MontanaChatBackdrop: View {
     }
     /// The general ground of Appearance: the custom style's own picture or gradient, else the named ground chosen there.
     @ViewBuilder private var appearance: some View {
-        if bubbleStyle == "custom", cbBgOn, cbBgType == "photo", let ui = UIImage(data: cbBgPhotoData) {
+        if bubbleStyle == "custom", cbBgOn, cbBgType == "photo", let ui = UIImage(data: MTBubbleGround.picture) {
             Image(uiImage: ui).resizable().scaledToFill().ignoresSafeArea()
         } else if bubbleStyle == "custom", cbBgOn {
             LinearGradient(colors: [Color(montanaHexString: BT.hex("cbBg1", cbBg1)), Color(montanaHexString: BT.hex("cbBg2", cbBg2))],

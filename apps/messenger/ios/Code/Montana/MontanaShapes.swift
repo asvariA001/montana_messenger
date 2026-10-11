@@ -464,7 +464,7 @@ struct MTSelfFace: View {
     var initial: String = E2E.myFaceGlyph()
     var body: some View {
         AvatarCircle(photoURL: nil, color: .black, initial: initial, size: size,
-                     image: bytes.isEmpty ? nil : MontanaSelfFace.image)
+                     image: bytes.isEmpty ? nil : MontanaSelfFace.image, who: MTAvatarBadges.me)
     }
 }
 
@@ -539,6 +539,9 @@ struct AvatarCircle: View {
     let size: CGFloat
     var image: UIImage? = nil   // a picture already in hand (one's own face) wins over any file
     var timeMarkWhenMissing = false
+    /// Whose face this is (MTAvatarBadges, 11.10.2026): a conversation's reference, or MTAvatarBadges.me for one's own. nil draws
+    /// no balance and no level -- a face this phone cannot name.
+    var who: String? = nil
 
     var fallback: some View {
         // A face without a photo is a black circle: the tree has one colour, and a random
@@ -589,12 +592,111 @@ struct AvatarCircle: View {
         }
         .frame(width: size, height: size)
         .clipShape(MontanaHexagon())
+        .overlay { if let who, MTAvatarBadges.least <= size { MTAvatarBadgeRow(who: who, size: size) } }
         .task(id: photoURL) {
             decoded = nil
             guard size > 64, let s = photoURL, !Self.isAsset(s), !s.hasPrefix("http"), docImageCached(s) == nil else { return }
             let img = await Task.detached(priority: .userInitiated) { docImage(s) }.value
             if !Task.isCancelled, photoURL == s, let img { decoded = (s, img) }
         }
+    }
+}
+
+/// THE BALANCE AND THE LEVEL AT A FACE (the author's word 11.10.2026 21:2x MSK: «everywhere an avatar is shown, make it possible to
+/// show the balance on the left and the user's global level on the right, and in the settings let the privacy be governed in
+/// Appearance»). The balance stands at the face's lower left and the Global Level at its lower right, each a capsule of the
+/// platform's thin material: one's own from this phone's book and chains, a correspondent's only as they told it (MTCoinBoard) --
+/// nothing told, nothing drawn. The viewer turns either off in Appearance; a face below `least` stays clean.
+enum MTAvatarBadges {
+    static let me = "@me"   // NOT-UI: the face is this phone's own person
+    static let coinsKey = "avatarBadges.coins"   // NOT-UI: the viewer's switch for the balances, on until turned off
+    static let levelKey = "avatarBadges.level"   // NOT-UI: the viewer's switch for the levels, on until turned off
+    static let least: CGFloat = 28
+}
+
+/// The presence dot stands at the face's lower right (MTPresenceBadge): the level's capsule stands above it, not under it.
+private struct MTPresenceDotShownKey: EnvironmentKey { static let defaultValue = false }
+extension EnvironmentValues {
+    var mtPresenceDotShown: Bool {
+        get { self[MTPresenceDotShownKey.self] }
+        set { self[MTPresenceDotShownKey.self] = newValue }
+    }
+}
+
+/// Whose face it is decides where the values come from; the viewer's two switches decide whether they are drawn.
+struct MTAvatarBadgeRow: View {
+    let who: String
+    let size: CGFloat
+    @AppStorage(MTAvatarBadges.coinsKey) private var coinsOn = true
+    @AppStorage(MTAvatarBadges.levelKey) private var levelOn = true
+    var body: some View {
+        if coinsOn || levelOn {
+            if who == MTAvatarBadges.me {
+                MTAvatarBadgesMine(size: size, coinsOn: coinsOn, levelOn: levelOn)
+            } else {
+                MTAvatarBadgesTold(conv: who, size: size, coinsOn: coinsOn, levelOn: levelOn)
+            }
+        }
+    }
+}
+
+/// One's own face: the book's balance and the Global Level of the two chains (MTPersonChain.global), as the wallet shows them.
+private struct MTAvatarBadgesMine: View {
+    let size: CGFloat
+    let coinsOn: Bool
+    let levelOn: Bool
+    @ObservedObject private var book = MTLocalCoinLedger.shared
+    @ObservedObject private var person = MTPersonChain.shared
+    var body: some View {
+        // A book not yet read holds no balance (MTCoinBalance): nothing is drawn rather than a zero.
+        let read = MTCoinBalance.now != nil
+        MTAvatarBadgePair(coins: coinsOn && read ? book.balance : nil,
+                          level: levelOn && read ? person.level.map { MTPersonChain.global(person: $0, balance: book.balance) } : nil,
+                          size: size)
+            .onAppear { if levelOn { person.prime() } }
+    }
+}
+
+/// A correspondent's face: what they told, and nothing else.
+private struct MTAvatarBadgesTold: View {
+    let conv: String
+    let size: CGFloat
+    let coinsOn: Bool
+    let levelOn: Bool
+    @ObservedObject private var board = MTCoinBoard.shared
+    var body: some View {
+        MTAvatarBadgePair(coins: coinsOn ? board.told[conv]?.coins : nil, level: levelOn ? board.levels[conv]?.level : nil, size: size)
+    }
+}
+
+/// The two capsules, drawn from values: the balance in the coin badge's short form (MTPiLevels.short) at the lower left, the
+/// level at the lower right, the type scaled to the face. They take no finger: the face's own row or button answers it.
+struct MTAvatarBadgePair: View {
+    let coins: Int?
+    let level: Int?
+    let size: CGFloat
+    @Environment(\.mtPresenceDotShown) private var dot
+    private var type: CGFloat { min(15, max(9, size * 0.2)) }
+    var body: some View {
+        Color.clear
+            .overlay(alignment: .bottomLeading) { if let coins { capsule(MTPiLevels.short(coins)) } }
+            .overlay(alignment: .bottomTrailing) { if let level { capsule(String(level)).padding(.bottom, dot ? 13 : 0) } }
+            .allowsHitTesting(false)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(spoken))
+            .accessibilityHidden(coins == nil && level == nil)
+    }
+    private var spoken: String {
+        [coins.map { String(localized: "Balance \(MTCoinText.count($0))", bundle: MTLanguage.bundle) },
+         level.map { String(localized: "Global level \($0)", bundle: MTLanguage.bundle) }].compactMap { $0 }.joined(separator: ", ")
+    }
+    private func capsule(_ digits: String) -> some View {
+        Text(verbatim: digits)   // USER-DATA: a count of coins or a level, held by this phone or told by its owner
+            .font(.system(size: type, weight: .semibold).monospacedDigit())
+            .foregroundStyle(.primary)
+            .lineLimit(1).fixedSize()
+            .padding(.horizontal, type * 0.4).padding(.vertical, type * 0.12)
+            .background(.ultraThinMaterial, in: Capsule())
     }
 }
 

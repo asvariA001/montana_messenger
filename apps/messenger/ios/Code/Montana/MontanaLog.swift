@@ -34,12 +34,13 @@ private func mtUnprotect(_ url: URL) {
 }
 enum MontanaLog {
     enum Channel {
-        case telemetry, trace
+        case telemetry, trace, vpn
 
         var file: String {
             switch self {
             case .telemetry: return "telemetry.log"
             case .trace:     return "trace.log"
+            case .vpn:       return "vpn.log"
             }
         }
         /// Half the budget: each channel keeps a current file and a previous one, so rotating here caps
@@ -48,6 +49,7 @@ enum MontanaLog {
             switch self {
             case .telemetry: return 512 * 1024
             case .trace:     return 512 * 1024
+            case .vpn:       return 256 * 1024
             }
         }
     }
@@ -65,12 +67,10 @@ enum MontanaLog {
         try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
         mtExcludeFromBackup(d)
         mtUnprotect(d)
-        for ch in [Channel.telemetry, .trace] {
+        for ch in [Channel.telemetry, .trace, .vpn] {
             mtUnprotect(d.appendingPathComponent(ch.file))
             mtUnprotect(d.appendingPathComponent(ch.file + ".prev"))
         }
-        // A RETIRED DIARY (MTRetired.diary): an upgraded phone's last journal of a kind this app no longer keeps leaves here, never shipped.
-        MTRetired.forgetDiaries(in: d)
         return d
     }
     static func url(_ ch: Channel) -> URL { dir.appendingPathComponent(ch.file) }
@@ -215,7 +215,7 @@ enum MontanaLog {
     }
 
     /// `body` is everything after the timestamp, separator included: channels keep their own line shape
-    /// (`|elapsed|event|mid|kv` for the trace) while the timestamp, the
+    /// (` [app] …` for the tunnel, `|elapsed|event|mid|kv` for the trace) while the timestamp, the
     /// queue and the file handling stay here.
     // An extension's journal lives in a container the app cannot read; every line it writes is
     // therefore ALSO appended to the shared keychain, and the app carries it into the common

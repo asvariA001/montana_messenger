@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import CryptoKit
 import MontanaBindings
 
@@ -1834,9 +1835,23 @@ enum MontanaMeeting {
 
     /// The last link handled and when (main thread only: every door of a link lands there).
     private static var lastLink: (raw: String, at: Date)?
-    static func handleLink(_ given: URL) {
+    static func handleLink(_ given: URL) { handleLink(given, chosen: false) }
+    static func handleLink(_ given: URL, chosen: Bool) {
         // The mark BEFORE all the guards: a tap that left no trace was impossible to investigate (F-6).
         MontanaTrace.mark("link_open", "len=\(given.absoluteString.count) scheme=\(given.scheme ?? "-")")
+        // A LINK HANDED OVER BY ANOTHER MONTANA APP (MTSiblingApps): the person chose this app there, and it opens here.
+        if let inner = MTSiblingApps.handedOver(given) {
+            MontanaTrace.mark("link_open", "handed over by another Montana app")
+            handleLink(inner, chosen: true)
+            return
+        }
+        // WHICH MONTANA OPENS IT (MTSiblingApps, the author's word 11.10.2026 17:13 MSK): an invitation is asked first; the root
+        // answers at once when no other Montana app stands, or asks the person in the platform's own dialog.
+        if !chosen, MTSiblingApps.invites(given) {
+            let link = given.absoluteString
+            DispatchQueue.main.async { NotificationCenter.default.post(name: .montanaChooseApp, object: nil, userInfo: ["link": link]) }
+            return
+        }
         // A GROUP'S INVITE LINK IS ITS OWNER'S CARD AND THE GROUP'S MARK (stage R.6, the reference folder's «Invite Link»):
         // the mark waits for the meeting, and the card goes on by the one road of a link
         var url = given
@@ -1860,10 +1875,11 @@ enum MontanaMeeting {
             verdict("This post is not on this phone yet. Open the writer's page, then tap the link again.")
             return
         }
-        // A RETIRED LINK OF AN OLDER BUILD (MTRetired.word): it opens nothing here and is no invitation either -- the invitation
-        // road below would answer «could not be opened».
-        if url.scheme?.lowercased() == "montana", MTRetired.word(url.host?.lowercased() ?? "") {
-            MontanaTrace.mark("link_done", "retired link")
+        // A COIN'S LINK OPENS THE WALLET (the author's word 03.10: «every Montana link of the coins is tappable, not only the
+        // others'»): the coin letter's machine line is no invitation -- the invitation road below answered it «could not be opened».
+        if url.scheme?.lowercased() == "montana", url.host?.lowercased() == "coin" {
+            MontanaTrace.mark("link_done", "coin opens the wallet")
+            DispatchQueue.main.async { NotificationCenter.default.post(name: .montanaOpenWallet, object: nil) }
             return
         }
         let host = url.host?.lowercased() ?? ""
@@ -2111,5 +2127,59 @@ final class MontanaMeetBook {
     }
     static func fp(_ key: String) -> String {
         MTPipe.domained("mt-meet-fp", [Data(key.utf8)]).prefix(4).map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+// ════════════════════════════════════════════════════════════
+// THE OTHER MONTANA APPS ON THIS PHONE (the author's word 11.10.2026 17:13 MSK, No.62: «on scanning a QR code or following a link
+// it must check whether other Montana apps stand and ask in which to open, so I can make a chat by the link»). Montana and
+// Montana Business read one invitation -- one card on one node, two sites -- and each takes a link handed to it under its own
+// scheme (scheme://open?link=base64url), at the same one entrance of a link on that side, as chosen. The platform says whether an
+// app stands only for the schemes this app names (LSApplicationQueriesSchemes); montana-messenger is the Messenger's own, for the
+// closing forks may still wear «montana».
+// ════════════════════════════════════════════════════════════
+enum MTSiblingApps {
+    struct App: Identifiable, Equatable {
+        let scheme: String
+        let name: String
+        var id: String { scheme }
+    }
+    static let all = [App(scheme: "montana-messenger", name: "Montana"), App(scheme: "montana-business", name: "Montana Business")]   // NOT-UI: the products' own names
+    static let handHost = "open"   // NOT-UI: the host of a handed link
+    /// This app's own schemes, as Info.plist states them.
+    static let ownSchemes: Set<String> = {
+        let types = Bundle.main.object(forInfoDictionaryKey: "CFBundleURLTypes") as? [[String: Any]] ?? []
+        return Set(types.flatMap { t in (t["CFBundleURLSchemes"] as? [String]) ?? [] }.map { s in s.lowercased() })
+    }()
+    static var ownName: String { all.first { a in ownSchemes.contains(a.scheme) }?.name ?? "Montana" }
+    /// The other Montana apps standing on this phone now.
+    @MainActor static var others: [App] {
+        all.filter { a in
+            guard !ownSchemes.contains(a.scheme), let u = URL(string: a.scheme + "://") else { return false }
+            return UIApplication.shared.canOpenURL(u)
+        }
+    }
+    /// A link handed over by another Montana app: the link inside it.
+    static func handedOver(_ url: URL) -> URL? {
+        guard let s = url.scheme?.lowercased(), ownSchemes.contains(s), url.host?.lowercased() == handHost,
+              let v = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { q in q.name == "link" })?.value,
+              let d = Data(base64urlNoPad: v), let link = String(data: d, encoding: .utf8) else { return nil }
+        return URL(string: link)
+    }
+    /// Whether a link begins a correspondence -- a card or a name, a group's mark aside: the one resolver of a scan and a paste.
+    static func invites(_ url: URL) -> Bool {
+        let bare = MTGroup.joinMark(in: url)?.url ?? url
+        if case .refused = MontanaConv.meeting(fromInput: MontanaMeeting.normalizeLink(bare.absoluteString)) { return false }
+        return true
+    }
+    /// The link handed to another Montana app, whole, under that app's own scheme.
+    @MainActor static func open(_ app: App, link: String) {
+        var c = URLComponents()
+        c.scheme = app.scheme
+        c.host = handHost
+        c.queryItems = [URLQueryItem(name: "link", value: Data(link.utf8).base64urlNoPad)]
+        guard let u = c.url else { return }
+        MontanaTrace.mark("open_in", "app=" + app.scheme + " len=" + String(link.count))
+        UIApplication.shared.open(u)
     }
 }

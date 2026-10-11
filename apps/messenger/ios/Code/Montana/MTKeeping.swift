@@ -859,7 +859,13 @@ enum MTKeepDerive {
             $0.createdAt > since && !$0.text.isEmpty && $0.imageFile == nil && $0.videoFile == nil && $0.audioFile == nil && $0.docFile == nil
         }
         guard !rows.isEmpty else { return say(conv, ["w": "given", "c": 0]) }
-        let list: [[String: Any]] = rows.map { ["i": $0.msgId ?? "", "m": $0.isFromMe ? 1 : 0, "t": $0.createdAt, "x": $0.text] }
+        // A letter of the asker rides with the author field it came with (Message.authorTag): their phone names it theirs by
+        // their own key, never by this phone's word.
+        let list: [[String: Any]] = rows.map { r in
+            var e: [String: Any] = ["i": r.msgId ?? "", "m": r.isFromMe ? 1 : 0, "t": r.createdAt, "x": r.text]
+            if !r.isFromMe, let a = r.authorTag, !a.isEmpty { e["a"] = a }
+            return e
+        }
         guard let body = try? JSONSerialization.data(withJSONObject: list), let dir = try? MontanaBackup.shelf() else { return }
         let url = dir.appendingPathComponent(UUID().uuidString + ".given")
         defer { try? FileManager.default.removeItem(at: url) }
@@ -872,6 +878,11 @@ enum MTKeepDerive {
     }
     /// THE CORRESPONDENCE TAKEN BACK: only an answer to this phone's own request, only the letters later than the last one in that
     /// correspondence here -- a letter erased before the copy stays erased -- each on the side of the one who wrote it.
+    /// WHICH LETTER IS MINE IS SAID BY MY OWN WORDS (the critic R-6; the author's words 11.10.2026 20:1x MSK: «check the whole
+    /// architecture of the chats' time chains, so there are no holes by the constitution», 21:5x: «carry out all 13»): the side
+    /// was the correspondent's flag alone, and a correspondent could lay words on this phone as the person's own. A letter they
+    /// name as theirs is theirs; one they name as mine stands as mine only when the author field it rode with is made again
+    /// under this person's key (MTLetterAuthor.mine) -- else it is not laid at all, and the count says so.
     private func takeGiven(_ conv: String, _ o: [String: Any]) async {
         guard let at = askedBack()[conv], Date().timeIntervalSince1970 - at < 7 * 86_400, (o["c"] as? Int ?? 0) > 0,
               let d = o["d"] as? String, let dir = try? MontanaBackup.shelf() else { return }
@@ -883,14 +894,23 @@ enum MTKeepDerive {
         }
         // The copies' last letter is the last one older than the request: a letter that came live after it is no measure.
         let since = store.messages[conv]?.filter { $0.createdAt < at }.map(\.createdAt).max() ?? 0
+        var unproven = 0
         let rows: [Message] = list.compactMap { e in
             guard let t = e["t"] as? Double, t > since, let x = e["x"] as? String, !x.isEmpty else { return nil }
-            let mine = (e["m"] as? Int ?? 0) == 0   // the other side's own letter is the other side's here
-            let mid = "given:" + ((e["i"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? String(t))
-            return Message(text: x, isFromMe: mine, time: hhmm(at: t), isRead: true, deliveryStatus: mine ? .sent : .read, msgId: mid, createdAt: t)
+            let wire = (e["i"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            let claimedMine = (e["m"] as? Int ?? 0) == 0   // the other side's own letter is the other side's here
+            if claimedMine {
+                let bare = wire.map { w in w.hasPrefix("mid:") ? String(w.dropFirst(4)) : w } ?? ""
+                guard !bare.isEmpty, MTLetterAuthor.mine((e["a"] as? String) ?? "", conv: conv, mid: bare, text: x) else {
+                    unproven += 1
+                    return nil
+                }
+            }
+            let mid = MTRestoredMid.given + (wire ?? String(t))
+            return Message(text: x, isFromMe: claimedMine, time: hhmm(at: t), isRead: true, deliveryStatus: claimedMine ? .sent : .read, msgId: mid, createdAt: t)
         }
         let laid = store.layGivenBack(conv, rows)
-        MontanaTrace.mark("keep_back", "took=\(laid) of \(list.count) conv=" + String(conv.prefix(10)))
+        MontanaTrace.mark("keep_back", "took=\(laid) of \(list.count) unproven_mine=\(unproven) conv=" + String(conv.prefix(10)))
     }
 
     // ── a phone that opened the words ──
@@ -1042,7 +1062,13 @@ extension ChatStore {
         // names it by its own identity, never by this one's.
         let sig: (Message) -> String = { String(Int($0.createdAt)) + "@" + ($0.isFromMe ? "1" : "0") + "@" + $0.text }
         let had = Set(feed.compactMap { $0.msgId }), seen = Set(feed.map(sig))
-        let add = ChatStore.allRead(rows.filter { m in !seen.contains(sig(m)) && (m.msgId.map { !had.contains($0) } ?? true) })
+        // A GIVEN-BACK LETTER ASKS THE GRAVES OF ITS CONVERSATION (the critic R-6): its wire name -- inside the restored one -- and the
+        // restored name itself, and the conversation's funeral; a letter erased here stays erased whoever gives it back.
+        let wire: (Message) -> String = { m in m.mid.hasPrefix(MTRestoredMid.given) ? String(m.mid.dropFirst(MTRestoredMid.given.count)) : m.mid }
+        let add = ChatStore.allRead(rows.filter { m in
+            !seen.contains(sig(m)) && !had.contains(m.mid) && !had.contains(wire(m))
+                && !buried(wire(m), in: conv) && !buried(m.mid, in: conv) && !diedBefore(wire(m), in: conv)
+        })
         guard !add.isEmpty else { return 0 }
         feed.append(contentsOf: add)
         feed.sort(by: ChatStore.before)
@@ -1107,7 +1133,7 @@ struct MTKeepingSection: View {
             case .calling(let have, let need) where need > 0:
                 Text("Parts in hand: \(have) of \(need)").foregroundColor(.secondary)
             case .calling:
-                Text("Asking the people you write to…").foregroundColor(.secondary)
+                Text("Restoring the identity chain").foregroundColor(.secondary)
             case .fetching(let f), .laying(let f):
                 ProgressView(value: f)
             case .done:

@@ -951,7 +951,10 @@ struct AppearanceView: View {
     @AppStorage("cbBgType") private var cbBgType = "gradient"
     @AppStorage("cbBg1") private var cbBg1 = BT.bg1
     @AppStorage("cbBg2") private var cbBg2 = BT.bg2
-    @AppStorage("cbBgPhoto") private var cbBgPhotoData = Data()
+    @AppStorage(MTAvatarBadges.coinsKey) private var badgeCoins = true   // this phone draws the balances at the faces (11.10)
+    @AppStorage(MTAvatarBadges.levelKey) private var badgeLevels = true   // this phone draws the levels at the faces (11.10)
+    @AppStorage(MTLevelShow.shownKey) private var levelShown = false   // the owner's Global Level reaches the correspondents (11.10)
+    @AppStorage(MTCoinShow.key) private var coinsShown = false   // read for the line that leads to Privacy (11.10)
     @State private var bgPhotoItem: PhotosPickerItem?
     @ObservedObject private var wallBook = MTWallpaper.Book.shared
     @State private var editor: ColEdit?
@@ -972,7 +975,7 @@ struct AppearanceView: View {
         let print = [skin, bubbleStyle, chatBg, cbMineFill1, cbMineFill2, "\(cbMineOpacity)", cbMineText, cbMineOutline,
                      "\(cbMineOutlineOp)", "\(cbMineOutlineW)", cbPeerFill1, cbPeerFill2, "\(cbPeerOpacity)", cbPeerText,
                      cbPeerOutline, "\(cbPeerOutlineOp)", "\(cbPeerOutlineW)", "\(cbBgOn)", cbBgType, cbBg1, cbBg2,
-                     "\(cbBgPhotoData.count)", ov.map { "\($0)" } ?? "", c ?? ""].joined(separator: "|")
+                     "\(MTBubbleGround.picture.count)", ov.map { "\($0)" } ?? "", c ?? ""].joined(separator: "|")
         return VStack(spacing: 7) {
             MessageBubble(message: Message(text: String(localized: "Their message", bundle: MTLanguage.bundle), isFromMe: false, time: nowHHMM()), player: VoicePlayer.shared)
             MessageBubble(message: Message(text: String(localized: "Your message", bundle: MTLanguage.bundle), isFromMe: true, time: nowHHMM()), player: VoicePlayer.shared)
@@ -1013,7 +1016,7 @@ struct AppearanceView: View {
     private func resetMontana() {
         cbMineFill1=BT.mF1; cbMineFill2=BT.mF2; cbMineOpacity=BT.mOp; cbMineText=BT.mTx; cbMineOutline=BT.mOl; cbMineOutlineOp=BT.mOlOp; cbMineOutlineW=BT.mOlW
         cbPeerFill1=BT.pF1; cbPeerFill2=BT.pF2; cbPeerOpacity=BT.pOp; cbPeerText=BT.pTx; cbPeerOutline=BT.pOl; cbPeerOutlineOp=BT.pOlOp; cbPeerOutlineW=BT.pOlW
-        cbBgOn=false; cbBgType="gradient"; cbBg1=BT.bg1; cbBg2=BT.bg2; cbBgPhotoData=Data()
+        cbBgOn=false; cbBgType="gradient"; cbBg1=BT.bg1; cbBg2=BT.bg2; MTBubbleGround.clear()
     }
     var body: some View {
         VStack(spacing: 0) {
@@ -1031,6 +1034,21 @@ struct AppearanceView: View {
             // THE APP'S ICON (the author's word 26.09): the liquid glass or the gold on black, chosen by their pictures.
             Section("App icon") {
                 MTAppIconChooser()
+            }.listRowBackground(MTGlassRowPlate())
+            // THE BALANCE AND THE LEVEL AT THE FACES (the author's word 11.10.2026 21:2x MSK: «everywhere an avatar is shown, make it
+            // possible to show the balance on the left and the user's global level on the right, and in the settings let the
+            // privacy be governed in Appearance»): what this phone draws at the faces (MTAvatarBadges), and whether my own level
+            // leaves it (MTLevelShow, born off); my own balance leaves only by Show my coins, and the line leads there.
+            Section {
+                Toggle("Show balances at avatars", isOn: $badgeCoins)
+                Toggle("Show levels at avatars", isOn: $badgeLevels)
+                Toggle("Show my level to others", isOn: $levelShown)
+                    .onChange(of: levelShown) { _, on in MTLevelShow.changed(on) }   // the people in the app hear it now
+                NavigationLink { PrivacyView() } label: {
+                    LabeledContent { Text(coinsShown ? "On" : "Off") } label: { Text("Show my coins") }
+                }
+            } header: { Text("Balance and level at avatars") } footer: {
+                Text("Off by default. On, every contact can see your Global Level at your avatar: the lower of your level of time online and your level of π, so it tells them about how long you have been online and how many coins you hold. Your balance reaches others only by Show my coins in Privacy.")
             }.listRowBackground(MTGlassRowPlate())
             // The note's picture quality (the author's word 18.09): three steps, the platform's own
             // segmented picker — the source's height and the encoder's rate (MontanaNoteQuality).
@@ -1680,46 +1698,14 @@ enum MTSystemAccess {
     }
 }
 
-/// The derivation is the table's own, byte for byte: HKDF-SHA-256 of the entropy under its label, then one HMAC
-/// (tools/mt-top-check.py).
-enum MTRetiredRow {
-    private static let keyLabel = Data("mt-top-owner-v1".utf8)   // NOT-UI: the derivation's own label
-    private static let tokenLabel = Data("mt-top-token".utf8)    // NOT-UI: the token's own label
-    static func token(entropy: Data) -> Data {
-        let k = HKDF<SHA256>.deriveKey(inputKeyMaterial: SymmetricKey(data: entropy), salt: Data(), info: keyLabel, outputByteCount: 32)
-        return Data(HMAC<SHA256>.authenticationCode(for: tokenLabel, using: k))
-    }
-    /// THE FROZEN VECTOR (the counting bytes 0x00..0x1f; tools/mt-top-check.py derives it again by hand from RFC 5869 and
-    /// FIPS 198): the home node's label in place of the table's, a reversed root or a key hashed as text all name another row
-    /// and withdraw nothing.
-    static func tokenKAT() -> Bool {
-        MontanaHomeNode.hex(token(entropy: Data((0..<32).map { UInt8($0) }))) == "67b2f9e4f8ba74bffee41cdfd8de2d3efca20554a495910ebc823b8ef4545ce2"
-    }
-    static func withdraw() {
-        guard let m = MontanaSeed.mnemonic, let e = MontanaSeedKeys.entropyFrom(mnemonic: m), e.count == 32,
-              let d = try? JSONSerialization.data(withJSONObject: ["token": MontanaHomeNode.hex(token(entropy: e)), "hide": true]) else { return }
-        Task {
-            var heard = 0
-            for b in MontanaWakePush.orderedBases(for: "top") {
-                guard let u = URL(string: b + "/top-put") else { continue }   // SERVER-DEBT-ACK: the accelerator node (rung 4), the public table
-                var req = URLRequest(url: u); req.httpMethod = "POST"; req.timeoutInterval = 8   // SERVER-DEBT-ACK: the accelerator node (rung 4)
-                req.setValue("application/json", forHTTPHeaderField: "content-type")
-                req.httpBody = d
-                if let r = try? await URLSession.shared.data(for: req), (r.1 as? HTTPURLResponse)?.statusCode == 200 { heard += 1 }   // SERVER-DEBT-ACK: the accelerator node (rung 4)
-            }
-            MontanaTrace.mark("row_withdrawn", "doors=\(heard)")
-        }
-    }
-}
-
 struct PrivacyView: View {
     /// The device forgets the person. Nothing is asked of anyone: this person exists nowhere
     /// else, and the forgetting is wholly local — content, identity and seed leave as one.
     /// The settings sheet lowers with it: the first-run page stands under it otherwise.
     private func forgetSeed() {
-        // THE IDENTITY LEAVES THE NODES TOO (App Review 5.1.1(v), 08.10.2026: deleting an account deletes its records): a row an
-        // earlier build put in the public table is withdrawn from every node while the words still derive its token.
-        MTRetiredRow.withdraw()
+        // THE IDENTITY LEAVES THE NODES TOO (App Review 5.1.1(v), 08.10.2026: deleting an account deletes its records): the row of
+        // the Montana top -- the name and the coins shown -- is withdrawn from every node while the words still derive its token.
+        MTTopNet.shared.withdraw()
         Task { @MainActor in
             // THE NAME LEAVES FIRST (App Review 5.1.1(v), 08.10.2026: the text says so, and so it is): the keeper of names releases
             // it while the words still stand. No number is kept off this phone (10.10.2026), so none is asked back.
@@ -1735,6 +1721,8 @@ struct PrivacyView: View {
     @AppStorage(MontanaDiagConsent.key) private var diagShare = MontanaDiagConsent.birth   // the diary leaves only by this yes (08.10)
     @AppStorage(MTLinkPreviewBuilder.switchKey) private var linkPreviews = true   // the card of a link I send — my device reads that page
     @State private var presenceShared = MontanaPresencePrivacy.sharing
+    @AppStorage(MTCoinShow.key) private var coinsShown = false   // the owner shows or hides their coins (04.10)
+    @State private var localNetwork = MontanaPhoneNode.meshDiscoverable   // the one mesh switch owns the concept
     @ObservedObject private var place = MTLocationAccess.shared   // the one owner of the location permission says the word
     @State private var photosAccess = MTSystemAccess.photosWord       // the system's own word for this app's photos
     @State private var contactsAccess = MTSystemAccess.contactsWord   // and for its contacts
@@ -1756,9 +1744,22 @@ struct PrivacyView: View {
 
     var body: some View {
         List {
-            // The permissions below live with the system; they refresh on the return-to-app event,
-            // with no polling and no timer.
+            // The permission lives with the system, and the app does not flip it: iOS has no
+            // call that would change local-network access. The row leads to where it changes
+            // and shows what we can see: whether announcing ourselves on the network worked.
+            // It refreshes on the return-to-app event — the person came back from Settings, so
+            // it is time to read anew. No polling, no timer: both would count blind between events.
             Section {
+                Button { MontanaSystemSettings.open() } label: {
+                    HStack(spacing: 12) {
+                        icon("globe", .blue)
+                        Text("Local Network").foregroundColor(.white)
+                        Spacer()
+                        Text(localNetwork ? "Connected" : "Disconnected").foregroundColor(.gray)
+                        Image(systemName: "chevron.right").foregroundColor(Color(white: 0.35)).font(.footnote.weight(.semibold))
+                    }
+                    .contentShape(Rectangle())   // the whole row is the target, not only its words (22.09)
+                }
                 // WHERE THIS PHONE IS, ASKED AND CHANGED HERE TOO (the author's word 23.09). The
                 // permission a person never answered is asked by this very row; one already
                 // decided is changed where the system keeps it — the same tap the place page
@@ -1810,6 +1811,17 @@ struct PrivacyView: View {
                     Text("Only whether others see you online. Walls and pages come and go regardless.")
                         .font(.caption).foregroundColor(.gray)
                 }
+                // THE OWNER SHOWS OR HIDES THEIR COINS (the author's words 04.10.2026 05:47 and 05:48 MSK: «whether the balance is
+                // shown each decides, on by default; who does not show is not in the top -- the privacy settings»; «the owner governs
+                // privacy»): one switch for the Montana top, the coins told to correspondents and the coin's badge (MTCoinShow).
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 12) {
+                        icon("trophy.fill", .orange)
+                        Toggle("Show my coins", isOn: $coinsShown)
+                    }
+                    Text("Your name and coins stand in the Montana top for everyone, and your correspondents see your coins. Off, you are not in the top.")
+                        .font(.caption).foregroundColor(.gray)
+                }
                 HStack(spacing: 12) {
                     icon("checkmark.circle.fill", .green)
                     Toggle("Read receipts", isOn: $readReceipts)
@@ -1855,6 +1867,13 @@ struct PrivacyView: View {
                     HStack(spacing: 12) {
                         icon("eye", .blue)
                         Text("Who can see my wall").foregroundColor(.white)
+                    }
+                }
+                // THE VPN WALL'S RULE (the author's word 29.09): the same five choices, over the servers and plans it carries.
+                NavigationLink { MTBoardRulePage(act: .vpn) } label: {
+                    HStack(spacing: 12) {
+                        icon("network", .blue)
+                        Text("Who can see my VPN wall").foregroundColor(.white)
                     }
                 }
             } footer: {
@@ -1914,6 +1933,7 @@ struct PrivacyView: View {
         .navigationTitle("Privacy")
         .navigationBarTitleDisplayMode(.inline)
         .onChange(of: presenceShared) { _, v in MontanaPresencePrivacy.setSharing(v) }   // 10-C.3
+        .onChange(of: coinsShown) { _, v in MTTopNet.shared.showChanged(v) }   // the table and the pairs hear it now
         .onChange(of: diagShare) { _, _ in MontanaDiagConsent.apply() }   // off: the extensions lose the diary's id at once
         .onAppear { refreshAccess() }
         // Returning to the app is that very event: the person may have changed the permission
@@ -1924,6 +1944,7 @@ struct PrivacyView: View {
     }
 
     private func refreshAccess() {
+        localNetwork = MontanaBonjour.shared.announceAccepted
         place.refresh()
         photosAccess = MTSystemAccess.photosWord
         contactsAccess = MTSystemAccess.contactsWord
@@ -2415,7 +2436,7 @@ struct MontanaOnboardingView: View {
     /// THE COPY KEPT BY THE PEOPLE ONE WROTE TO (MTKeeping, 08.10): with no node named, the words call the pipe of every slot; the
     /// page shows the parts in hand, and the person may walk on at any moment -- the copy is laid whenever it stands, merged.
     func takeFromKeepers() {
-        takingWord = "Asking the people you write to…"
+        takingWord = "Restoring the identity chain"   // the author's word 11.10.2026 17:13 MSK: the person's chain comes back first
         step = 5
         keep.onboardingWaits = true
         // THE LIGHT COPY LETS THE PERSON IN (App: «once the light copy is laid»): the full copy follows from the keepers.

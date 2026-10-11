@@ -70,7 +70,7 @@ final class NotificationService: UNNotificationServiceExtension {
         }
         if let envB64 = info["env"] as? String, !envB64.isEmpty,
            let sealed = Data(base64Encoded: envB64),
-           let (openedConv, mid, rawText, envName, envGlyph, envQt, envQm, envLp) = Self.openWithOwnPipes(sealed, at: Self.sealMoment(info)) {
+           let (openedConv, mid, rawText, envName, envGlyph, envQt, envQm, envLp, envOwn, envAuthor) = Self.openWithOwnPipes(sealed, at: Self.sealMoment(info)) {
             // A CALL IN THE PIPE OF A SLOT THIS PHONE KEEPS (MTKeeping in the app, 08.10): never stashed -- the app answers it from
             // the box. A loud call (the restoring phone heard nothing for minutes) wears one banner with the owner's name, and the
             // tap opens the app, which answers; a quiet one rings nobody.
@@ -106,9 +106,17 @@ final class NotificationService: UNNotificationServiceExtension {
             // A long reference letter: pull the blob (the extension has network) — the full
             // text into both the banner and the chat. Out of time — the generic banner, the
             // app pulls the rest itself.
+            // THE PERSON'S OWN LETTER FROM ANOTHER OF THEIR DEVICES (11.10.2026, MTNodeWire.authorHolds): it waits for the app
+            // to land it as mine, and rings nobody -- my own word, my own call, never the correspondent's banner.
+            if envOwn {
+                Self.stashLetter(conv: conv, mid: mid, text: rawText, name: "", glyph: "", qt: envQt, qm: envQm, lp: envLp, own: true)
+                Self.diagLine("own letter of another device of these words mid=\(mid.prefix(8)) -- quiet")
+                contentHandler(Self.quietFace())
+                return
+            }
             let text = rawText.hasPrefix("\u{2063}LB:") ? (Self.resolveLongLetterSync(rawText) ?? rawText) : rawText
             Self.stashLetter(conv: conv, mid: mid, text: text, name: envName, glyph: envGlyph,
-                             qt: envQt, qm: envQm, lp: envLp)
+                             qt: envQt, qm: envQm, lp: envLp, author: envAuthor)
             openedMid = mid
             openedQuiet = Self.isQuietText(rawText)
             cargoLetter = (mid, text)
@@ -604,7 +612,8 @@ final class NotificationService: UNNotificationServiceExtension {
     /// A letter from the envelope — into the shared keychain: the app on activation places it
     /// into the chat by the same reception road as any incoming. Mid dedup on both ends. Cap 200.
     private static func stashLetter(conv: String, mid: String, text: String, name: String, glyph: String,
-                                    qt: String = "", qm: String = "", lp: String = "", sentAt: Double = 0) {
+                                    qt: String = "", qm: String = "", lp: String = "", sentAt: Double = 0, own: Bool = false,
+                                    author: String = "") {
         guard !mid.isEmpty, !text.isEmpty else { return }
         var arr: [[String: String]] = []
         if let d = MontanaKeychain.get("nseInbox"),
@@ -616,9 +625,12 @@ final class NotificationService: UNNotificationServiceExtension {
         if !glyph.isEmpty { row["g"] = glyph }
         if !qt.isEmpty { row["qt"] = qt; row["qm"] = qm }
         if !lp.isEmpty { row["lp"] = lp }
+        if own { row["own"] = "1" }   // the app lands it as mine (MontanaDeliveryEngine.landOwn)
+        else if !author.isEmpty { row["au"] = author }   // a correspondent's author field, kept on the row (Message.authorTag)
         arr.append(row)
         if arr.count > 200 { arr.removeFirst(arr.count - 200) }
         if let d = try? JSONEncoder().encode(arr) { MontanaKeychain.set("nseInbox", d) }
+        guard !own else { return }   // my own letter counts no unread and moves no row of the cold frame
         // STAGE 9: the extension is a LANDING DOOR too — the list record must follow the
         // letter, or the first frame after a notification tap shows the previous message
         // (the record lagged by exactly the letters the app never saw). Written to the
@@ -736,7 +748,7 @@ final class NotificationService: UNNotificationServiceExtension {
     }
 
     private static func openWithOwnPipes(_ sealed: Data, at: Int)
-        -> (conv: String, mid: String, text: String, name: String, glyph: String, qt: String, qm: String, lp: String)? {
+        -> (conv: String, mid: String, text: String, name: String, glyph: String, qt: String, qm: String, lp: String, own: Bool, author: String)? {
         let secrets = pipeSecrets()
         guard !secrets.isEmpty else { return nil }
         let minutes = sealMinutes(at)
@@ -744,16 +756,11 @@ final class NotificationService: UNNotificationServiceExtension {
             for w in minutes {
                 let key = bodyKey(secret: secret, window: w)
                 if let plain = openBlob(key: key, sealed: sealed), plain.contains(0) {
-                    // Fields split by 0x00: mid ‖ text ‖ sender name ‖ face glyph ‖ padding.
-                    // An old envelope carried two fields — name and glyph read empty, fallback below.
-                    var fields: [String] = []; var rest = plain[plain.startIndex...]
-                    while fields.count < 7 {
-                        guard let z = rest.firstIndex(of: 0) else { fields.append(String(data: rest, encoding: .utf8) ?? ""); break }
-                        fields.append(String(data: rest[..<z], encoding: .utf8) ?? "")
-                        rest = rest[rest.index(after: z)...]
-                    }
-                    while fields.count < 7 { fields.append("") }
-                    if !fields[1].isEmpty { return (conv, fields[0], fields[1], fields[2], fields[3], fields[4], fields[5], fields[6]) }
+                    // Fields split by 0x00 (MTNodeWire.letterFields): an old envelope carried two -- the rest read empty.
+                    let fields = MTNodeWire.letterFields(plain)
+                    // The person's own letter from another of their devices is told by its author field (MTNodeWire.authorHolds).
+                    let own = MTNodeWire.authorHolds(fields[7], key: MTNodeWire.mirroredAuthorKey(), secret: secret, mid: fields[0], text: fields[1])
+                    if !fields[1].isEmpty { return (conv, fields[0], fields[1], fields[2], fields[3], fields[4], fields[5], fields[6], own, fields[7]) }
                 }
             }
         }
@@ -772,18 +779,7 @@ final class NotificationService: UNNotificationServiceExtension {
         while t.count % 4 != 0 { t += "=" }
         return Data(base64Encoded: t)
     }
-    private static func parseFields(_ plain: Data) -> [String] {
-        var fields: [String] = []; var rest = plain[plain.startIndex...]
-        while fields.count < 7 {
-            guard let z = rest.firstIndex(of: 0) else {
-                fields.append(String(data: rest, encoding: .utf8) ?? ""); break
-            }
-            fields.append(String(data: rest[rest.startIndex..<z], encoding: .utf8) ?? "")
-            rest = rest[rest.index(after: z)...]
-        }
-        while fields.count < 7 { fields.append("") }
-        return fields
-    }
+    private static func parseFields(_ plain: Data) -> [String] { MTNodeWire.letterFields(plain) }
 
     /// Collect the node box synchronously (the extension lives until the content is handed
     /// over). Returns the last stored letter — the banner carries IT when the push's own
@@ -869,8 +865,13 @@ final class NotificationService: UNNotificationServiceExtension {
                         guard !f[0].isEmpty, !f[1].isEmpty else { continue }
                         let text = f[1].hasPrefix("\u{2063}LB:") ? (resolveLongLetterSync(f[1]) ?? f[1]) : f[1]
                         let ck = chatKey(for: chat)
+                        if MTNodeWire.authorHolds(f[7], key: MTNodeWire.mirroredAuthorKey(), secret: secret, mid: f[0], text: f[1]) {
+                            stashLetter(conv: ck, mid: f[0], text: f[1], name: "", glyph: "", qt: f[4], qm: f[5], lp: f[6],
+                                        sentAt: Double(Int(atS) - opened.back * 60), own: true)
+                            got += 1; continue   // my own letter titles no banner
+                        }
                         stashLetter(conv: ck, mid: f[0], text: text, name: f[2], glyph: f[3],
-                                    qt: f[4], qm: f[5], lp: f[6], sentAt: Double(Int(atS) - opened.back * 60))
+                                    qt: f[4], qm: f[5], lp: f[6], sentAt: Double(Int(atS) - opened.back * 60), author: f[7])
                         // A STEP OF A GAME IS NOT THE BANNER'S LETTER (29.09): stashed for the board, it never titles the banner.
                         if MTChessLetter.isStep(text), MTChessLetter.parse(text)?.rings != true { got += 1; continue }
                         last = (ck, f[0], text, f[2], f[3]); got += 1
@@ -972,7 +973,8 @@ final class NotificationService: UNNotificationServiceExtension {
             if Date() >= deadline { break }
             guard let secret = pipeSecret(for: it.to, in: secrets),
                   let plain = MTNodeWire.padEnvelope(MTNodeWire.letterHead(mid: it.mid, text: it.wire ?? it.text, name: name, glyph: glyph,
-                                                                            quoteText: it.qt, quoteMid: it.qm)) else { skipped += 1; continue }
+                                                                            quoteText: it.qt, quoteMid: it.qm,
+                                                                            author: MTNodeWire.mirroredAuthorKey(), secret: secret)) else { skipped += 1; continue }
             tried += 1
             let sem = DispatchSemaphore(value: 0)
             let box = KnockBox()

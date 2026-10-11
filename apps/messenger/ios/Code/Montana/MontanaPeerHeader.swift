@@ -34,6 +34,8 @@ struct MTPeerHeader: View {
     var showsCamera: Bool = false
     @Binding var pickerItem: PhotosPickerItem?
     var onAvatarTap: () -> Void = {}
+    /// Whose face (MTAvatarBadges, 11.10): the balance and the level stand over the clipped puck, not inside its clip.
+    var who: String? = nil
 
     var body: some View {
         VStack(spacing: 8) {
@@ -51,6 +53,7 @@ struct MTPeerHeader: View {
                 }
                 .onTapGesture { onAvatarTap() }
             }
+            .overlay { if let who, MTAvatarBadges.least <= size { MTAvatarBadgeRow(who: who, size: size) } }
             // THE PHOTO IS EDITED THE PLATFORM'S WAY (the author's word 18.09): the system's link under
             // the face, in the system's tint — not a gold camera of ours on the face.
             if showsCamera {

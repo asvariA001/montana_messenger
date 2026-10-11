@@ -77,7 +77,7 @@ enum MontanaEndpointParse {
 }
 
 /// What kind of network is underfoot, in one line for the journal: without it "connected slowly"
-/// stays a guess, and with it one sees that the phone went through a tunnel.
+/// stays a guess, and with it one sees that the phone went through its own tunnel.
 enum MontanaNetFacts {
     static func interfaces() -> String {
         var out: [String] = []

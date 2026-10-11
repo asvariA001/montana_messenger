@@ -254,42 +254,25 @@ enum MontanaHandoff {
     }
 }
 
-/// WHAT LEFT THIS APP IS KNOWN BY ITS PRINT ALONE (the author's word 08.10.2026 15:1x MSK: «not a string, not a comment, not a
-/// mention»): a stored value, a diary, a room, a word or a letter of an older build is recognised by the first sixteen hex digits of
-/// the SHA-256 of its name, so this app names nothing it no longer has -- and still forgets every trace of it on the phone.
+/// WHAT LEFT THIS APP IS KNOWN BY ITS PRINT ALONE (the author's word 08.10.2026 15:1x MSK): a stored value or a letter of an older
+/// build is recognised by the first sixteen hex digits of the SHA-256 of its name, so this app names nothing it no longer has -- and
+/// still forgets every trace of it on the phone. WHAT CAME BACK IS NO LONGER RETIRED (the author's word 11.10.2026 12:1x MSK, No.60:
+/// the VPN, the coins, the mesh, the Passwords app and the P2P wall return to Montana): their values, letters, ops, rooms, diary and
+/// keychain item are this app's own again and leave this list; only the switch of the seed in the Apple Account stays retired.
 enum MTRetired {
     static func print(_ s: String) -> String {
         SHA256.hash(data: Data(s.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
     }
     private static let values: Set<String> = [
-        "d3354b9e175be2f8", "383817792bdadb44", "767fecfd717784c4", "a2b8b401464b9d7a", "1b8f55df217ac12f", "21f133825350c64f",
-        "09da477a6792b0a6", "f11b2f74abbe514c", "3c64d0e130b8e517", "40edac2b1436cf27", "8bd7580670ef12cd", "21290422d2788912",
-        "1e847a7b99f7fb2f", "6dfb4dfc75a048bb", "a2c89a470c8b4e68", "b4ef431650d29952", "16dc366cf5d4ab7e", "b303a9915419595b",
-        "cf5df0cfaf6abb42", "0ebfb5e39c166c31", "286e79df368bc274", "d9eab097aafefbad", "aecf27cf098af505", "066a6017681b9a29",
-        "5465de8e02330255", "914177d545951a4a", "baec03f439ab049f", "bea05dfb708b7053", "f5f3635e36459afa", "02fd86fa4a224958",
-        "20819e7cb6c89c93", "1319ba68952fb7a7",
         "893dae5f6adc44d7"]   // the switch of the seed in the Apple Account (10.10.2026: the door closed, the switch leaves)
-    /// Values a conversation kept under its own key: the name up to and including its first dot.
-    private static let valuePrefixes: Set<String> = ["877c3850af65880d", "1acf252d0dea4e14", "57e5c61ef47cc715", "8c8189a5f4adb303"]
-    static let keychainItems: Set<String> = ["9a59fadd4343ec4b"]
-    private static let diaries: Set<String> = ["7671790c02558dd8", "1d177e01bdf92927"]
-    /// A letter's machine line, by its first seventeen or nineteen characters.
-    private static let letterLines: Set<String> = ["71beceb0eafaa682", "81e52bba0644a78b"]
-    private static let rooms: Set<String> = ["1619ec65489dc6bf"]
-    /// An older build's reaction op, wall op and link host.
-    private static let words: Set<String> = ["b3a1984ba0b1d8ad"]
+    /// A letter's machine line, by its first seventeen or nineteen characters: no kind of letter is retired now.
+    private static let letterLines = Set<String>()
 
-    static func value(_ key: String) -> Bool {
-        if values.contains(print(key)) { return true }
-        guard let dot = key.firstIndex(of: ".") else { return false }
-        return valuePrefixes.contains(print(String(key[...dot])))
-    }
-    static func diary(_ name: String) -> Bool { diaries.contains(print(name)) }
-    static func room(_ name: String) -> Bool { rooms.contains(print(name)) }
-    static func word(_ w: String) -> Bool { words.contains(print(w)) }
+    static func value(_ key: String) -> Bool { values.contains(print(key)) }
     /// An older build's letter: its last line opens with a retired machine line. It is buried unread and rings nothing.
     static func letter(_ text: String) -> Bool {
-        guard text.utf8.count <= 65_536, let last = text.split(separator: "\n", omittingEmptySubsequences: false).last else { return false }
+        guard !letterLines.isEmpty, text.utf8.count <= 65_536,
+              let last = text.split(separator: "\n", omittingEmptySubsequences: false).last else { return false }
         return [17, 19].contains { n in last.count >= n && letterLines.contains(print(String(last.prefix(n)))) }
     }
     /// The stored values leave at launch, after a copy is laid and with the identity; the count is the trace's.
@@ -303,26 +286,5 @@ enum MTRetired {
     static func stored(_ printed: String) -> String? {
         UserDefaults.standard.dictionaryRepresentation().keys.first { print($0) == printed }
     }
-    /// The retired diary's files leave the diary's folder, never shipped.
-    static func forgetDiaries(in dir: URL) {
-        let names = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
-        for n in names where diary(n) { try? FileManager.default.removeItem(at: dir.appendingPathComponent(n)) }
-    }
 }
 
-extension MontanaKeychain {
-    /// The keychain items of an older build leave with the identity: every item of this app's group whose name prints as retired.
-    static func forgetRetiredItems() {
-        var q: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
-                                kSecAttrAccessGroup as String: group,
-                                kSecReturnAttributes as String: true,
-                                kSecMatchLimit as String: kSecMatchLimitAll]
-        q.merge(sameEverywhere) { a, _ in a }
-        var out: AnyObject?
-        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess, let items = out as? [[String: Any]] else { return }
-        for item in items {
-            guard let name = item[kSecAttrAccount as String] as? String, MTRetired.keychainItems.contains(MTRetired.print(name)) else { continue }
-            delete(name)
-        }
-    }
-}

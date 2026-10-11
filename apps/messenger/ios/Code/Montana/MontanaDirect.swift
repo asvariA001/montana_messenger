@@ -6,13 +6,75 @@ import Security
 import CryptoKit
 
 extension Notification.Name {
+    /// A message delivered over the Wi-Fi mesh. userInfo: ["from": String, "text": String].
     static let montanaIncoming = Notification.Name("montanaIncoming")
+    /// An outgoing mesh frame actually hit the wire. userInfo: ["address", "mid", "transport"] —
+    /// refines the bubble glyph to the wire's real physical medium (same classifier as the receive side).
     static let montanaSent = Notification.Name("montanaSent")
-    /// A peer became reachable (a channel to it stood up). userInfo: ["address"] —
+    /// A mesh peer became reachable (new Bonjour discovery or BLE announce). userInfo: ["address"] —
     /// triggers the profile catch-up push (name/avatar), the serverless analog of the WS-connect broadcast.
     static let montanaPeerUp = Notification.Name("montanaPeerUp")
 }
 
+/// A P2P message in a Wi-Fi conversation (delivered directly). `peer` is the other
+/// party's Montana address; `mine` marks outgoing.
+struct P2PMsg: Identifiable, Hashable {
+    let id = UUID()
+    let peer: String
+    let text: String
+    let mine: Bool
+    let at: String
+}
+
+struct MontanaPeer: Identifiable, Hashable {
+    let name: String            // human name from the neighbor's Montana profile
+    let endpoint: String            // ip:port on the LAN (postman)
+    let neighborRef: String     // the neighbor's public Montana reference (from Bonjour TXT); "" if absent
+    let directPort: UInt16      // persistent direct-channel listener port (Bonjour TXT "d"); 0 if absent
+    var id: String { endpoint }
+    var ip: String {
+        if endpoint.hasPrefix("["), let end = endpoint.firstIndex(of: "]") {        // [ipv6]:port
+            return String(endpoint[endpoint.index(after: endpoint.startIndex)..<end])
+        }
+        if endpoint.filter({ $0 == ":" }).count > 1 { return endpoint }             // raw ipv6 (no port)
+        return endpoint.split(separator: ":").first.map(String.init) ?? endpoint    // ipv4:port
+    }
+}
+
+// Rotating discovery label (spec s.3 §13 stage 5). What a device broadcasts on a shared network must
+// mean nothing to a stranger: the human name and the reference used to go out in clear, so anyone
+// on a café Wi-Fi could read who was in the room. The label is derived from the owner's own address and
+// the current minute, so a contact — who already knows that address — recognises it by pre-computing
+// the same value, while everyone else sees a number that changes every minute.
+/// The label an announce carries on the local network.
+///
+/// It stands on the label of the twin correspondence — a value derived from the owner branch of a
+/// seed, which leaves no device and which nobody outside can compute. What used to stand here was a
+/// PUBLIC reference: anyone holding it computed every window of the label and recognised that
+/// person on any network they walked into, while the rotation hid nothing from the only party it
+/// mattered to hide from. Its shape and its window come from MTPipe — one composition, one window,
+/// one tolerance for the whole tree.
+/// How this device is recognised on a local network, and it is the SAME question the radio asks:
+/// a tag of the current window standing on the secret two correspondents share.
+///
+/// What stood here was a tag of its own making — a hash of this device's standing reference under a
+/// domain of its own («mt-local-tag»). It hid the reference from a passer-by, but only after that
+/// reference had been handed to every neighbour in the clear by the radio, and it was a second
+/// derivation of a quantity the set already defines. One quantity, one place: `mt-tag`.
+enum MontanaLocalTag {
+    static func window(_ at: Date = Date()) -> UInt64 { MTPipe.window(at) }
+
+    /// Whose tag this is, if it is anybody's this device knows. One lookup in the index of the
+    /// window — not a hash per correspondence per window, which is what it used to be.
+    static func conv(forTag tag: String, at: Date = Date()) -> String? {
+        guard let d = Data(montanaHex: tag) else { return nil }
+        // A pipe tag names its correspondence; a point of first contact names the correspondence
+        // still waiting at it. Both are «whose tag is this», and both are answered here.
+        return MTPipeBook.match(d, at: at) ?? MTPipeBook.convAwaiting(firstContactTag: d, at: at)
+    }
+}
+
+/// Montana mesh transport over the network FFI (mt_client_*).
 /// Synchronous FFI calls — run on a background queue (block_on inside).
 /// Delivery: connect(courier) → register(queue) → send/recv/ack.
 final class MontanaPostman {
@@ -101,12 +163,212 @@ final class MontanaPostman {
             }}}}
     }
 
+    // MARK: auto-discovery via native Apple Bonjour (iOS Local Network privacy
+    // blocks raw multicast Rust-mdns; NetService/NetServiceBrowser is the standard path).
+    func advertiseMDNS(port: UInt16, directPort: UInt16) { MontanaBonjour.shared.advertise(port: port, directPort: directPort) }
+    /// Offer these correspondences on the local network — the same knock the radio makes.
+    func browseMDNS(timeoutMs: UInt32 = 3000) -> [MontanaPeer] {
+        MontanaBonjour.shared.browse(timeout: Double(timeoutMs) / 1000.0)
+    }
+
     deinit { disconnect(); stopPostman() }
 }
 
 
+// MARK: native Bonjour — advertise/browse via Apple NetService (works under iOS
+// Local Network privacy; iOS silences raw multicast Rust-mdns without an access prompt).
+final class MontanaBonjour: NSObject, NetServiceBrowserDelegate, NetServiceDelegate {
+    static let shared = MontanaBonjour()
+    private let type = "_montana._udp."
+    private let domain = "local."
+    private var published: NetService?
+    private var resolving: [NetService] = []
+    /// Set once by the app, which is where the device identity lives — this file also compiles into the
+    /// notification extension, and reaching into the archive from here would not link there.
+    /// A neighbour address and ALL conversations it answers for. Before, one was kept: parsing
+    /// stopped at the first recognised mark, and if a neighbour announced several, an arbitrary one
+    /// was remembered. The record then went into a dictionary keyed by conversation -- two
+    /// neighbours answering for one erased each other (the list flickered), while a conversation a
+    /// neighbour answered for by its second mark got no address at all, and a letter to it went over
+    /// radio with live Wi-Fi. What is heard on the local network: the address and port of the direct
+    ///
+    /// Here stood the neighbour's list of conversations, and when the announcement stopped carrying
+    /// them the list stayed empty -- while parsing was built FROM it. An empty list gave zero
+    /// neighbours per neighbour: a node was heard, announced, would be dialled in a hundred
+    private var found: [String: UInt16] = [:]   // ip:port -> direct channel port
+
+    // The advertised service says nothing about its owner: the instance name is meaningless for this
+    // launch, and TXT carries the rotating label plus the direct port. Contacts recognise the label;
+    // a stranger on the same network learns only that some device speaks this protocol.
+    /// Stop announcing. The node keeps listening and keeps every channel it holds — it simply stops
+    /// telling the local network it is here.
+    func stopAdvertising() {
+        DispatchQueue.main.async { self.published?.stop(); self.published = nil }
+    }
+
+    /// The instance name is meaningless for this launch, and it is drawn by the core: it lives as
+    /// long as the announce does, and a value longer than a frame is never taken from the phone.
+    private static func instanceTag() -> String {
+        var b = [UInt8](repeating: 0, count: 4)
+        guard mt_random_fast(&b, 4) == 0 else { return "00000000" }
+        return b.map { String(format: "%02x", $0) }.joined()
+    }
+
+    func advertise(port: UInt16, directPort: UInt16) {
+        DispatchQueue.main.async {
+            self.published?.stop()
+            let svc = NetService(domain: self.domain, type: self.type,
+                                 name: "mt-" + MontanaBonjour.instanceTag(),
+                                 port: Int32(port))
+            svc.delegate = self
+            svc.setTXTRecord(NetService.data(fromTXTRecord: MontanaBonjour.txt(directPort)))
+            svc.schedule(in: .main, forMode: .common)
+            svc.publish()
+            self.published = svc
+            self.directPort = directPort
+            self.lastTXT = ""
+            self.startTXTFollow()
+        }
+    }
+
+    /// What this device offers on a local network: a port to dial, and the tags of the pipes it has
+    /// something to carry for. Nothing else — not a standing reference, not a name.
+    ///
+    /// A person's chosen name used to ride here, so everyone on every network this phone ever joined
+    /// read who had walked in. A name reaches a correspondent over the channel the two of them
+    /// hold, which is where it was always supposed to travel.
+    private var directPort: UInt16 = 0
+    /// The announcement carries NOTHING about conversations -- only the port to knock on.
+    ///
+    /// Conversation marks in the record were an error of class, not a detail: the record holds 255
+    /// bytes, and everything that grows with the number of chats sooner or later falls out of it --
+    /// silently. We paid for that all day: full labels did not fit, heads collided, parsing took the
+    /// first that turned up, the ledger erased neighbour by neighbour. Neither of the two other
+    /// implementations does this: one puts only its service identifier on the air, the other one
+    ///
+    /// So here is the same answer, and it is simpler than all the previous ones: a neighbour
+    /// announces that it is a Montana node and which port to knock on. Who it is, the CHANNEL finds
+    /// out -- it has neither a 255-byte bound nor an observer. An outsider now sees less than before:
+    private static func txt(_ directPort: UInt16) -> [String: Data] {
+        // A record naming port zero invites the neighbours to knock at nothing. It appeared because
+        // the announcement can run before the listener has its port, and it made this device look
+        // present on the local network while being unreachable there.
+        guard directPort > 0 else {
+            MontanaTrace.mark("lan_offer_skipped", "the port is not up yet")
+            return [:]
+        }
+        let txt: [String: Data] = ["d": Data(String(directPort).utf8)]
+        // What this device actually PUTS on the air, split by where it came from. Without it a
+        // silent record is indistinguishable from a device with nothing to say — and the two need
+        // different answers. Counts only: a count says nothing about who anybody talks to.
+        MontanaTrace.mark("lan_offer", "port=\(directPort)")
+        return txt
+    }
+
+    /// A label holds for one window and no longer. The record used to be rewritten only when the
+    /// LIST of correspondences changed, so a device with a card outstanding published the point of
+    /// one minute for as long as it stood there — and after that minute it was announcing a node
+    /// that no longer existed. The bytes decide: the record is written when they differ.
+    private var lastTXT: String = ""
+    private var txtTimer: DispatchSourceTimer?
+    func refreshTXT() {
+        guard let svc = published else { return }
+        let dict = MontanaBonjour.txt(directPort)
+        let key = dict.map { "\($0.key)=\(String(data: $0.value, encoding: .utf8) ?? "")" }.sorted().joined(separator: ";")
+        guard key != lastTXT else { return }
+        lastTXT = key
+        svc.setTXTRecord(NetService.data(fromTXTRecord: dict))
+    }
+
+    /// Follow the window while this device has anything to say. Cheap: every label of a window is
+    /// computed once and cached by the book, so a tick that changes nothing writes nothing.
+    private func startTXTFollow() {
+        guard txtTimer == nil else { return }
+        let t = DispatchSource.makeTimerSource(queue: .main)
+        t.schedule(deadline: .now() + 5, repeating: 15)
+        t.setEventHandler { [weak self] in self?.refreshTXT() }
+        t.resume()
+        txtTimer = t
+    }
+
+    func browse(timeout: TimeInterval) -> [MontanaPeer] {
+        resolving = []
+        found = [:]
+        let browser = NetServiceBrowser()
+        browser.includesPeerToPeer = false
+        browser.delegate = self
+        browser.schedule(in: .current, forMode: .common)
+        browser.searchForServices(ofType: type, inDomain: domain)
+        RunLoop.current.run(until: Date().addingTimeInterval(timeout))
+        browser.stop()
+        // One neighbour, one record. Whom it answers for the announcement does not say and must not;
+        // a letter is sealed with the addressee queue key, so a neighbour it is not meant for cannot
+        // open it -- it either carries it on or drops it. Every conversation has a path at once.
+        return found.map { ep, dport in
+            MontanaPeer(name: ep, endpoint: ep, neighborRef: "", directPort: dport)
+        }.sorted { $0.endpoint < $1.endpoint }
+    }
+
+    func netServiceBrowser(_ browser: NetServiceBrowser, didFind service: NetService, moreComing: Bool) {
+        MontanaLog.event("P2P browse FOUND \(service.name)")
+        service.delegate = self
+        service.schedule(in: .current, forMode: .common)
+        service.resolve(withTimeout: 4)
+        resolving.append(service)
+    }
+
+    func netServiceBrowser(_ browser: NetServiceBrowser, didNotSearch errorDict: [String: NSNumber]) {
+        MontanaLog.event("P2P browse DID-NOT-SEARCH err=\(errorDict) (likely Local Network permission denied)")
+    }
+
+    func netServiceDidResolveAddress(_ sender: NetService) {
+        guard let endpoints = sender.addresses else { return }
+        var dport: UInt16 = 0
+        if let txt = sender.txtRecordData() {
+            let dict = NetService.dictionary(fromTXTRecord: txt)
+            if let d = dict["d"], let s = String(data: d, encoding: .utf8), let p = UInt16(s) { dport = p }
+        }
+        for data in endpoints {
+            if let ep = MontanaBonjour.ipPort(from: data) { found[ep] = dport }
+        }
+        MontanaLog.event("P2P resolved -> \(endpoints.compactMap { MontanaBonjour.ipPort(from: $0) }.joined(separator: ",")) d=\(dport)")
+    }
+
+    /// Whether we managed to announce ourselves on the local network. iOS gives no call that returns
+    /// the system permission state -- but a refusal is visible: the announcement is not published.
+    /// That is the only thing we know for certain, and it is what we show, not a flag of our own.
+    private(set) var announceAccepted = false
+
+    func netServiceDidPublish(_ sender: NetService) {
+        announceAccepted = true
+        MontanaLog.event("P2P advertise PUBLISHED \(sender.name):\(sender.port)")
+    }
+    func netService(_ sender: NetService, didNotPublish errorDict: [String: NSNumber]) {
+        announceAccepted = false
+        MontanaLog.event("P2P advertise DID-NOT-PUBLISH \(sender.name) err=\(errorDict)")
+    }
+    func netService(_ sender: NetService, didNotResolve errorDict: [String: NSNumber]) {
+        MontanaLog.event("P2P resolve DID-NOT-RESOLVE \(sender.name) err=\(errorDict)")
+    }
+
+    static func ipPort(from data: Data) -> String? {
+        return data.withUnsafeBytes { raw -> String? in
+            guard let sa = raw.baseAddress?.assumingMemoryBound(to: sockaddr.self) else { return nil }
+            var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+            var serv = [CChar](repeating: 0, count: Int(NI_MAXSERV))
+            let r = getnameinfo(sa, socklen_t(data.count), &host, socklen_t(host.count),
+                                &serv, socklen_t(serv.count), NI_NUMERICHOST | NI_NUMERICSERV)
+            guard r == 0 else { return nil }
+            let h = String(cString: host)
+            if h.contains(":") { return nil }  // IPv4 only — node_hello parses ip:port
+            return "\(h):\(String(cString: serv))"
+        }
+    }
+}
+
+
 // ════════════════════════════════════════════════════════════════════════════
-// PERSISTENT DIRECT CHANNEL — instant delivery by a global address (one handshake per peer,
+// PERSISTENT DIRECT CHANNEL — instant delivery over the Wi-Fi LAN (one handshake per peer,
 // no polling). One TCP connection per peer stays open and every signal (text,
 // delete-for-everyone, receipts, edits) travels the moment it exists, device to device.
 // Post-quantum secured: a fresh ML-KEM-768 key exchange on
@@ -270,19 +532,30 @@ final class MontanaDirect {
             // port is STABLE across launches. A random port meant every relaunch invalidated every
             // address the peers had published for us: they kept dialling a port nobody listened on
             // while we listened somewhere else (measured: a message stuck for 101s doing exactly
-            // that). With a fixed port a published endpoint stays true.
+            // that). With a fixed port a published endpoint stays true, and the tunnel extension knows
+            // where to listen while the app is dead.
             if self.useEphemeralPort, let any = try? NWListener(using: params) {
                 l = any
             } else if let fixed = NWEndpoint.Port(rawValue: MontanaDirectPort.value),
                let bound = try? NWListener(using: params, on: fixed) {
                 l = bound
             } else {
-                // The port is THE port: every install of this app, on every device, listens on the
-                // same number, and a published address means nothing if it is not that one.
-                MontanaLog.event("direct: port \(MontanaDirectPort.value) busy — retrying")
-                MontanaTrace.mark("port_busy", "port=\(MontanaDirectPort.value)")
-                self.healListener(mnemonic: mnemonic, retry: self.onReady, after: 3)
-                return
+                // The port is taken — most likely by our own tunnel extension standing in for a dead
+                // app. Ask it to step aside, then take the port back; only if that fails do we fall
+                // back to an ephemeral one.
+                MontanaDirectPort.requestRelease()
+                Thread.sleep(forTimeInterval: 0.4)
+                if let fixed = NWEndpoint.Port(rawValue: MontanaDirectPort.value),
+                   let bound = try? NWListener(using: params, on: fixed) {
+                    l = bound
+                } else {
+                    // The port is THE port: every install of this app, on every device, listens on the
+                    // same number, and a published address means nothing if it is not that one.
+                    MontanaLog.event("direct: port \(MontanaDirectPort.value) busy — retrying")
+                    MontanaTrace.mark("port_busy", "port=\(MontanaDirectPort.value)")
+                    self.healListener(mnemonic: mnemonic, retry: self.onReady, after: 3)
+                    return
+                }
             }
             l.newConnectionHandler = { [weak self] c in self?.acceptInbound(MTWire(c)) }
             l.stateUpdateHandler = { [weak self] st in
@@ -295,11 +568,13 @@ final class MontanaDirect {
                     self.onReady?(p); self.onReady = nil
                 case .waiting(let err), .failed(let err):
                     self.portTries += 1
-                    // The port is held by somebody else. Silence here cost a whole test: a device with no listener
+                    // The port is held by somebody — normally our own tunnel extension standing in
+                    // for a dead app. Silence here cost a whole test: a device with no listener
                     // cannot be a node, cannot accept anybody, and said nothing about it.
                     MontanaTrace.mark("direct_listener_blocked", "err=\(err)")
                     MontanaLog.event("direct listener blocked: \(err)")
                     l.cancel(); self.listener = nil; self.started = false; self.port = 0
+                    MontanaDirectPort.requestRelease()
                     self.useEphemeralPort = self.portTries >= 3
                     self.healListener(mnemonic: mnemonic, retry: self.onReady, after: 2)
                 case .cancelled:
@@ -485,9 +760,11 @@ final class MontanaDirect {
     private func dial(toRef: String, ip: String, port: UInt16, carry: [(Data, String)], redials: Int) {
         guard let nwPort = NWEndpoint.Port(rawValue: port) else { return }
         let mid = carry.first?.1 ?? ""
-        // One gate at the one dialer; the system's local-network question has nothing to rise on.
-        if !MontanaTransport.isGlobalIP(ip), !MontanaTransport.isLoopback(ip) {
-            MontanaTrace.mark("dial_skip", mid: mid, "local-network ip=\(ip):\(port)")
+        // A LAN address without Wi-Fi is unreachable BY CONSTRUCTION: the required-wifi
+        // connection would only wait out its 5s and write a timeout — noise a road that
+        // cannot serve has no right to make (the author's word 28.08). One line, no dial.
+        if !MontanaTransport.isGlobalIP(ip), !MontanaPhoneNode.shared.wifiOn {
+            MontanaTrace.mark("dial_skip", mid: mid, "lan-without-wifi ip=\(ip):\(port)")
             return
         }
         // One dial, one mark, and it names the dress: two lines per dial in the 24.08 trace read as
@@ -531,10 +808,19 @@ final class MontanaDirect {
         } else {
             dialParams = NWParameters(tls: nil, tcp: tcpOpts)
         }
-        // IFACE-CHECKED: no interface is banned here. The measurement named the price outright: with
-        // a third-party tunnel on, every connection fell with "Network is down", and the node was
-        // left without a network entirely. Where to let a packet out is decided by the system
-        // routing; our business is to ask for a connection and hear the answer.
+        // IFACE-CHECKED: no interface is banned here. The ban stood so that the mesh would not ride
+        // through OUR tunnel, and that one was recognised by the 198.18 range -- which other clients
+        // occupy too. The measurement named the price outright: with a third-party tunnel on, every
+        // connection fell with "Network is down", and the node was left without a network entirely.
+        // Where to let a packet out is decided by the system routing; our business is to ask for a
+        // connection and hear the answer. A local network address is reachable ONLY over Wi-Fi, and
+        //
+        // The system chooses the path itself, and on a phone with both networks it is free to send a
+        // packet into cellular -- where 192.168.x.x does not exist. From outside that looks like
+        // silence: the dial hangs until the term expires, the channel falls, the letter goes over
+        // radio and crawls for minutes. The measurement showed exactly this: a tablet accepted a
+        // connection from a laptop instantly and not from a phone with cellular lit next to Wi-Fi.
+        if !MontanaTransport.isGlobalIP(ip) { dialParams.requiredInterfaceType = .wifi }
         if let phys { dialParams.requiredInterface = phys }
         let nw = MTWire(NWConnection(host: MontanaDirect.dialHost(ip), port: nwPort, using: dialParams))
         self.arm(nw: nw, toRef: toRef, ip: ip, port: port, carry: carry, redials: redials, mid: mid)
@@ -614,13 +900,27 @@ final class MontanaDirect {
                 let orphaned = oc.readyWaiters; oc.readyWaiters = []
                 for w in orphaned { w(nil) }
                 let rescued = oc.pending
-                if !rescued.isEmpty && redials < 3 {
+                let stillDialable = MontanaPhoneNode.shared.wifiOn || MontanaTransport.isGlobalIP(ip)
+                if !rescued.isEmpty && redials < 3 && stillDialable {
                     // Bounded reconnect: a transient Wi-Fi/cellular drop must not strand queued messages
                     // until the 90s sweep. Re-dial once more carrying the un-sent payloads (never the
                     // already-wired-unacked ones — those live in sentAtMsg and are the E2E sweep's job).
                     self.q.asyncAfter(deadline: .now() + 0.5) {
                         if let live = self.outbound[toRef] { for (pl, m) in rescued { self.sendOverlayMessage(live, pl, m) } }
                         else { self.dial(toRef: toRef, ip: ip, port: port, carry: rescued, redials: redials + 1) }
+                    }
+                } else if !rescued.isEmpty, !oc.isService {
+                    // Direct route given up (redials exhausted / egress lost): hand the un-sent envelopes
+                    // to the BLE mesh — same envelope format — so the failover chain completes without
+                    // waiting for the 90s sweep. Delivered-over-BLE refines the glyph via .montanaSent.
+                    for (pl, m) in rescued where m != "blob" {
+                        if MontanaBLEMesh.shared.send(to: toRef, envelope: pl) {
+                            MontanaTrace.mark("bt_tx", mid: m, "fallback")
+                            DispatchQueue.main.async {
+                                NotificationCenter.default.post(name: .montanaSent, object: nil,
+                                                                userInfo: ["address": toRef, "mid": m, "transport": MontanaTransport.bluetooth.rawValue])
+                            }
+                        }
                     }
                 }
             default: break
@@ -636,14 +936,14 @@ final class MontanaDirect {
             guard let oc, oc.sendKey == nil || !oc.ready else { return }
             MontanaTrace.mark("handshake_timeout", mid: mid, "ip=\(ip):\(port) \(oc.nw.pathStory)")
             if MontanaNodes.isNode(ip) { MontanaDirect.noteDoorFail(ip: ip, port: port, why: "handshake-timeout") }
-            // A failure while a tunnel holds the route is the tunnel's fact, not the address's (see below).
-            if !toRef.hasPrefix("ep:"), !MontanaNetWitness.tunnelPresent() { MontanaOverlayBook.shared.fail(ref: toRef, ip: ip, port: port) }
+            // A failure while OUR tunnel holds the route is the tunnel's fact, not the address's (see below).
+            if !toRef.hasPrefix("ep:"), !MontanaPhoneNode.tunnelUp() { MontanaOverlayBook.shared.fail(ref: toRef, ip: ip, port: port) }
             oc.closeWhy = "handshake-timeout"
             oc.nw.cancel()
         }
         // Connect timeout: a stale same-subnet IP (router switch) gives no RST — the TCP SYN hangs
         // ~75s with no state callback, silently stranding the pending queue. 5s without .ready ->
-        // cancel; the drop handler then rescues pending and redials.
+        // cancel; the drop handler then rescues pending and redials / falls back to BLE.
         self.q.asyncAfter(deadline: .now() + 5) { [weak nw, weak oc] in
             guard let nw, nw.state != .ready else { return }
             // THE WHOLE STORY OF A REFUSAL, NOT THE FACT OF IT. A bare "the term expired" does not
@@ -654,11 +954,15 @@ final class MontanaDirect {
             MontanaTrace.mark("dial_timeout", mid: mid, "ip=\(ip):\(port) \(nw.pathStory)")
             // A door that did not connect in five seconds failed on this road: its record and its road under a tunnel say so.
             if MontanaNodes.isNode(ip) { MontanaDirect.noteDoorFail(ip: ip, port: port, why: "connect-timeout") }
-            // An address that does not answer is retired rather than dialled again: a port left from the peer's
-            // previous launch used to be hammered every few seconds while the peer was listening on a new one.
-            // Once it is gone the route falls through to the peer's other endpoints, then to the nodes. Only a
-            // failure the address itself could have caused retires it.
-            if !toRef.hasPrefix("ep:"), !MontanaDirect.localFaultRecent(), !MontanaNetWitness.tunnelPresent(),
+            // An address that does not answer is retired rather than dialled again: a port left from
+            // the peer's previous launch used to be hammered every few seconds while the peer was
+            // listening on a new one. Once it is gone the route falls through to the peer's other
+            // endpoints, then to the mesh lookup, then to Bluetooth.
+            // NOT WHILE OUR TUNNEL HOLDS THE ROUTE (the critic 23.09, T1 on 1891): a dial made then dies before it
+            // leaves («Network is down», the path unsatisfied), and that death says nothing about the address --
+            // yet it retired the peer's address for up to eight hours, and the direct road stayed poisoned long
+            // after the VPN was off. Only a failure the address itself could have caused retires it.
+            if !toRef.hasPrefix("ep:"), !MontanaDirect.localFaultRecent(), !MontanaPhoneNode.tunnelUp(),
                MontanaOverlayBook.shared.fail(ref: toRef, ip: ip, port: port) {
                 MontanaTrace.mark("endpoint_retired", mid: mid, "peer=\(String(toRef.prefix(10))) \(ip):\(port)")
                 DispatchQueue.main.async { MontanaPhoneNode.shared.forgetEndpoint(ref: toRef, ip: ip, port: port) }
@@ -1032,7 +1336,7 @@ final class MontanaDirect {
         // The target is either my window position or MY pipe label: an envelope under the label is
         // mine whoever brought it, and that is the only way to receive a letter without having an
         // address. There are TWO labels -- the pipe and the first-contact point -- and they are asked
-        // in one question: the wire once asked only the first, and nobody recognised a first letter on it.
+        // in one question: radio asked both, the wire only the first, and nobody recognised a first letter on the wire.
         let tag16 = Data(of.dst.prefix(16))
         let underTag = of.dst.suffix(16).allSatisfy { $0 == 0 }
         let addressed = underTag ? MTPipeBook.addressed(byTag: tag16) : nil
@@ -1056,7 +1360,7 @@ final class MontanaDirect {
             // A node knows the claims of those it spoke with, so the step needs neither map nor directory.
             guard of.dst.count == 32 else { return }
             // An envelope under a foreign label: I carry it on to everyone but the one who brought it.
-            // A repeat is free -- filtering by frame identifier stands at every node.
+            // A repeat is free -- filtering by frame identifier stands at every node. So radio carries, and so the wire.
             if underTag {
                 // A near frame stays near. It arrived by a near transport -- the local network -- and
                 // to carry it into the internet means sending a letter into a network without a path
@@ -1151,8 +1455,10 @@ final class MontanaDirect {
                 let tr = MontanaTransport.delivery(cellularEgress: MontanaDirect.usesCellular(oc.nw)).rawValue
                 MontanaTrace.mark("open", mid: mid,
                                      "dir=in kind=\(MontanaNotify.kind(for: text)) via=\(tr) from=\(String(conv.prefix(10))) by=pipe-over-first")
+                let au = MontanaPhoneNode.author(of: opening.sealed, conv: conv)
                 DispatchQueue.main.async {
                     var ui: [String: Any] = ["from": conv, "mid": mid, "text": text, "transport": tr]
+                    if let au { ui["author"] = au }
                     if let n = snm { ui["senderName"] = n }
                     if let g = sgl { ui["senderGlyph"] = g }
                     if let q = qt, !q.isEmpty { ui["quoteText"] = q }
@@ -1206,8 +1512,10 @@ final class MontanaDirect {
             }
             MontanaLog.event("first letter OPENED mid=\(String(mid.prefix(8)))")
             let tr = MontanaTransport.delivery(cellularEgress: MontanaDirect.usesCellular(oc.nw)).rawValue
+            let au = MontanaPhoneNode.author(of: opening.sealed, conv: ref)
             DispatchQueue.main.async {
                 var ui: [String: Any] = ["from": ref, "mid": mid, "text": text, "transport": tr]
+                if let au { ui["author"] = au }
                 if let n = snm { ui["senderName"] = n }
                 if let g = sgl { ui["senderGlyph"] = g }
                     if let q = qt, !q.isEmpty { ui["quoteText"] = q }
@@ -1242,8 +1550,10 @@ final class MontanaDirect {
             }
             let tr = MontanaTransport.delivery(cellularEgress: MontanaDirect.usesCellular(oc.nw)).rawValue
             MontanaTrace.mark("open", mid: mid, "dir=in kind=\(MontanaNotify.kind(for: text)) via=\(tr) from=\(String(from.prefix(10))) peer_ip=\(oc.peerIP)")
+            let au = MontanaPhoneNode.author(of: sealed, conv: from)
             DispatchQueue.main.async {
                 var ui: [String: Any] = ["from": from, "mid": mid, "text": text, "transport": tr]
+                if let au { ui["author"] = au }
                 if let n = snm { ui["senderName"] = n }
                 if let g = sgl { ui["senderGlyph"] = g }
                     if let q = qt, !q.isEmpty { ui["quoteText"] = q }

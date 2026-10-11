@@ -8,11 +8,14 @@ extension MTApplication {
         case .calls: return 1
         case .chats, .groups, .channels: return 2   // the chats' tile, until the author gives the groups and the channels their own
         case .feed: return 4
+        case .wallet: return 5
         case .card: return 6
         case .music: return 7
         case .gallery: return 8
         case .chess: return 9
+        case .vpnWall, .meshWall, .p2pWall: return 10   // the network's one tile of the author's atlases, until the author gives each wall its own
         case .settings: return 11
+        case .passwords: return -1   // no tile of the author's atlases: the white glyph in every style
         }
     }
     var glyph: String {
@@ -20,14 +23,17 @@ extension MTApplication {
         case .contacts: return UIState.Glyph.contacts
         case .calls: return UIState.Glyph.calls
         case .feed: return "rectangle.stack.fill"
+        case .wallet: return "wallet.pass.fill"
         case .chess: return ""
         case .chats: return UIState.Glyph.chats
         case .groups: return "person.3.fill"
         case .channels: return "megaphone.fill"
         case .music: return UIState.Glyph.music
         case .gallery: return UIState.Glyph.gallery
+        case .vpnWall, .meshWall, .p2pWall: return ""
         case .card: return "person.text.rectangle"
         case .settings: return "gearshape.fill"
+        case .passwords: return "key.fill"
         }
     }
 }
@@ -96,6 +102,9 @@ struct MTApplicationIcon: View {
         switch app {
         case .feed: MTFeedMark(side: 26 * unit)
         case .chess: MTChessIcon().frame(width: 26 * unit, height: 26 * unit)
+        case .vpnWall: MontanaVPNGlyph(color: .white, size: 24 * unit)   // the globe on a stand, the VPN's own glyph
+        case .meshWall: Image(systemName: "antenna.radiowaves.left.and.right").font(.system(size: 22 * unit, weight: .regular)).foregroundColor(.white)
+        case .p2pWall: Image(systemName: "globe").font(.system(size: 22 * unit, weight: .regular)).foregroundColor(.white)
         default: Image(systemName: app.glyph).font(.system(size: 22 * unit, weight: .regular)).foregroundColor(.white)
         }
     }
@@ -113,12 +122,17 @@ struct MTApplicationIcon: View {
     }
     var body: some View {
         ZStack {
+            if app.artworkIndex == -1 {
+                // AN APP THE ATLASES DO NOT DRAW (Passwords, 06.10.2026): its white glyph, never another app's tile.
+                whiteMark
+            } else {
             switch effectiveStyle {
             case .gold:
                 MTLibraryGoldTile(app: app, side: side)
                     .clipShape(RoundedRectangle(cornerRadius: side * 0.21, style: .continuous))
             case .white: whiteMark
             case .native: nativeSymbol
+            }
             }
         }
         .frame(width: side, height: side)
@@ -140,7 +154,7 @@ struct MTApplicationIcon: View {
 struct MTLibraryIconStyleView: View {
     @AppStorage(MTLibraryIconStyle.key) private var savedStyle = MTLibraryIconStyle.initial.rawValue
     @AppStorage("appLibraryIcons") private var icons = false   // the drawer's view: the 1949 list by default, the icons' grid by choice
-    private let preview: [MTApplication] = [.contacts, .calls, .chats, .feed, .card, .music, .gallery, .chess, .settings]
+    private let preview: [MTApplication] = [.contacts, .calls, .chats, .feed, .wallet, .card, .music, .gallery, .chess, .vpnWall, .meshWall, .p2pWall, .settings]
     private var selected: MTLibraryIconStyle { MTLibraryIconStyle(rawValue: savedStyle) ?? .initial }
     private func card(_ style: MTLibraryIconStyle) -> some View {
         Button {

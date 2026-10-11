@@ -58,7 +58,9 @@ final class MontanaDeliveryEngine {
                                                  quoteText: note.userInfo?["quoteText"] as? String,
                                                  quoteMid: note.userInfo?["quoteMid"] as? String,
                                                  linkPreview: note.userInfo?["linkPreview"] as? String,
-                                                 sentAt: note.userInfo?["sentAt"] as? Double)
+                                                 sentAt: note.userInfo?["sentAt"] as? Double,
+                                                 own: note.userInfo?["own"] as? Bool ?? false,
+                                                 author: note.userInfo?["author"] as? String)
         }
         // The wire said which transport the frame actually left by — the bubble's tag is refined
         // by fact, not by what it looked like when the letter was created.
@@ -77,10 +79,87 @@ final class MontanaDeliveryEngine {
     /// letter to the node (the box keeps it). Only when neither is known does the arrival stand in,
     /// and then it is the honest best we have. Measured 01.09: two pictures sent at 17:49 from a
     /// build that stamps no name wore 18:47 — the minute this phone woke and collected them.
-    static func letterMoment(mid: String, sentAt: Double?) -> Double {
+    ///
+    /// A CORRESPONDENT'S BIRTH STANDS NO FURTHER AHEAD THAN THIS PHONE'S CLOCK AND THE TOLERANCE (spec Stage 9 §Ordering, the note
+    /// beside ChatStore.before: «clamp into [..., local receive time + tolerance]; own messages (multi-device echo) are not clamped»;
+    /// the tolerance is the stage's audit closure S9-F2: two minutes; the author's word 11.10.2026 20:1x MSK: «check the whole
+    /// architecture of the chats' time chains, so there are no holes by the constitution»). The name's millisecond is the
+    /// sender's claim, and a claim of a far year stood under every later letter of the chat for good. A letter of my own other
+    /// device keeps its own moment.
+    static let birthTolerance: Double = 120
+    static func letterMoment(mid: String, sentAt: Double?) -> Double { letterMoment(mid: mid, sentAt: sentAt, own: false) }
+    static func letterMoment(mid: String, sentAt: Double?, own: Bool) -> Double {
+        let claimed = claimedMoment(mid: mid, sentAt: sentAt)
+        return own ? claimed : min(claimed, Date().timeIntervalSince1970 + birthTolerance)
+    }
+    private static func claimedMoment(mid: String, sentAt: Double?) -> Double {
         if let born = ChatStore.birthMs(fromMid: mid) { return born }
         if let sentAt, sentAt > 0 { return sentAt }
         return Date().timeIntervalSince1970
+    }
+
+    /// A letter of this person's other device lands as mine: a row stands on my side, «sent» until the correspondent's receipt
+    /// moves it, burning no coin again (its own device burned the bubble's) and ringing nothing. A word that changes no row -- a
+    /// name, a face, a receipt, a presence, a call written as a letter -- is that device's word to the correspondent, applied
+    /// to nobody here; a deletion is not such a word (landOwnDeletion).
+    @MainActor private func landOwn(_ store: ChatStore, from: String, mid: String, text: String, transport: String?,
+                                    quoteText: String?, quoteMid: String?, linkPreview: String?, sentAt: Double?) {
+        let sid = "mid:" + mid
+        let kind = MontanaNotify.kind(for: text)
+        let row = !isControlMarker(text) || text.hasPrefix(mediaMark) || text.hasPrefix(voiceMark) || text.hasPrefix(stickerMark)
+        guard row else {
+            if landOwnDeletion(store, from: from, mid: mid, text: text) {
+                MontanaTrace.mark("rx_own", mid: mid, "a deletion of another device of these words, applied here kind=\(kind)")
+                return
+            }
+            MontanaTrace.markFolded("rx_own", "word of another device of these words kind=\(kind) -- applied to nobody", window: 30, key: kind)
+            return
+        }
+        guard store.messages[from]?.contains(where: { $0.msgId == sid }) != true else {
+            MontanaTrace.mark("rx_own", mid: mid, "the row already stands")
+            return
+        }
+        // A letter my other device took away stays away, whichever of its two words came first; one born before the
+        // conversation's funeral is the dead conversation's.
+        guard !store.buried(sid, in: from), !store.diedBefore(sid, in: from) else {
+            MontanaTrace.mark("rx_own", mid: mid, "buried here -- not landing")
+            return
+        }
+        let born = Self.letterMoment(mid: sid, sentAt: sentAt, own: true)
+        var m = Message(text: text, isFromMe: true, time: hhmm(at: born),
+                        replyText: (quoteText?.isEmpty == false) ? quoteText : nil,
+                        deliveryStatus: .sent, msgId: sid, createdAt: born,
+                        replyToId: store.localId(forMid: quoteMid, chat: from), transport: transport)
+        m.linkPreview = linkPreview
+        let landed = store.append(from, m)
+        MontanaTrace.mark("rx_own", mid: mid, "landed=\(landed ? 1 : 0) kind=\(kind) from=\(String(from.prefix(10)))")
+    }
+
+    /// A DELETION IS AN EVENT OF THE SEED'S CHAIN (the critic B-4; the author's words 11.10.2026 20:1x MSK: «check the whole
+    /// architecture of the chats' time chains, so there are no holes by the constitution», 21:5x: «carry out all 13»). My other
+    /// device took a letter away for everyone, or the whole conversation, and its word reached here signed by these words
+    /// (MTNodeWire.authorHolds). Applied to nobody, the conversation stood on this phone after the other had erased it, and this
+    /// phone's archive blocks were filed back there. The word walks the hand's own road here -- the plate's deleteLocally and
+    /// deleteEverywhere for a letter, deleteChat's local steps and the dying pipe for the conversation -- and nothing is said to
+    /// the correspondent again: the device that spoke already said it.
+    @MainActor private func landOwnDeletion(_ store: ChatStore, from: String, mid: String, text: String) -> Bool {
+        if text.hasPrefix(deleteMark) {
+            let sid = String(text.dropFirst(deleteMark.count))
+            guard !sid.isEmpty else { return true }
+            if let row = store.messages[from]?.first(where: { $0.msgId == sid }) { store.deleteLocally(chat: from, row) }
+            store.deleteEverywhere(chat: from, msgId: sid)
+            return true
+        }
+        if text.hasPrefix(convDelMark) {
+            // A funeral no newer than the one kept is a repeat (ChatStore.noteFuneral, the critic R-5).
+            if let moment = ChatStore.birthMs(fromMid: mid), !store.noteFuneral(from, at: moment) { return true }
+            // The funeral is the other device's to deliver; here the pipe only dies (drainAll finishes a dying pipe with no
+            // tombstone queued), as the receiver's does.
+            MTPipeBook.markDying(from)
+            store.eraseConversationHere(from)
+            return true
+        }
+        return false
     }
 
     /// Letters that arrived before the history was read — replayed in arrival order the moment it is.
@@ -98,7 +177,7 @@ final class MontanaDeliveryEngine {
     func receive(from: String, mid: String, text: String, senderName: String? = nil, senderGlyph: String? = nil,
                  transport: String?,
                  quoteText: String? = nil, quoteMid: String? = nil, linkPreview: String? = nil,
-                 sentAt: Double? = nil) {
+                 sentAt: Double? = nil, own: Bool = false, author: String? = nil) {
         // A WORD OF THEIRS ENDS THE INTRODUCTION (26.09): every road lands here, so the proof is read here, before
         // the row lands and its receipt leaves -- a receipt to a peer still in the introduction waits for the pipe.
         // The queue turns at once from the knock at their point to the node and the wake.
@@ -113,7 +192,8 @@ final class MontanaDeliveryEngine {
         if !store.historyLoaded {
             parkedInbound.append { [weak self] in
                 self?.receive(from: from, mid: mid, text: text, senderName: senderName, senderGlyph: senderGlyph,
-                              transport: transport, quoteText: quoteText, quoteMid: quoteMid, linkPreview: linkPreview, sentAt: sentAt)
+                              transport: transport, quoteText: quoteText, quoteMid: quoteMid, linkPreview: linkPreview, sentAt: sentAt,
+                              own: own, author: author)
             }
             MontanaTrace.markFolded("inbound_parked", "history not read yet n=\(parkedInbound.count)", window: 10)
             return
@@ -124,11 +204,19 @@ final class MontanaDeliveryEngine {
         if store.refuses(from) {
             // A letter (not a passing control word) is buried under the feed's tombstone: a resend
             // after an unblock meets it and is never shown — the reference delivers it never.
-            if !isControlMarker(text) { store.deletedMids.insert("mid:" + mid) }
+            if !isControlMarker(text) { store.bury(["mid:" + mid], in: from) }   // in this conversation alone
             MontanaTrace.markFolded("rx_blocked", "door peer=\(String(from.prefix(10)))", window: 60, key: "door:" + from)
             return
         }
         let sid = "mid:\(mid)"
+        // THE PERSON'S OWN LETTER FROM ANOTHER OF THEIR DEVICES (MTNodeWire.authorHolds, 11.10.2026, No.62): a word the same
+        // words wrote is mine, whichever device wrote it and whatever road brought it -- never the correspondent's name, face,
+        // banner or receipt. A call's signal keeps its own road: the call machine hears its sibling there («answered elsewhere»).
+        if own, !text.hasPrefix(callSignalMark) {
+            landOwn(store, from: from, mid: mid, text: text, transport: transport, quoteText: quoteText, quoteMid: quoteMid,
+                    linkPreview: linkPreview, sentAt: sentAt)
+            return
+        }
         // A control letter that already spoke is not heard twice (the box repeats; 15.09 13:38).
         // Call and draft words carry a fresh name on every copy and pass; the rest are named once.
         // A ROW LETTER IS NEVER A CONTROL WORD HERE (1638): media, voice and stickers dedup by the
@@ -232,6 +320,7 @@ final class MontanaDeliveryEngine {
                           replyToId: store.localId(forMid: quoteMid, chat: from),
                           transport: transport)
         row.linkPreview = linkPreview
+        row.authorTag = (author?.isEmpty == false) ? author : nil   // their word, kept for a correspondence given back
         var landed = false
         // THE LANDING NAMES THE WORD IT LANDS (23.09: T3 on 1915 held 194 ms inside a landing and named no part of it):
         // ONE step, «rx:» and the word's own kind by the one classifier of the diary (the critic 24.09: a step nested
@@ -650,6 +739,13 @@ final class MontanaDeliveryEngine {
         if let s, s.era == MTOutbox.era { return s.items }
         return readItems()
     }
+    /// The names of the letters on the line now, for the ledgers kept beside it (the long letters' references, the chunks on
+    /// the node): the line's newest copy, from memory only -- nil before the line has read its store.
+    func queuedMids() -> Set<String>? {
+        shown.lock(); let s = shownCopy; shown.unlock()
+        guard let s, s.era == MTOutbox.era else { return nil }
+        return Set(s.items.map { it in it.mid })
+    }
     private func readItems() -> [Item] {
         guard MTOutbox.available else { return loadLegacy() }
         switch MTOutbox.read() {
@@ -794,6 +890,7 @@ final class MontanaDeliveryEngine {
             // ONE PAGE OF A WALL ON ITS WAY TO ONE PERSON (the critic's N1): a newer page of mine makes the queued one
             // meaningless — the last page stands, as the last read mark does.
             if MTBoard.isPage(text) { a.removeAll { $0.to == to && MTBoard.isPage($0.text) } }
+            if MTVPNWall.isPage(text) { a.removeAll { $0.to == to && MTVPNWall.isPage($0.text) } }   // the VPN wall's page, by the same law (29.09)
             // THE SAME STATE ALREADY ON ITS WAY IS NOT QUEUED AGAIN (25.09, the diary of T1: at one proof of a peer's build
             // four «about» letters and three 1.6 MB «ground» letters left within 60 ms). The senders ask the queue whether
             // their state waits, but they ask on their own thread while the queue writes on this line: every question before
@@ -898,7 +995,7 @@ final class MontanaDeliveryEngine {
                 // A receipted name or face is now what the peer's screen shows — the mark is written here.
                 if let conv = due { Announced.recordDelivered(text: letterText, to: conv) }
                 // A receipted page of my wall is the version that visitor holds (the critic's N5).
-                if let conv = due { MTBoard.delivered(text: letterText, to: conv) }
+                if let conv = due { MTBoard.delivered(text: letterText, to: conv); MTVPNWall.delivered(text: letterText, to: conv) }
                 // The tombstone is delivered — now the pipe can be buried for real.
                 if wasTombstone, let conv = due { MTPipeBook.forget(conv) }
                 // The letter is delivered — its media's shipping crate is of no use to anyone:
@@ -969,10 +1066,45 @@ final class MontanaDeliveryEngine {
             }
             // «Delete for both» sweeps the node box as well: the conversation's undelivered letters go (7.2c).
             let boxed = a.filter { ($0.to == conv || $0.chat == conv) && !isBurialWord($0.text) }.map { $0.mid }
-            if !boxed.isEmpty { Task { await MontanaWakePush.boxDel(boxed) } }
+            // THE FUNERAL CARRIES ITS BURIAL (the critic R-5): the box burial asked the doors awake once and threw their answers
+            // away -- a letter on a door asleep that minute stayed for the box's term and reached the other side after the
+            // funeral. The burial rides the funeral's own attempts until every door has confirmed it (buryInBox).
+            let funeral = a.firstIndex { $0.to == conv && $0.text.hasPrefix(convDelMark) }
+            if let funeral, !boxed.isEmpty {
+                a[funeral].boxGraves = Array(Set((a[funeral].boxGraves ?? []) + boxed))
+                buryInBox(a[funeral].boxGraves ?? [], funeral: a[funeral].mid, held: Set(a[funeral].boxGravesHeld ?? []))
+            } else if !boxed.isEmpty { Task { await MontanaWakePush.boxDel(boxed) } }
             // The tombstone is the one letter that must OUTLIVE the chat's death.
             a.removeAll { ($0.to == conv || $0.chat == conv) && !isBurialWord($0.text) }
-            if a.count != n { save(a); MontanaLog.event("DELIVERY cleared \(n - a.count) for deleted chat \(conv.prefix(10))") }
+            if a.count != n || funeral != nil { save(a) }
+            if a.count != n { MontanaLog.event("DELIVERY cleared \(n - a.count) for deleted chat \(conv.prefix(10))") }
+        }
+    }
+
+    /// The funeral's box burial, asked of every door that has not confirmed it yet; each door's «ok» is written on the funeral,
+    /// and the burial leaves the funeral once every door holding a box has said it. Bounded by the funeral's own attempts
+    /// (burialTries) and its life: a funeral receipted or past its carriage takes the burial with it -- the other side by then
+    /// refuses every letter born before the funeral (ChatStore.diedBefore). Called on `q`.
+    private let burialTries = 24
+    private func buryInBox(_ mids: [String], funeral: String, held: Set<String>) {
+        guard !mids.isEmpty else { return }
+        Task {
+            let answers = await MontanaWakePush.boxDel(mids, skipping: held)
+            let confirmed = answers.filter { $0.value }.map { $0.key }
+            q.async { [self] in
+                var a = load()
+                guard let i = a.firstIndex(where: { $0.mid == funeral }) else { return }
+                let now = held.union(confirmed).union(a[i].boxGravesHeld ?? [])
+                let doors = Set(MontanaWakePush.orderedBases(for: "box"))
+                if !doors.isEmpty, doors.isSubset(of: now) {
+                    a[i].boxGraves = nil; a[i].boxGravesHeld = nil
+                    MontanaTrace.mark("funeral_burial", mid: funeral, "every door confirmed n=\(mids.count)")
+                } else {
+                    a[i].boxGravesHeld = Array(now)
+                    MontanaTrace.markFolded("funeral_burial", "confirmed=\(now.count) of \(doors.count) doors", window: 60, key: funeral)
+                }
+                save(a)
+            }
         }
     }
 
@@ -1157,6 +1289,7 @@ final class MontanaDeliveryEngine {
             let verdicts = store.rowVerdicts(facing.map { $0.mid })
             store.liftClockRed(riding: riding)   // once: the reds of silence an older build painted on letters still riding
             store.paintOrphanSending(queueMids: queueMids)
+            MTCoinSend.due(store)   // a coin letter of mine past its day gives its coins back (10.10)
             guard !facing.isEmpty else { return }
             self.q.async {
                 var a = self.load(); let n = a.count
@@ -1343,9 +1476,9 @@ final class MontanaDeliveryEngine {
         }
         // A letter ends by its CARRIAGE only. Death by try-count killed a letter in ~2.5 minutes: a
         // receiver opening the app later had no way left to get it.
-        // A TRANSFER LETTER AN OLDER BUILD QUEUED HAS NO END (the author's words 07.10.2026 18:4x MSK: «online or in cold storage,
-        // what difference -- they must leave»): it rides until the receiver's receipt, and no clock hands it back.
-        if now - it.since > carry, !mtRetiredLetter(it.text) {
+        // A COIN LETTER HAS NO END (the author's words 07.10.2026 18:4x MSK: «online or in cold storage, what difference -- they
+        // must leave»): its coins ride with it until the receiver's receipt, and no clock hands them back.
+        if now - it.since > carry, MTCoinLetter.parse(it.text) == nil {
             a.remove(at: i); save(a)
             let chat = it.chat, m = it.mid, tries = it.tries, age = Int(now - it.since)
             if isBurialWord(it.text) { MTPipeBook.forget(it.to) }   // the tombstone or the closing word expired — the pipe goes with it
@@ -1408,6 +1541,10 @@ final class MontanaDeliveryEngine {
         }
         a[i].tries += 1; a[i].lastTry = now; save(a)
         let to = it.to, chat = it.chat, text = it.text, m = it.mid
+        // A funeral's burial not yet confirmed by every door is asked again with each of its attempts (buryInBox).
+        if let graves = it.boxGraves, !graves.isEmpty, it.tries < burialTries {
+            buryInBox(graves, funeral: m, held: Set(it.boxGravesHeld ?? []))
+        }
         // A LOUD LETTER WAITING FOR ITS RECEIPT ASKS THE BOX on every attempt (15.46): the
         // receipt lies on the node when the push that announces it is cut — it used to wait
         // for the next push forever. The pickup is one, rationed inside (8 s).
@@ -1475,14 +1612,26 @@ final class MontanaDeliveryEngine {
         // the wire leg lived in the wake completion and never ran, so a receiver who came
         // online between windows waited for nothing (precedent 24.08: both phones on, the
         // letter parked in the box, nobody handed it over). The receiver door dedups by mid.
+        // 16.6.14 — A STANDING ROAD CARRIES, THE BELL ONLY WAKES (the author's word 04.09: the
+        // servers must not be the bottleneck). With a standing near channel every letter — the
+        // silent service word included — leaves by it and the bell stays quiet: a silent word is
+        // handed over the moment the channel took it (as it settled on the node's 200); a loud
+        // letter shows one checkmark and waits for the receipt. The bell rings only when no road
+        // of our own stands, or on the next attempt after it fell.
+        let standing = MontanaPhoneNode.shared.hasStandingNearChannel(to)
         // A STATE LETTER WAITS FOR ITS RECEIPT LIKE A LOUD ONE (20.09): «in flight» is the queue's
         // record, and a name or a face settled on the node's word was out of the queue with no
         // mark written — every reciprocity found it neither receipted nor pending and sent it
         // again, once a second (the 09.09 storm, and again 18:26 today between T1 and T3). It
         // stays on the sparse rhythm until the peer's receipt or the hour's retirement.
         let settlesOnNode = it.silent && !it.kind.isState
-        if !it.silent { _ = MontanaPhoneNode.shared.sendLetter(to: to, mid: m, text: text,
+        if !it.silent || standing { _ = MontanaPhoneNode.shared.sendLetter(to: to, mid: m, text: text,
                                                                       quoteText: it.qt, quoteMid: it.qm, linkPreview: it.lp) }
+        if standing, MontanaPhoneNode.shared.leftByStandingRoad(m) {
+            MontanaTrace.markFolded("bell_quiet", "a standing road carried kind=\(MontanaNotify.kind(for: text)) to=\(String(to.prefix(10)))", window: 60, key: to)
+            if settlesOnNode { dequeue(m) } else if it.silent { noteNodeAck(m) } else { Task { await MainActor.run { self.store?.markSentByNode(chat, mid: m, why: "standing road") } } }
+            return
+        }
         // 16.6.17 (F2) — THE BELL IS DOSED ON THE FAST RAMP. The wire and the node try on every
         // attempt (1-2-4-8-16-20 s); the bell — a wake, glued by the node per mid — rang on every
         // one of the twelve too, and an undelivered service word to an offline correspondent

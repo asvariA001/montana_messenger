@@ -20,6 +20,9 @@ import MetricKit
 @main
 enum MontanaEntry {
     @MainActor static func main() {
+        #if targetEnvironment(macCatalyst)
+        if MTMacVPNService.isAgent { MTMacVPNService.run(); return }
+        #endif
         MontanaApp.main()
     }
 }
@@ -27,6 +30,8 @@ enum MontanaEntry {
 struct MontanaApp: App {
     @State private var langTick = 0
     @State private var meetVerdict: String?   // the loud outcome of a meeting by link (F-4)
+    @State private var chooseLink: String?   // an invitation waiting for the person to choose the Montana app that opens it
+    @State private var diagAsk = false   // the diagnostics yes, asked at the install and at every update (MontanaDiagConsent)
     @AppStorage("AppLanguage") private var appLang = ""   // "" = follow system
     init() {
         // Before any screen: an installation that has just appeared must not inherit a person.
@@ -50,6 +55,16 @@ struct MontanaApp: App {
             // and cells included — and only the letters of a letter ask for the person's size by name.
             MontanaTypeSizeGate {
                 RootView()
+                    .alert("Share diagnostics?", isPresented: $diagAsk) {
+                        Button("Allow") { MontanaDiagConsent.answer(true) }
+                        Button("Don't Allow", role: .cancel) { MontanaDiagConsent.answer(false) }
+                    } message: {
+                        Text("Event records with no message content, names or addresses go to Montana's nodes to help fix calls and other defects, and are kept for seven days. Settings, Privacy changes this at any time.")
+                    }
+                    .task { await askDiagnosticsWhenFree() }
+                    .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+                        Task { await askDiagnosticsWhenFree() }
+                    }
                     .montanaRoot()
                     .environment(\.locale, appLocale)   // drives SwiftUI Text localization to the chosen language
                 .id(langTick)   // redraw the whole tree on language change (live)
@@ -75,8 +90,37 @@ struct MontanaApp: App {
                     get: { meetVerdict != nil }, set: { if !$0 { meetVerdict = nil } })) {
                     Button("OK", role: .cancel) { meetVerdict = nil }
                 }
+                // WHICH MONTANA OPENS THE INVITATION (MTSiblingApps, the author's word 11.10.2026 17:13 MSK): with another Montana
+                // app on this phone the platform's own dialog names each; with none the link opens here at once.
+                .onReceive(NotificationCenter.default.publisher(for: .montanaChooseApp)) { n in
+                    guard let link = n.userInfo?["link"] as? String, let u = URL(string: link) else { return }
+                    if MTSiblingApps.others.isEmpty { MontanaMeeting.handleLink(u, chosen: true) } else { chooseLink = link }
+                }
+                .confirmationDialog(Text("Open in"), isPresented: Binding(
+                    get: { chooseLink != nil }, set: { if !$0 { chooseLink = nil } }), titleVisibility: .visible) {
+                    Button { if let l = chooseLink, let u = URL(string: l) { MontanaMeeting.handleLink(u, chosen: true) }; chooseLink = nil } label: {
+                        Text(verbatim: MTSiblingApps.ownName)   // USER-DATA: the product's own name
+                    }
+                    ForEach(MTSiblingApps.others) { app in
+                        Button { if let l = chooseLink { MTSiblingApps.open(app, link: l) }; chooseLink = nil } label: {
+                            Text(verbatim: app.name)   // USER-DATA: the product's own name
+                        }
+                    }
+                    Button("Cancel", role: .cancel) { chooseLink = nil }
+                }
             }
         }
+    }
+}
+
+extension MontanaApp {
+    /// The diagnostics yes is asked a breath after the window stands, only while no call stands (a ring, a talk, a dial): an
+    /// alert over a call is the defect the camera taught on 11.10.2026. A call that holds the moment defers the ask to the
+    /// next activation.
+    @MainActor fileprivate func askDiagnosticsWhenFree() async {
+        try? await Task.sleep(nanoseconds: 1_500_000_000)
+        guard MontanaDiagConsent.shouldAsk, !MontanaCall.isBusy, MontanaCall.stateSnapshot == "idle", !diagAsk else { return }
+        diagAsk = true
     }
 }
 
@@ -192,6 +236,11 @@ extension Notification.Name {
     static let montanaMeetVerdict = Notification.Name("montanaMeetVerdict")
     /// A correspondent's daily link arrived (their answer to «share contact»); userInfo["conv"].
     static let montanaPeerLinkArrived = Notification.Name("montanaPeerLinkArrived")
+    /// A coin's link was tapped: the tabs open the wallet (03.10).
+    static let montanaOpenWallet = Notification.Name("montanaOpenWallet")
+    /// The wallet's «Add account»: the tabs open the first screen as the drawer's plus does (03.10).
+    static let montanaAddPerson = Notification.Name("montanaAddPerson")
+    static let montanaChooseApp = Notification.Name("montanaChooseApp")   // an invitation asks which Montana app opens it (MTSiblingApps)
 }
 
 /// The SSOT of entering a conversation from OUTSIDE live screens -- a notification tap and a
@@ -277,6 +326,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     /// a real sleep.
     private static var away = true   // the launch is the first return
     static func appBecameActive() {
+        MontanaVPNFreshener.shared.appActive(true)   // the quiet beats of the VPN page live while the app stands on the screen (29.09)
+        // The level the words say is read before the first of them (MTLevelShow, 11.10): otherwise the seconds are read at the
+        // first node's answer, and the greeting would carry no level and take it from every pair. The observer runs on the main queue.
+        if MTLevelShow.on { MainActor.assumeIsolated { MTPersonChain.shared.prime() } }
         E2E.shared.appPresence(open: true)       // «I am here» to every correspondence — once per state
         guard away else { return }               // SILENT-OK: the shade, a sheet, Face ID — the person never left
         away = false
@@ -287,18 +340,32 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         MontanaWakePush.registerConvs()   // the door's standing map: only what changed leaves
         Task { await MontanaWakePush.flushPendingDrops() }   // the boxes a drop failed to empty are asked again
         MontanaBlobUpload.sweepOrphanBodies()   // orphan handoff bodies mute the cargo check; a newborn body is spared
+        // The tunnel is read at every return, not only when its page opens: a tunnel that stands is asked what its
+        // reconnect says, and what the extension wrote while the app was away (a death, a raise by the system) rides.
+        Task { await MontanaVPNTunnel.shared.load() }
     }
     /// THE APPLICATION LEAVES THE PERSON (24.09): the farewell, and the diary says what it holds before the sleep.
     static func appLeft() {
+        MontanaVPNFreshener.shared.appActive(false)
         away = true                           // the next activation is a return
         E2E.shared.appPresence(open: false)   // the farewell
         MontanaDiagShip.shipNow()   // leaving the person — say it now, another occasion may not come
+        // THE MINTING GOES ON WHILE THE APP IS AWAY, AT THE GLOBAL LEVEL OF THIS MOMENT (the author's word 10.10.2026 15:0x MSK;
+        // MTPersonChain.left, as the Wallet has it): every node's answer of every road feeds the chain's last second
+        // (MontanaWakePush.learnSkew), so the leave names the second the app was last on the network, not a coin answer minutes
+        // before -- the reason 667e6020 left it out. The observer runs on the main queue.
+        MainActor.assumeIsolated {
+            let person = MTPersonChain.shared
+            person.left(level: MTPersonChain.global(person: person.level, balance: MTCoinBook.ledger.balance))
+        }
     }
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        if MTInstallPrepare.asked { MTInstallPrepare.run(); return true }   // the install road: lift the reconnect, stop, leave (MontanaVPNTunnel.swift)
         MontanaTrace.mark("launch_begin")
         SeedScope.forgetRetired()
         MontanaDiagConsent.apply()   // no yes to the diary: the extensions hold no diary id (5.1.1(ii), 08.10.2026)
+        MTTopNet.noteFirstLaunch()   // whether an earlier build had published this device's top row (5.1.2(i), 08.10.2026)
         MTRowLetter.eventWords = { MTGroup.shared.eventWords($0) }   // a group's event row speaks the group's names (stage R)
         AppDelegate.launchedAt = ProcessInfo.processInfo.systemUptime
         MontanaTelemetry.shared.install()   // crashes/hangs/events → Montana/Diagnostics/telemetry.log
@@ -452,9 +519,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
                       for type: PKPushType, completion: @escaping () -> Void) {
         guard type == .voIP else { completion(); return }
         // A voip wake MUST raise the call screen immediately, or the system takes the app away.
+        // A RING AT ONE OF MY CARDS (11.10.2026, No.63): a caller in first contact rings where my card listens; the pipe is begotten from
+        // the encapsulation the ring carries, as from a first letter, and the ring opens with it (MontanaWakePush.openCardRing).
         let ring = (payload.dictionaryPayload["env"] as? String)
             .flatMap { Data(base64Encoded: $0) }
-            .flatMap { MontanaWakePush.openRingEnvelope($0) }
+            .flatMap { MontanaWakePush.openRingEnvelope($0) ?? MontanaWakePush.openCardRing($0) }
         // The relay pass the node minted for this very wake (29.09): in hand before any screen rises.
         if let t = payload.dictionaryPayload["turn"] as? [String: Any] {
             MontanaTrace.mark("turn_cred", MontanaWakePush.adoptTurnPass(t) ? "carried by the wake" : "carried by the wake — refused")
@@ -504,12 +573,16 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
             // door): the machine names the caller only when it accepts the call.
             MontanaTrace.mark("wakepush_vrx2", "n=\(ring.name.map { String($0.prefix(10)) } ?? "-") g=\(ring.glyph ?? "-")")
         }
+        // THE PUSH'S AGE IS READ ON THE NODE'S CLOCK (11.10.2026, No.61): the node stamps «at» by its own clock, and the device's
+        // clock judged it -- a phone whose clock runs ahead by more than a call's life buries every live call as stale, one
+        // behind rings ghosts.
+        // Every other age gate of a call reads the node's clock (K-11); this one does too.
         if let at = payload.dictionaryPayload["at"] as? Int,
-           Date().timeIntervalSince1970 - TimeInterval(at) > MontanaCall.callLifeS {
+           MontanaWakePush.nodeNow() - TimeInterval(at) > MontanaCall.callLifeS {
             // Only a late offer was a call from a person to miss. A stale push with no offer -- an answer, an
             // end, or an envelope this install cannot open (02.10 14:51Z on T1, held 825 s across a
             // reinstall) -- ends failed: «unanswered» wrote a missed call from «Montana» into Recents.
-            MontanaTrace.mark("ring_dead", "stale-push age=\(Int(Date().timeIntervalSince1970) - at)s offer=\(ring?.offer == nil ? 0 : 1)")
+            MontanaTrace.mark("ring_dead", "stale-push age=\(Int(MontanaWakePush.nodeNow()) - at)s offer=\(ring?.offer == nil ? 0 : 1)")
             MontanaCall.shared.reportDummyAndEnd(from: ring?.conv ?? "Montana", reason: ring?.offer == nil ? .failed : .unanswered)
             return
         }
@@ -534,10 +607,19 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
                 if MontanaCall.stateSnapshot == "idle" {
                     MontanaTrace.mark("wakepush_vrx", "answer with no call — buried")
                     MontanaCall.shared.reportDummyAndEnd(from: ring.conv, reason: .failed)
+                } else if !MontanaCall.shared.holdsCall(seed: ring.callSeed, from: ring.conv) {
+                    // AN ANSWER TO ANOTHER CALL IS NO WORD OF THIS ONE (11.10.2026, No.61): the wake road carries the answer to every
+                    // device of the caller's seed; one whose seed does not name this machine's call -- or whose sender is not this
+                    // call's peer -- was posted as a ring and applied here. The mandatory report, the end on top, nothing posted.
+                    MontanaTrace.mark("wakepush_vrx", "answer of another call — the mandatory report, nothing applied")
+                    MontanaCall.shared.reportDummyAndEnd(from: ring.conv, reason: .failed)
                 } else {
                     MontanaCall.shared.postForPush(from: ring.conv, video: MontanaCall.shared.isVideo)
-                    MontanaTrace.mark("sdp_in", "answer by the wake road")
-                    MontanaCall.shared.handleSignal(from: ring.conv, device: "", ctrl: "call-answer",
+                    MontanaTrace.mark("sdp_in", "answer by the wake road dev=\(ring.device == nil ? 0 : 1)")
+                    // THE WAKE ROAD NAMES THE DEVICE THAT ANSWERED (11.10.2026, No.61): a call answered by the wake held no device,
+                    // and the end of any device of the person tore it down. A bare answer (an older build) names its device by its
+                    // copy of the same connection (call-answer).
+                    MontanaCall.shared.handleSignal(from: ring.conv, device: ring.device ?? "", ctrl: "call-answer",
                                                     sdp: CallSDP(type: "answer", sdp: a),
                                                     candidate: nil, video: nil, caps: nil,
                                                     callSeed: ring.callSeed)
@@ -550,7 +632,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
                 MontanaCall.shared.postForPush(from: ring.conv, video: ring.video)
                 // The ring's own declarations ride in as the word's caps (24.09): a call born by the wake alone knew
                 // neither that its caller reads an answer off this road nor that it goes back into the call.
-                MontanaCall.shared.handleSignal(from: ring.conv, device: "", ctrl: "call", sdp: sdp,
+                // The caller's device word rides in the ring (11.10.2026, No.61): the call born here holds the device that calls.
+                MontanaCall.shared.handleSignal(from: ring.conv, device: ring.device ?? "", ctrl: "call", sdp: sdp,
                                                 candidate: nil, video: ring.video, caps: ring.caps,
                                                 callSeed: ring.callSeed, name: ring.name, glyph: ring.glyph)
                 MontanaWakePush.startSignalPolling(ring.conv)   // answer and ICE go through the node
@@ -1004,8 +1087,9 @@ enum MontanaNetWitness {
     private static var netSigSeen = false
     private static var rejudgeDue = false   // the signature changed; the doors are re-judged on the first path that carries
 
-    /// The system scopes its proxy settings per interface; a scoped entry named utun/ipsec/ppp is a standing tunnel.
-    /// Only the FACT leaves the device — never a name, never an address.
+    /// Whether ANY tunnel stands on this device — ours or a third-party VPN client alike.
+    /// The system scopes its proxy settings per interface; a scoped entry named utun/ipsec/ppp
+    /// is a standing tunnel. Only the FACT leaves the device — never a name, never an address.
     static func tunnelPresent() -> Bool {
         guard let dict = CFNetworkCopySystemProxySettings()?.takeRetainedValue() as? [String: Any],
               let scoped = dict["__SCOPED__"] as? [String: Any] else { return false }
@@ -1014,9 +1098,9 @@ enum MontanaNetWitness {
         }
     }
 
-    /// Margarita's phone, 03.10 12:48-16:20 MSK on 2063: another app's tunnel stood, every door of the nodes died through it,
-    /// and her call at 16:20:14 fell into that window; the doors answered 0.7 s after the tunnel left. A socket bound to a
-    /// physical interface leaves any tunnel that does not hold every route, as most do not. This is the
+    /// Margarita's phone, 03.10 12:48-16:20 MSK on 2063: a third-party tunnel stood, ours was off, every door of the nodes died
+    /// through it, and her call at 16:20:14 fell into that window; the doors answered 0.7 s after the tunnel left. A socket bound
+    /// to a physical interface leaves any tunnel that does not hold every route -- ours does not, nor do most. This is the
     /// interface a door is bound to while a tunnel stands (MontanaDirect.doorRoadAbove).
     private static let physicalLock = NSLock()
     private static var physicalNow: NWInterface? = nil
@@ -1032,7 +1116,10 @@ enum MontanaNetWitness {
             // fact changes, every door is judged afresh (a web door dead on cellular is the only
             // road under a full tunnel). Not on every re-evaluation — a flapping tunnel re-evals
             // several times a second — only on a real change of the signature.
-            let sig = p.availableInterfaces.map { String(describing: $0.type) }.joined(separator: ",") + "|utun=\(tunnelPresent() ? 1 : 0)"
+            let sig = p.availableInterfaces.map { String(describing: $0.type) }.joined(separator: ",") + "|vpn=\(tunnelPresent() ? 1 : 0)"
+            // THE SYSTEM'S WORD FOR EVERY APP, carried to the tunnel (29.09, MTTunnelDeath): the tunnel sees its bytes and the
+            // phone's own network, never whether the system lets an app through it.
+            MontanaVPNTunnel.notePath(satisfied: p.status == .satisfied, tunnel: sig.hasSuffix("|vpn=1"))
             // ONE owner of «the network changed» ([C-1]): the door verdicts (16.6.19) and the signal
             // lanes to the store (15.4) both hang on this signature — the interface set and the
             // tunnel fact — and nowhere else.
@@ -1041,6 +1128,10 @@ enum MontanaNetWitness {
                 MontanaDirect.resetDoorRoads()   // a new network or a new tunnel: every door is dialled above it again
                 if Self.netSigSeen { Self.rejudgeDue = true }
                 Self.netSigSeen = true
+                // A tunnel that is not ours is judged by the doors three seconds on (MontanaVPNTunnel, 25.09): one that
+                // kills them is overtaken by our own configuration and the recovery.
+                let present = tunnelPresent(), sat = p.status == .satisfied
+                Task { @MainActor in MontanaVPNTunnel.shared.foreignTunnelChanged(present: present, satisfied: sat) }
             }
             // THE NEW NETWORK IS KNOCKED WHEN IT CARRIES (29.09). The signature changes before the path is satisfied —
             // the tunnel's interface appears, its route a moment later — and every door knocked at the first change met

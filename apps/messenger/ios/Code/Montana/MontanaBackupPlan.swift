@@ -212,7 +212,7 @@ struct CopyChatsPage: View {
                     Button { toggle(c.id) } label: {
                         HStack(spacing: 12) {
                             AvatarCircle(photoURL: ChatStore.live?.avatarFor(c.chat), color: c.chat.color,
-                                         initial: ChatStore.live?.initial(for: c.chat) ?? c.chat.initial, size: 36)
+                                         initial: ChatStore.live?.initial(for: c.chat) ?? c.chat.initial, size: 36, who: c.chat.convRef)
                             VStack(alignment: .leading, spacing: 2) {
                                 // USER-DATA: the correspondent's name, as the list shows it
                                 Text(verbatim: c.title).foregroundColor(.primary).lineLimit(1)
@@ -410,7 +410,7 @@ struct CopyFilesPage: View {
     private func delete(_ file: String) {
         guard let store = ChatStore.live else { return }
         let ls = inventory.letters[file] ?? []
-        for l in ls { store.deleteLocally(chat: l.chat, l.msg) }
+        store.deleteLocally(ls)   // one tombstone write and one history write for every letter naming the file
         store.sweepMediaFiles()
         plan.skipFiles.removeAll { $0 == file }
         inventory.forget(file)

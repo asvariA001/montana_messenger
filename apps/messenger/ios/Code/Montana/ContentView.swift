@@ -158,11 +158,14 @@ final class MTTurnDrag: ObservableObject {
     /// its own executor forwards it — one forward road for the whole client ([C-1]).
     var pendingForward: MID?
     var pendingForwardMany: [MID]?   // several letters chosen on the profile, forwarded through the chat's picker
-    /// WHAT STANDS UNDER THE TOP BAR (the author's word 17.09): the chats, the contacts, the calls — and the music (the
-    /// author's word 23.09: «the music tab as the calls»), the feed (25.09) and the network (the author's word 25.09: «a full
-    /// page under the time panel, as the chats, the calls, the contacts and the feed») — the tab bar's tabs, moved up into the
-    /// bar. One owner, read by the bar and the page.
-    enum Pane { case chats, groups, channels, contacts, calls, music, feed, gallery }
+    /// WHAT STANDS UNDER THE TOP BAR (the author's word 17.09): the chats, the contacts, the calls —
+    /// and the music (the author's word 23.09: «the music tab as the calls»), the feed (25.09) and the network
+    /// (the author's word 25.09: «a full page under the time panel, as the chats, the calls, the contacts and
+    /// the feed») — the tab bar's tabs, moved up into the bar. One owner, read by the bar and the page.
+    /// THE NETWORK IS DISBANDED INTO THREE WALLS (the author's word 29.09: «we have three new applications -- the VPN wall, the
+    /// mesh wall, the P2P wall -- walls common for publications»): the VPN wall under the globe, in the finger's row; the mesh
+    /// wall and the P2P wall are pages under the bar opened from the drawer.
+    enum Pane { case chats, groups, channels, contacts, calls, music, feed, vpn, mesh, p2p, gallery }   // the feed: the logo's page; the VPN wall: the globe's page; the gallery: the dynamic glyph's other page (25.09)
     var pane: Pane = .chats
     /// THE PAGES' GLYPHS, ONE OWNER FOR THE BAR AND THE DRAWER (the author's word 23.09: «I like the calls glyph: it is
     /// empty inside, only its outline is drawn — make the chats glyph the same, empty in the middle, its shape kept, and
@@ -199,6 +202,9 @@ final class MTTurnDrag: ObservableObject {
     /// preview's cross and checkmark. The slot of the document and the place is its.
     var chatWall: MTWallOpen?
     var chessPage: MTChessOpen?
+    var walletPage: MTPageFlag?
+    /// PASSWORDS (the author's word 06.10.2026 17:4x MSK): the person's secrets, a page of its own over the tabs (MTPasswordsPage).
+    var passwordsPage: MTPageFlag?
     var settingsShown: Bool {
         get { overlayPage == .settings }
         set { if newValue { overlayPage = .settings } else if overlayPage == .settings { overlayPage = nil } }
@@ -228,7 +234,12 @@ final class MTTurnDrag: ObservableObject {
     var mediaIsMusic: Bool { pane == .music || (pane != .gallery && lastMedia != "gallery") }
     /// THE GALLERY IS A PAGE UNDER THE BAR TOO (the author's word 25.09): chosen as the music is, in the dynamic glyph's slot.
     func askGallery() { lastMedia = "gallery"; pane = .gallery }
-    var turnOrder: [Pane] { [.contacts, .calls, .feed, .chats, mediaIsMusic ? .music : .gallery] }
+    /// THE TABS IN THE PANEL'S OWN ORDER (the author's word 24.09), left to right: the panes the puck stands under —
+    /// the contacts, the calls, THE FEED under the logo between them and the chats (the author's word 25.09: «the feed page as
+    /// whole as the chats, the calls and the contacts, turning sideways as they do»), the chats, the dynamic glyph's page --
+    /// the music while the glyph is the music's, else the gallery (25.09) -- and THE NETWORK under the globe at the row's end
+    /// (the author's word 25.09).
+    var turnOrder: [Pane] { [.contacts, .calls, .feed, .chats, mediaIsMusic ? .music : .gallery, .vpn] }
     /// THE PAGE'S OWN HOLDS (24.09): the chats page says whether something of its own stands open — the search, the
     /// selection, a row's menu, the gallery, the code page, the music's page, the deletion's sheet; nothing else
     /// knows them. The tabs do not turn while it holds.
@@ -236,7 +247,7 @@ final class MTTurnDrag: ObservableObject {
     /// May the tabs turn under the finger now: nothing over the tabs, nothing held by the page.
     var tabsMayTurn: Bool {
         overlayChat == nil && overlayPage == nil && docPage == nil && placeAsk == nil && placeOpen == nil
-            && chatWall == nil && chessPage == nil && !drawerOpen && !pageHolds
+            && chatWall == nil && chessPage == nil && walletPage == nil && passwordsPage == nil && !drawerOpen && !pageHolds
     }
     /// THE ROW'S LEFT END (the author's word 25.09: «a swipe past the contacts opens the side panel»): the pane is the first
     /// of the row and nothing stands to its left -- a stroke to the right there is the drawer's, not the rubber band's.
@@ -428,6 +439,7 @@ struct RootView: View {
             // 05.09 — every phase change is a line: «folded by itself» was invisible in the diary.
             MontanaTrace.mark("scene_phase", phase == .background ? "background" : (phase == .active ? "active" : "inactive"))
             if phase == .background {
+                MTAppAway.left()
                 MTForeground.active = false
                 E2E.shared.persistHistory()          // force-save history (debounce may not have fired)
                 MTBoard.shared.flush()               // the wall's drafts and the posts on their way, before the run may die (25.09)
@@ -493,7 +505,13 @@ struct RootView: View {
                 // folded state IS the share's construction (SSOT: only the person unfolds it
                 // through our pill) — the broadcast picker's dismissal re-activates the scene
                 // and this line used to unfold the call by itself.
-                if CallUIModel.shared.state != "idle", !CallUIModel.shared.screenSharing {
+                // THE CALL UNFOLDS ONLY WHEN THE APP COMES BACK FROM ELSEWHERE (the author's word 11.10.2026 18:5x MSK: «on
+                // Margarita's iPhone 13 the call screen does not fold, on Revaz's too, on T1 fine -- what works for me must work the
+                // same for everyone»): every return to active unfolded a folded call, an instant of inactive with no background
+                // included -- the shade, the control centre, a system question. Margarita's phone, iOS 18.1.1, 15:39:47Z: 0.4 s
+                // inactive, «unfolded by=app-active», and the call she had folded at 15:18 stood full again. The system pill brings
+                // the app back from the background; a glance that never left keeps the fold the person set.
+                if MTAppAway.back(), CallUIModel.shared.state != "idle", !CallUIModel.shared.screenSharing {
                     CallUIModel.shared.fold(false, why: "app-active")
                 }
                 // The call's window over other apps goes with the app's return (24.09: seen on two screens).
@@ -1444,7 +1462,7 @@ struct MTCountBadge: View {
 
 /// One catalogue owns the tiles, search rows and destinations of the app library.
 enum MTApplication: String, CaseIterable, Identifiable {
-    case contacts, calls, feed, chats, groups, channels, music, gallery, chess, card, settings
+    case contacts, calls, feed, chats, groups, channels, music, gallery, chess, wallet, vpnWall, meshWall, p2pWall, card, passwords, settings
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -1456,17 +1474,22 @@ enum MTApplication: String, CaseIterable, Identifiable {
         case .channels: return String(localized: "Channels", bundle: MTLanguage.bundle)
         case .music: return String(localized: "Music", bundle: MTLanguage.bundle)
         case .gallery: return String(localized: "Gallery", bundle: MTLanguage.bundle)
+        case .vpnWall: return String(localized: "VPN wall", bundle: MTLanguage.bundle)
+        case .meshWall: return String(localized: "Mesh wall", bundle: MTLanguage.bundle)
+        case .p2pWall: return String(localized: "P2P wall", bundle: MTLanguage.bundle)
         case .card: return String(localized: "Business card", bundle: MTLanguage.bundle)
         case .settings: return String(localized: "Settings", bundle: MTLanguage.bundle)
+        case .passwords: return String(localized: "Passwords", bundle: MTLanguage.bundle)   // the author's word 06.10.2026 17:4x MSK
         case .chess: return String(localized: "Chess", bundle: MTLanguage.bundle)
+        case .wallet: return String(localized: "TimeCoin", bundle: MTLanguage.bundle)   // the author's word 04.10.2026 18:00 MSK: «rename the wallet TimeCoin»
         }
     }
     var group: MTLibraryGroup {
         switch self {
         case .contacts, .calls, .chats, .groups, .channels: return .communication
-        case .feed, .card: return .montana   // beside the feed: publications common to people (29.09)
+        case .feed, .card, .wallet, .vpnWall, .meshWall, .p2pWall: return .montana   // the walls beside the feed: publications common to people (29.09)
         case .music, .gallery, .chess: return .media
-        case .settings: return .utilities
+        case .settings, .passwords: return .utilities
         }
     }
     func badge(in store: ChatStore) -> Int {
@@ -1568,6 +1591,8 @@ struct MontanaSideDrawer: View {
         leave {
             switch app {
             case .chess: ui.chessPage = MTChessOpen()
+            case .wallet: ui.walletPage = MTPageFlag(id: "wallet")
+            case .passwords: ui.passwordsPage = MTPageFlag(id: "passwords")
             case .contacts: ui.pane = .contacts
             case .calls: ui.pane = .calls
             case .feed: ui.pane = .feed
@@ -1576,6 +1601,9 @@ struct MontanaSideDrawer: View {
             case .channels: ui.pane = .channels
             case .music: ui.askMusic()
             case .gallery: ui.askGallery()
+            case .vpnWall: MontanaVPNOpen.tap(); ui.pane = .vpn
+            case .meshWall: ui.pane = .mesh
+            case .p2pWall: ui.pane = .p2p
             case .card: ui.overlayPage = .card
             case .settings: ui.settingsShown = true
             }
@@ -2225,6 +2253,7 @@ struct MainTabView: View {
     init() { MontanaTrace.markOnce("tabs_init") }   // measure: when SwiftUI began building the tabs
     @State private var ui = UIState()
     @StateObject private var store = ChatStore.one()   // one store for every window (ChatStore.one)
+    @ObservedObject private var vault = MTPasswordVault.shared   // a secret a correspondent shared, waiting to be saved
     @Environment(\.scenePhase) private var scenePhase
     // tick for sending scheduled messages (check once every 15s, on main)
     private let scheduleTick = Timer.publish(every: 15, on: .main, in: .common).autoconnect()
@@ -2263,6 +2292,9 @@ struct MainTabView: View {
                     .zIndex(10)
             }
         }
+        .montanaPage(item: $ui.walletPage) { _ in MTWalletPage().environment(ui) }
+        .montanaPage(item: $ui.passwordsPage) { _ in MTPasswordsPage() }
+        .sheet(item: $vault.incoming) { secret in MTSecretSaveSheet(item: secret) }
         // THE DOCUMENT over everything — the whole screen; the edge swipe or the platform's close item.
         .montanaPage(item: $ui.docPage) { d in DocPreview(file: d.id, title: d.name) }
         // THE PLACE over everything: its own bar, its own cross, nothing of the chat above it.
@@ -2302,12 +2334,21 @@ struct MainTabView: View {
             // the first return from the background — after an update that is the whole first session. The sender
             // itself repeats nothing a peer has receipted.
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) { E2E.shared.broadcastAbout() }
+            // The network page's own store, read off the main thread now so the page under the bar is born holding
+            // its rows (22.09: the page used to unseal and decode every server inside the touch itself; since 25.09 it is
+            // built in the finger's row, warmed after the launch).
+            MontanaVPNStore.warm()
+            // The coin book too: read off the main thread from here, so the wallet opens on the frame of the touch (04.10 13:04).
+            MTLocalCoinLedger.warm()
             scheduleShareIngest()
             MontanaTrace.mark("shares_done")
             askWhatIsUnasked()
         }
         .onChange(of: scenePhase) { _, p in
+            if p == .active { MTVPNWallMint.shared.count() }   // the VPN wall's seconds are counted at the return (03.10)
             if p == .active { MTNotifyAllowed.shared.read("active") }   // the person may have changed it in Settings (06.10)
+            if p == .active { MTCoinVault.shared.soon("active", after: 1) }   // the seed's other devices, gathered at the return (04.10)
+            if p == .active { Task { await MTTimeChainTip.shared.gather(why: "active") } }   // their tips first, in one round trip (04.10 16:34)
         }
         .onChange(of: scenePhase) { _, p in if p == .active {
             scheduleShareIngest(); store.retryPendingMedia(); MontanaDeliveryEngine.shared.drainAll()
@@ -2318,6 +2359,8 @@ struct MainTabView: View {
             E2E.shared.broadcastAvatar()
         } }
         .onReceive(NotificationCenter.default.publisher(for: .openChatRequest)) { _ in ui.pane = .chats }
+        .onReceive(NotificationCenter.default.publisher(for: .montanaOpenWallet)) { _ in ui.walletPage = MTPageFlag(id: "wallet") }
+        .onReceive(NotificationCenter.default.publisher(for: .montanaAddPerson)) { _ in ui.walletPage = nil; ui.overlayPage = .birth }
         .onReceive(scheduleTick) { _ in store.fireDueScheduled() }
         .onChange(of: scenePhase) { _, p in   // the system's question answered and the app back: the copy's question follows
             if p == .active, MontanaSeed.hasSeed, !MTKeeping.told {
@@ -2370,8 +2413,10 @@ struct MainTabView: View {
     /// both by reflex — which is what happened when the system asked both at launch.
     private func askWhatIsUnasked() {
         guard MontanaSeed.hasSeed else { return }   // nobody is asked anything before they hold an identity
-        // The core asks the system for nothing and starts first. Then exactly ONE question, and
-        // it is the SYSTEM's own — notifications.
+        // The core asks the system for nothing and starts first. Then exactly ONE question,
+        // and it is the SYSTEM's own — notifications. Our explanatory pages are gone (the
+        // author's word 27.08); the local network is not touched here at all: that prompt
+        // belongs to the mesh switch and rises only when a person turns it on.
         MontanaPhoneNode.shared.autoStart()
         MTNotifyAllowed.shared.read("entry")   // asks again while the system holds no answer, not once for ever (06.10)
         // The copy with contacts is asked after the system's own question, never beside it (two windows explain each other away).
@@ -2782,8 +2827,9 @@ struct ContactsTabView: View {
         if here, let c = deletingChat {
             MontanaDeleteChatSheet(
                 title: store.title(for: c),
-                photoURL: store.avatarFor(c), color: c.color, initial: store.initial(for: c),
+                photoURL: store.avatarFor(c), color: c.color, initial: store.initial(for: c), who: c.convRef,
                 canDeleteForBoth: MontanaConv.holds(c.convRef),
+                coinsTravel: store.coinsTravel(c),
                 onBoth: { delete(c, forBoth: true); deletingChat = nil },
                 onMine: { delete(c, forBoth: false); deletingChat = nil },
                 onCancel: { deletingChat = nil })
@@ -2898,7 +2944,7 @@ struct CallsTabView: View {
                 }
                 AvatarCircle(photoURL: avatarFor(r.peer), color: colorFor(r.peer),
                              initial: MTNameBook.face(r.peer, title: nameFor(r.peer)), size: MTLibraryRow.face,
-                             timeMarkWhenMissing: true)
+                             timeMarkWhenMissing: true, who: r.peer)
                     .overlay(MontanaHexagon().stroke(Color.white.opacity(0.45), lineWidth: 1))
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 5) {
@@ -3081,6 +3127,8 @@ enum MTRefusal: String {
     case fileUnreadable = "the file cannot be read"
     /// The person stopped the send by hand.
     case byHand = "stopped by hand"
+    /// The room's radio cannot carry a file this size.
+    case pastTheRadio = "past the radio's measure"
     /// No member of the group could be handed a copy.
     case nobodyToCarry = "nobody to carry to"
     /// A copy of a group letter was refused by one of the words above.
@@ -3101,7 +3149,7 @@ let montanaRoomKey = "Montana"
 /// too: it stood for days and held 4 479 banners of the fleet on 04.10 (the author's word 23:46: «notifications come only when
 /// Montana is opened»).
 enum MTPlayQuiet {
-    static var held: Bool { MTChessGameScreen.shownGame != nil }
+    static var held: Bool { MTMoneyFlow.isOn(ChatStore.openConvNow ?? "") || MTChessGameScreen.shownGame != nil }
 }
 /// THE ROOM'S NAME ON THE SCREEN AND IN ITS BANNER (the author's word 03.10: «Montana with the crown emoji in front»): the one
 /// name a crown stands before by right -- every person's name loses a typed or sent crown (MTCrown).
@@ -3109,6 +3157,10 @@ let montanaRoomTitle = "\u{1F451} " + montanaRoomKey
 /// THE ROOM'S FACE IS THE APP'S ICON (the author's word 03.10: «the icon of the Montana updates chat as our app's icon»): the
 /// glass icon of the first screen, in the list, the chat's head and the banner alike.
 let montanaRoomFace = "IconGlassPreview"
+/// THE MESH WALL (the author's word 29.09: «the common mesh chat, pinned at the very top of the chats; everyone on the mesh is in it
+/// at once; it is called the Mesh wall and appears the moment the switch of visibility on the mesh is on»): the room of
+/// everyone on the mesh -- no address, no pipe; its words ride the radio (MTMeshRoom). The key is English and never translated.
+let meshRoomKey = "Mesh wall"   // COMPAT-LOCAL: a key of this device's list, never a word on the wire
 
 // The audio session for media playback. The app NEVER configured it, so the system default
 // mode applied — and that one is muted by the ring/silent switch: video and voice played
@@ -3585,6 +3637,10 @@ struct Message: Identifiable, Codable {
     /// PLAYED (25.09): a voice or a round note — of mine, played by the correspondent (their «played» word came); of theirs,
     /// played here and said to them once.
     var heard: Bool = false
+    /// THE AUTHOR FIELD A CORRESPONDENT'S LETTER RODE WITH (MTNodeWire.authorTag), kept as it came: this phone can neither open
+    /// nor make it, and a correspondence given back carries it, so the writer's phone names its own letters by its own key and
+    /// never by this phone's word (MTKeeping.takeGiven, the critic R-6). Absent on my own rows and on older ones.
+    var authorTag: String? = nil
     /// The wire spelling every build understands: a text forward rides with this quote; a
     /// reader that knows the mark draws the mark and never the quote.
     static let forwardedQuote = "↪︎ Forwarded message"
@@ -3616,7 +3672,7 @@ struct Message: Identifiable, Codable {
     }
 
     // safe reading of saved messages (new fields may be absent)
-    enum CodingKeys: String, CodingKey { case id, text, isFromMe, time, reactions, replyText, isRead, imageFile, videoFile, audioFile, audioDuration, docFile, docName, deliveryStatus, edited, msgId, senderRef = "senderAddress", createdAt, replyToId, transport, linkPreview, statusAt, forwarded, groupKey, groupIndex, groupCount, myReact, peerReact, lost, heard }
+    enum CodingKeys: String, CodingKey { case id, text, isFromMe, time, reactions, replyText, isRead, imageFile, videoFile, audioFile, audioDuration, docFile, docName, deliveryStatus, edited, msgId, senderRef = "senderAddress", createdAt, replyToId, transport, linkPreview, statusAt, forwarded, groupKey, groupIndex, groupCount, myReact, peerReact, lost, heard, authorTag = "au" }
     init(from c0: Decoder) throws {
         let c = try c0.container(keyedBy: CodingKeys.self)
         legacyId = (try? c.decode(UUID.self, forKey: .id))?.uuidString
@@ -3655,6 +3711,7 @@ struct Message: Identifiable, Codable {
         peerReact = try? c.decode(String.self, forKey: .peerReact)
         lost = (try? c.decode(Bool.self, forKey: .lost)) ?? false
         heard = (try? c.decode(Bool.self, forKey: .heard)) ?? false
+        authorTag = try? c.decode(String.self, forKey: .authorTag)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -3673,6 +3730,7 @@ struct Message: Identifiable, Codable {
         try c.encodeIfPresent(myReact, forKey: .myReact); try c.encodeIfPresent(peerReact, forKey: .peerReact)
         if lost { try c.encode(lost, forKey: .lost) }   // absent = false: older readers of the store see no new key
         if heard { try c.encode(heard, forKey: .heard) }
+        try c.encodeIfPresent(authorTag, forKey: .authorTag)   // absent = none: older readers of the store skip the key
         if let groupKey {   // absent = a letter on its own; older readers of the store skip the keys
             try c.encode(groupKey, forKey: .groupKey)
             try c.encode(groupIndex, forKey: .groupIndex)
@@ -3731,6 +3789,7 @@ struct Chat: Identifiable, Codable, Equatable, Hashable {
         let full = (f + " " + l).trimmingCharacters(in: .whitespaces)
         if full.isEmpty && name == savedMessagesKey { return String(localized: "Saved Messages", bundle: MTLanguage.bundle) }
         if full.isEmpty && name == montanaRoomKey { return montanaRoomTitle }   // a name, not a word: the app's own
+        if full.isEmpty && name == meshRoomKey { return String(localized: "Mesh wall", bundle: MTLanguage.bundle) }
         // No name yet, and there is nothing else to fall back to: the key of a correspondence is
         // not a name of a person and is never shown as one. A neutral caption says exactly what is
         // known — somebody is there, and they have not said who.
@@ -3849,7 +3908,6 @@ let knownServiceTokens: Set<String> = ["VC:", "MD:", "RC:", "TY:", "WA:", "AP:",
 /// rule is MTRowLetter.retiredLetter, the extension's as well.
 func mtRetiredLetter(_ text: String) -> Bool { MTRowLetter.retiredLetter(text) }
 func mtUnknownServiceWord(_ text: String) -> Bool {
-    if mtRetiredLetter(text) { return true }
     if text.hasPrefix("\u{200B}\u{200B}") {
         return !knownServiceTokens.contains(String(text.dropFirst(2).prefix(3)))
     }
@@ -4421,16 +4479,20 @@ struct MontanaDeleteChatSheet: View {
     let photoURL: String?
     let color: Color
     let initial: String
+    var who: String? = nil   // whose face, for its balance and level (MTAvatarBadges, 11.10)
     let canDeleteForBoth: Bool
+    /// A coin letter of mine is on its way in this chat (ChatStore.coinsTravel): the sheet says so and offers no deletion -- the
+    /// erasure would take the letter off the wire with its coins (the coin audit's first point, 05.10.2026 21:4x MSK).
+    var coinsTravel = false
     var onBoth: () -> Void
     var onMine: () -> Void
     var onCancel: () -> Void
 
     var body: some View {
-        MontanaFaceSheet(photoURL: photoURL, color: color, initial: initial,
+        MontanaFaceSheet(photoURL: photoURL, color: color, initial: initial, who: who,
                          question: "Permanently delete the chat with \(title)?",
-                         note: nil,
-                         actions: (canDeleteForBoth ? [MontanaFaceSheet.Action(title: "Delete for me and them", destructive: true, act: onBoth)] : [])
+                         note: coinsTravel ? LocalizedStringKey("A coin letter in this chat is on its way. The chat can be deleted once it is delivered or its coins come back.") : nil,
+                         actions: coinsTravel ? [] : (canDeleteForBoth ? [MontanaFaceSheet.Action(title: "Delete for me and them", destructive: true, act: onBoth)] : [])
                              + [MontanaFaceSheet.Action(title: "Delete for me only", destructive: false, act: onMine)],
                          onCancel: onCancel)
     }
@@ -4444,7 +4506,7 @@ struct MontanaBlockSheet: View {
     var onBlock: () -> Void
     var onCancel: () -> Void
     var body: some View {
-        MontanaFaceSheet(photoURL: store.avatarFor(chat), color: chat.color, initial: store.initial(for: chat),
+        MontanaFaceSheet(photoURL: store.avatarFor(chat), color: chat.color, initial: store.initial(for: chat), who: chat.convRef,
                          question: "Block this person?",
                          note: "You will not receive messages, calls, typing or presence from this person. They will see neither your photo nor when you were last seen.",
                          actions: [MontanaFaceSheet.Action(title: "Block contact", destructive: true, act: onBlock)],
@@ -4460,6 +4522,7 @@ struct MontanaFaceSheet: View {
     let photoURL: String?
     let color: Color
     let initial: String
+    var who: String? = nil   // whose face, for its balance and level (MTAvatarBadges, 11.10)
     let question: LocalizedStringKey
     let note: LocalizedStringKey?
     let actions: [Action]
@@ -4473,7 +4536,7 @@ struct MontanaFaceSheet: View {
             VStack(spacing: 8) {
                 VStack(spacing: 0) {
                     VStack(spacing: 12) {
-                        AvatarCircle(photoURL: photoURL, color: color, initial: initial, size: 72)
+                        AvatarCircle(photoURL: photoURL, color: color, initial: initial, size: 72, who: who)
                         Text(question)
                             .font(.subheadline).foregroundColor(.white)
                             .multilineTextAlignment(.center)
@@ -4587,4 +4650,16 @@ extension Array {
 
 extension PHAsset: @retroactive Identifiable {
     public var id: String { localIdentifier }
+}
+
+/// Whether the app came back from the background since the last activation: an instant of inactive is no return (the call's
+/// fold, 11.10.2026). Written and read on the main thread by the scene's one road of phases.
+enum MTAppAway {
+    private static var away = false
+    static func left() { away = true }
+    /// The activation asks once: true when the app had gone to the background, and the mark is spent.
+    static func back() -> Bool {
+        defer { away = false }
+        return away
+    }
 }

@@ -3,9 +3,11 @@
    phrase without a translation reaches every language unchanged. The source is English
    (Info.plist); this file is one language of it. */
 
+"NSBluetoothAlwaysUsageDescription" = "Montana использует Bluetooth, чтобы телефоны соединялись напрямую и обменивались сообщениями рядом.";
 "NSCameraUsageDescription" = "Montana использует камеру для фото и видео в чатах, видеосообщений и видеозвонков, а также чтобы сканировать QR-код человека.";
 "NSContactsUsageDescription" = "Montana использует контакты, чтобы вы могли поделиться ими в чате, и сохраняет людей, добавленных в Montana, в ваши контакты по их @имени. Это выключается в Настройках: Приватность, Синхронизировать контакты.";
-"NSFaceIDUsageDescription" = "Montana использует Face ID, чтобы показать 24 слова восстановления.";
+"NSFaceIDUsageDescription" = "Montana использует Face ID, чтобы открыть ваши сохранённые пароли и показать 24 слова восстановления.";
+"NSLocalNetworkUsageDescription" = "Montana соединяет ваше устройство и устройство собеседника напрямую по Wi-Fi. Разрешение нужно только чтобы телефоны нашли друг друга в одной сети.";
 "NSLocationWhenInUseUsageDescription" = "Montana использует геопозицию, чтобы вы могли отправить своё местоположение в чат.";
 "NSMicrophoneUsageDescription" = "Montana использует микрофон для записи голосовых сообщений, видео и звонков.";
 "NSPhotoLibraryAddUsageDescription" = "Montana сохраняет фото из чатов в вашу галерею.";

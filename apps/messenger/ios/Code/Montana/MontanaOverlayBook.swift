@@ -29,7 +29,7 @@ struct MontanaPeerEndpoint: Equatable {
     let ip: String
     let port: UInt16
     var at: TimeInterval          // unix seconds when last confirmed
-    var source: String            // where it was learned: "dht", "link", "wire", "word", "old"
+    var source: String            // where it was learned: "ble", "bonjour", "dht", "link", "wire", "word", "old"
     var fails: Int = 0            // consecutive dial failures
     var nextTry: TimeInterval = 0 // not offered as a route before this moment
 

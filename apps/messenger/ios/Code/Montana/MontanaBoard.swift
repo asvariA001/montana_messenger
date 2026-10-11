@@ -19,8 +19,9 @@ import ImageIO
 //
 // «Board» in the code, «Wall» on the screen: a chat's ground is already called its wall (MTWallpaper, chatWall.*).
 
-/// What a rule of my wall is about (the author's word 24.09): who may write on it, and who may see it.
-enum MTBoardAct: String { case write, see }
+/// What a rule of my wall is about (the author's word 24.09): who may write on it, and who may see it -- and who may see my
+/// VPN wall (the author's word 29.09: «the privacy settings as for my own feed and wall, so for the VPN wall»).
+enum MTBoardAct: String { case write, see, vpn }
 
 /// Who may write on my wall, and who may see it (the author's word 24.09): only me, everyone, my contacts (the author's
 /// word 25.09), some — chosen — or everyone but some. One rule over two acts, each kept under its own keys; both start
@@ -43,15 +44,19 @@ enum MTBoardRule: String, CaseIterable, Identifiable {
     static let sightKey = "boardSight"
     static let sightAllowKey = "boardSightAllow"
     static let sightDenyKey = "boardSightDeny"
+    static let vpnKey = "vpnWallSight"
+    static let vpnAllowKey = "vpnWallSightAllow"
+    static let vpnDenyKey = "vpnWallSightDeny"
     private static func keys(_ a: MTBoardAct) -> (rule: String, allow: String, deny: String) {
         switch a {
         case .write: return (key, allowKey, denyKey)
         case .see: return (sightKey, sightAllowKey, sightDenyKey)
+        case .vpn: return (vpnKey, vpnAllowKey, vpnDenyKey)
         }
     }
-    /// A rule moved: the wall carries its page again -- the posts' wall renews its version.
+    /// A rule moved: the wall it is about carries its page again -- the posts' wall renews its version, the VPN wall its push.
     private static func renewed(_ a: MTBoardAct) {
-        MTBoard.shared.renewVersion(own: true)
+        if a == .vpn { Task { @MainActor in MTVPNWall.shared.schedulePush() } } else { MTBoard.shared.renewVersion(own: true) }
     }
     static func current(_ a: MTBoardAct) -> MTBoardRule {
         MTBoardRule(rawValue: UserDefaults.standard.string(forKey: keys(a).rule) ?? "") ?? .everyone
@@ -174,6 +179,7 @@ struct MTBoardPost: Codable, Identifiable, Hashable {
     var ed: Double? = nil       // the moment its writer last changed the words — never on a page; it moves the wall's version
     var lp: String? = nil       // the link card its writer read; a visitor draws these bytes and opens nothing
     var n: Int? = nil           // its number on its wall, given once at its birth; the short link names it (02.10)
+    var cc: Int? = nil          // the coins its comments brought, on the owner's phone only; every fifth went to its writer (04.10)
     var views: [String]? = nil  // who saw it, on the owner's phone only, each person once -- never on a page, never shown (06.10)
 }
 
@@ -236,7 +242,20 @@ struct MTBoardWord: Codable {
     var lp: String? = nil       // the link card its writer read; a visitor draws these bytes and opens nothing
     var hh: String? = nil
     var pv: String? = nil
+    var c: Int? = nil           // «coin»: the coins given on the post (03.10)
+    var r: String? = nil        // «coin»: the gift's own name, credited once
     var vs: [String]? = nil     // «view»: the posts seen, a few at once (06.10)
+}
+
+/// THE COINS OF COMMENTS (the author's words 04.10.2026 02:50 MSK: «20 percent of all coins for comments under a post goes to the
+/// post's author»): a comment costs its writer one coin, carried to the wall's owner; four of every five burn and the fifth goes to
+/// the post's writer. One family of names, so the wallet tells these moves from every other.
+enum MTBoardCoins {
+    static let comment = "cmt:"
+    static let burn = "cmt-burn:"
+    static let pay = "cmt-pay:"
+    static let fifth = 5
+    static func owns(_ ref: String) -> Bool { ref.hasPrefix(comment) || ref.hasPrefix(burn) || ref.hasPrefix(pay) }
 }
 
 /// Whose post it is, as far as this phone knows them: me, a correspondent by reference, or nobody it knows.
@@ -366,6 +385,7 @@ final class MTBoard: ObservableObject {
         owned = Self.read(Self.ownedKey) ?? [:]
         let numbered = Self.numberMissing(&mine)
         let sealedChain = Self.sealMissing(&mine) || numbered
+        Self.chainWall(mine)
         kept = Self.read(Self.keptKey) ?? [:]
         firstSeen = Self.read(Self.firstKey) ?? [:]
         let stored: [String: MTBoardPage] = Self.read(Self.pagesKey) ?? [:]
@@ -410,6 +430,7 @@ final class MTBoard: ObservableObject {
     // thread, at every touch. The writes gather for a moment and leave as one.
     private func saveMine(own: Bool = false) {
         _ = Self.numberMissing(&mine); renewVersion(own: own); scheduleSave(Self.mineKey)
+        Self.chainWall(mine)
     }
     private func saveKept() { scheduleSave(Self.keptKey) }
     private func saveOwned() { scheduleSave(Self.ownedKey) }
@@ -871,7 +892,13 @@ final class MTBoard: ObservableObject {
             }
             if moved { saveMine() }
         case "view": break
-        case let w where MTRetired.word(w): break   // an older build's op of a kind this app no longer has moves nothing here
+        // COINS GIVEN ON MY POST (the author's word 03.10 13:40): credited once by the gift's name, on the post's own row of the book.
+        case "coin" where MTBoardRule.admits(conv, to: .see):
+            if let id = w.id, let c = w.c, 0 < c, let r = w.r, !r.isEmpty {
+                // handle() brings every word here on the main thread.
+                MainActor.assumeIsolated { _ = MTCoinBook.ledger.receive(c, from: conv, ref: "post:" + r, on: "post:" + id) }
+            }
+        case "coin": break
         case "cmt":
             guard MTBoardRule.admits(conv, to: .see), MTBoardRule.admits(conv, to: .write) else { return }
             let text = (w.tx ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -892,12 +919,22 @@ final class MTBoard: ObservableObject {
                 p.comments.append(c)
             }
             if face == nil { lendFaces([conv]) }   // a build that sent no face: the face they published here
+            // THE COMMENT'S COIN (04.10): one coin, taken once by its name, into the post's count -- every fifth to its writer.
+            if w.c == 1, let r = w.r, !r.isEmpty, let id = w.id, mine.contains(where: { q in q.id == id }) {
+                MainActor.assumeIsolated {
+                    if MTCoinBook.ledger.receive(1, from: conv, ref: MTBoardCoins.comment + r, on: "post:" + id) { commentCoin(id, ref: r) }
+                }
+            }
             // THE COMMENTER SEES EVERY COMMENT (the author's word 25.09: «comments must come from everyone who commented»):
             // a comment is an act of its writer's, as an ask is, and is answered as an ask is — with the page as it stands.
             if let t = answeredAt[conv], Date().timeIntervalSince(t) < 30 { return }
             answeredAt[conv] = Date()
             sendPage(to: conv, version: Self.spokenVersion(for: conv))
-        case "cpay": break
+        // MY FIFTH OF A POST'S COMMENTS (04.10): the wall's owner pays the writer of a post this phone keeps on that wall.
+        case "cpay":
+            if let id = w.id, w.c == 1, let r = w.r, !r.isEmpty, kept[id]?.wall == conv {
+                MainActor.assumeIsolated { _ = MTCoinBook.ledger.receive(1, from: conv, ref: MTBoardCoins.pay + r, on: "post:" + id) }
+            }
         case "del":
             // ONLY THE WALL'S OWNER TAKES A POST OFF THEIR WALL (the author's word 24.09: «only the owner deletes a post
             // on their own page»): a writer's «del» — the builds before the rule still send it — takes nothing down; it
@@ -1108,6 +1145,15 @@ final class MTBoard: ObservableObject {
         send(MTBoardWord(t: "ask"), to: wall)
         DispatchQueue.main.asyncAfter(deadline: .now() + 25) { [weak self] in self?.asking.remove(wall) }
     }
+    /// COINS ON ANOTHER'S POST (the author's word 03.10 13:40): the book pays first — a short balance refuses and nothing
+    /// leaves — then the wall's word carries the coins to its owner, as a like travels.
+    @MainActor func coin(_ p: MTBoardSeen, on wall: String?, _ coins: Int) -> Bool {
+        guard let wall, !p.mine, 0 < coins, !MTGroup.isKey(wall) else { return false }   // a channel's owner keeps no coins of its posts yet
+        let r = UUID().uuidString
+        guard MTCoinBook.ledger.spend(coins, on: "post:" + p.id, peer: wall, ref: r) else { return false }
+        _ = send(MTBoardWord(t: "coin", id: p.id, c: coins, r: r), to: wall)
+        return true
+    }
     func like(_ p: MTBoardSeen, on wall: String?) {
         let on = !p.liked
         guard let wall else { mutate(p.id, own: true) { q in Self.toggle(&q.likes, "", on) }; return }
@@ -1141,6 +1187,36 @@ final class MTBoard: ObservableObject {
         UserDefaults.standard.set(viewed, forKey: Self.viewedKey)
     }
 
+    /// ONE COIN A COMMENT BROUGHT TO A POST OF MY WALL (the author's words 04.10.2026 02:50 MSK: «20 percent of all coins for comments
+    /// under a post goes to the post's author»): four of every five burn and the fifth goes to the post's writer -- the owner keeps
+    /// their own -- so the writer holds a fifth of the comments' coins in whole coins. The count lives on the post (cc); each fifth is
+    /// a link of the wall's chain.
+    @MainActor private func commentCoin(_ id: String, ref r: String) {
+        guard let i = mine.firstIndex(where: { q in q.id == id }) else { return }
+        let n = (mine[i].cc ?? 0) + 1
+        mine[i].cc = n
+        let writer = mine[i].author
+        if n % MTBoardCoins.fifth == 0 {
+            if writer.isEmpty {
+                MTTimeChain.note("wall", kind: "keep", coins: 1, ref: MTBoardCoins.pay + r)
+            } else if MTCoinBook.ledger.spend(1, on: "post:" + id, peer: writer, ref: MTBoardCoins.pay + r) {
+                send(MTBoardWord(t: "cpay", id: id, c: 1, r: r), to: writer)
+                MTTimeChain.note("wall", kind: "pay", coins: 1, ref: MTBoardCoins.pay + r)
+            }
+        } else {
+            MTCoinBook.ledger.burn(1, ref: MTBoardCoins.burn + r)
+        }
+        saveMine()
+    }
+    /// THE WALL AS A TIMECHAIN (the author's word 04.10.2026 02:38 MSK: «posts too as a timechain, a chain of posts»): every post
+    /// born on my wall, every change of its words and every post taken down joins the wall's chain once, by its name -- the post's id
+    /// and the digest of what it says, never the words.
+    private static func chainWall(_ ps: [MTBoardPost]) {
+        MTTimeChain.wall(ps.map { p in
+            let files = p.media.map { m in m.chunks.map { k in k.bid }.joined(separator: ",") }.joined(separator: ";")
+            return (id: p.id, sig: digest(p.text + "\n" + files), at: p.at)
+        })
+    }
 
     static let zeroHash = "0000000000000000000000000000000000000000000000000000000000000000"
     static func seal(_ c: MTBoardComment) -> String {
@@ -1265,19 +1341,11 @@ struct MTWallWindow: Identifiable {
     let marks: [String]
 }
 
-    /// THE ONE TIMECHAIN FOLDER (Files, On My iPhone, Montana, TimeChain -- 04.10): the comment chains stand there.
-    static func chainDir() -> URL? {
-        guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return nil }
-        let root = docs.appendingPathComponent(MontanaPaths.root).appendingPathComponent("TimeChain", isDirectory: true)
-        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true,
-                                                 attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication])
-        return root
-    }
     static func chainFile(_ post: MTBoardSeen) -> URL? {
         let safe = String(post.id.filter { $0.isLetter || $0.isNumber }.prefix(64))
         // THE COMMENTER KEEPS THE CHAIN, OPEN, BESIDE THE DIARY (the author's word 02.10 15:09): Files, On My iPhone, Montana, TimeChain
-        // -- the one TimeChain folder (chainDir, 04.10).
-        guard !safe.isEmpty, let dir = chainDir() else { return nil }
+        // -- the one TimeChain folder, beside the wallet's chains (MTTimeChainPlace, 04.10).
+        guard !safe.isEmpty, let dir = MTTimeChainPlace.dir() else { return nil }
         let url = dir.appendingPathComponent(safe + ".md")
         let records = chainRecords(post)
         var lines: [String] = ["# Comment chain", "", "```json"]
@@ -1427,15 +1495,22 @@ struct MTWallWindow: Identifiable {
         kept.comments.append(c)
         kept.commentCount += 1
         _ = Self.chainFile(kept)
+        // A COMMENT COSTS ONE COIN (the author's words 04.10.2026 02:50 MSK): it goes to the wall's owner, who keeps each post's count
+        // and pays its writer every fifth (commentCoin). Never more than the balance holds: a comment is never refused for want of coins.
+        let r = UUID().uuidString
         guard let wall else {
             mutate(p.id, own: true) { q in var mc = c; mc.ref = ""; q.comments.append(mc) }
+            MainActor.assumeIsolated { commentCoin(p.id, ref: r) }
             return
         }
         if owned[wall] != nil {   // a channel of mine: my comment stands on my channel's post
             mutateOwned(wall, p.id) { q in var mc = c; mc.ref = ""; q.comments.append(mc) }
             return
         }
-        send(MTBoardWord(t: "cmt", id: p.id, at: c.at, tx: c.text, bn: c.by, bg: c.glyph, cid: c.id, fc: c.fc, hh: c.h, pv: c.pv), to: wall)
+        // A channel's comment costs no coin: its owner keeps no book of a channel's comments yet, and a coin to nobody is a coin lost.
+        let paid = MTGroup.isKey(wall) ? false : MainActor.assumeIsolated { MTCoinBook.ledger.spend(1, on: "post:" + p.id, peer: wall, ref: MTBoardCoins.comment + r) }
+        send(MTBoardWord(t: "cmt", id: p.id, at: c.at, tx: c.text, bn: c.by, bg: c.glyph, cid: c.id, fc: c.fc, hh: c.h, pv: c.pv,
+                         c: paid ? 1 : nil, r: paid ? r : nil), to: wall)
         askAfterAct(wall)
         var said = c; said.m = true   // my own, as the owner's next page says it
         patchPost(wall, p.id) { s in s.comments.append(said); s.commentCount += 1 }

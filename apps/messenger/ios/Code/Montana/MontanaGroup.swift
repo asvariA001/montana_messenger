@@ -1140,12 +1140,12 @@ final class MTGroup {
                     MontanaTrace.mark("group_refused", "an answer to another's letter seat=\(seat)")
                     return .refused
                 }
-            } else if store.deletedMids.contains(target) {
+            } else if store.buried(target, in: key) {
                 return .held   // the letter is gone here already
             } else if g.mine {
                 return .wait   // the letter has not landed at the owner yet: the copy knocks again
             } else if words.hasPrefix(deleteMark) {
-                store.deletedMids.insert(target)
+                store.bury([target], in: key)   // in this group alone: a speaker's notice reaches no other conversation
                 answersHeard.append(id)
                 return .held
             }
@@ -1312,14 +1312,15 @@ final class MTGroup {
         s.data(using: .utf8).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
     }
 
-    /// WHAT A GROUP CARRIES IN THIS BUILD: a person's words, a sticker, and a media letter -- the manifest of a picture, a video, a round note, a voice or a file, whose sealed pieces lie on the nodes for every receiver (the author's words 06.10.2026 14:2x-14:3x MSK: «groups and channels with the whole
-    /// of a chat, every kind of data»).
+    /// WHAT A GROUP CARRIES IN THIS BUILD: a person's words, a sticker, and a media letter -- the manifest of a picture, a video, a
+    /// round note, a voice or a file, whose sealed pieces lie on the nodes for every receiver (the author's words 06.10.2026 14:2x-14:3x MSK: «groups and channels with the whole of a chat, every kind of data»). Never another service word, a long letter's reference, a coin, a game's letter or a row of a
+    /// phone's own -- a coin landing in a group would be credited from nobody.
     static func carries(_ text: String) -> Bool {
         // A CHANNEL'S POST (MTBoard.isChannelPost): the wall's own word, its pictures' posters within the wall's own bounds.
         if MTBoard.isChannelPost(text) { return text.utf8.count <= Self.wallPostLimit }
         guard !text.isEmpty, text.count <= ChatStore.sendPieceChars else { return false }
         if MontanaNotify.isService(text), !text.hasPrefix(stickerMark), !text.hasPrefix(mediaMark) { return false }
-        return !mtRetiredLetter(text) && MTChessLetter.parse(text) == nil && !MTRowLetter.ownRow(text)
+        return MTCoinLetter.parse(text) == nil && MTChessLetter.parse(text) == nil && !MTRowLetter.ownRow(text)
     }
     static func clean(_ s: String, _ limit: Int) -> String {
         String(MTCrown.plain(s.trimmingCharacters(in: .whitespacesAndNewlines)).prefix(limit))

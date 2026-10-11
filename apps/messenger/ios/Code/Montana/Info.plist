@@ -12,8 +12,14 @@
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>montana</string>
+				<string>montana-messenger</string>
 			</array>
 		</dict>
+	</array>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>montana-business</string>
+		<string>montana-messenger</string>
 	</array>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
@@ -23,12 +29,22 @@
 	<string>tg</string>
 	<key>MontanaPhoneService</key>
 	<string>id.montana.quest</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Montana uses Bluetooth to form a direct device-to-device mesh, so your phones can exchange messages nearby.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_montana._udp</string>
+		<string>_mtmesh._tcp</string>
+		<string>_mtmesh._udp</string>
+	</array>
 	<key>NSCameraUsageDescription</key>
 	<string>Montana uses the camera for photos and videos in your chats, video messages and video calls, and to scan a person's QR code.</string>
 	<key>NSContactsUsageDescription</key>
 	<string>Montana uses your contacts so you can share one in a chat, and saves the people you add in Montana to your contacts by their @name. Turn this off in Settings, Privacy, Sync contacts.</string>
 	<key>NSFaceIDUsageDescription</key>
-	<string>Montana uses Face ID to show your 24-word recovery phrase.</string>
+	<string>Montana uses Face ID to open your saved passwords and to show your 24-word recovery phrase.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Montana connects your device and your correspondent's directly over Wi-Fi. The permission is needed only so the phones can find each other on the same network.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Montana uses your location so you can send it in a chat.</string>
 	<key>NSMicrophoneUsageDescription</key>
@@ -76,6 +92,8 @@
 		<string>fetch</string>
 		<string>voip</string>
 		<string>audio</string>
+		<string>bluetooth-central</string>
+		<string>bluetooth-peripheral</string>
 		<string>remote-notification</string>
 	</array>
 	<key>UIFileSharingEnabled</key>
