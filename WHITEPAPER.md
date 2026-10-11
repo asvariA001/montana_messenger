@@ -1,4 +1,4 @@
-# Montana: an ecosystem of time on a post-quantum core
+# Montana: a post-quantum protocol and its messenger
 
 *Whitepaper of Montana. The protocol is defined by the normative set in [`core/docs`](core/docs); where this paper and the
 set differ, the set governs. Section references in square brackets point into that set; where the code of this repository
