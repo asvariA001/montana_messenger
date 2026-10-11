@@ -1,43 +1,49 @@
 # Releases
 
-Binaries are attached to the releases of this repository; on iPhone, iPad and Mac the applications install through
-TestFlight. Each row names the folder that holds the source and the commit of the project's history that folder is.
+This file names what each folder of this repository is and which binaries were published from it. The table Sources is
+written by the publisher in the same commit as the folder it names; the rest is written by hand.
 
 ## Sources
 
-Each folder of this repository is the tree of one commit of the project's history, staged as it is built. The publisher writes this table in the same commit as the folder it names; the message of that commit names the source commit in full.
+Each folder of this repository is the tree of one commit of the project's private history, staged as it is built. The
+publisher writes this table in the same commit as the folder it names, and the message of that commit names the source
+commit in full. The column Folder tree is the git tree of the folder in the commit that carries the table:
+`git rev-parse HEAD:FOLDER` answers it, so a reader pins the exact bytes under review without the private history. What that
+does and does not establish is in [`AUDIT.md`](AUDIT.md), section 3.
 
 <!-- sources:start -->
-| Folder | Build | Source commit | Staged |
-|---|---|---|---|
-| `apps/mesh/ios` | 3 | `9d9eaa61456d` | 2026-10-10 11:51 UTC |
-| `apps/messenger/android` | 411 | `07e5f3cde2e0` | 2026-10-10 20:50 UTC |
-| `apps/messenger/ios` | 2179 | `270009b93c9d` | 2026-10-10 19:28 UTC |
-| `apps/p2p/ios` | 2 | `9652b512bced` | 2026-10-10 11:51 UTC |
-| `apps/vpn/ios` | 3 | `298b7dc88d0c` | 2026-10-10 11:51 UTC |
-| `apps/wallet/ios` | 18 | `d1352a88ba64` | 2026-10-10 20:43 UTC |
-| `core` | core line | `3848245e308b` | 2026-10-10 11:51 UTC |
+| Folder | Build | Source commit | Folder tree | Staged |
+|---|---|---|---|---|
+| `apps/messenger/android` | 411 | `07e5f3cde2e0` | `674ab0c96f69aa395de8b22ec6b9162dce45c3da` | 2026-10-10 20:50 UTC |
+| `apps/messenger/ios` | 2179 | `270009b93c9d` | `47f96f3d974fb73b0cbaeea2fcb3a4233e301aef` | 2026-10-10 19:28 UTC |
+| `core` | core line | `3848245e308b` | `4ce3d6705224c8c99db0db1710a70bbde3d04361` | 2026-10-10 11:51 UTC |
 <!-- sources:end -->
 
-## 2026-10-08: the Montana Time ecosystem
+## Binaries
+
+Each GitHub release of this repository carries `Montana-Messenger.ipa` (Montana for iPhone, iPad and Mac),
+`Montana-Messenger.apk` (Montana for Android) and `SHA256SUMS.txt`, and its notes name, for each file, the build, its
+SHA-256 and the folder tree of its source; the tag of the release is the commit of this repository whose trees those are.
+The IPA is the export uploaded to the App Store, signed for distribution there: it is published to be read, compared with the
+source or re-signed, and it installs through TestFlight. The APK is signed with the project's Android key and installs on
+Android 8 or later.
+
+A release of 2026-10-08 was prepared and not created. Its files are listed here with their digests for whoever holds them:
 
 | File | Application | Version | SHA-256 | Source |
 |---|---|---|---|---|
-| `Montana-Messenger.ipa` | Montana (Messenger), iPhone, iPad, Mac | 1.0 (2165) | `72fb193070cb6f523811d015efbab12aa55f7a44013c61589b38e65d1e66bc14` | `apps/messenger/ios`, commit `7b405422`; the build is commit `862261a1`, which differs in the comments of `Code/Montana/nodes.txt` only |
-| `Montana-Messenger.apk` | Montana (Messenger), Android | 1.0 (246) | `41de6e3eb8db810286629e36e1ded140f090d5885eff98af900f948c13b924bd` | `apps/messenger/android`, commit `67f144ec` |
-| `Montana-Wallet.ipa` | MT Wallet, iPhone, iPad, Mac | 1.0 (5) | `14084ed4b55c78ab9545ee5f48daf6afb2960049f632e3c9ebb7c5bb55a18003` | `apps/wallet/ios`, commit `07047617` |
+| `Montana-Messenger.ipa` | Montana, iPhone, iPad, Mac | 1.0 (2165) | `72fb193070cb6f523811d015efbab12aa55f7a44013c61589b38e65d1e66bc14` | `apps/messenger/ios`, commit `7b405422`; the build is commit `862261a1`, which differs in the comments of `Code/Montana/nodes.txt` only |
+| `Montana-Messenger.apk` | Montana, Android | 1.0 (246) | `41de6e3eb8db810286629e36e1ded140f090d5885eff98af900f948c13b924bd` | `apps/messenger/android`, commit `67f144ec` |
+| `Montana-Wallet.ipa` | MT Wallet, iPhone, iPad, Mac | 1.0 (5) | `14084ed4b55c78ab9545ee5f48daf6afb2960049f632e3c9ebb7c5bb55a18003` | `apps/wallet/ios`, commit `07047617`; MT Wallet is retired from this repository |
 
-The protocol core of these builds is [`core/`](core/), commit `013806d2` of the core's history.
+## Retired folders
 
-The IPA files are the exports uploaded to the App Store, signed for distribution there: they are published to be read,
-compared with the source or re-signed. The APK is signed with the project's Android key and installs on Android 8 or
-later.
+On 2026-10-11 the repository was narrowed to the protocol core and Montana for iOS and Android. The folders below left the
+tree; each stays in the history of this repository, and its last tree is the tree of the folder at commit `f10268c`.
 
-## TestFlight
-
-| Build | Date (UTC) |
-|---|---|
-| Montana 1.0 (2165) | 2026-10-08 |
-| Montana 1.0 (2091) | 2026-10-04 |
-| Montana 1.0 (2090) | 2026-10-03 |
-| Montana 1.0 (2081) | 2026-10-03 |
+| Folder | Application | Last build | Last source commit | Last folder tree |
+|---|---|---|---|---|
+| `apps/wallet/ios` | MT Wallet, the coins of time; retired | 18 | `d1352a88ba64` | `19fb59d10be1af5a510b92cfce836d9b6be09ff7` |
+| `apps/mesh/ios` | MT Mesh, rooms over Bluetooth Low Energy; retired | 3 | `9d9eaa61456d` | `fc9030b76d411262686b2b0726c796c17ff8f0f2` |
+| `apps/p2p/ios` | MT P2P, delivery from phone to phone; retired | 2 | `9652b512bced` | `5d9a01282c81898803d9986b13af75dce75b3299` |
+| `apps/vpn/ios` | MT VPN, a VPN client; retired, its client is part of Montana for iOS from build 2180 | 3 | `298b7dc88d0c` | `5d84618b3297051369a310c91c733ea3f9dd711f` |
