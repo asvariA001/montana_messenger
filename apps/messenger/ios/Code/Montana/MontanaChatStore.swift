@@ -4355,6 +4355,7 @@ MontanaLocalVault.setEncrypted("scheduledMsgs", d)
                     let at = (o["at"] as? Double) ?? wordAt
                     MTPeerAbout.note(chat, bio: (o["b"] as? String) ?? "", link: (o["l"] as? String) ?? "", at: at)
                     if let coins = o["c"] as? Int { MTCoinBoard.shared.note(chat, coins: coins, at: at) }   // the pair's balance (03.10)
+                    if let k = o["k"] as? String { MTCoinTx.notePeerFrom(chat, k) }   // the pair's coin key: v3 sends commit to it (COIN-TX-V3)
                     if let own = o["o"] as? String { MTOwnWords.heard(own, from: chat) }   // the pair holds my words: no coin goes to it (06.10)
                 }
                 E2E.noteAboutCapable(chat)   // a build that speaks the word reads it
