@@ -348,11 +348,32 @@ only as read from the chain's node.
 
 What version 2 does not close, as the project states it: the node checks no balance, because coins are minted in the seeds'
 books by the application's rules and no supply is proven; a chain's node that is down stops that key's transfers; a node that
-loses its disk loses the records of its keys. Added here: the node does not verify the signature of a record (F-4), and the
+loses its disk loses the records of its keys. Added here: until 2026-10-11 the node did not verify the signature of a record (F-4, closed), and the
 node's code is not in this repository. Montana for Android at build 411 carries no transfer records.
 
-Version 3, with a balance proven rather than kept by the book of the phone, is in progress. This subsection is completed when
-version 3 is published.
+Version 3 (Montana for iOS from build 2193; the nodes since 2026-10-11 21:2x UTC; the specification of the record and of the
+node's rules is `Audit/COIN-TX-V3.md` of the iOS project and is summarised here). Every move of a coin key's balance is a
+signed record of that key's chain: GENESIS (announces the book a phone held before version 3, once per key, before the cut of
+version 2, at most what time could have minted since 2026-09-01), MINT (an interval of the node's seconds, at most
+2 x min(13, max(1, bit_length(s) - 1)) coins for the s-th second of the key's life, intervals of one key never overlapping),
+SEND (names the declared part of its amount -- proven is spent first -- and commits to the receiver's coin key as
+SHA-256("mt-coin-to", receiver, blind), the blind an HMAC under the pair's secret over the record's nonce), RECV (the receiver
+opens the commitment; one RECV or one REFUND per SEND, decided by the SEND's chain node) and REFUND (the sender takes back a SEND
+no one took within a day). A key's balance is the fold of its chain in two parts, proven and declared; declared coins are
+spent as declared and stay declared in every chain they reach. The chain's node refuses a record whose fold step fails
+(overspend, a wrong split, a mint above its time, a receipt that is not the receiver's, a second fate of a SEND), and verifies
+every signature with the core before it takes a record. Each of the two nodes keeps a checked replica of the other's chains;
+a phone that agreed to keep copies for others pulls every chain, verifies and folds them by the same rules, computes the root
+of a checkpoint (every ten minutes of node time: SHA-256 over each key's last record and count, keys in ascending order) and
+signs it with its coin key; the nodes keep the last signature of each holder. The Explorer at montana.xxx/explorer folds a
+key's whole chain in the browser and shows the root of the newest checkpoint on both nodes with the number of holders whose
+signature over that root it verified.
+
+What version 3 does not close, by design or not yet: minting is a phone's claim bounded by time, not a proof of a call or a
+letter, and many keys mint in parallel; GENESIS announces and proves nothing, and any key may announce up to its cap before
+the cut; the application shows one balance, while the Explorer shows the proven and declared parts; the chains are ordered by
+two nodes, so a node that is down stops its keys' records; a holder's signature proves what that holder folded, not that it is
+independent; no server other than the two chain nodes keeps a replica yet; the node services are not in this repository.
 
 ## 8. Reporting
 
