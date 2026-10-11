@@ -26,7 +26,10 @@ Each GitHub release of this repository carries `Montana-Messenger.ipa` (Montana 
 SHA-256 and the folder tree of its source; the tag of the release is the commit of this repository whose trees those are.
 The IPA is the export uploaded to the App Store, signed for distribution there: it is published to be read, compared with the
 source or re-signed, and it installs through TestFlight. The APK is signed with the project's Android key and installs on
-Android 8 or later.
+Android 8 or later; the key is RSA-4096, the platform's admission for installing a package and not a security property of
+Montana, and its certificate (CN=Montana, O=Montana Network) has the SHA-256 fingerprint
+`CE:95:D6:81:D0:D0:DE:4C:10:84:B1:D1:98:5D:E7:9A:79:CC:16:C3:DB:2B:11:04:D2:33:7C:FA:2C:14:08:A7`, read from the APK of build 411
+(`keytool -printcert -jarfile Montana-Messenger.apk`).
 
 A release of 2026-10-08 was prepared and not created. Its files are listed here with their digests for whoever holds them:
 
