@@ -165,7 +165,7 @@ capture.
 
 State: open.
 
-### F-4. The node services are not in this repository; the coin transfer log checks the form of a record, not its signature
+### F-4. The node services are not in this repository; the coin transfer log checked the form of a record, not its signature
 
 Where: the services run on the project's nodes; their source is not published. The clients' side is in this repository: iOS
 `Code/Montana/MTWalletCore.swift`, `MTCoinTx` from line 3058, the reader's verification at line 3157.
@@ -177,7 +177,12 @@ of its key's chain therefore lets a record carrying another person's key, with a
 chain's head. Readers verify the signature before they credit a record (line 3157), so such a record moves no coin; it
 blocks the owner's next transfer, which no longer stands on the head.
 
-State: open; the fix of the service is in progress.
+State: the signature part is closed on both transfer nodes since 2026-10-11 20:5x UTC: the service verifies the ML-DSA-65
+signature of every record with the core's own verifier (the `mt_verify` function of `core/Code/crates/mt-bindings`, the
+function the phone links), after a self-test of that verifier at start, refuses a record whose signature does not verify
+(400), takes no record at all when the verifier is absent (503), and never makes an unverified record a head; the phone in
+turn builds only on a head it has read back and verified as a record of its own key (from build 2192). Open: the source of the
+node services is still not in this repository.
 
 ### F-5. One machine holds the quorum weight of the earlier consensus line
 
