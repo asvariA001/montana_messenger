@@ -1,17 +1,20 @@
 # Security
 
-Montana Messenger is beta software. If you find a weakness in the application or in the
-nodes it talks to, please write to contact@montana.quest rather than opening a public
-issue, and give us a reasonable time to close it before publishing.
+Montana is beta software. If you find a weakness in the protocol core, in Montana for iPhone, iPad and Mac, in Montana for
+Android or in the nodes they talk to, write to contact@montana.quest rather than opening a public issue, and give us a
+reasonable time to close it before publishing.
 
-What is in scope:
+The findings the project already knows are catalogued in [`AUDIT.md`](AUDIT.md), section 6; a report that adds to one of
+them is welcome and is credited to it.
 
-- anything that lets a third party read, alter or forge a message or a call;
+In scope:
+
+- anything that lets a third party read, alter or forge a letter, a call or a transfer record;
 - anything that reveals who talks to whom, or when, to someone other than the two parties;
-- anything that lets one device impersonate another identity.
+- anything that lets one device impersonate another identity;
+- anything that makes the core's implementation differ from the specification set in `core/docs`.
 
-What is not a finding on its own:
+Not a finding on its own:
 
-- a dropped or redirected call or message that a party can detect — the transport pair of
-  a call is classical by its standard and is treated as admission, not as protection;
+- a dropped or redirected call or letter that a party can detect;
 - rate limiting, missing headers or version disclosure on the public web site.
