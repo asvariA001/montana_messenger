@@ -1,101 +1,66 @@
-<p align="center">
-  <img src="https://montana.quest/download/icon.png" width="132" alt="Montana">
-</p>
-<h1 align="center">Montana</h1>
-<p align="center">The Montana Time ecosystem: letters, calls, coins of time, a mesh, direct delivery and a VPN, on one post-quantum core. No phone number, no e-mail: 24 words are your account.</p>
-<p align="center">
-  <a href="https://testflight.apple.com/join/BHaSYWkz"><img alt="iPhone and iPad on TestFlight" src="https://img.shields.io/badge/iPhone%20·%20iPad-TestFlight-D4AF37?style=for-the-badge&logo=apple&logoColor=white"></a>
-  <a href="https://github.com/efir369999/montana_messenger/releases/latest"><img alt="Releases" src="https://img.shields.io/badge/IPA%20·%20APK-Releases-C9A227?style=for-the-badge&logo=github&logoColor=white"></a>
-</p>
-<p align="center"><a href="https://montana.quest">montana.quest</a> · <a href="https://montana.xxx">montana.xxx</a> · <a href="WHITEPAPER.md">Whitepaper</a> · <a href="core/">Core</a></p>
+# Montana
 
-## What this repository is
+Montana is a messenger for iPhone, iPad, Mac and Android built on a post-quantum protocol core. A person is twenty-four
+words held on the device: there is no phone number, no e-mail address and no account on a server. This repository holds
+the source of the protocol core and of the two Montana applications, laid out for an external audit.
 
-The whole source of the Montana Time ecosystem: the protocol core with its specification and its cryptography, and
-the client of every application, each in its own folder. The business application lives in its own repository,
-[montana_business](https://github.com/efir369999/montana_business). Every folder is the tree of one commit of the
-project's private history, published as it builds, under the publication notes below.
+[![iPhone and iPad on TestFlight](https://img.shields.io/badge/iPhone%20·%20iPad-TestFlight-D4AF37?style=for-the-badge&logo=apple&logoColor=white)](https://testflight.apple.com/join/BHaSYWkz)
+[![Releases](https://img.shields.io/badge/IPA%20·%20APK-Releases-C9A227?style=for-the-badge&logo=github&logoColor=white)](https://github.com/efir369999/montana_messenger/releases/latest)
+
+[montana.quest](https://montana.quest) · [Whitepaper](WHITEPAPER.md) · [Audit package](AUDIT.md) · [Security](SECURITY.md)
+
+## What this repository holds
 
 | Path | What it is |
 |---|---|
-| [`core/`](core/) | The protocol: the normative specification, the reference implementation and the client core in Rust; ML-DSA-65, ML-KEM-768, ChaCha20-Poly1305, SHA-256. See [`core/README.md`](core/README.md) |
-| [`apps/messenger/ios/`](apps/messenger/ios/) | **Montana** (Messenger) for iPhone, iPad and Mac |
-| [`apps/messenger/android/`](apps/messenger/android/) | **Montana** (Messenger) for Android |
-| [`apps/wallet/ios/`](apps/wallet/ios/) | **MT Wallet**, the coins of time |
-| [`apps/mesh/ios/`](apps/mesh/ios/) | **MT Mesh**, rooms over Bluetooth between phones that are near |
-| [`apps/p2p/ios/`](apps/p2p/ios/) | **MT P2P**, delivery straight from phone to phone |
-| [`apps/vpn/ios/`](apps/vpn/ios/) | **MT VPN**, a VPN client and the wall where a person shares their own VPN |
-| [`WHITEPAPER.md`](WHITEPAPER.md) | The ecosystem in one paper, with the specification it rests on |
-| [`RELEASES.md`](RELEASES.md), [`CHANGELOG.md`](CHANGELOG.md) | The build and the source commit of every folder, written by the publisher with the folder itself; the published binaries; the log of changes as it stood on 2026-10-03, when the log stopped being published |
+| [`core/`](core/) | The protocol core: the normative specification (`core/docs`), its reference implementation (`core/Montana-Core`) and the client core the applications link (`core/Code`), in Rust. See [`core/README.md`](core/README.md) |
+| [`apps/messenger/ios/`](apps/messenger/ios/) | Montana for iPhone, iPad and Mac (Swift). From build 2180 it carries the VPN client that was published separately as MT VPN |
+| [`apps/messenger/android/`](apps/messenger/android/) | Montana for Android (Kotlin, with a Rust JNI library over the client core) |
+| [`AUDIT.md`](AUDIT.md) | The audit package: scope, builds, vectors, the catalogue of open findings, what can and cannot be verified from this repository |
+| [`WHITEPAPER.md`](WHITEPAPER.md) | The protocol and what the applications implement of it today |
+| [`RELEASES.md`](RELEASES.md) | The source commit, build and git tree of every folder, written by the publisher in the commit that changes the folder; the published binaries |
 | [`SECURITY.md`](SECURITY.md) | How to report a weakness |
+| [`CHANGELOG.md`](CHANGELOG.md) | The project's log of changes as it stood on 2026-10-03, when it stopped being published |
+
+Until 2026-10-11 the repository also held the folders of MT Wallet, MT Mesh, MT P2P and MT VPN. They were retired from
+publication and remain in the history of this repository; nothing in the current tree depends on them.
 
 ## Download
 
-| Application | Install | Files |
+| Platform | Install | Files |
 |---|---|---|
-| Montana (Messenger) | [TestFlight](https://testflight.apple.com/join/BHaSYWkz) on iPhone, iPad and Mac; [APK](https://github.com/efir369999/montana_messenger/releases/latest/download/Montana-Messenger.apk) on Android | [IPA](https://github.com/efir369999/montana_messenger/releases/latest/download/Montana-Messenger.ipa), [APK](https://github.com/efir369999/montana_messenger/releases/latest/download/Montana-Messenger.apk) |
-| MT Wallet | [TestFlight](https://testflight.apple.com/join/n9UqzRDp) on iPhone, iPad and Mac | [IPA](https://github.com/efir369999/montana_messenger/releases/latest/download/Montana-Wallet.ipa) |
-| MT Business | [TestFlight](https://testflight.apple.com/join/MSMfey6f) on iPhone, iPad and Mac | [montana_business releases](https://github.com/efir369999/montana_business/releases/latest) |
+| iPhone, iPad, Mac | [TestFlight](https://testflight.apple.com/join/BHaSYWkz) | [IPA](https://github.com/efir369999/montana_messenger/releases/latest/download/Montana-Messenger.ipa) |
+| Android 8 or later | [APK](https://github.com/efir369999/montana_messenger/releases/latest/download/Montana-Messenger.apk) | [APK](https://github.com/efir369999/montana_messenger/releases/latest/download/Montana-Messenger.apk) |
 
-MT Mesh, MT P2P and MT VPN are built from their folders in this repository.
-
-The IPA files are the exports uploaded to the App Store: they are published to be read, compared with the source or
-re-signed, and the way to install on iPhone, iPad and Mac is TestFlight. The APK installs directly on Android 8 or later.
-Android carries one application, the Messenger.
-
-## The ecosystem
-
-**One person, one key, every application.** Each application creates or opens a person from the same 24 words. The
-words produce the seed; from the seed come the ML-DSA-65 signing key that is the person's identity and address, and the
-ML-KEM-768 key that others encrypt to. Nothing about a person is stored on a server: the history lives on the device.
-
-- **Montana (Messenger).** Text, photos, video, files and voice messages; voice and video calls with screen sharing; typing
-  seen live; delivery and read receipts, replies, reactions, editing, forwarding and deletion for everyone. A letter is sealed
-  end to end and travels directly between two phones when they can reach each other (one local network, IPv6, or a port the
-  router forwards), otherwise through Montana nodes that forward sealed envelopes and hold no key that opens them.
-- **MT Wallet.** The coins of time. Every source of coins keeps its own time chain: one link per move of coins, numbered,
-  stamped and sealed by SHA-256 over the link and the seal before it, so a changed or moved link breaks every seal after it.
-  The wallet shows every chain, its length, its head and whether every seal holds. One second is one coin.
-- **MT Mesh.** Rooms that live on Bluetooth Low Energy between phones that are near one another: a word hops from phone to
-  phone without the internet.
-- **MT P2P.** Delivery straight from phone to phone: the phone is its own node, learns its outward address and keeps its own
-  door open, so two people talk without any machine between them.
-- **MT VPN.** A VPN client with a packet tunnel on iPhone, iPad and Mac. It reads the common subscription and link formats, and a
-  person can put their own VPN on their wall for the people they write to.
-- **MT Business** ([its repository](https://github.com/efir369999/montana_business)). The messenger built for a company:
-  departments, offices, channels with discussion, administration, shifts and supply, and sign-in by phone number, e-mail or the
-  24 words.
-
-## The sites
-
-| Site | What it is for |
-|---|---|
-| [montana.quest](https://montana.quest) | The Messenger's home: download, privacy policy, and the links a person hands out: a card (`/r/`, `/perp/`, `/temp/`) and a name (`/n/name`), which open the app through the associated domain |
-| [montana.xxx](https://montana.xxx) | The store of Montana applications, one page per application with its download doors and its source; the home of MT Business with its privacy policy, terms and support |
-| [efir.org](https://efir.org) | A mirror of the Montana site |
-| [pronoia.my](https://pronoia.my) | The home of MT VPN, with its privacy policy, terms and support |
-| pzr.me | The earlier form of a name link; the applications still read it, new links are written on montana.quest |
-
-The applications reach the network through public names of the Montana nodes; no node address is written in this
-repository.
+The IPA is the export uploaded to the App Store and is published to be read and compared with the source; it installs
+through TestFlight. The APK is signed with the project's Android key. Which build each file is, and its SHA-256, is in
+[`RELEASES.md`](RELEASES.md) and in the notes of each release.
 
 ## What protects a conversation
 
-| Layer | Primitive |
-|---|---|
-| Identity and signatures | ML-DSA-65 (FIPS 204) |
-| Key agreement | ML-KEM-768 (FIPS 203) |
-| Message content | ChaCha20-Poly1305 under the session key |
-| Hashing | SHA-256 |
-| Link between two machines | Noise XX with ML-KEM-768 and ML-DSA-65 in place of classical Diffie-Hellman |
-| Call media | SFrame with a key derived from a call seed carried inside the sealed envelope; DTLS-SRTP is transport admission only |
+Each row is what the code of this repository does today, with the place to read it. Lines are given for the trees named
+in [`AUDIT.md`](AUDIT.md); the open findings behind the last column are catalogued there.
 
-ML-DSA-65 and ML-KEM-768 come from the Montana core, checked against the NIST known-answer tests. Read
-[`core/README.md`](core/README.md) for the implementations and versions, and [`WHITEPAPER.md`](WHITEPAPER.md) for the design.
+| Layer | What the code does | Where | Open |
+|---|---|---|---|
+| Identity | The twenty-four words give a seed; ML-DSA-65 (FIPS 204) and ML-KEM-768 (FIPS 203) keys derive from it in the core | `core/Code/crates/mt-mnemonic`, `mt-bindings` | |
+| First contact | One ML-KEM-768 encapsulation to the key of the correspondent's card gives the conversation secret | iOS `MontanaFirstContact.swift`; Android `Meeting.kt` and `MontanaCard.kt` over `nativeMlkemEncaps`, `nativeMlkemDecaps`, `nativeFirstSecret` | F-10 |
+| Letter content | ChaCha20-Poly1305 (the core's `mt_e2e_seal_blob`) under SHA-256("mt-pipe-key" ‖ 0 ‖ conversation secret ‖ minute). The key does not ratchet: whoever later obtains the conversation secret from a device opens every past letter of that conversation | iOS `MTPipe.swift`, `MTNodeWire.swift`; Android `Pipes.kt` | F-3 |
+| Delivery | A letter is deposited under a tag derived from the conversation secret and the minute; it travels directly between two devices that reach each other, otherwise through Montana nodes, which hold the sealed body and not its key | iOS `MTPipe.swift`, `MontanaDirect.swift`; Android `Pipes.kt`, `Channel.kt` | F-4, F-14 |
+| Channel to a node or a phone | A post-quantum handshake (ML-KEM-768 and ML-DSA-65) seals every frame with ChaCha20-Poly1305. The far side's key is read from the connection and not checked against a known key, and both sides sign with an identity drawn for that one handshake: the handshake encrypts but does not authenticate the far side. Inside TLS (port 443) the host certificate authenticates the name, classically | `core/Code/crates/mt-noise-pq/src/lib.rs`; iOS `MontanaDirect.swift`; Android `Channel.kt` | F-1 |
+| Calls | DTLS-SRTP only, a classical key exchange. A frame layer (SFrame, AES-GCM under a key from a seed carried in a sealed letter) is written in the iOS code and switched off; Android has none | iOS `MontanaCall.swift`; Android `CallLine.kt`, `Calls.kt` | F-6 |
+| VPN (iOS) | A client of Xray-core with a packet tunnel. Its protocols are classical; it carries traffic and is not a protection of Montana | iOS `scripts/xray-ios`, `Code/PacketTunnel` | |
+
+The core carries three implementations of ML-DSA-65 and ML-KEM-768 (libcrux in `core/Montana-Core`, OpenSSL 3.5 in
+`core/Code`, RustCrypto for the web target and as a test oracle); see [`AUDIT.md`](AUDIT.md), F-7.
 
 ## Build from source
 
-**Core.** Rust 1.92.0 (pinned in each workspace):
+Every command is run from the root of this repository unless it says otherwise. What a build of the published tree yields,
+and what it does not prove, is in [`AUDIT.md`](AUDIT.md).
+
+**Core.** Each workspace pins Rust 1.92.0 in its `rust-toolchain.toml`; `core/Code` builds OpenSSL 3.5.5 from source and needs
+a C compiler and Perl.
 
 ```
 cd core/Montana-Core
@@ -104,58 +69,42 @@ cd ../Code
 cargo test --workspace --release
 ```
 
-**iPhone, iPad and Mac applications.** Xcode 26.2 on macOS 15.7 or later, Rust 1.92.0 through rustup with the device target
-(`rustup target add aarch64-apple-ios --toolchain 1.92.0`); the applications run on iOS 17.2 or later. The core is built for the
-device, so an application is built for a device: with your own team for signing, or with signing off to check that the source
-compiles. In the folder of an application, the core's two frameworks are built from `core/`, the call engine is fetched, and the
-project is built:
+**Montana for iPhone, iPad and Mac.** macOS with Xcode and its iOS SDK (the Xcode release is not pinned in the tree), Rust
+1.92.0 through rustup with the device target (`rustup target add aarch64-apple-ios --toolchain 1.92.0`), Go for the VPN
+engine. The deployment target is iOS 17.2. The core is built for devices only, so the application is built for a device:
+with your own team, or with signing off to check that the source compiles. In `apps/messenger/ios`:
 
 ```
-cd apps/messenger/ios
-MONTANA_CORE_SRC="$PWD/../../../core/Code/crates/mt-bindings" bash scripts/build-core.sh
-MONTANA_PROTOCOL_CORE="$PWD/../../../core/Montana-Core" bash scripts/build-protocol-core.sh
+MONTANA_CORE_SRC="${PWD}/../../../core/Code/crates/mt-bindings" bash scripts/build-core.sh
+MONTANA_PROTOCOL_CORE="${PWD}/../../../core/Montana-Core" bash scripts/build-protocol-core.sh
 bash fetch-webrtc.sh
+bash scripts/xray-ios/build-xray-xcframework.sh
+bash scripts/hev-ios/build-hev-xcframework.sh
 xcodebuild build -project Montana.xcodeproj -scheme Montana -destination generic/platform=iOS CODE_SIGNING_ALLOWED=NO
 ```
 
-The same four steps build `apps/wallet/ios`, `apps/mesh/ios` and `apps/p2p/ios`. MT VPN links two more engines, built by the
-scripts in its `scripts/xray-ios` and `scripts/hev-ios`; they are published with its next build.
+The last engine script writes `Frameworks/HevSocks5Tunnel.xcframework` beside `Code/`, while the project links it from
+`Code/Frameworks/`: move it there before `xcodebuild`. The two engine scripts are in the folder from build 2180; a folder of an
+earlier build has no VPN and needs the first three steps and `xcodebuild` only.
 
-**Android.** `apps/messenger/android/scripts/setup.py` installs the pinned toolchain of `scripts/toolchain.json`
-(JDK 17, Android SDK 35, NDK, Kotlin, the call engine, each by digest); `scripts/build.py` builds the APK.
-
-## Publication notes
-
-Node endpoints in this tree are documentation addresses (RFC 5737) and the VPN test credential is a made-up one; the
-released binaries carry the live endpoints. The trees hold the code, its build files and its tests; signing material,
-process documents and deployment scripts stay with the project. Comments and documents are in English. Apart from those
-endpoints and that credential, the code is the code of the commit named for each folder in the Sources table of
-[`RELEASES.md`](RELEASES.md).
-
-## Beta, testing and reports
-
-| Item | State |
-|---|---|
-| Platform | iPhone and iPad with iOS 17.2 or later; Apple silicon Mac; Android 8 or later for the Messenger |
-| TestFlight | Messenger, Wallet and Business: the links above carry the newest build of each |
-| Feedback | GitHub Issues in this repository, or contact@montana.quest |
-| Privacy policy | https://montana.quest/privacy/ |
-
-Open an issue with the *Bug report* template and name the build (Settings → About), the device and system version, the
-network on each side, the exact time and what was expected instead. Do not paste recovery phrases, other people's addresses
-or message content into an issue. Weaknesses go by e-mail, not into an issue: see [SECURITY.md](SECURITY.md).
+**Montana for Android.** In `apps/messenger/android`, `python3 scripts/setup.py` installs the toolchain pinned in
+`scripts/toolchain.json` (JDK 17, Android SDK 35, NDK, Kotlin, the call engine, each checked against its digest), and
+`python3 scripts/build.py --check` compiles the resources and the Kotlin. The full build (`python3 scripts/build.py`) also
+builds the JNI library from the core, and it expects the core as a git checkout of one exact commit in a folder named
+`Montana Protocol` beside the Android tree (`scripts/toolchain.json`, `protocol`; `scripts/build.py`, `core`). That commit is
+not the commit of `core/` in this repository, so the APK's native library cannot be rebuilt from this repository as it stands:
+see [`AUDIT.md`](AUDIT.md), F-12.
 
 ## Diagnostics
 
-The applications send their diagnostic journals (event records, timings, error codes, crash and hang reports, the device
-model, the system version and the build) to a Montana diagnostics node, where they are kept for seven days and then deleted.
-They never hold message content, names, phrases or network addresses.
+Both applications send diagnostic journals (event records, timings, error codes, crash and hang reports, the device model,
+the system and the build) to a Montana node. What a line may contain is decided in the code: iOS `MontanaLog.swift` and
+`MontanaTrace.swift`, Android `Diary.kt`; each line passes a pattern pass that collapses addresses and replaces names by salted tags before it is
+written (`hide` in both files). How long the node keeps the journals is the operator's statement and cannot be verified from
+this repository.
 
-## Known limits
+## Reports
 
-- History lives on the device; deleting the application erases it there. A copy sealed under a key only your 24 words open is
-  kept by the people you write to (on by default; the application asks once, at the first opening), and can be kept in the
-  application's own iCloud container and on a node you run yourself.
-- Two phones that are both behind carrier NAT, without IPv6 and without a forwarded port, cannot reach each other directly and
-  talk through the nodes.
-- The coins of time are a tally kept on the phone in its own time chains, separate from the notes of the core's wallet.
+Open an issue with the build (Settings, About), the device and system version, the network on each side, the exact time and
+what was expected instead. Do not paste recovery phrases, other people's addresses or message content into an issue. A
+weakness goes by e-mail, not into an issue: see [`SECURITY.md`](SECURITY.md).
