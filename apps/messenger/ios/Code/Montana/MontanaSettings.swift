@@ -952,8 +952,7 @@ struct AppearanceView: View {
     @AppStorage("cbBg1") private var cbBg1 = BT.bg1
     @AppStorage("cbBg2") private var cbBg2 = BT.bg2
     @AppStorage(MTAvatarBadges.coinsKey) private var badgeCoins = true   // this phone draws the balances at the faces (11.10)
-    @AppStorage(MTAvatarBadges.levelKey) private var badgeLevels = true   // this phone draws the levels at the faces (11.10)
-    @AppStorage(MTLevelShow.shownKey) private var levelShown = false   // the owner's Global Level reaches the correspondents (11.10)
+    @AppStorage(MTLevelShow.shownKey) private var levelShown = true   // my Global Level reaches the correspondents and theirs is drawn (12.10)
     @AppStorage(MTCoinShow.key) private var coinsShown = false   // read for the line that leads to Privacy (11.10)
     @State private var bgPhotoItem: PhotosPickerItem?
     @ObservedObject private var wallBook = MTWallpaper.Book.shared
@@ -1037,18 +1036,18 @@ struct AppearanceView: View {
             }.listRowBackground(MTGlassRowPlate())
             // THE BALANCE AND THE LEVEL AT THE FACES (the author's word 11.10.2026 21:2x MSK: «everywhere an avatar is shown, make it
             // possible to show the balance on the left and the user's global level on the right, and in the settings let the
-            // privacy be governed in Appearance»): what this phone draws at the faces (MTAvatarBadges), and whether my own level
-            // leaves it (MTLevelShow, born off); my own balance leaves only by Show my coins, and the line leads there.
+            // privacy be governed in Appearance»; 12.10.2026 15:5x MSK: «on by default -- shows and sees, as with a delivery report»):
+            // whether this phone draws the balances at the faces (MTAvatarBadges), and the levels' one switch both ways (MTLevelShow,
+            // born on); my own balance leaves only by Show my coins, and the line leads there.
             Section {
                 Toggle("Show balances at avatars", isOn: $badgeCoins)
-                Toggle("Show levels at avatars", isOn: $badgeLevels)
-                Toggle("Show my level to others", isOn: $levelShown)
+                Toggle("Show levels at avatars", isOn: $levelShown)
                     .onChange(of: levelShown) { _, on in MTLevelShow.changed(on) }   // the people in the app hear it now
                 NavigationLink { PrivacyView() } label: {
                     LabeledContent { Text(coinsShown ? "On" : "Off") } label: { Text("Show my coins") }
                 }
             } header: { Text("Balance and level at avatars") } footer: {
-                Text("Off by default. On, every contact can see your Global Level at your avatar: the lower of your level of time online and your level of π, so it tells them about how long you have been online and how many coins you hold. Your balance reaches others only by Show my coins in Privacy.")
+                Text("On by default, as read receipts: while levels are on, your contacts see your Global Level at your avatar and you see theirs; off, neither. The Global Level is the lower of your level of time online and your level of π, so it tells about how long you have been online and how many coins you hold. Your balance reaches others only by Show my coins in Privacy.")
             }.listRowBackground(MTGlassRowPlate())
             // The note's picture quality (the author's word 18.09): three steps, the platform's own
             // segmented picker — the source's height and the encoder's rate (MontanaNoteQuality).
@@ -1922,7 +1921,16 @@ struct PrivacyView: View {
             Button("Delete account", role: .destructive) { forgetSeed() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Your account is deleted: this device erases your 24-word identity, and your public name leaves Montana's nodes. Your history stays here sealed and opens again only from the same 24 words — on this device, or on another one that already holds a copy. Nobody keeps the words for you: write them down first: Settings → Privacy → Seed phrase. Deleting the app erases the history as well.")
+            let rest = Text("Your account is deleted: this device erases your 24-word identity, and your public name leaves Montana's nodes. Your history stays here sealed and opens again only from the same 24 words — on this device, or on another one that already holds a copy. Nobody keeps the words for you: write them down first: Settings → Privacy → Seed phrase. Deleting the app erases the history as well.")
+            // THE COINS ARE SAID BEFORE THE WORDS GO (the author's word 12.10.2026 15:3x MSK, No.66, after 4 105 470 coins stood on a
+            // forgotten account on 11.10): an account that holds coins says how many, and that only its 24 words bring them back.
+            let coins = MTLocalCoinLedger.shared.balance
+            if 0 < coins {
+                // USER-DATA: two line breaks between the coins' line and the rest
+                Text("This account holds \(MTCoinText.count(coins)) coins. They stay with its 24 words and come back only with them.") + Text(verbatim: "\n\n") + rest
+            } else {
+                rest
+            }
         }
         .sheet(isPresented: $showSeed) {
             NavigationStack { SeedShowView() }.preferredColorScheme(.dark).montanaMotionMeter()

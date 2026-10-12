@@ -604,31 +604,25 @@ struct AvatarCircle: View {
 
 /// THE BALANCE AND THE LEVEL AT A FACE (the author's word 11.10.2026 21:2x MSK: «everywhere an avatar is shown, make it possible to
 /// show the balance on the left and the user's global level on the right, and in the settings let the privacy be governed in
-/// Appearance»). The balance stands at the face's lower left and the Global Level at its lower right, each a capsule of the
-/// platform's thin material: one's own from this phone's book and chains, a correspondent's only as they told it (MTCoinBoard) --
-/// nothing told, nothing drawn. The viewer turns either off in Appearance; a face below `least` stays clean.
+/// Appearance»; 12.10.2026 15:5x MSK: «show the levels right, as a badge at the top of the avatar, left and right, and on by default --
+/// a user who turned it on shows and sees, as with a delivery report; turned off, shows nothing and sees nothing»). The balance stands
+/// at the face's upper left and the Global Level at its upper right, each a capsule of the platform's thin material: one's own from
+/// this phone's book and chains, a correspondent's only as they told it (MTCoinBoard) -- nothing told, nothing drawn. The balances
+/// are the viewer's own switch; the levels are the one switch that both shows mine and lets me see theirs (MTLevelShow). A face below
+/// `least` stays clean.
 enum MTAvatarBadges {
     static let me = "@me"   // NOT-UI: the face is this phone's own person
     static let coinsKey = "avatarBadges.coins"   // NOT-UI: the viewer's switch for the balances, on until turned off
-    static let levelKey = "avatarBadges.level"   // NOT-UI: the viewer's switch for the levels, on until turned off
     static let least: CGFloat = 28
 }
 
-/// The presence dot stands at the face's lower right (MTPresenceBadge): the level's capsule stands above it, not under it.
-private struct MTPresenceDotShownKey: EnvironmentKey { static let defaultValue = false }
-extension EnvironmentValues {
-    var mtPresenceDotShown: Bool {
-        get { self[MTPresenceDotShownKey.self] }
-        set { self[MTPresenceDotShownKey.self] = newValue }
-    }
-}
-
-/// Whose face it is decides where the values come from; the viewer's two switches decide whether they are drawn.
+/// Whose face it is decides where the values come from; the switches decide whether they are drawn -- the levels by the same switch
+/// that lets my own level leave the phone, so a person who shows none sees none.
 struct MTAvatarBadgeRow: View {
     let who: String
     let size: CGFloat
     @AppStorage(MTAvatarBadges.coinsKey) private var coinsOn = true
-    @AppStorage(MTAvatarBadges.levelKey) private var levelOn = true
+    @AppStorage(MTLevelShow.shownKey) private var levelOn = true
     var body: some View {
         if coinsOn || levelOn {
             if who == MTAvatarBadges.me {
@@ -669,18 +663,18 @@ private struct MTAvatarBadgesTold: View {
     }
 }
 
-/// The two capsules, drawn from values: the balance in the coin badge's short form (MTPiLevels.short) at the lower left, the
-/// level at the lower right, the type scaled to the face. They take no finger: the face's own row or button answers it.
+/// The two capsules, drawn from values: the balance in the coin badge's short form (MTPiLevels.short) at the upper left, the level at
+/// the upper right -- the platform's place of a badge, clear of the presence dot below -- the type scaled to the face. They take no
+/// finger: the face's own row or button answers it.
 struct MTAvatarBadgePair: View {
     let coins: Int?
     let level: Int?
     let size: CGFloat
-    @Environment(\.mtPresenceDotShown) private var dot
     private var type: CGFloat { min(15, max(9, size * 0.2)) }
     var body: some View {
         Color.clear
-            .overlay(alignment: .bottomLeading) { if let coins { capsule(MTPiLevels.short(coins)) } }
-            .overlay(alignment: .bottomTrailing) { if let level { capsule(String(level)).padding(.bottom, dot ? 13 : 0) } }
+            .overlay(alignment: .topLeading) { if let coins { capsule(MTPiLevels.short(coins)) } }
+            .overlay(alignment: .topTrailing) { if let level { capsule(String(level)) } }
             .allowsHitTesting(false)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text(spoken))
@@ -1135,24 +1129,69 @@ struct MontanaCallMark: View {
     var action: () -> Void
     static let sidePad: CGFloat = 8
     static let topPad: CGFloat = 8
+    @State private var pressed = false
     var body: some View {
-        Button(action: action) {
-            // THE WHOLE 44-POINT SQUARE IS THE MARK'S (12.10.2026, the author's word 12:3x MSK: «the fold by the arrow does not press
-            // for everyone»): the touch shape was the circle inscribed in the target, and a finger at its corners -- a fifth of the
-            // square -- fell through to the picture's switch under it and toggled the buttons instead.
-            let face = MontanaBarGlyph(glyph: glyph)
-                .font(.system(size: 20, weight: .semibold)).foregroundColor(MontanaOctagon.barGlyph)
-                .frame(width: montanaTouchTarget, height: montanaTouchTarget)
-                .contentShape(Rectangle())
-            if #available(iOS 26.0, *) {
-                face.glassEffect(.regular.interactive(), in: Circle())
-            } else {
-                face.background(MontanaOctagon.barMaterial, in: Circle())
-                    .overlay(Circle().stroke(Color.white.opacity(0.28), lineWidth: 1))
+        // THE MARK'S FINGER IS THE PLATFORM'S (the author's words 12.10.2026 15:4x-15:5x MSK: «on the iPhone 17 the talk does not fold by
+        // the arrow -- at the root, at one touch»; «everything native, and the same for everyone»). The iPhone 17 Pro Max on iOS 26.6.2
+        // under Display Zoom (its call screen 375x812, T1's 428x926): nine calls of 11-12.10 and not one fold by the arrow, T1 eight of
+        // nineteen. The drawn Button shared its finger with the platform's interactive glass laid over it and with the picture's
+        // switch beside it, and which of them took a touch differed by system and zoom. A clear control of the system over the mark's
+        // whole 44 points takes it now: the system gives a touch to the deepest view that takes it, and a control fires at the lifting
+        // inside, the first time, on every system. The face is drawn under it and answers no finger.
+        let face = MontanaBarGlyph(glyph: glyph)
+            .font(.system(size: 20, weight: .semibold)).foregroundColor(MontanaOctagon.barGlyph)
+            .frame(width: montanaTouchTarget, height: montanaTouchTarget)
+        ZStack {
+            Group {
+                if #available(iOS 26.0, *) {
+                    face.glassEffect(.regular, in: Circle())
+                } else {
+                    face.background(MontanaOctagon.barMaterial, in: Circle())
+                        .overlay(Circle().stroke(Color.white.opacity(0.28), lineWidth: 1))
+                }
             }
+            .opacity(pressed ? 0.55 : 1)
+            .allowsHitTesting(false)
+            MTMarkTouch(name: glyph, pressed: $pressed, action: action)
+                .frame(width: montanaTouchTarget, height: montanaTouchTarget)
         }
-        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(label))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { action() }
+    }
+}
+/// A MARK'S FINGER (MontanaCallMark): a clear control of the system over the mark's room. It fires at the lifting inside, says its
+/// touch and its firing to the diary -- whether a finger reached the mark is seen, never guessed (12.10.2026, No.66) -- and reports
+/// its press for the face's dimming.
+struct MTMarkTouch: UIViewRepresentable {
+    let name: String
+    @Binding var pressed: Bool
+    let action: () -> Void
+    final class Control: UIControl {
+        var onPress: ((Bool) -> Void)?
+        override var isHighlighted: Bool { didSet { if isHighlighted != oldValue { onPress?(isHighlighted) } } }
+    }
+    final class Coordinator: NSObject {
+        var name = ""
+        var action: () -> Void = {}
+        @objc func down() { MontanaTrace.mark("mark_touch", "down glyph=\(name)") }
+        @objc func fire() { MontanaTrace.mark("mark_touch", "fire glyph=\(name)"); action() }
+    }
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeUIView(context: Context) -> Control {
+        let c = Control()
+        c.backgroundColor = .clear
+        c.isAccessibilityElement = false   // the mark's own element speaks for it (MontanaCallMark)
+        c.addTarget(context.coordinator, action: #selector(Coordinator.down), for: .touchDown)
+        c.addTarget(context.coordinator, action: #selector(Coordinator.fire), for: .touchUpInside)
+        return c
+    }
+    func updateUIView(_ c: Control, context: Context) {
+        context.coordinator.name = name
+        context.coordinator.action = action
+        let pressed = $pressed
+        c.onPress = { p in pressed.wrappedValue = p }
     }
 }
 /// THE ONE SHARE BUTTON OF THE APP (the author's word 25.09: «make this button the system's native share, one owner in the

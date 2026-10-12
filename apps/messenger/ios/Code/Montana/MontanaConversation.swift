@@ -4468,8 +4468,8 @@ struct MTPresenceBadge: ViewModifier {
     let active: Bool
     func body(content: Content) -> some View {
         // At the face's lower right, where the platform puts a presence (the author's word 30.09), not under its middle; the
-        // face's level stands above the dot while it is lit (MTAvatarBadges, 11.10).
-        content.environment(\.mtPresenceDotShown, active).overlay(alignment: .bottomTrailing) {
+        // face's balance and level stand at its top (MTAvatarBadges, 12.10).
+        content.overlay(alignment: .bottomTrailing) {
             if active {
                 MTPresenceDot().padding(2)
                     .background(.regularMaterial, in: Circle())

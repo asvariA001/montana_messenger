@@ -1099,22 +1099,6 @@
         }
       }
     },
-    "Active": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Активно"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在参与"
-          }
-        }
-      }
-    },
     "Add %lld photos": {
       "extractionState": "manual",
       "localizations": {
@@ -1813,22 +1797,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "新通话"
-          }
-        }
-      }
-    },
-    "Received": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Получено"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已收到"
           }
         }
       }
@@ -19087,23 +19055,6 @@
         }
       }
     },
-    "Burned": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Сожжено"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已燃烧"
-          }
-        }
-      }
-    },
     "Burned for calls": {
       "extractionState": "manual",
       "localizations": {
@@ -19256,22 +19207,6 @@
         }
       }
     },
-    "Earned in a chat": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Заработано в чате"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在聊天中赚取"
-          }
-        }
-      }
-    },
     "Rights from the wall": {
       "localizations": {
         "ru": {
@@ -19304,22 +19239,6 @@
         }
       }
     },
-    "Network participation": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Участие в сети"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "网络参与状态"
-          }
-        }
-      }
-    },
     "No confirmed window yet": {
       "localizations": {
         "ru": {
@@ -19332,22 +19251,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "尚无已确认窗口"
-          }
-        }
-      }
-    },
-    "Not active": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не активно"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未参与"
           }
         }
       }
@@ -21267,22 +21170,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "在钱包开放之前，硬币在此手机上计数。"
-          }
-        }
-      }
-    },
-    "Coins on a letter": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Монеты на письме"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "信件上的硬币"
           }
         }
       }
@@ -24445,28 +24332,6 @@
         }
       }
     },
-    "Show my level to others": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show my level to others"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показывать мой уровень другим"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "向他人显示我的等级"
-          }
-        }
-      }
-    },
     "On": {
       "localizations": {
         "en": {
@@ -24485,28 +24350,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "开启"
-          }
-        }
-      }
-    },
-    "Off by default. On, every contact can see your Global Level at your avatar: the lower of your level of time online and your level of π, so it tells them about how long you have been online and how many coins you hold. Your balance reaches others only by Show my coins in Privacy.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Off by default. On, every contact can see your Global Level at your avatar: the lower of your level of time online and your level of π, so it tells them about how long you have been online and how many coins you hold. Your balance reaches others only by Show my coins in Privacy."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "По умолчанию выключено. Включено — каждый собеседник может видеть ваш глобальный уровень на вашей аватарке: меньший из уровня времени в сети и уровня по Пи, так что он говорит им, примерно сколько вы были в сети и сколько у вас монет. Ваш баланс доходит до других только через «Показывать мои монеты» в разделе «Приватность»."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "默认关闭。开启后，每位联系人都可以在你的头像上看到你的全局等级：在线时长等级与 π 等级中较低的一个，因此它会让他们大致知道你在线了多久以及你持有多少硬币。你的余额只有通过“隐私”中的“显示我的硬币”才会让他人看到。"
           }
         }
       }
@@ -24795,6 +24638,135 @@
           "stringUnit": {
             "state": "translated",
             "value": "还有 %@ 等待按时间铸造"
+          }
+        }
+      }
+    },
+    "Transactions": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Транзакции"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "交易"
+          }
+        }
+      }
+    },
+    "No transactions yet": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Транзакций пока нет"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂无交易"
+          }
+        }
+      }
+    },
+    "Available %@": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступно %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可用 %@"
+          }
+        }
+      }
+    },
+    "On by default, as read receipts: while levels are on, your contacts see your Global Level at your avatar and you see theirs; off, neither. The Global Level is the lower of your level of time online and your level of π, so it tells about how long you have been online and how many coins you hold. Your balance reaches others only by Show my coins in Privacy.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "По умолчанию включено, как отчёт о прочтении: пока уровни включены, ваши собеседники видят ваш глобальный уровень на вашей аватарке, а вы — их; выключено — ни того, ни другого. Глобальный уровень — меньший из уровня времени в сети и уровня по Пи, так что он говорит, примерно сколько вы были в сети и сколько у вас монет. Ваш баланс доходит до других только через «Показывать мои монеты» в разделе «Приватность»."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "默认开启，如同已读回执：开启等级时，你的联系人能在你的头像上看到你的全局等级，你也能看到他们的；关闭后两者都不可见。全局等级是在线时长等级与 π 等级中较低的一个，因此它会大致透露你在线了多久以及你持有多少硬币。你的余额只有通过“隐私”中的“显示我的硬币”才会让他人看到。"
+          }
+        }
+      }
+    },
+    "Active": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Активно"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在参与"
+          }
+        }
+      }
+    },
+    "Received": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Получено"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已收到"
+          }
+        }
+      }
+    },
+    "Burned": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сожжено"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已燃烧"
+          }
+        }
+      }
+    },
+    "This account holds %@ coins. They stay with its 24 words and come back only with them.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На этом аккаунте %@ монет. Они остаются за его 24 словами и вернутся только с ними."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此账户持有 %@ 枚硬币。它们留在其 24 个助记词中，只有凭这些助记词才能取回。"
           }
         }
       }

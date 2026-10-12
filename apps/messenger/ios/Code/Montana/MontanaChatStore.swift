@@ -6525,8 +6525,8 @@ enum SeedScope {
         "mt.home.node", "mt.home.node.on", "mt.home.node.pin",   // the person's own node, its daily copies and the digest of its certificate (28.09)
         MTBoardRule.key, MTBoardRule.sightKey, MTBoardRule.vpnKey,
         MTCoinShow.key, MTCoinShow.toldKey,   // the owner shows or hides their coins, and the wallet has said what that does (04.10)
-        MTLevelShow.shownKey,   // the owner shows or hides their Global Level to correspondents (11.10)
-        MTAvatarBadges.coinsKey, MTAvatarBadges.levelKey,   // whether this phone draws the balances and the levels at the faces (11.10)
+        MTLevelShow.shownKey,   // the person shows their Global Level and sees the correspondents', or neither (11.10, 12.10)
+        MTAvatarBadges.coinsKey,   // whether this phone draws the balances at the faces (11.10)
         MTPersonalRate.key]   // the person's earning, its period and currency: their own rate of the coin (04.10 19:19)
     /// THE MARKS OF MIGRATIONS ALREADY RUN over the data they describe: a copy carries them with that data, so a
     /// one-time sweep never runs a second time over what it already swept; a change of seed keeps them.

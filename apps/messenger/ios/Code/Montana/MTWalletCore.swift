@@ -719,12 +719,13 @@ enum MTCoinShow {
 /// THE OWNER SHOWS OR HIDES THEIR LEVEL (the author's word 11.10.2026 21:2x MSK: «everywhere an avatar is shown, make it possible
 /// to show the balance on the left and the user's global level on the right, and in the settings let the privacy be governed in
 /// Appearance»). The Global Level is the lower of the person's level and the wallet's level of π (MTPersonChain.global), and the
-/// person's level counts the seconds the words were on the network -- shown only to its owner until now. It reaches the
-/// correspondents only by this switch, born off (App Review 5.1.2(i)): on, every presence word carries «L» and the level after the
-/// balance's tail (E2E.levelTail); off, the words carry none and each pair drops the level it held (MTCoinBoard.noteLevel).
+/// person's level counts the seconds the words were on the network. ONE SWITCH, BORN ON, BOTH WAYS (the author's word 12.10.2026
+/// 15:5x MSK: «on by default -- a user who turned it on shows and sees, as with a delivery report; turned off, shows nothing and sees
+/// nothing»): on, every presence word carries «L» and the level after the balance's tail (E2E.levelTail) and the faces draw the levels
+/// told (MTAvatarBadgeRow); off, the words carry none, each pair drops the level it held (MTCoinBoard.noteLevel), and no level is drawn.
 enum MTLevelShow {
-    static let shownKey = "level.shown"   // NOT-UI: the owner's switch, off until the owner turns it on
-    static var on: Bool { UserDefaults.standard.object(forKey: shownKey) as? Bool ?? false }
+    static let shownKey = "level.shown"   // NOT-UI: the person's switch of the levels, on until the person turns it off
+    static var on: Bool { UserDefaults.standard.object(forKey: shownKey) as? Bool ?? true }
     /// The owner's switch moved: the people in the app hear the level, or its withdrawal, now -- the rest at the next word.
     @MainActor static func changed(_ on: Bool) {
         if on { MTPersonChain.shared.prime() }
@@ -1464,7 +1465,7 @@ enum MTPersonLevel {
 /// this side the level's coins a second -- the same rule on the other side's phone for its own person, each by their own level,
 /// whatever the chat's Money Flow; nothing burns any more. A second mints once by its window, whichever beat asks.
 @MainActor enum MTCallMint {
-    static let refPrefix = "callmint:"
+    nonisolated static let refPrefix = "callmint:"   // read by the history's fold off the screen's thread (MTTimeChain.source)
     static var wanted: Bool { MontanaCall.shared.mintsTalk }
     /// THE SECONDS ARE THE CALL'S CLOCK, NOT THE BEAT'S (12.10.2026, the author's word 11:5x MSK: «for calls coins must be credited
     /// to both correspondents by their level for every second»): a beat minted one second, and a beat is a second plus its own
@@ -1585,6 +1586,10 @@ enum MTTimeChain {
 
     static func source(of e: MTCoinEntry) -> String { source(ref: e.ref, kind: e.k, peer: e.peer) }
     static func source(ref r: String, kind: MTCoinEntry.Kind, peer: String? = nil) -> String {
+        source(ref: r, kind: kind, peer: peer) { p in MTGroup.shared.kind(p) == .channel }
+    }
+    /// The same reading with the channels said by the caller: a fold off the screen's thread asks no live group (MTCoinHistory).
+    static func source(ref r: String, kind: MTCoinEntry.Kind, peer: String?, channel: (String) -> Bool) -> String {
         if MTChessCoins.owns(r) { return "chess" }   // the moves, the wins and losses before the pot, the pot and its stakes (06.10)
         if r.hasPrefix(MTPantheon.refPrefix) { return "pantheon" }
         if r.hasPrefix(MTVPNWallMint.refPrefix) { return "vpnwall" }
@@ -1597,7 +1602,7 @@ enum MTTimeChain {
             // A GROUP'S AND A CHANNEL'S COINS STAND IN THEIR OWN CHAINS (the author's words 06.10.2026 11:5x-12:0x MSK: «their own
             // TimeChain and their own app»): the letter's conversation names its chain.
             guard let p = peer, MTGroup.isKey(p) else { return "chats" }
-            return MTGroup.shared.kind(p) == .channel ? "channels" : "groups"
+            return channel(p) ? "channels" : "groups"
         case .receive: return "received"
         case .spend: return "spent"
         case .send: return "sent"
@@ -2236,7 +2241,7 @@ struct MTCoinCounts {
     var sent = 0
     /// The tallies saturate, never trap (the coin audit's ninth point, 05.10.2026 21:4x MSK): a sum past the integer is shown at
     /// its edge, and the app lives.
-    private static func plus(_ a: Int, _ b: Int) -> Int {
+    static func plus(_ a: Int, _ b: Int) -> Int {
         let (s, over) = a.addingReportingOverflow(b)
         return over ? (0 < b ? Int.max : Int.min) : s
     }
@@ -2362,6 +2367,8 @@ struct MTCoinCounts {
         }
         return (moves, taken)
     }
+    /// A book's balance as its file holds it -- a person's on this phone's shelf (MTSeats.shelfCoins) -- read off the screen's thread.
+    nonisolated static func balance(of file: URL) -> Int { decode(file).0.reduce(0) { s, e in MTCoinCounts.plus(s, e.signed) } }
     private func adopt(_ r: Reading) {
         guard reading === r else { return }   // a reading of the person who left the seat
         reading = nil
@@ -2540,6 +2547,7 @@ struct MTCoinCounts {
         MTTimeChainTip.shared.add(fresh, book: balance)   // and this device's lane, whose tip rides one round trip (04.10 16:34)
         guard let file, !fresh.isEmpty else { return }
         MTCoinVault.shared.soon(now ? "move" : "moves", after: now ? 1 : 60)   // a move between people reaches the seed's devices at once
+        MTCoinTx.mintSoon()   // and the chain takes what the book holds above it within one window of τ1
         if let was = pendingFile, was != file { flush() }
         pendingFile = file
         for e in fresh {
@@ -2804,16 +2812,20 @@ enum MTCoinSend {
     /// 200 is the moment they left and the book's debit; then a letter in the chat says how many and carries the confirmation link.
     /// False -- refused (the balance, the chat) or no node took the record: nothing moved.
     @MainActor static func transfer(_ coins: Int, to chat: Chat, store: ChatStore) async -> Bool {
+        await transferId(coins, to: chat, store: store) != nil
+    }
+    /// The same transfer with its record's name: one's own other account lands it at once (MTCoinTx.landOwn).
+    @MainActor static func transferId(_ coins: Int, to chat: Chat, store: ChatStore) async -> String? {
         let conv = chat.convId ?? chat.name
         guard canPay(chat, store: store), 0 < coins, coins <= MTCoinBook.ledger.balance else {
             MontanaTrace.mark("coin_refused", "transfer coins=\(coins) balance=\(MTCoinBook.ledger.balance) own=\(MTOwnWords.mine(conv) ? 1 : 0)")
-            return false
+            return nil
         }
-        guard let id = await MTCoinTx.send(coins, conv: conv) else { return false }
+        guard let id = await MTCoinTx.send(coins, conv: conv) else { return nil }
         // USER-DATA: the coin glyph, the number and the ticker, the same in every language; the link is the transfer's own address
         let text = "🪙 " + MTCoinText.count(coins) + " " + MTCoinBook.ticker + "\n" + MTCoinTx.link + id
         _ = store.send(text: text, chat: chat.name, convRef: conv, silent: false, noLinkCard: true)
-        return true
+        return id
     }
     /// Coins given on the correspondent's letter: the book pays, the reaction word carries them («op»: «coin»). An older build
     /// reads an unknown op as nothing at all.
@@ -3087,6 +3099,9 @@ enum MTAutoReact {
 enum MTCoinChainRules {
     static let v2Cut: Int64 = 1_792_443_600       // NOT-UI: 20.10.2026 00:00 MSK, the node's TX_V2_CUT (COIN-TX-V3 section 8)
     static let coinEpoch: Int64 = 1_788_210_000   // NOT-UI: 01.09.2026 00:00 MSK, the node's TX_COIN_EPOCH (section 3)
+    /// τ1, THE MINTING'S WINDOW (the author's word 12.10.2026 15:5x MSK: «once in τ1 -- 60 seconds must be the window of time»): the
+    /// shortest interval a MINT covers (sections 3, 7) and how often the phone asks its chain to take what the book holds above it.
+    static let window: Int64 = 60
     static let zero = String(repeating: "0", count: 64)
     enum Kind: UInt8 { case send = 1, recv = 2, mint = 3, refund = 4, genesis = 5 }
     /// A record as the rules read it; a record of the layouts before kinds is a send that names no receiver.
@@ -3187,14 +3202,17 @@ enum MTCoinChainRules {
 /// node does (POST /tx-head), and a word of the node never stands over the copy's fresher one. Nothing before the chain opened.
 @MainActor final class MTCoinSplit: ObservableObject {
     static let shared = MTCoinSplit()
-    struct Split: Equatable { let proven: Int64; let declared: Int64; let fromCopy: Bool; let at: TimeInterval }
+    struct Split: Equatable { let proven: Int64; let declared: Int64; let fromCopy: Bool; let at: TimeInterval; let height: Int }
     @Published private(set) var split: Split?
-    func heard(proven: Int64, declared: Int64, opened: Bool, fromCopy: Bool) {
+    /// THE NEWEST STATE OF THE CHAIN SPEAKS, WHOEVER FOLDED IT (the author's words 12.10.2026 15:5x MSK: «the available depends on the
+    /// network and the confirmed ... everything at once»): the copy's fold stood an hour over every fresher word of the node, so a RECV or
+    /// a MINT the node had taken waited for the copy's next round. The chain's height says which word is newer; one height is one state.
+    func heard(proven: Int64, declared: Int64, opened: Bool, fromCopy: Bool, height: Int) {
         guard opened else { return }
+        if let s = split, height < s.height { return }
         let now = Date().timeIntervalSince1970
-        if !fromCopy, let s = split, s.fromCopy, now - s.at < 3600 { return }
-        if split?.proven != proven || split?.declared != declared || split?.fromCopy != fromCopy {
-            split = Split(proven: proven, declared: declared, fromCopy: fromCopy, at: now)
+        if split?.proven != proven || split?.declared != declared || split?.height != height {
+            split = Split(proven: proven, declared: declared, fromCopy: fromCopy, at: now, height: height)
         }
         MontanaTrace.markFolded("coin_split", "proven=\(proven) declared=\(declared) copy=\(fromCopy ? 1 : 0)", window: 600)
     }
@@ -3239,6 +3257,14 @@ enum MTCoinTx {
         keyLock.lock()
         if let c = keyCache, c.words == tag { keyLock.unlock(); return (c.pk, c.sk) }
         keyLock.unlock()
+        guard let h = derive(words) else { return nil }
+        keyLock.lock(); keyCache = (tag, h.pk, h.sk); keyLock.unlock()
+        return (h.pk, h.sk)
+    }
+    /// One key's hands: the person seated (keys()) or a person on this phone's shelf (derive) -- the record is theirs, signed by them.
+    struct Hands { let pk: Data; let sk: Data; var from: String { MTCoinTx.keyTag(pk) } }
+    /// The coin key of any words this phone holds, derived anew (never cached: a shelf's words are asked rarely).
+    static func derive(_ words: String) -> Hands? {
         guard let master = MontanaQueueKeys.masterSeed(words), master.count == 64 else { return nil }
         var seed = [UInt8](repeating: 0, count: 32)
         let role = Array("mt-coin-tx".utf8)
@@ -3251,8 +3277,7 @@ enum MTCoinTx {
         guard rc == 0 else { return nil }
         var pk = [UInt8](repeating: 0, count: 1952), sk = [UInt8](repeating: 0, count: 4032)
         guard mt_mldsa_keypair_from_seed(seed, &pk, &sk) == 0 else { return nil }
-        keyLock.lock(); keyCache = (tag, Data(pk), Data(sk)); keyLock.unlock()
-        return (Data(pk), Data(sk))
+        return Hands(pk: Data(pk), sk: Data(sk))
     }
     static func hex(_ d: Data) -> String { d.map { b in String(format: "%02x", b) }.joined() }
     private static func unhex(_ s: String) -> Data? {
@@ -3558,8 +3583,8 @@ extension MTCoinTx {
     }
     /// The record of version 3, signed by the core (nil: no words, a field of the wrong size, or the core refused).
     static func build3(_ kind: Kind3, amount: UInt64, prev: String, nonce: Data, pair: Data = Data(count: 32), to: Data = Data(count: 32),
-                       ref: String = zero, a: UInt64 = 0, b: UInt64 = 0) -> Data? {
-        guard let k = keys(), let p = unhex(prev), p.count == 32, let r = unhex(ref), r.count == 32, nonce.count == 16,
+                       ref: String = zero, a: UInt64 = 0, b: UInt64 = 0, hands: Hands? = nil) -> Data? {
+        guard let k = hands.map({ h in (pk: h.pk, sk: h.sk) }) ?? keys(), let p = unhex(prev), p.count == 32, let r = unhex(ref), r.count == 32, nonce.count == 16,
               pair.count == 32, to.count == 32 else { return nil }
         var body = magic
         body.append(3); body.append(kind.rawValue)
@@ -3600,8 +3625,8 @@ extension MTCoinTx {
     }
     /// One record of my key laid on my chain's head, the head read back and verified as mine first; a head that moved is asked
     /// again once. (the node's code, its word, the record laid).
-    @MainActor static func layOnHead(_ make: (Chain3) -> Data?) async -> (code: Int, word: String, rec: Data?) {
-        guard let me = myKeyTag, let door = chainDoor(me) else { return (-1, "no key", nil) }
+    @MainActor static func layOnHead(hands: Hands? = nil, _ make: (Chain3) -> Data?) async -> (code: Int, word: String, rec: Data?) {
+        guard let me = hands?.from ?? myKeyTag, let door = chainDoor(me) else { return (-1, "no key", nil) }
         for _ in 0..<2 {
             guard let st = await chain3(me, door: door) else { return (-1, "no head", nil) }
             guard await headIsMine(st.head, me: me, door: door) else { return (-1, "head unverified", nil) }
@@ -3616,16 +3641,30 @@ extension MTCoinTx {
         return (409, "not on the head", nil)
     }
     @MainActor private static var mintedAt: TimeInterval = 0
+    @MainActor private static var mintDue = false
+    /// THE BOOK'S MOVE ASKS ITS CHAIN WITHIN ONE WINDOW (the author's words 12.10.2026 15:5x MSK: «the minting has its own chain of time
+    /// and as it is confirmed it releases the available»; «once in τ1»): one ask a window, however many coins the window holds.
+    @MainActor static func mintSoon() {
+        guard !mintDue else { return }
+        mintDue = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + Double(MTCoinChainRules.window)) {
+            MainActor.assumeIsolated {
+                mintDue = false
+                Task { @MainActor in await reconcile() }
+            }
+        }
+    }
     /// THE CHAIN HOLDS WHAT THE BOOK HOLDS (sections 3-4). A key's first v3 record is its GENESIS: the book as it stands, at most
     /// what time could have minted since the coins began, announced and never called proven (before the v2 cut; a GENESIS of 0
     /// after it). After it, what the book holds above the chain is laid as a MINT of the time since the last one, at most what the
-    /// interval allows -- once in ten minutes, or at once when a send needs it. The node's clock decides the interval, never the phone's.
+    /// interval allows -- once a window of τ1 (MTCoinChainRules.window), or at once when a send needs it. The node's clock decides the
+    /// interval, never the phone's.
     @MainActor @discardableResult static func reconcile(force: Bool = false) async -> Chain3? {
         guard let me = myKeyTag, let door = chainDoor(me) else { return nil }
         guard var st = await chain3(me, door: door) else { return nil }
         // what the chain's node folds is told to the wallet's split, after every word of it
         func told(_ s: Chain3?) -> Chain3? {
-            if let s { MTCoinSplit.shared.heard(proven: s.proven, declared: s.declared, opened: s.v3, fromCopy: false) }
+            if let s { MTCoinSplit.shared.heard(proven: s.proven, declared: s.declared, opened: s.v3, fromCopy: false, height: s.height) }
             return s
         }
         let book = Int64(MTLocalCoinLedger.shared.whole.balance)
@@ -3637,7 +3676,7 @@ extension MTCoinTx {
             st = again
         }
         let wall = Date().timeIntervalSince1970
-        guard force || 600 <= wall - mintedAt else { return told(st) }
+        guard force || Double(MTCoinChainRules.window) <= wall - mintedAt else { return told(st) }
         mintedAt = wall
         let gap = book - st.proven - st.declared
         guard 0 < gap, st.mintEnd + 60 <= st.now - 120 else { return told(st) }
@@ -3746,6 +3785,59 @@ extension MTCoinTx {
         }
         MontanaTrace.mark("coin_v3", "recv code=\(r.code) word=\(r.word) taken=\(taken ? 1 : 0) id=\(s.id.prefix(12))")
         return taken && book.receive(s.coins, from: conv, ref: refPrefix + s.id, on: nil)
+    }
+    /// A TRANSFER TO ONE'S OWN OTHER ACCOUNT IS ONE PAIR, SENT AND RECEIVED IN THE SAME STEP (the author's words 12.10.2026 13:2x MSK:
+    /// «either the coins left or not -- there is no third -- this is point 0»; 15:3x, No.66: «a transfer to oneself in Montana must
+    /// become one pair of records, sent and received»). The phone holds both seeds -- the person seated and the person on its shelf --
+    /// so the SEND names the other key (knowOwn), and the RECV is laid at once on the other key's own chain with that key, the chain
+    /// opened first by its GENESIS of the book its shelf holds, as its own phone would open it. Only then do the coins stand in the
+    /// other person's book on the nodes, under the name their own scan credits them by: a SEND whose RECV did not stand stays the
+    /// receiver's to take when seated, or comes back to its sender by the REFUND after a day -- never both.
+    @MainActor static func knowOwn(seat: String, conv: String) async -> Hands? {
+        guard let shelf = await Task.detached(priority: .userInitiated, operation: { MTSeats.shelfCoins(seat) }).value,
+              let hands = await Task.detached(priority: .userInitiated, operation: { derive(shelf.words) }).value else {
+            MontanaTrace.mark("coin_own", "seat=\(seat) no hands")
+            return nil
+        }
+        notePeerFrom(conv, hands.from)
+        return hands
+    }
+    @MainActor static func landOwn(seat: String, send id: String, coins: Int, conv: String) async {
+        guard let shelf = await Task.detached(priority: .userInitiated, operation: { MTSeats.shelfCoins(seat) }).value,
+              let hands = await Task.detached(priority: .userInitiated, operation: { derive(shelf.words) }).value,
+              let e = MontanaSeedKeys.entropyFrom(mnemonic: shelf.words), e.count == 32,
+              let me = myKeyTag, let door = chainDoor(me) else {
+            MontanaTrace.mark("coin_own", "seat=\(seat) no hands -- the receiver takes it when seated")
+            return
+        }
+        var v3 = false, taken = false, said = "v2"
+        let g = await ask(door + "/tx-get", ["id": id])
+        if g.code == 200, let b = (g.obj?["rec"] as? String).flatMap({ s in Data(base64Encoded: s) }) {
+            v3 = b.count == size3
+            if v3, let s = await Task.detached(priority: .userInitiated, operation: { read3(b) }).value, s.id == id,
+               let secret = MTPipeBook.secret(for: conv), !secret.isEmpty, let theirs = unhex(hands.from), let tdoor = chainDoor(hands.from) {
+                let blind = MTCoinChainRules.blind(secret: secret, nonce: s.nonce)
+                if MTCoinChainRules.commitment(from: theirs, blind: blind) == s.to {
+                    if let st = await chain3(hands.from, door: tdoor), !st.v3 {
+                        let amount = st.now < v2Cut ? min(max(0, Int64(shelf.book)), MTCoinChainRules.genesisCap) : 0
+                        let r = await layOnHead(hands: hands) { c in build3(.genesis, amount: UInt64(amount), prev: c.head, nonce: fresh(), hands: hands) }
+                        MontanaTrace.mark("coin_own", "seat=\(seat) genesis code=\(r.code) word=\(r.word) amount=\(amount)")
+                    }
+                    let r = await layOnHead(hands: hands) { c in
+                        build3(.recv, amount: UInt64(s.coins), prev: c.head, nonce: fresh(), to: blind, ref: s.id, a: s.a, hands: hands)
+                    }
+                    taken = r.code == 200
+                    said = "recv code=\(r.code) word=\(r.word)"
+                } else { said = "not their key" }
+            }
+        } else { said = "no record code=\(g.code)" }
+        guard taken || (g.code == 200 && !v3) else {
+            MontanaTrace.mark("coin_own", "seat=\(seat) coins=\(coins) \(said) -- the receiver takes it when seated, or it comes back")
+            return
+        }
+        let move = MTCoinEntry(k: .receive, c: coins, ref: refPrefix + id, peer: conv, on: nil, at: Date().timeIntervalSince1970)
+        let laid = await MTCoinVault.lay([move], entropy: e)
+        MontanaTrace.mark("coin_own", "seat=\(seat) coins=\(coins) \(said) book=\(laid) id=\(id.prefix(12))")
     }
     /// An untaken SEND comes back after a day by a REFUND on my chain (section 5): its node's clock decides, one fate a SEND.
     @MainActor static func refundDue() async {
@@ -3888,7 +3980,7 @@ enum MTCoinReplica {
         let rows = held.rows
         let f = await Task.detached(priority: .utility) { fold(rows, at: T, me: me) }.value
         // the person's own chain as this copy folded it: the wallet's split hears it before the node's word (MTCoinSplit)
-        if f.bad == 0, let mine = f.mine { MTCoinSplit.shared.heard(proven: mine.proven, declared: mine.declared, opened: mine.v3, fromCopy: true) }
+        if f.bad == 0, let mine = f.mine { MTCoinSplit.shared.heard(proven: mine.proven, declared: mine.declared, opened: mine.v3, fromCopy: true, height: mine.height) }
         var signed = 0
         if f.bad == 0, 0 < f.keys, let root = bytes(f.root) {
             var t = UInt64(T).littleEndian

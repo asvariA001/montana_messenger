@@ -1,12 +1,11 @@
 import SwiftUI
 import SafariServices
+import Combine
 
 struct MTWalletPage: View {
     @Environment(\.montanaClose) private var close
     @Environment(\.scenePhase) private var phase
     @Environment(UIState.self) private var ui
-    @State private var state: Result<MTWalletCore.Snapshot, MTWalletCore.Absence>?
-    @State private var loading = false
     @State private var windows = MTBoard.MTWallWindowList()
     /// THE COIN BOOK (the author's word 03.10 13:52): the balance, the moves and the history all read the one ledger.
     @ObservedObject private var book = MTLocalCoinLedger.shared
@@ -22,6 +21,7 @@ struct MTWalletPage: View {
     @State private var levelsShown = false
     @State private var chainsShown = false
     @State private var historyShown = false
+    @State private var analyticsShown = false
     @State private var topOpen = true   // the Top 13 folds away and opens again (the author's word 12.10.2026 13:1x MSK)
     /// THE COIN TURNS ONCE (the author's word 03.10.2026 16:55 MSK: «the coin makes one turn at the opening and at a tap»).
     @State private var coinTurn = 0
@@ -43,17 +43,8 @@ struct MTWalletPage: View {
         let turn = hintTurn
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { if turn == hintTurn { hint = false } }
     }
-    /// From where to where, as a person reads it: the game or the person the coins came from, and where they went.
-    static func route(_ e: MTCoinEntry) -> String {
-        let me = String(localized: "You", bundle: MTLanguage.bundle)
-        let peer = e.peer.map { MTTimeChainRows.who($0) } ?? "—"
-        switch e.k {
-        case .earn: return MTTimeChainRows.name(MTTimeChain.source(of: e)) + " → " + me
-        case .receive: return peer + " → " + me
-        case .send, .spend: return me + " → " + peer
-        case .burn: return me + " → " + String(localized: "Burned", bundle: MTLanguage.bundle)
-        }
-    }
+    /// Every coin the book holds; before the seed's book lands, the balance a device of the same words told in its tip (04.10 16:34).
+    private var total: Int { vault.heard ? book.balance : max(book.balance, tipNet.seen ?? 0) }
     var body: some View {
         NavigationStack {
             List {
@@ -158,13 +149,14 @@ struct MTWalletPage: View {
                         // Until the book lands, the balance a device of the same words told in its tip (MTTimeChainTip, 04.10 16:34).
                         // THE TICKER BESIDE THE BALANCE (the author's word 04.10.2026 17:31 MSK: «to the right of the amount, exactly the
                         // balance's size and style»; MTCoinBook.ticker, point 12): one text under one font, one line that narrows to fit.
-                        // ONE SOURCE OF TRUTH -- THE GLOBAL TIMECHAIN (the author's word 12.10.2026 13:4x MSK): once the person's chain
-                        // opened, the figure is what the chain proves and declares (MTCoinSplit); the book only mirrors it, and what the book
-                        // holds above it is said beneath as waiting for its time, never added in.
+                        // THE TOTAL IS THE BOOK'S, THE AVAILABLE THE NETWORK'S (the author's words 12.10.2026 15:5x MSK: «the total balance must
+                        // always grow with the minting and show everything, and the available depends on the network and the confirmed --
+                        // everything at once»; «the minting has its own chain of time, and as it is confirmed it releases the available, never
+                        // holding back the credits of transfers»). T1 at 12:44:25Z: a transfer of 100 000 credited, and the figure -- then the
+                        // chain's fold -- stood still. The figure is every coin the book holds, minted and received by every road; under it the
+                        // part the person's chain on the network confirms (MTCoinSplit), its split, and what still waits for its window of τ1.
                         // USER-DATA: the balance, a number, and the ticker, one symbol in every language
-                        (Text(verbatim: MTCoinText.count(coinSplit.split.map { s in Int(clamping: s.proven + s.declared) }
-                                                         ?? (vault.heard ? book.balance : max(book.balance, tipNet.seen ?? 0))))
-                            + Text(verbatim: " " + MTCoinBook.ticker))
+                        (Text(verbatim: MTCoinText.count(total)) + Text(verbatim: " " + MTCoinBook.ticker))
                             .font(.system(size: 48, weight: .bold).monospacedDigit()).lineLimit(1).minimumScaleFactor(0.5)
                             .textSelection(.enabled)
                         // THE SEED'S BOOK IS ON ITS WAY (the author's word 04.10.2026 15:51 MSK: «I log in on T3 by T1's seed and see my
@@ -173,16 +165,19 @@ struct MTWalletPage: View {
                             ProgressView("Gathering your coins").controlSize(.small).font(.footnote)
                         }
                         // USER-DATA: the same balance in Montana (one coin is 0.000000001)
-                        Text(verbatim: MTChatMint.montana(coinSplit.split.map { s in Int(clamping: s.proven + s.declared) } ?? book.balance) + " Ɱ")
+                        Text(verbatim: MTChatMint.montana(total) + " Ɱ")
                             .font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
                         // THE BALANCE AS ITS CHAIN HOLDS IT (MTCoinSplit; the chairman's task 12.10.2026, No.65: «the balance figure stays one,
                         // and beneath it the split proven / declared»): what the chain proves by mints and receipts and what its opening
                         // announced -- once the chain opened.
                         if let split = coinSplit.split {
+                            let available = Int(clamping: split.proven + split.declared)
+                            // USER-DATA: the coins the person's chain on the network confirms, the spendable part of the total
+                            Text("Available \(MTCoinText.count(available))").font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
                             // USER-DATA: two counts of coins, each beside its word
                             Text("Proven \(MTCoinText.count(Int(clamping: split.proven))) · Declared \(MTCoinText.count(Int(clamping: split.declared)))")
                                 .font(.footnote.monospacedDigit()).foregroundStyle(.secondary)
-                            let waiting = book.balance - Int(clamping: split.proven + split.declared)
+                            let waiting = book.balance - available
                             if 0 < waiting {
                                 // USER-DATA: the coins the book holds above the chain, minted onto it as the key's time allows (COIN-TX-V3 section 4)
                                 Text("\(MTCoinText.count(waiting)) more wait to be minted in time").font(.footnote.monospacedDigit()).foregroundStyle(.secondary)
@@ -240,6 +235,15 @@ struct MTWalletPage: View {
                         // button History on the page of the Time Coins»): the one door to the history of operations (MTCoinHistoryPage).
                         Button { historyShown = true } label: {
                             Label("History", systemImage: "clock.arrow.circlepath").font(.headline).frame(maxWidth: .infinity, minHeight: 44)
+                        }
+                        .buttonStyle(.bordered)
+                        .buttonBorderShape(.capsule)
+                        .tint(MontanaOctagon.platformBlue)
+                        // THE ANALYTICS BY ITS OWN BUTTON (the author's word 12.10.2026 15:2x MSK: «make the analytics a separate button, so it
+                        // opens and nothing lags»): under the History -- the months, the spending and the income, where the coins came from and
+                        // went (MTCoinAnalyticsPage), read from the one fold of the history.
+                        Button { analyticsShown = true } label: {
+                            Label("Analytics", systemImage: "chart.pie").font(.headline).frame(maxWidth: .infinity, minHeight: 44)
                         }
                         .buttonStyle(.bordered)
                         .buttonBorderShape(.capsule)
@@ -307,58 +311,10 @@ struct MTWalletPage: View {
                     } label: { Text("Coins in Montana") }
                 } header: { Text("Minting") }
                   footer: { Text("Coins are counted on this phone until the wallet opens.") }
-                // THE HISTORY IS ITS OWN PAGE (the author's words 04.10.2026 04:00-04:02 MSK: «the history must be grouped correctly, not an
-                // endless canvas»; «the history as a link button into it, with the choice of the period and the details of the analysis»;
-                // T1 2092 00:59Z, three stalls of the main thread of four seconds: a dictionary of every link's seal was rebuilt at every
-                // coin and compared whole at every pass of this page).
-                if let state, case .success(let wallet) = state {
-                    Section("TimeChain") {
-                        // The core's confirmed balance, apart from the coin book: only the core turns a right into a note.
-                        LabeledContent("Confirmed balance", value: wallet.balance)
-                        if let head = wallet.lastConfirmedWindow {
-                            LabeledContent("Last confirmed window", value: String(head))
-                        } else { Text("No confirmed window yet").foregroundStyle(.secondary) }
-                        LabeledContent("Network participation", value: wallet.pulseRunning
-                            ? String(localized: "Active", bundle: MTLanguage.bundle)
-                            : String(localized: "Not active", bundle: MTLanguage.bundle))
-                        LabeledContent("Wallet notes", value: String(wallet.notes))
-                    }
-                    if !wallet.windows.isEmpty {
-                        Section {
-                            ForEach(wallet.windows) { window in
-                                VStack(alignment: .leading, spacing: 6) {
-                                    LabeledContent("Window", value: String(window.id))
-                                    LabeledContent("Right to a share", value: String(window.share))
-                                    LabeledContent("Redemption window", value: String(window.acceptedIn))
-                                        .foregroundStyle(.secondary)
-                                }.padding(.vertical, 4)
-                            }
-                        } header: { Text("Participation") }
-                          footer: { Text("A right becomes a wallet note only after the core confirms its redemption.") }
-                    }
-                }
-            Section {
-                if windows.isEmpty {
-                    Text("No comments yet").foregroundStyle(.secondary)
-                } else {
-                    ForEach(windows) { row in
-                        VStack(alignment: .leading, spacing: 6) {
-                            // USER-DATA: the post whose comments opened this window
-                            // USER-DATA: how many minutes this comment series minted
-                            Text(verbatim: String(row.share)).font(.largeTitle.bold().monospacedDigit())
-                            // USER-DATA: the window from its first comment to its last
-                            Text(verbatim: row.span).font(.caption).foregroundStyle(.secondary)
-                            // USER-DATA: every comment time in the series
-                            Text(verbatim: row.marks.joined(separator: " | ")).font(.caption2).foregroundStyle(.secondary).lineLimit(4)
-                            Text(verbatim: row.title).font(.subheadline).lineLimit(2)
-                            LabeledContent("Window", value: row.open ? String(localized: "Active", bundle: MTLanguage.bundle) : String(localized: "Not active", bundle: MTLanguage.bundle))
-                            LabeledContent("Right to a share", value: String(row.share))
-                        }
-                        .padding(.vertical, 4)
-                    }
-                }
-            } header: { Text("TimeChain") }
-              footer: { Text("A right becomes a wallet note only after the core confirms its redemption.") }
+                // THE TIMECHAIN STANDS BEHIND ITS BUTTON, NOT UNDER THE PAGE (the author's word 12.10.2026 15:2x MSK: «remove the TimeChain's
+                // description from the bottom of the Time Coins page, it is behind the button already»): the core's confirmed balance, its
+                // last window and its notes stand on the TimeChain page («For an observer», MTTimeChainsPage), the wall's chains among the
+                // chains of chats and calls; this page reads the core no more at every opening.
             }
             .scrollContentBackground(.hidden).montanaPageGround()
             .overlay { MTCoinSides() }   // the coins rise at the sides at every minting (MTCoinFlash, 04.10)
@@ -384,6 +340,7 @@ struct MTWalletPage: View {
             .toolbarTitleDisplayMode(.inlineLarge)
             .navigationDestination(isPresented: $chainsShown) { MTTimeChainsPage() }
             .navigationDestination(isPresented: $historyShown) { MTCoinHistoryPage() }
+            .navigationDestination(isPresented: $analyticsShown) { MTCoinAnalyticsPage() }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) { MontanaBarMark(glyph: "xmark", label: "Close") { close?() } }
             }
@@ -400,7 +357,6 @@ struct MTWalletPage: View {
             .sheet(isPresented: $sending) { MTCoinSendSheet() }
             .sheet(isPresented: $toppingUp) { MTCoinTopUpSheet() }
             .sheet(isPresented: $levelsShown) { MTPiLevelsSheet() }
-            .overlay { if loading && state == nil { ProgressView() } }
         }
         .tint(.primary)
         // THE BOTTOM EDGE STAYS THE WALLET'S (T1 04.10 12:45:49 MSK: a minting swipe landed on the home indicator at y=911 -- the
@@ -411,7 +367,7 @@ struct MTWalletPage: View {
         // THE AUTO MINTING IS ON BY DEFAULT (the author's word 09.10.2026 20:1x MSK: "in every app the auto minting automatically,
         // by default"): the page standing open mints by the second without a pull or a hold; leaving the page or locking the
         // screen still ends it (MTWalletPull), and the return to the page or to the app begins it again.
-        .onAppear { if !pantheon.lit { autoMint.fire() } }
+        .onAppear { if !pantheon.lit { autoMint.fire() }; MTCoinHistory.shared.warm() }   // the history's fold is ready before its door
         // THE TOP IS A LIVE SET FROM THE NODES (the author's words 04.10.2026 03:03 and 04:19 MSK: «a live set as by a web socket, the
         // update instant from the nodes»): while the wallet stands open the pairs' last words are asked of the nodes every three
         // seconds in one question -- their balances ride them (E2E.coinTail); a pair in the app hands its own over at once.
@@ -442,19 +398,7 @@ struct MTWalletPage: View {
         }
         .onDisappear { autoMint.stop(why: "page"); pantheon.released() }
     }
-    private static func kindKey(_ k: MTCoinEntry.Kind) -> LocalizedStringKey {
-        switch k {
-        case .earn: return "Earned in a chat"
-        case .receive: return "Received"
-        case .spend: return "Coins on a letter"
-        case .send: return "Sent"
-        case .burn: return "Burned"
-        }
-    }
-    private var absence: String {
-        if case .failure(let why)? = state { return MTWalletCore.said(why) }
-        return MTWalletCore.said(nil)
-    }
+
     /// The coin drawn down past its trigger and let go: one minting of the pull (MTWalletPull) and the page read again. While the
     /// Pantheon burns nothing is pulled -- the page stands.
     private func pulled(_ y: CGFloat) {
@@ -471,18 +415,9 @@ struct MTWalletPage: View {
         Task { await refresh() }
         DispatchQueue.main.asyncAfter(deadline: .now() + MontanaCoinSpinner.finish + 0.15) { pullReleased = nil }
     }
+    /// The wall's windows read again: the minting rows stand on them (the core's own state lives on the TimeChain page).
     @MainActor private func refresh() async {
         windows = MTBoard.shared.wallWindows()
-        guard !loading else { return }
-        loading = true
-        let result = await Task.detached(priority: .utility) { MTWalletCore.read() }.value
-        loading = false
-        guard !Task.isCancelled else { return }
-        switch result {
-        case .success(let w): MontanaTrace.mark("wallet_read", "balance=\(w.balance) notes=\(w.notes) windows=\(w.windows.count) pulse=\(w.pulseRunning ? 1 : 0) wall=\(windows.count)")
-        case .failure(let why): MontanaTrace.mark("wallet_read", "absent=\(why) wall=\(windows.count)")
-        }
-        state = result
     }
 }
 
@@ -566,57 +501,7 @@ struct MTWalletPullKey: PreferenceKey {
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
 
-/// A GROUP OF THE HISTORY: the moves of one source, one way and one person within one minute -- one row with their sum and count.
-struct MTCoinGroup: Identifiable {
-    let id: String
-    let source: String
-    let first: MTCoinEntry
-    var signed: Int
-    var count: Int
-    let at: Double
-    /// The newest groups of the moves given, the newest first, at most this many -- a page, never the whole book.
-    static let shown = 60
-    static func recent(_ moves: [MTCoinEntry]) -> [MTCoinGroup] {
-        var out: [MTCoinGroup] = []
-        var last = ""
-        for e in moves.reversed() {
-            let source = MTTimeChain.source(of: e)
-            let key = source + "|" + e.k.rawValue + "|" + (e.peer ?? "") + "|" + String(Int(e.at / 60))
-            if key == last, !out.isEmpty {
-                out[out.count - 1].signed += e.signed
-                out[out.count - 1].count += 1
-                continue
-            }
-            if out.count == shown { break }
-            last = key
-            out.append(MTCoinGroup(id: key + "#" + String(out.count), source: source, first: e, signed: e.signed, count: 1, at: e.at))
-        }
-        return out
-    }
-}
 
-/// A SOURCE'S TOTALS OVER A PERIOD: what came in by it and what went out.
-struct MTCoinTotal: Identifiable {
-    let source: String
-    var into = 0
-    var out = 0
-    var id: String { source }
-    static func of(_ moves: [MTCoinEntry]) -> [MTCoinTotal] {
-        var by: [String: MTCoinTotal] = [:]
-        for e in moves {
-            let s = MTTimeChain.source(of: e)
-            var x = by[s] ?? MTCoinTotal(source: s)
-            if 0 < e.signed { x.into += e.signed } else { x.out -= e.signed }
-            by[s] = x
-        }
-        return MTTimeChain.sources.compactMap { s in by[s] }
-    }
-}
-
-/// THE HISTORY'S OWN PAGE (the author's word 04.10.2026 04:02 MSK: «the history as a link button into it, with the choice of the period
-/// and the details of the analysis of the history, grouped neatly, on the history's own page»): the platform's segmented choice of the
-/// period, each source's coins in and out over it, and the moves grouped by source, way, person and minute -- each group opening
-/// its source's TimeChain, where every link stands with its seal.
 /// ONE COIN MOVE ON ITS OWN PAGE (the author's word 05.10.2026: «a tap on the coins opens this transaction»): a coin letter's bubble
 /// opens the move it made in this phone's book -- the coins, who they came from or went to, the moment -- and the link its TimeChain
 /// sealed for it, with the seal and the seal before it.
@@ -717,12 +602,187 @@ struct MTCoinMovePage: View {
     }
 }
 
+/// THE HISTORY IS FOLDED OFF THE SCREEN'S THREAD, ONCE A CHANGE OF THE BOOK (the author's words 12.10.2026 15:2x MSK: «the history in the
+/// Time Coins on T1 lags; make the analytics a separate button so it opens and nothing lags; at the history's opening the transactions
+/// open at once»). T1 on 2194, a book of 24 320 moves: 823 ms of a still main thread at the opening -- every line asked the chats' whole
+/// list, decoded from the vault, for its name -- and 445 ms at the leaving, every pass of the page filtering the whole book by the
+/// calendar's month. The names are read once a fold, a day and a month by the moments' own intervals, the fold runs on its own thread
+/// and is kept whole for the history, the analytics and a person's page alike; the pages only read it.
+@MainActor final class MTCoinHistory: ObservableObject {
+    static let shared = MTCoinHistory()
+    /// One line of the history: a move of the book, or a day's minting folded into one.
+    struct Line: Identifiable, Hashable {
+        let id: String
+        let at: Double
+        let signed: Int
+        let title: String
+        let category: String
+        let glyph: String
+        let source: String
+        let ref: String
+        let peer: String?
+        let tx: String?
+        let count: Int
+    }
+    struct Day: Identifiable { let id: Date; let lines: [Line]; let sum: Int }
+    struct Share: Identifiable { let name: String; let signed: Int; let moved: Int; var id: String { name } }
+    struct Month: Identifiable { let id: Date; let spending: Int; let income: Int; let shares: [Share] }
+    struct Fold { let days: [Day]; let months: [Month]; let whole: Month; let byPeer: [String: [Line]]; let moves: Int }
+    /// What a fold needs of the screen's world, read on the screen's thread once: the people's names, the channels, the sources' words.
+    struct Ask { let names: [String: String]; let channels: Set<String>; let words: [String: String]; let minted: String; let mintedDay: String; let calendar: Calendar }
+    @Published private(set) var fold: Fold?
+    private var watchers = 0
+    private var bag: AnyCancellable?
+    private var folding = false
+    private var again = false
+    /// A page that reads the history stands: the book's moves fold again, at most one fold a second and a half, the newest book each.
+    func watch() {
+        watchers += 1
+        guard bag == nil else { return }
+        bag = MTLocalCoinLedger.shared.$entries
+            .throttle(for: .seconds(1.5), scheduler: RunLoop.main, latest: true)
+            .sink { [weak self] moves in self?.refold(moves) }
+    }
+    func unwatch() {
+        watchers = max(0, watchers - 1)
+        if watchers == 0 { bag = nil }
+    }
+    /// The wallet's page stands: one fold ahead of the history's door, so the door opens on lines, never on an empty page.
+    func warm() {
+        let moves = MTLocalCoinLedger.shared.entries
+        if fold?.moves != moves.count { refold(moves) }
+    }
+    private func refold(_ moves: [MTCoinEntry]) {
+        if folding { again = true; return }
+        folding = true
+        let ask = Ask(names: MTTimeChainRows.names(),
+                      channels: Set(MTGroup.shared.groups.compactMap { k, g in g.kind == .channel ? MTGroup.key(of: k) : nil }),
+                      words: Dictionary(MTTimeChain.sources.map { s in (s, MTTimeChainRows.name(s)) }, uniquingKeysWith: { a, _ in a }),
+                      minted: String(localized: "Minted", bundle: MTLanguage.bundle),
+                      mintedDay: String(localized: "Minting of the day", bundle: MTLanguage.bundle),
+                      calendar: Calendar.current)
+        let started = Date()
+        Task.detached(priority: .userInitiated) {
+            let f = MTCoinHistory.fold(moves, ask)
+            await MainActor.run {
+                let me = MTCoinHistory.shared
+                me.fold = f
+                me.folding = false
+                MontanaTrace.markFolded("coin_history", "fold moves=\(f.moves) days=\(f.days.count) ms=\(Int(Date().timeIntervalSince(started) * 1000))", window: 60)
+                if me.again { me.again = false; me.refold(MTLocalCoinLedger.shared.entries) }
+            }
+        }
+    }
+    nonisolated static func glyph(_ k: MTCoinEntry.Kind) -> String {
+        switch k {
+        case .earn: return "sparkles"
+        case .receive: return "arrow.down.left"
+        case .send: return "arrow.up.right"
+        case .spend: return "hand.thumbsup"
+        case .burn: return "flame"
+        }
+    }
+    /// Every move of the book folded once: the lines day after day, a day's minting one line of it, the months' and the whole's sums by
+    /// source, and the transfers with each person. The days are found by the interval of the day the moment before fell in (and a
+    /// quarter-hour's memory of the days asked), never by a calendar's question for every move.
+    nonisolated static func fold(_ moves: [MTCoinEntry], _ ask: Ask) -> Fold {
+        let cal = ask.calendar
+        var low = 0.0, high = -1.0, current = Date.distantPast
+        var quarters: [Int: (Date, Double)] = [:]
+        func dayOf(_ at: Double) -> Date {
+            if low <= at, at < high { return current }
+            let key = Int((at / 900).rounded(.down))
+            let span: (Date, Double)
+            if let s = quarters[key] { span = s } else {
+                let d = cal.startOfDay(for: Date(timeIntervalSince1970: at))
+                span = (d, (cal.date(byAdding: .day, value: 1, to: d) ?? d.addingTimeInterval(86_400)).timeIntervalSince1970)
+                quarters[key] = span
+            }
+            current = span.0; low = span.0.timeIntervalSince1970; high = span.1
+            return current
+        }
+        var monthOfDay: [Date: Date] = [:]
+        func monthOf(_ d: Date) -> Date {
+            if let m = monthOfDay[d] { return m }
+            let m = cal.dateInterval(of: .month, for: d)?.start ?? d
+            monthOfDay[d] = m
+            return m
+        }
+        struct Agg { var spending = 0; var income = 0; var by: [String: (signed: Int, moved: Int)] = [:] }
+        func add(_ a: inout Agg, _ e: MTCoinEntry, _ name: String) {
+            if e.signed < 0 { a.spending = MTCoinCounts.plus(a.spending, -e.signed) } else { a.income = MTCoinCounts.plus(a.income, e.signed) }
+            let had = a.by[name] ?? (0, 0)
+            a.by[name] = (MTCoinCounts.plus(had.signed, e.signed), MTCoinCounts.plus(had.moved, e.c))
+        }
+        var byMonth: [Date: Agg] = [:], whole = Agg()
+        var byDay: [Date: [Line]] = [:]
+        var minted: [Date: (sum: Int, count: Int, at: Double)] = [:]
+        var byPeer: [String: [Line]] = [:]
+        for e in moves {
+            let day = dayOf(e.at)
+            let source = MTTimeChain.source(ref: e.ref, kind: e.k, peer: e.peer) { p in ask.channels.contains(p) }
+            let name = ask.words[source] ?? source
+            add(&byMonth[monthOf(day), default: Agg()], e, name)
+            add(&whole, e, name)
+            if e.k == .earn {
+                let had = minted[day] ?? (0, 0, 0)
+                minted[day] = (MTCoinCounts.plus(had.sum, e.c), had.count + 1, max(had.at, e.at))
+                continue
+            }
+            let who = e.peer.map { p in ask.names[p] ?? String(p.prefix(10)) } ?? name
+            let tx = e.ref.hasPrefix(MTCoinTx.refPrefix) ? String(e.ref.dropFirst(MTCoinTx.refPrefix.count)) : nil
+            let line = Line(id: e.id, at: e.at, signed: e.signed, title: who, category: name, glyph: glyph(e.k), source: source, ref: e.ref,
+                            peer: e.peer, tx: tx?.count == 64 ? tx : nil, count: 1)
+            byDay[day, default: []].append(line)
+            if let p = e.peer, source == "sent" || source == "received" { byPeer[p, default: []].append(line) }
+        }
+        for (day, m) in minted {
+            byDay[day, default: []].append(Line(id: "minted:" + String(Int(day.timeIntervalSince1970)), at: m.at, signed: m.sum, title: ask.minted,
+                                                category: ask.mintedDay, glyph: "sparkles", source: "mint", ref: "", peer: nil, tx: nil, count: m.count))
+        }
+        let days = byDay.map { d, lines in
+            let sorted = lines.sorted { a, b in b.at < a.at }
+            return Day(id: d, lines: sorted, sum: sorted.reduce(0) { s, l in MTCoinCounts.plus(s, l.signed) })
+        }.sorted { a, b in b.id < a.id }
+        func month(_ id: Date, _ a: Agg) -> Month {
+            Month(id: id, spending: a.spending, income: a.income,
+                  shares: a.by.map { k, v in Share(name: k, signed: v.signed, moved: v.moved) }.sorted { x, y in y.moved < x.moved })
+        }
+        for k in Array(byPeer.keys) { byPeer[k]?.sort { a, b in b.at < a.at } }
+        return Fold(days: days, months: byMonth.map { k, v in month(k, v) }.sorted { a, b in b.id < a.id }, whole: month(.distantPast, whole),
+                    byPeer: byPeer, moves: moves.count)
+    }
+    /// The history as its page shows it: the lines of a flow and a search, day after day, newest first, at most `limit` of them -- a
+    /// page of the book, never the whole; `more` says lines stand past it.
+    func shown(_ flow: MTCoinHistoryPage.Flow, query: String, limit: Int) -> (days: [Day], more: Bool) {
+        guard let fold else { return ([], false) }
+        let all = flow == .all && query.isEmpty
+        var out: [Day] = [], n = 0
+        for d in fold.days {
+            let lines = all ? d.lines : d.lines.filter { l in flow.holds(l.signed) && (query.isEmpty || l.title.localizedCaseInsensitiveContains(query)) }
+            guard !lines.isEmpty else { continue }
+            if limit <= n { return (out, true) }
+            let cut = Array(lines.prefix(limit - n))
+            out.append(Day(id: d.id, lines: cut, sum: all ? d.sum : lines.reduce(0) { s, l in MTCoinCounts.plus(s, l.signed) }))
+            n += cut.count
+            if cut.count < lines.count { return (out, true) }
+        }
+        return (out, false)
+    }
+    /// THE TRANSFERS WITH ONE PERSON (the author's word 12.10.2026 15:2x MSK: «on the correspondent's page, after the wall, a section of
+    /// transactions -- only what was sent to them and received from them»): the coins sent and received, newest first.
+    func with(_ peers: Set<String>) -> [Line] {
+        guard let fold else { return [] }
+        let all = peers.flatMap { p in fold.byPeer[p] ?? [] }
+        return peers.count <= 1 ? all : all.sorted { a, b in b.at < a.at }
+    }
+}
+
 /// THE HISTORY OF OPERATIONS IN A BANK'S FORMAT (the author's words 12.10.2026 13:1x MSK: «the history of operations must look like
-/// this page in a bank's format, with separators by days, in the order of time, filters by spending and income and the analytics of
-/// each operation and of the whole, with a search by contacts, and inside the Explorer at once in the app»; «the sum of a day's minting
-/// -- simply one line for that day»): the months as chips, all / spending / income, the month's spending and income, where the coins
-/// went and came from, then day after day, newest first, each day with its own sum; a day's minting of every source is one line; a
-/// transfer opens its record in the Explorer inside the app, every other operation its own card. Reads the one book.
+/// this page in a bank's format, with separators by days, in the order of time, filters by spending and income, with a search by
+/// contacts, and inside the Explorer at once in the app»; «the sum of a day's minting -- simply one line for that day»; 15:2x: «at the
+/// history's opening the transactions open at once», the analytics by its own button): the flow, then day after day, newest first, each
+/// day with its own sum, a page of lines at a time that grows as it is read. Reads the one fold (MTCoinHistory).
 struct MTCoinHistoryPage: View {
     enum Flow: String, CaseIterable, Identifiable {
         case all, spending, income
@@ -734,145 +794,153 @@ struct MTCoinHistoryPage: View {
             case .income: return "Income"
             }
         }
+        func holds(_ signed: Int) -> Bool { self == .all || (self == .spending ? signed < 0 : 0 < signed) }
     }
-    /// One line of the history: a move of the book, or a day's minting folded into one.
-    struct Line: Identifiable, Hashable {
-        let id: String
-        let at: Double
-        let signed: Int
-        let title: String
-        let category: String
-        let glyph: String
-        let tx: String?
-        let count: Int
-    }
-    @ObservedObject private var book = MTLocalCoinLedger.shared
-    @State private var month: Date?
+    typealias Line = MTCoinHistory.Line
+    static let page = 120
+    @ObservedObject private var history = MTCoinHistory.shared
     @State private var flow: Flow = .all
     @State private var query = ""
+    @State private var limit = MTCoinHistoryPage.page
     @State private var explorer: MTExplorerLink?
     private static let calendar = Calendar.current
-    private static func monthStart(_ at: Double) -> Date {
-        let d = Date(timeIntervalSince1970: at)
-        return calendar.date(from: calendar.dateComponents([.year, .month], from: d)) ?? d
-    }
-    private static func dayStart(_ at: Double) -> Date { calendar.startOfDay(for: Date(timeIntervalSince1970: at)) }
-    private static func glyph(_ k: MTCoinEntry.Kind) -> String {
-        switch k {
-        case .earn: return "sparkles"
-        case .receive: return "arrow.down.left"
-        case .send: return "arrow.up.right"
-        case .spend: return "hand.thumbsup"
-        case .burn: return "flame"
-        }
-    }
-    /// Every move of the book as a line, a day's minting folded into one line of that day.
-    private static func lines(_ moves: [MTCoinEntry]) -> [Line] {
-        var out: [Line] = []
-        var minted: [Date: (sum: Int, count: Int, at: Double)] = [:]
-        for e in moves {
-            if e.k == .earn {
-                let day = dayStart(e.at)
-                let had = minted[day] ?? (0, 0, 0)
-                minted[day] = (had.sum + e.c, had.count + 1, max(had.at, e.at))
-                continue
-            }
-            let source = MTTimeChain.source(of: e)
-            let who = e.peer.map { MTTimeChainRows.who($0) } ?? MTTimeChainRows.name(source)
-            let tx = e.ref.hasPrefix(MTCoinTx.refPrefix) ? String(e.ref.dropFirst(MTCoinTx.refPrefix.count)) : nil
-            out.append(Line(id: e.id, at: e.at, signed: e.signed, title: who, category: MTTimeChainRows.name(source), glyph: glyph(e.k),
-                            tx: tx?.count == 64 ? tx : nil, count: 1))
-        }
-        let mintWord = String(localized: "Minted", bundle: MTLanguage.bundle)
-        for (day, m) in minted {
-            out.append(Line(id: "minted:" + String(Int(day.timeIntervalSince1970)), at: m.at, signed: m.sum, title: mintWord,
-                            category: String(localized: "Minting of the day", bundle: MTLanguage.bundle), glyph: "sparkles", tx: nil, count: m.count))
-        }
-        return out.sorted { a, b in a.at > b.at }
-    }
     var body: some View {
-        let all = book.entries
-        let months = Array(Set(all.map { e in Self.monthStart(e.at) })).sorted(by: >)
-        let inMonth = month.map { m in all.filter { e in Self.monthStart(e.at) == m } } ?? all
-        let spending = inMonth.reduce(0) { sum, e in e.signed < 0 ? sum - e.signed : sum }
-        let income = inMonth.reduce(0) { sum, e in 0 < e.signed ? sum + e.signed : sum }
-        var shown = Self.lines(inMonth)
-        if flow == .spending { shown = shown.filter { l in l.signed < 0 } }
-        if flow == .income { shown = shown.filter { l in 0 < l.signed } }
-        if !query.isEmpty { shown = shown.filter { l in l.title.localizedCaseInsensitiveContains(query) } }
-        let days = Dictionary(grouping: shown) { l in Self.dayStart(l.at) }
-        let order = days.keys.sorted(by: >)
-        return List {
+        let shown = history.shown(flow, query: query, limit: limit)
+        List {
+            Section {
+                Picker("Operations", selection: $flow) {
+                    ForEach(Flow.allCases) { f in Text(f.title).tag(f) }
+                }
+                .pickerStyle(.segmented)
+            }
+            .listRowBackground(Color.clear)
+            if history.fold == nil {
+                ProgressView().frame(maxWidth: .infinity, minHeight: 44)
+            } else if shown.days.isEmpty {
+                Text("No operations").foregroundStyle(.secondary)
+            }
+            ForEach(shown.days) { day in
+                Section {
+                    ForEach(day.lines) { l in MTHistoryRow(line: l) { link in explorer = link } }
+                } header: {
+                    HStack {
+                        Self.dayTitle(day.id)
+                        Spacer()
+                        // USER-DATA: the day's coins, signed
+                        Text(verbatim: (0 < day.sum ? "+" : "") + MTCoinText.count(day.sum)).monospacedDigit()
+                    }
+                }
+            }
+            if shown.more {
+                // THE PAGE GROWS AS IT IS READ: the next lines come when the last is near, never the whole book at the opening.
+                ProgressView().frame(maxWidth: .infinity, minHeight: 44)
+                    .id(limit)
+                    .onAppear { limit += Self.page }
+            }
+        }
+        .searchable(text: $query, prompt: Text("Search contacts"))
+        .onChange(of: flow) { _, _ in limit = Self.page }
+        .onChange(of: query) { _, _ in limit = Self.page }
+        .scrollContentBackground(.hidden).montanaPageGround()
+        .navigationTitle(Text("History"))
+        .sheet(item: $explorer) { link in MTExplorerSheet(url: link.url).ignoresSafeArea() }
+        .onAppear { history.watch() }
+        .onDisappear { history.unwatch() }
+    }
+    @ViewBuilder static func dayTitle(_ day: Date) -> some View {
+        if calendar.isDateInToday(day) { Text("Today") }
+        else if calendar.isDateInYesterday(day) { Text("Yesterday") }
+        // USER-DATA: a day of the book, in the phone's language
+        else { Text(verbatim: day.formatted(Date.FormatStyle(date: .long, time: .omitted).locale(MTLanguage.locale))) }
+    }
+}
+
+/// ONE LINE OF THE HISTORY (MTCoinHistoryPage): the glyph, who or what, the category and the moment, the signed coins -- the whole row
+/// one target. A transfer opens its record in the Explorer inside the app, a move between people the transaction's own page (the one a
+/// coin letter's bubble opens, MTCoinMovePage), every other line its card.
+struct MTHistoryRow: View {
+    let line: MTCoinHistory.Line
+    let explore: (MTExplorerLink) -> Void
+    var body: some View {
+        let content = HStack(spacing: 12) {
+            Image(systemName: line.glyph).font(.body).frame(width: 36, height: 36)
+                .background(.thinMaterial, in: Circle())
+            VStack(alignment: .leading, spacing: 2) {
+                // USER-DATA: who or what the operation was with
+                Text(verbatim: line.title).font(.body).lineLimit(1)
+                // USER-DATA: the operation's category and its moment on this phone's clock
+                Text(verbatim: line.category + " · " + Date(timeIntervalSince1970: line.at).formatted(date: .omitted, time: .shortened))
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            // USER-DATA: the operation's coins, signed
+            Text(verbatim: (0 < line.signed ? "+" : "") + MTCoinText.count(line.signed)).font(.body.monospacedDigit())
+                .foregroundStyle(0 < line.signed ? Color.green : Color.primary)
+        }
+        .frame(minHeight: 44)
+        .contentShape(Rectangle())
+        if let tx = line.tx, let url = URL(string: MTCoinTx.link + tx) {
+            Button { explore(MTExplorerLink(url: url)) } label: { content }.buttonStyle(.plain)
+        } else if line.source == "sent" || line.source == "received" {
+            NavigationLink { MTCoinMovePage(route: MTCoinMoveRoute(ref: line.ref, mine: line.signed < 0), peer: line.title) } label: { content }
+        } else {
+            NavigationLink { MTHistoryCard(line: line) } label: { content }
+        }
+    }
+}
+
+/// THE ANALYTICS BY ITS OWN BUTTON (the author's word 12.10.2026 15:2x MSK: «make the analytics a separate button so it opens and
+/// nothing lags»): the months as chips (and every month), the spending and the income, where the coins came from and went with each
+/// source's share -- read from the one fold of the history (MTCoinHistory), never from the book at the page's pass.
+struct MTCoinAnalyticsPage: View {
+    @ObservedObject private var history = MTCoinHistory.shared
+    @State private var month: Date?
+    var body: some View {
+        let fold = history.fold
+        let m = month.flatMap { id in fold?.months.first { x in x.id == id } } ?? fold?.whole
+        let moved = MTCoinCounts.plus(m?.spending ?? 0, m?.income ?? 0)
+        List {
             Section {
                 // THE MONTHS AS CHIPS: every month the book holds a move in, the newest first, and all of them
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         chip(Text("Every month"), on: month == nil) { month = nil }
-                        ForEach(months, id: \.self) { m in
+                        ForEach(fold?.months ?? []) { x in
                             // USER-DATA: a month of the book, in the phone's language
-                            chip(Text(verbatim: m.formatted(Date.FormatStyle().month(.wide).year().locale(MTLanguage.locale))), on: month == m) { month = m }
+                            chip(Text(verbatim: x.id.formatted(Date.FormatStyle().month(.wide).year().locale(MTLanguage.locale))), on: month == x.id) { month = x.id }
                         }
                     }
                 }
-                Picker("Operations", selection: $flow) {
-                    ForEach(Flow.allCases) { f in Text(f.title).tag(f) }
-                }
-                .pickerStyle(.segmented)
                 HStack(spacing: 12) {
-                    total(Text("Spending"), spending, "arrow.up.right")
-                    total(Text("Income"), income, "arrow.down.left")
+                    total(Text("Spending"), m?.spending ?? 0, "arrow.up.right")
+                    total(Text("Income"), m?.income ?? 0, "arrow.down.left")
                 }
             }
             .listRowBackground(Color.clear)
+            if fold == nil {
+                ProgressView().frame(maxWidth: .infinity, minHeight: 44)
+            }
             Section {
-                ForEach(Self.analytics(inMonth), id: \.name) { a in
+                ForEach(m?.shares ?? []) { a in
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
                             // USER-DATA: where the coins came from or went
                             Text(verbatim: a.name).font(.subheadline)
                             Spacer()
-                            // USER-DATA: the coins of this source over the month, signed
+                            // USER-DATA: the coins of this source over the period, signed
                             Text(verbatim: (0 < a.signed ? "+" : "") + MTCoinText.count(a.signed)).font(.subheadline.monospacedDigit())
                                 .foregroundStyle(0 < a.signed ? Color.green : Color.primary)
                         }
-                        ProgressView(value: Double(a.moved), total: Double(max(1, spending + income)))
+                        ProgressView(value: Double(a.moved), total: Double(max(1, moved)))
                     }
                     .frame(minHeight: 44)
                 }
-            } header: { Text("Analytics") }
-            if order.isEmpty {
-                Text("No operations").foregroundStyle(.secondary)
-            }
-            ForEach(order, id: \.self) { day in
-                let rows = days[day] ?? []
-                Section {
-                    ForEach(rows) { l in row(l) }
-                } header: {
-                    HStack {
-                        dayTitle(day)
-                        Spacer()
-                        // USER-DATA: the day's coins, signed
-                        let sum = rows.reduce(0) { s, l in s + l.signed }
-                        Text(verbatim: (0 < sum ? "+" : "") + MTCoinText.count(sum)).monospacedDigit()
-                    }
-                }
             }
         }
-        .searchable(text: $query, prompt: Text("Search contacts"))
         .scrollContentBackground(.hidden).montanaPageGround()
-        .navigationTitle(Text("History"))
-        .sheet(item: $explorer) { link in MTExplorerSheet(url: link.url).ignoresSafeArea() }
-    }
-    /// Where the month's coins went and came from: each source with its signed sum and how much of the month's whole it moved.
-    private struct Share { let name: String; let signed: Int; let moved: Int }
-    private static func analytics(_ moves: [MTCoinEntry]) -> [Share] {
-        var by: [String: (signed: Int, moved: Int)] = [:]
-        for e in moves {
-            let name = MTTimeChainRows.name(MTTimeChain.source(of: e))
-            let had = by[name] ?? (0, 0)
-            by[name] = (had.signed + e.signed, had.moved + e.c)
-        }
-        return by.map { k, v in Share(name: k, signed: v.signed, moved: v.moved) }.sorted { a, b in a.moved > b.moved }
+        .navigationTitle(Text("Analytics"))
+        .onAppear { history.watch() }
+        .onDisappear { history.unwatch() }
     }
     private func chip(_ label: Text, on: Bool, _ act: @escaping () -> Void) -> some View {
         Button(action: act) { label.font(.subheadline).padding(.horizontal, 12).frame(minHeight: 44) }
@@ -881,42 +949,12 @@ struct MTCoinHistoryPage: View {
     private func total(_ title: Text, _ coins: Int, _ glyph: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Label { title } icon: { Image(systemName: glyph) }.font(.subheadline).foregroundStyle(.secondary)
-            // USER-DATA: the month's coins of this side
+            // USER-DATA: the period's coins of this side
             Text(verbatim: MTCoinText.count(coins)).font(.title3.bold().monospacedDigit()).lineLimit(1).minimumScaleFactor(0.5)
         }
         .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
         .padding(12)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-    }
-    @ViewBuilder private func dayTitle(_ day: Date) -> some View {
-        if Self.calendar.isDateInToday(day) { Text("Today") }
-        else if Self.calendar.isDateInYesterday(day) { Text("Yesterday") }
-        // USER-DATA: a day of the book, in the phone's language
-        else { Text(verbatim: day.formatted(Date.FormatStyle(date: .long, time: .omitted).locale(MTLanguage.locale))) }
-    }
-    @ViewBuilder private func row(_ l: Line) -> some View {
-        let content = HStack(spacing: 12) {
-            Image(systemName: l.glyph).font(.body).frame(width: 36, height: 36)
-                .background(.thinMaterial, in: Circle())
-            VStack(alignment: .leading, spacing: 2) {
-                // USER-DATA: who or what the operation was with
-                Text(verbatim: l.title).font(.body).lineLimit(1)
-                // USER-DATA: the operation's category and its moment on this phone's clock
-                Text(verbatim: l.category + " · " + Date(timeIntervalSince1970: l.at).formatted(date: .omitted, time: .shortened))
-                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            }
-            Spacer(minLength: 8)
-            // USER-DATA: the operation's coins, signed
-            Text(verbatim: (0 < l.signed ? "+" : "") + MTCoinText.count(l.signed)).font(.body.monospacedDigit())
-                .foregroundStyle(0 < l.signed ? Color.green : Color.primary)
-        }
-        .frame(minHeight: 44)
-        .contentShape(Rectangle())
-        if let tx = l.tx, let url = URL(string: MTCoinTx.link + tx) {
-            Button { explorer = MTExplorerLink(url: url) } label: { content }.buttonStyle(.plain)
-        } else {
-            NavigationLink { MTHistoryCard(line: l) } label: { content }
-        }
     }
 }
 
@@ -1316,10 +1354,14 @@ struct MTTimeChainRows: View {
     }
     /// The same word in the person's language, for a line that joins it with others (the history's way).
     static func name(_ source: String) -> String { String(localized: String.LocalizationValue(key(source)), bundle: MTLanguage.bundle) }
-    /// A person by their conversation, as the chats tab names them.
-    static func who(_ conv: String) -> String {
-        guard let store = ChatStore.live, let c = store.listChats().first(where: { $0.name == conv }) else { return String(conv.prefix(10)) }
-        return MontanaAvatar.spokenName(store.title(for: c))
+    /// THE PEOPLE BY THEIR CONVERSATIONS, AS THE CHATS TAB NAMES THEM -- ONE READING FOR A WHOLE FOLD (T1 on 2194: a person asked one
+    /// by one decoded the chats' whole list from the vault for every line of the history, 823 ms of a still screen). The first row of a
+    /// name speaks for it, as the list's own order has it.
+    static func names() -> [String: String] {
+        guard let store = ChatStore.live else { return [:] }
+        var out: [String: String] = [:]
+        for c in store.listChats() where out[c.name] == nil { out[c.name] = MontanaAvatar.spokenName(store.title(for: c)) }
+        return out
     }
 }
 
@@ -1918,7 +1960,12 @@ struct MTCoinSendSheet: View {
                 guard let conv else { going[key] = nil; continue }
                 store.setPeerName(ref: conv, name: s.name, at: Date().timeIntervalSince1970, source: "seat")
                 let chat = store.listChats().first { c in (c.convId ?? c.name) == conv } ?? Chat(name: conv, lastMessage: "", time: "", unread: 0, convId: conv)
-                if await MTCoinSend.transfer(sum, to: chat, store: store) { went.append(chat); going[key] = true } else { going[key] = nil }
+                // ONE PAIR, SENT AND RECEIVED (No.66, point 0): the SEND names my other key, and its RECV is laid at once by this phone
+                _ = await MTCoinTx.knowOwn(seat: s.id, conv: conv)
+                if let tx = await MTCoinSend.transferId(sum, to: chat, store: store) {
+                    await MTCoinTx.landOwn(seat: s.id, send: tx, coins: sum, conv: conv)
+                    went.append(chat); going[key] = true
+                } else { going[key] = nil }
             }
             for c in to {
                 await Task.yield()   // each ring turns on the screen before its coins go

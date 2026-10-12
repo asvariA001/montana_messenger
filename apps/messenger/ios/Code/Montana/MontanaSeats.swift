@@ -82,6 +82,15 @@ final class MTSeats: ObservableObject {
         guard let d = E2EKeychain.getDeviceOnly(seatRecordName(id)) else { return nil }
         return try? JSONDecoder().decode(Record.self, from: d)
     }
+    /// A PERSON ON THE SHELF'S OWN WORDS AND THE BALANCE OF THEIR BOOK AS THE SHELF HOLDS IT -- the phone's hands for the other end of a
+    /// transfer to one's own account (MTCoinTx.landOwn, 12.10.2026). nil for the person seated, an unknown seat or a record that does
+    /// not open. Read off the screen's thread.
+    static func shelfCoins(_ id: String) -> (words: String, book: Int)? {
+        let b = book()
+        guard id != b.active, let rec = record(id), !rec.words.isEmpty else { return nil }
+        let file = shelf(of: "AS:Montana/Coins", in: id).appendingPathComponent(MTCoinPlace.book)
+        return (rec.words, MTLocalCoinLedger.balance(of: file))
+    }
     /// Somebody waits on the shelf of this phone: the device key that seals their values must stand.
     static var anyParked: Bool {
         let b = book()
