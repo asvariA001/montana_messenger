@@ -6012,7 +6012,7 @@ final class CallWindowPresenter {
                 show = false   // locked/background ring: the native CallKit screen rules
             }
             // AN AUDIO CALL ON A PHONE STANDS UPRIGHT while its screen is shown (MTCallUpright, the author's word 24.09).
-            MTCallUpright.apply(show && !m.video && UIDevice.current.userInterfaceIdiom == .phone)
+            let upright = show && !m.video && UIDevice.current.userInterfaceIdiom == .phone
             if show, self.window == nil {
                 let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
                 guard let scene = scenes.first(where: { $0.activationState == .foregroundActive }) ?? scenes.first else { return }
@@ -6033,7 +6033,7 @@ final class CallWindowPresenter {
                 self.window = w
                 MTCallFloat.shared.stand(on: host.view)   // the floating window rises from this screen when the person leaves the app
             }
-            guard let w = self.window else { return }
+            guard let w = self.window else { MTCallUpright.apply(upright); return }
             if show {
                 w.isHidden = false
                 w.makeKeyAndVisible()
@@ -6043,6 +6043,14 @@ final class CallWindowPresenter {
                 if !alive { self.window = nil }
                 w.windowScene?.windows.first(where: { !$0.isHidden && $0 !== w })?.makeKeyAndVisible()
             }
+            // THE SCREEN STANDS BEFORE THE PHONE IS ASKED TO STAND (12.10.2026, No.66, the author's word 19:5x MSK: «close every hole
+            // of the calls by construction»). Every voice call of 11-12.10 on T1 and the iPhone 17 asked the scene to stand upright
+            // and then gave birth to this window, and the tree born so never laid itself out again: call_root moved (the owner's
+            // body ran) while call_time, inside the screen's geometry, held «Calling…» through the ringing and the talk. A video
+            // call asks nothing and lived; a voice call folded and unfolded lived from the unfolding on, its tree born before the
+            // ask (T1 15:50:39.372, then call_upright 39.374). So the window is laid out first and the phone asked after.
+            if show { w.layoutIfNeeded() }
+            MTCallUpright.apply(upright)
             MTCallFloat.shared.windowMoved()   // the floating window is born on the view that stands now
         }
     }
@@ -7912,7 +7920,10 @@ enum MTCallUpright {
         MontanaTrace.mark("call_upright", upright ? "held" : "free")
         for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
             for w in scene.windows { w.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations() }
-            if upright {
+            // A phone that already stands upright is not asked to turn (12.10.2026, No.66): the ask over a scene that need not move
+            // was the moment the call's tree stopped laying itself out (CallWindowPresenter), and it was refused outright once
+            // (T1 11.10 11:55:54Z, BSActionErrorDomain 1).
+            if upright, scene.effectiveGeometry.interfaceOrientation != .portrait {
                 scene.requestGeometryUpdate(.iOS(interfaceOrientations: .portrait)) { error in
                     MontanaTrace.mark("call_upright", "turn refused: \(error.localizedDescription)")
                 }
