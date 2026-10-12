@@ -702,11 +702,20 @@ extension MontanaArchive {
 
     /// No conversation means no trace of it on disk: letters, sealed attachments, the folder itself.
     /// Deleting for oneself and deleting for both erase the SAME local storage.
+    /// A FOLDER ALREADY GONE IS NOT FORGOTTEN AGAIN (12.10.2026, T1 during the 12:30 MSK call: the pass over the erased conversations,
+    /// run at every opening (sealArchiveFolderNames), cleared the marks of the same ninety-six folders three times in two seconds --
+    /// 276 archive_forget lines, five sealed records read and written again for every folder each time). A folder's marks are
+    /// forgotten once in a run; a folder that stands on the disk again -- an assembly that caught up after the erasure -- is removed
+    /// and forgotten anew, so the pass keeps its guarantee and loses its repeat.
+    private static var forgottenFolders = Set<String>()   // BOUND-OK: the erased conversations' folders of this run; ioQueue alone
     static func deleteChatFolder(convRef: String) {
         ioQueue.async {
             guard let label = folderLabel(for: convRef) else { return }
             let dir = rootURL.appendingPathComponent(MontanaPaths.chats).appendingPathComponent(sanitizeName(label))
-            try? FileManager.default.removeItem(at: dir)
+            let stood = FileManager.default.fileExists(atPath: dir.path)
+            if stood { try? FileManager.default.removeItem(at: dir) }
+            guard stood || !forgottenFolders.contains(label) else { return }
+            forgottenFolders.insert(label)
             forgetFolderMarks(convRef: convRef, folder: label)
         }
     }

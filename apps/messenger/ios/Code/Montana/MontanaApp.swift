@@ -597,7 +597,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
                 // the far phone's answer or end for a call buried here (25.09) -- was no call to miss: it ends
                 // failed, and writes nothing into the phone's list.
                 MontanaTrace.mark("ring_dead", "voip seed=\(String((ring.callSeed ?? "").prefix(8)))")
-                MontanaCall.shared.reportDummyAndEnd(from: ring.conv, reason: ring.offer == nil ? .failed : .unanswered)
+                // A BURIED CALL IS NEVER MISSED TWICE (12.10.2026): this phone held this very call and its own end already wrote
+                // the call's line; a late wake with the offer reported as unanswered wrote a second missed line for the same call
+                // (T1 07:52:22.612Z: ring_dead voip, busy-dummy end=unanswered). It ends failed, as every other dead wake does.
+                MontanaCall.shared.reportDummyAndEnd(from: ring.conv, reason: .failed)
             } else if let a = ring.answer {
                 // THE ANSWER CAME BY THE WAKE ROAD (13.09). No screen rises: this is the far phone
                 // answering a call this phone is already making, and the standing call is what
@@ -640,6 +643,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
             }
         } else {
             MontanaCall.shared.reportDummyAndEnd(from: "Montana", reason: .failed)   // a report is mandatory for every voip push; no call rode in it
+            // A RING NO PIPE OF MINE OPENS NAMES A ROW THE DOOR SHOULD NOT HOLD (12.10.2026): the node is told at once, drops the
+            // row it rang and rings the person's next app inside the same knock (reportUnopenedRing); the whole set follows (cleanCallRows).
+            MontanaWakePush.reportUnopenedRing()
+            MontanaWakePush.cleanCallRows(why: "unopened")
         }
         }
         // MAIN-SAFE-SYNC: the opposite direction — a background PushKit callback hands work TO main
@@ -757,7 +764,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         MontanaWakePush.fetchBoxKick()   // and everything waiting in the node mailbox, by the same movement
         // A missed call carries a TOKEN, not a conversation link: the system keeps delivered
         // notifications, and a link has no place there. The conversation is found by the token in the vault.
-        let chat = (info["call_token"] as? String).map { MontanaCallHandle.conv(for: $0) }
+        let chat = (info["call_token"] as? String).map { MontanaMissedCall.conv(forToken: $0) ?? MontanaCallHandle.conv(for: $0) }
                  ?? (info["chat"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                  ?? (info["from"] as? String) ?? ""
         if let textResp = response as? UNTextInputNotificationResponse, !chat.isEmpty {
@@ -1724,7 +1731,7 @@ enum MontanaWakeDoor {
     /// ships the diary at once (isFailure). A burst of wakes is one wake for the verdict.
     static let verdictAfterS: TimeInterval = 12
     private struct Pending { let why: String; let t0: Date; let age: Int?; var expectsCall = false
-                             var node: Int?; var ring: Int?; var offer: Int?; var ice: Int? }
+                             var node: Int?; var ring: Int?; var offer: Int?; var ice: Int?; var held = false }
     private static var pending: Pending?
     private static let lock = NSLock()
 
@@ -1759,6 +1766,7 @@ enum MontanaWakeDoor {
         case "offer": if p.offer == nil { p.offer = ms }
         case "ice":   if p.ice == nil { p.ice = ms }
         case "expect-call": p.expectsCall = true
+        case "held": p.held = true   // the system held the ring (MontanaCall.ringHeld): the person's Focus, no link of ours
         default: break
         }
         pending = p
@@ -1770,6 +1778,9 @@ enum MontanaWakeDoor {
         let verdict: String
         if let a = p.age, MontanaCall.callLifeS < Double(a) { verdict = "stale" }
         else if p.node == nil { verdict = "no-node" }
+        // A RING THE SYSTEM HELD IS NAMED HELD (12.10.2026): T1's held ring of 07:52:22Z was judged «no-ice» -- a link of ours
+        // blamed for the person's Focus, and the diary shipped as a failure for it.
+        else if p.held { verdict = "held" }
         else if p.expectsCall, p.ring == nil { verdict = "no-ring" }
         else if p.expectsCall, p.offer == nil { verdict = "no-offer" }
         else if p.expectsCall, p.ice == nil { verdict = "no-ice" }

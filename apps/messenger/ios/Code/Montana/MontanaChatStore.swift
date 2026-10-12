@@ -3033,7 +3033,7 @@ class ChatStore: ObservableObject {
         // remove delivered banners of this chat from Notification Center
         let center = UNUserNotificationCenter.current()
         center.getDeliveredNotifications { list in
-            let ids = list.filter { ($0.request.content.userInfo["chat"] as? String) == chat }.map { $0.request.identifier }
+            let ids = list.filter { MontanaMissedCall.chat(of: $0.request.content.userInfo) == chat }.map { $0.request.identifier }   // a call's notice by its token
             if !ids.isEmpty { center.removeDeliveredNotifications(withIdentifiers: ids) }
         }
         // tell the peer it's read (via a hidden receipt over E2E)
@@ -6495,7 +6495,8 @@ enum SeedScope {
         "blobKeySeed", "mt.outbox.key", "mt_active_mnemonic", "mt_apple_id_seed", "mt_device_key", "mt_store_witness", "turnPass",
         "wakeBase", "wakeBases", "wakeElected", "wakeMyAddr", "wakeMyAuthor", "wakeMyGlyph", "wakeMyName", "wakeOwnToken",
         "wakeVoipDigest", "wakeVoipToken", "diagId", "diagSalt", "nseDiag", "nseLog", "shareDiag",
-        "nseInbox", "nseKnocked", "nseShownMids", "nseQuietIds", "nseRoomRang", "heldMids", "pendingShare", "pendingWall", "missedCallSeeds", "mt.longblob.wait", "musicFolders",
+        "nseInbox", "nseKnocked", "nseShownMids", "nseQuietIds", "nseRoomRang", "heldMids", "pendingShare", "pendingWall", "missedCallSeeds",
+        "callNoticeTokens", "mt.longblob.wait", "musicFolders",   // callNoticeTokens: the one-time names a call's notices wear for the system (MontanaMissedCall.noticeToken)
         "AppLanguage", "screen.key", "screen.diary",   // the screen broadcast's call key and its diary box: this device's, for one call
         "mt.seats",   // the book of the persons seated on this phone (MTSeats): a copy carries the person seated, never the shelf (29.09)
         "nseShelf",   // the keys the extension opens the shelf's letters with (MTShelfPost, 07.10): this device's view of its shelf, never a copy
@@ -6570,7 +6571,8 @@ enum SeedScope {
         "pagesWall", "pagesWallRecent", "pagesWallBlur", MontanaWakePush.skewKey]
     /// What each node holds for this device's token -- the node's own word about this phone, whoever is seated on it: a person
     /// lifted into the seat finds the registration of the one before and registers what differs.
-    static let devicePrefixes = [MontanaWakePush.regSetPrefix]
+    /// And the life of this phone each node last heard whole (MontanaWakePush.lifePrefix, 12.10.2026): the door's, this device's.
+    static let devicePrefixes = [MontanaWakePush.regSetPrefix, MontanaWakePush.lifePrefix]
     /// THE PERSON ON THIS PHONE (the second identity checklist, 1.2): never in a copy, as before -- derived from the seed or
     /// learned for this person's correspondences on this device -- and parked with the person's seat, lifted with it
     /// (MTSeats). The keys of the correspondences and of this person's node, the archive's and the delivery's ledgers, what
@@ -6589,7 +6591,7 @@ enum SeedScope {
         MontanaDeliveryEngine.pendingKey, "orphanDelivered", "handoffTaken",
         "longLetterRefs", "nodeChunkLedger", "nodeChunkOrphanSince", "wakeUnsentDrops",
         "pendingOpenChat", "pendingPeerAvatars", "peerDraftsMap",
-        "callDeadSeeds", MontanaCall.heldKey, MTBoard.pagesKey, MTBoard.firstKey,
+        "callDeadSeeds", MontanaCallHandle.repeatKey, MontanaCall.heldKey, MTBoard.pagesKey, MTBoard.firstKey,
         "mt.backup.icloud.at", "mt.backup.icloud.engine", "mt.home.node.at",
         "mt.apple.signin.id", "mt.restore.outbox", MTSamePair.mergedKey,
         MTGroup.copiesKey]   // the copies of the groups' words on their way (05.10): the person's own ledger of the queue
@@ -6602,7 +6604,7 @@ enum SeedScope {
         "namesCold", "photosCold", "photosManualCold", "orderCold", "readChatsCold", "pinnedCold", "forcedUnreadCold", "archivedCold",
         "blockedChats", "mutedChats", "peerUsernames", "chatListState", "chatListOverlay", "missedUnseen", "unreadCounts", "nseUnread",
         "nsePipeAlias", "nsePipeSecrets", "shareChats", "wakeMyAddr", "wakeMyAuthor", "wakeMyGlyph", "wakeMyName",
-        "nseInbox", "nseShownMids", "nseRoomRang", "heldMids", "missedCallSeeds", "mt.longblob.wait",
+        "nseInbox", "nseShownMids", "nseRoomRang", "heldMids", "missedCallSeeds", "callNoticeTokens", "mt.longblob.wait",
         "mt.passwords"]   // the person's Passwords (MTPasswordVault, 06.10): parked with the seat, never shown to the next person
     /// THE PERSON'S FOLDERS: every folder a copy carries, each parked into the seat and lifted from it by one rename, and the
     /// person's folders a copy leaves on the phone: the files of the posts being written (the wall's load lets go of every

@@ -805,6 +805,7 @@ enum MontanaWakePush {
         // when the door answered 200 to its removal, so a failed removal is asked again next time.
         let now = Date().timeIntervalSince1970
         let wanted = Set(subs.map(pairKey))
+        let letterClean = takeLetterClean() && MontanaDeviceKey.key != nil   // cleanCallRows: the letters' rows start afresh too
         // A BLOCKED PERSON'S PAIRS ARE ASKED GONE UNTIL THE DOOR CONFIRMS IT (measured 15.09 15:05):
         // the map may hold no record of them — a removal under an older build named the letter
         // token only, the map forgot the pair, and the door's call row lived on and woke the
@@ -833,7 +834,7 @@ enum MontanaWakePush {
             guard let url = URL(string: b + "/register"), let gone = URL(string: b + "/unregister") else { continue }   // SERVER-DEBT-ACK: the accelerator node (rung 4), not the delivery road
             let host = URL(string: b)?.host ?? b
             let standing = registeredPairs(host, token: hex)   // positive: held by the door since; negative: confirmed gone at; absent: unknown
-            let due = doubtedNow(host, token: hex) ? subs : subs.filter { p in (standing[pairKey(p)] ?? 0) < now - regRefresh }
+            let due = letterClean || doubtedNow(host, token: hex) ? subs : subs.filter { p in (standing[pairKey(p)] ?? 0) < now - regRefresh }
             var stale: [[String: String]] = standing.filter { 0 < $0.value && !wanted.contains($0.key) }.keys.compactMap { k in
                 let parts = k.split(separator: "|", maxSplits: 1).map(String.init)
                 return parts.count == 2 ? ["conv": parts[0], "sid": parts[1]] : nil
@@ -870,7 +871,7 @@ enum MontanaWakePush {
             // resets the device key, the map sealed under the old one reads empty, and the old rows of this token stood at the door
             // waking the phone for conversations it could no longer open (iPhone 17: wakepush_vrx peer=nil). The first car says
             // «fresh»: the node drops this token's rows of the table and takes the car under one lock; the chain lands it first.
-            let fresh: [String: Any] = standing.isEmpty && MontanaDeviceKey.key != nil && knowsNoDoor(token: hex) ? ["fresh": 1] : [:]
+            let fresh: [String: Any] = letterClean || (standing.isEmpty && MontanaDeviceKey.key != nil && knowsNoDoor(token: hex)) ? ["fresh": 1] : [:]
             sendChunks(due, url: url, token: hex, topic: topic, digestKey: regDigestKey, tag: "wakepush_reg",
                        recorded: { chunk in noteRegistered(host, chunk, at: now, token: hex) }, extra: ["faces": 1, "heard": 1],
                        firstExtra: fresh)
@@ -2679,6 +2680,13 @@ enum MontanaWakePush {
     // PushKit token, the same daily tags.
     private static let voipTokenKey  = "wakeVoipToken"
     private static let voipDigestKey = "wakeVoipDigest"
+    /// The life of this phone a door last heard whole, by the door's host: this install's defaults (a new install has none), the
+    /// device key (a forgotten seed draws another) and the call token, folded so no key leaves the phone.
+    static let lifePrefix = "wakeVoipLife."
+    private static func lifeStamp(_ token: String) -> String {
+        let key = MontanaDeviceKey.key.map { k in k.withUnsafeBytes { b in Data(b) } } ?? Data()
+        return SHA256.hash(data: key + Data(token.utf8)).prefix(12).map { String(format: "%02x", $0) }.joined()
+    }
 
     static func onVoipToken(_ token: Data) {
         let hex = token.map { String(format: "%02x", $0) }.joined()
@@ -2690,6 +2698,59 @@ enum MontanaWakePush {
     }
 
     /// Registering the voip token under all conversations' windows — mirrors registerConvs, its own debounce.
+    /// A RING NO PIPE OF MINE OPENS NAMES A ROW THE DOOR SHOULD NOT HOLD (12.10.2026, the author's word 11:5x MSK: «from Montana it
+    /// does not call»). Measured 07:23:31-07:24:26Z: the iPhone 17's install of 11.10 was woken eleven times for a pair of the
+    /// install it replaced (wakepush_vrx peer=nil, ring_posted busy-dummy from=Montana), the old call rows standing at the door
+    /// under the same call token; the node counted the person rung, asked no other app of theirs, and the caller rang 55 s into
+    /// silence (B9F26F54: cancelled-unrung knocks=11/11 side=apple). The same shape on T1's calls of 10.10 18:29Z and 11.10
+    /// 09:49Z. Only this phone can know a row is dead: it lays its whole call set again with the first car «fresh», so each door
+    /// holds exactly the pairs this phone answers for, and the caller's next knock finds the app of the person that does -- or
+    /// hears that nobody is there. Under an open vault and a readable book only (an unreadable book is «unknown», never «none»),
+    /// and once in ten minutes: a burst of knocks for one dead pair is one cleaning.
+    private static var callCleanAt: Double = 0
+    private static var callCleanDue = false
+    private static var letterCleanDue = false   // the letters' round lays its whole set too: a dead pair's letter rows go with its call rows
+    private static let callCleanLock = NSLock()
+    static func cleanCallRows(why: String) {
+        let now = Date().timeIntervalSince1970
+        let cleaning: Bool = callCleanLock.withLock {
+            guard 600 <= now - callCleanAt else { return false }
+            callCleanAt = now; callCleanDue = true; letterCleanDue = true
+            return true
+        }
+        guard cleaning else { return }
+        MontanaTrace.mark("wakepush_vreg", "clean why=\(why) -- the call set goes again, its first car fresh")
+        DispatchQueue.main.async { registerConvs() }
+    }
+    private static func takeCallClean() -> Bool {
+        callCleanLock.withLock { () -> Bool in let due = callCleanDue; callCleanDue = false; return due }
+    }
+    private static func takeLetterClean() -> Bool {
+        callCleanLock.withLock { () -> Bool in let due = letterCleanDue; letterCleanDue = false; return due }
+    }
+    /// THE PHONE SAYS AT ONCE WHICH RING IT COULD NOT OPEN (12.10.2026, the critic's finding 3 of helper 65, its residue): the
+    /// cleaning above lands seconds later, and the knocks between were lost -- the caller's first eleven of 07:23Z. The node keeps
+    /// the moment it rang each call token (montana-notify, rang), so the phone names nothing but its own two tokens: at the removal
+    /// door it already uses («unopened»), the node drops the row it just rang and the conversation's letter row beside it, and rings
+    /// the person's next device or app inside the same knock. An older node answers «bad subs» and nothing changes.
+    static func reportUnopenedRing() {
+        let read: (String) -> String = { k in MontanaKeychain.get(k).flatMap { d in String(data: d, encoding: .utf8) } ?? "" }
+        let letters = read(ownTokenKey), calls = read(voipTokenKey)
+        guard !calls.isEmpty else { MontanaTrace.mark("wakepush_unreg", "unopened -- no call token"); return }
+        let body: [String: Any] = ["token": letters.isEmpty ? calls : letters, "vtoken": calls, "unopened": 1, "subs": [[String: String]](),
+                                   "topic": Bundle.main.bundleIdentifier ?? "", "environment": apsEnvironment()]
+        let doors = oneDoorPerNode(notBusy(orderedBases(for: "notify")))   // one door per machine, as the removal of every row walks
+        for b in doors {
+            guard let gone = URL(string: b + "/unregister") else { continue }   // SERVER-DEBT-ACK: the accelerator node (rung 4), not the delivery road
+            var req = URLRequest(url: gone); req.httpMethod = "POST"   // SERVER-DEBT-ACK: the accelerator node (rung 4), not the delivery road
+            req.setValue("application/json", forHTTPHeaderField: "content-type")
+            req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+            knockSession.dataTask(with: req) { data, resp, _ in   // SERVER-DEBT-ACK: the accelerator node (rung 4), not the delivery road
+                let o = data.flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]
+                MontanaTrace.mark("wakepush_unreg", "unopened code=\((resp as? HTTPURLResponse)?.statusCode ?? -1) door=\(gone.host ?? "-") gone=\(o?["gone"] as? Int ?? -1) rerung=\(o?["rerung"] as? Int ?? -1)")
+            }.resume()
+        }
+    }
     static func registerVoip(refusing refused: Set<String>? = nil) {
         guard let hex = MontanaKeychain.get(voipTokenKey).flatMap({ String(data: $0, encoding: .utf8) }), !hex.isEmpty else {
             MontanaTrace.mark("wakepush_vreg", "skip no-token"); return   // no PushKit token yet; onVoipToken brings it
@@ -2741,11 +2802,22 @@ enum MontanaWakePush {
         // One door per machine and one chain per door at a time (24.09): the law and the measurement stand at registerConvs.
         let now = Date().timeIntervalSince1970
         var told = false
+        // THE DOOR HEARS EACH LIFE OF THIS PHONE ONCE, WHOLE (the author's word 12.10.2026 13:4x MSK, No.65: «a call came to her and
+        // dropped by itself before her eyes -- fix it and allow no such scenario by construction»). Nana's iPhone 17, 07:23:31-07:24:09Z:
+        // eleven call pushes for a pair of the install this one replaced (wakepush_vrx peer=nil, ring_posted busy-dummy end=failed) --
+        // the system must be shown a call for every call push, so each one flashed on her screen and fell. The cleaning above follows
+        // such a ring, so the first one still flashed. A life of this phone -- this install's defaults, the device key, the token --
+        // lays its whole call set fresh at each door at its first registration with a readable book: no row of an earlier life
+        // stands at a door when the first call comes.
+        let known = MontanaDeviceKey.key != nil && !MTPipeBook.all().isEmpty
+        let clean = known && takeCallClean()   // cleanCallRows
+        let life = lifeStamp(hex)
         for b in oneDoorPerNode(notBusy(orderedBases(for: "notify"))) {
             guard let url = URL(string: b + "/register-voip") else { continue }   // SERVER-DEBT-ACK: the accelerator node (rung 4), not the delivery road
             let host = URL(string: b)?.host ?? b
             let standing = registeredPairs(host, token: hex)
-            let due = doubtedNow(host, token: hex) ? subs : subs.filter { p in (standing[pairKey(p)] ?? 0) < now - regRefresh }
+            let unheard = known && UserDefaults.standard.string(forKey: lifePrefix + host) != life
+            let due = clean || unheard || doubtedNow(host, token: hex) ? subs : subs.filter { p in (standing[pairKey(p)] ?? 0) < now - regRefresh }
             guard !due.isEmpty else {
                 MontanaTrace.markFolded("wakepush_vreg", "standing=\(subs.count) door=\(host) -- nothing new", window: 600)
                 if let p = subs.first {
@@ -2759,9 +2831,12 @@ enum MontanaWakePush {
             }
             // «dw»: this build names its device on the wake road too (No.61) -- the node rings every device of a person only to
             // tokens that said it. «fresh»: the first car of a door whose map reads empty under an open vault (registerRound).
-            let fresh: [String: Any] = standing.isEmpty && MontanaDeviceKey.key != nil && knowsNoDoor(token: hex) ? ["fresh": 1] : [:]
+            let fresh: [String: Any] = clean || unheard || (standing.isEmpty && MontanaDeviceKey.key != nil && knowsNoDoor(token: hex)) ? ["fresh": 1] : [:]
             sendChunks(due, url: url, token: hex, topic: topic, digestKey: voipDigestKey, tag: "wakepush_vreg",
-                       recorded: { chunk in noteRegistered(host, chunk, at: now, token: hex) },
+                       recorded: { chunk in
+                           noteRegistered(host, chunk, at: now, token: hex)
+                           if unheard { UserDefaults.standard.set(life, forKey: lifePrefix + host) }   // this door heard this life whole
+                       },
                        extra: ["life": Int(MontanaCall.callLifeS), "dw": 1], firstExtra: fresh)
         }
     }
@@ -3642,17 +3717,29 @@ enum MontanaWakePush {
         answerGone(conv: conv, epoch: epoch, msgs: msgs)
     }
     /// The same answer for the pipe's words, which arrive already open (24.09: the pipe names every word's call).
+    /// AN ANSWER TO A CALL THIS DEVICE ENDED IS ANSWERED «GONE» (12.10.2026, the author's words 12:4x MSK on Nana's iPhone 17: «the
+    /// call comes and drops»): Marusya answered at 09:34:46.518Z a ring of Nana's call that Nana had ended at 42.278, and her phone
+    /// stood «connecting» twelve seconds into nothing while Nana's phone read the answer as a sibling's and said nothing
+    /// (call_sibling answer to a machine at rest). An answer addressed to THIS device («to», No.60) for a call whose seed this
+    /// device buried is the far phone holding a call nobody holds: the word «gone» goes back to the device that answered, once.
+    /// A sibling of either person never says it: the answer names another device, or the seed never lay in its graveyard.
     static func answerGone(conv: String, epoch: String, msgs: [E2E.CallSigMsg]) {
-        guard !epoch.isEmpty, epoch != "chat", epoch == MontanaCall.lostEpoch,   // only the call THIS device held and lost
-              msgs.contains(where: { $0.ctrl == "call-restart" || $0.ctrl == "call-restart-answer" }) else { return }
+        guard !epoch.isEmpty, epoch != "chat" else { return }
+        let lost = epoch == MontanaCall.lostEpoch   // only the call THIS device held and lost
+            && msgs.contains(where: { $0.ctrl == "call-restart" || $0.ctrl == "call-restart-answer" })
+        let me = MontanaCall.deviceWord(epoch: epoch)
+        let ghost = me.isEmpty ? nil : msgs.first(where: { $0.ctrl == "call-answer" && $0.to == me })
+        let ended = ghost != nil && MontanaCall.endedHere(epoch: epoch)
+        guard lost || ended else { return }
         DispatchQueue.main.async {
             // The run is going back into this very call as soon as its person faces the screen: nothing is said yet --
             // only a rejoin judged not to be tried leaves the call lost (24.09).
-            guard !MontanaCall.rejoinAwaits(epoch) else { return }
+            guard ended || !MontanaCall.rejoinAwaits(epoch) else { return }
             guard !goneSaid.contains(epoch) else { return }
             goneSaid.insert(epoch)
-            MontanaTrace.mark("call_gone", "tx epoch=\(String(epoch.prefix(8))) to=\(String(conv.prefix(10)))")
+            MontanaTrace.mark("call_gone", "tx epoch=\(String(epoch.prefix(8))) to=\(String(conv.prefix(10))) why=\(ended ? "ended-here" : "lost")")
             var gone = CallSignalOut(ctrl: "call-gone")
+            if ended, let d = ghost?.d, !d.isEmpty { gone.targetDevice = d }
             gone.callSeed = epoch
             gone.epoch = epoch
             E2E.shared.sendCallSignal(to: conv, gone)

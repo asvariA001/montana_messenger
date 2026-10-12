@@ -261,6 +261,8 @@ enum MontanaNotify {
     static func forgetSuggestions(_ ref: String) {
         guard !ref.isEmpty else { return }
         INInteraction.delete(with: ref) { _ in }
+        let notices = MontanaMissedCall.tokens(of: ref)   // a call's notices were donated under their tokens (MontanaMissedCall.noticeToken)
+        if !notices.isEmpty { INInteraction.delete(with: notices) { _ in } }
         suggestLock.withLock { suggestedDay[ref] = nil }
     }
     /// The person left the device: every donation of theirs goes.
@@ -393,7 +395,7 @@ enum MontanaNotify {
         center.getDeliveredNotifications { list in
             let ids = list.filter { n in
                 let c = n.request.content
-                if !conv.isEmpty, (c.userInfo["chat"] as? String) == conv || c.threadIdentifier == conv { return true }
+                if !conv.isEmpty, MontanaMissedCall.chat(of: c.userInfo) == conv || c.threadIdentifier == conv { return true }
                 guard !names.isEmpty else { return false }
                 if let m = c.userInfo["mid"] as? String, names.contains(m.hasPrefix("mid:") ? String(m.dropFirst(4)) : m) { return true }
                 let id = n.request.identifier

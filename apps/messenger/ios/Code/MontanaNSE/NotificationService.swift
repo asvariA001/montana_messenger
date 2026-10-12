@@ -135,11 +135,16 @@ final class NotificationService: UNNotificationServiceExtension {
                     content.body = ((o?["v"] as? Bool) ?? false) ? "📹 " + String(localized: "Incoming video call. Tap to answer", bundle: MTLanguage.bundle)
                                                                   : "📞 " + String(localized: "Incoming call. Tap to answer", bundle: MTLanguage.bundle)
                     content.sound = .default
-                    content.threadIdentifier = conv
-                    content.userInfo["chat"] = conv
+                    // A CALL'S NOTICE NAMES NO CONVERSATION TO THE SYSTEM (12.10.2026, MontanaMissedCall.noticeToken): a one-time
+                    // token stands for the thread, the tap, the person and the donation; the tap finds the chat by it on this phone.
+                    let tok = MontanaMissedCall.noticeToken(for: conv)
+                    content.threadIdentifier = tok
+                    content.userInfo["chat"] = nil
+                    content.userInfo["from"] = nil
+                    content.userInfo["call_token"] = tok
                     content.userInfo["mid"] = mid
                     Self.diagLine("bell banner mid=\(mid.prefix(8)) seed=\(seed.prefix(8))")
-                    Self.deliverWithAvatar(content, from: conv, glyph: envGlyph, handler: contentHandler)
+                    Self.deliverWithAvatar(content, from: conv, glyph: envGlyph, named: tok, handler: contentHandler)
                     return
                 }
                 Self.diagLine("ring letter stashed silently mid=\(mid.prefix(8))")
@@ -450,13 +455,15 @@ final class NotificationService: UNNotificationServiceExtension {
         min(Date().addingTimeInterval(seconds), began.addingTimeInterval(22))
     }
     private static func deliverWithAvatar(_ content: UNMutableNotificationContent, from: String,
-                                          glyph: String, handler: @escaping (UNNotificationContent) -> Void) {
-        handler(worded(nativeFace(content, from: from, glyph: glyph)))
+                                          glyph: String, named: String? = nil, handler: @escaping (UNNotificationContent) -> Void) {
+        handler(worded(nativeFace(content, from: from, glyph: glyph, named: named)))
     }
     /// THE CHAT'S OWN FACE, MADE AS SOON AS THE BANNER IS COMPOSED (06.10): the person's name and face in the communication style;
     /// the end of the wake hands it over, and so does the system's expiry (ready) -- never the bare plate. Nothing of the given
     /// content is changed.
-    private static func nativeFace(_ content: UNMutableNotificationContent, from: String, glyph: String) -> UNNotificationContent {
+    /// `named`: the name the system hears for this notice instead of the conversation (a call's token); the face is still found by `from`.
+    private static func nativeFace(_ content: UNMutableNotificationContent, from: String, glyph: String, named: String? = nil) -> UNNotificationContent {
+        let sys = named ?? from
         let display = content.title.isEmpty ? (from.isEmpty ? "Contact" : from) : content.title
         // Without a real name the communication intent is not built: the system would draw the
         // title from past donations (precedent «receiver's name instead of the sender's»).
@@ -472,19 +479,19 @@ final class NotificationService: UNNotificationServiceExtension {
         // donations where the name was a nick or someone else's, and the system drew the title
         // from them (precedent «receiver's name»). The new unique handle matches only itself —
         // there is nothing to substitute.
-        let handle = INPersonHandle(value: "peer:" + (from.isEmpty ? "0" : from), type: .unknown)
+        let handle = INPersonHandle(value: "peer:" + (sys.isEmpty ? "0" : sys), type: .unknown)
         let sender = INPerson(personHandle: handle, nameComponents: nameComp, displayName: display,
-                              image: img, contactIdentifier: nil, customIdentifier: "peer:" + from,
+                              image: img, contactIdentifier: nil, customIdentifier: "peer:" + sys,
                               isMe: false, suggestionType: .none)
         let me = INPerson(personHandle: INPersonHandle(value: "0", type: .unknown), nameComponents: nil,
                           displayName: nil, image: nil, contactIdentifier: nil, customIdentifier: nil,
                           isMe: true, suggestionType: .none)
         let intent = INSendMessageIntent(recipients: [me], outgoingMessageType: .outgoingMessageText,
                                          content: content.body, speakableGroupName: INSpeakableString(spokenPhrase: display),
-                                         conversationIdentifier: from, serviceName: nil, sender: sender, attachments: nil)
+                                         conversationIdentifier: sys, serviceName: nil, sender: sender, attachments: nil)
         if let img = img { intent.setImage(img, forParameterNamed: \.sender) }
         let interaction = INInteraction(intent: intent, response: nil); interaction.direction = .incoming
-        interaction.groupIdentifier = from   // a deleted chat takes this donation with it
+        interaction.groupIdentifier = sys   // a deleted chat takes this donation with it (a call's token: MontanaMissedCall.tokens)
         interaction.donate { _ in }
         if let updated = (try? content.updating(from: intent)) as? UNMutableNotificationContent {
             // Insurance: after the system's assembly the title MUST remain the name from the
