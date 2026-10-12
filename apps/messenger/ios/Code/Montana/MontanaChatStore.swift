@@ -6497,6 +6497,7 @@ enum SeedScope {
         "wakeVoipDigest", "wakeVoipToken", "diagId", "diagSalt", "nseDiag", "nseLog", "shareDiag",
         "nseInbox", "nseKnocked", "nseShownMids", "nseQuietIds", "nseRoomRang", "heldMids", "pendingShare", "pendingWall", "missedCallSeeds",
         "callNoticeTokens", "mt.longblob.wait", "musicFolders",   // callNoticeTokens: the one-time names a call's notices wear for the system (MontanaMissedCall.noticeToken)
+        "noticeAliases",   // the alias each conversation wears for the system on this phone (MTNoticeAlias, 12.10): this device's names, never a copy
         "AppLanguage", "screen.key", "screen.diary",   // the screen broadcast's call key and its diary box: this device's, for one call
         "mt.seats",   // the book of the persons seated on this phone (MTSeats): a copy carries the person seated, never the shelf (29.09)
         "nseShelf",   // the keys the extension opens the shelf's letters with (MTShelfPost, 07.10): this device's view of its shelf, never a copy
@@ -6604,7 +6605,7 @@ enum SeedScope {
         "namesCold", "photosCold", "photosManualCold", "orderCold", "readChatsCold", "pinnedCold", "forcedUnreadCold", "archivedCold",
         "blockedChats", "mutedChats", "peerUsernames", "chatListState", "chatListOverlay", "missedUnseen", "unreadCounts", "nseUnread",
         "nsePipeAlias", "nsePipeSecrets", "shareChats", "wakeMyAddr", "wakeMyAuthor", "wakeMyGlyph", "wakeMyName",
-        "nseInbox", "nseShownMids", "nseRoomRang", "heldMids", "missedCallSeeds", "callNoticeTokens", "mt.longblob.wait",
+        "nseInbox", "nseShownMids", "nseRoomRang", "heldMids", "missedCallSeeds", "callNoticeTokens", "mt.longblob.wait", "noticeAliases",
         "mt.passwords"]   // the person's Passwords (MTPasswordVault, 06.10): parked with the seat, never shown to the next person
     /// THE PERSON'S FOLDERS: every folder a copy carries, each parked into the seat and lifted from it by one rename, and the
     /// person's folders a copy leaves on the phone: the files of the posts being written (the wall's load lets go of every
