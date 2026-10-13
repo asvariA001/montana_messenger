@@ -326,7 +326,7 @@ class GifLoop(c: Context, fill: Boolean) : ImageView(c) {
  */
 class Picker(
     private val act: MainActivity,
-    private val ref: String,
+    private val ref: String?,
     private val expanded: Boolean,
     private val startTab: Int,
     private val focusSearch: Boolean,
@@ -574,6 +574,13 @@ class Picker(
         bindTap(cell, onTap, null)
     }
 
+    /** A picture leaves into this chat and the page gives the screen back; a room that keeps words only says «not yet». */
+    private fun send(work: (String) -> Unit) {
+        val r = ref ?: run { android.widget.Toast.makeText(c, R.string.compose_not_yet, android.widget.Toast.LENGTH_SHORT).show(); return }
+        work(r)
+        onSent()
+    }
+
     private fun confirmDelete(onYes: () -> Unit) {
         AlertDialog.Builder(c).setMessage(R.string.sticker_delete_q)
             .setPositiveButton(R.string.delete) { _, _ -> onYes() }
@@ -667,7 +674,7 @@ class Picker(
                 val b = BitmapFactory.decodeFile(Stickers.file(c, n).path, BitmapFactory.Options().apply { inSampleSize = 2 })
                 act.onMain { if (iv.tag == n && b != null) iv.setImageBitmap(b) }
             }
-            bindTap(cell, { Stickers.sendPicture(c, ref, n); onSent() }, { confirmDelete { Stickers.forget(c, n); drawStickers() } })
+            bindTap(cell, { send { r -> Stickers.sendPicture(c, r, n) } }, { confirmDelete { Stickers.forget(c, n); drawStickers() } })
         }
         drawStickers = {
             val mine = Stickers.names(c)
@@ -687,7 +694,7 @@ class Picker(
                 mine.chunked(4).forEach { chunk -> rows.add(Cells(3, 4, 72, 12, 14, chunk.map { mineCell(it, 72) })) }
             }
             fun house(found: List<GifSearch.Found>) = found.chunked(4).map { chunk ->
-                Cells(4, 4, 78, 6, 14, chunk.map { f -> { cell: FrameLayout -> houseCell(cell, f, fill = false) { sendHouseSticker(c, ref, f); onSent() } } })
+                Cells(4, 4, 78, 6, 14, chunk.map { f -> { cell: FrameLayout -> houseCell(cell, f, fill = false) { send { r -> sendHouseSticker(c, r, f) } } } })
             }
             if (stickQuery.isEmpty()) {
                 for (pack in stickPacks) {
@@ -794,11 +801,11 @@ class Picker(
         fun bookCell(n: String) = { cell: FrameLayout ->
             cell.tag = n
             loopIn(cell, true).show(GifBook.file(c, n))
-            bindTap(cell, { sendGifFile(c, ref, n); onSent() }, { confirmDelete { GifBook.forget(c, n); draw() } })
+            bindTap(cell, { send { r -> sendGifFile(c, r, n) } }, { confirmDelete { GifBook.forget(c, n); draw() } })
         }
         draw = {
             val book = GifBook.names(c)
-            val cells: List<(FrameLayout) -> Unit> = book.map { bookCell(it) } + gifFound.map { f -> { cell: FrameLayout -> houseCell(cell, f, fill = true) { sendGifFound(c, ref, f); onSent() } } }
+            val cells: List<(FrameLayout) -> Unit> = book.map { bookCell(it) } + gifFound.map { f -> { cell: FrameLayout -> houseCell(cell, f, fill = true) { send { r -> sendGifFound(c, r, f) } } } }
             shelf.rows = cells.chunked(3).map { Cells(6, 3, 86, 6, 12, it.map { fill -> { cell: FrameLayout ->
                 cell.background = c.rounded(Color.argb(15, 255, 255, 255), 10)
                 cell.clipToOutline = true
@@ -846,11 +853,11 @@ class Picker(
  * the same panel inside, on the platform's dark — the field and its buttons covered by it; the arrow down or a picture sent gives
  * the screen back. The page stands over the keyboard: its foot rises with the keys.
  */
-fun pickerPage(act: MainActivity, ref: String, tab: Int, search: Boolean, onEmoji: (String) -> Unit, onSent: () -> Unit) {
+fun pickerPage(act: MainActivity, ref: String?, tab: Int, search: Boolean, onEmoji: (String) -> Unit, onSent: () -> Unit) {
     val c: Context = act
     lateinit var close: () -> Unit
     val panel = Picker(act, ref, expanded = true, startTab = tab, focusSearch = search, onEmoji = onEmoji,
-        onSent = { close(); onSent() }, onLift = { _, _ -> close() }, onSettings = { Stickers.setPage(act, ref) })
+        onSent = { close(); onSent() }, onLift = { _, _ -> close() }, onSettings = { settings(act, ref) })
     val page = FrameLayout(c).apply {
         setBackgroundColor(Color.rgb(20, 20, 20))
         isClickable = true
@@ -868,4 +875,65 @@ fun pickerPage(act: MainActivity, ref: String, tab: Int, search: Boolean, onEmoj
         })
     }
     close = act.overlay(page)
+}
+
+/** The settings glass (iOS onSettings → the set's page): my stickers' page; a room that keeps words only has none to send into. */
+private fun settings(act: MainActivity, ref: String?) {
+    if (ref != null) Stickers.setPage(act, ref)
+    else android.widget.Toast.makeText(act, R.string.compose_not_yet, android.widget.Toast.LENGTH_SHORT).show()
+}
+
+/**
+ * THE PANEL IN THE KEYBOARD'S PLACE, ONE OWNER FOR EVERY FIELD ([C-1]: the chat and the saved room): the emoji key swaps the
+ * keyboard for the panel and back (iOS emojiKey: showEmoji.toggle(), the glyph «keyboard» while it stands; MontanaConversation.swift
+ * 803-813 at 2155), a hold opens it on the stickers. Android lets no app view be the field's input view, so the panel stands under
+ * the bar, as tall as the keyboard last stood; the keyboard rising takes its place back, and every other deed of the bar puts it
+ * away (iOS showEmoji = false). The page calls `insets` from its own insets listener and `away` from its own hideKeys.
+ */
+class FieldPanel(private val act: MainActivity, private val ref: String?, private val bar: ChatInputBar, private val field: EditText,
+                 private val hideKeys: () -> Unit, private val showKeys: () -> Unit, private val toBottom: () -> Unit) {
+    private val c: Context = act
+    val host = FrameLayout(c).apply { visibility = View.GONE }
+    private var picker: Picker? = null
+    private var keysWere = false
+    val up: Boolean get() = host.visibility == View.VISIBLE
+
+    private fun insert(e: String) {
+        val a = field.selectionStart.coerceAtLeast(0); val b = field.selectionEnd.coerceAtLeast(0)
+        field.text.replace(minOf(a, b), maxOf(a, b), e)
+    }
+
+    fun away() { if (up) { host.visibility = View.GONE; bar.panelShown(false) } }
+
+    fun show(tab: Int?) {
+        hideKeys()
+        val p = picker ?: Picker(act, ref, expanded = false, startTab = tab ?: Picker.EMOJI, focusSearch = false, onEmoji = { insert(it) },
+            onSent = { toBottom() },
+            onLift = { t, search -> pickerPage(act, ref, t, search, onEmoji = { insert(it) }, onSent = { away(); toBottom() }) },
+            onSettings = { settings(act, ref) }).also { picker = it; host.addView(it.view, FrameLayout.LayoutParams(MATCH, MATCH)) }
+        if (tab != null && p.tab != tab) p.show(tab)
+        host.layoutParams = host.layoutParams.apply { height = Prefs.dbl(KEYS_HEIGHT, c.dp(300).toDouble()).toInt() }
+        host.visibility = View.VISIBLE
+        bar.panelShown(true)
+        toBottom()
+        Log.d("Montana", "emoji_panel shown tab=" + p.tab)
+    }
+
+    /** The keyboard's height is the panel's; the keyboard rising takes the panel's place. */
+    fun insets(insets: WindowInsets) {
+        val keys = insets.isVisible(WindowInsets.Type.ime())
+        if (keys) {
+            val h = insets.getInsets(WindowInsets.Type.ime()).bottom - insets.getInsets(WindowInsets.Type.systemBars()).bottom
+            if (h > c.dp(120)) Prefs.setDbl(KEYS_HEIGHT, h.toDouble())
+            if (!keysWere) away()
+        }
+        keysWere = keys
+    }
+
+    init {
+        bar.onEmojiKey = { if (up) { away(); showKeys() } else show(null) }
+        bar.onStickers = { show(Picker.STICKERS) }
+    }
+
+    private companion object { const val KEYS_HEIGHT = "keys.height" }
 }

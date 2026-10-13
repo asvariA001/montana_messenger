@@ -109,7 +109,7 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
             field.setPadding(dp(14), dp(8), dp(14), dp(8))
             val keys = listOf(
                 glassKey(R.drawable.ic_chevron_up, R.string.compose_fold) { if (!record.active) setOpen(false) },
-                glassKey(R.drawable.ic_face_smiling, R.string.emoji) { android.util.Log.d("Montana", "emoji_key tap own=" + (onEmojiKey != null)); onEmojiKey?.invoke() ?: showKeys() }.apply { emojiRowKey = this; setOnLongClickListener { onStickers?.invoke(); onStickers != null } },
+                glassKey(R.drawable.ic_face_smiling, R.string.emoji) { onEmojiKey?.invoke() ?: showKeys() }.apply { emojiRowKey = this; setOnLongClickListener { onStickers?.invoke(); onStickers != null } },
                 glassKey(R.drawable.ic_compose_photo, R.string.gallery) { onGallery?.invoke() ?: notYet() },
                 glassKey(R.drawable.ic_compose_card, R.string.business_card) { onCard?.invoke() ?: notYet() },
                 glassKey(R.drawable.ic_compose_doc, R.string.file) { onFile?.invoke() ?: notYet() },

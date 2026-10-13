@@ -1117,31 +1117,9 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     // while the panel stands; MontanaConversation.swift 803-813 at 2155). Android lets no app view be the field's input view, so the
     // panel stands in the keyboard's place under the bar, as tall as the keyboard last stood (Picker.kt); the keyboard rising puts it
     // away, and so does every other deed of the bar. A hold on the key opens it on the stickers.
-    fun insertEmoji(e: String) {
-        val a = field.selectionStart.coerceAtLeast(0); val b = field.selectionEnd.coerceAtLeast(0)
-        field.text.replace(minOf(a, b), maxOf(a, b), e)
-    }
-    val panelHost = FrameLayout(c).apply { visibility = View.GONE }
-    var picker: Picker? = null
-    panelUp = { panelHost.visibility == View.VISIBLE }
-    panelAway = { if (panelHost.visibility == View.VISIBLE) { panelHost.visibility = View.GONE; bar.panelShown(false) } }
-    fun showPanel(tab: Int?) {
-        hideKeys()
-        val p = picker ?: Picker(act, ref, expanded = false, startTab = tab ?: Picker.EMOJI, focusSearch = false, onEmoji = { insertEmoji(it) },
-            onSent = { toBottom() },
-            onLift = { t, search -> pickerPage(act, ref, t, search, onEmoji = { insertEmoji(it) }, onSent = { panelAway(); toBottom() }) },
-            onSettings = { Stickers.setPage(act, ref) }).also { picker = it; panelHost.addView(it.view, FrameLayout.LayoutParams(MATCH, MATCH)) }
-        if (tab != null && p.tab != tab) p.show(tab)
-        panelHost.layoutParams = panelHost.layoutParams.apply { height = Prefs.dbl(KEYS_HEIGHT, c.dp(300).toDouble()).toInt() }
-        panelHost.visibility = View.VISIBLE
-        bar.panelShown(true)
-        android.util.Log.d("Montana", "emoji_panel shown tab=" + p.tab)
-    }
-    bar.onEmojiKey = {
-        android.util.Log.d("Montana", "emoji_key up=" + panelUp() + " host=" + panelHost.visibility + " attached=" + panelHost.isAttachedToWindow)
-        if (panelUp()) { panelAway(); showKeys() } else showPanel(null)
-    }
-    bar.onStickers = { showPanel(Picker.STICKERS) }   // a hold on the emoji key
+    val panel = FieldPanel(act, ref, bar, field, hideKeys = { hideKeys() }, showKeys = { showKeys() }, toBottom = { toBottom() })
+    panelUp = { panel.up }
+    panelAway = { panel.away() }
     // THE VOICE (iOS the held mark): the tape starts under the finger and leaves as a media letter of kind «aud».
     // THE SWELL WHILE SPEAKING (iOS the recording row): the red mark, the running time and the wave that rises with the voice.
     // THE PLATFORM'S RECORDER LINES (iOS MTLiveWave, MontanaShapes.swift:262-279 at 2155, atom 92fba2cb8154: «the live wave is
@@ -1668,7 +1646,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             addView(liveBar(act), lp().apply { bottomMargin = dp(2) })   // the one player bar above the field (iOS MontanaPlayerBar in the chat)
             addView(recStrip, lp().apply { marginStart = dp(10); marginEnd = dp(10); bottomMargin = dp(4) })
             addView(bar.apply { if ((group && !Groups.canWrite(ref)) || Post.closed(ref)) visibility = View.GONE }, lp())
-            addView(panelHost, lp(MATCH, dp(300)))
+            addView(panel.host, lp(MATCH, dp(300)))
             addView(closedNote, lp().apply { marginStart = dp(10); marginEnd = dp(10); bottomMargin = dp(6) })
             addView(foot, lp())
             addView(groupFoot, lp())
@@ -1744,18 +1722,10 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         head.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> room(); lift() }
         under.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> room(); lift() }
         plateHome = this; addView(lockPlate, plateLp())
-        var keysWere = false
         setOnApplyWindowInsetsListener { v, insets ->
             val b = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.ime())
             v.setPadding(b.left, b.top, b.right, b.bottom)
-            // the keyboard's height is the panel's (Picker.kt); the keyboard rising takes the panel's place
-            val keys = insets.isVisible(WindowInsets.Type.ime())
-            if (keys) {
-                val h = insets.getInsets(WindowInsets.Type.ime()).bottom - insets.getInsets(WindowInsets.Type.systemBars()).bottom
-                if (h > dp(120)) Prefs.setDbl(KEYS_HEIGHT, h.toDouble())
-                if (!keysWere) panelAway()
-            }
-            keysWere = keys
+            panel.insets(insets)   // the keyboard's height is the panel's; the keyboard rising takes the panel's place
             insets
         }
         addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
@@ -2507,9 +2477,6 @@ private fun gifCeilingDp(c: Context): Int {
  * it stands. The platform's own repeat count carries the cycles -- Android's stateful AnimatedImageDrawable needs none of
  * iOS's manual frame-index bookkeeping (MTGifView's wrap-around guard, P-130): stop()/start() alone hold the frame.
  */
-/** The keyboard's last height on this phone, in pixels: the field's own panel stands as tall (Picker.kt). */
-private const val KEYS_HEIGHT = "keys.height"
-
 internal object GifPlay {
     const val CYCLES = 3
     private const val KEY = "gifFirstRun"

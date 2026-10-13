@@ -151,7 +151,11 @@ fun savedMessagesPage(act: MainActivity, onClose: () -> Unit): View {
         override fun afterTextChanged(s: Editable?) { SavedMessages.draft = s?.toString() ?: "" }
     })
 
-    fun hideKeys() = (c.getSystemService(InputMethodManager::class.java)).hideSoftInputFromWindow(field.windowToken, 0)
+    lateinit var panel: FieldPanel
+    fun hideKeys() { (c.getSystemService(InputMethodManager::class.java)).hideSoftInputFromWindow(field.windowToken, 0); panel.away() }
+    fun showKeys() { field.requestFocus(); c.getSystemService(InputMethodManager::class.java).showSoftInput(field, 0) }
+    // THE FIELD'S OWN PANEL, the same as every chat's (Picker.kt): this room keeps words only, so a picture of the panel says «not yet»
+    panel = FieldPanel(act, null, bar, field, hideKeys = { hideKeys() }, showKeys = { showKeys() }, toBottom = { toBottom() })
 
     // THE BAR'S FACE: one's own face (iOS MTSelfFace: Saved Messages wears one's own face, the author's word 18.09)
     val face: View = c.avatar(SelfFace.load(c), Prefs.userName, 36)
@@ -168,11 +172,13 @@ fun savedMessagesPage(act: MainActivity, onClose: () -> Unit): View {
             addView(top)
             addView(scroll, lp(MATCH, 0, 1f))
             addView(bar, lp())
+            addView(panel.host, lp(MATCH, dp(300)))
         }, FrameLayout.LayoutParams(MATCH, MATCH))
         // The page stands inside the system bars and ON the keyboard: the field rises with the keys.
         setOnApplyWindowInsetsListener { v, insets ->
             val b = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.ime())
             v.setPadding(b.left, b.top, b.right, b.bottom)
+            panel.insets(insets)
             insets
         }
         addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
