@@ -722,7 +722,7 @@ final class MontanaDeliveryEngine {
     private var shownCopy: (era: Int, items: [Item])?
     private func load() -> [Item] {
         if let held, heldEra == MTOutbox.era { return held }
-        let a = readItems()
+        let a = readItems().filter { !$0.text.hasPrefix(MTVPNWall.mark) }
         hold(storeUnreadable ? nil : a)
         return a
     }
@@ -861,6 +861,7 @@ final class MontanaDeliveryEngine {
     func enqueue(to: String, chat: String, mid: String, text: String, silent: Bool,
                  kind: Kind = .letter, headless: Bool = false,
                  quoteText: String? = nil, quoteMid: String? = nil, linkPreview: String? = nil) {
+        guard !text.hasPrefix(MTVPNWall.mark) else { return }   // retired automatic VPN sharing
         guard MontanaConv.holds(to) else {
             // A silent drop on the critical path is a phantom «sent»: the bubble looked fine
             // while the letter never entered the queue (the share-video manifest died exactly
@@ -890,7 +891,6 @@ final class MontanaDeliveryEngine {
             // ONE PAGE OF A WALL ON ITS WAY TO ONE PERSON (the critic's N1): a newer page of mine makes the queued one
             // meaningless — the last page stands, as the last read mark does.
             if MTBoard.isPage(text) { a.removeAll { $0.to == to && MTBoard.isPage($0.text) } }
-            if MTVPNWall.isPage(text) { a.removeAll { $0.to == to && MTVPNWall.isPage($0.text) } }   // the VPN wall's page, by the same law (29.09)
             // THE SAME STATE ALREADY ON ITS WAY IS NOT QUEUED AGAIN (25.09, the diary of T1: at one proof of a peer's build
             // four «about» letters and three 1.6 MB «ground» letters left within 60 ms). The senders ask the queue whether
             // their state waits, but they ask on their own thread while the queue writes on this line: every question before
@@ -995,7 +995,7 @@ final class MontanaDeliveryEngine {
                 // A receipted name or face is now what the peer's screen shows — the mark is written here.
                 if let conv = due { Announced.recordDelivered(text: letterText, to: conv) }
                 // A receipted page of my wall is the version that visitor holds (the critic's N5).
-                if let conv = due { MTBoard.delivered(text: letterText, to: conv); MTVPNWall.delivered(text: letterText, to: conv) }
+                if let conv = due { MTBoard.delivered(text: letterText, to: conv) }
                 // The tombstone is delivered — now the pipe can be buried for real.
                 if wasTombstone, let conv = due { MTPipeBook.forget(conv) }
                 // The letter is delivered — its media's shipping crate is of no use to anyone:

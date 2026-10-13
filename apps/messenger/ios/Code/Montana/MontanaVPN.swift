@@ -511,7 +511,15 @@ enum MontanaVPNStore {
     /// identity of its own. A plan may name one machine twice (an "auto" entry beside its country, same
     /// address, same key) and two rows then shared one identity -- the screen drew one of them twice and
     /// selected both at once, because a list identified by that value cannot tell them apart (22.09).
-    static func load() -> [MontanaVPNConfig] {
+    static func load() -> [MontanaVPNConfig] { stored().filter(isOwned) }
+    private static func isOwned(_ row: MontanaVPNConfig) -> Bool {
+        guard let url = row.subscription else { return true }
+        return MontanaVPNPlans.owns(url)
+    }
+    static func isRetired(_ id: String) -> Bool {
+        stored().contains { $0.id == id && !isOwned($0) }
+    }
+    private static func stored() -> [MontanaVPNConfig] {
         lock.lock()
         if let h = held { lock.unlock(); return h }
         lock.unlock()
@@ -550,8 +558,11 @@ enum MontanaVPNStore {
         if let d = try? JSONEncoder().encode(list) { MontanaLocalVault.setEncrypted(key, d) }
     }
     static func save(_ list: [MontanaVPNConfig]) {
-        lock.lock(); held = list; lock.unlock()
-        writeSealed(list)
+        let own = list.filter(isOwned)
+        let retained = stored().filter { old in !isOwned(old) && !own.contains(where: { $0.id == old.id }) }
+        let all = own + retained
+        lock.lock(); held = all; lock.unlock()
+        writeSealed(all)
     }
     /// The store was replaced under the list (a copy laid, 23.09): the next ask reads it again, and a server
     /// added afterwards joins the restored list instead of writing the list of the moment before over it.
@@ -856,7 +867,6 @@ enum MontanaVPNSelection {
     func appActive(_ active: Bool) {
         timer?.invalidate(); timer = nil
         guard active else { return }
-        MTVPNWall.shared.appReturned()   // the VPN wall is carried at a return, to whoever holds an older page -- unless the person hides their presence (29.09)
         timer = Timer.scheduledTimer(withTimeInterval: Self.beat, repeats: true) { [weak self] _ in
             Task { @MainActor in await self?.hourBeat(reason: "hour") }
         }
@@ -881,19 +891,15 @@ enum MontanaVPNSelection {
         beating = true
         defer { beating = false }
         lastBeat = Date()
-        let first = Array(MontanaVPNPlans.ordered(wallRank: MTVPNWall.chatRank()).prefix(Self.top))
-        let asks = MontanaPresencePrivacy.sharing
+        let first = Array(MontanaVPNPlans.ordered().prefix(Self.top))
         var asked = 0
         for plan in first {
             if 0 < asked { try? await Task.sleep(nanoseconds: Self.pause) }
             asked += 1
-            if let conv = plan.wallOf, MTVPNWall.isWallKey(plan.url) {
-                if asks { MTVPNWall.shared.ask(conv) }
-            } else if let url = URL(string: plan.url), (try? await MontanaVPNStore.addFromSubscription(url)) != nil {
+            if let url = URL(string: plan.url), (try? await MontanaVPNStore.addFromSubscription(url)) != nil {
                 generation += 1
             }
         }
-        if asks { MTVPNWall.shared.askMissing() }
         MontanaTrace.mark("vpn_ui", "fresh \(reason) plans=\(asked) of=\(MontanaVPNPlans.load().count)")
     }
 }
@@ -1812,7 +1818,14 @@ enum MontanaVPNPlans {
     // asks for the plans from its body, and a body may ask only for free answers (22.09).
     private static let lock = NSLock()
     private static var held: [MontanaVPNPlan]?
-    static func load() -> [MontanaVPNPlan] {
+    /// Only a plan the person entered is active. Legacy received and coin-provisioned plans stay sealed.
+    static func isOwned(_ plan: MontanaVPNPlan) -> Bool {
+        guard plan.wallOf == nil, let url = URL(string: plan.url), url.host != nil else { return false }
+        return url.scheme?.lowercased() == "https" || url.scheme?.lowercased() == "http"
+    }
+    static func owns(_ url: String) -> Bool { load().contains { $0.url == url } }
+    static func load() -> [MontanaVPNPlan] { stored().filter(isOwned) }
+    private static func stored() -> [MontanaVPNPlan] {
         lock.lock()
         if let h = held { lock.unlock(); return h }
         lock.unlock()
@@ -1822,9 +1835,12 @@ enum MontanaVPNPlans {
         lock.lock(); held = l; lock.unlock()
         return l
     }
-    static func save(_ l: [MontanaVPNPlan]) {
-        lock.lock(); held = l; lock.unlock()
-        if let d = try? JSONEncoder().encode(l) { MontanaLocalVault.setEncrypted(key, d) }
+    static func save(_ list: [MontanaVPNPlan]) {
+        let own = list.filter(isOwned)
+        let retained = stored().filter { old in !isOwned(old) && !own.contains(where: { $0.url == old.url }) }
+        let all = own + retained
+        lock.lock(); held = all; lock.unlock()
+        if let d = try? JSONEncoder().encode(all) { MontanaLocalVault.setEncrypted(key, d) }
     }
     static func forgetHeld() { lock.lock(); held = nil; lock.unlock() }
     static func upsert(_ p: MontanaVPNPlan) {
@@ -1934,7 +1950,6 @@ extension MontanaVPNStore {
         catch let e as MontanaVPNSubscription.FetchError {
             if var p = MontanaVPNPlans.load().first(where: { $0.url == key }) { p.lastError = e.label; MontanaVPNPlans.upsert(p) }
             else { MontanaVPNPlans.upsert(MontanaVPNPlan(url: key, title: "", updatedAt: 0, count: 0, lastError: e.label)) }
-            Task { @MainActor in MTVPNWall.shared.schedulePush() } // a failed owner plan must leave the wall now
             throw e
         }
         var list = load()
@@ -1958,7 +1973,6 @@ extension MontanaVPNStore {
             }
             list.append(f)
         }
-        save(list)
         let prev = MontanaVPNPlans.load().first(where: { $0.url == key })
         let ui = fetched.userinfo
         let unspoken = MontanaVPNParse.Report(servers: fetched.servers.filter { $0.proto == .unsupported })
@@ -1969,7 +1983,8 @@ extension MontanaVPNStore {
             expire: ui["expire"].map(Double.init), lastError: nil,
             unsupported: unspoken.servers.isEmpty ? nil : unspoken.servers.count, unsupportedKinds: unspoken.servers.isEmpty ? nil : unspoken.unsupportedWord,
             updateInterval: fetched.updateHours ?? prev?.updateInterval,
-            folded: prev?.folded, pinnedAt: prev?.pinnedAt, wallOf: prev?.wallOf))   // a load renews what the panel says, not the person's arrangement
+            folded: prev?.folded, pinnedAt: prev?.pinnedAt, wallOf: nil))   // a load renews what the panel says, not the person's arrangement
+        save(list)
         return fetched.servers.count
     }
 
@@ -1994,291 +2009,12 @@ extension MontanaVPNStore {
 }
 
 
-// THE VPN WALL (the author's word 29.09 evening): «when T1 and T3 paste their links into the VPN they must appear for everyone, the
-// same way as the posts feed -- a wall of VPN: the hand-added links and the paid plans, everyone's for everyone». It rides the
-// wall's own road (MTBoard): one service token, a page of the whole set carried to the latest correspondents after a change and
-// at every return, a version so no page is carried twice, an ask for a page never received, and a build that does not know the
-// token buries it unread ([P2P-COMPAT]). No node keeps a wall: the page is a letter, sealed as every letter is.
-// What the page carries: the servers this person added by hand (the share link, and the served outbound of a JSON row) and
-// the links of the plans this person pasted -- never what came to this phone by someone else's wall (a wall is one's own).
-// What arrives: the correspondent's servers stand under the correspondent's name as a pinned plan of their own, and the
-// correspondent's plans are loaded by this phone as plans of its own (the provider counts this phone as a device of that plan;
-// said to the author 29.09). Nothing that came by a wall is chosen by itself for the tunnel (the
-// tunnel's fallbacks are gone): another person's exit is data the person sees and picks by hand.
-struct MTVPNWallRow: Codable, Equatable {
-    var id: String
-    var n: String                  // the name
-    var k: String                  // "s" a server: l its share link, j its served outbound; "p" a plan: l its link
-    var l: String? = nil
-    var j: String? = nil
-}
-struct MTVPNWallWord: Codable {
-    var t: String                  // page, ask
-    var v: String? = nil           // the page's version
-    var rows: [MTVPNWallRow]? = nil
-}
-@MainActor final class MTVPNWall: ObservableObject {
-    static let shared = MTVPNWall()
+// The retired VPN-wall token remains recognizable for compatibility with live older builds.
+// It never imports, fetches, answers, or publishes configurations (author, 13.10.2026).
+enum MTVPNWall {
     static let mark = "\u{200B}\u{200B}VW:"
     static let keyPrefix = "montana://vpn-wall/"
-    static let pushTo = 128        // the latest correspondents carried, as the posts' wall carries (MTBoard.pushTo)
-    static let rowsMax = 12        // rows a page names, servers and plans together (a letter stays a letter)
-    static let jsonMax = 3072      // a served outbound longer than this rides as its share link alone
-    static let inFlightFor: TimeInterval = 1800   // a page handed to the queue is not handed again for this long (MTBoard.onItsWay)
-    private static let sentKey = "vpnwall.sent"     // conv: the version they said they hold (their «got»)
-    private static let askedKey = "vpnwall.asked"   // conv: the moment they were last asked for their page
-    private static let capKey = "vpnwall.cap"       // the correspondents whose build proved it speaks the VPN wall
-    private var sent: [String: String]
-    private var asked: [String: Double]
-    private var cap: Set<String>
-    private var inFlight: [String: (v: String, at: Date)] = [:]
-    private var laid: [String: String] = [:]         // conv: the version of their page last laid here, this run
-    private var answeredAt: [String: Date] = [:]
-    private var pushWork: DispatchWorkItem?
-
-    private init() {
-        sent = (UserDefaults.standard.data(forKey: Self.sentKey)).flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
-        asked = (UserDefaults.standard.data(forKey: Self.askedKey)).flatMap { try? JSONDecoder().decode([String: Double].self, from: $0) } ?? [:]
-        cap = Set((UserDefaults.standard.data(forKey: Self.capKey)).flatMap { try? JSONDecoder().decode([String].self, from: $0) } ?? [])
-        // A correspondent whose wall already lies here spoke the VPN wall before this build learned to remember it: without
-        // this two phones that already hold each other's walls would each wait for the other to speak first, for ever.
-        cap.formUnion(MontanaVPNPlans.load().compactMap { $0.wallOf })
-    }
-    private func persist() {
-        if let d = try? JSONEncoder().encode(sent) { UserDefaults.standard.set(d, forKey: Self.sentKey) }
-        if let d = try? JSONEncoder().encode(asked) { UserDefaults.standard.set(d, forKey: Self.askedKey) }
-        if let d = try? JSONEncoder().encode(cap.sorted()) { UserDefaults.standard.set(d, forKey: Self.capKey) }
-    }
-
-    nonisolated static func planKey(_ conv: String) -> String { keyPrefix + conv }
-    nonisolated static func isWallKey(_ key: String?) -> Bool { key?.hasPrefix(keyPrefix) == true }
-    /// A page of the VPN wall, told from its other words -- for the queue, which keeps one page per person (the posts' law, N1).
-    nonisolated static func isPage(_ text: String) -> Bool { text.hasPrefix(mark) && text.contains("\"t\":\"page\"") }
-    /// A row that came by a wall: a correspondent's server, or a row of a plan a correspondent's wall carried.
-    nonisolated static func cameByWall(_ c: MontanaVPNConfig) -> Bool {
-        guard let s = c.subscription else { return false }
-        if s.hasPrefix(keyPrefix) { return true }
-        return MontanaVPNPlans.load().contains { $0.url == s && $0.wallOf != nil }
-    }
-
-    // -- the page of this phone ------------------------------------------------------------------
-    /// Pure: the page from the list and the plans.  A subscription may be spoken only when this
-    /// phone has a fresh successful measurement for at least one of its servers.
-    /// A WIREGUARD ROW IS NEVER CARRIED (29.09): its private key is one device's identity at the server, and two phones on one
-    /// key knock each other off the tunnel -- the owner's own connection would break the moment a correspondent used it.
-    nonisolated static func page(servers: [MontanaVPNConfig], plans: [MontanaVPNPlan], live: Set<String>? = nil, now: Double = Date().timeIntervalSince1970) -> [MTVPNWallRow] {
-        var rows: [MTVPNWallRow] = []
-        // The pasted plans first: a paid plan is shared from the top (the author's word 29.09 evening).
-        for p in plans where p.wallOf == nil && !isWallKey(p.url) && (p.url.hasPrefix("https://") || p.url.hasPrefix("http://")) {
-            let validUntil = p.expire.map { $0 == 0 || now < $0 } ?? true
-            let livePlan = live.map { liveIDs in servers.contains { $0.subscription == p.url && liveIDs.contains($0.id) } } ?? true
-            guard validUntil, p.lastError == nil, 0 < p.count, livePlan else { continue }
-            rows.append(MTVPNWallRow(id: "plan:" + hex(p.url).prefix(16), n: String(p.shownTitle.prefix(64)), k: "p", l: p.url))
-        }
-        for c in servers where c.subscription == nil && c.proto != .unsupported && c.proto != .wireguard && (live.map { $0.contains(c.id) } ?? true) {
-            var r = MTVPNWallRow(id: c.id, n: String(c.name.prefix(64)), k: "s", l: MontanaVPNParse.serialize(c))
-            if let j = c.engineOutbound, j.count <= jsonMax { r.j = j }
-            rows.append(r)
-        }
-        return Array(rows.prefix(rowsMax))
-    }
-    /// The chats' own order, the freshest first: a correspondent's rank for the page's order of the walls (MontanaVPNPlans.ordered).
-    static func chatRank() -> [String: Int] {
-        var rank: [String: Int] = [:]
-        for (i, conv) in (ChatStore.live?.listChats() ?? []).compactMap({ $0.convId }).enumerated() where rank[conv] == nil { rank[conv] = i }
-        return rank
-    }
-    static func page() -> [MTVPNWallRow] {
-        let book = MontanaVPNDelayBook.shared
-        let live = Set(book.entries.compactMap { id, entry in
-            entry.ms != nil && entry.age <= MontanaVPNDelayBook.stale ? id : nil
-        })
-        return page(servers: MontanaVPNStore.load(), plans: MontanaVPNPlans.load(), live: live)
-    }
-    /// Pure: the version of a page -- the same rows in any order give the same word.
-    nonisolated static func version(_ rows: [MTVPNWallRow]) -> String {
-        let sorted = rows.sorted { $0.id < $1.id }
-        let enc = JSONEncoder(); enc.outputFormatting = [.sortedKeys]
-        guard let d = try? enc.encode(sorted) else { return "" }
-        return String(SHA256.hash(data: d).map { String(format: "%02x", $0) }.joined().prefix(16))
-    }
-    private nonisolated static func hex(_ s: String) -> String { SHA256.hash(data: Data(s.utf8)).map { String(format: "%02x", $0) }.joined() }
-    /// THE PAGE ONE CORRESPONDENT MAY SEE (the author's word 29.09: «the privacy settings as for my own wall»): the whole page,
-    /// or -- for one the rule of my VPN wall leaves out -- the empty page with the empty wall's version, so the refusal itself
-    /// says nothing (the posts' law, MTBoard.spokenVersion). The whole page is read once per carry and handed in.
-    nonisolated static func page(for conv: String, whole: [MTVPNWallRow]) -> [MTVPNWallRow] {
-        MTBoardRule.admits(conv, to: .vpn) ? whole : []
-    }
-
-    // -- carrying ---------------------------------------------------------------------------------
-    /// THE OWNER CARRIES THE VPN WALL AS THE POSTS' WALL IS CARRIED (the author's word 29.09: «as in the feed -- a post published
-    /// appears for everyone -- so the VPN wall»). After a change of the list, the plans or the rule, and at a return: half a
-    /// second to fold a burst, then every latest correspondent whose build proved it speaks the VPN wall and whose version of it
-    /// moved, a few frames apart. T1 29.09 before this law: one unchanged page carried to 21 correspondents at every return, 36
-    /// times in a day, because «held» was written only by a receipt that a service word never gets. Now «held» is the
-    /// correspondent's own «got»; a page on its way is not handed again for half an hour (a build without «got» is carried again
-    /// after that); one the rule no longer admits is carried the empty page, beyond the latest too. A person who hides their
-    /// presence carries at their own acts alone: a carry at a return would say when they came back (the posts' N6).
-    func schedulePush() {
-        pushWork?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.pushDue() }
-        pushWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
-    }
-    func appReturned() {
-        if MontanaPresencePrivacy.sharing { schedulePush() }   // not the beacons' door (P-48 counts those two); the asks ride the hour's beat (30.09)
-    }
-    private func pushDue() {
-        let whole = Self.page()
-        let empty = Self.version([])
-        let latest = (ChatStore.live?.listChats() ?? []).compactMap { $0.convId }.filter { cap.contains($0) }
-        let withdrawn = sent.filter { $0.value != empty && !MTBoardRule.byRule($0.key, to: .vpn) }.map { $0.key }
-        var due = Array(latest.prefix(Self.pushTo))
-        for c in withdrawn where !due.contains(c) { due.append(c) }
-        var n = 0
-        for conv in due where MontanaConv.holds(conv) && !ChatStore.refusesCold(conv) {
-            let rows = Self.page(for: conv, whole: whole)
-            let v = Self.version(rows)
-            guard sent[conv] != v, !onItsWay(conv, v) else { continue }
-            let wait = 0.15 * Double(n); n += 1
-            inFlight[conv] = (v, Date())
-            DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in
-                guard let self, self.sent[conv] != v else { return }
-                self.send(MTVPNWallWord(t: "page", v: v, rows: rows), to: conv)
-            }
-        }
-        MontanaTrace.mark("vpn_wall", "push rows=\(whole.count) cap=\(cap.count) to=\(n)")
-    }
-    /// The same page already stands in the queue for them, handed less than half an hour ago.
-    private func onItsWay(_ conv: String, _ v: String) -> Bool {
-        guard let f = inFlight[conv], f.v == v else { return false }
-        return Date().timeIntervalSince(f.at) < Self.inFlightFor
-    }
-    /// A correspondent whose wall this phone never received is asked for it, once a day at most: the ask is also how a build
-    /// that speaks the VPN wall is found (its answer, and its own ask, are the proof).
-    func askMissing() {
-        let now = Date().timeIntervalSince1970
-        let have = Set(MontanaVPNPlans.load().compactMap { $0.wallOf })
-        let latest = (ChatStore.live?.listChats() ?? []).compactMap { $0.convId }
-        var n = 0
-        for conv in latest.prefix(Self.pushTo) where MontanaConv.holds(conv) && !ChatStore.refusesCold(conv) && !have.contains(conv) {
-            if let t = asked[conv], now - t < 86400 { continue }
-            asked[conv] = now; n += 1
-            send(MTVPNWallWord(t: "ask"), to: conv)
-        }
-        if 0 < n { persist(); MontanaTrace.mark("vpn_wall", "ask to=\(n)") }
-    }
-    /// The page is asked of one correspondent again (the plan's own update button).
-    func ask(_ conv: String) {
-        asked[conv] = Date().timeIntervalSince1970; persist()
-        send(MTVPNWallWord(t: "ask"), to: conv)
-    }
-    private func send(_ w: MTVPNWallWord, to conv: String) {
-        guard MontanaConv.holds(conv), !ChatStore.refusesCold(conv),
-              let d = try? JSONEncoder().encode(w), let js = String(data: d, encoding: .utf8) else { return }
-        MontanaDeliveryEngine.shared.enqueue(to: conv, chat: conv, mid: UUID().uuidString, text: Self.mark + js, silent: true)
-        MontanaTrace.mark("vpn_wall", "tx t=\(w.t) to=\(String(conv.prefix(10)))")
-    }
-    /// The receipt of a page letter, where one comes: the version it carried is the one that correspondent holds.
-    nonisolated static func delivered(text: String, to conv: String) {
-        guard isPage(text), let d = String(text.dropFirst(mark.count)).data(using: .utf8),
-              let w = try? JSONDecoder().decode(MTVPNWallWord.self, from: d), let v = w.v else { return }
-        Task { @MainActor in shared.held(v, by: conv) }
-    }
-    /// The version a correspondent holds, by their «got» or a receipt: never carried to them again until it moves.
-    private func held(_ v: String, by conv: String) {
-        sent[conv] = v
-        if inFlight[conv]?.v == v { inFlight[conv] = nil }
-        persist()
-    }
-    /// A correspondent spoke the VPN wall -- any word of it: from now on the owner carries the page to them ([P2P-COMPAT]: never
-    /// to a build that has not shown it reads the VPN wall).
-    private func learnCap(_ conv: String) {
-        guard !conv.isEmpty, cap.insert(conv).inserted else { return }
-        persist()
-        MontanaTrace.mark("vpn_wall", "cap +1 now=\(cap.count)")
-        if MontanaPresencePrivacy.sharing { schedulePush() }
-    }
-
-    // -- receiving --------------------------------------------------------------------------------
-    /// A word of the VPN wall arrived. True when it was ours to read: the letter is service and never becomes a row.
+    static func isWallKey(_ key: String?) -> Bool { key?.hasPrefix(keyPrefix) == true }
     @discardableResult
-    nonisolated static func handle(_ text: String, from conv: String, isFromMe: Bool) -> Bool {
-        guard text.hasPrefix(mark) else { return false }
-        guard !isFromMe, !ChatStore.refusesCold(conv), let d = String(text.dropFirst(mark.count)).data(using: .utf8),
-              let w = try? JSONDecoder().decode(MTVPNWallWord.self, from: d) else { return true }
-        Task { @MainActor in shared.apply(w, from: conv) }
-        return true
-    }
-    private func apply(_ w: MTVPNWallWord, from conv: String) {
-        MontanaTrace.mark("vpn_wall", "rx t=\(w.t) from=\(String(conv.prefix(10))) rows=\(w.rows?.count ?? 0)")
-        learnCap(conv)   // a word of the VPN wall is the proof its build speaks it
-        switch w.t {
-        case "ask":
-            if let t = answeredAt[conv], Date().timeIntervalSince(t) < 30 { return }   // one answer in thirty seconds
-            answeredAt[conv] = Date()
-            let rows = Self.page(for: conv, whole: Self.page())
-            let v = Self.version(rows)
-            inFlight[conv] = (v, Date())
-            send(MTVPNWallWord(t: "page", v: v, rows: rows), to: conv)
-        case "page":
-            // «GOT»: the version is said back, so the owner never carries this page again (a build before 29.09 skips the word).
-            // The same version twice -- the box and the live lane both bring it -- is laid once.
-            if let v = w.v { send(MTVPNWallWord(t: "got", v: v), to: conv) }
-            if let v = w.v, laid[conv] == v { return }
-            if let v = w.v { laid[conv] = v }
-            Self.lay(w.rows ?? [], from: conv)
-            MontanaVPNFreshener.shared.moved()
-        case "got":
-            if let v = w.v { held(v, by: conv) }
-        default: break
-        }
-    }
-
-    /// Pure: the correspondent's server rows as rows of the list under their key, identities kept from the last page.
-    nonisolated static func servers(of rows: [MTVPNWallRow], key: String, old: [MontanaVPNConfig]) -> [MontanaVPNConfig] {
-        var out: [MontanaVPNConfig] = []
-        for r in rows.prefix(rowsMax) where r.k == "s" {
-            var c: MontanaVPNConfig?
-            if let j = r.j, let d = j.data(using: .utf8), let ob = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] {
-                c = MontanaVPNSubscription.fromEngineConfig(["remarks": r.n, "outbounds": [ob]])
-            }
-            if c == nil, let l = r.l { c = MontanaVPNParse.parse(l) }
-            guard var cfg = c, cfg.proto != .unsupported else { continue }
-            if !r.n.isEmpty { cfg.name = r.n }
-            cfg.subscription = key
-            cfg.uid = old.first(where: { $0.host == cfg.host && $0.port == cfg.port && $0.uuidOrPassword == cfg.uuidOrPassword })?.uid ?? UUID().uuidString
-            out.append(cfg)
-        }
-        return out
-    }
-    /// The correspondent's page lands: their servers under their name (a plan of their own, pinned when it first arrives), their
-    /// plans loaded by this phone as plans of its own; what the page no longer names leaves.
-    static func lay(_ rows: [MTVPNWallRow], from conv: String) {
-        let key = planKey(conv)
-        let now = Date().timeIntervalSince1970
-        var list = MontanaVPNStore.load()
-        let old = list.filter { $0.subscription == key }
-        list.removeAll { $0.subscription == key }
-        let servers = servers(of: rows, key: key, old: old)
-        list.append(contentsOf: servers)
-        MontanaVPNStore.save(list)
-        let prev = MontanaVPNPlans.load().first(where: { $0.url == key })
-        if servers.isEmpty {
-            MontanaVPNPlans.remove(key)
-        } else {
-            MontanaVPNPlans.upsert(MontanaVPNPlan(url: key, title: MTNameBook.display(conv: conv), updatedAt: now, count: servers.count,
-                                                  folded: prev?.folded, pinnedAt: prev?.pinnedAt ?? now, wallOf: conv))
-        }
-        let links = rows.filter { $0.k == "p" }.compactMap { $0.l }.filter { $0.hasPrefix("https://") || $0.hasPrefix("http://") }
-        let plans = MontanaVPNPlans.load()
-        for p in plans where p.wallOf == conv && !isWallKey(p.url) && !links.contains(p.url) { MontanaVPNStore.removeSubscription(p.url) }
-        for l in links where !plans.contains(where: { $0.url == l }) {
-            guard let u = URL(string: l) else { continue }
-            let title = rows.first(where: { $0.l == l })?.n ?? ""
-            MontanaVPNPlans.upsert(MontanaVPNPlan(url: l, title: title, updatedAt: 0, count: 0, pinnedAt: now, wallOf: conv))
-            Task { _ = try? await MontanaVPNStore.addFromSubscription(u) }
-        }
-        MontanaTrace.mark("vpn_wall", "laid from=\(String(conv.prefix(10))) servers=\(servers.count) plans=\(links.count)")
-    }
+    static func handle(_ text: String, from conv: String, isFromMe: Bool) -> Bool { text.hasPrefix(mark) }
 }

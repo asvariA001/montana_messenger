@@ -211,10 +211,6 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     private static let lifeOutFloor = 16 * 1024       // bytes out per sample that make silence a verdict, not idleness
     private static let lifeInFloor = 1024             // bytes in per sample that still count as silence (the ACKs of dead flows)
     private var lifeInAfterRaise = false
-    // The app clears this at call end. The bounded lease makes a crashed app fail open:
-    // diagnostics resume instead of leaving the tunnel permanently held.
-    private var callPriorityUntil = Date.distantPast
-    private var callPriority: Bool { Date() < callPriorityUntil }
     private var lifetime = MTTunnelLifetime()
     // THE LIVING SECONDS (MTTunnelAlive): counted on the engine's line by the life watch, told to the app when it asks.
     private var living = MTTunnelAlive(total: UserDefaults.standard.double(forKey: MTTunnelAlive.totalKey))
@@ -403,20 +399,10 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
 
     // Seamless server switch: the app sends the new outbound; restart Xray in place, tun stays up.
     override func handleAppMessage(_ messageData: Data, completionHandler: ((Data?) -> Void)?) {
-        if messageData == Data("call-priority:1".utf8) {
-            engineLine.async {
-                self.callPriorityUntil = Date().addingTimeInterval(120)
-                ExtLog.write("call priority on: recovery and probes held for 120s")
-                completionHandler?(Data([1]))
-            }
-            return
-        }
-        if messageData == Data("call-priority:0".utf8) {
-            engineLine.async {
-                self.callPriorityUntil = .distantPast
-                ExtLog.write("call priority off")
-                completionHandler?(Data([1]))
-            }
+        // An older app may still send its former lease during an update. Acknowledge it without
+        // suspending recovery: a call needs a living tunnel, including under memory pressure.
+        if messageData == Data("call-priority:1".utf8) || messageData == Data("call-priority:0".utf8) {
+            completionHandler?(Data([1]))
             return
         }
         // The living seconds (MTTunnelAlive), read on the engine's line where the life watch counts them.
@@ -577,10 +563,6 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         let now = Date()
         let sample = recovering ? nil : lifeLast.map { (dtx: s.txb - $0.txb, drx: s.rxb - $0.rxb) }
         if judgeDeath(now: now, sample: sample) { return }
-        if callPriority {
-            lifeLast = (s.txb, s.rxb, now); lifeSilentSince = nil
-            return
-        }
         if recovering { recoverUpstream(); return }
         guard phonePathUp else {
             lifeLast = nil; lifeSilentSince = nil
@@ -711,7 +693,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     // extension's memory budget. A successful HTTP exchange THROUGH the outbound admits a candidate.
     // The tunnel interface and its routes stay installed throughout this operation.
     private func recoverUpstream() {
-        guard lifetime.isAlive, !callPriority, phonePathUp, retry.ready(at: ProcessInfo.processInfo.systemUptime) else { return }
+        guard lifetime.isAlive, phonePathUp, retry.ready(at: ProcessInfo.processInfo.systemUptime) else { return }
         let deadline = engineDeadline()
         defer { deadline.finish(nil) }
         MontanaPacketPump.shared.stop()
@@ -808,7 +790,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             // A MEMORY-CRITICAL WARNING UNDER A SILENT UPSTREAM IS THE DEAD ROAD'S VERDICT, said before the system says it
             // with a kill (25.09, the iPhone 17: forty such warnings and fourteen kills, every session under forty seconds --
             // the silence watchdog never got its twenty). Bytes of this engine's life: nothing in, plenty out.
-            if lvl == "CRITICAL", let self, !self.callPriority, self.phonePathUp, Date().timeIntervalSince(self.sessionStart) >= 5 {
+            if lvl == "CRITICAL", let self, self.phonePathUp, Date().timeIntervalSince(self.sessionStart) >= 5 {
                 let s = MontanaPacketPump.shared.rawStats()
                 if s.rxb <= Self.lifeInFloor, s.txb >= Self.lifeOutFloor {
                     let age = Int(Date().timeIntervalSince(self.sessionStart))

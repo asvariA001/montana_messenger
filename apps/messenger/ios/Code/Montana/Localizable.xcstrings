@@ -23163,18 +23163,18 @@
         }
       }
     },
-    "VPN wall: every subscription of yours and of your contacts appears here": {
+    "VPN: only servers and subscriptions you add yourself": {
       "localizations": {
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Стена ВПН: тут появляются все ваши подписки и подписки контактов"
+            "value": "ВПН: только серверы и подписки, которые вы добавили сами"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "VPN 墙：您和联系人的所有订阅都会出现在这里"
+            "value": "VPN：仅显示您自行添加的服务器和订阅"
           }
         }
       }
@@ -23539,91 +23539,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "隧道错误"
-          }
-        }
-      }
-    },
-    "Pay with coins · %lld a second": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Оплатить монетами · %lld в секунду"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "用币支付 · 每秒 %lld"
-          }
-        }
-      }
-    },
-    "Paying · %lld a second": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Оплата · %lld в секунду"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "支付中 · 每秒 %lld"
-          }
-        }
-      }
-    },
-    "Not enough coins for the VPN": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не хватает монет для ВПН"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "币不足，无法使用 VPN"
-          }
-        }
-      }
-    },
-    "The nodes did not answer": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Узлы не ответили"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "节点没有回应"
-          }
-        }
-      }
-    },
-    "Coins ran out: the VPN of Montana's nodes is off": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Монеты кончились: ВПН узлов Монтаны выключен"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "币已用完：Montana 节点的 VPN 已关闭"
           }
         }
       }

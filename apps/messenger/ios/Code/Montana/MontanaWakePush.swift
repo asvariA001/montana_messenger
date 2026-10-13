@@ -3284,16 +3284,19 @@ enum MontanaWakePush {
     // door, as before (15.13). Under the lock only the two tables move; the word itself runs after it.
     private static let sigLaneLock = NSLock()
     private static var sigLaneBusy: [String: Int] = [:]
-    private static var sigLaneQueue: [String: [(key: String?, run: () -> Void)]] = [:]
+    private static var sigLaneQueue: [String: [(key: String?, call: Bool, run: () -> Void)]] = [:]
     private static let sigLaneWidth = 2
     private static let sigLaneDepth = 16
-    private static func onSignalLane(_ door: String, coalesce key: String?, _ run: @escaping () -> Void) {
+    private static func onSignalLane(_ door: String, call: Bool, coalesce key: String?, _ run: @escaping () -> Void) {
         sigLaneLock.lock()
         if (sigLaneBusy[door] ?? 0) >= sigLaneWidth {
             var q = sigLaneQueue[door] ?? []
             if let key { q.removeAll { $0.key == key } }
             if q.count >= sigLaneDepth, let i = q.firstIndex(where: { $0.key != nil }) { q.remove(at: i) }   // the oldest chat word gives way
-            q.append((key, run))
+            // Calls keep FIFO order among themselves and take the next free slot ahead of background words.
+            // The width stays two: priority must not create more sockets in the packet tunnel.
+            let next = call ? (q.firstIndex { !$0.call } ?? q.count) : q.count
+            q.insert((key, call, run), at: next)
             sigLaneQueue[door] = q
             sigLaneLock.unlock()
             return
@@ -3336,7 +3339,8 @@ enum MontanaWakePush {
         // door the phone's path may carry again now. Measured 07.09 07:24: the callee's two doors
         // died in one second, the answer's eight resends met an empty door list and left the phone
         // without a single line — and the caller heard nothing at all.
-        if MontanaCall.stateSnapshot != "idle" || doors.isEmpty {
+        let callWord = epoch != "chat" && epoch != "letter"
+        if callWord || doors.isEmpty {
             for b in callDoors(for: "signal") where !doors.contains(b) { doors.append(b) }
         }
         guard !doors.isEmpty else { MontanaTrace.mark("sig_tx", "SKIP no-door"); return }
@@ -3349,9 +3353,9 @@ enum MontanaWakePush {
             req.httpBody = try? JSONSerialization.data(withJSONObject: ["conv": cw, "from_id": mySubId(cw), "env": sealed.base64EncodedString()])
             let host = URL(string: b)?.host ?? "-"
             // ONE LANE PER DOOR (29.09): the word waits its turn; a chat word of this conversation replaces the one still waiting.
-            onSignalLane(b, coalesce: chatWord ? conv : nil) {
+            onSignalLane(b, call: callWord, coalesce: chatWord ? conv : nil) {
                 // A chat word that waited past its door's death does not dial it; a call's word knocks every door (15.13).
-                if chatWord, !doorAlive(b), MontanaCall.stateSnapshot == "idle" {
+                if chatWord, !doorAlive(b) {
                     MontanaTrace.markFolded("sig_tx", "SKIP dead door=\(host)", window: 10, key: "dead:" + host)
                     leaveSignalLane(b); return
                 }
@@ -3366,7 +3370,7 @@ enum MontanaWakePush {
                     // word 13.09): this line stood on the screen at 15:27 while the two were talking —
                     // the doors were dead for a call WORD, the media path was alive — and said «the call
                     // cannot connect» over a connected call. A post's failure is not the call's state.
-                    if every, MontanaCall.stateSnapshot != "idle" {
+                    if every, callWord {
                         MontanaTrace.mark("call_noroute", "doors=\(doors.count)")
                     }
                 }

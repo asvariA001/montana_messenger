@@ -1443,7 +1443,6 @@ enum MTPersonLevel {
         keep((epoch, seconds))
         let coins = MTCoinBook.ledger.mintInWindow(fresh, prefix: Self.refPrefix, seconds: fresh)
         MontanaTrace.markFolded("vpn_wall_mint", "seconds=\(fresh) coins=\(coins) held=\(held ? 1 : 0)", window: 60)
-        MTVPNPay.shared.charge(fresh)   // the same living seconds pay for the nodes' VPN, in the payment's own chain (MTVPNPay)
     }
     private func keep(_ p: (epoch: String, seconds: Int)) {
         paid = p

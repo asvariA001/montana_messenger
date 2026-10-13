@@ -1868,13 +1868,6 @@ struct PrivacyView: View {
                         Text("Who can see my wall").foregroundColor(.white)
                     }
                 }
-                // THE VPN WALL'S RULE (the author's word 29.09): the same five choices, over the servers and plans it carries.
-                NavigationLink { MTBoardRulePage(act: .vpn) } label: {
-                    HStack(spacing: 12) {
-                        icon("network", .blue)
-                        Text("Who can see my VPN wall").foregroundColor(.white)
-                    }
-                }
             } footer: {
                 // THE RULE'S CONTRACT (the author's word 25.09): what «Everyone» reaches, and when a wall arrives (MTBoard.look).
                 Text("Everyone means every person you have a conversation with. A wall reaches a person's page the moment they open it.")

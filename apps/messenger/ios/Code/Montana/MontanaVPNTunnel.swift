@@ -240,20 +240,6 @@ final class MontanaVPNTunnel: ObservableObject {
         }
     }
 
-    /// A call has a short, explicit priority lease in the extension. The app never restarts
-    /// the VPN for it: the lease only prevents diagnostic probes and recovery churn from taking
-    /// the engine away while ICE and voice are forming.
-    func callPriority(_ active: Bool) {
-        guard let session = manager?.connection as? NETunnelProviderSession else { return }
-        let word = Data((active ? "call-priority:1" : "call-priority:0").utf8)
-        do {
-            try session.sendProviderMessage(word) { _ in }
-            MontanaTrace.markFolded("vpn_call_priority", "active=\(active ? 1 : 0)", window: 30)
-        } catch {
-            MontanaTrace.mark("vpn_call_priority", "send refused active=\(active ? 1 : 0)")
-        }
-    }
-
     private func statusName(_ s: NEVPNStatus) -> String {
         switch s {
         case .invalid: return "invalid"; case .disconnected: return "disconnected"
@@ -393,6 +379,16 @@ final class MontanaVPNTunnel: ObservableObject {
                 self.watchStartup()
             } else { self.requested = false }
         }
+        // Automatic VPN rows are retired at the owning store. Disarm an installed retired row too,
+        // so hiding it cannot leave its old profile silently reconnecting after an upgrade.
+        let installedRow = (manager?.protocolConfiguration as? NETunnelProviderProtocol)?.providerConfiguration?["row"] as? String ?? ""
+        if MontanaVPNStore.isRetired(installedRow) {
+            await stop(why: "retired automatic VPN configuration")
+        }
+        if MontanaVPNStore.isRetired(selectedId) {
+            MontanaVPNSelection.adopt("")
+            MTInstallPrepare.clearOff()
+        }
         // Upgrade an already-requested profile once: the recovery version, and the rule that no longer holds every route (30.09:
         // a profile saved before it kept the mesh inside the tunnel until the person's next tap). A saved OFF is never migrated
         // into an ON.
@@ -507,6 +503,7 @@ final class MontanaVPNTunnel: ObservableObject {
 
     // The command generation invalidates work suspended at an await when a newer hand arrives.
     func start(_ cfg: MontanaVPNConfig? = nil, preservingRequest: Bool = false, byHand: Bool = false) async throws {
+        guard !MontanaVPNStore.isRetired(cfg?.id ?? selectedId) else { throw CancellationError() }
         MTInstallPrepare.clearOff()   // the person raises the tunnel: the install's word on the page is done (29.09)
         MTVPNWhitelistRoad.shared.clear()   // a new start is a new word; the wall's road says its own after its raise
         commandGeneration += 1

@@ -122,7 +122,6 @@ struct NetworkTabView: View {
     private var selected: Int { wall == .mesh ? 1 : (wall == .p2p ? 2 : 0) }   // 0 the VPN wall, 1 the mesh wall, 2 the P2P wall
     @AppStorage("mt.mesh.discoverable") private var meshDiscoverable = false   // OFF at birth -- the switch itself raises the system prompt
     @StateObject private var tunnel = MontanaVPNTunnel.shared
-    @ObservedObject private var pay = MTVPNPay.shared
     // THE PAGE IS BORN HOLDING WHAT IT SHOWS (the author's word 22.09: the globe thought before it opened). The store hands the
     // list over from memory, so the very first body already has its rows -- and the page stays built in the row once looked at
     // or warmed after the launch (25.09): the globe's tap moves the puck, and nothing is born.
@@ -430,9 +429,7 @@ struct NetworkTabView: View {
     // The power button, the live timer, the tunnel's own error and the line a load speaks with.
     @ViewBuilder private var vpnHead: some View {
         VStack(spacing: 16) {
-            // THE WALL'S ONE LINE (the author's word 29.09: «a short caption above the button: the VPN wall -- here appear all your
-            // subscriptions and your contacts', as a publication on the wall with posts»).
-            Text("VPN wall: every subscription of yours and of your contacts appears here")
+            Text("VPN: only servers and subscriptions you add yourself")
                 .font(.footnote).foregroundColor(.secondary).multilineTextAlignment(.center)
                 .padding(.horizontal, 28).padding(.top, 16)
             // 3D convex power button: red = off, amber = connecting, green = connected. Tap = start/stop the tunnel.
@@ -450,9 +447,6 @@ struct NetworkTabView: View {
                     .font(.system(size: 36, weight: .bold, design: .monospaced))
                     .monospacedDigit().foregroundColor(.green)
             }
-            // THE VPN OF MONTANA'S NODES FOR TIME COINS (MTVPNPay, the author's words 05.10.2026 22:56-23:2x MSK): the entrance path's
-            // door plate in the platform's blue, under the power; it lays the paid rows and raises them by the power's own road.
-            payPlate
             if !tunnel.lastError.isEmpty {
                 Text(tunnel.lastError).font(.caption).foregroundColor(.red).multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity).padding(.horizontal)
@@ -571,7 +565,7 @@ struct NetworkTabView: View {
                               ("Copy link", "doc.on.doc", false, { UIPasteboard.general.string = plan.url; vpnNote = "link copied" }),
                               ("Delete subscription", "trash", true, { vpnMark("plan", "delete \(MontanaLog.label(plan.url)) rows=\(rows.count)")
                                                                        MontanaVPNStore.removeSubscription(plan.url); reloadVPN()
-                                                                       MTVPNWall.shared.schedulePush() }),   // the wall no longer names it (29.09)
+                                                                       }),
                           ].filter { !wall || ($0.0 != "Copy link" && $0.0 != "Delete subscription") }) })
             // Folded, the plan is its one line (the author's word 24.09): the arrow, the name and its word, the
             // update, the gauge and the menu. What the panel counts, and a failure under it, wait for the unfold.
@@ -643,9 +637,7 @@ struct NetworkTabView: View {
     }
     private func mtBytes(_ n: Int64) -> String { n.formatted(.byteCount(style: .binary).locale(MTLanguage.locale)) }
     private func refreshPlan(_ plan: MontanaVPNPlan) {
-        if let conv = plan.wallOf, MTVPNWall.isWallKey(plan.url) {   // a correspondent's wall: asked of them, never fetched (29.09)
-            vpnMark("update", "wall ask=\(String(conv.prefix(10)))"); MTVPNWall.shared.ask(conv); return
-        }
+
         guard let url = URL(string: plan.url), loadingPlan == nil else { return }
         let t0 = Date()
         loadingPlan = plan.url
@@ -720,7 +712,7 @@ struct NetworkTabView: View {
     private func reloadVPN() {
         let t0 = Date()
         vpnServers = MontanaVPNStore.load()
-        plans = MontanaVPNPlans.ordered(wallRank: MTVPNWall.chatRank())   // the walls in the chats' order, the freshest first (29.09)
+        plans = MontanaVPNPlans.ordered()
         manualPinnedAt = MontanaVPNPlans.manualPinnedAt
         vpnMark("list", "plans=\(plans.count) manual=\(manualServers.count) all=\(vpnServers.count) ms=\(Int(Date().timeIntervalSince(t0) * 1000))")
         // A vanished row: the installed configuration names the chosen one first (adoptInstalledRow), the list's first only then.
@@ -748,7 +740,6 @@ struct NetworkTabView: View {
                 } catch let e as MontanaVPNSubscription.FetchError { vpnNote = nil; vpnMark("add", "failed \(e.label)") }
                 catch { vpnNote = "subscription failed"; vpnMark("add", "failed other") }
                 loadingPlan = nil; reloadVPN()
-                MTVPNWall.shared.schedulePush()   // a pasted plan is a line of the person's wall (29.09)
             }
         case .servers(let read):
             let unspoken = MontanaVPNParse.Report(servers: read.servers).unsupportedWord
@@ -767,7 +758,6 @@ struct NetworkTabView: View {
         reloadVPN()
         vpnMark("add", "from=\(road) joined=\(joined) of=\(servers.count)")
         vpnNote = joined == 0 ? "already in the list" : nil
-        if 0 < joined { MTVPNWall.shared.schedulePush() }   // a hand-added server is a line of the person's wall (29.09)
     }
     /// THE FILE ROAD (the author's word 29.09: «a profile as a .config file, or any other proper VPN file»): the platform's own
     /// file picker, any file -- the shape decides, never the extension (MontanaVPNSubscription.body). The picker's URL is opened
@@ -805,30 +795,6 @@ struct NetworkTabView: View {
     private func pasteVPN() {
         guard let s = UIPasteboard.general.string, !s.isEmpty else { vpnNote = "no server found"; return }
         addVPNText(s, from: "paste")
-    }
-    /// The plate of the VPN for coins (MTVPNPay): while the tunnel rides Montana's paid rows it says the price and stops it by the
-    /// power's road; else it pays, lays the rows and raises them by the same road.
-    @ViewBuilder private var payPlate: some View {
-        let level = MTVPNPay.perSecond
-        let rides = MTVPNPay.rides(tunnel)
-        VStack(spacing: 6) {
-            Button { if rides { toggleVPN() } else { payAndConnect() } } label: {
-                rides ? Text("Paying · \(level) a second") : Text("Pay with coins · \(level) a second")
-            }
-            .buttonStyle(MTLoginDoorStyle(tint: MontanaOctagon.platformBlue))
-            .disabled(pay.busy || vpnBusy)
-            .padding(.horizontal, 28)
-            if let word = pay.word {
-                Text(word).font(.caption).foregroundColor(.secondary).multilineTextAlignment(.center).padding(.horizontal, 28)
-            }
-        }
-    }
-    private func payAndConnect() {
-        Task {
-            guard await pay.prepare() else { return }
-            reloadVPN()
-            if !tunnel.isOn { toggleVPN() }
-        }
     }
     private func toggleVPN() {
         guard let c = selectedServer else { vpnNote = "invalid link"; vpnMark("power", "no server selected"); return }
@@ -874,12 +840,10 @@ struct NetworkTabView: View {
         guard let i = vpnServers.firstIndex(where: { $0.id == server.id }) else { return }
         vpnMark("delete", "row=\(shortId(server)) section=\(server.subscription == nil ? "manual" : "plan")")
         MontanaVPNStore.remove(at: i); reloadVPN()
-        if server.subscription == nil { MTVPNWall.shared.schedulePush() }   // the wall no longer names it (29.09)
     }
     private func doRename() {
         if let server = renameServer, let i = idx(server.id), !renameText.trimmingCharacters(in: .whitespaces).isEmpty {
             MontanaVPNStore.rename(at: i, to: renameText); reloadVPN()
-            MTVPNWall.shared.schedulePush()   // the wall carries the new name (29.09)
         }
         renameServer = nil; renameText = ""
     }
@@ -1162,7 +1126,6 @@ struct MontanaVPNPowerButton: View {
         MontanaTrace.mark("vpn_ui", "ping all done n=\(done) ok=\(answered.count) fail=\(failed) best=\(answered.min() ?? 0) worst=\(answered.max() ?? 0) took=\(Int(Date().timeIntervalSince(began) * 1000))")
         running = false
         done = 0; total = 0
-        MTVPNWall.shared.schedulePush()
     }
 }
 
@@ -1528,115 +1491,11 @@ struct MontanaVPNManualEntry: View {
     }
 }
 
-/// THE VPN OF MONTANA'S NODES FOR TIME COINS (the author's words 05.10.2026 22:56-23:2x MSK: «instead of the button buy for 69 --
-/// our button, as on the entrance page: pay with coins»; «for the VPN you pay x1 your current level in coins a second»; «the
-/// tunnel mints in its own TimeChain; the payment for the VPN is its own TimeChain: our nodes give access to 1 device -- Amsterdam,
-/// Frankfurt, Germany -- bound to the payment in Time Coins»). This phone holds a token only it knows, in the vault under the
-/// device's key: a copy carries it nowhere, so the access is one device's. The nodes' door (montana-vpn-access) keeps sha256 of it
-/// and one VLESS name of the device on every node. The tunnel is the one witness of its life (MTVPNWallMint): every living second
-/// it counts -- the background's at the return -- burns a second's price in the payment's own chain (vpnpay), a minute at a time,
-/// and every burn renews the device at the door for the door's credit. A short balance burns what it holds, stops the tunnel and
-/// renews nothing; the door takes the device off when its credit ends.
-/// THE HONEST BORDER: the coins live in this phone's book (MTChatMint, LOCAL TALLY); the door sees no balance and takes the
-/// payment's word -- the core's wallet is the day it can check.
-@MainActor final class MTVPNPay: ObservableObject {
-    static let shared = MTVPNPay()
-    nonisolated static let refPrefix = "vpnpay:"
-    nonisolated static let planKey = "montana://vpn-pay"
-    nonisolated static let tokenKey = "mt.vpn.payToken"   // NOT-UI: this device's own token (SeedScope.deviceKeys)
-    static let door = URL(string: "https://api.montana.xxx/vpn-pay")
-    /// The door's credit, renewed at every burn: three hours, the longest a device rides before its next burn renews it.
-    static let credit = 10_800
-    /// The tunnel's seconds owed are burned a minute at a time: one move of the book, one link of the chain.
-    static let window = 60
-    @Published private(set) var busy = false
-    @Published private(set) var word: LocalizedStringKey?
-    private var owed = 0
-
-    /// THE PRICE OF A SECOND OF THE VPN (the author's word 06.10.2026 12:0x MSK: «the least price is 1 coin for 1 second, and then an
-    /// automatic auction by the number of users, the number of nodes and the bandwidth of Montana's P2P network for the VPN»): one
-    /// coin a second (MTCoinBook.price), the floor the auction will never go under. The auction is not built yet: until the network
-    /// says its users, nodes and bandwidth, the floor is the price -- never the payer's level, which priced a richer person higher.
-    static var perSecond: Int { MTCoinBook.price }
-    nonisolated static func isPlan(_ url: String?) -> Bool { url == planKey }
-    /// The tunnel stands on a row the coins pay for.
-    static func rides(_ tunnel: MontanaVPNTunnel) -> Bool {
-        tunnel.status == .connected && MontanaVPNStore.load().contains { c in c.subscription == planKey && c.id == tunnel.selectedId }
-    }
-
-    /// The hand asked for the VPN for coins: the door gives this device its rows, laid as Montana's plan and chosen. False -- not
-    /// laid: no coin for a second, or no door answered; the page says which. The tunnel rises by the power's own road (toggleVPN).
-    func prepare() async -> Bool {
-        guard !busy else { return false }
-        busy = true
-        defer { busy = false }
-        word = nil
-        guard Self.perSecond <= MTCoinBook.ledger.balance else { word = "Not enough coins for the VPN"; return false }
-        guard let links = await renew(coins: 0, ref: "") else { word = "The nodes did not answer"; return false }
-        lay(links)
-        guard let row = MontanaVPNStore.load().first(where: { c in c.subscription == Self.planKey }) else { return false }
-        await MontanaVPNSelection.select(row, why: "pay")
-        return true
-    }
-
-    /// The tunnel's fresh living seconds (MTVPNWallMint.take), owed while it stands on a paid row and burned a minute at a time.
-    func charge(_ seconds: Int) {
-        guard 0 < seconds, Self.rides(MontanaVPNTunnel.shared) else { return }
-        owed += seconds
-        guard Self.window <= owed else { return }
-        let (coins, over) = Self.perSecond.multipliedReportingOverflow(by: owed)
-        guard !over else { return }
-        let ref = Self.refPrefix + String(Int64(Date().timeIntervalSince1970 * 1000)) + "-" + UUID().uuidString
-        let burned = MTCoinBook.ledger.burn(coins, ref: ref)
-        MontanaTrace.markFolded("vpn_pay", "seconds=\(owed) coins=\(coins) burned=\(burned)", window: 60)
-        owed = 0
-        guard burned == coins else {
-            word = "Coins ran out: the VPN of Montana's nodes is off"
-            Task { await MontanaVPNTunnel.shared.stop(why: "the coins ran out") }
-            return
-        }
-        Task { _ = await MTVPNPay.shared.renew(coins: burned, ref: ref) }
-    }
-
-    /// The door renews this device for its credit and answers its rows on every node that holds it; nil -- no answer.
-    private func renew(coins: Int, ref: String) async -> [String]? {
-        guard let door = Self.door, let t = Self.token(),
-              let body = try? JSONSerialization.data(withJSONObject: ["t": t, "s": Self.credit, "c": coins, "h": ref]) else { return nil }
-        var req = URLRequest(url: door, timeoutInterval: 30)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = body
-        guard let (data, response) = try? await URLSession.shared.data(for: req), (response as? HTTPURLResponse)?.statusCode == 200,
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let links = obj["links"] as? [String], !links.isEmpty else {
-            MontanaTrace.mark("vpn_pay", "the door did not renew")
-            return nil
-        }
-        return links
-    }
-
-    /// This device's token: 32 random bytes, born once and kept under the device's key.
-    private static func token() -> String? {
-        if let d = MontanaLocalVault.getDecrypted(tokenKey), let s = String(data: d, encoding: .utf8), s.count == 64 { return s }
-        let s = montanaRandom(32).map { b in String(format: "%02x", b) }.joined()
-        return MontanaLocalVault.setEncrypted(tokenKey, Data(s.utf8)) ? s : nil
-    }
-
-    /// The door's rows, laid as Montana's plan (planKey): never fetched as a subscription and never carried on the VPN wall -- the
-    /// wall carries rows without a plan and plans of a web link alone (MTVPNWall.page), and these are one device's.
-    private func lay(_ links: [String]) {
-        var list = MontanaVPNStore.load()
-        let old = list.filter { c in c.subscription == Self.planKey }
-        list.removeAll { c in c.subscription == Self.planKey }
-        var laid = 0
-        for link in links {
-            guard var c = MontanaVPNParse.parse(link) else { continue }
-            c.subscription = Self.planKey
-            c.uid = old.first(where: { o in o.host == c.host && o.port == c.port })?.uid ?? UUID().uuidString
-            list.append(c)
-            laid += 1
-        }
-        MontanaVPNStore.save(list)
-        // USER-DATA: the nodes' own name, a proper name in every language
-        MontanaVPNPlans.upsert(MontanaVPNPlan(url: Self.planKey, title: "Montana", updatedAt: Date().timeIntervalSince1970, count: laid))
-    }
+/// Historical identifiers remain readable in the wallet and device-only backup exclusions.
+/// This app no longer provisions VPN rows or charges coins for a tunnel.
+enum MTVPNPay {
+    static let refPrefix = "vpnpay:"
+    static let planKey = "montana://vpn-pay"
+    static let tokenKey = "mt.vpn.payToken"   // NOT-UI: legacy device-only token, never copied to another device
+    static func isPlan(_ url: String?) -> Bool { url == planKey }
 }

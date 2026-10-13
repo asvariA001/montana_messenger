@@ -56,7 +56,7 @@ enum MTBoardRule: String, CaseIterable, Identifiable {
     }
     /// A rule moved: the wall it is about carries its page again -- the posts' wall renews its version, the VPN wall its push.
     private static func renewed(_ a: MTBoardAct) {
-        if a == .vpn { Task { @MainActor in MTVPNWall.shared.schedulePush() } } else { MTBoard.shared.renewVersion(own: true) }
+        if a != .vpn { MTBoard.shared.renewVersion(own: true) }
     }
     static func current(_ a: MTBoardAct) -> MTBoardRule {
         MTBoardRule(rawValue: UserDefaults.standard.string(forKey: keys(a).rule) ?? "") ?? .everyone

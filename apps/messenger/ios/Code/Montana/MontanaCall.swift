@@ -307,6 +307,9 @@ final class MontanaCall: NSObject {
     /// door first -- the road that survives a carrier NAT, a dead UDP and a filter on the ordinary ports -- and a third
     /// verdict ends the call by rule, named, so the person hears «no path» and not silence.
     private var setupAsks = 0
+    private var setupWatch: Timer?
+    private var setupRefreshPending = false
+    private static let setupCheckS: TimeInterval = 12
     private var askedRelayOnly = false
     private static let setupAskMax = 2
     private var lastIce = "new"
@@ -382,7 +385,7 @@ final class MontanaCall: NSObject {
         sendSignal?(p, hs)
         MontanaTrace.mark("call_hold", "parked peer=\(String(p.prefix(10)))")
         reconnectTimer?.invalidate(); reconnectTimer = nil
-        disconnectGrace?.invalidate(); disconnectGrace = nil; iceHeldForPeerWord = false; restartAskedAt = .distantPast; setupAsks = 0; askedRelayOnly = false; lastIce = "new"; rebuiltInPlace = false
+        disconnectGrace?.invalidate(); disconnectGrace = nil; iceHeldForPeerWord = false; restartAskedAt = .distantPast; setupAsks = 0; setupWatch?.invalidate(); setupWatch = nil; setupRefreshPending = false; askedRelayOnly = false; lastIce = "new"; rebuiltInPlace = false
         restartTimer?.invalidate(); restartTimer = nil; iceRestarts = 0
         measuring = false
         parked = ParkedCall(pc: pc, peer: p, device: peerDevice, uuid: u, seed: callSeed,
@@ -1859,8 +1862,7 @@ final class MontanaCall: NSObject {
         if firstContact { MontanaTrace.mark("call_first", "peer=\(String(peer.prefix(10))) -- not accepted yet, the ring knocks at the card") }
         DispatchQueue.main.async { CallUIModel.shared.awaitingAccept = firstContact }
         self.isInitiator = true; self.pendingIce = []; self.sframeWrapped = []; self.frameCryptors = []
-        self.iceHeldForPeerWord = true; self.restartAskedAt = .distantPast; self.setupAsks = 0; self.askedRelayOnly = false; self.lastIce = "new"; self.rebuiltInPlace = false
-        DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in self?.releaseHeldIce("time") }
+        self.iceHeldForPeerWord = true; self.restartAskedAt = .distantPast; self.setupAsks = 0; self.setupWatch?.invalidate(); self.setupWatch = nil; self.setupRefreshPending = false; self.askedRelayOnly = false; self.lastIce = "new"; self.rebuiltInPlace = false
         iceBatchTimer?.cancel(); iceBatchTimer = nil; iceOutBatch = []; iceFlushes = 0; resetSignalFlags(); audioUnitPending = false; videoReady = false; measuring = false
         self.sframeAuthorized = false; self.captureRunning = false
         // THE END'S REASON BELONGS TO ONE CALL (23.09): it was written «only if unnamed» and never unnamed again, so
@@ -1875,6 +1877,7 @@ final class MontanaCall: NSObject {
         // audio session, the connection, the offer and the wake to the far phone, which rang and answered a call
         // nobody held. Every step of this birth from here on checks that it still holds the machine (callGen).
         let gen = callGen
+        armHeldIceTimeout()
         self.startedAt = Date(); self.connectedAt = nil; self.answeredAt = nil
         let uuid = UUID(); self.callUUID = uuid
         setState("outgoing")
@@ -2145,9 +2148,10 @@ final class MontanaCall: NSObject {
         if ctrl == "call-answer", from == peer, state != "idle", let s = sdp, let pcx = pc,
            pcx.signalingState == .haveLocalOffer, pcx.remoteDescription == nil, claimAnswerFast(s.sdp) {
             MontanaTrace.mark("sdp_in", "answer ms=\(Int(Date().timeIntervalSince(startedAt ?? Date())*1000)) bytes=\(s.sdp.count)")
+            let gen = callGen
             pcx.setRemoteDescription(RTCSessionDescription(type: .answer, sdp: s.sdp)) { [weak self] err in
                 // SILENT-OK: the call machine is gone -- the call has ended, there is no one to report to.
-                guard let self else { return }
+                guard let self, self.callGen == gen, self.pc === pcx, !self.ended else { return }
                 if let err {
                     self.tlog("peer answer refused: \(err.localizedDescription) — the call cannot proceed")
                     MontanaTrace.mark("sdp_in", "REFUSED \(err.localizedDescription)")
@@ -2155,6 +2159,7 @@ final class MontanaCall: NSObject {
                 }
                 self.armHardTimeout(); self.flushIce(); self.maybeEnableSframe()
                 DispatchQueue.main.async {
+                    guard self.callGen == gen, self.pc === pcx, !self.ended else { return }
                     self.startRouteWatch()
                     guard self.routeDirty else { return }
                     self.routeDirty = false
@@ -2162,7 +2167,7 @@ final class MontanaCall: NSObject {
                     // checks two seconds, then ask for fresh ones — do not wait out a minute
                     // of checking into the void (precedent 08:11, call never connected).
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
-                        guard let self, self.state != "connected", self.state != "active",
+                        guard let self, self.callGen == gen, self.pc === pcx, self.state != "connected", self.state != "active",
                               !self.ended, self.pc != nil else { return }
                         MontanaTrace.mark("call_route", "dirty route at answer — ice restart")
                         self.requestIceRestart(reason: "dirty route at answer")
@@ -2170,11 +2175,19 @@ final class MontanaCall: NSObject {
                 }
             }
         }
-        if ctrl == "call-ice", let pcx = pc, pcx.remoteDescription != nil {
-            for c in (candidates ?? []) + (candidate.map { [$0] } ?? []) {
-                pcx.add(RTCIceCandidate(sdp: c.candidate, sdpMLineIndex: c.sdpMLineIndex ?? 0, sdpMid: c.sdpMid)) { _ in }
+        if ctrl == "call-ice", from == peer, state != "idle", let pcx = pc, pcx.remoteDescription != nil {
+            let batch = (candidates ?? []) + (candidate.map { [$0] } ?? [])
+            var kinds: [String: Int] = [:]
+            for c in batch {
+                kinds[Self.candidateKind(c.candidate), default: 0] += 1
+                pcx.add(RTCIceCandidate(sdp: c.candidate, sdpMLineIndex: c.sdpMLineIndex ?? 0, sdpMid: c.sdpMid)) { error in
+                    if let error { MontanaTrace.mark("ice_rx_refused", "code=\((error as NSError).code)") }
+                }
             }
-            markRemoteIceSeen()
+            if !batch.isEmpty {
+                MontanaTrace.mark("ice_rx", "fast n=\(batch.count) types=\(Self.foldKinds(kinds))")
+                markRemoteIceSeen()
+            }
             return   // candidates have no paperwork -- they are already in the machine
         }
         // Parsing runs on the MAIN thread -- inside it touches app state (is the window available,
@@ -2399,7 +2412,7 @@ final class MontanaCall: NSObject {
             self.peerRebuilds = caps?.rejoin == true
             if let cs = callSeed, let d = Data(base64Encoded: cs) { self.callSeed = d }
             self.peer = from; self.isVideo = video ?? false
-            self.isInitiator = false; self.pendingIce = []; self.iceHeldForPeerWord = false; self.restartAskedAt = .distantPast; self.setupAsks = 0; self.askedRelayOnly = false; self.lastIce = "new"; self.rebuiltInPlace = false
+            self.isInitiator = false; self.pendingIce = []; self.iceHeldForPeerWord = false; self.restartAskedAt = .distantPast; self.setupAsks = 0; self.setupWatch?.invalidate(); self.setupWatch = nil; self.setupRefreshPending = false; self.askedRelayOnly = false; self.lastIce = "new"; self.rebuiltInPlace = false
             self.startedAt = Date(); self.connectedAt = nil; self.answeredAt = nil
             self.ended = false; self.endSignalSent = false; self.declinedByMe = false; self.answeredByMe = false; self.answeredElsewhere = false; self.takenTold = false; self.endReason = "-"; self.endDoor = "-"
             self.cameraDeniedTold = false
@@ -3314,7 +3327,7 @@ final class MontanaCall: NSObject {
         connectHardTimer?.invalidate(); connectHardTimer = nil
         ringLifeTimer?.invalidate(); ringLifeTimer = nil
         reconnectTimer?.invalidate(); reconnectTimer = nil
-        disconnectGrace?.invalidate(); disconnectGrace = nil; iceHeldForPeerWord = false; restartAskedAt = .distantPast; setupAsks = 0; askedRelayOnly = false; lastIce = "new"; rebuiltInPlace = false
+        disconnectGrace?.invalidate(); disconnectGrace = nil; iceHeldForPeerWord = false; restartAskedAt = .distantPast; setupAsks = 0; setupWatch?.invalidate(); setupWatch = nil; setupRefreshPending = false; askedRelayOnly = false; lastIce = "new"; rebuiltInPlace = false
         answerResendTimer?.invalidate(); answerResendTimer = nil; answerResends = 0
         offerResendTimer?.invalidate(); offerResendTimer = nil; offerResends = 0; pendingOfferSdp = nil
         prewarming = false; callGen += 1
@@ -3796,7 +3809,7 @@ final class MontanaCall: NSObject {
         peer = h.peer; peerDevice = h.device; isVideo = h.video; isInitiator = h.initiator
         signalLock.lock(); pendingIce = []; signalLock.unlock()
         sframeWrapped = []; frameCryptors = []
-        iceHeldForPeerWord = true; restartAskedAt = .distantPast; setupAsks = 0; askedRelayOnly = false; lastIce = "new"; rebuiltInPlace = false
+        iceHeldForPeerWord = true; restartAskedAt = .distantPast; setupAsks = 0; setupWatch?.invalidate(); setupWatch = nil; setupRefreshPending = false; askedRelayOnly = false; lastIce = "new"; rebuiltInPlace = false
         iceBatchTimer?.cancel(); iceBatchTimer = nil; iceOutBatch = []; iceFlushes = 0; resetSignalFlags(); audioUnitPending = false; videoReady = false; measuring = false
         sframeAuthorized = false; captureRunning = false
         ended = false; endSignalSent = false; declinedByMe = false; answeredByMe = true; endReason = "-"; endDoor = "-"
@@ -3811,7 +3824,7 @@ final class MontanaCall: NSObject {
         callT0 = Date(); iceGenCount = 0; firstMediaLogged = false; firstVideoIn = false
         enterReconnecting("rejoin", fresh: true)
         beginBackgroundHold(); startSetupHeartbeat()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in self?.releaseHeldIce("time") }
+        armHeldIceTimeout()
         if isVideo { birthLocalVideo(); pushCaptureUntilRunning() }
         let action = CXStartCallAction(call: uuid, handle: CXHandle(type: .generic, value: nativeHandle))
         action.isVideo = isVideo
@@ -3872,8 +3885,8 @@ final class MontanaCall: NSObject {
         DispatchQueue.main.async { CallUIModel.shared.peerSharing = false; CallUIModel.shared.remoteLive = false; CallUIModel.shared.tick += 1 }
         rejoining = true; freshConnection = true
         iceHeldForPeerWord = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in self?.releaseHeldIce("time") }
         callGen += 1
+        armHeldIceTimeout()
         pc = nil; dead.close()
         resetConnectionWitnesses()
         armReconnectDeadline()
@@ -4549,15 +4562,17 @@ final class MontanaCall: NSObject {
     }
 
     private func armHardTimeout() {
-        DispatchQueue.main.async { self.startRouteWatch() }
+        let gen = callGen
         DispatchQueue.main.async {
-            self.connectHardTimer?.invalidate()
+            guard gen == self.callGen, self.state != "idle", !self.ended, self.connectedAt == nil else { return }
+            self.startRouteWatch()
+            guard self.connectHardTimer?.isValid != true else { return }
             self.connectHardTimer = self.callTimer(MontanaCall.callLifeS, repeats: false) { [weak self] _ in
                 // A SETUP RULE JUDGES SETUP ONLY (23.09, 15:21:46): «checking» and «connected» came in one
                 // millisecond, the connect cleared a timer this async hop had not created yet, and ninety
                 // seconds later it found the call reconnecting and ended a call that had talked for a
                 // minute and a half. A call that ever connected belongs to the reconnect deadline.
-                guard let self, self.connectedAt == nil, self.state != "idle" else { return }
+                guard let self, gen == self.callGen, self.connectedAt == nil, self.state != "idle" else { return }
                 MontanaTrace.mark("call_timeout", "hard \(Int(MontanaCall.callLifeS))s state=\(self.state)")
                 self.endByRule("timeout")
             }
@@ -4607,12 +4622,32 @@ final class MontanaCall: NSObject {
         d.isEmpty ? "-" : d.sorted { $0.key < $1.key }.map { "\($0.key)x\($0.value)" }.joined(separator: ",")
     }
 
+    /// An answered call gets a bounded check even when ICE stays in checking indefinitely.
+    /// Ringing is not connection setup: both descriptions must exist before a fresh ask is allowed.
+    private func armSetupWatch() {
+        guard connectedAt == nil, setupWatch?.isValid != true, let connection = pc else { return }
+        let gen = callGen
+        var checkingSince: Date? = setupReady(connection) ? Date() : nil
+        setupWatch = callTimer(1, repeats: true) { [weak self] timer in
+            guard let self, self.callGen == gen, self.pc === connection, !self.ended, self.state != "idle",
+                  self.connectedAt == nil else { timer.invalidate(); return }
+            guard self.setupReady(connection) else { checkingSince = nil; return }
+            guard let since = checkingSince else { checkingSince = Date(); return }
+            guard Date().timeIntervalSince(since) >= Self.setupCheckS else { return }
+            self.setupPathFailed(reason: "checking-timeout")
+        }
+    }
+    private func setupReady(_ connection: RTCPeerConnection) -> Bool {
+        connection.localDescription != nil && connection.remoteDescription != nil && (isInitiator || answeredByMe)
+    }
+
     /// A FAILED PATH BEFORE THE CONNECT IS ANSWERED, NOT WATCHED (29.09): see setupAsks. The engine judges, the machine
     /// asks; the ask goes out by the one owner of «fresh checks» (requestIceRestart), whose settle gate stands aside for a
     /// verdict already in. The callee asks after its lead, as always; the glare rule answers a double ask.
-    private func setupPathFailed() {
-        guard state != "idle", !ended, pc != nil else { return }
-        dumpCandidatePairs(tag: "failed")
+    private func setupPathFailed(reason: String = "failed") {
+        guard state != "idle", !ended, connectedAt == nil, let connection = pc, !setupRefreshPending, setupReady(connection) else { return }
+        setupWatch?.invalidate(); setupWatch = nil
+        dumpCandidatePairs(tag: reason)
         setupAsks += 1
         guard setupAsks <= Self.setupAskMax else {
             MontanaTrace.mark("call_setup", "no path after \(setupAsks - 1) fresh asks, the last on the relay alone — ending")
@@ -4621,16 +4656,20 @@ final class MontanaCall: NSObject {
             return
         }
         let relay = setupAsks == Self.setupAskMax
-        MontanaTrace.mark("call_setup", "path failed before the connect — ask n=\(setupAsks) \(relay ? "relay only, TLS door first" : "every road, fresh pass")")
+        MontanaTrace.mark("call_setup", "path \(reason) before the connect — ask n=\(setupAsks) \(relay ? "relay only, TLS door first" : "every road, fresh pass")")
         MontanaLog.event("E2E-CALL setup ask=\(setupAsks) relay_only=\(relay ? 1 : 0)")
         let gen = callGen
+        setupRefreshPending = true
         Task { @MainActor in
             let cfg = await self.rtcConfig(relayOnly: relay, freshPass: true)
-            guard gen == self.callGen, let pcx = self.pc, self.state != "idle", !self.ended else { return }
+            guard gen == self.callGen, self.pc === connection, self.state != "idle", !self.ended else { return }
+            self.setupRefreshPending = false
+            guard self.connectedAt == nil else { return }
             self.askedRelayOnly = relay
-            if !pcx.setConfiguration(cfg) { MontanaTrace.mark("call_setup", "the engine refused the new configuration — the ask rides the old one") }
+            if !connection.setConfiguration(cfg) { MontanaTrace.mark("call_setup", "the engine refused the new configuration — the ask rides the old one") }
             self.restartAskedAt = .distantPast
             self.requestIceRestart(reason: "setup ask n=\(self.setupAsks)")
+            self.armSetupWatch()
         }
     }
 
@@ -4721,11 +4760,7 @@ final class MontanaCall: NSObject {
 
     private func setState(_ s: String) {
         let born = state == "idle" && s != "idle"
-        let ended = state != "idle" && s == "idle"
         state = s
-        if born || ended {
-            Task { @MainActor [born] in MontanaVPNTunnel.shared.callPriority(born) }
-        }
         updateProximity()
         // A CALL IS BORN — THE STANDING QUESTION IS CUT (13.09 15:20): the long question of an idle
         // phone stood on until its own deadline while the call needed the short one. The machine's
@@ -5354,8 +5389,9 @@ extension MontanaCall: RTCPeerConnectionDelegate {
             tm.schedule(deadline: .now() + .milliseconds(wait))
             tm.setEventHandler { [weak self] in
                 DispatchQueue.main.async { [weak self] in
-                    self?.iceBatchTimer = nil
-                    self?.flushIceBatch()
+                    guard let self, pc === self.pc, !self.ended else { return }
+                    self.iceBatchTimer = nil
+                    self.flushIceBatch()
                 }
             }
             self.iceBatchTimer = tm
@@ -5377,10 +5413,18 @@ extension MontanaCall: RTCPeerConnectionDelegate {
         MontanaTrace.mark("ice_tx", "n=\(n) batch=\(iceFlushes) ms=\(Int(Date().timeIntervalSince(startedAt ?? Date())*1000)) types=\(kinds)")
         sendSignal?(peer, ice)
     }
+    private func armHeldIceTimeout() {
+        let gen = callGen
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
+            guard let self, self.callGen == gen, !self.ended, self.state != "idle" else { return }
+            self.releaseHeldIce("time")
+        }
+    }
     /// The held candidates leave in one batch — by the peer's first word, or by time for a peer that never speaks.
     private func releaseHeldIce(_ why: String) {
+        let gen = callGen
         DispatchQueue.main.async { [weak self] in
-            guard let self, self.iceHeldForPeerWord else { return }
+            guard let self, self.callGen == gen, self.iceHeldForPeerWord else { return }
             self.iceHeldForPeerWord = false
             MontanaTrace.mark("ice_hold", "released by \(why) n=\(self.iceOutBatch.count)")
             self.iceBatchTimer?.cancel(); self.iceBatchTimer = nil
@@ -5409,7 +5453,8 @@ extension MontanaCall: RTCPeerConnectionDelegate {
         switch newState {
         case .checking:
             MontanaWakeDoor.note("ice")
-            armHardTimeout()   // checks started — a full 60s to connect from this moment
+            armHardTimeout()
+            armSetupWatch()
         case .connected, .completed:
             // A PATH THAT MEETS AFTER THE END BELONGS TO NOBODY (25.09): the zombie birth's connection met while the
             // machine had already rested, «connected» was written over an ended call, and the end button ended nothing.
@@ -5418,6 +5463,7 @@ extension MontanaCall: RTCPeerConnectionDelegate {
                 DispatchQueue.main.async { [weak self] in self?.pc?.close(); self?.pc = nil }
                 return
             }
+            setupWatch?.invalidate(); setupWatch = nil; setupRefreshPending = false
             connectHardTimer?.invalidate(); reconnectTimer?.invalidate(); reconnectTimer = nil
             restartTimer?.invalidate(); restartTimer = nil; iceRestarts = 0
             restartAskedAt = .distantPast
@@ -5571,15 +5617,19 @@ extension MontanaCall: RTCPeerConnectionDelegate {
     /// The one owner of «ask for fresh checks» (see restartAskedAt): the caller at once, the callee after
     /// the lead, never over an ask still forming unless the machine says it failed.
     private func requestIceRestart(reason: String) {
+        guard let connection = pc, state != "idle", !ended else { return }
+        let gen = callGen
         let forming = Date().timeIntervalSince(restartAskedAt)
         if forming < Self.restartSettleS, pc?.iceConnectionState != .failed {
             MontanaTrace.markFolded("call_ice", "restart held — one forming \(Int(forming))s (\(reason))", window: 3, key: "restart_held")
             return
         }
         restartAskedAt = Date()
+        let requestedAt = restartAskedAt
         let lead = isInitiator ? 0.0 : Self.restartCalleeLeadS
         DispatchQueue.main.asyncAfter(deadline: .now() + lead) { [weak self] in
-            guard let self, self.pc != nil, self.state != "idle" else { return }
+            guard let self, self.callGen == gen, self.pc === connection, self.state != "idle", !self.ended,
+                  self.restartAskedAt == requestedAt else { return }
             if self.state == "reconnecting" { self.iceRestarts += 1 }
             MontanaTrace.mark("call_ice", "restart asked (\(reason))\(lead > 0 ? " after the caller's lead" : "")")
             self.sendIceRestartOffer()
@@ -5587,14 +5637,15 @@ extension MontanaCall: RTCPeerConnectionDelegate {
     }
     private func sendIceRestartOffer() { sumRestarts += 1; sendRenegotiationOffer(iceRestart: true) }
     private func sendRenegotiationOffer(iceRestart: Bool) {
-        guard let peer, let pcx = pc else { return }
+        guard let peer, let pcx = pc, state != "idle", !ended else { return }
+        let gen = callGen
         // A media offer waits for a stable machine: offered into an open negotiation it is
         // refused and the camera stays dark; it tries again in a moment. An ICE restart goes
         // regardless — the reconnect road owns its own timing.
         if !iceRestart, pcx.signalingState != .stable {
             MontanaTrace.mark("call_ice", "media offer deferred — signaling busy")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-                guard let self, self.pc != nil, self.state != "idle" else { return }
+                guard let self, self.callGen == gen, self.pc === pcx, self.state != "idle", !self.ended else { return }
                 self.sendRenegotiationOffer(iceRestart: false)
             }
             return
@@ -5602,22 +5653,28 @@ extension MontanaCall: RTCPeerConnectionDelegate {
         MontanaTrace.mark("call_ice", iceRestart ? "restart offer n=\(iceRestarts)" : "renegotiation offer (video)")
         let mc = RTCMediaConstraints(mandatoryConstraints: iceRestart ? ["IceRestart": "true"] : nil,
                                      optionalConstraints: nil)
-        pc?.offer(for: mc) { [weak self] desc, _ in
-            guard let self, let desc else { return }
-            let tuned = RTCSessionDescription(type: desc.type, sdp: self.tuneSDP(desc.sdp, premium: self.peerPremium))
-            self.pc?.setLocalDescription(tuned) { err in
-                guard err == nil else {
-                    MontanaTrace.mark("call_ice", "restart offer setLocal refused")
-                    return
+        pcx.offer(for: mc) { [weak self] desc, _ in
+            DispatchQueue.main.async {
+                guard let self, let desc, self.callGen == gen, self.pc === pcx, !self.ended else { return }
+                let tuned = RTCSessionDescription(type: desc.type, sdp: self.tuneSDP(desc.sdp, premium: self.peerPremium))
+                pcx.setLocalDescription(tuned) { err in
+                    DispatchQueue.main.async {
+                        guard self.callGen == gen, self.pc === pcx, !self.ended else { return }
+                        guard err == nil else {
+                            MontanaTrace.mark("call_ice", "restart offer setLocal refused")
+                            return
+                        }
+                        var o = CallSignalOut(ctrl: "call-restart",
+                                              sdp: CallSDP(type: "offer", sdp: tuned.sdp), caps: self.myCaps())
+                        o.targetDevice = self.peerDevice
+                        o.reason = iceRestart ? "ice" : "media"   // consent fires on media only (K-6)
+                        self.sendSignal?(peer, o)
+                    }
                 }
-                var o = CallSignalOut(ctrl: "call-restart",
-                                      sdp: CallSDP(type: "offer", sdp: tuned.sdp), caps: self.myCaps())
-                o.targetDevice = self.peerDevice
-                o.reason = iceRestart ? "ice" : "media"   // consent fires on media only (K-6)
-                self.sendSignal?(peer, o)
             }
         }
     }
+
     func peerConnection(_ pc: RTCPeerConnection, didAdd rtpReceiver: RTCRtpReceiver, streams: [RTCMediaStream]) {
         // K-1: the machine's owner is the main thread — the whole reaction hops there.
         guard Thread.isMainThread else {
@@ -7499,15 +7556,8 @@ struct CallOverlayView: View {
             // button. A platform view owns this touch and opens the system route sheet itself.
             MontanaRoutePicker().frame(width: side, height: side)
         } else {
-            Button {
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                MontanaCall.shared.toggleSpeakerFromUI()
-            } label: {
-                Color.clear.frame(width: side, height: side)
-            }
-            .buttonStyle(.plain)
-            .contentShape(Rectangle())
-            .accessibilityLabel(Text(LocalizedStringKey(f.caption)))
+            MontanaSpeakerButton(caption: f.caption, selected: f.lit)
+                .frame(width: side, height: side)
         }
     }
     func routeBtn(_ f: MontanaAudioRoute.Face, side: CGFloat, col: CGFloat) -> some View {
@@ -7895,6 +7945,30 @@ enum MontanaAudioRoute {
         let ins = AVAudioSession.sharedInstance().currentRoute.inputs
         let headsetIn = ins.contains { externalPorts.contains($0.portType) || $0.portType == .headsetMic }
         if headsetIn { preferPhoneMicrophone() }
+    }
+}
+
+/// The phone-only audio target has real UIKit bounds even though its face is drawn by its sibling.
+/// A clear SwiftUI label lost hit testing on T1 (2199): the hosting view received every tap.
+struct MontanaSpeakerButton: UIViewRepresentable {
+    var caption: String
+    var selected: Bool
+    final class Coordinator: NSObject {
+        @objc func pressed() {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            MontanaCall.shared.toggleSpeakerFromUI()
+        }
+    }
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeUIView(context: Context) -> UIButton {
+        let button = UIButton(type: .custom)
+        button.addTarget(context.coordinator, action: #selector(Coordinator.pressed), for: .touchUpInside)
+        return button
+    }
+    func updateUIView(_ button: UIButton, context: Context) {
+        button.accessibilityLabel = NSLocalizedString(caption, comment: "")
+        button.isSelected = selected
+        button.accessibilityTraits = selected ? [.button, .selected] : [.button]
     }
 }
 

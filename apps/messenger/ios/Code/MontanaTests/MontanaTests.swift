@@ -1031,78 +1031,23 @@ final class MontanaVPNTests: XCTestCase {
 
     // WireGuard: the private key, the peer, the interface IPs and the reserved bytes reach the engine's settings, and no
 
-    // THE VPN WALL (29.09): the page names the person's own hand-added servers and pasted plans and nothing that came by a
-    // wall; the version is the same for the same rows in any order; a page lands as the correspondent's servers under their
-    // key with identities kept; the word reads back whole; a row of another's wall is never chosen by itself.
-    func testVPNWallPageAndLanding() throws {
-        var mine = try XCTUnwrap(MontanaVPNParse.parse("vless://11111111-2222-3333-4444-555555555555@1.2.3.4:443?type=tcp&security=reality&sni=a.example&pbk=PBK&sid=SID&flow=xtls-rprx-vision#Mine"))
-        mine.uid = "u1"
-        var theirs = try XCTUnwrap(MontanaVPNParse.parse("vless://11111111-2222-3333-4444-555555555555@5.6.7.8:443?type=ws&security=tls&sni=b.example&path=%2Fw#Theirs"))
-        theirs.uid = "u2"; theirs.subscription = MTVPNWall.planKey("a:peer")
-        var ofPlan = try XCTUnwrap(MontanaVPNParse.parse("trojan://pw@9.9.9.9:443?security=tls&sni=c.example#OfPlan"))
-        ofPlan.uid = "u3"; ofPlan.subscription = "https://plan.example/sub/x"
-        let plans = [MontanaVPNPlan(url: "https://plan.example/sub/x", title: "Paid", updatedAt: 1, count: 1),
-                     MontanaVPNPlan(url: "https://other.example/sub/y", title: "Carried", updatedAt: 1, count: 1, wallOf: "a:peer"),
-                     MontanaVPNPlan(url: MTVPNWall.planKey("a:peer"), title: "Peer", updatedAt: 1, count: 1, wallOf: "a:peer")]
-        let page = MTVPNWall.page(servers: [mine, theirs, ofPlan], plans: plans)
-        XCTAssertEqual(page.count, 2)
-        XCTAssertEqual(page.filter { $0.k == "s" }.map { $0.n }, ["Mine"])
-        XCTAssertEqual(page.filter { $0.k == "p" }.map { $0.l }, ["https://plan.example/sub/x"])
-        XCTAssertEqual(MTVPNWall.version(page), MTVPNWall.version(page.reversed()))
-        XCTAssertNotEqual(MTVPNWall.version(page), MTVPNWall.version(Array(page.prefix(1))))
-        let word = MTVPNWallWord(t: "page", v: MTVPNWall.version(page), rows: page)
-        let data = try JSONEncoder().encode(word)
-        let back = try JSONDecoder().decode(MTVPNWallWord.self, from: data)
-        XCTAssertEqual(back.rows, page); XCTAssertEqual(back.t, "page")
-        XCTAssertTrue(MTVPNWall.mark.hasPrefix("\u{200B}\u{200B}"))
-        // The landing: the correspondent's server row under their key, its identity kept from the last page by host, port and key.
-        let key = MTVPNWall.planKey("a:peer")
-        var old = try XCTUnwrap(MontanaVPNParse.parse(page[0].l ?? "")); old.uid = "kept"; old.subscription = key
-        let landed = MTVPNWall.servers(of: page, key: key, old: [old])
-        XCTAssertEqual(landed.count, 1); XCTAssertEqual(landed[0].subscription, key); XCTAssertEqual(landed[0].uid, "kept"); XCTAssertEqual(landed[0].name, "Mine")
-        XCTAssertTrue(MTVPNWall.cameByWall(landed[0]))
-        XCTAssertFalse(MTVPNWall.cameByWall(mine))
-        // A served outbound rides whole and lands as the engine's own row.
-        let outbound: [String: Any] = ["protocol": "vless",
-                                       "settings": ["vnext": [["address": "7.7.7.7", "port": 443, "users": [["id": "11111111-2222-3333-4444-555555555555", "encryption": "none"]]]]],
-                                       "streamSettings": ["network": "grpc", "security": "tls", "grpcSettings": ["serviceName": "svc"], "tlsSettings": ["serverName": "d.example"]]]
-        let servedJSON = String(data: try JSONSerialization.data(withJSONObject: outbound, options: [.sortedKeys]), encoding: .utf8)
-        let served = MTVPNWallRow(id: "j1", n: "Served", k: "s", l: "", j: servedJSON)
-        let fromJSON = MTVPNWall.servers(of: [served], key: key, old: [])
-        XCTAssertEqual(fromJSON.count, 1); XCTAssertEqual(fromJSON[0].network, "grpc"); XCTAssertNotNil(fromJSON[0].engineOutbound); XCTAssertEqual(fromJSON[0].name, "Served")
+    func testVPNOnlyManuallyEnteredPlansAreActive() {
+        let url = "https://plan.example/sub"
+        let own = MontanaVPNPlan(url: url, title: "Paid", updatedAt: 1, count: 2)
+        var received = own; received.wallOf = "a:peer"
+        let provisioned = MontanaVPNPlan(url: MTVPNPay.planKey, title: "Montana", updatedAt: 1, count: 2)
+        XCTAssertTrue(MontanaVPNPlans.isOwned(own))
+        XCTAssertFalse(MontanaVPNPlans.isOwned(received))
+        XCTAssertFalse(MontanaVPNPlans.isOwned(provisioned))
+        XCTAssertFalse(MontanaVPNPlans.isOwned(MontanaVPNPlan(url: "file:///private/example", title: "", updatedAt: 0, count: 0)))
     }
 
-    // THE VPN WALL CARRIED AS THE POSTS' WALL (29.09): a WireGuard row never rides (one device's key), the queue tells a page
-    // from an ask and a «got», and the empty page has one version -- a refused correspondent and an empty wall read alike.
-    // Rejects the page that carried every hand-added row, and a queue law that folded the «got» away with the pages.
-    func testVPNWallCarriesNoWireGuardAndTellsItsPage() throws {
-        var wg = try XCTUnwrap(MontanaVPNParse.parse("wireguard://PRIV%3D@wg.example:51820?publickey=PUB%3D&address=10.0.0.2%2F32#Home"))
-        wg.uid = "w1"
-        var tr = try XCTUnwrap(MontanaVPNParse.parse("trojan://pw@9.9.9.9:443?security=tls&sni=c.example#Row"))
-        tr.uid = "t1"
-        let page = MTVPNWall.page(servers: [wg, tr], plans: [])
-        XCTAssertEqual(page.map { $0.n }, ["Row"])
-        let pageWord = MTVPNWall.mark + String(data: try JSONEncoder().encode(MTVPNWallWord(t: "page", v: MTVPNWall.version(page), rows: page)), encoding: .utf8)!
-        let gotWord = MTVPNWall.mark + String(data: try JSONEncoder().encode(MTVPNWallWord(t: "got", v: "abc")), encoding: .utf8)!
-        let askWord = MTVPNWall.mark + String(data: try JSONEncoder().encode(MTVPNWallWord(t: "ask")), encoding: .utf8)!
-        XCTAssertTrue(MTVPNWall.isPage(pageWord)); XCTAssertFalse(MTVPNWall.isPage(gotWord)); XCTAssertFalse(MTVPNWall.isPage(askWord))
-        XCTAssertFalse(MTBoard.isPage(pageWord))
-        XCTAssertEqual(MTVPNWall.version([]), MTVPNWall.version([]))
-        XCTAssertNotEqual(MTVPNWall.version([]), MTVPNWall.version(page))
-    }
-
-    func testVPNWallOnlySharesACurrentLiveSubscription() throws {
-        var live = try XCTUnwrap(MontanaVPNParse.parse("trojan://pw@1.2.3.4:443?security=tls&sni=one.example#Live"))
-        var dead = try XCTUnwrap(MontanaVPNParse.parse("trojan://pw@1.2.3.5:443?security=tls&sni=two.example#Dead"))
-        live.uid = "live"; dead.uid = "dead"
-        let now = 2_000.0
-        let good = MontanaVPNPlan(url: "https://good.example/sub", title: "Good", updatedAt: now, count: 1)
-        let expired = MontanaVPNPlan(url: "https://expired.example/sub", title: "Expired", updatedAt: now, count: 1, expire: now - 1)
-        let unavailable = MontanaVPNPlan(url: "https://down.example/sub", title: "Down", updatedAt: now, count: 1, lastError: "unavailable")
-        live.subscription = good.url
-        dead.subscription = expired.url
-        let rows = MTVPNWall.page(servers: [live, dead], plans: [good, expired, unavailable], live: [live.id], now: now)
-        XCTAssertEqual(rows.filter { $0.k == "p" }.map(\.n), ["Good"])
+    func testRetiredVPNWordsRemainServiceOnly() {
+        for body in ["{\"t\":\"page\",\"rows\":[]}", "{\"t\":\"ask\"}", "{\"t\":\"got\"}", "malformed"] {
+            XCTAssertTrue(MTVPNWall.handle(MTVPNWall.mark + body, from: "a:peer", isFromMe: false))
+            XCTAssertTrue(MTVPNWall.handle(MTVPNWall.mark + body, from: "a:peer", isFromMe: true))
+        }
+        XCTAssertFalse(MTVPNWall.handle("ordinary text", from: "a:peer", isFromMe: false))
     }
 
     // THE MESH WALL'S WORD (29.09): the cell's body reads back whole; the name and the words are cut at a letter's edge, never
@@ -1188,25 +1133,14 @@ final class MontanaVPNTests: XCTestCase {
         XCTAssertNil(MTMeshRoom.ask(ofBody: MTMeshRoom.askCell(item: m.item, missing: [])))
     }
 
-    // THE ORDER OF THE PAGE (30.09): the person's own first -- pinned, then the rest of their own by name, the hand-added section
-    // among them -- then the walls in the chats' order (the freshest chat first, a correspondent's paid plan above their servers);
-    // the page of the wall names the pasted plans first. Rejected: an order that lets an unpinned plan of one's own sink below the
-    // walls (a wall is pinned at its arrival), and a hand-added section that stands after every wall.
-    func testVPNWallOrderFollowsTheChats() throws {
-        let own = MontanaVPNPlan(url: "https://mine.example/sub", title: "Mine", updatedAt: 1, count: 1, pinnedAt: 10)
+    func testVPNManualSectionFollowsOwnPins() {
+        let pin = MontanaVPNPlan(url: "https://mine.example/sub", title: "Mine", updatedAt: 1, count: 1, pinnedAt: 10)
         let loose = MontanaVPNPlan(url: "https://loose.example/sub", title: "Aloose", updatedAt: 1, count: 1)
-        let freshPaid = MontanaVPNPlan(url: "https://fresh.example/sub", title: "Fresh paid", updatedAt: 1, count: 1, pinnedAt: 5, wallOf: "a:fresh")
-        let freshServers = MontanaVPNPlan(url: MTVPNWall.planKey("a:fresh"), title: "Fresh", updatedAt: 1, count: 1, pinnedAt: 9, wallOf: "a:fresh")
-        let oldServers = MontanaVPNPlan(url: MTVPNWall.planKey("a:old"), title: "Old", updatedAt: 1, count: 1, pinnedAt: 20, wallOf: "a:old")
-        let ordered = MontanaVPNPlans.ordered([loose, oldServers, freshServers, freshPaid, own], wallRank: ["a:fresh": 0, "a:old": 1])
-        XCTAssertEqual(ordered.map { $0.title }, ["Mine", "Aloose", "Fresh paid", "Fresh", "Old"])
+        let ordered = MontanaVPNPlans.ordered([loose, pin], wallRank: [:])
+        XCTAssertEqual(ordered.map { $0.title }, ["Mine", "Aloose"])
         XCTAssertEqual(MontanaVPNPlans.manualSlot(in: ordered, pinnedAt: nil), 2)
         XCTAssertEqual(MontanaVPNPlans.manualSlot(in: ordered, pinnedAt: 15), 0)
         XCTAssertEqual(MontanaVPNPlans.manualSlot(in: ordered, pinnedAt: 7), 1)
-        var server = try XCTUnwrap(MontanaVPNParse.parse("trojan://pw@9.9.9.9:443?security=tls&sni=c.example#Row"))
-        server.uid = "u9"
-        let page = MTVPNWall.page(servers: [server], plans: [own])
-        XCTAssertEqual(page.map { $0.k }, ["p", "s"])
     }
 
     // AN ENGINE-JSON PLAN'S ROW REACHES THE ENGINE WHOLE (29.09): the panel tuned every field of its outbound, and a row read into
