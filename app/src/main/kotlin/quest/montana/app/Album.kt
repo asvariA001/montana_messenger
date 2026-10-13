@@ -246,14 +246,15 @@ internal fun albumBody(c: Context, members: List<Msg>, into: LinearLayout) {
     }
     val sizes = pics.map { b -> if (b != null && 0 < b.width && 0 < b.height) b.width.toFloat() to b.height.toFloat() else 1f to 1f }
     val cut = Mosaic.layout(PLATE_DP, PLATE_DP * 4 / 3, sizes)
-    val plate = FrameLayout(c)
+    val plate = FrameLayout(c).apply { tag = MEDIA_PLATE_TAG }
     members.forEachIndexed { i, m ->
         if (cut.tiles.size <= i) return@forEachIndexed
         val t = cut.tiles[i]
         val man = Media.manifestOf(m)
         val kind = man?.optString("k") ?: "img"
         val f = m.file?.let { File(it) }?.takeIf { it.exists() }
-        val tile = CornerTile(c, t.pos, 12 * d, 3 * d)
+        // the plate's outer corners are the bubble's own (it clips them); where a tile meets another, 3 (iOS MTMosaic.corners)
+        val tile = CornerTile(c, t.pos, 0f, 3 * d)
         tile.addView(ImageView(c).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
             val pic = pics[i]

@@ -1892,8 +1892,9 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
         // THE PICTURE IS THE BUBBLE (iOS mediaBubble 1534-1600 and gifBubble 1113-1160, MontanaBubble.swift at 2155): a photo, a film or a
         // moving picture fills its bubble edge to edge, clipped to the bubble's own shape; the time stands ON the picture in a dark
         // capsule; the bubble's fill shows only under a caption. Android drew the picture inside the padded bubble: a blue frame round it.
-        val edge = 1 == members.size && edgePlate(m)
-        val edgeCap = if (edge) Media.manifestOf(m)?.optString("cap")?.takeIf { it.isNotEmpty() } else null
+        // a media group's plate is its bubble the same way (iOS groupBubble 1431-1468): the tiles fill it, the caption of the pick under them
+        val edge = (1 == members.size && edgePlate(m)) || 1 < members.size
+        val edgeCap = if (edge) members.firstNotNullOfOrNull { Media.manifestOf(it)?.optString("cap")?.takeIf { c -> c.isNotEmpty() } } else null
         val onPlate = edge && (edgeCap == null || BusinessCard.lines(edgeCap) != null)
         // A STICKER OR A LETTER OF EMOJI ALONE STANDS BARE (iOS bigEmojiText branch, MontanaBubble.swift 758-776): the quote keeps a
         // small bubble of its own above it, the time stands under it in the same dark capsule as on a picture
@@ -2294,7 +2295,7 @@ fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Unit, onEd
 
 /** THE MEDIA PLATE'S OWN TAG (iOS .mtMediaMiddle): the selection circle beside a letter finds this view to stand level
  *  with it, not with the whole bubble (item 21). */
-private const val MEDIA_PLATE_TAG = "media_plate"
+internal const val MEDIA_PLATE_TAG = "media_plate"
 
 /** How far a tagged view stands below `ancestor`, summing every parent's own top (iOS alignmentGuide, carried up the stacks). */
 private fun mediaPlateOffset(v: View, ancestor: View): Int {
