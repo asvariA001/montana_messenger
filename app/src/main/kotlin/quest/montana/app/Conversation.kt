@@ -1137,7 +1137,10 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         bar.panelShown(true)
         android.util.Log.d("Montana", "emoji_panel shown tab=" + p.tab)
     }
-    bar.onEmojiKey = { if (panelUp()) { panelAway(); showKeys() } else showPanel(null) }
+    bar.onEmojiKey = {
+        android.util.Log.d("Montana", "emoji_key up=" + panelUp() + " host=" + panelHost.visibility + " attached=" + panelHost.isAttachedToWindow)
+        if (panelUp()) { panelAway(); showKeys() } else showPanel(null)
+    }
     bar.onStickers = { showPanel(Picker.STICKERS) }   // a hold on the emoji key
     // THE VOICE (iOS the held mark): the tape starts under the finger and leaves as a media letter of kind «aud».
     // THE SWELL WHILE SPEAKING (iOS the recording row): the red mark, the running time and the wave that rises with the voice.
