@@ -207,7 +207,8 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
             record.getDrawingRect(r)   // the key's own frame, carried into the bar's coordinates below
             if (runCatching { offsetDescendantRectToMyCoords(record, r) }.isSuccess) {
                 r.left -= dp(10); r.top -= dp(8); r.right += dp(40); r.bottom += dp(8)
-                touchDelegate = TouchDelegate(r, record)
+                reach.recordReach = TouchDelegate(r, record)
+                touchDelegate = reach
                 // THE HOLD IS THE KEY'S, NOT THE SYSTEM'S BACK (measured on A1 09.10.2026 21:46 MSK: the key stands at the right edge,
                 // where the platform's back gesture lives; it took the finger -- startBackNavigation -- and the tape was left locked):
                 // the key and its reach are kept out of the system's edge gestures
@@ -215,6 +216,55 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
             }
         }
     }
+
+    /**
+     * THE FINGER'S ROOM HANGS OUTSIDE THE LAYOUT (iOS fingerRoom, MontanaConversation.swift 735-741, 798, 885 at 2155; the author's
+     * word 23.09): every plate of the bar is the tier (36) and every plate's touch is the platform's least target (44) -- the four
+     * points round each plate are its own, not the bar's ground (which wakes the field). The record key keeps its wider reach.
+     * A touch that lands on a plate itself never comes here: the plate takes it.
+     */
+    private inner class Reach : TouchDelegate(Rect(), this@ChatInputBar) {
+        var recordReach: TouchDelegate? = null
+        private var held: View? = null
+        private var toRecord = false
+        private val box = Rect()
+        private fun keys(): List<View> {
+            val ks = if (open) (0 until actionRow.childCount).map { actionRow.getChildAt(it) }.filter { it is FrameLayout }
+                     else listOf(unfoldKey, emojiInside, sendColumn)
+            return ks.filter { it.visibility == View.VISIBLE && it.isAttachedToWindow && !(it === sendColumn && record.visibility == View.VISIBLE) }
+        }
+        private fun frame(v: View): Boolean {
+            v.getDrawingRect(box)
+            return runCatching { offsetDescendantRectToMyCoords(v, box) }.isSuccess
+        }
+        override fun onTouchEvent(e: MotionEvent): Boolean {
+            if (e.actionMasked == MotionEvent.ACTION_DOWN) {
+                held = null; toRecord = false
+                val room = (dp(TOUCH) - dp(TIER)) / 2
+                for (k in keys()) if (frame(k)) {
+                    box.inset(-room, -room)
+                    if (box.contains(e.x.toInt(), e.y.toInt())) { held = k; break }
+                }
+                if (held == null) toRecord = recordReach?.onTouchEvent(e) == true
+                if (held == null) return toRecord
+            } else if (toRecord) {
+                val r = recordReach?.onTouchEvent(e) == true
+                if (e.actionMasked == MotionEvent.ACTION_UP || e.actionMasked == MotionEvent.ACTION_CANCEL) toRecord = false
+                return r
+            }
+            val k = held ?: return false
+            if (e.actionMasked == MotionEvent.ACTION_UP || e.actionMasked == MotionEvent.ACTION_CANCEL) held = null
+            if (!frame(k)) return false
+            val ev = MotionEvent.obtain(e)
+            ev.offsetLocation(-box.left.toFloat(), -box.top.toFloat())
+            // the plate's own centre when the finger is outside it: its click asks for a point inside it
+            if (!box.contains(e.x.toInt(), e.y.toInt())) ev.setLocation(k.width / 2f, k.height / 2f)
+            val r = k.dispatchTouchEvent(ev)
+            ev.recycle()
+            return r
+        }
+    }
+    private val reach = Reach()
 
     /** A HOLD TOO SHORT FOR A TAPE (iOS tooShortTape, MontanaConversation.swift:3909-3919 at 2155, atom 3f439964b9a6):
      * the platform's warning tap and the field's own word, instead of silence. */
@@ -401,6 +451,7 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
         const val LOCK_WAY_LIVE = 110f
         const val FLICK = 400f                             // iOS flick, points a second
         const val TIER = 36                                // iOS MontanaOctagon.composeHeight
+        const val TOUCH = 44                               // iOS montanaTouchTarget: the platform's least target
         val GLYPH = Color.rgb(204, 204, 204)               // iOS MontanaOctagon.barGlyph
         const val OPEN_KEY = "composeOpen"
         const val MODE_KEY = "composeMediaMode"            // iOS @AppStorage("composeMediaMode")
