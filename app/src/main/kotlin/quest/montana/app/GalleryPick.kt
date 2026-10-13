@@ -157,6 +157,124 @@ private class CameraTile(c: Context) : FrameLayout(c) {
 }
 
 /**
+ * ONE GRID OF TILES, THE PINCH LIVE (iOS MTTileGrid, MontanaMedia.swift:2454-2588 at 2155; atom d757ba09135c, the author's word 19.09
+ * «as native as the system's grid»): 1, 2, 3, 5 or 8 in a row, three to begin with; fingers parting -- fewer, closing -- more. The grid
+ * re-lays itself UNDER the fingers, its progress the pinch's own scale ((scale - 1) / 0.6 parting, (1 - scale) / 0.4 closing), and on
+ * release past 0.35 it finishes to the next count, short of it it falls back (iOS startInteractiveTransition, transitionProgress).
+ * The platform's grid has no transition of two layouts, so the denser of the two stands laid out and every tile is moved and sized
+ * between its two places; the tile under the fingers keeps its row's height, the anchor of both. No tile is rebuilt.
+ */
+private class TileGrid(c: Context) : GridView(c) {
+    var columns = 3
+        private set
+    private var to = 0                 // the count the pinch leads to; 0 -- no transition
+    private var anchor = 0             // the tile the fingers took, by position
+    private var anchorY = 0f           // its row's top, kept by both layouts
+    private var progress = 0f
+    private var settling: ValueAnimator? = null
+    private val gap = c.dp(2)
+    private val pinch = android.view.ScaleGestureDetector(c, object : android.view.ScaleGestureDetector.SimpleOnScaleGestureListener() {
+        var scale = 1f
+        var focusX = 0f; var focusY = 0f
+        override fun onScaleBegin(d: android.view.ScaleGestureDetector): Boolean {
+            if (settling != null) return false
+            scale = 1f; focusX = d.focusX; focusY = d.focusY; return true
+        }
+        override fun onScale(d: android.view.ScaleGestureDetector): Boolean {
+            scale *= d.scaleFactor
+            if (to == 0) {
+                if (abs(scale - 1) <= 0.04f) return true
+                val i = STEPS.indexOf(columns); val j = if (1 < scale) i - 1 else i + 1
+                if (i < 0 || j !in STEPS.indices) return true
+                begin(STEPS[j], focusX, focusY)
+            }
+            val p = if (to < columns) (scale - 1) / 0.6f else (1 - scale) / 0.4f
+            show(p.coerceIn(0f, 1f))
+            return true
+        }
+        override fun onScaleEnd(d: android.view.ScaleGestureDetector) { if (to != 0) settle(0.35f < progress) }
+    })
+    private var pinching = false   // this touch belongs to the pinch, from its second finger to the last one's lift
+    init { pinch.isQuickScaleEnabled = false }   // a double tap and drag is no pinch in iOS: two fingers only
+
+    override fun dispatchTouchEvent(e: MotionEvent): Boolean {
+        pinch.onTouchEvent(e)
+        if (e.actionMasked == MotionEvent.ACTION_DOWN) pinching = false
+        if (!pinching && (1 < e.pointerCount || to != 0 || settling != null)) {
+            // two fingers belong to the pinch: the scroll and the tap begun under the first finger are let go
+            pinching = true
+            val cancel = MotionEvent.obtain(e).apply { action = MotionEvent.ACTION_CANCEL }
+            super.dispatchTouchEvent(cancel); cancel.recycle()
+        }
+        return if (pinching) true else super.dispatchTouchEvent(e)
+    }
+
+    private fun side(n: Int) = (width - paddingLeft - paddingRight - (n - 1) * gap) / n.toFloat()
+    /** The anchor's row top in a layout of `n`: kept, unless the grid's first row would then stand below its top. */
+    private fun anchorTop(n: Int) = minOf(anchorY, paddingTop + (anchor / n) * (side(n) + gap))
+    /** Where the tile at `p` stands in a layout of `n` columns, the anchor's row at its kept top. */
+    private fun place(p: Int, n: Int): Pair<Float, Float> {
+        val step = side(n) + gap
+        return (paddingLeft + (p % n) * step) to (anchorTop(n) + (p / n - anchor / n) * step)
+    }
+
+    private fun begin(target: Int, fx: Float, fy: Float) {
+        anchor = pointToPosition(fx.toInt(), fy.toInt()).takeIf { it != android.widget.AdapterView.INVALID_POSITION } ?: firstVisiblePosition
+        anchorY = getChildAt(anchor - firstVisiblePosition)?.top?.toFloat() ?: paddingTop.toFloat()
+        to = target; progress = 0f
+        val dense = maxOf(columns, to)
+        numColumns = dense
+        setSelectionFromTop(anchor, anchorTop(dense).toInt())   // laid out as the denser; onLayout moves every tile to its place
+    }
+
+    private fun show(p: Float) { progress = p; lay() }
+
+    /** Every tile between its two places: the sparse layout's and the dense one's, by how far the denser stands from the count shown. */
+    private fun lay() {
+        if (to == 0) return
+        val dense = maxOf(columns, to); val sparse = minOf(columns, to)
+        val k = if (to == dense) progress else 1 - progress   // 1 -- the dense layout as laid, 0 -- the sparse one
+        val sd = side(dense); val ss = side(sparse)
+        val size = ss + (sd - ss) * k
+        for (i in 0 until childCount) {
+            val v = getChildAt(i); val p = firstVisiblePosition + i
+            val (sx, sy) = place(p, sparse)
+            v.pivotX = 0f; v.pivotY = 0f
+            v.translationX = (sx + (v.left - sx) * k) - v.left
+            v.translationY = (sy + (v.top - sy) * k) - v.top
+            v.scaleX = size / v.width.coerceAtLeast(1); v.scaleY = size / v.height.coerceAtLeast(1)
+        }
+    }
+
+    override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
+        super.onLayout(changed, l, t, r, b)
+        lay()
+    }
+
+    /** Let go: past the line the count is the new one, short of it the old; the rest of the way runs by itself (iOS finish/cancel). */
+    private fun settle(finish: Boolean) {
+        val from = progress
+        settling = ValueAnimator.ofFloat(from, if (finish) 1f else 0f).apply {
+            duration = 250
+            interpolator = android.view.animation.DecelerateInterpolator()
+            addUpdateListener { show(it.animatedValue as Float) }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(a: android.animation.Animator) {
+                    if (finish) columns = to
+                    to = 0; settling = null
+                    for (i in 0 until childCount) getChildAt(i).apply { translationX = 0f; translationY = 0f; scaleX = 1f; scaleY = 1f }
+                    numColumns = columns
+                    setSelectionFromTop(anchor, anchorTop(columns).toInt())
+                }
+            })
+            start()
+        }
+    }
+
+    companion object { val STEPS = listOf(1, 2, 3, 5, 8) }   // iOS MTTileGrid.columnSteps
+}
+
+/**
  * THE SHEET THAT RISES HALF AND IS PULLED WHOLE (iOS presentationDetents [.medium, .large]): a pull up grows it before its
  * grid scrolls; a pull down from the grid's top lowers it, and let go low it closes.
  */
@@ -172,6 +290,7 @@ private class PullSheet(c: Context, private val grid: GridView, private val onGo
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> { downY = e.rawY; startH = height; pulling = false }
             MotionEvent.ACTION_MOVE -> {
+                if (1 < e.pointerCount) return false   // two fingers are the grid's pinch, never the sheet's pull
                 val dy = e.rawY - downY
                 val up = dy < 0 && height < high
                 val down = 0 < dy && !grid.canScrollVertically(-1)
@@ -200,7 +319,7 @@ private class PullSheet(c: Context, private val grid: GridView, private val onGo
 
 /**
  * THE GALLERY OF THE COMPOSE ROW (iOS MTGalleryPick, MontanaMedia 2734-2828; MontanaConversation 2114-2131): the phone's own
- * latest pictures, newest first, three in a row, the camera the first tile; chosen one at a time, at most ten, the circle in the
+ * latest pictures, newest first, three in a row to begin with (the pinch: 1, 2, 3, 5, 8 — TileGrid), the camera the first tile; chosen one at a time, at most ten, the circle in the
  * platform's tint with the number of the choice. At the foot: the way back, and «All photos» — the system's own picker with its
  * albums and its ten — or, once something is chosen, «Add N photos». What is chosen is never sent from here: it waits above the
  * field (the conversation's staging), and the field's send key sends it with the words as one group.
@@ -212,8 +331,8 @@ fun galleryPick(act: MainActivity, onPick: (List<Uri>) -> Unit, onCamera: () -> 
     var items: List<LibraryItem> = emptyList()
     lateinit var close: () -> Unit
     lateinit var drawFoot: () -> Unit
-    val grid = GridView(c).apply {
-        numColumns = 3
+    val grid = TileGrid(c).apply {
+        numColumns = columns
         horizontalSpacing = c.dp(2); verticalSpacing = c.dp(2)
         stretchMode = GridView.STRETCH_COLUMN_WIDTH
         selector = ColorDrawable(Color.TRANSPARENT)
