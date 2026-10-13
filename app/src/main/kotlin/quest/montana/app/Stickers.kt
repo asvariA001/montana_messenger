@@ -81,8 +81,18 @@ object Stickers {
 
     private fun manifestOf(m: Msg): JSONObject? = m.meta?.let { runCatching { JSONObject(it) }.getOrNull() } ?: Media.inline(m.text)
     private fun isPicture(m: Msg) = m.text.startsWith(Marks.MEDIA) && manifestOf(m)?.optString("n") == CARD
-    /** A sticker stands without a bubble: a glyph sticker, or a picture that says it is the card sticker. */
-    fun bare(m: Msg): Boolean = m.text.startsWith(Marks.STICKER) || isPicture(m)
+    /** A STICKER OF THE HOUSE (iOS gifBubble, MontanaBubble.swift 1121 at 2155): a moving picture on the document road whose name
+     * says «stick_» — drawn bare and at a sticker's size on both sides; a build that knows neither name shows the file plate. */
+    fun house(m: Msg): Boolean = m.text.startsWith(Marks.MEDIA) &&
+        (manifestOf(m)?.optString("n")?.startsWith("stick_") == true || m.file?.let { File(it).name.startsWith("stick_") } == true)
+    /** A sticker stands without a bubble: a glyph sticker, a picture that says it is the card sticker, or a sticker of the house. */
+    fun bare(m: Msg): Boolean = m.text.startsWith(Marks.STICKER) || isPicture(m) || house(m)
+    /** The one size every sticker of ours wears (iOS MTStickerLook.box): the picture fitted into the sticker's square. */
+    fun box(c: Context, w: Int, h: Int): Pair<Int, Int> {
+        val side = c.dp(LOOK)
+        val k = side.toFloat() / maxOf(w, h, 1)
+        return (w * k).toInt().coerceAtLeast(1) to (h * k).toInt().coerceAtLeast(1)
+    }
 
     /** The sticker's own face inside the letter's column; false — not a sticker, the bubble draws it as ever. */
     fun body(c: Context, m: Msg, into: LinearLayout): Boolean {
@@ -161,10 +171,11 @@ object Stickers {
     // ── the panel ──
 
     /**
-     * THE STICKER PANEL (iOS the emoji panel's sticker strip + MontanaStickerSetPage): the glyphs in a row, my set four in a
-     * row under them. A tap sends, a hold asks to drop one of my own, the plus makes one from a photo. Our cross at the left.
+     * MY SET'S PAGE (iOS MontanaStickerSetPage, opened by the panel's settings glass and by «View set» on a sticker letter): the
+     * glyphs in a row, my set four in a row under them. A tap sends, a hold asks to drop one of my own, the plus makes one from a
+     * photo. Our cross at the left. The choosing itself is the field's panel (Picker.kt).
      */
-    fun panel(act: MainActivity, ref: String) {
+    fun setPage(act: MainActivity, ref: String) {
         val c: Context = act
         lateinit var close: () -> Unit
         val grid = GridLayout(c).apply { columnCount = 4; setPadding(c.dp(10), c.dp(6), c.dp(10), c.dp(16)) }

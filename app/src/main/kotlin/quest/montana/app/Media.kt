@@ -123,10 +123,27 @@ object Media {
         out.toByteArray()
     }.getOrNull()
 
-    /** The picture's small face that rides the manifest (iOS thumbBase64): 120 points, a JPEG of at most 16 KB. */
+    /**
+     * The picture's small face that rides the manifest (iOS thumbBase64): 120 points, at most 16 KB.
+     * A SEE-THROUGH PICTURE KEEPS ITS GROUND (iOS MontanaE2E.swift:1094-1106 at 2155, the author's word 22.09:
+     * "the sticker loads as a photo on a white ground"): this mini-frame rides in the letter and stands in the
+     * receiver's row while the file is still on its way, and JPEG has no transparency at all -- a picture with
+     * an alpha channel is written PNG instead, held down by its own side rather than a quality it does not have.
+     */
     private fun thumb(b: Bitmap): String? {
         val scale = minOf(1f, 120f / maxOf(b.width, b.height))
         val small = Bitmap.createScaledBitmap(b, maxOf(1, (b.width * scale).toInt()), maxOf(1, (b.height * scale).toInt()), true)
+        if (small.hasAlpha()) {
+            var side = maxOf(small.width, small.height)
+            while (side >= 32) {
+                val k = side.toFloat() / maxOf(small.width, small.height)
+                val shot = if (k >= 1f) small else Bitmap.createScaledBitmap(small, maxOf(1, (small.width * k).toInt()), maxOf(1, (small.height * k).toInt()), true)
+                val out = ByteArrayOutputStream(); shot.compress(Bitmap.CompressFormat.PNG, 100, out)
+                if (out.size() <= 16000) return Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+                side = (side * 0.7f).toInt()
+            }
+            return null   // nothing honest to show: better an empty place than a white square (iOS 1094-1106)
+        }
         var q = 70
         while (q >= 20) {
             val out = ByteArrayOutputStream(); small.compress(Bitmap.CompressFormat.JPEG, q, out)
@@ -140,7 +157,9 @@ object Media {
      * THE ONE ROAD OF A SENT FILE: the row stands at once with the local copy, the pieces are sealed and laid on the node,
      * then the letter with the manifest leaves by the ordinary post (the pieces first — the receiver must find them).
      */
-    fun send(c: Context, ref: String, p: Picked, caption: String, qt: String? = null, group: MediaGroup.Slot? = null) {
+    fun send(c: Context, ref: String, picked: Picked, caption: String, qt: String? = null, group: MediaGroup.Slot? = null,
+             swap: (() -> ByteArray?)? = null) {
+        var p = picked
         val mid = Marks.mintMid()
         val local = file(c, mid, p.ext)
         local.writeBytes(p.bytes)
@@ -153,6 +172,15 @@ object Media {
         }
         Book.edit(ref) { it.msgs.add(Msg(mid, provisional, true, Marks.birthMs(mid) ?: System.currentTimeMillis(), qt = qt, file = local.path)) }
         Thread {
+            // THE ROW STANDS AT THE TAP, THE FULL FILE TAKES ITS PLACE BEFORE A BYTE LEAVES (iOS sendGifFound, MontanaConversation.swift
+            // 3822-3846 at 2155): `swap` brings the full bytes behind the standing row; the file's name never changes, only what lies
+            // under it, and the picture plays its three cycles again in its full shape (iOS MTGifPlay.renew)
+            swap?.invoke()?.let { full ->
+                local.writeBytes(full)
+                p = Picked(full, p.kind, p.ext, p.name, p.du, p.wave, p.round, p.badge)
+                GifPlay.renew(local.name)
+                Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid && it.file == local.path }?.let { it.text = it.text } }
+            }
             // THE TRACK'S WAVE IS BORN WITH THE LETTER (iOS MTWaveform, MontanaMediaKit 53-103, 1101-1107, atom bdee948c8ba1): a track
             // sent as a file is probed once -- sixty points -- and the manifest carries them, so the bars stand at the send and at the
             // receipt before a byte of the file has arrived; the sender's own row wears the same points

@@ -470,6 +470,8 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         feedBlocked = on
     }
     var keysAway: () -> Unit = {}   // the field is born below
+    var panelUp: () -> Boolean = { false }   // the field's own panel stands in the keyboard's place (Picker.kt), born below
+    var panelAway: () -> Unit = {}
     var barTop: () -> Int = { Int.MAX_VALUE }   // the bar's top on the screen, once it stands
     // THE KEYBOARD GOES WHERE THE IPHONE'S GOES (the author's word 09.10.2026 11:5x MSK: «make the keyboard behave as on iOS -- here it
     // hangs when it is not needed»): a tap anywhere on the feed puts it away, unless a control under the finger took the tap (iOS
@@ -481,7 +483,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         private var downY = 0f
         private var downT = 0L
         private var moved = false
-        private fun keysUp() = rootWindowInsets?.isVisible(WindowInsets.Type.ime()) == true
+        private fun keysUp() = rootWindowInsets?.isVisible(WindowInsets.Type.ime()) == true || panelUp()
         override fun dispatchTouchEvent(e: MotionEvent): Boolean {
             if (feedBlocked) return false   // a tape rolls: the feed behind the blur takes no touches (iOS allowsHitTesting)
             when (e.actionMasked) {
@@ -519,7 +521,8 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     val field = EditText(c).apply { setText(Prefs.str("draft.$ref", "")); setSelection(text.length) }
     // THE KEYBOARD AWAY IS THE FIELD LET GO (iOS inputFocused = false with hideKeyboard): a field kept focused under a hidden keyboard
     // is raised again by the system each time the window comes forward (SHOW_AUTO_EDITOR_FORWARD_NAV, the Pixel's own record 07.10 22:35)
-    fun hideKeys() { c.getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(field.windowToken, 0); field.clearFocus() }
+    // and the panel in the keyboard's place goes with it: every other deed of the bar puts it away (iOS showEmoji = false)
+    fun hideKeys() { c.getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(field.windowToken, 0); field.clearFocus(); panelAway() }
     keysAway = { hideKeys() }
     fun showKeys() { field.requestFocus(); c.getSystemService(InputMethodManager::class.java).showSoftInput(field, 0) }
 
@@ -1110,7 +1113,32 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     } } }
     // THE PLACE (iOS onLocation → MTLocationPicker → mtSendPlace): this spot leaves as the place's words, by the one road of words
     bar.onLocation = { hideKeys(); act.push { close -> placePage(act, close) { words -> sendWords(ref, words); toBottom() } } }
-    bar.onStickers = { hideKeys(); Stickers.panel(act, ref) }   // a hold on the emoji key (Stickers.kt)
+    // THE EMOJI KEY SWAPS THE KEYBOARD FOR THE FIELD'S OWN PANEL AND BACK (iOS emojiKey: showEmoji.toggle(), the glyph «keyboard»
+    // while the panel stands; MontanaConversation.swift 803-813 at 2155). Android lets no app view be the field's input view, so the
+    // panel stands in the keyboard's place under the bar, as tall as the keyboard last stood (Picker.kt); the keyboard rising puts it
+    // away, and so does every other deed of the bar. A hold on the key opens it on the stickers.
+    fun insertEmoji(e: String) {
+        val a = field.selectionStart.coerceAtLeast(0); val b = field.selectionEnd.coerceAtLeast(0)
+        field.text.replace(minOf(a, b), maxOf(a, b), e)
+    }
+    val panelHost = FrameLayout(c).apply { visibility = View.GONE }
+    var picker: Picker? = null
+    panelUp = { panelHost.visibility == View.VISIBLE }
+    panelAway = { if (panelHost.visibility == View.VISIBLE) { panelHost.visibility = View.GONE; bar.panelShown(false) } }
+    fun showPanel(tab: Int?) {
+        hideKeys()
+        val p = picker ?: Picker(act, ref, expanded = false, startTab = tab ?: Picker.EMOJI, focusSearch = false, onEmoji = { insertEmoji(it) },
+            onSent = { toBottom() },
+            onLift = { t, search -> pickerPage(act, ref, t, search, onEmoji = { insertEmoji(it) }, onSent = { panelAway(); toBottom() }) },
+            onSettings = { Stickers.setPage(act, ref) }).also { picker = it; panelHost.addView(it.view, FrameLayout.LayoutParams(MATCH, MATCH)) }
+        if (tab != null && p.tab != tab) p.show(tab)
+        panelHost.layoutParams = panelHost.layoutParams.apply { height = Prefs.dbl(KEYS_HEIGHT, c.dp(300).toDouble()).toInt() }
+        panelHost.visibility = View.VISIBLE
+        bar.panelShown(true)
+        android.util.Log.d("Montana", "emoji_panel shown tab=" + p.tab)
+    }
+    bar.onEmojiKey = { if (panelUp()) { panelAway(); showKeys() } else showPanel(null) }
+    bar.onStickers = { showPanel(Picker.STICKERS) }   // a hold on the emoji key
     // THE VOICE (iOS the held mark): the tape starts under the finger and leaves as a media letter of kind «aud».
     // THE SWELL WHILE SPEAKING (iOS the recording row): the red mark, the running time and the wave that rises with the voice.
     // THE PLATFORM'S RECORDER LINES (iOS MTLiveWave, MontanaShapes.swift:262-279 at 2155, atom 92fba2cb8154: «the live wave is
@@ -1637,6 +1665,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             addView(liveBar(act), lp().apply { bottomMargin = dp(2) })   // the one player bar above the field (iOS MontanaPlayerBar in the chat)
             addView(recStrip, lp().apply { marginStart = dp(10); marginEnd = dp(10); bottomMargin = dp(4) })
             addView(bar.apply { if ((group && !Groups.canWrite(ref)) || Post.closed(ref)) visibility = View.GONE }, lp())
+            addView(panelHost, lp(MATCH, dp(300)))
             addView(closedNote, lp().apply { marginStart = dp(10); marginEnd = dp(10); bottomMargin = dp(6) })
             addView(foot, lp())
             addView(groupFoot, lp())
@@ -1712,9 +1741,18 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         head.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> room(); lift() }
         under.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> room(); lift() }
         plateHome = this; addView(lockPlate, plateLp())
+        var keysWere = false
         setOnApplyWindowInsetsListener { v, insets ->
             val b = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.ime())
             v.setPadding(b.left, b.top, b.right, b.bottom)
+            // the keyboard's height is the panel's (Picker.kt); the keyboard rising takes the panel's place
+            val keys = insets.isVisible(WindowInsets.Type.ime())
+            if (keys) {
+                val h = insets.getInsets(WindowInsets.Type.ime()).bottom - insets.getInsets(WindowInsets.Type.systemBars()).bottom
+                if (h > dp(120)) Prefs.setDbl(KEYS_HEIGHT, h.toDouble())
+                if (!keysWere) panelAway()
+            }
+            keysWere = keys
             insets
         }
         addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
@@ -1981,59 +2019,8 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
 }
 
 /** THE FIELD'S OWN VOCABULARY (iOS emojiCategories, MontanaConversation.swift 34-104): every emoji of the panel, category by
- * category — the field has no panel of its own on Android yet, so the list is named here, for the opened reactions first and
- * whoever draws the panel next ([C-1]: one vocabulary, not a second guess at what a person may feel). */
-private val fieldEmojiPanel: List<String> = listOf(
-    "😀","😃","😄","😁","😆","😅","🤣","😂","🙂","🙃","🫠","😉","😊","😇","🥰","😍",
-    "🤩","😘","😗","☺️","😚","😙","🥲","😋","😛","😜","🤪","😝","🤑","🤗","🤭","🫢",
-    "🤫","🤔","🫡","🤐","🤨","😐","😑","😶","🫥","😏","😒","🙄","😬","🤥","😌","😔",
-    "😪","🤤","😴","😷","🤒","🤕","🤢","🤮","🤧","🥵","🥶","🥴","😵","🤯","🤠","🥳",
-    "🥸","😎","🤓","🧐","😕","🫤","😟","🙁","☹️","😮","😯","😲","😳","🥺","🥹","😦",
-    "😧","😨","😰","😥","😢","😭","😱","😖","😣","😞","😓","😩","😫","🥱","😤","😡",
-    "😠","🤬","😈","👿","💀","💩","🤡","👻","👽","🤖",
-    "👍","👎","👌","🤌","🤏","✌️","🤞","🫰","🤟","🤘","🤙","👈","👉","👆","👇","☝️",
-    "🫵","✋","🤚","🖐️","🖖","👋","🤝","🙏","✍️","💅","🤳","💪","🦾","👏","🙌","🫶",
-    "👐","🤲","🫱","🫲","🫳","🫴","👊","✊","🤛","🤜","🦵","🦶","👂","🦻","👃","🧠",
-    "🫀","🫁","🦷","🦴","👀","👁️","👅","👄","🫦",
-    "❤️","🧡","💛","💚","💙","💜","🖤","🤍","🤎","💔","❣️","💕","💞","💓","💗","💖",
-    "💘","💝","💟","♥️","💋","💌","💐","🌹","🌷","🌸","🌺","🌻","🌼","💮","🏵️","🌈",
-    "✨","⭐","🌟","💫","⚡","🔥","💥","💯","🎉","🎊","🎁",
-    "🐶","🐱","🐭","🐹","🐰","🦊","🐻","🐼","🐻‍❄️","🐨","🐯","🦁","🐮","🐷","🐸","🐵",
-    "🙈","🙉","🙊","🐒","🐔","🐧","🐦","🐤","🐣","🦆","🦅","🦉","🦇","🐺","🐗","🐴",
-    "🦄","🐝","🪲","🐛","🦋","🐌","🐞","🐜","🦗","🕷️","🦂","🐢","🐍","🦎","🐙","🦑",
-    "🦐","🦀","🐡","🐠","🐟","🐬","🐳","🐋","🦈","🐊","🐅","🐆","🦓","🦍","🐘","🦛",
-    "🐪","🐫","🦒","🦘","🐃","🐄","🐎","🐖","🐏","🐑","🐐","🦌","🐕","🐩","🐈","🐓",
-    "🦃","🕊️","🐇","🐿️","🦔",
-    "🍏","🍎","🍐","🍊","🍋","🍌","🍉","🍇","🍓","🫐","🍈","🍒","🍑","🥭","🍍","🥥",
-    "🥝","🍅","🍆","🥑","🥦","🥬","🥒","🌶️","🫑","🌽","🥕","🫒","🧄","🧅","🥔","🍠",
-    "🥐","🥯","🍞","🥖","🥨","🧀","🥚","🍳","🧈","🥞","🧇","🥓","🥩","🍗","🍖","🌭",
-    "🍔","🍟","🍕","🥪","🌮","🌯","🫔","🥙","🧆","🥗","🍝","🍜","🍲","🍛","🍣","🍱",
-    "🍤","🍙","🍚","🍘","🍥","🥟","🦪","🍦","🍰","🎂","🧁","🍫","🍬","🍭","🍮","🍯",
-    "☕","🍵","🧃","🥤","🍺","🍻","🥂","🍷","🥃","🍸","🍹","🍾",
-    "⚽","🏀","🏈","⚾","🥎","🎾","🏐","🏉","🥏","🎱","🪀","🏓","🏸","🏒","🏑","🥍",
-    "🏏","🥅","⛳","🪁","🎣","🤿","🥊","🥋","🎽","🛹","🛼","🛷","⛸️","🥌","🎿","⛷️",
-    "🏂","🏋️","🤼","🤸","⛹️","🤾","🏌️","🏇","🧘","🏄","🏊","🤽","🚣","🧗","🚴","🚵",
-    "🏆","🥇","🥈","🥉","🏅","🎖️","🎗️","🎫","🎟️","🎪","🤹","🎭","🎨","🎬","🎤","🎧",
-    "🎼","🎹","🥁","🎷","🎺","🎸","🪕","🎻","🎲","♟️","🎯","🎳","🎮","🎰","🧩",
-    "🚗","🚕","🚙","🚌","🚎","🏎️","🚓","🚑","🚒","🚐","🛻","🚚","🚛","🚜","🛵","🏍️",
-    "🛺","🚲","🛴","🚨","🚔","🚍","🚘","🚖","✈️","🛫","🛬","🛩️","💺","🚁","🚀","🛸",
-    "🚉","🚊","🚝","🚄","🚅","🚈","🚂","🚆","🚇","🚢","⛴️","🚤","🛥️","⛵","🚧","⛽",
-    "🗺️","🗿","🗽","🗼","🏰","🏯","🏟️","🎡","🎢","🎠","⛲","⛱️","🏖️","🏝️","🏜️","🌋",
-    "⛰️","🏔️","🗻","🏕️","⛺","🏠","🏡","🏘️","🏢","🏬","🏣","🏤","🏥","🏦","🏨","🌃",
-    "🌆","🌇","🌉","🌁",
-    "⌚","📱","💻","⌨️","🖥️","🖨️","🖱️","💽","💾","💿","📀","📷","📸","📹","🎥","📞",
-    "☎️","📟","📠","📺","📻","🧭","⏰","⏱️","⌛","⏳","🔋","🔌","💡","🔦","🕯️","🧯",
-    "💸","💵","💴","💶","💷","🪙","💰","💳","💎","⚖️","🧰","🔧","🔨","⚙️","🧲","🔫",
-    "💣","🧨","🔪","🛡️","🚬","⚰️","🔮","🧿","🪬","💈","🔭","🔬","🩺","💊","💉","🩸",
-    "🌡️","🧹","🧺","🧻","🚽","🚿","🛁","🧼","🪥","🔑","🗝️","🚪","🛋️","🛏️","🖼️","🎁",
-    "🎈","🎀","🎊","🎉","📦","📫","✉️","📝","📚","📖","🔖","📌","📍","✂️","🖊️","📎",
-    "❤️","💯","✅","❌","⭕","🚫","❗","❓","❕","❔","‼️","⁉️","💢","♨️","🔅","🔆",
-    "✔️","☑️","🔘","⚪","⚫","🔴","🟠","🟡","🟢","🔵","🟣","🟤","🔺","🔻","🔸","🔹",
-    "🔶","🔷","🔳","🔲","▪️","▫️","◾","◽","◼️","◻️","⬛","⬜","🟥","🟧","🟨","🟩",
-    "🟦","🟪","🟫","🔈","🔉","🔊","🔇","📢","📣","🔔","🔕","➕","➖","➗","✖️","♾️",
-    "💲","💱","™️","©️","®️","🔝","🔚","🔙","🔛","🔜","✳️","✴️","❇️","🔟","🆗",
-    "🆕","🆒","🆓","🆙","🆖","🅰️","🅱️","🆎","🅾️","🔠","🔡","🔢","🔣","🔤"
-)
+ * category, read from the panel's own list (Picker.kt) — the opened reactions and the panel speak one vocabulary ([C-1]). */
+private val fieldEmojiPanel: List<String> by lazy { EMOJI_CATEGORIES.flatMap { it.second } }
 
 /**
  * WHAT A PERSON REACHES FOR FIRST (iOS MTReactions 93-142): every answer sent is counted, and the quick row offers what a
@@ -2138,7 +2125,7 @@ fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Unit, onEd
             if (Stickers.editable(m)) row(c.getString(R.string.sticker_edit), R.drawable.ic_pencil) { Stickers.editFromLetter(act, ref, m) }
             // VIEW STICKER SET (iOS onViewSet: MontanaMessageMenu.swift:479-482, MontanaConversation.swift:2256-2259 at
             // 2155): any card sticker, mine or theirs, opens the same panel a hold on the emoji key opens
-            if (Stickers.viewable(m)) row(c.getString(R.string.sticker_view_set), R.drawable.ic_grid_2x2) { Stickers.panel(act, ref) }
+            if (Stickers.viewable(m)) row(c.getString(R.string.sticker_view_set), R.drawable.ic_grid_2x2) { Stickers.setPage(act, ref) }
             // COPY (iOS MontanaMessageMenu 483-485): the letter's own text, whatever it carries — not narrowed to a kind
             if (m.text.isNotEmpty()) row(c.getString(R.string.copy), R.drawable.ic_content_copy) {
                 // a post's card copies the post's words, never its record (iOS MTRowLetter.words, MTRowLetter.swift:55-59 at 2155)
@@ -2291,8 +2278,9 @@ private fun mediaBody(c: Context, m: Msg, into: LinearLayout, chat: Chat? = null
     val kind = man?.optString("k")?.ifEmpty { null } ?: byExt
     val tint = BubbleStyle.text(m.mine)
     // A MOVING PICTURE IS A GIF, NOT A STILL PICTURE (iOS MontanaGif.isGif, 23.09): the file's own extension says so; one not
-    // yet on the phone falls back to the waiting plate below, as any other picture does.
-    val isGif = kind == "img" && f?.extension?.lowercase() == "gif"
+    // yet on the phone falls back to the waiting plate below, as any other picture does. A GIF LEAVES AN IPHONE AS A DOCUMENT
+    // (iOS sendGifFile, kind "doc", MontanaConversation.swift 3807-3820 at 2155): the extension finds it under either kind.
+    val isGif = f?.extension?.lowercase() == "gif" && (kind == "img" || kind == "doc")
     if (kind == "aud") {
         val wv = man?.optString("wv")?.takeIf { it.isNotEmpty() }?.let { runCatching { android.util.Base64.decode(it, android.util.Base64.DEFAULT) }.getOrNull() }
         voiceBody(c, m, man?.optDouble("du", 0.0) ?: 0.0, into, wv?.let { b -> FloatArray(b.size) { (b[it].toInt() and 0xFF) / 255f } }, chat)
@@ -2516,13 +2504,22 @@ private fun gifCeilingDp(c: Context): Int {
  * it stands. The platform's own repeat count carries the cycles -- Android's stateful AnimatedImageDrawable needs none of
  * iOS's manual frame-index bookkeeping (MTGifView's wrap-around guard, P-130): stop()/start() alone hold the frame.
  */
-private object GifPlay {
+/** The keyboard's last height on this phone, in pixels: the field's own panel stands as tall (Picker.kt). */
+private const val KEYS_HEIGHT = "keys.height"
+
+internal object GifPlay {
     const val CYCLES = 3
     private const val KEY = "gifFirstRun"
     private const val CAP = 3000
     private var ran: MutableList<String>? = null
     @Synchronized private fun load(): MutableList<String> =
         ran ?: Prefs.str(KEY, "").split(",").filter { it.isNotEmpty() }.toMutableList().also { ran = it }
+
+    /** The file's picture was replaced by its full one (iOS MTGifPlay.renew): it plays its own three cycles again. */
+    @Synchronized fun renew(file: String) {
+        val list = load()
+        if (list.remove(file)) Prefs.setStr(KEY, list.joinToString(","))
+    }
 
     /** True once in the file's life; the mark is written before the caller returns (iOS framesLeft/shown). */
     @Synchronized fun firstEver(file: String): Boolean {
@@ -2552,13 +2549,16 @@ private fun gifBody(c: Context, m: Msg, f: java.io.File, into: LinearLayout): In
         BitmapFactory.decodeFile(f.path, o)
         if (0 < o.outWidth && 0 < o.outHeight) o.outWidth to o.outHeight else null
     }.getOrNull()
-    val fit = mediaBox(c, shape?.first ?: 4, shape?.second ?: 3, gifCeilingDp(c))
+    // A STICKER OF THE HOUSE IS A STICKER, NOT A PICTURE IN A BUBBLE (iOS gifBubble bare, MontanaBubble.swift 1119-1123 at 2155):
+    // no fill, no rim, the one size every sticker of ours wears (MTStickerLook)
+    val bare = Stickers.house(m)
+    val fit = if (bare) Stickers.box(c, shape?.first ?: 1, shape?.second ?: 1) else mediaBox(c, shape?.first ?: 4, shape?.second ?: 3, gifCeilingDp(c))
     into.addView(FrameLayout(c).apply {
         tag = MEDIA_PLATE_TAG
-        outlineProvider = object : android.view.ViewOutlineProvider() {
+        if (!bare) outlineProvider = object : android.view.ViewOutlineProvider() {
             override fun getOutline(v: View, o: android.graphics.Outline) = o.setRoundRect(0, 0, v.width, v.height, v.dp(12).toFloat())
         }
-        clipToOutline = true
+        clipToOutline = !bare
         val iv = ImageView(c).apply { scaleType = ImageView.ScaleType.FIT_CENTER }
         val key = f.name
         var byTap = false   // a tap's own stop freezes the frame it stands on -- it must never rest to the first (iOS 23.09)

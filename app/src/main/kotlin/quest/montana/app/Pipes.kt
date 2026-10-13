@@ -672,7 +672,7 @@ object Book {
         // Montana/Chats; everything else goes — the chats' files, the letters set for later, the words still waiting to leave, the
         // pins and marks of the chats, the card, the read marks, the walls held, the stickers and the grounds.
         Media.wipe(ctx); Scheduled.wipe(); ChatMarks.wipe(); MsgPins.wipe(); BusinessCard.forget(); Post.PeerRead.wipe()
-        Board.wipe(); Stickers.wipe(ctx); ChatWall.wipe()
+        Board.wipe(); Stickers.wipe(ctx); GifBook.wipe(ctx); ChatWall.wipe()
         changed()
     }
 }

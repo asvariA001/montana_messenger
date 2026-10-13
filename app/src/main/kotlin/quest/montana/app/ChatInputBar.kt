@@ -44,7 +44,7 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
         setImageResource(R.drawable.ic_face_smiling); imageTintList = android.content.res.ColorStateList.valueOf(GLYPH)
         contentDescription = c.getString(R.string.emoji)
         setPadding(dp(9), dp(9), dp(9), dp(9))
-        pressable { showKeys() }
+        pressable { onEmojiKey?.invoke() ?: showKeys() }
         setOnLongClickListener { onStickers?.invoke(); onStickers != null }   // a hold on the emoji key: the stickers
     }
     private val sendColumn = FrameLayout(c)
@@ -109,7 +109,7 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
             field.setPadding(dp(14), dp(8), dp(14), dp(8))
             val keys = listOf(
                 glassKey(R.drawable.ic_chevron_up, R.string.compose_fold) { if (!record.active) setOpen(false) },
-                glassKey(R.drawable.ic_face_smiling, R.string.emoji) { showKeys() }.apply { setOnLongClickListener { onStickers?.invoke(); onStickers != null } },
+                glassKey(R.drawable.ic_face_smiling, R.string.emoji) { onEmojiKey?.invoke() ?: showKeys() }.apply { emojiRowKey = this; setOnLongClickListener { onStickers?.invoke(); onStickers != null } },
                 glassKey(R.drawable.ic_compose_photo, R.string.gallery) { onGallery?.invoke() ?: notYet() },
                 glassKey(R.drawable.ic_compose_card, R.string.business_card) { onCard?.invoke() ?: notYet() },
                 glassKey(R.drawable.ic_compose_doc, R.string.file) { onFile?.invoke() ?: notYet() },
@@ -132,6 +132,7 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
         }
         syncSend()
         widenTouchTarget()
+        if (panelOn) panelShown(true)   // the row's keys are made anew: the emoji key keeps the keyboard's glyph while the panel stands
     }
 
     /** Pictures wait above the field (iOS hasAttachment): the send artwork stands even without words — it sends them. */
@@ -160,7 +161,18 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
     var onFile: (() -> Unit)? = null
     /** The card key (iOS .card → MontanaCardNoteView with onSend): the person's business card, sent as a photo. */
     var onCard: (() -> Unit)? = null
-    var onStickers: (() -> Unit)? = null   // the sticker panel, opened by a hold on the emoji key (Stickers.kt)
+    var onStickers: (() -> Unit)? = null   // the field's panel on the stickers, opened by a hold on the emoji key (Picker.kt)
+    /** The emoji key's tap: the keyboard and the field's own panel swap places (iOS showEmoji.toggle()). */
+    var onEmojiKey: (() -> Unit)? = null
+    private var emojiRowKey: View? = null
+    private var panelOn = false
+    /** While the panel stands the emoji key wears the keyboard (iOS «keyboard» : «face.smiling», MontanaConversation.swift 809, 851). */
+    fun panelShown(on: Boolean) {
+        panelOn = on
+        val res = if (on) R.drawable.ic_set_keyboard else R.drawable.ic_face_smiling
+        emojiInside.setImageResource(res)
+        ((emojiRowKey as? android.view.ViewGroup)?.getChildAt(0) as? ImageView)?.setImageResource(res)
+    }
     /** The voice's deeds: start the tape (false — it could not start), and end it (true — dropped, not sent). */
     var onVoiceStart: (() -> Boolean)? = null
     var onVoiceEnd: ((Boolean) -> Unit)? = null
