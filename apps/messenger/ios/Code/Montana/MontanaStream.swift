@@ -34,6 +34,7 @@ actor MTCargoLane {
     private var seq = 0
     private var tickets = 0
     private var served = 0
+    private var callWakeArmed = false
 
     /// The piece: from the store when it lies here, else from the doors in the lane's turn.
     func bring(_ bid: String, need: Need) async -> Answer {
@@ -84,6 +85,22 @@ actor MTCargoLane {
     }
 
     private func pump() {
+        // A received attachment is bulk cargo too.  The lane used to cap it at three requests,
+        // but those three could start while a call was dialing and take the same doors.  The
+        // call has priority; the durable media intent and its waiters stay intact and this one
+        // actor wakes itself after the call instead of relying on a screen event to resume it.
+        guard !MontanaCall.isBusy else {
+            if !asks.isEmpty, !callWakeArmed {
+                callWakeArmed = true
+                MontanaTrace.markFolded("cargo_lane", "held=call queued=\(asks.count) flying=\(inFlight.count)", window: 30, key: "call")
+                Task {
+                    try? await Task.sleep(nanoseconds: 1_000_000_000)
+                    await self.wakeAfterCall()
+                }
+            }
+            return
+        }
+        callWakeArmed = false
         while inFlight.count < Self.width {
             let waiting = asks.filter { !inFlight.contains($0.key) }
             guard let next = waiting.max(by: { a, b in
@@ -92,6 +109,11 @@ actor MTCargoLane {
             inFlight.insert(next.key)
             Task { await self.run(next.key) }
         }
+    }
+
+    private func wakeAfterCall() {
+        callWakeArmed = false
+        pump()
     }
 
     private func run(_ bid: String) async {

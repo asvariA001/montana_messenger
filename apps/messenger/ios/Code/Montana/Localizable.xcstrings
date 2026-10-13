@@ -21495,6 +21495,38 @@
         }
       }
     },
+    "Transfer is being confirmed": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перевод подтверждается"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在确认转账"
+          }
+        }
+      }
+    },
+    "The available balance was sufficient. The transfer has one pending record and must not be sent again.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступного баланса достаточно. У перевода одна ожидающая запись; не отправляйте его повторно."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可用余额充足。该转账已有一条待确认记录，请勿重复发送。"
+          }
+        }
+      }
+    },
     "coins": {
       "localizations": {
         "ru": {

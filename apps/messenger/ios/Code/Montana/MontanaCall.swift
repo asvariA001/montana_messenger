@@ -618,6 +618,10 @@ final class MontanaCall: NSObject {
     /// caller at once, the callee after a lead so the caller's asks land first, and never while the
     /// previous ask is still forming — unless the machine says it failed.
     private var restartAskedAt: Date = .distantPast
+    /// A live call that lost its physical interface must not retry the host pair that was
+    /// selected on the former interface.  This latch makes the route transition a single,
+    /// relay-only rebuild; the ordinary restart owner still emits its one offer afterwards.
+    private var routeRelayRecovery = false
     private static let restartSettleS: TimeInterval = 9      // a transport over a relay forms in seconds; asking sooner aborts it
     private static let restartCalleeLeadS: TimeInterval = 1.5
     private static let restartMax = 3                          // three fresh transports in a row failed — then the call is honestly lost
@@ -1042,10 +1046,17 @@ final class MontanaCall: NSObject {
         setSpeaker(true)
     }
 
-    /// The person's own switch of the loudspeaker (the audio button with the phone alone): it stands for the rest of the
-    /// call, and the video call's rule never overrides it.
-    func speakerFromUI(_ on: Bool) {
-        MontanaTrace.mark("touch", "speaker to=\(on ? "speaker" : "phone") state=\(state)")
+    /// The phone-alone audio button has one action: read the system route now, then switch to its
+    /// other built-in output. The plate never supplies a cached on/off value: the system route is
+    /// the single fact for both the action and the face.
+    func toggleSpeakerFromUI() {
+        let route = MontanaAudioRoute.read("speaker tap")
+        guard !route.isExternal else {
+            MontanaTrace.mark("touch", "speaker ignored=external state=\(state) route=\(route.ports)")
+            return
+        }
+        let on = route.current != .speaker
+        MontanaTrace.mark("touch", "speaker to=\(on ? "speaker" : "phone") state=\(state) route=\(route.ports)")
         videoSpeakerDecided = true
         setSpeaker(on)
     }
@@ -1072,10 +1083,9 @@ final class MontanaCall: NSObject {
             // WHERE THE SOUND ACTUALLY GOES (15.28): the switch used to be logged as a wish;
             // the route the system holds after it is the fact (the author, 07.09: «I press the
             // speaker while it rings and the ringing stays in the earpiece»).
-            let outs = AVAudioSession.sharedInstance().currentRoute.outputs.map { $0.portType.rawValue }.joined(separator: ",")
-            MontanaTrace.mark("speaker", (on ? "on" : "off") + " route=\(outs) active=\(self.audioActive ? 1 : 0) ringback=\(self.ringback?.isPlaying == true ? 1 : 0)")
+            let actual = MontanaAudioRoute.read("speaker override")
+            MontanaTrace.mark("speaker", (on ? "on" : "off") + " route=\(actual.ports) actual=\(actual.current == .speaker ? "speaker" : "phone") active=\(self.audioActive ? 1 : 0) ringback=\(self.ringback?.isPlaying == true ? 1 : 0)")
         }
-        DispatchQueue.main.async { CallUIModel.shared.speaker = on }
         updateProximity()
     }
 
@@ -4711,7 +4721,11 @@ final class MontanaCall: NSObject {
 
     private func setState(_ s: String) {
         let born = state == "idle" && s != "idle"
+        let ended = state != "idle" && s == "idle"
         state = s
+        if born || ended {
+            Task { @MainActor [born] in MontanaVPNTunnel.shared.callPriority(born) }
+        }
         updateProximity()
         // A CALL IS BORN — THE STANDING QUESTION IS CUT (13.09 15:20): the long question of an idle
         // phone stood on until its own deadline while the call needed the short one. The machine's
@@ -5494,8 +5508,7 @@ extension MontanaCall: RTCPeerConnectionDelegate {
                 if self.state == "connected" || self.state == "active" || self.state == "reconnecting" {
                     guard Date().timeIntervalSince(self.routeRestartAt) > 2 else { return }
                     self.routeRestartAt = Date()
-                    MontanaTrace.mark("call_route", "changed \(old)->\(key) — ice restart asked")
-                    self.requestIceRestart(reason: "route \(old)->\(key)")
+                    self.requestRouteRelayRecovery("route \(old)->\(key)")
                 } else if self.pc != nil {
                     // Still dialing/ringing: the gathered candidates just died with the old
                     // path. Remember it; the applied answer checks this flag and restarts.
@@ -5509,6 +5522,32 @@ extension MontanaCall: RTCPeerConnectionDelegate {
     }
     private func stopRouteWatch() {
         routeMonitor?.cancel(); routeMonitor = nil; routeKey = ""
+    }
+    /// A Wi-Fi/cellular crossing invalidates the nominated host pair.  Keep the pass that
+    /// formed this call -- it is still valid and avoids making recovery depend on a door that
+    /// is itself crossing networks -- then constrain the next checks to its relay candidates.
+    /// `requestIceRestart` remains the sole sender and serializes the resulting offer.
+    private func requestRouteRelayRecovery(_ reason: String) {
+        guard !routeRelayRecovery, state != "idle", pc != nil else { return }
+        routeRelayRecovery = true
+        let generation = callGen
+        MontanaTrace.mark("call_route", "changed — preparing relay recovery (\(reason))")
+        Task { @MainActor in
+            let config = await self.rtcConfig(relayOnly: true)
+            guard generation == self.callGen, self.state != "idle", let pc = self.pc else {
+                self.routeRelayRecovery = false
+                return
+            }
+            self.routeRelayRecovery = false
+            self.askedRelayOnly = true
+            if !pc.setConfiguration(config) {
+                MontanaTrace.mark("call_route", "relay configuration refused — keeping the current configuration")
+            }
+            // This is a new configuration, not a competing restart on the old host path.
+            self.restartAskedAt = .distantPast
+            MontanaTrace.mark("call_route", "relay configuration ready — ice restart asked (\(reason))")
+            self.requestIceRestart(reason: "\(reason) relay")
+        }
     }
     private func scheduleIceRestart() {
         restartTimer?.invalidate()
@@ -7453,28 +7492,35 @@ struct CallOverlayView: View {
     // every button of the tree, no circles of our own.
     /// The audio button (MontanaAudioRoute.Face): «Speaker», the loudspeaker's switch, with the phone alone; «Audio», the
     /// system's route menu, with a device outside the phone.
+    @ViewBuilder
+    private func routeControl(_ f: MontanaAudioRoute.Face, side: CGFloat) -> some View {
+        if f.menu {
+            // This native control is a sibling of the visual plate, never an overlay on a SwiftUI
+            // button. A platform view owns this touch and opens the system route sheet itself.
+            MontanaRoutePicker().frame(width: side, height: side)
+        } else {
+            Button {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                MontanaCall.shared.toggleSpeakerFromUI()
+            } label: {
+                Color.clear.frame(width: side, height: side)
+            }
+            .buttonStyle(.plain)
+            .contentShape(Rectangle())
+            .accessibilityLabel(Text(LocalizedStringKey(f.caption)))
+        }
+    }
     func routeBtn(_ f: MontanaAudioRoute.Face, side: CGFloat, col: CGFloat) -> some View {
         VStack(spacing: 8) {
-            Button {
-                // THE PRESS ANSWERS UNDER THE FINGER (the author's word 24.09): a light tap, as the system's own call
-                // buttons answer; the route menu is the platform's own and answers by itself.
-                if !f.menu {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    // THE PRESS READS WHERE THE SOUND IS (12.10.2026, the author's word 12:3x MSK: «the speaker button does not
-                    // change, it is on all the time»): the plate and the press read one fact, the route the system holds
-                    // (MontanaAudioRoute.face), never a second store of the wish that could disagree with what the plate shows.
-                    MontanaCall.shared.speakerFromUI(!f.lit)
-                }
-            } label: {
+            ZStack {
                 Image(systemName: f.icon).font(.system(size: side * 0.34, weight: .semibold))
                     .foregroundColor(f.lit ? .black : MontanaOctagon.barGlyph)
+                    .montanaOctagonFace(square: true, bar: true, height: side, tint: f.lit ? .white : nil)
+                    // A plate is visual only. Its sibling below is the one and only control.
+                    .allowsHitTesting(false)
+                    .id(f.lit)
+                routeControl(f, side: side)
             }
-            .buttonStyle(.montanaOctagon(square: true, bar: true, height: side, tint: f.lit ? .white : nil))
-            // A PLATE IS BORN FOR ITS STATE (12.10.2026): T1's call at 12:30 MSK moved the sound at each of five presses (audio_route
-            // Receiver/Speaker after every touch) while the author saw the plate lit throughout. The lit plate and the dark plate are
-            // two faces, each drawn anew for its state -- the glass is never asked to give its tint back in place.
-            .id(f.lit)
-            .overlay(alignment: .top) { if f.menu { MontanaRoutePicker().frame(width: side, height: side) } }
             Text(LocalizedStringKey(f.caption))
                 .font(.subheadline).foregroundColor(.white).lineLimit(1).minimumScaleFactor(0.7)
         }

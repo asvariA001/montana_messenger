@@ -790,10 +790,14 @@ struct MTSaveBeside<Badge: View>: ViewModifier {
                 // first frame, the shape comes from the file's header (pictureAspect), and the picture itself is decoded
                 // off the main thread -- the bubble redraws when it lands.
                 let ready = docImageCached(f)
+                // The sender's manifest preview is already a small, trusted JPEG in posterURL.
+                // Reading it here gives a received picture its first honest frame before the
+                // full cargo lands; `ready` remains the only fact that says the full file exists.
+                let poster = ready == nil ? videoThumbCached(f) : nil
+                let picture = ready ?? poster
                 let _ = thumbTick                   // dependency: redraw when the decoded picture lands
-                let shape = ready?.size ?? pictureAspect(f)
-                if ready != nil || shape != nil {
-                    mediaBubble(picture: ready, aspect: shape ?? CGSize(width: 1, height: 1), isVideo: false, file: f)
+                if let picture {
+                    mediaBubble(picture: picture, aspect: picture.size, isVideo: false, file: f)
                         // A PICTURE THE CACHE LET GO IS ASKED AGAIN (the author's word 03.10.2026 16:46 MSK: «photos on a black
                         // ground sometimes -- fix it at the root»). T1 03.10: the photo landed whole at 16:40:56, the app left the
                         // screen at 16:43:20 and every picture cache was emptied (MontanaCaches, caches=9); back at 16:45:30 the
@@ -818,7 +822,27 @@ struct MTSaveBeside<Badge: View>: ViewModifier {
                             }
                         }
                 } else if message.docName == MontanaCardPlate.stickerName { stickerPlaceholder }
-                else { imagePlaceholder }
+                else {
+                    // A row may not impersonate a picture. This legacy/corrupt-manifest path
+                    // occupies no visual space and becomes visible only after real pixels decode.
+                    EmptyView()
+                        .task(id: "\(f)|\(fileOnDisk(f))") {
+                            guard fileOnDisk(f) else { return }
+                            var pause: UInt64 = 300_000_000
+                            for turn in 0..<6 {
+                                guard docImageCached(f) == nil else { thumbTick += 1; return }
+                                let got = await Task.detached(priority: .userInitiated) { docImage(f) }.value
+                                if Task.isCancelled { return }
+                                if got != nil { thumbTick += 1; return }
+                                if turn == 5 {
+                                    MontanaTrace.mark("image_absent", "file=\(String(f.prefix(20))) — no renderable image, no plate")
+                                    return
+                                }
+                                try? await Task.sleep(nanoseconds: pause)
+                                pause = min(pause * 2, 5_000_000_000)
+                            }
+                        }
+                }
             } else if let vf = message.videoFile {
                 if vf.hasPrefix("vnote_") { videoNoteBubble(vf) } else {
                     // The video's poster is fetched here and only here; the plate is the one every
@@ -1342,28 +1366,14 @@ struct MTSaveBeside<Badge: View>: ViewModifier {
         .frame(width: width, height: 26, alignment: .leading)
     }
 
-    // placeholder if the photo file is not found on disk
     /// A STICKER ON ITS WAY STANDS ON NOTHING (the author's word 22.09: «it loads as a photo on a
-    /// white ground»). A picture that has not arrived gets the photo's grey plate with its glyph and
-    /// its word; a sticker has no plate at all -- its ground is the chat's own -- so the place it
+    /// white ground»). A sticker has no plate at all -- its ground is the chat's own -- so the place it
     /// will take is held empty, at the one sticker size, with only its progress over it.
     var stickerPlaceholder: some View {
         Color.clear
             .frame(width: MTStickerLook.side, height: MTStickerLook.side)
             .overlay { mediaProgressOverlay }
     }
-    var imagePlaceholder: some View {
-        ZStack {
-            Color(white: 0.2)
-            VStack(spacing: 6) {
-                Image(systemName: "photo").font(.system(size: 38))
-                Text("Photo").font(.caption)
-            }.foregroundColor(.gray)
-        }
-        .frame(width: 230, height: 230)
-        .clipShape(bubbleShape)
-    }
-
     /// THE ONE CEILING OF A MEDIA PLATE (the author's word 20.09: «after a turn to landscape a
     /// picture with a caption comes back crooked»): the plate's width was a share of the window —
     /// a caption widened it to four fifths of whatever the window was — so the same letter had one

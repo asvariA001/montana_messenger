@@ -1592,6 +1592,68 @@ class ChatStore: ObservableObject {
                                                             caption: m.text, peer: p.to, chatKey: p.chat)
         }
     }
+
+    // A receiver can prove that every store has lost an attachment's cargo.  Leaving that
+    // proof for a second tap made a visible photo turn into a permanent plate even though the
+    // sender still held the source file.  One verified loss gets one automatic reconstruction
+    // under the SAME letter name; a second loss stays an honest red retry instead of making an
+    // unbounded resend loop.  The reservation is in the sealed local vault, so relaunching in
+    // the middle of the repair cannot create a second concurrent reconstruction.
+    private static let cargoRepairMidsKey = "cargoRepairMids"
+
+    private func reserveCargoRepair(_ mid: String) -> Bool {
+        let old: [String]
+        if let raw = MontanaLocalVault.getString(Self.cargoRepairMidsKey),
+           let data = raw.data(using: .utf8),
+           let decoded = try? JSONDecoder().decode([String].self, from: data) {
+            old = decoded
+        } else {
+            old = []
+        }
+        guard !old.contains(mid) else { return false }
+        guard let data = try? JSONEncoder().encode(old + [mid]),
+              let text = String(data: data, encoding: .utf8) else { return false }
+        return MontanaLocalVault.setString(Self.cargoRepairMidsKey, text)
+    }
+
+    /// Called only after the sender checked the stores itself and confirmed that a peer's
+    /// cargo-lost word is current.  This is deliberately not a UI action: recovery owns the
+    /// durable queue and the original letter identity, while the conversation screen merely
+    /// renders its state.
+    @MainActor
+    func repairLostMediaOnce(mid: String, to: String, chat: String) {
+        guard let row = messages[chat]?.first(where: {
+            $0.isFromMe && ($0.mid == mid || $0.msgId == "mid:" + mid)
+        }) else {
+            MontanaTrace.mark("cargo_repair", mid: mid, "refused — the sender row is absent")
+            return
+        }
+        let file: String?
+        let kind: String
+        if let f = row.videoFile { file = f; kind = "vid" }
+        else if let f = row.imageFile { file = f; kind = "img" }
+        else if let f = row.audioFile { file = f; kind = "aud" }
+        else if let f = row.docFile { file = f; kind = "doc" }
+        else { file = nil; kind = "" }
+        guard let file, FileManager.default.fileExists(atPath: attachmentURL(file).path) else {
+            MontanaTrace.mark("cargo_repair", mid: mid, "refused — no source file remains")
+            return
+        }
+        guard uploadTasks[file] == nil && uploadProgress[file] == nil else {
+            MontanaTrace.mark("cargo_repair", mid: mid, "joins living send — no second reconstruction")
+            return
+        }
+        guard reserveCargoRepair(mid) else {
+            MontanaTrace.mark("cargo_repair", mid: mid, "held — this letter already rebuilt once")
+            return
+        }
+        setMediaStatus(chat, file: file, .sending)
+        MontanaTrace.mark("cargo_repair", mid: mid, "rebuild kind=\(kind) — verified cargo loss")
+        MontanaMediaSender(store: self).sendMediaOverE2E(fileName: file, kind: kind,
+                                                          docName: row.docName, caption: row.text,
+                                                          peer: to, chatKey: chat)
+    }
+
     @MainActor
     func markStaleSendsFailed(coldStart: Bool) {
         // The sign of a LIVING media send is not time but the presence of an upload task.
@@ -5031,21 +5093,33 @@ MontanaLocalVault.setEncrypted("scheduledMsgs", d)
             // all — delivery was already confirmed and dequeued, yet nothing was on screen.
             // Precedent: a 40 MB video, the notification arrived, the conversation did not.
             if deletedChats.contains(chat) { deletedChats.remove(chat) }   // media revives a deleted conversation, as text and a call do
-            // The preview from the manifest is filed for every attachment, not only video:
-            // without it a photo is a black square until the download ends.
-            if let th = obj["th"] as? String, let d = Data(base64Encoded: th) {
+            // The preview from the manifest is filed for every attachment. A photo may enter
+            // the feed only with this valid image or with its full file below.
+            let photoPreviewReady: Bool
+            if let th = obj["th"] as? String, let d = Data(base64Encoded: th),
+               let preview = UIImage(data: d), preview.size != .zero {
+                photoPreviewReady = true
                 MontanaMainProbe.step("media:poster") {
                     try? d.write(to: posterURL(name))
                     videoThumbCache.removeObject(forKey: name as NSString)
                     imageDecodeCache.removeObject(forKey: name as NSString)
                     MontanaSmallPicture.forget(name)
                 }
+            } else {
+                photoPreviewReady = false
+                if kind == "img" {
+                    MontanaTrace.mark("image_absent", "sid=\(String((msgId ?? "-").prefix(16))) — manifest has no valid preview")
+                }
             }
             // The wave the sender probed (16.09): the bars stand on the first frame, before the file.
             if let wv = obj["wv"] as? String, let d = Data(base64Encoded: wv), !d.isEmpty {   // COMPAT-LOCAL: a new key
                 MontanaMainProbe.step("media:wave") { MTWaveform.remember(name, MTWaveform.unpack(d)) }
             }
-            if !(messages[chat] ?? []).contains(where: { msgId != nil && $0.msgId == msgId }) {
+            let alreadyWhole = MontanaMediaStore.exists(name)
+            // No third visual state: an image row is born only when it owns actual pixels.
+            // A legacy manifest without its preview continues its durable fetch invisibly.
+            if (kind != "img" || photoPreviewReady || alreadyWhole),
+               !(messages[chat] ?? []).contains(where: { msgId != nil && $0.msgId == msgId }) {
                 MontanaMainProbe.crumb = "media:placeholder"
                 appendMediaPlaceholder(chat, kind: kind, name: name, docName: docName, caption: caption,
                                        isFromMe: isFromMe, time: time, msgId: msgId, senderRef: senderRef,
@@ -5059,7 +5133,7 @@ MontanaLocalVault.setEncrypted("scheduledMsgs", d)
             // on a video the peer does not have (precedent 20.08 18:04). For media, delivery
             // = the ASSEMBLED FILE, and the receipt leaves from the assembly point, below.
             // The file is already on disk — there is nothing to fetch.
-            if MontanaMediaStore.exists(name) {
+            if alreadyWhole {
                 MontanaLog.event("RX-MEDIA skip: the file is already on disk")
                 // A ROW BORN BESIDE A FILE THAT CAME FIRST (18.09): the chunks reached the disk ahead of
                 // the manifest, and this exit used to leave the row unfilled — a voice with «0:00» under
@@ -5187,7 +5261,22 @@ MontanaLocalVault.setEncrypted("scheduledMsgs", d)
                     }
                     return   // the intent is already on disk — the next pass continues from the same place
                 }
-                await MainActor.run { self?.mediaLanded(chat, name: name, msgId: msgId, isFromMe: isFromMe, docName: docName) }
+                await MainActor.run {
+                    // A legacy image without a manifest preview becomes a row atomically with
+                    // the adopted file. Until then there was no fake photo in the feed.
+                    if kind == "img", !photoPreviewReady,
+                       !(self?.messages[chat] ?? []).contains(where: { msgId != nil && $0.msgId == msgId }) {
+                        self?.appendMediaPlaceholder(chat, kind: kind, name: name, docName: docName, caption: caption,
+                                                     isFromMe: isFromMe, time: time, msgId: msgId, senderRef: senderRef,
+                                                     transport: transport, proven: proven,
+                                                     forwarded: (obj["fw"] as? Bool) ?? false,
+                                                     audioDuration: (obj["du"] as? Double) ?? 0,
+                                                     groupKey: MTMediaGroup.read(obj)?.key,
+                                                     groupIndex: MTMediaGroup.read(obj)?.index ?? 0,
+                                                     groupCount: MTMediaGroup.read(obj)?.count ?? 0)
+                    }
+                    self?.mediaLanded(chat, name: name, msgId: msgId, isFromMe: isFromMe, docName: docName)
+                }
                 // The chunks are NOT removed: the blob is content-addressed and SHARED — a
                 // letter retry (alive in the queue until the receipt) or a broadcast's second
                 // addressee will fetch it again. Early teardown gave blob_dl FAIL at the
@@ -5452,6 +5541,15 @@ MontanaLocalVault.setEncrypted("scheduledMsgs", d)
             default: return nil
             }
         }()
+        // A photo is admitted to the wire only with pixels the other phone can render. A
+        // malformed source is refused at its owner; it never creates a synthetic photo tile.
+        guard kind != "img" || thumb != nil else {
+            MontanaTrace.mark("image_refused", "source has no renderable preview — no manifest is sent")
+            if let chat = statusChat, let file = statusFile {
+                Task { @MainActor in self.setMediaRefused(chat, file: file, because: .nothingCarries) }
+            }
+            return
+        }
         // The bubble frame is the SAME on both sides by construction: the manifest preview
         // (what the receiver renders) becomes the sender's poster too. Two sources — the
         // sender's locally-born frame and the receiver's manifest thumb — diverged in
@@ -5632,7 +5730,7 @@ MontanaLocalVault.setEncrypted("scheduledMsgs", d)
                 if MontanaWakePush.handOffFlag.check(letterMid) {
                     MontanaBlobUpload.shared.enqueue(bid: mbid, sealed: sealedManifest); return true
                 }
-                if await MontanaWakePush.putBlob(mbid, data: sealedManifest) { return true }
+                if await MontanaWakePush.putBlob(mbid, data: sealedManifest, bulk: true) { return true }
                 if MontanaWakePush.handOffFlag.check(letterMid) {
                     // The window died during this very request — hand it over, not bury it.
                     MontanaBlobUpload.shared.enqueue(bid: mbid, sealed: sealedManifest); return true
@@ -6066,7 +6164,7 @@ MontanaLocalVault.setEncrypted("scheduledMsgs", d)
                         if let l = one["letter"] as? String, !l.isEmpty { letter = l }
                         else {
                             letter = await MontanaMedia.manifestLetter(json, putBlob: {
-                                await MontanaWakePush.putBlob($0, data: $1)
+                                await MontanaWakePush.putBlob($0, data: $1, bulk: true)
                             })?.letter ?? (mediaMark + body)
                         }
                         MontanaDeliveryEngine.shared.enqueue(to: peer, chat: peer,
@@ -6495,6 +6593,7 @@ enum SeedScope {
         "blobKeySeed", "mt.outbox.key", "mt_active_mnemonic", "mt_apple_id_seed", "mt_device_key", "mt_store_witness", "turnPass",
         "wakeBase", "wakeBases", "wakeElected", "wakeMyAddr", "wakeMyAuthor", "wakeMyGlyph", "wakeMyName", "wakeOwnToken",
         "wakeVoipDigest", "wakeVoipToken", "diagId", "diagSalt", "nseDiag", "nseLog", "shareDiag",
+        "cargoRepairMids",   // one device's sealed reservation: an automatic cargo reconstruction may happen once here
         "nseInbox", "nseKnocked", "nseShownMids", "nseQuietIds", "nseRoomRang", "heldMids", "pendingShare", "pendingWall", "missedCallSeeds",
         "callNoticeTokens", "mt.longblob.wait", "musicFolders",   // callNoticeTokens: the one-time names a call's notices wear for the system (MontanaMissedCall.noticeToken)
         "noticeAliases",   // the alias each conversation wears for the system on this phone (MTNoticeAlias, 12.10): this device's names, never a copy
@@ -6556,7 +6655,7 @@ enum SeedScope {
         "mt.probe.at", "mt.probe.conf", "mt.probe.mode", "mt.probe.rot",
         "mt.probe.line",   // the line under the permitted list, with its hysteresis (30.09): this network's word, never a copy's
         "mt.release.told",   // the build the Montana room already told this phone of (29.09): this device's own
-        "mt_device_key", "mt.install.marker", "mt_store_witness",
+        "mt_device_key", "mt.install.marker", "mt_store_witness", "cargoRepairMids",
         "mt.doorbook", "mt.nodes", "mt.nodes.learned", "mt.nodes.machines", "mt.self.proven",
         "mt.notify.asked",
         MontanaDiagConsent.key,   // this device's yes to its diary leaving it (08.10.2026): each device answers for itself

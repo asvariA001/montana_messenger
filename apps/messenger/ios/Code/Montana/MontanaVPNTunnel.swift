@@ -240,6 +240,20 @@ final class MontanaVPNTunnel: ObservableObject {
         }
     }
 
+    /// A call has a short, explicit priority lease in the extension. The app never restarts
+    /// the VPN for it: the lease only prevents diagnostic probes and recovery churn from taking
+    /// the engine away while ICE and voice are forming.
+    func callPriority(_ active: Bool) {
+        guard let session = manager?.connection as? NETunnelProviderSession else { return }
+        let word = Data((active ? "call-priority:1" : "call-priority:0").utf8)
+        do {
+            try session.sendProviderMessage(word) { _ in }
+            MontanaTrace.markFolded("vpn_call_priority", "active=\(active ? 1 : 0)", window: 30)
+        } catch {
+            MontanaTrace.mark("vpn_call_priority", "send refused active=\(active ? 1 : 0)")
+        }
+    }
+
     private func statusName(_ s: NEVPNStatus) -> String {
         switch s {
         case .invalid: return "invalid"; case .disconnected: return "disconnected"

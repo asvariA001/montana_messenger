@@ -2790,6 +2790,9 @@ enum MTOwnWords {
 /// a paid reaction is a reaction word that carries its coins. Both ask the book first: a short balance refuses here and
 /// nothing leaves.
 enum MTCoinSend {
+    /// A field transfer has three honest outcomes. Only the local book may call it short;
+    /// an unanswered node record is pending, not an insufficient balance and not a second send.
+    enum TransferResult { case sent(String), short, pending }
     /// The system chain's name for a restored credit: this prefix and the coin letter's wire name.
     static let restorePrefix = "restore:"
     /// A pair's own conversation, open to letters, of other words than mine: where a bubble burns its coin (pay).
@@ -2812,20 +2815,40 @@ enum MTCoinSend {
     /// 200 is the moment they left and the book's debit; then a letter in the chat says how many and carries the confirmation link.
     /// False -- refused (the balance, the chat) or no node took the record: nothing moved.
     @MainActor static func transfer(_ coins: Int, to chat: Chat, store: ChatStore) async -> Bool {
-        await transferId(coins, to: chat, store: store) != nil
+        if case .sent(_) = await transferResult(coins, to: chat, store: store) { return true }
+        return false
     }
     /// The same transfer with its record's name: one's own other account lands it at once (MTCoinTx.landOwn).
     @MainActor static func transferId(_ coins: Int, to chat: Chat, store: ChatStore) async -> String? {
+        if case let .sent(id) = await transferResult(coins, to: chat, store: store) { return id }
+        return nil
+    }
+    @MainActor static func transferResult(_ coins: Int, to chat: Chat, store: ChatStore) async -> TransferResult {
         let conv = chat.convId ?? chat.name
-        guard canPay(chat, store: store), 0 < coins, coins <= MTCoinBook.ledger.balance else {
-            MontanaTrace.mark("coin_refused", "transfer coins=\(coins) balance=\(MTCoinBook.ledger.balance) own=\(MTOwnWords.mine(conv) ? 1 : 0)")
-            return nil
+        let balance = MTCoinBook.ledger.balance
+        guard canPay(chat, store: store), 0 < coins else {
+            MontanaTrace.mark("coin_refused", "transfer invalid coins=\(coins) balance=\(balance) own=\(MTOwnWords.mine(conv) ? 1 : 0)")
+            return .pending
         }
-        guard let id = await MTCoinTx.send(coins, conv: conv) else { return nil }
-        // USER-DATA: the coin glyph, the number and the ticker, the same in every language; the link is the transfer's own address
-        let text = "🪙 " + MTCoinText.count(coins) + " " + MTCoinBook.ticker + "\n" + MTCoinTx.link + id
-        _ = store.send(text: text, chat: chat.name, convRef: conv, silent: false, noLinkCard: true)
-        return id
+        guard coins <= balance else {
+            MontanaTrace.mark("coin_refused", "transfer coins=\(coins) balance=\(balance) own=\(MTOwnWords.mine(conv) ? 1 : 0)")
+            return .short
+        }
+        switch await MTCoinTx.sendResult(coins, conv: conv) {
+        case .sent(let id):
+            // USER-DATA: the coin glyph, the number and the ticker, the same in every language; the link is the transfer's own address
+            let text = "🪙 " + MTCoinText.count(coins) + " " + MTCoinBook.ticker + "\n" + MTCoinTx.link + id
+            _ = store.send(text: text, chat: chat.name, convRef: conv, silent: false, noLinkCard: true)
+            return .sent(id)
+        case .pending:
+            MontanaTrace.mark("coin_pending", "transfer coins=\(coins) balance=\(balance)")
+            return .pending
+        case .refused:
+            // The book already proved the sum was present. A refusal after that is a
+            // chain/transport state, never an arithmetic shortage shown to the person.
+            MontanaTrace.mark("coin_pending", "transfer unconfirmed coins=\(coins) balance=\(balance)")
+            return .pending
+        }
     }
     /// Coins given on the correspondent's letter: the book pays, the reaction word carries them («op»: «coin»). An older build
     /// reads an unknown op as nothing at all.
@@ -3422,40 +3445,46 @@ enum MTCoinTx {
     /// record laid there. Taken -- the coins left. A head that moved (another device of the words sent meanwhile) -- the coins come
     /// back under the same number, the seed's own records join the book, the balance is asked again and one more record goes on the
     /// new head. Refused, or never reached -- the coins come back. No answer -- the record waits on disk for the node's word (settle).
+    enum SendResult { case sent(String), pending, refused }
     @MainActor static func send(_ coins: Int, conv: String) async -> String? {
+        if case let .sent(id) = await sendResult(coins, conv: conv) { return id }
+        return nil
+    }
+    @MainActor static func sendResult(_ coins: Int, conv: String) async -> SendResult {
         // VERSION 3 FIRST (COIN-TX-V3): the chain proves the balance; version 2 only for a correspondent who cannot take v3, until the cut
         switch await send3(coins, conv: conv) {
-        case .sent(let id): return id
-        case .failed: return nil
+        case .sent(let id): return .sent(id)
+        case .pending: return .pending
+        case .failed: return .refused
         case .notApplicable(let why):
             // the reason a version 3 SEND could not go, said: 11:59:58 MSK of 12.10 laid a v2 record and nothing told why
             MontanaTrace.mark("coin_v3", "v2 road why=\(why) coins=\(coins)")
-            if v2Cut <= Int64(Date().timeIntervalSince1970) { return nil }
+            if v2Cut <= Int64(Date().timeIntervalSince1970) { return .refused }
         }
-        guard let me = myKeyTag, let door = chainDoor(me) else { return nil }
+        guard let me = myKeyTag, let door = chainDoor(me) else { return .refused }
         // A SEND THAT NAMES NO RECEIVER SPENDS THE CHAIN TOO (COIN-TX-V3 section 3, fold-2): the chain opened and holding the sum first,
         // else the node refuses it as an overspend -- the coins stay, said here before anything is signed
         if let st = await reconcile(force: true), st.v3, st.proven + st.declared < Int64(coins) {
             MontanaTrace.mark("coin_v3", "v2 road refused: chain short coins=\(coins) chain=\(st.proven + st.declared)")
-            return nil
+            return .refused
         }
         let book = MTLocalCoinLedger.shared.whole
         for attempt in 1...2 {
             let h = await ask(door + "/tx-head", ["from": me])
             guard h.code == 200, let head = h.obj?["head"] as? String, head.count == 64 else {
                 MontanaTrace.mark("coin_tx", "no head code=\(h.code) attempt=\(attempt)")
-                return nil
+                return .refused
             }
             guard await headIsMine(head, me: me, door: door) else {
                 MontanaTrace.mark("coin_tx", "head unverified attempt=\(attempt)")
-                return nil
+                return .refused
             }
             guard let rec = await Task.detached(priority: .userInitiated, operation: { build(coins, conv: conv, prev: head) }).value else {
                 MontanaTrace.mark("coin_tx", "refused build coins=\(coins)")
-                return nil
+                return .refused
             }
             let id = name(rec)
-            guard book.send(coins, to: conv, ref: refPrefix + id) else { return nil }
+            guard book.send(coins, to: conv, ref: refPrefix + id) else { return .refused }
             let pending = pendingURL(id)
             if let pending { try? rec.write(to: pending, options: .atomic) }
             let word = await lay(rec)
@@ -3463,17 +3492,17 @@ enum MTCoinTx {
             switch word {
             case .left:
                 if let pending { try? FileManager.default.removeItem(at: pending) }
-                return id
+                return .sent(id)
             case .notLeft, .behind:
                 book.receive(coins, from: conv, ref: backPrefix + id, on: nil)
                 if let pending { try? FileManager.default.removeItem(at: pending) }
-                if word == .notLeft { return nil }
+                if word == .notLeft { return .refused }
                 await scanFresh(why: "behind")   // the other device's record joins the book before the balance is asked again
             case .unknown:
-                return nil
+                return .pending
             }
         }
-        return nil
+        return .refused
     }
     /// The records an ended process left waiting, each decided by a node's word; then the pipes are asked.
     @MainActor static func settle() async {
@@ -3726,7 +3755,7 @@ extension MTCoinTx {
     }
     private static func openSends() -> [[String: Any]] { (load("coin3-open.json")["open"] as? [[String: Any]]) ?? [] }
     private static func keepOpen(_ rows: [[String: Any]]) { save("coin3-open.json", ["open": rows]) }
-    enum Send3 { case sent(String), notApplicable(String), failed }
+    enum Send3 { case sent(String), pending, notApplicable(String), failed }
     /// SENDS (version 3): the receiver's key known (their about word), my chain announced and holding the sum, the record names
     /// the declared part of it (proven is spent first), commits to the receiver's key under the pair's blind, and is laid on my
     /// chain's head. Anything that makes v3 impossible (an older correspondent, the chain not holding the sum yet) is said as
@@ -3762,7 +3791,7 @@ extension MTCoinTx {
                 if word == .notLeft { return .failed }
             case .unknown:
                 keepOpen(openSends() + [["id": id, "conv": conv, "coins": coins, "at": st.now]])
-                return .failed
+                return .pending
             }
         }
         return .failed

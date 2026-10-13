@@ -1237,7 +1237,7 @@ enum MontanaWakePush {
         let mk = montanaRandom(32)
         guard let sealed = MontanaDirect.seal(key: [UInt8](mk), full) else { return nil }
         let bid = MontanaMedia.blobIdHex(sealed)
-        guard await putBlob(bid, data: sealed) else { MontanaTrace.mark("letter_blob", "FAIL up"); return nil }
+        guard await putBlob(bid, data: sealed, bulk: true) else { MontanaTrace.mark("letter_blob", "FAIL up"); return nil }
         let refObj: [String: String] = ["r": bid, "k": mk.base64EncodedString()]
         guard let j = try? JSONSerialization.data(withJSONObject: refObj),
               let js = String(data: j, encoding: .utf8) else { return nil }
@@ -1634,13 +1634,35 @@ enum MontanaWakePush {
     /// second or third — one part's failure does not drop the file.
     /// Idempotent by content address: re-sending a chunk already stored is harmless. A
     /// failure goes to the trace, never silently.
+    /// Bulk cargo yields for the entire lifetime of a call, including its dialing phase.  It is
+    /// not a second queue: the durable media intent remains the only queue and resumes the same
+    /// cargo after the call.  This single gate prevents a photo's hedged uploads from spending
+    /// the signalling roads needed to bring the call up.
+    private static func enterBulkLane(_ work: String) async -> Bool {
+        var held = false
+        while MontanaCall.isBusy {
+            if !held {
+                held = true
+                MontanaTrace.mark("bulk_lane", "held=call work=\(work)")
+            }
+            if Task.isCancelled { return false }
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+        }
+        if held { MontanaTrace.mark("bulk_lane", "resumed work=\(work)") }
+        return !Task.isCancelled
+    }
+
     static func putBlob(_ bid: String, data: Data, over: Bool = false,
-                        cargo: String? = nil, last: Bool = false, assumeAbsent: Bool = false) async -> Bool {
+                        cargo: String? = nil, last: Bool = false, assumeAbsent: Bool = false,
+                        bulk: Bool = false) async -> Bool {
         // A CHUNK ALREADY ON THE NODE IS NOT SENT AGAIN (08.09): the face letter to nine
         // correspondences and every retry of it re-uploaded the same 64 KB, twelve times a
         // minute, and a person's 221 KB photo crawled behind them at 94 kbps for nineteen
         // seconds. The name is the content; one small question first, the bytes only when the
         // node lacks them. A chunk walk (uploadChunks) has already asked for its whole batch.
+        if bulk {
+            guard await enterBulkLane("put") else { return false }
+        }
         if !over, !assumeAbsent, let have = await blobsPresent([bid]), have.contains(bid) {
             MontanaTrace.markFolded("blob_put", "already on the node id=\(String(bid.prefix(8))) — not sent again", window: 30)
             return true
@@ -1662,13 +1684,15 @@ enum MontanaWakePush {
         var why = "?"
         for attempt in 0..<3 {
             if Task.isCancelled { why = "cancelled"; break }
+            if bulk, !(await enterBulkLane("put")) { why = "cancelled"; break }
             // The doors are read AT EVERY ATTEMPT, never once per chunk: a door that died between
             // two attempts is no longer first.
             let doors = bases(for: "blob").filter { !doorResting($0) }.map { ($0, $0 + "/blob-put") }   // SERVER-DEBT-ACK: the accelerator node (rung 4)
             guard !doors.isEmpty else { why = "no live door"; break }
-            let (code, w) = await hedgedPut(doors, payload: payload, bytes: data.count, bid: bid)
+            let (code, w) = await hedgedPut(doors, payload: payload, bytes: data.count, bid: bid, bulk: bulk)
             if code == 200 { return true }
             why = w
+            if bulk, code == -2, w == "held=call" { continue }
             if code == 429 { try? await Task.sleep(nanoseconds: 1_200_000_000); continue }
             if attempt < 2 { try? await Task.sleep(nanoseconds: 600_000_000) }
         }
@@ -1686,7 +1710,8 @@ enum MontanaWakePush {
     /// idempotent by its name, and a receiver asks every door at once, so the chunk found on a
     /// second node is the same chunk. A healthy slow link is never uploaded twice: it neither dies
     /// nor goes silent past half its deadline.
-    private static func hedgedPut(_ doors: [(door: String, road: String)], payload: Data, bytes: Int, bid: String) async -> (Int, String) {
+    private static func hedgedPut(_ doors: [(door: String, road: String)], payload: Data, bytes: Int, bid: String,
+                                  bulk: Bool) async -> (Int, String) {
         let deadline = MTNodeWire.cargoTimeoutS(bytes: bytes)   // one deadline rule with the sheet (17.09)
         let patience = deadline / 2
         enum Step { case answer(String, Int, String); case tick }
@@ -1729,6 +1754,10 @@ enum MontanaWakePush {
                     if code != 429 { launch() }   // the next door at once; a busy node is waited, not jumped
                 case .tick:
                     if Task.isCancelled { group.cancelAll(); return (-2, "cancelled") }
+                    if bulk && MontanaCall.isBusy {
+                        group.cancelAll()
+                        return (-2, "held=call")
+                    }
                     // An in-flight door that died by any road's verdict, or overstayed half its
                     // deadline, calls the next one in. One extra door per second at most: never a storm.
                     let stale = started.contains { d, t in doorResting(d) || Date().timeIntervalSince(t) > patience }
@@ -1823,6 +1852,7 @@ enum MontanaWakePush {
 
     static func uploadChunks(_ ref: [String: Any], letter: String? = nil,
                              progress: (@Sendable (Int, Int) -> Void)? = nil) async -> Bool {
+        guard await enterBulkLane("chunks") else { return false }
         let bids = (ref["chunks"] as? [[String: Any]] ?? []).compactMap { $0["bid"] as? String }
         // TWO CONTENT-FREE CARGO MARKS (9-D.5). The random label is shared by chunks of ONE
         // media and tied to nothing; the «last» flag closes the cargo. By them the node tells
@@ -1865,6 +1895,7 @@ enum MontanaWakePush {
             if pending.isEmpty { break }
             // A watchdog that gave the upload up cancels it: no further round, no «FAIL cancelled» lines.
             if Task.isCancelled { return false }
+            guard await enterBulkLane("chunks") else { return false }
             // Stage 8.3: the grace window expired — stop the interactive rounds, hand the
             // remaining chunks to the system session and report a handoff (not a failure).
             if let l = letter, Self.handOffFlag.check(l) {
@@ -1891,6 +1922,10 @@ enum MontanaWakePush {
                         group.addTask { (bid, false) }   // not launched — the leftover goes to the system session below
                         return
                     }
+                    if MontanaCall.isBusy {
+                        group.addTask { (bid, false) }
+                        return
+                    }
                     group.addTask {
                         guard let sealed = MontanaBlobStore.get(bid) else {
                             // The crate is not on disk — it is removed ONLY after a successful
@@ -1898,7 +1933,8 @@ enum MontanaWakePush {
                             MontanaTrace.mark("blob_up", "no crate id=\(String(bid.prefix(8))) — counting as handed over")
                             return (bid, true)
                         }
-                        let ok = await putBlob(bid, data: sealed, cargo: cargoMark, last: bid == lastBid, assumeAbsent: true)
+                        let ok = await putBlob(bid, data: sealed, cargo: cargoMark, last: bid == lastBid,
+                                               assumeAbsent: true, bulk: true)
                         if ok {
                             MontanaTrace.mark("blob_up", "id=\(String(bid.prefix(8))) bytes=\(sealed.count)")
                             MontanaBlobStore.drop([bid])
@@ -2601,6 +2637,14 @@ enum MontanaWakePush {
         if let d = MontanaBlobStore.get(bid) { return .found(d) }
         var unreachableTries = 0, busyTries = 0
         while unreachableTries < 3 && busyTries < 6 {
+            // The receive lane has already stopped new work, but an answer can finish exactly
+            // as a call begins.  Keep every retry behind the same call-priority fact, so a
+            // receiver cannot start a fresh hedge during dialling.
+            while MontanaCall.isBusy {
+                if Task.isCancelled { return .unreachable }
+                MontanaTrace.markFolded("blob_dl", "held=call id=\(String(bid.prefix(8)))", window: 30, key: "call")
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            }
             switch await askBlob(bid) {
             case .found(let d):
                 MontanaBlobStore.put(bid, d)

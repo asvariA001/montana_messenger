@@ -1398,7 +1398,15 @@ final class MontanaDeliveryEngine {
                 // lost while T2 assembled all five). The letter stays at both ends; the sender re-uploads
                 // under the same name, the receiver's row takes the new cargo (rx_refill). The box copy
                 // stays for the receiver too — it names the letter; the cargo is asked for by the manifest.
-                _ = to
+                // A verified absence is different from a passing road failure: the sender still owns
+                // the source file, so it reconstructs the cargo once by itself.  The store keeps the
+                // one-repair reservation durably; a second verified loss remains an honest red retry,
+                // never an invisible or endless resend loop.
+                if let to {
+                    Task { @MainActor [weak self] in
+                        self?.store?.repairLostMediaOnce(mid: m, to: to, chat: chat)
+                    }
+                }
             }
         }
     }
