@@ -195,6 +195,7 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
         if (on && results.visibility != View.VISIBLE) results.scrollTo(0, 0)
         results.visibility = if (on) View.VISIBLE else View.GONE
         if (on) results.show(search.query)
+        chats.pin(search.active)   // iOS pinTop: ownSearch ? false : searchActive -- the chats page has no search of its own
         if (search.active != searching) {
             searching = search.active
             if (searching) { keepBack = act.back; act.back = { search.clear() } } else { act.back = keepBack; keepBack = null }
@@ -874,6 +875,11 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
     private lateinit var redrawRows: () -> Unit
     private var archiveRevealed = false   // the archive's row is summoned by a pull (iOS archiveRevealed)
     private var revealArchive: (Boolean) -> Unit = {}
+    // THE ROWS' EDGES (iOS MTChatListFrame.headFloats / pinned): the archive row stands over the head -- the rows stop at the
+    // list's top; the search holds the list -- they stop at its bottom. Declared before the list, whose first fill reads them.
+    private var sink: EdgeSink? = null
+    private var headFloats = false
+    private var pinned = false
     private val foot = View(c)   // the floating player's room at the foot (reserve)
     private val sel = ChatSelection { s ->
         redrawRows()
@@ -943,7 +949,9 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
                 // THE ARCHIVE'S ROW over the chats while it is summoned and something is archived (iOS archiveRevealed: a pull-down
                 // summons it, a stroke up folds it -- the contacts' one law, «as on the chats»)
                 val archived = archivedChats().size
-                if (archiveRevealed && archived > 0 && !sel.on) {
+                headFloats = archiveRevealed && archived > 0 && !sel.on   // iOS archiveShown (storiesShown: test mode only)
+                sink?.up = !headFloats
+                if (headFloats) {
                     rows.addView(archiveEntry(act, archived), lp())
                     rows.addView(View(c).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = dp(82) })
                 }
@@ -982,6 +990,8 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
         foot.layoutParams = lp(MATCH, dp(if (on) 180 else 120)); foot.requestLayout()
         write.layoutParams = PageCorner.params(c, reserve = on)
     }
+    /** The search holds the list (iOS pinTop = searchActive): the rows stop at the list's bottom, the results stand alone. */
+    fun pin(on: Boolean) { pinned = on; sink?.down = !on }
     init {
         // THE LIST'S OWN DRAG AND ITS FLING, MEASURED (iOS MTFrameMeter, MontanaMessageFeed.swift:268-437, 1125-1149).
         Motion.watch(list) { _, _, y, _, _ -> if (c.dp(25) < y) revealArchive(false) }   // a stroke up folds the archive's row
@@ -990,7 +1000,10 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
         // below -- the feed to the end of the screen, as in the chats"): the one EdgeSink mask (Conversation.kt's own road) on
         // the rows' own layer, fading into the page's ground past the bar above (the list's own top room, set globally by
         // underlapPage) and the screen's own bottom edge below.
-        addView(EdgeSink(c, top = { list.paddingTop + dp(34) }, bottom = { height }).apply {
+        // While the archive row stands (headFloats) the rows stop at the list's top, the head's lower edge (iOS up: false); while
+        // the search holds the list (pinned) they stop at the page's bottom (iOS down: false).
+        addView(EdgeSink(c, top = { list.paddingTop + dp(34) }, bottom = { height }, edgeTop = { list.paddingTop }).apply {
+            sink = this; up = !headFloats; down = !pinned
             addView(CoinPull(c, list).apply { onPull = { pull -> if (25f < pull) revealArchive(true) } }, FrameLayout.LayoutParams(MATCH, MATCH))   // the coin's pull refreshes the feed (iOS MontanaCoinSpinner) and summons the archive's row
         }, FrameLayout.LayoutParams(MATCH, MATCH))
         // «WRITE» (iOS composeButton): the one door to the code and the link — the QR opens here and nowhere else.
