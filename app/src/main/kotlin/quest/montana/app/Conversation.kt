@@ -1889,9 +1889,21 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
         Groups.speakerLine(c, m, chat.ref)?.let { who ->
             addView(c.text(who, 12f, MT.gray, bold = true).apply { singleLineEllipsis(); setPadding(c.dp(8), c.dp(6), 0, c.dp(2)) }, lp(WRAP, WRAP))   // USER-DATA: the speaker's name
         }
+        // THE PICTURE IS THE BUBBLE (iOS mediaBubble 1534-1600 and gifBubble 1113-1160, MontanaBubble.swift at 2155): a photo, a film or a
+        // moving picture fills its bubble edge to edge, clipped to the bubble's own shape; the time stands ON the picture in a dark
+        // capsule; the bubble's fill shows only under a caption. Android drew the picture inside the padded bubble: a blue frame round it.
+        val edge = 1 == members.size && edgePlate(m)
+        val edgeCap = if (edge) Media.manifestOf(m)?.optString("cap")?.takeIf { it.isNotEmpty() } else null
+        val onPlate = edge && (edgeCap == null || BusinessCard.lines(edgeCap) != null)
         addView(c.vstack(Gravity.END) {
             background = if (Stickers.bare(m)) null else BubbleStyle.drawable(context, mine)   // a sticker stands without a bubble
-            setPadding(dp(12), dp(7), dp(12), dp(6))
+            if (edge) {
+                setPadding(0, 0, 0, 0)
+                outlineProvider = object : android.view.ViewOutlineProvider() {
+                    override fun getOutline(v: View, o: android.graphics.Outline) = o.setRoundRect(0, 0, v.width, v.height, v.dp(18).toFloat())
+                }
+                clipToOutline = true
+            } else setPadding(dp(12), dp(7), dp(12), dp(6))
             // A FORWARDED LETTER (iOS isForwarded): one grey line over its words, no name and no bar
             if (m.qt == FORWARDED_QUOTE) addView(c.text(c.getString(R.string.ld_forwarded), 13f, BubbleStyle.time(mine)), lp(WRAP, WRAP).apply { bottomMargin = dp(3) })
             else if (m.qt != null) {
@@ -1957,13 +1969,17 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
             // each on its quiet pill (MTVoicePill: black 0.38, a white 0.18 rim), white, on the feed under the capsule
             val voiceMan = if (m.text.startsWith(Marks.MEDIA)) (m.meta?.let { runCatching { JSONObject(it) }.getOrNull() } ?: Media.inline(m.text)) else null
             val voice = 1 == members.size && voiceMan?.optString("k") == "aud"
-            val metaInk = if (voice) Color.WHITE else BubbleStyle.time(mine)
+            val metaInk = if (voice || onPlate) Color.WHITE else BubbleStyle.time(mine)
             fun pill(v: View) = v.apply {
                 background = GradientDrawable().apply { cornerRadius = dp(100).toFloat(); setColor(Color.argb(97, 0, 0, 0)); setStroke(1, Color.argb(46, 255, 255, 255)) }
                 setPadding(dp(8), dp(3), dp(8), dp(3))
             }
             if (!call) addView(c.hstack {
                 gravity = Gravity.CENTER_VERTICAL
+                if (onPlate) {
+                    background = c.rounded(Color.argb(115, 0, 0, 0), 10)   // iOS black 0.45 under the time on the picture
+                    setPadding(dp(7), dp(3), dp(7), dp(3))
+                }
                 if (voice) addView(pill(c.hstack {
                     gravity = Gravity.CENTER_VERTICAL
                     addView(c.icon(R.drawable.ic_mic, Color.WHITE, 10), lp(dp(10), dp(10)).apply { marginEnd = dp(4) })
@@ -1979,6 +1995,7 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                 addView(if (voice) pill(meta) else meta, lp(WRAP, WRAP))
             // iOS 966: the voice's stack leans to its own side -- their pills stand at the capsule's left edge, mine at its right
             }, lp(WRAP, WRAP).apply { if (voice) { topMargin = dp(8); if (!mine) gravity = Gravity.START } })
+            if (edge) edgeLay(this, onPlate)
         }, lp(WRAP, WRAP))
         if (m.reactions.isNotEmpty()) addView(c.hstack {
             m.reactions.groupingBy { it }.eachCount().forEach { (e, n) ->
@@ -1989,6 +2006,52 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
             }
         }, lp(WRAP, WRAP).apply { topMargin = dp(2) })
     }, FrameLayout.LayoutParams(WRAP, WRAP, if (mine) Gravity.END else Gravity.START))
+}
+
+/** A letter whose picture fills its bubble (iOS mediaBubble, gifBubble): a photo, a film that is not a round note, or a moving
+ * picture already on the phone (before that it is a file's plate, as mediaBody draws it). A sticker stands bare instead. */
+private fun edgePlate(m: Msg): Boolean {
+    if (!m.text.startsWith(Marks.MEDIA) || Stickers.bare(m)) return false
+    val man = Media.manifestOf(m)
+    val f = m.file?.let { java.io.File(it) }?.takeIf { it.exists() }
+    val ext = (f?.extension ?: man?.optString("e") ?: "").lowercase()
+    val byExt = when (ext) { "jpg", "jpeg", "png", "gif", "webp", "heic", "heif" -> "img"; "mp4", "mov", "m4v", "webm", "3gp" -> "vid"; else -> "doc" }
+    return when (man?.optString("k")?.ifEmpty { null } ?: byExt) {
+        "img" -> true
+        "vid" -> man?.optBoolean("r") != true
+        "doc" -> ext == "gif" && f != null
+        else -> false
+    }
+}
+
+/**
+ * The bubble that IS its picture, laid out (iOS mediaBubble): the plate loses its own corners and its gap -- the bubble's shape clips
+ * it; every other line (a quote, a caption, a failure, the time under a caption) keeps the bubble's 12 at the sides; with no caption
+ * the time leaves the foot and stands on the picture's corner, 6 in from its edges.
+ */
+private fun edgeLay(col: LinearLayout, onPlate: Boolean) {
+    val c = col.context
+    val kids = (0 until col.childCount).map { col.getChildAt(it) }
+    val plate = kids.firstOrNull { it.tag == MEDIA_PLATE_TAG } as? FrameLayout ?: return
+    plate.clipToOutline = false
+    val plateW = plate.layoutParams.width
+    val time = kids.last()
+    if (onPlate && time !== plate) {
+        col.removeView(time)
+        plate.addView(time, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.BOTTOM or Gravity.END).apply { setMargins(c.dp(6), c.dp(6), c.dp(6), c.dp(6)) })
+    }
+    val lines = (0 until col.childCount).map { col.getChildAt(it) }
+    lines.forEachIndexed { i, v ->
+        val lp = v.layoutParams as LinearLayout.LayoutParams
+        if (v === plate) { lp.bottomMargin = 0; lp.topMargin = 0 }
+        else {
+            lp.marginStart = c.dp(12); lp.marginEnd = c.dp(12)
+            lp.topMargin = if (i == 0) c.dp(7) else c.dp(4)
+            if (i == lines.size - 1) lp.bottomMargin = c.dp(6)
+            if (v is TextView && 0 < plateW) v.maxWidth = plateW - c.dp(24)   // a caption wraps inside the picture's own width
+        }
+        v.layoutParams = lp
+    }
 }
 
 /** THE FIELD'S OWN VOCABULARY (iOS emojiCategories, MontanaConversation.swift 34-104): every emoji of the panel, category by
