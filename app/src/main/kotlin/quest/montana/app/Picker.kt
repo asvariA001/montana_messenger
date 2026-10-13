@@ -515,14 +515,14 @@ class Picker(
     }
 
     /** A row of equal cells, each made by its own owner; a recycled row of another width of cells is made anew. */
-    private class Cells(type: Int, val cols: Int, val height: Int, val gap: Int, val side: Int, val cells: List<(FrameLayout) -> Unit>) : Row(type) {
+    private class Cells(type: Int, val cols: Int, val rowDp: Int, val gapDp: Int, val sideDp: Int, val cells: List<(FrameLayout) -> Unit>) : Row(type) {
         override fun make(c: Context, old: View?): View {
             val row = (old as? LinearLayout)?.takeIf { it.tag == cols } ?: LinearLayout(c).apply {
                 tag = cols
                 orientation = LinearLayout.HORIZONTAL
-                for (i in 0 until cols) addView(FrameLayout(c), LinearLayout.LayoutParams(0, c.dp(height), 1f).apply { if (i > 0) marginStart = c.dp(gap) })
+                for (i in 0 until cols) addView(FrameLayout(c), LinearLayout.LayoutParams(0, c.dp(rowDp), 1f).apply { if (i > 0) marginStart = c.dp(gapDp) })
             }
-            row.setPadding(c.dp(side), c.dp(gap / 2), c.dp(side), c.dp(gap / 2))
+            row.setPadding(c.dp(sideDp), c.dp(gapDp / 2), c.dp(sideDp), c.dp(gapDp / 2))
             for (i in 0 until cols) {
                 val cell = row.getChildAt(i) as FrameLayout
                 val fill = cells.getOrNull(i)
