@@ -85,8 +85,41 @@ object Stickers {
      * says «stick_» — drawn bare and at a sticker's size on both sides; a build that knows neither name shows the file plate. */
     fun house(m: Msg): Boolean = m.text.startsWith(Marks.MEDIA) &&
         (manifestOf(m)?.optString("n")?.startsWith("stick_") == true || m.file?.let { File(it).name.startsWith("stick_") } == true)
-    /** A sticker stands without a bubble: a glyph sticker, a picture that says it is the card sticker, or a sticker of the house. */
-    fun bare(m: Msg): Boolean = m.text.startsWith(Marks.STICKER) || isPicture(m) || house(m)
+    /** A sticker stands without a bubble: a glyph sticker, a picture that says it is the card sticker, a sticker of the house, or a
+     * letter of one to three emoji alone (iOS bigEmojiText). */
+    fun bare(m: Msg): Boolean = m.text.startsWith(Marks.STICKER) || isPicture(m) || house(m) || (m.file == null && bigEmoji(m.text) != null)
+
+    /** THE GLYPH'S ONE SIZE (iOS MTStickerLook.glyph = 64): a sticker is three of it across. */
+    private const val GLYPH = 64f
+
+    /**
+     * THE BIG-GLYPH LETTER (iOS bigEmojiText, MontanaBubble.swift 31-52 at 2155): a panel sticker, or a typed letter of emoji alone, at
+     * most three of them, stands at the glyph's size without a bubble. A character is an emoji as iOS judges it: one of its scalars
+     * shows as emoji by default, or several scalars with an emoji among them (❤️, a keycap), or a flag's two letters.
+     */
+    fun bigEmoji(text: String): String? {
+        if (text.startsWith(Marks.STICKER)) return text.removePrefix(Marks.STICKER)
+        val t = text.trim()
+        if (t.isEmpty() || Build.VERSION.SDK_INT < 28) return null
+        val it = android.icu.text.BreakIterator.getCharacterInstance()
+        it.setText(t)
+        var glyphs = 0
+        var a = it.first()
+        var b = it.next()
+        while (b != android.icu.text.BreakIterator.DONE) {
+            val ch = t.substring(a, b)
+            if (ch.isNotBlank()) { if (!isEmoji(ch)) return null; glyphs++ }
+            a = b; b = it.next()
+        }
+        return if (glyphs in 1..3) t else null
+    }
+
+    private fun isEmoji(ch: String): Boolean {
+        val cps = ch.codePoints().toArray()
+        if (cps.any { android.icu.lang.UCharacter.hasBinaryProperty(it, android.icu.lang.UProperty.EMOJI_PRESENTATION) }) return true
+        if (cps.size > 1 && cps.any { android.icu.lang.UCharacter.hasBinaryProperty(it, android.icu.lang.UProperty.EMOJI) }) return true
+        return cps.size >= 2 && cps.all { it in 0x1F1E6..0x1F1FF }
+    }
     /** The one size every sticker of ours wears (iOS MTStickerLook.box): the picture fitted into the sticker's square. */
     fun box(c: Context, w: Int, h: Int): Pair<Int, Int> {
         val side = c.dp(LOOK)
@@ -96,9 +129,10 @@ object Stickers {
 
     /** The sticker's own face inside the letter's column; false — not a sticker, the bubble draws it as ever. */
     fun body(c: Context, m: Msg, into: LinearLayout): Boolean {
-        if (m.text.startsWith(Marks.STICKER)) {
-            // USER-DATA: the sticker's glyph
-            into.addView(c.text(m.text.removePrefix(Marks.STICKER), 96f).apply { includeFontPadding = false }, LinearLayout.LayoutParams(WRAP, WRAP))
+        val glyph = if (m.file == null) bigEmoji(m.text) else null
+        if (glyph != null) {
+            // USER-DATA: the sticker's glyph, or the letter's own emoji
+            into.addView(c.text(glyph, GLYPH).apply { includeFontPadding = false }, LinearLayout.LayoutParams(WRAP, WRAP))
             return true
         }
         if (!isPicture(m)) return false

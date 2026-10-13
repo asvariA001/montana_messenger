@@ -1895,6 +1895,10 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
         val edge = 1 == members.size && edgePlate(m)
         val edgeCap = if (edge) Media.manifestOf(m)?.optString("cap")?.takeIf { it.isNotEmpty() } else null
         val onPlate = edge && (edgeCap == null || BusinessCard.lines(edgeCap) != null)
+        // A STICKER OR A LETTER OF EMOJI ALONE STANDS BARE (iOS bigEmojiText branch, MontanaBubble.swift 758-776): the quote keeps a
+        // small bubble of its own above it, the time stands under it in the same dark capsule as on a picture
+        val bare = Stickers.bare(m)
+        val darkMeta = onPlate || (bare && !edge)
         addView(c.vstack(Gravity.END) {
             background = if (Stickers.bare(m)) null else BubbleStyle.drawable(context, mine)   // a sticker stands without a bubble
             if (edge) {
@@ -1909,6 +1913,7 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
             else if (m.qt != null) {
                 val whose = m.qm?.let { q -> chat.msgs.find { it.mid == q } }
                 addView(c.hstack {
+                    if (bare) { background = BubbleStyle.drawable(context, mine); setPadding(dp(10), dp(6), dp(10), dp(6)) }
                     addView(View(c).apply { setBackgroundColor(BubbleStyle.text(mine)) }, lp(dp(2), MATCH).apply { marginEnd = dp(6) })
                     addView(c.vstack(Gravity.NO_GRAVITY) {
                         addView(c.text(if (whose?.mine == true) Prefs.userName.ifBlank { "·" } else if (Groups.isKey(chat.ref)) Groups.speakerName(c, whose?.from) else chat.shown.ifBlank { c.getString(R.string.peer) }, 13f, BubbleStyle.text(mine), bold = true))
@@ -1969,14 +1974,14 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
             // each on its quiet pill (MTVoicePill: black 0.38, a white 0.18 rim), white, on the feed under the capsule
             val voiceMan = if (m.text.startsWith(Marks.MEDIA)) (m.meta?.let { runCatching { JSONObject(it) }.getOrNull() } ?: Media.inline(m.text)) else null
             val voice = 1 == members.size && voiceMan?.optString("k") == "aud"
-            val metaInk = if (voice || onPlate) Color.WHITE else BubbleStyle.time(mine)
+            val metaInk = if (voice || darkMeta) Color.WHITE else BubbleStyle.time(mine)
             fun pill(v: View) = v.apply {
                 background = GradientDrawable().apply { cornerRadius = dp(100).toFloat(); setColor(Color.argb(97, 0, 0, 0)); setStroke(1, Color.argb(46, 255, 255, 255)) }
                 setPadding(dp(8), dp(3), dp(8), dp(3))
             }
             if (!call) addView(c.hstack {
                 gravity = Gravity.CENTER_VERTICAL
-                if (onPlate) {
+                if (darkMeta) {
                     background = c.rounded(Color.argb(115, 0, 0, 0), 10)   // iOS black 0.45 under the time on the picture
                     setPadding(dp(7), dp(3), dp(7), dp(3))
                 }
