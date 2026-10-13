@@ -366,8 +366,6 @@ class Picker(
         addView(switchRow(), lp(MATCH, WRAP).apply { topMargin = dp(4); bottomMargin = dp(8) })
     }
 
-    init { show(startTab) }
-
     /** The tab the switch shows; each tab is built once and keeps its scroll and its word while the panel lives. */
     fun show(t: Int) {
         tab = t
@@ -837,6 +835,10 @@ class Picker(
             addView(giphyMark(), lp())
         }
     }
+
+    // LAST IN THE CLASS ON PURPOSE: a tab is drawn only after every field above it stands (Kotlin runs the class's lines in order;
+    // drawn earlier, the first tab met its words and lists still null -- 412 fell on the first touch of the emoji key, 13.10)
+    init { show(startTab) }
 }
 
 /**
