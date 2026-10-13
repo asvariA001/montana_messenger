@@ -2003,15 +2003,59 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
             }, lp(WRAP, WRAP).apply { if (voice) { topMargin = dp(8); if (!mine) gravity = Gravity.START } })
             if (edge) edgeLay(this, onPlate)
         }, lp(WRAP, WRAP))
+        // ONE PLATE PER ANSWER, THE FACES ON IT (iOS MontanaBubble.swift 505-555 at 2155): the same emoji from both sides is one
+        // plate with two faces; the correspondent's face stands only on the answer they are named on, mine on mine; my own answer
+        // is taken back by a touch where it is shown (iOS onTapReaction), theirs is not mine to remove and answers no touch.
         if (m.reactions.isNotEmpty()) addView(c.hstack {
-            m.reactions.groupingBy { it }.eachCount().forEach { (e, n) ->
-                addView(c.text(if (n > 1) "$e $n" else e, 14f, Color.WHITE).apply {
-                    background = c.rounded(if (e == m.myReact) Color.argb(120, 10, 133, 255) else Color.argb(70, 255, 255, 255), 12)
-                    setPadding(dp(7), dp(2), dp(7), dp(2))
+            val group = Groups.isKey(chat.ref)
+            for (e in m.reactions.distinct()) {
+                val mineHere = e == m.myReact
+                val theirs = !group && e == m.peerReact
+                addView(c.hstack {
+                    gravity = Gravity.CENTER_VERTICAL
+                    background = c.rounded(if (mineHere) Color.rgb(77, 77, 77) else Color.rgb(56, 56, 56), 10)   // iOS white 0.30 / 0.22
+                    setPadding(dp(9), dp(4), dp(9), dp(4))
+                    if (theirs) addView(c.peerFace(chat.ref, chat.shown, 18), lp(dp(18), dp(18)).apply { marginEnd = dp(4) })
+                    if (mineHere) addView(c.avatar(smallSelfFace(c), Prefs.userName, 18), lp(dp(18), dp(18)).apply { marginEnd = dp(4) })
+                    addView(c.text(e, 16f, Color.WHITE), lp(WRAP, WRAP))   // USER-DATA: an answer
+                    if (mineHere) pressable { answerLetter(chat.ref, m, e, group) }
                 }, lp(WRAP, WRAP).apply { marginEnd = dp(4) })
             }
         }, lp(WRAP, WRAP).apply { topMargin = dp(2) })
     }, FrameLayout.LayoutParams(WRAP, WRAP, if (mine) Gravity.END else Gravity.START))
+}
+
+/** My own face for a small mark (an answer's plate): decoded once, small, and again only when the face file changes. */
+private var smallFace: Pair<Long, android.graphics.Bitmap?>? = null
+private fun smallSelfFace(c: Context): android.graphics.Bitmap? {
+    val f = SelfFace.file(c)
+    val stamp = if (f.exists()) f.lastModified() else 0L
+    smallFace?.takeIf { it.first == stamp }?.let { return it.second }
+    val b = if (stamp == 0L) null else BitmapFactory.decodeFile(f.path, BitmapFactory.Options().apply { inSampleSize = 8 })
+    smallFace = stamp to b
+    return b
+}
+
+/**
+ * MY ONE ANSWER ON A LETTER (iOS react, MTReactions): a new one replaces my old, the same one again takes it back; the other side
+ * is told what left and what came (a group's answer rides the group's own carrier, iOS react → MTGroup.signal). The letter's menu
+ * and the answer's own plate under the letter both come here ([C-1]).
+ */
+internal fun answerLetter(ref: String, m: Msg, e: String, group: Boolean) {
+    var added = false
+    val prev = m.myReact
+    Book.edit(ref) { ch ->
+        ch.msgs.find { it.mid == m.mid }?.let { t ->
+            t.myReact?.let { old -> t.reactions.remove(old) }
+            if (prev == e) t.myReact = null else { t.reactions.add(e); t.myReact = e; added = true }
+        }
+    }
+    fun tell(emoji: String, add: Boolean) {
+        val word = Marks.REACTION + JSONObject().put("sid", "mid:" + m.mid).put("txt", m.text.take(200)).put("e", emoji).put("op", if (add) "add" else "del")
+        if (group) Groups.signal(ref, word) else Post.send(ref, Marks.mintMid(), word)
+    }
+    if (prev != null) tell(prev, false)
+    if (added) { tell(e, true); QuickReactions.note(e) }
 }
 
 /** A letter whose picture fills its bubble (iOS mediaBubble, gifBubble): a photo, a film that is not a round note, or a moving
@@ -2208,24 +2252,7 @@ fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Unit, onEd
     fillActions()
     // THE QUICK REACTIONS FIT THE WIDTH AND LEARN FROM USE (iOS MTReactions 93-142, 239-262): five to seven answers — what this
     // person reaches for most stand first, filled out with the common ones — never a fixed nine on a narrow screen.
-    fun react(e: String) {
-        close()
-        var added = false
-        val prev = m.myReact
-        Book.edit(ref) { ch ->
-            ch.msgs.find { it.mid == m.mid }?.let { t ->
-                t.myReact?.let { old -> t.reactions.remove(old) }
-                if (prev == e) t.myReact = null else { t.reactions.add(e); t.myReact = e; added = true }
-            }
-        }
-        fun tell(emoji: String, add: Boolean) {
-            val word = Marks.REACTION + JSONObject().put("sid", "mid:" + m.mid).put("txt", m.text.take(200)).put("e", emoji).put("op", if (add) "add" else "del")
-            // a group's answer rides the group's own carrier to every phone of it (iOS react → MTGroup.signal)
-            if (group) Groups.signal(ref, word) else Post.send(ref, Marks.mintMid(), word)
-        }
-        if (prev != null) tell(prev, false)
-        if (added) { tell(e, true); QuickReactions.note(e) }
-    }
+    fun react(e: String) { close(); answerLetter(ref, m, e, group) }
     // THE WHOLE CHOICE AS A GRID (iOS cloud's reactionsOpen 355-374): the nine reached for most, then every emoji of the
     // field's panel, each name once (QuickReactions.all) — nine to a row, a choice here reacting exactly as a quick one does
     val grid = ScrollView(c).apply {

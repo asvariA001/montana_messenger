@@ -26,7 +26,7 @@ import java.io.File
 // ─────────────────────────── the face (iOS MontanaSelfFace) ───────────────────────────
 
 object SelfFace {
-    private fun file(ctx: Context) = File(ctx.filesDir, "avatar.jpg")
+    fun file(ctx: Context) = File(ctx.filesDir, "avatar.jpg")
     fun load(ctx: Context): Bitmap? = file(ctx).takeIf { it.exists() }?.let { BitmapFactory.decodeFile(it.path) }
     fun clear(ctx: Context) { file(ctx).delete(); changed() }
     /** The face as it travels (iOS avatarData): the JPEG itself, or null when there is none. */
