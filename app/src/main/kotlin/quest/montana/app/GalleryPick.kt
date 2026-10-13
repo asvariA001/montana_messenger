@@ -218,43 +218,69 @@ private class TileGrid(c: Context) : GridView(c) {
         return (paddingLeft + (p % n) * step) to (anchorTop(n) + (p / n - anchor / n) * step)
     }
 
+    private var holding = false   // a new count laid, the anchor not yet brought to its row: the tiles stand where they will
+
     private fun begin(target: Int, fx: Float, fy: Float) {
         anchor = pointToPosition(fx.toInt(), fy.toInt()).takeIf { it != android.widget.AdapterView.INVALID_POSITION } ?: firstVisiblePosition
         anchorY = getChildAt(anchor - firstVisiblePosition)?.top?.toFloat() ?: paddingTop.toFloat()
         to = target; progress = 0f
-        val dense = maxOf(columns, to)
-        numColumns = dense
-        setSelectionFromTop(anchor, anchorTop(dense).toInt())   // laid out as the denser; onLayout moves every tile to its place
+        relay(maxOf(columns, to))   // laid out as the denser; every tile is then moved to its place
+    }
+
+    /**
+     * A new count, the anchor's row kept. NOT setSelectionFromTop: in touch mode the platform's grid lays its LAYOUT_SPECIFIC
+     * from mSelectedPosition, which is -1 there -- the first row by luck at 2 and more in a row, and a tile at -1 at one in a
+     * row (measured 14.10 on A1: IndexOutOfBounds in getView, the app gone). setSelection brings the anchor in; onLayout then
+     * rolls the grid by the anchor's own miss (scrollListBy).
+     */
+    private fun relay(n: Int) {
+        numColumns = n
+        setSelection(anchor)
+        holding = true
+        requestLayout()
     }
 
     private fun show(p: Float) { progress = p; lay() }
 
-    /** Every tile between its two places: the sparse layout's and the dense one's, by how far the denser stands from the count shown. */
+    /**
+     * Every tile drawn at its place, whatever the platform laid: during the pinch between its sparse and its dense place (k 1 --
+     * the denser count, 0 -- the sparser), after it at the place of the count chosen, until the grid stands there itself.
+     */
     private fun lay() {
-        if (to == 0) return
-        val dense = maxOf(columns, to); val sparse = minOf(columns, to)
-        val k = if (to == dense) progress else 1 - progress   // 1 -- the dense layout as laid, 0 -- the sparse one
+        if (to == 0 && !holding) return
+        val dense = if (to == 0) columns else maxOf(columns, to)
+        val sparse = if (to == 0) columns else minOf(columns, to)
+        val k = if (to == 0) 1f else if (to == dense) progress else 1 - progress
         val sd = side(dense); val ss = side(sparse)
         val size = ss + (sd - ss) * k
         for (i in 0 until childCount) {
             val v = getChildAt(i); val p = firstVisiblePosition + i
-            val (sx, sy) = place(p, sparse)
+            val (sx, sy) = place(p, sparse); val (dx, dy) = place(p, dense)
             v.pivotX = 0f; v.pivotY = 0f
-            v.translationX = (sx + (v.left - sx) * k) - v.left
-            v.translationY = (sy + (v.top - sy) * k) - v.top
+            v.translationX = sx + (dx - sx) * k - v.left
+            v.translationY = sy + (dy - sy) * k - v.top
             v.scaleX = size / v.width.coerceAtLeast(1); v.scaleY = size / v.height.coerceAtLeast(1)
         }
     }
 
     override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
         super.onLayout(changed, l, t, r, b)
+        if (holding) {
+            val v = getChildAt(anchor - firstVisiblePosition)
+            if (v != null) {
+                val miss = v.top - anchorTop(numColumns).toInt()
+                if (miss != 0) scrollListBy(miss)
+                if (to == 0) { holding = false; clear() }
+            }
+        }
         lay()
     }
 
+    private fun clear() { for (i in 0 until childCount) getChildAt(i).apply { translationX = 0f; translationY = 0f; scaleX = 1f; scaleY = 1f } }
+
     /** Let go: past the line the count is the new one, short of it the old; the rest of the way runs by itself (iOS finish/cancel). */
     private fun settle(finish: Boolean) {
-        val from = progress
-        settling = ValueAnimator.ofFloat(from, if (finish) 1f else 0f).apply {
+        settling = ValueAnimator.ofFloat(progress, if (finish) 1f else 0f).apply {
             duration = 250
             interpolator = android.view.animation.DecelerateInterpolator()
             addUpdateListener { show(it.animatedValue as Float) }
@@ -262,9 +288,7 @@ private class TileGrid(c: Context) : GridView(c) {
                 override fun onAnimationEnd(a: android.animation.Animator) {
                     if (finish) columns = to
                     to = 0; settling = null
-                    for (i in 0 until childCount) getChildAt(i).apply { translationX = 0f; translationY = 0f; scaleX = 1f; scaleY = 1f }
-                    numColumns = columns
-                    setSelectionFromTop(anchor, anchorTop(columns).toInt())
+                    relay(columns)
                 }
             })
             start()
