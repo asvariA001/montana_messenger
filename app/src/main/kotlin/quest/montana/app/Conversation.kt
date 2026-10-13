@@ -2566,49 +2566,136 @@ private fun gifCeilingDp(c: Context): Int {
 }
 
 /**
- * THE PLAY OF A GIF HAS ONE OWNER, BY ITS FILE NAME (iOS MTGifPlay, MontanaGif.swift 47-127 at 2155, the author's word
- * 23.09: "make them play their cycle three times when sent, and then only on a tap -- three cycles -- and a tap at any
- * moment stops them"): a first showing ever plays three cycles once in the file's life (the mark survives a relaunch,
- * capped at 3000 files, iOS ranCap); after that only a tap plays three cycles, and a tap on a playing one stops it where
- * it stands. The platform's own repeat count carries the cycles -- Android's stateful AnimatedImageDrawable needs none of
- * iOS's manual frame-index bookkeeping (MTGifView's wrap-around guard, P-130): stop()/start() alone hold the frame.
+ * THE PLAY OF A GIF HAS ONE OWNER, BY ITS FILE NAME (iOS MTGifPlay, MontanaGif.swift 47-127 at 2155, the author's word 23.09:
+ * «make them play their cycle three times when sent, and then only on a tap -- three cycles -- and a tap at any moment stops
+ * them»). The feed rebuilds its bubbles on every receipt, arrival and scroll; the play lives here, not in the bubble, so nothing
+ * that rebuilds a bubble resets it. iOS counts frames; the platform's seeking player (Movie) seeks by time, so this book counts
+ * the same thing in milliseconds: what is left to play (three cycles = three times the file's duration) and where the file
+ * stands. A first showing plays its three cycles once in the file's life (the mark survives a relaunch, 3000 files, iOS ranCap);
+ * after that only a tap plays them, from where it stands; a tap on a playing one stops it there. Three cycles end where they
+ * began: a natural end rests on the first frame (iOS 23.09, «they stop crookedly»).
  */
 internal object GifPlay {
     const val CYCLES = 3
     private const val KEY = "gifFirstRun"
     private const val CAP = 3000
     private var ran: MutableList<String>? = null
+    private val left = HashMap<String, Long>()       // milliseconds still to play, by file
+    private val standing = HashMap<String, Long>()   // where each stands in its own loop
     @Synchronized private fun load(): MutableList<String> =
         ran ?: Prefs.str(KEY, "").split(",").filter { it.isNotEmpty() }.toMutableList().also { ran = it }
+    @Synchronized private fun mark(key: String) {
+        val list = load()
+        if (list.contains(key)) return
+        list.add(key)
+        while (list.size > CAP) list.removeAt(0)
+        Prefs.setStr(KEY, list.joinToString(","))
+    }
 
+    /** What is left to play; a file never shown before is handed its first three cycles (and marked: iOS shown(_:at:)). */
+    @Synchronized fun left(key: String, duration: Long): Long {
+        left[key]?.let { return it }
+        if (load().contains(key)) { left[key] = 0; return 0 }
+        val n = CYCLES * maxOf(1L, duration)
+        left[key] = n
+        mark(key)
+        return n
+    }
+    @Synchronized fun standingAt(key: String): Long = standing[key] ?: 0L
+    /** Time went by while it played: it stands further on and has less to play; zero rests it on its first frame. */
+    @Synchronized fun played(key: String, dt: Long, duration: Long): Long {
+        val l = maxOf(0L, (left[key] ?: 0L) - dt)
+        left[key] = l
+        standing[key] = if (l == 0L) 0L else ((standing[key] ?: 0L) + dt) % maxOf(1L, duration)
+        return l
+    }
+    /** The finger: a playing file stops where it stands; a standing one plays three cycles from there. True -- it plays now. */
+    @Synchronized fun toggle(key: String, duration: Long): Boolean {
+        val playing = (left[key] ?: 0L) > 0L
+        left[key] = if (playing) 0L else CYCLES * maxOf(1L, duration)
+        mark(key)
+        return !playing
+    }
     /** The file's picture was replaced by its full one (iOS MTGifPlay.renew): it plays its own three cycles again. */
     @Synchronized fun renew(file: String) {
+        left.remove(file); standing.remove(file)
         val list = load()
         if (list.remove(file)) Prefs.setStr(KEY, list.joinToString(","))
     }
+}
 
-    /** True once in the file's life; the mark is written before the caller returns (iOS framesLeft/shown). */
-    @Synchronized fun firstEver(file: String): Boolean {
-        val list = load()
-        if (list.contains(file)) return false
-        list.add(file)
-        while (list.size > CAP) list.removeAt(0)
-        Prefs.setStr(KEY, list.joinToString(","))
-        return true
+/** The players of the files the feed shows, kept by file and size (new bytes under one name are read anew): a rebuilt bubble
+ * does not read its file again. A dozen at most, the oldest let go. */
+@Suppress("DEPRECATION")
+private object GifMovies {
+    private val kept = object : LinkedHashMap<String, android.graphics.Movie>(16, 0.75f, true) {
+        override fun removeEldestEntry(e: MutableMap.MutableEntry<String, android.graphics.Movie>?) = size > 12
+    }
+    @Synchronized fun of(f: java.io.File): android.graphics.Movie? {
+        val k = f.path + ":" + f.length()
+        kept[k]?.let { return it }
+        val m = runCatching { android.graphics.Movie.decodeFile(f.path) }.getOrNull()?.takeIf { it.width() > 0 && it.height() > 0 } ?: return null
+        kept[k] = m
+        return m
     }
 }
 
 /**
- * A LETTER'S MOVING PICTURE PLAYS BY THE PLATFORM'S OWN ANIMATOR (iOS MTGifView/MTGifPlayer, MontanaGif.swift 138-253 at
- * 2155, 23.09): ImageDecoder reads the file's frames one at a time into an AnimatedImageDrawable; nothing of ours decodes
- * every frame ahead, and the plate's shape comes from the file's header alone. THE TOUCH IS THE PLATE'S OWN (iOS
- * v.isUserInteractionEnabled = false, MontanaGif.swift 242): the image view asks nothing of the finger, so every tap
- * lands on this click listener, never inside the image itself. A tap on a playing gif stops it on the frame it stands
- * on (iOS MontanaBubble.swift 463-470, MTGifPlay.toggle); a tap on a resting one plays three cycles (GifPlay above).
- * THREE CYCLES END WHERE THEY BEGAN (iOS "they stop crookedly" fix, 23.09, MontanaGif.swift 211-217): a natural end
- * rests on the first frame, never on whatever frame the repeat count happened to land on; a tap's own stop freezes the
- * frame it stands on instead. Below API 28, or where the platform refuses, the first frame stands still.
+ * A LETTER'S MOVING PICTURE (iOS MTGifView/MTGifPlayer, MontanaGif.swift 138-253 at 2155): the platform's own seeking player
+ * (android.graphics.Movie) draws the file at the moment the book says, one frame at a time with the screen's own clock; it plays
+ * while it is on the screen and while the book has time left for it, and stands still otherwise. THE TOUCH IS THE PLATE'S OWN:
+ * this view asks nothing of the finger (iOS isUserInteractionEnabled = false). A file the player cannot read stands as its
+ * first frame.
  */
+@Suppress("DEPRECATION")
+private class GifView(c: Context, private val f: java.io.File) : View(c) {
+    private val key = f.name
+    private val movie: android.graphics.Movie? = GifMovies.of(f)
+    private val still: android.graphics.Bitmap? = if (movie == null) Media.preview(c, f, "img") else null
+    private val duration: Long = maxOf(1, movie?.duration() ?: 0).toLong()
+    private var last = 0L
+    private var ticking = false
+
+    private val tick = object : Runnable {
+        override fun run() {
+            if (!ticking) return
+            val now = android.os.SystemClock.uptimeMillis()
+            val dt = if (last == 0L) 0L else now - last
+            last = now
+            if (GifPlay.played(key, dt, duration) == 0L) { ticking = false; last = 0L }
+            invalidate()
+            if (ticking) postOnAnimation(this)
+        }
+    }
+
+    /** Asks the book and plays while it has time left; called on every showing and every tap. */
+    fun wake() {
+        if (movie == null || !isAttachedToWindow) return
+        if (GifPlay.left(key, duration) > 0L && !ticking) { ticking = true; last = 0L; postOnAnimation(tick) }
+        invalidate()
+    }
+    /** The finger (iOS MTGifPlay.toggle): playing stops where it stands, standing plays three cycles from there. */
+    fun toggle() {
+        if (movie == null) return
+        if (!GifPlay.toggle(key, duration)) { ticking = false; last = 0L; invalidate() } else wake()
+    }
+
+    override fun onAttachedToWindow() { super.onAttachedToWindow(); wake() }
+    override fun onDetachedFromWindow() { ticking = false; last = 0L; removeCallbacks(tick); super.onDetachedFromWindow() }
+
+    override fun onDraw(canvas: android.graphics.Canvas) {
+        val w = movie?.width() ?: still?.width ?: return
+        val h = movie?.height() ?: still?.height ?: return
+        val k = minOf(width.toFloat() / w, height.toFloat() / h)   // fit, as iOS .resizeAspect
+        canvas.save()
+        canvas.translate((width - w * k) / 2f, (height - h * k) / 2f)
+        canvas.scale(k, k)
+        if (movie != null) { movie.setTime((GifPlay.standingAt(key) % duration).toInt()); movie.draw(canvas, 0f, 0f) }
+        else still?.let { canvas.drawBitmap(it, 0f, 0f, null) }
+        canvas.restore()
+    }
+}
+
 private fun gifBody(c: Context, m: Msg, f: java.io.File, into: LinearLayout): Int {
     val shape = runCatching {
         val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -2625,28 +2712,9 @@ private fun gifBody(c: Context, m: Msg, f: java.io.File, into: LinearLayout): In
             override fun getOutline(v: View, o: android.graphics.Outline) = o.setRoundRect(0, 0, v.width, v.height, v.dp(12).toFloat())
         }
         clipToOutline = !bare
-        val iv = ImageView(c).apply { scaleType = ImageView.ScaleType.FIT_CENTER }
-        val key = f.name
-        var byTap = false   // a tap's own stop freezes the frame it stands on -- it must never rest to the first (iOS 23.09)
-        fun rest() { Media.preview(c, f, "img")?.let { iv.setImageBitmap(it) } }
-        fun playThree() {
-            val d = if (android.os.Build.VERSION.SDK_INT >= 28) runCatching {
-                android.graphics.ImageDecoder.decodeDrawable(android.graphics.ImageDecoder.createSource(f)) as? android.graphics.drawable.AnimatedImageDrawable
-            }.getOrNull() else null
-            if (d == null) { rest(); return }
-            d.repeatCount = GifPlay.CYCLES - 1
-            d.registerAnimationCallback(object : android.graphics.drawable.Animatable2.AnimationCallback() {
-                override fun onAnimationEnd(drawable: android.graphics.drawable.Drawable) { if (byTap) byTap = false else rest() }
-            })
-            iv.setImageDrawable(d)
-            d.start()
-        }
-        if (GifPlay.firstEver(key)) playThree() else rest()
-        addView(iv, FrameLayout.LayoutParams(MATCH, MATCH))
-        setOnClickListener {
-            val d = iv.drawable as? android.graphics.drawable.AnimatedImageDrawable
-            if (d != null && d.isRunning) { byTap = true; d.stop() } else playThree()
-        }
+        val gif = GifView(c, f)
+        addView(gif, FrameLayout.LayoutParams(MATCH, MATCH))
+        setOnClickListener { gif.toggle() }
     }, LinearLayout.LayoutParams(fit.first, fit.second).apply { bottomMargin = c.dp(4) })
     return fit.first
 }
