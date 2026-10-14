@@ -87,6 +87,7 @@ class MainActivity : Activity() {
         // back from the recent apps, carries the intent that once made it — the invitation opened anew and an expired card was
         // said expired every time the app came back.
         val handed = savedInstanceState == null && (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) == 0
+        if (handed && takeChat(intent)) return
         if (handed && !takeShared(intent, hasSeed && termsAccepted)) intent?.data?.let { openLink(it.toString()) }
     }
 
@@ -120,6 +121,21 @@ class MainActivity : Activity() {
             ?.also { Prefs.setBool(CallLine.CAM_ASKED, true) }   // asked here, the capture road's gate tells a refusal, never asks twice
     ).toTypedArray()
 
+    /**
+     * A BANNER TAPPED OPENS ITS CHAT (iOS didReceive → ui.openChat, MontanaApp.swift at 2155; atoms 4b49d03f071b, 86cef409a440,
+     * a5622f175804): the chat the banner spoke of stands at once over the list; the chat already open stays as it is. The tap is
+     * stamped for the diary (notif_tap), the conversation's appearance reads the stamp (chat_open why=banner ms=…).
+     */
+    private fun takeChat(i: Intent?): Boolean {
+        val ref = i?.getStringExtra(Notify.EXTRA_CHAT) ?: return false
+        i.removeExtra(Notify.EXTRA_CHAT)
+        Notify.tappedAt = android.os.SystemClock.elapsedRealtime()
+        android.util.Log.d("Montana", "notif_tap chat=" + ref.take(10) + " same=" + (if (Book.openChat == ref) 1 else 0))
+        if (!hasSeed || !termsAccepted || Book.chat(ref) == null || Book.openChat == ref) return true
+        push { close -> conversationPage(this, ref, close) }
+        return true
+    }
+
     /** The new version's notice tapped (Update): the app brings it and hands it to the system's installer. */
     private fun takeUpdate(i: Intent?): Boolean {
         if (i?.action != Update.ACTION) return false
@@ -140,6 +156,7 @@ class MainActivity : Activity() {
         setIntent(intent)
         if (takeUpdate(intent)) return
         if (takeCall(intent)) return
+        if (takeChat(intent)) return
         if (!takeShared(intent, hasSeed && termsAccepted)) intent.data?.let { openLink(it.toString()) }
     }
     fun openLink(link: String) {

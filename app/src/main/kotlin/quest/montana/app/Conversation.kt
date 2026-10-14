@@ -226,6 +226,13 @@ object BubblePicture {
 
 object Notify {
     private const val CHANNEL = "letters"
+    /** The chat a banner speaks of, carried by its tap (iOS userInfo «chat» → ui.openChat, MontanaApp.didReceive). */
+    const val EXTRA_CHAT = "montana.chat"
+    @Volatile var tappedAt = 0L   // the tap's moment, read by the conversation's appearance (iOS notif_tap → chat_open why=banner)
+    /** THE BANNER OPENS ITS CHAT (iOS didReceive → ui.openChat, atoms 4b49d03f071b, 86cef409a440): not the app's first page. */
+    private fun opening(c: Context, ref: String): PendingIntent = PendingIntent.getActivity(c, ref.hashCode(),
+        (c.packageManager.getLaunchIntentForPackage(c.packageName) ?: Intent()).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP).putExtra(EXTRA_CHAT, ref),
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
     private const val QUIET = "letters_quiet"
     fun letter(ref: String, text: String, who: String? = null) {
         val c = Book.ctx
@@ -246,9 +253,7 @@ object Notify {
             else if (ContentFilter.hides(false, text)) c.getString(R.string.filter_hidden)   // the banner folds as the feed does (iOS NotificationService 399)
             else letterWords(c, text).ifBlank { c.getString(R.string.new_message) }   // no notification without words (iOS build 2070)
         val body = if (who.isNullOrEmpty()) shown else "$who: $shown"   // a group's letter says who wrote it (iOS presentGroup)
-        val open = PendingIntent.getActivity(c, ref.hashCode(),
-            c.packageManager.getLaunchIntentForPackage(c.packageName)?.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP) ?: Intent(),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val open = opening(c, ref)
         val n = Notification.Builder(c, channel)
             .setSmallIcon(R.drawable.ic_launcher_monochrome)
             .setContentTitle(title)   // USER-DATA: the correspondent's name
@@ -281,9 +286,7 @@ object Notify {
         })
         val title = if (Prefs.bool("notifSender", true)) Book.chat(ref)?.shown?.ifBlank { null } ?: c.getString(R.string.peer) else "Montana"
         val body = "📌 " + if (Prefs.bool("notifPreview", true)) letterWords(c, m).ifBlank { c.getString(R.string.ld_pinned_banner) } else c.getString(R.string.ld_pinned_banner)
-        val open = PendingIntent.getActivity(c, ref.hashCode(),
-            c.packageManager.getLaunchIntentForPackage(c.packageName)?.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP) ?: Intent(),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val open = opening(c, ref)
         val n = Notification.Builder(c, channel)
             .setSmallIcon(R.drawable.ic_launcher_monochrome)
             .setContentTitle(title)   // USER-DATA: the correspondent's name
@@ -1761,6 +1764,8 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             override fun onViewAttachedToWindow(v: View) {
                 v.requestApplyInsets()
                 Book.openChat = ref; Book.listen(listener); Notify.clear(ref)
+                // the banner's road measured (iOS chat_open why=banner ms=…, 4b49d03f071b): from the tap to the chat standing
+                if (Notify.tappedAt != 0L) { android.util.Log.d("Montana", "chat_open why=banner ms=" + (android.os.SystemClock.elapsedRealtime() - Notify.tappedAt)); Notify.tappedAt = 0L }
                 Presence.listen(presenceListener); lane = true
                 LiveDraft.listen(draftListener); drawDraft()
                 LinkCompose.listen(linkListener); drawLink()

@@ -152,8 +152,10 @@ fun forwardOne(c: Context, target: String, m: Msg) {
     // into a group the words ride the group's carrier with the forwarded quote (iOS forward → ChatStore.send → MTGroup.send)
     if (Groups.isKey(target)) { Groups.send(target, m.text, FORWARDED_QUOTE, null); return }
     val mid = Marks.mintMid()
-    Book.edit(target) { it.msgs.add(Msg(mid, m.text, true, Marks.birthMs(mid) ?: System.currentTimeMillis(), qt = FORWARDED_QUOTE)) }
-    Post.send(target, mid, m.text, FORWARDED_QUOTE)
+    // THE LINK'S CARD RIDES WITH THE FORWARDED WORDS (iOS forward → store.send(linkCard: m.linkPreview), ba4026d9f232): the card
+    // the letter already wears is the forward's own, never fetched again and never lost on the way
+    Book.edit(target) { it.msgs.add(Msg(mid, m.text, true, Marks.birthMs(mid) ?: System.currentTimeMillis(), qt = FORWARDED_QUOTE, lp = m.lp)) }
+    Post.send(target, mid, m.text, FORWARDED_QUOTE, lp = m.lp)
 }
 
 /**

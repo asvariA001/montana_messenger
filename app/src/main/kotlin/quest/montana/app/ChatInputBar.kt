@@ -69,7 +69,7 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
             textSize = 17f
             background = null
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
-            maxLines = 6
+            maxLines = 15   // the absolute ceiling (iOS MTInputField.cap: 15 lines); the room's half is set at every measure below
             minHeight = dp(TIER)
         }
         plate.background = c.glassPlate().apply { cornerRadius = dp(18).toFloat() }
@@ -177,6 +177,18 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
     var onVoiceStart: (() -> Boolean)? = null
     var onVoiceEnd: ((Boolean) -> Unit)? = null
     /** The tape's time is up (the note's 6:39): the hold ends as if the finger let go. */
+    /**
+     * THE FIELD'S CEILING (iOS fieldCap, MontanaConversation.swift:4288-4302 at 2155; atoms 46e0a8f8b3ce, 287fb11d4941): half the
+     * window's room above the keys -- the window's own height, the keyboard taken off once -- and never past fifteen lines; the
+     * feed keeps the other half. Both inputs are stable (the window, the keys), so the field's growth never moves its own ceiling.
+     */
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val keys = rootWindowInsets?.getInsets(android.view.WindowInsets.Type.ime())?.bottom ?: 0
+        val room = rootView.height - keys
+        if (0 < room) field.maxHeight = maxOf(dp(TIER), room / 2)
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+    }
+
     fun stopRecording() = record.endHold()
     /** The bin of a locked tape (iOS «Cancel» on the bar's line): the tape is dropped. */
     fun cancelRecording() = record.cancelHold()
