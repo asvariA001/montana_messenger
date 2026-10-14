@@ -456,6 +456,8 @@ private var noteRing: NoteRing? = null
 fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: String? = null): View {
     val c: Context = act
     val group = Groups.isKey(ref)   // a group's feed: no pipe, no presence, no doors (iOS MTGroup.isKey)
+    // THE ROOM WITHOUT AN ADDRESS (iOS isLocalRoom): Saved Messages opens here like every chat -- no wire, no presence, no rung, no call
+    val local = Book.isLocal(ref)
     val column = c.vstack(Gravity.NO_GRAVITY) { setPadding(dp(10), dp(8), dp(10), dp(8)) }
     val draftRow = FrameLayout(c).apply { setPadding(c.dp(10), 0, c.dp(10), c.dp(8)); visibility = View.GONE }
     val feedFrame = FrameLayout(c)
@@ -786,7 +788,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             // below the clock, and of the letters on the lowest rung the one that reached it last names the moment — the line spoke
             // the plate's last letter, «Read» while a video of the same pick still rode
             // a post's card is this phone's own row, not a letter: no rung under it (iOS MTRowLetter.ownRow, MTRowLetter.swift:60-63 at 2155)
-            if (m.mine && WallCard.of(m.text) == null) (b.getChildAt(0) as LinearLayout).addView(c.deliveryLine(ref, row.minWithOrNull(compareBy<Msg>({ it.state }, { -it.statusMoment })) ?: row.last()),
+            if (m.mine && !local && WallCard.of(m.text) == null) (b.getChildAt(0) as LinearLayout).addView(c.deliveryLine(ref, row.minWithOrNull(compareBy<Msg>({ it.state }, { -it.statusMoment })) ?: row.last()),
                 LinearLayout.LayoutParams(WRAP, WRAP).apply { topMargin = c.dp(3); marginEnd = c.dp(4) })
             // THE MENU OPENS ON EVERY LETTER (iOS: the long press is the bubble's, whatever it holds): a picture, a film, a circle, a
             // voice or a link's card keeps its own tap, and its long press opens the letter's menu as the words' does
@@ -925,8 +927,8 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         override fun afterTextChanged(s: Editable?) {
             LinkCompose.look(s?.toString() ?: "")   // the plate above the field follows the words (iOS handleDraftChange:4308 at 2155)
             if (editing == null) Prefs.setStr("draft.$ref", s?.toString() ?: "")
-            // a group says neither: it has no pipe of its own (iOS: a group streams no draft)
-            if (group) return
+            // a group says neither: it has no pipe of its own (iOS: a group streams no draft); nor does the room without an address
+            if (group || local) return
             // «TYPING…» TO THEM (iOS: a word on the lane, at most every three seconds, only while there are words)
             if (!s.isNullOrBlank() && System.currentTimeMillis() - typedAt > 3000) { typedAt = System.currentTimeMillis(); Presence.sayTyping(ref) }
             // MY WORDS AS I TYPE THEM (iOS sendDraft): the field and its caret; emptied — sent or erased — the draft ends
@@ -1367,7 +1369,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     // ── the bar (iOS chatTop in MTChatTopBar, 8 from each edge): the back on the marks' round, the name's bubble on the rest of the
     // room, a pair's handset at its right ──
     val chat0 = Book.chat(ref)
-    val title = c.text(chat0?.shown?.ifBlank { null } ?: c.getString(R.string.peer), 15f, Color.WHITE, bold = true).apply { singleLineEllipsis() }   // USER-DATA
+    val title = c.text((if (local) c.getString(R.string.saved_messages) else chat0?.shown?.ifBlank { null }) ?: c.getString(R.string.peer), 15f, Color.WHITE, bold = true).apply { singleLineEllipsis() }   // USER-DATA
     val faceSlot = FrameLayout(c)
     // THE PRESENCE UNDER THE NAME (iOS presenceWord in chatTitleBubble): the words in grey after a dot — green while the person is live
     // («typing…» / «in chat» / «online»), red on «last seen…»; a group's line is its people's count, with no dot
@@ -1386,7 +1388,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             presenceRow.visibility = if (presenceLine.text.isEmpty()) View.GONE else View.VISIBLE
             return
         }
-        val w = Presence.word(c, ref)
+        val w = if (local) null else Presence.word(c, ref)
         presenceRow.visibility = if (w == null) View.GONE else View.VISIBLE
         presenceLine.text = w?.first ?: ""
         presenceDot.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(if (w?.second == true) SysColor.green else SysColor.red) }
@@ -1419,8 +1421,10 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     }
     fun drawHead() {
         val ch = Book.chat(ref) ?: return
-        title.text = ch.shown.ifBlank { c.getString(R.string.peer) }
-        faceSlot.removeAllViews(); faceSlot.addView(c.peerFace(ref, ch.shown, 36), FrameLayout.LayoutParams(c.dp(36), c.dp(36)))
+        title.text = if (local) c.getString(R.string.saved_messages) else ch.shown.ifBlank { c.getString(R.string.peer) }
+        // Saved Messages wears one's own face (iOS MTChatAvatar: «one's own for the room without an address»)
+        val face = if (local) c.avatar(SelfFace.load(c), Prefs.userName, 36) else c.peerFace(ref, ch.shown, 36)
+        faceSlot.removeAllViews(); faceSlot.addView(face, FrameLayout.LayoutParams(c.dp(36), c.dp(36)))
     }
     drawHead()
     // THE NAME'S BUBBLE IS THE ONE DOOR (iOS chatTitleDoor): the face, the name and the presence in one capsule of glass, the whole of it
@@ -1479,7 +1483,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 addView(title, lp(WRAP, WRAP))
                 addView(presenceRow, lp(WRAP, WRAP).apply { topMargin = dp(1) })
             }, lp(0, WRAP, 1f))
-            pressable { openPage() }
+            if (!local) pressable { openPage() }   // the room without an address has no correspondent's page behind its name
             setOnLongClickListener { v ->
                 PopupMenu(c, v).apply {
                     menu.add(R.string.copy_name)
@@ -1488,7 +1492,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                     }
                 }.show(); true
             }
-        }, lp(0, dp(44), 1f).apply { marginStart = dp(6); if (!group) marginEnd = dp(6) })
+        }, lp(0, dp(44), 1f).apply { marginStart = dp(6); if (!group && !local) marginEnd = dp(6) })
         if (coinStands) {
             // THE WALLET BESIDE THE COIN (iOS walletMark): the wallet page over the chat, the one road a coin's link takes
             addView(FrameLayout(c).apply {
@@ -1505,7 +1509,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             }.also { gapped.add(it) }, lp(dp(44), dp(44)).apply { marginStart = dp(6) })
         }
         // THE HANDSET AS IT WAS (iOS handsetMark, a pair's chat): the calls' menu behind the one bar glyph — a voice call or a video call
-        if (!group) addView(roundMark(R.drawable.ic_bar_calls, R.string.pi_voice_call) { v ->
+        if (!group && !local) addView(roundMark(R.drawable.ic_bar_calls, R.string.pi_voice_call) { v ->
             hideKeys()
             PopupMenu(c, v).apply {
                 if (29 <= android.os.Build.VERSION.SDK_INT) setForceShowIcon(true)
@@ -1530,7 +1534,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         for (v in gapped) (v.layoutParams as LinearLayout.LayoutParams).marginStart = if (wide) c.dp(6) else 0
         (nameBubble?.layoutParams as? LinearLayout.LayoutParams)?.apply {
             marginStart = if (wide) c.dp(6) else c.dp(2)
-            if (!group) marginEnd = if (wide) c.dp(6) else c.dp(2)
+            if (!group && !local) marginEnd = if (wide) c.dp(6) else c.dp(2)
         }
         top.requestLayout()
     }
@@ -1554,7 +1558,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     lateinit var chatBeat: Runnable
     // the 20-second beat (iOS P-109); THE BEAT SPEAKS ONLY WHILE THE APP IS ON THE SCREEN (iOS chatPresenceMoved 826-830): a chat
     // left open behind a locked phone said «in chat» after the app's own farewell
-    chatBeat = Runnable { if (lane) { if (Presence.shown) Presence.sayChat(ref, true); MainThread.later(Presence.BEAT, chatBeat) } }
+    chatBeat = Runnable { if (lane && !local) { if (Presence.shown) Presence.sayChat(ref, true); MainThread.later(Presence.BEAT, chatBeat) } }
     var folded = false
     val listener: () -> Unit = listener@{
         // THIS CHAT WAS FOLDED INTO THE OLDER ONE WITH THE SAME PERSON (iOS foldConversation → openChatRequest): the older opens instead.
@@ -1735,10 +1739,9 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 Presence.listen(presenceListener); lane = true
                 LiveDraft.listen(draftListener); drawDraft()
                 LinkCompose.listen(linkListener); drawLink()
-                Presence.sayChat(ref, true); MainThread.later(Presence.BEAT, chatBeat)
-                Signal.hold(ref, "chat")
+                if (!local) { Presence.sayChat(ref, true); MainThread.later(Presence.BEAT, chatBeat); Signal.hold(ref, "chat") }
                 VoicePlayer.endedAtEar = earHook   // the open chat answers its peer's voice at the ear
-                if (!group) LiveDraft.sayLink(ref)   // our daily link, to hand on (iOS sendLinkWord on a chat's opening)
+                if (!group && !local) LiveDraft.sayLink(ref)   // our daily link, to hand on (iOS sendLinkWord on a chat's opening)
                 if ((Book.chat(ref)?.unread ?: 0) > 0) Thread { Post.markRead(ref) }.start()
             }
             override fun onViewDetachedFromWindow(v: View) {
@@ -1753,9 +1756,9 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 if (Book.openChat == ref) Book.openChat = null; Book.unlisten(listener)
                 Presence.unlisten(presenceListener); LiveDraft.unlisten(draftListener); LinkCompose.unlisten(linkListener)
                 // words left in the field stand on their screen as a checkpoint, frozen, not typing (iOS «ck»)
-                field.text.toString().takeIf { it.isNotBlank() }?.let { LiveDraft.say(ref, it, field.selectionEnd, checkpoint = true) }
-                Signal.release(ref, "chat")
-                if (lane) { lane = false; Presence.sayChat(ref, false) }   // leaving says so at once (iOS: the departure word)
+                if (!local) field.text.toString().takeIf { it.isNotBlank() }?.let { LiveDraft.say(ref, it, field.selectionEnd, checkpoint = true) }
+                if (!local) Signal.release(ref, "chat")
+                if (lane) { lane = false; if (!local) Presence.sayChat(ref, false) }   // leaving says so at once (iOS: the departure word)
             }
         })
         scroll.addOnLayoutChangeListener { _, _, t, _, b, _, ot, _, ob -> if (b - t < ob - ot) toBottom() }
@@ -2205,7 +2208,7 @@ fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Unit, onEd
             if (canForward(m)) row(c.getString(R.string.ld_forward), R.drawable.ic_reply, mirrored = true) { onForward() }
         } else {
             // THE RUNG AND ITS MOMENT over the actions (iOS MontanaMessageMenu ladder): the same line as under the bubble, with the time
-            if (m.mine) actions.addView(c.deliveryLine(ref, m, withMoment = true).apply { setPadding(dp(16), dp(11), dp(16), dp(11)) }, lp())
+            if (m.mine && !Book.isLocal(ref)) actions.addView(c.deliveryLine(ref, m, withMoment = true).apply { setPadding(dp(16), dp(11), dp(16), dp(11)) }, lp())
             if (writes) row(c.getString(R.string.reply), R.drawable.ic_reply) { onReply() }
             // EDIT STICKER (iOS MontanaMessageMenu 474-476, MontanaConversation 2251-2254): a letter's own card sticker, re-cut into a new one
             if (Stickers.editable(m)) row(c.getString(R.string.sticker_edit), R.drawable.ic_pencil) { Stickers.editFromLetter(act, ref, m) }
@@ -2231,7 +2234,7 @@ fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Unit, onEd
             // in a group a speaker takes away their own letter for everyone (iOS canDeleteForEveryone: chat.isGroup ? m.isMine)
             // a plate of a media group goes whole (iOS rowLetters: a group is one bubble)
             val mids = members.map { it.mid }.toSet()
-            if (profile == null && (!group || m.mine)) row(c.getString(R.string.delete_for_everyone), R.drawable.ic_delete, red = true) {
+            if (profile == null && !Book.isLocal(ref) && (!group || m.mine)) row(c.getString(R.string.delete_for_everyone), R.drawable.ic_delete, red = true) {
                 Book.edit(ref) { ch -> ch.msgs.removeAll { it.mid in mids } }
                 for (x in mids) if (group) Groups.signal(ref, Marks.DELETE + "mid:" + x) else Post.send(ref, Marks.mintMid(), Marks.DELETE + "mid:" + x)
             }

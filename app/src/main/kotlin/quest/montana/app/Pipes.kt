@@ -483,7 +483,33 @@ object Book {
      * still goes by edit.
      */
     private fun Chat.shot() = Chat(ref, name, perm, unread, ArrayList(msgs), pin, note)
-    fun all(): List<Chat> = synchronized(lock) { ensure(); chats.values.sortedByDescending { it.last?.at ?: 0 }.map { it.shot() } }
+    /** The correspondences: the local room stands apart, above them (iOS: its row is inserted first, never sorted with them). */
+    fun all(): List<Chat> = synchronized(lock) { ensure(); chats.values.filter { !isLocal(it.ref) }.sortedByDescending { it.last?.at ?: 0 }.map { it.shot() } }
+    /** Every feed this phone holds, the local room with them -- for the searches that find a file or a letter wherever it lies. */
+    fun rooms(): List<Chat> = all() + listOfNotNull(chat(SAVED))
+
+    // ── THE ROOM WITHOUT AN ADDRESS (iOS savedMessagesKey, MontanaAvatarKit.swift:6; ChatStore.isLocalRoom, MontanaChatStore.swift:433-437
+    // at 2155): Saved Messages is this device writing to itself, a feed like any other opened by the one conversation page; nothing
+    // there is sent, waits or fails -- every road that would reach the wire asks isLocal and stops (the author's word 11.09) ──
+    const val SAVED = "Saved Messages"   // the storage key is English and never translated, as iOS keeps it
+    fun isLocal(ref: String) = ref == SAVED
+    /**
+     * The local room, born at the first ask. THE LETTERS OF THE OLD PAGE COME WITH IT ONCE: Android kept Saved Messages as words in a
+     * file of their own (SavedMessages) -- they become the room's letters, in their order and with their moments, and the file goes.
+     */
+    fun saved(c: Context): Chat {
+        val had = chat(SAVED)
+        if (had != null) return had
+        open(SAVED, "", true)
+        val old = SavedMessages.all(c)
+        if (old.isNotEmpty()) edit(SAVED) { ch ->
+            for (l in old) ch.msgs.add(Msg("t${l.at}-" + l.id.uppercase(), l.text, true, l.at).also { it.state = 2; it.statusAt = l.at })   // the name carries its own birth, as every letter's
+            ch.msgs.sortBy { it.at }
+        }
+        SavedMessages.forget(c)
+        Prefs.str("draft.savedMessages", "").takeIf { it.isNotEmpty() }?.let { Prefs.setStr("draft.$SAVED", it); Prefs.setStr("draft.savedMessages", "") }
+        return chat(SAVED) ?: Chat(SAVED, "", true)
+    }
     fun chat(ref: String): Chat? = synchronized(lock) { ensure(); chats[ref]?.shot() }
 
     fun open(ref: String, name: String, perm: Boolean): Chat = synchronized(lock) {
@@ -717,6 +743,8 @@ object Post {
     /** `quiet` — a letter of the person's that asks no banner this once (iOS enqueue silent: a missed call the far phone already rang for). */
     fun send(to0: String, mid: String, text: String, qt: String? = null, qm: String? = null, lp: String? = null, quiet: Boolean = false) {
         if (Groups.isKey(to0)) return   // a group's feed has no pipe: nothing is ever queued to it (iOS: a group's key has no doors)
+        // THE ROOM WITHOUT AN ADDRESS HAS NO WIRE (iOS isLocalRoom): its own letter is settled where it was written, never queued
+        if (Book.isLocal(to0)) { Book.edit(to0) { c -> c.msgs.find { it.mid == mid && it.mine }?.advance(2) }; return }
         val to = if (SamePair.speaksOfPipe(text)) to0 else SamePair.root(to0)   // a folded pipe's words go by its conversation's pipe
         var refused = false
         synchronized(outLock) {

@@ -899,8 +899,8 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
                 // Saved Messages wears one's own face (iOS MTSelfFace, the author's word 11.09): read again on every return
                 face.removeAllViews()
                 face.addView(c.avatar(SelfFace.load(c), Prefs.userName, 48))
-                val last = SavedMessages.last(c)
-                preview.text = last?.text ?: ""   // USER-DATA: one's own last letter
+                val last = Book.saved(c).last
+                preview.text = last?.let { letterWords(c, it) } ?: ""   // USER-DATA: one's own last letter
                 preview.visibility = if (last == null) View.GONE else View.VISIBLE
                 time.text = last?.let { rowTime(c, it.at) } ?: ""
             }
@@ -921,7 +921,7 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
                 }, lp(0, WRAP, 1f))
                 pressable {
                     act.push { close ->
-                        savedMessagesPage(act, close).apply {
+                        conversationPage(act, Book.SAVED, close).apply {
                             // back by the arrow or by the system's gesture alike: the row reads the room again
                             addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
                                 override fun onViewAttachedToWindow(v: View) {}

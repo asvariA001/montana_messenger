@@ -171,7 +171,7 @@ object Media {
             p.wave?.takeIf { it.isNotEmpty() }?.let { w -> put("wv", Base64.encodeToString(ByteArray(w.size) { (w[it] * 255).toInt().coerceIn(0, 255).toByte() }, Base64.NO_WRAP)) }
         }
         Book.edit(ref) { it.msgs.add(Msg(mid, provisional, true, Marks.birthMs(mid) ?: System.currentTimeMillis(), qt = qt, file = local.path)) }
-        Transfers.set(mid, 0.01f)   // the ring stands at the tap (iOS setUploadProgress(fileName, 0.01), MontanaConversation.swift:4609)
+        if (!Book.isLocal(ref)) Transfers.set(mid, 0.01f)   // the ring stands at the tap (iOS setUploadProgress(fileName, 0.01), MontanaConversation.swift:4609)
         Thread {
             // THE ROW STANDS AT THE TAP, THE FULL FILE TAKES ITS PLACE BEFORE A BYTE LEAVES (iOS sendGifFound, MontanaConversation.swift
             // 3822-3846 at 2155): `swap` brings the full bytes behind the standing row; the file's name never changes, only what lies
@@ -193,6 +193,8 @@ object Media {
                     .put("wv", Base64.encodeToString(ByteArray(wave!!.size) { (wave[it] * 255).toInt().coerceIn(0, 255).toByte() }, Base64.NO_WRAP))
                 Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid && it.file == local.path }?.let { it.text = told } }
             }
+            // THE LOCAL ROOM KEEPS ITS FILE (iOS isLocalRoom): nothing is sealed or laid -- the letter is settled with the file beside it
+            if (Book.isLocal(ref)) { Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.advance(2) }; return@Thread }
             if (deliver(c, ref, mid, pw, caption, local, qt, group)) return@Thread
             // THE INTENT SURVIVES ITS BROKEN UPLOAD (iOS 1675, 1677): the bubble stands at the clock and the upload waits for the drain
             keepIntent(ref, mid, local, told, caption, qt)
@@ -417,7 +419,7 @@ object Media {
     fun waiting(c: Context, m: Msg): Boolean = !m.mine && m.file?.let { File(it).exists() } != true && !autoAllowed(c)
     /** The tap on a waiting attachment: its file is asked for now, whatever the switch (iOS: a tap starts the queued download). */
     fun tapped(c: Context, m: Msg) {
-        val ref = Book.all().firstOrNull { ch -> ch.msgs.any { it.mid == m.mid } }?.ref ?: return
+        val ref = Book.rooms().firstOrNull { ch -> ch.msgs.any { it.mid == m.mid } }?.ref ?: return
         fetch(c, ref, m.mid, m.text, manual = true)
     }
 
