@@ -2,6 +2,13 @@
 
 **Status: open. No closure or production readiness is claimed.**
 
+Session 38 adds a [complete internal review of item 1](01-INTERNAL-AUDIT-SESSION-38.md),
+covering W01-W15, with a [publicly reconstructible candidate](reproduce/session38/README.md).
+The final node test reproduces order-dependent cements under conflicting signed weights.
+A separate historical receipt documents secret extraction from an accepted presence proof.
+The review keeps both defects open and distinguishes the two earlier component repairs
+from the absent complete window relation. No replacement network is released by this audit.
+
 ## Requirement
 
 Accept a valid window; reject insufficient quorum, forged weight, incorrect state roots and

@@ -1,0 +1,11 @@
+   Compiling mt-conformance v0.1.0 ($CANDIDATE/crates/mt-conformance)
+   Compiling montana-node v0.1.0 ($CANDIDATE/crates/montana-node)
+    Finished `release` profile [optimized] target(s) in 1m 34s
+     Running tests/window_cement_audit.rs ($TARGET/release/deps/window_cement_audit-190b3821e0f269d8)
+
+running 1 test
+test open_finding_conflicting_member_signatures_produce_order_dependent_cements ... OPEN FINDING: two node instances with separate stores accept zero and maximum weight via direct gather calls and keep different cements under reversed delivery; wrong root and correctly signed key/proof substitutions reject. This is not a wire or finality test.
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 45.52s
+

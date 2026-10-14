@@ -28,6 +28,15 @@ This report publishes no new core build and claims no completed network acceptan
 | [12](12-SOURCE-AND-CLAIMS.md) | Reconcile code, specification, audits and publication | **Open.** Each closed finding needs an implementation revision and matching evidence. Changed proof identifiers require an explicit migration. Whole-repository consistency and historical disclosures remain under review. |
 | [13](13-NETWORK-REPRODUCTION.md) | Reproduce distributed finality and joining | **Open.** Multiple weighted nodes must close, lose quorum, recover, partition, rejoin and restart with canonical artifacts. The authorized self-run on a separate server must preserve canonical artifacts; it is not independent external review. |
 
+## Session 38: item 1
+
+The [internal review](01-INTERNAL-AUDIT-SESSION-38.md) records 13 open findings
+and two narrowly repaired components, with the complete acceptance matrix. Its
+[reproduction package](reproduce/session38/README.md) reconstructs the candidate
+from a public commit and verifies 206 source hashes. Source repairs in that fixture
+are not represented as already present in the published `core` snapshot. The review
+is by the implementing session; no independent external audit or closure is claimed.
+
 ## Evidence rules
 
 Each completion report must identify the statement being checked, source revision, exact test
