@@ -154,9 +154,9 @@ object AppIcon {
 
 /**
  * THE PAGE «APPEARANCE»: the preview is the chat — the very bubbles, on the very ground, with the person's own settings;
- * then the app's icon, the video notes' quality, the feed's motion and the message style with its own colours.
- * Not here yet, each for its own reason: the application icons (Android has no app library yet), the keyboard (the keys
- * are the input method's own window — Android gives an app no word over their look), the voice message style (no voice orb yet).
+ * then the app's icon, the video notes' quality, the feed's motion, the message style with its own colours and the voice
+ * message style (VoiceOrb.kt). Not here yet, each for its own reason: the application icons (Android has no app library yet),
+ * the keyboard (the keys are the input method's own window — Android gives an app no word over their look).
  */
 class AppearancePage(private val act: MainActivity, private val onClose: () -> Unit) {
     val view: View
@@ -194,6 +194,19 @@ class AppearancePage(private val act: MainActivity, private val onClose: () -> U
             addView(footer(c, R.string.feed_motion_footer))
             addView(header(c, R.string.message_style))
             addView(c.plate { addView(styleRows, lp()) }, lp())
+            // THE VOICE ORB'S OWN PAGE (iOS «Voice message style», MontanaSettings.swift:1097-1105 at 2155): the peer's orb, still,
+            // and the words; the row leads to the colours of both sides and the motion of the ball.
+            addView(header(c, R.string.vo_style))
+            addView(c.plate {
+                addView(c.hstack {
+                    setPadding(dp(16), dp(10), dp(14), dp(10))
+                    addView(VoiceOrbView(c, mine = false, fps = 24, animating = false), lp(dp(34), dp(34)))
+                    gap(12)
+                    addView(c.text(c.getString(R.string.vo_style), 16f), lp(0, WRAP, 1f))
+                    addView(c.icon(R.drawable.ic_chevron_right, Color.rgb(89, 89, 89), 18), lp(dp(18), dp(18)).apply { marginStart = dp(6) })
+                    pressable { lateinit var close: () -> Unit; close = act.overlay(VoiceOrbStylePage(act) { close() }.view) }
+                }, lp())
+            }, lp())
             addView(custom, lp())
         }
         fillStyles()

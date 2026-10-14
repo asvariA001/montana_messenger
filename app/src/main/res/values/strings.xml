@@ -672,4 +672,22 @@
     <string name="share_preparing">Preparing</string>
     <string name="share_sending">Sending…</string>
     <string name="share_still_on_way">Some items are still on their way — Montana will send them.</string>
+    <string name="vo_style">Voice message style</string>
+    <string name="vo_theirs">Their voice</string>
+    <string name="vo_mine">Your voice</string>
+    <string name="vo_tap_hint">Tap an orb to edit that side</string>
+    <string name="vo_own_colours">Own colours</string>
+    <string name="vo_size">Bubble size</string>
+    <string name="vo_motion">Motion</string>
+    <string name="vo_speed">Speed</string>
+    <string name="vo_liquid">Liquid</string>
+    <string name="vo_zoom">Zoom</string>
+    <string name="vo_exposure">Exposure</string>
+    <string name="vo_glass">Glass</string>
+    <string name="vo_fringe">Colour fringe</string>
+    <string name="vo_sheen">Sheen</string>
+    <string name="vo_look">Look</string>
+    <string name="vo_orb">Orb</string>
+    <string name="vo_histogram">Histogram</string>
+    <string name="vo_histogram_note">The histogram wears the colours of the text bubble.</string>
 </resources>

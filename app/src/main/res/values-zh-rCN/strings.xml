@@ -667,4 +667,22 @@
     <string name="share_preparing">准备中</string>
     <string name="share_sending">发送中…</string>
     <string name="share_still_on_way">部分内容仍在发送中——Montana 会自动完成。</string>
+    <string name="vo_style">语音消息样式</string>
+    <string name="vo_theirs">对方的语音</string>
+    <string name="vo_mine">您的语音</string>
+    <string name="vo_tap_hint">轻点球体以编辑该侧</string>
+    <string name="vo_own_colours">原生配色</string>
+    <string name="vo_size">气泡大小</string>
+    <string name="vo_motion">动态</string>
+    <string name="vo_speed">速度</string>
+    <string name="vo_liquid">流动</string>
+    <string name="vo_zoom">缩放</string>
+    <string name="vo_exposure">曝光</string>
+    <string name="vo_glass">玻璃</string>
+    <string name="vo_fringe">色散</string>
+    <string name="vo_sheen">光泽</string>
+    <string name="vo_look">外观</string>
+    <string name="vo_orb">球体</string>
+    <string name="vo_histogram">柱状图</string>
+    <string name="vo_histogram_note">柱状图使用文字气泡的颜色。</string>
 </resources>

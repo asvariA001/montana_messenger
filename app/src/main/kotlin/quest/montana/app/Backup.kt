@@ -581,9 +581,10 @@ object Card {
         "cbPeerFill1" to Form.WORD, "cbPeerFill2" to Form.WORD, "cbPeerOpacity" to Form.FRACTION, "cbPeerText" to Form.WORD,
         "cbPeerOutline" to Form.WORD, "cbPeerOutlineOp" to Form.FRACTION, "cbPeerOutlineW" to Form.FRACTION,
         "bubbleColorIndex" to Form.FRACTION,
-        // the feed's motion (MontanaChatMotion.swift 6-9), the note (MontanaFeeds.swift 1718, 1783-1808), the voice (MontanaMedia.swift 324-326)
+        // the feed's motion (MontanaChatMotion.swift 6-9), the note (MontanaFeeds.swift 1718, 1783-1808), the voice (MontanaMedia.swift 324-326),
+        // the voice orb's look (MTVoiceBuble.swift 114; MontanaChatStore.swift settingKeys 6214)
         "chatSpringBounce" to Form.FRACTION, "chatSpringDuration" to Form.FRACTION,
-        "noteQuality" to Form.WORD, "vnoteCorner" to Form.WHOLE_WORD, "voiceRate" to Form.FRACTION_WORD,
+        "noteQuality" to Form.WORD, "vnoteCorner" to Form.WHOLE_WORD, "voiceRate" to Form.FRACTION_WORD, "voiceOrb.look" to Form.WORD,
         // the field (MontanaBubble.swift 2361-2362, MontanaConversation.swift 661), the panes (ContentView.swift 226-227, 4296;
         // MontanaChatsList.swift 454), the mesh switch (MontanaNetworkView.swift 123), the daily copies to one's own node
         // (MontanaHomeNode.swift 23, 39-40)

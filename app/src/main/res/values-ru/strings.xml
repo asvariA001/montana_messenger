@@ -667,4 +667,22 @@
     <string name="share_preparing">Подготовка</string>
     <string name="share_sending">Отправка…</string>
     <string name="share_still_on_way">Часть вложений ещё в пути — Montana отправит их сама.</string>
+    <string name="vo_style">Стиль голосовых сообщений</string>
+    <string name="vo_theirs">Голос собеседника</string>
+    <string name="vo_mine">Ваш голос</string>
+    <string name="vo_tap_hint">Коснитесь шара, чтобы настраивать эту сторону</string>
+    <string name="vo_own_colours">Родные цвета</string>
+    <string name="vo_size">Размер пузыря</string>
+    <string name="vo_motion">Движение</string>
+    <string name="vo_speed">Скорость</string>
+    <string name="vo_liquid">Текучесть</string>
+    <string name="vo_zoom">Масштаб</string>
+    <string name="vo_exposure">Экспозиция</string>
+    <string name="vo_glass">Стекло</string>
+    <string name="vo_fringe">Цветная кромка</string>
+    <string name="vo_sheen">Блеск</string>
+    <string name="vo_look">Вид</string>
+    <string name="vo_orb">Шар</string>
+    <string name="vo_histogram">Гистограмма</string>
+    <string name="vo_histogram_note">Гистограмма носит цвета текстового пузыря.</string>
 </resources>
