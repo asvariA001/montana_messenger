@@ -7,7 +7,12 @@ the source of the protocol core and of the two Montana applications, laid out fo
 [![iPhone and iPad on TestFlight](https://img.shields.io/badge/iPhone%20·%20iPad-TestFlight-D4AF37?style=for-the-badge&logo=apple&logoColor=white)](https://testflight.apple.com/join/BHaSYWkz)
 [![Releases](https://img.shields.io/badge/IPA%20·%20APK-Releases-C9A227?style=for-the-badge&logo=github&logoColor=white)](https://github.com/efir369999/montana_messenger/releases/latest)
 
-[montana.quest](https://montana.quest) · [Whitepaper](WHITEPAPER.md) · [Audit package](AUDIT.md) · [Security](SECURITY.md)
+[montana.quest](https://montana.quest) · [Whitepaper](WHITEPAPER.md) · [Audit package](AUDIT.md) · [13-item status](Audit/Protocol-13/README.md) · [Security](SECURITY.md)
+
+**Protocol closure is open: 0 of 13 acceptance criteria are closed.** Finality, the issuance bound,
+authenticated first joining and node anonymity are not established by the published snapshot.
+Read the source-pinned [reports in Audit](Audit/README.md) before treating historical readiness
+statements or passing primitive tests as evidence of these properties.
 
 ## What this repository holds
 
@@ -17,6 +22,7 @@ the source of the protocol core and of the two Montana applications, laid out fo
 | [`apps/messenger/ios/`](apps/messenger/ios/) | Montana for iPhone, iPad and Mac (Swift). From build 2180 it carries the VPN client that was published separately as MT VPN |
 | [`apps/messenger/android/`](apps/messenger/android/) | Montana for Android (Kotlin, with a Rust JNI library over the client core) |
 | [`AUDIT.md`](AUDIT.md) | The audit package: scope, builds, vectors, the catalogue of open findings, what can and cannot be verified from this repository |
+| [`Audit/`](Audit/) | Current reports for the 13 protocol closure requirements, with explicit open status and source evidence |
 | [`WHITEPAPER.md`](WHITEPAPER.md) | The protocol and what the applications implement of it today |
 | [`RELEASES.md`](RELEASES.md) | The source commit, build and git tree of every folder, written by the publisher in the commit that changes the folder; the published binaries |
 | [`SECURITY.md`](SECURITY.md) | How to report a weakness |
