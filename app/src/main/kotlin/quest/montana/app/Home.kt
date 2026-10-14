@@ -893,6 +893,7 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
         addView(c.vstack(Gravity.NO_GRAVITY) {
             // The local room: stands in the list from the first moment; a tap opens it (iOS: the row opens its conversation).
             val preview = c.text("", 16f, MT.gray).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
+            val thumb = FrameLayout(c)   // the last letter's small picture before its words, as every chat's row (iOS MTLetterThumb, side 20)
             val time = c.text("", 14f, MT.gray)
             val face = FrameLayout(c)
             fun refresh() {
@@ -900,8 +901,19 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
                 face.removeAllViews()
                 face.addView(c.avatar(SelfFace.load(c), Prefs.userName, 48))
                 val last = Book.saved(c).last
-                preview.text = last?.let { letterWords(c, it) } ?: ""   // USER-DATA: one's own last letter
-                preview.visibility = if (last == null) View.GONE else View.VISIBLE
+                val kind = last?.let { rowKind(it) }
+                thumb.removeAllViews()
+                if (last != null && kind != null) thumb.addView(c.letterThumb(last, kind), FrameLayout.LayoutParams(c.dp(20), c.dp(20)))
+                thumb.visibility = if (kind != null) View.VISIBLE else View.GONE
+                // unsent words stand first, «Draft:» in red, as in every chat's row (iOS ChatRow 2175-2181)
+                val draft = Prefs.str("draft." + Book.SAVED, "").trim().replace('\n', ' ')
+                val words = last?.let { letterWords(c, it) }?.let { if (kind != null) bareWords(it) else it } ?: ""
+                preview.text = if (draft.isNotEmpty()) android.text.SpannableStringBuilder(c.getString(R.string.cl_draft)).apply {
+                    setSpan(android.text.style.ForegroundColorSpan(SysColor.red), 0, length, 0)
+                    append(" ").append(draft)   // USER-DATA: the draft text
+                } else words   // USER-DATA: one's own last letter
+                if (draft.isNotEmpty()) thumb.visibility = View.GONE
+                preview.visibility = if (last == null && draft.isEmpty()) View.GONE else View.VISIBLE
                 time.text = last?.let { rowTime(c, it.at) } ?: ""
             }
             refresh()
@@ -917,7 +929,11 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
                         addView(c.text(c.getString(R.string.saved_messages), 17f, Color.WHITE, bold = true), lp(0, WRAP, 1f))
                         addView(time)
                     }, lp(MATCH, dp(22)))
-                    addView(preview, lp(MATCH, dp(20)).apply { topMargin = dp(4) })
+                    addView(c.hstack {
+                        gravity = Gravity.CENTER_VERTICAL
+                        addView(thumb, lp(dp(20), dp(20)).apply { marginEnd = dp(6) })
+                        addView(preview, lp(0, WRAP, 1f))
+                    }, lp(MATCH, dp(20)).apply { topMargin = dp(4) })
                 }, lp(0, WRAP, 1f))
                 pressable {
                     act.push { close ->
