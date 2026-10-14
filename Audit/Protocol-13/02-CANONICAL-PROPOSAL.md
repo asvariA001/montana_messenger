@@ -16,8 +16,11 @@ supplies authenticated predecessor state or the missing Proposal verifier.
 A later complete-workspace attempt did not finish the three-machine scenario.
 A bounded diagnostic showed advancing rounds with only one or two of three
 heavy participants. Historical reads chased the growing tip and failed to
-revisit early points. A scheduling repair is under server verification; no
-passing full sweep is claimed.
+revisit early points. Three historical-read regressions and two delivery regressions now pass.
+The later three-machine count scenario completed in 19.49 seconds and produced three different
+beacon identifiers. This confirms progress in delivery, not canonical finality. The subsequent
+whole-workspace attempt failed two stale proof-size expectations; those were repaired and
+checked separately. No passing full workspace sweep is claimed.
 
 Closure requires a positive canonical Proposal case and rejection of absent,
 invalid or substituted proofs before any closed-head or issuance change. The

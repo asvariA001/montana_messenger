@@ -52,8 +52,11 @@ Two reproductions ran on a separate Linux x86-64 build host against the candidat
 manifest of 201 files. Both constructed full proofs and obtained acceptance from the generic
 proof verifier in 120.15 seconds in total. The [machine-readable result](evidence/window-audit-2026-10-14.json)
 records source and log digests. Passing these tests means the open defects were reproduced.
-The separate replay on the pinned public snapshot is still running at this report revision;
-its result is not included in that candidate-run receipt.
+The separate replay on the pinned public snapshot also completed: both full-proof
+counterexamples reproduced in 3977.47 seconds. All 193 source files matched their manifest
+after the run. Its [separate receipt](evidence/window-public-replay-2026-10-14.json) records
+the public source revision and source/log digests. The slower run used the published prover,
+not the candidate's optimized implementation.
 
 - With every fold challenge zero, a nonzero instance leaves all six accumulators unchanged.
   The arithmetic constraints and proof verifier accept it. The required nonzero, derived
@@ -84,3 +87,80 @@ the claimed guarantee; failure of an upper bound to meet a target does not itsel
 an attack with that probability. The underlying accumulation argument, decomposition binding,
 adaptive transcripts and authenticated origin still need a complete soundness analysis.
 Changing a repetition count alone cannot close item 1.
+
+## Why a running sum cannot authenticate weight
+
+An additional separate-host reproduction uses the actual standing-commitment implementation.
+Four bounded commitments of weight one have the same sum as a bounded opening of weight five.
+With zero `r1`, first `r2` coefficient four in each original commitment, and first `r2`
+coefficient minus one in the alternative opening, the first coefficient is:
+
+```
+4 * (17 * 1 + 4) = 84 = 17 * 5 - 1
+```
+
+All other coefficients are zero. At parent total seven, actual weight four fails the current
+quorum while claimed weight five passes. This does not break an individual commitment: the
+combined original randomness has left its bound. It proves why merely opening the running sum
+cannot replace the authenticated tree of fresh commitments required by Canon.
+
+A second example uses `255 + 1`: adding the encoded commitment coefficients does not perform
+the carry of the integer sum. The child-sum proof must establish integer arithmetic as well
+as the linkage to the correct children. Both synthetic examples reproduced on the separate
+host in 0.02 seconds. They are tests of the commitment API, not a claim that a complete window
+verifier or a deployed network accepted an invalid quorum.
+
+## Focus of the current repair
+
+Work is focused on item 1. The unpublished candidate adds a nonzero-challenge constraint
+inside the AIR and a checked arithmetic API that independently derives challenges from fixed,
+canonical input. A complete window verifier must additionally authenticate that input and
+establish the weight, root, transition, ticket and history relations. The arithmetic repair
+passed the separate-host v12 run: 189 proof-package tests, 72 conformance tests,
+whole-workspace Clippy with warnings denied, and the release build. The source manifest
+matched all 205 files after the run. The [receipt](evidence/window-arithmetic-repair-2026-10-14.json)
+separates each command's results and log digest. These are selected package checks, not a
+passing whole-workspace test sweep, and they do not close this item.
+
+## The node verifier also accepts unauthenticated weight
+
+The same v12 run constructed one real presence proof for an admitted machine. The owner
+reused that proof and signed alternative standing commitments to zero and `u64::MAX`.
+The actual `verify_heavy` function accepted both alternatives under the same admitted-root,
+window, key and part-nullifier context. The test completed in 14.36 seconds. Its successful
+result reproduces an open authority defect: it does not validate either invented weight.
+
+The presence statement must bind the commitment to the machine's permitted predecessor
+standing. A signature over a replacement commitment proves who signed those bytes, not that
+their hidden quantity is authorized. The complete relation remains to be implemented.
+
+## Confidentiality of the committed weight
+
+A separate actual-node regression found that the current blind is the next window's public
+part-nullifier. Given that later public value and the prior commitment, an observer subtracts
+the commitment of zero and reads the three encoded quantities. The baseline regression
+recovered `[1234567, 0, 1000]` and failed its confidentiality expectation in 14.80 seconds.
+These are synthetic test values.
+
+The subsequent candidate derives the mask privately with the existing HMAC-SHA-256 primitive,
+binding the machine secret and the complete immutable quantity tuple. Its actual-node
+confidentiality regression passed in 14.44 seconds; all 67 derivation-package tests and
+whole-workspace Clippy also passed. The same candidate still accepts unauthorized weights
+in the separate open-finding test, which completed in 15.94 seconds.
+
+The conformance run then found one stale audit count: the new vector raised coverage from
+248 frozen lines to 249. The subsequent snapshot changes only two audit documents; all code
+is identical to the tested mask repair. All 74 conformance checks, the workspace release
+build and tier-one checks of five normative documents pass there. All 206 source files
+matched their manifest after the run, and the proof-package sources are identical to the
+earlier arithmetic-repair run. The before/after
+source and log digests are recorded in the [weight-mask receipt](evidence/weight-mask-repair-2026-10-14.json).
+The [confidentiality regression](reproduce/standing_privacy.rs) and
+[weight-authority reproduction](reproduce/window_weight_audit.rs) contain synthetic inputs only.
+
+This closes the demonstrated disclosure through the next public part in the candidate.
+It does not claim full anonymity, resistance after disclosure of the machine secret, or
+proof of permitted weight. The latter still requires an authenticated predecessor relation:
+`Cohort::branch_of` currently supplies weight one, while its membership branch authenticates
+the naming half and does not authenticate a permitted weight. No complete weight transition,
+window relation or history verification has been implemented by this repair.
