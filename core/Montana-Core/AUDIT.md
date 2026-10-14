@@ -41,21 +41,55 @@ they do not attest to a deployed network or an independent operator's run.
 | Admission continuity is not enforced end to end | Still open: an Identity segment is earned by an included action of the record. Replaying other people's cements creates no such action. The record reader and admission circuit must enforce the shifted active period and the share, including minority partition and rejoin cases. |
 | Bootstrap and origin privacy | Still open: a dialable cohort requires authenticated discovery and transport that do not expose protected origins. Removing an address or identity from the current source does not revoke historical exposure or make direct DNS records anonymous. |
 
-The final library run passed 138 `mt-proof` tests and 28 `mt-pulse` tests. One
-existing test remains ignored: `a_window_is_proven_and_verified_end_to_end`,
-marked as taking more than an hour. Its execution is not claimed. Formatting,
-whole-workspace clippy with warnings denied and a whole-workspace release build
-pass. Earlier targeted checks passed four `a_window_closes` tests and the round
-and delayed-delivery scenarios. The baseline reproduced all four forged-trace
-acceptances and the zero-total close; its honest presence test passed. The
-two-machine test uses local secrets and a local admitted tree. It is not an
-outside validator's observation of the live cohort, and the selected test runs
-are not a completed workspace-wide test sweep.
+The first candidate's library run passed 138 `mt-proof` tests and 28
+`mt-pulse` tests, with one window proof ignored. Its formatting, whole-workspace
+clippy and release build passed. The later prover review below records the
+previously ignored test separately. Earlier targeted checks passed four
+`a_window_closes` tests and the round and delayed-delivery scenarios. The baseline
+reproduced all four forged-trace acceptances and the zero-total close; its honest
+presence test passed. The two-machine test uses local secrets and a local admitted
+tree. These are not outside observations of the live cohort or a completed
+workspace-wide test sweep.
 
 The new AIR changes `air_hash`, the published-parameter digest and the genesis
 state hash. Canon 4.4.0 / Core 0.20.0 is a candidate requiring a verified network
 transition, not a compatible binary to drop onto existing state. No fallback
 accepting the vulnerable proof descriptions is added.
+
+### Boundary evaluation cost closed without changing the statement, 2026-10-14
+
+The historical performance entries below described a domain sweep that visited
+all 27,654 boundaries and their row divisors at each point. The prover now
+interpolates their weighted samples once per trace column. For a trace subgroup
+H of size n and root r, its Lagrange basis satisfies
+`L_r(X) = (X^n - 1) / ((n/r) * (X-r))`. Taking samples
+`A_c(r) += beta * n/r` and `B(r) += beta * v * n/r` therefore turns the same
+boundary sum into `(sum_c T_c(X)*A_c(X) - B(X))/(X^n-1)`.
+This is an application of the polynomial identity in
+[Berrut and Trefethen, section 3](https://people.maths.ox.ac.uk/trefethen/barycentric.pdf),
+to the existing finite-field subgroup. It is not a new cryptographic assumption.
+The implementation retains every boundary and transcript weight. The verifier
+and the prover's out-of-domain evaluation still use the direct quotient sum.
+Only one boundary column and one extension component are expanded at a time.
+
+The full `mt-proof` package passes all 174 tests with no failures or ignored tests.
+Whole-workspace clippy with warnings denied and the release build pass.
+The direct and batched sums agree at every coset point for
+empty, sparse and dense boundary sets, repeated boundaries and literal/public/
+word values, including traces that do not satisfy them. All 22 proof-scheme
+integration tests pass. A proof recorded before optimization retains exactly
+its SHA-256 `f78487b470b50a689c65eb7fa1694c22fab0a6c25e53b7c85f86002ba6c40399`.
+The previously ignored full-height window test passed in 29.07 seconds in a
+release build on the review machine; its modified-public-input refusal also
+passed. The ignore marker is removed. These are local measurements, not a
+latency guarantee for another machine.
+
+No AIR, public-input encoding, proof encoding or genesis identifier changes in
+this optimization. It closes the skipped arithmetic-test finding only. The
+window circuit still lacks the quorum and full proposal-transition constraints
+listed above; a fast proof of its current statement does not establish finality.
+The historical digest/second-phase proposals below are not prerequisites for
+this performance repair and remain unimplemented design alternatives.
 
 ### The gate's denominator
 

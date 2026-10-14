@@ -159,6 +159,98 @@ impl Divisors {
     }
 }
 
+// On H = <g> of size n, the Lagrange basis at r is
+// L_r(X) = (X^n - 1) / ((n / r) * (X - r)). Thus every boundary quotient
+// beta * (T_c(X) - v) / (X - r) is exactly
+// (T_c(X) * A_c(X) - B(X)) / (X^n - 1), where the samples on H are
+// A_c(r) += beta * n/r and B(r) += beta * v * n/r.
+//
+// Interpolating these samples once avoids walking every boundary at every
+// extended point. This changes no weights, constraints, transcript or proof
+// bytes. The verifier and the prover's out-of-domain check retain the direct
+// quotient sum, so they do not depend on this evaluation algorithm.
+fn boundary_numerators(
+    description: &Description,
+    weights: &[E],
+    public: &[F],
+    extended: &[Vec<F>],
+    shape: Shape,
+) -> Result<Vec<E>, ProveError> {
+    let rows = shape.rows();
+    let mut out = vec![E::ZERO; shape.domain()];
+    if description.boundaries.is_empty() {
+        return Ok(out);
+    }
+    let generator = poly::root_of_unity(shape.rows_log2())
+        .map_err(|_| ProveError::Domain)?
+        .inverse()
+        .ok_or(ProveError::Domain)?;
+    let mut derivatives = Vec::with_capacity(rows);
+    let mut derivative = F::from_u64_reduced(rows as u64);
+    for _ in 0..rows {
+        derivatives.push(derivative);
+        derivative = derivative.times(generator);
+    }
+    let mut columns: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    for (at, boundary) in description.boundaries.iter().enumerate() {
+        columns
+            .entry(usize::from(boundary.column))
+            .or_default()
+            .push(at);
+    }
+    let mut constant = vec![E::ZERO; rows];
+    for (column, boundaries) in columns {
+        let trace = extended.get(column).ok_or(ProveError::Domain)?;
+        let mut samples = vec![E::ZERO; rows];
+        for at in boundaries {
+            let boundary = &description.boundaries[at];
+            let row = usize::try_from(boundary.row).map_err(|_| ProveError::Domain)?;
+            let scale = *derivatives.get(row).ok_or(ProveError::Domain)?;
+            let weight = weights
+                .get(description.constraints.len() + at)
+                .ok_or(ProveError::Domain)?
+                .mul_base(scale);
+            let held = resolve(boundary.value, public).ok_or(ProveError::Domain)?;
+            samples[row] = samples[row].plus(weight);
+            constant[row] = constant[row].minus(weight.mul_base(held));
+        }
+        add_boundary_polynomial(&samples, Some(trace), shape, &mut out)?;
+    }
+    add_boundary_polynomial(&constant, None, shape, &mut out)?;
+    Ok(out)
+}
+
+// Only one component and one boundary column are extended at a time. Keeping
+// all boundary columns over the extended domain would multiply peak memory by
+// the width of the trace, defeating the space bound of the prover.
+fn add_boundary_polynomial(
+    samples: &[E],
+    trace: Option<&[F]>,
+    shape: Shape,
+    out: &mut [E],
+) -> Result<(), ProveError> {
+    if out.len() != shape.domain() || trace.is_some_and(|v| v.len() != out.len()) {
+        return Err(ProveError::Domain);
+    }
+    for component in 0..E::ZERO.coefficients().len() {
+        let values: Vec<F> = samples
+            .iter()
+            .map(|e| e.coefficients()[component])
+            .collect();
+        let coefficients = poly::interpolate(&values).map_err(|_| ProveError::Domain)?;
+        let extended =
+            poly::evaluate_over_coset(&coefficients, shape.domain_log2(), poly::coset_shift())
+                .map_err(|_| ProveError::Domain)?;
+        for (at, value) in extended.into_iter().enumerate() {
+            let value = trace.map_or(value, |column| value.times(column[at]));
+            let mut held = out[at].coefficients();
+            held[component] = held[component].plus(value);
+            out[at] = E::of(held[0], held[1], held[2]);
+        }
+    }
+    Ok(())
+}
+
 fn evaluate_at_ext(coefficients: &[F], point: E) -> E {
     let mut out = E::ZERO;
     for coefficient in coefficients.iter().rev() {
@@ -386,8 +478,21 @@ pub fn prove(
     let step = 1usize << crate::params::BLOWUP.trailing_zeros();
     let row_generator = poly::root_of_unity(shape.rows_log2()).map_err(|_| ProveError::Domain)?;
     let divisors = Divisors::of(description, row_generator);
-    let mut composition: Vec<E> = Vec::with_capacity(domain);
-    for at in 0..domain {
+    let mut composition = boundary_numerators(description, &weights, &public, &extended, shape)?;
+    // X^n repeats once per blowup on this coset. Its inverses are base-field
+    // values; compute that short period once rather than invert at every point.
+    let inverted_vanishing: Vec<F> = points
+        .iter()
+        .take(step)
+        .map(|point| {
+            point
+                .pow(rows as u64)
+                .minus(F::ONE)
+                .inverse()
+                .ok_or(ProveError::Domain)
+        })
+        .collect::<Result<_, _>>()?;
+    for (at, value) in composition.iter_mut().enumerate() {
         let here: Vec<E> = (0..width)
             .map(|column| E::from_base(extended[column][at]))
             .collect();
@@ -398,19 +503,21 @@ pub fn prove(
             .iter()
             .map(|column| E::from_base(column[at % column.len()]))
             .collect();
-        let inverted = divisors
-            .at(E::from_base(points[at]), rows)
-            .ok_or(ProveError::Domain)?;
-        composition.push(value_of_the_composition(
-            description,
-            &weights,
-            &public,
-            &here,
-            &next,
-            &period,
-            &divisors,
-            &inverted,
-        )?);
+        let mut numerator = *value;
+        for (constraint, weight) in weights
+            .iter()
+            .take(description.constraints.len())
+            .enumerate()
+        {
+            numerator = numerator.plus(weight.times(constraint_at(
+                description,
+                constraint,
+                &here,
+                &next,
+                &period,
+            )));
+        }
+        *value = numerator.mul_base(inverted_vanishing[at % step]);
     }
 
     let composition_tree = Tree::of(
@@ -575,8 +682,8 @@ fn domain_points(shape: Shape) -> Result<Vec<F>, ProveError> {
 // The composition at one point: every transition divided by what vanishes on the rows, every
 // boundary divided by what vanishes at its row, each under its own weight. The divisors arrive
 // inverted — the first of them the one of the rows, the rest those of the rows the boundaries
-// stand at — so this body divides nowhere and the same body serves the prover over the extended
-// domain and the verifier at the point outside it.
+// stand at — so this body divides nowhere. Both parties use this direct sum at
+// the point outside the domain; only the prover's domain sweep uses batching.
 #[allow(clippy::too_many_arguments)]
 fn value_of_the_composition(
     description: &Description,
@@ -1019,5 +1126,96 @@ impl Proof {
             },
             Tail(tail),
         ))
+    }
+}
+
+#[cfg(test)]
+mod boundary_batching_tests {
+    use super::*;
+    use crate::air::{Boundary, BoundaryValue};
+
+    #[test]
+    fn batching_matches_the_direct_quotients_at_every_coset_point() {
+        let shape = Shape::of_rows_log2(8).expect("a complete folding shape");
+        let public = [F::from_u64_reduced(17), F::from_u64_reduced(3)];
+        let extended: Vec<Vec<F>> = (0..2)
+            .map(|column| {
+                let coefficients: Vec<F> = (0..shape.rows())
+                    .map(|i| F::from_u64_reduced((i * i + column * 11 + 1) as u64))
+                    .collect();
+                poly::evaluate_over_coset(&coefficients, shape.domain_log2(), poly::coset_shift())
+                    .expect("the trace extends")
+            })
+            .collect();
+        let generator = poly::root_of_unity(shape.rows_log2()).expect("the row generator");
+        let points = domain_points(shape).expect("the extended domain");
+        // Empty, sparse and dense boundaries; first/last rows and both columns.
+        // The trace need not satisfy them: these must be equal as rational
+        // expressions even for a false statement, not only for an honest trace.
+        for stride in [0, shape.rows() - 1, 1] {
+            let mut description = Description {
+                trace_width: 2,
+                rows_log2: shape.rows_log2() as u8,
+                periodic: vec![],
+                constraints: vec![],
+                boundaries: vec![],
+            };
+            if stride != 0 {
+                for row in (0..shape.rows()).step_by(stride) {
+                    for column in 0..2 {
+                        description.boundaries.push(Boundary {
+                            row: row as u64,
+                            column,
+                            value: match row % 3 {
+                                0 => BoundaryValue::Literal(7),
+                                1 => BoundaryValue::Public(0),
+                                _ => BoundaryValue::Word(0),
+                            },
+                        });
+                    }
+                }
+                // Duplicate boundaries must add, not replace each other.
+                description
+                    .boundaries
+                    .push(description.boundaries[0].clone());
+            }
+            let weights: Vec<E> = (0..description.boundaries.len())
+                .map(|at| {
+                    E::of(
+                        F::from_u64_reduced(at as u64 + 1),
+                        F::from_u64_reduced(at as u64 * 13 + 2),
+                        F::from_u64_reduced(at as u64 * 3 + 5),
+                    )
+                })
+                .collect();
+            let batched = boundary_numerators(&description, &weights, &public, &extended, shape)
+                .expect("the boundary samples extend");
+            let divisors = Divisors::of(&description, generator);
+            for (at, point) in points.iter().enumerate() {
+                let here: Vec<E> = extended
+                    .iter()
+                    .map(|column| E::from_base(column[at]))
+                    .collect();
+                let inverted = divisors
+                    .at(E::from_base(*point), shape.rows())
+                    .expect("off H");
+                let direct = value_of_the_composition(
+                    &description,
+                    &weights,
+                    &public,
+                    &here,
+                    &[],
+                    &[],
+                    &divisors,
+                    &inverted,
+                )
+                .expect("the direct boundary sum");
+                assert_eq!(
+                    batched[at].times(inverted[0]),
+                    direct,
+                    "stride {stride}, point {at}"
+                );
+            }
+        }
     }
 }

@@ -199,15 +199,10 @@ mod tests {
         );
     }
 
-    // The one proving run of this tree that the sweep does not make. Its description carries a
-    // boundary for every coefficient of every accumulator and of the instance, and the composition
-    // of those boundaries takes past an hour at the height every description stands at — measured,
-    // not estimated. A run that long is a run nobody makes, and a test nobody makes says nothing;
-    // so it is named rather than quietly slow, and `AUDIT.md` carries what closes it: a public
-    // input bound by a digest rather than cell by cell. Run it by name:
-    //
-    //   cargo test --jobs 2 -p mt-proof --lib a_window_is_proven -- --ignored
-    #[ignore = "past an hour at the one height: AUDIT.md carries what closes it"]
+    // Every public cell remains a boundary. The prover batches their exact
+    // quotient sum by interpolation, so this full-height test is part of the
+    // ordinary suite. It proves the fold arithmetic described above; quorum
+    // and the canonical proposal transition remain separate open findings.
     #[test]
     fn a_window_is_proven_and_verified_end_to_end() {
         let mut taken = [[0u32; INSTANCE_COEFFICIENTS]; fold::REPETITIONS];

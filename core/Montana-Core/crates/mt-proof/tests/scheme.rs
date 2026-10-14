@@ -133,6 +133,33 @@ fn a_proof_is_the_same_bytes_where_it_is_written_twice() {
 }
 
 #[test]
+fn boundary_batching_keeps_the_frozen_proof_bytes() {
+    use sha2::{Digest, Sha256};
+    let mut held = description();
+    let trace = trace();
+    for row in (0..trace[0].len()).step_by(32) {
+        for (column, values) in trace.iter().enumerate() {
+            held.boundaries.push(Boundary {
+                column: column as u16,
+                row: row as u64,
+                value: mt_proof::air::BoundaryValue::Literal(values[row].as_u64()),
+            });
+        }
+    }
+    let bytes = scheme::prove(&held, INPUT, &trace).expect("the bounded trace proves");
+    assert_eq!(scheme::verify(&held, INPUT, &bytes), Ok(()));
+    let digest: String = Sha256::digest(&bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    // Recorded with the direct quotient evaluator before the batching change.
+    assert_eq!(
+        digest,
+        "f78487b470b50a689c65eb7fa1694c22fab0a6c25e53b7c85f86002ba6c40399"
+    );
+}
+
+#[test]
 fn a_trace_that_does_not_satisfy_is_not_provable() {
     let description = description();
     let mut trace = trace();

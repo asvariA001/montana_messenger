@@ -137,12 +137,16 @@ counter exhaustion, mutation on a failed KEM step and the maximum-message bound.
 The existing wire encoding is unchanged. These source changes have not been
 installed into the released applications.
 
-Both workspaces pass full clippy and release builds. The recorded library runs
-include 138 proof tests, 28 pulse tests and 199 legacy node/genesis/lottery tests;
-the final ratchet checks pass six state tests, six exchange tests and two AEAD
-tests. One proof test remains ignored for its documented runtime. A complete
-workspace-wide test sweep has not been performed, and these results do not
-attest to the live cohort.
+Both workspaces pass full clippy and release builds. Following the exact
+boundary-evaluation optimization, the complete proof package passes 174 tests
+with none ignored; its pre-change control proof retains identical bytes. The
+previously skipped full-height window arithmetic proof passes in 29.07 seconds
+on the review machine and is now in the ordinary suite. This changes no AIR or
+proof encoding and does not add the missing quorum statement.
+Earlier recorded runs include 28 pulse tests and 199 legacy node/genesis/lottery
+tests. The final ratchet checks pass six state tests, six exchange tests and two
+AEAD tests. A complete workspace-wide test sweep has not been performed, and
+these results do not attest to the live cohort.
 
 The current blockers remain explicit:
 

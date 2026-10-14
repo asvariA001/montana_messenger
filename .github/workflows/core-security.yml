@@ -33,11 +33,9 @@ jobs:
           persist-credentials: false
       - name: Install the compiler pinned by the workspace
         run: rustup show active-toolchain
-      - name: Proof binding, canonical padding and quorum
+      - name: Complete proof package and quorum arithmetic
         run: |
-          cargo test --locked --release -p mt-proof circuit::presence::tests
-          cargo test --locked --release -p mt-proof circuit::opening::tests
-          cargo test --locked --release -p mt-proof circuit::admission::tests
+          cargo test --locked --release -p mt-proof
           cargo test --locked --release -p mt-pulse
       - name: Verified answers, late delivery and proof context
         run: |
