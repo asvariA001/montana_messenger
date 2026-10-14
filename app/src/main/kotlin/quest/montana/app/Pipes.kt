@@ -572,6 +572,12 @@ object Book {
         changed()
     }
 
+    /** A row the book holds by mistake leaves the list alone: no pipe, no archive folder, no face goes with it. */
+    fun discard(ref: String) {
+        synchronized(lock) { ensure(); if (chats.remove(ref) == null) return; DeviceVault.delete("chat:$ref"); saveIndex() }
+        changed()
+    }
+
     /** Two pipes proven to be one person: whichever conversations they speak for become one (iOS joinSamePerson). */
     fun join(pipe: String, proven: String) {
         val a = SamePair.root(pipe); val b = SamePair.root(proven)

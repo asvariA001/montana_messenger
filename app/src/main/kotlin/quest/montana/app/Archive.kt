@@ -246,6 +246,7 @@ object Archive {
         val folders = only ?: chatsDir.listFiles()?.filter { it.isDirectory && !it.name.startsWith(".") }?.map { it.name } ?: return
         val book = HashMap<String, String>()
         for (r in Book.refs()) book[label(k, r)] = r
+        book[label(k, Book.SAVED)] = Book.SAVED   // the room without an address has a folder and no secret (iOS: the book holds it)
         var chats = 0; var added = 0; var headed = 0; var hs = 0; var ha = 0; var hn = 0; var faces = 0; var gapChats = 0; var gapRows = 0
         for (folder in folders) {
             var ref: String? = null
@@ -261,7 +262,7 @@ object Archive {
                         when {
                             s.startsWith("s:") -> runCatching { Base64.decode(s.drop(2), Base64.DEFAULT) }.getOrNull()?.takeIf { it.size == 32 }?.let { secret = it; hs++ }
                             s.startsWith("x:") -> closedThere = true
-                            s.startsWith("a:") -> { ha++; if (ref == null && Book.secret(s.drop(2)) != null) ref = s.drop(2) }
+                            s.startsWith("a:") -> { ha++; val n = s.drop(2); if (ref == null && (Book.secret(n) != null || Book.isLocal(n))) ref = n }
                             s.startsWith("n:") -> { hn++; name = s.drop(2) }
                             ref == null && Book.secret(s) != null -> ref = s   // the head of build 1345: the bare name
                         }
@@ -274,6 +275,9 @@ object Archive {
                 ref = if (closedThere) Wire.reference(sec).also { Prefs.setBool("pipeClosed." + it, true) } else Book.establish(sec)
             }
             if (ref == null) ref = book[folder]
+            // THE LOCAL ROOM'S FOLDER IS NOT A STRANGER'S (build 427 read it as «Recovered history» while its head named a room with no
+            // secret): a row of it born so leaves the list -- the folder stays, it is the room's own
+            if (ref != null && Book.isLocal(ref!!) && Book.chat("arc:$folder") != null) { Book.discard("arc:$folder"); Log.d("Montana", "archive_heal folder named again") }
             if (items.isEmpty() && ref == null) continue
             if (ref != null) headed++
             val key = ref ?: ("arc:" + folder)
