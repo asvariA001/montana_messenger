@@ -372,6 +372,7 @@
     <string name="pf_about_footer">Описание и ссылку видят те, с кем вы переписываетесь.</string>
     <!-- a locked tape's controls (iOS MTHoldOverlayView) -->
     <string name="rec_pause">Пауза</string>
+    <string name="rec_listen">Прослушать</string>
     <string name="rec_dual">Обе камеры</string>
     <string name="rec_flip">Сменить камеру</string>
     <string name="rec_flash">Вспышка</string>

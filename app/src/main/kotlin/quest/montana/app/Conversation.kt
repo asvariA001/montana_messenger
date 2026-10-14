@@ -1142,6 +1142,27 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     }
     val voiceBin = ctl(R.drawable.ic_close, R.string.cancel) { bar.cancelRecording() }
     lateinit var voicePause: FrameLayout
+    // LISTEN TO WHAT WAS RECORDED (iOS MTHoldOverlayView seat «play», MontanaShapes.swift:928-946, and onPreview,
+    // MontanaConversation.swift:3499-3514 at 2155; atom bef2cdaca45f, the author's word 23.09): on the line of the bin, a locked voice
+    // only. The first press closes the tape and plays it through the ONE player of voices; the next ones pause and resume it. Heard,
+    // the glyph wears the accent; a closed tape has nothing to pause, so the pause's seat empties -- the seat stays, nothing moves.
+    lateinit var voiceEar: FrameLayout
+    fun paintEar() {
+        val f = VoiceTape.reviewed?.first?.path
+        (voiceEar.getChildAt(0) as? ImageView)?.let {
+            it.setImageResource(if (f != null && VoicePlayer.sounding(f)) R.drawable.ic_pause_fill else R.drawable.ic_play_fill)
+            it.imageTintList = android.content.res.ColorStateList.valueOf(if (f != null) SysColor.blue else Color.WHITE)
+        }
+        (voicePause.getChildAt(0) as? ImageView)?.visibility = if (f != null) View.INVISIBLE else View.VISIBLE
+        voicePause.isEnabled = f == null
+    }
+    voiceEar = ctl(R.drawable.ic_play_fill, R.string.rec_listen) {
+        val heard = VoiceTape.reviewed?.first ?: VoiceTape.finishForReview()
+        if (heard == null) { bar.cancelRecording(); bar.tooShortHint(); return@ctl }   // iOS tooShortTape + cancel(why: "ear-short")
+        VoicePlayer.toggle(heard.path, onProgress = { _, _ -> paintEar() }, stopped = { paintEar() })
+        android.util.Log.d("Montana", "voice_preview " + if (VoicePlayer.sounding(heard.path)) "playing" else "paused")
+        paintEar()
+    }
     voicePause = ctl(R.drawable.ic_pause_fill, R.string.rec_pause) { VoiceTape.togglePause(); paint(voicePause, VoiceTape.paused) }
     val recStrip = c.hstack {
         visibility = View.GONE
@@ -1149,6 +1170,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         background = c.glassPlate()   // iOS: the recording strip's capsule wears the field's glass (montanaFieldGlass)
         setPadding(dp(10), dp(4), dp(10), dp(4))
         addView(voiceBin, lp(dp(40), dp(40)).apply { marginEnd = dp(10) })
+        addView(voiceEar, lp(dp(40), dp(40)).apply { marginEnd = dp(10) })
         addView(dot, lp(dp(10), dp(10)).apply { marginEnd = dp(8) })
         addView(liveTime, lp(WRAP, WRAP).apply { marginEnd = dp(12) })
         addView(liveWave, lp(0, WRAP, 1f))
@@ -1178,12 +1200,13 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     bar.onRecLocked = {
         lockPlate.visibility = View.GONE
         voiceBin.visibility = View.VISIBLE; voicePause.visibility = View.VISIBLE; paint(voicePause, false)
+        if (!bar.recordingNote) { voiceEar.visibility = View.VISIBLE; paintEar() }   // the ear is the voice's alone (iOS st.locked, !st.video)
         noteControls?.visibility = View.VISIBLE
     }
     bar.onRecIdle = {
         blurFeed(false)
         lockPlate.visibility = View.GONE
-        voiceBin.visibility = View.GONE; voicePause.visibility = View.GONE
+        voiceBin.visibility = View.GONE; voicePause.visibility = View.GONE; voiceEar.visibility = View.GONE
         noteControls = null
         movePlate(plateHome)
     }
@@ -1357,6 +1380,8 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         }.start()
     }
     bar.onVoiceEnd = { dropped ->
+        // send and bin stop the listening first (iOS st.onSend / st.onCancel: VoicePlayer.shared.stop())
+        VoiceTape.reviewed?.first?.path?.let { if (VoicePlayer.playing == it) VoicePlayer.stop() }
         val wave = VoiceTape.waveform()
         endStrip()
         val got = VoiceTape.stop(keep = !dropped)

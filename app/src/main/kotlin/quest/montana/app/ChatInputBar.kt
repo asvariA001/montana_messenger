@@ -180,6 +180,8 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
     fun stopRecording() = record.endHold()
     /** The bin of a locked tape (iOS «Cancel» on the bar's line): the tape is dropped. */
     fun cancelRecording() = record.cancelHold()
+    /** The tape rolling is a round note, not a voice (iOS st.video). */
+    val recordingNote: Boolean get() = record.note
     /** The reply at the ear starts a voice tape with no finger (iOS rec.begin(.voice, why: "ear")); false -- it could not start. */
     fun earStart(): Boolean = record.earStart()
     /** The phone left the ear: the tape stands locked for the screen to decide (iOS rec.lock(why: "ear")); false -- no tape rolls. */
@@ -299,6 +301,7 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
          * the swollen button's own coordinates out from under the finger. Read by the two keys above. */
         val active: Boolean get() = recording
         private var recordingNote = false
+        val note: Boolean get() = recordingNote
         private var locked = false
         private var processing = false   // this touch is still the key's to judge
         private var began = false        // the press outlived the mode timeout: a tape was asked for

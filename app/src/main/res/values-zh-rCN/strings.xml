@@ -372,6 +372,7 @@
     <string name="pf_about_footer">与您聊天的人可以看到您的简介和链接。</string>
     <!-- a locked tape's controls (iOS MTHoldOverlayView) -->
     <string name="rec_pause">暂停</string>
+    <string name="rec_listen">试听</string>
     <string name="rec_dual">两个摄像头</string>
     <string name="rec_flip">切换摄像头</string>
     <string name="rec_flash">闪光灯</string>

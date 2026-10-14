@@ -373,6 +373,7 @@
     <string name="pf_about_footer">Your bio and link are seen by the people you write to.</string>
     <!-- a locked tape's controls (iOS MTHoldOverlayView) -->
     <string name="rec_pause">Pause</string>
+    <string name="rec_listen">Listen</string>
     <string name="rec_dual">Both cameras</string>
     <string name="rec_flip">Switch camera</string>
     <string name="rec_flash">Flash</string>
