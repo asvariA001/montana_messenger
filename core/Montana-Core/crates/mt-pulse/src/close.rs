@@ -12,6 +12,15 @@ use crate::PulseError;
 pub fn quorum_reached(cemented: u128, total: u128) -> Result<bool, PulseError> {
     let (num, den) =
         mt_genesis::ratio("confirmation_quorum").ok_or(PulseError::DecreeIncomplete)?;
+    reaches_share(cemented, total, num, den)
+}
+
+// Both closing paths compare a subset with a nonempty active set. Multiplying
+// alone admits 0/0 and even standing greater than the whole it claims to join.
+fn reaches_share(cemented: u128, total: u128, num: u64, den: u64) -> Result<bool, PulseError> {
+    if total == 0 || cemented > total {
+        return Ok(false);
+    }
     let left = cemented
         .checked_mul(u128::from(den))
         .ok_or(PulseError::CountBeyondWidth)?;
@@ -75,13 +84,7 @@ pub fn resume_share_num(rounds: u64) -> Result<u64, PulseError> {
 pub fn closes(cemented: u128, total: u128, rounds: u64) -> Result<bool, PulseError> {
     let (_, den) = mt_genesis::ratio("confirmation_quorum").ok_or(PulseError::DecreeIncomplete)?;
     let share = resume_share_num(rounds)?;
-    let left = cemented
-        .checked_mul(u128::from(den))
-        .ok_or(PulseError::CountBeyondWidth)?;
-    let right = total
-        .checked_mul(u128::from(share))
-        .ok_or(PulseError::CountBeyondWidth)?;
-    Ok(left >= right)
+    reaches_share(cemented, total, share, den)
 }
 
 // Where no part qualifies, the restart is admitted — after one further count of that size with no
@@ -101,6 +104,16 @@ pub fn restart_admitted(rounds: u64) -> Result<bool, PulseError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_empty_population_or_fabricated_standing_never_closes() {
+        for (cemented, total) in [(0, 0), (1, 0), (2, 1), (101, 100)] {
+            assert_eq!(quorum_reached(cemented, total), Ok(false));
+            for rounds in [0, 1, u64::MAX] {
+                assert_eq!(closes(cemented, total, rounds), Ok(false));
+            }
+        }
+    }
 
     #[test]
     fn the_frozen_vectors_of_the_close_and_the_offering_reproduce() {
@@ -218,7 +231,7 @@ mod tests {
     #[test]
     fn a_standing_at_the_width_of_the_type_is_refused_rather_than_wrapped() {
         assert_eq!(
-            quorum_reached(u128::MAX, 1),
+            quorum_reached(u128::MAX, u128::MAX),
             Err(PulseError::CountBeyondWidth)
         );
     }

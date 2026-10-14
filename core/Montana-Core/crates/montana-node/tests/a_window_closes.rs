@@ -15,6 +15,7 @@
 
 use montana_node::attest::{self, Standing};
 use mt_pulse::fold::{Cement, Leaf};
+use mt_state::Layout;
 
 const STANDING: u64 = 1_000;
 const WINDOW: u64 = 1_000;
@@ -161,16 +162,49 @@ fn a_proof_lifted_onto_another_key_is_refused() {
         .expect("a heavy attestation stands");
 
     // The key of the second machine, under which this proof was never made.
-    let (theirs, _) = branches[1].clone();
-    let _ = theirs;
     let seed = mt_derive::pulse::part_key_seed(&secrets[1], WINDOW);
     let mut held = [0u8; mt_suite::sign::SEED_BYTES];
     held.copy_from_slice(&seed[..mt_suite::sign::SEED_BYTES]);
-    let (other_key, _) = mt_suite::sign::keypair_from_seed(&held);
+    let (other_key, other_secret) = mt_suite::sign::keypair_from_seed(&held);
     heavy.answering_key = other_key.as_bytes().to_vec();
+    heavy.signature = mt_suite::sign::sign(&other_secret, &heavy.signed_scope().expect("scope"))
+        .expect("the attacker owns the replacement key")
+        .as_bytes()
+        .to_vec();
 
-    assert!(
-        attest::verify_heavy(&heavy, &root, &aggregate, 0, 7, &everything).is_err(),
-        "a proof standing against another key was accepted"
+    assert_eq!(
+        attest::verify_heavy(&heavy, &root, &aggregate, 0, 7, &everything),
+        Err(montana_node::NodeError::Refused {
+            what: "an attestation whose proof of presence does not verify",
+        }),
+        "the proof itself must reject the replacement, even with a valid signature"
+    );
+}
+
+#[test]
+fn an_admitted_machine_cannot_resign_an_old_presence_into_another_window() {
+    let secret = [0x11u8; 32];
+    let (root, branches) = cohort(&[secret]);
+    let (siblings, position) = &branches[0];
+    let standing = Standing::of_the_window(&secret, WINDOW, siblings, *position, STANDING)
+        .expect("the admitted machine proves its presence");
+    let mut forged = standing
+        .heavy(&secret, [0x44; 32], [0x55; 32])
+        .expect("attestation");
+    forged.window = WINDOW + 1;
+    let seed = mt_derive::pulse::part_key_seed(&secret, WINDOW);
+    let mut signing_seed = [0u8; mt_suite::sign::SEED_BYTES];
+    signing_seed.copy_from_slice(&seed[..mt_suite::sign::SEED_BYTES]);
+    let (_, key) = mt_suite::sign::keypair_from_seed(&signing_seed);
+    forged.signature = mt_suite::sign::sign(&key, &forged.signed_scope().expect("scope"))
+        .expect("the attacker can sign again")
+        .as_bytes()
+        .to_vec();
+    let everything = mt_pulse::U256::from_be_bytes(&[0xFF; 32]);
+    assert_eq!(
+        attest::verify_heavy(&forged, &root, &[0x33; 32], 0, 7, &everything),
+        Err(montana_node::NodeError::Refused {
+            what: "an attestation whose proof of presence does not verify",
+        }),
     );
 }

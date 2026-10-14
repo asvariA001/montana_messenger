@@ -107,6 +107,70 @@ repository alone; the full build needs the core at the commit pinned in `scripts
 
 Each finding names where it is, what it is, why it matters and its state. None is closed by this file.
 
+### Source candidate under review, 2026-10-14
+
+The source changes accompanying this review have not been deployed. The earlier
+audit summaries are not a statement that all consensus paths enforce the set.
+In particular, passing frozen vectors or displaying a moving local window is
+not evidence of a window finalized by the live cohort.
+
+The candidate constrains the presence circuit's secret-to-membership link and
+absorption padding, binds its public input to the window and signing key, rejects
+an empty quorum, and requires a verified answer before advancing a round. Two
+forged presence traces and the zero-total close were accepted by the previous source and
+are rejected by the candidate. Late heavy attestations of an open window can
+add cement without authorizing another round. The tests use local machines and
+locally supplied membership; they are not an independent operator's live run.
+
+In the earlier consensus line, a shared verifier now checks distinct signers,
+window binding, the active standing used by both numerator and denominator, and
+the signed bundle root before either a proposer or a follower applies a window.
+A snapshot can be installed only against a previously verified anchor. A peer's
+advertised root does not make itself trusted. The container requires an explicit
+cohort manifest or an explicit isolated mode and sends no automatic explorer
+telemetry. These changes do not supply the missing authenticated bootstrap.
+
+The same padding defect was reproduced and repaired in opening and admission;
+their honest proofs still verify. In the client library, seven reproduced
+ratchet defects are repaired: malformed persisted state, excess skipped keys,
+counter exhaustion, mutation on a failed KEM step and the maximum-message bound.
+The existing wire encoding is unchanged. These source changes have not been
+installed into the released applications.
+
+Both workspaces pass full clippy and release builds. The recorded library runs
+include 138 proof tests, 28 pulse tests and 199 legacy node/genesis/lottery tests;
+the final ratchet checks pass six state tests, six exchange tests and two AEAD
+tests. One proof test remains ignored for its documented runtime. A complete
+workspace-wide test sweep has not been performed, and these results do not
+attest to the live cohort.
+
+The current blockers remain explicit:
+
+- `core/Montana-Core/crates/montana-node/src/pulse.rs`, `live_doing`, still uses
+  the count-based attempt as its runtime close and carries a beacon identifier
+  forward. It does not produce and verify the canonical window proposal. A
+  local integration test does not establish network finality.
+- `core/Montana-Core/crates/mt-proof/src/circuit/window.rs` proves fold
+  arithmetic, without the required quorum, standing openings and full proposal
+  transition. The admission circuit's component witnesses also lack their
+  required common-origin and continuity constraints.
+- Admission continuity, a protected and authenticated discovery path, and an
+  outside operator's verification of a live window remain unverified.
+- The presence repair changes the AIR and genesis identifiers. This candidate
+  requires a verified network transition; it is not a binary replacement for
+  existing state.
+- Removing identities from the default manifest does not revoke exposure in
+  earlier commits, DNS records or retained logs. Origin anonymity has not been
+  established by this source review.
+
+The reproducible checks are in
+[`core-security.yml`](.github/workflows/core-security.yml). A workflow being
+present does not mean GitHub has run it or that its result is green.
+The [baseline reproduction package](security/reproductions/2026-10-14/README.md)
+contains a test-only patch checked against public commit `6303fa5`, so the
+counterexamples can be reproduced on the earlier implementation independently
+of the proposed fixes.
+
 ### F-1. The channel handshake sends identities in the clear and, as the applications use it, authenticates neither side
 
 Where: `core/Code/crates/mt-noise-pq/src/xx_handshake.rs`, `responder_send_msg2` lines 205-209 (the responder's ML-DSA-65

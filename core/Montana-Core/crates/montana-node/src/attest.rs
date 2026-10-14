@@ -62,7 +62,7 @@ impl Standing {
         .ok_or(NodeError::Unprovable {
             what: "the presence of this machine in this window",
         })?;
-        let public = mt_proof::circuit::presence::public_of(&digests);
+        let public = mt_proof::circuit::presence::public_of(&digests, window);
         let description =
             mt_proof::circuit::presence::description().ok_or(NodeError::Unprovable {
                 what: "the description of a presence",
@@ -209,28 +209,14 @@ pub fn verify_heavy(
             what: "an attestation of a round this machine is not drawn for",
         });
     }
-    let key: [u8; mt_codec::size::SIGNING_PUBLIC_KEY] = held
+    let scope = held.signed_scope().map_err(NodeError::Object)?;
+    verify_signature(held.suite_id, &held.answering_key, &held.signature, &scope)?;
+    let key: &[u8; mt_codec::size::SIGNING_PUBLIC_KEY] = held
         .answering_key
-        .clone()
+        .as_slice()
         .try_into()
         .map_err(|_| NodeError::Refused {
-            what: "a key of another width",
-        })?;
-    let scope = held.signed_scope().map_err(NodeError::Object)?;
-    let signature: [u8; mt_codec::size::SIGNATURE] =
-        held.signature
-            .clone()
-            .try_into()
-            .map_err(|_| NodeError::Refused {
-                what: "a signature of another width",
-            })?;
-    mt_suite::sign::verify(
-        &mt_suite::sign::PublicKey::from_bytes(key),
-        &scope,
-        &mt_suite::sign::Signature::from_bytes(signature),
-    )
-    .map_err(|_| NodeError::Refused {
-        what: "an attestation under a signature that does not verify",
+        what: "a key of another width",
     })?;
 
     // The public input a verifier computes for itself: the root it holds, the nullifier the
@@ -240,11 +226,12 @@ pub fn verify_heavy(
         mt_proof::poseidon::Digest::of_bytes(&held.part_nullifier).ok_or(NodeError::Refused {
             what: "a part-nullifier that is no digest of the family",
         })?;
-    let digest = mt_derive::pulse::key_digest(&key);
+    let digest = mt_derive::pulse::key_digest(key);
     let key_digest = mt_proof::poseidon::Digest::of_bytes(&digest).ok_or(NodeError::Refused {
         what: "a digest that is no digest of the family",
     })?;
-    let public = mt_proof::circuit::presence::public_of(&[*admitted_root, part, key_digest]);
+    let public =
+        mt_proof::circuit::presence::public_of(&[*admitted_root, part, key_digest], held.window);
     let description = mt_proof::circuit::presence::description().ok_or(NodeError::Unprovable {
         what: "the description of a presence",
     })?;
@@ -254,6 +241,57 @@ pub fn verify_heavy(
         }
     })?;
     Ok(())
+}
+
+// A light answer inherits only a key already proven in this window. The pulse
+// owns that cache; a signature under an arbitrary wire key is not a presence.
+pub fn verify_light(
+    held: &LightAttestation,
+    proven_key: &[u8],
+    aggregate: &[u8; 32],
+    chain: u8,
+    round: u32,
+    threshold: &mt_pulse::U256,
+) -> Result<(), NodeError> {
+    if held.answering_key != proven_key {
+        return Err(NodeError::Refused {
+            what: "a light attestation without the same proven answering key",
+        });
+    }
+    if !crate::round::eligible(&held.part_nullifier, aggregate, chain, round, threshold) {
+        return Err(NodeError::Refused {
+            what: "an attestation of a round this machine is not drawn for",
+        });
+    }
+    let scope = held.signed_scope().map_err(NodeError::Object)?;
+    verify_signature(held.suite_id, &held.answering_key, &held.signature, &scope)
+}
+
+fn verify_signature(
+    suite: u16,
+    key: &[u8],
+    signature: &[u8],
+    scope: &[u8],
+) -> Result<(), NodeError> {
+    if suite != mt_net::SUITE {
+        return Err(NodeError::Refused {
+            what: "an attestation under an unsupported suite",
+        });
+    }
+    let key = key.try_into().map_err(|_| NodeError::Refused {
+        what: "a key of another width",
+    })?;
+    let signature = signature.try_into().map_err(|_| NodeError::Refused {
+        what: "a signature of another width",
+    })?;
+    mt_suite::sign::verify(
+        &mt_suite::sign::PublicKey::from_bytes(key),
+        scope,
+        &mt_suite::sign::Signature::from_bytes(signature),
+    )
+    .map_err(|_| NodeError::Refused {
+        what: "an attestation under a signature that does not verify",
+    })
 }
 
 // What a window mints, and to whom. Minting creates no note: a window mints a fixed quantity and

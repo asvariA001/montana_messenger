@@ -389,9 +389,35 @@ impl Standing {
             .unwrap_or_default()
     }
 
+    // Only points already accepted in this open window may receive late
+    // answers. Retention from an older window is not a right to deposit there.
+    fn holds_point(&self, point: &[u8; POINT_BYTES], window: u64) -> bool {
+        self.at
+            .lock()
+            .is_ok_and(|at| at.get(point).is_some_and(|held| held.window == window))
+    }
+
     fn points_standing(&self) -> usize {
         self.at.lock().map(|at| at.len()).unwrap_or(0)
     }
+}
+
+// Local and remote deposits use the same ownership rule. Moving a round
+// cannot revoke the point where a still-in-flight heavy answer must arrive.
+fn deposit_window(store: &Store, open: Option<Round>) -> u64 {
+    open.map(|(window, _, _)| window)
+        .or_else(|| store.head().ok().flatten())
+        .unwrap_or(0)
+}
+
+fn accepts_point(
+    store: &Store,
+    open: Option<Round>,
+    standing: &Standing,
+    point: &[u8; POINT_BYTES],
+) -> bool {
+    points_of(store, open).contains(point)
+        || (open.is_some() && standing.holds_point(point, deposit_window(store, open)))
 }
 
 // A link this machine opened, and what it has already taken over it. **The count a collection names
@@ -677,7 +703,8 @@ impl Machine {
             self.counts.raise(&self.counts.deposits_of_another_width);
             return Ok(say::Took::AnotherWidth);
         }
-        if !self.points()?.contains(point) {
+        let open = self.round_of_the_machine();
+        if !accepts_point(&self.store, open, &self.standing, point) {
             if self.round_of_the_machine().is_none() {
                 self.counts.raise(&self.counts.deposits_before_a_round);
             } else {
@@ -689,10 +716,7 @@ impl Machine {
         // The window a point belongs to is the one this machine holds, or the one of the round it
         // stands in where it holds no window yet: a point of the round and a point of the window
         // both live that window and go with it.
-        let window = match self.head()? {
-            Some(window) => window,
-            None => self.round_of_the_machine().map(|(w, _, _)| w).unwrap_or(0),
-        };
+        let window = deposit_window(&self.store, open);
         let of_a_delivery = mt_wire::publish::delivery_of(point, window, cell);
         let took = self
             .standing
@@ -1072,7 +1096,7 @@ fn take_the_deposit(
             counts.raise(&counts.deposits_of_another_width);
             return Ok(());
         }
-        if !points_of(store, held).contains(&point) {
+        if !accepts_point(store, held, standing, &point) {
             if held.is_none() {
                 counts.raise(&counts.deposits_before_a_round);
             } else {
@@ -1081,10 +1105,7 @@ fn take_the_deposit(
             return Ok(());
         }
         {
-            let window = match store.head() {
-                Ok(Some(window)) => window,
-                _ => held.map(|(w, _, _)| w).unwrap_or(0),
-            };
+            let window = deposit_window(store, held);
             let of_a_delivery = mt_wire::publish::delivery_of(&point, window, &cell);
             match standing.hold(point, window, cell, ceiling, of_a_delivery) {
                 say::Took::Held => counts.raise(&counts.deposits_taken),

@@ -1,6 +1,6 @@
 # Montana — Canon
 
-**Version:** 4.2.0
+**Version:** 4.4.0
 
 Canon is the one place where the values and the bytes of Montana live. Every other document
 of the set names a quantity and points here; none of them restates a number, a size, a
@@ -4200,9 +4200,9 @@ air_hash = the hash, under the domain of a description's identifier, of the iden
 
 identifier of the frame     = 0dcb69bca8b36d6d144e7a559eedd2ea84f2e514d9a90669acb778cc283b989c
 identifier of the window    = 2478388875570beacbd42c5254674536d0bae75ee4c12426d78ecbea81b62de6
-identifier of the admission = 16005eddf1ab823fdcc6f957098f487ae337cd8430ac8cb9b36338f7f494aa38
-identifier of the presence  = 59758fc19c2378906a4af87b0b75f6e3af0c1f44e69a33d4fedf9cc0090b44df
-identifier of the opening   = 3ff07372cb9c2f3cce0e394f7f21d563087ad9334bca2220e184a5e4784cb1cb
+identifier of the admission = 3c922d853e8a474174c46ceeb16abf2b3290fdeabfff7273c2df566c65576187
+identifier of the presence  = 71137a06d235bc8a9442d30c31d627a54ce60edee556c666ae7dbe2b4be3472b
+identifier of the opening   = 5648634d72053c18549d41db03079f98cddec8fbd308d24b055d0507521a939c
 
 each identifier = the hash, under the same domain, of the canonical description of its
                   constraint set, which is:
@@ -4518,7 +4518,7 @@ demands the width from this row rather than declaring one of its own.
 | `fold_arity` — children of a node of the fold | 2 |
 | `consensus_replicas` — points a round and a window stand at | 3 |
 | `recovery_onset_multiple` — counts of the derived rounds a window runs before the share a cement must reach begins to fall | 10 |
-| `air_hash` — the constraint sets the proofs of this network are accepted under | 2b788df1d2e203ad786042283710ffccec07056afe67235d735a2ddaab83852a |
+| `air_hash` — the constraint sets the proofs of this network are accepted under | 4904fbb9b740d5013434fb7c959c9dcc0ff52c4a10fbea44fc2804a80c7d8e7a |
 
 **The volume the schedule is checked against.** Per machine, per window, across its chains:
 eligibility strikes 1.1094 times in expectation; 0.6710 of machines publish one heavy
@@ -4565,11 +4565,11 @@ sparse one:
 genesis_state_hash = SHA-256("mt-genesis-state" || 0x00 || parameters
                              || note_root || nullifier_root || record_root || machine_root || admitted_root || operations_root)
 
-                   = 0e1f8fb3ce98c900714b8d473e792729780df7cf87e890e89cd66835b8f0d48d
+                   = 4ae977d20a698d68dc8a0b00a537dc41cad7273056ab527aa6759166c6f5038f
 
 published_parameters = SHA-256("mt-genesis-state" || 0x00 || the parameters that are published,
                                in the order and the encoding above)
-                     = c37e7163fbbc49bb71747529205038f54603a90ab4a9707fe36dc563a670c55f
+                     = e22abafb626ced42172608dc3b53a3ba11c6bf8109aff31a32466bc676bf9f96
 ```
 
 A chain whose value differs is not a fork of Montana but a different protocol, and honest

@@ -1,0 +1,294 @@
+diff --git a/core/Code/crates/montana-node/src/commands/start.rs b/core/Code/crates/montana-node/src/commands/start.rs
+index 8d6d69c..7c45ece 100644
+--- a/core/Code/crates/montana-node/src/commands/start.rs
++++ b/core/Code/crates/montana-node/src/commands/start.rs
+@@ -2204,0 +2205,31 @@ mod tests {
++
++#[cfg(test)]
++mod session31_envelope_regression {
++    use super::*;
++
++    #[test]
++    fn duplicate_confirmations_cannot_enter_an_envelope() {
++        let bc = BundledConfirmation {
++            node_id: [0x44; 32],
++            endpoint: [0x11; 32],
++            window_index: 1,
++            op_hashes: vec![],
++            reveal_hashes: vec![],
++            signature: Signature::from_array([0; SIGNATURE_SIZE]),
++        };
++        let mut bytes = vec![0; 3722];
++        bytes.extend_from_slice(&0u16.to_le_bytes());
++        bytes.extend_from_slice(&2u16.to_le_bytes());
++        bc.encode(&mut bytes);
++        bc.encode(&mut bytes);
++        assert!(parse_envelope_bundles(&bytes).is_none());
++    }
++
++    #[test]
++    fn trailing_bytes_cannot_enter_an_envelope() {
++        let mut bytes = vec![0; 3726];
++        assert!(parse_envelope_bundles(&bytes).is_some());
++        bytes.push(0x99);
++        assert!(parse_envelope_bundles(&bytes).is_none());
++    }
++}
+diff --git a/core/Code/crates/mt-lottery/src/lib.rs b/core/Code/crates/mt-lottery/src/lib.rs
+index 00ff153..4962c1a 100644
+--- a/core/Code/crates/mt-lottery/src/lib.rs
++++ b/core/Code/crates/mt-lottery/src/lib.rs
+@@ -1988,0 +1989,12 @@ mod calibrate_target_binding {
++
++#[cfg(test)]
++#[test]
++fn quorum_does_not_fall_at_the_old_overflow_boundary() {
++    let edge = u64::MAX / 67;
++    for total in [edge - 1, edge, edge + 1, u64::MAX - 1, u64::MAX] {
++        let q = quorum(total);
++        assert!(u128::from(q) * 100 >= u128::from(total) * 67);
++        assert!(u128::from(q - 1) * 100 < u128::from(total) * 67);
++        assert!(q <= total);
++    }
++}
+diff --git a/core/Code/crates/mt-messenger-e2e/src/session.rs b/core/Code/crates/mt-messenger-e2e/src/session.rs
+index a298529..1628a6c 100644
+--- a/core/Code/crates/mt-messenger-e2e/src/session.rs
++++ b/core/Code/crates/mt-messenger-e2e/src/session.rs
+@@ -27,0 +28,87 @@ fn pad_message(pt: &[u8]) -> Vec<u8> {
++#[cfg(test)]
++mod adversarial_state_tests {
++    use super::*;
++
++    fn state() -> SessionState {
++        SessionState {
++            session_id: [1; 32],
++            rk: [2; 32],
++            dhs_pub: [3; MLKEM_PUBKEY_SIZE],
++            dhs_sk: vec![4; MLKEM_SK_SIZE],
++            dhr: None,
++            cks: Some([5; 32]),
++            send_ct: None,
++            ckr: None,
++            ns: 9,
++            nr: 0,
++            pn: 2,
++            ratchet_pending: false,
++            mkskipped: Vec::new(),
++        }
++    }
++
++    #[test]
++    fn adversarial_trailing_state_bytes_are_refused() {
++        let mut bytes = state().to_bytes();
++        bytes.push(1);
++        assert!(SessionState::from_bytes(&bytes).is_err());
++    }
++
++    #[test]
++    fn adversarial_noncanonical_pending_flag_is_refused() {
++        let mut bytes = state().to_bytes();
++        let flag = bytes.len() - 5;
++        bytes[flag] = 2;
++        assert!(SessionState::from_bytes(&bytes).is_err());
++    }
++
++    #[test]
++    fn adversarial_skipped_key_count_cannot_exceed_the_runtime_bound() {
++        let mut held = state();
++        for n in 0..=MAX_MKSKIPPED {
++            held.mkskipped.push((vec![3; MLKEM_PUBKEY_SIZE], n as u32, [6; 32]));
++        }
++        assert!(SessionState::from_bytes(&held.to_bytes()).is_err());
++    }
++
++    #[test]
++    fn adversarial_exhausted_send_counter_refuses_without_changing_state() {
++        let mut held = state();
++        held.ns = u32::MAX;
++        let before = held.to_bytes();
++        assert!(held.encrypt(b"message", &[7; 64]).is_err());
++        assert!(held.to_bytes() == before, "failed send changed the session");
++    }
++
++    #[test]
++    fn adversarial_failed_ratchet_step_preserves_the_send_state() {
++        let mut held = state();
++        held.ratchet_pending = true;
++        let before = held.to_bytes();
++        assert_eq!(held.encrypt(b"message", &[7; 64]), Err(RatchetError::BadFormat));
++        assert!(held.to_bytes() == before, "failed ratchet step changed the session");
++    }
++
++    #[test]
++    fn regression_limits_exhausted_receive_counter_preserves_state() {
++        let mut held = state();
++        held.nr = u32::MAX;
++        held.dhr = Some([3; MLKEM_PUBKEY_SIZE]);
++        held.ckr = Some([5; 32]);
++        let before = held.to_bytes();
++        let (mk, _) = kdf_ck(&[5; 32]);
++        let (key, nonce) = msg_key(&mk);
++        let ad = ad_bytes(&held.session_id, 0, u32::MAX, &[3; MLKEM_PUBKEY_SIZE]);
++        let body = seal(&key, &nonce, &pad_message(b"message"), &ad);
++        let mut packet = vec![3; MLKEM_PUBKEY_SIZE];
++        packet.push(0);
++        packet.extend_from_slice(&0u32.to_le_bytes());
++        packet.extend_from_slice(&u32::MAX.to_le_bytes());
++        packet.extend_from_slice(&(body.len() as u32).to_le_bytes());
++        packet.extend_from_slice(&body);
++        assert!(held.decrypt(&packet).is_err());
++        assert!(held.to_bytes() == before, "failed receive changed the session");
++    }
++
++}
++
+diff --git a/core/Code/crates/mt-messenger-e2e/tests/e2e_full.rs b/core/Code/crates/mt-messenger-e2e/tests/e2e_full.rs
+index 59c458d..b74ac53 100644
+--- a/core/Code/crates/mt-messenger-e2e/tests/e2e_full.rs
++++ b/core/Code/crates/mt-messenger-e2e/tests/e2e_full.rs
+@@ -119,0 +120,8 @@ fn replay_below_cursor_keeps_session() {
++
++#[test]
++fn regression_limits_maximum_plaintext_is_deliverable() {
++    let (mut alice, mut bob) = setup();
++    let plaintext = vec![0x55; mt_messenger_e2e::session::MAX_PLAINTEXT];
++    let packet = alice.encrypt(&plaintext, &[0xA1; 64]).unwrap();
++    assert!(bob.decrypt(&packet).is_ok(), "the documented maximum must be deliverable");
++}
+diff --git a/core/Montana-Core/crates/mt-proof/src/circuit/admission.rs b/core/Montana-Core/crates/mt-proof/src/circuit/admission.rs
+index 7f65a7f..e4a19c2 100644
+--- a/core/Montana-Core/crates/mt-proof/src/circuit/admission.rs
++++ b/core/Montana-Core/crates/mt-proof/src/circuit/admission.rs
+@@ -426,0 +427,25 @@ mod tests {
++
++    #[test]
++    fn padding_cannot_create_a_second_nullifier_for_one_right() {
++        let secret = [0x44; 32];
++        let places = Places;
++        let records = crate::records::empty_internals(places.record_depth());
++        let admitted = crate::admitted::empty_internals(places.admitted_depth());
++        let naming = crate::poseidon::Digest::of_bytes(&[0x5C; 32]).unwrap();
++        let (mut trace, mut digests) = trace_of(
++            &vec![0xA7; 2042], &[0; 32], &records[..places.record_depth()],
++            &naming, &admitted[..places.admitted_depth()], 0, &secret,
++        ).unwrap();
++        let description = description().unwrap();
++        assert!(description.satisfied_by(&trace, &crate::poseidon::limbs_of(&public_of(&digests))));
++        let mut longer = crate::poseidon::limbs_of(&secret);
++        longer.push(crate::field::F::ONE);
++        for (at, state) in sponge::chain(mt_codec::domain::MT_OPERATOR_NF, &longer).iter().enumerate() {
++            permutation::write_block(&mut trace, Places.nullifier() + at, state).unwrap();
++        }
++        digests[2] = crate::poseidon::hash_elements(mt_codec::domain::MT_OPERATOR_NF, &longer);
++        path::write_pairs(&mut trace);
++        assert!(!description.satisfied_by(&trace, &crate::poseidon::limbs_of(&public_of(&digests))),
++            "padding must not give another nullifier to the same right");
++    }
++
+diff --git a/core/Montana-Core/crates/mt-proof/src/circuit/opening.rs b/core/Montana-Core/crates/mt-proof/src/circuit/opening.rs
+index 7e13048..6eff170 100644
+--- a/core/Montana-Core/crates/mt-proof/src/circuit/opening.rs
++++ b/core/Montana-Core/crates/mt-proof/src/circuit/opening.rs
+@@ -331,0 +332,19 @@ mod tests {
++
++    #[test]
++    fn padding_cannot_create_a_second_nullifier_for_one_right() {
++        let secret = [0x44; 32];
++        let record = a_new_record(0, 0);
++        let (mut trace, mut digests) = trace_of(&secret, &record).unwrap();
++        let description = description().unwrap();
++        assert!(description.satisfied_by(&trace, &crate::poseidon::limbs_of(&public_of(&digests, 0, 0))));
++        let mut longer = crate::poseidon::limbs_of(&secret);
++        longer.push(crate::field::F::ONE);
++        for (at, state) in sponge::chain(mt_codec::domain::MT_OPEN_NF, &longer).iter().enumerate() {
++            permutation::write_block(&mut trace, Places.right() + at, state).unwrap();
++        }
++        digests[0] = crate::poseidon::hash_elements(mt_codec::domain::MT_OPEN_NF, &longer);
++
++        assert!(!description.satisfied_by(&trace, &crate::poseidon::limbs_of(&public_of(&digests, 0, 0))),
++            "padding must not give another nullifier to the same right");
++    }
++
+diff --git a/core/Montana-Core/crates/mt-proof/src/circuit/presence.rs b/core/Montana-Core/crates/mt-proof/src/circuit/presence.rs
+index 55efca6..d628a57 100644
+--- a/core/Montana-Core/crates/mt-proof/src/circuit/presence.rs
++++ b/core/Montana-Core/crates/mt-proof/src/circuit/presence.rs
+@@ -340,0 +341,62 @@ mod tests {
++    #[test]
++    fn a_presence_cannot_graft_another_machines_public_membership_path() {
++        let (admitted_secret, siblings, position) = a_machine();
++        let stranger = [0xB7; 32];
++        let key = vec![0xA1; mt_codec::size::SIGNING_PUBLIC_KEY];
++        let (mut trace, mut digests) = trace_of(&stranger, &siblings, position, 1_000, &key)
++            .expect("an attacker can compute its own trace");
++        let (_, public_naming_half) = crate::poseidon::hash_elements_twice(
++            domain::MT_KEY_HALVES,
++            &crate::poseidon::limbs_of(&admitted_secret),
++        );
++        let places = Places;
++        digests[0] = path::write_walk_under(
++            &mut trace,
++            places.admitted_leaf(),
++            &public_naming_half,
++            &siblings,
++            position,
++            domain::MT_ADMITTED_LEAF,
++            domain::MT_ADMITTED_NODE,
++        )
++        .expect("the membership branch contains no secret");
++        path::write_pairs(&mut trace);
++        path::write_accumulator(&mut trace, &[places.admitted_levels()], &[]);
++        assert!(
++            !description()
++                .expect("description")
++                .satisfied_by(&trace, &crate::poseidon::limbs_of(&public_of(&digests)),),
++            "membership must belong to the secret that derives the part nullifier"
++        );
++    }
++
++    #[test]
++    fn a_part_cannot_choose_extra_nullifiers_through_sponge_padding() {
++        let (secret, siblings, position) = a_machine();
++        let key = vec![0xA1; mt_codec::size::SIGNING_PUBLIC_KEY];
++        let (mut trace, mut digests) =
++            trace_of(&secret, &siblings, position, 1_000, &key).expect("honest trace");
++        let (spending, _) = crate::poseidon::hash_elements_twice(
++            domain::MT_KEY_HALVES,
++            &crate::poseidon::limbs_of(&secret),
++        );
++        let mut forged_preimage = spending.elements().to_vec();
++        forged_preimage.push(crate::field::F::try_from_u64(1_000).expect("window fits"));
++        forged_preimage.push(crate::field::F::ONE);
++        let places = Places;
++        for (at, state) in sponge::chain(domain::MT_PART_NF, &forged_preimage)
++            .iter()
++            .enumerate()
++        {
++            permutation::write_block(&mut trace, places.nullifier() + at, state).expect("fits");
++        }
++        digests[1] = crate::poseidon::hash_elements(domain::MT_PART_NF, &forged_preimage);
++        path::write_pairs(&mut trace);
++        assert!(
++            !description()
++                .expect("description")
++                .satisfied_by(&trace, &crate::poseidon::limbs_of(&public_of(&digests)),),
++            "one admitted secret must have only one part nullifier per window"
++        );
++    }
++
+diff --git a/core/Montana-Core/crates/mt-pulse/src/close.rs b/core/Montana-Core/crates/mt-pulse/src/close.rs
+index 246a5b5..76c24ec 100644
+--- a/core/Montana-Core/crates/mt-pulse/src/close.rs
++++ b/core/Montana-Core/crates/mt-pulse/src/close.rs
+@@ -104,0 +105,10 @@ mod tests {
++    #[test]
++    fn an_empty_population_or_fabricated_standing_never_closes() {
++        for (cemented, total) in [(0, 0), (1, 0), (2, 1), (101, 100)] {
++            assert_eq!(quorum_reached(cemented, total), Ok(false));
++            for rounds in [0, 1, u64::MAX] {
++                assert_eq!(closes(cemented, total, rounds), Ok(false));
++            }
++        }
++    }
++

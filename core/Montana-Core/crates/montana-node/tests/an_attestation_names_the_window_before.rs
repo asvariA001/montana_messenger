@@ -69,6 +69,9 @@ fn every_attestation_of_a_window_names_the_window_before_and_never_the_beacon_it
 
     // Round one. The beacon moves on to link to the beacon before it — that is the beacon's own
     // rule — while what the answer attests beside it must not move with it.
+    pulse
+        .gather(&heavy, &cohort.root(), &aggregate, &first, &everything)
+        .expect("a verified answer authorizes the round");
     pulse.advance(&machine, &first).expect("the machine moves");
     let second = pulse
         .beacon_of_this_round()

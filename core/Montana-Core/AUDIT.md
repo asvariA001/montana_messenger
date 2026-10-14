@@ -17,11 +17,47 @@ not filed twice, and what the plan does not yet own is marked as exactly that.
 
 ## What the gate does not compare
 
-**One thing of this tree stands here, and it is the gate's own denominator.** The rest of the
-findings this section carried are closed by construction, and what closed each of them is written
-below rather than remembered. The questions that remain beyond the one below are not this tree's to
-answer: they belong to the set, and they stand in the last section with the item of the plan that
-owns them.
+### Reopened by adversarial review, 2026-10-14
+
+The earlier claim that only the gate's denominator remained open was incorrect.
+Agreement with frozen vectors and a circuit identifier does not establish that
+the circuit enforces its intended statement. The following findings override
+historical closure prose below. Test results here concern this source candidate;
+they do not attest to a deployed network or an independent operator's run.
+
+| Finding | Evidence and state |
+|---|---|
+| Presence membership could be detached from the secret | A coherent trace using an outsider's secret and an admitted machine's public path satisfied the old AIR. The naming digest is now constrained across the leaf seam. The attack regression rejects it, and the honest proof verifies. |
+| Presence padding supplied extra nullifier entropy | A coherent trace could choose absorption padding and produce another part. Padding is now constrained to the canonical delimiter and zeroes. The old AIR accepted the attack trace; the new AIR rejects it. |
+| Opening and admission padding supplied extra nullifier entropy | Both old descriptions accepted a coherent trace with an extra secret absorption element and a different nullifier. The candidate constrains padding in both circuits, including their other hash chains. Both attack regressions now reject the forged traces, while the honest opening and admission proofs still verify. This repair does not supply admission's missing continuity or common-origin constraints. |
+| Presence did not bind the window as public input | The public input now follows Consensus: admitted root, key digest, part-nullifier, window. Re-signing an old presence for another window fails proof verification. Replacing its key and re-signing also fails proof verification. |
+| An empty population passed the quorum arithmetic | Both close predicates now reject a zero total and a cement exceeding the total. The new negative test fails against the unmodified source and passes here. |
+| A polling budget advanced a round without an answer | The private transition authorization now requires a verified answer to the actual beacon and previous proposal. Light attestations inherit a heavy proof from this window. Replays, missing proofs and invalid signatures do not advance it; exhausting the polling budget returns without a transition. Local round and two-machine scenarios pass. |
+| Moving a round dropped late heavy attestations | Local and remote delivery retain write eligibility for already held points of the open window. Historical heavy answers are checked against their own round and predecessor and can add cement without authorizing another round. The runtime revisits historical rounds. The delayed-heavy regression and the ordinary two-machine scenario pass. Writes to a previous window are still refused. |
+| Beacon cement state is not recomputed before endorsement | Still open: predecessor and attestation-context checks do not establish that the beacon's commitment is the canonical sum of published, valid heavy attestations. This requires reconciliation of the actual fold before signing; checking a beacon's identifier is insufficient. |
+| A count-based attempt is used as the runtime close | Still open: `live_doing` uses `attempts_the_close` as its closing decision and carries a beacon identifier forward. It does not assemble, prove, store and serve a canonical `Proposal`. An advancing log and the integration scenarios do not prove network finality. |
+| The window circuit proves only fold arithmetic | Still open: `circuit/window.rs` binds accumulators, instance and challenges and checks their arithmetic. It does not constrain the quorum, standing openings, proposal state transition or runner ticket required by Consensus. Passing its honest proof test does not establish those statements. |
+| Admission's component witnesses are not bound together | Still open: the record walk, admitted naming leaf and operator-secret absorption are independent chains; the former record-to-nullifier lane is empty. Neither their common origin nor continuity follows from proving the three published digests. |
+| Admission continuity is not enforced end to end | Still open: an Identity segment is earned by an included action of the record. Replaying other people's cements creates no such action. The record reader and admission circuit must enforce the shifted active period and the share, including minority partition and rejoin cases. |
+| Bootstrap and origin privacy | Still open: a dialable cohort requires authenticated discovery and transport that do not expose protected origins. Removing an address or identity from the current source does not revoke historical exposure or make direct DNS records anonymous. |
+
+The final library run passed 138 `mt-proof` tests and 28 `mt-pulse` tests. One
+existing test remains ignored: `a_window_is_proven_and_verified_end_to_end`,
+marked as taking more than an hour. Its execution is not claimed. Formatting,
+whole-workspace clippy with warnings denied and a whole-workspace release build
+pass. Earlier targeted checks passed four `a_window_closes` tests and the round
+and delayed-delivery scenarios. The baseline reproduced all four forged-trace
+acceptances and the zero-total close; its honest presence test passed. The
+two-machine test uses local secrets and a local admitted tree. It is not an
+outside validator's observation of the live cohort, and the selected test runs
+are not a completed workspace-wide test sweep.
+
+The new AIR changes `air_hash`, the published-parameter digest and the genesis
+state hash. Canon 4.4.0 / Core 0.20.0 is a candidate requiring a verified network
+transition, not a compatible binary to drop onto existing state. No fallback
+accepting the vulnerable proof descriptions is added.
+
+### The gate's denominator
 
 **The numerals the gate counts are declarations, and a number inside a function is invisible to
 it.** The pass that refuses a numeral standing in no register reads lines that declare a constant;

@@ -1,0 +1,73 @@
+name: Core security regressions
+
+on:
+  pull_request:
+    paths:
+      - 'core/**'
+      - '.github/workflows/core-security.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'core/**'
+      - '.github/workflows/core-security.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_BUILD_JOBS: '3'
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: '1'
+
+jobs:
+  reference:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: core/Montana-Core
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Install the compiler pinned by the workspace
+        run: rustup show active-toolchain
+      - name: Proof binding, canonical padding and quorum
+        run: |
+          cargo test --locked --release -p mt-proof circuit::presence::tests
+          cargo test --locked --release -p mt-proof circuit::opening::tests
+          cargo test --locked --release -p mt-proof circuit::admission::tests
+          cargo test --locked --release -p mt-pulse
+      - name: Verified answers, late delivery and proof context
+        run: |
+          cargo test --locked --release -p montana-node --test a_round_requires_an_answer
+          cargo test --locked --release -p montana-node --test a_window_closes
+          cargo test --locked --release -p montana-node --test a_round_on_two_machines
+          cargo test --locked --release -p montana-node --test an_attestation_names_the_window_before
+      - name: Static checks
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+
+  client-core:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: core/Code
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Install the compiler pinned by the workspace
+        run: rustup show active-toolchain
+      - name: Manifest, cement, startup and authenticated snapshot anchors
+        run: cargo test --locked --release -p montana-node -p mt-genesis -p mt-lottery --lib
+      - name: Static checks
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - name: Ratchet state, counter bounds and ordinary exchanges
+        run: |
+          cargo test --locked --release -p mt-messenger-e2e --lib adversarial_state_tests
+          cargo test --locked --release -p mt-messenger-e2e --test e2e_full
+          cargo test --locked --release -p mt-messenger-e2e --lib ratchet::tests
+      - name: Container startup and private recovery material
+        run: python3 docker/runtime/test_entrypoint.py

@@ -14,9 +14,11 @@
 use crate::attest::{self, Standing};
 use crate::{round, Machine, NodeError};
 use mt_pulse::fold::Cement;
-use mt_state::layout::{Beacon, Confirmation};
+use mt_state::layout::{Beacon, Confirmation, LightAttestation};
 use mt_state::Layout;
 use mt_wire::message::{self, Kind, POINT_BYTES};
+use sha2::{Digest, Sha256};
+use std::collections::{BTreeMap, BTreeSet};
 
 // Where a machine stands in the tree of admitted machines, and what standing it answers with. The
 // three travel together because they are one thing — what this machine is in that tree — and a
@@ -139,6 +141,12 @@ pub struct Pulse {
     // Whether this machine already answered this window heavily. Its first attestation carries the
     // proof and the standing; every later one is light, and inherits the key already proven.
     answered_heavily: bool,
+    // Only verified answers can authorize a round transition. These caches are
+    // private so neither a count of cement nor an unverified caller can mint it.
+    answered_beacons: BTreeSet<[u8; 32]>,
+    accepted_answers: BTreeSet<[u8; 32]>,
+    proven_keys: BTreeMap<[u8; 32], Vec<u8>>,
+    past_predecessors: BTreeMap<u32, [u8; 32]>,
 }
 
 impl Pulse {
@@ -169,6 +177,10 @@ impl Pulse {
             previous: previous_proposal,
             of_the_window_before: previous_proposal,
             answered_heavily: false,
+            answered_beacons: BTreeSet::new(),
+            accepted_answers: BTreeSet::new(),
+            proven_keys: BTreeMap::new(),
+            past_predecessors: BTreeMap::new(),
         })
     }
 
@@ -212,6 +224,7 @@ impl Pulse {
         aggregate: &[u8; 32],
         threshold: &mt_pulse::U256,
     ) -> Result<Option<Vec<u8>>, NodeError> {
+        self.check_beacon(beacon)?;
         if !self
             .standing
             .eligible(aggregate, beacon.chain, beacon.round, threshold)
@@ -242,10 +255,10 @@ impl Pulse {
         held: &Confirmation,
         admitted_root: &mt_proof::poseidon::Digest,
         aggregate: &[u8; 32],
-        round_of_it: u32,
+        beacon: &Beacon,
         threshold: &mt_pulse::U256,
     ) -> Result<bool, NodeError> {
-        self.gather_saying(held, admitted_root, aggregate, round_of_it, threshold, None)
+        self.gather_saying(held, admitted_root, aggregate, beacon, threshold, None)
     }
 
     // The same fold, writing to the account of a machine why an attestation did not enter. The wire
@@ -255,7 +268,7 @@ impl Pulse {
         held: &Confirmation,
         admitted_root: &mt_proof::poseidon::Digest,
         aggregate: &[u8; 32],
-        round_of_it: u32,
+        beacon: &Beacon,
         threshold: &mt_pulse::U256,
         counts: Option<&crate::say::Counts>,
     ) -> Result<bool, NodeError> {
@@ -267,22 +280,33 @@ impl Pulse {
                 what: "an attestation of another window",
             });
         }
-        // A part-nullifier already in the cement is answered before its proof is looked at. The
-        // fold takes one part-nullifier at most once, so verifying a second appearance decides
-        // nothing — and a machine standing at a round reads what stands there over and over, so a
-        // verification before this test is a core spent on an answer already known.
-        if self.cement.holds(&held.part_nullifier) {
+        let id = self.check_answer(held.window, &held.attested, beacon, true)?;
+        // A historical duplicate authorizes nothing in the current round.
+        if beacon.round < self.round && self.cement.holds(&held.part_nullifier) {
+            return Ok(false);
+        }
+        let fingerprint: [u8; 32] = Sha256::digest(held.bytes().map_err(NodeError::Object)?).into();
+        if self.accepted_answers.contains(&fingerprint) {
             if let Some(counts) = counts {
                 counts.raise(&counts.attestations_repeated);
             }
             return Ok(false);
+        }
+        if self
+            .proven_keys
+            .get(&held.part_nullifier)
+            .is_some_and(|key| key != &held.answering_key)
+        {
+            return Err(NodeError::Refused {
+                what: "a second answering key under one part-nullifier",
+            });
         }
         if let Err(why) = attest::verify_heavy(
             held,
             admitted_root,
             aggregate,
             self.chain,
-            round_of_it,
+            beacon.round,
             threshold,
         ) {
             if let Some(counts) = counts {
@@ -305,6 +329,13 @@ impl Pulse {
         let entered = self.cement.add(&leaf).map_err(|_| NodeError::Refused {
             what: "an attestation the cement could not take",
         })?;
+        self.proven_keys
+            .entry(held.part_nullifier)
+            .or_insert_with(|| held.answering_key.clone());
+        if beacon.round == self.round {
+            self.accepted_answers.insert(fingerprint);
+            self.answered_beacons.insert(id);
+        }
         if let Some(counts) = counts {
             if entered {
                 counts.raise(&counts.attestations_entered);
@@ -313,6 +344,78 @@ impl Pulse {
             }
         }
         Ok(entered)
+    }
+
+    // Light answers move the pulse, never the cement, and inherit a presence
+    // verified in this window. A replay from another beacon cannot move this one.
+    pub fn gather_light(
+        &mut self,
+        held: &LightAttestation,
+        aggregate: &[u8; 32],
+        beacon: &Beacon,
+        threshold: &mt_pulse::U256,
+    ) -> Result<bool, NodeError> {
+        let id = self.check_answer(held.window, &held.attested, beacon, false)?;
+        let fingerprint: [u8; 32] = Sha256::digest(held.bytes().map_err(NodeError::Object)?).into();
+        if self.accepted_answers.contains(&fingerprint) {
+            return Ok(false);
+        }
+        let key = self
+            .proven_keys
+            .get(&held.part_nullifier)
+            .ok_or(NodeError::Refused {
+                what: "a light attestation before its proven heavy",
+            })?;
+        attest::verify_light(held, key, aggregate, self.chain, self.round, threshold)?;
+        self.accepted_answers.insert(fingerprint);
+        self.answered_beacons.insert(id);
+        Ok(true)
+    }
+
+    fn check_beacon(&self, beacon: &Beacon) -> Result<[u8; 32], NodeError> {
+        if (beacon.window, beacon.chain, beacon.round, beacon.previous)
+            != (self.window, self.chain, self.round, self.previous)
+        {
+            return Err(NodeError::Refused {
+                what: "a beacon outside this round's predecessor chain",
+            });
+        }
+        beacon.id().map_err(NodeError::Object)
+    }
+
+    fn check_answer(
+        &self,
+        window: u64,
+        attested: &[[u8; 32]],
+        beacon: &Beacon,
+        historical: bool,
+    ) -> Result<[u8; 32], NodeError> {
+        let id = if historical && beacon.round < self.round {
+            if beacon.window != self.window
+                || beacon.chain != self.chain
+                || self.past_predecessors.get(&beacon.round) != Some(&beacon.previous)
+            {
+                return Err(NodeError::Refused {
+                    what: "a historical beacon outside the verified predecessor chain",
+                });
+            }
+            beacon.id().map_err(NodeError::Object)?
+        } else {
+            self.check_beacon(beacon)?
+        };
+        let mut expected = [id, self.of_the_window_before];
+        expected.sort_unstable();
+        if window != self.window || attested != expected || id == self.of_the_window_before {
+            return Err(NodeError::Refused {
+                what: "an attestation outside this beacon and previous proposal",
+            });
+        }
+        Ok(id)
+    }
+
+    pub fn can_advance(&self, beacon: &Beacon) -> bool {
+        self.check_beacon(beacon)
+            .is_ok_and(|id| self.answered_beacons.contains(&id))
     }
 
     // Whether a runner attempts to close this window. A runner never reads the cement — the cement
@@ -363,11 +466,22 @@ impl Pulse {
     // from instead, and every attestation after the first round would confirm nothing of the window
     // whose cement it is entering.
     pub fn advance(&mut self, machine: &Machine, beacon: &Beacon) -> Result<(), NodeError> {
-        self.previous = beacon.id().map_err(NodeError::Object)?;
-        self.round = self.round.checked_add(1).ok_or(NodeError::Refused {
+        let previous = self.check_beacon(beacon)?;
+        if !self.answered_beacons.contains(&previous) {
+            return Err(NodeError::Refused {
+                what: "a round without a verified answer cannot advance",
+            });
+        }
+        let next = self.round.checked_add(1).ok_or(NodeError::Refused {
             what: "a round past the last one a count carries",
         })?;
-        machine.enter_round(self.window, self.chain, self.round)
+        machine.enter_round(self.window, self.chain, next)?;
+        self.past_predecessors.insert(self.round, self.previous);
+        self.previous = previous;
+        self.round = next;
+        self.answered_beacons.clear();
+        self.accepted_answers.clear();
+        Ok(())
     }
 
     // The right this machine takes of the window it lived in, once that window closed.
@@ -408,9 +522,8 @@ use mt_pulse::{OPENING_CHAIN, REACHES_AGAIN_EVERY, SAYS_EVERY};
 pub fn reach_again(machine: std::sync::Arc<Machine>, line: String) {
     std::thread::spawn(move || loop {
         std::thread::sleep(ASKS_AGAIN_AFTER * REACHES_AGAIN_EVERY);
-        if let Ok(transcript) = machine.reach_and_hold(&line) {
-            let shown: String = transcript.iter().map(|b| format!("{b:02x}")).collect();
-            println!("reached on dialling again {line}\n  transcript {shown}");
+        if machine.reach_and_hold(&line).is_ok() {
+            println!("connection restored");
             return;
         }
     });
@@ -425,12 +538,19 @@ pub fn opening_chain() -> u8 {
 // The bodies standing at every point of one round, taken as the two kinds a round carries. What
 // tells them apart is the width a body comes back at, which differs between the two objects and is
 // derived from the Decree rather than declared here.
+#[derive(Default)]
+struct RoundObjects {
+    beacons: Vec<Beacon>,
+    heavy: Vec<Confirmation>,
+    light: Vec<LightAttestation>,
+}
+
 fn of_the_round(
     machine: &Machine,
     window: u64,
     chain: u8,
     round: u32,
-) -> Result<(Vec<Beacon>, Vec<Confirmation>), NodeError> {
+) -> Result<RoundObjects, NodeError> {
     let points = round::points_of_round(window, chain, round).map_err(|_| NodeError::Decree {
         row: "consensus_replicas".to_string(),
     })?;
@@ -443,51 +563,46 @@ fn of_the_round(
             row: "chunk_bytes".to_string(),
         }
     })?;
-    let mut beacons: Vec<Beacon> = Vec::new();
-    let mut answers: Vec<Confirmation> = Vec::new();
+    let of_light = mt_wire::message::body_len(LightAttestation::expected_len()).map_err(|_| {
+        NodeError::Decree {
+            row: "chunk_bytes".to_string(),
+        }
+    })?;
+    let mut objects = RoundObjects::default();
     for point in &points {
         for body in machine.objects_at_the_point(point, window)? {
+            // Padding can put several object types in one wire length. Parse
+            // each candidate independently; its context and signature decide.
             if body.len() == of_beacon {
-                let Ok(held) = Beacon::parse(&body[..Beacon::expected_len()]) else {
-                    continue;
-                };
-                // **A body of one length is not an object of one kind.** What stands at a point is
-                // padded to the group of the erasure code, so a beacon of six thousand bytes and a
-                // light attestation of five thousand four hundred arrive as bodies of the identical
-                // length — and a reader that classified by that length alone would read every
-                // answer it published as a new question. It did: the machine answered its own
-                // attestation, published another, read that one back as a beacon too, and filled
-                // the point with its own echo until the point refused the one heavy attestation
-                // that would have closed the window. So the object is asked what it says of itself:
-                // a beacon of this round names this window, this chain and this round, and bytes
-                // that name anything else are of another kind however long they are.
-                if held.window != window || held.chain != chain || held.round != round {
-                    continue;
+                if let Ok(held) = Beacon::parse(&body[..Beacon::expected_len()]) {
+                    if (held.window, held.chain, held.round) == (window, chain, round)
+                        && !objects
+                            .beacons
+                            .iter()
+                            .any(|one| one.id().ok() == held.id().ok())
+                    {
+                        objects.beacons.push(held);
+                    }
                 }
-                // One object carried three times is one object: a point of the same round holding
-                // the same beacon adds nothing.
-                if !beacons.iter().any(|one| one.id().ok() == held.id().ok()) {
-                    beacons.push(held);
+            }
+            if body.len() == of_answer {
+                if let Ok(held) = Confirmation::parse(&body[..Confirmation::expected_len()]) {
+                    if held.window == window {
+                        objects.heavy.push(held);
+                    }
                 }
-            } else if body.len() == of_answer {
-                let Ok(held) = Confirmation::parse(&body[..Confirmation::expected_len()]) else {
-                    continue;
-                };
-                // The same question asked of an attestation: it carries the window it attests, and
-                // an object of another window standing at this point is not of this round.
-                if held.window != window {
-                    continue;
+            }
+            if body.len() == of_light {
+                if let Ok(held) = LightAttestation::parse(&body[..LightAttestation::expected_len()])
+                {
+                    if held.window == window {
+                        objects.light.push(held);
+                    }
                 }
-                // Attestations are not thinned here. One machine answers every version of a
-                // round it sees, so two attestations of one part-nullifier stand at a point — the
-                // heavy one carrying the proof and the light ones inheriting the key it proved —
-                // and a reader that kept one per part-nullifier could keep a light one and lose the
-                // heavy. What thins them is the cement, which takes a part-nullifier once.
-                answers.push(held);
             }
         }
     }
-    Ok((beacons, answers))
+    Ok(objects)
 }
 
 // An object of a round put at every point of it. The set carries one object three times so that no
@@ -513,13 +628,10 @@ fn stand_at_the_round(
 // answers every beacon it sees, gathers what verifies into its cement, and closes the window when
 // the cement reaches the share — taking the right that window mints. Then the next window.
 //
-// **Nothing here measures time.** What moves a round is a beacon arriving, and what closes a window
-// is its cement. The one duration in this file is how often a machine asks, and a machine that
-// asked at another rate would cement the same windows.
-//
-// `patience` is how many askings a machine spends at one round before giving that round up, and it
-// is of the operator: a machine whose acquaintances have gone silent stops waiting on them rather
-// than standing at one round for ever.
+// A verified answer advances a round. The polling delay only schedules reads.
+// `patience` bounds this invocation: exhausting it returns an operator error,
+// preserving the round and its cement. It cannot manufacture a successor.
+// The window-closing proof is still an open finding in AUDIT.md.
 // **What a machine does of its own inside a window, and why it cannot be done after one.** A frame
 // stands at the points of the round its slot names, and a machine holds those points only while it
 // stands in that round: the moment its window closes it releases them. So an errand run after the
@@ -600,6 +712,7 @@ pub fn live_doing(
             }
         }
         let runs = Pulse::runs_the_chain(&of_the_machine, &aggregate, &of_the_draw);
+        let mut past_cursor = 0;
         let answered: Beacon = loop {
             if runs {
                 let beacon = pulse.beacon_of_this_round()?;
@@ -608,9 +721,12 @@ pub fn live_doing(
             }
             let mut waited = 0;
             let beacons = loop {
-                let (beacons, _) = of_the_round(machine, window, OPENING_CHAIN, pulse.round)?;
-                if !beacons.is_empty() {
-                    break beacons;
+                let mut arrived = of_the_round(machine, window, OPENING_CHAIN, pulse.round)?;
+                arrived
+                    .beacons
+                    .retain(|beacon| pulse.check_beacon(beacon).is_ok());
+                if !arrived.beacons.is_empty() {
+                    break arrived.beacons;
                 }
                 waited += 1;
                 if waited >= patience {
@@ -654,20 +770,50 @@ pub fn live_doing(
                         stand_at_the_round(machine, window, OPENING_CHAIN, pulse.round, &bytes)?;
                     }
                 }
-                let (again, standing) = of_the_round(machine, window, OPENING_CHAIN, pulse.round)?;
-                ordered = again;
-                answers_seen = standing.len();
-                for held in &standing {
-                    let _ = pulse.gather_saying(
-                        held,
-                        &cohort.root(),
-                        &aggregate,
-                        pulse.round,
-                        &of_a_round,
-                        Some(&counts),
-                    );
+                let mut arrived = of_the_round(machine, window, OPENING_CHAIN, pulse.round)?;
+                arrived
+                    .beacons
+                    .retain(|beacon| pulse.check_beacon(beacon).is_ok());
+                ordered = arrived.beacons;
+                answers_seen = arrived.heavy.len() + arrived.light.len();
+                for beacon in &ordered {
+                    for held in &arrived.heavy {
+                        let _ = pulse.gather_saying(
+                            held,
+                            &cohort.root(),
+                            &aggregate,
+                            beacon,
+                            &of_a_round,
+                            Some(&counts),
+                        );
+                    }
+                    for held in &arrived.light {
+                        let _ = pulse.gather_light(held, &aggregate, beacon, &of_a_round);
+                    }
                 }
-                if pulse.attempts_the_close(cohort.count())? {
+                // Round completion does not end the window's cement collection.
+                // Revisit one historical round per read so a late heavy answer
+                // can establish the key used by current light answers.
+                if pulse.round != 0 {
+                    let at = past_cursor % pulse.round;
+                    let past = of_the_round(machine, window, OPENING_CHAIN, at)?;
+                    for beacon in &past.beacons {
+                        for held in &past.heavy {
+                            let _ = pulse.gather_saying(
+                                held,
+                                &cohort.root(),
+                                &aggregate,
+                                beacon,
+                                &of_a_round,
+                                Some(&counts),
+                            );
+                        }
+                    }
+                    past_cursor = (at + 1) % pulse.round;
+                }
+                if pulse.attempts_the_close(cohort.count())?
+                    && ordered.iter().any(|beacon| pulse.can_advance(beacon))
+                {
                     // **What arrived in the same breath as the close is applied before the machine
                     // leaves.** A frame published inside a window stands at the very points the
                     // attestation that completes the cement stands at, so both are pulled in one
@@ -678,9 +824,14 @@ pub fn live_doing(
                     let _ = machine.apply_what_stands();
                     break true;
                 }
+                if ordered.iter().any(|beacon| pulse.can_advance(beacon)) {
+                    break false;
+                }
                 waited += 1;
                 if waited >= patience {
-                    break false;
+                    return Err(NodeError::Refused {
+                        what: "waiting budget exhausted without a verified answer; round unchanged",
+                    });
                 }
                 // **The account is written while the machine waits, and not only when it moves.** A
                 // round is made of waiting, so a machine that spoke once a round would be silent for
@@ -712,6 +863,7 @@ pub fn live_doing(
             };
             // Two versions of one round are resolved by the smaller identifier, which is the rule
             // the set states for two clearings of one height.
+            ordered.retain(|one| pulse.can_advance(one));
             ordered.sort_by_key(|one| one.id().unwrap_or([0xFFu8; 32]));
             let taken = ordered.first().cloned().ok_or(NodeError::Refused {
                 what: "a round whose beacons vanished between two readings",

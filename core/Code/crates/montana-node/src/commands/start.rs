@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use mt_account::{apply_proposal, ProposalSettle};
 use mt_codec::CanonicalEncode;
-use mt_consensus::{proposal_hash, ProposalHeader};
+use mt_consensus::{proposal_hash, ProposalHeader, PROPOSAL_HEADER_SIZE};
 use mt_crypto::{sign, Hash32, Signature, SIGNATURE_SIZE};
 use mt_entry::{
     apply_candidate_expiry, apply_noderegistrations_batch, apply_selection_event,
@@ -17,13 +17,17 @@ use mt_lottery::{
     bundle_hash, compute_endpoint, quorum, reveal_hash, validate_bundle, validate_reveal,
     weighted_ticket_node, BundledConfirmation, SshaReveal,
 };
-use mt_merkle::{empty_internal, SparseMerkleTree, TREE_DEPTH};
+use mt_merkle::{empty_internal, TREE_DEPTH};
 use mt_net::{MsgType, ProtocolMessage};
 use mt_state::compute_state_root;
 use mt_store::FsStore;
 use mt_timechain::{cemented_bundle_aggregate, next_d, ssha_step};
 
 use crate::clock::{load_current_window, save_current_window};
+use crate::commands::cement::{
+    active_chain_length_at, meta_root, parse_envelope_bundles, CementContext,
+};
+use crate::commands::fastsync::FastSyncSession;
 use crate::identity::{default_data_dir, load_identity, NodeError};
 use crate::node_lifecycle::{load_or_init_lifecycle, save_lifecycle, NodeLifecycle, NodePhase};
 use crate::state::LocalState;
@@ -72,6 +76,11 @@ pub struct StartArgs {
 }
 
 pub fn run(args: StartArgs) -> Result<(), NodeError> {
+    if args.listen_multiaddr.is_some() != args.genesis_manifest.is_some() {
+        return Err(NodeError::InvalidArguments(
+            "listen and genesis manifest must be provided together".into(),
+        ));
+    }
     let data_dir = args.data_dir.unwrap_or_else(default_data_dir);
     let identity = load_identity(&data_dir)?;
     let params = genesis_params();
@@ -244,7 +253,7 @@ pub fn run(args: StartArgs) -> Result<(), NodeError> {
     if network_handle.is_some() {
         println!("fast-sync lag    : threshold {fast_sync_lag_threshold} windows");
     }
-    let mut fast_sync: Option<mt_sync::FastSyncClient> = None;
+    let mut fast_sync: Option<FastSyncSession> = None;
     let mut fast_sync_deadline: Option<Instant> = None;
     // M7 fast-sync: recent cemented bootstrap state_roots (window -> root),
     // the trusted set a reconstructed snapshot root must match.
@@ -370,12 +379,11 @@ pub fn run(args: StartArgs) -> Result<(), NodeError> {
                 || {
                     if let Some(ref mut handle) = network_handle {
                         let mut ctx = net_ctx!();
-                        if let Err(e) = drain_network(&mut ctx, handle) {
-                            eprintln!("[drain] mid-iteration: {e:?}");
-                        }
+                        drain_network(&mut ctx, handle)?;
                     }
+                    Ok(())
                 },
-            );
+            )?;
             last_tick_dur = tick_t0.elapsed();
             // Reconcile with the network value if the window was already seen in an envelope
             // (or drain managed to apply it in the middle of our turn).
@@ -436,8 +444,13 @@ pub fn run(args: StartArgs) -> Result<(), NodeError> {
                     effective_d,
                     "Candidate SSHA",
                     next_window,
-                    || {},
-                );
+                    || {
+                        if let Some(ref handle) = network_handle {
+                            handle.ensure_alive()?;
+                        }
+                        Ok(())
+                    },
+                )?;
                 lifecycle.candidate_progress = lifecycle
                     .candidate_progress
                     .checked_add(1)
@@ -585,7 +598,7 @@ pub fn run(args: StartArgs) -> Result<(), NodeError> {
                     let mut scope = Vec::new();
                     h.encode_signed_scope(&mut scope);
                     h.signature = sign(&identity.node_sk, &scope).map_err(NodeError::Crypto)?;
-                    let mut bytes = Vec::with_capacity(3722);
+                    let mut bytes = Vec::with_capacity(PROPOSAL_HEADER_SIZE);
                     h.encode(&mut bytes);
                     bytes
                 };
@@ -611,16 +624,22 @@ pub fn run(args: StartArgs) -> Result<(), NodeError> {
                     if current >= propose_w || STOP.load(Ordering::SeqCst) {
                         break;
                     }
-                    let need = quorum(active_chain_length_at(&state.nodes, propose_w, params));
+                    let active =
+                        active_chain_length_at(&state.nodes, propose_w, params).map_err(|e| {
+                            NodeError::InvalidArguments(format!("active standing: {e:?}"))
+                        })?;
+                    let need = quorum(active);
                     let got: u64 = bc_accumulator
                         .get(&propose_w)
                         .map(|m| {
                             m.keys()
-                                .filter_map(|id| state.nodes.get(id).map(|n| n.chain_length))
+                                .filter_map(|id| state.nodes.get(id))
+                                .filter(|n| mt_state::is_active(n, propose_w, params.tau2_windows))
+                                .map(|n| n.chain_length)
                                 .sum()
                         })
                         .unwrap_or(0);
-                    if got >= need {
+                    if active != 0 && got >= need {
                         break;
                     }
                     if last_notify.elapsed() > Duration::from_secs(10) {
@@ -646,13 +665,41 @@ pub fn run(args: StartArgs) -> Result<(), NodeError> {
                 // Cementing: evidence = confirmations of window propose_w,
                 // included_bundles = confirmations of window propose_w-1.
                 let evidence = bc_accumulator.get(&propose_w).cloned().unwrap_or_default();
-                // Cementing threshold = 67% of the LIVE set (the same one the
-                // quorum was awaited by). A ticket is cemented if it was confirmed by
-                // nodes with total chain_length ≥ this threshold.
-                let need = quorum(active_chain_length_at(&state.nodes, propose_w, params));
-                let mut cemented = weighted_cemented_hashes(&evidence, &state.nodes, need);
-                cemented.sort();
                 let prev_w = propose_w.saturating_sub(1);
+                let bundles_prev: Vec<BundledConfirmation> = if propose_w >= 1 {
+                    bc_accumulator
+                        .get(&prev_w)
+                        .map(|m| m.values().cloned().collect())
+                        .unwrap_or_default()
+                } else {
+                    Vec::new()
+                };
+                let included_bundles_root = meta_root(
+                    &bundles_prev
+                        .iter()
+                        .map(|b| (b.node_id, bundle_hash(b)))
+                        .collect::<Vec<_>>(),
+                );
+                let evidence_list: Vec<_> = evidence.values().cloned().collect();
+                let context = CementContext {
+                    window: propose_w,
+                    previous_endpoint: t_r_history.get(&prev_w),
+                    current_endpoint: &t_r_w,
+                    nodes: &state.nodes,
+                    params,
+                };
+                let verified =
+                    match context.verify(&included_bundles_root, &bundles_prev, &evidence_list) {
+                        Ok(verified) => verified,
+                        Err(e) => {
+                            eprintln!(
+                                "[consensus] w={propose_w}: waiting for verifiable cement ({e:?})"
+                            );
+                            break 'active_arm;
+                        },
+                    };
+                let confirmers = verified.confirmers;
+                let cemented = verified.cemented_hashes;
                 let candidates_prev =
                     candidates_from_pool(reveal_pool.get(&prev_w), &cemented, &state.nodes);
                 let (winner_id, winner_endpoint) = mt_lottery::determine_winner(&candidates_prev)
@@ -665,22 +712,6 @@ pub fn run(args: StartArgs) -> Result<(), NodeError> {
                         (win.id, ep)
                     })
                     .unwrap_or((my_node, [0u8; 32]));
-                let bundles_prev: Vec<BundledConfirmation> = if propose_w >= 1 {
-                    bc_accumulator
-                        .get(&prev_w)
-                        .map(|m| m.values().cloned().collect())
-                        .unwrap_or_default()
-                } else {
-                    Vec::new()
-                };
-                let confirmers: Vec<mt_state::NodeId> =
-                    bundles_prev.iter().map(|b| b.node_id).collect();
-                let included_bundles_root = meta_root(
-                    &bundles_prev
-                        .iter()
-                        .map(|b| (b.node_id, bundle_hash(b)))
-                        .collect::<Vec<_>>(),
-                );
                 let reveal_entries: Vec<(mt_state::NodeId, Hash32)> = reveal_pool
                     .get(&prev_w)
                     .map(|m| {
@@ -750,8 +781,9 @@ pub fn run(args: StartArgs) -> Result<(), NodeError> {
                     sign(&identity.node_sk, &header_scope).map_err(NodeError::Crypto)?;
 
                 // Envelope: [header 3722][u16 n1][BC of window w-1][u16 n2][BC of window w].
-                let mut envelope_payload: Vec<u8> =
-                    Vec::with_capacity(3722 + 4 + 3500 * (bundles_prev.len() + evidence.len()));
+                let mut envelope_payload: Vec<u8> = Vec::with_capacity(
+                    PROPOSAL_HEADER_SIZE + 4 + 3500 * (bundles_prev.len() + evidence.len()),
+                );
                 header.encode(&mut envelope_payload);
                 envelope_payload.extend_from_slice(&(bundles_prev.len() as u16).to_le_bytes());
                 for bc in &bundles_prev {
@@ -878,20 +910,6 @@ fn bound_map<K: Ord + Copy, V>(m: &mut BTreeMap<K, V>) {
     }
 }
 
-/// Active chain length per spec "Active node predicate": only
-/// nodes with a cemented BundledConfirmation in the last 2τ₂ are counted (mt_state::is_active).
-fn active_chain_length_at(
-    nodes: &mt_state::NodeTable,
-    w: u64,
-    params: &mt_genesis::ProtocolParams,
-) -> u64 {
-    nodes
-        .iter()
-        .filter(|n| mt_state::is_active(n, w, params.tau2_windows))
-        .map(|n| n.chain_length)
-        .sum()
-}
-
 /// The node's whole consensus context as one bundle of references — shared by
 /// the message handler, the proposer and the turn epilogue.
 struct NetCtx<'a> {
@@ -908,7 +926,7 @@ struct NetCtx<'a> {
     last_proposer_cement: &'a mut BTreeMap<mt_state::NodeId, u64>,
     own_bc_cache: &'a mut BTreeMap<u64, BundledConfirmation>,
     pending_msgs: &'a mut Vec<ProtocolMessage>,
-    fast_sync: &'a mut Option<mt_sync::FastSyncClient>,
+    fast_sync: &'a mut Option<FastSyncSession>,
     fast_sync_deadline: &'a mut Option<Instant>,
     last_cement_at: &'a mut Instant,
     prev_proposal_hash: &'a mut Hash32,
@@ -1014,7 +1032,7 @@ fn expected_proposer(ctx: &NetCtx, w: u64, silence_secs: u64) -> (mt_state::Node
 
 /// Parsing the 3722-byte proposal header from the canonical layout.
 fn parse_header(payload: &[u8]) -> Option<ProposalHeader> {
-    if payload.len() < 3722 {
+    if payload.len() < PROPOSAL_HEADER_SIZE {
         return None;
     }
     let h32 = |a: usize| -> Hash32 {
@@ -1029,7 +1047,7 @@ fn parse_header(payload: &[u8]) -> Option<ProposalHeader> {
     let mut t16 = [0u8; 16];
     t16.copy_from_slice(&payload[396..412]);
     let mut sig = [0u8; SIGNATURE_SIZE];
-    sig.copy_from_slice(&payload[413..3722]);
+    sig.copy_from_slice(&payload[413..PROPOSAL_HEADER_SIZE]);
     Some(ProposalHeader {
         prev_proposal_hash: h32(0),
         window_index: u64::from_le_bytes(w8),
@@ -1049,75 +1067,6 @@ fn parse_header(payload: &[u8]) -> Option<ProposalHeader> {
         fallback_depth: payload[412],
         signature: Signature::from_array(sig),
     })
-}
-
-/// Parsing the tail of a cemented envelope:
-/// [u16 n1][n1 × BC of window w-1][u16 n2][n2 × BC of window w].
-fn parse_envelope_bundles(
-    payload: &[u8],
-) -> Option<(Vec<BundledConfirmation>, Vec<BundledConfirmation>)> {
-    let mut off = 3722usize;
-    let mut lists: Vec<Vec<BundledConfirmation>> = Vec::with_capacity(2);
-    for _ in 0..2 {
-        if payload.len() < off + 2 {
-            return None;
-        }
-        let mut cbuf = [0u8; 2];
-        cbuf.copy_from_slice(&payload[off..off + 2]);
-        let n = u16::from_le_bytes(cbuf) as usize;
-        off += 2;
-        let mut list = Vec::with_capacity(n);
-        for _ in 0..n {
-            match BundledConfirmation::decode(&payload[off..]) {
-                Ok((bc, used)) => {
-                    list.push(bc);
-                    off += used;
-                },
-                Err(_) => return None,
-            }
-        }
-        lists.push(list);
-    }
-    let second = lists.pop().unwrap();
-    let first = lists.pop().unwrap();
-    Some((first, second))
-}
-
-/// Merkle tree over (node_id ‖ hash) pairs — the format of included_bundles_root /
-/// included_reveals_root from spec "Structure of proposal-level Merkle roots".
-fn meta_root(entries: &[(mt_state::NodeId, Hash32)]) -> Hash32 {
-    if entries.is_empty() {
-        return empty_internal(TREE_DEPTH);
-    }
-    let mut tree = SparseMerkleTree::new();
-    for (id, h) in entries {
-        let mut meta = Vec::with_capacity(64);
-        meta.extend_from_slice(id);
-        meta.extend_from_slice(h);
-        tree.insert(*id, &meta);
-    }
-    tree.root()
-}
-
-/// Weighted ticket cementing: a ticket hash is cemented when the total
-/// chain length of the nodes that confirmed it reaches the quorum (67% of the active length).
-fn weighted_cemented_hashes(
-    evidence: &BTreeMap<mt_state::NodeId, BundledConfirmation>,
-    nodes: &mt_state::NodeTable,
-    need_quorum: u64,
-) -> Vec<Hash32> {
-    let mut weight: BTreeMap<Hash32, u64> = BTreeMap::new();
-    for (nid, bc) in evidence {
-        let cl = nodes.get(nid).map(|n| n.chain_length).unwrap_or(0);
-        for rh in &bc.reveal_hashes {
-            *weight.entry(*rh).or_insert(0) += cl;
-        }
-    }
-    weight
-        .into_iter()
-        .filter(|(_, w)| *w >= need_quorum)
-        .map(|(h, _)| h)
-        .collect()
 }
 
 /// Sorted list of lottery candidates of window w from the local pool,
@@ -1277,7 +1226,7 @@ fn handle_protocol_message(
                 return Ok(());
             };
             let w = header.window_index;
-            let is_cemented = msg.payload.len() > 3722;
+            let is_cemented = msg.payload.len() > PROPOSAL_HEADER_SIZE;
             // Canonical clock check: one window — one value of the time chain.
             if let Some(known) = ctx.t_r_history.get(&w) {
                 if *known != header.timechain_value {
@@ -1331,14 +1280,36 @@ fn handle_protocol_message(
             if ctx.fast_sync.is_some() {
                 return Ok(());
             }
-            // Fresh join: a node with an empty Node Table cannot validate any
-            // proposal — the proposer is never in its table, so validate_header
-            // returns UnknownProposer and sequential apply can never bootstrap the
-            // active set. Such a node MUST fast-sync the canonical state first,
-            // regardless of the lag threshold.
+            // A received proposal is a discovery hint until its canonical
+            // transition has verified. It must not add its own root to the
+            // snapshot trust set, even when the local node table is empty.
             if ctx.state.nodes.is_empty()
                 || w.saturating_sub(*ctx.current) > ctx.fast_sync_lag_threshold
             {
+                let Some(session) = FastSyncSession::from_verified(
+                    msg.request_id,
+                    w,
+                    header.state_root,
+                    ctx.recent_roots,
+                    ctx.t_r_history,
+                ) else {
+                    eprintln!(
+                        "[m7] unverified anchor at window {w}; waiting for authenticated history"
+                    );
+                    // Ask through the existing sequential-replay path. A fresh
+                    // node without a trusted origin cannot safely adopt a peer's
+                    // account table merely because that peer calls it genesis.
+                    if let Ok(Some(envelope)) = ctx.store.load_proposal_envelope(*ctx.current) {
+                        let _ = broadcast_tx.send(ProtocolMessage::new(
+                            MsgType::Proposal,
+                            *ctx.current,
+                            envelope,
+                        ));
+                    } else {
+                        eprintln!("[m7] local replay anchor unavailable");
+                    }
+                    return Ok(());
+                };
                 let mut fs_payload = Vec::new();
                 mt_net::FastSyncRequest {
                     anchor_window: w,
@@ -1356,22 +1327,12 @@ fn handle_protocol_message(
                             w.saturating_sub(*ctx.current),
                             ctx.fast_sync_lag_threshold
                         );
-                        *ctx.fast_sync = Some(mt_sync::FastSyncClient::new());
+                        *ctx.fast_sync = Some(session);
                         *ctx.fast_sync_deadline =
                             Some(Instant::now() + std::time::Duration::from_secs(10));
                     },
                     Err(e) => eprintln!("[m7] FastSyncRequest broadcast failed: {e}"),
                 }
-                // EXT-SYNC-01: persist the observed anchor root for window w so
-                // FastSyncClient::finalize can match the incoming snapshot. The
-                // lagging node returns here, before recent_roots is populated on
-                // sequential apply (line below), so without this it self-blocks.
-                ctx.recent_roots.insert(w, header.state_root);
-                bound_map(ctx.recent_roots);
-                // #2: stash the anchor's canonical t_r(w) so finalize can set
-                // the synced clock instead of re-grinding from a stale window.
-                ctx.t_r_history.insert(w, header.timechain_value);
-                bound_map(ctx.t_r_history);
                 return Ok(());
             }
             if w != *ctx.current + 1 {
@@ -1402,6 +1363,10 @@ fn handle_protocol_message(
                         );
                     }
                 }
+                return Ok(());
+            }
+            if header.prev_proposal_hash != *ctx.prev_proposal_hash {
+                eprintln!("[consensus] w={w}: predecessor mismatch — skip");
                 return Ok(());
             }
             // Spec "Proposal finality": the proposer's signature is checked
@@ -1448,71 +1413,25 @@ fn handle_protocol_message(
                 eprintln!("[consensus] cemented w={w}: envelope tail not parsed — skip");
                 return Ok(());
             };
-            let active_cl = active_chain_length_at(&ctx.state.nodes, w, ctx.params);
-            // Acceptance threshold is the deterministic 67% of the 2τ₂ active set
-            // (active_cl); no wall-clock and no proposer-based relaxation.
-            // Checking included_bundles (confirmations of window w-1).
-            let mut confirmers: Vec<mt_state::NodeId> = Vec::new();
-            if w >= 1 {
-                let t_r_prev = ctx.t_r_history.get(&(w - 1)).copied().or_else(|| {
-                    // After a restart the history may be absent: the unanimous endpoint
-                    // of the quorum set w-1 canonically defines T_r(w-1).
-                    let mut it = bundles_prev.iter().map(|b| b.endpoint);
-                    let first = it.next()?;
-                    it.all(|e| e == first).then_some(first)
-                });
-                if let Some(t_r_prev) = t_r_prev {
-                    ctx.t_r_history.entry(w - 1).or_insert(t_r_prev);
-                    let mut sum = 0u64;
-                    for bc in &bundles_prev {
-                        if validate_bundle(bc, &ctx.state.nodes, &t_r_prev).is_ok() {
-                            sum += ctx
-                                .state
-                                .nodes
-                                .get(&bc.node_id)
-                                .map(|n| n.chain_length)
-                                .unwrap_or(0);
-                            confirmers.push(bc.node_id);
-                        }
-                    }
-                    if mt_consensus::validate_bundles_threshold(sum, active_cl).is_err() {
-                        eprintln!(
-                            "[consensus] w={w}: included_bundles {sum} < quorum {} — skip",
-                            quorum(active_cl)
-                        );
+            let context = CementContext {
+                window: w,
+                previous_endpoint: w
+                    .checked_sub(1)
+                    .and_then(|previous| ctx.t_r_history.get(&previous)),
+                current_endpoint: &header.timechain_value,
+                nodes: &ctx.state.nodes,
+                params: ctx.params,
+            };
+            let verified =
+                match context.verify(&header.included_bundles_root, &bundles_prev, &evidence) {
+                    Ok(verified) => verified,
+                    Err(e) => {
+                        eprintln!("[consensus] w={w}: cement rejected ({e:?})");
                         return Ok(());
-                    }
-                } else if !bundles_prev.is_empty() {
-                    eprintln!(
-                        "[consensus] w={w}: endpoint disagreement in included_bundles — skip"
-                    );
-                    return Ok(());
-                }
-            }
-            confirmers.sort();
-            // Checking cementing of the window w-1 tickets by the evidence of window w (weighted).
-            let mut ev_map: BTreeMap<mt_state::NodeId, BundledConfirmation> = BTreeMap::new();
-            let mut ev_sum = 0u64;
-            for bc in &evidence {
-                if validate_bundle(bc, &ctx.state.nodes, &header.timechain_value).is_ok() {
-                    ev_sum += ctx
-                        .state
-                        .nodes
-                        .get(&bc.node_id)
-                        .map(|n| n.chain_length)
-                        .unwrap_or(0);
-                    ev_map.insert(bc.node_id, bc.clone());
-                }
-            }
-            let need_quorum = quorum(active_cl);
-            if w >= 1 && ev_sum < need_quorum {
-                eprintln!(
-                    "[consensus] w={w}: cementing evidence {ev_sum} < quorum {need_quorum} — skip"
-                );
-                return Ok(());
-            }
-            let mut cemented = weighted_cemented_hashes(&ev_map, &ctx.state.nodes, need_quorum);
-            cemented.sort();
+                    },
+                };
+            let confirmers = verified.confirmers;
+            let cemented = verified.cemented_hashes;
             // included_reveals_root must match our recomputation.
             let reveal_entries: Vec<(mt_state::NodeId, Hash32)> = ctx
                 .reveal_pool
@@ -1592,6 +1511,9 @@ fn handle_protocol_message(
         },
         MsgType::FastSyncRequest => match mt_net::FastSyncRequest::decode(&msg.payload) {
             Ok(req) => {
+                if req.anchor_window != *ctx.current {
+                    return Ok(());
+                }
                 let snap = mt_sync::Snapshot::from_tables(
                     *ctx.current,
                     &ctx.state.accounts,
@@ -1637,41 +1559,37 @@ fn handle_protocol_message(
             },
         },
         MsgType::FastSyncResponse => {
-            if let Some(mut client) = ctx.fast_sync.take() {
-                let chunk_anchor = mt_net::FastSyncResponseChunk::decode(&msg.payload)
-                    .ok()
-                    .map(|c| c.anchor_window)
-                    .unwrap_or(0);
-                if chunk_anchor <= *ctx.current {
-                    eprintln!(
-                        "[m7] discard FastSyncResponse anchor={chunk_anchor} <= current={} — drop client, retry on next cemented",
-                        *ctx.current
-                    );
-                    drop(client);
+            let Ok(wire) = mt_net::FastSyncResponseChunk::decode(&msg.payload) else {
+                return Ok(());
+            };
+            // Check before taking or changing the session. Unsolicited traffic
+            // must not reset a valid transfer or choose its anchor.
+            if !ctx
+                .fast_sync
+                .as_ref()
+                .is_some_and(|session| session.matches(msg.request_id, wire.anchor_window))
+            {
+                return Ok(());
+            }
+            if let Some(mut session) = ctx.fast_sync.take() {
+                if session.window <= *ctx.current {
                     *ctx.fast_sync_deadline = None;
                     return Ok(());
                 }
-                let parsed = mt_net::FastSyncResponseChunk::decode(&msg.payload)
-                    .map_err(|e| format!("decode: {e:?}"))
-                    .and_then(|wc| {
-                        crate::commands::fastsync::wire_chunk_to_sync(wc)
-                            .map_err(|e| format!("wire: {e:?}"))
-                    });
+                let parsed = crate::commands::fastsync::wire_chunk_to_sync(wire)
+                    .map_err(|error| format!("wire: {error:?}"));
                 match parsed {
-                    Ok(chunk) => match client.accept_chunk(chunk) {
+                    Ok(chunk) => match session.client.accept_chunk(chunk) {
                         Ok(mt_sync::AcceptOutcome::Complete) => {
-                            match client.finalize(ctx.recent_roots) {
+                            let verified_timechain = session.timechain;
+                            match session.finalize() {
                                 Ok((window, tables)) => {
                                     ctx.state.apply_fast_sync(tables, ctx.data_dir, window)?;
                                     *ctx.current = window;
                                     save_current_window(ctx.data_dir, window)?;
-                                    // #2: align the local clock to the synced window's
-                                    // canonical t_r so forward grinding matches the chain.
-                                    if let Some(tr) = ctx.t_r_history.get(&window).copied() {
-                                        ctx.timechain.t_r = tr;
-                                        ctx.timechain.last_window = window;
-                                        save_timechain(ctx.data_dir, ctx.timechain)?;
-                                    }
+                                    ctx.timechain.t_r = verified_timechain;
+                                    ctx.timechain.last_window = window;
+                                    save_timechain(ctx.data_dir, ctx.timechain)?;
                                     *ctx.fast_sync_deadline = None;
                                     eprintln!(
                                     "[m7] fast-sync complete → state replaced, current_window={window}"
@@ -1684,7 +1602,7 @@ fn handle_protocol_message(
                         },
                         Ok(mt_sync::AcceptOutcome::Progress { received, total }) => {
                             eprintln!("[m7] fast-sync chunk {received}/{total}");
-                            *ctx.fast_sync = Some(client);
+                            *ctx.fast_sync = Some(session);
                         },
                         Err(e) => eprintln!(
                             "[m7] fast-sync chunk rejected: {e:?} — discard, retry on next lag"
@@ -1692,7 +1610,7 @@ fn handle_protocol_message(
                     },
                     Err(reason) => {
                         eprintln!("[m7] FastSyncResponse {reason}");
-                        *ctx.fast_sync = Some(client);
+                        *ctx.fast_sync = Some(session);
                     },
                 }
             }
@@ -1780,7 +1698,10 @@ fn handle_protocol_message(
             }
         },
         MsgType::BundledConfirmation => match BundledConfirmation::decode(&msg.payload) {
-            Ok((bc, _used)) => {
+            Ok((bc, used)) => {
+                if used != msg.payload.len() {
+                    return Ok(());
+                }
                 let bw = bc.window_index;
                 if !ctx.t_r_history.contains_key(&bw) && bw > ctx.timechain.last_window {
                     if ctx.pending_msgs.len() < 512 {
@@ -1788,11 +1709,9 @@ fn handle_protocol_message(
                     }
                     return Ok(());
                 }
-                let expected_t_r = ctx
-                    .t_r_history
-                    .get(&bw)
-                    .copied()
-                    .unwrap_or(ctx.timechain.t_r);
+                let Some(expected_t_r) = ctx.t_r_history.get(&bw).copied() else {
+                    return Ok(());
+                };
                 if validate_bundle(&bc, &ctx.state.nodes, &expected_t_r).is_ok() {
                     let node_id = bc.node_id;
                     ctx.bc_accumulator
@@ -1937,6 +1856,7 @@ fn publish_window_artifacts(
 /// Draining the incoming queue: first deferred messages whose windows have already
 /// received the canonical clock value, then fresh ones from the channel.
 fn drain_network(ctx: &mut NetCtx, handle: &mut NetworkHandle) -> Result<(), NodeError> {
+    handle.ensure_alive()?;
     if !ctx.pending_msgs.is_empty() {
         let pend = std::mem::take(ctx.pending_msgs);
         let tx = handle.broadcast_tx.clone();
@@ -1945,21 +1865,24 @@ fn drain_network(ctx: &mut NetCtx, handle: &mut NetworkHandle) -> Result<(), Nod
         }
     }
     let tx = handle.broadcast_tx.clone();
-    while let Ok(msg) = handle.incoming_rx.try_recv() {
+    while let Some(msg) = handle.try_recv()? {
         handle_protocol_message(ctx, &tx, msg)?;
     }
     Ok(())
 }
 
-fn ssha_step_chunked<F: FnMut()>(
+fn ssha_step_chunked<F: FnMut() -> Result<(), NodeError>>(
     prev: &Hash32,
     d: u64,
     label: &str,
     window: u64,
     mut on_chunk: F,
-) -> Hash32 {
-    if d == 0 {
-        return *prev;
+) -> Result<Hash32, NodeError> {
+    on_chunk()?;
+    if !(1..=mt_timechain::MAX_D).contains(&d) {
+        return Err(NodeError::InvalidArguments(
+            "SSHA iteration count is outside the protocol band".into(),
+        ));
     }
     let mut current = *prev;
     let chunk_start = Instant::now();
@@ -1970,9 +1893,11 @@ fn ssha_step_chunked<F: FnMut()>(
         // d ≤ 2^32 typical, × N=10 ≤ 2^36).
         let boundary = d.saturating_mul(i) / SSHA_PROGRESS_CHUNKS;
         let this_chunk = boundary - prev_boundary;
-        current = ssha_step(&current, this_chunk);
+        if this_chunk != 0 {
+            current = ssha_step(&current, this_chunk);
+        }
         prev_boundary = boundary;
-        on_chunk();
+        on_chunk()?;
         let percent = (i * 100) / SSHA_PROGRESS_CHUNKS;
         let bar = progress_bar(boundary, d, 30);
         let elapsed = chunk_start.elapsed().as_secs_f64();
@@ -1995,7 +1920,7 @@ fn ssha_step_chunked<F: FnMut()>(
             let _ = std::io::stdout().flush();
         }
     }
-    current
+    Ok(current)
 }
 
 fn progress_bar(done: u64, total: u64, width: usize) -> String {
@@ -2057,9 +1982,10 @@ fn spawn_network_thread(
         tokio::sync::mpsc::unbounded_channel::<mt_net::ProtocolMessage>();
     let (incoming_tx, incoming_rx) =
         tokio::sync::mpsc::unbounded_channel::<mt_net::ProtocolMessage>();
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel();
 
     eprintln!(
-        "[main] spawning network thread, local_peer_id={local_peer_id},          listen={listen_addr}, peers={n}",
+        "[main] spawning network thread; configured_peers={n}",
         n = manifest.peers.len()
     );
 
@@ -2086,16 +2012,24 @@ fn spawn_network_thread(
                 listen_addr,
                 broadcast_rx,
                 incoming_tx,
+                ready_tx,
             )) {
                 eprintln!("[network] event loop exited with error: {e}");
             }
         })
         .map_err(|e| NodeError::Network(format!("spawn network thread: {e}")))?;
 
-    Ok(NetworkHandle {
+    // No local consensus state may be bootstrapped until parsing, transport
+    // construction and binding the listener have actually succeeded.
+    ready_rx
+        .recv()
+        .map_err(|_| NodeError::Network("network failed before startup completed".into()))?;
+    let handle = NetworkHandle {
         broadcast_tx,
         incoming_rx,
-    })
+    };
+    handle.ensure_alive()?;
+    Ok(handle)
 }
 
 /// Handle to the network thread. Through broadcast_tx the consensus loop sends
@@ -2107,6 +2041,28 @@ pub struct NetworkHandle {
     pub incoming_rx: tokio::sync::mpsc::UnboundedReceiver<mt_net::ProtocolMessage>,
 }
 
+impl NetworkHandle {
+    fn ensure_alive(&self) -> Result<(), NodeError> {
+        if self.broadcast_tx.is_closed() || self.incoming_rx.is_closed() {
+            return Err(NodeError::Network(
+                "network worker stopped; refusing to continue consensus".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn try_recv(&mut self) -> Result<Option<mt_net::ProtocolMessage>, NodeError> {
+        self.ensure_alive()?;
+        match self.incoming_rx.try_recv() {
+            Ok(message) => Ok(Some(message)),
+            Err(tokio::sync::mpsc::error::TryRecvError::Empty) => Ok(None),
+            Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
+                Err(NodeError::Network("network worker disconnected".into()))
+            },
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::canonical_proposer_lookback;
@@ -2114,6 +2070,74 @@ mod tests {
     use super::FAST_SYNC_LAG_THRESHOLD as DEFAULT;
     use mt_consensus::{validate_proposer_is_canonical, NO_PROPOSER};
     use mt_lottery::{Candidate, WINNER_CLASS_NODE};
+
+    #[test]
+    fn a_network_failure_interrupts_hash_work_without_an_endpoint() {
+        for iterations in [0, 1, 10] {
+            let result = super::ssha_step_chunked(&[0; 32], iterations, "test", 1, || {
+                Err(super::NodeError::Network("worker stopped".into()))
+            });
+            assert!(matches!(result, Err(super::NodeError::Network(_))));
+        }
+    }
+
+    #[test]
+    fn short_hash_work_matches_the_canonical_step_without_zero_sized_panics() {
+        let previous = [0x37; 32];
+        for iterations in 1..=21 {
+            assert_eq!(
+                super::ssha_step_chunked(&previous, iterations, "test", 1, || Ok(())).unwrap(),
+                mt_timechain::ssha_step(&previous, iterations),
+            );
+        }
+        for iterations in [0, mt_timechain::MAX_D + 1] {
+            assert!(matches!(
+                super::ssha_step_chunked(&previous, iterations, "test", 1, || Ok(())),
+                Err(super::NodeError::InvalidArguments(_)),
+            ));
+        }
+    }
+
+    #[test]
+    fn an_idle_network_is_distinct_from_a_dead_network() {
+        for incoming_dies in [true, false] {
+            let (broadcast_tx, broadcast_rx) = tokio::sync::mpsc::unbounded_channel();
+            let (incoming_tx, incoming_rx) = tokio::sync::mpsc::unbounded_channel();
+            let mut handle = super::NetworkHandle {
+                broadcast_tx,
+                incoming_rx,
+            };
+            assert!(matches!(handle.try_recv(), Ok(None)));
+            if incoming_dies {
+                drop(incoming_tx);
+            } else {
+                drop(broadcast_rx);
+            }
+            assert!(
+                handle.try_recv().is_err(),
+                "worker death must stop consensus"
+            );
+        }
+    }
+
+    #[test]
+    fn buffered_message_does_not_hide_a_dead_network() {
+        let (broadcast_tx, _broadcast_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (incoming_tx, incoming_rx) = tokio::sync::mpsc::unbounded_channel();
+        incoming_tx
+            .send(mt_net::ProtocolMessage::new(
+                mt_net::MsgType::Ping,
+                1,
+                Vec::new(),
+            ))
+            .unwrap();
+        let mut handle = super::NetworkHandle {
+            broadcast_tx,
+            incoming_rx,
+        };
+        drop(incoming_tx);
+        assert!(handle.try_recv().is_err());
+    }
 
     #[test]
     fn lag_threshold_override_resolution() {

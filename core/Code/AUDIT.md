@@ -1,5 +1,28 @@
 # Montana Reference Implementation — Audit Package
 
+> **Current review, 2026-10-14:** the readiness and zero-open-blocker claims below
+> are historical. Adversarial review reopened snapshot authentication and found
+> duplicate-weight, window/context and root-validation gaps in the node runtime.
+> The candidate repairs are tracked in `docs/SPEC_DEVIATIONS.md`, DEV-015,
+> DEV-044 and DEV-054. Local passing tests do not establish a deployed quorum or
+> an independent operator's verification. No claim of network readiness follows
+> from this document.
+
+The same review found seven ratchet-state and boundary defects in
+`mt-messenger-e2e/src/session.rs`: noncanonical stored flags, trailing state
+bytes, an excessive skipped-key count, send and receive counter overflow, a
+failed KEM step that changes state, and refusal of the largest accepted message.
+Each counterexample fails on the earlier source. The candidate validates the
+complete stored tail before allocation, stages an outgoing transition before
+committing it, checks both counters and includes the padding delimiter in the
+receive bound. Six adversarial state tests and six ordinary/boundary exchange
+tests pass; the two existing AEAD tests also pass. The wire encoding is unchanged.
+
+For this candidate, the whole workspace passes formatting, clippy with warnings
+denied and a release build. The selected node/genesis/lottery run passed 199
+tests. This is not a completed workspace-wide test sweep, a deployed client
+upgrade, or closure of the protocol gaps listed above and in SPEC_DEVIATIONS.
+
 **Spec target:** Montana Protocol v35.26.2 + Montana Network v1.4.0 + Montana App v3.12.0 — see [VERSION.md](VERSION.md)
 **Last verified:** 2026-06-18 (external re-audit GPT-5 Codex 02 fully closed — REAUDIT-01 monetary closed-form (× W), REAUDIT-02 dependency hygiene (cargo audit green), REAUDIT-03 FastSync exact-anchor (Network v1.4.0), REAUDIT-04 release-doc reconciliation, REAUDIT-05 legacy Noise XK deprecated, REAUDIT-06 conformance-gate expanded; spec at Protocol v35.26.2 + Network v1.4.0; conformance-gate GREEN 39/39)
 **Audit-ready status:** **M1 + M2 + M3 + M4 + M5 + M6 + M7 + M9 layers + M8 consensus path — release-blocking findings closed.** The GPT-5 Codex 01 release-blockers (Genesis Decree consensus-binding, quorum/active determinism, FastSync anchor) are closed by construction; genesis active-set is hash-bound (no runtime injection), quorum is the deterministic 2τ₂ set (no wall-clock), FastSync persists the observed anchor root.

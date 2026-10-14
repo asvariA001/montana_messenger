@@ -166,7 +166,7 @@ fn a_beacon_crosses_to_the_other_machine_and_its_answer_comes_back() {
     // at its first appearance.
     assert!(
         running
-            .gather(&answered, &root, &aggregate, 0, &everything)
+            .gather(&answered, &root, &aggregate, &beacon, &everything)
             .expect("the attestation verifies"),
         "a first appearance did not enter the cement"
     );
@@ -177,7 +177,7 @@ fn a_beacon_crosses_to_the_other_machine_and_its_answer_comes_back() {
     );
     // A second appearance of one part-nullifier adds nothing and is lawful.
     assert!(!running
-        .gather(&answered, &root, &aggregate, 0, &everything)
+        .gather(&answered, &root, &aggregate, &beacon, &everything)
         .expect("the attestation verifies"));
 
     // Whether the runner attempts to close is read off two public counts and nothing else: how many

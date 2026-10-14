@@ -6,6 +6,12 @@ Each `// SPEC DEVIATION DEV-NNN: ...` comment in code refers to a specific entry
 
 Closed `DEV-N` entries are kept in this file as a historical record with `Status: closed (commit <sha>)`.
 
+**Current review, 2026-10-14:** a historical closure describes its own source and
+checks. It does not establish that the current runtime is conformant. DEV-015
+and DEV-044 remain open for authenticated bootstrap; DEV-054 records the cement
+validation defects and the candidate fixes. The runtime of `Montana-Core` is
+reviewed separately in [the reference audit](../../Montana-Core/AUDIT.md).
+
 ---
 
 ## DEV-001: NodeRegistration with ssha_chain_length=0
@@ -134,38 +140,20 @@ Closed `DEV-N` entries are kept in this file as a historical record with `Status
 
 ---
 
-## DEV-011: hardware calibration of initial D for the target window time
+## DEV-011: historical hardware calibration of initial D
 
 **Crate:** `montana-node`
-**File:line:** `crates/montana-node/src/commands/start.rs` function
-              `calibrate_d_for_target_window` + first run of start
-**Spec section:** «Engines → TimeChain SSHA — oscillator», «Calibration of D₀»
-**Spec quote:** «Mainnet calibration `D₀` targets τ₁ ≈ 60 seconds wall-clock
-                 on median commodity hardware (engineering target, not a protocol
-                 invariant)»
-**What the code does:** on the first run of the node (timechain.bin did not exist)
-                    it runs benchmark ssha_step(zeros, 10M) → measures
-                    the hardware SHA-256 rate → calibrates `current_d` so that
-                    a window ≈ 60 s wall-clock on this machine.
-**What the spec says:** spec `D₀ = 252M` — engineering calibration target for
-                 median commodity. Per-node actual wall-clock varies ×20
-                 (Apple Silicon ~53s, idle x86_64 VPS ~68s, loaded ~1145s).
-                 Adaptive D feedback at the τ₂ boundary automatically
-                 adjusts D to the median network rate.
-**Severity:** cosmetic — D in the genesis node = local state, not shared
-              consensus invariant with other nodes (there are none).
-              When new network nodes appear, their D will be calibrated
-              independently or synchronized via canonical params.d0.
-**Closure path:** when finalizing multi-node M6+ — nodes will sync via
-                  canonical D from the Genesis Decree or negotiate via
-                  network consensus. Hardware calibration remains for
-                  the genesis node as the initial value.
-**Closure cost:** acknowledged as a permanent feature for the genesis node,
-                  no closure required
-**Status:** acknowledged (genesis-node local hardware calibration —
-            an explicit operator choice, not a silent shortcut)
-**Acknowledged:** author 2026-04-28 «make my node produce roughly
-                  a 60-second window»
+**Source:** `timechain_state::load_or_init_timechain`, `commands::start::run`
+**Current reading (2026-10-14):** a new state takes `current_d` from
+`genesis_params().d0`. The former `calibrate_d_for_target_window` function is
+absent. `start` still exposes an explicit test override; timing the progress bar
+is not calibration of the production initial value.
+
+**Status:** the described first-run calibration is obsolete in the reviewed
+source. This is a correction of this tracker, not a new implementation fix.
+The older request to target a roughly sixty-second local window and its
+historical implementation do not establish current network conformance.
+Wall-clock proposer scheduling and other open consensus findings remain separate.
 
 ---
 
@@ -312,23 +300,35 @@ PeerId derivation: SHA-256 multihash of the peer's ML-DSA-65 identity public key
 
 ---
 
-## DEV-015: M7 fast-sync client-side handler
+## DEV-015: fast-sync trust and integration
 
-**Crate:** `montana-node`
-**File:line:** `crates/montana-node/src/commands/start.rs` — message-dispatch drain
-**Spec section:** «Sync protocols → fast-sync» in `Montana Network v1.1.0.md` (lines 964–970)
-**What the code does:** the M7 algorithmic layer is complete: `mt_sync::Snapshot::{from_tables, to_wire_chunks, build_tables}` and `SnapshotVerifier::verify` (Sparse Merkle production root, byte-equal cross-implementation conformance, 17 unit tests). The server-side dispatcher in `start.rs` answers `MsgType::FastSyncRequest` by broadcasting chunked `FastSyncResponse` envelopes carrying the requester's `request_id`. The client-side handler — drain chunks by `request_id`, reassemble Snapshot, verify against the anchor `ProposalHeader.state_root`, swap the local `LocalState.{accounts, nodes, candidates}` — is not yet wired into the dispatcher.
+**Crate:** `montana-node`, `mt-sync`
+**Source:** `commands::start::handle_protocol_message`, `FastSyncClient::finalize`
+**Current reading (2026-10-14):** the response handler is wired. It decodes and
+reassembles chunks, checks the reconstructed root against `recent_roots`, applies
+the tables and persists the window. The earlier statement that the handler was
+absent was stale.
 
-**Severity:** v1.0.1 hot-fix track. New operators today join the live mesh by replaying the canonical history via the existing `apply_proposal`-from-peers path; fast-sync becomes a CPU/time win at long-running mesh depth, not a correctness requirement.
+**Status:** secure bootstrap remains open. Before this change the lagging-node
+request path copied a proposed root into `recent_roots` before verifying that proposal's
+signature, eligibility, quorum and state transition. Matching a snapshot to that
+root proves agreement with the sender, not with the chain. The request identifier
+was not bound to the active response session. Existing table reconstruction
+tests did not close these trust boundaries.
 
-**Closure path:**
-  1. Add a per-`request_id` accumulator keyed by `(anchor_window, request_id)` to the dispatcher state.
-  2. On `MsgType::FastSyncResponse` arrival, decode `mt_net::FastSyncResponseChunk`, append records to the corresponding `Snapshot` instance.
-  3. When `chunk_index + 1 == total_chunks` for the highest-seen chunk in a given `request_id`, call `SnapshotVerifier::verify(&snap, &expected_state_root)` against the anchor `ProposalHeader.state_root` retrieved from any honest peer's archived proposal at the same `anchor_window`.
-  4. On verify success, call `snap.build_tables()` and swap into `LocalState`; persist via `FsStore`; bump `current_window` to `anchor_window`.
-  5. On verify failure, increment an attempt counter and retry against a different peer.
+**Candidate mitigation:** `FastSyncSession` pins a root and clock already in the
+verified local histories, the window and the request identifier. The request path
+no longer adds a remote root or clock to those histories. Unrelated responses
+leave the session untouched. Six fast-sync tests pass, including rejection of
+untrusted or moved anchors. This prevents the unsafe shortcut; it does not supply
+the authenticated history/checkpoint needed by a fresh operator. Such a join now
+waits instead of accepting arbitrary state.
 
-**Status:** open for v1.0.1.
+**Closure criterion:** only an independently authenticated anchor may authorize
+state replacement; unrelated, replayed or mismatched sessions must leave state
+untouched. A new operator must either verify history from its trusted origin or
+verify an explicitly authenticated checkpoint. An unverified remote head must
+never authenticate its own snapshot.
 
 ## DEV-016: N_SEED multi-Active genesis cohort
 
@@ -829,7 +829,16 @@ exact-anchor binding (pass requested anchor to the client, verify chunk
 anchor_window equality) is a follow-on hardening, not required to close the
 self-block.
 
-## DEV-044 (closed): FastSync exact-anchor binding (EXT-SYNC-01 residual, REAUDIT-03)
+## DEV-044 (partially closed): FastSync exact-anchor binding (EXT-SYNC-01 residual, REAUDIT-03)
+
+**Reopened 2026-10-14:** exact matching against a root advertised by the same
+unverified envelope was not authentication. The candidate pins the requested
+window, request identifier, previously verified root and timechain value in a
+`FastSyncSession`; chunks cannot choose their own trusted anchor. A server serves
+only the requested current window. Six fast-sync module tests pass locally.
+Fresh-node authenticated bootstrap remains open (DEV-015). The earlier account
+below is historical and its closure does not cover this trust gap.
+
 
 **Crate:** `mt-sync`, `montana-node`, spec `Montana Network`
 **Spec section:** «Sync protocols → FastSyncResponse» / «State root verification»
@@ -1111,3 +1120,40 @@ Mitigated by DEV-042: a divergence triggered by this race is now rejected and re
 **Closure cost:**    < 1 working day (spec edit + version bump; code unchanged).
 **Status:**          closed — spec aligned to code in P2P Network v0.14.0 (§453/§469 «Noise_PQ XX» → «ML-KEM-768 sealed-box», mt_crypto::seal_to); code unchanged (already ML-KEM); consistent with fetch §542 and improves [I-7] (one sealed primitive)
 **Acknowledged:**    author approved the spec edit (2026-07-14); firewall — code was correct, spec brought into agreement
+
+
+## DEV-054: proposal cement was counted before uniqueness and context checks
+
+**Crates:** `montana-node`, `mt-lottery`
+**Locations:** `commands/cement.rs`, `commands/start.rs::handle_protocol_message`,
+`mt_lottery::quorum`.
+**Severity:** consensus acceptance blocker.
+
+The previous envelope parser accepted repeated confirmations and trailing bytes.
+The receiver added their weights before inserting them into a deduplicating map,
+so a repeated signature could inflate the threshold sum. It did not check the
+bundle's window against the set being validated or the included bundle root
+against the header, counted inactive weight against an active-only denominator,
+and could insert an unverified previous endpoint into the trusted history. An
+empty previous set could skip validation beyond the first transition. Header
+ancestry was not checked. Separately, saturating multiplication lowered the 67%
+threshold at large u64 totals.
+
+The candidate uses one immutable `CementContext` for both proposer and follower.
+It checks unique signers, signatures, windows and the signed bundle root, counts
+only previously active standing, rejects an empty or overflowing total, requires
+a known previous endpoint, and permits an empty previous set only for legacy
+window one. It changes no state on rejection. The header must name the locally
+held predecessor. The parser bounds allocation by received bytes and consumes
+the whole envelope. The threshold is calculated in u128 and rounded upward
+before conversion to u64.
+
+**Evidence:** eight local cement regression tests pass. The unmodified baseline
+accepted both duplicate and extended envelopes, failing the two rejection tests;
+it also failed the exact-quorum test at the old overflow boundary. These are
+local parser and verifier tests, not attacks conducted on the deployed cohort.
+
+**Status:** repaired in the source candidate; deployment and full replay remain
+unverified. This does not close the legacy winner/pool gap, transactional state
+roots after selection, authenticated bootstrap, concentrated standing (DEV-012),
+or conformance to the newer anonymous consensus.
