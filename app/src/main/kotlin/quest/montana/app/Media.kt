@@ -171,6 +171,7 @@ object Media {
             p.wave?.takeIf { it.isNotEmpty() }?.let { w -> put("wv", Base64.encodeToString(ByteArray(w.size) { (w[it] * 255).toInt().coerceIn(0, 255).toByte() }, Base64.NO_WRAP)) }
         }
         Book.edit(ref) { it.msgs.add(Msg(mid, provisional, true, Marks.birthMs(mid) ?: System.currentTimeMillis(), qt = qt, file = local.path)) }
+        Transfers.set(mid, 0.01f)   // the ring stands at the tap (iOS setUploadProgress(fileName, 0.01), MontanaConversation.swift:4609)
         Thread {
             // THE ROW STANDS AT THE TAP, THE FULL FILE TAKES ITS PLACE BEFORE A BYTE LEAVES (iOS sendGifFound, MontanaConversation.swift
             // 3822-3846 at 2155): `swap` brings the full bytes behind the standing row; the file's name never changes, only what lies
@@ -201,7 +202,8 @@ object Media {
 
     /** The pieces laid, the row given its letter, the letter posted; false — the node took nothing, the intent stands. */
     private fun deliver(c: Context, ref: String, mid: String, p: Picked, caption: String, local: File, qt: String?, group: MediaGroup.Slot?): Boolean {
-        val (letter, man) = seal(c, p, caption, local, group) ?: return false
+        // the ring leaves when the pieces are laid or broken (iOS finish: setUploadProgress(k, nil)); a broken one waits for the drain without it
+        val (letter, man) = (try { seal(c, p, caption, local, group, mid) } finally { Transfers.set(mid, null) }) ?: return false
         Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.let { it.text = letter; it.meta = man } }
         // a group's manifest rides the group's carrier, a copy to everyone it carries to (iOS sendMediaToPeer → MTGroup.carryMedia)
         if (Groups.isKey(ref)) { if (!Groups.carryMedia(ref, mid, letter)) Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.advance(-1) } }
@@ -261,7 +263,7 @@ object Media {
     }
 
     /** The letter and the manifest it stands for (the sender keeps its own manifest: its row draws from it). */
-    private fun seal(c: Context, p: Picked, caption: String, local: File, group: MediaGroup.Slot? = null): Pair<String, String>? {
+    private fun seal(c: Context, p: Picked, caption: String, local: File, group: MediaGroup.Slot? = null, mid: String? = null): Pair<String, String>? {
         val bk = MtBindings.nativeRandom(32) ?: return null
         val total = p.bytes.size
         val count = maxOf(1, (total + CHUNK - 1) / CHUNK)
@@ -284,6 +286,8 @@ object Media {
             var ok = false
             for (attempt in 0 until 3) { if (Wire.putBlob(bid, sealed, cargo, i == sealedPieces.size - 1, assumeAbsent = attempt == 0)) { ok = true; break }; Thread.sleep(1500L shl attempt) }   // the key is this moment's: new at the first try, asked at a retry
             if (!ok) return null
+            // EVERY PIECE THE NODE TOOK MOVES THE RING (iOS report, MontanaChatStore.swift:5163-5169): the share and the megabytes
+            if (mid != null) ((i + 1f) / sealedPieces.size).let { Transfers.set(mid, it, Transfers.megabytes(it, total.toLong())) }
         }
         val m = JSONObject().put("k", p.kind).put("e", p.ext).put("bk", Base64.encodeToString(bk, Base64.NO_WRAP)).put("sz", total).put("chunks", chunks)
         p.name?.let { if (p.kind == "doc" || it == Stickers.CARD) m.put("n", it) }   // a sticker's picture names itself (iOS docName)
@@ -430,7 +434,10 @@ object Media {
                 // THE MANIFEST LANDS BEFORE THE FILE: the row folds into its group and shows its small face while the pieces travel
                 keepManifest(ref, mid, man)
                 val dest = file(c, mid, man.optString("e"))
-                if (!download(man, dest)) {
+                // HONEST RECEPTION (iOS MontanaChatStore.swift:4800-4813): the ring at once, then every piece that came moves it
+                val size = man.optLong("sz")
+                Transfers.set(mid, 0.01f)
+                if (!download(man, dest) { f -> Transfers.set(mid, 0.01f + 0.99f * f, Transfers.megabytes(f, size)) }) {
                     // THE ROW STAYS, THE SENDER IS TOLD (iOS MontanaChatStore 4635-4649, atom aeabdc576605): a cargo every store called
                     // gone is knowledge -- the bubble stands without its file and the sender hears it once; a silent store is no verdict
                     val chunks = man.optJSONArray("chunks")
@@ -445,11 +452,11 @@ object Media {
                 // a group's copy was receipted by the group (Groups.handle), and its pieces serve every other member of it
                 if (!Groups.isKey(ref)) { Post.receiptFor(ref, mid); drop(man) }
             } catch (e: Exception) { Log.w("Montana", "media fetch: ${e.javaClass.simpleName}") }
-            finally { synchronized(inFlight) { inFlight.remove(mid) } }
+            finally { Transfers.set(mid, null); synchronized(inFlight) { inFlight.remove(mid) } }
         }.start()
     }
 
-    fun download(man: JSONObject, dest: File): Boolean {
+    fun download(man: JSONObject, dest: File, came: (Float) -> Unit = {}): Boolean {
         val bk = runCatching { Base64.decode(man.getString("bk"), Base64.DEFAULT) }.getOrNull() ?: return false
         val chunks = man.optJSONArray("chunks") ?: return false
         val tmp = File(dest.path + ".part")
@@ -480,6 +487,7 @@ object Media {
                     } else if (++silentTries < 3) Thread.sleep(700L)
                 }
                 out.write(piece ?: return false)
+                came((i + 1f) / chunks.length())
             }
         }
         return tmp.renameTo(dest)

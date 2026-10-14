@@ -265,11 +265,15 @@ internal fun albumBody(c: Context, members: List<Msg>, into: LinearLayout) {
             val pad = side / 4; setPadding(pad, pad, pad, pad)
         }
         val side = c.dp(min(44f, max(28f, t.rect.width() * 0.22f)))
+        val spinner = if (f == null && !Media.waiting(c, m)) android.widget.ProgressBar(c) else null
         if (f == null && Media.waiting(c, m)) tile.addView(sign(R.drawable.ic_arrow_circle_down, side), FrameLayout.LayoutParams(side, side, Gravity.CENTER))
-        else if (f == null) tile.addView(android.widget.ProgressBar(c), FrameLayout.LayoutParams(c.dp(28), c.dp(28), Gravity.CENTER))
+        else if (spinner != null) tile.addView(spinner, FrameLayout.LayoutParams(c.dp(28), c.dp(28), Gravity.CENTER))
         else if (kind == "vid") tile.addView(sign(R.drawable.ic_play_fill, side), FrameLayout.LayoutParams(side, side, Gravity.CENTER))
+        // EVERY TILE CARRIES ITS OWN PROGRESS (iOS groupTile, MontanaBubble.swift:1485-1509 at 2155): its ring and percent inside it
+        tile.addView(TransferMark(c, m.mid, t.rect.width() to t.rect.height(), spinner), FrameLayout.LayoutParams(MATCH, MATCH))
         if (m.mine && m.state == -1) tile.addView(c.failedMark(), FrameLayout.LayoutParams(c.dp(16), c.dp(16), Gravity.TOP or Gravity.END).apply { setMargins(0, c.dp(6), c.dp(6), 0) })
-        if (f != null) tile.setOnClickListener { (c as? MainActivity)?.let { a -> openMedia(a, f, kind) } }
+        // a tap on a tile still riding is harmless (iOS primaryTap: «the tile keeps riding»)
+        if (f != null) tile.setOnClickListener { if (!Transfers.riding(m.mid)) (c as? MainActivity)?.let { a -> openMedia(a, f, kind) } }
         else if (Media.waiting(c, m)) tile.setOnClickListener { Media.tapped(c, m) }
         plate.addView(tile, FrameLayout.LayoutParams(ceil(t.rect.width() * d).toInt(), ceil(t.rect.height() * d).toInt()).apply {
             leftMargin = (t.rect.left * d).toInt(); topMargin = (t.rect.top * d).toInt()
