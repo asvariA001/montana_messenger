@@ -428,7 +428,7 @@ class VoiceOrbView(c: Context, private val mine: Boolean, private val fps: Int =
 class VoiceOrbStylePage(private val act: MainActivity, private val onClose: () -> Unit) {
     val view: View
     private var editingMine = true
-    private val top = LinearLayout(act).apply { orientation = LinearLayout.VERTICAL }
+    private val heads = LinearLayout(act).apply { orientation = LinearLayout.VERTICAL }
     private val knobs = LinearLayout(act).apply { orientation = LinearLayout.VERTICAL }
 
     init {
@@ -451,7 +451,7 @@ class VoiceOrbStylePage(private val act: MainActivity, private val onClose: () -
                 addView(segmented(c, listOf(R.string.vo_orb to "orb", R.string.vo_histogram to "bars"), VoiceOrbStyle.look) {
                     VoiceOrbStyle.look = it; fill()
                 }, lp().apply { setMargins(dp(16), dp(12), dp(16), 0) })
-                addView(top, lp())
+                addView(heads, lp())
                 addView(ScrollView(c).apply { addView(list) }, lp(MATCH, 0, 1f))
             }, FrameLayout.LayoutParams(MATCH, MATCH))
         }
@@ -460,21 +460,21 @@ class VoiceOrbStylePage(private val act: MainActivity, private val onClose: () -
 
     private fun fill() {
         val c: Context = act
-        top.removeAllViews(); knobs.removeAllViews()
+        heads.removeAllViews(); knobs.removeAllViews()
         if (VoiceOrbStyle.histogram) {
-            top.addView(c.text(c.getString(R.string.vo_histogram_note), 12f, MT.gray, center = true).apply {
+            heads.addView(c.text(c.getString(R.string.vo_histogram_note), 12f, MT.gray, center = true).apply {
                 setPadding(dp(24), dp(14), dp(24), dp(14))
             }, lp())
             return
         }
-        top.addView(c.hstack {
+        heads.addView(c.hstack {
             gravity = Gravity.CENTER
             setPadding(0, dp(14), 0, 0)
             addView(orb(mine = false, R.string.vo_theirs))
             gap(28)
             addView(orb(mine = true, R.string.vo_mine))
         }, lp())
-        top.addView(c.text(c.getString(R.string.vo_tap_hint), 11f, MT.gray, center = true).apply { setPadding(0, dp(8), 0, dp(8)) }, lp())
+        heads.addView(c.text(c.getString(R.string.vo_tap_hint), 11f, MT.gray, center = true).apply { setPadding(0, dp(8), 0, dp(8)) }, lp())
         val side = VoiceOrbStyle.side(editingMine)
         fun put(v: OrbSide) = VoiceOrbStyle.set(editingMine, v)
         knobs.addView(header(if (editingMine) R.string.vo_mine else R.string.vo_theirs))
