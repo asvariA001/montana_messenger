@@ -197,7 +197,98 @@ private class TileGrid(c: Context) : GridView(c) {
     private var pinching = false   // this touch belongs to the pinch, from its second finger to the last one's lift
     init { pinch.isQuickScaleEnabled = false }   // a double tap and drag is no pinch in iOS: two fingers only
 
+    /**
+     * THE DRAG FROM THE CIRCLE (iOS MTTileGrid pan, MontanaMedia.swift:2591-2658 at 2155; atoms b8041f92ad34, b171cbb96007):
+     * a touch that begins in a tile's top right 44 drags a selection along the tiles -- the scroll and the sheet's pull wait
+     * for it; anywhere else the touch is the scroll's, and a press that never moves stays the tile's tap. THE TILE THE FINGER
+     * TOOK IS THE TILE IT PRESSED (the author's word 22.09): the press names it, not the point where the drag got past the slop.
+     * Near an edge (70) the grid rolls itself, 6 a frame of 60 a second. The owner keeps the range: [onDragBegin] the pressed
+     * tile, [onDragTo] the tile under the finger; [fixed] tiles (the camera) are in no drag. Nobody to tell -- no drag.
+     */
+    var onDragBegin: ((Int) -> Unit)? = null
+    var onDragTo: ((Int) -> Unit)? = null
+    var fixed: (Int) -> Boolean = { false }
+    private var pressed = -1          // the tile whose circle the finger pressed; -1 -- none
+    private var dragging = false
+    private var downX = 0f; private var downY = 0f
+    private var lastX = 0f; private var lastY = 0f
+    private val slop = ViewConfiguration.get(c).scaledTouchSlop
+    private var rollSpeed = 0f        // px a 1/60 s; 0 -- no roll
+    private var rollAt = 0L
+    private var rollCarry = 0f
+    private val roll = object : android.view.Choreographer.FrameCallback {
+        override fun doFrame(t: Long) {
+            if (rollSpeed == 0f || !dragging) { rollAt = 0L; return }
+            val dt = if (rollAt == 0L) 1f / 60 else (t - rollAt) / 1e9f
+            rollAt = t
+            rollCarry += rollSpeed * dt.coerceAtMost(0.1f) * 60   // a frame of 120 a second rolls half of a 60's
+            val px = rollCarry.toInt(); rollCarry -= px
+            if (px != 0) scrollListBy(px)
+            dragAt(lastX, lastY)   // the finger stands, the tiles go under it: the range follows them
+            android.view.Choreographer.getInstance().postFrameCallback(this)
+        }
+    }
+
+    /** The tile at a point, or -1: none, or one outside any drag. */
+    private fun tileAt(x: Float, y: Float): Int {
+        val p = pointToPosition(x.toInt(), y.toInt())
+        return if (p == android.widget.AdapterView.INVALID_POSITION || fixed(p)) -1 else p
+    }
+    /** The circle's corner of the tile under a press: its top right 44 (iOS cell.frame.maxX - 44, minY, 44, 44). */
+    private fun cornerAt(x: Float, y: Float): Int {
+        val p = tileAt(x, y).takeIf { 0 <= it } ?: return -1
+        val v = getChildAt(p - firstVisiblePosition) ?: return -1
+        val s = context.dp(44)
+        return if (v.right - s <= x && x <= v.right && v.top <= y && y <= v.top + s) p else -1
+    }
+    private fun dragAt(x: Float, y: Float) { tileAt(x, y).takeIf { 0 <= it }?.let { onDragTo?.invoke(it) } }
+    private fun endDrag() {
+        dragging = false; pressed = -1; rollSpeed = 0f; rollAt = 0L; rollCarry = 0f
+        android.view.Choreographer.getInstance().removeFrameCallback(roll)
+    }
+
+    /** The drag's own share of a touch; true -- the touch is the drag's and goes no further. */
+    private fun drag(e: MotionEvent): Boolean {
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                endDrag()
+                if (onDragTo != null && to == 0 && settling == null) pressed = cornerAt(e.x, e.y)
+                downX = e.x; downY = e.y
+                // the sheet's pull waits for the circle's drag, as the scroll does
+                if (0 <= pressed) parent?.requestDisallowInterceptTouchEvent(true)
+                return false
+            }
+            MotionEvent.ACTION_POINTER_DOWN -> if (!dragging) pressed = -1   // two fingers are the pinch's (iOS maximumNumberOfTouches 1)
+            MotionEvent.ACTION_MOVE -> {
+                lastX = e.x; lastY = e.y
+                if (!dragging) {
+                    if (pressed < 0 || 1 < e.pointerCount || abs(e.x - downX).coerceAtLeast(abs(e.y - downY)) <= slop) return false
+                    dragging = true
+                    // the tap and the scroll begun under the finger are let go: the touch is the drag's from here
+                    val cancel = MotionEvent.obtain(e).apply { action = MotionEvent.ACTION_CANCEL }
+                    super.dispatchTouchEvent(cancel); cancel.recycle()
+                    onDragBegin?.invoke(pressed)
+                }
+                dragAt(e.x, e.y)
+                val edge = context.dp(70)
+                val was = rollSpeed
+                // the edges of the tiles seen: the foot stands over the grid's bottom padding (iOS: its safe-area inset)
+                rollSpeed = when { height - paddingBottom - edge < e.y -> context.dp(6).toFloat(); e.y < paddingTop + edge -> -context.dp(6).toFloat(); else -> 0f }
+                if (rollSpeed != 0f && was == 0f) {
+                    rollAt = 0L
+                    android.view.Choreographer.getInstance().apply { removeFrameCallback(roll); postFrameCallback(roll) }
+                }
+                return true
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> { val was = dragging; endDrag(); return was }
+        }
+        return dragging
+    }
+
+    override fun onDetachedFromWindow() { endDrag(); super.onDetachedFromWindow() }
+
     override fun dispatchTouchEvent(e: MotionEvent): Boolean {
+        if (drag(e)) return true
         pinch.onTouchEvent(e)
         if (e.actionMasked == MotionEvent.ACTION_DOWN) pinching = false
         if (!pinching && (1 < e.pointerCount || to != 0 || settling != null)) {
@@ -385,6 +476,30 @@ fun galleryPick(act: MainActivity, onPick: (List<Uri>) -> Unit, onCamera: () -> 
         if (!chosen.remove(id) && chosen.size < limit) chosen.add(id)
         adapter.notifyDataSetChanged()
         drawFoot()
+    }
+    // THE DRAG'S RANGE (iOS MTTileGrid.applyRange): from the circle the drag began on to the tile under the finger, every
+    // tile takes the start tile's new state; a tile that leaves the range goes back to what it was before the drag. The
+    // ceiling is kept here, where the order is made (the critic 22.09: a drag walked past any ten the page thought it held).
+    var dragStart = -1
+    var dragMode = true
+    var dragBase: List<Long> = emptyList()
+    grid.fixed = { it == 0 }   // the camera
+    grid.onDragTo = drag@{ p ->
+        val a = dragStart; val b = p - 1
+        if (a !in items.indices || b !in items.indices) return@drag
+        val range = (minOf(a, b)..maxOf(a, b)).map { items[it].id }
+        val next = ArrayList(dragBase)
+        if (dragMode) { for (x in range) if (x !in next) next.add(x) } else next.removeAll(range.toSet())
+        while (limit < next.size) next.removeAt(next.size - 1)   // the drag stops at the ceiling
+        if (next != chosen) { chosen.clear(); chosen.addAll(next); adapter.notifyDataSetChanged(); drawFoot() }
+    }
+    grid.onDragBegin = { p ->
+        dragStart = p - 1
+        if (dragStart in items.indices) {
+            dragMode = items[dragStart].id !in chosen
+            dragBase = ArrayList(chosen)
+            grid.onDragTo?.invoke(p)
+        }
     }
     val note = c.text(c.getString(R.string.gp_no_access), 15f, MT.gray, center = true).apply { visibility = View.GONE }
     val spinner = ProgressBar(c)
