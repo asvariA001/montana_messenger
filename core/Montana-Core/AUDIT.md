@@ -38,6 +38,7 @@ they do not attest to a deployed network or an independent operator's run.
 | A count-based attempt is used as the runtime close | Still open: `live_doing` uses `attempts_the_close` as its closing decision and carries a beacon identifier forward. It does not assemble, prove, store and serve a canonical `Proposal`. An advancing log and the integration scenarios do not prove network finality. |
 | The window circuit proves only fold arithmetic | Still open: `circuit/window.rs` binds accumulators, instance and challenges and checks their arithmetic. It does not constrain the quorum, standing openings, proposal state transition or runner ticket required by Consensus. Passing its honest proof test does not establish those statements. |
 | Admission's component witnesses are not bound together | Still open: the record walk, admitted naming leaf and operator-secret absorption are independent chains; the former record-to-nullifier lane is empty. Neither their common origin nor continuity follows from proving the three published digests. |
+| Record-tree byte order disagreed with its bit order | Three interleaved little-endian keys produced a root different from an independent recursive Merkle calculation; an existing record's membership path did not reach that root. Both regressions fail on the previous code and pass after ordering branches by their actual bit significance. One fold now constructs both the full root and the subtrees used in paths. This changes affected nonempty roots and requires state reconciliation before deployment. |
 | Admission continuity is not enforced end to end | Still open: an Identity segment is earned by an included action of the record. Replaying other people's cements creates no such action. The record reader and admission circuit must enforce the shifted active period and the share, including minority partition and rejoin cases. |
 | Bootstrap and origin privacy | Still open: a dialable cohort requires authenticated discovery and transport that do not expose protected origins. Removing an address or identity from the current source does not revoke historical exposure or make direct DNS records anonymous. |
 
@@ -90,6 +91,28 @@ window circuit still lacks the quorum and full proposal-transition constraints
 listed above; a fast proof of its current statement does not establish finality.
 The historical digest/second-phase proposals below are not prerequisites for
 this performance repair and remain unimplemented design alternatives.
+
+### Record-tree ordering, 2026-10-14
+
+`records::root_of_leaves` paired adjacent entries in `BTreeMap` byte order,
+while its tree walks the key from its least significant bit. For keys whose
+first two bytes are `[1,0]`, `[1,1]`, `[2,0]`, this separates branches that must
+fold together. Two independent checks reproduce the defect on the prior source:
+the root disagrees with a recursive partition by the specified key bits, and
+folding a returned membership path does not reach the published root.
+
+The repair orders entries by little-endian numeric significance before folding
+and gives root construction and path subtrees one implementation. Path selection
+partitions on the actual key bits. All three record-tree integration tests pass, including keys spanning all 256
+bits, together with four existing tree tests and all six admission circuit tests.
+The complete proof package then passes all 177 tests with none ignored.
+Whole-workspace clippy with warnings denied and the release build pass.
+
+The empty root and record encoding are unchanged. Affected nonempty roots are
+corrected, so previously stored roots must be reconciled from their committed
+leaves before this candidate can replace live code. This is not a transparent
+upgrade of an existing record tree, and it does not close admission's missing
+common-origin or continuity constraints.
 
 ### The gate's denominator
 

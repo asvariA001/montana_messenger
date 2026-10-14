@@ -138,11 +138,18 @@ The existing wire encoding is unchanged. These source changes have not been
 installed into the released applications.
 
 Both workspaces pass full clippy and release builds. Following the exact
-boundary-evaluation optimization, the complete proof package passes 174 tests
+boundary-evaluation optimization, the complete proof package passes 177 tests
 with none ignored; its pre-change control proof retains identical bytes. The
 previously skipped full-height window arithmetic proof passes in 29.07 seconds
 on the review machine and is now in the ordinary suite. This changes no AIR or
 proof encoding and does not add the missing quorum statement.
+A separate record-tree repair orders branches by little-endian bit significance
+and shares one fold between the root and membership paths. Two old-source
+counterexamples reproduced a wrong root and an unreachable membership path.
+The complete proof package and the targeted wide-key/admission checks pass after
+the repair. Affected nonempty record roots change and must be reconciled before
+this candidate can replace live state.
+
 Earlier recorded runs include 28 pulse tests and 199 legacy node/genesis/lottery
 tests. The final ratchet checks pass six state tests, six exchange tests and two
 AEAD tests. A complete workspace-wide test sweep has not been performed, and

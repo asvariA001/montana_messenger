@@ -4,8 +4,9 @@ These are internal adversarial tests with synthetic keys and records. They do
 not contact a live node, demonstrate a live quorum or constitute an independent
 cryptographic review.
 
-`baseline-tests.patch` adds tests only. Its eight original files were compared
-byte for byte with this repository at public commit `6303fa5`. That commit's
+`baseline-tests.patch` adds tests only. Eight original files were compared
+byte for byte with this repository at public commit `6303fa5`; the patch also
+adds one record-tree integration test file. That commit's
 `core` tree is `4ce3d6705224c8c99db0db1710a70bbde3d04361`; it is the published
 snapshot of source `3848245e308b`. No implementation fix or parameter update is
 included in this patch. It uses zero context lines; the commands below explicitly
@@ -33,6 +34,7 @@ cargo test --locked --release -p mt-proof --lib a_presence_cannot_graft
 cargo test --locked --release -p mt-proof --lib a_part_cannot_choose_extra
 cargo test --locked --release -p mt-proof --lib padding_cannot_create_a_second
 cargo test --locked --release -p mt-pulse --lib an_empty_population_or_fabricated
+cargo test --locked --release -p mt-proof --test record_tree
 ```
 
 The first two tests rebuild coherent traces: one substitutes another machine's
@@ -40,7 +42,10 @@ public membership path, the other changes absorption padding and the published
 nullifier. They do not merely corrupt a proof byte. The next command tests the
 same padding defect in opening and admission. Each forged trace satisfies the
 old AIR and therefore fails the test asserting that it must be rejected. The
-last command reproduces the empty-population quorum acceptance.
+pulse command reproduces the empty-population quorum acceptance. The record-tree
+command checks three interleaved little-endian keys: the old root disagrees with
+an independent recursive partition, and a returned membership path does not
+reach that root. Both record-tree assertions fail on the baseline.
 
 From the baseline's `core/Code`:
 
