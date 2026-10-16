@@ -390,16 +390,9 @@ enum MontanaNotify {
             return
         }
         let key = copy.hasPrefix("mid:") ? String(copy.dropFirst(4)) : copy
-        if !key.isEmpty {
-            var rang: [String] = []
-            if let d = MontanaKeychain.get("nseShownMids"), let a = try? JSONDecoder().decode([String].self, from: d) { rang = a }
-            guard !rang.contains(key) else {
-                MontanaTrace.mark("notify_skip", mid: key, "why=already-rang kind=group")
-                return
-            }
-            rang.append(key)
-            if 300 < rang.count { rang.removeFirst(rang.count - 300) }
-            if let d = try? JSONEncoder().encode(rang) { MontanaKeychain.set("nseShownMids", d) }
+        if !key.isEmpty, !MTShownOnce.claim(key) {   // the one atomic claim of both processes (MTShownOnce, 17.10.2026)
+            MontanaTrace.mark("notify_skip", mid: key, "why=already-rang kind=group")
+            return
         }
         let preview = ud.object(forKey: "notifPreview") as? Bool ?? true
         let content = UNMutableNotificationContent()
@@ -452,10 +445,9 @@ enum MontanaNotify {
     }
 
     static func present(from: String, chat: String, text: String, mid: String) {
-        // ONE notebook of shown letters for BOTH processes ([C-1]): the push extension
-        // writes nseShownMids on every banner it shows; the app consults and writes THE
-        // SAME notebook. In-process memory was blind to the second ringer — the push
-        // extension is another process (precedent 23.08: two notifications, one video).
+        // ONE notebook of shown letters for BOTH processes ([C-1]): the push extension claims every banner it shows in the one
+        // shared folder (MTShownOnce); the app consults and claims THE SAME notebook. In-process memory was blind to the second
+        // ringer — the push extension is another process (precedent 23.08: two notifications, one video).
         let ud = UserDefaults.standard
         let kind = kind(for: text)
         let enabled = ud.object(forKey: "notifEnabled") as? Bool ?? true
@@ -473,17 +465,14 @@ enum MontanaNotify {
         }
         let key = mid.hasPrefix("mid:") ? String(mid.dropFirst(4)) : mid
         if !key.isEmpty {
-            var rang: [String] = []
-            if let d = MontanaKeychain.get("nseShownMids"),
-               let a = try? JSONDecoder().decode([String].self, from: d) { rang = a }
-            guard !rang.contains(key) else {
+            // ONE ATOMIC CLAIM FOR BOTH PROCESSES (17.10.2026, MTShownOnce): the notebook was a keychain item both processes rewrote
+            // whole, and two readers of one moment both rang (about thirty pairs on 16.10); the claim is a file the kernel lets one
+            // process create, so whichever process speaks first rings and the other stays quiet.
+            guard MTShownOnce.claim(key) else {
                 MontanaTrace.mark("notify_skip", mid: key, "why=already-rang")
                 MontanaTelemetry.shared.event("[notify] skip mid=\(key.prefix(8)) why=already-rang")
                 return
             }
-            rang.append(key)
-            if rang.count > 300 { rang.removeFirst(rang.count - 300) }
-            if let d = try? JSONEncoder().encode(rang) { MontanaKeychain.set("nseShownMids", d) }
             MontanaTelemetry.shared.event("[notify] ring mid=\(key.prefix(8))")
         }
         let preview = ud.object(forKey: "notifPreview") as? Bool ?? true

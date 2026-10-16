@@ -1635,15 +1635,20 @@ enum MontanaWakePush {
                     knockOutcome(doors[i], code: code)                       // the first answer after a failed knock drains the queue
                     MontanaTrace.mark("wakepush_tx", "code=\(code) woken=\(woken) door=\(dh) carry=\(carry) to=\(String(conv.prefix(10)))" + (code < 0 ? " err=\(errWord(err))" : ""))
                 }
-                if code == 200, woken > 0 {
+                // THE WALK STOPS AT THE FIRST DOOR THAT BOXED THE LETTER (17.10.2026; the author's words 00:19-00:20 MSK: one
+                // letter, two wakes three seconds apart under one «at»). A 200 is the letter in that node's box and in its own ring
+                // ledger, and since 10.10 the node asks its peer node itself for the persons it does not hold. Walking on past a
+                // 200 whose «woken» read 0 or -1 knocked the second node, whose ledger of rung letters had never seen this one, and
+                // it rang the same letter again: the same collapse name replaced the plate, the sound and the wake came twice.
+                // Only a door that did not answer, or refused, hands the walk to the next; «woken» is the diary's word, not the walk's.
+                if code == 200 {   // boxed: the walk ends here (17.10)
                     knockLock.lock()
                     knocked["\(conv):\(mid)"] = w
                     knocked = knocked.filter { $0.value &+ 2 > w }
                     knockLock.unlock()
                     completion?(200); return
                 }
-                // No ring here — walk on. The letter is already boxed at every door we pass,
-                // and the receiver's read sweeps every store, so nothing is lost on the way.
+                // No box here — walk on: the next door is the letter's next chance.
                 if i + 1 < doors.count { knock(i + 1) } else { completion?(code) }
             }.resume()
         }
@@ -3264,6 +3269,9 @@ enum MontanaWakePush {
         // past: the person opened a notification and read stale unread for a second or two
         // (the author's word 29.08). It dies at the END, when the letters it describes are
         // actually in the store.
+        // THE EXTENSION'S DIARY IS TAKEN WHOLE (17.10.2026, MTExtensionDiary): the file is renamed first, so a breath drawn during
+        // the drain waits in a new file for the next one; the keychain item of the builds before is read once more and zeroed.
+        for line in MTExtensionDiary.drain() { MontanaTrace.mark("nse_diag", line) }
         if let d = MontanaKeychain.get("nseDiag"),
            let a = try? JSONDecoder().decode([String].self, from: d), !a.isEmpty {
             for line in a { MontanaTrace.mark("nse_diag", line) }

@@ -16,6 +16,14 @@ final class NotificationService: UNNotificationServiceExtension {
     private var best: UNMutableNotificationContent?
     /// The banner in the chat's own face, made once the banner is composed (nativeFace): the expiry hands it over (06.10).
     private var ready: UNNotificationContent?
+    /// THE HAND-OVER HAPPENS ONCE (17.10.2026): the end of the wake and the system's expiry both reach for the one closure; whoever
+    /// comes second finds the gate shut. A word in memory under the lock, nothing else (tools/mt-lock-check.py).
+    private final class Once: @unchecked Sendable {
+        private let lock = NSLock()
+        private var done = false
+        func take() -> Bool { lock.lock(); let first = !done; done = true; lock.unlock(); return first }
+    }
+    private let once = Once()
 
     override func didReceive(_ request: UNNotificationRequest,
                              withContentHandler system: @escaping (UNNotificationContent) -> Void) {
@@ -26,11 +34,17 @@ final class NotificationService: UNNotificationServiceExtension {
         // is the difference from this push's start.
         let cpuAtStart = Self.runMicros()
         let bornAt = Date()
+        let once = self.once
         let contentHandler: (UNNotificationContent) -> Void = { content in
+            guard once.take() else { Self.diagLine("hand-over refused: already delivered"); return }
             let now = Self.runMicros()
             let spent = cpuAtStart <= now ? now - cpuAtStart : 0
             Self.diagLine("cost: cpu_ms=\(spent / 1000) wall_ms=\(Int(Date().timeIntervalSince(bornAt) * 1000))")
             system(content)
+            // THE BANNER IS HANDED OVER BEFORE ANY OPTIONAL WALK (17.10.2026; T1 on 2222, 16.10: 37 «banner shown», 6 «cost» -- the
+            // box, the outgoing knock and the cargo stood between the composed banner and this closure, the process died there, and
+            // the system showed the node's bare push without the sender). This line, after the system's call, is the diary's proof.
+            Self.diagLine("delivered: wall_ms=\(Int(Date().timeIntervalSince(bornAt) * 1000))")
         }
         handler = contentHandler
         Self.servingId = request.identifier
@@ -60,6 +74,7 @@ final class NotificationService: UNNotificationServiceExtension {
         var openedMid = ""
         var openedQuiet = false
         var cargoLetter: (mid: String, text: String)? = nil   // the media letter whose small cargo this process brings (29.09)
+        var collectBox = false   // the waiting envelopes of the box are collected behind the hand-over (17.10.2026)
         // A FIRST-MEETING letter: the envelope under the card key carries the encapsulation,
         // the text and the name. FIRST the letter into the box — the app will beget the pipe
         // and the chat from it on opening — THEN the classic banner: a notification is the
@@ -70,7 +85,7 @@ final class NotificationService: UNNotificationServiceExtension {
             let text = rdv.text.hasPrefix("\u{2063}LB:") ? (Self.resolveLongLetterSync(rdv.text) ?? rdv.text) : rdv.text
             Self.stashRdv(mid: rdv.mid, text: text, name: rdv.name, glyph: rdv.glyph, ct64: rdv.ct64,
                           invite: rdv.invite, conf: rdv.conf)
-            _ = Self.firstTimeShown(rdv.mid)
+            MTShownOnce.claim(rdv.mid)
             var t = rdv.name
             if t.hasPrefix("@") { t.removeFirst() }
             var glyph = rdv.glyph
@@ -224,13 +239,12 @@ final class NotificationService: UNNotificationServiceExtension {
             content.userInfo["from"] = nil
             Self.applySettings(content, conv: convKey)
             Self.diagLine("banner shown mid=\(mid.prefix(8)) quiet=\(openedQuiet)")
-            // The node box (7.2c): the push is the one surviving ring, so waiting envelopes
-            // are collected on it too — time-boxed: the banner above is already composed and
-            // must not become hostage to a broken box road (precedent 26.08 19:03: the scoop
-            // stood FIRST, its chunk waits burned the ~30s budget, iOS killed the extension,
-            // Apple's bare fallback showed, the letter inside the push went unprocessed).
+            // The node box (7.2c): the push is the one surviving ring, so waiting envelopes are collected on it too -- since
+            // 17.10.2026 BEHIND the hand-over (afterDelivery), never before it: the composed banner is no hostage to the box road
+            // (precedent 26.08 19:03: the scoop stood FIRST, its chunk waits burned the ~30s budget, iOS killed the extension,
+            // Apple's bare fallback showed; 16.10 on 2222: the same death behind «box: page refused», 31 wakes of 37).
             ready = Self.nativeFace(content, from: convKey, glyph: senderGlyph)
-            _ = Self.fetchBoxSync(deadline: Self.within(6, of: began))
+            collectBox = true
         } else if let envB64 = info["env"] as? String, let sealed = Data(base64Encoded: envB64), let sh = Self.openForShelf(sealed, at: Self.sealMoment(info)) {
             // A LETTER TO A PERSON ON THE SHELF (07.10, MTShelfPost): the sender's name, and under it whose the letter is; the tap
             // seats that person. Nothing is stashed in the inbox of the person seated: the letter stays on the node for the
@@ -322,58 +336,57 @@ final class NotificationService: UNNotificationServiceExtension {
         // model): the app is the authoritative writer (rewrites whole on every recount), the
         // NSE only adds. A second dictionary hoarded the count forever — the icon showed the
         // sum of all time.
-        // ANY LETTER TO YOU IS A WINDOW TO SEND YOURS (18.09, the author's word). This process holds
-        // the network for these seconds even when the app is gone: the loud letters waiting in the
-        // shared queue knock now, by the sheet's proven road — time-boxed, after the banner is composed.
-        Self.knockOutgoingSync(deadline: Self.within(6, of: began))
-        // THE SMALL CARGO COMES WITH THE BANNER (29.09): the letter's pieces are laid onto the contour's shelf in this process's own
-        // budget, so the app assembles the file at its next breath and asks no door. Big cargo, and a manifest on the node, are the app's.
-        if let c = cargoLetter { Self.bringSmallCargoSync(mid: c.mid, text: c.text, began: began, deadline: Self.within(8, of: began)) }
-        if !convKey.isEmpty, Self.isBlocked(convKey) {
-            Self.diagLine("blocked conv=\(convKey.prefix(10)) — no banner")
-            contentHandler(Self.quietFace())
-            return
-        }
+        // THE BANNER FIRST, THE REST AFTER (17.10.2026): the outgoing knock (18.09) and the small cargo (29.09) that stood here, between
+        // the composed banner and the hand-over, walk behind it now (afterDelivery) -- the process died in them and the system showed
+        // the node's bare push with no sender (T1 on 2222, 16.10: 31 wakes of 37 without a «cost» line).
+        let blocked = !convKey.isEmpty && Self.isBlocked(convKey)
         // A RESENT LETTER RINGS NOTHING (02.10, the critic): the ledger answered «already shown» for the badge alone and
         // the banner went out anyway; a letter the app landed live was never in it. Shown or held -- quiet.
         // QUIET IS THE LETTER'S OWN FACE, NEVER AN EMPTY ONE (02.10 15:04, T1 on 2062): without the filtering entitlement an
         // empty content is still shown, and the node names every ring of a letter by its mid (apns-collapse-id), so the
         // empty repeat REPLACED the banner shown a second earlier with a blank plate. The repeat hands over the same words,
         // passive: no sound, no badge, nothing new on the screen.
-        let fresh = Self.firstTimeShown(openedMid)
-        let held = MTHeldLetters.holds(openedMid)
-        if !openedMid.isEmpty, !fresh || held {
+        // ONE ATOMIC CLAIM FOR BOTH PROCESSES (17.10.2026, MTShownOnce): the file the kernel lets one process create -- the app's live
+        // landing and this extension race for it atomically, and the loser hands over the same words, passive. The keychain notebook
+        // both rewrote whole let two readers of one moment both ring (about thirty pairs on 16.10).
+        let fresh = blocked ? false : MTShownOnce.claim(openedMid)
+        let held = blocked ? false : MTHeldLetters.holds(openedMid)
+        let face: UNNotificationContent
+        if blocked {
+            Self.diagLine("blocked conv=\(convKey.prefix(10)) — no banner")
+            face = Self.quietFace()
+        } else if !openedMid.isEmpty, !fresh || held {
             Self.diagLine("repeat mid=\(openedMid.prefix(8)) shown=\(!fresh) held=\(held) — quiet, same face")
             content.sound = nil
             content.badge = nil
             content.interruptionLevel = .passive
-            Self.deliverWithAvatar(content, from: convKey, glyph: senderGlyph, handler: contentHandler)
-            return
-        }
-        // A MUTED OR ARCHIVED CHAT SAYS NOTHING (MTQuietChats): the sound alone was taken, the banner, the vibration and the lit
-        // screen stayed. An extension without the filtering entitlement cannot withhold a notification -- an empty content is
-        // still shown -- so the letter is handed over passive: no banner over what the person is doing, no sound, no vibration,
-        // no lit screen, no badge; it lies in the list alone.
-        if !convKey.isEmpty, MTQuietChats.holds(convKey) {
+            face = Self.faced(content, from: convKey, glyph: senderGlyph)
+        } else if !convKey.isEmpty, MTQuietChats.holds(convKey) {
+            // A MUTED OR ARCHIVED CHAT SAYS NOTHING (MTQuietChats): the sound alone was taken, the banner, the vibration and the lit
+            // screen stayed. An extension without the filtering entitlement cannot withhold a notification -- an empty content is
+            // still shown -- so the letter is handed over passive: no banner over what the person is doing, no sound, no vibration,
+            // no lit screen, no badge; it lies in the list alone.
             Self.diagLine("quiet conv=\(convKey.prefix(10)) — passive, no banner, no sound, no badge")
             content.sound = nil
             content.badge = nil
             content.interruptionLevel = .passive
-            Self.deliverWithAvatar(content, from: convKey, glyph: senderGlyph, handler: contentHandler)
-            return
+            face = Self.faced(content, from: convKey, glyph: senderGlyph)
+        } else {
+            // THE SHARE SHEET'S ORDER FOLLOWS THE LETTER (MTShareOrder): the chat goes up in the sheet's mirror as it goes up in the list.
+            if !convKey.isEmpty, !openedQuiet { MTShareOrder.raise(convKey) }
+            if !convKey.isEmpty, !openedQuiet {
+                var counts: [String: Int] = [:]
+                if let d = MontanaKeychain.get("unreadCounts"),
+                   let m = try? JSONDecoder().decode([String: Int].self, from: d) { counts = m }
+                counts[convKey, default: 0] += 1
+                if let d = try? JSONEncoder().encode(counts) { MontanaKeychain.set("unreadCounts", d) }
+                content.badge = NSNumber(value: counts.values.reduce(0, +))
+                Self.diagLine("badge conv=\(convKey.prefix(10)) total=\(counts.values.reduce(0, +)) src=nse")
+            }
+            face = Self.faced(content, from: convKey, glyph: senderGlyph)
         }
-        // THE SHARE SHEET'S ORDER FOLLOWS THE LETTER (MTShareOrder): the chat goes up in the sheet's mirror as it goes up in the list.
-        if !convKey.isEmpty, !openedQuiet { MTShareOrder.raise(convKey) }
-        if !convKey.isEmpty, !openedQuiet {
-            var counts: [String: Int] = [:]
-            if let d = MontanaKeychain.get("unreadCounts"),
-               let m = try? JSONDecoder().decode([String: Int].self, from: d) { counts = m }
-            counts[convKey, default: 0] += 1
-            if let d = try? JSONEncoder().encode(counts) { MontanaKeychain.set("unreadCounts", d) }
-            content.badge = NSNumber(value: counts.values.reduce(0, +))
-            Self.diagLine("badge conv=\(convKey.prefix(10)) total=\(counts.values.reduce(0, +)) src=nse")
-        }
-        Self.deliverWithAvatar(content, from: convKey, glyph: senderGlyph, handler: contentHandler)
+        contentHandler(face)
+        Self.afterDelivery(began: began, collectBox: collectBox, cargo: cargoLetter)
     }
 
     // A long reference letter resolves synchronously (the extension lives until the content is
@@ -426,7 +439,7 @@ final class NotificationService: UNNotificationServiceExtension {
             return true
         }
         MontanaMissedCall.note(seed, "rang")
-        _ = firstTimeShown(mid)
+        MTShownOnce.claim(mid)
         let title = Self.title(conv: conv, envName: name)
         diagLine("missed banner mid=\(mid.prefix(8)) seed=\(seed.prefix(8))")
         let look = MontanaMissedCall.content(peer: conv, name: title, video: video)
@@ -488,8 +501,51 @@ final class NotificationService: UNNotificationServiceExtension {
         guard getrusage(RUSAGE_SELF, &u) == 0 else { return 0 }
         return UInt64(u.ru_utime.tv_sec + u.ru_stime.tv_sec) * 1_000_000 + UInt64(u.ru_utime.tv_usec + u.ru_stime.tv_usec)
     }
+    /// The wake's one budget in seconds (06.10): every walk ends by it, whatever its own seconds.
+    private static let wakeBudgetS: TimeInterval = 22
     private static func within(_ seconds: TimeInterval, of began: Date) -> Date {
-        min(Date().addingTimeInterval(seconds), began.addingTimeInterval(22))
+        min(Date().addingTimeInterval(seconds), began.addingTimeInterval(wakeBudgetS))
+    }
+    /// THE BANNER FIRST, THE REST AFTER (17.10.2026; the author's words 00:19-00:20 MSK: «two empty messages on T1 ... close such
+    /// errors at the root»). T1 on 2222 (16.10): 37 wakes wrote «banner shown», 6 wrote «cost» -- the box walk, the outgoing knock
+    /// (a queue of 78-85 letters) and the cargo stood between the composed banner and the hand-over; the process died there, by time
+    /// or by the extension's memory ceiling (unproven which), and the system showed the node's bare push with no sender, twice. The
+    /// banner is handed over first now, and every walk of the network comes behind it, each gated by what is left: the wake's one
+    /// budget of seconds and the process's footprint under the ceiling the system kills at; a step over either is skipped and says
+    /// so. The system may end the process any moment after the hand-over: every step leaves what it laid in a whole state (a stashed
+    /// letter, a laid piece, a noted knock) and loses only what it had not begun.
+    /// A notification service extension is killed by the system near 24 MB of footprint (the platform's unpublished ceiling, read in
+    /// its jetsam reports); the optional work begins only while the process stands well under it.
+    private static let footprintCeilingMB: UInt64 = 16
+    private static func afterDelivery(began: Date, collectBox: Bool, cargo: (mid: String, text: String)?) {
+        var steps: [(String, () -> Void)] = []
+        if collectBox { steps.append(("box", { _ = Self.fetchBoxSync(deadline: within(6, of: began)) })) }
+        steps.append(("outgoing", { Self.knockOutgoingSync(deadline: within(6, of: began)) }))
+        if let c = cargo { steps.append(("cargo", { Self.bringSmallCargoSync(mid: c.mid, text: c.text, began: began, deadline: within(8, of: began)) })) }
+        steps.append(("sweep", { MTShownOnce.sweep() }))
+        for (name, step) in steps {
+            let left = wakeBudgetS - Date().timeIntervalSince(began)
+            guard 2 <= left else { diagLine("after: \(name) skipped — \(Int(left)) s left of the wake"); break }
+            let mb = footprintBytes() / 1_048_576
+            guard mb < footprintCeilingMB else { diagLine("after: \(name) skipped — footprint \(mb) MB"); continue }
+            diagLine("after: \(name) left_s=\(Int(left)) footprint_mb=\(mb)")
+            step()
+        }
+        diagLine("after: done footprint_mb=\(footprintBytes() / 1_048_576) wall_ms=\(Int(Date().timeIntervalSince(began) * 1000))")
+    }
+    /// This process's footprint in bytes -- the kernel's phys_footprint, the number the system's memory ceiling is judged by; the
+    /// app's twin is MontanaApp.footprintMB, the extension does not carry that file.
+    private static func footprintBytes() -> UInt64 {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+        let kr = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count) }
+        }
+        return kr == KERN_SUCCESS ? info.phys_footprint : 0
+    }
+    /// The chat's own face, worded: what every road of the wake hands over.
+    private static func faced(_ content: UNMutableNotificationContent, from: String, glyph: String) -> UNNotificationContent {
+        worded(nativeFace(content, from: from, glyph: glyph))
     }
     private static func deliverWithAvatar(_ content: UNMutableNotificationContent, from: String,
                                           glyph: String, named: String? = nil, handler: @escaping (UNNotificationContent) -> Void) {
@@ -583,21 +639,10 @@ final class NotificationService: UNNotificationServiceExtension {
         return drawListCircle(glyph: initial, colorHex: nil)
     }
 
-    /// Whether this is the letter's first showing: the shown-mid ledger (cap 300). An empty
-    /// mid (envelope did not open) counts as first — better a spare badge than one silently eaten.
-    private static func firstTimeShown(_ mid: String) -> Bool {
-        guard !mid.isEmpty else { return true }
-        var arr: [String] = []
-        if let d = MontanaKeychain.get("nseShownMids"),
-           let a = try? JSONDecoder().decode([String].self, from: d) { arr = a }
-        guard !arr.contains(mid) else { return false }
-        arr.append(mid)
-        if arr.count > 300 { arr.removeFirst(arr.count - 300) }
-        if let d = try? JSONEncoder().encode(arr) { MontanaKeychain.set("nseShownMids", d) }
-        return true
-    }
-
     override func serviceExtensionTimeWillExpire() {
+        // THE EXPIRY HANDS OVER WHAT WAS COMPOSED, NEVER THE RAW PUSH (06.10, 17.10): the chat's own face when it was made, else the
+        // plate as far as the wake composed it (best is the very content the wake writes into), worded; the gate lets one hand-over through.
+        Self.diagLine("expired: ready=\(ready == nil ? 0 : 1)")
         if let h = handler, let c = ready ?? best { h(Self.worded(c)) }
     }
 
@@ -947,7 +992,7 @@ final class NotificationService: UNNotificationServiceExtension {
         guard !missing.isEmpty else { diagLine("cargo: mid=\(mid.prefix(8)) pieces=\(bids.count) on the shelf already"); return }
         let doors = Array(MTNodeWire.electedFirst(MTNodeWire.mirroredDoors()).prefix(2))
         guard !doors.isEmpty else { return }
-        let stop = min(deadline, began.addingTimeInterval(22))   // the process lives ~30 s; the banner is handed over after this
+        let stop = min(deadline, began.addingTimeInterval(wakeBudgetS))   // the process lives ~30 s; since 17.10 the banner is handed over before this
         let t0 = Date()
         var laid = 0, bytes = 0
         for bid in missing {
@@ -992,6 +1037,8 @@ final class NotificationService: UNNotificationServiceExtension {
         return nil
     }
     private final class KnockBox: @unchecked Sendable { var k: MTNodeWire.Knock? = nil }
+    /// ANY LETTER TO YOU IS A WINDOW TO SEND YOURS (18.09, the author's word): this process holds the network for these seconds even
+    /// when the app is gone -- since 17.10.2026 behind the banner's hand-over (afterDelivery), never before it.
     /// Every loud letter still waiting in the shared queue knocks at the elected door — at most six,
     /// oldest first, inside the deadline; a call word and a missed word are the app's alone, a
     /// blocked person's letter does not ride. The ledger tells the app which letters a node took;
@@ -1041,7 +1088,7 @@ final class NotificationService: UNNotificationServiceExtension {
     /// The key the chat lives under in the mirrors: the pipe may have opened under a local
     /// name (ref) while name/avatar/mute/tap key by the chat key. The app writes the
     /// dictionary (mirrorSecrets).
-    /// Banner diagnostics — into the keychain (last 6); the app prints them to the trace on activation.
+    /// Banner diagnostics — appended to the contour's diary file (MTExtensionDiary); the app prints them to the trace at its drain.
     /// How many pipe secrets the extension sees. Zero means the mirror was never written or
     /// is unavailable — then not one letter from a push can be opened, and that must be said aloud.
     static func pipeSecretCount() -> Int { pipeSecrets().count }
@@ -1092,15 +1139,14 @@ final class NotificationService: UNNotificationServiceExtension {
         }
     }
     private static func diagLine(_ line: String) {
-        var arr: [String] = []
-        if let d = MontanaKeychain.get("nseDiag"), let a = try? JSONDecoder().decode([String].self, from: d) { arr = a }
         // The moment the breath was drawn rides with it: the app drains these lines at its next
         // foreground, and without the moment «when did Apple hand the push over» was
         // unknowable (13.09: a missed-call banner seen, its arrival time nowhere).
         // A clock, not an epoch: the diary hides long digit runs as addresses (13.09: «t=1757775013»
         // came out as «t=a:6ab1d3»); an all-digit hh:mm:ss is a clock to the scrubber and survives.
-        arr.append("t=" + MTNodeWire.clock() + " " + line); if arr.count > 24 { arr.removeFirst(arr.count - 24) }
-        if let d = try? JSONEncoder().encode(arr) { MontanaKeychain.set("nseDiag", d) }
+        // ONE WRITE AT THE END OF THE ONE DIARY (17.10.2026, MTExtensionDiary): the keychain item of twenty-four lines, rewritten
+        // whole by every breath and zeroed by the app at its drain, lost the breaths drawn between the app's read and its zeroing.
+        MTExtensionDiary.append("t=" + MTNodeWire.clock() + " " + line)
     }
 
     private static func diag(opened: String, ui: String, envName: String, envGlyph: String) {

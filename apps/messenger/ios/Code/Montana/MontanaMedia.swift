@@ -1408,6 +1408,7 @@ enum MontanaHousekeeping {
             E2E.shared.sweepMediaFiles()
             E2E.shared.sweepOrphanPipes()
             sweepRetiredDoor()
+            MTShownOnce.sweep()   // the claims of shown letters older than a day leave ([I-14], 17.10.2026)
         }
     }
     /// A RETIRED DOOR LEAVES NOTHING BEHIND (the author's word 03.10): the record a former sign-in kept on this device -- its

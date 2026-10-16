@@ -161,8 +161,11 @@ enum MTNodeWire {
     }
     /// ONE KNOCK OF A LETTER FROM A PROCESS WITHOUT THE LIVE LIST (the sheet, the landing door) —
     /// the walk the sheet proved (1637): the node answers 200 the moment the letter is boxed and
-    /// names the ring itself; boxed at one door is the guarantee, the walk goes on until a door
-    /// rings or the doors run out. The seal is made AT the knock, afresh for every door (16.09).
+    /// names the ring itself. THE WALK ENDS AT THE FIRST DOOR THAT BOXED THE LETTER (17.10.2026, as the
+    /// app's walk, MontanaWakePush): a node that boxed it rings it from its own ledger and asks its peer
+    /// node for the persons it does not hold; a second knock at the other node rang the same letter
+    /// again (one letter, two wakes). Only a door that did not answer, or refused, hands the walk on.
+    /// The seal is made AT the knock, afresh for every door (16.09).
     struct Knock { let boxed: Bool; let woken: Int; let code: Int; let walked: Int }
     static func knockLetter(secret: Data, twinRef: String, mid: String, plain: Data, doors: [String],
                             deadline: Date? = nil, silent: Bool = false) async -> Knock {
@@ -182,7 +185,7 @@ enum MTNodeWire {
             guard code == 200 else { continue }
             boxed = true
             woken = ((r.data.flatMap { try? JSONSerialization.jsonObject(with: $0) }) as? [String: Any])?["woken"] as? Int ?? -1
-            if woken > 0 { break }
+            break   // boxed: the walk ends here (17.10)
         }
         return Knock(boxed: boxed, woken: woken, code: code, walked: walked)
     }

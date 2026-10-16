@@ -185,8 +185,8 @@ enum ShareSend {
                                                                         author: MTNodeWire.mirroredAuthorKey(), secret: secret)) else { return false }
         // A quiet failure here is NOT a loss: the app re-enqueues the SAME mid on next open
         // (the guarantee leg) — so the sheet must never buy delivery with minutes of hanging.
-        // THE SHEET WALKS ON A DEAD BELL AS THE APP DOES (1637, the author's word 16.09): boxed at
-        // one door is the guarantee; the walk goes on until a door rings or the doors run out.
+        // THE SHEET WALKS AS THE APP DOES (1637, the author's word 16.09; 17.10.2026): boxed at one door is the guarantee, and the
+        // walk ends there -- a second knock at the other node rang the same letter again (MTNodeWire.knockLetter).
         let t0 = Date()
         let k = await MTNodeWire.knockLetter(secret: secret, twinRef: twinRef, mid: mid, plain: plain, doors: doors)
         diag("send code=\(k.code) woken=\(k.woken) walked=\(k.walked)/\(doors.count) ms=\(Int(Date().timeIntervalSince(t0) * 1000)) peer=\(String(peer.prefix(10))) mid=\(String(mid.prefix(8)))")

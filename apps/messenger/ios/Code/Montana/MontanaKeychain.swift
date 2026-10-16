@@ -346,3 +346,120 @@ enum MTNoticeAlias {
     }
 }
 
+/// ONE BANNER PER LETTER ACROSS BOTH PROCESSES, BY ONE ATOMIC CLAIM (17.10.2026; the author's words 00:19-00:20 MSK: «two empty
+/// messages on T1 ... in fact one message, which showed no sender and doubled»). The ledger of shown letters stood in one keychain
+/// item that the app and the extension each rewrote whole -- read, append, delete, add -- so two processes reading it in the same
+/// moment both saw the letter as new and both rang it (about thirty pairs on 16.10). A claim is now a FILE created with O_CREAT and
+/// O_EXCL in the contour's shared folder: the kernel admits exactly one creator, whichever process it is, and the other finds the
+/// file and stays quiet. No lock is ever held -- a lock in the hand of a suspended process is 0xdead10cc. The file is named by the
+/// sha256 of the letter's bare name, so nothing of the wire names a file here; a claim older than a day leaves at the app's
+/// housekeeping and behind the extension's hand-over ([I-14]). Both processes compile this file.
+enum MTShownOnce {
+    static var dir: URL? {
+        guard let base = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: MontanaContour.appGroup) else { return nil }
+        let d = base.appendingPathComponent("shown", isDirectory: true)
+        if !FileManager.default.fileExists(atPath: d.path) {
+            try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true,
+                                                     attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication])
+        }
+        return d
+    }
+    private static func bare(_ mid: String) -> String { mid.hasPrefix("mid:") ? String(mid.dropFirst(4)) : mid }
+    private static func url(_ mid: String) -> URL? {
+        let m = bare(mid)
+        guard !m.isEmpty, let d = dir else { return nil }
+        return d.appendingPathComponent(SHA256.hash(data: Data(m.utf8)).map { String(format: "%02x", $0) }.joined())
+    }
+    /// True when THIS call is the first to show the letter. An empty name claims nothing and reads as first: a spare ring over
+    /// one silently eaten.
+    @discardableResult
+    static func claim(_ mid: String) -> Bool {
+        guard !bare(mid).isEmpty else { return true }
+        guard let u = url(mid) else { return legacyClaim(mid) }
+        let fd = open(u.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, S_IRUSR | S_IWUSR)
+        if 0 <= fd {
+            close(fd)
+            try? FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: u.path)
+            return true
+        }
+        if errno == EEXIST { return false }
+        return legacyClaim(mid)   // the folder refused for another reason: the older notebook decides
+    }
+    /// The notebook of the builds before 17.10 (the keychain item nseShownMids, rewritten whole): the road only where the contour
+    /// has no shared folder.
+    private static func legacyClaim(_ mid: String) -> Bool {
+        let m = bare(mid)
+        var arr: [String] = []
+        if let d = MontanaKeychain.get("nseShownMids"), let a = try? JSONDecoder().decode([String].self, from: d) { arr = a }
+        guard !arr.contains(m) else { return false }
+        arr.append(m)
+        if 300 < arr.count { arr.removeFirst(arr.count - 300) }
+        if let d = try? JSONEncoder().encode(arr) { MontanaKeychain.set("nseShownMids", d) }
+        return true
+    }
+    /// [I-14] A claim older than a day leaves: a letter's rings are a matter of seconds, its resends of hours at most.
+    static func sweep() {
+        guard let d = dir, let names = try? FileManager.default.contentsOfDirectory(atPath: d.path) else { return }
+        let old = Date().addingTimeInterval(-86400)
+        for n in names {
+            let u = d.appendingPathComponent(n)
+            if let at = (try? u.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate, at < old {
+                try? FileManager.default.removeItem(at: u)
+            }
+        }
+    }
+}
+
+/// THE EXTENSION'S DIARY IS APPEND-ONLY (17.10.2026). Its breaths stood in one keychain item of twenty-four lines, rewritten whole by
+/// every breath and zeroed by the app at its drain: a breath drawn between the app's read and its zeroing was lost, two pushes served
+/// in one process overwrote each other's, and the twenty-fifth line pushed the first out. Each line is now one write with O_APPEND
+/// into a file of the contour's shared folder -- the kernel places every such write at the end, whole -- and the app takes the file
+/// by renaming it (atomic): a breath drawn after the rename opens a new file and waits for the next drain. Bounded: a file past the
+/// cap is turned over once, so two files at most stand here, and the app reads both. The one breath still lost is one whose open
+/// preceded the rename and whose write follows the read -- microseconds, where the keychain scheme lost whole seconds.
+enum MTExtensionDiary {
+    private static let cap = 256 * 1024
+    private static let live = "nse.log"
+    private static let turned = "nse.old.log"
+    private static let taking = "nse.drain."
+    static var dir: URL? {
+        guard let base = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: MontanaContour.appGroup) else { return nil }
+        let d = base.appendingPathComponent("diary", isDirectory: true)
+        if !FileManager.default.fileExists(atPath: d.path) {
+            try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true,
+                                                     attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication])
+        }
+        return d
+    }
+    /// The extension's side: one line, one write, at the end.
+    static func append(_ line: String) {
+        guard let d = dir else { return }
+        let u = d.appendingPathComponent(live)
+        if let size = (try? FileManager.default.attributesOfItem(atPath: u.path))?[.size] as? NSNumber, cap < size.intValue {
+            _ = rename(u.path, d.appendingPathComponent(turned).path)   // atomic; a writer already inside keeps its place in the turned file
+        }
+        let fd = open(u.path, O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC, S_IRUSR | S_IWUSR)
+        guard 0 <= fd else { return }
+        let bytes = Array((line + "\n").utf8)
+        _ = bytes.withUnsafeBytes { write(fd, $0.baseAddress, $0.count) }
+        close(fd)
+    }
+    /// The app's side: every line written so far, oldest first, taken off the shelf. A file left by a drain that died mid-way is
+    /// read first, so no line is read twice or dropped.
+    static func drain() -> [String] {
+        guard let d = dir, let names = try? FileManager.default.contentsOfDirectory(atPath: d.path) else { return [] }
+        var out: [String] = []
+        func take(_ u: URL) {
+            if let text = try? String(contentsOf: u, encoding: .utf8) { out += text.split(separator: "\n").map(String.init) }
+            try? FileManager.default.removeItem(at: u)
+        }
+        for n in names.filter({ $0.hasPrefix(taking) }).sorted() { take(d.appendingPathComponent(n)) }
+        for n in [turned, live] {
+            let src = d.appendingPathComponent(n)
+            let dst = d.appendingPathComponent(taking + UUID().uuidString)
+            guard FileManager.default.fileExists(atPath: src.path), rename(src.path, dst.path) == 0 else { continue }
+            take(dst)
+        }
+        return out
+    }
+}
