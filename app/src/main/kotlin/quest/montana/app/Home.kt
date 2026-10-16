@@ -1014,6 +1014,7 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
                 }
             }
             fun fillRows() {
+                val began = System.nanoTime()
                 rows.removeAllViews()
                 // THE ARCHIVE'S ROW over the chats while it is summoned and something is archived (iOS archiveRevealed: a pull-down
                 // summons it, a stroke up folds it -- the contacts' one law, «as on the chats»)
@@ -1026,12 +1027,13 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
                 }
                 // a meeting that never carried a word leaves no row (iOS: the list stands on letters) — the silent question
                 // of a scan must not raise an empty person here; the pinned stand first (listedChats)
-                val all = chatRows()   // the groups and the channels stand in their own pages (iOS bare, 06.10)
+                val all = ListWork.build { chatRows() }   // the groups and the channels stand in their own pages (iOS bare, 06.10)
                 if (all.isEmpty() && archived == 0) rows.addView(emptyCard, lp())
                 for (ch in all) {
                     rows.addView(listRow(act, ch, inArchive = false, sel = sel), lp())
                     rows.addView(View(c).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = dp(82) })
                 }
+                ListWork.note((System.nanoTime() - began) / 1e6, all.size, ListWork.print(all, headFloats))
             }
             redrawRows = { fillRows() }
             revealArchive = { on ->
@@ -1072,7 +1074,7 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
         // While the archive row stands (headFloats) the rows stop at the list's top, the head's lower edge (iOS up: false); while
         // the search holds the list (pinned) they stop at the page's bottom (iOS down: false).
         addView(EdgeSink(c, top = { list.paddingTop + dp(34) }, bottom = { height }, edgeTop = { list.paddingTop }).apply {
-            sink = this; up = !headFloats; down = !pinned
+            sink = this; up = !headFloats; down = !pinned; page = "chats"
             addView(CoinPull(c, list).apply { onPull = { pull -> if (25f < pull) revealArchive(true) } }, FrameLayout.LayoutParams(MATCH, MATCH))   // the coin's pull refreshes the feed (iOS MontanaCoinSpinner) and summons the archive's row
         }, FrameLayout.LayoutParams(MATCH, MATCH))
         // «WRITE» (iOS composeButton): the one door to the code and the link — the QR opens here and nowhere else.

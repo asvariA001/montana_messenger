@@ -33,6 +33,46 @@ fun archivedChats(): List<Chat> = Book.all().filter { stands(it) && ChatMarks.is
 /** A row stands on letters; a group stands from its invitation, by the moment it stood here (iOS MTGroup.stand: the row at once). */
 private fun stands(c: Chat) = c.msgs.isNotEmpty() || Groups.isKey(c.ref)
 
+/**
+ * THE LIST'S WORK, MEASURED (iOS MTListWork, MontanaChatsList.swift:2094-2120 at 2155; atom 4cbf30023edb): the chats list lives
+ * under the open chat and passes on every change of the book. Per window of thirty seconds or more with work, one line
+ * «list_work»: the passes, those that changed nothing the rows show (idle), those made under an open chat, the rows built
+ * again, the rows drawn, the builds of the ordered rows and the milliseconds of each with the worst. Android's list draws
+ * every row again on each pass (no diff of its own), so changed = drawn = the rows of every pass; «idle» is a pass whose rows'
+ * record -- order, names, unread, last letter, the archive's row -- is the one the pass before drew.
+ */
+object ListWork {
+    private var since = 0L
+    private var ms = 0.0; private var worst = 0.0; private var buildMs = 0.0
+    private var passes = 0; private var idle = 0; private var under = 0; private var changed = 0; private var builds = 0; private var drawn = 0
+    private var lastPrint = 0
+    fun <T> build(f: () -> T): T {
+        val t0 = System.nanoTime()
+        val r = f()
+        builds++; buildMs += (System.nanoTime() - t0) / 1e6
+        return r
+    }
+    /** The record a pass draws, as one number: the same number twice is a pass that drew nothing new. */
+    fun print(rows: List<Chat>, head: Boolean): Int = rows.fold(if (head) 1 else 0) { h, ch ->
+        31 * h + (ch.ref + "|" + ch.shown + "|" + ch.unread + "|" + ChatMarks.pinPlace(ch.ref) + "|" + ch.last?.mid + "|" + (ch.last?.text?.length ?: 0)).hashCode()
+    }
+    fun note(ms: Double, rows: Int, print: Int) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (since == 0L) since = now
+        passes++; changed += rows; drawn += rows; this.ms += ms; worst = maxOf(worst, ms)
+        if (print == lastPrint) idle++
+        lastPrint = print
+        if (Book.openChat != null) under++
+        if (now - since < 30_000) return
+        fun f(x: Double) = String.format(java.util.Locale.US, "%.1f", x)
+        android.util.Log.d("Montana", "list_work passes=" + passes + " idle=" + idle + " under_chat=" + under + " changed=" + changed +
+            " drawn=" + drawn + " rows=" + rows + " ms=" + f(this.ms) + " worst=" + f(worst) + " builds=" + builds + " build_ms=" + f(buildMs) +
+            " secs=" + (now - since) / 1000)
+        since = now
+        passes = 0; idle = 0; under = 0; changed = 0; builds = 0; drawn = 0; this.ms = 0.0; worst = 0.0; buildMs = 0.0
+    }
+}
+
 /** The chats chosen while the list selects (iOS selecting, selectedChats). */
 class ChatSelection(val onChange: (ChatSelection) -> Unit) {
     val chosen = linkedSetOf<String>()

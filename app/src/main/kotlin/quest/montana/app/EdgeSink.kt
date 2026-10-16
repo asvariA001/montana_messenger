@@ -28,6 +28,11 @@ class EdgeSink(c: Context, private val top: () -> Int, private val bottom: () ->
      */
     var up = true; set(v) { if (v != field) { field = v; move() } }
     var down = true; set(v) { if (v != field) { field = v; move() } }
+    /** THE PAGE, NAMED IN THE DIARY (iOS MTChatListFrame.page, MontanaChatListContainer.swift:95-97 at 2155; atom 17a19adc6214):
+     *  a page that names itself writes «list_edges page=… over=… under=… h=…» (points) whenever its run-on changes -- folded, a
+     *  page the screen animates lays its edges out on every frame of the move. */
+    var page = ""
+    private var edges = Triple(-1, -1, -1)
     private var upK = 1f      // 1 -- the top's wash, 0 -- the hard stop, between -- on the way
     private var downK = 1f
     private var moving: android.animation.ValueAnimator? = null
@@ -47,6 +52,11 @@ class EdgeSink(c: Context, private val top: () -> Int, private val bottom: () ->
         if (w <= 0f || h <= 0f) { super.dispatchDraw(canvas); return }
         val layer = canvas.saveLayer(0f, 0f, w, h, null)
         super.dispatchDraw(canvas)
+        if (page.isNotEmpty()) {
+            val d = resources.displayMetrics.density
+            val e = Triple((top() / d).roundToInt(), ((h - bottom()) / d).roundToInt(), (h / d).roundToInt())
+            if (e != edges) { edges = e; Diary.folded("list_edges", "page=" + page + " over=" + e.first + " under=" + e.second + " h=" + e.third) }
+        }
         val s = stops(h, top().toFloat(), bottom().toFloat(), resources.displayMetrics.density, upK, downK,
             edgeTop().toFloat(), edgeBottom().toFloat())
         mask.shader = LinearGradient(0f, 0f, 0f, h, IntArray(s.size) { Color.argb((s[it].second * 255).roundToInt(), 0, 0, 0) },

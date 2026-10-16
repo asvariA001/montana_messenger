@@ -455,6 +455,23 @@ fun Context.failedMark(): View = text("!", 9f, Color.WHITE, bold = true, center 
  */
 private var noteRing: NoteRing? = null
 
+/**
+ * THE ONE ROAD TO A LETTER (iOS ui.showLetter, ContentView.swift:351-354 at 2155): the chat standing on the screen jumps to it, or
+ * opens the letter's chat in its place; with no chat standing, the letter's chat opens on it.
+ */
+object ShowLetter {
+    var open: ((String, String) -> Unit)? = null
+    /** The letter that carries a file, or the letter itself: the open chat first, then every chat and Saved Messages. */
+    fun find(mid: String, file: String?): Pair<String, String>? {
+        val chats = listOfNotNull(Book.openChat?.let { Book.chat(it) }) + Book.all() + listOfNotNull(Book.chat(Book.SAVED))
+        for (ch in chats) ch.msgs.lastOrNull { (mid.isNotEmpty() && it.mid == mid) || (file != null && it.file == file) }?.let { return ch.ref to it.mid }
+        return null
+    }
+    fun go(act: MainActivity, ref: String, mid: String) {
+        open?.invoke(ref, mid) ?: act.push { close -> conversationPage(act, ref, close, jump = mid) }
+    }
+}
+
 /** `jump` — a letter found by the search: the chat opens on it, and it glows once (iOS openChat(jump:)). */
 fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: String? = null): View {
     val c: Context = act
@@ -1627,6 +1644,11 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         }
     }
     jumpHere = { jumpTo(it) }
+    // THE BAR'S WAY BACK TO ITS BUBBLE (iOS goToLetter, MontanaConversation.swift:1315-1323 at 2155; atom 83753ae0754a): this
+    // chat's letter is scrolled to and lit as a reply jump lights; another chat's opens in this one's place
+    val showLetter: (String, String) -> Unit = { to, mid ->
+        if (to == ref) toQuoted(mid) else { onClose(); act.push { c2 -> conversationPage(act, to, c2, jump = mid) } }
+    }
     // a letter folded into a media group is reached by its plate's row (iOS rowLead)
     toQuoted = { q -> jumpTo(Book.chat(ref)?.let { ch -> feedRows(ch.msgs).firstOrNull { r -> r.any { it.mid == q } }?.get(0)?.mid } ?: q) }
     // THE FOOT WHILE THE CHAT SELECTS (iOS the selection bar): Forward and Delete for the chosen letters, in place of the field
@@ -1814,6 +1836,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             override fun onViewAttachedToWindow(v: View) {
                 v.requestApplyInsets()
                 Book.openChat = ref; Book.listen(listener); Notify.clear(ref)
+                ShowLetter.open = showLetter
                 // the banner's road measured (iOS chat_open why=banner ms=…, 4b49d03f071b): from the tap to the chat standing
                 if (Notify.tappedAt != 0L) { android.util.Log.d("Montana", "chat_open why=banner ms=" + (android.os.SystemClock.elapsedRealtime() - Notify.tappedAt)); Notify.tappedAt = 0L }
                 Presence.listen(presenceListener); lane = true
@@ -1834,6 +1857,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 bar.cancelRecording()
                 VoiceTape.standDown()   // a tape readied by a hold that never began goes with the chat (iOS MontanaConversation.swift:1667)
                 if (Book.openChat == ref) Book.openChat = null; Book.unlisten(listener)
+                if (ShowLetter.open === showLetter) ShowLetter.open = null
                 Presence.unlisten(presenceListener); LiveDraft.unlisten(draftListener); LinkCompose.unlisten(linkListener)
                 // words left in the field stand on their screen as a checkpoint, frozen, not typing (iOS «ck»)
                 if (!local) field.text.toString().takeIf { it.isNotBlank() }?.let { LiveDraft.say(ref, it, field.selectionEnd, checkpoint = true) }
@@ -2910,6 +2934,8 @@ private fun noteBody(c: Context, m: Msg, f: java.io.File?, man: JSONObject?, int
  * asks of it: rest and play, the place, the speed, the name. Set by the open note, cleared when it closes.
  */
 object NoteOpen {
+    var mid = ""   // the letter that carries the open note: the bar's way back to its bubble (iOS dock.chat / dock.file)
+    var file = ""
     var close: (() -> Unit)? = null
     var toggle: (() -> Unit)? = null
     var seek: ((Double) -> Unit)? = null
@@ -3089,6 +3115,7 @@ private fun playNote(act: MainActivity, m: Msg, f: java.io.File, chat: Chat?, or
         }
     }
     NoteOpen.close = close
+    NoteOpen.mid = m.mid; NoteOpen.file = f.path
     NoteOpen.title = chat?.shown.orEmpty()   // USER-DATA: whose note, as the bar names it
     NoteOpen.toggle = {
         player?.let { p ->

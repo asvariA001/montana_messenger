@@ -307,6 +307,23 @@ class MiniFace(ctx: Context, private val bar: Boolean) : LinearLayout(ctx) {
     private val longPressRunnable = Runnable { longPressed = true; copyTitle() }
     private companion object { const val HOLD_MS = 220L }   // iOS montanaLongPress, MontanaNetFrames.swift:9 at 2155
 
+    /**
+     * A TAP ON THE NAME'S ROOM: A VOICE OR A NOTE GOES TO ITS BUBBLE (iOS MTMiniFace.open → onGoTo, MontanaMusicPlayer.swift:
+     * 1131-1137 at 2155, the author's word 15.09; atom 83753ae0754a): the open chat scrolls to the letter that carries the
+     * file and lights it, another chat opens at it (ShowLetter, the one road of «Show in chat»).
+     */
+    private fun goToLetter() {
+        val note = when (Playing.kind) { Playing.Kind.NOTE -> true; Playing.Kind.VOICE -> false; else -> return }
+        val mid = if (note) NoteOpen.mid else ""
+        val file = if (note) NoteOpen.file.ifEmpty { null } else VoicePlayer.playing
+        val act = context as? MainActivity ?: return
+        val what = if (note) "note" else "voice"
+        val (ref, letter) = ShowLetter.find(mid, file) ?: run { android.util.Log.d("Montana", "bar_goto kind=$what found=0"); return }
+        android.util.Log.d("Montana", "bar_goto kind=$what here=" + (if (Book.openChat == ref) 1 else 0))
+        if (note && Book.openChat != ref) NoteOpen.close?.invoke()   // the note's stage stands over its own chat alone
+        ShowLetter.go(act, ref, letter)
+    }
+
     init {
         orientation = HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
@@ -365,6 +382,7 @@ class MiniFace(ctx: Context, private val bar: Boolean) : LinearLayout(ctx) {
                         if (longPressed) longPressed = false
                         else if (held != null) onSeek(held)
                         else if (e.x > v.width - dp(64)) { if (Playing.kind == Playing.Kind.TRACK) { remaining = !remaining; live() } else Playing.nextRate() }
+                        else goToLetter()
                         true
                     }
                     MotionEvent.ACTION_CANCEL -> { mainHandler.removeCallbacks(longPressRunnable); scrub = null; true }

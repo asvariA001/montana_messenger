@@ -63,7 +63,7 @@ private fun contactMenu(act: MainActivity, ch: Chat, held: View?) {
     val ref = ch.ref
     val deeds = mutableListOf(
         Deed(R.string.ct_write, R.drawable.ic_compose) { act.push { close -> conversationPage(act, ref, close) } },
-        Deed(R.string.ct_profile, R.drawable.ic_person) { act.push { close -> peerInfoPage(act, ref, close) } },
+        Deed(R.string.ct_profile, R.drawable.ic_person) { act.push { close -> peerInfoPage(act, ref, close).pushedMark("profile") } },
         Deed(R.string.ct_audio_call, R.drawable.ic_peer_phone) { act.callOut(ref) },
         Deed(R.string.ct_video_call, R.drawable.ic_peer_video) { act.callOut(ref, video = true) },
         if (ChatMarks.isContactArchived(ref)) Deed(R.string.cl_unarchive, R.drawable.ic_unarchive) { ChatMarks.toggleContactArchive(ref) }
@@ -73,6 +73,18 @@ private fun contactMenu(act: MainActivity, ch: Chat, held: View?) {
     deeds += if (PeerSafety.isBlocked(ref)) Deed(R.string.pi_unblock, R.drawable.ic_set_lock) { PeerSafety.setBlocked(ref, false); Book.edit(ref) {} }
              else Deed(R.string.pi_block, R.drawable.ic_set_lock, red = true) { askBlock(act, ref) { Book.edit(ref) {} } }   // the lists hear the book
     holdMenu(act, held, deeds, personPlate(act, ref))
+}
+
+/**
+ * A PAGE PUSHED OVER THE CONTACTS SAYS WHEN IT IS ON THE SCREEN AND WHEN IT LEAVES IT (iOS MTPushedMark, ContentView.swift
+ * 2822-2833 at 2155; atom 17a19adc6214): «contacts_page archive=on/off», «profile=on/off» -- a page that came and never said
+ * «off» is a page left standing on the stack.
+ */
+private fun View.pushedMark(what: String): View = apply {
+    addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+        override fun onViewAttachedToWindow(v: View) { android.util.Log.d("Montana", "contacts_page $what=on") }
+        override fun onViewDetachedFromWindow(v: View) { android.util.Log.d("Montana", "contacts_page $what=off") }
+    })
 }
 
 /**
@@ -110,7 +122,7 @@ private fun contactRows(act: MainActivity, archived: Boolean): ContactRows {
         if (!archived) {
             val n = ChatMarks.contactArchiveCount()
             if (revealed && n > 0) {
-                rows.addView(archiveEntry(act, n) { act.push { close -> settingsPage(act, c.getString(R.string.cl_archive), close) { addView(contactRows(act, archived = true).view, lp()) } } }, lp())
+                rows.addView(archiveEntry(act, n) { act.push { close -> settingsPage(act, c.getString(R.string.cl_archive), close) { addView(contactRows(act, archived = true).view, lp()) }.pushedMark("archive") } }, lp())
                 rows.addView(View(c).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = c.dp(82) })
             }
         }
