@@ -93,7 +93,7 @@ class KeyRide(private val page: View, private val place: (Int) -> Unit, private 
                 speed?.addMovement(e)
                 val y = e.rawY
                 if (grabbed) follow(y)
-                else if (down && edge <= y.toInt() && settle == null && keysUp()) grab(y)
+                else if (down && edge <= y.toInt() && settle == null && keysUp()) grab(y, edge)
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 speed?.addMovement(e)
@@ -107,10 +107,10 @@ class KeyRide(private val page: View, private val place: (Int) -> Unit, private 
 
     private fun keysUp() = page.rootWindowInsets?.isVisible(WindowInsets.Type.ime()) == true
 
-    private fun grab(y: Float) {
+    private fun grab(y: Float, edge: Int) {
         val wic = page.windowInsetsController ?: return
         grabbed = true; asked = true
-        grabY = y; lastY = y; saidY = -1f; grabIme = -1
+        grabY = edge.toFloat(); lastY = y; saidY = -1f; grabIme = -1   // from the bar's top: the bar stands under the finger at once
         Log.d("Montana", "kb_drag_begin finger=" + y.roundToInt() + " cover=" + cover)
         val signal = CancellationSignal().also { cut = it }
         wic.controlWindowInsetsAnimation(WindowInsets.Type.ime(), -1L, LinearInterpolator(), signal, object : WindowInsetsAnimationControlListener {

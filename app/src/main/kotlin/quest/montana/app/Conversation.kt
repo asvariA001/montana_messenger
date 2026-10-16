@@ -1785,6 +1785,13 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             room(keys = true)
         }
         under.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> ridePlace() }
+        // the keyboard key on the panel puts the panel away itself before the keys rise: its room is held for them from that tap
+        val unhold = Runnable { hold = 0; ridePlace() }
+        val emojiKey = bar.onEmojiKey
+        bar.onEmojiKey = {
+            if (panel.up) { hold = panel.host.layoutParams.height; removeCallbacks(unhold); postDelayed(unhold, 800) }
+            emojiKey?.invoke()
+        }
         val keys = KeyRide(this, place = { ridePlace() }, letGo = { hideKeys() }, drawn = {
             val at = IntArray(2).also { bar.getLocationOnScreen(it) }
             val d = resources.displayMetrics.density
@@ -1794,14 +1801,13 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         setOnApplyWindowInsetsListener { v, insets ->
             val b = insets.getInsets(WindowInsets.Type.systemBars())
             v.setPadding(b.left, b.top, b.right, b.bottom)
+            val imeCover = (insets.getInsets(WindowInsets.Type.ime()).bottom - b.bottom).coerceAtLeast(0)
             if (!insets.isVisible(WindowInsets.Type.ime())) hold = 0   // the keys going down: no room is held for them
+            else hold = minOf(hold, imeCover)   // and never more than the keys will stand
             keys.insets(insets)
             val panelWas = panel.up
             panel.insets(insets)   // the keyboard's height is the panel's; the keyboard rising takes the panel's place
-            if (panelWas && !panel.up) {
-                val ime = insets.getInsets(WindowInsets.Type.ime()).bottom - b.bottom
-                hold = minOf(panel.host.layoutParams.height, ime.coerceAtLeast(0)); ridePlace()
-            }
+            if (panelWas && !panel.up) { hold = minOf(panel.host.layoutParams.height, imeCover); ridePlace() }
             insets
         }
         addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
