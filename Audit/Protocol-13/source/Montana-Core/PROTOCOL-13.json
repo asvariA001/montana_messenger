@@ -7,7 +7,7 @@
    "report": "01-WINDOW-PROOF.md",
    "requirement": "A complete window proof and verifier",
    "status": "open",
-   "summary": "Active, sessions 39 to 43. In the branch: the window closes through one verifying door, the roots of state are defined and a device walks from an anchor to the head (2add1f6); the ballot proves a count of votes and hides the standing it was drawn from, a payer's frame applies with its round, the draw's threshold is the width and the ticket orders runners, a right needs the machine's own part in the cement (cdcbd7a, 6ae1a3b, 9f22057, 2538b6a). Open: agreement on what a window decided -- the second vote with a lock, specified in Consensus 7.0.0 and Canon 9.0.0 (050a0f8); its code and the test of four machines at a quorum of three are in progress."
+   "summary": "Active, sessions 39 to 43. In the branch: the window closes through one verifying door, the roots of state are defined and a device walks from an anchor to the head (2add1f6); the ballot proves a count of votes and hides the standing it was drawn from, a payer's frame applies with its round, the draw's threshold is the width and the ticket orders runners, a right needs the machine's own part in the cement (cdcbd7a, 6ae1a3b, 9f22057, 2538b6a). Open: agreement on what a window decided -- the second vote with a lock. A draft of its specification (050a0f8) stands in the history and is held back from the tree (ffb60d9) until its code lands with it; the code and the test of four machines at a quorum of three are not written."
   },
   {
    "item": 2,
