@@ -3,7 +3,7 @@
 <!-- status:start -->
 Status recorded on 2026-10-16: **0 of 13 acceptance criteria closed**. Individual reports follow the requirement order. Earlier partial repairs do not close an item by themselves, and the requirements apply to the two core generations separately: a result for `Montana-Core` does not certify `Code`.
 
-The work on them stands in [source](source/): `docs/` and `Montana-Core/` of commit `bd1468a6dd7bbc510bad8f5ba3c98adfac706f9c` of the core repository, branch `fix/session39-window-relation`, staged by the publisher every commit of that branch goes through, with the status file `Montana-Core/PROTOCOL-13.json` of the same commit, which the table below is written from. An item reads closed only where its report names the implementation revision, the exact test command and its result; this table claims no independent external audit.
+The work on them stands in [source](source/): `docs/` and `Montana-Core/` of commit `9380a761182be376ccb2542c58220b512b4b302c` of the core repository, branch `fix/session39-window-relation`, staged by the publisher every commit of that branch goes through, with the status file `Montana-Core/PROTOCOL-13.json` of the same commit, which the table below is written from. An item reads closed only where its report names the implementation revision, the exact test command and its result; this table claims no independent external audit.
 
 **Reproducible build.** `sh Audit/Protocol-13/reproduce.sh` in a clone of this repository builds the node of `source/Montana-Core` with the locked dependencies and the paths of the clone and of the home folder replaced by fixed names, and prints its SHA-256. On commit `9a5d5656e6d4` of the core repository it printed `32897c85f8e13e6fd6e0fd27e9e9507e150311f8f6a9c2261e24a7d7f505e2bf` in two fresh clones on macOS 26.7 on arm64 (aarch64-apple-darwin) with rustc 1.92.0 (ded5c06cf 2025-12-08), LLVM 21.1.7; a build with another toolchain or for another platform is another binary, and the digest holds for the commit it names.
 
@@ -23,6 +23,7 @@ The work on them stands in [source](source/): `docs/` and `Montana-Core/` of com
 | [12](12-SOURCE-AND-CLAIMS.md) | Reconcile code, specification, audits and publication | **Open.** Each closed finding needs an implementation revision and matching evidence. Changed proof identifiers require an explicit migration. Whole-repository consistency and historical disclosures remain under review. |
 | [13](13-NETWORK-REPRODUCTION.md) | Reproduce distributed finality and joining | **Open.** Multiple weighted nodes must close, lose quorum, recover, partition, rejoin and restart with canonical artifacts. The authorized self-run on a separate server must preserve canonical artifacts; it is not independent external review. |
 <!-- status:end -->
+
 
 
 

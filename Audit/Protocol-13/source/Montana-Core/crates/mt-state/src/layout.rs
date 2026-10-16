@@ -1341,12 +1341,15 @@ mod tests {
             ..a_proposal()
         };
         let expected = Proposal::expected_len();
-        assert_eq!(empty.encode().len(), 8 + 4 + 8 * 32 + 8 + 32 + 8 + 2);
+        // The fixed fields: the window, the version, eight digests, the admitted count, the cement
+        // pair, the census of the standing — a root and a count per census window — and the suite.
+        let fixed = 8 + 4 + 8 * 32 + 8 + 32 + 8 + count_of("standing_censuses") * (32 + 8) + 2;
+        assert_eq!(empty.encode().len(), fixed);
         assert_eq!(
             empty.bytes(),
             Err(ObjectError::Length {
                 expected,
-                found: 8 + 4 + 8 * 32 + 8 + 32 + 8 + 2
+                found: fixed
             })
         );
         assert!(empty.signed_scope().is_err());
