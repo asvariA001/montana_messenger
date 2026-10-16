@@ -478,6 +478,8 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     var panelUp: () -> Boolean = { false }   // the field's own panel stands in the keyboard's place (Picker.kt), born below
     var panelAway: () -> Unit = {}
     var barTop: () -> Int = { Int.MAX_VALUE }   // the bar's top on the screen, once it stands
+    var ride: KeyRide? = null   // the keys' cover and the finger that drags them (KeyRide.kt), born with the page below
+    var lifted = 0   // how far the bar stands above the page's foot for the keys (their cover, less the panel's own room)
     // THE KEYBOARD GOES WHERE THE IPHONE'S GOES (the author's word 09.10.2026 11:5x MSK: «make the keyboard behave as on iOS -- here it
     // hangs when it is not needed»): a tap anywhere on the feed puts it away, unless a control under the finger took the tap (iOS
     // backgroundTap and MTTouchClaim, MontanaMessageFeed.swift:735-752, 980-986); a finger dragging the feed down onto the bar takes it
@@ -495,7 +497,8 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 MotionEvent.ACTION_DOWN -> { downX = e.x; downY = e.y; downT = e.eventTime; moved = false }
                 MotionEvent.ACTION_MOVE -> {
                     if (slop < kotlin.math.abs(e.x - downX) || slop < kotlin.math.abs(e.y - downY)) moved = true
-                    if (moved && downY < e.y && barTop() <= e.rawY.toInt() && keysUp()) keysAway()
+                    // the keyboard rides the finger (KeyRide); the panel in its place, and a system without the keys' controller, go at once
+                    if (moved && downY < e.y && barTop() <= e.rawY.toInt() && (panelUp() || android.os.Build.VERSION.SDK_INT < 30) && keysUp()) keysAway()
                 }
                 MotionEvent.ACTION_UP -> if (!moved && e.eventTime - downT < android.view.ViewConfiguration.getLongPressTimeout() && keysUp()) {
                     val x = e.x
@@ -503,6 +506,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                     post { if (!claimsTap(this, x, y)) keysAway() }   // one turn later: a control's own tap has run by then
                 }
             }
+            ride?.touch(e, moved && downY < e.y && !panelUp(), barTop())
             return super.dispatchTouchEvent(e)
         }
     }.apply {
@@ -1695,18 +1699,23 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         // read 21.09 in WallpaperEdgeEffectNodeImpl; atoms d4817f6e3b72/39b5b03396cb/331a040adb4e/df3a6b50be61 -- the ground
         // drawn again under a fading mask, 80 past the header and 60+20 past the bar): the one EdgeSink mask (PeerInfo.kt's
         // own road, EdgeSink.kt) on the feed's own layer instead -- the ground never drawn twice.
-        addView(EdgeSink(c, top = { head.height + dp(34) }, bottom = { height - under.height }).apply {
+        addView(EdgeSink(c, top = { head.height + dp(34) }, bottom = { height - under.height - lifted }).apply {
             addView(scroll, FrameLayout.LayoutParams(MATCH, MATCH))
         }, FrameLayout.LayoutParams(MATCH, MATCH))
         addView(head, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.TOP))
         addView(under, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM))
-        fun room() {
+        // THE FEED KEEPS ITS HEIGHT UNDER THE KEYS (iOS MTFeedFrame, MontanaMessageFeed.swift:93-200 at 2155): the keys' cover is part
+        // of the feed's one inset beside the bar's; a reader at the newest end is held there as the keys move by themselves, a finger
+        // dragging them keeps its own scroll (iOS: «!isTracking, !keyboardGestureActive»), a reader higher up keeps the same letters.
+        fun room(keys: Boolean = false) {
             val t = head.height
-            val b = under.height
+            val b = under.height + lifted
             if (scroll.paddingTop == t && scroll.paddingBottom == b) return
             val atEnd = !scroll.canScrollVertically(1)
             scroll.setPadding(0, t, 0, b)
-            if (atEnd) toBottom()
+            if (!atEnd || ride?.dragging == true) return
+            if (keys) scroll.scrollTo(0, scroll.getChildAt(0)?.height ?: 0)   // this frame, not the next: the letters ride with the bar
+            else toBottom()
         }
         // THE WAY TO THE NEWEST (iOS ScrollDownButton 384-399, MontanaConversation 2928-2940): the chevron in the compose tier's glass,
         // on the microphone's own vertical line, ten points above the panel; on past 260 points from the newest, off under 60
@@ -1761,10 +1770,38 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         head.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> room(); lift() }
         under.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> room(); lift() }
         plateHome = this; addView(lockPlate, plateLp())
+        // THE BAR RIDES THE KEYS BY ITS LAYER (iOS MTKeyboardRider, ContentView.swift:1240 at 2155): the page stands inside the system
+        // bars alone; the keyboard's cover lifts the bar, the «down» key over it and the feed's inset, frame by frame (KeyRide.kt)
+        // THE PANEL IN THE KEYS' PLACE IS THEIR ROOM (FieldPanel): standing, it is part of the bar's tier and the keys falling under it
+        // move nothing; going because the keys rise, its room is held until the keys reach it -- the bar never dips between the two.
+        var hold = 0
+        fun ridePlace() {
+            val k = ride?.cover ?: 0
+            val want = if (panel.up) (k - panel.host.layoutParams.height).coerceAtLeast(0) else { if (hold <= k) hold = 0; maxOf(k, hold) }
+            if (want == lifted && under.translationY == -want.toFloat()) return
+            lifted = want
+            under.translationY = -want.toFloat()
+            downKey.translationY = -want.toFloat()
+            room(keys = true)
+        }
+        under.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> ridePlace() }
+        val keys = KeyRide(this, place = { ridePlace() }, letGo = { hideKeys() }, drawn = {
+            val at = IntArray(2).also { bar.getLocationOnScreen(it) }
+            val d = resources.displayMetrics.density
+            " bar_top=" + (at[1] / d).toInt() + " inset=" + (scroll.paddingBottom / d).toInt() + " off=" + (scroll.scrollY / d).toInt()
+        })
+        ride = keys
         setOnApplyWindowInsetsListener { v, insets ->
-            val b = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.ime())
+            val b = insets.getInsets(WindowInsets.Type.systemBars())
             v.setPadding(b.left, b.top, b.right, b.bottom)
+            if (!insets.isVisible(WindowInsets.Type.ime())) hold = 0   // the keys going down: no room is held for them
+            keys.insets(insets)
+            val panelWas = panel.up
             panel.insets(insets)   // the keyboard's height is the panel's; the keyboard rising takes the panel's place
+            if (panelWas && !panel.up) {
+                val ime = insets.getInsets(WindowInsets.Type.ime()).bottom - b.bottom
+                hold = minOf(panel.host.layoutParams.height, ime.coerceAtLeast(0)); ridePlace()
+            }
             insets
         }
         addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
