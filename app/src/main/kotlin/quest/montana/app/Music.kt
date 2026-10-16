@@ -510,6 +510,9 @@ class MusicPage(private val act: MainActivity) {
     private val faces = HashMap<String, MiniFace>()
     private var lastRing: String? = null
     private var lastPlaying = false
+    /** The word at the page's head (iOS MusicTab.query): the rows are narrowed to it, see shown(). */
+    var query = ""
+        set(v) { if (v != field) { field = v; fill() } }
 
     init {
         view.addView(ScrollView(act).apply { addView(rows) }, FrameLayout.LayoutParams(MATCH, MATCH))
@@ -541,8 +544,6 @@ class MusicPage(private val act: MainActivity) {
      * narrows the list itself -- by the track's name, its tag's name and artist, and where it lies (its folder) -- letter case and
      * marks aside, as the system's search compares; nothing stands over the rows and nothing leaves the phone.
      */
-    var query = ""
-        set(v) { if (v != field) { field = v; fill() } }
     private fun shown(): List<Track> {
         val q = fold(query.trim())
         if (q.isEmpty()) return MusicFolders.tracks
