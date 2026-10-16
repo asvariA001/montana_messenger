@@ -93,5 +93,12 @@
    "status": "open",
    "summary": "Multiple weighted nodes must close, lose quorum, recover, partition, rejoin and restart with canonical artifacts. The authorized self-run on a separate server must preserve canonical artifacts; it is not independent external review."
   }
- ]
+ ],
+ "reproduced": {
+  "commit": "9a5d5656e6d4",
+  "public": "2425f72",
+  "sha256": "32897c85f8e13e6fd6e0fd27e9e9507e150311f8f6a9c2261e24a7d7f505e2bf",
+  "platform": "macOS 26.7 on arm64 (aarch64-apple-darwin)",
+  "toolchain": "rustc 1.92.0 (ded5c06cf 2025-12-08), LLVM 21.1.7"
+ }
 }
