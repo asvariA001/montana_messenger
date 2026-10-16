@@ -1716,18 +1716,35 @@ struct MTRoomPill: View {
     }
 }
 
-/// THE ROOM: the faces in a grid -- everyone has a picture of their own, a face with a letter when on voice -- one face large at a
-/// tap, the controls at the bottom; the owner's hand over each face (a long press) and over the room (the top menu).
+/// THE ROOM, AS THE REFERENCE DRAWS ITS VIDEO CHAT (the author's word 16.10.2026: everything about groups -- atomic likeness to the
+/// reference's folder, the focus on group calls): the top bar -- the room's menu, its name and how many are in, the cross that folds
+/// it; the pictures in a grid of two and everyone in one list under them (this is you, speaking, listening, the microphone's mark),
+/// the way to invite at its end; five round controls at the bottom, the microphone in the middle. A tap on a picture shows it large.
 struct MTRoomScreen: View {
     @ObservedObject private var m = MTRoomModel.shared
     @ObservedObject private var callUI = CallUIModel.shared
     @State private var inviting = false
     @State private var confirmEnd = false
 
+    /// The reference's own colours of the room: a control at rest, the top bar's glass, the list's plate, a heard voice, a lit control
+    /// while my microphone is off and while it is on, the way out, the microphone's two gradients.
+    static let rest = rgb(0x25272e, 0.72)
+    static let bar = rgb(0x161616, 0.6)
+    static let plate = Color(white: 0.1)
+    static let voice = rgb(0x33C758)
+    static let blue = rgb(0x21477d)
+    static let green = rgb(0x34C659)
+    static let leave = rgb(0x330d0b)
+    static let coldMic = [rgb(0x55b3f8), rgb(0x55adfe)]
+    static let warmMic = [rgb(0x33C659), rgb(0x0BA8A5)]
+    private static func rgb(_ v: Int, _ a: Double = 1) -> Color {
+        Color(red: Double((v >> 16) & 0xff) / 255, green: Double((v >> 8) & 0xff) / 255, blue: Double(v & 0xff) / 255).opacity(a)
+    }
+
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-            VStack(spacing: 12) {
+            VStack(spacing: 0) {
                 top
                 MTCallRecordingStatus()
                 if m.held {
@@ -1747,12 +1764,14 @@ struct MTRoomScreen: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(Text("Resume the call"))
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
                 }
                 stage.frame(maxHeight: .infinity)
                 controls
+                    .padding(.top, 8)
+                    .padding(.bottom, 26)
             }
-            .padding(.horizontal, 12)
-            .padding(.bottom, 8)
             if let n = m.note {
                 VStack {
                     Text(n)   // a line the room said, from the catalogue (say)
@@ -1779,134 +1798,336 @@ struct MTRoomScreen: View {
 
     private var subtitle: String {
         m.kind == .live ? String(localized: "\(m.count) watching", bundle: MTLanguage.bundle)
-                        : String(localized: "\(m.count) of \(MTGroupRoom.capacity)", bundle: MTLanguage.bundle)
+                        : String(localized: "\(m.count) participants", bundle: MTLanguage.bundle)
     }
+    /// Who may bring more people in: anyone in a chat, the owner alone in a stream.
+    private var canInvite: Bool { m.kind == .call || m.amOwner }
+    /// The reference's lit control: blue while my microphone is off, green while it is on.
+    private var shine: Color { m.muted ? Self.blue : Self.green }
 
+    /// The reference's top bar: its menu on the left, the room's name and how many are in, the cross that folds the room on the right.
     private var top: some View {
-        HStack(spacing: 8) {
-            Button { MTGroupRoom.shared.show(false) } label: { round("chevron.down") }
-                .buttonStyle(.plain)
-                .accessibilityLabel(Text("Minimize"))
-            VStack(spacing: 2) {
+        HStack(spacing: 0) {
+            if !callUI.route.menu || canInvite || m.amOwner {
+                Menu {
+                    if !callUI.route.menu {
+                        Toggle(isOn: Binding(get: { callUI.route.lit }, set: { MTGroupRoom.shared.setSpeaker($0) })) {
+                            Label("Speaker", systemImage: "speaker.wave.2.fill")
+                        }
+                    }
+                    if canInvite {
+                        Button { inviting = true } label: { Label("Invite Member", systemImage: "person.badge.plus") }
+                    }
+                    if m.amOwner {
+                        Button(role: .destructive) { confirmEnd = true } label: { Label("End for Everyone", systemImage: "phone.down.fill") }
+                    }
+                } label: { round("ellipsis") }
+                .accessibilityLabel(Text("More"))
+            } else {
+                Color.clear.frame(width: 44, height: 44)
+            }
+            VStack(spacing: 0) {
                 Text(verbatim: m.title).font(.headline).foregroundStyle(.white).lineLimit(1)   // USER-DATA: the group's name
-                Text(subtitle).font(.caption).foregroundStyle(.white.opacity(0.7)).lineLimit(1)
+                Text(subtitle).font(.caption).foregroundStyle(.white.opacity(0.5)).lineLimit(1)
             }
             .frame(maxWidth: .infinity)
-            if m.kind == .call || m.amOwner {
-                Button { inviting = true } label: { round("person.badge.plus") }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(Text("Invite"))
-            }
-            if m.amOwner {
-                Menu {
-                    Button(role: .destructive) { confirmEnd = true } label: { Label("End for Everyone", systemImage: "phone.down.fill") }
-                } label: { round("ellipsis") }
-                .accessibilityLabel(Text("Call Settings"))
-            }
+            .padding(.horizontal, 4)
+            Button { MTGroupRoom.shared.show(false) } label: { round("xmark") }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("Minimize"))
         }
+        .padding(.horizontal, 12)
+        .frame(height: 56)
     }
+    /// A round button of the top bar: 40 points of the platform's glass inside the finger's 44.
     private func round(_ glyph: String) -> some View {
         Image(systemName: glyph)
             .font(.system(size: 17, weight: .semibold))
             .foregroundStyle(.white)
+            .frame(width: 40, height: 40)
+            .modifier(MTRoomGlass(tint: Self.bar))
             .frame(width: 44, height: 44)
-            .background(Circle().fill(Color.white.opacity(0.14)))
-            .contentShape(Circle())
+            .contentShape(Rectangle())
     }
 
     @ViewBuilder private var stage: some View {
         if let f = m.focus, let big = m.tiles.first(where: { $0.seat == f }) {
             VStack(spacing: 8) {
                 MTRoomTileView(tile: big, big: true)
+                    .padding(.horizontal, 16)
                 if m.tiles.count > 1 {
                     ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            ForEach(m.tiles.filter { $0.seat != f }) { t in MTRoomTileView(tile: t).frame(width: 96, height: 128) }
+                        HStack(spacing: 6) {
+                            ForEach(m.tiles.filter { $0.seat != f }) { t in MTRoomThumb(tile: t) }
                         }
+                        .padding(.horizontal, 16)
                     }
-                    .frame(height: 128)
+                    .frame(height: 84)
                 }
             }
+            .padding(.top, 10)
+            .padding(.bottom, 12)
         } else {
             GeometryReader { geo in
-                let n = m.tiles.count
-                let wide = geo.size.width > 700
-                let cols = n <= 2 ? 1 : (n <= 4 ? 2 : (wide && n > 9 ? 4 : 3))
-                let shape: CGFloat = n == 1 ? 0.72 : (n == 2 ? 1.25 : 0.78)
-                ScrollView(showsIndicators: false) {
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: cols), spacing: 8) {
-                        ForEach(m.tiles) { t in MTRoomTileView(tile: t).aspectRatio(shape, contentMode: .fit) }
+                ZStack(alignment: .bottom) {
+                    ScrollView(showsIndicators: false) {
+                        VStack(spacing: 4) {
+                            grid(width: geo.size.width - 32)
+                            people
+                        }
+                        .padding(.bottom, 56)
                     }
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .padding(.horizontal, 16)
+                    .padding(.top, 10)
+                    // the list fades into the controls, as the reference's does
+                    LinearGradient(colors: [Color.black.opacity(0), Color.black], startPoint: .top, endPoint: .bottom)
+                        .frame(height: 80)
+                        .allowsHitTesting(false)
                 }
             }
         }
     }
 
-    private var controls: some View {
-        HStack(alignment: .top, spacing: 6) {
-            if m.speaks {
-                control(m.muted ? "mic.slash.fill" : "mic.fill", "Microphone", on: !m.muted) { MTGroupRoom.shared.setMuted(!m.muted) }
-                control(m.camera ? "video.fill" : "video.slash.fill", "Camera", on: m.camera) { MTGroupRoom.shared.cameraOn(!m.camera) }
-                if m.camera, !m.screen {
-                    control("arrow.triangle.2.circlepath.camera", "Flip", on: false) { MTGroupRoom.shared.flipCamera() }
-                }
-                screenControl
-            }
-            if callUI.route.menu {
-                // a headset, a car or a speaker holds the sound: the system's own choice of the road, as in a call of two
-                VStack(spacing: 4) {
-                    ZStack {
-                        face(callUI.route.icon, on: callUI.route.lit, red: false)
-                        CallOverlayView.MTRoutePicker().frame(width: 56, height: 56)
+    /// The reference's grid of pictures: one across, else two to a row and the last one alone across; 4 points between; a row as tall
+    /// as a picture is wide, never above 180.
+    @ViewBuilder private func grid(width: CGFloat) -> some View {
+        let p = m.tiles.filter { $0.camera || $0.screen }
+        if !p.isEmpty {
+            let perRow = p.count == 1 ? 1 : 2
+            let side = floor((width - 4 * CGFloat(perRow - 1)) / CGFloat(perRow))
+            VStack(spacing: 4) {
+                ForEach(Array(stride(from: 0, to: p.count, by: perRow)), id: \.self) { start in
+                    HStack(spacing: 4) {
+                        ForEach(p[start ..< min(start + perRow, p.count)]) { t in MTRoomTileView(tile: t) }
                     }
-                    Text("Audio").font(.caption2).foregroundStyle(.white.opacity(0.85)).lineLimit(1).minimumScaleFactor(0.7)
+                    .frame(height: min(180, side))
                 }
-                .frame(maxWidth: .infinity)
-            } else {
-                control(callUI.route.icon, "Speaker", on: callUI.route.lit) { MTGroupRoom.shared.setSpeaker(!callUI.route.lit) }
             }
-            control("phone.down.fill", "Leave", on: false, red: true) { MTGroupRoom.shared.leave(why: "by hand") }
         }
     }
-    private func face(_ glyph: String, on: Bool, red: Bool) -> some View {
-        Image(systemName: glyph)
-            .font(.system(size: 21, weight: .semibold))
-            .foregroundStyle(red ? Color.white : (on ? Color.black : Color.white))
-            .frame(width: 56, height: 56)
-            .background(Circle().fill(red ? Color.red : (on ? Color.white : Color.white.opacity(0.18))))
+
+    /// Everyone in the room on one plate, as the reference lists its people, and the way to invite at its end.
+    private var people: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(m.tiles.enumerated()), id: \.element.id) { i, t in
+                if i > 0 { Divider().padding(.leading, 62) }
+                MTRoomPersonRow(tile: t)
+            }
+            if canInvite {
+                if !m.tiles.isEmpty { Divider().padding(.leading, 62) }
+                Button { inviting = true } label: {
+                    HStack(spacing: 0) {
+                        Image(systemName: "person.badge.plus")
+                            .font(.system(size: 20))
+                            .frame(width: 62)
+                        Text("Invite Member").font(.body)
+                        Spacer(minLength: 0)
+                    }
+                    .foregroundStyle(Color(uiColor: .systemBlue))
+                    .frame(minHeight: 52)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .background(RoundedRectangle(cornerRadius: 26, style: .continuous).fill(Self.plate))
+        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
     }
-    private func control(_ glyph: String, _ caption: LocalizedStringKey, on: Bool, red: Bool = false,
-                         _ act: @escaping () -> Void) -> some View {
-        Button(action: act) {
-            VStack(spacing: 4) {
-                face(glyph, on: on, red: red)
-                Text(caption).font(.caption2).foregroundStyle(.white.opacity(0.85)).lineLimit(1).minimumScaleFactor(0.7)
+
+    /// The reference's bottom row: the sound's road (the camera's turn while it shows), the camera, the microphone in the middle, the
+    /// screen, the way out -- 56 points each, as far apart as the width allows up to 33, the word under each in lower case.
+    private var controls: some View {
+        GeometryReader { geo in
+            let n: CGFloat = m.speaks ? 5 : 2
+            let gap = max(8, min(33, floor((geo.size.width - 32 - 56 * n) / (n - 1))))
+            HStack(alignment: .top, spacing: gap) {
+                if m.speaks {
+                    if m.camera, !m.screen {
+                        round56("arrow.triangle.2.circlepath.camera", "Flip", tint: shine) { MTGroupRoom.shared.flipCamera() }
+                    } else {
+                        sound
+                    }
+                    round56(m.camera ? "video.fill" : "video.slash.fill", "Video", tint: m.camera ? shine : Self.rest) {
+                        MTGroupRoom.shared.cameraOn(!m.camera)
+                    }
+                    microphone
+                    screenControl
+                } else {
+                    sound
+                }
+                round56("xmark", "Leave", tint: Self.leave, weight: .bold) { MTGroupRoom.shared.leave(why: "by hand") }
             }
             .frame(maxWidth: .infinity)
+        }
+        .frame(height: 80)
+    }
+    private func word(_ key: LocalizedStringKey) -> some View {
+        Text(key).font(.footnote).foregroundStyle(.white).textCase(.lowercase).lineLimit(1).fixedSize()
+    }
+    private func plate(_ glyph: String, tint: Color, weight: Font.Weight = .semibold) -> some View {
+        Image(systemName: glyph)
+            .font(.system(size: 22, weight: weight))
+            .foregroundStyle(.white)
+            .frame(width: 56, height: 56)
+            .modifier(MTRoomGlass(tint: tint))
+    }
+    private func round56(_ glyph: String, _ caption: LocalizedStringKey, tint: Color, weight: Font.Weight = .semibold,
+                         _ act: @escaping () -> Void) -> some View {
+        Button(action: act) {
+            VStack(spacing: 5) {
+                plate(glyph, tint: tint, weight: weight)
+                word(caption)
+            }
+            .frame(width: 56)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
+    /// The sound's road, as in a call of two: the loudspeaker's switch with the phone alone; the system's own list of roads with a
+    /// headset, a car or a speaker -- its picker stands beside the plate as a sibling and draws nothing itself.
+    @ViewBuilder private var sound: some View {
+        let lit = callUI.route.lit
+        if callUI.route.menu {
+            VStack(spacing: 5) {
+                ZStack {
+                    plate(callUI.route.icon, tint: Self.rest).allowsHitTesting(false)
+                    MontanaRoutePicker().frame(width: 56, height: 56)
+                }
+                word("Audio")
+            }
+            .frame(width: 56)
+        } else {
+            round56(callUI.route.icon, "Speaker", tint: lit ? shine : Self.rest) { MTGroupRoom.shared.setSpeaker(!lit) }
+        }
+    }
+    /// The microphone in the middle: the reference's round gradient -- blue while it is off, green while it is on.
+    private var microphone: some View {
+        Button { MTGroupRoom.shared.setMuted(!m.muted) } label: {
+            VStack(spacing: 5) {
+                Image(systemName: m.muted ? "mic.slash.fill" : "mic.fill")
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 56, height: 56)
+                    .background(Circle().fill(LinearGradient(colors: m.muted ? Self.coldMic : Self.warmMic,
+                                                             startPoint: .bottomLeading, endPoint: .topTrailing)))
+                word(m.muted ? "Unmute" : "Mute")
+            }
+            .frame(width: 56)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text("Microphone"))
+    }
     /// The screen shown: the system's own broadcast sheet is the way in (its countdown, its red pill); a tap while showing stops it.
     @ViewBuilder private var screenControl: some View {
         if m.screen {
-            control("rectangle.on.rectangle.slash", "Screen", on: true) { MTGroupRoom.shared.stopScreen() }
+            round56("rectangle.on.rectangle.slash", "Screen", tint: shine) { MTGroupRoom.shared.stopScreen() }
         } else {
-            VStack(spacing: 4) {
+            VStack(spacing: 5) {
                 ZStack {
-                    face("rectangle.on.rectangle", on: false, red: false)
+                    plate("rectangle.on.rectangle", tint: Self.rest).allowsHitTesting(false)
                     CallOverlayView.MTBroadcastPickerButton().frame(width: 56, height: 56)
                 }
-                Text("Screen").font(.caption2).foregroundStyle(.white.opacity(0.85)).lineLimit(1).minimumScaleFactor(0.7)
+                word("Screen")
             }
-            .frame(maxWidth: .infinity)
+            .frame(width: 56)
             .accessibilityLabel(Text("Share Screen"))
         }
     }
 }
 
-/// One face of the room: its picture (the camera or the screen), or the face with a letter on voice; the name, the muted mark,
-/// the owner's crown, the green ring while it speaks.
+/// One person of the room in its list, as the reference's row: the face (ringed green while the voice is heard), the name, what the
+/// person does now -- this is you, connecting, speaking, listening -- and the microphone's mark. The owner's tap on another holds
+/// the owner's menu; anyone's tap on a person with a picture shows it large.
+struct MTRoomPersonRow: View {
+    let tile: MTRoomTile
+    @ObservedObject private var m = MTRoomModel.shared
+
+    var body: some View {
+        if m.amOwner, !tile.me {
+            Menu {
+                Button { MTGroupRoom.shared.ownerMute(tile.seat) } label: { Label("Mute", systemImage: "mic.slash") }
+                Button(role: .destructive) { MTGroupRoom.shared.ownerDrop(tile.seat) } label: {
+                    Label("Remove from Call", systemImage: "person.fill.xmark")
+                }
+            } label: { row }
+        } else if tile.camera || tile.screen {
+            Button { MTGroupRoom.shared.focus(tile.seat) } label: { row }
+                .buttonStyle(.plain)
+        } else {
+            row
+        }
+    }
+    private var row: some View {
+        HStack(spacing: 11) {
+            MTRoomFace(tile: tile, side: 40)
+                .overlay(Circle().stroke(tile.speaking ? MTRoomScreen.voice : Color.clear, lineWidth: 2).padding(-3))
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 4) {
+                    Text(verbatim: tile.name).font(.body).foregroundStyle(.white).lineLimit(1)   // USER-DATA: a person's name
+                    if tile.owner { Image(systemName: "crown.fill").font(.caption2).foregroundStyle(.white.opacity(0.5)) }
+                }
+                Text(status).font(.subheadline).foregroundStyle(statusColor).lineLimit(1)
+            }
+            Spacer(minLength: 0)
+            Image(systemName: tile.muted ? "mic.slash.fill" : "mic.fill")
+                .font(.system(size: 18, weight: .medium))
+                .foregroundStyle(tile.speaking ? MTRoomScreen.voice : Color.white.opacity(0.4))
+                .frame(width: 44, height: 44)
+        }
+        .padding(.leading, 11)
+        .padding(.trailing, 6)
+        .frame(minHeight: 56)
+        .contentShape(Rectangle())
+    }
+    private var status: String {
+        if tile.me { return String(localized: "this is you", bundle: MTLanguage.bundle) }
+        if !tile.linked { return String(localized: "connecting", bundle: MTLanguage.bundle) }
+        if tile.speaking { return String(localized: "speaking", bundle: MTLanguage.bundle) }
+        return String(localized: "listening", bundle: MTLanguage.bundle)
+    }
+    private var statusColor: Color {
+        if tile.me { return Color(uiColor: .systemBlue) }
+        if tile.linked, tile.speaking { return MTRoomScreen.voice }
+        return Color.white.opacity(0.5)
+    }
+}
+
+/// A person's face in the room: the face the group's feed gives the same person -- their own picture where this phone holds their
+/// pipe, else their initial in the faces' one palette.
+struct MTRoomFace: View {
+    let tile: MTRoomTile
+    let side: CGFloat
+    @ObservedObject private var m = MTRoomModel.shared
+    var body: some View {
+        let ref = MTGroup.id(of: m.chat).map { MTGroup.speaker($0, tile.seat) } ?? ""
+        if let store = ChatStore.live {
+            MTSpeakerFace(ref: ref, name: tile.name, side: side).environmentObject(store)
+        } else {
+            let initial = MontanaAvatar.initial(title: tile.name, name: ref)
+            MontanaHexagon().fill(MTSpeakerFace.tint(ref))
+                .overlay(Text(verbatim: initial)   // USER-DATA: the first letter of a person's name
+                    .font(.system(size: side * MontanaAvatar.glyphScale(initial), weight: .bold)).foregroundStyle(.white))
+                .frame(width: side, height: side)
+        }
+    }
+}
+
+/// The platform's glass under a round face on iOS 26, its tinted plate before it; the face takes no finger of its own.
+struct MTRoomGlass: ViewModifier {
+    let tint: Color
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content.glassEffect(.regular.tint(tint), in: Circle())
+        } else {
+            content.background(Circle().fill(tint))
+        }
+    }
+}
+
+/// One picture of the room, as the reference's: the camera or the screen on the plate's dark, the face when the picture is gone; the
+/// microphone's mark, the owner's crown and the name at its foot; the green edge while the voice is heard.
 struct MTRoomTileView: View {
     let tile: MTRoomTile
     var big = false
@@ -1914,38 +2135,33 @@ struct MTRoomTileView: View {
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color(white: 0.13))
+            RoundedRectangle(cornerRadius: 16, style: .continuous).fill(MTRoomScreen.plate)
             if tile.camera || tile.screen, let track = MTGroupRoom.shared.track(for: tile.seat) {
                 MTRoomVideo(track: track, fit: tile.screen, mirror: tile.me && !tile.screen && m.front)
                     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             } else {
-                Text(verbatim: initial)   // USER-DATA: the first letter of a person's name
-                    .font(.system(size: big ? 54 : 28, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: big ? 120 : 64, height: big ? 120 : 64)
-                    .background(Circle().fill(color))
+                MTRoomFace(tile: tile, side: big ? 120 : 64)
             }
-            VStack {
-                Spacer()
-                HStack(spacing: 4) {
-                    if tile.muted { Image(systemName: "mic.slash.fill").font(.caption2) }
-                    if tile.owner { Image(systemName: "crown.fill").font(.caption2) }
-                    Text(verbatim: tile.name).font(.caption).lineLimit(1)   // USER-DATA: a person's name
-                    if !tile.linked { ProgressView().controlSize(.mini).tint(.white) }
-                }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 8).padding(.vertical, 4)
-                .background(Capsule().fill(Color.black.opacity(0.45)))
-                .padding(6)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 4) {
+                Image(systemName: tile.screen ? "rectangle.on.rectangle" : (tile.muted ? "mic.slash.fill" : "mic.fill"))
+                if tile.owner { Image(systemName: "crown.fill") }
+                Text(verbatim: tile.name).lineLimit(1)   // USER-DATA: a person's name
+                if !tile.linked { ProgressView().controlSize(.mini).tint(.white) }
             }
+            .font(big ? .callout.weight(.semibold) : .footnote.weight(.semibold))
+            .foregroundStyle(.white)
+            .shadow(color: .black.opacity(0.7), radius: 4)
+            .padding(.horizontal, 10)
+            .padding(.bottom, 8)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+            .allowsHitTesting(false)
             // THE FINGER'S LAYER IS A SIBLING OVER THE PICTURE, never a gesture on the platform view (the law of 29.09).
             Color.clear
                 .contentShape(Rectangle())
                 .onTapGesture { MTGroupRoom.shared.focus(tile.seat) }
                 .contextMenu { ownerMenu }
         }
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(tile.speaking ? Color.green : Color.clear, lineWidth: 3))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(tile.speaking ? MTRoomScreen.voice : Color.clear, lineWidth: 2))
         .accessibilityElement(children: .combine)
     }
     @ViewBuilder private var ownerMenu: some View {
@@ -1956,11 +2172,38 @@ struct MTRoomTileView: View {
             }
         }
     }
-    private var initial: String { tile.name.first.map { String($0).uppercased() } ?? "?" }
-    /// One colour per seat, the same on every phone: the seat's own letters, summed.
-    private var color: Color {
-        let sum = tile.seat.unicodeScalars.reduce(0) { $0 + Int($1.value) }
-        return Color(hue: Double(sum % 360) / 360, saturation: 0.45, brightness: 0.55)
+}
+
+/// One person under the large picture, as the reference strings them: 84 points, the picture or the face, the microphone's mark; a
+/// tap shows this one large.
+struct MTRoomThumb: View {
+    let tile: MTRoomTile
+    @ObservedObject private var m = MTRoomModel.shared
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 10, style: .continuous).fill(MTRoomScreen.plate)
+            if tile.camera || tile.screen, let track = MTGroupRoom.shared.track(for: tile.seat) {
+                MTRoomVideo(track: track, fit: tile.screen, mirror: tile.me && !tile.screen && m.front)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            } else {
+                MTRoomFace(tile: tile, side: 50)
+            }
+            Image(systemName: tile.muted ? "mic.slash.fill" : "mic.fill")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.7), radius: 4)
+                .padding(6)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                .allowsHitTesting(false)
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture { MTGroupRoom.shared.focus(tile.seat) }
+        }
+        .frame(width: 84, height: 84)
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(tile.speaking ? MTRoomScreen.voice : Color.clear, lineWidth: 2))
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
     }
 }
 
