@@ -86,3 +86,88 @@ partition that heals. By the measure of the work of this branch it is several da
 
 Meanwhile safety stands as it stood, the register of the Constitution names the finding open, and
 `AUDIT.md` carries it among what was met on the way.
+
+## 6. The construction the author chose (session 46)
+
+Date: 2026-10-16. Author of this section: the Architect (Claude), session 46, under the author's
+words of 2026-10-16, 21:55 and 21:56 MSK, recorded in the chain of the council: the choice "A" --
+the roll of a proposal is one body, its root inside the name of the proposal, with no pages and no
+chain of pages; the body stands at the points of the window as frames do and leaves with the windows
+the retention lets go; nothing is kept for ever, and the chains of beacons do not change. The text of
+050a0f8 (Consensus, "The agreement on what a window decided") is the base; this section names what
+the choice changes in it and what was found against the pulse on the way.
+
+**What forces a roll.** A run of 2026-10-16 on six machines on six hosts, a cohort of six and a
+quorum of five, closed window 0 on two names: two machines on one proposal, two on another, and two
+holding a cement no beacon at the quorum carried, standing in round zero. In the construction of
+050a0f8 a machine follows another machine's name only where that name is valid to it: its own, one
+the open pledges of an attempt reach the quorum on, or one whose roll it replayed. Take the roll away
+and a split of two, two and two leaves the proposer of every later attempt with a name valid to its
+own half alone, no quorum of open pledges forms in any attempt, and the window is never decided. The
+roots of state record what a window applied (`operations_root`) without naming which objects at the
+points produced it, so a machine holding another set cannot find the subset; and the argument of
+050a0f8 that the agreement decides once delivery is bounded already stands on "the proposer's own
+with its roll at the points".
+
+**The body.**
+
+```
+serialize(roll)
+  window                          8 B   u64   the window of the proposal the roll belongs to
+  frames                          4 B   u32   the frames the window applied, at most frames_per_window
+  parts                           8 B   u64   the parts of its cement, equal to the proposal's cement_count
+  entry × (frames + parts)       32 B each    the frames in the order they applied, then the parts ascending
+roll_len = 20 + 32 × (frames + parts)
+roll_id  = SHA-256("mt-roll" || 0x00 || serialize(roll))
+```
+
+The proposal's field `roll` is `roll_id` and stands inside the bytes its name is taken over, which
+grow from 686 to 718. A body whose length is not `roll_len` of its own two counts is refused before an
+entry is read.
+
+**Why one body suffices.** The frames of a window are capped (`frames_per_window`, 273) and the parts
+are the cement of the window, at most the count of its electorate, so a body holds at most
+`20 + 32 × (273 + T)` bytes. One delivery carries up to 65 535 blocks (`block_count` is a u16,
+`mt-wire/src/publish.rs`, `cells_of`), and a point is read by a u16 index (`montana-node/src/pulse.rs`,
+`collect_from`), which already bounds a round point to about 227 heavy attestations of 288 cells each;
+at that electorate a body is about 16 KB, fewer cells than the one heavy attestation of a single
+machine. Pages answered a bound a body does not meet while points are read as they are; a later wire
+that widens the index grows the body by 32 bytes for each machine, beside the 208 blocks of that
+machine's heavy attestation in the same window.
+
+**Where it stands, and for how long.** At the window points of the window it closes, beside its
+proposal, for `retained_windows` windows after that window closes, as the frames it names do; it goes
+with them. A beacon carries what it carried.
+
+**The agreement record of a machine: kept, one for each open window.** The handover of session 44
+proposed that a machine read its lock back from its own closing pledge at the points after a restart.
+Finding: a machine that restarts and reads no pledge of its own cannot tell a pledge never made from a
+pledge whose holders are out of its reach, and pledging on that reading lets an honest machine sign
+one of the three contradicting pairs the sanction reads. The record stays as 050a0f8 states it -- the
+attempt, the lock, the valid name and the pledges made -- written before anything it governs is
+published, and let go when its window closes. The store already keeps a choice of this kind
+(`mt-store`, `lock_predecessor`, one file for each window, never removed); the record takes its place
+and is removed at the close, so a machine holds one record for each open window and no history.
+
+**Taken from 050a0f8 as it stands.** One pulse for each window, standing on the proposal two before
+(section 5, change 1); the place of a part (change 2); the payer told again where a replay moves its
+frame (change 4); the pledge, the two rules of counting, the decision and the three contradicting
+pairs.
+
+**Found against the pulse, closed in the same stage.**
+
+- *The memory of a stalled window.* A point lives by its window (`montana-node/src/lib.rs`,
+  `Standing::hold`): inside the open window nothing of a round is let go. Without a quorum the rounds
+  keep turning at the pace of the echo -- 4 097 rounds in about 140 seconds on one machine of the run
+  -- and every round stands its beacons and light attestations; that machine held 1.25 GB after four
+  minutes and was stopped by its kernel. A heavy attestation is verified against the beacon it
+  answered, whose chain and round its eligibility reads, and a machine reads past rounds to gather
+  late heavy attestations (`pulse.rs`, `HistoricalRounds`), so a bound may let the light attestations
+  of a round left behind go but keeps a beacon as long as a heavy attestation that answered it. The
+  rule of the bound is part of this stage and is not yet written.
+- *A machine holding more cement than the beacon at the quorum.* Two machines of the run held cements of
+  six and of five parts whose pair no beacon at the quorum carried, and stood in round zero (`pulse.rs`, `matches_cement`:
+  the pair must be equal). The test of four machines carries this case.
+
+**Acceptance.** As section 7 of 050a0f8 states it: four machines at a quorum of three under a held
+part, a late frame and a partition that heals; then the run on six machines repeated.
