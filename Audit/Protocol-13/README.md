@@ -1,20 +1,13 @@
 # Protocol closure: 13 items
 
-Status recorded on 2026-10-14: **0 of 13 acceptance criteria closed**. Individual reports follow
-the requirement order, starting with the complete window statement. Earlier partial repairs do not
-close an item by themselves. The requirements below apply to the two core generations
-separately; a result for `Montana-Core` does not certify `Code`.
+<!-- status:start -->
+Status recorded on 2026-10-16: **0 of 13 acceptance criteria closed**. Individual reports follow the requirement order. Earlier partial repairs do not close an item by themselves, and the requirements apply to the two core generations separately: a result for `Montana-Core` does not certify `Code`.
 
-This initial report is pinned to public commit
-[`6303fa5fbbb5ad93e4d7dd3dcc699693fb10e002`](https://github.com/efir369999/montana_messenger/tree/6303fa5fbbb5ad93e4d7dd3dcc699693fb10e002).
-Its `core` tree is `4ce3d6705224c8c99db0db1710a70bbde3d04361`.
-The source revisions of application folders are recorded separately in [RELEASES](../../RELEASES.md).
-Private candidate repairs are not represented as repairs present in this public snapshot.
-This report publishes no new core build and claims no completed network acceptance run.
+The work on them stands in [source](source/): `docs/` and `Montana-Core/` of commit `9a5d5656e6d46a471707fcc8237c236a9c089cc1` of the core repository, branch `fix/session39-window-relation`, staged by the publisher every commit of that branch goes through, with the status file `Montana-Core/PROTOCOL-13.json` of the same commit, which the table below is written from. An item reads closed only where its report names the implementation revision, the exact test command and its result; this table claims no independent external audit.
 
 | Item | Required result | Status and remaining work |
 |---|---|---|
-| [1](01-WINDOW-PROOF.md) | A complete window proof and verifier | **Open, active.** Bind authenticated quorum and weights, state transitions, proposer entitlement and authenticated history. The published window circuit proves accumulation arithmetic. |
+| [1](01-WINDOW-PROOF.md) | A complete window proof and verifier | **Open.** Active, sessions 39 to 43. In the branch: the window closes through one verifying door, the roots of state are defined and a device walks from an anchor to the head (2add1f6); the ballot proves a count of votes and hides the standing it was drawn from, a payer's frame applies with its round, the draw's threshold is the width and the ticket orders runners, a right needs the machine's own part in the cement (cdcbd7a, 6ae1a3b, 9f22057, 2538b6a). Open: agreement on what a window decided -- the second vote with a lock, specified in Consensus 7.0.0 and Canon 9.0.0 (050a0f8); its code and the test of four machines at a quorum of three are in progress. |
 | [2](02-CANONICAL-PROPOSAL.md) | Close only a verified canonical Proposal | **Open.** A participant count may trigger an attempt, but must not advance the closed head or authorize issuance. Recompute the beacon and archive the verified Proposal and its actual identifier. |
 | [3](03-AUTHORIZED-ISSUANCE.md) | Bind redemption to authorized issuance | **Open.** Bind the window, recipient, amount and one-time redemption. Reject excess value, invented rights and repeated redemption at the verifying node. |
 | [4](04-ADMISSION-ORIGIN.md) | Bind admission witnesses to one state | **Open.** The identity record, machine key, operator secret and public values must share an authenticated origin. Reject mixed witnesses. |
@@ -27,6 +20,7 @@ This report publishes no new core build and claims no completed network acceptan
 | [11](11-ANONYMITY.md) | Protect node identity and origin | **Open.** Verify handshake identities, protected entry points, direct origin access, DNS, logs, public history, resource limits and replays. Total anonymity is a design requirement, not a verified property of this snapshot. |
 | [12](12-SOURCE-AND-CLAIMS.md) | Reconcile code, specification, audits and publication | **Open.** Each closed finding needs an implementation revision and matching evidence. Changed proof identifiers require an explicit migration. Whole-repository consistency and historical disclosures remain under review. |
 | [13](13-NETWORK-REPRODUCTION.md) | Reproduce distributed finality and joining | **Open.** Multiple weighted nodes must close, lose quorum, recover, partition, rejoin and restart with canonical artifacts. The authorized self-run on a separate server must preserve canonical artifacts; it is not independent external review. |
+<!-- status:end -->
 
 ## Session 38: item 1
 
