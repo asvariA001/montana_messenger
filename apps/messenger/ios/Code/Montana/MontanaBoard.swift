@@ -365,11 +365,11 @@ final class MTBoard: ObservableObject {
     private var firstSeen: [String: Double] = [:]   // a post's id: the moment this phone first held it (held)
     private var answeredAt: [String: Date] = [:]
     private var pushing: Set<String> = []
-    private var inFlight: [String: (v: String, at: Date)] = [:]   // the page handed to the queue, until its receipt
     private var hiSaid: Set<String> = []
     private var pushWork: DispatchWorkItem?
     private var dirty: Set<String> = []
     private var saveWork: DispatchWorkItem?
+    private var owedReceipts: [(chat: String, mid: String?)] = []
 
     private init() {
         load()
@@ -446,6 +446,12 @@ final class MTBoard: ObservableObject {
         saveWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: work)
     }
+    /// THE PAGE'S RECEIPT WAITS FOR THE DISK (16.10.2026 No.72; the law of 26.09 for every state word): it leaves with the
+    /// gathered write of the pages, never before it -- and a burst of pages at a launch costs one write, not one each.
+    func receiptOnceWritten(chat: String, mid: String?) {
+        owedReceipts.append((chat, mid))
+        scheduleSave(Self.pagesKey)
+    }
     func flush() {
         if dirty.contains(Self.mineKey) { Self.write(mine, Self.mineKey) }
         if dirty.contains(Self.ownedKey) { Self.write(owned, Self.ownedKey) }
@@ -474,6 +480,11 @@ final class MTBoard: ObservableObject {
             Self.write(firstSeen, Self.firstKey)
         }
         dirty.removeAll()
+        guard !owedReceipts.isEmpty else { return }
+        _ = MontanaLocalVault.commit()
+        let owed = owedReceipts
+        owedReceipts = []
+        for o in owed { ChatStore.live?.sendDeliveryReceipt(o.chat, msgId: o.mid, isFromMe: false, text: Self.mark) }
     }
 
     // -- names ----------------------------------------------------------------------------------
@@ -652,11 +663,12 @@ final class MTBoard: ObservableObject {
             }
         }
     }
-    /// The same page already stands in the queue for them, handed less than half an hour ago (a letter the queue gave
-    /// up on is carried again after that).
+    /// THE SAME PAGE STANDS IN THE QUEUE FOR THEM (16.10.2026 No.72): the queue is the one record of «on its way», and it
+    /// outlives the run. A memory of its own, half an hour long, died with every launch -- and pushes launch the app many
+    /// times an hour: T1 carried its page of near a megabyte to twenty-eight people at each, 311 pages in five hours
+    /// (16.10 09-14Z), while a person's photos waited behind them. A page the queue retired after its hour is carried again.
     private func onItsWay(_ conv: String, _ v: String) -> Bool {
-        guard let f = inFlight[conv], f.v == v else { return false }
-        return Date().timeIntervalSince(f.at) < 1800
+        MontanaDeliveryEngine.shared.pendingStateTag(kind: .page, to: conv) == v
     }
     /// The one page this owner sends — carried, or answering an ask. Only one who may see may write (the critic's
     /// P2): a writer who cannot see the wall would watch their own post vanish and learn they were left out. THE PAGE
@@ -668,7 +680,6 @@ final class MTBoard: ObservableObject {
         let sees = MTBoardRule.admits(conv, to: .see)
         let ps: [MTBoardSeen] = sees ? ordered(mine).prefix(Self.pageSize).map { Self.clean(seen($0, by: conv, conceal: true)) } : []
         guard send(MTBoardWord(t: "page", w: sees && MTBoardRule.admits(conv, to: .write), ps: ps, v: v), to: conv) else { return }
-        inFlight[conv] = (v, Date())
         answeredAt[conv] = Date()   // an ask that crosses the carried page is not answered twice
         MontanaTrace.mark("wall_page", "posts=\(ps.count)")
     }
@@ -679,7 +690,6 @@ final class MTBoard: ObservableObject {
         DispatchQueue.main.async {
             let b = shared
             b.sent[conv] = v
-            if b.inFlight[conv]?.v == v { b.inFlight[conv] = nil }
             b.saveSent()
         }
     }
@@ -775,7 +785,11 @@ final class MTBoard: ObservableObject {
         }
         guard MontanaConv.holds(conv), !ChatStore.refusesCold(conv),
               let d = try? JSONEncoder().encode(w), let js = String(data: d, encoding: .utf8) else { return false }
-        MontanaDeliveryEngine.shared.enqueue(to: conv, chat: conv, mid: UUID().uuidString, text: Self.mark + js, silent: true)
+        // A PAGE IS STATE (16.10.2026 No.72): it waits for the visitor's receipt, one per person, its version on the record.
+        // Settled on the node's word, no receipt ever came and «sent» was never written: every launch carried it again.
+        let page = w.t == "page"
+        MontanaDeliveryEngine.shared.enqueue(to: conv, chat: conv, mid: UUID().uuidString, text: Self.mark + js, silent: true,
+                                             kind: page ? .page : .letter, tag: page ? w.v : nil)
         MontanaTrace.mark("wall_tx", "t=\(w.t) to=\(String(conv.prefix(10)))")   // named as the presence lines name (25.09): whose page did not come is then a fact
         return true
     }

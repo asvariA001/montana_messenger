@@ -3179,7 +3179,7 @@ struct MTBoardShownVideo: View {
                 Image(uiImage: img).resizable().scaledToFit().allowsHitTesting(false)
             }
         }
-        .onChange(of: active, initial: true) { _, on in if on { play() } else { player?.pause() } }
+        .onChange(of: active, initial: true) { _, on in if on { play() } else { player?.pause(); MontanaAudioSession.release(hold) } }
         .onDisappear { rest() }
         .task(id: item.id) { if poster == nil { poster = await MTBoardPoster.decoded(item.media.thumb) } }
     }
@@ -3197,11 +3197,14 @@ struct MTBoardShownVideo: View {
             let p = item.post, i = item.i, wall = item.wall
             Task { _ = await MTBoard.shared.file(p, i, on: wall) }   // a whole copy a look left is taken, as the tap took it
         }
-        MontanaAudioSession.activatePlayback()
+        MontanaAudioSession.activatePlayback(hold)
         player?.play()
     }
+    /// The screen's sound is held by the screen's own name while it plays, and let go when it rests or is scrolled away (16.10).
+    private var hold: String { "shown " + item.id }
     private func rest() {
         player?.pause()
+        MontanaAudioSession.release(hold)
         watch = nil
         player = nil
         started = false

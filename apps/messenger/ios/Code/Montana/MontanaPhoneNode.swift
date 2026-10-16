@@ -878,7 +878,7 @@ final class MontanaPhoneNode: ObservableObject {
 
     func sendLetter(to peerRef: String, mid: String, text: String,
                  quoteText: String? = nil, quoteMid: String? = nil,
-                 linkPreview: String? = nil) -> MontanaTransport? {
+                 linkPreview: String? = nil, standingNearOnly: Bool = false) -> MontanaTransport? {
         guard Self.stageGate, !peerRef.isEmpty else { return nil }
         // The envelope names nobody. It used to open with the sender's standing address, which is
         // the identifier the set forbids ([I-17].2) written in the clear at the head of every
@@ -966,6 +966,12 @@ final class MontanaPhoneNode: ObservableObject {
             envelope = Data([MontanaPhoneNode.letterFrame]); envelope.append(tag)
         }
         envelope.append(sealedBody)
+        if standingNearOnly {
+            guard let overlay = MontanaOverlayBook.shared.overlay(forRef: peerRef),
+                  MontanaDirect.shared.sendOnStandingNear(to: overlay, payload: envelope, mid: mid) else { return nil }
+            MontanaTrace.mark("sent_route", mid: mid, "route=near standing=1")
+            return left(.wifi)
+        }
         // Prefer the Wi-Fi direct channel (instant persistent push); fall back to the Bluetooth mesh.
         // Per-message glyph = physical medium: cellular egress -> cellular, else Wi-Fi.
         let p = plan(to: peerRef)
@@ -1332,4 +1338,3 @@ enum MontanaSystemSettings {
         MTTop.present(alert, kind: "alert")
     }
 }
-

@@ -496,6 +496,9 @@ struct MTSaveBeside<Badge: View>: ViewModifier {
                     // the reply swipe admits from its top line down (22.09), the menu stands on its top.
                     .background { if !textIsSelectable { MTBubbleFrameAnchor(id: message.id) } }
                     .frame(maxWidth: (mtWin.width > 0 ? mtWin.width : MTScene.size().width) * 0.80, alignment: message.isMine ? .trailing : .leading)
+                if let call = callInfoOf(message.text), !call.missed, let coins = call.coins {
+                    MTCallCoinReceipt(coins: coins)
+                }
                 if ladder {
                     // THE LADDER UNDER THE BUBBLE (the author's word 08.09): three dots along the
                     // bottom — sent, delivered, read — each lit the moment its rung is reached, and
@@ -949,7 +952,7 @@ struct MTSaveBeside<Badge: View>: ViewModifier {
         .clipShape(bubbleShape).overlay { bubbleOutline }
     }
 
-    func callBubble(_ ci: (video: Bool, incoming: Bool, dur: Int, missed: Bool)) -> some View {
+    func callBubble(_ ci: MTCallInfo) -> some View {
         let title = String(localized: ci.video ? "Video call" : "Voice call", bundle: MTLanguage.bundle)
         let arrow = ci.incoming ? "arrow.down.left" : "arrow.up.right"
         let sub: String = ci.missed ? String(localized: ci.incoming ? "Missed" : "No answer", bundle: MTLanguage.bundle)
@@ -960,11 +963,17 @@ struct MTSaveBeside<Badge: View>: ViewModifier {
                 .font(.system(size: 18)).foregroundColor(accent)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.subheadline.weight(.semibold)).foregroundColor(bubbleText)
-                HStack(spacing: 4) {
+                let duration = HStack(spacing: 4) {
                     Image(systemName: arrow).font(.system(size: 10)).foregroundColor(accent)
                     Text(LocalizedStringKey(sub)).font(.caption).foregroundColor(bubbleText.opacity(0.85))
-                    Text("·").font(.caption).foregroundColor(bubbleText.opacity(0.65))
-                    metaLine()
+                }
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 4) {
+                        duration
+                        Text("·").font(.caption).foregroundColor(bubbleText.opacity(0.65))
+                        metaLine()
+                    }.fixedSize()
+                    VStack(alignment: .leading, spacing: 2) { duration; metaLine() }
                 }
             }
         }
@@ -1849,36 +1858,33 @@ struct MTSaveBeside<Badge: View>: ViewModifier {
         let ink: Color = onMedia ? .white
             : (bubbleStyle == "montana" ? bubbleText.opacity(0.82)
                 : (message.isMine ? Color.white.opacity(0.75) : .gray))
-        return HStack(spacing: 3) {
+        let clock = HStack(spacing: 3) {
             if message.edited {
                 Text("edited").font(.system(size: 9))
-                    .foregroundColor(onMedia ? .white.opacity(0.8)
-                        : (message.isMine ? Color.white.opacity(0.6) : .gray))
             }
-            Text(message.time)
-                .font(.caption2)
-                .foregroundColor(ink)
-            // THE TIMECHAIN MARK RIGHT OF THE TIME (the author's word 02.10): the letter's gematria, in the time's own type
-            // and ink, its digits of one width. Every stamp is this line, so the hidden copy that reserves the stamp's room
-            // in a text bubble reserves the number too.
+            Text(message.time).font(.caption2)
+            if message.isMine { checks }
+        }.foregroundColor(ink)
+        let seal = Group {
             if let k = MTLetterSeal.mark(message) {
-                // USER-DATA: a number, the prime sum of the letter's seal
-                Text(verbatim: "\u{00B7} " + String(k.gematria))
-                    .font(.caption2)
-                    .monospacedDigit()
-                    .foregroundColor(ink)
-                if ribbon {
-                    // USER-DATA: the head of the letter's seal, hex digits of one width
-                    Text(verbatim: "\u{00B7} " + k.head)
-                        .font(.caption2.monospaced())
-                        .foregroundColor(ink)
-                        .accessibilityHidden(true)   // eight hex digits read aloud are noise; the gematria stays spoken
+                // USER-DATA: the letter's gematria and seal, never translated.
+                let number = Text(verbatim: "\u{00B7} " + String(k.gematria))
+                    .font(.caption2.monospacedDigit())   // USER-DATA: the letter's gematria
+                let hash = Text(verbatim: "\u{00B7} " + k.head)   // USER-DATA: the letter's seal
+                    .font(.caption2.monospaced()).accessibilityHidden(true)   // USER-DATA: the letter's seal
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 3) { number; if ribbon { hash } }.fixedSize()
+                    VStack(alignment: .trailing, spacing: 2) { number; if ribbon { hash } }
                 }
             }
-            if message.isMine { checks }   // only the clock and the red mark remain (15.47)
+        }.foregroundColor(ink)
+        // A stamp must fit the width offered by its bubble. The native layout moves
+        // complete fields to another line instead of widening the row or clipping text.
+        return ViewThatFits(in: .horizontal) {
+            HStack(spacing: 3) { clock; seal }.fixedSize()
+            VStack(alignment: .trailing, spacing: 2) { clock; seal }
         }
-        .lineLimit(1)
-        .fixedSize()   // a stamp is never wrapped or cut: it is a line of its own size, as the platform's own stamps are
+        .fixedSize(horizontal: false, vertical: true)
     }
     var timeRow: some View { metaLine() }
 

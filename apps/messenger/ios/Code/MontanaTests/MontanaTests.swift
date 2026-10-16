@@ -679,6 +679,7 @@ final class MontanaStateLawTests: XCTestCase {
     func testKindsSplitInTwo() {
         XCTAssertTrue(E.Kind.profile.isState); XCTAssertTrue(E.Kind.picture.isState)
         XCTAssertFalse(E.Kind.letter.isState); XCTAssertFalse(E.Kind.piece.isState)
+        XCTAssertTrue(E.Kind.page.isState)   // a page of my wall waits for its receipt (16.10.2026 No.72)
     }
 }
 

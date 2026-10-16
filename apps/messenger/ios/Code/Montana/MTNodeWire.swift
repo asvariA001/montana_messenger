@@ -354,6 +354,7 @@ enum MTNodeWire {
         var r = req
         r.timeoutInterval = timeout
         var fresh = false
+        var last: (code: Int, data: Data?) = (-1, nil)
         for _ in 0..<attempts {
             let session: URLSession
             if fresh {
@@ -367,10 +368,11 @@ enum MTNodeWire {
             if let (d, resp) = try? await session.data(for: r),   // SERVER-DEBT-ACK: the accelerator node (rung 4)
                let c = (resp as? HTTPURLResponse)?.statusCode { code = c; out = d }
             if fresh { session.finishTasksAndInvalidate() }
+            last = (code, out)
             if code == 200 { return (code, out) }
             fresh = true
         }
-        return (-1, nil)
+        return last
     }
 }
 
@@ -385,13 +387,14 @@ enum MTNodeWire {
 /// app absorbs on its next drain. Two writers of one file would be a race by construction.
 enum MTOutbox {
     enum Kind: String, Codable {
-        case letter, picture, piece, profile, about, ground
+        case letter, picture, piece, profile, about, ground, page
         /// State is not a person's word but what the device declares about its owner: name,
-        /// face, the owner's own words about themselves (the bio and the link, «about») and the
-        /// ground of their page («ground», 25.09).
+        /// face, the owner's own words about themselves (the bio and the link, «about»), the
+        /// ground of their page («ground», 25.09) and the page of their wall as one visitor may
+        /// see it («page», 16.10.2026 No.72).
         /// State has no history: the next value cancels the previous one wholly. A person's word
         /// behaves the other way — each stands on its own and may not be lost.
-        var isState: Bool { self == .profile || self == .picture || self == .about || self == .ground }
+        var isState: Bool { self == .profile || self == .picture || self == .about || self == .ground || self == .page }
     }
     struct Item: Codable {
         var to: String; var chat: String; var mid: String; var text: String
@@ -414,6 +417,9 @@ enum MTOutbox {
         /// their removal (MontanaDeliveryEngine.buryInBox). Absent on every other letter.
         var boxGraves: [String]? = nil
         var boxGravesHeld: [String]? = nil
+        /// A state's tag, named at the letter's birth, for a state too large to open at every question: the version a
+        /// page of my wall carries. «On its way» is then read from the record, never from a megabyte of posts.
+        var tag: String? = nil
     }
     private static let keyName = "mt.outbox.key"
     private static let aad = "mt.outbox"

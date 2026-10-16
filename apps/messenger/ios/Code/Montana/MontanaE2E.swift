@@ -1098,23 +1098,22 @@ final class E2E {
         let me = MontanaCall.deviceWord(epoch: epoch)
         let addressed = (sig.targetDevice ?? "").isEmpty ? nil : sig.targetDevice
         for i in msgs.indices { msgs[i].d = me.isEmpty ? nil : me; msgs[i].to = addressed }
+        // SSOT-CONSOLIDATE: the call uses the standing conversation lane. Its owner keeps one
+        // door and retries only without the recipient's receipt. A queued write is not delivery.
+        let receipt = UUID().uuidString
+        MTCallTimeline.record(epoch: epoch, stage: "signal.encode.begin", facts: "kind=\(sig.ctrl)", operation: receipt)
+        for i in msgs.indices { msgs[i].q = receipt }
         guard let data = try? JSONEncoder().encode(msgs) else {
-            NSLog("[call] signal not encoded — the peer will never hear this ring")
+            MTCallTimeline.record(epoch: epoch, stage: "signal.encode.fail", facts: "", operation: receipt)
+            MontanaTrace.mark("sig_tx", "FAIL encode call")
             return
         }
-        // Call signalling rides TWO roads at once, like a letter (6.9): the LIVE pipe first —
-        // the tunnel between the two phones already exists and carries presence sub-second —
-        // and the accelerator node's blind envelope as the guarantee leg for a peer whose app
-        // is not up.
         let b64 = data.base64EncodedString()
-        if !sig.nodeOnly, MontanaPhoneNode.shared.transport(to: peer) != nil {
-            _ = MontanaPhoneNode.shared.sendLetter(to: peer, mid: UUID().uuidString, text: callSignalMark + b64)
-            MontanaTrace.mark("sig_tx", "pipe ctrl=\(sig.ctrl)")
-        }
-        MontanaWakePush.postSignal(peer, epoch: epoch, payloadB64: b64)
-        MontanaWakePush.startSignalPolling(peer)
+        MTCallTimeline.record(epoch: epoch, stage: "signal.encode.ok", facts: "bytes=\(data.count)", operation: receipt)
+        MontanaWakePush.postCallSignal(peer, epoch: epoch, id: receipt, payloadB64: b64,
+                                       terminal: sig.ctrl == "call-end" || sig.ctrl == "call-gone", nodeOnly: sig.nodeOnly)
     }
-    func handleLiveCallSignal(from peer: String, payload: String) {
+    func handleLiveCallSignal(from peer: String, payload: String, door: String? = nil, laneEpoch: String? = nil) {
         // A blocked person's call is not assembled (measured 15.09 13:10: the lane built the call
         // past the feed's gate and the phone rang).
         if store?.refuses(peer) ?? ChatStore.refusesCold(peer) {
@@ -1129,7 +1128,18 @@ final class E2E {
         // The main-queue hop is removed: the signal goes to its own lane inside handleSignal.
         // It used to pass the main queue TWICE — here and there — standing in the screen's
         // work line twice.
+        var acceptedReceipt = Set<String>()
+        var repeatedReceipt = Set<String>()
+        let arrivedDoor = door ?? (msgs.contains { $0.q != nil } ? MTCallRoute.nearDoor : nil)
         for cs in msgs {
+            // A receipt is sealed by the same conversation key and names one pending packet.
+            // It is transport state, never an instruction to the call machine.
+            if cs.ctrl == "call-receipt" {
+                if let e = cs.e, let q = cs.q, let door = arrivedDoor {
+                    MontanaWakePush.callSignalReceipt(peer, epoch: e, id: q, door: door)
+                }
+                continue
+            }
             // A WORD OF ANOTHER CALL NEVER REACHES THE CALL IN HAND (24.09): an end, an ask for fresh checks, an answer of
             // a finished call used to be taken by the living call with the same person, since the pipe named no call. While
             // a call lives here, a named word of any other call is a corpse, as on the node's lane. With none living, the
@@ -1152,6 +1162,21 @@ final class E2E {
             if let to = cs.to, !to.isEmpty, let e = cs.e, !e.isEmpty, to != MontanaCall.deviceWord(epoch: e) {
                 MontanaTrace.markFolded("sig_rx", "another device's ctrl=\(cs.ctrl)", window: 30, key: "dev:" + cs.ctrl)
                 continue
+            }
+            if let e = cs.e ?? laneEpoch, let door = arrivedDoor {
+                let alive = MontanaCall.epochSnapshot.contains(e)
+                let freshBirth = cs.isFreshBirth(epoch: e, now: MontanaWakePush.nodeNow())
+                if alive || freshBirth {
+                    if let q = cs.q, !acceptedReceipt.contains(q) {
+                        acceptedReceipt.insert(q)
+                        if !MontanaWakePush.receivedCallSignal(peer, epoch: e, id: q, door: door) {
+                            repeatedReceipt.insert(q)
+                        }
+                    } else if cs.q == nil {
+                        MontanaWakePush.heardLegacyCallSignal(peer, epoch: e, door: door)
+                    }
+                }
+                if let q = cs.q, repeatedReceipt.contains(q) { continue }
             }
             if cs.ctrl == "call-gone" {
                 MontanaCall.shared.handleSignal(from: peer, device: cs.d ?? "", ctrl: cs.ctrl, sdp: nil, candidate: nil,
@@ -1176,16 +1201,19 @@ final class E2E {
     /// goes out LOUD: an ordinary alert push, which Apple delivers by the message road — the
     /// extension shows «incoming call, tap to answer», the tap opens the app, the app rings
     /// natively while the seed is alive. Old extensions swallow a ring letter silently — no harm.
-    func ringBell(to peer: String, video: Bool, callSeed: String?) {
+    func ringBell(to peer: String, video: Bool, callSeed: String?, bornAtMS: Int) {
         guard let seed = callSeed, !seed.isEmpty else { return }
         let tag = MontanaMissedCall.tag(seed)
         guard let j = try? JSONSerialization.data(withJSONObject: ["v": video, "s": seed, "n": E2E.myDisplayName(),
-                                                                   "t": MontanaWakePush.nodeNow(), "b": 1]),
+                                                                   "t": Double(bornAtMS) / 1000, "b": 1]),
               let js = String(data: j, encoding: .utf8) else { return }
         MontanaTrace.mark("ring_bell", "to=\(String(peer.prefix(10))) tag=\(tag)")
         MontanaDeliveryEngine.shared.enqueue(to: peer, chat: peer, mid: "bell-" + tag, text: ringMark + js, silent: false)
     }
-    func ringCall(to peer: String, video: Bool, offerSdp: String? = nil, callSeed: String? = nil) async -> (rung: Int, online: Bool, nobody: Bool) {
+    func ringCall(to peer: String, video: Bool, offerSdp: String? = nil, callSeed: String? = nil, bornAtMS: Int) async -> (rung: Int, online: Bool, nobody: Bool) {
+        let timingEpoch = String((callSeed ?? "").prefix(16))
+        let timingOperation = UUID().uuidString
+        MTCallTimeline.record(epoch: timingEpoch, stage: "wake.request.begin", facts: "", operation: timingOperation)
         // The call rides wholly through the accelerator node (server model): the voip wake
         // raises the screen at once; the offer rides INSIDE the wake envelope; answer/ICE —
         // the /signal channel with the poller. The wake's outcome is REAL. The ring used to
@@ -1202,7 +1230,7 @@ final class E2E {
                 lock.unlock()
                 if first { cont.resume(returning: c) }   // a second resume is a fatalError — one winner
             }
-            MontanaWakePush.wakeVoip(peer, offer: offerSdp, video: video, callSeed: callSeed) { fire($0) }
+            MontanaWakePush.wakeVoip(peer, offer: offerSdp, video: video, callSeed: callSeed, bornAtMS: bornAtMS) { fire($0) }
             // The safety net is the walk's own bound (doors × the one post deadline), not a
             // number of its own: a three-second guillotine cut the walk while it still stood on
             // a dead door, threw the real «200» away and told the person «not reachable»
@@ -1210,6 +1238,8 @@ final class E2E {
             // A pair in first contact walks two roads, the pipe's tag and then the card's (No.63): the walk's own bound, once per road.
             DispatchQueue.global().asyncAfter(deadline: .now() + MontanaWakePush.knockBudgetS(for: "notify") * Double(MontanaWakePush.ringRoads(peer))) { fire(-1) }
         }
+        MTCallTimeline.record(epoch: timingEpoch, stage: code == 200 ? "wake.request.ok" : "wake.request.fail",
+            facts: "code=\(code)", operation: timingOperation)
         // AND AS A LETTER: for an unconfirmed pipe (a call right after QR) the voip wake does
         // not exist by construction — the peer has no secret yet, nothing to listen on the
         // tag with. The call letter rides with every guarantee letters have (first channel /
@@ -1217,10 +1247,14 @@ final class E2E {
         // feed; the epoch cuts off the stale. AIR-CHECKED: the name is inside the E2E seal of
         // a LETTER on an established channel (the node is blind) — not the air.
         let seedKey = callSeed ?? ""
+        guard seedKey.isEmpty || MontanaCall.epochSnapshot.contains(String(seedKey.prefix(16))) else {
+            MontanaTrace.mark("ring_knock", "wake finished after its call ended — no ring letter")
+            return (code == 200 ? 1 : 0, code == 200, code == 404)
+        }
         if !seedKey.isEmpty, ringLetterSeed == seedKey {
             // the letter of this very call is already on its way — one per call
         } else if let j = try? JSONSerialization.data(withJSONObject: ["v": video, "s": seedKey, "n": E2E.myDisplayName(),
-                                                                 "t": MontanaWakePush.nodeNow()]),
+                                                                 "t": Double(bornAtMS) / 1000]),
            let js = String(data: j, encoding: .utf8) {
             ringLetterSeed = seedKey
             MontanaDeliveryEngine.shared.enqueue(to: peer, chat: peer, mid: seedKey.isEmpty ? UUID().uuidString : "ring-" + MontanaMissedCall.tag(seedKey),
@@ -1242,9 +1276,9 @@ final class E2E {
     func notePeerSeen(_ peer: String) {
         DispatchQueue.main.async { self.store?.noteSeen(peer, at: MontanaWakePush.nodeNow(), by: "call") }
     }
-    func logCall(peer: String, video: Bool, incoming: Bool, durationSec: Int, missed: Bool) {
+    func logCall(peer: String, video: Bool, incoming: Bool, durationSec: Int, missed: Bool, credit: MTCallCredit? = nil) {
         DispatchQueue.main.async { [weak self] in
-            self?.store?.appendCallLog(peer: peer, video: video, incoming: incoming, dur: durationSec, missed: missed)
+            self?.store?.appendCallLog(peer: peer, video: video, incoming: incoming, dur: durationSec, missed: missed, credit: credit)
         }
     }
 
@@ -1305,6 +1339,14 @@ final class E2E {
         // Old builds skip both keys; a word without «d» is an old build's, judged as before.
         var d: String?
         var to: String?
+        // Optional for old builds. One identifier for the whole candidate batch; a receipt
+        // confirms the recipient opened it, never merely that a node accepted its ciphertext.
+        var q: String?
+        func isFreshBirth(epoch: String, now: TimeInterval) -> Bool {
+            guard ctrl == "call", e == epoch, let s, String(s.prefix(16)) == epoch,
+                  Data(base64Encoded: s)?.count == 32, let ts else { return false }
+            return abs(now - Double(ts) / 1000) <= MontanaCall.callLifeS
+        }
     }
 
     // The recipient could not decrypt (chain desync) → we ask the sender to recreate the session.

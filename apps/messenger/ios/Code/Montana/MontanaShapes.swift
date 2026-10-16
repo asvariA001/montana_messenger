@@ -592,7 +592,7 @@ struct AvatarCircle: View {
         }
         .frame(width: size, height: size)
         .clipShape(MontanaHexagon())
-        .overlay { if let who, MTAvatarBadges.least <= size { MTAvatarBadgeRow(who: who, size: size) } }
+        .modifier(MTAvatarBadgeDecoration(who: who, size: size))
         .task(id: photoURL) {
             decoded = nil
             guard size > 64, let s = photoURL, !Self.isAsset(s), !s.hasPrefix("http"), docImageCached(s) == nil else { return }
@@ -602,95 +602,108 @@ struct AvatarCircle: View {
     }
 }
 
-/// THE BALANCE AND THE LEVEL AT A FACE (the author's word 11.10.2026 21:2x MSK: «everywhere an avatar is shown, make it possible to
-/// show the balance on the left and the user's global level on the right, and in the settings let the privacy be governed in
-/// Appearance»; 12.10.2026 15:5x MSK: «show the levels right, as a badge at the top of the avatar, left and right, and on by default --
-/// a user who turned it on shows and sees, as with a delivery report; turned off, shows nothing and sees nothing»). The balance stands
-/// at the face's upper left and the Global Level at its upper right, each a capsule of the platform's thin material: one's own from
-/// this phone's book and chains, a correspondent's only as they told it (MTCoinBoard) -- nothing told, nothing drawn. The balances
-/// are the viewer's own switch; the levels are the one switch that both shows mine and lets me see theirs (MTLevelShow). A face below
-/// `least` stays clean.
-enum MTAvatarBadges {
-    static let me = "@me"   // NOT-UI: the face is this phone's own person
-    static let coinsKey = "avatarBadges.coins"   // NOT-UI: the viewer's switch for the balances, on until turned off
-    static let least: CGFloat = 28
+/// Avatar reputation is always visible (14.10.2026); only the balance has a privacy
+/// switch. Badges decorate the upper edge without changing the avatar's square
+/// layout contract: the photo, its rim and its touch target always share one frame.
+private struct MTBalanceVisibleKey: EnvironmentKey { static let defaultValue = false }
+extension EnvironmentValues {
+    var mtBalanceAlreadyVisible: Bool {
+        get { self[MTBalanceVisibleKey.self] }
+        set { self[MTBalanceVisibleKey.self] = newValue }
+    }
 }
-
-/// Whose face it is decides where the values come from; the switches decide whether they are drawn -- the levels by the same switch
-/// that lets my own level leave the phone, so a person who shows none sees none.
+enum MTAvatarBadges {
+    static let me = "@me"   // NOT-UI: the current person's face
+    static let coinsKey = "avatarBadges.coins"   // COMPAT-LOCAL: retired viewer preference, retained for backup readers
+    static let least: CGFloat = 28
+    static func type(_ size: CGFloat) -> CGFloat { min(13, max(9, size * 0.18)) }
+    static func height(_ size: CGFloat) -> CGFloat { type(size) * 1.6 }
+}
+struct MTAvatarBadgeDecoration: ViewModifier {
+    let who: String?
+    let size: CGFloat
+    @ViewBuilder func body(content: Content) -> some View {
+        if let who, MTAvatarBadges.least <= size {
+            content.frame(width: size, height: size)
+                .overlay(alignment: .top) {
+                    MTAvatarBadgeRow(who: who, size: size)
+                        .offset(y: -MTAvatarBadges.height(size) / 2)
+                }
+        } else { content }
+    }
+}
 struct MTAvatarBadgeRow: View {
     let who: String
     let size: CGFloat
-    @AppStorage(MTAvatarBadges.coinsKey) private var coinsOn = true
-    @AppStorage(MTLevelShow.shownKey) private var levelOn = true
+    @Environment(\.mtBalanceAlreadyVisible) private var balanceVisible
+    @AppStorage(MTCoinShow.key) private var coinsShown = true
     var body: some View {
-        if coinsOn || levelOn {
-            if who == MTAvatarBadges.me {
-                MTAvatarBadgesMine(size: size, coinsOn: coinsOn, levelOn: levelOn)
-            } else {
-                MTAvatarBadgesTold(conv: who, size: size, coinsOn: coinsOn, levelOn: levelOn)
-            }
+        if who == MTAvatarBadges.me {
+            MTAvatarBadgesMine(size: size, coinsOn: !balanceVisible && coinsShown)
+        } else {
+            MTAvatarBadgesTold(conv: who, size: size, coinsOn: !balanceVisible)
         }
     }
 }
-
-/// One's own face: the book's balance and the Global Level of the two chains (MTPersonChain.global), as the wallet shows them.
 private struct MTAvatarBadgesMine: View {
     let size: CGFloat
     let coinsOn: Bool
-    let levelOn: Bool
     @ObservedObject private var book = MTLocalCoinLedger.shared
     @ObservedObject private var person = MTPersonChain.shared
     var body: some View {
-        // A book not yet read holds no balance (MTCoinBalance): nothing is drawn rather than a zero.
         let read = MTCoinBalance.now != nil
         MTAvatarBadgePair(coins: coinsOn && read ? book.balance : nil,
-                          level: levelOn && read ? person.level.map { MTPersonChain.global(person: $0, balance: book.balance) } : nil,
-                          size: size)
-            .onAppear { if levelOn { person.prime() } }
+            level: read ? person.level.map { MTPersonChain.global(person: $0, balance: book.balance) } : nil, size: size)
+            .onAppear { person.prime() }
     }
 }
-
-/// A correspondent's face: what they told, and nothing else.
 private struct MTAvatarBadgesTold: View {
     let conv: String
     let size: CGFloat
     let coinsOn: Bool
-    let levelOn: Bool
     @ObservedObject private var board = MTCoinBoard.shared
     var body: some View {
-        MTAvatarBadgePair(coins: coinsOn ? board.told[conv]?.coins : nil, level: levelOn ? board.levels[conv]?.level : nil, size: size)
+        MTAvatarBadgePair(coins: coinsOn ? board.told[conv]?.coins : nil, level: board.levels[conv]?.level, size: size)
     }
 }
-
-/// The two capsules, drawn from values: the balance in the coin badge's short form (MTPiLevels.short) at the upper left, the level at
-/// the upper right -- the platform's place of a badge, clear of the presence dot below -- the type scaled to the face. They take no
-/// finger: the face's own row or button answers it.
 struct MTAvatarBadgePair: View {
     let coins: Int?
     let level: Int?
     let size: CGFloat
-    private var type: CGFloat { min(15, max(9, size * 0.2)) }
+    @ObservedObject private var distribution = MTLevelDistribution.shared
+    private var type: CGFloat { MTAvatarBadges.type(size) }
     var body: some View {
-        Color.clear
-            .overlay(alignment: .topLeading) { if let coins { capsule(MTPiLevels.short(coins)) } }
-            .overlay(alignment: .topTrailing) { if let level { capsule(String(level)) } }
-            .allowsHitTesting(false)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(Text(spoken))
-            .accessibilityHidden(coins == nil && level == nil)
+        HStack(spacing: 2) {
+            if let coins {
+                Text(verbatim: MTPiLevels.short(coins))   // USER-DATA: localized compact coin count
+                    .padding(.horizontal, 3).frame(height: MTAvatarBadges.height(size))
+                    .background(.regularMaterial, in: Capsule())
+                    .fixedSize().layoutPriority(0)
+            }
+            Spacer(minLength: 0)
+            if let level {
+                Text(verbatim: String(level))   // USER-DATA: the reported reputation level
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 4).frame(minWidth: MTAvatarBadges.height(size), minHeight: MTAvatarBadges.height(size))
+                    .background(levelColor(level), in: Capsule())
+                    .fixedSize().layoutPriority(1)
+            }
+        }
+        .font(.system(size: type, weight: .semibold).monospacedDigit())
+        .lineLimit(1)
+        .frame(minWidth: size).frame(height: MTAvatarBadges.height(size))
+        .allowsHitTesting(false)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(spoken))
+        .accessibilityHidden(coins == nil && level == nil)
+    }
+    private func levelColor(_ level: Int) -> Color {
+        guard let rank = distribution.rank(level) else { return Color(white: 0.35) }
+        return Color(hue: rank / 3, saturation: 0.82, brightness: 0.58)
     }
     private var spoken: String {
         [coins.map { String(localized: "Balance \(MTCoinText.count($0))", bundle: MTLanguage.bundle) },
          level.map { String(localized: "Global level \($0)", bundle: MTLanguage.bundle) }].compactMap { $0 }.joined(separator: ", ")
-    }
-    private func capsule(_ digits: String) -> some View {
-        Text(verbatim: digits)   // USER-DATA: a count of coins or a level, held by this phone or told by its owner
-            .font(.system(size: type, weight: .semibold).monospacedDigit())
-            .foregroundStyle(.primary)
-            .lineLimit(1).fixedSize()
-            .padding(.horizontal, type * 0.4).padding(.vertical, type * 0.12)
-            .background(.ultraThinMaterial, in: Capsule())
     }
 }
 

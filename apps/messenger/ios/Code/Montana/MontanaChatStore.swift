@@ -1245,7 +1245,17 @@ class ChatStore: ObservableObject {
     // encode after the rename — the setter is private, the guard tools/mt-owner-check.py stands behind it.
     private(set) var uploadTasks: [String: Task<Void, Never>] = [:]     // cancelable send tasks keyed by file name
     var historyLoaded = false {   // the queue mirror (M-1/M-2) waits for this: an empty chat map is not «no rows»
-        didSet { if historyLoaded, !oldValue { Task { @MainActor in MontanaDeliveryEngine.shared.replayParkedInbound() } } }   // the parked letters land now (17.09)
+        didSet {
+            if historyLoaded, !oldValue {
+                Task { @MainActor [weak self] in
+                    guard let self, self.writes else { return }
+                    MontanaDeliveryEngine.shared.replayParkedInbound()
+                    MTCallRecording.shared.recover()
+                    MontanaCall.shared.refreshRecording(); MTGroupRoom.shared.refreshRecording()
+                    await MTReleaseState.shared.refresh()
+                }
+            }
+        }
     }
     /// Whether the extension's box has been looked into in this life of the app. Until it has,
     /// the app does not hold everything the landing door left, and a recount would subtract
@@ -1403,7 +1413,8 @@ class ChatStore: ObservableObject {
     /// and a settled one leaves room for the next ask.
     static func receiptMid(_ dmid: String) -> String { "rcpt-" + dmid }
     /// A person's state word, as the wire names it: their name, face, bio and link, page ground. Each is kept in the
-    /// defaults and each is receipted as held (the sender side's MTOutbox.Kind.isState, read here from the words).
+    /// defaults and each is receipted as held (the sender side's MTOutbox.Kind.isState, read here from the words; the page
+    /// of a wall waits for the wall's own write, MTBoard.receiptOnceWritten).
     static func isStateWord(_ text: String) -> Bool {
         text.hasPrefix(nameMark) || text.hasPrefix(avatarMark) || text.hasPrefix(aboutMark) || text.hasPrefix(groundMark)
     }
@@ -2869,14 +2880,18 @@ class ChatStore: ObservableObject {
     }
 
     // Call log: creates the chat if missing, adds a call entry.
-    func appendCallLog(peer pipe: String, video: Bool, incoming: Bool, dur: Int, missed: Bool) {
+    func appendCallLog(peer pipe: String, video: Bool, incoming: Bool, dur: Int, missed: Bool, credit: MTCallCredit? = nil) {
         let peer = MTSamePair.root(pipe)   // a call on a folded pipe leaves its row in the conversation (24.09)
-        let payload: [String: Any] = ["v": video, "inc": incoming, "dur": dur, "miss": missed]
+        var payload: [String: Any] = ["v": video, "inc": incoming, "dur": dur, "miss": missed]
+        if let credit {
+            guard !(messages[peer] ?? []).contains(where: { callInfoOf($0.text)?.call == credit.call }) else { return }
+            payload["call"] = credit.call; payload["minted"] = credit.coins
+        }
         guard let d = try? JSONSerialization.data(withJSONObject: payload),
               let json = String(data: d, encoding: .utf8) else { return }
         // ONE ROW PER CALL (the author's word 17.09): the same call reported by two doors within a
         // minute and a half — the call lane and the missed-call letter — lands once.
-        if let last = messages[peer]?.last, let li = callInfoOf(last.text),
+        if credit == nil, let last = messages[peer]?.last, let li = callInfoOf(last.text), li.call == nil,
            li.video == video, li.incoming == incoming, li.missed == missed,
            Date().timeIntervalSince1970 - last.createdAt < 90 {
             MontanaTrace.mark("call_log", "dup peer=\(String(peer.prefix(10))) — the same call, once"); return
@@ -4383,7 +4398,13 @@ MontanaLocalVault.setEncrypted("scheduledMsgs", d)
         }
         // THE WALL'S WORD (the author's word 24.09): a post for my wall, a visitor's mark, a page of a wall I asked
         // for.
-        if MTBoard.handle(m.text, from: chat, isFromMe: m.isFromMe) { return false }
+        if MTBoard.handle(m.text, from: chat, isFromMe: m.isFromMe) {
+            // A PAGE OF A WALL IS RECEIPTED AS HELD (16.10.2026 No.72), as a face and a ground are: the receipt is the owner's
+            // one proof that this screen holds the version, and without it the owner carried the page again at every launch.
+            // It leaves with the wall's own gathered write, once the page is on the disk (MTBoard.receiptOnceWritten).
+            if !m.isFromMe, MTBoard.isPage(m.text) { MTBoard.shared.receiptOnceWritten(chat: chat, mid: m.msgId) }
+            return false
+        }
         // A GROUP'S WORD (the author's words 05.10.2026, MTGroup): an invitation or a letter of a group its owner carries over the
         // pipes. It lands in the group's own feed, never as a row of the pipe; a build that does not know the token buries it unread.
         if MTGroup.handle(m.text, from: chat, isFromMe: m.isFromMe, sid: m.msgId, store: self) { return false }
@@ -6612,6 +6633,7 @@ enum SeedScope {
                               "appLibraryIcons", "appLibraryPins", MTLibraryIconStyle.key, MTChessComputer.levelKey, "AppLanguage", "AppleLanguages", MTLetterMotion.bounceKey, MTLetterMotion.durationKey,
         "notifEnabled", "notifSound", "notifPreview", "notifSender", "notifLockName",
         "autoDownloadCellular", "autoDownloadWiFi",
+        MTCallRecordingPolicy.key,   // recording preference follows the phone's other Privacy settings; consent is separate
         "presenceSharing", "readReceiptsEnabled", "liveTypingEnabled", "syncContactsToPhone", "linkPreviewsEnabled",
         "objectionableFilterOn", "termsAcceptedVersion", "barredPeers",
         "bubbleStyle", "cbMineFill1", "cbMineFill2", "cbMineOpacity", "cbMineText", "cbMineOutline", "cbMineOutlineOp", "cbMineOutlineW",
@@ -6625,8 +6647,8 @@ enum SeedScope {
         "mt.home.node", "mt.home.node.on", "mt.home.node.pin",   // the person's own node, its daily copies and the digest of its certificate (28.09)
         MTBoardRule.key, MTBoardRule.sightKey, MTBoardRule.vpnKey,
         MTCoinShow.key, MTCoinShow.toldKey,   // the owner shows or hides their coins, and the wallet has said what that does (04.10)
-        MTLevelShow.shownKey,   // the person shows their Global Level and sees the correspondents', or neither (11.10, 12.10)
-        MTAvatarBadges.coinsKey,   // whether this phone draws the balances at the faces (11.10)
+        MTLevelShow.shownKey,   // retired switch, retained for old copies; reputation is always shown (14.10)
+        MTAvatarBadges.coinsKey,   // retired viewer switch; the balance owner alone governs disclosure (14.10)
         MTPersonalRate.key]   // the person's earning, its period and currency: their own rate of the coin (04.10 19:19)
     /// THE MARKS OF MIGRATIONS ALREADY RUN over the data they describe: a copy carries them with that data, so a
     /// one-time sweep never runs a second time over what it already swept; a change of seed keeps them.
@@ -6654,6 +6676,7 @@ enum SeedScope {
                              "diagId", "diagHideRule", "diagWmTele", "diagWmTrace", "diagWmVpn", "diagGenTele", "diagGenTrace", "diagGenVpn",
         "mt.probe.at", "mt.probe.conf", "mt.probe.mode", "mt.probe.rot",
         "mt.probe.line",   // the line under the permitted list, with its hysteresis (30.09): this network's word, never a copy's
+        MTReleaseState.cacheKey, MTLevelDistribution.cacheKey,   // public release/population caches, relearned on each device
         "mt.release.told",   // the build the Montana room already told this phone of (29.09): this device's own
         "mt_device_key", "mt.install.marker", "mt_store_witness", "cargoRepairMids",
         "mt.doorbook", "mt.nodes", "mt.nodes.learned", "mt.nodes.machines", "mt.self.proven",
@@ -6678,7 +6701,8 @@ enum SeedScope {
     /// (MTSeats). The keys of the correspondences and of this person's node, the archive's and the delivery's ledgers, what
     /// was announced to whom, the name of the record a build before kept for this person in the Apple Account (withdrawn with
     /// the identity), the copies' clocks (a copy is named by its owner's proof, one per person).
-    static let seatKeys = ["vpnwall.sent", "vpnwall.asked", "vpnwall.cap",
+    static let seatKeys = [MTCallRecordingPolicy.consentKey,   // this person's explicit recording consent on this phone, never a copy's
+        "vpnwall.sent", "vpnwall.asked", "vpnwall.cap",
         "peerFaceOwned",   // the digests of the faces the correspondents themselves sent (ChatStore.faceOwned, 04.10): this person's
         "chatCoinSince",   // the moment this person's chat coin came on (MTChatMint): the person's, as the tally in Montana/Coins is (04.10)
         MTVPNWallMint.paidKey,   // the tunnel's living seconds this person was paid (MTVPNWallMint): the person's, armed anew at a lift (04.10)

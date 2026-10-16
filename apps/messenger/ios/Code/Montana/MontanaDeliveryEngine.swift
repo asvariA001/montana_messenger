@@ -543,6 +543,7 @@ final class MontanaDeliveryEngine {
             case .about: forgetAbout(to: ref)
             case .ground: forgetGround(to: ref)
             case .letter, .piece: break
+            case .page: break   // what a visitor holds of my wall is written by the page's receipt alone (MTBoard.delivered)
             }
         }
     }
@@ -622,6 +623,7 @@ final class MontanaDeliveryEngine {
         case .about: return Announced.aboutTag(ofWord: it.text)
         case .ground: return Announced.groundTag(ofWord: it.text)
         case .picture: return Announced.faceTag(ofWord: it.text)
+        case .page: return it.tag
         default: return nil
         }
     }
@@ -636,9 +638,12 @@ final class MontanaDeliveryEngine {
     }
     /// The very state a letter carries already waits for this peer: the newest record of its kind says the same. «About»
     /// and «ground» are compared by their state's tag — their words carry a moment of their own — the rest by their words.
-    static func sameStateWaits(_ items: [Item], to: String, kind: Kind, text: String) -> Bool {
+    static func sameStateWaits(_ items: [Item], to: String, kind: Kind, text: String, tag: String? = nil) -> Bool {
         guard kind.isState, let w = items.last(where: { $0.to == to && $0.kind == kind }) else { return false }
         switch kind {
+        case .page:
+            // A page's words carry its posts' exact counts; the version it carries is what the visitor holds.
+            if let a = w.tag, let b = tag { return a == b }
         case .about:
             if let a = Announced.aboutTag(ofWord: w.text), let b = Announced.aboutTag(ofWord: text) { return a == b }
         case .ground:
@@ -799,6 +804,14 @@ final class MontanaDeliveryEngine {
             persist(items)
         }
     }
+    /// A TRY IS COUNTED, NOT WRITTEN (15.10.2026, iPhone 17 Pro Max on 2210: 1073.75 MB written in 28 minutes, the system's
+    /// disk-writes report; 23 of our 35 write samples sealed the whole queue in MTOutbox.write from here). A try moves only the
+    /// pace (tries, lastTry), and the pace lives in the line's copy; the disk takes it with the next change that moves an
+    /// outcome -- a birth, an acknowledgement, a receipt, a removal. A run that dies tries each letter once at its next start.
+    private func pace(_ a: [Item]) {
+        guard !storeUnreadable else { return }   // an unreadable store is read again on every turn, as save leaves it
+        hold(a)
+    }
     private func persist(_ a: [Item]) {
         if MTOutbox.available {
             if !MTOutbox.write(a) { MontanaTrace.markFolded("queue_save_failed", "the shared store refused \(a.count) items", window: 60) }
@@ -859,7 +872,7 @@ final class MontanaDeliveryEngine {
     /// device writes them, not the person. One definition for two tasks: whom to announce the
     /// profile to and what to sweep out. It has no second home ([I-10]).
     func enqueue(to: String, chat: String, mid: String, text: String, silent: Bool,
-                 kind: Kind = .letter, headless: Bool = false,
+                 kind: Kind = .letter, tag: String? = nil, headless: Bool = false,
                  quoteText: String? = nil, quoteMid: String? = nil, linkPreview: String? = nil) {
         guard !text.hasPrefix(MTVPNWall.mark) else { return }   // retired automatic VPN sharing
         guard MontanaConv.holds(to) else {
@@ -888,15 +901,14 @@ final class MontanaDeliveryEngine {
             // same correspondence makes the queued one meaningless, and forty-three of them
             // waiting their turn burnt the pair's ring budget (08.09, T3→T1). The last word stands.
             if text.hasPrefix(readReceiptMark) { a.removeAll { $0.to == to && $0.text.hasPrefix(readReceiptMark) } }
-            // ONE PAGE OF A WALL ON ITS WAY TO ONE PERSON (the critic's N1): a newer page of mine makes the queued one
-            // meaningless — the last page stands, as the last read mark does.
-            if MTBoard.isPage(text) { a.removeAll { $0.to == to && MTBoard.isPage($0.text) } }
+            // ONE PAGE OF A WALL ON ITS WAY TO ONE PERSON (the critic's N1) is law S-1 itself: a page is state (16.10.2026
+            // No.72), and foldingState below lets a newer page take the queued one's place.
             // THE SAME STATE ALREADY ON ITS WAY IS NOT QUEUED AGAIN (25.09, the diary of T1: at one proof of a peer's build
             // four «about» letters and three 1.6 MB «ground» letters left within 60 ms). The senders ask the queue whether
             // their state waits, but they ask on their own thread while the queue writes on this line: every question before
             // the first write read an empty queue, and each new letter folded its twin away only after the twin had gone on
             // the wire. The answer is given here, where the record is written — whoever asked, whenever.
-            if Self.sameStateWaits(a, to: to, kind: kind, text: text) {
+            if Self.sameStateWaits(a, to: to, kind: kind, text: text, tag: tag) {
                 MontanaTrace.markFolded("state_twin", "kind=\(kind) — the same state already waits for this peer", window: 30)
                 return
             }
@@ -904,7 +916,7 @@ final class MontanaDeliveryEngine {
                           silent: silent || isSilentLetter(text),
                           since: Date().timeIntervalSince1970, tries: 0, lastTry: 0,
                           headless: headless ? true : nil, kind: kind,
-                          qt: quoteText, qm: quoteMid, lp: linkPreview))
+                          qt: quoteText, qm: quoteMid, lp: linkPreview, tag: tag))
             save(a)
             // THE REFUSAL IS SHOWN, NOT SWALLOWED: with the store unreadable the letter did not land
             // in the queue and will not ride; the bubble goes red with a retry, as on any break.
@@ -1237,7 +1249,7 @@ final class MontanaDeliveryEngine {
                     refuse(m, chat: chat, .neverLeft)
                 }
                 a.removeAll { spent.contains($0.mid) }
-                save(a)
+                if spent.isEmpty { pace(a) } else { save(a) }
                 if !hand.isEmpty {
                     let items = hand
                     Task { @MainActor in self.store?.resumePieces(items) }
@@ -1547,7 +1559,7 @@ final class MontanaDeliveryEngine {
             MontanaTrace.mark("profile_expired", mid: it.mid, "kind=\(it.kind.rawValue) to=\(String(it.to.prefix(10)))")
             return
         }
-        a[i].tries += 1; a[i].lastTry = now; save(a)
+        a[i].tries += 1; a[i].lastTry = now; pace(a)
         let to = it.to, chat = it.chat, text = it.text, m = it.mid
         // A funeral's burial not yet confirmed by every door is asked again with each of its attempts (buryInBox).
         if let graves = it.boxGraves, !graves.isEmpty, it.tries < burialTries {

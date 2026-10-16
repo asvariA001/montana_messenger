@@ -14,6 +14,8 @@
 		1851F282F9D140A28907ED24 /* MontanaKeychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 162A17343466499E9EA2F946 /* MontanaKeychain.swift */; };
 		F4588093EB8D4BD8A1D017FB /* MontanaKeychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 162A17343466499E9EA2F946 /* MontanaKeychain.swift */; };
 		1BDC43419B7033B7175072A9 /* MontanaCall.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C82908A76C8A2BB4D29BB78 /* MontanaCall.swift */; };
+		A34220600000000000000002 /* MTCallRecording.swift in Sources */ = {isa = PBXBuildFile; fileRef = A34220600000000000000001 /* MTCallRecording.swift */; };
+		A36220700000000000000002 /* MTSystemCalls.swift in Sources */ = {isa = PBXBuildFile; fileRef = A36220700000000000000001 /* MTSystemCalls.swift */; };
 		A36AA7A5A0C0000000000002 /* MontanaAvatarMask.swift in Sources */ = {isa = PBXBuildFile; fileRef = A36AA7A5A0C0000000000001 /* MontanaAvatarMask.swift */; };
 		519CAE989FE016D44BC763BD /* MontanaScreenWire.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C37D71D4B47A83AA9E3F9A4 /* MontanaScreenWire.swift */; };
 		6BFFB176A23B056EA77401FE /* MontanaScreenWire.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C37D71D4B47A83AA9E3F9A4 /* MontanaScreenWire.swift */; };
@@ -306,6 +308,8 @@
 		54765188BA85C3613EB328E6 /* MontanaShare.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MontanaShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		5A1CD69C9D14ED79B08F125E /* ShareSend.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareSend.swift; sourceTree = "<group>"; };
 		5C82908A76C8A2BB4D29BB78 /* MontanaCall.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MontanaCall.swift; sourceTree = "<group>"; };
+		A34220600000000000000001 /* MTCallRecording.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MTCallRecording.swift; sourceTree = "<group>"; };
+		A36220700000000000000001 /* MTSystemCalls.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MTSystemCalls.swift; sourceTree = "<group>"; };
 		A36AA7A5A0C0000000000001 /* MontanaAvatarMask.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MontanaAvatarMask.swift; sourceTree = "<group>"; };
 		4C37D71D4B47A83AA9E3F9A4 /* MontanaScreenWire.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MontanaScreenWire.swift; sourceTree = "<group>"; };
 		0BAF10CF0000000000000014 /* MTScreenShare.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MTScreenShare.swift; sourceTree = "<group>"; };
@@ -682,6 +686,8 @@ E9D0EDEBF2387839D7D7CA6C /* MTScene.swift */ = {isa = PBXFileReference; includeI
 				CD0F0B1A52275133B8AD7B1E /* MontanaMediaKit.swift */,
 				13B06F945D4240F4A0C8A27F /* MontanaAvatarKit.swift */,
 				5C82908A76C8A2BB4D29BB78 /* MontanaCall.swift */,
+				A34220600000000000000001 /* MTCallRecording.swift */,
+				A36220700000000000000001 /* MTSystemCalls.swift */,
 				A36AA7A5A0C0000000000001 /* MontanaAvatarMask.swift */,
 				0BAF10CF0000000000000014 /* MTScreenShare.swift */,
 				0BAF20D70000000000000A01 /* MTGroupRoom.swift */,
@@ -1163,6 +1169,8 @@ E9D0EDEBF2387839D7D7CA6C /* MTScene.swift */ = {isa = PBXFileReference; includeI
 				58D5C45C2B21170D94F06748 /* MontanaMediaKit.swift in Sources */,
 				B13251D208304F6597B16106 /* MontanaAvatarKit.swift in Sources */,
 				1BDC43419B7033B7175072A9 /* MontanaCall.swift in Sources */,
+				A34220600000000000000002 /* MTCallRecording.swift in Sources */,
+				A36220700000000000000002 /* MTSystemCalls.swift in Sources */,
 				A36AA7A5A0C0000000000002 /* MontanaAvatarMask.swift in Sources */,
 				0BAF10CF0000000000000015 /* MTScreenShare.swift in Sources */,
 				0BAF20D70000000000000A02 /* MTGroupRoom.swift in Sources */,
@@ -1281,7 +1289,7 @@ E9D0EDEBF2387839D7D7CA6C /* MTScene.swift */ = {isa = PBXFileReference; includeI
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_ENTITLEMENTS = Code/PacketTunnel/PacketTunnel.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2200;
+				CURRENT_PROJECT_VERSION = 2218;
 				DEVELOPMENT_TEAM = S8JCA5MBVD;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1317,7 +1325,7 @@ E9D0EDEBF2387839D7D7CA6C /* MTScene.swift */ = {isa = PBXFileReference; includeI
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_ENTITLEMENTS = Code/PacketTunnel/PacketTunnel.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2200;
+				CURRENT_PROJECT_VERSION = 2218;
 				DEVELOPMENT_TEAM = S8JCA5MBVD;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1479,7 +1487,7 @@ E9D0EDEBF2387839D7D7CA6C /* MTScene.swift */ = {isa = PBXFileReference; includeI
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Code/Montana/Montana.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2200;
+				CURRENT_PROJECT_VERSION = 2218;
 				DEVELOPMENT_ASSET_PATHS = "\"Code/Montana/Preview Content\"";
 				DEVELOPMENT_TEAM = S8JCA5MBVD;
 				ENABLE_PREVIEWS = YES;
@@ -1534,7 +1542,7 @@ E9D0EDEBF2387839D7D7CA6C /* MTScene.swift */ = {isa = PBXFileReference; includeI
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = "Code/Montana/Montana-Release.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2200;
+				CURRENT_PROJECT_VERSION = 2218;
 				DEVELOPMENT_ASSET_PATHS = "\"Code/Montana/Preview Content\"";
 				DEVELOPMENT_TEAM = S8JCA5MBVD;
 				ENABLE_PREVIEWS = YES;
@@ -1587,7 +1595,7 @@ E9D0EDEBF2387839D7D7CA6C /* MTScene.swift */ = {isa = PBXFileReference; includeI
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2200;
+				CURRENT_PROJECT_VERSION = 2218;
 				DEVELOPMENT_TEAM = S8JCA5MBVD;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.2;
@@ -1614,7 +1622,7 @@ E9D0EDEBF2387839D7D7CA6C /* MTScene.swift */ = {isa = PBXFileReference; includeI
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2200;
+				CURRENT_PROJECT_VERSION = 2218;
 				DEVELOPMENT_TEAM = S8JCA5MBVD;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.2;
@@ -1640,7 +1648,7 @@ E9D0EDEBF2387839D7D7CA6C /* MTScene.swift */ = {isa = PBXFileReference; includeI
 			buildSettings = {
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2200;
+				CURRENT_PROJECT_VERSION = 2218;
 				DEVELOPMENT_TEAM = S8JCA5MBVD;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.2;
@@ -1666,7 +1674,7 @@ E9D0EDEBF2387839D7D7CA6C /* MTScene.swift */ = {isa = PBXFileReference; includeI
 			buildSettings = {
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2200;
+				CURRENT_PROJECT_VERSION = 2218;
 				DEVELOPMENT_TEAM = S8JCA5MBVD;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.2;
@@ -1694,7 +1702,7 @@ E9D0EDEBF2387839D7D7CA6C /* MTScene.swift */ = {isa = PBXFileReference; includeI
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_ENTITLEMENTS = Code/MontanaShare/MontanaShare.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2200;
+				CURRENT_PROJECT_VERSION = 2218;
 				DEVELOPMENT_TEAM = S8JCA5MBVD;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1724,7 +1732,7 @@ E9D0EDEBF2387839D7D7CA6C /* MTScene.swift */ = {isa = PBXFileReference; includeI
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Code/MontanaBroadcast/MontanaBroadcast.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2200;
+				CURRENT_PROJECT_VERSION = 2218;
 				DEVELOPMENT_TEAM = S8JCA5MBVD;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Code/MontanaBroadcast/Info.plist;
@@ -1746,7 +1754,7 @@ E9D0EDEBF2387839D7D7CA6C /* MTScene.swift */ = {isa = PBXFileReference; includeI
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Code/MontanaBroadcast/MontanaBroadcast.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2200;
+				CURRENT_PROJECT_VERSION = 2218;
 				DEVELOPMENT_TEAM = S8JCA5MBVD;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Code/MontanaBroadcast/Info.plist;
@@ -1768,7 +1776,7 @@ E9D0EDEBF2387839D7D7CA6C /* MTScene.swift */ = {isa = PBXFileReference; includeI
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Code/MontanaNSE/MontanaNSE.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2200;
+				CURRENT_PROJECT_VERSION = 2218;
 				DEVELOPMENT_TEAM = S8JCA5MBVD;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1794,7 +1802,7 @@ E9D0EDEBF2387839D7D7CA6C /* MTScene.swift */ = {isa = PBXFileReference; includeI
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Code/MontanaNSE/MontanaNSE.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2200;
+				CURRENT_PROJECT_VERSION = 2218;
 				DEVELOPMENT_TEAM = S8JCA5MBVD;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1821,7 +1829,7 @@ E9D0EDEBF2387839D7D7CA6C /* MTScene.swift */ = {isa = PBXFileReference; includeI
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_ENTITLEMENTS = Code/MontanaShare/MontanaShare.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2200;
+				CURRENT_PROJECT_VERSION = 2218;
 				DEVELOPMENT_TEAM = S8JCA5MBVD;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",

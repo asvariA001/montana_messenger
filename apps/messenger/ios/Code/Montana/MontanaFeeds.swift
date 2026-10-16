@@ -1085,7 +1085,7 @@ struct MontanaClipPlayer: UIViewRepresentable {
             let nc = NotificationCenter.default
             tokens.append(nc.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
                 self?.player.seek(to: .zero)   // the whole length has run — only now from the start again
-                if self?.wantPlaying == true { self?.player.play() }
+                if self?.wantPlaying == true { self?.start() }
             })
             tokens.append(nc.addObserver(forName: .AVPlayerItemFailedToPlayToEndTime, object: item, queue: .main) { [weak self] n in
                 let why = (n.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error)?.localizedDescription ?? "?"
@@ -1140,15 +1140,34 @@ struct MontanaClipPlayer: UIViewRepresentable {
                 guard let self else { return }
                 self.healing = false
                 guard self.wantPlaying, self.player.timeControlStatus != .playing else { return }
-                if !self.player.isMuted { MontanaAudioSession.activatePlayback() }   // a silent tile leaves the session as it is
-                self.player.play()
+                self.start()
                 MontanaTrace.mark("video_feed", "healed after \(why) try=\(self.healStreak) wait_ms=\(Int(delay * 1000))")
             }
+        }
+        /// EVERY PLAY OF THE CLIP GOES THROUGH HERE (16.10): a silent one passes the sound's ledger first and plays at rest or under
+        /// a sound of ours (MontanaAudioSession.silentClip); a sounded one plays under the hold its sound took.
+        func start() {
+            guard player.isMuted else { MontanaAudioSession.activatePlayback(soundName); player.play(); return }
+            MontanaAudioSession.silentClip { [weak self] in
+                guard let self, self.wantPlaying, self.player.timeControlStatus != .playing else { return }
+                self.player.play()
+            }
+        }
+        /// THE CLIP'S SOUND IS HELD BY THE CLIP'S OWN NAME (16.10): a link's media given its sound by a tap takes the session for as
+        /// long as it sounds, and lets it go the moment it does not -- muted again, or gone from the screen.
+        private let soundName = "clip " + UUID().uuidString.prefix(8)
+        private var holdsSound = false
+        func sound(_ on: Bool) {
+            player.isMuted = !on
+            guard on != holdsSound else { return }
+            holdsSound = on
+            if on { MontanaAudioSession.activatePlayback(soundName) } else { MontanaAudioSession.release(soundName) }
         }
         func tear() {
             wantPlaying = false
             healStreak = 0
             player.pause()
+            sound(false)
             if let t = timeToken { player.removeTimeObserver(t) }; timeToken = nil
             tokens.forEach { NotificationCenter.default.removeObserver($0) }; tokens.removeAll()
             statusWatch = nil; itemWatch = nil
@@ -1161,17 +1180,16 @@ struct MontanaClipPlayer: UIViewRepresentable {
         v.onProgress = onProgress
         let item = asset.map { AVPlayerItem(asset: $0) } ?? AVPlayerItem(url: url)
         if asset != nil { item.preferredForwardBufferDuration = 5 }   // a buffer, never the whole file (25.09)
-        v.player.isMuted = muted
-        if muted { MontanaAudioSession.playSilentClip() }   // a tile without sound mixes with every other app's sound
+        v.sound(!muted)
         v.load(item)
         return v
     }
     func updateUIView(_ v: ClipView, context: Context) {
         v.isUserInteractionEnabled = !quiet
         v.onProgress = onProgress
-        v.player.isMuted = muted
+        v.sound(!muted)
         v.wantPlaying = active && !paused
-        if active && !paused { if v.player.timeControlStatus != .playing { v.player.play() } }
+        if active && !paused { if v.player.timeControlStatus != .playing { v.start() } }
         else if !active { v.player.pause(); v.player.seek(to: .zero) }
         else { v.player.pause() }
     }
@@ -1406,7 +1424,7 @@ final class MontanaVideoDock: NSObject, ObservableObject {
                 }
             }
         }
-        MontanaAudioSession.activatePlayback()
+        MontanaAudioSession.activatePlayback("note")   // held until the note lets go (letGo, 16.10)
         play()
     }
     /// THE NOTE STOPS ONLY WHEN ASKED (the author's word 18.09: the clock stood still now and then).
@@ -1426,7 +1444,7 @@ final class MontanaVideoDock: NSObject, ObservableObject {
                 MontanaTrace.mark("vnote_pause", "unasked at=\(Int(self.player.currentTime().seconds))s err=\(self.player.error?.localizedDescription ?? "-")")
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
                     guard let self, self.playing, self.file != nil, self.player.timeControlStatus != .playing else { return }
-                    MontanaAudioSession.activatePlayback()
+                    MontanaAudioSession.activatePlayback("note")
                     self.player.play(); self.player.rate = VoicePlayer.shared.voiceRate
                     MontanaTrace.mark("vnote_pause", "healed")
                 }
@@ -1474,6 +1492,7 @@ final class MontanaVideoDock: NSObject, ObservableObject {
         let had = file != nil
         player.replaceCurrentItem(with: nil)
         file = nil; progress = 0; elapsed = 0; duration = 0; badgeAt = nil; track = []; reading = nil; origin = nil; closing = false
+        MontanaAudioSession.release("note")   // the note's sound is let go: the last of ours brings the session back to rest (16.10)
         if had { VoicePlayer.shared.noteClosed() }   // the track that stepped aside for the note comes back (26.09)
     }
 }
@@ -2704,9 +2723,10 @@ struct MTMomentsViewer: View {
             .onAppear {
                 let photo = moments.indices.contains(at) && moments[at].photo
                 // A video speaks through the movie session, as the feed's clips did (the platform's player takes the session as it is).
-                if moments.contains(where: { !$0.photo }) { MontanaAudioSession.activatePlayback() }
+                if moments.contains(where: { !$0.photo }) { MontanaAudioSession.activatePlayback("moments") }
                 MontanaTrace.mark("gallery_view", "moments=\(moments.count) at=\(at) photo=\(photo ? 1 : 0)")
             }
+            .onDisappear { MontanaAudioSession.release("moments") }
     }
     /// The file under a name with its type, when its own name has none (the viewer tells the type by the name).
     private static func typed(_ m: MTMoment) -> URL {

@@ -260,12 +260,12 @@ struct MontanaPeerInfoScreen: View {
             let owns = MTGroup.shared.state(chat.name)?.mine == true
             let outside = MTGroup.shared.isOut(chat.name)
             let channel = MTGroup.shared.kind(chat.name) == .channel
-            if owns {
+            if owns && !outside {
                 // «Add Member» heads the people, as the reference folder's group page has it
                 rows.append(MTInfoRow(id: "members.add",
                                       kind: .action(title: "Add Member", icon: "person.badge.plus", destructive: false,
                                                     action: { addingPeople = true })))
-                if !channel {
+                if MTGroup.shared.manages(chat.name) {
                     // THE GROUP'S INVITE LINK (stage R.6, the reference folder's «Invite Link»): the owner's card and the group's mark,
                     // handed by the system's sheet; a reset ends every link given before
                     rows.append(MTInfoRow(id: "members.link",

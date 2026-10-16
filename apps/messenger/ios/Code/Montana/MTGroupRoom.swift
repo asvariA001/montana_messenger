@@ -295,6 +295,9 @@ final class MTRoomLive {
     var people: [String: Double]
     var pairs: [String: MTRoomPair] = [:]
     let uuid = UUID()
+    lazy var timeline = MTCallTimeline(uuid)
+    lazy var attendanceID = MTCallName.name(key + Data(uuid.uuidString.utf8))
+    var connectedAt: Date?
     var audio: RTCAudioTrack?
     var source: RTCVideoSource?
     var video: RTCVideoTrack?
@@ -370,8 +373,12 @@ final class MTGroupRoom: NSObject, CXProviderDelegate {
     private var rangBy: [String: Double] = [:]
     static let askerPause: Double = 120
     private(set) var live: MTRoomLive?
-    private let provider: CXProvider
-    private let controller = CXCallController()
+    var talkElapsed: (call: String, seconds: Int)? {
+        guard let r = live, let since = r.connectedAt else { return nil }
+        return (r.attendanceID, max(0, Int(Date().timeIntervalSince(since))))
+    }
+    private var provider: CXProvider { MTSystemCalls.shared.provider }
+    private var controller: CXCallController { MTSystemCalls.shared.controller }
     private var observers: [NSObjectProtocol] = []
     private let shareLock = NSLock()
     private var shareSource: RTCVideoSource?
@@ -379,17 +386,7 @@ final class MTGroupRoom: NSObject, CXProviderDelegate {
     private let sharePusher = RTCVideoCapturer()
 
     private override init() {
-        let cfg = CXProviderConfiguration()
-        cfg.supportsVideo = true
-        cfg.maximumCallGroups = 1
-        cfg.maximumCallsPerCallGroup = 1
-        cfg.supportedHandleTypes = [.generic]
-        // A group's room never enters the system's Recents: the journal outlives the room and would link who met whom.
-        cfg.includesCallsInRecents = false
-        cfg.iconTemplateImageData = MontanaCall.appGlyphTemplate()
-        provider = CXProvider(configuration: cfg)
         super.init()
-        provider.setDelegate(self, queue: nil)
         lift()
         let nc = NotificationCenter.default
         observers.append(nc.addObserver(forName: .montanaSeedForgotten, object: nil, queue: .main) { [weak self] _ in
@@ -753,6 +750,14 @@ final class MTGroupRoom: NSObject, CXProviderDelegate {
     /// THIS PHONE LEAVES THE ROOM: every pair hears its bye, the group hears it went out -- the last one out closes the room.
     func leave(why: String, tellGroup: Bool = true, systemEnded: Bool = false) {
         guard let r = live else { return }
+        MainActor.assumeIsolated {
+            MTCallRecording.shared.finish(r.uuid)
+            if let credit = MTCallMint.finish(talkElapsed) {
+                ChatStore.live?.appendCallLog(peer: r.chat, video: r.cameraOn || r.screen || r.pairs.values.contains { $0.camera },
+                    incoming: false, dur: talkElapsed?.seconds ?? 0, missed: false, credit: credit)
+            }
+        }
+        MTCallAudioOwner.shared.release(r.uuid)
         live = nil
         Self.setLive(false)
         let streamEnds = r.kind == .live && r.owner == r.me
@@ -1108,6 +1113,10 @@ final class MTGroupRoom: NSObject, CXProviderDelegate {
             p.linked = true; p.everLinked = true; p.lostAt = nil; p.restarts = 0
             r.unlinked.removeValue(forKey: p.seat)
             r.wasAlone = false
+            if r.connectedAt == nil {
+                r.connectedAt = Date()
+                MainActor.assumeIsolated { MTCallMint.begin(talkElapsed); MTMintBeat.run() }
+            }
             tune(p, r)
             tellState(to: p)
         case .disconnected:
@@ -1280,7 +1289,19 @@ final class MTGroupRoom: NSObject, CXProviderDelegate {
     }
 
     /// The screen's faces, in the order the people came in: mine among them, each with its own picture or its face.
+    func refreshRecording() {
+        guard let r = live, r.pairs.values.contains(where: { $0.linked }) else { return }
+        MainActor.assumeIsolated {
+            let recorder = MTCallRecording.shared
+            recorder.begin(uuid: r.uuid, id: r.attendanceID, chat: r.chat,
+                since: Date(timeIntervalSince1970: r.since), sendsToChat: true, timeline: r.timeline)
+            MTCallRecordingGate.mute(r.uuid, r.muted || !r.stage(r.me))
+            recorder.video(r.screenTrack ?? r.video, uuid: r.uuid, source: "video-local")
+            for p in r.pairs.values { recorder.video(p.remoteVideo, uuid: r.uuid, source: "video-" + p.seat) }
+        }
+    }
     private func refresh() {
+        refreshRecording()
         guard let r = live else { return }
         let m = MTRoomModel.shared
         let order = r.people.keys.sorted { a, b in Self.later((r.people[b] ?? 0, b), than: (r.people[a] ?? 0, a)) }
@@ -1383,6 +1404,7 @@ final class MTGroupRoom: NSObject, CXProviderDelegate {
     func setMuted(_ on: Bool, tellSystem: Bool = true) {
         guard let r = live else { return }
         r.muted = on
+        MTCallRecordingGate.mute(r.uuid, on || !r.stage(r.me))
         r.audio?.isEnabled = !on && !r.held
         MTRoomModel.shared.muted = on
         tellAll()
@@ -1394,6 +1416,7 @@ final class MTGroupRoom: NSObject, CXProviderDelegate {
     private func hold(_ on: Bool) {
         guard let r = live else { return }
         r.held = on
+        MTCallAudioOwner.shared.hold(r.uuid, on)
         MTRoomModel.shared.held = on
         r.audio?.isEnabled = !on && !r.muted
         for p in r.pairs.values { p.remoteAudio?.isEnabled = !on }
@@ -1426,12 +1449,14 @@ final class MTGroupRoom: NSObject, CXProviderDelegate {
         applySpeaker()
     }
     /// The loudspeaker by default in a room (many voices); a headset, a car or a speaker that holds the sound is never taken over.
-    private func applySpeaker() { MontanaCall.roomSpeaker(MTRoomModel.shared.speaker) }   // the call's file owns the sound
-    private func configureSound() { MontanaCall.roomSoundConfigure() }
-    /// The system refused the room its call: the sound is raised by hand (in the call's file) so the room still speaks.
-    private func soundByHand() {
-        MontanaCall.roomSoundByHand()
-        applySpeaker()
+    private func applySpeaker() {
+        guard let r = live else { return }
+        MTCallAudioOwner.shared.route(r.uuid, speaker: MTRoomModel.shared.speaker)
+    }
+    private func audioFailed(_ uuid: UUID, _ reason: String) {
+        guard live?.uuid == uuid else { return }
+        leave(why: reason)
+        MontanaCall.tellAudioFailure()
     }
 
     // -- the screen shown -----------------------------------------------------------------------
@@ -1502,28 +1527,46 @@ final class MTGroupRoom: NSObject, CXProviderDelegate {
     /// The room is one call of the system (CallKit): the sound is the system's to give, the lock screen shows it, a phone call
     /// holds it. The handle is the room's id -- it means nothing outside this phone and links nobody.
     private func startSystemCall(_ r: MTRoomLive, video: Bool) {
-        configureSound()
         let start = CXStartCallAction(call: r.uuid, handle: CXHandle(type: .generic, value: r.id))
         start.isVideo = video
+        MTSystemCalls.shared.register(r.uuid, delegate: self, recents: false)
         controller.request(CXTransaction(action: start)) { [weak self] err in
             DispatchQueue.main.async {
-                guard let self, let now = self.live, now === r, let err else { return }
+                guard let err else { return }
+                MTSystemCalls.shared.forget(r.uuid)
+                guard let self, let now = self.live, now === r else { return }
                 MontanaTrace.mark("room_system", "start refused \(err.localizedDescription)")
-                self.soundByHand()
+                self.audioFailed(r.uuid, "callkit-start-refused")
             }
         }
     }
     func providerDidReset(_ provider: CXProvider) { leave(why: "the system reset", systemEnded: true) }
+    func provider(_ provider: CXProvider, timedOutPerforming action: CXAction) {
+        guard let action = action as? CXCallAction, live?.uuid == action.callUUID else { return }
+        audioFailed(action.callUUID, "callkit-action-timeout")
+    }
     func provider(_ provider: CXProvider, perform action: CXStartCallAction) {
         guard let r = live, r.uuid == action.callUUID else { action.fail(); return }
-        action.fulfill()
-        provider.reportOutgoingCall(with: r.uuid, startedConnectingAt: nil)
-        provider.reportOutgoingCall(with: r.uuid, connectedAt: nil)
-        let u = CXCallUpdate()
-        u.localizedCallerName = MTRoomModel.shared.title
-        u.hasVideo = action.isVideo
-        u.supportsHolding = true; u.supportsGrouping = false; u.supportsUngrouping = false; u.supportsDTMF = false
-        provider.reportCall(with: r.uuid, updated: u)
+        let timeline = r.timeline
+        timeline.mark("room.start")
+        MTCallAudioOwner.shared.claim(r.uuid, timeline: timeline, waitForCamera: false) { [weak self] why in
+            self?.audioFailed(r.uuid, why)
+        }
+        MTCallAudioOwner.shared.prepare(r.uuid) { [weak self] ok in
+            guard let self, self.live === r, !action.isComplete else {
+                if !action.isComplete { action.fail() }; return
+            }
+            guard ok else { action.fail(); self.audioFailed(r.uuid, "audio-configuration-failed"); return }
+            action.fulfill()
+            provider.reportOutgoingCall(with: r.uuid, startedConnectingAt: nil)
+            provider.reportOutgoingCall(with: r.uuid, connectedAt: nil)
+            let u = CXCallUpdate()
+            u.localizedCallerName = MTRoomModel.shared.title
+            u.hasVideo = action.isVideo
+            u.supportsHolding = true; u.supportsGrouping = false; u.supportsUngrouping = false; u.supportsDTMF = false
+            provider.reportCall(with: r.uuid, updated: u)
+            MTCallAudioOwner.shared.expectActivation(r.uuid)
+        }
     }
     func provider(_ provider: CXProvider, perform action: CXEndCallAction) {
         action.fulfill()
@@ -1538,15 +1581,11 @@ final class MTGroupRoom: NSObject, CXProviderDelegate {
         if let r = live, r.uuid == action.callUUID { hold(action.isOnHold) }
     }
     func provider(_ provider: CXProvider, didActivate audioSession: AVAudioSession) {
-        RTCAudioSession.sharedInstance().audioSessionDidActivate(audioSession)
-        RTCAudioSession.sharedInstance().isAudioEnabled = true
+        guard live != nil else { return }
         applySpeaker()
         MontanaTrace.mark("room_system", "sound on")
     }
     func provider(_ provider: CXProvider, didDeactivate audioSession: AVAudioSession) {
-        RTCAudioSession.sharedInstance().audioSessionDidDeactivate(audioSession)
-        if MontanaCall.stateSnapshot == "idle" { RTCAudioSession.sharedInstance().isAudioEnabled = false }
-        MontanaAudioSession.callEnded()
         MontanaTrace.mark("room_system", "sound off")
     }
 
@@ -1661,6 +1700,7 @@ struct MTRoomPill: View {
 /// tap, the controls at the bottom; the owner's hand over each face (a long press) and over the room (the top menu).
 struct MTRoomScreen: View {
     @ObservedObject private var m = MTRoomModel.shared
+    @ObservedObject private var callUI = CallUIModel.shared
     @State private var inviting = false
     @State private var confirmEnd = false
 
@@ -1669,6 +1709,7 @@ struct MTRoomScreen: View {
             Color.black.ignoresSafeArea()
             VStack(spacing: 12) {
                 top
+                MTCallRecordingStatus()
                 if m.held {
                     // THE HELD ROOM SAYS SO (a phone call took the sound): the whole line is the way back
                     Button { MTGroupRoom.shared.resume() } label: {
@@ -1705,6 +1746,7 @@ struct MTRoomScreen: View {
                 .allowsHitTesting(false)
             }
         }
+        .modifier(MTCallRecordingConsent())
         .preferredColorScheme(.dark)
         .sheet(isPresented: $inviting) {
             MTRoomInviteSheet(chat: m.chat, kind: m.kind, video: m.camera, opening: false)
@@ -1790,18 +1832,18 @@ struct MTRoomScreen: View {
                 }
                 screenControl
             }
-            if MontanaAudioRoute.isExternal {
+            if callUI.route.menu {
                 // a headset, a car or a speaker holds the sound: the system's own choice of the road, as in a call of two
                 VStack(spacing: 4) {
                     ZStack {
-                        face("airplayaudio", on: false, red: false)
+                        face(callUI.route.icon, on: callUI.route.lit, red: false)
                         CallOverlayView.MTRoutePicker().frame(width: 56, height: 56)
                     }
                     Text("Audio").font(.caption2).foregroundStyle(.white.opacity(0.85)).lineLimit(1).minimumScaleFactor(0.7)
                 }
                 .frame(maxWidth: .infinity)
             } else {
-                control(m.speaker ? "speaker.wave.2.fill" : "speaker.fill", "Speaker", on: m.speaker) { MTGroupRoom.shared.setSpeaker(!m.speaker) }
+                control(callUI.route.icon, "Speaker", on: callUI.route.lit) { MTGroupRoom.shared.setSpeaker(!callUI.route.lit) }
             }
             control("phone.down.fill", "Leave", on: false, red: true) { MTGroupRoom.shared.leave(why: "by hand") }
         }

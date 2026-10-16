@@ -18,7 +18,20 @@ final class NotificationService: UNNotificationServiceExtension {
     private var ready: UNNotificationContent?
 
     override func didReceive(_ request: UNNotificationRequest,
-                             withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void) {
+                             withContentHandler system: @escaping (UNNotificationContent) -> Void) {
+        // THE PUSH'S OWN COST (16.10.2026, No.70; the author's word: «a tester's phone heats -- close the holes in the metrics»):
+        // this process is not the app -- its processor time stands in no day's bill of the app and in no load line, while a push
+        // may hold it up to twenty-two seconds on the network and the post-quantum keys. Every road out hands the banner through
+        // this one closure, which first writes what the push cost: the process may serve several pushes, so the processor time
+        // is the difference from this push's start.
+        let cpuAtStart = Self.runMicros()
+        let bornAt = Date()
+        let contentHandler: (UNNotificationContent) -> Void = { content in
+            let now = Self.runMicros()
+            let spent = cpuAtStart <= now ? now - cpuAtStart : 0
+            Self.diagLine("cost: cpu_ms=\(spent / 1000) wall_ms=\(Int(Date().timeIntervalSince(bornAt) * 1000))")
+            system(content)
+        }
         handler = contentHandler
         Self.servingId = request.identifier
         Self.sweepQuiet()
@@ -456,6 +469,13 @@ final class NotificationService: UNNotificationServiceExtension {
     /// THE WHOLE WAKE HAS ONE BUDGET (the author's word 06.10.2026 23:5x MSK; T1 20:51Z on 2143: the box gave 26 letters, the diary
     /// held no line after it, the phone no crash and no memory event, and the banner went out as the bare composed plate without its
     /// person): every walk of the network ends by 22 s from the wake, whatever its own seconds.
+    /// This process's processor time over every thread it had, in microseconds (the kernel's rusage) -- the app's twin is
+    /// MontanaPower.runMicros; the extension does not carry that file.
+    private static func runMicros() -> UInt64 {
+        var u = rusage()
+        guard getrusage(RUSAGE_SELF, &u) == 0 else { return 0 }
+        return UInt64(u.ru_utime.tv_sec + u.ru_stime.tv_sec) * 1_000_000 + UInt64(u.ru_utime.tv_usec + u.ru_stime.tv_usec)
+    }
     private static func within(_ seconds: TimeInterval, of began: Date) -> Date {
         min(Date().addingTimeInterval(seconds), began.addingTimeInterval(22))
     }

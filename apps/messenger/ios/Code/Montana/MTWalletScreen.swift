@@ -14,7 +14,7 @@ struct MTWalletPage: View {
     @ObservedObject private var vault = MTCoinVault.shared
     @ObservedObject private var tipNet = MTTimeChainTip.shared
     @ObservedObject private var coinSplit = MTCoinSplit.shared   // the balance as its chain holds it, proven and declared
-    @AppStorage(MTCoinShow.key) private var coinsShown = false   // the owner's switch (Privacy), read here for the table's line
+    @AppStorage(MTCoinShow.key) private var coinsShown = true   // the owner's switch (Privacy), read here for the table's line
     @AppStorage(MTPersonalRate.key) private var personalRate = ""   // the person's own rate of the coin, for the balance in their currency
     @State private var sending = false
     @State private var toppingUp = false
@@ -154,7 +154,7 @@ struct MTWalletPage: View {
                         // everything at once»; «the minting has its own chain of time, and as it is confirmed it releases the available, never
                         // holding back the credits of transfers»). T1 at 12:44:25Z: a transfer of 100 000 credited, and the figure -- then the
                         // chain's fold -- stood still. The figure is every coin the book holds, minted and received by every road; under it the
-                        // part the person's chain on the network confirms (MTCoinSplit), its split, and what still waits for its window of τ1.
+                        // part the person's chain on the network holds for its one owner (MTCoinSplit.available), and nothing more.
                         // USER-DATA: the balance, a number, and the ticker, one symbol in every language
                         (Text(verbatim: MTCoinText.count(total)) + Text(verbatim: " " + MTCoinBook.ticker))
                             .font(.system(size: 48, weight: .bold).monospacedDigit()).lineLimit(1).minimumScaleFactor(0.5)
@@ -167,22 +167,11 @@ struct MTWalletPage: View {
                         // USER-DATA: the same balance in Montana (one coin is 0.000000001)
                         Text(verbatim: MTChatMint.montana(total) + " Ɱ")
                             .font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
-                        // THE BALANCE AS ITS CHAIN HOLDS IT (MTCoinSplit; the chairman's task 12.10.2026, No.65: «the balance figure stays one,
-                        // and beneath it the split proven / declared»): what the chain proves by mints and receipts and what its opening
-                        // announced -- once the chain opened.
-                        if let split = coinSplit.split {
-                            let available = Int(clamping: split.proven + split.declared)
-                            // USER-DATA: the coins the person's chain on the network confirms, the spendable part of the total
-                            Text("Available \(MTCoinText.count(available))").font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
-                            // USER-DATA: two counts of coins, each beside its word
-                            Text("Proven \(MTCoinText.count(Int(clamping: split.proven))) · Declared \(MTCoinText.count(Int(clamping: split.declared)))")
-                                .font(.footnote.monospacedDigit()).foregroundStyle(.secondary)
-                            let waiting = book.balance - available
-                            if 0 < waiting {
-                                // USER-DATA: the coins the book holds above the chain, minted onto it as the key's time allows (COIN-TX-V3 section 4)
-                                Text("\(MTCoinText.count(waiting)) more wait to be minted in time").font(.footnote.monospacedDigit()).foregroundStyle(.secondary)
-                            }
-                        }
+                        // THE AVAILABLE, AND NOTHING MORE BENEATH (the author's word 16.10.2026 17:19 MSK: «on the coins page do not show
+                        // below Proven, Declared, More wait to be minted -- it is enough to show how much is available with one owner»):
+                        // the one number every transfer page shows and weighs by (MTCoinSplit.available).
+                        // USER-DATA: the coins the person's chain holds for its one owner, the spendable part of the total
+                        Text("Available \(MTCoinText.count(coinSplit.available))").font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
                         // THE BALANCE IN THE PERSON'S CURRENCY (the author's word 05.10.2026 00:25 MSK: «under the line of the coins in
                         // Montana, above the level of π, the wallet's balance in the chosen currency at the person's rate»): the balance
                         // times one coin's worth by their own earning (MTPersonalRate), once that earning is told.
@@ -355,6 +344,7 @@ struct MTWalletPage: View {
                 }
             }
             .sheet(isPresented: $sending) { MTCoinSendSheet() }
+            .environment(\.mtBalanceAlreadyVisible, true)
             .sheet(isPresented: $toppingUp) { MTCoinTopUpSheet() }
             .sheet(isPresented: $levelsShown) { MTPiLevelsSheet() }
         }
@@ -998,8 +988,37 @@ struct MTHistoryCard: View {
 struct MTExplorerLink: Identifiable { let url: URL; var id: String { url.absoluteString } }
 struct MTExplorerSheet: UIViewControllerRepresentable {
     let url: URL
+    static func open(_ url: URL) {
+        MTTop.present(SFSafariViewController(url: url), kind: "coin-explorer")
+    }
     func makeUIViewController(context: Context) -> SFSafariViewController { SFSafariViewController(url: url) }
     func updateUIViewController(_ vc: SFSafariViewController, context: Context) {}
+}
+
+struct MTCallCoinReceipt: View {
+    let coins: Int
+    var body: some View {
+        Button {
+            let url = MTCoinTx.cachedKeyTag.flatMap { URL(string: MTCoinTx.keyLink + $0) } ?? MTCoinTx.explorer
+            MTExplorerSheet.open(url)
+        } label: {
+            HStack(spacing: 5) {
+                MTMintCoin(spinning: false, side: 18)
+                // USER-DATA: only the amount settled for this call, never a duration estimate.
+                Text(verbatim: (coins > 0 ? "+" : "") + MTCoinText.count(coins) + " " + MTCoinBook.ticker)
+                    .font(.system(size: 15, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(coins > 0 ? Color.green : (coins < 0 ? Color.red : Color.secondary))
+                    .lineLimit(1).minimumScaleFactor(0.65)
+                Image(systemName: "magnifyingglass").font(.caption).foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 10).padding(.vertical, 5)
+            .background(.thinMaterial, in: Capsule())
+            .frame(minHeight: 44).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityHint(Text("Open in Explorer"))
+    }
 }
 
 /// THE NEXT BOX FILLS AS A LOAD FILLS (the author's word 04.10.2026 03:48 MSK: «while minting, the system's progress bar of this box to
@@ -1034,7 +1053,7 @@ struct MTSecondPrice: View {
     @AppStorage(MTPersonalRate.key) private var stored = ""
     var body: some View {
         VStack(spacing: 0) {
-            Text("1 second = \(MTCoinBook.price) coins").font(.footnote.monospacedDigit()).foregroundStyle(.secondary)
+            MTCurrentMintRate().font(.footnote.monospacedDigit()).foregroundStyle(.secondary)
             // THE PERSON'S RATE UNDER OURS (the author's word 04.10.2026 19:19 MSK, MTPersonalRate): once their earning is told, one
             // coin in their currency stands under the second's price.
             if let word = MTPersonalRate.read(stored) {
@@ -1430,10 +1449,10 @@ struct MTTimeChainLinkRow<Content: View>: View {
     }
     var body: some View {
         if let url {
-            Link(destination: url) { content().frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle()) }
+            Button { MTExplorerSheet.open(url) } label: { content().frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle()) }
                 .foregroundStyle(.primary)
                 .contextMenu {
-                    Link(destination: url) { Label("Open in Explorer", systemImage: "magnifyingglass") }
+                    Button { MTExplorerSheet.open(url) } label: { Label("Open in Explorer", systemImage: "magnifyingglass") }
                     Button { UIPasteboard.general.string = url.absoluteString } label: { Label("Copy confirmation link", systemImage: "doc.on.doc") }
                     Button { MTShare.present([url]) } label: { Label("Share confirmation link", systemImage: "square.and.arrow.up") }
                 }
@@ -1529,7 +1548,7 @@ struct MTTimeChainsPage: View {
             // transaction ... everything professional in the TimeChain, for auditors»): the public page that reads a transfer's
             // record from the nodes and verifies its signature with the core (Audit/COIN-TX-V1.md); every transfer link opens it.
             Section {
-                Link(destination: MTCoinTx.explorer) {
+                Button { MTExplorerSheet.open(MTCoinTx.explorer) } label: {
                     Label("Explorer", systemImage: "magnifyingglass").frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle())
                 }
             } footer: {
@@ -1600,19 +1619,42 @@ struct MTTimeChainsPage: View {
 /// App Review 2.3.1(a)): how coins come and how they go, each rule as the code keeps it -- the Pantheon (MTPantheon), the auto
 /// minting (MTWalletPull), the Money Flow and the ordinary chat (MTChatMint, MTCoinSend.pay, MTCallMint), people, comments, chess --
 /// and what the coins are not. One list for the wallet's page and the Top up sheet.
+/// The wallet and its instructions read the same multiplier that the ledger applies.
+/// The player's face changes only with playback state, never with its progress clock.
+struct MTCurrentMintRate: View {
+    @ObservedObject private var book = MTLocalCoinLedger.shared
+    @ObservedObject private var music = VoicePlayer.shared.face
+    var body: some View {
+        Text("1 second = \(MTCoinBook.price * MTPiLevels.multiplier(book.balance)) coins")
+    }
+}
+
 struct MTCoinRules: View {
     var body: some View {
-        Label("Tap the coin: every tap mints coins at your level, up to 13 taps a second, and all coins of one second stop at 13 (26 while music plays). The fire burns while you tap, a minute at most, then rests a minute; three seconds without a tap put it out.", systemImage: "flame")
-        Label("Pull this page down past the coin, or hold the coin: coins come by themselves every second at your level while this page stays open. Leaving the page or locking the screen stops it.", systemImage: "arrow.down.circle")
-        Label("Your level is how many of the amounts 3, 31, 314 … (the digits of π) your balance reaches, at least 1 and at most 13. While your music plays, every amount at your level doubles. All coins made in one second stop at 13 together, 26 while music plays; Money Flow letters and a chess game's pot are outside this limit.", systemImage: "chart.bar")
-        Label("Chats: every letter, yours and your correspondent's, brings you coins at your level.", systemImage: "bubble.left.and.bubble.right")
-        Label("Calls: every second of a call brings each of its people coins at their own level.", systemImage: "phone")
-        Label("A person sends you coins in your chat", systemImage: "person.2")
-        Label("Comments: a comment costs its writer one coin, which goes to the owner of the wall; a comment in a channel costs nothing. Of every five comment coins on a post, the owner's book burns four and gives the fifth to the post's writer, keeping it when the post is the owner's own.", systemImage: "text.bubble")
-        Label("Groups and channels: every letter longer than 13 characters brings you coins at your level.", systemImage: "person.3")
-        Label("Chess: each move puts its maker's level times a thousand coins into the game's pot, and the inviter may name a stake that both players put in; the winner takes the pot, a draw gives each their own back.", systemImage: "checkerboard.rectangle")
-        Label("Chess Timer: while your opponent thinks, your side mints coins at your level every second.", systemImage: "timer")
-        Label("Coins cannot be bought or sold in the app, and the app exchanges them for no money. An amount shown in a currency is only your own estimate, from the earnings you entered.", systemImage: "info.circle")
+        Section {
+            MTCurrentMintRate().monospacedDigit()
+            Text("Your level increases minting. Playing music in Montana doubles it. The rate above already includes these multipliers.")
+        } header: { Text("Your minting rate now") }
+        Section {
+            Label("Audio and video calls with recording earn coins. Calls without recording burn coins at the same current rate for every full second after connection.", systemImage: "phone")
+            Text("Each participant is counted separately by the recording on their device. Recording starts counting when audio is captured; switching it off or a recording failure switches the following seconds to burning.")
+            Text("Other minting does not reduce call earnings. The call record shows your total: a plus for coins earned, a minus for coins burned. Ringing and missed calls cost nothing. An empty balance does not stop the call or create debt.")
+        } header: { Text("Calls and recording") }
+        Section {
+            Label("Tap the coin on the Time Coins page to mint. Up to 13 taps count each second. After a minute of tapping, the game rests for a minute.", systemImage: "hand.tap")
+            Label("Hold the coin for 9 seconds or pull down the Time Coins page to start auto minting. It stops when you leave that page or lock the screen.", systemImage: "arrow.down.circle")
+            Label("Messages you send and receive earn coins at your level. Transfers and call records do not mint again as messages.", systemImage: "bubble.left.and.bubble.right")
+            Label("In groups and channels, text messages longer than 13 characters earn coins at your level.", systemImage: "person.3")
+            Label("An active VPN connection earns coins for the seconds it works.", systemImage: "network")
+        } header: { Text("More ways to mint") }
+        Section {
+            Label("Chess moves add coins to the prize at the player's level. The winner takes the prize; a draw returns each player's share. A stake is optional.", systemImage: "checkerboard.rectangle")
+            Label("In Chess Timer, coins grow while your opponent thinks.", systemImage: "timer")
+            Label("Someone can send you coins in a chat. These coins come from that person.", systemImage: "person.2")
+        } header: { Text("Games and transfers") }
+        Section {
+            Text("Coins cannot be bought, sold or exchanged for money in the app. Your currency estimate is only a calculation based on the earnings you entered.")
+        } header: { Text("About money") }
     }
 }
 
@@ -1621,12 +1663,15 @@ struct MTCoinTopUpSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section { MTCoinRules() }
+                MTCoinRules()
             }
             .navigationTitle("Top up")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { MontanaBarMark(glyph: "xmark", label: "Close") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button { dismiss() } label: { Image(systemName: "xmark").frame(width: 44, height: 44) }
+                        .accessibilityLabel(Text("Close"))
+                }
             }
         }
     }
@@ -1637,17 +1682,23 @@ struct MTCoinTopUpSheet: View {
 /// as the platform writes a subtitle (its own on iOS 26, the title's second line before it).
 struct MTBalanceTitle: ViewModifier {
     let title: LocalizedStringKey
+    /// A TRANSFER'S PAGE SHOWS THE AVAILABLE (the author's word 16.10.2026 17:19 MSK: «a transfer from the chat and from any place
+    /// shows only the available»): the number the send is weighed by, not the book's whole.
+    var available = false
     @ObservedObject private var book = MTLocalCoinLedger.shared
+    @ObservedObject private var split = MTCoinSplit.shared
     static func line(_ coins: Int) -> Text { Text("\(MTCoinText.count(coins)) coins") }
+    // USER-DATA: a count of coins beside its word
+    private var subtitle: Text { available ? Text("Available \(MTCoinText.count(split.available))") : Self.line(book.balance) }
     @ViewBuilder func body(content: Content) -> some View {
         if #available(iOS 26.0, *) {
-            content.navigationTitle(title).navigationSubtitle(Self.line(book.balance))
+            content.navigationTitle(title).navigationSubtitle(subtitle)
         } else {
             content.navigationTitle(title).toolbar {
                 ToolbarItem(placement: .principal) {
                     VStack(spacing: 0) {
                         Text(title).font(.headline)
-                        Self.line(book.balance).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                        subtitle.font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                     }
                     .accessibilityElement(children: .combine)
                 }
@@ -1663,7 +1714,9 @@ struct MTBalanceCaption: View {
 }
 
 extension View {
-    func montanaBalanceTitle(_ title: LocalizedStringKey) -> some View { modifier(MTBalanceTitle(title: title)) }
+    func montanaBalanceTitle(_ title: LocalizedStringKey, available: Bool = false) -> some View {
+        modifier(MTBalanceTitle(title: title, available: available)).environment(\.mtBalanceAlreadyVisible, true)
+    }
 }
 
 /// SEND COINS TO PEOPLE (the author's words 03.10 13:53 and 21:53: «in the wallet when sending, everything seen as in the chats'
@@ -1676,6 +1729,7 @@ struct MTCoinSendSheet: View {
     @ObservedObject private var book = MTLocalCoinLedger.shared
     @ObservedObject private var board = MTCoinBoard.shared
     @ObservedObject private var seats = MTSeats.shared   // the persons waiting on this phone's shelf: my other accounts
+    @ObservedObject private var split = MTCoinSplit.shared   // the available, the one number a transfer shows and is weighed by
     /// EVERY PAIR OF THE CHATS TAB, IN ITS ORDER, EVERY ONE OPEN (the author's words 11.10.2026 17:5x MSK: «put full order in the list
     /// of chats for sending the time coins -- not all chats show on the send page»; 19:5x: «the person is the seed and everything is in
     /// it»): a person is their seed and their wallet is in it, so no row stands dimmed «no wallet yet» (MTCoinSend.canPay).
@@ -1719,8 +1773,8 @@ struct MTCoinSendSheet: View {
                                         .background(Color(white: chosen == n ? 0.45 : 0.3), in: Capsule())
                                 }
                                 .buttonStyle(.plain)
-                                .disabled(book.balance < n)
-                                .opacity(book.balance < n ? 0.4 : 1)
+                                .disabled(split.available < n)
+                                .opacity(split.available < n ? 0.4 : 1)
                             }
                         }
                     }
@@ -1813,7 +1867,7 @@ struct MTCoinSendSheet: View {
             .scrollContentBackground(.hidden)
             .scrollDismissesKeyboard(.interactively)
             .montanaPageGround()
-            .montanaBalanceTitle("Send")
+            .montanaBalanceTitle("Send", available: true)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { MontanaBarMark(glyph: "xmark", label: "Close") { dismiss() } }
@@ -1909,7 +1963,7 @@ struct MTCoinSendSheet: View {
     private func levelPlan() -> (level: Int, gifts: [(name: String, give: Int)], total: Int) {
         let top = topThirteen
         guard let peak = top.first?.coins, let floor = top.last?.coins else { return (0, [], 0) }
-        let budget = book.balance
+        let budget = split.available
         func fill(_ level: Int) -> Int { top.reduce(0) { sum, p in sum + max(0, level - p.coins) } }
         var low = floor, high = peak
         while low < high {
@@ -1937,7 +1991,7 @@ struct MTCoinSendSheet: View {
                 picked.remove(p.name)
             }
         }
-        MontanaTrace.mark("coin_level", "top=\(topThirteen.count) level=\(plan.level) total=\(plan.total) balance=\(book.balance)")
+        MontanaTrace.mark("coin_level", "top=\(topThirteen.count) level=\(plan.level) total=\(plan.total) available=\(split.available)")
     }
     /// A shelf person's key among the picks: never a chat's name.
     private static func seatKey(_ id: String) -> String { "seat:" + id }   // NOT-UI: the pick's key
@@ -1945,7 +1999,7 @@ struct MTCoinSendSheet: View {
         guard let store = ChatStore.live else { return }
         let to = chats.filter { c in picked.contains(c.name) && 0 < coins(c.name) }
         let toSeats = seats.parked.filter { s in picked.contains(Self.seatKey(s.id)) && 0 < coins(Self.seatKey(s.id)) }
-        guard !to.isEmpty || !toSeats.isEmpty, total <= MTCoinBook.ledger.balance else { ask = .short; return }
+        guard !to.isEmpty || !toSeats.isEmpty, total <= split.available else { ask = .short; return }
         if !toSeats.isEmpty, !linkAgreed { ask = .link; return }
         let each = Dictionary(uniqueKeysWithValues: to.map { c in (c.name, coins(c.name)) })
         for c in to { going[c.name] = false }

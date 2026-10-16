@@ -1135,15 +1135,17 @@ struct MovieFile: Transferable {
 struct StoryVideo: View {
     let url: URL
     @State private var player: AVPlayer?
+    /// The story's sound is held by the story's own name while it stands on the screen (16.10).
+    private var hold: String { "story " + url.lastPathComponent }
     var body: some View {
         VideoPlayer(player: player)
             .onAppear {
-                MontanaAudioSession.activatePlayback()
+                MontanaAudioSession.activatePlayback(hold)
                 let p = AVPlayer(url: url)
                 player = p
                 p.play()
             }
-            .onDisappear { player?.pause() }
+            .onDisappear { player?.pause(); MontanaAudioSession.release(hold) }
     }
 }
 

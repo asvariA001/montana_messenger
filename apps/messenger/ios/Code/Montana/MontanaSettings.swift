@@ -951,9 +951,7 @@ struct AppearanceView: View {
     @AppStorage("cbBgType") private var cbBgType = "gradient"
     @AppStorage("cbBg1") private var cbBg1 = BT.bg1
     @AppStorage("cbBg2") private var cbBg2 = BT.bg2
-    @AppStorage(MTAvatarBadges.coinsKey) private var badgeCoins = true   // this phone draws the balances at the faces (11.10)
-    @AppStorage(MTLevelShow.shownKey) private var levelShown = true   // my Global Level reaches the correspondents and theirs is drawn (12.10)
-    @AppStorage(MTCoinShow.key) private var coinsShown = false   // read for the line that leads to Privacy (11.10)
+    @AppStorage(MTCoinShow.key) private var coinsShown = true   // read for the line that leads to Privacy (11.10)
     @State private var bgPhotoItem: PhotosPickerItem?
     @ObservedObject private var wallBook = MTWallpaper.Book.shared
     @State private var editor: ColEdit?
@@ -1034,20 +1032,14 @@ struct AppearanceView: View {
             Section("App icon") {
                 MTAppIconChooser()
             }.listRowBackground(MTGlassRowPlate())
-            // THE BALANCE AND THE LEVEL AT THE FACES (the author's word 11.10.2026 21:2x MSK: «everywhere an avatar is shown, make it
-            // possible to show the balance on the left and the user's global level on the right, and in the settings let the
-            // privacy be governed in Appearance»; 12.10.2026 15:5x MSK: «on by default -- shows and sees, as with a delivery report»):
-            // whether this phone draws the balances at the faces (MTAvatarBadges), and the levels' one switch both ways (MTLevelShow,
-            // born on); my own balance leaves only by Show my coins, and the line leads there.
+            // 14.10.2026: reputation is mandatory; only the owner's balance can be hidden in Privacy.
             Section {
-                Toggle("Show balances at avatars", isOn: $badgeCoins)
-                Toggle("Show levels at avatars", isOn: $levelShown)
-                    .onChange(of: levelShown) { _, on in MTLevelShow.changed(on) }   // the people in the app hear it now
+                Text("Your level is your reputation and is always visible. You can hide your balance in Privacy.")
                 NavigationLink { PrivacyView() } label: {
                     LabeledContent { Text(coinsShown ? "On" : "Off") } label: { Text("Show my coins") }
                 }
             } header: { Text("Balance and level at avatars") } footer: {
-                Text("On by default, as read receipts: while levels are on, your contacts see your Global Level at your avatar and you see theirs; off, neither. The Global Level is the lower of your level of time online and your level of π, so it tells about how long you have been online and how many coins you hold. Your balance reaches others only by Show my coins in Privacy.")
+                Text("The level badge is red at the lowest reported level and green at the highest. Its color follows the current distribution of levels.")
             }.listRowBackground(MTGlassRowPlate())
             // The note's picture quality (the author's word 18.09): three steps, the platform's own
             // segmented picker — the source's height and the encoder's rate (MontanaNoteQuality).
@@ -1629,6 +1621,14 @@ func settingsToggleLabel(_ title: LocalizedStringKey, _ icon: String, _ color: C
 /// is asked; the privacy page asks again on every return to the app. The tap is the location row's one tap: a
 /// permission never asked is asked here, one already decided is changed where the system keeps it.
 enum MTSystemAccess {
+    static var refused: Bool {
+        let media = [AVCaptureDevice.authorizationStatus(for: .video), AVCaptureDevice.authorizationStatus(for: .audio)]
+        let contacts = CNContactStore.authorizationStatus(for: .contacts)
+        let photos = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        return media.contains { $0 == .denied || $0 == .restricted }
+            || contacts == .denied || contacts == .restricted || photos == .denied || photos == .restricted
+    }
+
     static var photosWord: String {
         switch PHPhotoLibrary.authorizationStatus(for: .readWrite) {
         case .authorized: return "Full Access"
@@ -1714,13 +1714,14 @@ struct PrivacyView: View {
             store.sealForForget { SeedScope.forget(); ui.settingsShown = false }
         }
     }
+    @AppStorage(MTCallRecordingPolicy.key) private var recordCalls = true
     @AppStorage("readReceiptsEnabled") private var readReceipts = true
     @AppStorage("objectionableFilterOn") private var objectionableFilter = true   // Guideline 1.2: the fold over objectionable words
     @AppStorage("syncContactsToPhone") private var syncContacts = true
     @AppStorage(MontanaDiagConsent.key) private var diagShare = MontanaDiagConsent.birth   // the diary leaves only by this yes (08.10)
     @AppStorage(MTLinkPreviewBuilder.switchKey) private var linkPreviews = true   // the card of a link I send — my device reads that page
     @State private var presenceShared = MontanaPresencePrivacy.sharing
-    @AppStorage(MTCoinShow.key) private var coinsShown = false   // the owner shows or hides their coins (04.10)
+    @AppStorage(MTCoinShow.key) private var coinsShown = true   // the owner shows or hides their coins (04.10)
     @State private var localNetwork = MontanaPhoneNode.meshDiscoverable   // the one mesh switch owns the concept
     @ObservedObject private var place = MTLocationAccess.shared   // the one owner of the location permission says the word
     @State private var photosAccess = MTSystemAccess.photosWord       // the system's own word for this app's photos
@@ -1819,6 +1820,11 @@ struct PrivacyView: View {
                         Toggle("Show my coins", isOn: $coinsShown)
                     }
                     Text("Your name and coins stand in the Montana top for everyone, and your correspondents see your coins. Off, you are not in the top.")
+                        .font(.caption).foregroundColor(.gray)
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Record calls", systemImage: "record.circle", isOn: $recordCalls)
+                    Text("After your first consent, calls are recorded automatically on this phone and sent to the call's chat. Turning this off stops the current recording too.")
                         .font(.caption).foregroundColor(.gray)
                 }
                 HStack(spacing: 12) {
@@ -1934,6 +1940,8 @@ struct PrivacyView: View {
         .navigationTitle("Privacy")
         .navigationBarTitleDisplayMode(.inline)
         .onChange(of: presenceShared) { _, v in MontanaPresencePrivacy.setSharing(v) }   // 10-C.3
+        .modifier(MTCallRecordingConsent())
+        .onChange(of: recordCalls) { _, on in MTCallRecording.shared.changed(on) }
         .onChange(of: coinsShown) { _, v in MTTopNet.shared.showChanged(v) }   // the table and the pairs hear it now
         .onChange(of: diagShare) { _, _ in MontanaDiagConsent.apply() }   // off: the extensions lose the diary's id at once
         .onAppear { refreshAccess() }

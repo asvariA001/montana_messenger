@@ -99,7 +99,16 @@ enum MontanaLog {
     /// The telemetry channel's entry point, and the only name the app and its extensions use for it.
     /// It lives here rather than on MontanaTelemetry because that facility is compiled into the app
     /// target alone — which is exactly how a second logger came to exist for the extensions to call.
-    static func event(_ msg: String) { write(.telemetry, " " + msg) }
+    static func event(_ msg: String, numbers: [String: Int64] = [:]) { write(.telemetry, " " + msg, numbers: numbers) }
+
+    /// Typed counters cannot contain private strings. Keep them numeric on disk: the generic
+    /// hex-name filter also matches a thirteen-digit UTC timestamp. All text still passes hide.
+    static func body(_ body: String, numbers: [String: Int64]) -> String {
+        let metrics = numbers.sorted { $0.key < $1.key }.filter {
+            !$0.key.isEmpty && $0.key.utf8.allSatisfy { $0 == 95 || (97...122).contains($0) }
+        }.map { " \($0.key)=\($0.value)" }.joined()
+        return hide(body) + metrics
+    }
 
     /// The journal's own time for a record written past the queue (the crash handler): the same
     /// formatter, so a filter by the hour finds it like any other line.
@@ -232,8 +241,8 @@ enum MontanaLog {
     /// otherwise take the queue's tail with it. MAIN-SAFE-SYNC: called once, by the install road's prepare, a moment
     /// before exit; the queue holds only file appends and never waits on the main thread -- the wait is the diary's tail.
     static func drain() { q.sync {} }
-    static func write(_ ch: Channel, _ body: String) {
-        let line = iso.string(from: Date()) + hide(body) + "\n"
+    static func write(_ ch: Channel, _ body: String, numbers: [String: Int64] = [:]) {
+        let line = iso.string(from: Date()) + Self.body(body, numbers: numbers) + "\n"
         if isExtension { bridgeToApp(line) }
         q.async {
             let u = url(ch)

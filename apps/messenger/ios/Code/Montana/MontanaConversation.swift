@@ -1087,11 +1087,13 @@ struct ChatInputBar: View {
 
 /// THE AVAILABLE BALANCE ABOVE THE FIELD (the author's word 06.10.2026 23:2x MSK: «while entering, the exact available balance above
 /// or under the line of the message»): in the coin's mode of the bar (ChatInputBar.coinMode) this plate stands on the feed's side of
-/// the field, where a reply's plate stands; its cross takes the button back to the microphone. It observes the book alone, so the
-/// page is not drawn again at every coin minted.
+/// the field, where a reply's plate stands; its cross takes the button back to the microphone. It observes the book and the chain's
+/// split alone, so the page is not drawn again at every coin minted. The number is the available (the author's word 16.10.2026
+/// 17:19 MSK: «a transfer from the chat and from any place shows only the available»), the one the coin's send is weighed by.
 struct MTCoinBalancePlate: View {
     let onClose: () -> Void
     @ObservedObject private var book = MTLocalCoinLedger.shared
+    @ObservedObject private var split = MTCoinSplit.shared
     var body: some View {
         let h = MontanaOctagon.composeHeight
         HStack(spacing: 10) {
@@ -1099,8 +1101,8 @@ struct MTCoinBalancePlate: View {
                 MTMintCoin(spinning: false, side: 22)
                 VStack(alignment: .leading, spacing: 0) {
                     Text("Available").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                    // USER-DATA: the coin book's balance, whole
-                    Text(verbatim: MTCoinText.count(book.balance)).font(.footnote.monospacedDigit()).lineLimit(1)
+                    // USER-DATA: the coins available to send, a number
+                    Text(verbatim: MTCoinText.count(split.available)).font(.footnote.monospacedDigit()).lineLimit(1)
                 }
                 Spacer(minLength: 0)
             }
@@ -1554,8 +1556,8 @@ struct ChatConversationView: View {
 
     /// A GAME ENTERED FROM THIS CHAT (29.09): the entry accepts an unanswered invitation (MTChessSend.join) and the board rises
     /// on this chat's own stack (MTChessPush) -- the invitation's tap, the banner's tap and the meeting (30.09) walk this one road.
-    /// THE COIN FROM THE FIELD (ChatInputBar's coin mode): the authoritative local book alone
-    /// may say that a sum is short. A chain/network answer which is still undecided is never
+    /// THE COIN FROM THE FIELD (ChatInputBar's coin mode): the available the plate shows alone
+    /// may say that a sum is short (MTCoinSplit.available). A chain/network answer which is still undecided is never
     /// translated into «Not enough coins» -- that would make the shown available balance lie.
     private func sendCoin(_ n: Int) {
         Task { @MainActor in

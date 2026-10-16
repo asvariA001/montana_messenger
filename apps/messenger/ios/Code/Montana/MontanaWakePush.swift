@@ -2,6 +2,8 @@ import Foundation
 import UIKit
 import CryptoKit
 import UserNotifications
+import Combine
+import StoreKit
 
 // Rung 4 — notifications through the accelerator node. The module is isolated: it touches no
 // nodes, callsigns or live typing.
@@ -150,11 +152,7 @@ enum MontanaWakePush {
                 // report ride the same answer; every install refuses their letters on every road.
                 if let barred = j["barred"] as? [String] { MontanaSafety.setBarred(barred) }
             }
-            // A NEW TESTFLIGHT BUILD IS TOLD ONLY ON OUR OWN PHONES (App Review 2.2, 08.10.2026: «betas ... don't belong on the App
-            // Store -- use TestFlight instead»): TestFlight itself tells its testers; a build from the App Store never points at a beta.
-            #if DEBUG
-            await MontanaRelease.check(door: b)   // a new build in TestFlight rides the same round (29.09)
-            #endif
+            await MontanaRelease.check(door: b)   // the runtime channel keeps production builds out of beta releases
         }
         // A DOOR LEARNED THIS ROUND ENTERS WORK IN A SECOND, NOT IN TEN MINUTES (15.09). The doors
         // of the node inside the whitelists arrive as DATA, and they arrive AFTER this round has
@@ -341,10 +339,11 @@ enum MontanaWakePush {
             MontanaKeychain.delete(MTNodeWire.electedKey)
             MontanaTrace.mark("door_elected", "\(URL(string: b)?.host ?? b) died — the next live door is elected")
         }
-        // THE STANDING QUESTION LEAVES A DEAD DOOR NOW (13.09 15:20): the posts found the door dead
-        // at +6 s, the long question stood on it until its own deadline at +15 s — seven seconds of
-        // the peer's «ringing» lying on the node. The lane is cut and re-elected the same instant.
-        if wasChosen { cutStandingQuestion("door \(URL(string: b)?.host ?? b) dead — the standing question leaves it") }
+        // A failed POST cannot cancel a successful read, at this node or any other.
+        // Ask the new mailbox now; the old request finishes under its own bounded deadline.
+        if wasChosen {
+            sigQ.async { for c in sigConvs.union(chatConvs).union(boardConvs).union(roomConvs) { fetchSignals(c) } }
+        }
     }
     /// Any answer proves the door alive: the silence count and the rest streak are forgiven -- in every book that
     /// keeps them. THE KNOCK'S REST IS THE SAME VERDICT (30.09): a door silent for the registration rested for the
@@ -480,7 +479,9 @@ enum MontanaWakePush {
         // after the proven ones, a dead one last. No proof at all (a cold start) — the network's order.
         baseLock.lock(); let proven = doorProof; baseLock.unlock()
         func isProven(_ b: String) -> Bool { proven[URL(string: b)?.host ?? b] != nil }
-        let provenAlive = alive.filter { isProven($0) }
+        let provenAlive = alive.filter { isProven($0) }.sorted {
+            (proven[URL(string: $0)?.host ?? $0] ?? .distantPast) > (proven[URL(string: $1)?.host ?? $1] ?? .distantPast)
+        }
         return provenAlive + alive.filter { !isProven($0) } + all.filter { !alive.contains($0) }
     }
     /// THE WALK'S OWN BOUND: doors × the one post deadline, plus a breath. The caller waits
@@ -519,30 +520,206 @@ enum MontanaWakePush {
     /// nothing about cellular.
     private static var sigGen = 0
     private static var postLane = URLSession(configuration: .default)
+    private static var postGeneration = 0
     static func networkPathChanged(_ key: String) {
         let lane = URLSession(configuration: .default)   // built before the lock: under it, only the swap
         baseLock.lock()
         signalDoorDead.removeAll(); doorFails.removeAll(); deathStreak.removeAll(); doorProof.removeAll(); signalDoorChosen = nil   // proof on Wi-Fi says nothing about cellular
         let old = postLane; postLane = lane
+        postGeneration += 1
         baseLock.unlock()
         old.invalidateAndCancel()
+        sigQ.async {
+            callReadDoors.removeAll()
+            for route in callRoutes.values { route.pathChanged() }
+        }
         cutStandingQuestion("path=\(key) — every lane cut")
     }
-    /// THE STANDING QUESTION IS CUT — one move for three facts: the network path changed, a call was
-    /// born, the lane's door was declared dead by the posts. The questions in flight fail this instant
-    /// (their cancellation teaches nothing about a door), the lanes open fresh, the question leaves at
-    /// once — built for the state the machine is in NOW: a call's short question on a living door.
-    /// Measured 13.09 15:20: without it the caller stood deaf fifteen seconds on a dead door.
+    /// A changed network invalidates its sockets. Birth, receipt silence and a POST failure
+    /// never call this: a reply already consumed by a node must reach its call before retirement.
     static func cutStandingQuestion(_ why: String) {
         sigQ.async {
             sigGen += 1
             for s in sigSessions.values { s.invalidateAndCancel() }
-            sigSessions.removeAll(); sigInFlight.removeAll(); sigLaneDirty = false
+            sigSessions.removeAll(); sigInFlight.removeAll(); sigLaneDirty.removeAll(); sigReadRetryAt.removeAll()
             MontanaTrace.mark("sig_lane", "\(why) — asking again now")
             for c in sigConvs.union(chatConvs).union(boardConvs).union(roomConvs) { fetchSignals(c) }
         }
     }
+    static func prepareCallLane(_ conv: String?) {
+        sigQ.async {
+            guard let conv else { return }
+            // A birth cannot cancel a reply the node has already handed to this phone.
+            // The call's read roster opens missing lanes and retains every pending reply.
+            sigConvs.insert(conv)
+            ensureSigTimer("call born")
+            fetchSignals(conv)
+        }
+    }
     private static func currentPostLane() -> URLSession { baseLock.lock(); defer { baseLock.unlock() }; return postLane }
+    private static func currentPostGeneration() -> Int { baseLock.lock(); defer { baseLock.unlock() }; return postGeneration }
+
+    // SSOT-CONSOLIDATE: call signals have one delivery owner, on sigQ. The existing node
+    // connection carries them; a second door is used only after failure or a missing receipt.
+    // This remains the accelerator lane (SERVER-DEBT-ACK), not a claim that WebRTC media
+    // already rides the full-node stream described by the network specification.
+    private static var callRoutes: [String: MTCallRoute] = [:]
+    private static var callRouteTimer: DispatchSourceTimer?
+    private static var callReadDoors: [String: String] = [:]   // sigQ only
+    private static let callReceiptLock = NSLock()
+    private static var callReceipts: [String: TimeInterval] = [:]
+    private static func callRouteKey(_ conv: String, _ epoch: String) -> String { conv + "\u{0}" + epoch }
+
+    static func postCallSignal(_ conv: String, epoch: String, id: String, payloadB64: String,
+                               terminal: Bool = false, nodeOnly: Bool = false) {
+        sigQ.async {
+            guard terminal || !MontanaCall.endedHere(epoch: epoch) else { return }
+            let route = callRoute(conv, epoch: epoch)
+            if nodeOnly { route.avoidNear() }
+            if terminal { route.ending(now: ProcessInfo.processInfo.systemUptime) }
+            guard route.enqueue(id: id, payload: payloadB64, now: ProcessInfo.processInfo.systemUptime, terminal: terminal) else {
+                MontanaTrace.mark("call_noroute", "signal queue full epoch=\(String(epoch.prefix(8)))")
+                return
+            }
+            MTCallTimeline.record(epoch: epoch, stage: "signal.enqueued", facts: "packet=\(MTCallTimeline.diagnosticToken(id)) terminal=\(terminal ? 1 : 0)")
+            ensureCallRouteTimer()
+            driveCallRoute(route)
+        }
+    }
+    static func finishCallSignals(epoch: String) {
+        sigQ.async {
+            for route in callRoutes.values where route.epoch == epoch {
+                route.ending(now: ProcessInfo.processInfo.systemUptime)
+                MontanaTrace.mark("call_route_end", "pending=\(route.packets.count) epoch=\(String(epoch.prefix(8)))")
+            }
+        }
+    }
+    private static func callRoute(_ conv: String, epoch: String) -> MTCallRoute {
+        let key = callRouteKey(conv, epoch)
+        if let route = callRoutes[key] { return route }
+        let first = callReadDoors[conv] ?? signalDoor(for: conv)
+        let near = MontanaPhoneNode.shared.hasStandingNearChannel(conv) ? [MTCallRoute.nearDoor] : []
+        let doors = (near + [first] + callDoors(for: "signal").filter { $0 != first }).filter { !$0.isEmpty }
+        let route = MTCallRoute(conv: conv, epoch: epoch, doors: doors,
+                                life: MontanaCall.callLifeS, now: ProcessInfo.processInfo.systemUptime)
+        callRoutes[key] = route
+        return route
+    }
+    private static func ensureCallRouteTimer() {
+        guard callRouteTimer == nil else { return }
+        let t = DispatchSource.makeTimerSource(queue: sigQ)
+        t.schedule(deadline: .now() + 0.25, repeating: 0.25)
+        t.setEventHandler {
+            let now = ProcessInfo.processInfo.systemUptime
+            for (key, route) in callRoutes {
+                if route.expired(now: now), !MontanaCall.epochSnapshot.contains(route.epoch) {
+                    if !route.packets.isEmpty { MontanaTrace.mark("call_noroute", "expired packets=\(route.packets.count)") }
+                    callRoutes.removeValue(forKey: key)
+                } else { driveCallRoute(route) }
+            }
+            let held = Set(callRoutes.values.map { $0.conv })
+            callReadDoors = callReadDoors.filter { held.contains($0.key) }
+            if callRoutes.isEmpty { callRouteTimer?.cancel(); callRouteTimer = nil }
+        }
+        callRouteTimer = t; t.resume()
+    }
+    private static func callReadFailed(_ conv: String, door: String) {
+        let routes = callRoutes.values.filter { $0.conv == conv }
+        for route in routes { route.readFailed(door: door) }
+        let living = MontanaCall.epochSnapshot
+        let route = routes.first { living.contains($0.epoch) } ?? (routes.count == 1 ? routes.first : nil)
+        if callReadDoors[conv] == door {
+            callReadDoors[conv] = route?.door == MTCallRoute.nearDoor ? nil : route?.door
+        }
+    }
+    private static func driveCallRoute(_ route: MTCallRoute) {
+        guard let packet = route.next(now: ProcessInfo.processInfo.systemUptime,
+                                      reading: route.door.map { sigInFlight[route.conv]?.contains($0) == true } ?? false),
+              let door = route.door else { return }
+        let epochs = MontanaCall.epochSnapshot
+        if !route.isEnding, door != MTCallRoute.nearDoor, (epochs.isEmpty || epochs.contains(route.epoch)), callReadDoors[route.conv] != door {
+            callReadDoors[route.conv] = door
+            // A node may already have consumed its reply. Finish the standing read before
+            // moving to this door; a missing receipt cannot cancel the read carrying it.
+            MontanaTrace.mark("call_route", "selected host=\(URL(string: door)?.host ?? "-") epoch=\(String(route.epoch.prefix(8)))")
+        }
+        let key = callRouteKey(route.conv, route.epoch)
+        let operation = packet.id + "-" + String(route.doors.firstIndex(of: door) ?? -1)
+        MTCallTimeline.record(epoch: route.epoch, stage: "signal.post.begin",
+            facts: "packet=\(MTCallTimeline.diagnosticToken(packet.id)) door=\(URL(string: door)?.host ?? door)", operation: operation)
+        sendCallPacket(route.conv, epoch: route.epoch, payload: packet.payload, door: door, terminal: packet.terminal) { code in
+            MTCallTimeline.record(epoch: route.epoch, stage: code == 200 ? "signal.post.ok" : "signal.post.fail",
+                facts: "packet=\(MTCallTimeline.diagnosticToken(packet.id)) code=\(code)", operation: operation)
+            sigQ.async {
+                guard callRoutes[key] === route else { return }
+                route.posted(id: packet.id, door: door, accepted: code == 200, now: ProcessInfo.processInfo.systemUptime)
+                driveCallRoute(route)
+            }
+        }
+    }
+    private static func sendCallPacket(_ conv: String, epoch: String, payload: String, door: String,
+                                       terminal: Bool = false,
+                                       completion: ((Int) -> Void)? = nil) {
+        if door == MTCallRoute.nearDoor {
+            DispatchQueue.main.async {
+                guard terminal || !MontanaCall.endedHere(epoch: epoch) else { completion?(-999); return }
+                let sent = MontanaPhoneNode.shared.sendLetter(to: conv, mid: UUID().uuidString,
+                    text: callSignalMark + payload, standingNearOnly: true) != nil
+                completion?(sent ? 200 : -1)
+            }
+        } else {
+            startSignalPolling(conv)
+            postSignal(conv, epoch: epoch, payloadB64: payload, onlyDoor: door, terminal: terminal, completion: completion)
+        }
+    }
+    static func callSignalReceipt(_ conv: String, epoch: String, id: String, door: String) {
+        sigQ.async {
+            guard let route = callRoutes[callRouteKey(conv, epoch)], route.receipt(id: id, door: door) else { return }
+            MTCallTimeline.record(epoch: epoch, stage: "signal.receipt", facts: "packet=\(MTCallTimeline.diagnosticToken(id))")
+            MontanaTrace.mark("call_receipt", "rx id=\(String(id.prefix(8))) epoch=\(String(epoch.prefix(8)))")
+            driveCallRoute(route)
+        }
+    }
+    // The return value suppresses repeats, but every repeat is acknowledged: a lost receipt
+    // must not leave the sender retrying a packet that the receiver already applied.
+    static func receivedCallSignal(_ conv: String, epoch: String, id: String, door: String) -> Bool {
+        let now = ProcessInfo.processInfo.systemUptime
+        let key = callRouteKey(conv, epoch) + "\u{0}" + id
+        callReceiptLock.lock()
+        callReceipts = callReceipts.filter { now - $0.value <= MontanaCall.callLifeS }
+        let first = callReceipts[key] == nil
+        if callReceipts.count >= 2048, let oldest = callReceipts.min(by: { $0.value < $1.value }) { callReceipts.removeValue(forKey: oldest.key) }
+        callReceipts[key] = now
+        callReceiptLock.unlock()
+        MTCallTimeline.record(epoch: epoch, stage: "signal.received", facts: "packet=\(MTCallTimeline.diagnosticToken(id)) first=\(first ? 1 : 0)")
+        sigQ.async {
+            if !MontanaCall.endedHere(epoch: epoch) {
+                let route = callRoute(conv, epoch: epoch)
+                route.heard(door: door, legacy: false)
+                ensureCallRouteTimer()
+                driveCallRoute(route)
+            }
+            // COMPAT-GATED: only a packet naming q is answered; older builds never send q.
+            let obj: [[String: Any]] = [["t": "cal", "ctrl": "call-receipt", "e": epoch, "q": id]]
+            guard let j = try? JSONSerialization.data(withJSONObject: obj) else { return }
+            sendCallPacket(conv, epoch: epoch, payload: j.base64EncodedString(), door: door, terminal: true)
+        }
+        return first
+    }
+    static func heardLegacyCallSignal(_ conv: String, epoch: String, door: String) {
+        sigQ.async {
+            guard !MontanaCall.endedHere(epoch: epoch) else { return }
+            let route = callRoute(conv, epoch: epoch)
+            route.heard(door: door, legacy: true)
+            ensureCallRouteTimer()
+            driveCallRoute(route)
+        }
+    }
+    static func callNeedsWake(_ conv: String, epoch: String) async -> Bool {
+        await withCheckedContinuation { cont in
+            sigQ.async { cont.resume(returning: callRoutes[callRouteKey(conv, epoch)]?.needsWake ?? true) }
+        }
+    }
 
     /// WHERE THE PEER LISTENS. A word from the peer names the door they ask — the draft word in
     /// its JSON, the chat beacon in its tail. A word for them goes to THAT door and nowhere else.
@@ -3320,13 +3497,14 @@ enum MontanaWakePush {
 
     // The node sees only the daily tag and the moment. Short-step polling ONLY for the call's
     // duration.
-    static func postSignal(_ conv: String, epoch: String, payloadB64: String) {
+    static func postSignal(_ conv: String, epoch: String, payloadB64: String,
+                           onlyDoor: String? = nil, terminal: Bool = false, completion: ((Int) -> Void)? = nil) {
         let ref = twinRef
-        guard !ref.isEmpty else { MontanaTrace.mark("sig_tx", "SKIP no-addr"); return }
-        guard let secret = laneSecret(conv) else { MontanaTrace.mark("sig_tx", "SKIP no-secret to=\(String(conv.prefix(10)))"); return }
-        guard let gz = Data(base64Encoded: payloadB64).flatMap({ try? ($0 as NSData).compressed(using: .zlib) as Data }) else { MontanaTrace.mark("sig_tx", "SKIP gz"); return }
+        guard !ref.isEmpty else { MontanaTrace.mark("sig_tx", "SKIP no-addr"); completion?(-1); return }
+        guard let secret = laneSecret(conv) else { MontanaTrace.mark("sig_tx", "SKIP no-secret to=\(String(conv.prefix(10)))"); completion?(-1); return }
+        guard let gz = Data(base64Encoded: payloadB64).flatMap({ try? ($0 as NSData).compressed(using: .zlib) as Data }) else { MontanaTrace.mark("sig_tx", "SKIP gz"); completion?(-1); return }
         var body = Data(ref.utf8); body.append(0); body.append(contentsOf: epoch.utf8); body.append(0); body.append(gz)
-        guard let sealed = MTPipe.sealBody(body, sharedSecret: secret) else { return }
+        guard let sealed = MTPipe.sealBody(body, sharedSecret: secret) else { completion?(-1); return }
         let cw = convW(secret, window: dayWindow())
         // The peer named the door they ask — the word goes there and nowhere else. A peer who
         // has not (an old build, or a fresh chat before the first beacon) gets the word on
@@ -3340,11 +3518,13 @@ enum MontanaWakePush {
         // died in one second, the answer's eight resends met an empty door list and left the phone
         // without a single line — and the caller heard nothing at all.
         let callWord = epoch != "chat" && epoch != "letter"
-        if callWord || doors.isEmpty {
+        if onlyDoor == nil, callWord || doors.isEmpty {
             for b in callDoors(for: "signal") where !doors.contains(b) { doors.append(b) }
         }
-        guard !doors.isEmpty else { MontanaTrace.mark("sig_tx", "SKIP no-door"); return }
+        if let onlyDoor { doors = [onlyDoor] }
+        guard !doors.isEmpty else { MontanaTrace.mark("sig_tx", "SKIP no-door"); completion?(-1); return }
         let chatWord = epoch == "chat"
+        let generation = currentPostGeneration()
         let failLock = NSLock(); var failed = 0
         for b in doors {
             guard let url = URL(string: b + "/signal") else { continue }   // SERVER-DEBT-ACK: the accelerator node (rung 4), not the delivery road
@@ -3354,14 +3534,21 @@ enum MontanaWakePush {
             let host = URL(string: b)?.host ?? "-"
             // ONE LANE PER DOOR (29.09): the word waits its turn; a chat word of this conversation replaces the one still waiting.
             onSignalLane(b, call: callWord, coalesce: chatWord ? conv : nil) {
+                // A queued offer may outlive the call while another request owns the socket.
+                // Only its farewell/receipt may leave after local burial, never a new ring.
+                if onlyDoor != nil, callWord, !terminal, MontanaCall.endedHere(epoch: epoch) {
+                    leaveSignalLane(b); completion?(-999); return
+                }
                 // A chat word that waited past its door's death does not dial it; a call's word knocks every door (15.13).
                 if chatWord, !doorAlive(b) {
                     MontanaTrace.markFolded("sig_tx", "SKIP dead door=\(host)", window: 10, key: "dead:" + host)
                     leaveSignalLane(b); return
                 }
-                callPost(req, attempts: 2, tag: "sig_tx", lane: currentPostLane()) { code, _ in
+                callPost(req, attempts: onlyDoor == nil ? 2 : 1, tag: "sig_tx", lane: currentPostLane()) { code, _ in
                     leaveSignalLane(b)
                     MontanaTrace.mark("sig_tx", "code=\(code) door=\(host)")
+                    guard generation == currentPostGeneration() else { completion?(-999); return }
+                    completion?(code)
                     if code == 200 { signalDoorAnswered(b); return }
                     signalDoorFailed(b, code: code)
                     failLock.lock(); failed += 1; let every = failed == doors.count; failLock.unlock()
@@ -3427,6 +3614,7 @@ enum MontanaWakePush {
             sigIdle = 0
             sigConvs.insert(conv)
             ensureSigTimer("call to=\(String(conv.prefix(10)))")
+            fetchSignals(conv)
         }
     }
     static func startChatPolling(_ conv: String) {
@@ -3478,23 +3666,24 @@ enum MontanaWakePush {
         sigTimer = tm
         tm.resume()
     }
-    /// One request in flight per conversation: without this a slow cellular link stacked
-    /// five-seven of them, the node throttled them with refusals, and we never even read
-    /// that — the only signalling channel clogged invisibly.
-    private static var sigInFlight = Set<String>()
-    private static var sigLaneDirty = false   // a failed question taints the lane — the next one opens fresh
+    /// One standing request per conversation AND node. Independent node mailboxes do not
+    /// forward replies: changing the sending door must not abandon a peer's ringing/answer.
+    /// Only a living call reads the finite node roster; ordinary chat retains its one door.
+    private static var sigInFlight: [String: Set<String>] = [:]
+    private static var sigLaneDirty = Set<String>()   // a failed node cannot invalidate its healthy siblings
+    private static var sigReadRetryAt: [String: [String: TimeInterval]] = [:]
     /// THE HELD LANE. One session to the elected door, kept for as long as the door lives —
     /// not the app-wide shared session a zombie tunnel poisons, not a fresh one per failure.
     /// A failed question closes the lane; the next question opens it anew. Called on sigQ.
     private static var sigSessions: [String: URLSession] = [:]   // one held lane per door
     private static func sigLane(for door: String) -> URLSession {
-        if let s = sigSessions[door], !sigLaneDirty { return s }
-        if sigLaneDirty { for s in sigSessions.values { s.finishTasksAndInvalidate() }; sigSessions.removeAll() }
+        if let s = sigSessions[door], !sigLaneDirty.contains(door) { return s }
+        if let old = sigSessions.removeValue(forKey: door) { old.finishTasksAndInvalidate() }
         let cfg = URLSessionConfiguration.default
         cfg.waitsForConnectivity = false
         cfg.httpMaximumConnectionsPerHost = 2
         let s = URLSession(configuration: cfg)
-        sigSessions[door] = s; sigLaneDirty = false
+        sigSessions[door] = s; sigLaneDirty.remove(door)
         MontanaTrace.mark("sig_rx", "fresh lane door=\(URL(string: door)?.host ?? "-")")
         return s
     }
@@ -3586,13 +3775,24 @@ enum MontanaWakePush {
         else { MontanaTrace.mark("presence_sweep", "convs=\(chatOf.count / 2) doors=\(doors) words=\(words) stamps=\(stamps)") }
     }
     private static func fetchSignals(_ conv: String) {
-        // SILENT-OK: the previous request for this conversation is still in flight — a second adds nothing.
-        guard !sigInFlight.contains(conv) else { return }
-        sigInFlight.insert(conv)
-        let ref = twinRef; guard !ref.isEmpty, let secret = laneSecret(conv) else { sigInFlight.remove(conv); return }
+        for door in signalReadDoors(conv) { fetchSignals(conv, door: door) }
+    }
+    private static func signalReadDoors(_ conv: String) -> [String] {
+        let living = MontanaCall.epochSnapshot
+        let routes = callRoutes.values.filter { $0.conv == conv && !($0.isEnding) && living.contains($0.epoch) }
+        guard !routes.isEmpty else { return [callReadDoors[conv] ?? signalDoor(for: conv)] }
+        // Receiving has no election: the peer may still use any of these existing nodes,
+        // including an older build. Sending remains one acknowledged packet on one door.
+        return Array(Set(routes.flatMap { $0.doors }.filter { $0 != MTCallRoute.nearDoor })).sorted()
+    }
+    private static func fetchSignals(_ conv: String, door: String) {
+        // SILENT-OK: this exact mailbox already has a standing question.
+        guard sigInFlight[conv]?.contains(door) != true else { return }
+        guard ProcessInfo.processInfo.systemUptime >= (sigReadRetryAt[conv]?[door] ?? 0) else { return }
+        let ref = twinRef; guard !ref.isEmpty, let secret = laneSecret(conv) else { return }
         let cw = convW(secret, window: dayWindow())
-        let door = signalDoor(for: conv)   // the conversation's door: the first alive for both among orderedBases(for: "signal")
-        guard !door.isEmpty, let url = URL(string: door + "/signal-fetch") else { sigInFlight.remove(conv); return }   // SERVER-DEBT-ACK: the accelerator node (rung 4)
+        guard orderedBases(for: "signal").contains(door), let url = URL(string: door + "/signal-fetch") else { return }   // SERVER-DEBT-ACK: the accelerator node (rung 4)
+        sigInFlight[conv, default: []].insert(door)
         var req = URLRequest(url: url); req.httpMethod = "POST"   // SERVER-DEBT-ACK: the accelerator node (rung 4)
         req.setValue("application/json", forHTTPHeaderField: "content-type")
         // A LONG QUESTION instead of frequent polling: the node holds the request up to twenty seconds
@@ -3634,17 +3834,11 @@ enum MontanaWakePush {
             let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
             if code != 200 {
                 MontanaTrace.mark("sig_rx", "code=\(code)")   // throttling is no longer invisible
-                signalDoorFailed(door, code: code)
-            } else {
-                signalDoorAnswered(door)
             }
-            sigQ.async {
-                guard gen == sigGen else { return }   // cut by a path change — the new lane already asks
-                sigInFlight.remove(conv)
-                if code != 200 { sigLaneDirty = true; return }
-                // BACK TO BACK. The next question leaves the moment the answer arrives — the
-                // lane to the door stands without a gap; the 300ms tick is only the watchdog.
-                if sigConvs.contains(conv) || chatConvs.contains(conv) || boardConvs.contains(conv) || roomConvs.contains(conv) { fetchSignals(conv) }
+            defer {
+                // Receipt/heard events above this completion in sigQ must settle the route
+                // before the next read is issued. Otherwise even a valid answer loses the race.
+                sigQ.async { finishSignalRead(conv, door: door, generation: gen, code: code) }
             }
             guard let d, let obj = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
                   let envs = obj["envs"] as? [String], !envs.isEmpty else { return }
@@ -3727,20 +3921,34 @@ enum MontanaWakePush {
                     drainInboxSoon()
                     continue
                 }
-                // Only signals of a call this machine is LIVING (current, second line or
-                // parked): another's/an old one is a past call's corpse; applying it =
-                // killing the fresh one (precedent: a queued call-end closed ICE in 84ms).
-                // BY CONSTRUCTION an idle receiver has no epoch, so a call can NEVER be BORN
-                // through this lane — the birth roads are the voip wake and the ring letter,
-                // both carrying the seed. This lane only serves a call both sides already know.
-                guard knownEpochs.contains(epoch) else {
+                let gz = Data(afterPeer[afterPeer.index(after: sep2)...])
+                guard !peer.isEmpty, let j = try? (gz as NSData).decompressed(using: .zlib) as Data,
+                      let msgs = try? JSONDecoder().decode([E2E.CallSigMsg].self, from: j) else {
+                    MontanaTrace.mark("sig_rx", "OPEN-FAIL"); continue
+                }
+                guard msgs.allSatisfy({ $0.e == nil || $0.e == epoch }) else {
+                    MontanaTrace.mark("sig_rx", "epoch mismatch inside envelope"); continue
+                }
+                // A hang-up can be queued before this app wakes. Bury its epoch before any
+                // invitation in the same fetch (or a later push) may create a phantom call.
+                if epoch.count == 16, !MontanaCall.epochSnapshot.contains(epoch),
+                   let end = msgs.first(where: { $0.ctrl == "call-end" && ($0.to == nil || $0.to == "" || $0.to == MontanaCall.deviceWord(epoch: epoch)) }),
+                   !ChatStore.refusesNow(conv) {
+                    MontanaCall.burySeed(epoch)
+                    if let q = end.q { _ = receivedCallSignal(conv, epoch: epoch, id: q, door: door) }
+                    MontanaTrace.mark("ring_dead", "end before birth epoch=\(String(epoch.prefix(8)))")
+                    continue
+                }
+                // A fresh seeded invitation may be born on the already standing lane. The call
+                // machine still owns blocked people, buried seeds, glare and the second line.
+                // A receipt may outlive cleanup of its call; it cannot change the call machine.
+                let freshBirth = msgs.contains { $0.isFreshBirth(epoch: epoch, now: nodeNow()) }
+                let receipts = !msgs.isEmpty && msgs.allSatisfy { $0.ctrl == "call-receipt" && $0.e == epoch }
+                guard knownEpochs.contains(epoch) || MontanaCall.epochSnapshot.contains(epoch) || freshBirth || receipts else {
                     MontanaTrace.mark("sig_rx", "STALE epoch=\(String(epoch.prefix(8))) my=\(String((knownEpochs.first ?? "-").prefix(8)))")
                     answerGone(conv: conv, epoch: epoch, gz: Data(afterPeer[afterPeer.index(after: sep2)...]))
                     continue
                 }
-                let gz = Data(afterPeer[afterPeer.index(after: sep2)...])
-                guard !peer.isEmpty,
-                      let j = try? (gz as NSData).decompressed(using: .zlib) as Data else { MontanaTrace.mark("sig_rx", "OPEN-FAIL"); continue }
                 MontanaTrace.mark("sig_apply", "from=\(String(peer.prefix(10))) conv=\(String(conv.prefix(10))) bytes=\(j.count)")
                 // The call runs under the PIPE KEY that opened the envelope (rule 759) — the
                 // address inside is only a reference. Passing the address as the key switched
@@ -3748,9 +3956,28 @@ enum MontanaWakePush {
                 // the call never assembled, the call record flew past the chat (precedent
                 // T2→T1 after QR). Unsealing and parsing happen here, on our thread; only the
                 // application reaches the main one, in one hop instead of the former two.
-                E2E.shared.handleLiveCallSignal(from: conv, payload: j.base64EncodedString())
+                E2E.shared.handleLiveCallSignal(from: conv, payload: j.base64EncodedString(), door: door, laneEpoch: epoch)
             }
         }.resume()
+    }
+
+    private static func finishSignalRead(_ conv: String, door: String, generation: Int, code: Int) {
+        guard generation == sigGen else { return }
+        sigInFlight[conv]?.remove(door)
+        if sigInFlight[conv]?.isEmpty == true { sigInFlight.removeValue(forKey: conv) }
+        if code == 200 {
+            sigReadRetryAt[conv]?.removeValue(forKey: door)
+            signalDoorAnswered(door)
+        }
+        else {
+            signalDoorFailed(door, code: code)
+            sigLaneDirty.insert(door)
+            sigReadRetryAt[conv, default: [:]][door] = ProcessInfo.processInfo.systemUptime + 3
+            callReadFailed(conv, door: door)
+        }
+        // The one route makes its failover decision only after the pending answer was applied.
+        for route in callRoutes.values where route.conv == conv { driveCallRoute(route) }
+        if code == 200, sigConvs.contains(conv) || chatConvs.contains(conv) || boardConvs.contains(conv) || roomConvs.contains(conv) { fetchSignals(conv) }
     }
 
     /// A CALL THIS PHONE DOES NOT HOLD IS SAID SO (24.09, iPhone 15 13:03 and 13:07). iOS ended the app when its person
@@ -3804,6 +4031,7 @@ enum MontanaWakePush {
                       let rebuilds: Bool
                       /// The device word of the phone that sent this wake, the word its lane copies carry (11.10.2026, No.61).
                       let device: String?
+                      let bornAtMS: Int? // optional for older peers; never replaced by a retry's transport timestamp
                       /// What the ring declares of the caller's build, as the call machine reads any word's caps.
                       var caps: CallCaps { CallCaps(tier: nil, ver: nil, opus_max: nil, hw_aec: nil, sframe: nil,
                                                     av: readsVoipAnswer, rejoin: rebuilds) } }
@@ -3811,8 +4039,8 @@ enum MontanaWakePush {
     /// The call wake: envelope "ring"‖0x00‖address‖0x00‖gzip(JSON{o,v,s}). Without an offer (a bare early ring) — an
     /// empty tail. The pipe key; the accelerator does not read. The call wake's outcome is a QUANTITY, not a guess:
     /// the caller decides by it whether to re-ring.
-    static func wakeVoip(_ conv: String, offer: String? = nil, video: Bool = false, callSeed: String? = nil,
-                         answer: String? = nil, completion: ((Int) -> Void)? = nil) {
+    static func wakeVoip(_ conv: String, offer: String? = nil, video: Bool = false, callSeed: String? = nil, bornAtMS: Int,
+                         completion: ((Int) -> Void)? = nil) {
         // ONE EXIT (13.09): every path of the walk answers exactly once through this funnel —
         // a path that returned in silence (the seal that failed) left the caller's wait to a
         // guillotine, and the guillotine lied. Early exits answer with a refusal: the caller
@@ -3826,17 +4054,12 @@ enum MontanaWakePush {
         let ref = twinRef; guard !ref.isEmpty else { finish(-1); return }
         guard agreesWithCanon() else { MontanaTrace.mark("wakepush_canon", "FAIL"); finish(-1); return }
         guard let secret = MTPipeBook.secret(for: conv) else { finish(-1); return }
-        // THE WORD OF THE ENVELOPE. «ring» is an invitation; «answ» is the far phone's answer taking
-        // the same road back.
-        let tag = answer == nil ? "ring" : "answ"
-        var body = Data(tag.utf8); body.append(0); body.append(contentsOf: ref.utf8); body.append(0)
-        // The video flag rides IN EVERY envelope, the bare ring included: without it the
-        // callee raised the audio screen for a video call (the production push always carried video — hence it worked there).
-        // `av`: this phone reads an answer off the wake road — the callee learns it here, before any
-        // lane of its own exists, and that is the whole point of the flag riding in the ring.
-        var obj: [String: Any] = answer.map { ["a": $0, "s": callSeed ?? ""] }
-            ?? ["o": offer ?? "", "v": video, "s": callSeed ?? "",
-                "n": E2E.myDisplayName(), "g": E2E.myFaceGlyph(), "av": true, "rj": true]
+        // PushKit carries invitations only. An answer belongs to the existing signal lane;
+        // a delayed answer push would otherwise create a phantom incoming call at its sender.
+        var body = Data("ring".utf8); body.append(0); body.append(contentsOf: ref.utf8); body.append(0)
+        // av=false tells older peers to answer on the lane too. The old answer decoder remains.
+        var obj: [String: Any] = ["o": offer ?? "", "v": video, "s": callSeed ?? "",
+                                 "n": E2E.myDisplayName(), "g": E2E.myFaceGlyph(), "av": false, "rj": true, "born": bornAtMS]
         // THE WAKE ROAD NAMES THE DEVICE THAT SPEAKS (11.10.2026, No.61): the lane's words carry the device word since No.60, the
         // wake's did not -- a call born or answered by the wake held no device, and any device of the person could end it. The
         // word is the call's own (its epoch is the first 16 characters of the seed); a build that reads no «d» ignores it.
@@ -3848,16 +4071,10 @@ enum MontanaWakePush {
         }
         // The APNs voip payload limit is 5KB; base64 inflates by a third.
         var sealed = MTPipe.sealBody(body, sharedSecret: secret)
-        // An answer that does not fit the road simply does not take it: the lane copy already left,
-        // and a truncated answer is no answer.
-        if answer != nil, let s0 = sealed, s0.base64EncodedString().count > 4600 {
-            MontanaTrace.mark("wakepush_vtx", "answer too big for the wake road — the lane carries it")
-            finish(-1); return
-        }
         if let s0 = sealed, s0.base64EncodedString().count > 4600 {
             var bare = Data("ring".utf8); bare.append(0); bare.append(contentsOf: ref.utf8); bare.append(0)
             var bobj: [String: Any] = ["o": "", "v": video, "s": callSeed ?? "",
-                                       "n": E2E.myDisplayName(), "g": E2E.myFaceGlyph(), "rj": true]
+                                       "n": E2E.myDisplayName(), "g": E2E.myFaceGlyph(), "rj": true, "born": bornAtMS]
             if !word.isEmpty { bobj["d"] = word }
             if let j = try? JSONSerialization.data(withJSONObject: bobj),
                let gz = try? (j as NSData).compressed(using: .zlib) as Data { bare.append(gz) }
@@ -3868,21 +4085,25 @@ enum MontanaWakePush {
         // THE CALLER SAYS IT NAMES ITS DEVICE (11.10.2026, No.61): the node rings every device of a person only for a caller that
         // says «dw» and only to tokens that said it -- a caller of an older build could not tell the answering device from its siblings.
         let payload = try? JSONSerialization.data(withJSONObject:
-            ["conv": cw, "from_id": mySubId(cw), "env": sealedFinal.base64EncodedString(), "dw": 1] as [String: Any])
+            ["conv": cw, "from_id": mySubId(cw), "env": sealedFinal.base64EncodedString(), "dw": 1,
+             "expires": bornAtMS / 1000 + Int(MontanaCall.callLifeS)] as [String: Any])
         // Two roads for a pair in first contact (cardRing): the pipe's own tag, then the card's -- knocked when the first rang nobody.
-        let roads = [payload, answer == nil ? cardRing(conv, secret: secret, ring: sealedFinal) : nil].compactMap { $0 }
+        let roads = [payload, cardRing(conv, secret: secret, ring: sealedFinal, bornAtMS: bornAtMS)].compactMap { $0 }
         var road = 0
         // The call ring walks the doors in the network's order and stops where a phone was
         // ACTUALLY rung: a store that holds no subscription for this tag, or whose publisher
         // is down, must hand the ring on rather than swallow it.
         let doors = callDoors(for: "notify")
         func ring(_ i: Int) {
+            let epoch = String((callSeed ?? "").prefix(16))
+            guard MontanaCall.epochSnapshot.contains(epoch), !MontanaCall.endedHere(epoch: epoch),
+                  nodeNow() - Double(bornAtMS) / 1000 < MontanaCall.callLifeS else { finish(-1); return }
             guard i < doors.count, road < roads.count, let url = URL(string: doors[i] + "/wake-voip") else { finish(-1); return }   // SERVER-DEBT-ACK: the accelerator node (rung 4), not the delivery road
             var req = URLRequest(url: url); req.httpMethod = "POST"   // SERVER-DEBT-ACK: the accelerator node (rung 4), not the delivery road
             req.setValue("application/json", forHTTPHeaderField: "content-type")
             req.httpBody = roads[road]
             // ONE ATTEMPT PER DOOR: the walk itself is the retry — the next door stands beside.
-            callPost(req, attempts: 1, tag: "wakepush_vtx") { code, data in
+            callPost(req, attempts: 1, tag: "wakepush_vtx", lane: currentPostLane()) { code, data in
                 // The wake service answers {"sent": n, "of": m, "apns": code} — never "woken":
                 // the walk read a field that was not there, saw «nobody rung» on every 200 and
                 // knocked on EVERY door, and every door fronts the same service — four VoIP
@@ -3926,7 +4147,7 @@ enum MontanaWakePush {
         let gz = plain[plain.index(after: sep2)...]
         var offer: String? = nil; var video = false; var seed: String? = nil
         var name: String? = nil; var glyph: String? = nil
-        var answer: String? = nil; var readsAnswer = false; var rebuilds = false; var device: String? = nil
+        var answer: String? = nil; var readsAnswer = false; var rebuilds = false; var device: String? = nil; var bornAtMS: Int? = nil
         if !gz.isEmpty, let j = try? (Data(gz) as NSData).decompressed(using: .zlib) as Data,
            let obj = try? JSONSerialization.jsonObject(with: j) as? [String: Any] {
             offer = (obj["o"] as? String).flatMap { $0.isEmpty ? nil : $0 }
@@ -3938,13 +4159,14 @@ enum MontanaWakePush {
             readsAnswer = (obj["av"] as? Bool) ?? false
             rebuilds = (obj["rj"] as? Bool) ?? false
             device = (obj["d"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            bornAtMS = (obj["born"] as? Int).flatMap { $0 > 0 ? $0 : nil }
         }
         // conv is the key the pipe opened with: the callee runs the call under IT (their
         // native conversation name); one secret, one daily tag — both sides in one queue.
         return RingPush(conv: conv, ref: ref, offer: offer, video: video,
                         callSeed: seed, name: name, glyph: glyph,
                         answer: word == "answ" ? answer : nil, readsVoipAnswer: readsAnswer, rebuilds: rebuilds,
-                        device: device)
+                        device: device, bornAtMS: bornAtMS)
     }
 
     /// THE RING AT THE CARD (11.10.2026, No.63, the author's word 21:5x MSK: «check T1's call at 21:55 to the iPad, Nana, Business: the
@@ -3956,7 +4178,7 @@ enum MontanaWakePush {
     /// letter out of a push (MontanaCard.accept: the confirmation is mandatory) and opens the ring with the pipe it now holds
     /// (openCardRing). The node stays blind: a daily tag and a sealed blob, as for the first letter's doorbell (wakeRdv).
     static let cardRingWord = Data("mt-card-ring".utf8) + Data([0])
-    private static func cardRing(_ conv: String, secret: Data, ring: Data) -> Data? {
+    private static func cardRing(_ conv: String, secret: Data, ring: Data, bornAtMS: Int) -> Data? {
         guard let ct = MTPipeBook.first(for: conv), let inv = MontanaMeeting.invite(forConv: conv) else { return nil }
         var plain = cardRingWord
         plain.append(ct)
@@ -3970,7 +4192,8 @@ enum MontanaWakePush {
             MontanaTrace.mark("wakepush_vtx", "card ring too big bytes=\(env.count) -- the knock's bare ring carries it"); return nil
         }
         let cw = rdvConvW(inv, window: dayWindow())
-        return try? JSONSerialization.data(withJSONObject: ["conv": cw, "from_id": mySubId(cw), "env": env, "dw": 1] as [String: Any])
+        return try? JSONSerialization.data(withJSONObject: ["conv": cw, "from_id": mySubId(cw), "env": env, "dw": 1,
+            "expires": bornAtMS / 1000 + Int(MontanaCall.callLifeS)] as [String: Any])
     }
     /// How many roads the call walk of this pair has: two while the pair is in first contact at a card (the walk's own bound, twice).
     static func ringRoads(_ conv: String) -> Int {
@@ -4809,40 +5032,289 @@ struct MTNetLine: Codable, Equatable {
     }
 }
 
-/// A NEW BUILD IN TESTFLIGHT IS TOLD BY THE MONTANA ROOM (the author's word 29.09): the upload road writes the release --
-/// the build, the version, what changed since the build before, the TestFlight link -- to the nodes; every phone reads
-/// it with the doors' round, and a build newer than its own lands once as a letter of the room (the crown, the changes,
-/// the button) and rings as a letter of Montana. An older or equal build says nothing; a build already told is not told again.
-enum MontanaRelease {
-    private static let toldKey = "mt.release.told"
-    static var ownBuild: Int { Int(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "") ?? 0 }
-    static func check(door b: String) async {
-        guard let u = URL(string: b + "/release") else { return }   // SERVER-DEBT-ACK: the accelerator node (rung 4), not the delivery road
-        var req = URLRequest(url: u); req.timeoutInterval = 8   // SERVER-DEBT-ACK: the accelerator node (rung 4)
-        guard let (d, resp) = try? await URLSession.shared.data(for: req),   // SERVER-DEBT-ACK: the accelerator node (rung 4)
-              (resp as? HTTPURLResponse)?.statusCode == 200,
-              let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
-              let build = j["build"] as? Int, build > 0 else { return }
-        let version = String(((j["version"] as? String) ?? "").prefix(16))
-        let notes = Array(((j["notes"] as? [String]) ?? []).map { String($0.prefix(300)) }.prefix(40))
-        let url = String(((j["url"] as? String) ?? "").prefix(200))
-        // WHAT CHANGED, IN EVERY LANGUAGE OF THE APP (the author's word 03.10): the road writes the English list and each own
-        // language's beside it; the row keeps them all and the letter speaks the phone's (releaseInfoOf).
-        var l10n: [String: [String]] = [:]
+/// One validated release is shared by the status button and the Montana room. The
+/// website and node mirrors carry the same document, published after distribution.
+struct MTClientRelease: Codable, Equatable {
+    let build: Int
+    let version: String
+    let notes: [String]
+    let l10n: [String: [String]]
+    let url: String
+    let bundle: String
+    let channel: String
+
+    static func read(_ data: Data, bundle: String, channel: String) -> MTClientRelease? {
+        guard let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let build = j["build"] as? Int, build > 0,
+              (j["bundle"] as? String ?? "quest.montana.app") == bundle,
+              (j["channel"] as? String ?? "beta") == channel,
+              let word = j["url"] as? String, let u = URL(string: word), u.scheme == "https",
+              u.user == nil, u.password == nil,
+              (channel == "beta" ? u.host == "testflight.apple.com" : u.host == "apps.apple.com") else { return nil }
+        let notes = Array(((j["notes"] as? [String]) ?? []).prefix(40).map { String($0.prefix(300)) })
+        var translated: [String: [String]] = [:]
         for (lang, list) in (j["l10n"] as? [String: [String]]) ?? [:] where MTLanguage.own.contains(lang) {
-            l10n[lang] = Array(list.map { String($0.prefix(300)) }.prefix(40))
+            translated[lang] = Array(list.prefix(40).map { String($0.prefix(300)) })
         }
-        let own = ownBuild
-        let told = UserDefaults.standard.integer(forKey: toldKey)
-        MontanaTrace.markChanged("release", "seen=\(build) own=\(own) told=\(told)", every: 3600)
-        guard build > own, build != told, !url.isEmpty else { return }
-        UserDefaults.standard.set(build, forKey: toldKey)
-        await MainActor.run {
-            guard let store = MontanaDeliveryEngine.shared.store else { return }
-            guard store.appendRelease(build: build, version: version, notes: notes, l10n: l10n, url: url) else { return }
-            MontanaTrace.mark("release", "told build=\(build) notes=\(notes.count)")
-            MontanaLog.event("RELEASE told build=\(build) own=\(own)")
-            MontanaNotify.presentRelease(build: build, version: version)
+        return MTClientRelease(build: build, version: String(((j["version"] as? String) ?? "").prefix(16)),
+            notes: notes, l10n: translated, url: word, bundle: bundle, channel: channel)
+    }
+}
+
+@MainActor final class MTReleaseState: ObservableObject {
+    static let shared = MTReleaseState()
+    @Published private(set) var latest: MTClientRelease?
+    private var asking = false
+    private var lastAsked = Date.distantPast
+    private var channel: String?
+    nonisolated static let cacheKey = "mt.release.cache"
+    var updateURL: URL? {
+        guard let r = latest, r.build > MontanaRelease.ownBuild else { return nil }
+        return URL(string: r.url)
+    }
+    private var bundle: String { Bundle.main.bundleIdentifier ?? "" }
+    private var client: String? {
+        switch bundle {
+        case "quest.montana.app": return "messenger"
+        case "quest.montana.business": return "business"
+        default: return nil
         }
+    }
+    private func installedChannel() async -> String? {
+        if let channel { return channel }
+        #if DEBUG
+        channel = "beta"
+        #else
+        if let result = try? await AppTransaction.shared, case .verified(let app) = result {
+            channel = app.environment == .production ? "store" : "beta"
+        }
+        #endif
+        return channel
+    }
+    func refresh() async {
+        guard !asking else { return }
+        deliver()
+        guard Date().timeIntervalSince(lastAsked) >= 30, let client else { return }
+        asking = true
+        defer { asking = false }
+        guard let channel = await installedChannel() else { return }
+        if latest == nil, let data = UserDefaults.standard.data(forKey: Self.cacheKey),
+           let kept = MTClientRelease.read(data, bundle: bundle, channel: channel) { accept(kept) }
+        // Public metadata only; the site's release document has no account or device identifiers.
+        let site = "https://montana.xxx/updates/" + client + "-" + channel + ".json"
+        if await fetch(site, channel: channel) { lastAsked = Date(); return }
+        if client == "messenger" {
+            for base in MontanaWakePush.orderedBases(for: "release").prefix(3) {
+                if await fetch(base + "/release", channel: channel) { lastAsked = Date(); return }
+            }
+        }
+    }
+    func check(door: String) async {
+        guard let channel = await installedChannel() else { return }
+        _ = await fetch(door + "/release", channel: channel)
+    }
+    private func fetch(_ word: String, channel: String) async -> Bool {
+        guard let url = URL(string: word) else { return false }
+        var request = URLRequest(url: url); request.timeoutInterval = 8
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              (response as? HTTPURLResponse)?.statusCode == 200, data.count <= 100_000,
+              let release = MTClientRelease.read(data, bundle: bundle, channel: channel) else { return false }
+        accept(release)
+        return true
+    }
+    private func accept(_ release: MTClientRelease) {
+        guard release.build >= (latest?.build ?? 0) else { return }
+        if latest != release {
+            latest = release
+            if let data = try? JSONEncoder().encode(release) { UserDefaults.standard.set(data, forKey: Self.cacheKey) }
+        }
+        deliver()
+    }
+    private func deliver() {
+        guard let release = latest, release.build >= MontanaRelease.ownBuild,
+              let store = MontanaDeliveryEngine.shared.store, store.historyLoaded else { return }
+        // The row is the deduplication owner: a missing store or a restored identity must
+        // not consume a device-global "already told" flag before anything was delivered.
+        guard store.appendRelease(build: release.build, version: release.version, notes: release.notes,
+                                  l10n: release.l10n, url: release.url) else { return }
+        MontanaLog.event("RELEASE told build=\(release.build) own=\(MontanaRelease.ownBuild)")
+        MontanaNotify.presentRelease(build: release.build, version: release.version)
+    }
+}
+
+enum MontanaRelease {
+    static var ownBuild: Int { Int(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "") ?? 0 }
+    static func check(door: String) async {
+        await MTReleaseState.shared.check(door: door)
+        await MTLevelDistribution.shared.refresh()
+    }
+}
+
+// CALL-ROUTE-MODEL: deterministic delivery state, exercised without a phone or network.
+// All access belongs to MontanaWakePush.sigQ. Native URLSession owns sockets and TLS;
+// this object owns only the recipient receipt and the choice of the existing node lane.
+final class MTCallRoute {
+    static let nearDoor = "near"
+    struct Packet {
+        let id: String
+        let payload: String
+        let born: TimeInterval
+        let terminal: Bool
+        var acceptedAt: TimeInterval?
+        var sentDoors = Set<String>()
+        var acceptedDoors = Set<String>()
+    }
+    let conv: String
+    let epoch: String
+    let doors: [String]
+    let life: TimeInterval
+    private(set) var packets: [Packet] = []
+    private(set) var busy: String?
+    private var index = 0
+    private var proven = false
+    private var legacy = false
+    private var lastUse: TimeInterval
+    private var retryAt: TimeInterval = 0
+    private var misses = 0
+    private var endsAt: TimeInterval?
+    private var generation = 0
+    private var sendingGeneration = 0
+    private var sendingDoor: String?
+    private var retiredWrite: (id: String, door: String)?
+    private var allowsNear = true
+    private var heardDoor: (door: String, legacy: Bool)?
+    static let receiptWait: TimeInterval = 2
+    var isEnding: Bool { endsAt != nil }
+    var door: String? {
+        guard doors.indices.contains(index), allowsNear || doors[index] != Self.nearDoor else { return nil }
+        return doors[index]
+    }
+    var needsWake: Bool { legacy || !packets.isEmpty }
+
+    init(conv: String, epoch: String, doors: [String], life: TimeInterval, now: TimeInterval) {
+        self.conv = conv; self.epoch = epoch; self.doors = doors; self.life = life; lastUse = now
+    }
+    func enqueue(id: String, payload: String, now: TimeInterval, terminal: Bool = false) -> Bool {
+        guard !isEnding || terminal else { return false }
+        guard packets.count < 128 else { return false }
+        guard !packets.contains(where: { $0.id == id }) else { return true }
+        packets.append(Packet(id: id, payload: payload, born: now, terminal: terminal))
+        lastUse = now
+        return true
+    }
+    func expired(now: TimeInterval) -> Bool { busy == nil && retiredWrite == nil && (endsAt.map { now >= $0 } ?? (now - lastUse > life)) }
+    func next(now: TimeInterval, reading: Bool = false) -> Packet? {
+        guard busy == nil, door != nil, now >= retryAt else { return nil }
+        guard endsAt.map({ now < $0 }) ?? true else { packets.removeAll(); return nil }
+        packets.removeAll { now - $0.born > life }
+        // Receipt silence retries a proven route once, then changes it. An unproven node's
+        // HTTP 200 is never mistaken for the far phone hearing us.
+        if !reading, packets.contains(where: { $0.acceptedAt.map { now - $0 >= Self.receiptWait } ?? false }) {
+            misses += 1
+            if !proven || misses > 1 { advance() }
+            for i in packets.indices { packets[i].acceptedAt = nil }
+        }
+        guard let i = packets.firstIndex(where: { $0.acceptedAt == nil }), let door else { return nil }
+        // An old request still owns this exact packet at this node. Do not create an
+        // indistinguishable callback while handing the route to a node the peer proved.
+        guard retiredWrite?.id != packets[i].id || retiredWrite?.door != door else { return nil }
+        packets[i].sentDoors.insert(door)
+        let p = packets[i]
+        busy = p.id
+        sendingGeneration = generation
+        sendingDoor = door
+        return p
+    }
+    func posted(id: String, door: String, accepted: Bool, now: TimeInterval) {
+        if retiredWrite?.id == id, retiredWrite?.door == door { retiredWrite = nil; return }
+        guard busy == id, sendingDoor == door else { return }
+        busy = nil
+        defer {
+            if let heardDoor { self.heardDoor = nil; selectHeard(heardDoor.door); legacy = heardDoor.legacy }
+        }
+        guard sendingGeneration == generation else { return }
+        guard let i = packets.firstIndex(where: { $0.id == id }) else { return } // receipt beat HTTP completion
+        if accepted {
+            packets[i].acceptedDoors.insert(door)
+            if legacy {
+                // An old peer broadcasts its words but reads one mailbox. Hearing it at A
+                // does not prove it reads A. Carry this same packet sequentially to every
+                // existing node; the authenticated local connection needs no such discovery.
+                if door == Self.nearDoor { packets.remove(at: i) }
+                else if let next = doors.firstIndex(where: { $0 != Self.nearDoor && !packets[i].acceptedDoors.contains($0) }) {
+                    index = next; packets[i].acceptedAt = nil
+                } else { packets.remove(at: i) }
+            } else { packets[i].acceptedAt = now }
+        } else {
+            advance()
+            for j in packets.indices { packets[j].acceptedAt = nil }
+            retryAt = now + 0.25 // every refused door must not turn a local error into a busy loop
+        }
+    }
+    @discardableResult func receipt(id: String, door: String) -> Bool {
+        guard let i = packets.firstIndex(where: { $0.id == id }),
+              packets[i].sentDoors.contains(door) else { return false }
+        packets.remove(at: i)
+        if self.door == door { proven = true; misses = 0 }
+        return true
+    }
+    func heard(door: String, legacy: Bool) {
+        guard allowsNear || door != Self.nearDoor, let i = doors.firstIndex(of: door) else { return }
+        // A real peer word proves a usable node now. Do not wait five seconds for an old
+        // HTTP request before sending ringing/answer there. At most one retiring request
+        // may stand beside the active one; its immutable callback owns no new-route state.
+        if busy == nil { selectHeard(door) }
+        else if index != i {
+            if retiredWrite == nil, let busy, let sendingDoor {
+                retiredWrite = (busy, sendingDoor)
+                self.busy = nil
+                generation += 1
+                selectHeard(door)
+            } else { heardDoor = (door, legacy) }
+        }
+        if legacy && !self.legacy {
+            // An old build discarded packets before its push birthed the epoch. Its first
+            // ringing word means resend those packets now, not pretend it received them.
+            for j in packets.indices { packets[j].acceptedAt = nil; packets[j].acceptedDoors.removeAll() }
+        }
+        if self.door == door { proven = true; misses = 0; self.legacy = legacy }
+    }
+    private func selectHeard(_ door: String) {
+        guard let i = doors.firstIndex(of: door), allowsNear || door != Self.nearDoor else { return }
+        if index != i {
+            index = i
+            for j in packets.indices { packets[j].acceptedAt = nil }
+        }
+        proven = true; misses = 0
+    }
+    func pathChanged() {
+        generation += 1
+        heardDoor = nil
+        proven = false; misses = 0; retryAt = 0
+        for i in packets.indices { packets[i].acceptedAt = nil }
+    }
+    func readFailed(door: String) {
+        guard self.door == door else { return }
+        // A receiver must recover even when it has no outgoing packets. A failed read
+        // invalidates an old in-flight write's verdict before selecting the next node.
+        pathChanged()
+        advance()
+    }
+    func ending(now: TimeInterval) {
+        packets.removeAll { !$0.terminal }
+        if endsAt == nil { endsAt = now + min(10, life) }
+    }
+    func avoidNear() {
+        let wasNear = door == Self.nearDoor
+        allowsNear = false
+        if wasNear { pathChanged(); advance() }
+    }
+    private func advance() {
+        if !doors.isEmpty {
+            index = (index + 1) % doors.count
+            if !allowsNear, doors[index] == Self.nearDoor { index = (index + 1) % doors.count }
+        }
+        proven = false; misses = 0
     }
 }

@@ -57,6 +57,8 @@ struct MTGroupState: Codable, Equatable {
     /// The face last taken from an invitation, by its length and its tail: a repeat of the same word lays no second file.
     var faceTag: String? = nil
     var mine: Bool { owner.isEmpty }
+    var canManage: Bool { mine && left != true }
+    var canWrite: Bool { left != true && (kind == .group || mine) }
 }
 
 /// A copy of a group's word on its way to one receiver. The queue knows the copy by its own name; the group knows by this record
@@ -150,7 +152,7 @@ extension MTGroupState {
 final class MTGroup {
     static let shared = MTGroup()
     /// Whether this phone keeps the group's people (adds, takes out, renames, describes): its owner.
-    func manages(_ key: String) -> Bool { state(key)?.mine == true }
+    func manages(_ key: String) -> Bool { state(key)?.canManage == true }
     static let mark = "\u{200B}\u{200B}GR:"
     static let stateKey = "groups.held"
     static let copiesKey = "groups.copies"
@@ -232,8 +234,7 @@ final class MTGroup {
     func people(_ key: String) -> Int? { state(key)?.count }
     /// Whether this phone may write into the group: everyone in a group, the owner alone in a channel.
     func canWrite(_ key: String) -> Bool {
-        guard let g = state(key), g.left != true else { return false }
-        return g.kind == .group || g.mine
+        state(key)?.canWrite == true
     }
     /// Whether this phone is out of the group -- it left, or the owner took it out (the chat says so instead of a field).
     func isOut(_ key: String) -> Bool { state(key)?.left == true }
@@ -298,7 +299,7 @@ final class MTGroup {
 
     /// A GROUP OR A CHANNEL IS BORN ON THIS PHONE: its owner's phone. The people are the correspondents chosen, each by the pipe
     /// this phone holds with them; each is told by an invitation of their own. The row stands in the list at once; the invitations
-    /// ride the queue until every one is receipted. Nil when nobody chosen can be carried to.
+    /// ride the queue until every one is receipted. A channel may start before it has subscribers.
     @MainActor @discardableResult
     func create(_ kind: MTGroupKind, title: String, about: String = "", face: Data, people: [Chat], store: ChatStore) -> Chat? {
         let name = Self.clean(title, Self.titleLimit)
@@ -308,7 +309,7 @@ final class MTGroup {
             if MontanaConv.holds(p), !ChatStore.refusesCold(p), !pipes.contains(p) { pipes.append(p) }
         }
         pipes = Array(pipes.prefix(Self.peopleLimit))
-        guard ready(), !name.isEmpty, !pipes.isEmpty else {
+        guard ready(), !name.isEmpty, kind == .channel || !pipes.isEmpty else {
             MontanaTrace.mark("group_refused", "birth -- title=\(name.isEmpty ? 0 : 1) people=\(pipes.count) store=\(unread ? 0 : 1)")
             return nil
         }
@@ -432,7 +433,7 @@ final class MTGroup {
     /// shows it, carried as the channel's letter; no row of the feed is born of it (ChatStore.append hands a wall's word to MTBoard).
     @MainActor
     func carryWallPost(_ post: MTBoardSeen, in key: String) {
-        guard let g = state(key), g.mine, g.kind == .channel,
+        guard let g = state(key), g.canManage, g.kind == .channel,
               let d = try? JSONEncoder().encode(MTBoardWord(t: "cpost", ps: [post])), let js = String(data: d, encoding: .utf8) else { return }   // COMPAT-GATED: a channel's carrier alone
         let text = MTBoard.mark + js
         guard Self.carries(text) else { MontanaTrace.mark("group_refused", "wall post bytes=\(text.utf8.count)"); return }
@@ -446,7 +447,8 @@ final class MTGroup {
     /// name; a letter with no copy left leaves anew to everyone. The row goes back to the clock by the one road back.
     @MainActor
     func resend(_ m: Message, in key: String, store: ChatStore) {
-        guard let g = state(key), let i = store.messages[key]?.firstIndex(where: { $0.mid == m.mid }) else { return }
+        guard let g = state(key), g.canWrite, m.isFromMe,
+              let i = store.messages[key]?.firstIndex(where: { $0.mid == m.mid }) else { return }
         let letter = m.mid.hasPrefix("mid:") ? String(m.mid.dropFirst(4)) : m.mid
         store.restartSend(key, i)
         let waiting = copies.filter { $0.value.own && $0.value.group == g.id && $0.value.letter == letter }
@@ -514,7 +516,7 @@ final class MTGroup {
     /// THE OWNER NAMES OR DISMISSES AN ADMINISTRATOR: every member hears the list by the invitation's word again.
     @MainActor
     func setAdmin(_ key: String, seat: String, on: Bool, store: ChatStore) {
-        guard var g = state(key), g.mine, g.kind == .group, g.members.contains(where: { $0.seat == seat }) else { return }
+        guard var g = state(key), g.canManage, g.kind == .group, g.members.contains(where: { $0.seat == seat }) else { return }
         var list = Set(g.admins ?? [])
         if on { list.insert(seat) } else { list.remove(seat) }
         g.admins = Array(list).sorted().nilIfEmpty
@@ -551,7 +553,7 @@ final class MTGroup {
     /// after it (jg). Nil -- no card stands yet, or this phone is no owner of the group.
     @MainActor
     func inviteLink(_ key: String) -> URL? {
-        guard var g = state(key), g.mine, g.kind == .group, g.left != true,
+        guard var g = state(key), g.canManage,
               let card = MontanaCard.offerStanding(), var parts = URLComponents(string: card) else { return nil }
         if g.invite == nil {
             g.invite = Self.mintId()
@@ -564,7 +566,7 @@ final class MTGroup {
     /// A new mark: every link given before opens nothing more (the reference's «Reset Link»).
     @MainActor
     func resetInvite(_ key: String) {
-        guard var g = state(key), g.mine else { return }
+        guard var g = state(key), g.canManage else { return }
         g.invite = Self.mintId()
         groups[g.id] = g
         saveGroups()
@@ -614,7 +616,7 @@ final class MTGroup {
     /// added by the owner's own road, and everyone reads that they joined by the link.
     @MainActor
     private func joined(_ w: MTGroupWord, from pipe: String, store: ChatStore) -> Verdict {
-        guard let g = groups[w.g], g.mine, g.kind == .group, g.left != true,
+        guard let g = groups[w.g], g.canManage,
               let mark = w.tx, let held = g.invite, mark == held else { return .refused }
         let from = MTSamePair.root(pipe)
         if g.members.contains(where: { MTSamePair.root($0.pipe) == from }) { return .held }   // already in: nothing more
@@ -789,7 +791,7 @@ final class MTGroup {
     /// the same group, the same seat, the new title and face -- so every phone shows what the owner's shows.
     @MainActor
     func renew(_ key: String, title: String, faceFile: String?, about: String? = nil, store: ChatStore) {
-        guard var g = state(key), g.mine else { return }
+        guard var g = state(key), g.canManage else { return }
         let name = Self.clean(title, Self.titleLimit)
         let face = faceFile.flatMap { try? Data(contentsOf: avatarsDirURL().appendingPathComponent($0)) }
         // the description, the owner's words about the group (stage R): carried in the invitation's ds, as at the group's birth
@@ -812,7 +814,7 @@ final class MTGroup {
     /// THE OWNER ADDS PEOPLE (its page): each new one is invited with a seat of their own, and everyone learns the new count.
     @MainActor
     func add(_ key: String, people: [Chat], viaLink: Bool = false, store: ChatStore) {
-        guard var g = state(key), g.mine else { return }
+        guard var g = state(key), g.canManage else { return }
         let held = Set(g.members.map { MTSamePair.root($0.pipe) })
         var taken = Set(g.members.map(\.seat) + [Self.ownerSeat])
         var fresh: [MTGroupMember] = []
@@ -855,7 +857,7 @@ final class MTGroup {
     /// the new count. Their letters already in the group stay where they stand.
     @MainActor
     func remove(_ key: String, seat: String, by actor: String = MTGroup.ownerSeat, store: ChatStore) {
-        guard var g = state(key), g.mine, let m = g.members.first(where: { $0.seat == seat }) else { return }
+        guard var g = state(key), g.canManage, let m = g.members.first(where: { $0.seat == seat }) else { return }
         g.members.removeAll { $0.seat == seat }
         g.admins = g.admins?.filter { $0 != seat }.nilIfEmpty   // a person taken out is nobody's administrator
         g.count = g.members.count + 1
@@ -1042,6 +1044,7 @@ final class MTGroup {
         var g = MTGroupState(id: w.g, kind: kind, title: title, about: Self.clean(w.ds ?? "", Self.aboutLimit), owner: owner, me: seat,
                              members: [], count: count, names: ownerName.isEmpty ? [:] : [Self.ownerSeat: ownerName],
                              at: Date().timeIntervalSince1970)
+        g.admins = w.ad.map { $0.filter(Self.isSeat) }.flatMap { $0.isEmpty ? nil : $0 }
         g.faceTag = w.fc.map { String($0.count) + "-" + String($0.suffix(16)) }
         groups[w.g] = g
         saveGroups()
@@ -1249,6 +1252,7 @@ final class MTGroup {
         let from = MTSamePair.root(pipe)
         guard g.mine, let m = g.members.first(where: { MTSamePair.root($0.pipe) == from }) else { return .refused }
         g.members.removeAll { $0.seat == m.seat }
+        g.admins = g.admins?.filter { $0 != m.seat }.nilIfEmpty
         g.count = g.members.count + 1
         groups[w.g] = g
         saveGroups()

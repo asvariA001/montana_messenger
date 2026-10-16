@@ -331,8 +331,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         // first node's answer, and the greeting would carry no level and take it from every pair. The observer runs on the main queue.
         if MTLevelShow.on { MainActor.assumeIsolated { MTPersonChain.shared.prime() } }
         E2E.shared.appPresence(open: true)       // «I am here» to every correspondence — once per state
+        Task { @MainActor in MTCallRecording.shared.recover() }
         guard away else { return }               // SILENT-OK: the shade, a sheet, Face ID — the person never left
         away = false
+        Task { @MainActor in await MTReleaseState.shared.refresh() }
+        Task { @MainActor in await MTLevelDistribution.shared.refresh() }
         MontanaTelemetry.carryExtensionLines()   // what the extensions wrote while the app slept rides the next ship
         MontanaDiagShip.shipNow()   // back with the person — last run's tail ships at once
         MontanaMeeting.replayPendingInvite()   // the link that waited for an identity opens by itself (F-8)
@@ -518,7 +521,25 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     func pushRegistry(_ registry: PKPushRegistry, didReceiveIncomingPushWith payload: PKPushPayload,
                       for type: PKPushType, completion: @escaping () -> Void) {
         guard type == .voIP else { completion(); return }
-        // A voip wake MUST raise the call screen immediately, or the system takes the app away.
+        MontanaTrace.mark("voip_report", "legacy required=1")
+        receiveVoip(payload, mustReport: true, completion: completion)
+    }
+
+    // Public PushKit delegate introduced in iOS 26.4. Our 26.2 SDK has no metadata type yet;
+    // the documented Objective-C selector and NSObject's public KVC bridge keep one handler.
+    // https://developer.apple.com/documentation/pushkit/pkvoippushmetadata/mustreport
+    @available(iOS 26.4, *)
+    @objc(pushRegistry:didReceiveIncomingVoIPPushWithPayload:metadata:withCompletionHandler:)
+    func receiveVoip(_ registry: PKPushRegistry, payload: PKPushPayload, metadata: NSObject,
+                     completion: @escaping () -> Void) {
+        let required = MTVoipReport.required(metadata)
+        MontanaTrace.mark("voip_report", "metadata required=\(required ? 1 : 0)")
+        receiveVoip(payload, mustReport: required, completion: completion)
+    }
+
+    private func receiveVoip(_ payload: PKPushPayload, mustReport required: Bool, completion: @escaping () -> Void) {
+        // Older systems require a CallKit report for every push. New systems explicitly
+        // release that requirement for delayed pushes, foreground delivery and active calls.
         // A RING AT ONE OF MY CARDS (11.10.2026, No.63): a caller in first contact rings where my card listens; the pipe is begotten from
         // the encapsulation the ring carries, as from a first letter, and the ring opens with it (MontanaWakePush.openCardRing).
         let ring = (payload.dictionaryPayload["env"] as? String)
@@ -539,28 +560,36 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         // A call is a value of real time: a push that travelled longer than the life of a call rings
         // like a ghost in the back (APNs held a voip push for ~30 s despite expiration=0 -- precedent
         // 22.08 01:44). The node stamps the moment of sending; a stale push gets the mandatory report
-        // and an instant end -- without sound and without a screen. The threshold is the one number
+        // and an instant end on older systems; new metadata can avoid the report. The threshold is the one number
         // of a call's life (MontanaCall.callLifeS), the same the node gives the wake.
         // K-1: the call machine's owner is the MAIN thread — PushKit used to write its
         // fields from this queue while the machine ran on main. The hop is SYNCHRONOUS so
         // the 12.1 execution law still holds: CallKit is posted before completion returns.
-        let work: () -> Void = {
+        let work: () -> Bool = {
         MontanaCallWiring.setup()
+        // THE WAIVER NEEDS THE SYSTEM'S OWN WITNESS (15.10.2026, iPhone 17 Pro Max on 2210): Focus held a ring, the caller's
+        // knocks came on while this phone's «ringing» could not leave (every door timed out), and PushKit waived the report of
+        // three of them with no call of ours alive; each was answered by nothing and the system killed the app 1-9 s later
+        // (0xBAADCA11), twice in ten minutes. The fleet's twenty waived pushes of that week that lived all came over a call the
+        // system listed. One decision for every branch below: the metadata may waive, the system's own list lets it stand.
+        let listed = MTSystemCalls.shared.listedOurs()
+        let mustReport = MTVoipReport.mustReport(required: required, listed: listed)
+        MontanaTrace.mark("voip_answer", "required=\(required ? 1 : 0) listed=\(listed == nil ? 0 : 1) report=\(mustReport ? 1 : 0)")
         // A RING FROM THIS VERY SEED IS NO CALL (12.09): a node that holds the sender's own
         // subscription under another id hands the ring back to its sender; such a ring wrote the
         // caller's own name onto the callee (1480). Nothing of it is read — the mandatory report
         // to the system, and the end.
         if let ring, !ring.ref.isEmpty, ring.ref == (MontanaSeed.twin ?? "") {
             MontanaTrace.mark("wakepush_vrx", "own-echo — a ring from this seed is no call")
-            MontanaCall.shared.reportDummyAndEnd(from: ring.conv, reason: .failed)
-            return
+            MontanaCall.shared.reportDummyAndEnd(from: ring.conv, reason: .failed, required: mustReport)
+            return mustReport
         }
         // A BLOCKED PERSON'S RING IS NO CALL (Guideline 1.2, measured 15.09 13:10: the wake posted
         // the ring past every gate): the report the system demands, and the end on top of it.
         if let ring, !ring.conv.isEmpty, ChatStore.live?.refuses(ring.conv) ?? ChatStore.refusesCold(ring.conv) {
             MontanaTrace.mark("wakepush_vrx", "blocked — the mandatory report, no ring")
-            MontanaCall.shared.reportDummyAndEnd(from: ring.conv, blocked: true)
-            return
+            MontanaCall.shared.reportDummyAndEnd(from: ring.conv, blocked: true, required: mustReport)
+            return mustReport
         }
         // The caller's name and face come from the call envelope, BEFORE ANY screen rises — the
         // live call and the mandatory report of a stale push alike (measured 09.09 15:08 on an
@@ -577,14 +606,18 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         // clock judged it -- a phone whose clock runs ahead by more than a call's life buries every live call as stale, one
         // behind rings ghosts.
         // Every other age gate of a call reads the node's clock (K-11); this one does too.
-        if let at = payload.dictionaryPayload["at"] as? Int,
-           MontanaWakePush.nodeNow() - TimeInterval(at) > MontanaCall.callLifeS {
+        let sentAt = payload.dictionaryPayload["at"] as? Int
+        let wakeID = (payload.dictionaryPayload["wid"] as? String).flatMap(UUID.init(uuidString:))?.uuidString ?? "-"
+        let inviteAge = ring?.bornAtMS.map { Int(MontanaWakePush.nodeNow() - Double($0) / 1000) } ?? -1
+        MontanaTrace.mark("voip_arrival", "wake=\(wakeID) sent_age_s=\(sentAt.map { Int(MontanaWakePush.nodeNow()) - $0 } ?? -1) invite_age_s=\(inviteAge)")
+        if MTVoipReport.expired(bornAtMS: ring?.bornAtMS, sentAt: sentAt,
+                                now: MontanaWakePush.nodeNow(), life: MontanaCall.callLifeS) {
             // Only a late offer was a call from a person to miss. A stale push with no offer -- an answer, an
             // end, or an envelope this install cannot open (02.10 14:51Z on T1, held 825 s across a
             // reinstall) -- ends failed: «unanswered» wrote a missed call from «Montana» into Recents.
-            MontanaTrace.mark("ring_dead", "stale-push age=\(Int(MontanaWakePush.nodeNow()) - at)s offer=\(ring?.offer == nil ? 0 : 1)")
-            MontanaCall.shared.reportDummyAndEnd(from: ring?.conv ?? "Montana", reason: ring?.offer == nil ? .failed : .unanswered)
-            return
+            MontanaTrace.mark("ring_dead", "stale-push invite_age_s=\(inviteAge) offer=\(ring?.offer == nil ? 0 : 1)")
+            MontanaCall.shared.reportDummyAndEnd(from: ring?.conv ?? "Montana", reason: ring?.offer == nil ? .failed : .unanswered, required: mustReport)
+            return mustReport
         }
         MontanaWakeDoor.arrived("voip", at: payload.dictionaryPayload["at"] as? Int)
         if let ring, !ring.conv.isEmpty {
@@ -600,7 +633,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
                 // A BURIED CALL IS NEVER MISSED TWICE (12.10.2026): this phone held this very call and its own end already wrote
                 // the call's line; a late wake with the offer reported as unanswered wrote a second missed line for the same call
                 // (T1 07:52:22.612Z: ring_dead voip, busy-dummy end=unanswered). It ends failed, as every other dead wake does.
-                MontanaCall.shared.reportDummyAndEnd(from: ring.conv, reason: .failed)
+                MontanaCall.shared.reportDummyAndEnd(from: ring.conv, reason: .failed, required: mustReport)
             } else if let a = ring.answer {
                 // THE ANSWER CAME BY THE WAKE ROAD (13.09). No screen rises: this is the far phone
                 // answering a call this phone is already making, and the standing call is what
@@ -609,15 +642,15 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
                 // late echo: the mandatory report, and an end on top of it, as for any stale wake.
                 if MontanaCall.stateSnapshot == "idle" {
                     MontanaTrace.mark("wakepush_vrx", "answer with no call — buried")
-                    MontanaCall.shared.reportDummyAndEnd(from: ring.conv, reason: .failed)
+                    MontanaCall.shared.reportDummyAndEnd(from: ring.conv, reason: .failed, required: mustReport)
                 } else if !MontanaCall.shared.holdsCall(seed: ring.callSeed, from: ring.conv) {
                     // AN ANSWER TO ANOTHER CALL IS NO WORD OF THIS ONE (11.10.2026, No.61): the wake road carries the answer to every
                     // device of the caller's seed; one whose seed does not name this machine's call -- or whose sender is not this
                     // call's peer -- was posted as a ring and applied here. The mandatory report, the end on top, nothing posted.
                     MontanaTrace.mark("wakepush_vrx", "answer of another call — the mandatory report, nothing applied")
-                    MontanaCall.shared.reportDummyAndEnd(from: ring.conv, reason: .failed)
+                    MontanaCall.shared.reportDummyAndEnd(from: ring.conv, reason: .failed, required: mustReport)
                 } else {
-                    MontanaCall.shared.postForPush(from: ring.conv, video: MontanaCall.shared.isVideo)
+                    MontanaCall.shared.postForPush(from: ring.conv, video: MontanaCall.shared.isVideo, mustReport: mustReport)
                     MontanaTrace.mark("sdp_in", "answer by the wake road dev=\(ring.device == nil ? 0 : 1)")
                     // THE WAKE ROAD NAMES THE DEVICE THAT ANSWERED (11.10.2026, No.61): a call answered by the wake held no device,
                     // and the end of any device of the person tore it down. A bare answer (an older build) names its device by its
@@ -632,26 +665,28 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
                 // The execution law (12.1): post to CallKit SYNCHRONOUSLY, before completion —
                 // the machine adopts the posted call; a rejecting branch ends it on top.
                 MontanaWakeDoor.note("expect-call")   // this wake carries a call: the verdict demands ring, offer and ICE
-                MontanaCall.shared.postForPush(from: ring.conv, video: ring.video)
+                MontanaCall.shared.postForPush(from: ring.conv, video: ring.video, mustReport: mustReport)
                 // The ring's own declarations ride in as the word's caps (24.09): a call born by the wake alone knew
                 // neither that its caller reads an answer off this road nor that it goes back into the call.
                 // The caller's device word rides in the ring (11.10.2026, No.61): the call born here holds the device that calls.
                 MontanaCall.shared.handleSignal(from: ring.conv, device: ring.device ?? "", ctrl: "call", sdp: sdp,
                                                 candidate: nil, video: ring.video, caps: ring.caps,
-                                                callSeed: ring.callSeed, name: ring.name, glyph: ring.glyph)
+                                                callSeed: ring.callSeed, ts: ring.bornAtMS, name: ring.name, glyph: ring.glyph)
                 MontanaWakePush.startSignalPolling(ring.conv)   // answer and ICE go through the node
             }
         } else {
-            MontanaCall.shared.reportDummyAndEnd(from: "Montana", reason: .failed)   // a report is mandatory for every voip push; no call rode in it
+            MontanaCall.shared.reportDummyAndEnd(from: "Montana", reason: .failed, required: mustReport)   // only the system may waive this report; no call rode in it
             // A RING NO PIPE OF MINE OPENS NAMES A ROW THE DOOR SHOULD NOT HOLD (12.10.2026): the node is told at once, drops the
             // row it rang and rings the person's next app inside the same knock (reportUnopenedRing); the whole set follows (cleanCallRows).
             MontanaWakePush.reportUnopenedRing()
             MontanaWakePush.cleanCallRows(why: "unopened")
         }
+        return mustReport
         }
         // MAIN-SAFE-SYNC: the opposite direction — a background PushKit callback hands work TO main
         // and must not return before CallKit has the call; main never waits on anything here.
-        if Thread.isMainThread { work() } else { DispatchQueue.main.sync(execute: work) }
+        let reported = Thread.isMainThread ? work() : DispatchQueue.main.sync(execute: work)
+        MontanaTelemetry.shared.notePush(reported: reported)   // the run's own witness of this push's answer (judgePreviousRun)
         completion()
     }
 
@@ -1192,6 +1227,10 @@ final class MontanaMetricSink: NSObject, MXMetricManagerSubscriber {
             let cell = p.networkTransferMetrics.map { Int(($0.cumulativeCellularDownload + $0.cumulativeCellularUpload).converted(to: .megabytes).value) } ?? -1
             let wifi = p.networkTransferMetrics.map { Int(($0.cumulativeWifiDownload + $0.cumulativeWifiUpload).converted(to: .megabytes).value) } ?? -1
             let gpu = p.gpuMetrics.map { Int($0.cumulativeGPUTime.converted(to: .seconds).value) } ?? -1
+            // The background time the system let the run keep for sound and for place (16.10.2026, No.70): a run that holds
+            // its sound or its location awake in the background heats a phone, and no line of ours said so.
+            let bgAudio = p.applicationTimeMetrics.map { Int($0.cumulativeBackgroundAudioTime.converted(to: .seconds).value) } ?? -1
+            let bgPlace = p.applicationTimeMetrics.map { Int($0.cumulativeBackgroundLocationTime.converted(to: .seconds).value) } ?? -1
             // THE DAY'S EXITS BY THE SYSTEM'S OWN WORDS (25.09): a tester's run ended two seconds after a call with
             // cause=unexplained -- the judge names only what the sentinel saw; the system counts every end by its
             // reason, and the count comes with the day's bill.
@@ -1201,7 +1240,7 @@ final class MontanaMetricSink: NSObject, MXMetricManagerSubscriber {
                 exits = " fg_exits=normal:\(f.cumulativeNormalAppExitCount),memory:\(f.cumulativeMemoryResourceLimitExitCount),badaccess:\(f.cumulativeBadAccessExitCount),abnormal:\(f.cumulativeAbnormalExitCount),illegal:\(f.cumulativeIllegalInstructionExitCount),watchdog:\(f.cumulativeAppWatchdogExitCount)"
                     + " bg_exits=normal:\(b.cumulativeNormalAppExitCount),memory:\(b.cumulativeMemoryResourceLimitExitCount),pressure:\(b.cumulativeMemoryPressureExitCount),cpu:\(b.cumulativeCPUResourceLimitExitCount),badaccess:\(b.cumulativeBadAccessExitCount),abnormal:\(b.cumulativeAbnormalExitCount),illegal:\(b.cumulativeIllegalInstructionExitCount),watchdog:\(b.cumulativeAppWatchdogExitCount),lockedfile:\(b.cumulativeSuspendedWithLockedFileExitCount),bgtask:\(b.cumulativeBackgroundTaskAssertionTimeoutExitCount)"
             }
-            let line = "cpu_s=\(cpu) gpu_s=\(gpu) fg_s=\(fg) bg_s=\(bg) cell_mb=\(cell) wifi_mb=\(wifi)" + exits
+            let line = "cpu_s=\(cpu) gpu_s=\(gpu) fg_s=\(fg) bg_s=\(bg) bg_audio_s=\(bgAudio) bg_loc_s=\(bgPlace) cell_mb=\(cell) wifi_mb=\(wifi)" + exits
             MontanaLog.event("METRICKIT DAY " + line)
             MontanaTrace.mark("metrickit_day", line)
         }
@@ -1221,13 +1260,46 @@ final class MontanaMetricSink: NSObject, MXMetricManagerSubscriber {
                     frames = MTMainStack.threadsLine(ofReport: c.callStackTree.jsonRepresentation()) + " raw=" + MontanaMetricSink.keep(c.jsonRepresentation(), kind: "crash")
                 }
                 MontanaLog.event("METRICKIT CRASH build=\(c.metaData.applicationBuildVersion) type=\(c.exceptionType?.stringValue ?? "-") code=\(c.exceptionCode?.stringValue ?? "-") signal=\(c.signal?.stringValue ?? "-") reason=\((c.terminationReason ?? "-").prefix(120)) exception=\(words.prefix(240)) frames: " + frames)
+                // THE SYSTEM'S CODE NAMES THE END (15.10.2026): the judge writes at launch, before this report lands, and called two
+                // PushKit kills of the iPhone 17 «the system's norm». The termination code the report carries is the cause.
+                let named = MTExitCode.name(c.terminationReason)
+                if named != "-" {
+                    MontanaLog.event("=== A RUN'S END NAMED BY THE SYSTEM build=\(c.metaData.applicationBuildVersion) cause=\(named) ===")
+                    MontanaTrace.mark("prev_exit_named", "build=\(c.metaData.applicationBuildVersion) cause=\(named)")
+                }
                 MontanaTrace.mark("metrickit_crash", "build=\(c.metaData.applicationBuildVersion) signal=\(c.signal?.stringValue ?? "-") reason=\(String((c.terminationReason ?? "-").prefix(60))) exception=\(String((ex?.exceptionName ?? "-").prefix(60)))")
             }
             for h in p.hangDiagnostics ?? [] {
                 MontanaLog.event("METRICKIT HANG build=\(h.metaData.applicationBuildVersion) dur=\(h.hangDuration.value)s frames: " + MTMainStack.frames(ofReport: h.callStackTree.jsonRepresentation()))
                 MontanaTrace.mark("metrickit_hang", "build=\(h.metaData.applicationBuildVersion) dur=\(Int(h.hangDuration.value))s")
             }
+            // THE SYSTEM'S OWN ACCOUNT OF A RUN THAT BURNED (16.10.2026, No.70): when the run takes more processor than the
+            // system allows, or writes more to the disk, the system sends where it went -- a tree of sampled stacks -- and the
+            // sink read only falls and hangs: the one report that names the heat's own lines was thrown away. The line keeps
+            // the heaviest path by samples (MTMainStack.heaviest); the whole report goes beside the journal.
+            for c in p.cpuExceptionDiagnostics ?? [] {
+                let line = "build=\(c.metaData.applicationBuildVersion) cpu_s=\(Int(c.totalCPUTime.converted(to: .seconds).value)) "
+                    + "over_s=\(Int(c.totalSampledTime.converted(to: .seconds).value)) raw=\(MontanaMetricSink.keep(c.jsonRepresentation(), kind: "cpu"))"
+                MontanaLog.event("METRICKIT CPU \(line) path: " + MTMainStack.heaviest(ofReport: c.callStackTree.jsonRepresentation()))
+                MontanaTrace.mark("metrickit_cpu", line)
+            }
+            for w in p.diskWriteExceptionDiagnostics ?? [] {
+                let line = "build=\(w.metaData.applicationBuildVersion) written_mb=\(Int(w.totalWritesCaused.converted(to: .megabytes).value)) "
+                    + "raw=\(MontanaMetricSink.keep(w.jsonRepresentation(), kind: "disk"))"
+                MontanaLog.event("METRICKIT DISK \(line) path: " + MTMainStack.heaviest(ofReport: w.callStackTree.jsonRepresentation()))
+                MontanaTrace.mark("metrickit_disk", line)
+            }
         }
+    }
+}
+
+/// The system's termination codes this app has met, read from the report's own reason.
+enum MTExitCode {
+    static func name(_ reason: String?) -> String {
+        let r = (reason ?? "").lowercased()
+        if r.contains("0xbaadca11") { return "pushkit-unreported" }   // a VoIP push answered with no CallKit report
+        if r.contains("0x8badf00d") { return "watchdog" }             // the main thread stood past the system's limit
+        return "-"
     }
 }
 
@@ -1340,6 +1412,25 @@ enum MTMainStack {
         }
         return out.joined(separator: " < ")   // the root first: the root is the innermost frame
     }
+    /// THE HEAVIEST PATH OF A SAMPLED TREE (16.10.2026, No.70): a report of processor or disk is a sum of samples, and its
+    /// first branch is not its heaviest. From the root with the most samples down the child with the most, as image+offset,
+    /// the root first as in frames(ofReport:); the path's samples over the tree's in front, so the line says how much of the
+    /// burn the path explains.
+    static func heaviest(ofReport json: Data, limit: Int = 24) -> String {
+        guard let obj = try? JSONSerialization.jsonObject(with: json) as? [String: Any],
+              let stacks = obj["callStacks"] as? [[String: Any]] else { return "-" }
+        let samples = { (f: [String: Any]) in f["sampleCount"] as? Int ?? 0 }
+        let roots = stacks.flatMap { ($0["callStackRootFrames"] as? [[String: Any]]) ?? [] }
+        let total = roots.reduce(0) { $0 + samples($1) }
+        var frame = roots.max { samples($0) < samples($1) }
+        let top = frame.map(samples) ?? 0
+        var out: [String] = []
+        while let f = frame, out.count < limit {
+            out.append("\(f["binaryName"] as? String ?? "?")+\(f["offsetIntoBinaryTextSegment"] as? Int ?? 0)")
+            frame = (f["subFrames"] as? [[String: Any]])?.max { samples($0) < samples($1) }
+        }
+        return "samples=\(top)/\(total) " + out.joined(separator: " < ")
+    }
 }
 
 
@@ -1429,9 +1520,11 @@ final class MontanaTelemetry {
             // person's Clear lets them go (MontanaCaches).
             let mem = MontanaTelemetry.footprintMB()
             MontanaLog.event("SCENE background mem_mb=\(mem)"); MontanaTrace.mark("scene", "background mem_mb=\(mem)")
+            MontanaPower.readLoad("background", tele: true)   // the screen's own load, closed at the door (16.10.2026)
         }
         NotificationCenter.default.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { _ in
             MontanaLog.event("SCENE foreground"); MontanaTrace.mark("scene", "foreground"); AppDelegate.sceneSeen = true
+            MontanaPower.readLoad("foreground", tele: true)   // what the background breaths burned since the door (16.10.2026)
         }
         NotificationCenter.default.addObserver(forName: UIApplication.willTerminateNotification, object: nil, queue: nil) { [weak self] _ in
             // The sentinel is not erased but STAMPED (17.09, the critic): a run that ended by the system's
@@ -1517,13 +1610,21 @@ final class MontanaTelemetry {
     private var bgAt: TimeInterval = 0        // when the screen was last left (the judge reads how long a run stood at the door)
     private let runStarted = Date().timeIntervalSince1970
     private var aliveLastWrite: TimeInterval = 0
+    /// How the last VoIP push was answered, «r» reported or «w» waived, with its second (15.10.2026): a run the system kills
+    /// for a push it answered with nothing (0xBAADCA11) dies seconds after this line and never beats again, so the judge of the
+    /// next launch reads the run's own word before any report of the system lands.
+    private var voipAnswer = "-"
+    func notePush(reported: Bool) {
+        voipAnswer = (reported ? "r" : "w") + String(Int(Date().timeIntervalSince1970))
+        writeAlive(force: true)
+    }
     private func writeAlive(force: Bool = false, sync: Bool = false) {
         let now = Date().timeIntervalSince1970
         guard force || now - aliveLastWrite >= 5 else { return }
         aliveLastWrite = now
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
         let mem = Self.footprintMB(), warn = memWarned ? 1 : 0, hang = Int(aliveHang)
-        let line = "\(build) \(self.aliveState) \(Int(now)) mem=\(mem) warn=\(warn) hang=\(hang) tcc=\(MTSystemAccess.stamp()) up=\(Int(now - runStarted)) bg=\(bgAt == 0 ? -1 : Int(now - bgAt))"
+        let line = "\(build) \(self.aliveState) \(Int(now)) mem=\(mem) warn=\(warn) hang=\(hang) tcc=\(MTSystemAccess.stamp()) up=\(Int(now - runStarted)) bg=\(bgAt == 0 ? -1 : Int(now - bgAt)) vp=\(voipAnswer)"
         // A termination writes on the calling thread: the process is gone before a queue would run.
         if sync { try? line.data(using: .utf8)?.write(to: Self.aliveURL, options: .atomic) }
         else { ioq.async { try? line.data(using: .utf8)?.write(to: Self.aliveURL, options: .atomic) } }
@@ -1558,6 +1659,9 @@ final class MontanaTelemetry {
         else if let then = facts["tcc"], !MTSystemAccess.moved(from: then, to: MTSystemAccess.stamp()).isEmpty {
             cause = "access-changed-" + MTSystemAccess.moved(from: then, to: MTSystemAccess.stamp()).joined(separator: "+")
         }
+        // A RUN THAT DIED RIGHT AFTER A PUSH IT ANSWERED WITH NOTHING is named for it (15.10.2026): the system kills such a run
+        // seconds later (0xBAADCA11), and «unexplained» hid two of those kills on the iPhone 17. A suspicion, named as one.
+        else if let vp = facts["vp"], vp.hasPrefix("w"), let t = Double(vp.dropFirst()), at - t <= 10 { cause = "after-voip-waiver-suspect" }
         else if (Int(hang) ?? 0) > 0 { cause = "watchdog-suspect" }
         else if warn == "1" || (Int(mem) ?? 0) * 2 >= ramMB { cause = "memory-suspect" }
         else { cause = "unexplained" }
@@ -1576,7 +1680,7 @@ final class MontanaTelemetry {
             // A RUN THAT NEVER SHOWED A SCREEN AND LIVED (a wake's run: the letter, the ring, the refresh) ended as the system
             // ends every background run — its norm, not a death before the screen (the Mac's three «died-before-screen»
             // of 25.09 had lived 7–30 minutes).
-            MontanaLog.event("=== PREVIOUS BACKGROUND RUN ENDED build=\(build) lived=\(up)s last_beat_age=\(age)s (the system's norm)\(tail) ===")
+            MontanaLog.event("=== PREVIOUS BACKGROUND RUN ENDED build=\(build) lived=\(up)s last_beat_age=\(age)s\(tail) ===")
             MontanaTrace.mark("prev_exit", "background-run-ended build=\(build) lived=\(up)s age=\(age)s" + tail)
         } else if state == "launch" {
             MontanaLog.event("=== PREVIOUS RUN DIED BEFORE REACHING THE SCREEN build=\(build) last_beat_age=\(age)s\(tail) ===")
@@ -1586,7 +1690,7 @@ final class MontanaTelemetry {
             MontanaLog.event("=== PREVIOUS RUN CRASHED IN BACKGROUND build=\(build) last_beat_age=\(age)s\(tail) ===")
             MontanaTrace.mark("prev_exit", "crashed-in-background build=\(build) age=\(age)s" + tail)
         } else {
-            MontanaLog.event("=== PREVIOUS RUN RECLAIMED IN BACKGROUND build=\(build) last_beat_age=\(age)s (the system's norm)\(tail) ===")
+            MontanaLog.event("=== PREVIOUS RUN RECLAIMED IN BACKGROUND build=\(build) last_beat_age=\(age)s\(tail) ===")
             MontanaTrace.mark("prev_exit", "reclaimed-in-background build=\(build) age=\(age)s" + tail)
         }
     }
@@ -1610,6 +1714,7 @@ final class MontanaTelemetry {
             while true {
                 Thread.sleep(forTimeInterval: 1.0)
                 guard let self else { return }
+                MontanaPower.beat()   // sixty awake beats are one reading of the run's own load (16.10.2026)
                 self.writeAlive()   // the run breathes into its sentinel every five seconds
                 guard self.activeSince > 0 else { continue }   // asleep -- nothing to count
                 let now = Date().timeIntervalSince1970
@@ -1790,3 +1895,18 @@ enum MontanaWakeDoor {
     }
 }
 
+// The only bridge for the public PKVoIPPushMetadata.mustReport property. Unknown metadata
+// preserves the mandatory report; a payload field can never opt out of CallKit reporting.
+enum MTVoipReport {
+    /// A retry's send time cannot renew a call. Older envelopes retain the transport-age fallback.
+    static func expired(bornAtMS: Int?, sentAt: Int?, now: TimeInterval, life: TimeInterval) -> Bool {
+        let born = bornAtMS.map { Double($0) / 1000 } ?? sentAt.map(Double.init)
+        return born.map { now - $0 >= life } ?? false
+    }
+    /// The metadata may waive the report; only a call the system itself lists as ours lets the waiver stand (receiveVoip).
+    static func mustReport(required: Bool, listed: MTListedCall?) -> Bool { required || listed == nil }
+    static func required(_ metadata: NSObject) -> Bool {
+        guard metadata.responds(to: NSSelectorFromString("mustReport")) else { return true }
+        return (metadata.value(forKey: "mustReport") as? NSNumber)?.boolValue ?? true
+    }
+}

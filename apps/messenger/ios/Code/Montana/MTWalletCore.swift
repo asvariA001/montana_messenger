@@ -362,11 +362,7 @@ enum MTPiLevels {
     /// Coins in the short form the author named (03.10 21:19: «1k, 10k, 100k and so on up to a whole Montana, 1kkk», the k in the person's language): whole
     /// thousands, millions and billions, never rounded up -- the badge says at least what is held.
     static func short(_ n: Int) -> String {
-        let k = String(localized: "k", bundle: MTLanguage.bundle)
-        if 1_000_000_000 <= n { return String(n / 1_000_000_000) + k + k + k }
-        if 1_000_000 <= n { return String(n / 1_000_000) + k + k }
-        if 1_000 <= n { return String(n / 1_000) + k }
-        return String(max(0, n))
+        max(0, n).formatted(.number.notation(.compactName).precision(.fractionLength(0...1)).locale(MTLanguage.locale))
     }
 }
 
@@ -565,8 +561,8 @@ enum MTCoinBalance {
     private static var held: Int?
     static var now: Int? { lock.lock(); defer { lock.unlock() }; return held }
     static func set(_ v: Int) {
-        lock.lock(); let moved = held != nil && held != v; held = v; lock.unlock()
-        if moved { Task { @MainActor in MTCoinTell.moved() } }
+        lock.lock(); let moved = held != v; held = v; lock.unlock()
+        if moved { Task { @MainActor in MTCoinTell.moved(); MTLevelDistribution.shared.changed() } }
     }
 }
 
@@ -703,37 +699,19 @@ enum MTCoinBalance {
     }
 }
 
-/// THE OWNER SHOWS OR HIDES THEIR COINS (the author's words 04.10.2026 05:47 and 05:48 MSK: «whether the balance is shown each
-/// decides, on by default; who does not show is not in the top -- the privacy settings»; «the owner governs privacy»). One switch,
-/// on unless its owner turned it off: the Montana top, the coins told to correspondents (the word about oneself, the presence
-/// words' tail) and the coin's badge all ask it. Read from any thread.
-/// THE TOP ASKS A YES FIRST (App Review 5.1.2(i), 08.10.2026, word for word: «you may not use, transmit, or share someone's
-/// personal data without first obtaining their permission»): the name and the balance reach the public table and the
-/// correspondents only after their owner turns the switch on; it is born off.
+/// The balance badge and disclosure are on by default (14.10.2026). An explicit
+/// privacy choice stays in force. Opening the wallet explains the public ranking.
 enum MTCoinShow {
-    static let key = "coins.shown"   // NOT-UI: the owner's switch, off until the owner turns it on
-    static let toldKey = "top.told"  // NOT-UI: the wallet has shown its owner what showing does (MTTopNet.put waits for it)
-    static var on: Bool { UserDefaults.standard.object(forKey: key) as? Bool ?? false }
+    static let key = "coins.shown"   // NOT-UI: the owner's balance privacy preference
+    static let toldKey = "top.told"  // NOT-UI: the wallet explained the public ranking
+    static var on: Bool { UserDefaults.standard.object(forKey: key) as? Bool ?? true }
 }
 
-/// THE OWNER SHOWS OR HIDES THEIR LEVEL (the author's word 11.10.2026 21:2x MSK: «everywhere an avatar is shown, make it possible
-/// to show the balance on the left and the user's global level on the right, and in the settings let the privacy be governed in
-/// Appearance»). The Global Level is the lower of the person's level and the wallet's level of π (MTPersonChain.global), and the
-/// person's level counts the seconds the words were on the network. ONE SWITCH, BORN ON, BOTH WAYS (the author's word 12.10.2026
-/// 15:5x MSK: «on by default -- a user who turned it on shows and sees, as with a delivery report; turned off, shows nothing and sees
-/// nothing»): on, every presence word carries «L» and the level after the balance's tail (E2E.levelTail) and the faces draw the levels
-/// told (MTAvatarBadgeRow); off, the words carry none, each pair drops the level it held (MTCoinBoard.noteLevel), and no level is drawn.
+/// Reputation is always visible (14.10.2026). The old preference is retained only
+/// for reading backups; it no longer suppresses sending or drawing the level.
 enum MTLevelShow {
-    static let shownKey = "level.shown"   // NOT-UI: the person's switch of the levels, on until the person turns it off
-    static var on: Bool { UserDefaults.standard.object(forKey: shownKey) as? Bool ?? true }
-    /// The owner's switch moved: the people in the app hear the level, or its withdrawal, now -- the rest at the next word.
-    @MainActor static func changed(_ on: Bool) {
-        if on { MTPersonChain.shared.prime() }
-        if let store = ChatStore.live {
-            for peer in store.appOnlineChats { E2E.shared.appBeacon(to: peer, open: true, why: "level") }
-        }
-        MontanaTrace.mark("level_shown", on ? "on" : "off")
-    }
+    static let shownKey = "level.shown"   // COMPAT-LOCAL: retired preference
+    static var on: Bool { true }
 }
 
 /// THE PERSON'S LEVEL FOR A WORD SAID FROM ANY THREAD (11.10.2026, E2E.levelTail): the presence words are built off the main actor,
@@ -744,6 +722,94 @@ enum MTPersonLevel {
     private static var held: Int?
     static var now: Int? { lock.lock(); defer { lock.unlock() }; return held }
     static func set(_ v: Int?) { lock.lock(); held = v; lock.unlock() }
+}
+
+/// The public distribution contains counts of levels only. A separate, seed-derived
+/// owner token lets each person replace their own level without publishing a balance,
+/// name, address or contact list. Old clients can continue using every existing door.
+@MainActor final class MTLevelDistribution: ObservableObject {
+    static let shared = MTLevelDistribution()
+    struct Bin: Codable, Equatable { let level: Int; let count: Int }
+    @Published private(set) var bins: [Bin] = []
+    private var asking = false
+    private var again = false
+    private var published: String?
+    private var publishedAt = Date.distantPast
+    private var attemptedAt = Date.distantPast
+    private var readAt = Date.distantPast
+    nonisolated static let cacheKey = "level.distribution"
+    private init() {
+        if let data = UserDefaults.standard.data(forKey: Self.cacheKey), let kept = try? JSONDecoder().decode([Bin].self, from: data) {
+            bins = Self.valid(kept)
+        }
+    }
+    static func valid(_ input: [Bin]) -> [Bin] {
+        let clean = input.filter { (0...62).contains($0.level) && (1...1_000_000).contains($0.count) }
+        guard Set(clean.map(\.level)).count == clean.count, clean.count <= 63 else { return [] }
+        return clean.sorted { $0.level < $1.level }
+    }
+    static func rank(_ level: Int, in bins: [Bin]) -> Double? {
+        guard let first = bins.first, let last = bins.last else { return nil }
+        if first.level == last.level { return level < first.level ? 0 : 1 }
+        if level <= first.level { return 0 }
+        if level >= last.level { return 1 }
+        let total = bins.reduce(0.0) { $0 + Double($1.count) }
+        let before = bins.filter { $0.level < level }.reduce(0.0) { $0 + Double($1.count) }
+        let same = Double(bins.first { $0.level == level }?.count ?? 0)
+        let low = Double(first.count) / 2, high = total - Double(last.count) / 2
+        return max(0, min(1, (before + same / 2 - low) / (high - low)))
+    }
+    func rank(_ level: Int) -> Double? { Self.rank(level, in: bins) }
+    private func own() -> (token: String, level: Int)? {
+        guard let person = MTPersonLevel.now, let coins = MTCoinBalance.now,
+              let words = MontanaSeed.mnemonic, let entropy = MontanaSeedKeys.entropyFrom(mnemonic: words) else { return nil }
+        let key = HKDF<SHA256>.deriveKey(inputKeyMaterial: SymmetricKey(data: entropy), salt: Data(),
+            info: Data("mt-level-distribution-v1".utf8), outputByteCount: 32)
+        let token = Data(HMAC<SHA256>.authenticationCode(for: Data("owner".utf8), using: key))
+        return (MontanaHomeNode.hex(token), MTPersonChain.global(person: person, balance: coins))
+    }
+    func changed() {
+        guard let own = own(), published != own.token + ":" + String(own.level) else { return }
+        Task { await refresh() }
+    }
+    func refresh() async {
+        if asking { again = true; return }
+        let own = own(), stamp = own.map { $0.token + ":" + String($0.level) }
+        let needsPut = stamp != nil && (stamp != published || Date().timeIntervalSince(publishedAt) >= 300)
+        guard Date().timeIntervalSince(attemptedAt) >= 5, needsPut || Date().timeIntervalSince(readAt) >= 60 else { return }
+        attemptedAt = Date()
+        asking = true
+        defer {
+            asking = false
+            if again { again = false; Task { await refresh() } }
+        }
+        for base in MontanaWakePush.orderedBases(for: "levels").prefix(3) {
+            if needsPut, let own {
+                if await post(base + "/level-put", body: ["token": own.token, "level": own.level]) != nil { published = stamp; publishedAt = Date() }
+            }
+            guard let reply = await post(base + "/level-get", body: [:]),
+                  let rows = reply["levels"] as? [[String: Int]] else { continue }
+            let next = Self.valid(rows.compactMap { row in
+                guard let level = row["level"], let count = row["count"] else { return nil }
+                return Bin(level: level, count: count)
+            })
+            if bins != next {
+                bins = next
+                if let data = try? JSONEncoder().encode(next) { UserDefaults.standard.set(data, forKey: Self.cacheKey) }
+            }
+            readAt = Date()
+            MontanaTrace.markChanged("level_distribution", "bins=\(next.count)")
+            return
+        }
+    }
+    private func post(_ word: String, body: [String: Any]) async -> [String: Any]? {
+        guard let url = URL(string: word), let data = try? JSONSerialization.data(withJSONObject: body) else { return nil }
+        var request = URLRequest(url: url); request.httpMethod = "POST"; request.timeoutInterval = 6
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type"); request.httpBody = data
+        guard let (reply, response) = try? await URLSession.shared.data(for: request),
+              (response as? HTTPURLResponse)?.statusCode == 200, reply.count <= 32_768 else { return nil }
+        return (try? JSONSerialization.jsonObject(with: reply)) as? [String: Any]
+    }
 }
 
 /// THE MONTANA TOP (the author's words 04.10.2026 03:03, 05:40 and 05:47 MSK: «a live set as by a web socket, the update instant from
@@ -1454,35 +1520,63 @@ enum MTPersonLevel {
     }
 }
 
-/// A CALL MINTS ITS TALK TO BOTH (the author's word 07.10.2026 18:5x MSK: for calls both correspondents are credited the time they
-/// talked, each -- sixty seconds is sixty coins to both; it replaces the level's coins of the outgoing call and the caller's payment
-/// to the one called, both of 05.10): every second a call stands connected mints one coin on each side's own phone, the caller's
-/// and the one called, in the calls' own window and TimeChain, on the one beat of the minting by the second (MTMintBeat). One
-/// second, one coin (the constitution, point 11): no level multiplies it.
-/// EVERY SECOND OF A CALL MINTS THE LEVEL'S COINS TO EACH OF ITS PEOPLE (the author's word 11.10.2026 21:2x MSK: «for calls coins
-/// must be credited x1 to the level for every second to every participant of the call, and in chats»): a connected call mints on
-/// this side the level's coins a second -- the same rule on the other side's phone for its own person, each by their own level,
-/// whatever the chat's Money Flow; nothing burns any more. A second mints once by its window, whichever beat asks.
+/// The author's word 14.10.2026: recording earns; without recording the same rate burns.
+/// Each person's local recording decides the sign, and the ledger owns the shared level/music
+/// multiplier. Recording transitions settle elapsed seconds before changing that sign.
+struct MTCallCredit {
+    let call: String
+    let coins: Int
+}
+
 @MainActor enum MTCallMint {
     nonisolated static let refPrefix = "callmint:"   // read by the history's fold off the screen's thread (MTTimeChain.source)
-    static var wanted: Bool { MontanaCall.shared.mintsTalk }
+    nonisolated static let burnPrefix = "call:"
+    static var wanted: Bool { !MontanaCall.shared.talkWindows.isEmpty || MTGroupRoom.shared.talkElapsed != nil }
     /// THE SECONDS ARE THE CALL'S CLOCK, NOT THE BEAT'S (12.10.2026, the author's word 11:5x MSK: «for calls coins must be credited
     /// to both correspondents by their level for every second»): a beat minted one second, and a beat is a second plus its own
     /// work -- B9F26F54 minted 2169 seconds of the 2223 it talked 07:24-08:01Z, while the iPhone 17 at the other end minted 2224.
     /// Each beat mints the seconds the call has talked since the last second it minted. The first beat of a call in this run
     /// counts from one second back: a run that came back into a talking call must not mint the seconds the run before it minted.
-    private static var minted: (call: String, seconds: Int)?
+    private static var minted: [String: Int] = [:]
+    private static var finished: [String] = []
+    static func begin() { begin(MontanaCall.shared.talkElapsed) }
+    static func begin(_ elapsed: (call: String, seconds: Int)?) {
+        guard let t = elapsed else { return }
+        if minted[t.call] == nil { minted[t.call] = 0 }
+    }
     static func mintSecond() {
-        guard let t = MontanaCall.shared.talkElapsed else { return }
-        let base = (minted?.call == t.call ? minted?.seconds : nil) ?? max(0, t.seconds - 1)
+        for elapsed in MontanaCall.shared.talkWindows { mintSecond(elapsed) }
+        mintSecond(MTGroupRoom.shared.talkElapsed)
+    }
+    private static func mintSecond(_ elapsed: (call: String, seconds: Int)?) {
+        guard let t = elapsed else { return }
+        let base = minted[t.call] ?? max(0, t.seconds - 1)
         let fresh = t.seconds - base
         guard 0 < fresh else {
-            if fresh != 0 { minted = (t.call, t.seconds) }   // the call's clock went back (a new connection): count from it
             return
         }
-        minted = (t.call, t.seconds)
-        let coins = MTCoinBook.ledger.mintInWindow(MTCoinBook.price * fresh, prefix: refPrefix, seconds: fresh, byLevel: true)
-        MontanaTrace.markFolded("call_mint", "coins=\(coins) seconds=\(fresh)", window: 60)
+        minted[t.call] = t.seconds
+        let recording = MTCallRecording.shared.isRecording(t.call)
+        let coins: Int
+        if recording {
+            coins = MTCoinBook.ledger.mintInWindow(MTCoinBook.price * fresh, prefix: refPrefix + t.call + ":", seconds: fresh, byLevel: true)
+        } else {
+            coins = -MTCoinBook.ledger.burnInWindow(MTCoinBook.price * fresh, prefix: burnPrefix + t.call + ":", seconds: fresh, byLevel: true)
+        }
+        MontanaTrace.markFolded("call_coins", "coins=\(coins) seconds=\(fresh) recording=\(recording ? 1 : 0)", window: 60)
+    }
+    /// Settle the last whole second before the call clock is cleared. Read the amount the
+    /// book actually credited, including changes of level and music during the call.
+    static func finish() -> MTCallCredit? { finish(MontanaCall.shared.talkElapsed) }
+    static func finish(_ elapsed: (call: String, seconds: Int)?) -> MTCallCredit? {
+        guard let t = elapsed else { return nil }
+        mintSecond(t)
+        let earned = MTCoinBook.ledger.closeMintWindow(refPrefix + t.call + ":")
+        let burned = MTCoinBook.ledger.closeMintWindow(burnPrefix + t.call + ":")
+        let coins = earned + burned
+        if !finished.contains(t.call) { finished.append(t.call) }
+        while finished.count > 8 { minted.removeValue(forKey: finished.removeFirst()) }
+        return MTCallCredit(call: t.call, coins: coins)
     }
 }
 
@@ -1852,6 +1946,7 @@ enum MTTimeChain {
     private func recount(write: Bool = true) {
         seconds = spans.reduce(0) { n, s in n + (s.b - s.a + 1) }
         MTPersonLevel.set(level)
+        MTLevelDistribution.shared.changed()
         let fresh = Self.chain(spans)
         guard fresh.last?.hash != links.last?.hash else { return }   // the head's seal seals the whole chain
         links = fresh
@@ -2024,8 +2119,11 @@ struct MTCoinEntry: Codable, Hashable, Identifiable {
     @discardableResult func earn(_ names: [String], times: Int, peer: String?) -> Int
     /// A game's coins gathered in its open window of τ1 and booked as one move when it closes (MTLocalCoinLedger.mintInWindow).
     /// `seconds` is the span the coins were earned over: one for a tap or a second now, more for seconds lived away. `byLevel`
-    /// multiplies the coins by the box's level (MTPiLevels.multiplier); a call's second is one coin and no level (MTCallMint).
+    /// multiplies by the same current rate shown in the wallet (MTPiLevels.multiplier), including calls.
     @discardableResult func mintInWindow(_ coins: Int, prefix: String, seconds: Int, byLevel: Bool) -> Int
+    @discardableResult func burnInWindow(_ coins: Int, prefix: String, seconds: Int, byLevel: Bool) -> Int
+    /// Close this source's current window and return its signed booked amount, without moving coins again.
+    func closeMintWindow(_ prefix: String) -> Int
     /// Coins already counted elsewhere, minted once under their name: a chess game's pot at its end (MTChessCoins.pay), whose
     /// moves named their coins at their makers' levels. The coins this call added; none when the name was minted before.
     @discardableResult func mint(_ coins: Int, ref: String, peer: String?) -> Int
@@ -2484,10 +2582,22 @@ struct MTCoinCounts {
     static let window: Double = 60
     private var windows: [String: (ref: String, coins: Int, at: Double)] = [:]
     @discardableResult func mintInWindow(_ coins: Int, prefix: String, seconds: Int, byLevel: Bool) -> Int {
+        moveInWindow(coins, prefix: prefix, seconds: seconds, byLevel: byLevel, burning: false)
+    }
+    @discardableResult func burnInWindow(_ coins: Int, prefix: String, seconds: Int, byLevel: Bool) -> Int {
+        moveInWindow(coins, prefix: prefix, seconds: seconds, byLevel: byLevel, burning: true)
+    }
+    private func moveInWindow(_ coins: Int, prefix: String, seconds: Int, byLevel: Bool, burning: Bool) -> Int {
         let (whole, over) = coins.multipliedReportingOverflow(by: byLevel ? MTPiLevels.multiplier(balance) : 1)
-        guard !over, 0 < whole, MTCoinBook.fits(whole, beside: balance) else { return 0 }
-        let c = priced(whole, seconds: seconds)
+        guard !over, 0 < whole else { return 0 }
+        if !burning && !MTCoinBook.fits(whole, beside: balance) { return 0 }
+        // A connected call owns every elapsed second (14.10.2026): other minting must
+        // not consume its earnings. MTCallMint advances each call's paid second once.
+        let c = burning ? min(whole, max(0, balance)) : (prefix.hasPrefix(MTCallMint.refPrefix) ? whole : priced(whole, seconds: seconds))
         guard 0 < c else { return 0 }
+        let signed = burning ? -c : c
+        let (windowCoins, overflow) = (windows[prefix]?.coins ?? 0).addingReportingOverflow(signed)
+        guard !overflow, windowCoins != Int.min else { return 0 }
         let now = MTTimeChain.now()
         if windows[prefix] == nil {
             let ref = prefix + "w" + String(MTTimeChain.ms(now)) + "-" + UUID().uuidString
@@ -2497,20 +2607,30 @@ struct MTCoinCounts {
                 self.close(prefix)
             }
         }
-        windows[prefix]?.coins += c
-        balance += c
-        counts.earn(c, ref: prefix)
+        windows[prefix]?.coins = windowCoins
+        balance += signed
+        if burning { counts.burned = MTCoinCounts.plus(counts.burned, c) }
+        else { counts.earn(c, ref: prefix) }
         MTCoinBalance.set(balance)
         reached(at: now)
-        MTCoinFlash.shared.born(c, ref: prefix)
+        if !burning { MTCoinFlash.shared.born(c, ref: prefix) }
         return c
     }
     private func close(_ prefix: String) {
-        guard let w = windows.removeValue(forKey: prefix), 0 < w.coins else { return }
-        let e = MTCoinEntry(k: .earn, c: w.coins, ref: w.ref, at: w.at)
+        guard let w = windows.removeValue(forKey: prefix), w.coins != 0 else { return }
+        let e = MTCoinEntry(k: w.coins < 0 ? .burn : .earn, c: abs(w.coins), ref: w.ref, at: w.at)
         entries.append(e); taken.insert(e.id)
         keep([e])
         MontanaTrace.markFolded("coin_window", "coins=\(w.coins) balance=\(balance)", window: 60)
+    }
+    func closeMintWindow(_ prefix: String) -> Int {
+        close(prefix)
+        return entries.reduce(0) { sum, entry in
+            guard (entry.k == .earn || entry.k == .burn), entry.ref.hasPrefix(prefix) else { return sum }
+            let signed = entry.k == .burn ? -entry.c : entry.c
+            let (next, overflow) = sum.addingReportingOverflow(signed)
+            return overflow ? (signed < 0 ? -Int.max : Int.max) : next
+        }
     }
     /// THE LIMIT OF A SECOND (point 11, MTCoinBook.limit): all the minting of one second -- letters, taps, the pull, the VPN wall,
     /// chess -- shares that second's thirteen coins; a payment for seconds lived away carries thirteen for each of its seconds before
@@ -2789,7 +2909,7 @@ enum MTOwnWords {
 /// a paid reaction is a reaction word that carries its coins. Both ask the book first: a short balance refuses here and
 /// nothing leaves.
 enum MTCoinSend {
-    /// A field transfer has three honest outcomes. Only the local book may call it short;
+    /// A field transfer has three honest outcomes. Only the available the page shows (MTCoinSplit.available) may call it short;
     /// an unanswered node record is pending, not an insufficient balance and not a second send.
     enum TransferResult { case sent(String), short, pending }
     /// The system chain's name for a restored credit: this prefix and the coin letter's wire name.
@@ -2825,12 +2945,13 @@ enum MTCoinSend {
     @MainActor static func transferResult(_ coins: Int, to chat: Chat, store: ChatStore) async -> TransferResult {
         let conv = chat.convId ?? chat.name
         let balance = MTCoinBook.ledger.balance
+        let available = MTCoinSplit.shared.available   // the number every transfer page shows weighs the sum (16.10.2026 No.72)
         guard canPay(chat, store: store), 0 < coins else {
             MontanaTrace.mark("coin_refused", "transfer invalid coins=\(coins) balance=\(balance) own=\(MTOwnWords.mine(conv) ? 1 : 0)")
             return .pending
         }
-        guard coins <= balance else {
-            MontanaTrace.mark("coin_refused", "transfer coins=\(coins) balance=\(balance) own=\(MTOwnWords.mine(conv) ? 1 : 0)")
+        guard coins <= available else {
+            MontanaTrace.mark("coin_refused", "transfer coins=\(coins) available=\(available) balance=\(balance) own=\(MTOwnWords.mine(conv) ? 1 : 0)")
             return .short
         }
         switch await MTCoinTx.sendResult(coins, conv: conv) {
@@ -3237,6 +3358,16 @@ enum MTCoinChainRules {
             split = Split(proven: proven, declared: declared, fromCopy: fromCopy, at: now, height: height)
         }
         MontanaTrace.markFolded("coin_split", "proven=\(proven) declared=\(declared) copy=\(fromCopy ? 1 : 0)", window: 600)
+    }
+    /// THE AVAILABLE, ONE NUMBER EVERYWHERE (the author's word 16.10.2026 17:19 MSK: «on the coins page do not show Proven, Declared,
+    /// More wait to be minted below -- it is enough to show how much is available with one owner, so that a transfer from the chat
+    /// and from any place shows only the available»): what the person's chain holds for its one owner, proven and declared, never
+    /// above the book, which has already paid the transfers still on their way; before the chain has spoken in this run, the book.
+    /// The wallet, the chat's coin plate and the send page show it, and a transfer is weighed by it (MTCoinSend.transferResult).
+    var available: Int {
+        let book = MTLocalCoinLedger.shared.balance
+        guard let s = split else { return book }
+        return min(book, Int(clamping: s.proven + s.declared))
     }
 }
 

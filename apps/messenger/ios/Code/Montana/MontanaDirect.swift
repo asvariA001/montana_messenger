@@ -1265,6 +1265,23 @@ final class MontanaDirect {
         return true
     }
 
+    /// Send on exactly one authenticated, already standing local connection.
+    @discardableResult
+    func sendOnStandingNear(to overlay: Data, payload: Data, mid: String) -> Bool {
+        idxLock.lock()
+        let cid = liveIndex.filter { $0.value.overlay == overlay && !MontanaTransport.isGlobalIP($0.value.ip) }.keys.min()
+        idxLock.unlock()
+        guard let cid else { return false }
+        q.async { [self] in
+            guard let c = outbound.values.first(where: { $0.cid == cid }) ?? inbound.values.first(where: { $0.cid == cid }),
+                  c.ready, c.peerOverlay == overlay, !MontanaTransport.isGlobalIP(c.peerIP) else { return }
+            // One existing authenticated local connection, with no dial or carrier fan-out.
+            // The call receipt judges delivery if this connection dies after the snapshot.
+            sendOverlayMessage(c, payload, mid)
+        }
+        return true
+    }
+
     /// Put an envelope onto the local network under its pipe label.
     ///
     /// The peer address does not exist -- the set abolishes it -- so "dialling them" is impossible in

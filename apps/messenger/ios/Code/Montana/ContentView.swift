@@ -891,10 +891,15 @@ final class MontanaSlideController: UIViewController, UIGestureRecognizerDelegat
             host.view.endEditing(true)
         case .changed:
             apply(g.translation(in: view).x)
-        case .ended, .cancelled, .failed:
+        case .ended:
             let x = g.translation(in: view).x, v = g.velocity(in: view).x
             let out = abs(v) > 300 ? v > 0 : x > view.bounds.width / 3
+            MontanaTrace.mark("page_pan", "page=\(key) end=completed close=\(out ? 1 : 0)")
             settle(out, velocity: v)
+        case .cancelled, .failed:
+            // A system interruption never completes the person's back gesture.
+            MontanaTrace.mark("page_pan", "page=\(key) end=cancelled close=0")
+            settle(false, velocity: 0)
         default: break
         }
     }
@@ -1565,7 +1570,7 @@ struct MontanaSideDrawer: View {
     private var hasSeed: Bool { MontanaSeed.hasSeed }
     // The library and its sliding container read exactly the same width, including after rotation.
     static func width(of container: CGFloat) -> CGFloat { round(container * 0.78) }
-    private var apps: [MTApplication] { MTApplication.allCases }
+    private var apps: [MTApplication] { MTApplication.allCases.filter { $0 != .groups && $0 != .channels } }
     private var pins: Set<MTApplication> {
         Set(savedPins.split(separator: ",").compactMap { MTApplication(rawValue: String($0)) })
     }
@@ -3207,14 +3212,18 @@ enum MontanaAudioSession {
         let v = VoicePlayer.shared
         return v.playingFile != nil && !v.paused && !v.isVoice
     }
-    static func activatePlayback() {
+    /// A video looked at with its sound, by a person's tap: playback for as long as its viewer holds the sound by its name; the
+    /// same name lets it go (release), and the last to let go brings the session back to rest (16.10). The hold is taken under a
+    /// call or a tape too, so that their end closes the road into this video's playback, not into rest.
+    static func activatePlayback(_ who: String) {
         // The sign is a REALLY running call, not the session's category. After a conversation
         // the app does not reset the session: the category stays playAndRecord with voiceChat
         // mode, and the sound goes to the earpiece — which sounds like «no sound». Checking
         // the category would freeze that state forever instead of fixing it.
-        if MontanaCall.isBusy || CallUIModel.shared.state != "idle" { return }
+        let callStands = MontanaCall.isBusy || CallUIModel.shared.state != "idle"
         ledger.async {
-            guard !MontanaCall.isBusy, !holders.values.contains(true) else { return }
+            holders[who] = holders[who] ?? false
+            guard !callStands, !MontanaCall.isBusy, !holders.values.contains(true) else { return }
             activatePlaybackLocked()
         }
     }
@@ -3273,16 +3282,25 @@ enum MontanaAudioSession {
         DispatchQueue.main.async { then(ready) }
         }
     }
-    /// A CLIP WITHOUT SOUND TAKES NOTHING FROM ANYBODY (the feed's playing tiles, 25.09): while nothing of ours sounds, the
-    /// session mixes with every other app's — a person's own music goes on under a feed of playing videos. A call or a
-    /// track of ours holds the session as it does; a silent clip under them changes nothing.
-    static func playSilentClip() {
-        guard !MontanaCall.isBusy, VoicePlayer.shared.playingFile == nil else { return }
+    /// A CLIP WITHOUT SOUND TAKES NOTHING FROM ANYBODY (the feed's playing tiles, 25.09): a person's own music goes on under a
+    /// feed of playing videos. EVERY PLAY OF IT PASSES THE LEDGER FIRST (the author's word 16.10.2026 16:06 MSK: «when I listen
+    /// to music in another app and come to the feed, the sound goes off, though I tapped nothing»): a player wakes the session
+    /// in the category it finds, and the clip asked for mixing once, at its birth, on another queue than its play. The author's
+    /// phone (2215, 16.10 12:58-13:03Z) played the feed's clip five minutes after a call had closed its road into plain playback,
+    /// which does not mix -- and the other app's music stopped. The clip plays only once the ledger has passed: with nothing of
+    /// ours holding the sound, at rest; under a sound of ours, in that sound's own category, which a person's tap chose.
+    static func silentClip(_ play: @escaping () -> Void) {
         ledger.async {
-        guard !MontanaCall.isBusy, holders.isEmpty else { return }
-        let s = AVAudioSession.sharedInstance()
-        mtAudioTry("a silent clip: mixing with the others") { try s.setCategory(.ambient, mode: .moviePlayback, options: [.mixWithOthers]) }
+            if holders.isEmpty, !MontanaCall.isBusy { rest(AVAudioSession.sharedInstance()) }
+            DispatchQueue.main.async(execute: play)
         }
+    }
+    /// THE SESSION AT REST MIXES (16.10; the reference's road: its silent autoplay holds the ambient type, which mixes with the
+    /// others, and the category is the top holder's): nothing of ours holds the sound -- the ambient category, so whatever of
+    /// ours plays without sound wakes nobody's music.
+    private static func rest(_ s: AVAudioSession) {
+        guard s.category != .ambient else { return }
+        mtAudioTry("the session at rest: mixing with the others") { try s.setCategory(.ambient, mode: .moviePlayback, options: [.mixWithOthers]) }
     }
     /// A paused track or voice goes on THROUGH ITS KIND'S OWN DOOR (26.09): a tape or a voice between the pause and the resume left
     /// the sound in their own mode -- the recording's, the ear's -- and waking the session as it stood played the music into a
@@ -3316,7 +3334,9 @@ enum MontanaAudioSession {
     // ([C-1]) -- and the last such hold to go closes the road in that same moment: the category returns to plain
     // playback (the car's call ends with it), and when nothing of ours sounds the session is lowered with the word
     // that lets every other app go on.
-    private static let ledger = DispatchQueue(label: "montana.audio.ledger")
+    // Playback, recording and calls serialize session mutations on one queue. A
+    // playback request already running at call birth finishes before call configuration.
+    private static let ledger = MTCallAudioOwner.shared.queue
     private static var holders: [String: Bool] = [:]   // the door's name -- and whether it opened the microphone road
     /// The door is done with the sound. Whether anything of ours still sounds is asked HERE, on the caller's own
     /// thread, of the owners themselves -- one question at one moment, never a patrol over somebody else's objects.
@@ -3345,8 +3365,10 @@ enum MontanaAudioSession {
         // THE SESSION IS LOWERED FIRST, THE CATEGORY SET AFTER. A NOTE KEEPS THE MUSIC PLAYING (the author's word
         // 24.09), which the recording session does by mixing; a category change on a LIVE session that mixes would
         // cut that music dead, where lowering it with «notify others» is the very word that lets it go on.
-        if wholly { lowerSession(again: true) }
-        mtAudioTry("closing the microphone road") { try s.setCategory(.playback, mode: .default, options: []) }
+        // NOTHING OF OURS LEFT, THE ROAD CLOSES INTO REST (16.10): plain playback does not mix, and the feed's next silent clip
+        // woke the session in it -- the other app's music stopped five minutes after a call (the author's phone, 12:58Z).
+        if wholly { lowerSession(again: true); rest(s) }
+        else { mtAudioTry("closing the microphone road") { try s.setCategory(.playback, mode: .default, options: []) } }
         mtAudioTry("dropping the route override") { try s.overrideOutputAudioPort(.none) }
         mtAudioTry("letting the input go") { try s.setPreferredInput(nil) }
         if !wholly { MontanaTrace.mark("audio_hold", "the road is closed; the session stays -- something of ours sounds") }
@@ -3926,7 +3948,15 @@ func mtUnknownServiceWord(_ text: String) -> Bool {
 /// and not the badge's cost (the recount names its parts: MontanaMainProbe «badge:…»). The words do not repeat — each
 /// carries its length in seconds — so the keeping is bounded by its count alone: past 4096 call letters a full walk
 /// evicts what it reads, and the saving is gone.
-private final class MTCallInfoKept { let v: (video: Bool, incoming: Bool, dur: Int, missed: Bool)?; init(_ v: (video: Bool, incoming: Bool, dur: Int, missed: Bool)?) { self.v = v } }
+struct MTCallInfo {
+    let video: Bool
+    let incoming: Bool
+    let dur: Int
+    let missed: Bool
+    let call: String?
+    let coins: Int?
+}
+private final class MTCallInfoKept { let v: MTCallInfo?; init(_ v: MTCallInfo?) { self.v = v } }
 private let callInfoKept: NSCache<NSString, MTCallInfoKept> = { let c = NSCache<NSString, MTCallInfoKept>(); c.countLimit = 4096; return c }()
 /// A new build's word, as the Montana room keeps it: the build, the version, what changed, the TestFlight link. What changed
 /// speaks the phone's language when the road brought that language (the author's word 03.10: «in the language of the
@@ -3941,14 +3971,16 @@ func releaseInfoOf(_ text: String) -> (build: Int, version: String, notes: [Stri
 }
 
 // Parse a call log entry from the message text.
-func callInfoOf(_ text: String) -> (video: Bool, incoming: Bool, dur: Int, missed: Bool)? {
+func callInfoOf(_ text: String) -> MTCallInfo? {
     guard text.hasPrefix(callMark) else { return nil }
     if let kept = callInfoKept.object(forKey: text as NSString) { return kept.v }
-    var v: (video: Bool, incoming: Bool, dur: Int, missed: Bool)? = nil
+    var v: MTCallInfo? = nil
     if let d = String(text.dropFirst(callMark.count)).data(using: .utf8),
        let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] {
-        v = ((o["v"] as? Bool) ?? false, (o["inc"] as? Bool) ?? false,
-             (o["dur"] as? Int) ?? 0, (o["miss"] as? Bool) ?? false)
+        let coins = o["minted"] as? Int
+        v = MTCallInfo(video: (o["v"] as? Bool) ?? false, incoming: (o["inc"] as? Bool) ?? false,
+             dur: (o["dur"] as? Int) ?? 0, missed: (o["miss"] as? Bool) ?? false,
+             call: o["call"] as? String, coins: coins)
     }
     callInfoKept.setObject(MTCallInfoKept(v), forKey: text as NSString)
     return v

@@ -280,6 +280,14 @@ final class ConnectionStatus: ObservableObject {
 }
 
 struct ChatsListView: View {
+    private enum ChatSection: String, CaseIterable {
+        case chats, groups, channels
+        var title: LocalizedStringKey {
+            switch self { case .chats: return "Chats"; case .groups: return "Groups"; case .channels: return "Channels" }
+        }
+    }
+    @State private var chatSection: ChatSection = .chats
+    @ObservedObject private var release = MTReleaseState.shared
     @ObservedObject private var keep = MTKeeping.shared   // the crossed glyph of the copy with contacts (08.10)
     @ObservedObject private var playerGate = MontanaPlayerBar.Gate.shared   // the one bit; never the player's clock (the critic 22.09)
     private var musicPlayer: VoicePlayer { VoicePlayer.shared }              // the folded page over the list (15.35): called, not observed
@@ -326,8 +334,8 @@ struct ChatsListView: View {
     /// condition each, read by the column and by the list alike. BOTH ARE THE CHATS PAGE'S OWN (the critic 23.09):
     /// the column stands over every page under the bar, and the chats' archive row stayed there when the contacts or
     /// the calls were chosen — their rows, running on under the bar since 1913, showed through its words.
-    private var storiesShown: Bool { ui.pane == .chats && testMode && !searchActive && !storiesCollapsed }
-    private var archiveShown: Bool { ui.pane == .chats && !archivedChats.isEmpty && archiveRevealed && !searchActive }
+    private var storiesShown: Bool { ui.pane == .chats && chatSection == .chats && testMode && !searchActive && !storiesCollapsed }
+    private var archiveShown: Bool { ui.pane == .chats && chatSection == .chats && !archivedChats.isEmpty && archiveRevealed && !searchActive }
     private var chatsTopBar: some View {
         MTGlassGroup {
         chatsTopBarPlate
@@ -353,14 +361,26 @@ struct ChatsListView: View {
             // the drawer stays one stroke from the screen's left edge (MontanaDrawerHost).
             // THE CROSSED PEOPLE BESIDE IT (the author's word 08.10.2026 23:2x MSK: «when it is off, a crossed glyph like the muted
             // sound, with the way to the settings of the copy with contacts»): the speaker first, then the copy, then the menu.
+            // THE APPS' GLYPH LIGHTS UP ONLY FOR AN UPDATE (the author's word 16.10.2026 16:06 MSK: «in place of the apps button on
+            // the time panel some incomprehensible shield; this button must light up when an update is available, only with a
+            // direct link to the update»): the slot is the app library's grid, as it was; a newer build of this client on the site
+            // turns it into the update's glyph with the direct link (MTReleaseState). The shields of 2206 -- a status at rest and
+            // a refused permission -- are gone; the crossed speaker and the crossed people stay, each with its own way.
             barSlot(0) {
-                if MTNotifyAllowed.shared.refused { openNotifications() } else if keep.offShown { ui.overlayPage = .keeping } else { openDrawer() }
+                if let url = release.updateURL { UIApplication.shared.open(url) }
+                else if MTNotifyAllowed.shared.refused { openNotifications() }
+                else if keep.offShown { ui.overlayPage = .keeping }
+                else { openDrawer() }
             } label: {
-                // No badge here (the author's word 18.09): unfolded, the unread stand on the chats glyph and the missed calls
-                // on the calls glyph — where the thing itself lives.
-                Image(systemName: MTNotifyAllowed.shared.refused ? "speaker.slash" : (keep.offShown ? "person.2.slash" : UIState.Glyph.drawer)).font(.system(size: 22, weight: .semibold))
+                Image(systemName: release.updateURL != nil ? "arrow.down.circle.fill" :
+                      (MTNotifyAllowed.shared.refused ? "speaker.slash" : (keep.offShown ? "person.2.slash" : UIState.Glyph.drawer)))
+                    .font(.system(size: 22, weight: .semibold))
                     .foregroundColor(MontanaOctagon.barGlyph)
             }
+            .accessibilityLabel(release.updateURL != nil ? Text("Update Montana") :
+                                (MTNotifyAllowed.shared.refused ? Text("Notifications are off") :
+                                 (keep.offShown ? Text("Keep my copy with my contacts") : Text("App Library"))))
+            .task { await release.refresh() }
             // The contacts, left of the logo (the author's word 19.09).
             barSlot(Self.contactsSlot) { withAnimation(.easeInOut(duration: 0.2)) { ui.pane = .contacts } } label: {
                 Image(systemName: UIState.Glyph.contacts).font(.system(size: 22, weight: .semibold))
@@ -494,9 +514,9 @@ struct ChatsListView: View {
     /// The slot the pane stands under — the puck's home when the page is chosen elsewhere (the drawer, the logo).
     private static func slot(of pane: UIState.Pane) -> Int? {
         switch pane {
-        case .chats: return chatsSlot; case .contacts: return contactsSlot; case .calls: return callsSlot
+        case .chats, .groups, .channels: return chatsSlot; case .contacts: return contactsSlot; case .calls: return callsSlot
         case .music, .gallery: return mediaSlot; case .feed: return logoSlot; case .vpn: return globeSlot
-        case .mesh, .p2p, .groups, .channels: return nil   // opened from the drawer: no glyph of the bar is theirs
+        case .mesh, .p2p: return nil
         }
     }
     /// One slot of the bar: the glyph, its action, and under it the puck when it is the chosen one.
@@ -572,7 +592,11 @@ struct ChatsListView: View {
     var orderedChats: [Chat] { MTListWork.build { ChatStore.listOrder(visibleChats, pinned: store.pinnedChats) } }
     /// The rows of the Groups app or of the Channels app: the groups of the kind, in the chats' one order.
     private func groupRows(channel: Bool) -> [Chat] {
-        orderedChats.filter { c in MTGroup.isKey(c.name) && (MTGroup.shared.kind(c.name) == .channel) == channel }
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return orderedChats.filter { c in
+            MTGroup.isKey(c.name) && (MTGroup.shared.kind(c.name) == .channel) == channel
+                && (query.isEmpty || store.title(for: c).localizedCaseInsensitiveContains(query))
+        }
     }
 
     // filtering chats by the search string
@@ -953,34 +977,24 @@ struct ChatsListView: View {
                 ui.openChat(Chat(name: ref, lastMessage: "", time: nowHHMM(), unread: 0,
                                  status: "Montana address", convId: ref))
             })
-        case .groups, .channels:
-            // THE GROUPS AND THE CHANNELS ARE APPS OF THEIR OWN (the author's words 06.10.2026 11:5x-12:0x MSK: «in the side panel,
-            // under Chats, separate apps Groups and Channels -- whole apps of their own, where groups and channels are created and
-            // where they live; the chats list does not show them; their own TimeChain and their own app»): the page lists the rows of
-            // its kind alone, and its corner creates one of its kind.
-            let channel = p == .channels
-            MontanaTimePanelList(panel: timePanel(p, listEmpty: false), rows: groupRows(channel: channel),
-                                 fingerprint: rowPrint,
-                                 swipeLeading: swipeLeading, swipeTrailing: swipeTrailing,
-                                 swipesEnabled: !selecting,
-                                 onOpen: rowTapped,
-                                 rowContent: { AnyView(chatRowCell($0).environmentObject(store).environment(ui)) },
-                                 onPull: { _ in },
-                                 onHold: { c in if !selecting { personMenu = c } },
-                                 holdsRow: { _ in !selecting },
-                                 bottomReserve: playerReserve,
-                                 headFloats: false, page: channel ? "channels" : "groups", fieldNames: MTChatListView.fieldNames,
-                                 separatorRow: { _ in true })
-                .mtPageAction(reserve: playerReserve, shown: !selecting && !searchActive) { createButton(channel: channel) }
-                .overlay(alignment: .bottom) { playerBar }
-        case .chats:
+        case .chats, .groups, .channels:
+            let section: ChatSection = p == .groups ? .groups : p == .channels ? .channels : chatSection
             VStack(spacing: 0) {
-                let bare = orderedChats.filter { c in !MTGroup.isKey(c.name) }   // the groups and the channels live in their own apps (06.10)
-                // The list is empty while it holds nothing but the local room (the author's word 17.09):
-                // Saved Messages stands, and the code page stands under it as the last row.
-                let empty = bare.allSatisfy { ChatStore.isLocalRoom($0.name) } && archivedChats.isEmpty
+                Picker("Chats", selection: Binding(get: { section }, set: { next in
+                    endSelecting()
+                    chatSection = next
+                    ui.pane = .chats
+                })) {
+                    ForEach(ChatSection.allCases, id: \.self) { item in Text(item.title).tag(item) }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, MTSearchField.rowPad).padding(.vertical, 8)
+                let bare = section == .chats
+                    ? orderedChats.filter { !MTGroup.isKey($0.name) }
+                    : groupRows(channel: section == .channels)
+                let empty = section == .chats && bare.allSatisfy { ChatStore.isLocalRoom($0.name) } && archivedChats.isEmpty
                 let rows = empty ? bare + [Chat(name: Self.qrRow, lastMessage: "", time: "", unread: 0, status: "", convId: Self.qrRow)] : bare
-                MontanaTimePanelList(panel: timePanel(.chats, listEmpty: false), rows: rows,
+                MontanaTimePanelList(panel: timePanel(.chats, listEmpty: false, ownSearch: section != .chats), rows: rows,
                                fingerprint: rowPrint,
                                // A cell is hosted by the container, not by the page, so the
                                // shared state a row reads is handed to it by name: outside the
@@ -990,6 +1004,7 @@ struct ChatsListView: View {
                                onOpen: rowTapped,
                                rowContent: { AnyView(chatRowCell($0).environmentObject(store).environment(ui)) },
                                onPull: { dy in
+                                   guard section == .chats else { return }
                                    // The same two directions as before, now reported by the
                                    // container that owns the scroll: pull down summons the
                                    // archive row, pull up folds it; stories ride along.
@@ -1018,7 +1033,10 @@ struct ChatsListView: View {
                 // «Write» hangs over the rows, not over the bars below them: a player that
                 // appears pushes the button up with the rows (the author's word 14.09).
                 // ON THE LINE between the last two rows (the author's word 17.09): the pages' one corner (MTPageCorner), the reference.
-                .mtPageAction(reserve: playerReserve, shown: !selecting && !searchActive) { composeButton }
+                .mtPageAction(reserve: playerReserve, shown: !selecting && !searchActive) {
+                    if section == .chats { composeButton }
+                    else { createButton(channel: section == .channels) }
+                }
                 // The same player bar as in the chat, floated the same way (the author's word
                 // 14.09): over the rows' bottom, the rows reserving its height and showing through
                 // its material; leaving the chat does not lose the track (15.35).

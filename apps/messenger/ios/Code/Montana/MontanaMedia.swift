@@ -2412,16 +2412,13 @@ final class MTAssetImages: ObservableObject {
             DispatchQueue.main.async { done(img) }
         }
     }
-    /// A video of the library plays in the system player, as the chat's videos do.
+    /// A video of the library plays in the system player through the one entrance of video viewing, as the chat's videos do
+    /// (16.10: its sound is held and let go there, as every video's).
     static func play(_ a: PHAsset) {
         let opts = PHVideoRequestOptions(); opts.isNetworkAccessAllowed = true
         PHImageManager.default().requestPlayerItem(forVideo: a, options: opts) { item, _ in
             guard let item else { return }
-            DispatchQueue.main.async {
-                MontanaAudioSession.activatePlayback()
-                let c = AVPlayerViewController(); c.player = AVPlayer(playerItem: item)
-                MTTop.present(c, kind: "library-video") { c.player?.play() }
-            }
+            DispatchQueue.main.async { VideoPresenter.present(library: item, id: a.localIdentifier) }
         }
     }
 }
@@ -2982,7 +2979,8 @@ enum VideoKeeper {
     /// The mini window's long-lived delegate — outlives the SwiftUI layer's closing.
     static let delegate = VideoKeeperDelegate()
 
-    static func release() {
+    /// A swap to another video keeps the sound held: only a close lets it go (16.10).
+    static func release(keepingSound: Bool = false) {
         MontanaTelemetry.shared.event("VIDEO release()")
         player?.pause()
         // Unloading the clip: the system player can resume playback by itself after its own
@@ -2991,6 +2989,7 @@ enum VideoKeeper {
         controller?.player?.pause()
         controller?.player?.replaceCurrentItem(with: nil)
         controller = nil; player = nil; file = nil; inPiP = false; restoring = false
+        if !keepingSound { MontanaAudioSession.release("video") }   // the video's sound is let go: the last of ours brings the session back to rest (16.10)
     }
 }
 
@@ -3040,20 +3039,24 @@ enum VideoPresenter {
             return item
         }
     }
-    private static func present(_ file: String, item: () -> AVPlayerItem) {
-        MontanaAudioSession.activatePlayback()
-        if let f = VideoKeeper.file, f != file { VideoKeeper.release() }
+    /// A video of the phone's library: no share button, the file is the library's.
+    static func present(library item: AVPlayerItem, id: String) {
+        present("library " + id, share: false) { item }
+    }
+    private static func present(_ file: String, share: Bool = true, item: () -> AVPlayerItem) {
+        MontanaAudioSession.activatePlayback("video")   // held until the keeper lets the video go (VideoKeeper.release, 16.10)
+        if let f = VideoKeeper.file, f != file { VideoKeeper.release(keepingSound: true) }
         let c: AVPlayerViewController
         if let kept = VideoKeeper.controller, VideoKeeper.file == file {
             c = kept   // returning from the mini window: the same player, the same second
         } else {
-            VideoKeeper.release()
+            VideoKeeper.release(keepingSound: true)
             c = AVPlayerViewController()
             c.player = AVPlayer(playerItem: item())
             c.allowsPictureInPicturePlayback = true
             c.canStartPictureInPictureAutomaticallyFromInline = true
             c.delegate = VideoKeeper.delegate
-            attachShareMenu(c, file: file)
+            if share { attachShareMenu(c, file: file) }
             VideoKeeper.controller = c
             VideoKeeper.player = c.player
             VideoKeeper.file = file

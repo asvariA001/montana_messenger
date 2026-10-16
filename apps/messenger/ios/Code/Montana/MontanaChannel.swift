@@ -116,7 +116,6 @@ struct MTChannelSubscribersStep: View {
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 MontanaDoneMark { onCreate(chosen.compactMap { ref in people.first { $0.convRef == ref } }) }
-                    .disabled(chosen.isEmpty).opacity(chosen.isEmpty ? 0.4 : 1)
             }
         }
     }
