@@ -196,6 +196,7 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
         results.visibility = if (on) View.VISIBLE else View.GONE
         if (on) results.show(search.query)
         chats.pin(search.active)   // iOS pinTop: ownSearch ? false : searchActive -- the chats page has no search of its own
+        music.query = if (pane == Pane.MUSIC) search.query else ""   // the music page searches its own tracks (iOS ownSearch)
         if (search.active != searching) {
             searching = search.active
             if (searching) { keepBack = act.back; act.back = { search.clear() } } else { act.back = keepBack; keepBack = null }
@@ -205,6 +206,8 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
     lateinit var bar: HomeBar
     /** The pane stands: the bar's puck under it, the dynamic glyph's memory, the music's walk, the player's place. */
     fun arrived(p: Pane) {
+        // a word typed over the tracks does not follow the person to the chats, nor the other way (iOS 12063b4d0f35)
+        if ((p == Pane.MUSIC) != (pane == Pane.MUSIC) && search.query.isNotEmpty()) search.clear()
         pane = p
         if (p == Pane.CALLS) CallsSeen.clear()   // the calls page is looked at: the missed calls are seen (iOS 3010-3012)
         bar.badges()
@@ -1086,6 +1089,7 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
         }
         addView(write, PageCorner.params(c))
         addView(bar, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM).apply { bottomMargin = dp(26) })
+        ListFrame.attach(this, "chats", corner = write)   // the arrow back to the top over «Write» (iOS MTToTopButton)
     }
 }
 
@@ -1113,16 +1117,21 @@ private fun groupsPane(act: MainActivity, channel: Boolean): View {
         isVerticalScrollBarEnabled = false
         addView(c.vstack(Gravity.NO_GRAVITY) { addView(rows, lp()); gap(120) })   // the floating player's room at the foot
     }
-    if (channel) return list   // a channel is born by its own three steps (the plan's stage 6)
+    if (channel) return FrameLayout(c).apply {   // a channel is born by its own three steps (the plan's stage 6)
+        addView(list, FrameLayout.LayoutParams(MATCH, MATCH))
+        ListFrame.attach(this, "channels")
+    }
     // THE CORNER CREATES ONE OF THE PAGE'S KIND (iOS createButton): the plus on the bar's glass, the group's two steps
     return FrameLayout(c).apply {
         addView(list, FrameLayout.LayoutParams(MATCH, MATCH))
-        addView(FrameLayout(c).apply {
+        val create = FrameLayout(c).apply {
             background = c.glassPlate(oval = true)
             contentDescription = c.getString(R.string.app_groups)
             addView(c.icon(R.drawable.ic_plus, barGlyph), FrameLayout.LayoutParams(dp(30), dp(30), Gravity.CENTER))
             pressable { act.push { close -> groupPickPage(act, close, onCreated = { key -> act.push { back -> conversationPage(act, key, back) } }) } }
-        }, PageCorner.params(c))
+        }
+        addView(create, PageCorner.params(c))
+        ListFrame.attach(this, "groups", corner = create)
     }
 }
 
@@ -1137,11 +1146,13 @@ private fun contactsPane(act: MainActivity): View {
         addView(contactsList(act), FrameLayout.LayoutParams(MATCH, MATCH))   // the coin's pull inside: one law for every page under the bar
         // THE CHATS PAGE'S COMPOSE BUTTON ONE TO ONE (iOS ContactsTabView 2777-2786: «the plate, the size», mtPageAction; MTPageCorner:
         // the bar's tier of 60, 16 from the edge): the share glyph on it, as «Write» wears its pencil
-        addView(FrameLayout(c).apply {
+        val share = FrameLayout(c).apply {
             background = c.glassPlate(oval = true)
             contentDescription = c.getString(R.string.share)
             addView(c.icon(R.drawable.ic_share, barGlyph), FrameLayout.LayoutParams(dp(30), dp(30), Gravity.CENTER))
             pressable { shareCard(act) }   // the one share of one's card (iOS MontanaCardShare)
-        }, PageCorner.params(c))
+        }
+        addView(share, PageCorner.params(c))
+        ListFrame.attach(this, "contacts", corner = share)
     }
 }

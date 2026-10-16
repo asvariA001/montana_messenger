@@ -29,6 +29,7 @@ import android.widget.TextView
 /** A track as a walk found it: where it lies, its file's name, and — once read — its tag's title and its length. */
 class Track(val uri: Uri, val file: String) {
     @Volatile var tagTitle: String? = null
+    @Volatile var artist: String? = null
     @Volatile var length: Double = 0.0
     val title: String get() = tagTitle ?: file.substringBeforeLast('.')
 }
@@ -75,6 +76,7 @@ object MusicFolders {
                     MediaMetadataRetriever().apply {
                         setDataSource(act, t.uri)
                         t.tagTitle = extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)?.takeIf { it.isNotBlank() }
+                        t.artist = extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)?.takeIf { it.isNotBlank() }
                         t.length = (extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L) / 1000.0
                         release()
                     }
@@ -517,6 +519,9 @@ class MusicPage(private val act: MainActivity) {
         plus.addView(spinner, FrameLayout.LayoutParams(act.dp(26), act.dp(26), Gravity.CENTER))
         plus.pressable { act.pickFolder { it?.let { tree -> MusicFolders.lend(act, tree) } } }
         view.addView(plus, FrameLayout.LayoutParams(act.dp(56), act.dp(56), Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, act.dp(16), act.dp(36)) })
+        // the platform's bar at the right while the list scrolls, the track's number beside it; the arrow back to the top over
+        // the plus (iOS MTChatListFrame numbered, MontanaMusicPlayer.swift:1879 at 2155)
+        ListFrame.attach(view, "music", corner = plus, rows = rows)
         MusicFolders.listeners += { if (view.isAttachedToWindow || view.parent != null) fill() }
         MusicPlayer.listeners += { ringChanged() }
         // a track refused while the app is away (the next one, from the shade) is only not played: no window without a page
@@ -530,10 +535,32 @@ class MusicPage(private val act: MainActivity) {
         plus.requestLayout()
     }
 
+    /**
+     * THE PAGE'S OWN SEARCH (iOS MusicTab.query, MontanaMusicPlayer.swift:1815-1830 at 2155; atom 12063b4d0f35, the author's word
+     * 24.09: «the search on the music page searches only the music of this page, beautifully and natively»): the word at the head
+     * narrows the list itself -- by the track's name, its tag's name and artist, and where it lies (its folder) -- letter case and
+     * marks aside, as the system's search compares; nothing stands over the rows and nothing leaves the phone.
+     */
+    var query = ""
+        set(v) { if (v != field) { field = v; fill() } }
+    private fun shown(): List<Track> {
+        val q = fold(query.trim())
+        if (q.isEmpty()) return MusicFolders.tracks
+        return MusicFolders.tracks.filter { t -> listOf(t.title, t.file, t.artist ?: "", place(t)).any { fold(it).contains(q) } }
+    }
+    /** Where the track lies: its folder's path inside the lent tree (the document's own id, «primary:Music/Rock/a.mp3»). */
+    private fun place(t: Track): String = try {
+        android.provider.DocumentsContract.getDocumentId(t.uri).substringAfter(':').substringBeforeLast('/', "")
+    } catch (_: Exception) { "" }
+    /** Letter case and marks aside (iOS localizedStandardContains). */
+    private fun fold(s: String) = java.text.Normalizer.normalize(s.lowercase(), java.text.Normalizer.Form.NFD).replace(Regex("\\p{Mn}+"), "")
+
     fun fill() {
-        val list = MusicFolders.tracks
+        val list = shown()
         spinner.visibility = if (MusicFolders.walking) View.VISIBLE else View.GONE
         plusGlyph.visibility = if (MusicFolders.walking) View.GONE else View.VISIBLE
+        // an empty narrowing says «Nothing found» (the catalog's own key), an empty library «No music»
+        empty.text = act.getString(if (MusicFolders.tracks.isNotEmpty() && list.isEmpty()) R.string.nothing_found else R.string.no_music)
         empty.visibility = if (list.isEmpty()) View.VISIBLE else View.GONE
         rows.removeAllViews()
         list.forEachIndexed { i, t ->
@@ -542,7 +569,7 @@ class MusicPage(private val act: MainActivity) {
             val cur = MusicPlayer.current?.uri == t.uri
             face.still(t, cur, cur && MusicPlayer.playing)
             face.setOnClickListener {
-                if (MusicPlayer.current?.uri == t.uri) MusicPlayer.toggle() else MusicPlayer.play(act, MusicFolders.tracks, i)
+                if (MusicPlayer.current?.uri == t.uri) MusicPlayer.toggle() else MusicPlayer.play(act, list, i)   // the queue is the list as it stands
             }
             face.play.setOnClickListener { face.performClick() }
             rows.addView(face, LinearLayout.LayoutParams(MATCH, WRAP))

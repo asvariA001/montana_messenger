@@ -331,6 +331,7 @@
     <string name="search_global">GLOBAL SEARCH</string>
     <string name="search_message_on_montana">Message on Montana</string>
     <string name="nothing_found">Nothing found</string>
+    <string name="back_to_top">Back to top</string>
     <!-- the correspondent's edit page (iOS MontanaPeerInfoScreen editor) -->
     <string name="pe_edit">Edit</string>
     <string name="pe_done">Done</string>

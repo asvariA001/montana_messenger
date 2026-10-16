@@ -232,5 +232,6 @@ fun callsPane(act: MainActivity, onNewCall: () -> Unit = {}): View {
         addView(action, PageCorner.params(c))
         foot.viewTreeObserver.addOnGlobalLayoutListener { action.visibility = if (foot.visibility == View.VISIBLE) View.GONE else View.VISIBLE }
         addView(foot, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM).apply { bottomMargin = c.dp(26) })
+        ListFrame.attach(this, "calls", corner = action)
     }
 }

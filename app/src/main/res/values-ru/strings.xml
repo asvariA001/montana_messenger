@@ -330,6 +330,7 @@
     <string name="search_global">ГЛОБАЛЬНЫЙ ПОИСК</string>
     <string name="search_message_on_montana">Написать в Montana</string>
     <string name="nothing_found">Ничего не найдено</string>
+    <string name="back_to_top">Наверх</string>
     <!-- the correspondent's edit page (iOS MontanaPeerInfoScreen editor) -->
     <string name="pe_edit">Изменить</string>
     <string name="pe_done">Готово</string>
