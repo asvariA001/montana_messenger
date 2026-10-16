@@ -626,6 +626,27 @@ class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (
         post { place(false) }
     }
     private var foldLaid = false
+    private lateinit var drawerGlyph: ImageView
+    private var refused = false
+    private var authzSaid: Boolean? = null
+    /**
+     * THE SYSTEM'S ANSWER, READ AT EVERY ENTRY AND EVERY RETURN (iOS MTNotifyAllowed.read): refused is the system's «off» after the
+     * question was asked (a phone below 13 never asks, so its «off» is the person's own); a change is a diary line, NOTIFY-AUTHZ.
+     */
+    fun readNotify(why: String) {
+        val on = act.getSystemService(android.app.NotificationManager::class.java)?.areNotificationsEnabled() ?: true
+        val no = !on && (android.os.Build.VERSION.SDK_INT < 33 || Prefs.notifyAsked)
+        if (authzSaid != on) { authzSaid = on; android.util.Log.i("Montana", "NOTIFY-AUTHZ on=" + (if (on) 1 else 0) + " refused=" + (if (no) 1 else 0) + " why=" + why) }
+        if (no == refused) return
+        refused = no
+        drawerGlyph.setImageResource(if (no) R.drawable.ic_speaker_slash else R.drawable.ic_bar_drawer)
+        drawerGlyph.contentDescription = if (no) act.getString(R.string.notifications) else null
+    }
+    // the person comes back from the system's settings, or from the question's own window: the answer is read again
+    override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
+        super.onWindowFocusChanged(hasWindowFocus)
+        if (hasWindowFocus) readNotify("return")
+    }
     private lateinit var media: ImageView
     private lateinit var globe: ImageView
 
@@ -633,7 +654,11 @@ class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (
         background = act.glassPlate()
         addView(puck, LayoutParams(0, 0))
         addView(row, LayoutParams(MATCH, MATCH))
-        glyph(R.drawable.ic_bar_drawer, 26) { onDrawer(it) }
+        // THE CROSSED SPEAKER IN THE MENU'S PLACE (iOS MTNotifyAllowed and barSlot(0), MontanaChatsList.swift:351-358 and
+        // MontanaP2PNode.swift:1228-1247 at 2155; atom 562ac469509d, the author's word 06.10 20:5x): while the system refuses the
+        // notifications the first slot says so and opens the notifications' page; the drawer stays one stroke from the left edge
+        drawerGlyph = glyph(R.drawable.ic_bar_drawer, 26) { if (refused) act.push { notificationsPage(act, it) } else onDrawer(it) }
+        readNotify("entry")
         glyph(R.drawable.ic_bar_contacts, 26) { onPane(Pane.CONTACTS) }
         glyph(R.drawable.ic_bar_calls, 26, badge = callsBadge) { onPane(Pane.CALLS) }
         // THE LOGO ON THE GLASS (iOS MTFeedGlyph): the gold sign on a round glass plate, a quarter of its side around it.
@@ -838,6 +863,32 @@ private class SearchResults(val act: MainActivity) : ScrollView(act) {
         pressable { keysAway(); act.push { close -> conversationPage(act, ch.ref, close, jump = m.mid) } }
     }
 
+    /**
+     * AN @NAME ALREADY MET OPENS ITS CHAT (iOS runEmailSearch and endpointHit, MontanaChatsList.swift:660-680, 1739-1756 at 2155):
+     * typing asks nobody and begets nothing -- the answer is this phone's own: the name's root heard before (Names.rootFor), the
+     * conversation met by that root while its pipe stands (Meeting.cardMet), not my own name, not a chat already standing in the
+     * list or among the found. Meeting a new name stays the explicit road (the code's screen).
+     */
+    private fun nameHit(raw: String, shown: List<Chat>): String? {
+        val n = Names.normalize(raw.removePrefix("@")) ?: return null
+        if (n == Names.currentName) return null
+        val conv = Names.rootFor(n)?.let { Meeting.cardMet(it) } ?: return null
+        if (Groups.isKey(conv) || shown.any { it.ref == conv } || chatRows().any { it.ref == conv }) return null
+        return conv
+    }
+    /** The met name's row (iOS the «GLOBAL SEARCH» section): the face, the name and «Message on Montana» in the platform's quiet grey -- no
+     *  yellow word (atom 2026b4065ba8); a tap opens the chat. */
+    private fun metRow(conv: String) = act.hstack {
+        setPadding(dp(16), dp(8), dp(16), dp(8))
+        val shown = Book.chat(conv)?.shown?.ifBlank { null } ?: act.getString(R.string.peer)
+        addView(act.peerFace(conv, shown, 46), lp(dp(46), dp(46)).apply { marginEnd = dp(12) })
+        addView(act.vstack(Gravity.NO_GRAVITY) {
+            addView(act.text(shown, 15f, Color.WHITE, bold = true).apply { singleLineEllipsis() }, lp())   // USER-DATA: the name
+            addView(act.text(act.getString(R.string.search_message_on_montana), 12f, MT.gray), lp().apply { topMargin = dp(3) })
+        }, lp(0, WRAP, 1f))
+        pressable { keysAway(); android.util.Log.d("Montana", "search_name_hit open"); act.push { close -> conversationPage(act, conv, close) } }
+    }
+
     private fun draw() {
         list.removeAllViews()
         val people = Book.all().filter { it.msgs.isNotEmpty() && !Groups.isKey(it.ref) }   // people only: a group is no person
@@ -855,7 +906,9 @@ private class SearchResults(val act: MainActivity) : ScrollView(act) {
             .sortedByDescending { it.second.at }.take(60)
         if (chats.isNotEmpty()) { header(R.string.search_chats); chats.forEach { list.addView(personRow(it), lp()); hairline() } }
         if (found.isNotEmpty()) { header(R.string.search_messages); found.forEach { (ch, m) -> list.addView(hitRow(ch, m), lp()); hairline() } }
-        if (chats.isEmpty() && found.isEmpty())
+        val met = nameHit(q.trim(), chats)
+        if (met != null) { header(R.string.search_global); list.addView(metRow(met), lp()) }
+        if (chats.isEmpty() && found.isEmpty() && met == null)
             list.addView(act.text(act.getString(R.string.nothing_found), 17f, MT.gray, center = true).apply { setPadding(0, dp(40), 0, 0) }, lp())
     }
 }

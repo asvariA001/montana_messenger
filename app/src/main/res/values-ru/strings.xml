@@ -327,6 +327,8 @@
     <string name="search_chats">ЧАТЫ, ГРУППЫ И КОНТАКТЫ</string>
     <string name="search_contacts">КОНТАКТЫ</string>
     <string name="search_messages">СООБЩЕНИЯ</string>
+    <string name="search_global">ГЛОБАЛЬНЫЙ ПОИСК</string>
+    <string name="search_message_on_montana">Написать в Montana</string>
     <string name="nothing_found">Ничего не найдено</string>
     <!-- the correspondent's edit page (iOS MontanaPeerInfoScreen editor) -->
     <string name="pe_edit">Изменить</string>

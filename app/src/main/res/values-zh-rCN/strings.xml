@@ -327,6 +327,8 @@
     <string name="search_chats">聊天、群组和联系人</string>
     <string name="search_contacts">联系人</string>
     <string name="search_messages">消息</string>
+    <string name="search_global">全局搜索</string>
+    <string name="search_message_on_montana">在 Montana 上发消息</string>
     <string name="nothing_found">未找到内容</string>
     <!-- the correspondent's edit page (iOS MontanaPeerInfoScreen editor) -->
     <string name="pe_edit">编辑</string>

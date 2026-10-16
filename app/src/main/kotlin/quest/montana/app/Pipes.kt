@@ -1076,13 +1076,13 @@ object Post {
     /** UNBLOCKED (iOS announceUnblocked 1458-1466): the person is told I am here again — my name, my face, my presence. */
     fun unblocked(ref: String) {
         if (Book.secret(ref) == null) return
-        for (k in listOf("annName2.", "annFace2.", "annFlyN.", "annFlyF.")) Prefs.remove(k + ref)
+        for (k in listOf("annName2.", "annFace2.", "annFlyN.", "annFlyF.", "annAbout2.", "annFlyA.")) Prefs.remove(k + ref)
         announce(ref)
         if (Presence.sharing) Thread { Signal.post(ref, Presence.APP + "1" + Presence.saidTail()) }.start()
     }
     private fun announcedDelivered(ref: String, mid: String) {
         MyWall.delivered(ref, mid)   // a page of my wall is «sent» at its receipt (iOS MTBoard.delivered)
-        for ((kind, mark) in listOf("N" to "annName2.", "F" to "annFace2.", "G" to "annGround.")) {
+        for ((kind, mark) in listOf("N" to "annName2.", "F" to "annFace2.", "G" to "annGround.", "A" to "annAbout2.")) {
             val f = Prefs.str("annFly" + kind + "." + ref, "").split("\n")
             if (f.size == 3 && f[1] == mid) { Prefs.setStr(mark + ref, f[0]); Prefs.remove("annFly" + kind + "." + ref) }
         }
@@ -1466,7 +1466,8 @@ object Post {
         Book.edit(ref) { c -> c.msgs.find { it.mid == mid }?.let { m -> found = true; if (!m.mine) reword(m, tx) } }
         return found
     }
-    private fun reword(m: Msg, tx: String) {
+    /** New words on a letter: a text letter's own, or a picture's or a film's caption in its manifest (iOS editMessage, applyEditFromPeer). */
+    fun reword(m: Msg, tx: String) {
         if (!m.text.startsWith(Marks.MEDIA)) {
             if (Marks.isService(m.text) || m.text == tx) return
             m.text = tx; m.edited = true
@@ -1612,13 +1613,20 @@ object MyAbout {
     fun bio() = Prefs.str("profileBio", "").trim().take(BIO_LIMIT)
     fun link() = PeerAbout.url(Prefs.str("profileLink", ""))?.toString() ?: ""
     private fun tag(b: String, l: String) = if (b.isEmpty() && l.isEmpty()) "0" else Wire.hex(Wire.sha((b + "\n" + l).toByteArray())).take(16)
+    /**
+     * THE BIO AND THE LINK ARE RECEIPTED STATE, AS THE NAME AND THE FACE (iOS atom 4c4d49f9dc26, the author's word 24.09: «my profile
+     * did not show to others until I edited it»): the mark «annAbout2.» is written by the receipt of the very letter alone
+     * (announcedDelivered); until it, the words are on their way for an hour and are not said twice; a letter lost past that hour goes
+     * again at the next announce. The old mark «annAbout.» was written before the send and meant nothing -- it is not read.
+     */
     fun sendIfNeeded(ref: String) {
         if (PeerSafety.isBlocked(ref) || SamePair.merged(ref) != null) return
         val b = bio(); val l = link(); val t = tag(b, l)
-        val held = Prefs.str("annAbout.$ref", "")
-        if (held == t || (held.isEmpty() && t == "0")) return
-        Prefs.setStr("annAbout.$ref", t)
-        Post.send(ref, Marks.mintMid(), Marks.ABOUT + JSONObject().put("b", b).put("l", l).put("at", System.currentTimeMillis() / 1000.0))
+        val held = Prefs.str("annAbout2.$ref", "")
+        if (held == t || (held.isEmpty() && t == "0") || Post.inFlight("A", ref, t)) return
+        val mid = Marks.mintMid()
+        Post.flight("A", ref, t, mid)
+        Post.send(ref, mid, Marks.ABOUT + JSONObject().put("b", b).put("l", l).put("at", System.currentTimeMillis() / 1000.0))
     }
     fun broadcast() { Book.refs().forEach { sendIfNeeded(it) } }
 }

@@ -63,6 +63,19 @@ object Media {
 
     /** What a media letter says of itself as known here: the manifest kept with the row, or the one inside the letter. */
     fun manifestOf(m: Msg): JSONObject? = m.meta?.let { runCatching { JSONObject(it) }.getOrNull() } ?: inline(m.text)
+    /** A picture's or a film's caption, the person's words under it ("" — none); a round note carries none. */
+    fun captionOf(m: Msg): String = manifestOf(m)?.optString("cap").orEmpty()
+    /**
+     * THE LETTER WHOSE CAPTION IS EDITED (iOS rowLetters, MontanaConversation.swift:2210-2213 at 2155, atom 3a5fc9f43b48): of a bubble
+     * of my own pictures and films -- one, or a media group's plate -- the one letter that carries the caption, or the first when none
+     * does. Null: the bubble holds anything else (a voice, a file, a round note, a sticker, the peer's letter).
+     */
+    fun captionLetter(row: List<Msg>): Msg? {
+        if (row.isEmpty() || row.any { !it.mine || !it.text.startsWith(Marks.MEDIA) }) return null
+        val mans = row.map { manifestOf(it) ?: return null }
+        if (mans.any { (it.optString("k") != "img" && it.optString("k") != "vid") || it.optBoolean("r") }) return null
+        return row.firstOrNull { captionOf(it).isNotEmpty() } ?: row.first()
+    }
 
     // ── sending ──
 

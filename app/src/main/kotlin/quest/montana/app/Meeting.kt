@@ -80,6 +80,10 @@ object Meeting {
     fun wipe() { listOf(FIRSTS, SCANS, CARDS).forEach(DeviceVault::delete) }
     /** A root this phone met a person by (iOS MontanaMeeting.cardMet(root:)): a name heard before may stand from memory. */
     fun metAtRoot(root: ByteArray): Boolean = synchronized(gate) { jmap(CARDS).optString(MontanaCard.b64url(root)).isNotEmpty() }
+    /** The conversation a root was met by, while its pipe stands (iOS MontanaMeeting.cardMet(root:) and MTPipeBook.holds). */
+    fun cardMet(root: ByteArray): String? = synchronized(gate) {
+        jmap(CARDS).optString(MontanaCard.b64url(root)).takeIf { it.isNotEmpty() && Book.secret(it) != null }
+    }
 
     /** A folded conversation's cards and links open the older one (iOS MontanaMeeting.repoint). */
     fun repoint(newer: String, older: String) = synchronized(gate) {

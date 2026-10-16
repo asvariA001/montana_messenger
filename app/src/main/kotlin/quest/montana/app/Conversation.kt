@@ -796,7 +796,9 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             // THE MENU OPENS ON EVERY LETTER (iOS: the long press is the bubble's, whatever it holds): a picture, a film, a circle, a
             // voice or a link's card keeps its own tap, and its long press opens the letter's menu as the words' does
             b.getChildAt(0).holdEverywhere { letterMenu(act, ref, m, onReply = { replyTo = m; editing = null; showStrip(); showKeys() },
-                onEdit = { editing = m; replyTo = null; field.setText(m.text); field.setSelection(field.text.length); showStrip(); showKeys() },
+                onEdit = { val e = Media.captionLetter(row) ?: m
+                    editing = e; replyTo = null; field.setText(if (e.text.startsWith(Marks.MEDIA)) Media.captionOf(e) else e.text)
+                    field.setSelection(field.text.length); showStrip(); showKeys() },
                 onForward = { hideKeys(); act.push { close -> forwardPage(act, ref, row, close) { to -> close(); if (to != ref) { onClose(); act.push { c2 -> conversationPage(act, to, c2) } } } } },
                 onSelect = { hideKeys(); selecting = true; picked.clear(); picked.addAll(row.map { it.mid }); redraw(); drawFoot() }, group = group, members = row); true }
             // the pull to the left answers, as the menu's «Reply»; in a group, while this phone writes into it
@@ -963,8 +965,13 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             // THE NEW WORDS OF A LETTER ALREADY SENT (iOS editMessage): the row changes here, the peer is told by ED:{sid,tx}.
             editing = null
             // and no edit becomes one (iOS editMessage 3353): the row keeps its words
-            if (words != e.text && CoinLetter.parse(words) == null) {
-                Book.edit(ref) { ch -> ch.msgs.find { it.mid == e.mid }?.let { it.text = words; it.edited = true } }
+            // a caption's new words go into the letter's manifest (Post.reword); a caption is never emptied by an edit (the peer
+            // refuses empty words, iOS applyEditFromPeer)
+            val caption = e.text.startsWith(Marks.MEDIA)
+            val before = if (caption) Media.captionOf(e) else e.text
+            if (words != before && CoinLetter.parse(words) == null && !(caption && words.isEmpty())) {
+                Book.edit(ref) { ch -> ch.msgs.find { it.mid == e.mid }?.let { if (caption) Post.reword(it, words) else { it.text = words; it.edited = true } } }
+                android.util.Log.d("Montana", "edit_tx caption=" + (if (caption) 1 else 0) + " len=" + words.length)
                 val edit = Marks.EDIT + JSONObject().put("sid", e.mid).put("tx", words)
                 // a group's edit rides the group's carrier to every phone of it (iOS editMessage → MTGroup.signal)
                 if (group) Groups.signal(ref, edit) else Post.send(ref, Marks.mintMid(), edit)
@@ -2213,7 +2220,10 @@ fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Unit, onEd
     // field's deeds stand while this phone writes into it
     val writes = !group || Groups.canWrite(ref)
     // a coin letter is never edited (iOS editMessage 3352-3353, 06.10): its coins were taken once, under its words
-    val canEdit = m.mine && writes && !Marks.isService(m.text) && CoinLetter.parse(m.text) == null
+    // A PICTURE'S OR A FILM'S CAPTION IS A PERSON'S WORDS AND IS EDITED LIKE ANY LETTER (iOS MontanaConversation.swift:2210-2213 at
+    // 2155, atom 3a5fc9f43b48): on the plate's one letter that carries it (Media.captionLetter); in the chat alone, as the words are
+    val canEdit = m.mine && writes && ((!Marks.isService(m.text) && CoinLetter.parse(m.text) == null) ||
+        (onShowInChat == null && Media.captionLetter(members) != null))
     val actions = c.vstack(Gravity.NO_GRAVITY) { background = c.rounded(Color.argb(235, 44, 44, 46), 16, Color.argb(26, 255, 255, 255)) }
     val line = Color.argb(77, 142, 142, 147)   // iOS MTMenuDivider: the gray at three tenths
     lateinit var fillActions: () -> Unit
@@ -2834,7 +2844,20 @@ private fun noteBody(c: Context, m: Msg, f: java.io.File?, man: JSONObject?, int
                 playNote(a, m, f, chat, android.graphics.Rect(loc[0], loc[1], loc[0] + v.width, loc[1] + v.height))
             }
         }
-    }, LinearLayout.LayoutParams(side, side).apply { bottomMargin = c.dp(4) })
+    }, LinearLayout.LayoutParams(side, side).apply {
+        // THE SECOND CIRCLE HAS ITS ROOM (iOS videoNoteBubble, MontanaBubble.swift:1077-1103 at 2155; atom dceb55962f79, the author's
+        // word 24.09: «the dual circles must not leave the screen -- the chat's own side margin, as the media keep»): the badge stands
+        // past the circle's square by the window's overhang, and the bubble takes that room on the badge's own sides, read from the
+        // manifest's corner -- known before any frame, so nothing moves when the file lands. A bottom badge widens the gap to the stamp.
+        val corner = NoteWindow.cornerOf(man?.optString("rb"))
+        val over = if (corner == null) 0 else Math.ceil(NoteWindow.OVERHANG * side.toDouble()).toInt()
+        val left = corner != null && corner % 2 == 0
+        val top = corner != null && corner < 2
+        leftMargin = if (left) over else 0
+        rightMargin = if (corner != null && !left) over else 0
+        topMargin = if (top) over else 0
+        bottomMargin = c.dp(4) + if (corner != null && !top) over else 0
+    })
     // A note stands without the bubble's plate: the circle is its own shape.
     (into.background as? android.graphics.drawable.Drawable)?.let { into.background = null; into.setPadding(0, 0, 0, 0) }
 }
