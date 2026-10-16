@@ -2690,6 +2690,7 @@ struct MTLevelAccessPage: View {
     var body: some View {
         let seven = MTLevelAccess.Feature.keepDeleted.level
         let open = MTLevelAccess.opens(.keepDeleted)
+        let recordOpen = MTLevelAccess.opens(.autoRecord)
         List {
             Section {
                 Text("Global level \(level)")
@@ -2699,12 +2700,17 @@ struct MTLevelAccessPage: View {
             .listRowBackground(MTGlassRowPlate())
             Section {
                 VStack(alignment: .leading, spacing: 4) {
-                    Toggle("Forbid deletion on my phone", systemImage: "lock.shield", isOn: $keepDeleted)
+                    // BELOW ITS LEVEL A SWITCH STANDS OFF (the author's word 16.10.2026 20:34 MSK: «if the level has not reached 7, the
+                    // accesses by level are off by default, these checkmarks»): the switch shows what works -- nothing until the level
+                    // opens it; the person's own choice is kept for the day it does.
+                    Toggle("Forbid deletion on my phone", systemImage: "lock.shield",
+                           isOn: Binding(get: { open && keepDeleted }, set: { on in keepDeleted = on }))
                     Text("A message your correspondent deletes for everyone stays on this phone, and their phone is told so.")
                         .font(.caption).foregroundColor(.gray)
                 }
                 VStack(alignment: .leading, spacing: 4) {
-                    Toggle("Record calls", systemImage: "record.circle", isOn: $recordCalls)
+                    Toggle("Record calls", systemImage: "record.circle",
+                           isOn: Binding(get: { recordOpen && recordCalls }, set: { on in recordCalls = on }))
                     Text("Calls are recorded by themselves on this phone and sent to the call's chat after your first consent. On every level a call can be recorded by the record button on the call screen.")
                         .font(.caption).foregroundColor(.gray)
                 }
@@ -2725,5 +2731,63 @@ struct MTLevelAccessPage: View {
         .onChange(of: recordCalls) { _, on in MTCallRecording.shared.changed(on) }
         .onChange(of: keepDeleted) { _, _ in MTLevelAccess.mirror() }
         .onAppear { MTLevelAccess.mirror() }
+    }
+}
+
+/// THE GREEN SHIELD LEFT OF THE CHATS (the author's word 16.10.2026 20:34 MSK: «left of the chats a green shield stands -- a message
+/// cannot be deleted while the protection is on; a tap on the shield shows the rule of the levels and the way to the settings»): it
+/// stands while this phone keeps what others delete (MTLevelAccess.keepsDeleted), in the platform's green; a tap lays the rule over
+/// it in the platform's own popover, whose last row is the way to Access by level.
+struct MTKeepShield: View {
+    @Environment(UIState.self) private var ui
+    @ObservedObject private var person = MTPersonChain.shared
+    @ObservedObject private var book = MTLocalCoinLedger.shared
+    @AppStorage(MTLevelAccess.keepKey) private var keepDeleted = true
+    @State private var told = false
+    var body: some View {
+        if MTLevelAccess.keepsDeleted {
+            Button { told = true } label: {
+                Image(systemName: "checkmark.shield.fill")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(Color(uiColor: .systemGreen))
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text("Forbid deletion on my phone"))
+            .popover(isPresented: $told) { rule.presentationCompactAdaptation(.popover) }
+        }
+    }
+    private var rule: some View {
+        let seven = MTLevelAccess.Feature.keepDeleted.level
+        let level = MTPersonChain.global(person: person.level, balance: book.balance)
+        return VStack(alignment: .leading, spacing: 10) {
+            Label {
+                Text("Deletion is forbidden on this phone").font(.headline)
+            } icon: {
+                Image(systemName: "checkmark.shield.fill").foregroundStyle(Color(uiColor: .systemGreen))
+            }
+            Text("A message your correspondent deletes for everyone stays on this phone, and their phone is told so.")
+                .font(.subheadline).foregroundStyle(.secondary)
+            Text("In Montana levels open functions: from level \(seven) a person can forbid deletion on their phone. Your level is \(level).")
+                .font(.subheadline).foregroundStyle(.secondary)
+            Divider()
+            Button {
+                told = false
+                ui.overlayPage = .levels
+            } label: {
+                HStack {
+                    Label("Access by level", systemImage: "stairs").foregroundStyle(.primary)
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+                }
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(16)
+        .frame(width: 320)
+        .fixedSize(horizontal: false, vertical: true)
     }
 }

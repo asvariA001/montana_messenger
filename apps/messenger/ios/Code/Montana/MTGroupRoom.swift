@@ -53,6 +53,9 @@ struct MTRoomEvent: Codable {
     var q: String?
     /// The seats in the room (here): a phone that came to the group late learns who is in.
     var p: [String]? = nil
+    /// THE SPEAKER'S OWN MOMENT OF COMING IN, when the word is said later than it (key, a reannouncement): the word's freshness is
+    /// at, the seat's place in the room's order is s. A build that knows no s reads at, which stays inside the word's life.
+    var s: Double? = nil
 }
 
 /// A group's room as this phone knows it from the group's words. Kept sealed on this device (MTGroupRoom.bookKey) so a run that
@@ -472,6 +475,8 @@ final class MTGroupRoom: NSObject, CXProviderDelegate {
         }
         let now = MontanaWakePush.nodeNow()
         guard now - e.at < Self.staleAfter else { return }
+        // the seat's own moment of coming in: s where the word names one (never later than the word itself), else the word's moment
+        let came = e.s.map { min($0, e.at) } ?? e.at
         let key = e.k.flatMap { Data(base64Encoded: $0) }.flatMap { $0.count == 32 ? $0 : nil }
         var s: MTRoomSeen
         var move = false
@@ -483,7 +488,7 @@ final class MTGroupRoom: NSObject, CXProviderDelegate {
             known = true
         } else {
             guard e.e != "out", e.e != "end", let key else { return }   // nothing is known of the room and the word does not bring it
-            let born = MTRoomSeen(id: e.r, kind: kind, key: key, owner: e.o ?? seat, video: e.v == 1, people: [:], since: e.at,
+            let born = MTRoomSeen(id: e.r, kind: kind, key: key, owner: e.o ?? seat, video: e.v == 1, people: [:], since: came,
                                   at: e.at, askedBy: nil)
             if let cur = seen[gid], !cur.people.isEmpty, fresh(cur) {
                 // TWO ROOMS OF ONE GROUP (opened at once): the earlier stands -- by its moment, by its id for a tie -- on every phone.
@@ -491,8 +496,8 @@ final class MTGroupRoom: NSObject, CXProviderDelegate {
                 if curFirst {
                     if let r = live, r.id == cur.id, !r.reannounced.contains(e.r) {
                         r.reannounced.insert(e.r)
-                        tell(MTRoomEvent(r: r.id, e: "in", m: r.kind.rawValue, k: r.key.base64EncodedString(), at: r.since, o: r.owner,
-                                         q: r.kemPub.base64EncodedString()), in: r.chat)
+                        tell(MTRoomEvent(r: r.id, e: "in", m: r.kind.rawValue, k: r.key.base64EncodedString(), at: spoken(r.since), o: r.owner,
+                                         q: r.kemPub.base64EncodedString(), s: r.since), in: r.chat)
                     }
                     return
                 }
@@ -532,9 +537,9 @@ final class MTGroupRoom: NSObject, CXProviderDelegate {
                 MainActor.assumeIsolated { MontanaNotify.presentGroup(title: g.title, body: body, chat: chat, copy: shown) }
             }
         case "in":
-            s.people[who] = e.at
+            s.people[who] = came
         case "key":
-            if s.people[seat] == nil { s.people[seat] = e.at }
+            if s.people[seat] == nil { s.people[seat] = came }
         case "here":
             if s.people[seat] == nil { s.people[seat] = e.at }
             for x in (e.p ?? []).prefix(Self.capacity) where Self.isSeat(x) && s.people[x] == nil { s.people[x] = e.at }
@@ -579,7 +584,15 @@ final class MTGroupRoom: NSObject, CXProviderDelegate {
         r.people = s.people
         // a seat with a standing pair of ours is in the room whatever another view says: the living line is the witness
         for (seat, p) in r.pairs where p.linked && r.people[seat] == nil { r.people[seat] = p.moment }
+        let gained = s.keys.keys.filter { k in k != r.me && r.keys[k] == nil }
         for (k, v) in s.keys where k != r.me { r.keys[k] = v }
+        // A KEY THAT CAME LETS MY WAITING OFFER GO AT ONCE (16.10.2026): an offer sealed to nobody waited for the beat's next turn
+        for k in gained {
+            guard let p = r.pairs[k], p.offerer, !p.answered, let o = p.lastOffer else { continue }
+            p.offeredAt = Date()
+            send(p, r, "offer", sdp: o)
+            MontanaTrace.mark("room_pair", "offer goes: the seat's room key came")
+        }
         if r.people[r.me] == nil { r.people[r.me] = r.since }   // a view that lost me does not take me out
         if r.people[r.owner] == nil { r.owner = Self.firstIn(r.people) }
         switch event {
@@ -597,8 +610,8 @@ final class MTGroupRoom: NSObject, CXProviderDelegate {
             // and one who says it is here again after our pair fell hears from us too, so the pair it owes is built
             if event == "in", let m = r.people[seat], fresh || !r.keyed.contains(seat + "/" + String(m)) {
                 r.keyed.insert(seat + "/" + String(m))
-                tell(MTRoomEvent(r: r.id, e: "key", m: r.kind.rawValue, k: r.key.base64EncodedString(), at: r.since, o: r.owner,
-                                 to: [seat], q: r.kemPub.base64EncodedString()), in: r.chat)
+                tell(MTRoomEvent(r: r.id, e: "key", m: r.kind.rawValue, k: r.key.base64EncodedString(), at: spoken(r.since), o: r.owner,
+                                 to: [seat], q: r.kemPub.base64EncodedString(), s: r.since), in: r.chat)
             }
         case "out":
             // a seat takes itself out; another's word about it is believed only while no pair of ours stands with it
@@ -1218,12 +1231,19 @@ final class MTGroupRoom: NSObject, CXProviderDelegate {
         // and whoever is still in hands it their key and builds the pairs again
         if tellGroup, r.people.count == 1, !r.wasAlone {
             r.wasAlone = true
-            tell(MTRoomEvent(r: r.id, e: "in", m: r.kind.rawValue, k: r.key.base64EncodedString(), at: r.since, o: r.owner,
-                             q: r.kemPub.base64EncodedString()), in: r.chat)
+            tell(MTRoomEvent(r: r.id, e: "in", m: r.kind.rawValue, k: r.key.base64EncodedString(), at: spoken(r.since), o: r.owner,
+                             q: r.kemPub.base64EncodedString(), s: r.since), in: r.chat)
         }
         publish()
         refresh()
     }
+
+    /// THE MOMENT A LATE WORD OF MINE IS SAID AT (16.10.2026, Agent 74): my key handed to one who came in, and my word that I am here
+    /// again, were said at my own moment of coming in -- and a phone reads a room word older than staleAfter as a corpse. After half an
+    /// hour in a room my key reached nobody who came in: they could seal no offer to me, and the call never joined them to me. The word
+    /// is said inside its life -- at my own moment while it is young, half its life ago once it is older -- and my moment rides in s.
+    /// Half its life ago is still earlier than the one who comes in now, so the order of the later one offering stays on every build.
+    private func spoken(_ since: Double) -> Double { max(since, MontanaWakePush.nodeNow() - Self.staleAfter / 2) }
 
     /// THE BEAT IS THE ROOM'S OWN (the call's construction, MontanaCall.measureTick): armed again by each beat while this room is
     /// the one in hand, gone with it -- no repeating timer outlives its room, and the main queue beats in every mode of the loop.

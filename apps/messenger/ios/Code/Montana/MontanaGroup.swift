@@ -273,11 +273,19 @@ final class MTGroup {
     /// The name a speaker's rows wear on this phone: the person as this phone knows them where it holds their pipe, else the name
     /// they gave themselves in their last word.
     func speakerName(_ ref: String) -> String {
+        guard let at = seatOf(ref) else { return Self.memberWord }
+        return shownName(pipe: speakerPipe(ref), said: at.g.names[at.seat])
+    }
+    /// The pipe this phone holds to a speaker of a group, when it holds one: the owner's phone to every member it carries to, a
+    /// member's phone to the owner -- the others are known by their own words alone.
+    func speakerPipe(_ ref: String) -> String? {
+        guard let at = seatOf(ref) else { return nil }
+        return (!at.g.mine && at.seat == Self.ownerSeat) ? at.g.owner : at.g.members.first { m in m.seat == at.seat }?.pipe
+    }
+    private func seatOf(_ ref: String) -> (g: MTGroupState, seat: String)? {
         let parts = ref.dropFirst(Self.speakerHead.count).split(separator: "/", maxSplits: 1).map(String.init)
-        guard ready(), parts.count == 2, let g = groups[parts[0]] else { return Self.memberWord }
-        let seat = parts[1]
-        let pipe = (!g.mine && seat == Self.ownerSeat) ? g.owner : g.members.first { $0.seat == seat }?.pipe
-        return shownName(pipe: pipe, said: g.names[seat])
+        guard ready(), parts.count == 2, let g = groups[parts[0]] else { return nil }
+        return (g, parts[1])
     }
     /// The line above a speaker's bubble: in a group, every letter of another says who wrote it; a channel speaks as itself.
     func speakerLine(_ m: Message, in chat: String) -> String? {

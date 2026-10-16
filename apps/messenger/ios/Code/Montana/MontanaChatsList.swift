@@ -980,15 +980,21 @@ struct ChatsListView: View {
         case .chats, .groups, .channels:
             let section: ChatSection = p == .groups ? .groups : p == .channels ? .channels : chatSection
             VStack(spacing: 0) {
-                Picker("Chats", selection: Binding(get: { section }, set: { next in
-                    endSelecting()
-                    chatSection = next
-                    ui.pane = .chats
-                })) {
-                    ForEach(ChatSection.allCases, id: \.self) { item in Text(item.title).tag(item) }
+                // THE GREEN SHIELD LEFT OF THE CHATS (the author's word 16.10.2026 20:34 MSK): beside the segments while this phone keeps
+                // what others delete (MTKeepShield); the row keeps its height with the shield or without it.
+                HStack(spacing: 6) {
+                    MTKeepShield()
+                    Picker("Chats", selection: Binding(get: { section }, set: { next in
+                        endSelecting()
+                        chatSection = next
+                        ui.pane = .chats
+                    })) {
+                        ForEach(ChatSection.allCases, id: \.self) { item in Text(item.title).tag(item) }
+                    }
+                    .pickerStyle(.segmented)
                 }
-                .pickerStyle(.segmented)
-                .padding(.horizontal, MTSearchField.rowPad).padding(.vertical, 8)
+                .frame(minHeight: 44)
+                .padding(.horizontal, MTSearchField.rowPad).padding(.vertical, 2)
                 let bare = section == .chats
                     ? orderedChats.filter { !MTGroup.isKey($0.name) }
                     : groupRows(channel: section == .channels)

@@ -184,7 +184,7 @@ final class MTTurnDrag: ObservableObject {
     /// settings and the profile are one open page at a time, risen over the tabs in the chat's own
     /// sliding container and closed by the cross or by the screen-edge swipe. The network left this slot
     /// for the finger's row (the author's word 25.09): it is a page under the bar, as the calls are.
-    enum Page: String, Identifiable { case settings, profile, card, birth, notifications, keeping; var id: String { rawValue } }   // birth: one more person of Montana, from the drawer's plus
+    enum Page: String, Identifiable { case settings, profile, card, birth, notifications, keeping, levels; var id: String { rawValue } }   // birth: one more person of Montana, from the drawer's plus; levels: the green shield's way (16.10)
     var overlayPage: Page?
     /// The document page over everything (the author's word 19.09): the whole screen, above the tabs and the open chat.
     var docPage: MTDocOpen?
@@ -2403,6 +2403,12 @@ struct MainTabView: View {
             // contacts is switched, its cross top left.
             case .keeping: NavigationStack {
                 DataStorageView()
+                    .toolbar { ToolbarItem(placement: .topBarLeading) { MontanaCloseMark { ui.overlayPage = nil } } }
+            }
+            // THE GREEN SHIELD'S WAY (the author's word 16.10.2026 20:34 MSK: «the rule of the levels and the way to the settings»):
+            // Access by level, its cross top left.
+            case .levels: NavigationStack {
+                MTLevelAccessPage()
                     .toolbar { ToolbarItem(placement: .topBarLeading) { MontanaCloseMark { ui.overlayPage = nil } } }
             }
             }

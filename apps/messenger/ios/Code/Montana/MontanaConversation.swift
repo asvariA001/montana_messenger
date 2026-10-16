@@ -1891,7 +1891,9 @@ struct ChatConversationView: View {
                 flipMark(round)
                 chessMark(round)
                 handsetMark(round)
-            } else if chat.isGroup {
+            } else if chat.isGroup, !channelWall {
+                // A CHANNEL'S PAGE HAS NO HANDSET (the author's word 16.10.2026 20:34 MSK: «on the channels' pages the handset is not
+                // needed»): a group's top alone carries the call's mark.
                 MTRoomMark(chat: chat.name, side: round) { kind, video in roomAskVideo = video; roomAsk = kind }   // the kind, then whom (07.10)
             }
         }
@@ -2480,10 +2482,14 @@ struct ChatConversationView: View {
             }
             let last = list[end]
             let newDay = start == 0 || !sameDay(list[start - 1].createdAt, m.createdAt)
+            // A GROUP'S RUN IS ONE PERSON'S (the reference folder's group feed): another speaker begins another run -- its name at
+            // its head, its face at its foot -- where a pair's run breaks only between the two sides.
             let tail = end == list.count - 1 || list[end + 1].isMine != m.isMine
                 || (list[end + 1].createdAt - last.createdAt) >= msgMergeGap
+                || (chat.isGroup && list[end + 1].senderRef != last.senderRef)
             let topPad = start == 0 || list[start - 1].isMine != m.isMine
                 || (m.createdAt - list[start - 1].createdAt) >= msgMergeGap
+                || (chat.isGroup && list[start - 1].senderRef != m.senderRef)
             out.append(ChatRowVM(message: m, newDay: newDay, tail: tail, topPad: topPad, members: members))
             start = end + 1
         }
@@ -2691,19 +2697,32 @@ struct ChatConversationView: View {
                             Text(verbatim: who).font(.caption.weight(.semibold)).foregroundColor(.secondary).lineLimit(1)
                                 .frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 18).padding(.top, 6)
                         }
-                        if chat.isGroup, let who = MTGroup.shared.speakerLine(message, in: chat.name) {
-                            // USER-DATA: the name of the group's speaker above each letter of theirs (MTGroup.speakerName).
-                            Text(verbatim: who).font(.caption.weight(.semibold)).foregroundColor(.secondary).lineLimit(1)
-                                .frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 18).padding(.top, 6)
+                        if chat.isGroup, row.topPad, let who = MTGroup.shared.speakerLine(message, in: chat.name) {
+                            // THE SPEAKER'S NAME IN THEIR OWN COLOUR AT THE HEAD OF THEIR RUN (the author's word 16.10.2026 20:34 MSK:
+                            // «everything about groups -- atomic likeness to the reference folder»): once a run, in the colour every phone
+                            // gives the speaker (MTSpeakerFace.tint), over the bubble's own edge.
+                            // USER-DATA: the name of the group's speaker (MTGroup.speakerName).
+                            Text(verbatim: who).font(.caption.weight(.semibold)).foregroundColor(MTSpeakerFace.tint(message.senderRef ?? ""))
+                                .lineLimit(1)
+                                .frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 18 + MTSpeakerFace.column).padding(.top, 6)
                         }
                         if MTGroupEvent.of(message.text) != nil { groupEventRow(message) } else {   // a group's event: no bubble (stage R)
-                        HStack(spacing: 6) {
+                        HStack(alignment: chat.isGroup ? .bottom : .center, spacing: 6) {
                             if selectingMsgs {
                                 Image(systemName: selectedMsgs.contains(message.id) ? "checkmark.circle.fill" : "circle")
                                     .font(.system(size: 22))
                                     .foregroundColor(selectedMsgs.contains(message.id) ? Color.accentColor : .gray)
                                     .padding(.leading, 6)
                                     .transition(.move(edge: .leading).combined(with: .opacity))
+                            }
+                            if chat.isGroup, !message.isFromMe {
+                                // THE SPEAKER'S FACE AT THE FOOT OF THEIR RUN (the reference folder's group feed): the column stands beside
+                                // every letter of another, so a run keeps one edge; the face shows at its last letter.
+                                MTSpeakerFace(ref: message.senderRef ?? "", name: MTGroup.shared.speakerLine(message, in: chat.name) ?? "",
+                                              side: MTSpeakerFace.faceSide)
+                                    .opacity(row.tail ? 1 : 0)
+                                    .padding(.leading, 8)
+                                    .accessibilityHidden(true)
                             }
                             SwipeReplyRow(id: message.id, onReply: { replyingTo = message; inputFocused = true }) {
                                 MessageBubble(message: message, player: player, onTapImage: { _ in
@@ -4495,6 +4514,33 @@ struct MTChatAvatar: View {
         let saved = ChatStore.isLocalRoom(chat.name) && !montana && !ChatStore.isMeshRoom(chat.name)
         MTChatFace(face: saved ? nil : (montana ? montanaRoomFace : store.avatarFor(chat)), color: chat.color, initial: store.initial(for: chat), local: saved, size: size, who: chat.convRef)
             .modifier(MTPresenceBadge(active: showPresence && !saved && !chat.isGroup && (store.presenceWord(chat.convRef)?.tier ?? 0) > 0))
+    }
+}
+
+/// THE SPEAKER'S FACE IN A GROUP'S FEED (the reference folder: the face of who wrote stands at the foot of their run): the person's
+/// own picture where this phone holds their pipe (the owner's phone, every member; a member's phone, the owner), else their initial
+/// on the app's face in the colour every phone gives the speaker -- the faces' one palette (MontanaAvatar), by the speaker's name.
+struct MTSpeakerFace: View {
+    @EnvironmentObject private var store: ChatStore
+    let ref: String
+    let name: String
+    let side: CGFloat
+    static let faceSide: CGFloat = 30
+    /// The room the face takes before the bubbles of another: its lead, the face, the row's gap.
+    static let column: CGFloat = 8 + faceSide + 6
+    static func tint(_ ref: String) -> Color { Color(montanaHexString: MontanaAvatar.colorHex(ref)) }
+    var body: some View {
+        let initial = MontanaAvatar.initial(title: name, name: ref)
+        if ref.isEmpty {
+            Color.clear.frame(width: side, height: side)
+        } else if let face = MTGroup.shared.speakerPipe(ref).flatMap({ p in store.avatarFor(ref: p) }) {
+            AvatarCircle(photoURL: face, color: Self.tint(ref), initial: initial, size: side)
+        } else {
+            MontanaHexagon().fill(Self.tint(ref))
+                .overlay(Text(verbatim: initial)   // USER-DATA: the first letter of the speaker's name
+                    .font(.system(size: side * MontanaAvatar.glyphScale(initial), weight: .bold)).foregroundStyle(.white))
+                .frame(width: side, height: side)
+        }
     }
 }
 

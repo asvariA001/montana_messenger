@@ -1,6 +1,40 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Deletion is forbidden on this phone": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удаление на этом телефоне запрещено"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这部手机上禁止删除"
+          }
+        }
+      }
+    },
+    "In Montana levels open functions: from level %lld a person can forbid deletion on their phone. Your level is %lld.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В Монтане уровни открывают функции: с уровня %1$lld человек может запретить удаление у себя. Ваш уровень — %2$lld."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Montana，等级会开放功能：从第 %1$lld 级起，可以禁止在自己的手机上删除消息。你的等级是 %2$lld。"
+          }
+        }
+      }
+    },
     "Current playlist": {
       "localizations": {
         "en": {
