@@ -2530,21 +2530,34 @@ struct MTBoardComments: View {
 
     var body: some View {
         let t = thread
+        // A CHANNEL'S POST READS AS A THREAD (the author's words 16.10.2026 21:05 MSK: «channels as the short posts' format -- the new
+        // on top and the replies below, in the style I showed», his pictures IMG_3459-3461): the post whole at the head, the replies
+        // under it in the conversation's order, each in the thread's face, and the reply at the foot -- mine or a subscriber's.
+        let channel = t?.wall.map { MTGroup.isKey($0) } ?? false
         NavigationStack {
             VStack(spacing: 0) {
                 ScrollViewReader { proxy in
                 List {
                     if let t {
                         MTBoardCell(post: t.post, owner: t.wall, onComments: {}, onWriter: onWriter, onItsWall: false, whole: true,
-                                    thread: t.wall.map { MTGroup.isKey($0) } ?? false)   // a channel's post stands whole in the thread's face (16.10.2026)
+                                    thread: channel)   // a channel's post stands whole in the thread's face (16.10.2026)
                             .listRowSeparator(.hidden)
-                            .listRowInsets((t.wall.map { MTGroup.isKey($0) } ?? false) ? EdgeInsets() : nil)
+                            .listRowInsets(channel ? EdgeInsets() : nil)
                     }
                     if let t, !t.post.comments.isEmpty {
-                        // THE CHAIN, NEWEST FIRST (the author's word 02.10), each under its number in the chain.
                         let base = t.post.commentCount - t.post.comments.count
-                        ForEach(Array(t.post.comments.enumerated()).reversed(), id: \.element.id) { i, c in
-                            row(c, number: base + i + 1, in: t).id(c.id)
+                        if channel {
+                            // THE REPLIES BELOW, THE FIRST FIRST: a conversation is read down from the post
+                            ForEach(Array(t.post.comments.enumerated()), id: \.element.id) { i, c in
+                                threadReply(c, number: base + i + 1, in: t).id(c.id)
+                                    .listRowSeparator(.hidden)
+                                    .listRowInsets(EdgeInsets())
+                            }
+                        } else {
+                            // THE CHAIN, NEWEST FIRST (the author's word 02.10), each under its number in the chain.
+                            ForEach(Array(t.post.comments.enumerated()).reversed(), id: \.element.id) { i, c in
+                                row(c, number: base + i + 1, in: t).id(c.id)
+                            }
                         }
                     } else if t == nil {
                         // A repost whose original this phone holds nowhere: its comments live with the original, under its rules.
@@ -2557,10 +2570,13 @@ struct MTBoardComments: View {
                 // it folds as in the chats»): the list had no dismissal of its own, so the keys stood over the thread until the sheet
                 // closed. The platform's interactive dismissal: a drag over the thread takes the keys down with the finger, and the
                 // field under the list rides them down on the platform's keyboard safe area.
+                .modifier(MTThreadListStyle(plain: channel))
                 .scrollDismissesKeyboard(.interactively)
                 .onAppear { if let focus { proxy.scrollTo(focus, anchor: .center) } }
                 }
-                if let t, board.canWrite(on: t.wall) {
+                if let t, channel, board.canComment(on: t.wall) {
+                    replyBar
+                } else if let t, board.canWrite(on: t.wall) {
                     HStack(spacing: 8) {
                         TextField("Write a comment", text: $draft, axis: .vertical)
                             .lineLimit(1...5)
@@ -2583,7 +2599,7 @@ struct MTBoardComments: View {
                         .frame(maxWidth: .infinity).padding(.horizontal, 16).padding(.vertical, 14)
                 }
             }
-            .navigationTitle("Comments")
+            .navigationTitle(channel ? Text("Post") : Text("Comments"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { MontanaCloseMark { dismiss() } }
@@ -2652,6 +2668,81 @@ struct MTBoardComments: View {
         .contextMenu { menu(c, number: n, in: t) }
     }
 
+    /// ONE REPLY IN THE THREAD'S FACE (his pictures, 16.10.2026): the writer's face in its own column, the name and how long ago on
+    /// one line with the menu at its end, the words under them, a hairline across the width -- a reply is read as a post is.
+    private func threadReply(_ c: MTBoardComment, number n: Int, in t: (wall: String?, post: MTBoardSeen)) -> some View {
+        let w = board.commenter(c, of: t.post.id, on: t.wall)
+        let known: Bool = { if case .unknown = w { return false }; return true }()
+        let hidden = w != .me && MontanaSafety.filterOn && !fold.opened.contains(c.id) && MontanaContentFilter.flags(c.text)
+        let face = MTBoardFace(writer: w, name: c.by, glyph: c.glyph, face: c.fc, size: 40)
+            .frame(minWidth: 44, minHeight: 44, alignment: .top)
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: 10) {
+                if known {
+                    Button { onWriter(w) } label: { face.contentShape(Rectangle()) }.buttonStyle(.plain)
+                } else {
+                    face
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 4) {
+                        // USER-DATA: the writer's name
+                        Text(verbatim: c.by).font(.subheadline.weight(.bold)).foregroundColor(.primary).lineLimit(1)
+                        // USER-DATA: how long ago the reply was written, in the platform's short units
+                        Text(verbatim: "\u{00B7} " + MTBoardCell.ago(c.at)).font(.subheadline).foregroundColor(.secondary).lineLimit(1)
+                        Spacer(minLength: 4)
+                        Menu { menu(c, number: n, in: t) } label: {
+                            Image(systemName: "ellipsis").font(.system(size: 15, weight: .semibold)).foregroundColor(.secondary)
+                                .frame(width: 44, height: 44).contentShape(Rectangle()).padding(.vertical, -12)
+                        }
+                        .accessibilityLabel(Text("More"))
+                    }
+                    if hidden {
+                        Button { withAnimation(.easeOut(duration: 0.15)) { MTFilterFold.shared.open(c.id) } } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Label("Hidden by the filter", systemImage: "eye.slash").font(.callout)
+                                Text("Tap to show").font(.caption).foregroundColor(.secondary)
+                            }
+                            .frame(minHeight: 44).contentShape(Rectangle())
+                        }
+                        .buttonStyle(.borderless)
+                    } else if !(c.hid == true && c.text.isEmpty) {
+                        // USER-DATA: the reply's own words
+                        Text(MTBoard.linked(c.text)).font(.body)
+                    }
+                }
+            }
+            .padding(.horizontal, 16).padding(.vertical, 12)
+            Divider()
+        }
+        .contentShape(Rectangle())
+        .contextMenu { menu(c, number: n, in: t) }
+    }
+
+    /// THE REPLY AT THE THREAD'S FOOT (his picture: my face, the field, Publish): the words are a reply to the post at the press --
+    /// the one road of a comment (MTBoard.comment), the owner's and a subscriber's alike.
+    private var replyBar: some View {
+        let blank = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return HStack(alignment: .bottom, spacing: 10) {
+            MTSelfFace(size: 36).frame(height: 44)
+            TextField("Post your reply", text: $draft, axis: .vertical)
+                .lineLimit(1...6)
+                .padding(.horizontal, 14).padding(.vertical, 11)
+                .background(Color(uiColor: .secondarySystemFill), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            if !blank {
+                Button { send() } label: {
+                    Text("Publish").font(.subheadline.weight(.bold)).foregroundColor(.white)
+                        .padding(.horizontal, 16).frame(minHeight: 36)
+                        .background(Color(uiColor: .systemBlue), in: Capsule())
+                        .frame(minHeight: 44).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 16).padding(.vertical, 6)
+        .background(.bar)
+        .overlay(alignment: .top) { Divider() }
+    }
+
     /// A COMMENT'S MENU IS THE SYSTEM'S (the author's word 02.10: «a long press on a comment -- the native grey menu, share the
     /// comment and its number»): its short link, its words, its number in the chain.
     @ViewBuilder private func menu(_ c: MTBoardComment, number n: Int, in t: (wall: String?, post: MTBoardSeen)) -> some View {
@@ -2704,6 +2795,14 @@ struct MTBoardComments: View {
         guard let t = thread else { return }
         board.comment(t.post, on: t.wall, text: draft)   // to the thread's own wall: a repost's go to its original's owner
         draft = ""
+    }
+}
+
+/// A channel's post page is the platform's plain list, edge to edge as a thread; a wall's keeps the list's own dress.
+private struct MTThreadListStyle: ViewModifier {
+    let plain: Bool
+    @ViewBuilder func body(content: Content) -> some View {
+        if plain { content.listStyle(.plain) } else { content }
     }
 }
 

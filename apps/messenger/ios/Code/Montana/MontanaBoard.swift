@@ -713,8 +713,14 @@ final class MTBoard: ObservableObject {
     /// What a wall shows here: mine as its owner sees it, another's as its owner last sent it.
     func posts(on wall: String?) -> [MTBoardSeen] {
         guard let wall else { return ordered(mine).map { seen($0, by: "") } }
-        if let ps = owned[wall] { return ordered(ps).map { seen($0, by: "") } }   // a channel of mine: its owner's own page
-        return (pages[wall]?.posts ?? []).sorted { a, b in a.pinned != b.pinned ? a.pinned : Self.lastAt(a) > Self.lastAt(b) }
+        // A CHANNEL READS AS A THREAD OF SHORT POSTS (the author's word 16.10.2026 21:05 MSK: «channels in the short posts' format --
+        // the new on top and the replies below»): its posts stand by the moment each was published, the newest on top, and a reply
+        // moves nothing; a wall keeps its own order, the newest record of a chain first (02.10).
+        let born = MTGroup.isKey(wall)
+        if let ps = owned[wall] { return ordered(ps, born: born).map { seen($0, by: "") } }   // a channel of mine: its owner's own page
+        return (pages[wall]?.posts ?? []).sorted { a, b in
+            a.pinned != b.pinned ? a.pinned : (born ? a.at > b.at : Self.lastAt(a) > Self.lastAt(b))
+        }
     }
     /// THE FEED (the author's words 25.09: «every post of all my contacts, by time, and the reposts too»): every post of my
     /// own wall — my reposts among them, and what I write from the feed — and of every wall of my people this phone holds,
@@ -746,8 +752,15 @@ final class MTBoard: ObservableObject {
     func hasPage(_ wall: String?) -> Bool { wall.map { MTGroup.isKey($0) || pages[$0] != nil } ?? true }
     /// A channel's post on the wire (MTGroup.carryWallPost): the wall's own word «cpost».
     static func isChannelPost(_ text: String) -> Bool { text.hasPrefix(mark) && text.contains("\"t\":\"cpost\"") }   // COMPAT-GATED: rides a channel's carrier alone (MTGroup.carries)
-    private func ordered(_ ps: [MTBoardPost]) -> [MTBoardPost] {
-        ps.sorted { a, b in a.pinned != b.pinned ? a.pinned : Self.lastAt(a) > Self.lastAt(b) }
+    private func ordered(_ ps: [MTBoardPost], born: Bool = false) -> [MTBoardPost] {
+        ps.sorted { a, b in a.pinned != b.pinned ? a.pinned : (born ? a.at > b.at : Self.lastAt(a) > Self.lastAt(b)) }
+    }
+    /// WHO ANSWERS A POST (the author's word 16.10.2026 21:05 MSK: «the replies below»): on a wall, whoever may write on it; in a
+    /// channel, everyone in it -- its owner and every subscriber who has not left. A subscriber's reply rides to the owner (cmt,
+    /// applyChannel), who carries it on to every subscriber with the post's counts.
+    func canComment(on wall: String?) -> Bool {
+        if let wall, MTGroup.isKey(wall) { return MTGroup.shared.kind(wall) == .channel && MTGroup.shared.state(wall)?.left != true }
+        return canWrite(on: wall)
     }
     private func seen(_ p: MTBoardPost, by v: String, conceal: Bool = false) -> MTBoardSeen {
         MTBoardSeen(id: p.id, byName: p.byName, byGlyph: p.byGlyph, at: p.at, text: p.text, media: p.media, pinned: p.pinned,
@@ -1087,7 +1100,7 @@ final class MTBoard: ObservableObject {
     /// A CHANNEL'S POSTS FOR A SUBSCRIBER JUST ADDED (MTGroup.add): the newest, as every subscriber was carried them.
     func channelPosts(_ key: String, newest n: Int) -> [MTBoardSeen] {
         guard let ps = owned[key] else { return [] }
-        return ordered(ps).prefix(n).map { seen($0, by: Self.subscriber, conceal: true) }
+        return ordered(ps, born: true).prefix(n).map { seen($0, by: Self.subscriber, conceal: true) }
     }
     /// A SUBSCRIBER'S MARK ON A CHANNEL I OWN (MTGroup.wallWord): a like, the posts seen, a comment -- each person once, by the
     /// seat the channel knows them by; the counts go out to everyone after it.
