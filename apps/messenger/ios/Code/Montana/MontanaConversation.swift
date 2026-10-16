@@ -1924,6 +1924,18 @@ struct ChatConversationView: View {
         }
     }
 
+    /// A GROUP'S HEAD AS THE REFERENCE FOLDER SAYS IT (the author's word 16.10: groups atomically like the reference folder): «N
+    /// members, M online» once someone besides this phone is online, «N members» otherwise. M is this phone and whoever of the group
+    /// it sees online by the one ladder (presenceWord): the owner's phone everyone it carries to, a member's phone the owner -- it
+    /// holds no pipe to the others and says nothing of them. A channel says its count alone, as the reference's does.
+    private func groupHead(_ n: Int) -> String {
+        let members = String(localized: "\(n) members", bundle: MTLanguage.bundle)
+        guard MTGroup.shared.kind(chat.name) == .group else { return members }
+        let lit = 1 + MTGroup.shared.heldConversations(chat.name).filter { (store.presenceWord($0)?.tier ?? 0) != 0 }.count
+        guard lit != 1 else { return members }
+        return members + ", " + String(localized: "\(lit) online", bundle: MTLanguage.bundle)
+    }
+
     /// THE NAME'S BUBBLE ON THE REST OF THE BAR (the author's word 04.10.2026 13:06 MSK: «the name's bubble on the rest of the room,
     /// so the name and the statuses are there and all of it is seen»): the face, the chat's name and the presence ladder, most alive
     /// first -- «typing…», «watching» (they read my draft as it appears), «in chat», «online» (app, other screen) -- in one capsule of
@@ -1940,7 +1952,7 @@ struct ChatConversationView: View {
                 if chat.isGroup, let out = MTGroup.shared.outWords(chat.name) {
                     Text(out).font(.caption2).foregroundStyle(.secondary).lineLimit(1)   // the catalogue's words, read by MTGroup.outWords
                 } else if chat.isGroup, let n = MTGroup.shared.people(chat.name) {   // a group has no presence of one person: its people's count
-                    Text(String(localized: "\(n) members", bundle: MTLanguage.bundle)).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    Text(groupHead(n)).font(.caption2).foregroundStyle(.secondary).lineLimit(1)   // the catalogue's words, read by groupHead
                 }
                 if let w = store.presenceWord(chat.convId ?? chat.name) {   // the key every screen asks by (24.09)
                     HStack(spacing: 4) {

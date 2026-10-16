@@ -232,6 +232,12 @@ final class MTGroup {
     func kind(_ key: String) -> MTGroupKind? { state(key)?.kind }
     /// The people in the group, the owner included -- the head of the group's chat and its page say this number.
     func people(_ key: String) -> Int? { state(key)?.count }
+    /// The conversations this phone holds with people of the group, by their roots -- the owner's phone with everyone it carries
+    /// to, a member's phone with the owner alone: whom it may see online at all. Nothing is asked of anyone here.
+    func heldConversations(_ key: String) -> [String] {
+        guard let g = state(key) else { return [] }
+        return g.mine ? g.members.map { MTSamePair.root($0.pipe) } : [MTSamePair.root(g.owner)]
+    }
     /// Whether this phone may write into the group: everyone in a group, the owner alone in a channel.
     func canWrite(_ key: String) -> Bool {
         state(key)?.canWrite == true
