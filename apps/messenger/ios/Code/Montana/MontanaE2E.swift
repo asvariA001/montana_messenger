@@ -545,8 +545,9 @@ final class E2E {
         // «W» + my wall's version (24.09): the visitor fetches my page when it changes — never when they look at it. «C» + my
         // balance (04.10), right after the ground's digits: the same uppercase and digits, unread by every older build. «L» + my
         // Global Level (11.10) after the balance: every older reader of the balance stops at its first letter.
+        // «Q» last (16.10.2026 No.72): this build's extension takes a deletion for everyone quietly -- a deletion may wake it.
         return "F" + face + "N" + name + "A" + MTPeerAbout.heldTag(peer) + "W" + MTBoard.spokenVersion(for: peer)
-            + "G" + MTPageGround.heldTag(peer) + E2E.coinTail() + E2E.levelTail()
+            + "G" + MTPageGround.heldTag(peer) + E2E.coinTail() + E2E.levelTail() + "Q"
     }
     /// The bio's tag stands right after the name's digits; a build before 24.09 names nothing of it.
     static func aboutHeld(in payload: Substring) -> String? {
@@ -630,6 +631,29 @@ final class E2E {
     static func heardCapable(from peer: String, payload: Substring) {
         if aboutHeld(in: payload) != nil { noteAboutCapable(peer) }     // their build speaks the «A» tag: it reads the word
         if groundHeld(in: payload) != nil { noteGroundCapable(peer) }   // their build speaks the «G» tag: it reads the word
+        if deletionQuietSaid(in: payload) { noteDeletionQuiet(peer) }   // their build speaks the «Q» tag: a deletion may wake it
+    }
+    /// «Q» closes the held tags, after the level's digits (or the balance's, or the ground's): a build before it names nothing there.
+    static func deletionQuietSaid(in payload: Substring) -> Bool {
+        guard let i = payload.firstIndex(of: "N") else { return false }
+        var rest = payload[payload.index(after: i)...].drop { $0.isNumber }
+        if rest.first == "A" { rest = rest.dropFirst().drop { $0.isNumber } }
+        guard rest.first == "W" else { return false }
+        rest = rest.dropFirst().drop { $0.isNumber }
+        guard rest.first == "G" else { return false }
+        rest = rest.dropFirst().drop { $0.isNumber }
+        if rest.first == "C" { rest = rest.dropFirst().drop { $0.isNumber || $0 == "-" } }
+        if rest.first == "L" { rest = rest.dropFirst().drop { $0.isNumber } }
+        return rest.first == "Q"
+    }
+    /// A DELETION MAY WAKE THEIR EXTENSION (16.10.2026 No.72; the author's words «let deletion reach me by a silent push»): their
+    /// build takes a deletion for everyone quietly -- the deleted letter's notice off the screen, no face of its own. Never inferred:
+    /// an older extension would wear a «New message» banner over it, so until the proof the deletion rides the background push.
+    static func deletionQuiet(_ ref: String) -> Bool { UserDefaults.standard.bool(forKey: "dqcap_" + ref) }
+    static func noteDeletionQuiet(_ ref: String) {
+        guard !UserDefaults.standard.bool(forKey: "dqcap_" + ref) else { return }
+        UserDefaults.standard.set(true, forKey: "dqcap_" + ref)
+        MontanaTrace.mark("deletion_quiet_capable", "peer=\(String(ref.prefix(10)))")
     }
     /// The peer's word says what of mine stands on their screen. Compared with what I have now;
     /// a difference forgets the mark and announces anew — once a minute per peer at most, so a

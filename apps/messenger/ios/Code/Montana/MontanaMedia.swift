@@ -696,6 +696,17 @@ final class VoicePlayer: NSObject, ObservableObject {
         next()
     }
 
+    /// A TRACK MOVED IN THE QUEUE BY HAND (MTQueuePage, the author's word 16.10.2026 19:0x MSK: «the current playlist ... and one can
+    /// manage it there»): the queue, the playlist's one owner, moves it; the track that plays keeps playing, its place followed by
+    /// its file.
+    func moveInQueue(from: IndexSet, to: Int) {
+        let playing = currentTrack?.file
+        objectWillChange.send()
+        queue.move(fromOffsets: from, toOffset: to)
+        if let playing, let i = queue.firstIndex(where: { $0.file == playing }) { queueIndex = i }
+        MontanaTrace.mark("music_queue", "moved n=\(queue.count) playing_at=\(queueIndex + 1)")
+    }
+
     /// The forward button turns the page even on the last track — the first follows (the author's
     /// word 16.09). Repeat governs what happens when a track ENDS by itself, not the button.
     func next() {

@@ -130,6 +130,7 @@ struct SettingsTabView: View {
                     NavigationLink { DataStorageView() } label: { navLabel("Data and Storage", "arrow.down.circle.fill", .indigo) }
                     NavigationLink { HomeNodeView() } label: { navLabel("Your node", "server.rack", .gray) }
                     NavigationLink { PrivacyView() } label: { navLabel("Privacy", "lock.fill", .gray) }
+                    NavigationLink { MTLevelAccessPage() } label: { navLabel("Access by level", "stairs", .orange) }
                     NavigationLink { AppearanceView() } label: { navLabel("Appearance", "paintbrush.fill", .blue) }
                     NavigationLink { LanguagePickerView() } label: { navLabel("Language", "globe", .cyan) }
                 }
@@ -1714,7 +1715,6 @@ struct PrivacyView: View {
             store.sealForForget { SeedScope.forget(); ui.settingsShown = false }
         }
     }
-    @AppStorage(MTCallRecordingPolicy.key) private var recordCalls = true
     @AppStorage("readReceiptsEnabled") private var readReceipts = true
     @AppStorage("objectionableFilterOn") private var objectionableFilter = true   // Guideline 1.2: the fold over objectionable words
     @AppStorage("syncContactsToPhone") private var syncContacts = true
@@ -1820,11 +1820,6 @@ struct PrivacyView: View {
                         Toggle("Show my coins", isOn: $coinsShown)
                     }
                     Text("Your name and coins stand in the Montana top for everyone, and your correspondents see your coins. Off, you are not in the top.")
-                        .font(.caption).foregroundColor(.gray)
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                    Toggle("Record calls", systemImage: "record.circle", isOn: $recordCalls)
-                    Text("After your first consent, calls are recorded automatically on this phone and sent to the call's chat. Turning this off stops the current recording too.")
                         .font(.caption).foregroundColor(.gray)
                 }
                 HStack(spacing: 12) {
@@ -1940,8 +1935,6 @@ struct PrivacyView: View {
         .navigationTitle("Privacy")
         .navigationBarTitleDisplayMode(.inline)
         .onChange(of: presenceShared) { _, v in MontanaPresencePrivacy.setSharing(v) }   // 10-C.3
-        .modifier(MTCallRecordingConsent())
-        .onChange(of: recordCalls) { _, on in MTCallRecording.shared.changed(on) }
         .onChange(of: coinsShown) { _, v in MTTopNet.shared.showChanged(v) }   // the table and the pairs hear it now
         .onChange(of: diagShare) { _, _ in MontanaDiagConsent.apply() }   // off: the extensions lose the diary's id at once
         .onAppear { refreshAccess() }
@@ -2682,5 +2675,55 @@ struct WelcomeView: View {
             // the splash dismisses faster (was 2.8 s)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { onFinish() }
         }
+    }
+}
+
+/// ACCESS BY LEVEL (the author's words 16.10.2026 18:2x MSK: «in the settings a path Access by level -- where they open for each»; «we
+/// have the gamification of access to Montana's functions»): the person's Global Level on top, and under each level the functions it
+/// opens (MTLevelAccess) -- switches the person moves once their level reaches it, each with its contract under it (SETTINGS.md).
+struct MTLevelAccessPage: View {
+    @ObservedObject private var person = MTPersonChain.shared
+    @ObservedObject private var book = MTLocalCoinLedger.shared
+    @AppStorage(MTCallRecordingPolicy.key) private var recordCalls = true
+    @AppStorage(MTLevelAccess.keepKey) private var keepDeleted = true
+    private var level: Int { MTPersonChain.global(person: person.level, balance: book.balance) }
+    var body: some View {
+        let seven = MTLevelAccess.Feature.keepDeleted.level
+        let open = MTLevelAccess.opens(.keepDeleted)
+        List {
+            Section {
+                Text("Global level \(level)")
+            } footer: {
+                Text("Your level grows with your time in Montana and the coins you hold. Each level opens new functions of Montana.")
+            }
+            .listRowBackground(MTGlassRowPlate())
+            Section {
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Forbid deletion on my phone", systemImage: "lock.shield", isOn: $keepDeleted)
+                    Text("A message your correspondent deletes for everyone stays on this phone, and their phone is told so.")
+                        .font(.caption).foregroundColor(.gray)
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Record calls", systemImage: "record.circle", isOn: $recordCalls)
+                    Text("Calls are recorded by themselves on this phone and sent to the call's chat after your first consent. On every level a call can be recorded by the record button on the call screen.")
+                        .font(.caption).foregroundColor(.gray)
+                }
+            } header: {
+                Text("Level \(seven)")
+            } footer: {
+                if !open { Text("Opens at level \(seven). Your level is \(level).") }
+            }
+            .disabled(!open)
+            .listRowBackground(MTGlassRowPlate())
+        }
+        .foregroundColor(.white)
+        .scrollContentBackground(.hidden)
+        .montanaPageGround()
+        .navigationTitle("Access by level")
+        .navigationBarTitleDisplayMode(.inline)
+        .modifier(MTCallRecordingConsent())
+        .onChange(of: recordCalls) { _, on in MTCallRecording.shared.changed(on) }
+        .onChange(of: keepDeleted) { _, _ in MTLevelAccess.mirror() }
+        .onAppear { MTLevelAccess.mirror() }
     }
 }

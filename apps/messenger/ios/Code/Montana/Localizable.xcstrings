@@ -1,6 +1,182 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Current playlist": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Current playlist"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Текущий плейлист"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前播放列表"
+          }
+        }
+      }
+    },
+    "Volume": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volume"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Громкость"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音量"
+          }
+        }
+      }
+    },
+    "Now playing": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Now playing"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сейчас играет"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在播放"
+          }
+        }
+      }
+    },
+    "Playing from %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Playing from %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Играет из: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "播放来源：%@"
+          }
+        }
+      }
+    },
+    "Reorder": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reorder"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Изменить порядок"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "调整顺序"
+          }
+        }
+      }
+    },
+    "Tap to finish the post": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap to finish the post"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нажмите, чтобы закончить запись"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "轻点以完成帖子"
+          }
+        }
+      }
+    },
+    "Add another post": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add another post"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить ещё один пост"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再发一条帖子"
+          }
+        }
+      }
+    },
+    "Views: %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Views: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Просмотров: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浏览量：%@"
+          }
+        }
+      }
+    },
     "Available": {
       "localizations": {
         "ru": {
@@ -24833,23 +25009,6 @@
         }
       }
     },
-    "After your first consent, calls are recorded automatically on this phone and sent to the call's chat. Turning this off stops the current recording too.": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "После первого согласия звонки автоматически записываются на этом телефоне и отправляются в чат. Выключение также останавливает текущую запись."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "首次同意后，通话会自动录制在此手机上并发送到聊天中。关闭此选项也会停止当前录制。"
-          }
-        }
-      }
-    },
     "This call is being recorded. The recording will be sent to this chat after the call.": {
       "extractionState": "manual",
       "localizations": {
@@ -25067,29 +25226,6 @@
         }
       }
     },
-    "Audio and video are saved on this phone. For a one-to-one call, only the caller sends the recording to the chat. Room participants send their own recordings. Participants are notified. You can turn this off in Privacy at any time.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Audio and video are saved on this phone. For a one-to-one call, only the caller sends the recording to the chat. Room participants send their own recordings. Participants are notified. You can turn this off in Privacy at any time."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Аудио и видео сохраняются на этом телефоне. В личном звонке запись в чат отправляет только тот, кто позвонил. Участники комнат отправляют собственные записи. Участники получают уведомление. Вы можете отключить запись в разделе «Конфиденциальность» в любой момент."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "音频和视频保存在本机。一对一通话中，只有主叫方将录音发送到聊天。房间参与者各自发送录音。参与者会收到通知。您随时可以在隐私设置中关闭录制。"
-          }
-        }
-      }
-    },
     "This phone is recording the call locally. Only the caller sends a recording to the chat.": {
       "extractionState": "manual",
       "localizations": {
@@ -25109,6 +25245,176 @@
           "stringUnit": {
             "state": "translated",
             "value": "本机正在本地录制通话。只有主叫方会将录音发送到聊天。"
+          }
+        }
+      }
+    },
+    "Access by level": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступ по уровню"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按等级开放"
+          }
+        }
+      }
+    },
+    "Your level grows with your time in Montana and the coins you hold. Each level opens new functions of Montana.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уровень растёт с вашим временем в Монтане и монетами, которые вы держите. Каждый уровень открывает новые функции Монтаны."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的等级随你在 Montana 的时间和持有的硬币增长。每个等级都会开放 Montana 的新功能。"
+          }
+        }
+      }
+    },
+    "Forbid deletion on my phone": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запрет удаления у меня"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "禁止在我的手机上删除"
+          }
+        }
+      }
+    },
+    "A message your correspondent deletes for everyone stays on this phone, and their phone is told so.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сообщение, которое собеседник удаляет у всех, остаётся на этом телефоне, а телефон собеседника получает об этом уведомление."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "对方为所有人删除的消息会保留在这部手机上，对方的手机会收到通知。"
+          }
+        }
+      }
+    },
+    "Calls are recorded by themselves on this phone and sent to the call's chat after your first consent. On every level a call can be recorded by the record button on the call screen.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Звонки записываются сами на этом телефоне и после вашего первого согласия отправляются в чат звонка. На любом уровне звонок можно записать кнопкой записи на экране звонка."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "首次同意后，通话会在这部手机上自动录制，并发送到通话所在的聊天。任何等级都可以用通话界面上的录制按钮录制通话。"
+          }
+        }
+      }
+    },
+    "Opens at level %lld. Your level is %lld.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открывается на уровне %1$lld. Ваш уровень — %2$lld."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在第 %1$lld 级开放。你的等级是 %2$lld。"
+          }
+        }
+      }
+    },
+    "Their phone keeps the message you deleted for everyone. In Montana levels open functions: from level %lld a person can forbid deletion on their phone.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сообщение, которое вы удалили у всех, осталось на телефоне собеседника. В Монтане уровни открывают функции: с уровня %lld человек может запретить удаление у себя."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你为所有人删除的消息仍保留在对方的手机上。在 Montana，等级会开放功能：从第 %lld 级起，可以禁止在自己的手机上删除消息。"
+          }
+        }
+      }
+    },
+    "Record": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Записать"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "录制"
+          }
+        }
+      }
+    },
+    "Stop recording": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Остановить запись"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止录制"
+          }
+        }
+      }
+    },
+    "Audio and video are saved on this phone. For a one-to-one call, only the caller sends the recording to the chat. Room participants send their own recordings. Participants are notified. You can turn this off in Settings, Access by level, at any time.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Аудио и видео сохраняются на этом телефоне. В личном звонке запись в чат отправляет только тот, кто позвонил. Участники комнат отправляют собственные записи. Участники получают уведомление. Вы можете отключить запись в Настройках, в разделе «Доступ по уровню», в любой момент."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音频和视频保存在本机。一对一通话中，只有主叫方将录音发送到聊天。房间参与者各自发送录音。参与者会收到通知。您随时可以在设置的“按等级开放”中关闭录制。"
           }
         }
       }

@@ -677,6 +677,8 @@ final class MontanaCall: NSObject {
     }
     private var callTimelines: [UUID: MTCallTimeline] = [:]
     private var callTimeline: MTCallTimeline? { callUUID.flatMap { callTimelines[$0] } }
+    /// The call in hand's name for the record mark (MTCallRecordMark), read on the main thread as refreshRecording reads it.
+    var handRecordingUUID: UUID? { callUUID }
     private func callStep(_ stage: String, _ facts: String = "") {
         callTimeline?.bind(callSeed)
         callTimeline?.mark(stage, facts)
@@ -6461,7 +6463,7 @@ final class CallUIModel: ObservableObject {
         MontanaTrace.mark("call_cover", "remote=\(remote ? 1 : 0) self=\(own ? 1 : 0) why=\(why)")
     }
     @Published var remoteLive = false { didSet { applySides("remote") } }   // the peer's video has RENDERED a frame — only then the layout goes pip
-    @Published var mirrorLocal = true         // the self-view mirror follows the CAMERA'S FIRST FRAME, not the switch intent
+    @Published var mirrorLocal = true { didSet { MTCallRecordingLayout.update { l in l.mirrorLocal = mirrorLocal } } }   // the self-view mirror follows the CAMERA'S FIRST FRAME, not the switch intent; the recording draws it so (16.10)
     @Published var pipSwapped = false { didSet { applySides("tap") } }   // the miniature was tapped: my picture fullscreen, the peer in the corner
     /// THE BUTTON GRID'S OWN RECT in window coordinates, written by the grid as it is laid out (.zero
     /// while the buttons are folded away). It decides who gets a TOUCH where the corner picture and the
@@ -6527,6 +6529,8 @@ final class CallUIModel: ObservableObject {
         let pip = MontanaCall.shared.remoteVideoTrack != nil && remoteLive
         let shown = pip && !peerSharing
         let bigLocal = !pip || (pipSwapped && shown)
+        let fits = peerSharing
+        MTCallRecordingLayout.update { l in l.bigLocal = bigLocal; l.remoteFits = fits; if !shown { l.mini = nil } }   // the recording draws the sides the screen shows (16.10)
         if shown != miniShown { miniShown = shown }
         if bigLocal != bigIsLocal {
             bigIsLocal = bigLocal
@@ -7398,6 +7402,10 @@ private struct MTCallMini: View {
     }
     private func note(_ why: String) {
         let c = center(.zero)
+        let size = screen
+        MTCallRecordingLayout.update { l in   // the recording draws the corner where it stands (16.10)
+            l.screen = size; l.mini = CGRect(x: c.x - Self.w / 2, y: c.y - Self.h / 2, width: Self.w, height: Self.h)
+        }
         MontanaTrace.mark("call_pip", "\(why) corner=\(corner) bottom=\(Int(c.y + Self.h / 2)) safe_bottom=\(Int(screen.height - safeBottom)) top=\(Int(c.y - Self.h / 2)) screen=\(Int(screen.width))x\(Int(screen.height)) buttons=\(buttonsUp ? 1 : 0) panel=\(topUp ? 1 : 0) panel_bottom=\(Int(topRowBottom)) grid_top=\(Int(buttonsTop))")
     }
 }
@@ -7762,9 +7770,17 @@ struct CallOverlayView: View {
                     }
                     .modifier(MTCallEdge { f in if model.backMarkRect != f { model.backMarkRect = f } })   // switchTapped reads it
                     // THE MASK'S TWIN ROOM (checklist 36): the mask stands beside the camera flip on the right, and an
-                    // empty room of the same size here keeps the name in the centre of the row.
+                    // empty room of the same size here keeps the name in the centre of the row. THE RECORD MARK STANDS IN IT
+                    // (MTCallRecordMark, 16.10.2026 No.72) once the call is connected -- on a voice call beside the fold, where
+                    // nothing else stands on the left; the room keeps its size either way.
                     if videoBranch {
-                        Color.clear.frame(width: montanaTouchTarget, height: montanaTouchTarget)
+                        ZStack {
+                            Color.clear
+                            if model.talkSince != nil { MTCallRecordMark(uuid: MontanaCall.shared.handRecordingUUID) }
+                        }
+                        .frame(width: montanaTouchTarget, height: montanaTouchTarget)
+                    } else if model.talkSince != nil {
+                        MTCallRecordMark(uuid: MontanaCall.shared.handRecordingUUID)
                     }
                     // THE NAME STANDS IN THE CENTRE OF THE TOP ROW ON A VIDEO CALL (the author's word 23.09: no words
                     // about the kind of call; the name as large as the marks, between the arrow and the camera flip).

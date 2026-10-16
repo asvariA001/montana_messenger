@@ -330,6 +330,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         // The level the words say is read before the first of them (MTLevelShow, 11.10): otherwise the seconds are read at the
         // first node's answer, and the greeting would carry no level and take it from every pair. The observer runs on the main queue.
         if MTLevelShow.on { MainActor.assumeIsolated { MTPersonChain.shared.prime() } }
+        MTLevelAccess.mirror()   // «Forbid deletion on my phone» as the notification extension reads it (16.10)
         E2E.shared.appPresence(open: true)       // «I am here» to every correspondence — once per state
         Task { @MainActor in MTCallRecording.shared.recover() }
         guard away else { return }               // SILENT-OK: the shade, a sheet, Face ID — the person never left
@@ -741,6 +742,13 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         MontanaWakePush.fetchBoxKick()   // and with it everything waiting in the node mailbox
         MontanaKeychain.set("nseUnread", Data())   // the critic: a live app sees for itself -- the NSE count
         E2E.shared.recalcBadge()                    // goes to zero, the badge does not stick with the window open
+        // THE EXTENSION'S QUIET PLATE IS NO NOTICE (16.10.2026 No.72): a service word that woke it -- a deletion that takes a letter's
+        // notice off the screen -- is handed over as a passive plate the extension takes off a moment later; over the open app it is
+        // not shown at all. The word itself was stashed and is landed by the drain above.
+        if notification.request.content.threadIdentifier == "montana-quiet" {
+            MontanaTrace.mark("notify_judge", mid: nil, "why=quiet-plate")
+            completionHandler([]); return
+        }
         let info = notification.request.content.userInfo
         let chat = MTNoticeAlias.open((info["chat"] as? String) ?? "")   // the notice names its chat by this phone's alias
         // THE JUDGE SPEAKS EVERY VERDICT (21.09, the critic): its silences left no line, and a
@@ -754,7 +762,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
             completionHandler([]); return
         }
         let gameEnd = (info["game_end"] as? Int) == 1
-        if !chat.isEmpty, !gameEnd, chat == ChatStore.openConvNow {
+        // A KEEPER'S WORD IS NO LETTER (the critic 16.10, K5): «their phone keeps the message you deleted» has no bubble in the
+        // chat, and the person who deleted stands in that very chat -- the open chat does not swallow it.
+        let kept = (info["kept"] as? Int) == 1
+        if !chat.isEmpty, !gameEnd, !kept, chat == ChatStore.openConvNow {
             E2E.shared.recalcBadge()   // revert the NSE increment: an open chat is read by definition
             MontanaTrace.mark("notify_judge", mid: jm.isEmpty ? nil : jm, "why=chat-open")
             completionHandler([]); return
@@ -797,6 +808,14 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         }
         MontanaWakePush.drainInbox()   // a banner tap: the letter is in the chat before it opens
         MontanaWakePush.fetchBoxKick()   // and everything waiting in the node mailbox, by the same movement
+        // THE SHARE SHEET'S NOTICE FOR MY WALL (ShareWallHandoff.bell, 16.10.2026): its tap is the way onto the wall's new-post page.
+        // The tap itself takes nothing: the activation it brings takes the sheet's record (scheduleShareIngest, MTBoard.takeFromSheet)
+        // once the screens stand -- taken here on a cold launch the page would be asked to rise before any window holds it.
+        if info["wall"] != nil {
+            MontanaTrace.mark("wall_sheet", "notice tapped -- the activation opens the page")
+            completionHandler()
+            return
+        }
         // A missed call carries a TOKEN, not a conversation link: the system keeps delivered
         // notifications, and a link has no place there. The conversation is found by the token in the vault.
         let chat = (info["call_token"] as? String).map { MontanaMissedCall.conv(forToken: $0) ?? MontanaCallHandle.conv(for: $0) }

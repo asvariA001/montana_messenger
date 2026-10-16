@@ -3,6 +3,7 @@ import AVFoundation
 import UniformTypeIdentifiers
 import Intents
 import ImageIO
+import UserNotifications
 
 // Montana share extension -- choosing who receives what is being shared.
 // The platform's own sheet, dark, on the platform's glass as the big player is: a search, a grid of round faces and, once the
@@ -102,14 +103,16 @@ enum ShareGlass {
         item.scrollEdgeAppearance = look
         item.compactAppearance = look
     }
-    /// The glyph alone on the platform's prominent glass, the label colour under it: our panels carry no words.
-    static func prominent(_ glyph: String, label: String) -> UIButton {
-        var c: UIButton.Configuration
-        if #available(iOS 26.0, *) { c = .prominentGlass() } else { c = .filled(); c.cornerStyle = .capsule }
-        c.image = UIImage(systemName: glyph, withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .bold))
-        c.baseBackgroundColor = .label
-        c.baseForegroundColor = .systemBackground
-        let b = UIButton(configuration: c)
+    /// OUR SEND, NOT THE PLATFORM'S WHITE PLATE (the author's word 16.10.2026 19:0x MSK on T1: «on the share page the button is not
+    /// seen -- white, not our send»): the chat's own mark (MTComposeMark .send), the author's file SendButton byte for byte -- the
+    /// sheet's own catalog (ShareAssets.xcassets) holds a copy of the app's protected file, held equal to it by the guard (P-118.10)
+    /// -- drawn whole at the bar's height, a 44-point target.
+    static func send(label: String) -> UIButton {
+        let b = UIButton(type: .custom)
+        b.setImage(UIImage(named: "SendButton"), for: .normal)
+        b.imageView?.contentMode = .scaleAspectFit
+        b.contentHorizontalAlignment = .fill
+        b.contentVerticalAlignment = .fill
         b.accessibilityLabel = label
         b.translatesAutoresizingMaskIntoConstraints = false
         return b
@@ -146,13 +149,12 @@ final class SharePickerController: UIViewController, UICollectionViewDataSource,
     private let bar = UIView()                    // the caption and the send: they stand once the finger chose a chat
     private let caption = UITextView()
     private let captionPlaceholder = UILabel()
-    private lazy var sendButton = ShareGlass.prominent("arrow.up", label: String(localized: "Send", bundle: MTLanguage.bundle))
+    private lazy var sendButton = ShareGlass.send(label: String(localized: "Send", bundle: MTLanguage.bundle))
     private let road = UIView()                   // a send on its way, where the bar stood
     private let progress = UIProgressView(progressViewStyle: .bar)
     private let status = UILabel()
     private let emptyLabel = UILabel()
     private var captionHeight: NSLayoutConstraint!
-    private var bottomInset: NSLayoutConstraint!
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -166,8 +168,6 @@ final class SharePickerController: UIViewController, UICollectionViewDataSource,
         ShareSend.diag("sheet ORDER n=\(chats.count) order=\(MTShareOrder.print(chats.map(\.name)))")
         shown = all
         buildUI()
-        NotificationCenter.default.addObserver(self, selector: #selector(keyboard(_:)),
-            name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
     }
 
     // -- UI --
@@ -245,7 +245,6 @@ final class SharePickerController: UIViewController, UICollectionViewDataSource,
 
         [searchPlate, collection, emptyLabel, bar, road].forEach { view.addSubview($0) }
         captionHeight = caption.heightAnchor.constraint(equalToConstant: 44)
-        bottomInset = bar.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -10)
 
         NSLayoutConstraint.activate([
             searchPlate.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
@@ -268,7 +267,10 @@ final class SharePickerController: UIViewController, UICollectionViewDataSource,
 
             bar.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
             bar.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
-            bottomInset,
+            // THE BAR STANDS ON THE KEYS BY THE PLATFORM'S OWN GUIDE (T1 16.10.2026: the send was not seen): the sum of the keys'
+            // frame by hand, in the coordinates of a sheet that moves itself over the keys, put the bar under the sheet's edge; the
+            // keyboard layout guide is the safe area's bottom with no keys and the keys' top with them, in any detent.
+            bar.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor, constant: -10),
             capPlate.topAnchor.constraint(equalTo: bar.topAnchor),
             capPlate.bottomAnchor.constraint(equalTo: bar.bottomAnchor),
             capPlate.leadingAnchor.constraint(equalTo: bar.leadingAnchor),
@@ -287,7 +289,7 @@ final class SharePickerController: UIViewController, UICollectionViewDataSource,
 
             road.leadingAnchor.constraint(equalTo: bar.leadingAnchor),
             road.trailingAnchor.constraint(equalTo: bar.trailingAnchor),
-            road.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -10),
+            road.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor, constant: -10),
             status.topAnchor.constraint(equalTo: road.topAnchor, constant: 12),
             status.leadingAnchor.constraint(equalTo: road.leadingAnchor, constant: 16),
             status.trailingAnchor.constraint(equalTo: road.trailingAnchor, constant: -16),
@@ -337,7 +339,10 @@ final class SharePickerController: UIViewController, UICollectionViewDataSource,
         let items = attachments
         Task { @MainActor [weak self] in
             let laid = await ShareWallHandoff.hand(items)
-            if laid { ShareSend.ringHost() }   // a running app opens the page at once; a sleeping one at its next activation
+            if laid {
+                ShareSend.ringHost()   // a running app opens the page at once; a sleeping one at its next activation
+                await ShareWallHandoff.bell()   // and the person holds the one tap that brings it forward on that page
+            }
             self?.onClose?()
         }
     }
@@ -362,14 +367,6 @@ final class SharePickerController: UIViewController, UICollectionViewDataSource,
         let chosen = !selected.isEmpty
         bar.isHidden = !chosen
         collection.contentInset.bottom = chosen ? 72 : 0
-    }
-
-    // -- the keyboard --
-    @objc private func keyboard(_ n: Notification) {
-        guard let f = (n.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue else { return }
-        let overlap = max(0, view.bounds.height - (view.convert(f, from: nil).origin.y))
-        bottomInset.constant = overlap > 0 ? -(overlap + 8) : -10
-        UIView.animate(withDuration: 0.25) { self.view.layoutIfNeeded() }
     }
 
     // -- sending --
@@ -758,6 +755,27 @@ enum ShareRead {
 /// and ONE record under "pendingWall", laid whole. The page that writes the post is the app's own (MTBoardComposer, opened by
 /// MTBoard.takeFromSheet); the sheet walks no door and draws no page of its own.
 enum ShareWallHandoff {
+    /// THE WALL'S PAGE IS ONE TAP AWAY (the author's word 16.10.2026 19:0x MSK: «publishing to my own wall through Share works crooked
+    /// and does not open the app to do everything there»). A share extension may not bring its app forward -- the App Extension
+    /// Programming Guide gives NSExtensionContext.open to a widget and a message app alone, and the author's word of 10.10.2026 holds
+    /// «in full accordance with Apple's rules» -- so the sheet leaves the person the platform's own door: one notice, at once, no sound,
+    /// whose tap opens Montana on my wall's new-post page with what was shared (MTBoard.takeFromSheet, then MTBoardComposer.reopen).
+    /// The page takes the notice off the list as it rises. Without the person's permission for notices the old road stands: the page
+    /// waits for the app's next activation.
+    static func bell() async {
+        let c = UNMutableNotificationContent()
+        c.title = String(localized: "My wall", bundle: MTLanguage.bundle)
+        c.body = String(localized: "Tap to finish the post", bundle: MTLanguage.bundle)
+        c.sound = nil
+        c.threadIdentifier = MontanaHandoff.wallNotice
+        c.userInfo = ["wall": 1]
+        do {
+            try await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: MontanaHandoff.wallNotice, content: c, trigger: nil))
+            ShareSend.diag("sheet WALL notice laid -- one tap opens the page")
+        } catch {
+            ShareSend.diag("sheet WALL notice refused: \(error.localizedDescription)")
+        }
+    }
     static func hand(_ attachments: [NSItemProvider]) async -> Bool {
         var said: [String] = []
         var files: [[String: String]] = []
@@ -807,20 +825,49 @@ extension SharePickerController: UICollectionViewDelegateFlowLayout {
     }
 }
 
-// A cell: a round face -- a picture, or black with a gold initial -- the name, and a tick when chosen. One's own wall wears the
+// A cell: a round face -- a picture, or black with a white initial -- the name, and a tick when chosen. One's own wall wears the
 // platform's write glyph where a tick would stand: its circle opens the post's page and is never chosen.
+// THE TICK STANDS TRUE (the author's word 16.10.2026 19:0x MSK on T1: «the blue ticks are crooked»): the ring was a layer inside the
+// face's own clipped layer -- cut by the face's round mask -- and drawn from its frame, not its bounds, so it sat off to the upper
+// left; the tick was the symbol stretched into a white square's corners and pinned to the face's frame while the face shrank under
+// it. Now the ring is the cell's own layer, a true circle four points around the face's centre; the face shrinks inside it; the
+// tick is one round badge drawn whole -- the platform's blue, a white rim, a white check -- its centre on the face's circle at the
+// lower right, where it stands whether the face is shrunk or not.
 final class ShareAvatarCell: UICollectionViewCell {
+    private static let side: CGFloat = 60
     private let avatar = UIImageView()
     private let initialLabel = UILabel()
     private let nameLabel = UILabel()
     private let ring = CAShapeLayer()
-    private let check = UIImageView()
-    private let pen = UIImageView()
+    private let check = ShareAvatarCell.badge("checkmark")
+    private let pen = ShareAvatarCell.badge("square.and.pencil")
+
+    /// A round badge drawn whole: the platform's blue disc, a white rim, the white glyph in its middle.
+    private static func badge(_ glyph: String) -> UIView {
+        let v = UIView()
+        v.backgroundColor = .systemBlue
+        v.layer.cornerRadius = 12
+        v.layer.borderWidth = 2
+        v.layer.borderColor = UIColor.white.cgColor
+        v.isHidden = true
+        v.translatesAutoresizingMaskIntoConstraints = false
+        let i = UIImageView(image: UIImage(systemName: glyph, withConfiguration: UIImage.SymbolConfiguration(pointSize: 10, weight: .heavy)))
+        i.tintColor = .white
+        i.contentMode = .center
+        i.translatesAutoresizingMaskIntoConstraints = false
+        v.addSubview(i)
+        NSLayoutConstraint.activate([
+            v.widthAnchor.constraint(equalToConstant: 24), v.heightAnchor.constraint(equalToConstant: 24),
+            i.centerXAnchor.constraint(equalTo: v.centerXAnchor), i.centerYAnchor.constraint(equalTo: v.centerYAnchor),
+        ])
+        return v
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         avatar.contentMode = .scaleAspectFill
         avatar.layer.masksToBounds = true
+        avatar.layer.cornerRadius = Self.side / 2
         avatar.layer.borderWidth = 1   // the thin white rim every avatar wears (the chat list law)
         avatar.layer.borderColor = UIColor.white.withAlphaComponent(0.45).cgColor
         avatar.translatesAutoresizingMaskIntoConstraints = false
@@ -833,57 +880,44 @@ final class ShareAvatarCell: UICollectionViewCell {
         nameLabel.numberOfLines = 2
         nameLabel.lineBreakMode = .byTruncatingTail
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
-        check.image = UIImage(systemName: "checkmark.circle.fill")
-        check.tintColor = .systemBlue   // the platform's own blue tick (the author's word 30.09 23:21)
-        check.backgroundColor = .white
-        check.layer.cornerRadius = 11
-        check.layer.masksToBounds = true
-        check.isHidden = true
-        check.translatesAutoresizingMaskIntoConstraints = false
-        pen.image = UIImage(systemName: "square.and.pencil", withConfiguration: UIImage.SymbolConfiguration(pointSize: 11, weight: .bold))
-        pen.tintColor = .white
-        pen.backgroundColor = .systemBlue
-        pen.contentMode = .center
-        pen.layer.cornerRadius = 11
-        pen.layer.masksToBounds = true
-        pen.isHidden = true
-        pen.translatesAutoresizingMaskIntoConstraints = false
         ring.fillColor = UIColor.clear.cgColor
         ring.strokeColor = UIColor.systemBlue.cgColor
         ring.lineWidth = 2
+        ring.isHidden = true
+        contentView.layer.addSublayer(ring)
         avatar.addSubview(initialLabel)
         contentView.addSubview(avatar)
         contentView.addSubview(nameLabel)
         contentView.addSubview(check)
         contentView.addSubview(pen)
+        // The badge's centre on the face's circle at 45 degrees: the radius times the cosine of 45.
+        let off = (Self.side / 2) * 0.7071
         NSLayoutConstraint.activate([
             avatar.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
             avatar.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
-            avatar.widthAnchor.constraint(equalToConstant: 60),
-            avatar.heightAnchor.constraint(equalToConstant: 60),
+            avatar.widthAnchor.constraint(equalToConstant: Self.side),
+            avatar.heightAnchor.constraint(equalToConstant: Self.side),
             initialLabel.centerXAnchor.constraint(equalTo: avatar.centerXAnchor),
             initialLabel.centerYAnchor.constraint(equalTo: avatar.centerYAnchor),
             nameLabel.topAnchor.constraint(equalTo: avatar.bottomAnchor, constant: 4),
             nameLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 2),
             nameLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -2),
-            check.widthAnchor.constraint(equalToConstant: 22),
-            check.heightAnchor.constraint(equalToConstant: 22),
-            check.trailingAnchor.constraint(equalTo: avatar.trailingAnchor, constant: 2),
-            check.bottomAnchor.constraint(equalTo: avatar.bottomAnchor, constant: 2),
-            pen.widthAnchor.constraint(equalToConstant: 22),
-            pen.heightAnchor.constraint(equalToConstant: 22),
-            pen.trailingAnchor.constraint(equalTo: avatar.trailingAnchor, constant: 2),
-            pen.bottomAnchor.constraint(equalTo: avatar.bottomAnchor, constant: 2),
+            check.centerXAnchor.constraint(equalTo: avatar.centerXAnchor, constant: off),
+            check.centerYAnchor.constraint(equalTo: avatar.centerYAnchor, constant: off),
+            pen.centerXAnchor.constraint(equalTo: avatar.centerXAnchor, constant: off),
+            pen.centerYAnchor.constraint(equalTo: avatar.centerYAnchor, constant: off),
         ])
     }
     required init?(coder: NSCoder) { fatalError() }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        avatar.layer.cornerRadius = 30
-        ring.frame = avatar.bounds.insetBy(dx: -3, dy: -3)
-        ring.path = UIBezierPath(ovalIn: ring.frame).cgPath
-        ring.position = CGPoint(x: avatar.bounds.midX, y: avatar.bounds.midY)
+        // The ring around the face's centre, read from its centre and the face's own side -- never from a frame a shrink changes.
+        let r = Self.side / 2 + 4
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        ring.frame = CGRect(x: avatar.center.x - r, y: avatar.center.y - r, width: 2 * r, height: 2 * r)
+        ring.path = UIBezierPath(ovalIn: ring.bounds.insetBy(dx: 1, dy: 1)).cgPath
+        CATransaction.commit()
     }
 
     func configure(_ c: ShareChat, selected: Bool) {
@@ -891,7 +925,7 @@ final class ShareAvatarCell: UICollectionViewCell {
         if let t = c.thumb {
             avatar.image = t; avatar.backgroundColor = .clear; initialLabel.isHidden = true
         } else {
-            // SSOT with the client's AvatarCircle fallback ([C-1]): a face without a photo is a BLACK circle with a gold letter.
+            // SSOT with the client's AvatarCircle fallback ([C-1]): a face without a photo is a black circle with its letter.
             avatar.image = nil
             avatar.backgroundColor = .black
             initialLabel.text = c.initial; initialLabel.isHidden = false
@@ -899,13 +933,13 @@ final class ShareAvatarCell: UICollectionViewCell {
         nameLabel.textColor = .label
         check.isHidden = !selected
         pen.isHidden = c.name != ShareChat.wallName
-        if selected { if ring.superlayer == nil { avatar.layer.addSublayer(ring) } } else { ring.removeFromSuperlayer() }
+        ring.isHidden = !selected
         avatar.transform = selected ? CGAffineTransform(scaleX: 0.867, y: 0.867) : .identity
     }
 
     override func prepareForReuse() {
         super.prepareForReuse()
-        avatar.transform = .identity; ring.removeFromSuperlayer(); check.isHidden = true; pen.isHidden = true
+        avatar.transform = .identity; ring.isHidden = true; check.isHidden = true; pen.isHidden = true
     }
 }
 

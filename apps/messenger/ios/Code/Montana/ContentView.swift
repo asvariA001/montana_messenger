@@ -3876,6 +3876,9 @@ let ringMark = "\u{200B}\u{200B}RG:"        // a call AS A LETTER: the whole gua
 // learned only on a by-name introduction, and whoever wrote first stays nickless forever.
 let cardMark = "\u{200B}\u{200B}QC:"        // the card of MY queue for THIS peer — over E2E, mutual (checklist B-5/C-7)
 let deleteMark = "\u{200B}\u{200B}DL:"      // delete message for everyone (payload = serverId) — over E2E
+// THE KEEPER'S OWN WORD ABOUT A DELETION (16.10.2026 No.72, MTLevelAccess.keepDeleted): the correspondent's phone kept the letter
+// I deleted for everyone, and says so itself -- payload = the letter's wire name. An older build buries it unread.
+let deleteKeptMark = "\u{200B}\u{200B}DK:"
 // A LETTER'S WORDS CHANGE ON BOTH SCREENS. The edit used to live on the editor's phone alone: one
 // person read one text, their correspondent another, and nothing on either screen said so. JSON
 // {sid,tx} — the letter's own wire name and its new words; it rides the ONE delivery road, silent.
@@ -3925,7 +3928,8 @@ let knownServiceTokens: Set<String> = ["VC:", "MD:", "RC:", "TY:", "WA:", "AP:",
                                        "RG:", "QC:", "DL:", "DF:", "CL:", "MC:", "WH:", "CG:", "PA:", "EX:",
                                        "ED:", "PN:", "SP:", "AB:", "WL:", "SM:", "SY:", "PX:", "PG:",
                                        "GR:",   // a group's invitation and letter (MTGroup, 05.10)
-                                       "KP:"]   // the copy kept by the people one writes to (MTKeeping, 08.10)
+                                       "KP:",   // the copy kept by the people one writes to (MTKeeping, 08.10)
+                                       "DK:"]   // the correspondent kept a letter I deleted for everyone (MTLevelAccess, 16.10)
 /// A LETTER OF A RETIRED KIND is buried unread here, as a newer build's word is, and never drawn as a person's words: the one
 /// rule is MTRowLetter.retiredLetter, the extension's as well.
 func mtRetiredLetter(_ text: String) -> Bool { MTRowLetter.retiredLetter(text) }
@@ -4003,6 +4007,7 @@ func isControlMarker(_ text: String) -> Bool {
         || text.hasPrefix(sameAskMark) || text.hasPrefix(sameYesMark)   // one person, one conversation (24.09): never a row
         || text.hasPrefix(pipeClosedMark)            // the pipe closed at the other end (24.09): never a row
         || text.hasPrefix(keepMark)                  // the keeping of a copy (08.10): never a row
+        || text.hasPrefix(deleteKeptMark)            // the correspondent kept a deleted letter (16.10): never a row
 }
 // A service letter never rings: receipts, typing, drafts, profile (name/avatar/nick/card),
 // deletions, wake-handles ride SILENT pushes by construction — the server model sent them

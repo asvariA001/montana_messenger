@@ -183,6 +183,9 @@ enum MTHeldLetters {
 /// the name the manifest computes, and the fill finds it on disk and asks nothing. No group, no file,
 /// an older sheet without «src» — the old road, the download. Both processes compile this file.
 enum MontanaHandoff {
+    /// The name of the one notice the share sheet leaves when it hands a post to my wall (ShareWallHandoff.bell): its tap brings the
+    /// app forward on the wall's new-post page, and the page takes it off the list as it rises (MTBoardComposer.present).
+    static let wallNotice = "wall-new"   // NOT-UI: a notification's identifier
     static var dir: URL? {
         guard let base = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: MontanaContour.appGroup) else { return nil }
         let d = base.appendingPathComponent("handoff", isDirectory: true)

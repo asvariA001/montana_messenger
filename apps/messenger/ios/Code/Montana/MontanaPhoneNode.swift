@@ -1307,6 +1307,7 @@ enum MontanaNotifyGate {
         MontanaKeychain.set("notifSound", Data([on("notifSound") ? 1 : 0]))
         MontanaKeychain.set("notifPreview", Data([on("notifPreview") ? 1 : 0]))
         MontanaKeychain.set("notifSender", Data([on("notifSender") ? 1 : 0]))
+        MTLevelAccess.mirror()   // «Forbid deletion on my phone»: the extension leaves a deleted letter's notice where the person keeps it
         registerCategories()
     }
 }

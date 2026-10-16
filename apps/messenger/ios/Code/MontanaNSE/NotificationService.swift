@@ -134,6 +134,14 @@ final class NotificationService: UNNotificationServiceExtension {
             openedMid = mid
             openedQuiet = Self.isQuietText(rawText)
             cargoLetter = (mid, text)
+            // A DELETION FOR EVERYONE (16.10.2026 No.72; the author's words «let deletion reach me by a silent push»; the recon's own
+            // road): the deleted letter's notice leaves the screen at the deletion's own push -- unless this person keeps what others
+            // delete (the app's mirror «keepsDeleted», MTLevelAccess) -- and the push wears no face of its own; the app lands the
+            // deletion from the stash above, by its one door.
+            if rawText.hasPrefix("\u{200B}\u{200B}DL:") {
+                Self.takeNoticeOff(String(rawText.dropFirst("\u{200B}\u{200B}DL:".count))) { contentHandler(Self.quietFace()) }
+                return
+            }
             // A ring letter never wears a banner: the system call screen (voip road, 12.1)
             // is the one face of an incoming call. Old senders still send it loud — the
             // letter is stashed above, the banner is swallowed whole.
@@ -191,6 +199,10 @@ final class NotificationService: UNNotificationServiceExtension {
             let group = Self.groupFace(rawText)
             if rawText.hasPrefix("\u{200B}\u{200B}GR:"), group == nil {
                 Self.diagLine("group word stashed silently mid=\(mid.prefix(8))")
+                if let target = Self.groupDeletion(rawText) {   // a deletion in a group takes its letter's notice off too (16.10)
+                    Self.takeNoticeOff(target) { contentHandler(Self.quietFace()) }
+                    return
+                }
                 contentHandler(Self.quietFace())
                 return
             }
@@ -1262,6 +1274,35 @@ final class NotificationService: UNNotificationServiceExtension {
         rang[chat] = now
         if let d = try? JSONEncoder().encode(rang) { MontanaKeychain.set("nseRoomRang", d) }
         return true
+    }
+
+    /// THE NOTICE OF A LETTER DELETED FOR EVERYONE LEAVES THE SCREEN (16.10.2026 No.72, the recon: the reference's extension takes a
+    /// deleted message's notice off at the deletion's own push), unless this person keeps what others delete -- the app's mirror of
+    /// MTLevelAccess.keepsDeleted. A notice is named by its letter's wire name (userInfo «mid», bare or «mid:»-led).
+    private static func takeNoticeOff(_ target: String, then done: @escaping () -> Void) {
+        let bare = target.hasPrefix("mid:") ? String(target.dropFirst(4)) : target
+        guard !bare.isEmpty, MontanaKeychain.get("keepsDeleted") != Data([1]) else {
+            diagLine("deletion kept here mid=\(bare.prefix(8))")
+            done(); return
+        }
+        UNUserNotificationCenter.current().getDeliveredNotifications { list in
+            let ids = list.filter { n in
+                let m = (n.request.content.userInfo["mid"] as? String) ?? ""
+                return m == bare || m == "mid:" + bare
+            }.map { n in n.request.identifier }
+            if !ids.isEmpty { UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ids) }
+            diagLine("deletion took notices off n=\(ids.count) mid=\(bare.prefix(8))")
+            done()
+        }
+    }
+    /// The letter a group's deletion names: an answer («sig») whose words are a deletion for everyone.
+    private static func groupDeletion(_ raw: String) -> String? {
+        let mark = "\u{200B}\u{200B}GR:"
+        guard raw.hasPrefix(mark), let d = String(raw.dropFirst(mark.count)).data(using: .utf8),
+              let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any], (o["t"] as? String) == "sig",
+              let tx = o["tx"] as? String, tx.hasPrefix("\u{200B}\u{200B}DL:") else { return nil }
+        let target = String(tx.dropFirst("\u{200B}\u{200B}DL:".count))
+        return target.isEmpty ? nil : target
     }
 
     // The banner's words: the one function the app's banner door reads too (MTRowLetter.bannerWords, 06.10).

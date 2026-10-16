@@ -912,8 +912,10 @@ final class MontanaDeliveryEngine {
                 MontanaTrace.markFolded("state_twin", "kind=\(kind) — the same state already waits for this peer", window: 30)
                 return
             }
+            // A DELETION FOR EVERYONE MAY WAKE THE RECEIVER'S EXTENSION (16.10.2026 No.72, E2E.deletionQuiet): sent loud by its
+            // sender only to a build that proved it takes it quietly; every other service letter stays silent here.
             a = Self.foldingState(a, adding: Item(to: to, chat: chat, mid: mid, text: text,
-                          silent: silent || isSilentLetter(text),
+                          silent: silent || (isSilentLetter(text) && !text.hasPrefix(deleteMark)),
                           since: Date().timeIntervalSince1970, tries: 0, lastTry: 0,
                           headless: headless ? true : nil, kind: kind,
                           qt: quoteText, qm: quoteMid, lp: linkPreview, tag: tag))
@@ -1644,7 +1646,8 @@ final class MontanaDeliveryEngine {
         // mark written — every reciprocity found it neither receipted nor pending and sent it
         // again, once a second (the 09.09 storm, and again 18:26 today between T1 and T3). It
         // stays on the sparse rhythm until the peer's receipt or the hour's retirement.
-        let settlesOnNode = it.silent && !it.kind.isState
+        // A deletion that wakes the receiver's extension is a service word all the same: it settles on the node's word (16.10).
+        let settlesOnNode = (it.silent || it.text.hasPrefix(deleteMark)) && !it.kind.isState
         if !it.silent || standing { _ = MontanaPhoneNode.shared.sendLetter(to: to, mid: m, text: text,
                                                                       quoteText: it.qt, quoteMid: it.qm, linkPreview: it.lp) }
         if standing, MontanaPhoneNode.shared.leftByStandingRoad(m) {

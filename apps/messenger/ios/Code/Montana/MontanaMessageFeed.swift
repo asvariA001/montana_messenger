@@ -94,6 +94,12 @@ final class MTFeedFrame: UIView {
     let cv: MTFeedCollectionView
     /// Room for a bar floating over the feed's bottom (the voice player); part of the one inset.
     var reserve: CGFloat = 0 { didSet { if reserve != oldValue { setNeedsLayout() } } }
+    /// THE LOWEST EDGE A PLATE FLOATING OVER THE FEED'S TOP COVERS, in the window's space (the pinned plate, a group's room; 0 --
+    /// none): the twin of the player's reserve at the bottom (the author's words 16.10.2026 18:29-18:30 MSK: «the pins in the money
+    /// flow cover the letters crookedly and the gap is wrong»). The feed's visual top rests under the lowest thing standing over
+    /// it -- its own top edge or the plate's -- so the end letter stands below the plate, whatever stands between (the search line,
+    /// the field on top); the letters still run on under it.
+    var topEdge: CGFloat = 0 { didSet { if topEdge != oldValue { setNeedsLayout() } } }
     /// THE FEED RUNS ON TO THE WINDOW'S BOTTOM (the author's word 21.09: the bubbles show through the
     /// field and its buttons; the feed is not cut at the bottom, it goes to the end of the screen — on
     /// every device and every system). The run-on is MEASURED, never assumed: the distance from this
@@ -147,7 +153,8 @@ final class MTFeedFrame: UIView {
                                           reserve: reserve + underlap)
         let frame = CGRect(x: 0, y: -over, width: bounds.width, height: layout.height)
         if cv.frame != frame { cv.frame = frame }
-        if abs(cv.contentInset.bottom - over) > 0.5 { cv.contentInset.bottom = over; cv.verticalScrollIndicatorInsets.bottom = over }
+        let top = max(over, topEdge)   // the visual top's inset: the lowest of the feed's own edge and a plate floating over it
+        if abs(cv.contentInset.bottom - top) > 0.5 { cv.contentInset.bottom = top; cv.verticalScrollIndicatorInsets.bottom = top }
         covered = max(0, cv.keyboardGeometry?.coveredHeight ?? 0)
         apply(inset: layout.inset)
     }
@@ -637,6 +644,8 @@ struct MTFeedListView: UIViewRepresentable {
     /// inside the flip, the section's top inset is the visual bottom, so the newest letter
     /// scrolls above the bar and the bar's material shows the letters behind it.
     var bottomReserve: CGFloat = 0
+    /// The lowest window edge a plate floating over the feed's top covers (MTFeedFrame.topEdge).
+    var topEdge: CGFloat = 0
     /// THE READING END (the author words 02.10 17:56 and 17:58): with the feed turned the newest letters stand at the
     /// visual top, and every rule that follows the newest end -- the hold, the down mark, the window going home, the
     /// loading of older letters at the far end -- reads it from here.
@@ -685,6 +694,7 @@ struct MTFeedListView: UIViewRepresentable {
         control.coordinator = context.coordinator
         let frame = MTFeedFrame(cv: cv)
         frame.reserve = bottomReserve
+        frame.topEdge = topEdge
         let pin = self.pin
         frame.onInset = { inset, speed in
             let set = { if abs(pin.bottomInset - inset) > 0.5 { pin.bottomInset = inset } }
@@ -717,6 +727,7 @@ struct MTFeedListView: UIViewRepresentable {
         control.newestOnTop = newestOnTop
         frame.cv.newestOnTop = newestOnTop
         frame.reserve = bottomReserve   // the one inset (with the keyboard's share) is applied in the frame's layout
+        frame.topEdge = topEdge
         context.coordinator.apply(rows: rows)
     }
 

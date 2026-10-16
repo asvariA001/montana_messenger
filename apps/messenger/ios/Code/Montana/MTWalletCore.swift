@@ -724,6 +724,32 @@ enum MTPersonLevel {
     static func set(_ v: Int?) { lock.lock(); held = v; lock.unlock() }
 }
 
+/// ACCESS BY LEVEL (the author's words 16.10.2026 18:2x MSK: «both functions of level 7 must be made, and in the settings a path
+/// Access by level -- where they open for each»; «we have the gamification of access to Montana's functions»): every function a level
+/// opens is named here once, with its level. The person's level is the Global Level the avatar shows (MTPersonChain.global); before
+/// this life has read it, the last one this phone knew stands, so a launch's first second never drops a choice the level opened.
+enum MTLevelAccess {
+    enum Feature: String, CaseIterable {
+        case keepDeleted   // a letter the correspondent deletes for everyone stays on this phone, and the correspondent is told
+        case autoRecord    // calls are recorded by themselves; below its level a call is recorded by the call screen's own mark
+        var level: Int { 7 }
+    }
+    static let lastKey = "levelAccess.last"                    // NOT-UI: the last Global Level this phone knew of this person
+    static let keepKey = "levelAccess.keepDeleted"              // NOT-UI: the person's choice, on once the level opens it
+    static var level: Int? {
+        guard let p = MTPersonLevel.now, let c = MTCoinBalance.now else { return UserDefaults.standard.object(forKey: lastKey) as? Int }
+        let g = MTPersonChain.global(person: p, balance: c)
+        if UserDefaults.standard.object(forKey: lastKey) as? Int != g { UserDefaults.standard.set(g, forKey: lastKey) }
+        return g
+    }
+    static func opens(_ f: Feature) -> Bool { f.level <= (level ?? 0) }
+    /// The person keeps the letters their correspondents delete: the level opens it, and it stands until they untick it.
+    static var keepsDeleted: Bool { opens(.keepDeleted) && (UserDefaults.standard.object(forKey: keepKey) as? Bool ?? true) }
+    /// The choice as the notification extension reads it (the shared keychain): it takes a deleted letter's notice off the screen
+    /// only while this phone does not keep what others delete.
+    static func mirror() { MontanaKeychain.set("keepsDeleted", Data([keepsDeleted ? 1 : 0])) }
+}
+
 /// The public distribution contains counts of levels only. A separate, seed-derived
 /// owner token lets each person replace their own level without publishing a balance,
 /// name, address or contact list. Old clients can continue using every existing door.

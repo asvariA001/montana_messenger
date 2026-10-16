@@ -496,6 +496,9 @@ struct MTPlayerHead: View {
                 }
                 nowPlaying
             }
+            // THE SOUND'S LINE (the author's word 16.10.2026 19:0x MSK: «under the big player, over the search and filter buttons, a
+            // thin horizontal floating volume scale with a tall tap area»): the system's own volume, no plate (MTVolumeLine).
+            MTVolumeLine()
             head
         }
     }
@@ -565,20 +568,25 @@ struct MTPlayerHead: View {
         }
         .frame(height: 60)
     }
-    @ViewBuilder private var placeMark: some View {
-        if let n = place {
-            Button(action: { onPlace(); MTFrameMeter.shared.tap("player:place") }) {
-                HStack(spacing: 3) {
-                    Image(systemName: "list.number").font(.system(size: 15, weight: .medium))
+    /// THE PLAYLIST THAT PLAYS, LEFT OF «BACK» (the author's word 16.10.2026 19:0x MSK: «in the big player, to the left of the back
+    /// button, a button that shows the current playlist, so it shows where it plays from, and one can manage it there»): always
+    /// standing, the track's place beside the glyph when the queue holds it; the tap opens the queue's own page (MTQueuePage) --
+    /// where it plays from, the track that plays in the middle, a tap plays, a swipe takes out, a drag moves. The music page centred
+    /// on the track (the author's word 01.10 00:44) is that page's own mark now.
+    private var placeMark: some View {
+        Button(action: { MTQueuePage.present(onPlace: onPlace); MTFrameMeter.shared.tap("player:queue") }) {
+            HStack(spacing: 3) {
+                Image(systemName: "list.number").font(.system(size: 15, weight: .medium))
+                if let n = place {
                     // USER-DATA: the track's place in the playlist, digits.
                     Text(verbatim: String(n)).font(.footnote.weight(.semibold)).monospacedDigit().lineLimit(1)
                 }
-                .foregroundColor(.secondary)
-                .frame(minWidth: 44, minHeight: 44)
-                .contentShape(Rectangle())
             }
-            .accessibilityLabel(Text("Show in playlist"))
+            .foregroundColor(.secondary)
+            .frame(minWidth: 44, minHeight: 44)
+            .contentShape(Rectangle())
         }
+        .accessibilityLabel(Text("Current playlist"))
     }
     private func control(_ glyph: String, size: CGFloat, _ act: @escaping () -> Void) -> some View {
         Button(action: { act(); MTFrameMeter.shared.tap("player:" + glyph) }) {
@@ -698,6 +706,187 @@ struct MTPlayerClockLine: View {
             // USER-DATA: the remaining time, digits.
             Text(verbatim: "-" + fmtDuration(max(0, total - total * p))).font(.footnote.weight(.medium)).monospacedDigit().foregroundColor(.secondary)
         }
+    }
+}
+
+/// THE SOUND'S LINE (the author's word 16.10.2026 19:0x MSK: «a thin horizontal floating volume scale with a tall tap area»): the
+/// system's own volume -- the platform's volume view, so the hardware buttons move it and the system's own volume plate does not
+/// cover the player while it stands -- drawn as a thin line between the quiet and the loud speaker, no plate under it. The whole
+/// line, 44 points tall, is the finger's: a touch anywhere on it sets the volume where it lands and a drag carries it.
+struct MTVolumeLine: View {
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "speaker.fill").font(.system(size: 12, weight: .semibold)).foregroundColor(.secondary)
+            MTVolumeSlider().frame(height: 44)
+            Image(systemName: "speaker.wave.3.fill").font(.system(size: 12, weight: .semibold)).foregroundColor(.secondary)
+        }
+        .padding(.horizontal, 14)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text("Volume"))
+    }
+}
+/// The platform's volume view in a 44-point line that takes the finger itself (a view that takes the finger by design): the
+/// gestures live on the line's own UIKit view, never on the SwiftUI wrapper (the platform view's law, 29.09).
+struct MTVolumeSlider: UIViewRepresentable {
+    func makeUIView(context: Context) -> MTVolumeLineView { MTVolumeLineView() }
+    func updateUIView(_ v: MTVolumeLineView, context: Context) {}
+}
+final class MTVolumeLineView: UIView {
+    private let system = MPVolumeView()
+    private var slider: UISlider? { system.subviews.compactMap { $0 as? UISlider }.first }
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        // The line is drawn by the volume view's own track, thin: the filled part the label's colour, the rest its faint shade,
+        // three points high and round at the ends; no thumb stands on it -- the line itself is the control.
+        system.setMinimumVolumeSliderImage(Self.track(UIColor.label), for: .normal)
+        system.setMaximumVolumeSliderImage(Self.track(UIColor.label.withAlphaComponent(0.22)), for: .normal)
+        system.setVolumeThumbImage(UIImage(), for: .normal)
+        system.isUserInteractionEnabled = false   // the line's own gestures set the value: the whole 44 points answer
+        addSubview(system)
+        addGestureRecognizer(UIPanGestureRecognizer(target: self, action: #selector(drag(_:))))
+        addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tap(_:))))
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let h: CGFloat = 34
+        system.frame = CGRect(x: 0, y: (bounds.height - h) / 2, width: bounds.width, height: h)
+        // The sound's way has its own mark on the plate (MTSoundWayMark): a route button the volume view may still carry stands
+        // down, so the line is the line alone and runs the whole width.
+        for case let b as UIButton in system.subviews { b.isHidden = true }
+    }
+    private static func track(_ color: UIColor) -> UIImage {
+        let side: CGFloat = 3
+        let img = UIGraphicsImageRenderer(size: CGSize(width: side * 2, height: side)).image { _ in
+            color.setFill()
+            UIBezierPath(roundedRect: CGRect(x: 0, y: 0, width: side * 2, height: side), cornerRadius: side / 2).fill()
+        }
+        return img.resizableImage(withCapInsets: UIEdgeInsets(top: 0, left: side, bottom: 0, right: side))
+    }
+    private func set(_ x: CGFloat) {
+        guard let s = slider, 0 < bounds.width else { return }
+        let v = Float(max(0, min(1, x / bounds.width)))
+        s.setValue(v, animated: false)
+        s.sendActions(for: .valueChanged)   // the volume view hears its own slider and moves the system's volume
+    }
+    @objc private func tap(_ g: UITapGestureRecognizer) {
+        set(g.location(in: self).x)
+        MontanaTrace.markFolded("music", "volume set by a tap", window: 30)
+    }
+    @objc private func drag(_ g: UIPanGestureRecognizer) {
+        set(g.location(in: self).x)
+        if g.state == .ended { MontanaTrace.markFolded("music", "volume set by a drag", window: 30) }
+    }
+}
+
+/// THE PLAYLIST THAT PLAYS AND WHERE IT PLAYS FROM (the author's word 16.10.2026 19:0x MSK: «a button that shows the current playlist,
+/// so it shows where it plays from, and one can manage it there»): the player's own queue (VoicePlayer.queue), its source named by
+/// what it holds -- one chat, the walls, the folders, the chats, or everything -- and the track that plays standing in the middle.
+/// A tap plays a track, a swipe takes it out, a drag in the reorder mode moves it: the queue's one owner is the player, the page
+/// asks it (play, dropFromQueue, moveInQueue). The mark at the top right opens the music page centred on the track (onPlace).
+struct MTQueuePage: View {
+    var onPlace: () -> Void = {}
+    @ObservedObject private var face = VoicePlayer.shared.face
+    @ObservedObject private var meta = MTTrackMeta.shared
+    @Environment(\.montanaClose) private var montanaClose
+    @State private var tracks: [MusicTrack] = VoicePlayer.shared.queue
+    @State private var editing = EditMode.inactive
+    private var player: VoicePlayer { VoicePlayer.shared }
+    var body: some View {
+        NavigationStack {
+            ScrollViewReader { proxy in
+                List {
+                    Section {
+                        ForEach(Array(tracks.enumerated()), id: \.element.file) { pair in
+                            row(pair.offset, pair.element).id(pair.element.file)
+                        }
+                        .onDelete { set in
+                            for i in set.sorted().reversed() { player.dropFromQueue(tracks[i].file) }
+                            tracks = player.queue
+                        }
+                        .onMove { from, to in
+                            player.moveInQueue(from: from, to: to)
+                            tracks = player.queue
+                        }
+                    } header: {
+                        Text("Playing from \(from)")
+                    }
+                }
+                .environment(\.editMode, $editing)
+                .onAppear { if let f = player.currentTrack?.file { proxy.scrollTo(f, anchor: .center) } }
+            }
+            .navigationTitle("Now playing")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { MontanaCloseMark { montanaClose?() } }
+                ToolbarItemGroup(placement: .confirmationAction) {
+                    MontanaBarMark(glyph: "music.note.list", label: "Show in playlist") { montanaClose?(); onPlace() }
+                    MontanaBarMark(glyph: editing.isEditing ? "checkmark" : "arrow.up.arrow.down", label: "Reorder") {
+                        withAnimation { editing = editing.isEditing ? .inactive : .active }
+                    }
+                }
+            }
+        }
+        .onChange(of: face.queueIndex) { _, _ in tracks = player.queue }
+    }
+    /// Where the queue plays from, read off what it holds: the one chat's name, the walls, the folders, the chats, or all.
+    private var from: String {
+        guard let first = tracks.first else { return "" }
+        let kinds = Set(tracks.map { t in MTTrackSource.of(t) })
+        if kinds.count == 1 {
+            switch MTTrackSource.of(first) {
+            case .chat: return first.chatTitle
+            case .walls: return String(localized: "Walls", bundle: MTLanguage.bundle)
+            case .folders: return String(localized: "Folders", bundle: MTLanguage.bundle)
+            default: break
+            }
+        }
+        if kinds.allSatisfy({ k in if case .chat = k { return true } else { return false } }) {
+            return String(localized: "Chats", bundle: MTLanguage.bundle)
+        }
+        return String(localized: "All", bundle: MTLanguage.bundle)
+    }
+    private func row(_ i: Int, _ t: MusicTrack) -> some View {
+        let playing = i == face.queueIndex
+        return Button { player.play(index: i); MontanaTrace.mark("music_queue", "play i=\(i + 1) by=queue-page") } label: {
+            HStack(spacing: 12) {
+                MTMusicCover(file: t.file, side: 44, corner: 8)
+                VStack(alignment: .leading, spacing: 2) {
+                    // USER-DATA: the track's own name, its tag's or its file's
+                    Text(verbatim: meta.of(t.file)?.title ?? (t.title as NSString).deletingPathExtension)
+                        .font(.body.weight(playing ? .semibold : .regular))
+                        .foregroundColor(playing ? MontanaOctagon.platformBlue : .primary).lineLimit(1)
+                    if let by = meta.byline(t.file) {
+                        // USER-DATA: the artist the file's own tags name
+                        Text(verbatim: by).font(.subheadline).foregroundColor(.secondary).lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 0)
+                if playing {
+                    Image(systemName: "waveform").foregroundColor(MontanaOctagon.platformBlue)
+                        .symbolEffect(.variableColor.iterative, isActive: !face.paused)
+                } else {
+                    // USER-DATA: the track's place in the queue, digits
+                    Text(verbatim: String(i + 1)).font(.footnote.monospacedDigit()).foregroundColor(.secondary)
+                }
+            }
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+extension MTQueuePage {
+    private final class Hold { weak var host: UIViewController? }
+    static func present(onPlace: @escaping () -> Void) {
+        let hold = Hold()
+        let h = MontanaHost.make(MTQueuePage(onPlace: onPlace).environment(\.montanaClose, { if let v = hold.host { MTTop.dismiss(v, kind: "queue") } }))
+        hold.host = h
+        h.view.backgroundColor = .clear
+        h.modalPresentationStyle = .pageSheet
+        if let s = h.sheetPresentationController { s.detents = [.medium(), .large()]; s.prefersGrabberVisible = true }
+        MontanaTrace.mark("music_queue", "page n=\(VoicePlayer.shared.queue.count) at=\(VoicePlayer.shared.queueIndex + 1)")
+        MTTop.present(h, kind: "queue")
     }
 }
 
@@ -1022,6 +1211,11 @@ struct MontanaPlayerBar: View {
                             onGoToMessage: { m in onGoTo(m.chat, m.file) }, leave: { MTPlayerUnfold.shared.set(false) },
                             coverRoom: MTScene.size().height / 3, onTitle: { MTPlayerUnfold.shared.set(false) })
             .padding(.horizontal, MTPlayerHead.edge).padding(.vertical, MTPlayerHead.gap)
+            // THE PAGE UNDER THE PLAYER TAKES NO FINGER (the author's word 16.10.2026 19:0x MSK: «check that a press on the big player
+            // does not press the page»): the head is plates and round buttons with air between them, and the air let a touch fall
+            // through the hosted tree to the row under it -- the row lit and opened. The head's whole frame, its room included, is
+            // the player's: a tap between the plates is the player's and does nothing, a drag there scrolls nothing under it.
+            .background(Color.clear.contentShape(Rectangle()).onTapGesture { MontanaTrace.markFolded("music", "player air tap -- kept off the page", window: 30) })
             .onChange(of: source) { _, s in MTTrackSource.listen(s) }
             .transition(.scale(scale: 0.9, anchor: .bottom).combined(with: .opacity))
     }

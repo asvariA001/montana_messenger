@@ -1796,7 +1796,7 @@ class ChatStore: ObservableObject {
     static func machineWord(_ text: String) -> Bool {
         text.hasPrefix(deliveryReceiptMark) || text.hasPrefix(avatarMark) || text.hasPrefix(nameMark) || text.hasPrefix(aboutMark)
             || text.hasPrefix(groundMark) || text.hasPrefix(cardMark) || text.hasPrefix(wakeHandleMark) || text.hasPrefix(cargoLostMark)
-            || text.hasPrefix(playedMark)
+            || text.hasPrefix(playedMark) || text.hasPrefix(deleteKeptMark)
             || text.hasPrefix(punchEndpointMark) || text.hasPrefix(exitDoorMark) || text.hasPrefix(callSignalMark)
             || text.hasPrefix(MTBoard.mark) || text.hasPrefix(MTVPNWall.mark) || text.hasPrefix(sameAskMark) || text.hasPrefix(sameYesMark) || text.hasPrefix(pipeClosedMark) || text.hasPrefix(MTGroup.mark) || text.hasPrefix(keepMark) || mtUnknownServiceWord(text)
     }
@@ -4500,9 +4500,30 @@ MontanaLocalVault.setEncrypted("scheduledMsgs", d)
         if m.text.hasPrefix(deleteMark) {
             if !m.isFromMe {
                 let sid = String(m.text.dropFirst(deleteMark.count))
-                deleteEverywhere(chat: chat, msgId: sid)
-                MontanaLog.event("DELETE ← \(sid.prefix(12)) removed by peer signal")
+                // THE PERSON KEEPS WHAT OTHERS DELETE (MTLevelAccess.keepDeleted; the author's word 16.10.2026 18:19 MSK: «a checkmark
+                // at level 7, so that I can forbid deletion on my phone»): the letter stays, and this phone says so itself -- the
+                // sender's phone never believes a deletion that did not happen here.
+                // The level is read before it is asked (the critic 16.10, K2): a first launch or a person just seated has not yet read
+                // their chain or their book, and the last level known is absent. A letter not on this phone is not kept -- the word
+                // «kept» is said only of what this phone holds (K1); it is buried as before.
+                MTPersonChain.shared.prime(); _ = MTLocalCoinLedger.shared.balance
+                MTLevelAccess.mirror()   // the notification extension takes the next deletion by the same choice
+                if MTLevelAccess.keepsDeleted, let row = messages[chat]?.first(where: { $0.msgId == sid }) {
+                    MontanaTrace.mark("delete_kept", mid: sid, "kept by the person's choice (level access) -- the sender is told")
+                    // A group's letter: the one who took it away alone is told -- the deletion's own speaker, an administrator too (the
+                    // critic 16.10, C9), the letter's speaker when the word names none -- by the group's own word (MTGroup.tellKept).
+                    if MTGroup.isKey(chat) { MTGroup.shared.tellKept(sid, speaker: m.senderRef ?? row.senderRef, in: chat) }
+                    else { MontanaDeliveryEngine.shared.enqueue(to: chat, chat: chat, mid: ChatStore.mintMid().mid, text: deleteKeptMark + sid, silent: true) }
+                } else {
+                    deleteEverywhere(chat: chat, msgId: sid)
+                    MontanaLog.event("DELETE ← \(sid.prefix(12)) removed by peer signal")
+                }
             }
+            return false
+        }
+        // MY DELETION WAS KEPT THERE (deleteKeptMark): the keeper's own word, told to the person as the keeper said it.
+        if m.text.hasPrefix(deleteKeptMark) {
+            if !m.isFromMe { MontanaNotify.presentKept(from: chat, chat: chat) }
             return false
         }
         // peer's reaction — apply to the right message, don't show it as a message
@@ -6592,6 +6613,7 @@ enum SeedScope {
     /// whether their build reads the ground's word (pgcap_) — 25.09.
     static let dataPrefixes = ["chatWall.", "chatWallBlur.", "phide_", "phideAt_", "pcap_", "abcap_", "linkSent.", "aboutSent.",
                                "pgHeld.", "pgcap_", "plcap_",
+                               "dqcap_",        // the correspondent's build takes a deletion quietly (E2E.deletionQuiet, 16.10)
                                "aboutCoins.",   // the balance last told this correspondent and when (MTCoinBoard, 03.10)
                                "moneyFlow.",    // a chat's own Money Flow (MTMoneyFlow, 04.10)
                                "ownWords.",     // the pair holds my words, by its own word (MTOwnWords, 06.10)
@@ -6621,7 +6643,8 @@ enum SeedScope {
         "AppLanguage", "screen.key", "screen.diary",   // the screen broadcast's call key and its diary box: this device's, for one call
         "mt.seats",   // the book of the persons seated on this phone (MTSeats): a copy carries the person seated, never the shelf (29.09)
         "nseShelf",   // the keys the extension opens the shelf's letters with (MTShelfPost, 07.10): this device's view of its shelf, never a copy
-        "mt.passwords"]   // the person's Passwords (MTPasswordVault, 06.10): this device's alone, no copy and no backup carries them
+        "mt.passwords",   // the person's Passwords (MTPasswordVault, 06.10): this device's alone, no copy and no backup carries them
+        "keepsDeleted"]   // the extension's mirror of «Forbid deletion on my phone» (MTLevelAccess.mirror, 16.10): written again by the app
     /// The records of the persons on this phone's shelf, one per seat (MTSeats): the seed and the keychain items of a parked person.
     static let keychainStayPrefixes = ["av_", "mt.seat."]
     /// THE PERSON'S SETTINGS belong to whoever holds this phone rather than to one identity: a change of seed
@@ -6634,6 +6657,7 @@ enum SeedScope {
         "notifEnabled", "notifSound", "notifPreview", "notifSender", "notifLockName",
         "autoDownloadCellular", "autoDownloadWiFi",
         MTCallRecordingPolicy.key,   // recording preference follows the phone's other Privacy settings; consent is separate
+        MTLevelAccess.keepKey,   // the person's «Forbid deletion on my phone», as their other settings (16.10.2026)
         "presenceSharing", "readReceiptsEnabled", "liveTypingEnabled", "syncContactsToPhone", "linkPreviewsEnabled",
         "objectionableFilterOn", "termsAcceptedVersion", "barredPeers",
         "bubbleStyle", "cbMineFill1", "cbMineFill2", "cbMineOpacity", "cbMineText", "cbMineOutline", "cbMineOutlineOp", "cbMineOutlineW",
@@ -6702,6 +6726,7 @@ enum SeedScope {
     /// was announced to whom, the name of the record a build before kept for this person in the Apple Account (withdrawn with
     /// the identity), the copies' clocks (a copy is named by its owner's proof, one per person).
     static let seatKeys = [MTCallRecordingPolicy.consentKey,   // this person's explicit recording consent on this phone, never a copy's
+        MTLevelAccess.lastKey,   // the last Global Level this phone knew of this person (16.10.2026): this person's, read anew by a copy
         "vpnwall.sent", "vpnwall.asked", "vpnwall.cap",
         "peerFaceOwned",   // the digests of the faces the correspondents themselves sent (ChatStore.faceOwned, 04.10): this person's
         "chatCoinSince",   // the moment this person's chat coin came on (MTChatMint): the person's, as the tally in Montana/Coins is (04.10)

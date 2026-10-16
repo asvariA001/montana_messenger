@@ -21,6 +21,25 @@ enum MTCallRecordingPolicy {
     static var consented: Bool { UserDefaults.standard.bool(forKey: consentKey) }
 }
 
+/// THE CALL AS THE PERSON SAW IT (the author's word 16.10.2026 18:27 MSK: «the video call must be recorded as I saw it -- now the
+/// recording's format is crooked»): the call screen tells the recorder what stands where -- the screen's shape, which picture fills
+/// it, where the corner picture stands, whether my picture is mirrored and whether the peer's is a shared screen shown whole -- and
+/// the recorder draws exactly that (MTCallTape.seen). Its writers are the screen's own owners (CallUIModel.applySides, MTCallMini).
+/// Only short memory operations under its lock.
+enum MTCallRecordingLayout {
+    struct Shape: Equatable {
+        var screen = CGSize(width: 9, height: 16)
+        var bigLocal = false
+        var mini: CGRect? = nil       // the corner picture in the screen's points, nil while none stands
+        var mirrorLocal = true
+        var remoteFits = false
+    }
+    private static let lock = NSLock()
+    private static var held = Shape()
+    static var now: Shape { lock.withLock { held } }
+    static func update(_ change: (inout Shape) -> Void) { lock.withLock { change(&held) } }
+}
+
 // Only short memory operations under this lock. No SDK, disk or queue operation runs under it.
 // A parked call has a file, but never owns the microphone of the next call.
 enum MTCallRecordingGate {
@@ -123,16 +142,16 @@ final class MTCallTape {
         let input: AVAssetWriterInput
         let adaptor: AVAssetWriterInputPixelBufferAdaptor?
         var end = CMTime.zero
-        init(url: URL, video: Bool) throws {
+        init(url: URL, video: Bool, size: CGSize) throws {
             writer = try AVAssetWriter(outputURL: url, fileType: .mov)
             writer.movieFragmentInterval = CMTime(seconds: 2, preferredTimescale: 600)
             if video {
                 input = AVAssetWriterInput(mediaType: .video, outputSettings: [AVVideoCodecKey: AVVideoCodecType.h264,
-                    AVVideoWidthKey: 640, AVVideoHeightKey: 360,
+                    AVVideoWidthKey: Int(size.width), AVVideoHeightKey: Int(size.height),
                     AVVideoCompressionPropertiesKey: [AVVideoAverageBitRateKey: 400_000, AVVideoMaxKeyFrameIntervalKey: 20]])
                 adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: [
                     kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-                    kCVPixelBufferWidthKey as String: 640, kCVPixelBufferHeightKey as String: 360,
+                    kCVPixelBufferWidthKey as String: Int(size.width), kCVPixelBufferHeightKey as String: Int(size.height),
                     kCVPixelBufferIOSurfacePropertiesKey as String: [:]])
             } else {
                 input = AVAssetWriterInput(mediaType: .audio, outputSettings: [AVFormatIDKey: kAudioFormatMPEG4AAC,
@@ -159,6 +178,7 @@ final class MTCallTape {
     private var parts: [String: Part] = [:]
     private var refusedParts = Set<String>()
     private var latest: [String: (frame: RTCVideoFrame, at: Double)] = [:]   // the newest frame of each picture, as it came
+    private var size = CGSize(width: 360, height: 640)   // the picture's shape, the screen's own, fixed when its file is born
     private var ending = false
     private var firstFailure = false
     private var receivedAudio = false
@@ -198,7 +218,7 @@ final class MTCallTape {
         guard MTCallTapeStore.save(item) else { throw CocoaError(.fileWriteUnknown) }
         timeline?.mark("record.codec.begin", "source=\(source)", operation: source)
         let p: Part
-        do { p = try Part(url: MTCallTapeStore.directory.appendingPathComponent(name), video: video) }
+        do { p = try Part(url: MTCallTapeStore.directory.appendingPathComponent(name), video: video, size: size) }
         catch {
             refusedParts.insert(source)
             timeline?.mark("record.codec.fail", "source=\(source)", operation: source)
@@ -266,33 +286,26 @@ final class MTCallTape {
             guard floor < 4 else { return }
             let step = floor == 0 ? CMTime(value: 1, timescale: 10) : CMTime(value: 1, timescale: 1)
             do {
+                let shape = MTCallRecordingLayout.now
+                if self.parts["video"] == nil { self.size = Self.canvas(shape.screen) }   // the file takes the screen's shape at its birth
                 let p = try self.part("video", video: true)
                 let point = CMTime(seconds: max(0, self.offset + at - self.origin), preferredTimescale: 600)
                 guard let adaptor = p.adaptor, let pool = adaptor.pixelBufferPool,
                       point - p.end >= step, p.input.isReadyForMoreMediaData else { return }
                 // A stopped camera leaves the picture. The file cannot reveal its last frame through the next call.
                 self.latest = self.latest.filter { at - $0.value.at < 1 }
-                let ordered = self.latest.sorted { $0.key < $1.key }
-                let columns = ordered.count < 2 ? 1 : Int(ceil(sqrt(Double(ordered.count))))
-                let rows = Int(ceil(Double(ordered.count) / Double(columns)))
-                let cellW = 640 / CGFloat(columns), cellH = 360 / CGFloat(max(1, rows))
-                var canvas = CIImage(color: .black).cropped(to: CGRect(x: 0, y: 0, width: 640, height: 360))
-                for (index, entry) in ordered.enumerated() {
+                var images: [String: CIImage] = [:]
+                // Only the pictures the screen showed are turned into pixels: a corner nobody saw costs nothing.
+                for source in Self.drawn(Set(self.latest.keys), shape: shape) {
+                    guard let entry = self.latest[source] else { continue }
                     // One native encoder for the whole call, including a room. A camera never opens another encoder.
-                    guard let original = self.pixels.buffer(entry.value.frame) else { self.fail(); return }
-                    let turn = entry.value.frame.rotation
+                    guard let original = self.pixels.buffer(entry.frame) else { self.fail(); return }
+                    let turn = entry.frame.rotation
                     let orientation: Int32 = turn == ._90 ? 6 : turn == ._180 ? 3 : turn == ._270 ? 8 : 1
-                    let image = CIImage(cvPixelBuffer: original).oriented(forExifOrientation: orientation)
-                    // The picture fits its source's 16:9 box and the box fits its cell -- as the thumbnail and the grid placed it.
-                    let box = min(cellW / 640, cellH / 360)
-                    let boxW = 640 * box, boxH = 360 * box
-                    let fit = min(boxW / image.extent.width, boxH / image.extent.height)
-                    let x = CGFloat(index % columns) * cellW + (cellW - boxW) / 2 + (boxW - image.extent.width * fit) / 2
-                    let y = CGFloat(index / columns) * cellH + (cellH - boxH) / 2 + (boxH - image.extent.height * fit) / 2
-                    let placed = image.transformed(by: CGAffineTransform(translationX: -image.extent.minX, y: -image.extent.minY)
-                        .concatenating(CGAffineTransform(scaleX: fit, y: fit)).concatenating(CGAffineTransform(translationX: x, y: y)))
-                    canvas = placed.composited(over: canvas)
+                    images[source] = CIImage(cvPixelBuffer: original).oriented(forExifOrientation: orientation)
                 }
+                let canvas = Self.seen(images, shape: shape, size: self.size)
+                    .composited(over: CIImage(color: .black).cropped(to: CGRect(origin: .zero, size: self.size)))
                 var output: CVPixelBuffer?
                 guard CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &output) == kCVReturnSuccess, let output else { self.fail(); return }
                 self.ci.render(canvas, to: output)
@@ -300,6 +313,70 @@ final class MTCallTape {
                 p.end = point
             } catch { self.fail() }
         }
+    }
+    /// The file's picture has the shape of the screen the person looked at: its long side 640 pixels, the short one by the screen's
+    /// proportion, both even for the encoder (a phone's 428x926 screen records at 296x640).
+    static func canvas(_ screen: CGSize) -> CGSize {
+        let w = max(1, screen.width), h = max(1, screen.height)
+        func even(_ v: CGFloat) -> CGFloat { max(2, (v / 2).rounded() * 2) }
+        return w <= h ? CGSize(width: even(640 * w / h), height: 640) : CGSize(width: 640, height: even(640 * h / w))
+    }
+    /// The pictures the screen showed: of a call's two, the big one and the corner one while it stood; a room's, all of them.
+    static func drawn(_ have: Set<String>, shape: MTCallRecordingLayout.Shape) -> [String] {
+        guard have.isSubset(of: ["video-local", "video-remote"]) else { return have.sorted() }
+        let big = shape.bigLocal ? "video-local" : "video-remote", mini = shape.bigLocal ? "video-remote" : "video-local"
+        guard have.contains(big) else { return have.contains(mini) ? [mini] : [] }
+        return shape.mini != nil && have.contains(mini) ? [big, mini] : [big]
+    }
+    /// THE CALL AS IT WAS SEEN (the author's word 16.10.2026 18:27 MSK): a call's two pictures are drawn as its screen stood -- the
+    /// big one filling the frame (a shared screen whole, on black), the corner one where and as large as it stood, rounded with its
+    /// rim, my own mirrored as the screen mirrors it; a room's pictures share the frame in a grid, each filling its cell as its tile.
+    static func seen(_ images: [String: CIImage], shape: MTCallRecordingLayout.Shape, size: CGSize) -> CIImage {
+        let frame = CGRect(origin: .zero, size: size)
+        guard Set(images.keys).isSubset(of: ["video-local", "video-remote"]) else {
+            let ordered = images.sorted { a, b in a.key < b.key }
+            let columns = ordered.count < 2 ? 1 : Int(ceil(sqrt(Double(ordered.count))))
+            let rows = Int(ceil(Double(ordered.count) / Double(columns)))
+            let cellW = size.width / CGFloat(columns), cellH = size.height / CGFloat(max(1, rows))
+            var out = CIImage.empty()
+            for (index, entry) in ordered.enumerated() {
+                let cell = CGRect(x: CGFloat(index % columns) * cellW, y: size.height - CGFloat(index / columns + 1) * cellH, width: cellW, height: cellH)
+                out = placed(entry.value, in: cell, fit: false, mirror: false).composited(over: out)
+            }
+            return out
+        }
+        let bigKey = shape.bigLocal ? "video-local" : "video-remote", miniKey = shape.bigLocal ? "video-remote" : "video-local"
+        let bigIsLocal = images[bigKey] != nil ? shape.bigLocal : !shape.bigLocal
+        guard let big = images[bigKey] ?? images[miniKey] else { return CIImage.empty() }
+        var out = placed(big, in: frame, fit: !bigIsLocal && shape.remoteFits, mirror: bigIsLocal && shape.mirrorLocal)
+        if images[bigKey] != nil, let small = images[miniKey], let r = shape.mini, 0 < shape.screen.width, 0 < shape.screen.height {
+            let sx = size.width / shape.screen.width, sy = size.height / shape.screen.height
+            // The screen counts from its top, the picture from its bottom.
+            let box = CGRect(x: r.minX * sx, y: size.height - r.maxY * sy, width: r.width * sx, height: r.height * sy)
+            let local = !shape.bigLocal
+            let picture = placed(small, in: box, fit: !local && shape.remoteFits, mirror: local && shape.mirrorLocal)
+            let radius = 12 * min(sx, sy)
+            let rim = rounded(box.insetBy(dx: -1, dy: -1), radius + 1, CIColor(red: 1, green: 1, blue: 1, alpha: 0.25))
+            let corner = picture.applyingFilter("CIBlendWithMask", parameters: [kCIInputBackgroundImageKey: rim,
+                                                                                 kCIInputMaskImageKey: rounded(box, radius, .white)])
+            out = corner.composited(over: out)
+        }
+        return out
+    }
+    /// A picture in its place: filling it and losing its edges, as a camera's picture stands on the screen, or whole inside it.
+    private static func placed(_ image: CIImage, in r: CGRect, fit: Bool, mirror: Bool) -> CIImage {
+        var img = image.transformed(by: CGAffineTransform(translationX: -image.extent.minX, y: -image.extent.minY))
+        let w = img.extent.width, h = img.extent.height
+        guard 0 < w, 0 < h else { return CIImage.empty() }
+        if mirror { img = img.transformed(by: CGAffineTransform(scaleX: -1, y: 1).concatenating(CGAffineTransform(translationX: w, y: 0))) }
+        let k = fit ? min(r.width / w, r.height / h) : max(r.width / w, r.height / h)
+        return img.transformed(by: CGAffineTransform(scaleX: k, y: k)
+            .concatenating(CGAffineTransform(translationX: r.midX - w * k / 2, y: r.midY - h * k / 2))).cropped(to: r)
+    }
+    private static func rounded(_ r: CGRect, _ radius: CGFloat, _ color: CIColor) -> CIImage {
+        let made = CIFilter(name: "CIRoundedRectangleGenerator",
+                            parameters: ["inputExtent": CIVector(cgRect: r), "inputRadius": radius, "inputColor": color])?.outputImage
+        return made ?? CIImage(color: color).cropped(to: r)
     }
     func finish(_ completion: @escaping (MTCallTapeManifest) -> Void) {
         queue.async {
@@ -338,6 +415,13 @@ final class MTCallRecordingVideo: NSObject, RTCVideoRenderer {
     @Published private(set) var recording = Set<UUID>()
     @Published private(set) var failures = Set<UUID>()
     @Published var askConsent = false
+    /// THE CALL SCREEN'S OWN MARK (MTCallRecordMark; the author's words 16.10.2026 18:2x MSK: «from level 7 the option of automatic
+    /// recording turns on -- below it the person presses it by hand on the call's page if they wish»): the calls the person started by
+    /// it, and those they ended by it -- an ended one is not recorded again by itself.
+    @Published private(set) var byHand = Set<UUID>()
+    @Published private(set) var stoppedByHand = Set<UUID>()
+    /// RECORDING BY ITSELF OPENS AT ITS LEVEL (MTLevelAccess.autoRecord): the person's switch, once the level opens it.
+    static var automatic: Bool { MTCallRecordingPolicy.enabled && MTLevelAccess.opens(.autoRecord) }
     private struct Active {
         var tape: MTCallTape
         var manifestID: String
@@ -359,12 +443,13 @@ final class MTCallRecordingVideo: NSObject, RTCVideoRenderer {
     }
 
     func begin(uuid: UUID, id: String, chat: String, since: Date, sendsToChat: Bool, timeline: MTCallTimeline? = nil) {
-        guard MTCallRecordingPolicy.enabled, active[uuid] == nil else { return }
+        guard Self.automatic || byHand.contains(uuid), !stoppedByHand.contains(uuid), active[uuid] == nil else { return }
         if closing[uuid] != nil {
             pending[uuid] = Pending(uuid: uuid, id: id, chat: chat, since: since, sendsToChat: sendsToChat, timeline: timeline); return
         }
         closed.removeValue(forKey: uuid)
-        guard MTCallRecordingPolicy.consented else {
+        // A press of the call's own mark is the person's consent for this call; recording by itself asks once.
+        guard MTCallRecordingPolicy.consented || byHand.contains(uuid) else {
             pending[uuid] = Pending(uuid: uuid, id: id, chat: chat, since: since, sendsToChat: sendsToChat, timeline: timeline)
             askConsent = true; return
         }
@@ -430,7 +515,20 @@ final class MTCallRecordingVideo: NSObject, RTCVideoRenderer {
             else { MontanaCall.shared.refreshRecording(); MTGroupRoom.shared.refreshRecording() }
         } else {
             pending = [:]; askConsent = false
-            for id in Array(active.keys) { finish(id, deliver: false) }
+            for id in Array(active.keys) where !byHand.contains(id) { finish(id, deliver: false) }   // a call started by hand stays the hand's
+        }
+    }
+    /// The call screen's mark pressed: a call not being recorded starts by the person's hand; one being recorded -- by itself or by
+    /// hand -- ends, and its recording is delivered as at the call's end.
+    func toggleByHand(_ uuid: UUID) {
+        if active[uuid] != nil || pending[uuid] != nil {
+            stoppedByHand.insert(uuid); byHand.remove(uuid)
+            MontanaTrace.mark("call_record_hand", "stop")
+            finish(uuid)
+        } else if !stoppedByHand.contains(uuid) {
+            byHand.insert(uuid)
+            MontanaTrace.mark("call_record_hand", "start level=" + String(MTLevelAccess.level ?? -1))
+            MontanaCall.shared.refreshRecording(); MTGroupRoom.shared.refreshRecording()
         }
     }
     func video(_ track: RTCVideoTrack?, uuid: UUID, source: String) {
@@ -462,7 +560,7 @@ final class MTCallRecordingVideo: NSObject, RTCVideoRenderer {
             if deliver { self.export(item) }
             else {
                 self.closed[uuid] = item
-                if MTCallRecordingPolicy.enabled, let p = self.pending.removeValue(forKey: uuid) {
+                if Self.automatic || self.byHand.contains(uuid), let p = self.pending.removeValue(forKey: uuid) {
                     self.begin(uuid: p.uuid, id: p.id, chat: p.chat, since: p.since, sendsToChat: p.sendsToChat, timeline: p.timeline)
                     MontanaCall.shared.refreshRecording(); MTGroupRoom.shared.refreshRecording()
                 }
@@ -691,7 +789,23 @@ struct MTCallRecordingConsent: ViewModifier {
             Button("Record calls") { recorder.consent(true) }
             Button("Do not record", role: .cancel) { recorder.consent(false) }
         } message: {
-            Text("Audio and video are saved on this phone. For a one-to-one call, only the caller sends the recording to the chat. Room participants send their own recordings. Participants are notified. You can turn this off in Privacy at any time.")
+            Text("Audio and video are saved on this phone. For a one-to-one call, only the caller sends the recording to the chat. Room participants send their own recordings. Participants are notified. You can turn this off in Settings, Access by level, at any time.")
+        }
+    }
+}
+
+/// THE CALL'S RECORD MARK (the author's words 16.10.2026 18:2x MSK: «below level 7 the person presses it by hand on the call's page if
+/// they wish»): the call screen's own mark beside the fold, on a call that stands connected -- the record glyph starts this call's
+/// recording, the stop glyph ends it; a call ended by it shows it no more.
+struct MTCallRecordMark: View {
+    let uuid: UUID?
+    @ObservedObject private var recorder = MTCallRecording.shared
+    var body: some View {
+        if let uuid, !recorder.stoppedByHand.contains(uuid) {
+            let on = recorder.recording.contains(uuid) || recorder.byHand.contains(uuid)
+            MontanaCallMark(glyph: on ? "stop.circle" : "record.circle", label: on ? "Stop recording" : "Record") {
+                recorder.toggleByHand(uuid)
+            }
         }
     }
 }

@@ -377,7 +377,10 @@ final class MTGroup {
         copies[name] = MTGroupCopy(group: w.g, letter: letter, to: pipe, own: own, of: 1, held: false, failed: false,
                                    text: text, at: Date().timeIntervalSince1970)
         saveCopies()
-        MontanaDeliveryEngine.shared.enqueue(to: pipe, chat: pipe, mid: name, text: text, silent: !ring && w.t != "say" && w.t != "inv",
+        // A DELETION WAKES THE EXTENSION OF A BUILD THAT PROVED IT TAKES IT QUIETLY (E2E.deletionQuiet, 16.10.2026): the deleted letter's
+        // notice leaves that screen at once; the copy waits for its receipt as every group word does.
+        let wakes = w.t == "sig" && (w.tx ?? "").hasPrefix(deleteMark) && E2E.deletionQuiet(pipe)
+        MontanaDeliveryEngine.shared.enqueue(to: pipe, chat: pipe, mid: name, text: text, silent: !ring && w.t != "say" && w.t != "inv" && !wakes,
                                              headless: true)   // a room's invitation rings where it is carried (07.10)
         MontanaTrace.mark("group_tx", mid: name, "t=\(w.t) to=\(String(pipe.prefix(10)))")
         return name
@@ -481,6 +484,43 @@ final class MTGroup {
         let me = Self.clean(E2E.myDisplayName(), Self.nameLimit)
         let w = MTGroupWord(t: "sig", g: g.id, n: me.isEmpty ? nil : me, id: ChatStore.mintMid().mid, s: g.me, tx: text)
         spread(w, in: g, except: nil, own: false)
+    }
+
+    /// A LETTER TAKEN AWAY FOR EVERYONE STAYS ON THIS PHONE (MTLevelAccess.keepDeleted, 16.10.2026 No.72): its speaker alone is told, by
+    /// the keeper's own word «kp» -- the owner carries it to that seat; in a channel the speaker is its owner. An older build refuses the
+    /// word and receipts it (take's default): its speaker is not told there.
+    @MainActor
+    func tellKept(_ sid: String, speaker ref: String?, in key: String) {
+        guard let g = state(key), g.left != true else { return }
+        let head = Self.speaker(g.id, "")
+        let seat = ref.flatMap { r in r.hasPrefix(head) ? String(r.dropFirst(head.count)) : nil } ?? Self.ownerSeat
+        guard seat != g.me else { return }
+        var w = MTGroupWord(t: "kp", g: g.id, id: ChatStore.mintMid().mid, s: g.me, tx: deleteKeptMark + sid)   // COMPAT-GATED: refused by older builds
+        w.ts = [seat]
+        if g.mine {
+            if let m = g.members.first(where: { m in m.seat == seat }) { _ = carry(w, to: m.pipe, letter: "", own: false) }
+        } else {
+            _ = carry(w, to: g.owner, letter: "", own: false)
+        }
+        MontanaTrace.mark("delete_kept", "group word to seat=\(seat)")
+    }
+    /// The keeper's word reached the group: the owner carries it on to the speaker's seat; the speaker is told.
+    @MainActor
+    private func keptHeard(_ w: MTGroupWord, from pipe: String) -> Verdict {
+        guard let g = groups[w.g], g.left != true, let to = w.ts?.first, (w.tx ?? "").hasPrefix(deleteKeptMark) else { return .refused }
+        let from = MTSamePair.root(pipe)
+        if g.mine {
+            guard g.members.contains(where: { m in MTSamePair.root(m.pipe) == from }) else { return .refused }   // a member's word alone
+            if to != g.me {
+                if let m = g.members.first(where: { m in m.seat == to }) { _ = carry(w, to: m.pipe, letter: "", own: false) }
+                return .held
+            }
+        } else {
+            guard MTSamePair.root(g.owner) == from, to == g.me else { return .refused }
+        }
+        let key = Self.key(of: g.id)
+        MontanaNotify.presentKept(from: key, chat: key)
+        return .held
     }
 
     /// A ROOM'S WORD INTO THE GROUP (MTGroupRoom, the author's word 07.10.2026 00:2x MSK: calls of up to 13 in a group): carried like
@@ -993,6 +1033,7 @@ final class MTGroup {
         case "ev": return evented(w, from: pipe, store: store)
         case "kk": return kicked(w, from: pipe, store: store)   // COMPAT-GATED: an administrator's «take out», to the owner
         case "jn": return joined(w, from: pipe, store: store)   // COMPAT-GATED: a person who opened the group's invite link
+        case "kp": return keptHeard(w, from: pipe)   // COMPAT-GATED: a keeper's word to a deleted letter's speaker (16.10)
         default:
             MontanaTrace.mark("group_refused", "kind=\(String(w.t.prefix(8)))")   // a newer build's word: its road ends here
             return .refused

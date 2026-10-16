@@ -881,6 +881,13 @@ final class MTBoard: ObservableObject {
         case "ccount": break
         case "cdel" where MTGroup.isKey(conv):   // COMPAT-GATED: rides a channel's carrier alone
             guard let id = w.id else { return }
+            // A CHANNEL'S POST TAKEN AWAY STAYS WHERE ITS SUBSCRIBER KEEPS WHAT OTHERS DELETE (MTLevelAccess.keepDeleted, 16.10.2026):
+            // the post stands on this page, and the channel's owner is told by the keeper's own word (MTGroup.tellKept).
+            if MTLevelAccess.keepsDeleted, pages[conv]?.posts.contains(where: { p in p.id == id }) == true {
+                MontanaTrace.mark("delete_kept", "channel post")
+                MainActor.assumeIsolated { MTGroup.shared.tellKept("post:" + id, speaker: nil, in: conv) }
+                return
+            }
             forgetKept(id)
             patchPage(conv) { pg in pg.posts.removeAll { $0.id == id } }
         case "cdel": break

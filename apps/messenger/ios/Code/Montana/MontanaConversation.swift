@@ -1216,6 +1216,8 @@ struct ChatConversationView: View {
     @State private var inputFocused: Bool = false   // input focus (MTInputField drives the real first responder)
     @State private var headerTop: CGFloat = 0   // the bar's lower edge in the window: the blurred strip above covers the bar and ends here
     @State private var topBarSize: CGSize = .zero   // the compose node at the top of the turned feed, as laid out: what the pinned plate stands under
+    @State private var pinBarSize: CGSize = .zero   // the plates floating over the feed's top edge, as laid out (16.10)
+    @State private var pinBarBottom: CGFloat = 0    // their lowest edge in the window: where the feed's visual top rests (16.10)
     @State private var typing = false
     @State private var lastTypingSent = Date.distantPast
     final class DraftCoalescer {                               // reference holder: live-typing bookkeeping
@@ -1243,6 +1245,8 @@ struct ChatConversationView: View {
     @State private var playerBarSize: CGSize = .zero   // the floating player's height — the feed's reserve
     /// The room the floating player takes at the feed's bottom — for the feed and for what hangs over it.
     private var playerReserve: CGFloat { playerGate.standing ? playerBarSize.height : 0 }
+    private var pinReserve: CGFloat { selectingMsgs ? 0 : pinBarSize.height }   // what the pinned plate and a room's row cover
+    private var pinEdge: CGFloat { selectingMsgs || pinBarSize.height < 0.5 ? 0 : pinBarBottom }   // the feed's top rests under it
 
     /// The last voice ended at the ear: a tone in the ear, and the reply records at the ear.
     func beginEarReply() {
@@ -1498,6 +1502,11 @@ struct ChatConversationView: View {
                 MTKeyboardRider(geometry: pageKeyboard, row: true, content: rowGroup)
                     .zIndex(1)
             }
+            // THE CHANNEL'S OWNER WRITES AT ITS FOOT (the author's words 16.10.2026 19:0x MSK, his picture of a thread's «Add another
+            // post»): the field is a sibling under the thread and rides the keys as a chat's bar does.
+            if channelWall, MTBoard.shared.canWrite(on: chat.name) {
+                MTKeyboardRider(geometry: pageKeyboard, content: MTChannelPostBar(channel: chat.name))
+            }
         }
         // THE BLURRED STRIPS (the author's word 21.09): from the buttons' top up to the screen's edge,
         // and from the field's bottom down to the screen's edge — the system's thin material over the
@@ -1518,7 +1527,9 @@ struct ChatConversationView: View {
             }
         }
         // THE PINNED PLATE FLOATS OVER THE FEED (the author's word 22.09): under the bar at the top, centred,
-        // over the letters and the media alike — the feed is not pushed by it; drawn over the wash.
+        // over the letters and the media alike, drawn over the wash. ITS LOWEST EDGE IS WHERE THE FEED'S TOP RESTS (the author's
+        // words 16.10.2026 18:29-18:30 MSK: «the pins in the money flow cover the letters crookedly and the gap is wrong»): the
+        // feed's end letter stands below it, the newest in the money flow and the oldest in a plain chat; the letters run on under it.
         // A GROUP'S LIVING ROOM STANDS OVER ITS CHAT (MTRoomBar, the author's word 07.10.2026): above the pinned plate, the whole row
         // the way in.
         .overlay(alignment: .top) {
@@ -1527,13 +1538,19 @@ struct ChatConversationView: View {
                     if chat.isGroup { MTRoomBar(chat: chat.name) }
                     if !pinnedList.isEmpty { pinnedBar(pinnedList) }
                 }
+                .mtMeasureSize($pinBarSize)
+                .background(GeometryReader { g -> Color in
+                    let edge = g.frame(in: .global).maxY
+                    if abs(pinBarBottom - edge) > 0.5 { DispatchQueue.main.async { pinBarBottom = edge } }
+                    return Color.clear
+                })
                 .padding(.top, newestFirst ? topBarSize.height : 0)   // under the field on top
             }
         }
         // THE MONEY FLOW SEEN (the author's words 03.10 16:46 and 16:49): its beginning in the middle of the chat, every minting
         // under the field, on the coin's side.
         .overlay { MTMoneyFlowBegins(tick: flowBegun) }
-        .overlay(alignment: .topTrailing) { if ribbon { MTMintPop().padding(.top, topBarSize.height + 8).padding(.trailing, 16) } }
+        .overlay(alignment: .topTrailing) { if ribbon { MTMintPop().padding(.top, topBarSize.height + pinReserve + 8).padding(.trailing, 16) } }
         .safeAreaInset(edge: .top) { if selectingMsgs { selectionTopBar } }
         .alert("Not enough coins", isPresented: $coinRefused) {
             Button("OK", role: .cancel) {}
@@ -2311,8 +2328,10 @@ struct ChatConversationView: View {
                             store.deleteEverywhere(chat: chat.name, msgId: sid)
                             let peer = convKey
                             // The notice is named at its birth, as every word of a conversation's time chain (the critic R-5).
+                            // It wakes the peer's extension where their build proved it takes it quietly (E2E.deletionQuiet, 16.10):
+                            // the deleted letter's notice leaves their screen at once, and no face of its own is shown.
                             MontanaDeliveryEngine.shared.enqueue(to: peer, chat: peer, mid: ChatStore.mintMid().mid,
-                                                                 text: deleteMark + sid, silent: true)
+                                                                 text: deleteMark + sid, silent: !E2E.deletionQuiet(peer))
                         }
                     }
                     close()
@@ -2818,11 +2837,13 @@ struct ChatConversationView: View {
     }
 
     /// A CHANNEL IS A WALL (the author's words 06.10.2026 14:2x-14:4x MSK: «in channels posts as on the Wall of Thoughts; everything the wall publishes is published in a channel»): its posts stand as the Wall of Thoughts
-    /// draws them -- the owner writes by the wall's own button (MTBoardRows), a subscriber reads; the field does not stand.
+    /// keeps them, in a thread's face (the author's words 16.10.2026 19:0x MSK: «the feed as now is right, only make it as the
+    /// thread of short posts», his three pictures) -- edge to edge, the owner writing at the page's foot (MTChannelPostBar), a subscriber reading.
     private var channelWall: Bool { chat.isGroup && MTGroup.shared.kind(chat.name) == .channel }
     @ViewBuilder private var feedOrWall: some View {
         if channelWall {
-            ScrollView { MTBoardPane(owner: chat.name) }
+            ScrollView { MTBoardPane(owner: chat.name, edge: 0, thread: true) }
+                .scrollDismissesKeyboard(.interactively)
         } else {
             messagesList
         }
@@ -2900,6 +2921,7 @@ struct ChatConversationView: View {
                     .environment(\.mtWindowSize, mtWin))
             },
             bottomReserve: playerReserve,
+            topEdge: pinEdge,
             newestOnTop: newestFirst,
             onAtBottom: { if !searching && visibleCount > 80 { visibleCount = 80 } },   // 11.5: the window narrows home
             onReplySwipe: { id in

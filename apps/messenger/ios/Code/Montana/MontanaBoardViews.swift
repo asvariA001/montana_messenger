@@ -146,6 +146,9 @@ struct MTBoardRows: View {
     let owner: String?          // the wall's owner by reference; nil — my own wall
     /// The wall's side margin: its own on a page of its own (My page), none inside a list that already gives one (24.09).
     var edge: CGFloat = MTPageEdge.side
+    /// A CHANNEL'S THREAD (the author's words 16.10.2026 19:0x MSK, MTBoardCell.thread): its posts edge to edge in the thread's face;
+    /// its owner writes at the page's foot (MTChannelPostBar), so no write button stands at its head.
+    var thread = false
     @Binding var sheet: MTBoardSheet?
     @Binding var page: MTBoardRoute?
     @ObservedObject private var board = MTBoard.shared
@@ -153,7 +156,7 @@ struct MTBoardRows: View {
     var body: some View {
         let posts = board.posts(on: owner)
         let going = board.sending(on: owner)
-        if board.canWrite(on: owner) {
+        if board.canWrite(on: owner), !thread {
             Button { MTBoardComposer.present(on: owner) } label: { MTBoardWriteFace() }   // one drawing of the button (26.09)
             .buttonStyle(.plain)
             .background(MTEdgeMark("wall"))   // where the wall stands on the screen, said to the diary (24.09)
@@ -180,9 +183,9 @@ struct MTBoardRows: View {
                                 onReport: { sheet = .reporting(p, on: owner) },
                                 onOpenWords: { sheet = .comments(p.id, owner) },
                                 onShow: { i in page = .media(MTBoardShow(pid: p.id, at: i, owner: owner, feed: nil)) },
-                                minting: p.id == posts.first?.id)
+                                minting: p.id == posts.first?.id, thread: thread)
                 }
-                .modifier(MTBoardRowRoom(edge: edge))
+                .modifier(MTBoardRowRoom(edge: thread ? 0 : edge, vertical: thread ? 0 : 6))
             }
         }
     }
@@ -219,7 +222,8 @@ struct MTBoardRows: View {
 /// spacing was — on a list and on a stack alike.
 private struct MTBoardRowRoom: ViewModifier {
     let edge: CGFloat
-    func body(content: Content) -> some View { content.padding(.horizontal, edge).padding(.vertical, 6) }
+    var vertical: CGFloat = 6   // a thread's posts touch: the hairline under each is the only room between them
+    func body(content: Content) -> some View { content.padding(.horizontal, edge).padding(.vertical, vertical) }
 }
 
 /// THE WALL ON A PAGE THAT SCROLLS BY ITSELF (My page, the author's word 24.09): the wall's rows in a lazy stack — a post is
@@ -228,13 +232,98 @@ private struct MTBoardRowRoom: ViewModifier {
 struct MTBoardPane: View {
     let owner: String?          // the wall's owner by reference; nil — my own wall
     var edge: CGFloat = MTPageEdge.side
+    var thread = false          // a channel's thread (MTBoardRows.thread)
     @State private var sheet: MTBoardSheet? = nil
     @State private var page: MTBoardRoute? = nil
     var body: some View {
-        LazyVStack(spacing: 0) { MTBoardRows(owner: owner, edge: edge, sheet: $sheet, page: $page) }
+        LazyVStack(spacing: 0) { MTBoardRows(owner: owner, edge: edge, thread: thread, sheet: $sheet, page: $page) }
             .padding(.top, 2)
             .modifier(MTBoardPresenting(sheet: $sheet, page: $page))
             .onAppear { MTBoard.shared.look(owner) }   // THE LOOK ASKS (25.09): a page of another's wall asks for it as it opens
+    }
+}
+
+/// THE CHANNEL'S OWNER PUBLISHES FROM THE CHANNEL ITSELF (the author's words 16.10.2026 19:0x MSK: «focus on publishing straight from
+/// it», his picture of a thread's foot «Add another post» with its Publish): my face and the field at the page's foot, riding the
+/// keys as a chat's bar does (MTKeyboardRider). The words typed here are a post at the press of Publish -- the wall's one birth and
+/// one road (MTBoard.begin, then publish), the very calls the new post's page makes; words the store refuses stay in the field. A
+/// picture, a file, a frame: the photo and the expand marks carry the words into the new post's page (the wall's draft) whole.
+struct MTChannelPostBar: View {
+    let channel: String
+    @State private var text = ""
+    @State private var posting = false
+    @FocusState private var focused: Bool
+    private var blank: Bool { text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    var body: some View {
+        VStack(spacing: 6) {
+            HStack(alignment: .bottom, spacing: 10) {
+                MTSelfFace(size: 36).frame(height: 44)
+                HStack(alignment: .bottom, spacing: 0) {
+                    TextField("Add another post", text: $text, axis: .vertical)
+                        .lineLimit(1...6)
+                        .focused($focused)
+                        .padding(.leading, 14).padding(.vertical, 11)
+                    Button { toPage() } label: {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(.secondary).frame(width: 44, height: 44).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Text("Expand"))
+                }
+                .background(Color(uiColor: .secondarySystemFill), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            }
+            if focused || !blank {
+                HStack(spacing: 0) {
+                    Button { toPage() } label: {
+                        Image(systemName: "photo").font(.system(size: 20)).foregroundColor(Color(uiColor: .systemBlue))
+                            .frame(width: 44, height: 44).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Text("Photo"))
+                    Spacer(minLength: 0)
+                    Button { publish() } label: {
+                        Text("Publish").font(.subheadline.weight(.bold)).foregroundColor(.white)
+                            .padding(.horizontal, 18).frame(minHeight: 36)
+                            .background(Color(uiColor: .systemBlue), in: Capsule())
+                            .opacity(blank || posting ? 0.45 : 1)
+                            .frame(minHeight: 44).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(blank || posting)
+                }
+            }
+        }
+        .padding(.horizontal, 16).padding(.vertical, 6)
+        .background(.bar)
+        .overlay(alignment: .top) { Divider() }
+        .animation(.easeOut(duration: 0.15), value: focused)
+    }
+    private func publish() {
+        guard !blank, !posting else { return }
+        let words = text
+        posting = true
+        MontanaTrace.mark("channel_post", "bar chars=\(words.count)")
+        Task {
+            guard let pid = await MTBoard.shared.begin(on: channel, text: words, attachments: []) else {
+                await MainActor.run { posting = false }
+                MontanaTrace.mark("channel_post", "refused by the store -- the words stay in the field")
+                return
+            }
+            await MainActor.run { text = ""; posting = false; focused = false }
+            let ok = await MTBoard.shared.publish(pid)
+            MontanaTrace.mark("channel_post", "published=\(ok ? 1 : 0)")
+        }
+    }
+    /// The words go into the wall's draft and the new post's page rises over it, whole: more pictures, files, frames, the card.
+    private func toPage() {
+        if !blank {
+            var d = MTBoard.shared.draft(on: channel) ?? MTBoardDraft(text: "", files: [], at: MontanaWakePush.nodeNow())
+            d.text = d.text.isEmpty ? text : d.text + "\n" + text
+            MTBoard.shared.lay(draft: d, on: channel)
+            text = ""
+        }
+        focused = false
+        MTBoardComposer.present(on: channel)
     }
 }
 
@@ -274,12 +363,18 @@ struct MTBoardCell: View {
     var minting = false
     /// The post on its own page, over its comments (02.10): its words whole, no tap to open what is open.
     var whole = false
+    /// A CHANNEL'S POST IN THE THREAD'S FACE (the author's words 16.10.2026 19:0x MSK: «channels -- the feed as now is right, only make
+    /// it as the thread of short posts»; «exactly the same style as on the screenshot, one to one», his three pictures of a thread).
+    var thread = false
     @ObservedObject private var board = MTBoard.shared
     @ObservedObject private var fold = MTFilterFold.shared   // the filter's fold, opened for the post by the person's tap
     @ObservedObject private var coinBook = MTLocalCoinLedger.shared   // the coins on the post (03.10)
     @State private var coinRefused = false
 
     var body: some View {
+        if thread { threadBody } else { plateBody }
+    }
+    private var plateBody: some View {
         VStack(alignment: .leading, spacing: 10) {
             header
             if let from = post.from, !from.isEmpty {
@@ -372,14 +467,17 @@ struct MTBoardCell: View {
         .buttonStyle(.plain)
     }
 
+    /// Whether the writer's face and name open their page here: not the page the post already stands on.
+    private func opens(_ w: MTBoardWriter) -> Bool {
+        switch w {
+        case .me: return owner != nil || !onItsWall   // in the feed my own post opens my page
+        case .peer(let c): return c != owner || !onItsWall
+        case .unknown: return false
+        }
+    }
     private var header: some View {
         let w = board.writer(of: post, on: owner)
-        let opens: Bool
-        switch w {
-        case .me: opens = owner != nil || !onItsWall   // in the feed my own post opens my page
-        case .peer(let c): opens = c != owner || !onItsWall
-        case .unknown: opens = false
-        }
+        let opens = opens(w)
         return HStack(spacing: 10) {
             MTBoardByline(writer: w, name: post.byName, glyph: post.byGlyph, face: post.face, at: post.at,
                           minting: minting, share: minting ? MTBoard.window(of: post)?.share : nil,
@@ -517,6 +615,174 @@ struct MTBoardCell: View {
     }
     private func give(_ c: Int) {
         if !board.coin(post, on: owner, c) { coinRefused = true }
+    }
+    // -- a channel's post: the thread's face --------------------------------------------------------
+    /// THE THREAD'S FACE (his pictures, 16.10.2026): no plate -- the face in its own column at the left, the name and the moment on
+    /// one line with the menu at its end, the words, the files, the row of marks, a hairline across the whole width under the post.
+    /// On its own page the post stands whole: the face beside the name, the words, the files, the moment and the views on their own
+    /// line, the marks between two hairlines. Every mark is the plate's own (the same store calls), only the face differs.
+    private var threadBody: some View {
+        let w = board.writer(of: post, on: owner)
+        return VStack(alignment: .leading, spacing: 0) {
+            Group {
+                if whole { threadWhole(w) } else { threadRow(w) }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            Divider()
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { if draft == nil && !sending && !whole { onComments() } }
+        .onAppear { if draft == nil, !sending { board.view(post, on: owner) } }
+    }
+    private func threadRow(_ w: MTBoardWriter) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if post.pinned { pinnedLine.padding(.leading, 54) }
+            HStack(alignment: .top, spacing: 10) {
+                threadFace(w, size: 40)
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 4) {
+                        // USER-DATA: the writer's name
+                        Text(verbatim: post.byName).font(.subheadline.weight(.bold)).foregroundColor(.primary).lineLimit(1)
+                        if minting { MTMintCoin() }
+                        // USER-DATA: how long ago the post was written, in the platform's short units
+                        Text(verbatim: "\u{00B7} " + Self.ago(post.at)).font(.subheadline).foregroundColor(.secondary).lineLimit(1)
+                        Spacer(minLength: 4)
+                        threadMenu
+                    }
+                    threadContent
+                    threadMarks(views: true)
+                }
+            }
+        }
+    }
+    private func threadWhole(_ w: MTBoardWriter) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if post.pinned { pinnedLine }
+            HStack(spacing: 10) {
+                threadFace(w, size: 44)
+                // USER-DATA: the writer's name
+                Text(verbatim: post.byName).font(.headline).foregroundColor(.primary).lineLimit(1)
+                if minting { MTMintCoin() }
+                Spacer(minLength: 4)
+                threadMenu
+            }
+            threadContent
+            HStack(spacing: 4) {
+                Text(Date(timeIntervalSince1970: post.at), format: .dateTime.hour().minute())
+                // USER-DATA: the middle dot between the moment's parts, a sign of no language
+                Text(verbatim: "\u{00B7}")
+                Text(Date(timeIntervalSince1970: post.at), format: .dateTime.day(.twoDigits).month(.twoDigits).year())
+                if let seen = post.views {
+                    // USER-DATA: the middle dot between the moment's parts, a sign of no language
+                    Text(verbatim: "\u{00B7}")
+                    // USER-DATA: a count, digits only
+                    Text("Views: \(Text(verbatim: seen.formatted(.number.notation(.compactName))).bold().foregroundColor(.primary))")
+                }
+            }
+            .font(.subheadline).foregroundColor(.secondary).lineLimit(1).minimumScaleFactor(0.8)
+            Divider()
+            threadMarks(views: false)
+        }
+    }
+    @ViewBuilder private func threadFace(_ w: MTBoardWriter, size: CGFloat) -> some View {
+        let face = MTBoardFace(writer: w, name: post.byName, glyph: post.byGlyph, face: post.face, size: size)
+            .frame(minWidth: 44, minHeight: 44, alignment: .top)
+        if draft == nil, opens(w) {
+            Button { onWriter(w) } label: { face.contentShape(Rectangle()) }.buttonStyle(.plain)
+        } else {
+            face
+        }
+    }
+    private var pinnedLine: some View {
+        Label("Pinned", systemImage: "pin.fill").font(.footnote.weight(.semibold)).foregroundColor(.secondary)
+    }
+    @ViewBuilder private var threadMenu: some View {
+        if !sending {
+            if draft == nil { Menu { menuItems } label: { threadDots } } else { threadDots.accessibilityHidden(true) }
+        }
+    }
+    /// The menu's 44 points around a glyph the size of the line: the line keeps its own height, the finger the platform's least.
+    private var threadDots: some View {
+        Image(systemName: "ellipsis").font(.system(size: 15, weight: .semibold)).foregroundColor(.secondary)
+            .frame(width: 44, height: 44).contentShape(Rectangle()).padding(.vertical, -12)
+    }
+    @ViewBuilder private var threadContent: some View {
+        if let from = post.from, !from.isEmpty { reposted(from) }
+        if folded {
+            unfold
+        } else if !post.text.isEmpty {
+            // USER-DATA: the words of the post, as its writer wrote them
+            MTPostText(text: post.text, onOpen: whole ? nil : onOpenWords, whole: whole)
+        }
+        if !folded, let raw = post.lp, let linked = MTLinkPreview.parse(raw) {
+            MTWallLink(card: linked)
+        }
+        if !folded, !post.media.isEmpty {
+            MTBoardMediaView(post: post, owner: owner, sources: draft?.sources ?? sources, onTile: draft?.onTile, inFeed: !onItsWall,
+                             onShow: sending ? nil : onShow)
+        }
+    }
+    /// THE THREAD'S MARKS: comments, repost, like, the views (a count, no control), save, share -- spaced as his picture spaces them,
+    /// the share at the line's end; a count stands only past nought.
+    private func threadMarks(views: Bool) -> some View {
+        HStack(spacing: 0) {
+            threadMark("bubble.left", board.thread(of: post, on: owner)?.post.commentCount ?? 0, label: "Comments") { onComments() }
+            threadMark("arrow.2.squarepath", post.reposts, tint: post.reposted ? Color(uiColor: .systemGreen) : .secondary, label: "Repost") {
+                if let owner, !post.reposted, !post.mine { Task { await board.repost(post, from: owner) } }
+            }
+            threadMark(post.liked ? "heart.fill" : "heart", post.likes, tint: post.liked ? Color(uiColor: .systemPink) : .secondary, label: "Like") {
+                board.like(post, on: owner)
+            }
+            if views {
+                HStack(spacing: 4) {
+                    Image(systemName: "chart.bar.xaxis")
+                    // USER-DATA: a count, digits only
+                    if let seen = post.views, 0 < seen { Text(verbatim: seen.formatted(.number.notation(.compactName))).lineLimit(1) }
+                }
+                .font(.system(size: 15)).foregroundColor(.secondary)
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text("Views"))
+            }
+            threadMark(post.kept ? "bookmark.fill" : "bookmark", 0, tint: post.kept ? Color(uiColor: .systemBlue) : .secondary, label: "Save") {
+                if post.kept { board.unkeep(post, on: owner) } else { Task { await board.keep(post, on: owner) } }
+            }
+            Button { MTPostLinkItem.present(post, on: owner) } label: {
+                Image(systemName: "square.and.arrow.up").font(.system(size: 15)).foregroundColor(.secondary)
+                    .frame(width: 44, height: 44, alignment: .trailing).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text("Share"))
+        }
+        .allowsHitTesting(draft == nil && !sending)
+    }
+    private func threadMark(_ glyph: String, _ n: Int, tint: Color = .secondary, label: LocalizedStringKey, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: glyph)
+                // USER-DATA: a count, digits only
+                if 0 < n { Text(verbatim: n.formatted(.number.notation(.compactName))).lineLimit(1) }
+            }
+            .font(.system(size: 15)).foregroundColor(tint)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(label))
+    }
+    /// THE MOMENT IN THE THREAD'S SHORT WORDS (his picture: «14 min.»): under an hour the minutes, under a day the hours, in the
+    /// platform's abbreviated units and the app's one language (MTLanguage); after a day, the day and the month. The node's clock.
+    static func ago(_ at: Double) -> String {
+        let d = max(60, MontanaWakePush.nodeNow() - at)
+        guard d < 86_400 else {
+            return Date(timeIntervalSince1970: at).formatted(.dateTime.day().month(.abbreviated).locale(MTLanguage.locale))
+        }
+        let f = DateComponentsFormatter()
+        var cal = Calendar.current; cal.locale = MTLanguage.locale; f.calendar = cal
+        f.allowedUnits = d < 3600 ? [.minute] : [.hour]
+        f.unitsStyle = .abbreviated
+        return f.string(from: d) ?? ""
     }
     private func mark(_ glyph: String, _ n: Int, tint: Color = .secondary, label: LocalizedStringKey, action: @escaping () -> Void) -> some View {
         Button(action: action) {
@@ -2044,6 +2310,8 @@ extension MTBoardComposer {
         h.modalPresentationStyle = .pageSheet
         MontanaTrace.mark("post_page", "open wall=\(wall == nil ? "mine" : "theirs") draft=\(MTBoard.shared.draft(on: wall) == nil ? 0 : 1)")
         MTTop.present(h, kind: "composer")   // the one door of every modal (25.09)
+        // The share sheet's notice for this page has done its work the moment the page stands (ShareWallHandoff.bell).
+        UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [MontanaHandoff.wallNotice])
     }
     /// THE SHARE MENU'S POST OPENS THE PAGE THE WALL'S WRITE BUTTON OPENS (the author's word 02.10 19:17): the store's draft
     /// has just taken the shared words and files (MTBoard.takeFromSheet); a page already up holds its own copy of the draft
@@ -2267,8 +2535,10 @@ struct MTBoardComments: View {
                 ScrollViewReader { proxy in
                 List {
                     if let t {
-                        MTBoardCell(post: t.post, owner: t.wall, onComments: {}, onWriter: onWriter, onItsWall: false, whole: true)
+                        MTBoardCell(post: t.post, owner: t.wall, onComments: {}, onWriter: onWriter, onItsWall: false, whole: true,
+                                    thread: t.wall.map { MTGroup.isKey($0) } ?? false)   // a channel's post stands whole in the thread's face (16.10.2026)
                             .listRowSeparator(.hidden)
+                            .listRowInsets((t.wall.map { MTGroup.isKey($0) } ?? false) ? EdgeInsets() : nil)
                     }
                     if let t, !t.post.comments.isEmpty {
                         // THE CHAIN, NEWEST FIRST (the author's word 02.10), each under its number in the chain.

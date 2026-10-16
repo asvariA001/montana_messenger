@@ -350,6 +350,36 @@ enum MontanaNotify {
         }
     }
 
+    /// MY DELETION WAS KEPT THERE (16.10.2026 No.72, MTLevelAccess.keepDeleted): the keeper's own word -- the correspondent's name
+    /// over the fact that the letter I deleted for everyone stays on their phone; one banner a conversation, a newer word in its place.
+    /// An album deleted for everyone is several letters, each kept by its own word: one banner a conversation in half a minute
+    /// (the critic 16.10, K3), not a sound for every letter.
+    @MainActor private static var keptToldAt: [String: Date] = [:]
+    @MainActor static func presentKept(from: String, chat: String) {
+        let ud = UserDefaults.standard
+        guard ud.object(forKey: "notifEnabled") as? Bool ?? true else {
+            MontanaTrace.mark("notify_skip", mid: nil, "why=disabled kind=kept")
+            return
+        }
+        if let at = keptToldAt[chat], Date().timeIntervalSince(at) < 30 {
+            MontanaTrace.mark("notify_skip", mid: nil, "why=kept-already-told")
+            return
+        }
+        keptToldAt[chat] = Date()
+        let content = UNMutableNotificationContent()
+        // THE WORD SAYS WHAT A LEVEL IS (the author's word 16.10.2026 18:29 MSK: «the system notification must briefly explain the
+        // essence of Montana's levels»): the fact, then the rule that made it.
+        let body = String(format: String(localized: "Their phone keeps the message you deleted for everyone. In Montana levels open functions: from level %lld a person can forbid deletion on their phone.", bundle: MTLanguage.bundle), MTLevelAccess.Feature.keepDeleted.level)
+        decorate(content, from: from, chat: chat, body: body, countUnread: false)
+        content.userInfo["kept"] = 1   // the foreground judge shows it in the open chat too: it is no letter the chat draws (K5)
+        let final = withCommunication(content, from: from) ?? content
+        MontanaTrace.mark("notify", mid: nil, "kind=kept from=\(String(from.prefix(10)))")
+        UNUserNotificationCenter.current().add(
+            UNNotificationRequest(identifier: "kept-" + MTNoticeAlias.of(chat), content: final, trigger: nil)) { err in
+            if let err { MontanaTrace.mark("notify_failed", mid: nil, "err=\(err.localizedDescription)") }
+        }
+    }
+
     /// A GROUP'S LETTER LANDED WHILE THE APP RUNS (MTGroup, 05.10): the group's title over its speaker's words, the face the
     /// extension gives the same letter while the app sleeps. The one notebook of shown letters answers by the copy's own name --
     /// the name the extension wrote when it showed this copy -- so one copy rings once, by whichever process.
@@ -381,7 +411,9 @@ enum MontanaNotify {
         }
         MontanaTrace.mark("notify", mid: key.isEmpty ? nil : key, "kind=group body_len=\(content.body.count) preview=\(preview ? 1 : 0)")
         UNUserNotificationCenter.current().add(
-            UNNotificationRequest(identifier: key.isEmpty ? UUID().uuidString : "group-" + key, content: content, trigger: nil)) { err in
+            // ONE LETTER, ONE PLACE ON THE SCREEN (16.10.2026, No.73, as present() above): the copy's bare name is the name its push
+            // wears (apns-collapse-id), so the extension's quiet repeat replaces this banner instead of standing beside it.
+            UNNotificationRequest(identifier: key.isEmpty ? UUID().uuidString : key, content: content, trigger: nil)) { err in
             if let err { MontanaTrace.mark("notify_failed", mid: nil, "err=\(err.localizedDescription)") }
         }
     }
@@ -468,7 +500,11 @@ enum MontanaNotify {
         }
         let comm = showSender ? withCommunication(content, from: from) : nil
         let final = comm ?? content
-        let id = mid.isEmpty ? UUID().uuidString : mid
+        // ONE LETTER, ONE PLACE ON THE SCREEN (16.10.2026, No.73, T1's diary over Wi-Fi: «empty notifications come as if doubled»):
+        // the node names a letter's push by the letter's bare name (apns-collapse-id), and the app named its own banner by the row's
+        // «mid:» form for a picture -- two names, two plates of one photo, the extension's quiet repeat beside the app's. The banner
+        // wears the letter's own name, the one the push wears, so whichever process speaks second replaces the first.
+        let id = key.isEmpty ? UUID().uuidString : key
         let src = showSender ? titleSource(for: from) : "hidden"
         // A drawn initial is always there; what the diary asks is whether the person's photo stood.
         let photo = showSender && facePhoto(for: from) != nil
