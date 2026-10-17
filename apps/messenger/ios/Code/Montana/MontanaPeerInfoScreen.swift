@@ -402,7 +402,12 @@ struct MontanaPeerInfoScreen: View {
     /// A CHANNEL'S ROWS, AS THE REFERENCE'S CHANNEL PAGE HAS THEM: its owner's «Subscribers» with their number and «Channel Settings»,
     /// the invite link in the settings, as the reference keeps it; a subscriber sees no people of the channel.
     private func channelRows() -> [MTInfoRow] {
-        guard MTGroup.shared.manages(chat.name) else { return [] }
+        guard MTGroup.shared.manages(chat.name) else {
+            // AN ADMINISTRATOR WHO MAY CHANGE THE CHANNEL'S INFO OR HAND ITS LINK opens the settings that carry them (MTChannelRight)
+            guard MTGroup.shared.mayChangeInfo(chat.name) || MTGroup.shared.state(chat.name)?.link != nil else { return [] }
+            return [MTInfoRow(id: "channel.settings", kind: .disclosure(title: "Channel Settings", detail: "", icon: "gearshape.fill", tint: .gray,
+                                                                        action: { state.editing = true }))]
+        }
         let n = MTGroup.shared.people(chat.name) ?? 1
         let admins = 1 + (MTGroup.shared.state(chat.name)?.admins?.count ?? 0)   // the reference counts its owner among them
         return [
@@ -670,6 +675,13 @@ struct MontanaPeerInfoScreen: View {
                 }
                 .listRowBackground(MTGlassRowPlate())
             }
+            if isChannelPage, !MTGroup.shared.manages(chat.name), MTGroup.shared.state(chat.name)?.link != nil {
+                // AN ADMINISTRATOR WITH «ADD SUBSCRIBERS» HANDS THE OWNER'S LINK (MTChannelRight.invite)
+                Section {
+                    NavigationLink { MTChannelInviteLinksPage(chat: chat.name) } label: { Label("Invite Links", systemImage: "link") }
+                }
+                .listRowBackground(MTGlassRowPlate())
+            }
             if isChannelPage, MTGroup.shared.manages(chat.name) {
                 // THE CHANNEL'S LINK AND ITS END, where the reference's channel settings keep them (the channels checklist, 6.2 and 6.9)
                 Section {
@@ -863,7 +875,10 @@ struct MontanaPeerInfoScreen: View {
             .onAppear { if data.kind == .person { MTBoard.shared.look(data.conv) } }
             .onChange(of: state.tab) { _, t in if t == .transactions { coinHistory.warm() } }   // the coins' fold, once, at the tab's opening
 
-        let items = data.pane(state.tab)
+        // A GROUP'S «MEDIA» HOLDS ITS PHOTOS AND ITS VIDEOS TOGETHER, as the reference's pane does (the checklist's V.7)
+        let items = isGroupPage && state.tab == .media
+            ? data.messages.filter { m in m.imageFile != nil || (m.videoFile != nil && !(m.videoFile ?? "").hasPrefix("vnote_")) }
+            : data.pane(state.tab)
         // THE WALL (the author's word 24.09): a person's page shows their wall; Saved Messages is my own page, so its
         // wall is mine; a group has none.
         if state.tab == .wall, ChatStore.isLocalRoom(chat.name) || data.kind == .person {
@@ -888,7 +903,8 @@ struct MontanaPeerInfoScreen: View {
                 dayHeader(sec.id)
                 switch state.tab {
                 case .wall, .transactions: EmptyView()
-                case .media: grid(sec.items, data) { $0.imageFile }
+                case .media:
+                    if isGroupPage { mediaGrid(sec.items, data) } else { grid(sec.items, data) { $0.imageFile } }
                 case .video: videoGrid(sec.items, data)
                 case .files: fileList(sec.items)
                 case .links: linkList(sec.items)
@@ -975,7 +991,10 @@ struct MontanaPeerInfoScreen: View {
     }
     /// The panes a page offers: a group's are the reference's -- its media, files, links, music and voices; the wall and the
     /// transactions are a person's (the checklist's Zh.1). Every other page keeps them all.
-    private var paneTabs: [MTMediaTab] { isGroupPage || isChannelPage ? [.media, .video, .files, .links, .music, .voice] : MTMediaTab.allCases }
+    private var paneTabs: [MTMediaTab] {
+        // a group's videos stand in its «Media», as the reference's panes have them (V.7)
+        isGroupPage ? [.media, .files, .links, .music, .voice] : (isChannelPage ? [.media, .video, .files, .links, .music, .voice] : MTMediaTab.allCases)
+    }
     /// One step along the strip, stopping at its ends — the strip itself follows the tab.
     private func turnPane(_ step: Int) {
         let all = paneTabs
@@ -1010,6 +1029,31 @@ struct MontanaPeerInfoScreen: View {
                     MTCover(file: file(m) ?? "", ready: docImageCached(file(m) ?? ""), isVideo: false, side: 180)   // born off the main thread (18.09), at the cell's pixels (25.09)
                         .frame(maxWidth: .infinity).frame(height: 120).clipped()
                 }
+            }
+        }
+    }
+
+    /// Photos and videos in one grid, three to a row, as the reference's «Media» lays them (V.7): a video wears its poster and the
+    /// play glyph, and opens in the system's player; a photo opens among the chat's pictures.
+    @ViewBuilder private func mediaGrid(_ items: [Message], _ data: MTPeerInfoData) -> some View {
+        ForEach(threes(items)) { row in
+            tileRow(row) { m in mediaTile(m, data) }
+        }
+    }
+    @ViewBuilder private func mediaTile(_ m: Message, _ data: MTPeerInfoData) -> some View {
+        if let v = m.videoFile {
+            item(m, open: { openVideo(v, data) }) {
+                ZStack {
+                    VideoGridThumb(file: v).frame(height: 120).clipped()
+                    Image(systemName: "play.circle.fill")
+                        .font(.system(size: 28)).foregroundColor(.white.opacity(0.9))
+                }
+                .frame(maxWidth: .infinity).frame(height: 120).clipped()
+            }
+        } else {
+            item(m, open: { openPicture(m.imageFile ?? "") }) {
+                MTCover(file: m.imageFile ?? "", ready: docImageCached(m.imageFile ?? ""), isVideo: false, side: 180)
+                    .frame(maxWidth: .infinity).frame(height: 120).clipped()
             }
         }
     }

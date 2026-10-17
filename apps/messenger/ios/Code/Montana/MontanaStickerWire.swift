@@ -25,16 +25,27 @@ enum MontanaStickerWire {
 
     /// The passport of a sticker letter, sent right behind it and named by the SAME letter the
     /// picture rides under (store.letterMidFor) -- the two meet on the other side by that name.
+    /// A GROUP'S STICKER CARRIES ITS PASSPORT TOO (the author's word 17.10.2026 22:3x MSK: «everything as in chats, one to one»): a
+    /// group's key is no pipe, so the passport rides the group's own word (MTGroup.carryPassport) to everyone the phone carries to,
+    /// and it names no address -- in a group a person is known by seat alone; the set is asked of the pipe the passport came by.
+    @MainActor
     static func sendPassport(letter: String, file: String, pack: String, title: String, to peer: String, chat: String,
                              quote: String = "", quoteMid: String = "") {
         guard !peer.isEmpty, !letter.isEmpty else { return }
         let book = MontanaStickerBook.shared
+        let group = MTGroup.isKey(chat)
         var body: [String: Any] = ["t": "id", "m": letter, "p": pack, "s": book.stickerId(of: file),
-                                   "n": title, "o": MontanaPhoneNode.myRef(),
+                                   "n": title,
                                    "c": pack == book.mineId ? book.names.count : (book.pack(pack)?.expected ?? 0)]
+        if !group { body["o"] = MontanaPhoneNode.myRef() }
         // THE QUOTE OF A STICKER RIDES HERE (22.09): the picture road carries no reply, so the
         // letter it answers is named in its passport and the receiver's row grows the plate.
         if !quote.isEmpty { body["rq"] = quote; body["rm"] = quoteMid }
+        if group {
+            guard let d = try? JSONSerialization.data(withJSONObject: body), let js = String(data: d, encoding: .utf8) else { return }
+            MTGroup.shared.carryPassport(js, letter: MontanaStickerBook.bare(letter), in: chat)
+            return
+        }
         send(body, to: peer, chat: chat)
         MontanaTrace.mark("sticker_wire", "passport letter=\(letter.prefix(12)) pack=\(pack.prefix(8))")
     }

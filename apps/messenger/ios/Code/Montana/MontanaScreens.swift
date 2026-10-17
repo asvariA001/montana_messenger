@@ -616,6 +616,25 @@ struct MTGroupPickStep: View {
     var body: some View {
         NavigationStack {
             List {
+                // THE CHOSEN AS TOKENS OVER THE LIST, as the reference's token field keeps them (the checklist's A.1): a tap lets one go
+                if !chosenChats.isEmpty {
+                    Section {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 6) {
+                                ForEach(chosenChats) { c in
+                                    Button { toggle(c.convRef) } label: {
+                                        Text(verbatim: store.title(for: c)).font(.subheadline).lineLimit(1)   // USER-DATA: a person's name
+                                            .padding(.horizontal, 10).frame(minHeight: 32)
+                                            .background(Color.secondary.opacity(0.25), in: Capsule())
+                                            .frame(minHeight: 44).contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                    }
+                    .listRowBackground(MTGlassRowPlate())
+                }
                 Section {
                     ForEach(shown) { c in
                         Button { toggle(c.convRef) } label: {
@@ -629,13 +648,18 @@ struct MTGroupPickStep: View {
             }
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always))
             .scrollContentBackground(.hidden).montanaPageGround()
-            .navigationTitle("Choose members").navigationBarTitleDisplayMode(.inline)
+            // the reference's own titles: a new group, or the people added to one (a channel's, its subscribers)
+            .navigationTitle(adding == nil ? LocalizedStringKey("New Group")
+                             : (MTGroup.shared.kind(adding ?? "") == .channel ? LocalizedStringKey("Add Subscribers") : LocalizedStringKey("Add Members")))
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { MontanaCloseMark { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     MontanaDoneMark {
                         if adding != nil { onCreate("", Data(), chosenChats); dismiss() } else { naming = true }
-                    }.disabled(chosen.isEmpty).opacity(chosen.isEmpty ? 0.4 : 1)
+                    }
+                    // a new group may begin with nobody yet, as the reference's does (A.2); adding asks for someone to add
+                    .disabled(adding != nil && chosen.isEmpty).opacity(adding != nil && chosen.isEmpty ? 0.4 : 1)
                 }
             }
             .navigationDestination(isPresented: $naming) {
@@ -719,11 +743,11 @@ struct MTGroupNameStep: View {
             Section {
                 HStack(spacing: 14) {
                     MTFacePicker(face: $face)
-                    TextField("Group name", text: $name).focused($typing)
+                    TextField("Group Name", text: $name).focused($typing)
                 }
             }
             .listRowBackground(MTGlassRowPlate())
-            Section("Members") {
+            if !members.isEmpty { Section(header: Text("\(members.count) members")) {
                 ForEach(members) { c in
                     HStack(spacing: 12) {
                         MTChatAvatar(chat: c, size: 40)
@@ -733,6 +757,7 @@ struct MTGroupNameStep: View {
                 }
             }
             .listRowBackground(MTGlassRowPlate())
+            }
         }
         .scrollContentBackground(.hidden).montanaPageGround()
         .navigationTitle("New Group").navigationBarTitleDisplayMode(.inline)

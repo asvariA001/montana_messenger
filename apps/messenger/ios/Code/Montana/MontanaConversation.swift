@@ -123,6 +123,8 @@ enum ChatSheet: Identifiable {
     case stickerSet(String)
     /// A picture on its way to becoming a sticker: the file in the media store.
     case stickerEdit(String)
+    /// A GROUP'S COIN (18.10.2026): the Send page over the group's people, each pick's coins the number written in the field.
+    case groupCoin(Int)
     var id: String {
         switch self {
         case .forward(let m): return "fwd:\(m.id)"
@@ -131,6 +133,7 @@ enum ChatSheet: Identifiable {
         case .gallery: return "gallery"
         case .stickerSet(let p): return "stickerset:" + p
         case .stickerEdit(let f): return "stickeredit:" + f
+        case .groupCoin(let n): return "groupcoin:" + String(n)
         }
     }
 }
@@ -655,10 +658,9 @@ struct ChatInputBar: View {
     var meshRoom = false
     /// A BAR OF WORDS ALONE: no picture, file, voice or round note stands, and the arrow is the bar's end.
     var textOnly = false
-    /// A GROUP'S BAR (the author's words 06.10.2026 14:2x-14:3x MSK: «groups and channels with the whole of a chat, every kind of data»): the pictures, the files, the voice and the round note
-    /// ride the group's carrier (MTGroup.carryMedia); a place, a person's card and one's own card are words of the app a group does
-    /// not carry, so their buttons do not stand.
-    var groupRoom = false
+    // A GROUP'S BAR IS THE PAIR'S BAR, KEY FOR KEY (the author's word 17.10.2026 22:3x MSK: «in groups and channels every button under
+    // the field exactly as in chats, the whole of a chat's work, one to one»): one's own card rides the group's picture road, a place and
+    // a person from the book ride as words by the group's carrier -- no key stands apart for a group any more.
     /// A CHANNEL'S OWNER'S BAR (the reference: the field of a channel says «Broadcast» while it is empty).
     var channel = false
     /// THE CHANNEL'S BELL IN ITS FIELD (the reference's «Silent Broadcast»): the owner's next posts go with sound or without it.
@@ -680,6 +682,9 @@ struct ChatInputBar: View {
     /// pair's chat that may take coins (MTCoinSend.canPay) goes microphone, camera, coin; the coin's key sends the number written
     /// (onSendCoin), and the page stands the exact balance above the field (MTCoinBalancePlate).
     var coins = false
+    /// A GROUP'S COIN (the author's word 18.10.2026 00:14 MSK: «with a choice by check marks among the members, as on the Send page of
+    /// the time coin»): the coin's key opens the choice of people, the number written -- or none yet -- standing beside each pick.
+    var coinPicks = false
     var onSendCoin: (Int) -> Void = { _ in }
     static let coinMode = "coin"
     private var coinMode: Bool { coins && mediaMode == Self.coinMode && !meshRoom && !textOnly }
@@ -862,7 +867,7 @@ struct ChatInputBar: View {
                 rowGlyph("photo") { showEmoji = false; actions.gallery() }
                 Spacer(minLength: 0)
             }
-            if !meshRoom && !textOnly && !groupRoom {
+            if !meshRoom && !textOnly {
                 rowGlyph("person.text.rectangle") { showEmoji = false; actions.card() }
                 Spacer(minLength: 0)
             }
@@ -870,7 +875,7 @@ struct ChatInputBar: View {
                 rowGlyph("doc") { showEmoji = false; actions.file() }
                 Spacer(minLength: 0)
             }
-            if !meshRoom && !textOnly && !groupRoom {
+            if !meshRoom && !textOnly {
                 rowGlyph("location") { showEmoji = false; actions.location() }
                 Spacer(minLength: 0)
                 rowGlyph("person.crop.circle") { showEmoji = false; actions.contact() }
@@ -1106,7 +1111,7 @@ struct ChatInputBar: View {
     private var coinKey: some View {
         let n = coinAmount
         return Button {
-            if 0 < n { onSendCoin(n) } else { mediaMode = "mic" }
+            if 0 < n || coinPicks { onSendCoin(n) } else { mediaMode = "mic" }
         } label: {
             // A coin here is the send control, never a progress indicator. Its one meaning is
             // stable whether the field is empty, valid or awaiting the chain's answer.
@@ -1116,7 +1121,7 @@ struct ChatInputBar: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(Text(0 < n ? "Send coins" : "Coin"))
+        .accessibilityLabel(Text(0 < n || coinPicks ? "Send coins" : "Coin"))
     }
 }
 
@@ -1615,6 +1620,9 @@ struct ChatConversationView: View {
     /// may say that a sum is short (MTCoinSplit.available). A chain/network answer which is still undecided is never
     /// translated into «Not enough coins» -- that would make the shown available balance lie.
     private func sendCoin(_ n: Int) {
+        // A GROUP'S COIN IS A TRANSFER TO EACH PERSON PICKED (the author's word 18.10.2026 00:14 MSK): the Send page over the group's
+        // people; each pick goes by the pair's own transfer, and the group is only told how many were paid (MTCoinSendSheet).
+        if groupCoin { sheet = .groupCoin(n); return }
         Task { @MainActor in
             switch await MTCoinSend.transferResult(n, to: chat, store: store) {
             case .sent:
@@ -1789,23 +1797,27 @@ struct ChatConversationView: View {
                 CameraPicker { img in sendCameraImage(img) } onVideo: { url in sendCameraVideo(url) }
                     .ignoresSafeArea()
             case .contact:
+                // A PERSON FROM THE BOOK LEAVES BY THE ONE SEND ROAD (the author's word 17.10.2026 22:3x MSK: «everything as in chats,
+                // one to one»): the row used to be laid on this phone alone (store.append sends nothing), so the correspondent never
+                // got it while the bubble stood here as sent. The words ride as every letter does -- to a pair, to Saved Messages, and
+                // into a group or a channel by the group's carrier (ChatStore.send hands a group's key to MTGroup.send).
                 ContactPicker { card in
                     let nm = [card.givenName, card.familyName].filter { !$0.isEmpty }.joined(separator: " ")
                     let phone = card.phoneNumbers.first?.value.stringValue ?? ""
                     let text = "👤 " + (nm.isEmpty ? String(localized: "Contact", bundle: MTLanguage.bundle) : nm) + (phone.isEmpty ? "" : "\n" + phone)
-                    store.append(chat.name, Message(text: text, isFromMe: true, time: nowHHMM(),
-                                                    senderRef: nil))
+                    _ = store.send(text: text, chat: chat.name, convRef: convKey)
                 }
                 .ignoresSafeArea()
             case .card:
                 // THE BUSINESS CARD LEAVES AS A PHOTO (the author's word 28.09): the kept card drawn at the card's standard
                 // proportions, down the picture road; its words ride as the caption under the card's mark.
+                // A GROUP STREAMS NO DRAFT: its key is no pipe, so the live plate's words are never said there (cardDraftPipe).
                 MontanaCardNoteView(onSend: { card in
                     sendCardPhoto(card)
-                    E2E.shared.sendDraftClear(to: convKey)   // the live plate ends where the photo begins
+                    if let pipe = cardDraftPipe { E2E.shared.sendDraftClear(to: pipe) }   // the live plate ends where the photo begins
                     modal = nil
                 }, onCancel: {
-                    E2E.shared.sendDraftClear(to: convKey)
+                    if let pipe = cardDraftPipe { E2E.shared.sendDraftClear(to: pipe) }
                     modal = nil
                 }, onDraft: { t in sendCardDraft(t) })
             case .fullVideo(let f):
@@ -2240,6 +2252,8 @@ struct ChatConversationView: View {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { sendStickerFile(file) }
                 }, onClose: { sheet = nil })
                 .presentationDetents([.large])
+            case .groupCoin(let n):
+                MTCoinSendSheet(group: chat.name, each: n, sent: { input.text = "" })
             case .stickerEdit(let file):
                 // EDIT STICKER (22.09): the picture of a letter opens in the editor, and what the
                 // checkmark keeps is a NEW sticker -- the letter of another person is never touched.
@@ -2967,6 +2981,8 @@ struct ChatConversationView: View {
     /// channels -- everything as in the reference folder 1 to 1»): its posts stand in the feed as letters do, drawn as the
     /// reference draws a channel's posts (MTChannelPostLook); its owner writes in the chat's own field, a subscriber reads.
     private var isChannel: Bool { chat.isGroup && MTGroup.shared.kind(chat.name) == .channel }
+    /// The coin of a group's field (MTGroup.takesCoins): a group's every writer, never a channel.
+    private var groupCoin: Bool { chat.isGroup && MTGroup.shared.takesCoins(chat.name) }
     /// A channel's subscriber: writes nothing into it -- no reply by the menu, by the swipe or by the feed's own swipe.
     private var readsOnly: Bool { isChannel && !MTGroup.shared.canWrite(chat.name) }
     /// The look of a channel's row: the channel's name over the words at the head of a run, the owner's count of people who saw it.
@@ -3580,7 +3596,7 @@ struct ChatConversationView: View {
     @ViewBuilder private var composePreviews: some View {
         if let e = editingMessage { editPreview(e) }
         if let r = replyingTo { replyPreview(r) }
-        if composeMediaMode == ChatInputBar.coinMode, MTCoinSend.canPay(chat, store: store) {
+        if composeMediaMode == ChatInputBar.coinMode, MTCoinSend.canPay(chat, store: store) || groupCoin {
             MTCoinBalancePlate { composeMediaMode = "mic" }
         }
         linkPlate
@@ -3630,10 +3646,10 @@ struct ChatConversationView: View {
                          // THE PLATE IS OPEN (the author's word 22.09): every action the «+» used to
                          // hide stands in the lower tier of the bar and is called by its own name.
                          actions: MTComposeActions(gallery: { openGallery() },
-                                                   card: { modal = .card },
+                                                   card: { if groupLets("", photo: true) { modal = .card } },
                                                    file: { showFileImporter = true },
-                                                   location: { ui.placeAsk = MTPlaceAsk(chat: chat.name, conv: convKey) },
-                                                   contact: { modal = .contact }),
+                                                   location: { if groupLets(MTPlaceLetter.road) { ui.placeAsk = MTPlaceAsk(chat: chat.name, conv: convKey) } },
+                                                   contact: { if groupLets("👤") { modal = .contact } }),
                          onSend: { sendMessage() },
                          onSendLongPress: { showSchedule = true },
                          onTextChange: { handleDraftChange($0) },
@@ -3641,13 +3657,13 @@ struct ChatConversationView: View {
                          hasAttachment: !pastedImages.isEmpty,
                          hint: holdHint,
                          meshRoom: ChatStore.isMeshRoom(chat.name),
-                         groupRoom: chat.isGroup,
                          channel: isChannel,
                          silent: isChannel && 0 <= channelSilentTick && MTGroup.shared.silent(chat.name),
                          onSilent: { MTGroup.shared.setSilent(chat.name, on: !MTGroup.shared.silent(chat.name)); channelSilentTick += 1 },
                          part: part,
                          minting: ribbon,
-                         coins: MTCoinSend.canPay(chat, store: store),
+                         coins: MTCoinSend.canPay(chat, store: store) || groupCoin,
+                         coinPicks: groupCoin,
                          onSendCoin: { n in sendCoin(n) })
         }
         .padding(.horizontal).padding(.vertical, MTInputField.barPad)   // the bar's room — the tier's owner's number
@@ -3967,8 +3983,7 @@ struct ChatConversationView: View {
     /// peer's screen fills in as the words come. The same gates and pace as the field's live
     /// typing, the same word — the draft word with the card mark ahead; an old reader shows the text.
     func sendCardDraft(_ t: String) {
-        let peer = convKey
-        guard !peer.isEmpty else { return }
+        guard let peer = cardDraftPipe else { return }
         if t.isEmpty { draft.task?.cancel(); draft.task = nil; E2E.shared.sendDraftClear(to: peer); return }
         guard ribbon && (store.peerInChat(chat.name) || store.typingChats.contains(chat.name)) else { return }
         draft.pending = MontanaCardPlate.mark + t; draft.caret = -1; draft.replyMid = ""
@@ -3987,6 +4002,22 @@ struct ChatConversationView: View {
     /// drawn at the card's standard proportions and sent down the picture road as any photo is; its words ride as the
     /// caption under the card's mark, so every build reads them, and a build that knows the mark draws the photo alone and
     /// offers the words to the contacts.
+    /// The pipe the card's live plate is said to: a pair's alone -- Saved Messages has no wire, and a group's key is no pipe (a group
+    /// streams no draft, handleDraftChange).
+    private var cardDraftPipe: String? { chat.isGroup || convKey.isEmpty ? nil : convKey }
+
+    /// A KEY OF THE BAR ASKS THE GROUP BEFORE ITS PAGE OPENS (G.5): a right the group took from its members, or slow mode's wait, is
+    /// said at the tap, as the field says it at the arrow, so nothing chosen on a page is lost to a refusal. `words` -- the shape of
+    /// what the key sends (words, or words with a link); `photo` -- the key sends a picture.
+    private func groupLets(_ words: String, photo: Bool = false) -> Bool {
+        guard chat.isGroup else { return true }
+        let why = photo ? MTGroup.shared.mediaRefusal(kind: "img", round: false, name: "card.jpg", caption: "", in: chat.name, store: store)
+                        : MTGroup.shared.refusal(words, in: chat.name, letter: true, store: store)
+        guard let why else { return true }
+        groupRefusal = why
+        return false
+    }
+
     @MainActor func sendCardPhoto(_ card: MontanaBusinessCard) {
         guard let jpeg = card.photo(), let name = saveChatPhotoTmp(jpeg) else { MontanaTrace.mark("card_photo", "FAIL render"); return }
         _ = store.append(chat.name, Message(text: card.wire, isFromMe: true, time: nowHHMM(), imageFile: name,

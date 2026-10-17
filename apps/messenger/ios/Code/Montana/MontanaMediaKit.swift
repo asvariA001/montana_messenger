@@ -534,7 +534,11 @@ enum MontanaVideo {
         let inst = AVMutableVideoCompositionInstruction()
         inst.timeRange = CMTimeRange(start: .zero, duration: asset.duration)
         let layer = AVMutableVideoCompositionLayerInstruction(assetTrack: vTrack)
-        layer.setTransform(vTrack.preferredTransform
+        // THE PICTURE STANDS UPRIGHT IN ITS PIXELS (the author's word 18.10.2026 00:3x MSK: a vertical video from a phone came
+        // crooked): the track's turn is applied and then moved back onto the canvas by the box it lands in, so a source whose
+        // turn carries no translation of its own (or a wrong one) is not rendered off the frame, and what leaves is upright
+        // pixels with no turn left for any receiver to read.
+        layer.setTransform(Self.upright(vTrack)
             .concatenating(CGAffineTransform(scaleX: CGFloat(w) / ow, y: CGFloat(h) / oh)), at: .zero)
         inst.layerInstructions = [layer]
         comp.instructions = [inst]
@@ -766,6 +770,14 @@ enum MontanaVideo {
         return anyJudged   // every judged pair: output black, source alive
     }
 
+    /// The track's own turn, moved so that the turned frame starts at the canvas's corner: the one reading of a video's
+    /// orientation every re-encoding of this file renders by.
+    static func upright(_ track: AVAssetTrack) -> CGAffineTransform {
+        let turn = track.preferredTransform
+        let box = CGRect(origin: .zero, size: track.naturalSize).applying(turn)
+        return turn.concatenating(CGAffineTransform(translationX: -box.minX, y: -box.minY))
+    }
+
     /// The system export session as the fallback encoder: no bitrate control, but it handles
     /// HDR/Dolby profiles itself — the property our writer just failed on this source.
     private static func systemPresetExport(asset: AVURLAsset,
@@ -931,6 +943,15 @@ extension MontanaVideo {
             let r = CMTimeRange(start: .zero, duration: a.duration)
             guard (try? await comp.insertTimeRange(r, of: a, at: cursor)) != nil else { return nil }
             cursor = CMTimeAdd(cursor, a.duration)
+        }
+        // THE TURN RIDES THE STITCH (the author's word 18.10.2026 00:3x MSK: a vertical video from a phone came crooked): every
+        // piece the system export wrote keeps the source's turn in its track's preferredTransform -- it rotates no pixels --
+        // and a composition's track starts at no turn, so a vertical film longer than two pieces left lying on its side. The
+        // pieces are of one source and carry one turn; the stitched track takes it.
+        if let first = parts.first, let turn = AVURLAsset(url: first).tracks(withMediaType: .video).first?.preferredTransform,
+           let track = comp.tracks(withMediaType: .video).first {
+            track.preferredTransform = turn
+            MTVideoTrace.mark("stitch turn a=\(turn.a) b=\(turn.b) c=\(turn.c) d=\(turn.d)")
         }
         let out = FileManager.default.temporaryDirectory.appendingPathComponent("cmp_all_\(UUID().uuidString).mp4")
         guard let ex = AVAssetExportSession(asset: comp, presetName: AVAssetExportPresetPassthrough) else { return nil }

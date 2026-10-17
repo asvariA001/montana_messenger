@@ -2471,6 +2471,499 @@
         }
       }
     },
+    "Questions": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вопросы"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "常见问题"
+          }
+        }
+      }
+    },
+    "Levels": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Уровни"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等级"
+          }
+        }
+      }
+    },
+    "Coins and time": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Монеты и время"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "硬币与时间"
+          }
+        }
+      }
+    },
+    "Your words and devices": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваши слова и устройства"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 24 个词与设备"
+          }
+        }
+      }
+    },
+    "Documents": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Документы"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文档"
+          }
+        }
+      }
+    },
+    "Questions and answers": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вопросы и ответы"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "问题与解答"
+          }
+        }
+      }
+    },
+    "Specification and code": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спецификация и код"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "规范与代码"
+          }
+        }
+      }
+    },
+    "The site holds the answers about Montana in English, Russian and Chinese, also as files AI assistants read. The Montana specification and the code of this app are open on GitHub.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На сайте — ответы о Монтане на английском, русском и китайском, в том числе в виде файлов, которые читают ИИ-ассистенты. Спецификация Монтаны и код этого приложения открыты на GitHub."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "网站提供关于 Montana 的英文、俄文和中文解答，也提供 AI 助手可读取的文件。Montana 规范和本应用的代码在 GitHub 上公开。"
+          }
+        }
+      }
+    },
+    "What is the Global level?": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Что такое Глобальный уровень?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "什么是全局等级？"
+          }
+        }
+      }
+    },
+    "How does the chain of the person count my time?": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Как цепь Личности считает моё время?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "个人链如何计算我的时间？"
+          }
+        }
+      }
+    },
+    "A second counts while Montana is open on the screen of one of your devices and a Montana node answers it. The second is read from the node, never from the clock of your phone. Each level doubles the seconds of the one before: 1 second is level 0, 2 seconds level 1, 4 seconds level 2, then 8, 16, 32 and on. When you leave the network, your level stays, and nothing is added until you return.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Секунда засчитывается, пока Монтана открыта на экране одного из ваших устройств и ей отвечает узел Монтаны. Секунда берётся у узла, а не с часов телефона. Каждый уровень удваивает секунды предыдущего: 1 секунда — уровень 0, 2 секунды — уровень 1, 4 секунды — уровень 2, дальше 8, 16, 32 и так далее. Когда вы уходите из сети, уровень сохраняется, и ничего не прибавляется, пока вы не вернётесь."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当 Montana 在你的某台设备屏幕上打开、并且有 Montana 节点回应它时，每一秒都会计入。这一秒取自节点，而不是手机的时钟。每一级是上一级秒数的两倍：1 秒为 0 级，2 秒为 1 级，4 秒为 2 级，然后是 8、16、32 秒，依此类推。离开网络时，你的等级保持不变，在你回来之前不会增加。"
+          }
+        }
+      }
+    },
+    "What is the level of π?": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Что такое уровень по Пи?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "什么是 π 等级？"
+          }
+        }
+      }
+    },
+    "It is the level of your wallet: how many first digits of π your balance reaches. 3 coins is level 1, 31 coins level 2, 314 coins level 3, then 3141, 31415 and on, up to 19 digits. Below 3 coins the level is 0. It is the one level you lower yourself: it falls when your balance falls.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Это уровень вашего кошелька: сколько первых цифр числа Пи покрывает ваш баланс. 3 монеты — уровень 1, 31 монета — уровень 2, 314 монет — уровень 3, дальше 3141, 31415 и так далее, до 19 цифр. Меньше 3 монет — уровень 0. Это единственный уровень, который вы понижаете сами: он падает, когда падает баланс."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这是你钱包的等级：你的余额达到 π 的前几位数字。3 枚硬币为 1 级，31 枚为 2 级，314 枚为 3 级，然后是 3141、31415，依此类推，最多 19 位。少于 3 枚硬币时为 0 级。这是唯一由你自己降低的等级：余额减少时它就下降。"
+          }
+        }
+      }
+    },
+    "What do the levels open?": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Что открывают уровни?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等级会开放什么？"
+          }
+        }
+      }
+    },
+    "Each level opens functions of Montana. Level 7 opens Forbid deletion on my phone: a message your correspondent deletes for everyone stays on your phone, and their phone is told so. Level 7 also opens Record calls: calls are recorded by themselves on your phone and sent to the call's chat after your first consent. Level 8 opens your own node: a machine you own joins the Montana network through this app. All of them are in Settings, under Access by level.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Каждый уровень открывает функции Монтаны. Уровень 7 открывает Запрет удаления у меня: сообщение, которое собеседник удаляет у всех, остаётся на вашем телефоне, а телефон собеседника получает об этом уведомление. Ещё уровень 7 открывает Записывать звонки: звонки записываются сами на вашем телефоне и после вашего первого согласия отправляются в чат звонка. Уровень 8 открывает ваш собственный узел: машина, которой вы владеете, подключается к сети Монтаны через это приложение. Всё это — в Настройках, в разделе Доступ по уровню."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每个等级都会开放 Montana 的功能。7 级开放“禁止在我的手机上删除”：对方为所有人删除的消息会保留在你的手机上，对方的手机会收到通知。7 级还开放“录制通话”：首次同意后，通话会在你的手机上自动录制，并发送到通话所在的聊天。8 级开放你自己的节点：你拥有的机器通过本应用接入 Montana 网络。这些都在设置的“按等级开放”中。"
+          }
+        }
+      }
+    },
+    "Can I record a call below level 7?": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Можно ли записать звонок ниже уровня 7?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "低于 7 级时可以录制通话吗？"
+          }
+        }
+      }
+    },
+    "Yes. On every level a call can be recorded by the record button on the call screen. From level 7 calls are recorded by themselves once you agree the first time, and you can turn it off in Settings, under Access by level.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Да. На любом уровне звонок можно записать кнопкой записи на экране звонка. С уровня 7 звонки записываются сами после вашего первого согласия, и это можно выключить в Настройках, в разделе Доступ по уровню."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可以。任何等级都可以用通话界面上的录制按钮录制通话。从 7 级起，在你第一次同意后通话会自动录制，你可以在设置的“按等级开放”中关闭。"
+          }
+        }
+      }
+    },
+    "Can I take my copy back from my node below level 8?": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Можно ли забрать свою копию с узла ниже уровня 8?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "低于 8 级时可以从节点取回我的副本吗？"
+          }
+        }
+      }
+    },
+    "Yes. Setting up your node and sending copies to it open at level 8. Taking your copy back from it is open on every level.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Да. Настройка вашего узла и отправка копий на него открываются с уровня 8. Забрать свою копию с него можно на любом уровне."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可以。设置你的节点并向它发送副本从 8 级开放。从节点取回你的副本在任何等级都可以。"
+          }
+        }
+      }
+    },
+    "What is a Time Coin?": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Что такое Монета Времени?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "什么是时间币？"
+          }
+        }
+      }
+    },
+    "The coin of Montana, ticker $TCM. Its measure is time: one second is one coin, so an hour is 3600 coins. A billion coins is one Montana.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Монета Монтаны, тикер $TCM. Её мера — время: одна секунда — одна монета, поэтому час — 3600 монет. Миллиард монет — одна Монтана."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Montana 的硬币，代码 $TCM。它的尺度是时间：一秒为一枚硬币，所以一小时为 3600 枚。十亿枚硬币为一个 Montana。"
+          }
+        }
+      }
+    },
+    "Do coins mint while Montana is in the background?": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чеканятся ли монеты, пока Монтана свёрнута?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Montana 在后台时会铸造硬币吗？"
+          }
+        }
+      }
+    },
+    "Yes. When Montana leaves the screen, it keeps your Global level of that moment. When you come back, every second you were away is minted at that level: level 5 mints 5 coins a second, and no level mints more than 13 a second. At Global level 0 the time away mints nothing, and neither does it when the network did not answer Montana before it left the screen. Both moments are read from the Montana network, so turning the clock of the phone changes nothing.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Да. Когда Монтана уходит с экрана, она запоминает ваш Глобальный уровень в этот момент. Когда вы возвращаетесь, каждая секунда отсутствия чеканится по этому уровню: уровень 5 — 5 монет в секунду, и ни один уровень не чеканит больше 13 в секунду. На Глобальном уровне 0 время отсутствия ничего не чеканит, как и тогда, когда сеть не ответила Монтане до ухода с экрана. Оба момента берутся из сети Монтаны, поэтому перевод часов телефона ничего не меняет."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会。Montana 离开屏幕时，会记下你那一刻的全局等级。你回来时，离开的每一秒都按该等级铸造：5 级每秒铸造 5 枚，任何等级每秒都不超过 13 枚。全局等级为 0 时，离开的时间不铸造任何硬币；如果 Montana 离开屏幕前网络没有回应它，也不会铸造。两个时刻都取自 Montana 网络，所以调整手机时钟不会改变任何东西。"
+          }
+        }
+      }
+    },
+    "What if I use Montana on several devices?": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Что, если я пользуюсь Монтаной на нескольких устройствах?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "如果我在多台设备上使用 Montana 呢？"
+          }
+        }
+      }
+    },
+    "The same 24 words on several devices are one person. Their seconds join: two devices open in the same second add one second, and once the devices have read each other's count, they show one chain of the person.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Одни и те же 24 слова на нескольких устройствах — это один человек. Их секунды объединяются: два устройства, открытые в одну и ту же секунду, добавляют одну секунду, и когда устройства прочитают счёт друг друга, они показывают одну цепь Личности."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "多台设备上的同一组 24 个词是同一个人。它们的秒数会合并：两台设备在同一秒打开只增加一秒；各设备读取彼此的计数后，会显示同一条个人链。"
+          }
+        }
+      }
+    },
+    "What if I have several sets of 24 words?": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Что, если у меня несколько наборов из 24 слов?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "如果我有多组 24 个词呢？"
+          }
+        }
+      }
+    },
+    "Each set of 24 words is a separate person: its own seconds, its own wallet, its own levels. The levels of two persons are never added together, and coins move between them only by a real transfer.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Каждый набор из 24 слов — отдельный человек: свои секунды, свой кошелёк, свои уровни. Уровни двух людей никогда не складываются, а монеты между ними переходят только настоящим переводом."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每一组 24 个词都是一个独立的人：有自己的秒数、自己的钱包、自己的等级。两个人的等级永远不会相加，硬币只能通过真实的转账在他们之间转移。"
+          }
+        }
+      }
+    },
+    "Who sees my level?": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кто видит мой уровень?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "谁能看到我的等级？"
+          }
+        }
+      }
+    },
+    "The people you write with see your Global level beside your avatar. The nodes of the network keep a table of how many people stand on each level: for it Montana gives them a mark made from your 24 words and your Global level, never your balance, name or contacts. Your seconds online leave the phone only sealed under your 24 words: the nodes keep them for your other devices and cannot read them.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Люди, с которыми вы переписываетесь, видят ваш Глобальный уровень рядом с вашим аватаром. Узлы сети ведут таблицу того, сколько людей стоит на каждом уровне: для неё Монтана передаёт им метку, сделанную из ваших 24 слов, и ваш Глобальный уровень — но никогда ваш баланс, имя или контакты. Ваши секунды в сети покидают телефон только запечатанными под вашими 24 словами: узлы хранят их для других ваших устройств и не могут их прочитать."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "与你聊天的人会在你的头像旁看到你的全局等级。网络节点维护一张表，记录每个等级各有多少人：为此 Montana 向节点提供一个由你的 24 个词生成的标记和你的全局等级，绝不提供你的余额、姓名或联系人。你的在线秒数只有用你的 24 个词封存后才会离开手机：节点为你的其他设备保存它们，却无法读取。"
+          }
+        }
+      }
+    },
     "Ask the person who sent this set for it.": {
       "localizations": {
         "ru": {
@@ -2994,6 +3487,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "黑象"
+          }
+        }
+      }
+    },
+    "WHAT CAN THIS ADMIN DO?": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ЧТО МОЖЕТ ЭТОТ АДМИНИСТРАТОР?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该管理员可以做什么？"
+          }
+        }
+      }
+    },
+    "Change Channel Info": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Изменение профиля канала"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更改频道信息"
+          }
+        }
+      }
+    },
+    "Post Messages": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Публикация сообщений"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发布消息"
+          }
+        }
+      }
+    },
+    "Delete Messages of Others": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удаление чужих сообщений"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除他人消息"
           }
         }
       }
@@ -18931,38 +19488,6 @@
         }
       }
     },
-    "Group name": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Название группы"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "群组名称"
-          }
-        }
-      }
-    },
-    "Choose members": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Выберите участников"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "选择成员"
-          }
-        }
-      }
-    },
     "A group letter rides the pipe of each person, so only the people you write with are listed.": {
       "localizations": {
         "ru": {
@@ -19185,6 +19710,54 @@
           "stringUnit": {
             "state": "translated",
             "value": "通话人数已满"
+          }
+        }
+      }
+    },
+    "Add to Call": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить в звонок"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加到通话"
+          }
+        }
+      }
+    },
+    "Group Call": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Групповой звонок"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "群组通话"
+          }
+        }
+      }
+    },
+    "Up to %lld people on a call, you included. Everyone chosen is invited into the call.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "До %lld человек в звонке, включая вас. Каждый выбранный получит приглашение в звонок."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每次通话最多 %lld 人（包括您）。每位被选中的人都会收到通话邀请。"
           }
         }
       }
@@ -21218,6 +21791,156 @@
           "stringUnit": {
             "state": "translated",
             "value": "选择聊天"
+          }
+        }
+      }
+    },
+    "Choose members": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выберите участников"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择成员"
+          }
+        }
+      }
+    },
+    "No members yet": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пока нет участников"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂无成员"
+          }
+        }
+      }
+    },
+    "Coins can't go to this chat": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В этот чат монеты не отправить"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法向此聊天发送硬币"
+          }
+        }
+      }
+    },
+    "No chat of your own with this member": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет своего чата с этим участником"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你与该成员没有单独的聊天"
+          }
+        }
+      }
+    },
+    "Each member you pick gets a transfer of their own in your chat with them. The group is told only how many members you sent coins to.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Каждый выбранный участник получает свой перевод в вашем чате с ним. Группа узнаёт только, скольким участникам вы перевели монеты."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每位选中的成员都会在你与其的聊天中收到一笔单独的转账。群组只会得知你向多少位成员转了硬币。"
+          }
+        }
+      }
+    },
+    "Sent coins to %lld members": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Sent coins to %lld member"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Sent coins to %lld members"
+                }
+              }
+            }
+          }
+        },
+        "ru": {
+          "variations": {
+            "plural": {
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Монеты переведены %lld участникам"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Монеты переведены %lld участникам"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Монеты переведены %lld участнику"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Монеты переведены %lld участника"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "已向 %lld 位成员转账硬币"
+                }
+              }
+            }
           }
         }
       }
@@ -25784,22 +26507,6 @@
         }
       }
     },
-    "The lower of the two levels below.": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Меньший из двух уровней ниже."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "以下两个等级中较低的一个。"
-          }
-        }
-      }
-    },
     "A second counts while the app is open on any of your devices and a node answers its coin exchange: every few seconds while TimeCoin stands open, at each exchange elsewhere. The node's second, never the phone's clock. Each level doubles the seconds of the one before. Shown only to you, published nowhere.": {
       "localizations": {
         "ru": {
@@ -27153,23 +27860,6 @@
         }
       }
     },
-    "Your level grows with your time in Montana and the coins you hold. Each level opens new functions of Montana.": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Уровень растёт с вашим временем в Монтане и монетами, которые вы держите. Каждый уровень открывает новые функции Монтаны."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "你的等级随你在 Montana 的时间和持有的硬币增长。每个等级都会开放 Montana 的新功能。"
-          }
-        }
-      }
-    },
     "Forbid deletion on my phone": {
       "extractionState": "manual",
       "localizations": {
@@ -27318,38 +28008,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "YouTube"
-          }
-        }
-      }
-    },
-    "Open in YouTube": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Открыть в YouTube"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在 YouTube 中打开"
-          }
-        }
-      }
-    },
-    "Picture in Picture": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Картинка в картинке"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "画中画"
           }
         }
       }
@@ -28630,6 +29288,486 @@
           "stringUnit": {
             "state": "translated",
             "value": "您更新了允许的回应列表"
+          }
+        }
+      }
+    },
+    "Add Members": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить участников"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加成员"
+          }
+        }
+      }
+    },
+    "Fabric of Time": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ткань времени"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "时间织网"
+          }
+        }
+      }
+    },
+    "The lowest of the three levels below.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Наименьший из трёх уровней ниже."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以下三个等级中最低的一个。"
+          }
+        }
+      }
+    },
+    "Days until the first count: %lld": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дней до первого счёта: %lld"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "距首次计算还有 %lld 天"
+          }
+        }
+      }
+    },
+    "Regular correspondents": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Регулярные собеседники"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "固定通话对象"
+          }
+        }
+      }
+    },
+    "Testimonies of calls": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Печати созвонов"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通话证明"
+          }
+        }
+      }
+    },
+    "Ceiling and estimate": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Потолок и оценка"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上限与估值"
+          }
+        }
+      }
+    },
+    "Your regular calls of the last two weeks, weighed by how high the people you call stand: the greatest number g for which at least g people you called in each of the last two weeks stand at level g or above. A call counts when each of you heard the other for a minute; at its end each phone signs what it heard and gives it to the other. Counted again every week; through its first two weeks it stands at the lower of your two levels above. Your ceiling and estimate go only to the people you call, inside your conversation.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваши регулярные созвоны за последние две недели, взвешенные по тому, насколько высоко стоят собеседники: наибольшее число g, при котором не меньше g людей, с которыми вы созванивались в каждую из двух последних недель, стоят на уровне g или выше. Звонок засчитывается, когда каждый из вас слышал другого не меньше минуты; в конце звонка каждый телефон подписывает услышанное и отдаёт печать другому. Пересчитывается каждую неделю; первые две недели равна меньшему из двух уровней выше. Потолок и оценка уходят только тем, с кем вы созваниваетесь, внутри вашей переписки."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你过去两周的固定通话，按通话对象的等级加权：最大的数 g，使得过去两周中每周都与你通话的人里至少有 g 人处于 g 级或以上。双方都听到对方至少一分钟，通话才计入；通话结束时，每部手机签署所听到的内容并交给对方。每周重新计算；前两周等于上面两个等级中较低的一个。你的上限与估值只发给与你通话的人，且只在你们的对话之内。"
+          }
+        }
+      }
+    },
+    "Your level is the lowest of three: your time in Montana, the coins you hold and the Fabric of Time, your regular calls of the last two weeks weighed by the levels of the people you call. Each level opens new functions of Montana.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваш уровень — наименьший из трёх: ваше время в Монтане, монеты, которые вы держите, и Ткань времени — регулярные созвоны последних двух недель, взвешенные по уровням тех, с кем вы созваниваетесь. Каждый уровень открывает новые функции Монтаны."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的等级是三者中最低的：你在 Montana 的时间、你持有的硬币，以及时间织网——你过去两周的固定通话，按通话对象的等级加权。每个等级都会开放 Montana 的新功能。"
+          }
+        }
+      }
+    },
+    "Your Global level is the lowest of three levels: the level of the chain of the person, which grows with your time on the network, the level of π, which grows with the coins you hold, and the Fabric of Time, which stands on your regular calls of the last two weeks. You see it in TimeCoin, on the TimeChain page, and in Settings, under Access by level.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваш Глобальный уровень — наименьший из трёх уровней: уровня цепи Личности, который растёт с вашим временем в сети, уровня по Пи, который растёт с монетами, которые вы держите, и Ткани времени, которая стоит на ваших регулярных созвонах последних двух недель. Он виден в Монете Времени на странице TimeChain и в Настройках, в разделе Доступ по уровню."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的全局等级是三个等级中最低的那个：个人链的等级，随你在网络上的时间增长；π 等级，随你持有的硬币增长；时间织网，建立在你过去两周的固定通话之上。你可以在时间币的 TimeChain 页面，以及设置的“按等级开放”中看到它。"
+          }
+        }
+      }
+    },
+    "What is the Fabric of Time?": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Что такое Ткань времени?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "什么是时间织网？"
+          }
+        }
+      }
+    },
+    "The third level your Global level is set by: your regular calls of the last two weeks, weighed by how high the people you call stand. Your Global level is the lowest of the three, so the Fabric of Time can lower it and never raises it.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Третий уровень, по которому определяется ваш Глобальный уровень: ваши регулярные созвоны за последние две недели, взвешенные по тому, насколько высоко стоят те, кому вы звоните. Глобальный уровень — наименьший из трёх, поэтому Ткань времени может его опустить и никогда не поднимает."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "决定你全局等级的第三个等级：你过去两周的固定通话，按你通话对象的等级高低来衡量。全局等级是三者中最低的，因此时间织网可能拉低它，但绝不会抬高它。"
+          }
+        }
+      }
+    },
+    "Which call counts?": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Какой звонок засчитывается?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "哪种通话会计入？"
+          }
+        }
+      }
+    },
+    "A call of two that connected, in which each phone received the other's voice for at least 60 seconds. Each phone counts the voice it received itself, from the sound that reached it: silence and a muted microphone do not count, and neither does a ring answered and declined. A group call does not count.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Звонок вдвоём, который соединился и в котором каждый телефон получил голос другого не меньше 60 секунд. Каждый телефон сам считает голос, который получил, по дошедшему до него звуку: тишина и выключенный микрофон не считаются, как и звонок, принятый и сразу сброшенный. Групповой звонок не засчитывается."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已接通的双人通话，且每部手机都收到对方至少 60 秒的声音。每部手机根据到达它的声音，自己统计收到的语音：静音和关闭的麦克风不计入，接听后立即挂断的来电也不计入。群组通话不计入。"
+          }
+        }
+      }
+    },
+    "Who is a regular correspondent?": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кто такой регулярный собеседник?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "谁是固定通话对象？"
+          }
+        }
+      }
+    },
+    "Montana reads the Fabric of Time in weeks of 7 days, each beginning on Thursday at 00:00 UTC. A person is your regular correspondent in a week when your phone holds a testimony of a counted call from them in each of the two weeks before it. People are told apart by the key their testimonies are signed with, not by anything they say about themselves.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Монтана читает Ткань времени неделями по 7 дней, каждая начинается в четверг в 00:00 UTC. Человек — ваш регулярный собеседник в неделе, когда у вашего телефона есть печать засчитанного созвона от него в каждой из двух предыдущих недель. Людей различают по ключу, которым подписаны их печати, а не по тому, что они говорят о себе."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Montana 以每周 7 天读取时间织网，每周从星期四 00:00 UTC 开始。如果你的手机在前两周的每一周都持有某人的一份已计入通话证明，那么在本周他就是你的固定通话对象。人们仅凭其通话证明的签名密钥来区分，与他们对自己的说法无关。"
+          }
+        }
+      }
+    },
+    "How is the level of the Fabric of Time counted?": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Как считается уровень Ткани времени?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "时间织网的等级如何计算？"
+          }
+        }
+      }
+    },
+    "It is the greatest number g for which at least g of your regular correspondents stand at level g or above; a person far above g adds one, exactly as one at g does. It is counted at the first reading of each week from what your regular correspondents stated by the end of the week before, and holds through the week. Your ceiling is the lower of your two other levels, at its lowest since the week began. Through the week your phone keeps your estimate: the same count over what your regular correspondents state this week, never above your ceiling, and it only falls until the week ends.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Это наибольшее число g, при котором не меньше g ваших регулярных собеседников стоят на уровне g или выше; человек намного выше g добавляет одного, ровно как стоящий на g. Уровень считается при первом чтении каждой недели по тому, что ваши регулярные собеседники заявили к концу прошлой недели, и держится всю неделю. Ваш потолок — меньший из двух других ваших уровней, по самому низкому значению с начала недели. В течение недели телефон держит вашу оценку: тот же счёт по тому, что ваши регулярные собеседники заявляют на этой неделе, не выше вашего потолка; до конца недели она только опускается."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "它是最大的数 g，使得你至少有 g 位固定通话对象的等级在 g 或以上；远高于 g 的人只算一位，与恰好处于 g 的人完全一样。它在每周第一次读取时，按你的固定通话对象在上周结束前声明的内容计算，并在整周保持不变。你的上限是你另外两个等级中较低的那个，取本周开始以来的最低值。在一周之内，你的手机保存你的估计值：按你的固定通话对象本周声明的内容做同样的计算，不高于你的上限，并且在本周结束前只会下降。"
+          }
+        }
+      }
+    },
+    "Does the Fabric of Time lower a newcomer?": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Опускает ли Ткань времени новичка?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "时间织网会拉低新用户吗？"
+          }
+        }
+      }
+    },
+    "Not in the first two weeks. From the first launch of this version on this phone with your 24 words, for the week of that launch and the week after it, the Fabric of Time stands at your ceiling, so in these weeks your Global level follows the lowest point of your two other levels since the week began. TimeCoin and Access by level show the days left until the first count.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не в первые две недели. С первого запуска этой версии на этом телефоне с вашими 24 словами, в неделю этого запуска и в следующую, Ткань времени равна вашему потолку, поэтому в эти недели ваш Глобальный уровень следует за самой низкой точкой двух других ваших уровней с начала недели. Монета Времени и Доступ по уровню показывают, сколько дней осталось до первого счёта."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前两周不会。从这个版本在这部手机上用你的 24 个词首次启动起，在启动所在的那一周及下一周，时间织网等于你的上限，因此在这两周里，你的全局等级跟随另外两个等级自本周开始以来的最低点。时间币和“按等级开放”会显示距首次计算还剩几天。"
+          }
+        }
+      }
+    },
+    "What is a testimony of a call?": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Что такое печать созвона?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "什么是通话证明？"
+          }
+        }
+      }
+    },
+    "At the end of a counted call each phone signs, with the key of your 24 words, what it heard: the call, the hash the other person's fingerprint is read from, the minute the call ended, the seconds of their voice it received, and your ceiling and estimate. It gives the testimony only to the other person, inside your conversation, with your public key, so their phone can check the signature. Their phone counts it only when it names them, the signature holds, it is of a call that phone held with you and heard you in for a minute, and its minute lies within that call.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В конце засчитанного созвона каждый телефон подписывает ключом ваших 24 слов то, что он услышал: созвон, хеш, из которого читается отпечаток собеседника, минуту окончания созвона, полученные телефоном секунды его голоса, а также ваш потолок и оценку. Печать уходит только собеседнику, внутри вашей переписки, вместе с вашим открытым ключом, чтобы его телефон мог проверить подпись. Его телефон засчитывает печать, только если она называет его, подпись верна, она относится к созвону, который этот телефон вёл с вами и в котором слышал вас не меньше минуты, и её минута лежит внутри этого созвона."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已计入的通话结束时，每部手机都用你 24 个词的密钥签署它听到的内容：这次通话、读取对方指纹所依据的哈希、通话结束的那一分钟、它收到的对方语音秒数，以及你的上限和估计值。通话证明只交给对方，在你们的对话之内，并附上你的公钥，让对方的手机能核验签名。只有当它指明对方、签名有效、属于对方手机与你进行并听到你至少一分钟的通话、且其分钟落在该通话之内时，对方的手机才会计入它。"
+          }
+        }
+      }
+    },
+    "What do the people I call learn?": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Что узнают те, кому я звоню?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "与我通话的人会知道什么？"
+          }
+        }
+      }
+    },
+    "The people you call receive your testimonies with your public key. Your public key is the same for everyone you call, so two people you call can tell that they speak with the same person. The people you write with receive your ceiling and estimate in each presence word, and the people you had a counted call with in the last three weeks also in a silent letter whenever they change.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Те, кому вы звоните, получают ваши печати вместе с вашим открытым ключом. Ваш открытый ключ один для всех, кому вы звоните, поэтому двое ваших собеседников могут понять, что говорят с одним и тем же человеком. Те, с кем вы переписываетесь, получают ваш потолок и оценку в каждом слове присутствия, а те, с кем у вас был засчитанный созвон за последние три недели, — ещё и в тихом письме, когда они меняются."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "与你通话的人会收到你的通话证明和你的公钥。你的公钥对所有与你通话的人都相同，因此两位与你通话的人可以知道他们在和同一个人交谈。与你通信的人会在每一条在线状态消息中收到你的上限和估计值，过去三周与你有过已计入通话的人还会在它们变化时收到一封静默消息。"
+          }
+        }
+      }
+    },
+    "What do the nodes of the network learn?": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Что узнают узлы сети?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "网络节点会知道什么？"
+          }
+        }
+      }
+    },
+    "Nothing they can read: testimonies, ceilings and estimates ride inside your conversation, sealed for the other person, by the same road as your letters. The testimonies stay on the phone that held the call until the third week after the call's week ends, then leave it.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ничего, что они могли бы прочитать: печати, потолки и оценки идут внутри вашей переписки, запечатанные для собеседника, той же дорогой, что и ваши письма. Печати хранятся на телефоне, который вёл созвон, пока не закончится третья неделя после недели созвона, затем удаляются."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有任何它们能读取的内容：通话证明、上限和估计值都在你们的对话之内，为对方加密，走与你的消息相同的通道。通话证明保存在进行通话的手机上，直到通话所在周之后的第三周结束，之后删除。"
+          }
+        }
+      }
+    },
+    "How does this version differ from the specification?": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чем эта версия отличается от спецификации?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个版本与规范有何不同？"
+          }
+        }
+      }
+    },
+    "In three ways. A phone holds no window of the network's core, so the minute of a testimony and the weeks are read from the clock of the Montana nodes, learned from their answers. The testimonies are not yet witnessed into the network at the end of each week; they stay on the phone. And your devices with the same 24 words do not join their Fabric of Time yet: a testimony counts on the device that held the call.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тремя вещами. У телефона нет окна ядра сети, поэтому минута печати и недели читаются по часам узлов Монтаны, которые телефон узнаёт из их ответов. Печати пока не свидетельствуются в сеть в конце каждой недели — они остаются на телефоне. И ваши устройства с одними 24 словами пока не объединяют свою Ткань времени: печать засчитывается на том устройстве, которое вело созвон."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有三点不同。手机不持有网络核心的窗口，因此通话证明的分钟和每周都按 Montana 节点的时钟读取，由手机从节点的回复中获知。通话证明尚未在每周结束时向网络见证，它们保留在手机上。并且使用相同 24 个词的设备尚未合并各自的时间织网：通话证明只在进行通话的设备上计入。"
+          }
+        }
+      }
+    },
+    "Can false testimonies lift a level?": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Могут ли ложные печати поднять уровень?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "虚假的通话证明能抬高等级吗？"
+          }
+        }
+      }
+    },
+    "No. The Fabric of Time only lowers: a person who states a false ceiling or estimate can at most spare someone a lowering. Two testimonies of one call under one key that differ, or two in one week of which the later states the higher estimate, make that signer count as nothing for the week.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет. Ткань времени только опускает: человек, заявивший ложный потолок или оценку, может самое большее избавить кого-то от понижения. Две различающиеся печати одного созвона под одним ключом или две печати одной недели, из которых более поздняя заявляет более высокую оценку, делают подписавшего нулём на эту неделю."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不能。时间织网只会拉低：声明虚假上限或估计值的人，最多只能让某人免于一次降低。同一密钥对同一通话给出的两份不同证明，或同一周内后一份声明了更高估计值的两份证明，会使该签署者在这一周被计为零。"
           }
         }
       }

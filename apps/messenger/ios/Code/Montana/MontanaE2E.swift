@@ -546,8 +546,9 @@ final class E2E {
         // balance (04.10), right after the ground's digits: the same uppercase and digits, unread by every older build. «L» + my
         // Global Level (11.10) after the balance: every older reader of the balance stops at its first letter.
         // «Q» last (16.10.2026 No.72): this build's extension takes a deletion for everyone quietly -- a deletion may wake it.
+        // «Y» and «Z» after it (17.10.2026, MTFabric): my ceiling and my estimate, past every older reader (fabricTail).
         return "F" + face + "N" + name + "A" + MTPeerAbout.heldTag(peer) + "W" + MTBoard.spokenVersion(for: peer)
-            + "G" + MTPageGround.heldTag(peer) + E2E.coinTail() + E2E.levelTail() + "Q"
+            + "G" + MTPageGround.heldTag(peer) + E2E.coinTail() + E2E.levelTail() + "Q" + E2E.fabricTail()
     }
     /// The bio's tag stands right after the name's digits; a build before 24.09 names nothing of it.
     static func aboutHeld(in payload: Substring) -> String? {
@@ -633,18 +634,45 @@ final class E2E {
         if groundHeld(in: payload) != nil { noteGroundCapable(peer) }   // their build speaks the «G» tag: it reads the word
         if deletionQuietSaid(in: payload) { noteDeletionQuiet(peer) }   // their build speaks the «Q» tag: a deletion may wake it
     }
-    /// «Q» closes the held tags, after the level's digits (or the balance's, or the ground's): a build before it names nothing there.
-    static func deletionQuietSaid(in payload: Substring) -> Bool {
-        guard let i = payload.firstIndex(of: "N") else { return false }
+    /// What stands after the held tags -- past the level's digits, or the balance's, or the ground's: the closing «Q» of a build of
+    /// 16.10 and later, and the fabric's two marks after it. nil: the word names none of the held tags.
+    static func heldEnd(in payload: Substring) -> Substring? {
+        guard let i = payload.firstIndex(of: "N") else { return nil }
         var rest = payload[payload.index(after: i)...].drop { $0.isNumber }
         if rest.first == "A" { rest = rest.dropFirst().drop { $0.isNumber } }
-        guard rest.first == "W" else { return false }
+        guard rest.first == "W" else { return nil }
         rest = rest.dropFirst().drop { $0.isNumber }
-        guard rest.first == "G" else { return false }
+        guard rest.first == "G" else { return nil }
         rest = rest.dropFirst().drop { $0.isNumber }
         if rest.first == "C" { rest = rest.dropFirst().drop { $0.isNumber || $0 == "-" } }
         if rest.first == "L" { rest = rest.dropFirst().drop { $0.isNumber } }
-        return rest.first == "Q"
+        return rest
+    }
+    /// «Q» closes the held tags, after the level's digits (or the balance's, or the ground's): a build before it names nothing there.
+    static func deletionQuietSaid(in payload: Substring) -> Bool { heldEnd(in: payload)?.first == "Q" }
+    /// MY CEILING AND MY ESTIMATE RIDE AFTER «Q» (the author's word 17.10.2026 22:50 MSK «build it»; App, «The fabric of time a client
+    /// weighs»: «A client states the person's ceiling and estimate ... with every letter it sends a correspondent, inside what only that
+    /// correspondent opens»): «Y» + the ceiling, «Z» + the estimate. No older reader looks past the closing «Q»: the held tags stand
+    /// before it, the letters' «K» run and the door's «@» are found by their own letters, and neither mark is an «h» or an «f», which
+    /// an older reader seeks anywhere in the word. Said once this life has read the person's own levels (MTFabricLevel.stated).
+    static func fabricTail() -> String {
+        guard let s = MTFabricLevel.stated else { return "" }
+        return "Y" + String(s.ceiling) + "Z" + String(s.estimate)
+    }
+    /// The ceiling and the estimate a peer's word states right after its «Q»; nil from a build before them.
+    static func fabricSaid(in payload: Substring) -> (ceiling: Int, estimate: Int)? {
+        guard var rest = heldEnd(in: payload), rest.first == "Q" else { return nil }
+        rest = rest.dropFirst()
+        guard rest.first == "Y" else { return nil }
+        let c = rest.dropFirst().prefix { $0.isNumber }
+        rest = rest.dropFirst(1 + c.count)
+        guard rest.first == "Z", let ceiling = Int(c), let estimate = Int(rest.dropFirst().prefix { $0.isNumber }) else { return nil }
+        return (ceiling, estimate)
+    }
+    /// A word of the peer, live or swept from the node, stated its ceiling and estimate: the fabric weighs it (MTFabric.said).
+    static func heardFabric(from peer: String, payload: Substring, at: Double) {
+        guard let s = fabricSaid(in: payload) else { return }
+        Task { @MainActor in MTFabric.shared.said(conv: peer, ceiling: s.ceiling, estimate: s.estimate, at: at) }
     }
     /// A DELETION MAY WAKE THEIR EXTENSION (16.10.2026 No.72; the author's words «let deletion reach me by a silent push»): their
     /// build takes a deletion for everyone quietly -- the deleted letter's notice off the screen, no face of its own. Never inferred:

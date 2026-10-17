@@ -118,10 +118,16 @@ enum MTYouTube {
     }
 }
 
-/// THE ONE PLAYER: YouTube's embed on a card over the screen the person is on while it loads, then in the system's picture in
-/// picture. The card stays the player's place where the system gives no picture in picture (a setting, a page that refuses it)
-/// and when the system's window brings the video back to the app; its cross ends the player, and so does the system's window
-/// closed. The card answers the finger with its bar alone: the bar carries it, and the player under the bar is YouTube's.
+/// THE ONE PLAYER: YouTube's embed goes straight into the system's picture in picture (the author's words 18.10.2026 00:2x MSK:
+/// «at once a native picture in picture, without hand-made buttons before it, systemic and correct»). While its first frame loads
+/// the player stands where the system's window will rest -- YouTube's own player and nothing of ours over it or around it, at the
+/// least size YouTube's policies allow -- and the first «playing» lifts it into the system's window. The way back from the window
+/// opens the system's own full-screen player, whose Done ends ours; the window closed ends it as well. A page that gives no
+/// picture in picture plays in the system's full-screen player, and one that gives neither is opened by YouTube itself.
+/// THE WINDOW'S SIZE IS THE SYSTEM'S (the author's word 00:3x: «the size as the video call's»): the video call's window is filled by
+/// this app's own frames (MTFloatVideoView, sample buffers), and YouTube's picture never reaches the app as frames -- its policies
+/// forbid taking the stream apart, and an app in the background may not draw -- so YouTube's window is the system's own window for
+/// a video, sized by the system for the video's proportion and kept where the person pinches it.
 @MainActor final class MTYouTubeStage: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     static let shared = MTYouTubeStage()
     private static let hold = "youtube"   // the player's name in the sound's ledger (MontanaAudioSession)
@@ -130,20 +136,21 @@ enum MTYouTube {
     /// presentation mode with whether the video plays at that moment: the system's window closed pauses it, its way back does not.
     private static let listen = "['playing','pause','ended','error'].forEach(function(e){document.addEventListener(e,function(){try{window.webkit.messageHandlers.tube.postMessage(e)}catch(x){}},true)});document.addEventListener('webkitpresentationmodechanged',function(ev){try{var v=ev.target;window.webkit.messageHandlers.tube.postMessage('mode '+v.webkitPresentationMode+(v.paused?' paused':' playing'))}catch(x){}},true)"
     private static let floatScript = "(function(){var v=document.querySelector('video');if(!v){return 'no video'}if(!v.webkitSupportsPresentationMode){return 'no presentation mode'}if(!v.webkitSupportsPresentationMode('picture-in-picture')){return 'not supported'}v.webkitSetPresentationMode('picture-in-picture');return 'asked'})()"
+    private static let wholeScript = "(function(){var v=document.querySelector('video');if(!v){return 'no video'}if(v.webkitSupportsPresentationMode&&v.webkitSupportsPresentationMode('fullscreen')){v.webkitSetPresentationMode('fullscreen');return 'asked'}if(v.webkitEnterFullscreen){v.webkitEnterFullscreen();return 'entered'}return 'not supported'})()"
     private static let pauseScript = "document.querySelectorAll('video').forEach(function(v){v.pause()})"
     private static let resumeScript = "document.querySelectorAll('video').forEach(function(v){v.play()})"
 
     private(set) var id: String?
     private var web: WKWebView?
-    private var card: UIView?
-    private weak var name: UILabel?
-    private var floating = false   // the video stands in the system's window: the card is out of sight and out of the finger's way
-    private var floated = false    // the first play went to the system's window; a video brought back from it stays on the card
+    private var stage: UIView?
+    private var floating = false   // the video stands in the system's window: the stage is out of sight and out of the finger's way
+    private var whole = false      // the video stands in the system's full-screen player
+    private var floated = false    // the first play went to the system's window already
     private var leaving: NSObjectProtocol?
 
     override init() {
         super.init()
-        // NEVER A BACKGROUND PLAYER: the app leaving the screen rests a video on the card; the system's window is seen and plays on.
+        // NEVER A BACKGROUND PLAYER: the app leaving the screen rests a video on the stage; the system's window is seen and plays on.
         leaving = NotificationCenter.default.addObserver(forName: UIApplication.willResignActiveNotification, object: nil,
                                                          queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
@@ -156,9 +163,9 @@ enum MTYouTube {
     func play(_ id: String, title: String?, channel: String?) {
         guard !MontanaAudioSession.refusedUnderCall("YouTube") else { return }
         if self.id == id, let w = web {
-            // The same video asked again plays on where it stands -- on the card, or in the system's window.
-            MontanaTrace.mark("youtube", "again floating=\(floating ? 1 : 0)")
-            if !floating { show() }
+            // The same video asked again plays on where it stands -- in the system's window, its full-screen player, or the stage.
+            MontanaTrace.mark("youtube", "again floating=\(floating ? 1 : 0) whole=\(whole ? 1 : 0)")
+            if !floating, !whole { show() }
             w.evaluateJavaScript(Self.resumeScript)
             return
         }
@@ -170,36 +177,37 @@ enum MTYouTube {
         self.id = id
         let w = Self.webView(self)
         web = w
-        let c = card(w, in: window)
-        card = c
-        window.addSubview(c)
-        c.center = spot(near: CGPoint(x: window.bounds.maxX, y: 0), in: window)
-        c.alpha = 0
-        c.transform = CGAffineTransform(scaleX: 0.92, y: 0.92)
-        UIView.animate(withDuration: 0.25) { c.alpha = 1; c.transform = .identity }
+        let s = stage(w, in: window)
+        stage = s
+        window.addSubview(s)
+        s.alpha = 0
+        UIView.animate(withDuration: 0.2) { s.alpha = 1 }
         var q = URLRequest(url: u)
         q.setValue(MTYouTube.referer, forHTTPHeaderField: "Referer")
         w.load(q)
         MontanaTrace.mark("youtube", "open")
-        // USER-DATA: the video's own title and channel, as YouTube names them
-        name?.text = title ?? channel
-        guard title == nil, let page = MTYouTube.watch(id) else { return }
-        // A link opened from words alone carries no name: the video's name is asked the way a card asks it (oEmbed).
-        Task { [weak self] in
-            let said = await MTLinkPreviewBuilder.youtubeWords(page)
-            guard let self, self.id == id else { return }
-            // USER-DATA: the video's own title, as YouTube names it
-            self.name?.text = said.0 ?? said.1
-        }
     }
 
-    /// The video goes into the system's picture in picture; the page says whether it went, and the diary keeps its word.
+    /// The video goes into the system's picture in picture; the page says whether it went, and the diary keeps its word. A page that
+    /// gives none plays in the system's full-screen player.
     func float() {
-        web?.evaluateJavaScript(Self.floatScript) { said, _ in
-            MontanaTrace.mark("youtube", "picture in picture " + ((said as? String) ?? "no answer"))
+        web?.evaluateJavaScript(Self.floatScript) { [weak self] said, _ in
+            let word = (said as? String) ?? "no answer"
+            MontanaTrace.mark("youtube", "picture in picture " + word)
+            guard word != "asked" else { return }
+            self?.enlarge()
         }
     }
-    /// A sound of ours starts, or the app leaves the screen with the video on the card: it rests where it stands.
+    /// The system's own full-screen player; a page that gives none either is opened by YouTube itself.
+    private func enlarge() {
+        web?.evaluateJavaScript(Self.wholeScript) { [weak self] said, _ in
+            let word = (said as? String) ?? "no answer"
+            MontanaTrace.mark("youtube", "full screen " + word)
+            guard word != "asked", word != "entered" else { return }
+            self?.leave()
+        }
+    }
+    /// A sound of ours starts, or the app leaves the screen with the video on the stage: it rests where it stands.
     func rest() {
         guard let w = web else { return }
         w.evaluateJavaScript(Self.pauseScript)
@@ -211,7 +219,7 @@ enum MTYouTube {
         MTYouTube.sounds = false
         MontanaAudioSession.release(Self.hold)
     }
-    /// The player ends: its sound let go, its page emptied (the system's window goes with its video), its card away.
+    /// The player ends: its sound let go, its page emptied (the system's window goes with its video), its stage away.
     func end(_ why: String) {
         guard let w = web else { return }
         MontanaTrace.mark("youtube", "end " + why)
@@ -222,30 +230,30 @@ enum MTYouTube {
         web = nil
         id = nil
         floating = false
+        whole = false
         floated = false
-        let c = card
-        card = nil
-        UIView.animate(withDuration: 0.2, animations: { c?.alpha = 0 }) { _ in c?.removeFromSuperview() }
+        let s = stage
+        stage = nil
+        UIView.animate(withDuration: 0.2, animations: { s?.alpha = 0 }) { _ in s?.removeFromSuperview() }
     }
-    /// The mark at the right: the video leaves for YouTube itself, and our player ends.
+    /// The video leaves for YouTube itself, and our player ends: the last way where the system gives the page no player of its own.
     private func leave() {
         guard let id, let u = MTYouTube.watch(id) else { return }
-        MontanaTrace.mark("youtube", "leave to the service by=mark")
+        MontanaTrace.mark("youtube", "leave to the service by=no-player")
         end("leave")
         UIApplication.shared.open(u)
     }
 
     private func show() {
-        guard let c = card else { return }
-        c.superview?.bringSubviewToFront(c)
-        c.isUserInteractionEnabled = true
-        if let window = c.superview { c.center = spot(near: c.center, in: window) }
-        UIView.animate(withDuration: 0.25) { c.alpha = 1; c.transform = .identity }
+        guard let s = stage else { return }
+        s.superview?.bringSubviewToFront(s)
+        s.isUserInteractionEnabled = true
+        UIView.animate(withDuration: 0.2) { s.alpha = 1 }
     }
     private func tuck() {
-        guard let c = card else { return }
-        c.isUserInteractionEnabled = false
-        UIView.animate(withDuration: 0.25) { c.alpha = 0; c.transform = CGAffineTransform(scaleX: 0.92, y: 0.92) }
+        guard let s = stage else { return }
+        s.isUserInteractionEnabled = false
+        UIView.animate(withDuration: 0.2) { s.alpha = 0 }
     }
 
     func userContentController(_ c: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -257,16 +265,26 @@ enum MTYouTube {
             if v.playingFile != nil, !v.paused { v.pause() }   // one sound: our own track rests while YouTube plays
             if MontanaVideoDock.shared.file != nil { MontanaVideoDock.shared.close() }
             MontanaAudioSession.activatePlayback(Self.hold)
-            if !floating, !floated { floated = true; float() }   // the first play goes into the system's window at once
+            if !floating, !whole, !floated { floated = true; float() }   // the first play goes into the system's window at once
         } else if ["pause", "ended", "error"].contains(said) {
             quiet()
         } else if said.hasPrefix("mode picture-in-picture") {
             floating = true
+            whole = false
             tuck()
-        } else if said.hasPrefix("mode inline"), floating {
-            // The system's window closed pauses its video and ends the player; its way back to the app plays on, on the card.
+        } else if said.hasPrefix("mode fullscreen") {
+            whole = true
             floating = false
-            if said.hasSuffix("paused") { end("the system's window closed") } else { show() }
+            tuck()
+        } else if said.hasPrefix("mode inline") {
+            if floating {
+                // The system's window closed pauses its video and ends the player; its way back opens the system's full-screen player.
+                floating = false
+                if said.hasSuffix("paused") { end("the system's window closed") } else { enlarge() }
+            } else if whole {
+                whole = false
+                end("the system's player closed")
+            }
         }
     }
     /// A link inside the player (the title, the logo, «Watch on YouTube») goes to YouTube itself.
@@ -303,78 +321,21 @@ enum MTYouTube {
         v.navigationDelegate = watch
         return v
     }
-    /// The card: a bar of the platform's marks over YouTube's player -- the cross at the left, the system's window and YouTube
-    /// itself at the right, the video's name between -- on the platform's thick material; the player under the bar, 200 points
-    /// tall at least, its corners its own.
-    private func card(_ w: WKWebView, in window: UIWindow) -> UIView {
-        let width = min(window.bounds.width - 24, 480)
-        let inset: CGFloat = 6
-        let bar: CGFloat = 44
-        let playerWidth = width - 2 * inset
-        let tall = max(200, (playerWidth * 9 / 16).rounded())
-        let c = UIView(frame: CGRect(x: 0, y: 0, width: width, height: bar + tall + inset))
-        c.layer.shadowColor = UIColor.black.cgColor
-        c.layer.shadowOpacity = 0.22
-        c.layer.shadowRadius = 18
-        c.layer.shadowOffset = CGSize(width: 0, height: 8)
-        let ground = UIVisualEffectView(effect: UIBlurEffect(style: .systemThickMaterial))
-        ground.frame = c.bounds
-        ground.layer.cornerRadius = 18
-        ground.layer.cornerCurve = .continuous
-        ground.clipsToBounds = true
-        c.addSubview(ground)
-        let grip = UIView(frame: CGRect(x: 0, y: 0, width: width, height: bar))
-        grip.addGestureRecognizer(UIPanGestureRecognizer(target: self, action: #selector(carried(_:))))
-        ground.contentView.addSubview(grip)
-        let label = UILabel(frame: CGRect(x: bar + 4, y: 0, width: width - 3 * bar - 8, height: bar))
-        label.font = .preferredFont(forTextStyle: .footnote)
-        label.textColor = .secondaryLabel
-        label.lineBreakMode = .byTruncatingTail
-        ground.contentView.addSubview(label)
-        name = label
-        let close = mark("xmark", String(localized: "Close", bundle: MTLanguage.bundle)) { [weak self] in self?.end("cross") }
-        close.frame = CGRect(x: 0, y: 0, width: bar, height: bar)
-        let lift = mark("pip.enter", String(localized: "Picture in Picture", bundle: MTLanguage.bundle)) { [weak self] in self?.float() }
-        lift.frame = CGRect(x: width - 2 * bar, y: 0, width: bar, height: bar)
-        let out = mark("arrow.up.right.square", String(localized: "Open in YouTube", bundle: MTLanguage.bundle)) { [weak self] in self?.leave() }
-        out.frame = CGRect(x: width - bar, y: 0, width: bar, height: bar)
-        for b in [close, lift, out] { ground.contentView.addSubview(b) }
-        w.frame = CGRect(x: inset, y: bar, width: playerWidth, height: tall)
-        ground.contentView.addSubview(w)
-        return c
-    }
-    /// A glyph of the platform on 44 points, its name for VoiceOver.
-    private func mark(_ glyph: String, _ said: String, _ act: @escaping () -> Void) -> UIButton {
-        var look = UIButton.Configuration.plain()
-        look.image = UIImage(systemName: glyph, withConfiguration: UIImage.SymbolConfiguration(textStyle: .body))
-        let b = UIButton(configuration: look, primaryAction: UIAction { _ in act() })
-        b.tintColor = .label
-        b.accessibilityLabel = said
-        return b
-    }
-    /// The card goes where the finger throws it and settles at the nearest edge of the screen, as the system's own window does.
-    @objc private func carried(_ g: UIPanGestureRecognizer) {
-        guard let c = card, let window = c.superview else { return }
-        let t = g.translation(in: window)
-        c.center = CGPoint(x: c.center.x + t.x, y: c.center.y + t.y)
-        g.setTranslation(.zero, in: window)
-        guard [.ended, .cancelled].contains(g.state) else { return }
-        let v = g.velocity(in: window)
-        let to = spot(near: CGPoint(x: c.center.x + v.x / 5, y: c.center.y + v.y / 5), in: window)
-        UIView.animate(withDuration: 0.4, delay: 0, usingSpringWithDamping: 0.85, initialSpringVelocity: 0,
-                       options: [.allowUserInteraction, .beginFromCurrentState]) { c.center = to }
-    }
-    /// The card's resting place nearest a point, inside the safe area: a corner where the screen is wide enough for it to stand
-    /// aside, the top or the bottom across the middle where it is not.
-    private func spot(near p: CGPoint, in window: UIView) -> CGPoint {
-        guard let c = card else { return p }
-        let safe = window.bounds.inset(by: window.safeAreaInsets).insetBy(dx: 12, dy: 8)
-        let halfW = c.bounds.width / 2
-        let halfH = c.bounds.height / 2
-        let left = safe.minX + halfW
-        let right = safe.maxX - halfW
-        let x = right - left < halfW ? window.bounds.midX : (p.x < window.bounds.midX ? left : right)
-        let y = p.y < window.bounds.midY ? safe.minY + halfH : safe.maxY - halfH
-        return CGPoint(x: x, y: y)
+    /// Where the system's window will rest while the first frame loads: YouTube's own player and nothing of ours -- 200 points tall,
+    /// the least YouTube's policies allow, as wide as the video's proportion within the screen -- at the bottom corner above the home
+    /// indicator, rounded as the system's window is. The player takes the finger by design: its own controls are YouTube's.
+    private func stage(_ w: WKWebView, in window: UIWindow) -> UIView {
+        let tall: CGFloat = 200
+        let wide = min(window.bounds.width - 24, (tall * 16 / 9).rounded())
+        let safe = window.bounds.inset(by: window.safeAreaInsets)
+        let s = UIView(frame: CGRect(x: safe.maxX - wide - 12, y: safe.maxY - tall - 12, width: wide, height: tall))
+        s.backgroundColor = .black
+        s.layer.cornerRadius = 12
+        s.layer.cornerCurve = .continuous
+        s.clipsToBounds = true
+        w.frame = s.bounds
+        w.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        s.addSubview(w)
+        return s
     }
 }

@@ -126,10 +126,18 @@ enum MTPipe {
     /// and that difference is written down in the internal audit.
     static let fingerprintIterations = 5200
 
+    /// The hash the thirty digits are read from, all thirty-two bytes of it (Canon, «The fingerprint compared out of band»: h after
+    /// fingerprint_iterations). It is also what a testimony of a call names its addressee by (Canon, «The testimony of a call»;
+    /// MTFabric), so the number and the testimony stand on one derivation, never two.
+    static func fingerprintMaterial(_ key: Data) -> Data {
+        var h = key
+        for _ in 0 ..< fingerprintIterations { h = domained("mt-safety", [h]) }
+        return h
+    }
+
     static func fingerprint(secret: Data) -> String? {
         guard secret.count == 32 else { return nil }
-        var h = secret
-        for _ in 0 ..< fingerprintIterations { h = domained("mt-safety", [h]) }
+        let h = fingerprintMaterial(secret)
         let groups = (0 ..< 6).map { i -> String in
             let g = h.subdata(in: h.startIndex + i * 5 ..< h.startIndex + i * 5 + 5)
             let v = g.reduce(UInt64(0)) { ($0 << 8) | UInt64($1) } % 100_000

@@ -1394,6 +1394,7 @@ struct MTTimeChainRows: View {
         case "spent": return "Coins on reactions"
         case "pi": return "Levels of π"
         case "person": return "Person"
+        case "fabric": return "Fabric of Time"
         case "calls": return "Burned for calls"
         case "letters": return "Burned for letters"
         case "system": return "System chain"
@@ -1506,15 +1507,16 @@ struct MTTimeChainLinkRow<Content: View>: View {
 /// footer names the level alone.
 struct MTTimeChainsPage: View {
     @ObservedObject private var person = MTPersonChain.shared
+    @ObservedObject private var fabric = MTFabric.shared
     @ObservedObject private var book = MTLocalCoinLedger.shared
     @ObservedObject private var top = MTTopNet.shared
     @ObservedObject private var node = MTNetworkNode.shared
     @State private var core: Result<MTWalletCore.Snapshot, MTWalletCore.Absence>?
     @State private var chainFiles: [URL] = []
-    /// The chats' and calls' chains: the third chain of time; every other source is the wallet's own.
+    /// The chats' and calls' chains of coins; every other source is the wallet's own. The third chain of time is the Fabric of Time.
     static let talk = ["chats", "groups", "channels", "comments", "wall", "calls", "letters"]
     private static let own = MTTimeChain.sources.filter { s in s != "pi" && !talk.contains(s) }
-    private var vectorsHold: Bool { MTPersonChain.levelKAT() && MTTopNet.keyKAT() && MTCoinVault.keyKAT() && MTTimeChainTip.selfCheck() }
+    private var vectorsHold: Bool { MTPersonChain.levelKAT() && MTFabricRules.selfCheck() && MTTopNet.keyKAT() && MTCoinVault.keyKAT() && MTTimeChainTip.selfCheck() }
     var body: some View {
         let place = MTPiLevels.place(book.balance)
         List {
@@ -1523,7 +1525,7 @@ struct MTTimeChainsPage: View {
                     // USER-DATA: the Global Level of the person, a number
                     Text(verbatim: String(MTPersonChain.global(person: person.level, balance: book.balance))).font(.title.bold().monospacedDigit())
                 } label: { Label("Global level", systemImage: "globe") }
-            } footer: { Text("The lower of the two levels below.") }
+            } footer: { Text("The lowest of the three levels below.") }
             Section {
                 LabeledContent("Level") {
                     // USER-DATA: the level of the chain of the person, a number, or a dash below one second
@@ -1566,10 +1568,46 @@ struct MTTimeChainsPage: View {
             } footer: {
                 Text("Your balance reveals π: each level opens when the balance reaches the next amount — 3, 31, 314 …")
             }
+            // THE FABRIC OF TIME (the author's words 17.10.2026 22:24-22:50 MSK: «the 3rd level ... regular calls over the last 14 days»;
+            // «a new level that sets the global one, named Fabric of Time»; App, «The chains of time a client shows»): the third chain of
+            // time -- the level of this turn, the regular correspondents it weighs, the testimonies held, the person's own ceiling and
+            // estimate, and its chain; through the first two turns, the days until the first count, the level standing at the ceiling.
+            Section {
+                LabeledContent("Level") {
+                    // USER-DATA: the level of the fabric of time this turn, a number, or a dash before this life has read it
+                    Text(verbatim: fabric.level.map { n in String(n) } ?? "—").monospacedDigit()
+                }
+                if let days = fabric.graceDays {
+                    Text("Days until the first count: \(days)").font(.subheadline).foregroundStyle(.secondary)
+                }
+                LabeledContent("Regular correspondents") {
+                    // USER-DATA: how many correspondents this turn weighs, a number
+                    Text(verbatim: String(fabric.regulars)).monospacedDigit()
+                }
+                LabeledContent("Testimonies of calls") {
+                    // USER-DATA: how many testimonies of calls this phone holds, a number
+                    Text(verbatim: String(fabric.testimonies)).monospacedDigit()
+                }
+                LabeledContent("Ceiling and estimate") {
+                    // USER-DATA: the person's own ceiling and estimate this turn, two numbers, or dashes before they are read
+                    Text(verbatim: (fabric.ceiling.map { n in String(n) } ?? "—") + " · " + (fabric.estimate.map { n in String(n) } ?? "—")).monospacedDigit()
+                }
+                NavigationLink { MTTimeChainPage(source: "fabric") } label: {
+                    LabeledContent("Chain links") {
+                        // USER-DATA: the chain's length and the first letters of its head's seal
+                        Text(verbatim: String(fabric.links.count) + " · " + String((fabric.links.last?.hash ?? MTTimeChain.genesis).prefix(8)))
+                            .font(.footnote.monospaced()).foregroundStyle(.secondary)
+                    }
+                }
+            } header: {
+                Label("Fabric of Time", systemImage: "3.circle")
+            } footer: {
+                Text("Your regular calls of the last two weeks, weighed by how high the people you call stand: the greatest number g for which at least g people you called in each of the last two weeks stand at level g or above. A call counts when each of you heard the other for a minute; at its end each phone signs what it heard and gives it to the other. Counted again every week; through its first two weeks it stands at the lower of your two levels above. Your ceiling and estimate go only to the people you call, inside your conversation.")
+            }
             Section {
                 MTTimeChainRows(sources: Self.talk)
             } header: {
-                Label("Chats and calls", systemImage: "3.circle")
+                Label("Chats and calls", systemImage: "bubble.left.and.bubble.right")
             } footer: {
                 Text("The chains of the coins your chats, calls and comments minted and burned, and the chain of your wall's posts.")
             }
@@ -1632,6 +1670,7 @@ struct MTTimeChainsPage: View {
         .navigationTitle("TimeChain")
         .navigationBarTitleDisplayMode(.inline)
         .task {
+            fabric.prime(); fabric.refresh()   // the third level is read when its page opens (MTFabric)
             let read = await Task.detached(priority: .utility) { MTWalletCore.read() }.value
             core = read
             let fm = FileManager.default
@@ -1759,6 +1798,22 @@ struct MTCoinSendSheet: View {
     @ObservedObject private var board = MTCoinBoard.shared
     @ObservedObject private var seats = MTSeats.shared   // the persons waiting on this phone's shelf: my other accounts
     @ObservedObject private var split = MTCoinSplit.shared   // the available, the one number a transfer shows and is weighed by
+    /// A GROUP'S COIN IS THIS PAGE OVER THE GROUP'S PEOPLE (the author's word 18.10.2026 00:14 MSK, asked whether a coin in a group is
+    /// a transfer to one chosen member or no coin at all: «yes, with a choice by check marks among the members, as on the Send page
+    /// of the time coin»): the group's key when the page opens from a group's field, nil from the wallet. The rows are the people a
+    /// coin of this phone reaches (MTGroup.coinPeople), the picks, the boxes and the fields are the page's own, and each person picked
+    /// gets the pair's own transfer -- one record on the nodes for one receiver (MTCoinSend.transfer); the group is only told how
+    /// many were paid (MTGroup.tellCoins).
+    private let group: String?
+    /// Told once coins went, so the field the page opened from empties.
+    private let sent: () -> Void
+    /// The group's people no coin of this phone reaches, each with why (no pipe of its own with them, or a pair closed to coins).
+    @State private var unreached: [MTGroupPayee] = []
+    init(group: String? = nil, each: Int = 0, sent: @escaping () -> Void = {}) {
+        self.group = group
+        self.sent = sent
+        _chosen = State(initialValue: 0 < each ? each : 1)   // the number written in the group's field: each pick's coins
+    }
     /// EVERY PAIR OF THE CHATS TAB, IN ITS ORDER, EVERY ONE OPEN (the author's words 11.10.2026 17:5x MSK: «put full order in the list
     /// of chats for sending the time coins -- not all chats show on the send page»; 19:5x: «the person is the seed and everything is in
     /// it»): a person is their seed and their wallet is in it, so no row stands dimmed «no wallet yet» (MTCoinSend.canPay).
@@ -1828,7 +1883,7 @@ struct MTCoinSendSheet: View {
                 // transfer to send to oneself on another account»): every person waiting on this phone's shelf, by the face and the
                 // name the drawer shows; the coins ride the pipe the two persons share, born on this phone when they have none
                 // (MTSeats.pairWithShelf), and the shelf files them in that person's own book.
-                if !seats.parked.isEmpty {
+                if group == nil, !seats.parked.isEmpty {
                     Section {
                         ForEach(seats.parked) { s in
                             let key = Self.seatKey(s.id)
@@ -1860,8 +1915,9 @@ struct MTCoinSendSheet: View {
                     } header: { Text("My other accounts") } footer: { Text("A transfer to your own account links the two accounts publicly forever.") }
                 }
                 Section {
-                    if chats.isEmpty {
-                        Text("No chats yet").foregroundStyle(.secondary).listRowBackground(MTGlassRowPlate())
+                    if chats.isEmpty, unreached.isEmpty {
+                        Group { if group == nil { Text("No chats yet") } else { Text("No members yet") } }
+                            .foregroundStyle(.secondary).listRowBackground(MTGlassRowPlate())
                     } else {
                         ForEach(chats, id: \.name) { c in
                             HStack(spacing: 12) {
@@ -1890,8 +1946,32 @@ struct MTCoinSendSheet: View {
                             }
                             .listRowBackground(MTGlassRowPlate())
                         }
+                        // THE PEOPLE NO COIN OF THIS PHONE REACHES stand greyed with why, as the platform draws a row that takes no pick.
+                        ForEach(unreached, id: \.seat) { p in
+                            HStack(spacing: 12) {
+                                AvatarCircle(photoURL: nil, color: Color(montanaHexString: MontanaAvatar.colorHex(p.name)),
+                                             initial: MontanaAvatar.initial(title: p.name, name: ""), size: 40)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(verbatim: p.name).foregroundStyle(.secondary).lineLimit(1)   // USER-DATA: a person's name in the group
+                                    Group {
+                                        if p.held { Text("Coins can't go to this chat") } else { Text("No chat of your own with this member") }
+                                    }
+                                    .font(.caption).foregroundStyle(.tertiary).lineLimit(2)
+                                }
+                                Spacer(minLength: 0)
+                            }
+                            .frame(minHeight: 44)
+                            .accessibilityElement(children: .combine)
+                            .listRowBackground(MTGlassRowPlate())
+                        }
                     }
-                } header: { Text("Choose chats") }
+                } header: {
+                    if group == nil { Text("Choose chats") } else { Text("Choose members") }
+                } footer: {
+                    if group != nil {
+                        Text("Each member you pick gets a transfer of their own in your chat with them. The group is told only how many members you sent coins to.")
+                    }
+                }
             }
             .scrollContentBackground(.hidden)
             .scrollDismissesKeyboard(.interactively)
@@ -1932,6 +2012,13 @@ struct MTCoinSendSheet: View {
         }
         .onAppear {
             guard let store = ChatStore.live else { return }
+            if let key = group {
+                let people = MTGroup.shared.coinPeople(key, store: store)
+                chats = people.compactMap { p in p.chat }
+                unreached = people.filter { p in p.chat == nil }
+                MontanaTrace.mark("coin_send_page", "group pairs=" + String(chats.count) + " unreached=" + String(unreached.count))
+                return
+            }
             // Every pair of the chats tab in its order: no group, no room of the phone's own, no blocked or closed person, no device
             // of my own words, one row a person (MTSamePair). A row born before the conversation took its id is named by its pipe.
             let pairs: [Chat] = store.listChats().compactMap { c in
@@ -2056,11 +2143,16 @@ struct MTCoinSendSheet: View {
             }
             MontanaTrace.mark("coin_send_many", "chats=\(to.count) own=\(toSeats.count) total=\(total) went=\(went.count)")
             guard !went.isEmpty else { going = [:]; ask = .short; return }
+            if let key = group {
+                MTGroup.shared.tellCoins(went.count, in: key, store: store)
+                sent()
+            }
             // THE PAGE LEAVES BY ITSELF (the author's word 05.10.2026 18:2x MSK: «the send page must close and carry into our app to go
             // on; now it hangs on the send page and asks an extra action -- constitution 0»): the closed rings stand a breath, then
             // one recipient's chat opens at once (the outside road closes the sheet and the wallet in one move), many close the page.
             try? await Task.sleep(nanoseconds: 450_000_000)
-            if went.count == 1, let ref = went.first?.name { MontanaOutsideOpen.chat(ref) } else { dismiss() }
+            // From a group the page closes back into the group, where its words now stand.
+            if group == nil, went.count == 1, let ref = went.first?.name { MontanaOutsideOpen.chat(ref) } else { dismiss() }
         }
     }
 }

@@ -216,7 +216,8 @@ enum MTLinkPreviewBuilder {
     }
     /// THE CARD THAT RIDES IS THE CARD THAT IS SEEN, ITS PICTURE CUT TO THE LEG. The picture alone is
     /// re-encoded now, and only when no size fits does the card ride with its words alone.
-    private static func fitting(_ lp: String?) -> String? {
+    /// One owner of the leg's measure: a pair's letter tail and a group's card word (MTGroup.carryCard) both ride the card cut here.
+    static func fitting(_ lp: String?) -> String? {
         guard let lp, !lp.isEmpty, lp.utf8.count > 64 else { return nil }
         if lp.utf8.count <= 16384 { return lp }
         return shrunk(lp)
@@ -544,14 +545,16 @@ final class MTLinkCards {
         }
     }
 
-    /// The card lands on the row and, if there is a correspondent, rides to them.
+    /// The card lands on the row and, if there is a correspondent, rides to them -- in a group, to everyone by the group's own word.
     private func land(store: ChatStore, chat: String, mid: String, text: String, sid: String?,
                       quoteText: String?, quoteMid: String?, card: String) {
         if let i = store.messages[chat]?.firstIndex(where: { $0.msgId == "mid:\(mid)" }),
            store.messages[chat]?[i].linkPreview != card {
             store.messages[chat]?[i].linkPreview = card   // ONE touch of the feed, and only when it changes
         }
-        if let sid {
+        if MTGroup.isKey(chat) {
+            MTGroup.shared.carryCard(card, letter: mid, in: chat, store: store)
+        } else if let sid {
             MontanaDeliveryEngine.shared.attachPreview(to: sid, chat: chat, mid: mid, text: text, lp: card,
                                                        quoteText: quoteText, quoteMid: quoteMid)
         }
@@ -571,7 +574,9 @@ final class MTLinkCards {
                    store.messages[chat]?[i].linkPreview != json {
                     store.messages[chat]?[i].linkPreview = json
                 }
-                if let sid {
+                if MTGroup.isKey(chat) {
+                    MTGroup.shared.carryCard(json, letter: mid, in: chat, store: store)   // the picture rides to the group as the words did
+                } else if let sid {
                     MontanaDeliveryEngine.shared.attachPreview(to: sid, chat: chat, mid: mid, text: text, lp: json,
                                                                quoteText: quoteText, quoteMid: quoteMid)
                 }

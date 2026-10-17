@@ -1796,7 +1796,7 @@ class ChatStore: ObservableObject {
     static func machineWord(_ text: String) -> Bool {
         text.hasPrefix(deliveryReceiptMark) || text.hasPrefix(avatarMark) || text.hasPrefix(nameMark) || text.hasPrefix(aboutMark)
             || text.hasPrefix(groundMark) || text.hasPrefix(cardMark) || text.hasPrefix(wakeHandleMark) || text.hasPrefix(cargoLostMark)
-            || text.hasPrefix(playedMark) || text.hasPrefix(deleteKeptMark)
+            || text.hasPrefix(playedMark) || text.hasPrefix(deleteKeptMark) || text.hasPrefix(fabricMark)
             || text.hasPrefix(punchEndpointMark) || text.hasPrefix(exitDoorMark) || text.hasPrefix(callSignalMark)
             || text.hasPrefix(MTBoard.mark) || text.hasPrefix(MTVPNWall.mark) || text.hasPrefix(sameAskMark) || text.hasPrefix(sameYesMark) || text.hasPrefix(pipeClosedMark) || text.hasPrefix(MTGroup.mark) || text.hasPrefix(keepMark) || mtUnknownServiceWord(text)
     }
@@ -4312,6 +4312,7 @@ MontanaLocalVault.setEncrypted("scheduledMsgs", d)
                 E2E.heardCapable(from: chat, payload: payload)   // what its build reads, from every word, late ones too (25.09)
                 E2E.heardCoins(from: chat, payload: payload, at: wordAt)   // the balance the word tells (04.10)
                 E2E.heardLevel(from: chat, payload: payload, at: wordAt)   // the Global Level the word tells, or its withdrawal (11.10)
+                E2E.heardFabric(from: chat, payload: payload, at: wordAt)   // the ceiling and the estimate the word states (MTFabric, 17.10)
                 if fresh { E2E.shared.heardHeld(from: chat, payload: payload) }   // what of mine their screen holds (20.09)
                 heardHeldLetters(chat, payload: payload)   // which of my letters they hold whole (23.09)
                 if let at = payload.firstIndex(of: "@") {   // the door they ask — my words for them go there
@@ -4339,6 +4340,7 @@ MontanaLocalVault.setEncrypted("scheduledMsgs", d)
                 E2E.heardCapable(from: chat, payload: payload)   // what its build reads, from every word, late ones too (25.09)
                 E2E.heardCoins(from: chat, payload: payload, at: wordAt)   // the balance the word tells (04.10)
                 E2E.heardLevel(from: chat, payload: payload, at: wordAt)   // the Global Level the word tells, or its withdrawal (11.10)
+                E2E.heardFabric(from: chat, payload: payload, at: wordAt)   // the ceiling and the estimate the word states (MTFabric, 17.10)
                 if fresh { E2E.shared.heardHeld(from: chat, payload: payload) }   // what of mine their screen holds (20.09)
                 heardHeldLetters(chat, payload: payload)   // which of my letters they hold whole (23.09)
                 E2E.notePresenceCapable(chat)
@@ -4451,6 +4453,12 @@ MontanaLocalVault.setEncrypted("scheduledMsgs", d)
                 // their «announced» mark (15.21).
                 sendDeliveryReceipt(chat, msgId: m.msgId, isFromMe: m.isFromMe, text: m.text)
             }
+            return false
+        }
+        // THE FABRIC OF TIME'S WORD (the author's word 17.10.2026 22:50 MSK, MTFabric): a testimony of a call the peer signed at its
+        // close, and the peer's ceiling and estimate. Checked whole before it counts (MTFabric.received); never a row, never receipted.
+        if m.text.hasPrefix(fabricMark) {
+            if !m.isFromMe { MTFabric.shared.received(String(m.text.dropFirst(fabricMark.count)), from: chat, at: wordAt) }
             return false
         }
         // THE PEER'S BIO AND LINK AS STATE (24.09) — the same road as the name: applied if it is the latest word, and
@@ -6471,7 +6479,15 @@ MontanaLocalVault.setEncrypted("scheduledMsgs", d)
         // A GROUP'S LETTER HAS ITS OWN CARRIER (MTGroup): one copy per receiver, each under a name of its own, the receipts folded
         // into the group's row -- never one letter to an address the group does not have.
         if MTGroup.isKey(chat) {
-            return MTGroup.shared.send(text, in: chat, replyText: replyText, replyToId: replyToId, replyWireMid: replyWireMid, store: self)
+            let row = MTGroup.shared.send(text, in: chat, replyText: replyText, replyToId: replyToId, replyWireMid: replyWireMid, store: self)
+            // THE CARD BELONGS TO THE LETTER IN A GROUP TOO (the author's word 17.10.2026 22:3x MSK: «everything as in chats, one to
+            // one»): the plate above the field stood in a group while the letter left without its card. The one owner of the card
+            // attends a group's letter as a pair's; the copy for the others is the group's own word (MTGroup.carryCard).
+            if !row.text.isEmpty, row.mid.hasPrefix("mid:") {   // a refused letter is no row, and carries no card
+                MTLinkCards.shared.attend(store: self, chat: chat, mid: String(row.mid.dropFirst(4)), text: text, sid: nil,
+                                          quoteText: replyText, quoteMid: replyWireMid, seen: linkCard, refused: noLinkCard)
+            }
+            return row
         }
         let minted = given ?? Self.mintMid()
         let mid = minted.mid

@@ -562,7 +562,7 @@ enum MTCoinBalance {
     static var now: Int? { lock.lock(); defer { lock.unlock() }; return held }
     static func set(_ v: Int) {
         lock.lock(); let moved = held != v; held = v; lock.unlock()
-        if moved { Task { @MainActor in MTCoinTell.moved(); MTLevelDistribution.shared.changed() } }
+        if moved { Task { @MainActor in MTCoinTell.moved(); MTFabric.shared.refresh(); MTLevelDistribution.shared.changed() } }
     }
 }
 
@@ -1912,9 +1912,15 @@ enum MTTimeChain {
         for k in 1...62 where level(Int64(1) << k) != k || level((Int64(1) << k) - 1) != k - 1 { return false }
         return level(Int64.max) == 62
     }
-    /// THE GLOBAL LEVEL OF THE PERSON (the author's word 10.10.2026 15:0x MSK: «the lowest level among the chain of the person and
-    /// the chain of the wallet becomes the Global Level of the person»): the lower of the person's level and the wallet's level of π.
-    nonisolated static func global(person: Int?, balance: Int) -> Int { min(person ?? 0, MTPiLevels.place(balance)) }
+    /// THE GLOBAL LEVEL OF THE PERSON, THE ONE READING OF IT (the author's words 10.10.2026 15:0x MSK: «the lowest level among the
+    /// chain of the person and the chain of the wallet becomes the Global Level of the person»; 17.10.2026 22:24 and 22:41 MSK: the
+    /// third level, the Fabric of Time, «bears on the Global level by the rule of the minimum», «under the word level we mean only the
+    /// global one»; Canon, «The level of a person»: min(p, w, f)): the lowest of the person's level, the wallet's level of π and the
+    /// level of the fabric of time this turn (MTFabricLevel). A fabric this life has not read yet adds no third term -- an unknown
+    /// level is never said as none. Every place that speaks of the person's level asks this and computes nothing of its own.
+    nonisolated static func global(person: Int?, balance: Int) -> Int {
+        MTFabricRules.levelOfPerson(person ?? 0, MTFabricRules.walletLevel(balance), MTFabricLevel.now ?? Int.max)
+    }
 
     private struct Kept: Codable { var lane: String; var spans: [Span]; var away: Away? }
     private static var file: URL? { MTTimeChainPlace.dir()?.appendingPathComponent("person-seconds.json") }
@@ -1927,6 +1933,7 @@ enum MTTimeChain {
         } else {
             lane = Data((0..<16).map { _ in UInt8.random(in: 0...255) })
         }
+        MTFabric.shared.prime()   // the third level is read with the first (MTFabric)
         recount(write: false)
     }
     private func keep() {
@@ -1943,6 +1950,7 @@ enum MTTimeChain {
         loaded = false; spans = []; links = []; seconds = 0; last = nil; away = nil
         opened = [:]; mine = [:]; stale = []; dirty = false
         MTPersonLevel.set(nil)
+        MTFabric.shared.reread()   // the fabric of the person who left goes with their folder too
     }
     /// The seconds are read before a node's answer asks for them: a face that shows the level, and a word that says it, need them now.
     func prime() { load() }
@@ -1977,6 +1985,7 @@ enum MTTimeChain {
     private func recount(write: Bool = true) {
         seconds = spans.reduce(0) { n, s in n + (s.b - s.a + 1) }
         MTPersonLevel.set(level)
+        MTFabric.shared.refresh()   // the ceiling stands on the person's level (MTFabric)
         MTLevelDistribution.shared.changed()
         let fresh = Self.chain(spans)
         guard fresh.last?.hash != links.last?.hash else { return }   // the head's seal seals the whole chain
@@ -2045,7 +2054,7 @@ enum MTTimeChain {
     /// once a minute at most.
     func tick() async {
         load()
-        if !checked { checked = true; MontanaTrace.mark("person_self", "ok=\(Self.levelKAT() ? 1 : 0)") }
+        if !checked { checked = true; MontanaTrace.mark("person_self", "ok=\(Self.levelKAT() ? 1 : 0) fabric=\(MTFabricRules.selfCheck() ? 1 : 0)") }
         let now = Date().timeIntervalSince1970
         if 30 <= now - gotAt { gotAt = now; await gather() }
         if dirty, 60 <= now - putAt { await put() }
@@ -2104,6 +2113,489 @@ enum MTTimeChain {
             MontanaTrace.markFolded("person_get", "seconds=\(seconds) level=\(level ?? -1) joined=\(seconds - before)", window: 60)
             return
         }
+    }
+}
+
+// MARK: - THE FABRIC OF TIME (the author's words 17.10.2026 22:24, 22:41, 22:50 and 23:18 MSK)
+
+/// THE RULES OF THE FABRIC OF TIME, AS THE CORE STATES THEM (the author's words 17.10.2026 22:24 MSK: «the 3rd level is the count of
+/// levels of the chats real with regular calls over the last 14 days -- t2 -- and it bears on the Global level by the rule of the
+/// minimum»; 22:41: «one's own is one's own global level -- under the word level we mean only the global one»; 22:50: «build it, and
+/// at once let a new level appear in the clients that sets the global one, named Fabric of Time»; Canon, «The level of the wallet»,
+/// «The level of the fabric of time», «The turn of the fabric», «The level of a person», «The testimony of a call»). Byte for byte the
+/// core's mt-derive levels.rs -- the same functions and the same frozen vectors (selfCheck) -- so a phone and a node that read one
+/// testimony name it by one identifier.
+enum MTFabricRules {
+    /// A call weaves when each side received the other's voice this long (Canon, call_seconds).
+    static let callSeconds = 60
+    /// Half of τ₂, so the last τ₂ is always two whole turns (Canon, «The turn of the fabric»).
+    static let turnWindows = UInt64(MontanaNames.tau2Windows) / 2
+    /// The turns from the opening of a seed's fabric that weigh no correspondent: its level of the fabric is its ceiling (App).
+    static let graceTurns: UInt64 = 2
+    /// τ₂ and a turn: what the fabric holds lives this many turns after its own and then leaves ([I-14]).
+    static let lifeTurns: UInt64 = 3
+    static let suite: UInt16 = 1             // Canon, the suite table: row 1, ML-DSA-65
+    static let signatureLength = 3309        // Canon, the suite table: the signature of row 1
+    static let scopeLength = 80              // Canon, «The testimony of a call»: 2 + 32 + 32 + 8 + 4 + 1 + 1
+    static let testimonyLength = 3389        // Canon, testimony_len
+    static let mostLevels = 19               // Canon: the most levels the wallet holds, which no ceiling exceeds
+
+    /// The level of the wallet (Canon: the count of the prefixes of π the balance reaches): MTPiLevels.place, its one reading.
+    static func walletLevel(_ balance: Int) -> Int { MTPiLevels.place(balance) }
+    /// H: the greatest g for which at least g of the values stand at g or above. It counts people, not weight, in any order.
+    static func fabricLevel(_ values: [Int]) -> Int {
+        var level = 0
+        for value in values.sorted(by: >) {
+            if value <= level { break }
+            level += 1
+        }
+        return level
+    }
+    /// The turn of a window: integer division by half of τ₂.
+    static func turn(_ window: UInt64) -> UInt64 { window / turnWindows }
+    /// The level of a person: the lowest of the three, never a sum or a mean of them.
+    static func levelOfPerson(_ person: Int, _ wallet: Int, _ fabric: Int) -> Int { min(person, wallet, fabric) }
+    static func weaves(_ heard: Int) -> Bool { callSeconds <= heard }
+    /// DEVIATION (Canon, «The turn of the fabric»: «w is the network's window as the device read it from the network»): a phone holds
+    /// no window of the core, so its window is the nodes' second -- learned from their answers (MontanaWakePush.nodeNow), the seconds
+    /// the chain of the person counts too (MTPersonChain.answered) -- over sixty, counted from the Unix epoch.
+    static func windowNow() -> UInt64 { UInt64(max(0, MontanaWakePush.nodeNow())) / MTPipe.windowSeconds }
+
+    /// THE FAR VOICE, AS THIS PHONE RECEIVED IT (App: «the seconds of the person's voice the signer's device received»): one stretch of
+    /// the engine's received voice stream -- its played seconds, their energy, the samples received and the ones the engine made up for
+    /// packets that never came. A stretch counts when its level stands at a voice's floor or above, and only by the share of it that was
+    /// received: a muted microphone sends silence, which carries no energy, and a broken road is made-up samples -- neither is a voice.
+    /// The floor is -40 dBov (level 0.01): speech stands near -26 dBov, a quiet room and the engine's comfort noise near -60 and below,
+    /// so a stretch holding spoken words stands above it and a silent one below.
+    static let voiceFloor = 0.01
+    static func voiced(seconds: Double, energy: Double, received: Double, concealed: Double) -> Double {
+        guard 0 < seconds, 0 < received, 0 <= energy, voiceFloor <= (energy / seconds).squareRoot() else { return 0 }
+        return seconds * max(0, min(1, (received - concealed) / received))
+    }
+
+    /// What a correspondent signs at the close of a call that wove (Canon, «The testimony of a call»; levels.rs, Testimony).
+    struct Testimony: Equatable {
+        enum Refusal: String { case unwoven, ceilingBeyondTheWallet, estimateAboveTheCeiling }
+        var suite: UInt16
+        var call: Data
+        var addressee: Data
+        var window: UInt64
+        var heard: UInt32
+        var ceiling: UInt8
+        var estimate: UInt8
+        /// The signed scope: every field before the signature, unsigned and little-endian, in the canonical order.
+        var scope: Data {
+            var out = Data()
+            out.append(contentsOf: [UInt8(suite & 0xFF), UInt8(suite >> 8)])
+            out.append(call)
+            out.append(addressee)
+            out.append(contentsOf: (0..<8).map { i in UInt8((window >> (8 * UInt64(i))) & 0xFF) })
+            out.append(contentsOf: (0..<4).map { i in UInt8((heard >> (8 * UInt32(i))) & 0xFF) })
+            out.append(contentsOf: [ceiling, estimate])
+            return out
+        }
+        /// testimony_id = SHA-256("mt-call-testimony" || 0x00 || signed_scope), by the tree's one composition (MTPipe.domained).
+        var id: Data { MTPipe.domained("mt-call-testimony", [scope]) }
+        /// What it states of itself that a holder refuses before anything else is asked (levels.rs, refusal).
+        var refusal: Refusal? {
+            if !MTFabricRules.weaves(Int(heard)) { return .unwoven }
+            if MTFabricRules.mostLevels < Int(ceiling) { return .ceilingBeyondTheWallet }
+            if ceiling < estimate { return .estimateAboveTheCeiling }
+            return nil
+        }
+        /// The testimony and its signature; one of any other length than testimony_len is refused before it is parsed (Canon).
+        static func parse(_ bytes: Data) -> (Testimony, Data)? {
+            let b = [UInt8](bytes)
+            guard b.count == MTFabricRules.testimonyLength else { return nil }
+            func le(_ at: Int, _ n: Int) -> UInt64 { (0..<n).reduce(UInt64(0)) { v, i in v | UInt64(b[at + i]) << (8 * UInt64(i)) } }
+            let t = Testimony(suite: UInt16(le(0, 2)), call: Data(b[2..<34]), addressee: Data(b[34..<66]), window: le(66, 8),
+                              heard: UInt32(le(74, 4)), ceiling: b[78], estimate: b[79])
+            return (t, Data(b[MTFabricRules.scopeLength...]))
+        }
+    }
+
+    /// THE FROZEN VECTORS (Canon, «Frozen vectors»), each named by the wrong reading it refuses: a wallet of 3 and of 314 refuse a
+    /// strict comparison, 313 a count of digits, the nineteenth prefix a level capped at the thirteen a page shows; H(5) refuses a
+    /// weight, H(2 x 6) a count of correspondents, H(9, 1, 7, 2, 6) values read as already sorted, H() a person who calls nobody left
+    /// without an answer; the turn of 10079 refuses a turn rounded upward, 30239 a turn of a whole τ₂; the level of a person refuses a
+    /// dropped fabric, a first or a last term, a mean; the testimony's eight distinct bytes of its window refuse a big-endian window and
+    /// its two different levels the other order of them; a parse that misplaces a field gives another testimony back; the voice refuses
+    /// a level read as its energy (0.05 counts, 0.0025 would not), a floor left out (0.001 counts nothing) and made-up samples counted.
+    static func selfCheck() -> Bool {
+        guard walletLevel(2) == 0, walletLevel(3) == 1, walletLevel(313) == 2, walletLevel(314) == 3,
+              walletLevel(3_141_592_653_589_793_238) == 19 else { return false }
+        guard fabricLevel([]) == 0, fabricLevel([5]) == 1, fabricLevel([3, 3, 3]) == 3, fabricLevel([9, 1, 7, 2, 6]) == 3,
+              fabricLevel([2, 2, 2, 2, 2, 2]) == 2 else { return false }
+        guard turnWindows == 10_080, turn(10_079) == 0, turn(10_080) == 1, turn(30_239) == 2 else { return false }
+        guard levelOfPerson(20, 5, 3) == 3, levelOfPerson(7, 2, 9) == 2, levelOfPerson(0, 9, 9) == 0 else { return false }
+        var t = Testimony(suite: 1, call: Data(repeating: 0x11, count: 32), addressee: Data(repeating: 0x22, count: 32),
+                          window: 0x0102_0304_0506_0708, heard: 61, ceiling: 9, estimate: 4)
+        let signature = Data(repeating: 0x5A, count: signatureLength)
+        guard t.scope.count == scopeLength, t.refusal == nil,
+              t.id.montanaHexString == "915a8fd789de2f9b1ec4b395e662ee1ca9ba59a1d5d2a0b5708c48d77898e687",
+              let back = Testimony.parse(t.scope + signature), back.0 == t, back.1 == signature,
+              Testimony.parse(t.scope) == nil else { return false }
+        t.heard = 59
+        guard t.refusal == .unwoven else { return false }
+        t.heard = 60
+        guard t.refusal == nil else { return false }
+        t.ceiling = 20
+        guard t.refusal == .ceilingBeyondTheWallet else { return false }
+        t.ceiling = 3
+        guard t.refusal == .estimateAboveTheCeiling else { return false }
+        guard voiced(seconds: 2, energy: 2 * 0.05 * 0.05, received: 96_000, concealed: 0) == 2,
+              voiced(seconds: 2, energy: 2 * 0.05 * 0.05, received: 96_000, concealed: 48_000) == 1,
+              voiced(seconds: 2, energy: 2 * 0.001 * 0.001, received: 96_000, concealed: 0) == 0,
+              voiced(seconds: 2, energy: 0, received: 96_000, concealed: 0) == 0 else { return false }
+        return true
+    }
+}
+
+/// THE FABRIC'S WORD FOR A READER OFF THE MAIN ACTOR (MTPersonChain.global, E2E.fabricTail, the call's caps): the level of the fabric
+/// this turn, the person's own ceiling and estimate as they are stated, and the hash the person's own fingerprint is read from --
+/// written by MTFabric at every reading; nil until this life has read them, so an unknown level is never said as none.
+enum MTFabricLevel {
+    private static let lock = NSLock()
+    private static var held: Int?
+    private static var told: (ceiling: Int, estimate: Int)?
+    private static var own: Data?
+    static var now: Int? { lock.lock(); defer { lock.unlock() }; return held }
+    static var stated: (ceiling: Int, estimate: Int)? { lock.lock(); defer { lock.unlock() }; return told }
+    static var material: Data? { lock.lock(); defer { lock.unlock() }; return own }
+    static func set(_ level: Int?, stated: (ceiling: Int, estimate: Int)?) { lock.lock(); held = level; told = stated; lock.unlock() }
+    static func set(material: Data?) { lock.lock(); own = material; lock.unlock() }
+}
+
+/// ONE CALL AS THE FABRIC WEIGHS IT (App, «The fabric of time a client weighs»), kept by the call machine for every call it holds, by
+/// the call's name: the identifier its caller drew and its setup carried, the hash the far person's fingerprint is read from (their
+/// caps), the window the call stood from, and the seconds of the far voice this phone received (MTFabricRules.voiced).
+struct MTWeave {
+    var call: Data?
+    var peerMaterial: Data?
+    var from: UInt64?
+    var heard: Double = 0
+    var seen: [String: [Double]] = [:]   // a received stream's last counters: seconds, energy, received, made up
+    /// A received stream's counters now: what they grew by since that stream's last sample is weighed, and nothing else.
+    mutating func hears(_ id: String, seconds: Double, energy: Double, received: Double, concealed: Double) {
+        let last = seen[id] ?? [0, 0, 0, 0]
+        seen[id] = [seconds, energy, received, concealed]
+        let ds = seconds - last[0], de = energy - last[1], dr = received - last[2], dc = concealed - last[3]
+        guard 0 < ds, 0 <= de, 0 < dr, 0 <= dc else { return }
+        heard += MTFabricRules.voiced(seconds: ds, energy: de, received: dr, concealed: dc)
+    }
+}
+
+/// THE FABRIC OF TIME OF THIS SEED ON THIS PHONE (App, «The fabric of time a client weighs»; Identity, «The fabric of time»): the
+/// testimonies of calls the person's correspondents gave, what each correspondent stated of their ceiling and estimate, the calls this
+/// phone held that wove on its side, the person's own ceiling and estimate through the turn, and the level of the fabric of every turn
+/// -- H over the values of the correspondents regular in it at the close of the turn before, fixed at the turn's first reading; through
+/// the first two turns of the fabric on this seed, the ceiling. A correspondent is told apart by the key its testimonies verify under
+/// (the hash its fingerprint is read from), and by nothing it states of itself. One file beside the seconds of the person, at the same
+/// protection (TimeChain/fabric-held.json); one link a weighed turn in its chain (TimeChain/wallet-fabric.jsonl), sealed as every chain.
+/// What it holds lives τ₂ and a turn past its own turn and then leaves ([I-14]): a turn's regulars are read two turns back, the values
+/// one. The ground of the fabric is this phone's: a testimony counts on the device that held the call, and the devices of one seed do
+/// not join their fabrics yet.
+@MainActor final class MTFabric: ObservableObject {
+    static let shared = MTFabric()
+    struct Held: Codable { var id: String; var key: String; var conv: String; var call: String; var window: UInt64; var ceiling: Int; var estimate: Int; var body: String }
+    struct Said: Codable { var turn: UInt64; var least: Int; var ceiling: Int; var at: Int64 }
+    struct Call: Codable { var call: String; var conv: String; var from: UInt64; var to: UInt64; var heard: Int }
+    struct Turn: Codable { var turn: UInt64; var level: Int; var digest: String }
+    struct Mine: Codable { var turn: UInt64; var value: Int }
+    private struct Kept: Codable {
+        var opened: UInt64?
+        var held: [Held] = []
+        var keys: [String: String] = [:]      // the hash a fingerprint is read from: the key its testimonies verify under
+        var said: [String: [Said]] = [:]      // a pipe: what its correspondent stated, one record a turn
+        var calls: [Call] = []
+        var signed: [String: UInt64] = [:]    // a pipe this phone gave a testimony by: the turn of the last one
+        var told: [String: String] = [:]      // a pipe: the ceiling and the estimate last stated on it
+        var caught: [String: [UInt64]] = [:]  // a key: the turns its own two signatures stand against it in
+        var ceiling: Mine?
+        var estimate: Mine?
+        var turns: [Turn] = []
+    }
+    @Published private(set) var level: Int?
+    @Published private(set) var ceiling: Int?
+    @Published private(set) var estimate: Int?
+    @Published private(set) var regulars = 0
+    @Published private(set) var testimonies = 0
+    @Published private(set) var graceDays: Int?
+    @Published private(set) var links: [MTTimeChain.Link] = []
+    private var kept = Kept()
+    private var loaded = false, keepDue = false, deriving = false
+    private var waiting: [(conv: String, payload: String, at: Double)] = []
+    private static var file: URL? { MTTimeChainPlace.dir()?.appendingPathComponent("fabric-held.json") }
+
+    private func load() {
+        guard !loaded else { return }
+        loaded = true
+        if let u = Self.file, let d = try? Data(contentsOf: u), let k = try? JSONDecoder().decode(Kept.self, from: d) { kept = k }
+        links = Self.chain(kept.turns)
+    }
+    private func keep() {
+        guard loaded, let u = Self.file, let d = try? JSONEncoder().encode(kept) else { return }
+        try? d.write(to: u, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+    }
+    private func keepSoon() {
+        guard !keepDue else { return }
+        keepDue = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in self?.keepDue = false; self?.keep() }
+    }
+    /// A person lifted into the seat: the fabric of the person who left goes with their folder; the seated person's is read next.
+    func reread() {
+        loaded = false; kept = Kept(); waiting = []
+        level = nil; ceiling = nil; estimate = nil; regulars = 0; testimonies = 0; graceDays = nil; links = []
+        MTFabricLevel.set(nil, stated: nil)
+        MTFabricLevel.set(material: nil)
+    }
+    /// The fabric is read before a level is asked of it; the hash of the person's own key is derived once a life, off the main thread.
+    func prime() {
+        load()
+        guard MTFabricLevel.material == nil, !deriving else { return }
+        deriving = true
+        Task.detached(priority: .utility) {
+            let own = MontanaSeed.keys().map { k in MTPipe.fingerprintMaterial(k.pub) }
+            MTFabricLevel.set(material: own)
+            await MainActor.run { MTFabric.shared.deriving = false }
+        }
+    }
+
+    /// THE READING (App): the ceiling, the level of the turn and the estimate, again whenever what they stand on moved -- the person's
+    /// seconds, the balance, a testimony, a correspondent's word. A handful of testimonies and words a turn: it costs nothing.
+    func refresh() {
+        load()
+        let u = MTFabricRules.turn(MTFabricRules.windowNow())
+        var moved = prune(u)
+        if kept.opened == nil { kept.opened = u; moved = true }
+        // THE CEILING: the lower of the two levels, at its lowest since the turn opened; read only while both are known.
+        if let p = MTPersonLevel.now, let b = MTCoinBalance.now {
+            let now = min(MTFabricRules.mostLevels, p, MTFabricRules.walletLevel(b))
+            if kept.ceiling?.turn != u || now < (kept.ceiling?.value ?? Int.max) { kept.ceiling = Mine(turn: u, value: now); moved = true }
+        }
+        let ceil = kept.ceiling.flatMap { c in c.turn == u ? c.value : nil }
+        let opened = kept.opened ?? u
+        let grace = u < opened + MTFabricRules.graceTurns
+        let regs = regulars(u)
+        // THE LEVEL OF THE TURN: through the grace the ceiling; past it H over the regulars' values at the close of the turn before,
+        // fixed at the turn's first reading -- it holds unchanged through the turn.
+        var lvl: Int? = grace ? ceil : kept.turns.last(where: { t in t.turn == u })?.level
+        if !grace, lvl == nil {
+            let f = MTFabricRules.fabricLevel(regs.map { k in value(k, in: u - 1) })
+            kept.turns.append(Turn(turn: u, level: f, digest: digest(u - 1)))
+            lvl = f; moved = true
+            links = Self.chain(kept.turns)
+            writeChain()
+            MontanaTrace.mark("fabric_turn", "turn=\(u) level=\(f) regulars=\(regs.count)")
+        }
+        // THE ESTIMATE: the lower of the ceiling and H over the regulars' values now; it only falls through the turn and starts again
+        // from the ceiling at its opening. Through the grace it is the ceiling, as the level of the fabric is: a correspondent who
+        // counts this person meets their own time, not a nothing nobody weighed.
+        if let c = ceil {
+            let e = grace ? c : min(c, MTFabricRules.fabricLevel(regs.map { k in value(k, in: u) }))
+            if kept.estimate?.turn != u || e < (kept.estimate?.value ?? Int.max) { kept.estimate = Mine(turn: u, value: e); moved = true }
+        }
+        let est = kept.estimate.flatMap { e in e.turn == u ? e.value : nil }
+        let stated = ceil.flatMap { c in est.map { e in (ceiling: c, estimate: min(c, e)) } }
+        MTFabricLevel.set(lvl, stated: stated)
+        let left = Double((opened + MTFabricRules.graceTurns) * MTFabricRules.turnWindows * MTPipe.windowSeconds) - MontanaWakePush.nodeNow()
+        let days: Int? = grace ? max(1, Int((left / 86_400).rounded(.up))) : nil
+        if level != lvl { level = lvl }
+        if ceiling != ceil { ceiling = ceil }
+        if estimate != est { estimate = est }
+        if regulars != regs.count { regulars = regs.count }
+        if testimonies != kept.held.count { testimonies = kept.held.count }
+        if graceDays != days { graceDays = days }
+        if let stated, tell(stated) { moved = true }
+        if moved { keepSoon() }
+    }
+    /// THE WORD TO THE PEOPLE WHO COUNT THIS PERSON (App: «A client states the person's ceiling and estimate in every testimony it
+    /// gives, and with every letter it sends a correspondent, inside what only that correspondent opens»): a pair that moved goes at
+    /// once, by one silent letter of the fabric, to every pipe this phone gave a testimony by in the last τ₂ and a turn -- the people
+    /// whose fabric weighs this person; the presence words carry the same pair to everyone (E2E.fabricTail).
+    private func tell(_ s: (ceiling: Int, estimate: Int)) -> Bool {
+        let stamp = String(s.ceiling) + "." + String(s.estimate)
+        var told = false
+        for conv in kept.signed.keys.sorted() where kept.told[conv] != stamp {
+            guard let d = try? JSONSerialization.data(withJSONObject: ["c": s.ceiling, "e": s.estimate, "at": MontanaWakePush.nodeNow()]),
+                  let body = String(data: d, encoding: .utf8) else { break }
+            MontanaDeliveryEngine.shared.enqueue(to: conv, chat: conv, mid: ChatStore.mintMid().mid, text: fabricMark + body, silent: true)
+            kept.told[conv] = stamp
+            told = true
+        }
+        if told { MontanaTrace.markFolded("fabric_said", "ceiling=\(s.ceiling) estimate=\(s.estimate)", window: 60) }
+        return told
+    }
+    /// The correspondents regular in a turn: a testimony of a woven call from them in each of the two turns before it.
+    private func regulars(_ u: UInt64) -> [String] {
+        guard 2 <= u else { return [] }
+        var turns: [String: Set<UInt64>] = [:]
+        for h in kept.held { turns[h.key, default: []].insert(MTFabricRules.turn(h.window)) }
+        return turns.filter { e in e.value.contains(u - 1) && e.value.contains(u - 2) }.keys.sorted()
+    }
+    /// A correspondent's value in a turn: the lower of the last ceiling they stated and the least estimate they stated in the turn;
+    /// one who stated no estimate in it stands at their last ceiling; one whose own two signatures stand against them in it, at nothing.
+    private func value(_ key: String, in t: UInt64) -> Int {
+        guard !(kept.caught[key] ?? []).contains(t) else { return 0 }
+        let mine = kept.held.filter { h in h.key == key }
+        var stated = mine.map { h in Said(turn: MTFabricRules.turn(h.window), least: h.estimate, ceiling: h.ceiling, at: Int64(h.window * MTPipe.windowSeconds)) }
+        for conv in Set(mine.map(\.conv)) { stated += kept.said[conv] ?? [] }
+        let upTo = stated.filter { s in s.turn <= t }
+        guard let last = upTo.max(by: { a, b in a.at < b.at }) else { return 0 }
+        let least = upTo.filter { s in s.turn == t }.map(\.least).min()
+        return min(last.ceiling, least ?? last.ceiling)
+    }
+    /// The set of a turn's testimonies as its link names it: SHA-256 over their identifiers, sorted -- a value of this device alone,
+    /// never on the wire (LOCAL-HASH-OK), so two readings of one set give one link.
+    private func digest(_ t: UInt64) -> String {
+        let ids = kept.held.filter { h in MTFabricRules.turn(h.window) == t }.map(\.id).sorted()
+        return SHA256.hash(data: Data(ids.joined(separator: "\n").utf8)).map { b in String(format: "%02x", b) }.joined()
+    }
+    /// [I-14]: a testimony, a word, a call and a pipe's marks live τ₂ and a turn past their own turn; a key leaves with its last testimony.
+    private func prune(_ u: UInt64) -> Bool {
+        let alive: (UInt64) -> Bool = { t in u <= t + MTFabricRules.lifeTurns }
+        let before = (kept.held.count, kept.said.values.reduce(0) { n, s in n + s.count }, kept.calls.count, kept.signed.count, kept.caught.count, kept.told.count)
+        kept.held.removeAll { h in !alive(MTFabricRules.turn(h.window)) }
+        kept.said = kept.said.mapValues { s in s.filter { x in alive(x.turn) } }.filter { e in !e.value.isEmpty }
+        kept.calls.removeAll { c in !alive(MTFabricRules.turn(c.to)) }
+        kept.signed = kept.signed.filter { e in alive(e.value) }
+        kept.told = kept.told.filter { e in kept.signed[e.key] != nil }
+        kept.caught = kept.caught.mapValues { s in s.filter(alive) }.filter { e in !e.value.isEmpty }
+        let keys = Set(kept.held.map(\.key))
+        kept.keys = kept.keys.filter { e in keys.contains(e.key) }
+        return before != (kept.held.count, kept.said.values.reduce(0) { n, s in n + s.count }, kept.calls.count, kept.signed.count, kept.caught.count, kept.told.count)
+    }
+    /// One link a weighed turn -- its level, named by its turn and its set of testimonies -- sealed on the one before (MTTimeChain.seal);
+    /// its moment is the turn's opening on the nodes' clock, so the same turns give the same chain.
+    nonisolated static func chain(_ turns: [Turn]) -> [MTTimeChain.Link] {
+        var out: [MTTimeChain.Link] = [], prev = MTTimeChain.genesis
+        for t in turns {
+            let n = out.count + 1, at = Int64(t.turn * MTFabricRules.turnWindows * MTPipe.windowSeconds) * 1000
+            let ref = "turn:" + String(t.turn) + ":" + String(t.digest.prefix(16))
+            let hash = MTTimeChain.seal(n: n, at: at, k: "level", c: t.level, ref: ref, prev: prev)
+            out.append(MTTimeChain.Link(n: n, at: at, k: "level", c: t.level, ref: ref, prev: prev, hash: hash))
+            prev = hash
+        }
+        return out
+    }
+    private func writeChain() {
+        guard let u = MTTimeChainPlace.file("fabric") else { return }
+        var body = Data()
+        for l in links { if let d = try? JSONEncoder().encode(l) { body.append(d); body.append(0x0A) } }
+        try? body.write(to: u, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+    }
+
+    /// A CALL OF TWO CLOSED (App: «A call weaves when each side received the other's voice for at least call_seconds»). A call this
+    /// phone heard the far voice in for a minute or more is kept, so the far side's testimony of it can be checked when it comes; and
+    /// when the far build told the hash its person's fingerprint is read from, this side signs what it heard and gives it to the far
+    /// person by the pair's own road, inside what only they open. A call that did not weave on this side yields none.
+    func callClosed(conv: String, weave: MTWeave) {
+        prime()
+        let to = MTFabricRules.windowNow(), heard = Int(weave.heard)
+        MontanaTrace.mark("fabric_call", "heard_s=\(heard) named=\(weave.call == nil ? 0 : 1) far=\(weave.peerMaterial == nil ? 0 : 1)")
+        guard MTFabricRules.weaves(heard), let call = weave.call, call.count == 32, let from = weave.from, !conv.isEmpty else { return }
+        kept.calls.append(Call(call: call.montanaHexString, conv: conv, from: from, to: to, heard: heard))
+        keep()
+        refresh()
+        let ready = waiting.filter { w in w.conv == conv }
+        waiting.removeAll { w in w.conv == conv }
+        for w in ready { received(w.payload, from: w.conv, at: w.at) }
+        guard let far = weave.peerMaterial, far.count == 32 else { return }
+        let u = MTFabricRules.turn(to)
+        guard let c = kept.ceiling, c.turn == u, let e = kept.estimate, e.turn == u else {
+            MontanaTrace.mark("fabric_tx", "held: this life has not read its own levels yet")
+            return
+        }
+        let t = MTFabricRules.Testimony(suite: MTFabricRules.suite, call: call, addressee: far, window: to, heard: UInt32(clamping: heard),
+                                        ceiling: UInt8(clamping: c.value), estimate: UInt8(clamping: min(c.value, e.value)))
+        kept.signed[conv] = u
+        kept.told[conv] = String(t.ceiling) + "." + String(t.estimate)
+        keepSoon()
+        let scope = t.scope
+        Task.detached(priority: .utility) {
+            guard let k = MontanaSeed.keys(), let sig = MontanaSeedKeys.sign(scope, seckey: k.sk), sig.count == MTFabricRules.signatureLength,
+                  let d = try? JSONSerialization.data(withJSONObject: ["t": (scope + sig).base64EncodedString(), "k": k.pub.base64EncodedString()]),
+                  let body = String(data: d, encoding: .utf8) else {
+                MontanaTrace.mark("fabric_tx", "FAIL the seed's key did not sign")
+                return
+            }
+            await MainActor.run {
+                MontanaDeliveryEngine.shared.enqueue(to: conv, chat: conv, mid: ChatStore.mintMid().mid, text: fabricMark + body, silent: true)
+                MontanaTrace.mark("fabric_tx", "to=\(String(conv.prefix(10))) heard_s=\(heard) ceiling=\(t.ceiling) estimate=\(t.estimate)")
+            }
+        }
+    }
+
+    /// THE FABRIC'S WORD CAME (Canon, «Invariants of a testimony»): the sender's ceiling and estimate, and a testimony of a call. A
+    /// testimony counts only once every question is answered, in this order -- its length, what it states of itself, that it names this
+    /// person, that its signature holds under the key it came with, that it is of a call this phone held with this pipe and wove on this
+    /// side, and that its window lies within the windows that call stood in (one window of drift either way, as MTPipe.windows). A
+    /// testimony of a call this phone has not closed yet waits for it, a few at most.
+    func received(_ payload: String, from conv: String, at: Double) {
+        prime()
+        guard let d = payload.data(using: .utf8), let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else {
+            return refuse("unreadable", conv)
+        }
+        if let c = o["c"] as? Int, let e = o["e"] as? Int { said(conv: conv, ceiling: c, estimate: e, at: (o["at"] as? Double) ?? at) }
+        guard o["t"] != nil else { return }
+        guard let body = (o["t"] as? String).flatMap({ s in Data(base64Encoded: s) }),
+              let key = (o["k"] as? String).flatMap({ s in Data(base64Encoded: s) }) else { return refuse("unreadable", conv) }
+        guard let parsed = MTFabricRules.Testimony.parse(body) else { return refuse("length", conv) }
+        let t = parsed.0, sig = parsed.1
+        guard t.suite == MTFabricRules.suite else { return refuse("suite", conv) }
+        if let r = t.refusal { return refuse(r.rawValue, conv) }
+        guard let mine = MTFabricLevel.material, t.addressee == mine else { return refuse("addressee", conv) }
+        guard MontanaPQ.verify(pubkey: key, message: t.scope, signature: sig) else { return refuse("signature", conv) }
+        let call = t.call.montanaHexString
+        guard let held = kept.calls.first(where: { c in c.call == call && c.conv == conv }) else {
+            if waiting.count < 16 { waiting.append((conv, payload, at)) }
+            return refuse("call", conv)
+        }
+        guard held.from <= t.window + 1, t.window <= held.to + 1 else { return refuse("window", conv) }
+        let id = t.id.montanaHexString
+        guard !kept.held.contains(where: { h in h.id == id }) else { return }
+        let signer = MTPipe.fingerprintMaterial(key).montanaHexString
+        let u = MTFabricRules.turn(t.window)
+        // THE SIGNER'S OWN TWO SIGNATURES AGAINST IT (Canon): two testimonies of one call, or two of one turn of which the later window
+        // states the higher estimate -- the holder counts that signer at nothing for the turn.
+        for h in kept.held where h.key == signer {
+            let rises = MTFabricRules.turn(h.window) == u
+                && ((h.window < t.window && h.estimate < Int(t.estimate)) || (t.window < h.window && Int(t.estimate) < h.estimate))
+            if h.call == call || rises, !(kept.caught[signer] ?? []).contains(u) {
+                kept.caught[signer, default: []].append(u)
+                MontanaTrace.mark("fabric_caught", "turn=\(u) -- two of the signer's own testimonies stand against it")
+            }
+        }
+        kept.held.append(Held(id: id, key: signer, conv: conv, call: call, window: t.window, ceiling: Int(t.ceiling),
+                              estimate: Int(t.estimate), body: body.base64EncodedString()))
+        kept.keys[signer] = key.base64EncodedString()
+        keep()
+        refresh()
+        MontanaTrace.mark("fabric_rx", "turn=\(u) heard_s=\(t.heard) ceiling=\(t.ceiling) estimate=\(t.estimate)")
+    }
+    private func refuse(_ why: String, _ conv: String) {
+        MontanaTrace.mark("fabric_refused", "why=\(why) from=\(String(conv.prefix(10)))")
+    }
+
+    /// A CORRESPONDENT STATED ITS CEILING AND ESTIMATE (App: «with every letter it sends a correspondent»): a presence word, or the
+    /// fabric's own word. Kept only of a pipe this phone wove a call with, one record a turn: the least estimate and the last ceiling.
+    func said(conv: String, ceiling: Int, estimate: Int, at: Double) {
+        guard (0...MTFabricRules.mostLevels).contains(ceiling), (0...ceiling).contains(estimate), 0 < at, at < 1e12 else { return }
+        prime()
+        guard kept.calls.contains(where: { c in c.conv == conv }) || kept.held.contains(where: { h in h.conv == conv }) else { return }
+        let sec = Int64(at), u = MTFabricRules.turn(UInt64(sec) / MTPipe.windowSeconds)
+        var list = kept.said[conv] ?? []
+        if let i = list.firstIndex(where: { s in s.turn == u }) {
+            let was = list[i]
+            list[i].least = min(was.least, estimate)
+            if was.at <= sec { list[i].ceiling = ceiling; list[i].at = sec }
+            guard list[i].least != was.least || list[i].ceiling != was.ceiling else { return }
+        } else {
+            list.append(Said(turn: u, least: estimate, ceiling: ceiling, at: sec))
+        }
+        kept.said[conv] = list
+        keepSoon()
+        refresh()
     }
 }
 

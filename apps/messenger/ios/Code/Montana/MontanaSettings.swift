@@ -137,6 +137,7 @@ struct SettingsTabView: View {
                 }
                 .listRowBackground(MTGlassRowPlate())
                 Section {
+                    NavigationLink { MTQuestionsPage() } label: { navLabel("Questions", "questionmark.bubble.fill", .green) }   // the answers of this build (17.10.2026)
                     NavigationLink { SupportView() } label: { navLabel("Ask a question", "questionmark.circle.fill", .blue) }
                     NavigationLink { MontanaTermsView() } label: { navLabel("Terms of Use", "doc.text.fill", .gray) }
                     // THE POLICY STANDS WHERE THE TERMS STAND (App Review 5.1.1(i), 08.10.2026): reachable from inside the app, not only
@@ -259,6 +260,146 @@ struct SettingsTabView: View {
 // ════════════════════════════════════════════════════════════
 // SETTINGS SUB-SCREENS
 // ════════════════════════════════════════════════════════════
+
+// Questions
+/// QUESTIONS (the author's words 17.10.2026 22:50 MSK: «make all of these into a section of questions: answers to every question in
+/// the app as a separate section, with all the information and the documents, public, so that AI agents read the link to montana.xxx
+/// and learn every rule of the app for the person»; 23:18 MSK: «everything into build 2238»): the platform's own list, a section a
+/// topic, a row a question, the whole row the road to its answer. Every answer says only what this build keeps -- the levels and the
+/// minting as MTPersonChain, MTPiLevels and MTLevelAccess hold them (APPLE-RULES 2.1, 2.3.1(a)); the same answers, with the
+/// specification's, stand on montana.xxx/faq for people and for the agents that read the site (MontanaSafety.guide).
+struct MTQuestionsPage: View {
+    struct Item: Identifiable { let question: String; let answer: String; var id: String { question } }
+    struct Topic: Identifiable { let title: String; let systemImage: String; let items: [Item]; var id: String { title } }
+    static let topics: [Topic] = [
+        Topic(title: "Levels", systemImage: "stairs", items: [
+            Item(question: "What is the Global level?",
+                 answer: "Your Global level is the lowest of three levels: the level of the chain of the person, which grows with your time on the network, the level of π, which grows with the coins you hold, and the Fabric of Time, which stands on your regular calls of the last two weeks. You see it in TimeCoin, on the TimeChain page, and in Settings, under Access by level."),
+            Item(question: "How does the chain of the person count my time?",
+                 answer: "A second counts while Montana is open on the screen of one of your devices and a Montana node answers it. The second is read from the node, never from the clock of your phone. Each level doubles the seconds of the one before: 1 second is level 0, 2 seconds level 1, 4 seconds level 2, then 8, 16, 32 and on. When you leave the network, your level stays, and nothing is added until you return."),
+            Item(question: "What is the level of π?",
+                 answer: "It is the level of your wallet: how many first digits of π your balance reaches. 3 coins is level 1, 31 coins level 2, 314 coins level 3, then 3141, 31415 and on, up to 19 digits. Below 3 coins the level is 0. It is the one level you lower yourself: it falls when your balance falls."),
+            Item(question: "What do the levels open?",
+                 answer: "Each level opens functions of Montana. Level 7 opens Forbid deletion on my phone: a message your correspondent deletes for everyone stays on your phone, and their phone is told so. Level 7 also opens Record calls: calls are recorded by themselves on your phone and sent to the call's chat after your first consent. Level 8 opens your own node: a machine you own joins the Montana network through this app. All of them are in Settings, under Access by level."),
+            Item(question: "Can I record a call below level 7?",
+                 answer: "Yes. On every level a call can be recorded by the record button on the call screen. From level 7 calls are recorded by themselves once you agree the first time, and you can turn it off in Settings, under Access by level."),
+            Item(question: "Can I take my copy back from my node below level 8?",
+                 answer: "Yes. Setting up your node and sending copies to it open at level 8. Taking your copy back from it is open on every level."),
+        ]),
+        // THE FABRIC OF TIME (the author's words 17.10.2026 22:24-22:50 MSK; MTFabric): what this build does of it and no more -- its two
+        // deviations from the specification named, not hidden (the window from the nodes' seconds, no witness into the network yet).
+        Topic(title: "Fabric of Time", systemImage: "point.3.connected.trianglepath.dotted", items: [
+            Item(question: "What is the Fabric of Time?",
+                 answer: "The third level your Global level is set by: your regular calls of the last two weeks, weighed by how high the people you call stand. Your Global level is the lowest of the three, so the Fabric of Time can lower it and never raises it."),
+            Item(question: "Which call counts?",
+                 answer: "A call of two that connected, in which each phone received the other's voice for at least 60 seconds. Each phone counts the voice it received itself, from the sound that reached it: silence and a muted microphone do not count, and neither does a ring answered and declined. A group call does not count."),
+            Item(question: "Who is a regular correspondent?",
+                 answer: "Montana reads the Fabric of Time in weeks of 7 days, each beginning on Thursday at 00:00 UTC. A person is your regular correspondent in a week when your phone holds a testimony of a counted call from them in each of the two weeks before it. People are told apart by the key their testimonies are signed with, not by anything they say about themselves."),
+            Item(question: "How is the level of the Fabric of Time counted?",
+                 answer: "It is the greatest number g for which at least g of your regular correspondents stand at level g or above; a person far above g adds one, exactly as one at g does. It is counted at the first reading of each week from what your regular correspondents stated by the end of the week before, and holds through the week. Your ceiling is the lower of your two other levels, at its lowest since the week began. Through the week your phone keeps your estimate: the same count over what your regular correspondents state this week, never above your ceiling, and it only falls until the week ends."),
+            Item(question: "Does the Fabric of Time lower a newcomer?",
+                 answer: "Not in the first two weeks. From the first launch of this version on this phone with your 24 words, for the week of that launch and the week after it, the Fabric of Time stands at your ceiling, so in these weeks your Global level follows the lowest point of your two other levels since the week began. TimeCoin and Access by level show the days left until the first count."),
+            Item(question: "What is a testimony of a call?",
+                 answer: "At the end of a counted call each phone signs, with the key of your 24 words, what it heard: the call, the hash the other person's fingerprint is read from, the minute the call ended, the seconds of their voice it received, and your ceiling and estimate. It gives the testimony only to the other person, inside your conversation, with your public key, so their phone can check the signature. Their phone counts it only when it names them, the signature holds, it is of a call that phone held with you and heard you in for a minute, and its minute lies within that call."),
+            Item(question: "What do the people I call learn?",
+                 answer: "The people you call receive your testimonies with your public key. Your public key is the same for everyone you call, so two people you call can tell that they speak with the same person. The people you write with receive your ceiling and estimate in each presence word, and the people you had a counted call with in the last three weeks also in a silent letter whenever they change."),
+            Item(question: "What do the nodes of the network learn?",
+                 answer: "Nothing they can read: testimonies, ceilings and estimates ride inside your conversation, sealed for the other person, by the same road as your letters. The testimonies stay on the phone that held the call until the third week after the call's week ends, then leave it."),
+            Item(question: "How does this version differ from the specification?",
+                 answer: "In three ways. A phone holds no window of the network's core, so the minute of a testimony and the weeks are read from the clock of the Montana nodes, learned from their answers. The testimonies are not yet witnessed into the network at the end of each week; they stay on the phone. And your devices with the same 24 words do not join their Fabric of Time yet: a testimony counts on the device that held the call."),
+            Item(question: "Can false testimonies lift a level?",
+                 answer: "No. The Fabric of Time only lowers: a person who states a false ceiling or estimate can at most spare someone a lowering. Two testimonies of one call under one key that differ, or two in one week of which the later states the higher estimate, make that signer count as nothing for the week."),
+        ]),
+        Topic(title: "Coins and time", systemImage: "hourglass", items: [
+            Item(question: "What is a Time Coin?",
+                 answer: "The coin of Montana, ticker $TCM. Its measure is time: one second is one coin, so an hour is 3600 coins. A billion coins is one Montana."),
+            Item(question: "Do coins mint while Montana is in the background?",
+                 answer: "Yes. When Montana leaves the screen, it keeps your Global level of that moment. When you come back, every second you were away is minted at that level: level 5 mints 5 coins a second, and no level mints more than 13 a second. At Global level 0 the time away mints nothing, and neither does it when the network did not answer Montana before it left the screen. Both moments are read from the Montana network, so turning the clock of the phone changes nothing."),
+        ]),
+        Topic(title: "Your words and devices", systemImage: "key.horizontal", items: [
+            Item(question: "What if I use Montana on several devices?",
+                 answer: "The same 24 words on several devices are one person. Their seconds join: two devices open in the same second add one second, and once the devices have read each other's count, they show one chain of the person."),
+            Item(question: "What if I have several sets of 24 words?",
+                 answer: "Each set of 24 words is a separate person: its own seconds, its own wallet, its own levels. The levels of two persons are never added together, and coins move between them only by a real transfer."),
+        ]),
+        Topic(title: "Privacy", systemImage: "lock", items: [
+            Item(question: "Who sees my level?",
+                 answer: "The people you write with see your Global level beside your avatar. The nodes of the network keep a table of how many people stand on each level: for it Montana gives them a mark made from your 24 words and your Global level, never your balance, name or contacts. Your seconds online leave the phone only sealed under your 24 words: the nodes keep them for your other devices and cannot read them."),
+        ]),
+    ]
+    var body: some View {
+        List {
+            ForEach(Self.topics) { topic in
+                Section {
+                    ForEach(topic.items) { item in
+                        NavigationLink { MTAnswerPage(topic: topic.title, item: item) } label: {
+                            Text(LocalizedStringKey(item.question)).frame(minHeight: 44, alignment: .leading)
+                        }
+                    }
+                } header: {
+                    Label(LocalizedStringKey(topic.title), systemImage: topic.systemImage)
+                }
+                .listRowBackground(MTGlassRowPlate())
+            }
+            Section {
+                MTDocumentRow(title: "Questions and answers", link: MontanaSafety.guide)
+                MTDocumentRow(title: "Specification and code", link: MontanaSafety.source)
+            } header: {
+                Label("Documents", systemImage: "doc.text")
+            } footer: {
+                Text("The site holds the answers about Montana in English, Russian and Chinese, also as files AI assistants read. The Montana specification and the code of this app are open on GitHub.")
+            }
+            .listRowBackground(MTGlassRowPlate())
+        }
+        .foregroundColor(.white)
+        .scrollContentBackground(.hidden)
+        .montanaPageGround()
+        .navigationTitle("Questions")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+/// One answer on a page of its own: the question over its answer in the list's own row, as the platform's help reads.
+struct MTAnswerPage: View {
+    let topic: String
+    let item: MTQuestionsPage.Item
+    var body: some View {
+        List {
+            Section {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(LocalizedStringKey(item.question)).font(.headline)
+                    Text(LocalizedStringKey(item.answer)).font(.body).fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.vertical, 6)
+            }
+            .listRowBackground(MTGlassRowPlate())
+        }
+        .foregroundColor(.white)
+        .scrollContentBackground(.hidden)
+        .montanaPageGround()
+        .navigationTitle(Text(LocalizedStringKey(topic)))
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+/// A document of Montana, opened in the platform's own browser sheet inside the app (MTExplorerSheet); the whole row is the target.
+struct MTDocumentRow: View {
+    let title: String
+    let link: String
+    var body: some View {
+        Button { if let u = URL(string: link) { MTExplorerSheet.open(u) } } label: {
+            HStack {
+                Label(LocalizedStringKey(title), systemImage: "safari")
+                Spacer()
+                // USER-DATA: an address
+                Text(verbatim: link.replacingOccurrences(of: "https://", with: "")).font(.footnote).foregroundColor(.gray).lineLimit(1)
+            }
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .foregroundColor(.white)
+    }
+}
 
 // Notifications and sounds
 struct NotificationsView: View {
@@ -2685,6 +2826,7 @@ struct WelcomeView: View {
 struct MTLevelAccessPage: View {
     @ObservedObject private var person = MTPersonChain.shared
     @ObservedObject private var book = MTLocalCoinLedger.shared
+    @ObservedObject private var fabric = MTFabric.shared   // the third level the Global one is the lowest of (MTFabric, 17.10)
     @AppStorage(MTCallRecordingPolicy.key) private var recordCalls = true
     @AppStorage(MTLevelAccess.keepKey) private var keepDeleted = true
     private var level: Int { MTPersonChain.global(person: person.level, balance: book.balance) }
@@ -2697,8 +2839,20 @@ struct MTLevelAccessPage: View {
         List {
             Section {
                 Text("Global level \(level)")
+                // THE FABRIC OF TIME BESIDE THE GLOBAL LEVEL (the author's word 17.10.2026 22:50 MSK: «at once let a new level appear in
+                // the clients that sets the global one, named Fabric of Time»): its level this turn, and through its first two turns
+                // the days until its first count.
+                LabeledContent {
+                    // USER-DATA: the level of the fabric of time this turn, a number, or a dash before this life has read it
+                    Text(verbatim: fabric.level.map { n in String(n) } ?? "—").monospacedDigit()
+                } label: {
+                    Label("Fabric of Time", systemImage: "point.3.connected.trianglepath.dotted")
+                }
+                if let days = fabric.graceDays {
+                    Text("Days until the first count: \(days)").font(.caption).foregroundColor(.gray)
+                }
             } footer: {
-                Text("Your level grows with your time in Montana and the coins you hold. Each level opens new functions of Montana.")
+                Text("Your level is the lowest of three: your time in Montana, the coins you hold and the Fabric of Time, your regular calls of the last two weeks weighed by the levels of the people you call. Each level opens new functions of Montana.")
             }
             .listRowBackground(MTGlassRowPlate())
             Section {
@@ -2751,7 +2905,7 @@ struct MTLevelAccessPage: View {
         .modifier(MTCallRecordingConsent())
         .onChange(of: recordCalls) { _, on in MTCallRecording.shared.changed(on) }
         .onChange(of: keepDeleted) { _, _ in MTLevelAccess.mirror() }
-        .onAppear { MTLevelAccess.mirror() }
+        .onAppear { MTLevelAccess.mirror(); fabric.prime(); fabric.refresh() }
     }
 }
 
@@ -2765,6 +2919,7 @@ struct MTKeepShield: View {
     @Environment(UIState.self) private var ui
     @ObservedObject private var person = MTPersonChain.shared
     @ObservedObject private var book = MTLocalCoinLedger.shared
+    @ObservedObject private var fabric = MTFabric.shared   // the Global Level the rule names follows the fabric too
     @AppStorage(MTLevelAccess.keepKey) private var keepDeleted = true
     @State private var told = false
     var body: some View {

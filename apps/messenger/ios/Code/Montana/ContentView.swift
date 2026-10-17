@@ -3942,6 +3942,10 @@ let pipeClosedMark = "\u{200B}\u{200B}PX:"
 // speaks with»): one word, JSON with «w» -- a question, a yes, a part, a keeper's «held», a release -- riding the correspondence,
 // and a call and its answer riding the pipe of a slot. Never a row; an older build buries it unread.
 let keepMark = "\u{200B}\u{200B}KP:"
+// THE FABRIC OF TIME'S WORD (the author's word 17.10.2026 22:50 MSK: «a new level that sets the global one, named Fabric of Time»;
+// MTFabric): JSON -- {t, k}, a testimony of a call its signer gave at the call's close and the key it verifies under, and {c, e, at},
+// the sender's ceiling and estimate. Rides the one queue silent, only inside the pair. Never a row; an older build buries it unread.
+let fabricMark = "\u{200B}\u{200B}FT:"
 /// The words a pipe is buried with: the tombstone of «delete for both» and the orphan sweep's closing word. Each rides
 /// past the conversation's death, and its receipt — or its term — buries the pipe.
 func isBurialWord(_ text: String) -> Bool { text.hasPrefix(convDelMark) || text.hasPrefix(pipeClosedMark) }
@@ -3952,7 +3956,8 @@ let knownServiceTokens: Set<String> = ["VC:", "MD:", "RC:", "TY:", "WA:", "AP:",
                                        "ED:", "PN:", "SP:", "AB:", "WL:", "SM:", "SY:", "PX:", "PG:",
                                        "GR:",   // a group's invitation and letter (MTGroup, 05.10)
                                        "KP:",   // the copy kept by the people one writes to (MTKeeping, 08.10)
-                                       "DK:"]   // the correspondent kept a letter I deleted for everyone (MTLevelAccess, 16.10)
+                                       "DK:",   // the correspondent kept a letter I deleted for everyone (MTLevelAccess, 16.10)
+                                       "FT:"]   // the fabric of time: a testimony of a call, a ceiling and an estimate (MTFabric, 17.10)
 /// A LETTER OF A RETIRED KIND is buried unread here, as a newer build's word is, and never drawn as a person's words: the one
 /// rule is MTRowLetter.retiredLetter, the extension's as well.
 func mtRetiredLetter(_ text: String) -> Bool { MTRowLetter.retiredLetter(text) }
@@ -4031,6 +4036,7 @@ func isControlMarker(_ text: String) -> Bool {
         || text.hasPrefix(pipeClosedMark)            // the pipe closed at the other end (24.09): never a row
         || text.hasPrefix(keepMark)                  // the keeping of a copy (08.10): never a row
         || text.hasPrefix(deleteKeptMark)            // the correspondent kept a deleted letter (16.10): never a row
+        || text.hasPrefix(fabricMark)                // the fabric of time's word (17.10): never a row
 }
 // A service letter never rings: receipts, typing, drafts, profile (name/avatar/nick/card),
 // deletions, wake-handles ride SILENT pushes by construction — the server model sent them

@@ -650,6 +650,7 @@ private struct MTAvatarBadgesMine: View {
     let coinsOn: Bool
     @ObservedObject private var book = MTLocalCoinLedger.shared
     @ObservedObject private var person = MTPersonChain.shared
+    @ObservedObject private var fabric = MTFabric.shared   // the Global Level is the lowest of three: it follows the fabric too (17.10)
     var body: some View {
         let read = MTCoinBalance.now != nil
         MTAvatarBadgePair(coins: coinsOn && read ? book.balance : nil,

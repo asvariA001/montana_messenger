@@ -343,6 +343,7 @@ struct HomeNodeView: View {
     @State private var settingUp = false
     @ObservedObject private var person = MTPersonChain.shared
     @ObservedObject private var book = MTLocalCoinLedger.shared
+    @ObservedObject private var fabric = MTFabric.shared   // the Global Level is the lowest of three: it follows the fabric too (17.10)
     /// The machine joins Montana's network from level 8 (MTLevelAccess.ownNode); its copy comes back on every level.
     private var open: Bool { MTLevelAccess.opens(.ownNode) }
     private var level: Int { MTPersonChain.global(person: person.level, balance: book.balance) }

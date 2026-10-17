@@ -1003,6 +1003,7 @@ final class MontanaCall: NSObject {
         provider.reportCall(with: pk.uuid, endedAt: nil, reason: reason)
         MainActor.assumeIsolated { MTCallRecording.shared.finish(pk.uuid) }
         pk.pc?.close()
+        weaveClosed(pk.seed.map { s in String(s.base64EncodedString().prefix(16)) }, peer: pk.peer, connected: pk.connectedAt != nil)
         MontanaCall.burySeed(pk.seed?.base64EncodedString())
     }
 
@@ -1604,18 +1605,72 @@ final class MontanaCall: NSObject {
         // after mutual silence over a live connection: enabling was one-sided. The two-phase
         // enabling exists below (call-key / call-key-ok -> sframeAuthorized); flipping this flag
         // is a change of live call behaviour and is accepted on two phones, not blind.
-        CallCaps(tier: "ios-native", ver: 1, opus_max: 64000, hw_aec: true, sframe: false, av: false, rejoin: true)
+        var caps = CallCaps(tier: "ios-native", ver: 1, opus_max: 64000, hw_aec: true, sframe: false, av: false, rejoin: true)
+        // THE FABRIC'S TWO WORDS (17.10.2026, MTWeave): the hash this person's fingerprint is read from, which the far side names
+        // them by in its testimony of the call, and the call's identifier, drawn by its caller. Older builds skip both keys.
+        caps.fm = MTFabricLevel.material?.montanaHexString
+        caps.fc = weaveCall()?.montanaHexString
+        return caps
     }
     /// WHAT THE FAR BUILD CAN DO IS LEARNED FROM EVERY WORD OF THE CALL IN HAND (24.09 23:14, T3): a call born by the wake
     /// came without caps, its copies that carried them were buried as copies, and the callee never learned that its caller
     /// rebuilds -- its run, ended by iOS for a privacy switch, came back and said «call-gone» instead of going back in.
     /// A capability, once said, stands for the call; cleanup forgets it.
     private func learnPeerCaps(_ caps: CallCaps?) {
+        learnWeave(caps)
         if caps?.av == true { peerReadsVoipAnswer = true }
         if caps?.rejoin == true, !peerRebuilds {
             peerRebuilds = true
             holdOnDisk(force: true)   // the record says it at once: a run that dies now goes back into the call
         }
+    }
+    /// THE FABRIC'S CALLS (the author's word 17.10.2026 22:50 MSK «a new level that sets the global one, named Fabric of Time»;
+    /// MTWeave): each call this machine holds, by its name -- the active one and a parked one apart -- with what the fabric weighs
+    /// of it. A far word heard before the call is named waits under the empty name. Main thread only, as every field (K-1).
+    private var weaves: [String: MTWeave] = [:]
+    /// The fabric's record of the call named so, with a far word heard before the call was named laid into it.
+    private func weave(_ epoch: String) -> MTWeave {
+        var w = weaves[epoch] ?? MTWeave()
+        if !epoch.isEmpty, let early = weaves.removeValue(forKey: "") {
+            if w.call == nil { w.call = early.call }
+            if w.peerMaterial == nil { w.peerMaterial = early.peerMaterial }
+        }
+        return w
+    }
+    /// The identifier the fabric names the call in hand by: drawn by its caller from the core's randomness (montanaRandom, as the
+    /// call's seed) at its first word, learned by its callee from the caller's caps (learnWeave); nil before the call is named.
+    private func weaveCall() -> Data? {
+        guard let e = callEpoch else { return nil }
+        var w = weave(e)
+        if w.call == nil, isInitiator { w.call = montanaRandom(32) }
+        weaves[e] = w
+        return w.call
+    }
+    /// The far build's two fabric words, from any word of the call in hand that carries caps: the hash its person's fingerprint is
+    /// read from, and -- for a callee -- the identifier its caller drew.
+    private func learnWeave(_ caps: CallCaps?) {
+        guard let caps, caps.fm != nil || caps.fc != nil else { return }
+        let e = callEpoch ?? ""
+        var w = weave(e)
+        if let fm = caps.fm.flatMap({ s in Data(montanaHex: s) }), fm.count == 32 { w.peerMaterial = fm }
+        if !isInitiator, w.call == nil, let fc = caps.fc.flatMap({ s in Data(montanaHex: s) }), fc.count == 32 { w.call = fc }
+        weaves[e] = w
+    }
+    /// The far voice of one sample: every received voice stream's counters, weighed by the fabric (MTWeave.hears); the window the
+    /// call stood from is its first connected sample's.
+    private func weaveHears(_ streams: [(id: String, seconds: Double, energy: Double, received: Double, concealed: Double)]) {
+        guard connectedAt != nil, let e = callEpoch else { return }
+        var w = weave(e)
+        if w.from == nil { w.from = MTFabricRules.windowNow() }
+        for s in streams { w.hears(s.id, seconds: s.seconds, energy: s.energy, received: s.received, concealed: s.concealed) }
+        weaves[e] = w
+    }
+    /// The call named so closed: the fabric weighs a call of two that connected (MTFabric.callClosed), and its record leaves. A room
+    /// of many (MTGroupRoom) keeps no record here: a testimony is of a call of two.
+    private func weaveClosed(_ epoch: String?, peer: String?, connected: Bool) {
+        guard let epoch, let w = weaves.removeValue(forKey: epoch) else { return }
+        guard connected, let peer else { return }
+        MainActor.assumeIsolated { MTFabric.shared.callClosed(conv: peer, weave: w) }
     }
 
     // ── Audio session for the call (category/mode; activation done by CallKit) ──
@@ -2957,6 +3012,7 @@ final class MontanaCall: NSObject {
             if let cs = callSeed, let d = Data(base64Encoded: cs) { self.callSeed = d }
             self.peer = from; self.isVideo = video ?? false
             self.isInitiator = false; dropPendingIce(); bornSetup(heldForPeerWord: false)
+            learnWeave(caps)   // the caller's identifier of the call and the hash its person is named by (MTWeave)
             self.startedAt = Date(); self.connectedAt = nil; self.answeredAt = nil
             bornOutcome()
             self.cameraDeniedTold = false
@@ -3309,6 +3365,21 @@ final class MontanaCall: NSObject {
             MontanaTrace.mark("call_gone", "rx state=\(state) epoch=\(String(ep.prefix(8)))")
             if endReason == "-" { endReason = "peer-gone" }
             endCall(silent: true)
+        case "call-room":
+            // THE PEER GREW THIS CALL INTO A ROOM (MTGroupRoom.grow, the author's words 17.10.2026 23:22 MSK: «add to the current call
+            // more people, up to 13 on a call»): the word names the group and the room. This phone ends the call of two in silence --
+            // the peer ends it too -- and comes into the room by itself the moment the group's words bring it (MTGroupRoom.moveIn),
+            // with its camera as it stood. An older build passes the word by and hears the call end; the room's invitation is its way.
+            guard from == peer, state == "connected" || state == "reconnecting", let word = reason else { return }
+            if let held = peerDevice, !held.isEmpty, device != held { return }   // only the device that is the call speaks for it
+            let camera = isVideo ? !CallUIModel.shared.cameraOff : false
+            guard MTGroupRoom.shared.moveIn(word, from: from, video: camera) else {
+                MontanaTrace.mark("call_room", "rx unreadable -- the call stays")
+                return
+            }
+            MontanaTrace.mark("call_room", "rx -- the call moves into a room")
+            if endReason == "-" { endReason = "moved-to-room"; endDoor = "rule:moved-to-room" }
+            endCall(silent: true)
         case "call-end":
             if let pk = parked, from == pk.peer {
                 tlog("the parked call's peer hung up")
@@ -3614,6 +3685,24 @@ final class MontanaCall: NSObject {
         endCall(silent: false)
     }
 
+    /// The person this phone talks with now: the peer of a connected call with no second line parked, nil otherwise.
+    var talkingWith: String? { state == "connected" ? (parked == nil ? peer : nil) : nil }
+
+    /// THE CALL GROWS INTO A ROOM (MTGroupRoom.grow, the author's words 17.10.2026 23:22 MSK: «add to the current call more people
+    /// from the user's contacts, up to 13 on a call»): the peer is told on the call's own road which room of which group the call
+    /// moves into -- a word an older build passes by -- and the call of two ends by that rule. The room is the one owner of a call
+    /// of more than two; the word rides before the end on the same road, in its order.
+    func moveIntoRoom(_ word: String) -> Bool {
+        guard Thread.isMainThread, let p = talkingWith else { return false }
+        var w = CallSignalOut(ctrl: "call-room")
+        w.reason = word
+        w.targetDevice = peerDevice
+        sendSignal?(p, w)
+        MontanaTrace.mark("call_room", "tx -- the call moves into a room")
+        endByRule("moved-to-room")
+        return true
+    }
+
     /// A RULE'S END NAMES THE RULE (23.09). A refused description, an offer that never came, a
     /// connection that did not build went through the hand's road and the summary said «cancelled»
     /// or «hung-up» -- a person's hand where there was none.
@@ -3745,6 +3834,8 @@ final class MontanaCall: NSObject {
         ended = true
         if let uuid = callUUID { MainActor.assumeIsolated { MTCallRecording.shared.finish(uuid) } }
         let credit = MainActor.assumeIsolated { MTCallMint.finish() }
+        weaveClosed(callEpoch, peer: peer, connected: connectedAt != nil)   // the fabric weighs a call of two that connected (MTWeave)
+        weaves[""] = nil
         if let credit { finishingTimeline?.mark("call.mint.settled", "coins=\(credit.coins)") }
         // No door may leave the summary without a reason. A door that did not name itself is
         // named by the state it came through — a fact, not a guess.
@@ -4747,6 +4838,7 @@ final class MontanaCall: NSObject {
             var pictureNow: [String: Int] = [:]   // each incoming video stream's frames (its bytes without a frame count)
             var outBytes = 0, outFrames = 0, outLimit = "-"
             var captureDurations: [Double] = [], playoutDurations: [Double] = []
+            var voice: [(id: String, seconds: Double, energy: Double, received: Double, concealed: Double)] = []   // the far voice (MTWeave)
             var outAudio = 0, tun = 0, net = "?"   // 24.09: what the voice sends, and whether the pair rides our tunnel
             // THE PATH IS TAKEN FROM THE NOMINATED PAIR, not from a random candidate. Before, the
             // type was read off the last local candidate that turned up -- and there are always
@@ -4809,6 +4901,13 @@ final class MontanaCall: NSObject {
                             aBytes = bytes; aLost = lost
                             aJitMs = Int(((s.values["jitter"] as? Double) ?? -0.001) * 1000)
                         }
+                        // THE FAR VOICE FOR THE FABRIC (App: «the seconds of the person's voice the signer's device received»): every
+                        // received voice stream's own counters -- played seconds, their energy, samples received and made up.
+                        if let sec = (s.values["totalSamplesDuration"] as? NSNumber)?.doubleValue,
+                           let energy = (s.values["totalAudioEnergy"] as? NSNumber)?.doubleValue,
+                           let got = (s.values["totalSamplesReceived"] as? NSNumber)?.doubleValue {
+                            voice.append((s.id, sec, energy, got, (s.values["concealedSamples"] as? NSNumber)?.doubleValue ?? 0))
+                        }
                     } else if media == "video" {
                         let frames = (s.values["framesReceived"] as? NSNumber)?.intValue ?? (s.values["framesDecoded"] as? NSNumber)?.intValue
                         pictureNow[s.id] = frames ?? bytes
@@ -4847,6 +4946,7 @@ final class MontanaCall: NSObject {
             // and the deadline anew, and the dead call stood for a minute more, swallowing the peer's new call. A pair
             // answers only when its own count grows past its last sighting; a pair seen for the first time answers by any
             // byte (checks are not counted); a pair that left says nothing.
+            self.weaveHears(voice)
             let pathAnswered = pathNow.contains { id, bytes in bytes > (self.pathSeen[id] ?? 0) }
             self.pathSeen = pathNow
             let inNow = aBytes + vBytes
@@ -7546,6 +7646,18 @@ struct CallOverlayView: View {
     // peer's) keeps its own face, and there the pill carries End.
     private var videoBranch: Bool { model.video || MontanaCall.shared.isVideo }
     private var chromeVisible: Bool { model.chromeVisible }
+    /// THE CALL'S ADD MARK (the author's words 17.10.2026 23:22 MSK: «add to the current call more people from the user's contacts, up
+    /// to 13 on a call», «from the call's page»): a connected call of two with no second line parked grows into a room.
+    @State private var adding = false
+    @State private var adds: [Chat] = []
+    private var canAdd: Bool { model.state == "connected" ? !model.hasParked : false }
+    /// The people chosen are handed over once the sheet is gone: the call's window it stood in goes with the call of two.
+    private func addChosen() {
+        let people = adds
+        adds = []
+        guard !people.isEmpty, let store = ChatStore.live else { return }
+        MTGroupRoom.shared.grow(adding: people, store: store)
+    }
     @Environment(\.verticalSizeClass) private var vClass
     private var landscape: Bool { vClass == .compact }
     /// The ground is one view (MTCallGround): the voice call, the sharer's own screen and the cover over
@@ -7573,6 +7685,12 @@ struct CallOverlayView: View {
         }
         // Whether the screen's owner is drawn again is said too (MTCallLive): the next frozen screen names its holder.
         .modifier(MTCallRecordingConsent())
+        // WHOM TO ADD TO THE CALL: the contacts this phone writes with, a tick each, the room's measure kept (MTCallAddSheet)
+        .sheet(isPresented: $adding, onDismiss: addChosen) {
+            if let store = ChatStore.live, let peer = model.peer {
+                MTCallAddSheet(peer: peer) { adds = $0 }.environmentObject(store)
+            }
+        }
         .modifier(MTCallSaid(event: "call_root", kv: "state=\(model.state) ring=\(model.peerRinging ? 1 : 0) lit=\(model.route.lit ? 1 : 0)"))
         // THE CAMERA REFUSAL IS SAID TO THE FACE (the author's word 20.09): the system alert with
         // the system road to Settings (UIApplication.openSettingsURLString). iOS restarts the app
@@ -7817,6 +7935,8 @@ struct CallOverlayView: View {
                     } else if model.talkSince != nil {
                         MTCallRecordMark(uuid: MontanaCall.shared.handRecordingUUID)
                     }
+                    // THE ADD MARK'S TWIN ROOM: the add mark stands on the right, and a video call keeps its name in the centre
+                    if videoBranch, canAdd { Color.clear.frame(width: montanaTouchTarget, height: montanaTouchTarget) }
                     // THE NAME STANDS IN THE CENTRE OF THE TOP ROW ON A VIDEO CALL (the author's word 23.09: no words
                     // about the kind of call; the name as large as the marks, between the arrow and the camera flip).
                     // The block is the row's own height (MTCallTopTitle); the time stands under the row.
@@ -7824,6 +7944,11 @@ struct CallOverlayView: View {
                         MTCallTopTitle(model: model).frame(maxWidth: .infinity)
                     } else {
                         Spacer()
+                    }
+                    // ADD TO THE CALL (the author's words 17.10.2026 23:22 MSK): the platform's own person-plus glyph on the marks' glass,
+                    // no word, the 44 points of the platform's control that fires at the first lifting (MontanaCallMark)
+                    if canAdd {
+                        MontanaCallMark(glyph: "person.badge.plus", label: "Add to Call") { adding = true }
                     }
                     if model.video {
                         // THE MASK (the author's word 30.09, checklist 36): a glyph mark with no word on the platform's 44 points,

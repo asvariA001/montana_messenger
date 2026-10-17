@@ -18,6 +18,8 @@ enum MontanaSafety {
     static let supportMail = contactMail
     static let site = "https://montana.quest"
     static let privacy = site + "/privacy/"   // the policy on the site, in the languages the site speaks
+    static let guide = "https://montana.xxx/faq/"   // the questions and answers on the site, in its three languages and as files agents read
+    static let source = "https://github.com/efir369999/montana_messenger"   // the specification and this app's code, open
     static var termsAccepted: Bool {
         UserDefaults.standard.integer(forKey: "termsAcceptedVersion") >= termsVersion
     }

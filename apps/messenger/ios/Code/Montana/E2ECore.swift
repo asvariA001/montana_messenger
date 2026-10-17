@@ -28,7 +28,10 @@ struct CallICE: Codable { var candidate: String; var sdpMid: String?; var sdpMLi
 // an unknown key in the JSON is ignored on decoding, so the word costs older builds nothing.
 // rejoin (24.09): this build rebuilds a call in place when the far run comes back into it -- the far side waits for it
 // and its rejoin is answered without a ring. Old builds skip the key; a peer that never said it is never sent a rejoin.
-struct CallCaps: Codable { var tier: String?; var ver: Int?; var opus_max: Int?; var hw_aec: Bool?; var sframe: Bool?; var av: Bool?; var rejoin: Bool? }
+// fm, fc (17.10.2026, the fabric of time, MTWeave): the hash the sender's fingerprint is read from, which the far side names them by in
+// its testimony of the call, and the identifier of the call its caller drew (Canon, «The testimony of a call»). Old builds skip both.
+struct CallCaps: Codable { var tier: String?; var ver: Int?; var opus_max: Int?; var hw_aec: Bool?; var sframe: Bool?; var av: Bool?; var rejoin: Bool?
+    var fm: String?; var fc: String? }
 struct E2EPlain: Codable { var body: String; var conv: String; var mid: String?; var ts: Int?
     var ctrl: String?; var sdp: CallSDP?; var candidate: CallICE?; var video: Bool?; var caps: CallCaps?; var call_seed: String? }
 struct E2ESession: Codable { var blob: String }

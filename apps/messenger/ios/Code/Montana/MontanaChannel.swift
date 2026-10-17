@@ -601,16 +601,19 @@ struct MTChannelInviteLinksPage: View {
                 Text("Anyone who follows this link will be able to join your channel.")
             }
             .listRowBackground(MTGlassRowPlate())
-            Section {
-                Button(role: .destructive) { askRevoke = true } label: {
-                    Text("Revoke Link").frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle())
+            if MTGroup.shared.manages(chat) {   // the owner alone ends the links it gave
+                Section {
+                    Button(role: .destructive) { askRevoke = true } label: {
+                        Text("Revoke Link").frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle())
+                    }
                 }
+                .listRowBackground(MTGlassRowPlate())
             }
-            .listRowBackground(MTGlassRowPlate())
         }
         .scrollContentBackground(.hidden).montanaPageGround()
         .navigationTitle("Invite Links").navigationBarTitleDisplayMode(.inline)
-        .onAppear { link = MTGroup.shared.inviteLink(chat) }
+        // an administrator with «Add Subscribers» hands the owner's link as the owner gave it (MTGroupState.link)
+        .onAppear { link = MTGroup.shared.inviteLink(chat) ?? MTGroup.shared.state(chat)?.link.flatMap { s in URL(string: s) } }
         .confirmationDialog(Text("Are you sure you want to revoke this link? Once you do, no one will be able to join the channel using it."),
                             isPresented: $askRevoke, titleVisibility: .visible) {
             Button("Revoke", role: .destructive) {
@@ -652,14 +655,19 @@ struct MTChannelAdminsPage: View {
                 }
                 .frame(minHeight: montanaTouchTarget)
                 ForEach(people.filter { admins.contains($0.seat) }) { p in
-                    HStack(spacing: 12) {
-                        MTSpeakerFace(ref: MTGroup.speaker(gid, p.seat), name: p.name, side: 40)
-                        Text(verbatim: p.name).foregroundColor(.primary).lineLimit(1)   // USER-DATA: an administrator's name
-                        Spacer(minLength: 0)
-                        Text("Admin").font(.subheadline).foregroundColor(.secondary)
+                    NavigationLink {   // the owner opens an administrator's rights (the reference's «Admin Rights»)
+                        MTChannelAdminRightsPage(key: key, seat: p.seat, name: p.name, isNew: false) { tick += 1 }
+                    } label: {
+                        HStack(spacing: 12) {
+                            MTSpeakerFace(ref: MTGroup.speaker(gid, p.seat), name: p.name, side: 40)
+                            Text(verbatim: p.name).foregroundColor(.primary).lineLimit(1)   // USER-DATA: an administrator's name
+                            Spacer(minLength: 0)
+                            Text("Admin").font(.subheadline).foregroundColor(.secondary)
+                        }
+                        .frame(minHeight: montanaTouchTarget)
+                        .contentShape(Rectangle())
                     }
-                    .frame(minHeight: montanaTouchTarget)
-                    .contentShape(Rectangle())
+                    .disabled(!owns)
                     .swipeActions(edge: .trailing) {
                         if owns { Button(role: .destructive) { set(p.seat, on: false) } label: { Text("Dismiss Admin") } }
                     }
@@ -697,7 +705,9 @@ struct MTChannelAdminsPage: View {
             NavigationStack {
                 List {
                     ForEach(people.filter { !admins.contains($0.seat) && $0.seat != MTGroup.ownerSeat }) { p in
-                        Button { set(p.seat, on: true); picking = false } label: {
+                        NavigationLink {   // the rights first, then the naming (the reference's «Admin Rights» of a new admin)
+                            MTChannelAdminRightsPage(key: key, seat: p.seat, name: p.name, isNew: true) { tick += 1; picking = false }
+                        } label: {
                             HStack(spacing: 12) {
                                 MTSpeakerFace(ref: MTGroup.speaker(gid, p.seat), name: p.name, side: 40)
                                 Text(verbatim: p.name).foregroundColor(.primary).lineLimit(1)   // USER-DATA: a subscriber's name
@@ -705,7 +715,6 @@ struct MTChannelAdminsPage: View {
                             }
                             .frame(minHeight: montanaTouchTarget).contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
                     }
                     .listRowBackground(MTGlassRowPlate())
                 }
@@ -1049,5 +1058,80 @@ struct MTChannelDiscussionPage: View {
         .scrollContentBackground(.hidden).montanaPageGround()
         .navigationTitle("Discussion").navigationBarTitleDisplayMode(.inline)
         .onAppear { on = MTGroup.shared.talks(key) }
+    }
+}
+
+/// AN ADMINISTRATOR'S RIGHTS IN A CHANNEL (the reference's «Admin Rights»): «WHAT CAN THIS ADMIN DO?» -- the rights the owner's
+/// phone carries out (MTChannelRight), each a switch; «Dismiss Admin» for one named before. Done names the administrator with the
+/// rights left on; every subscriber hears it by the invitation's word.
+struct MTChannelAdminRightsPage: View {
+    @EnvironmentObject private var store: ChatStore
+    @Environment(\.dismiss) private var dismiss
+    let key: String
+    let seat: String
+    let name: String
+    let isNew: Bool
+    var done: () -> Void = {}
+    @State private var taken: Set<String> = []
+    @State private var loaded = false
+    var body: some View {
+        List {
+            Section {
+                Text(verbatim: name).font(.headline).frame(minHeight: montanaTouchTarget)   // USER-DATA: a person's name
+            }
+            .listRowBackground(MTGlassRowPlate())
+            Section {
+                ForEach(MTChannelRight.allCases, id: \.self) { r in
+                    Toggle(isOn: Binding(get: { !taken.contains(r.rawValue) },
+                                         set: { on in if on { taken.remove(r.rawValue) } else { taken.insert(r.rawValue) } })) {
+                        Text(r.title)
+                    }
+                    .frame(minHeight: montanaTouchTarget)
+                }
+            } header: {
+                Text("WHAT CAN THIS ADMIN DO?")
+            }
+            .listRowBackground(MTGlassRowPlate())
+            if !isNew {
+                Section {
+                    Button(role: .destructive) {
+                        MTGroup.shared.setAdmin(key, seat: seat, on: false, store: store)
+                        done()
+                        dismiss()
+                    } label: {
+                        Text("Dismiss Admin").frame(maxWidth: .infinity, minHeight: montanaTouchTarget, alignment: .leading).contentShape(Rectangle())
+                    }
+                }
+                .listRowBackground(MTGlassRowPlate())
+            }
+        }
+        .scrollContentBackground(.hidden).montanaPageGround()
+        .navigationTitle("Admin Rights").navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                MontanaDoneMark {
+                    MTGroup.shared.setAdmin(key, seat: seat, on: true, taken: taken, store: store)
+                    done()
+                    dismiss()
+                }
+            }
+        }
+        .onAppear {
+            guard !loaded else { return }
+            loaded = true
+            taken = Set(MTGroup.shared.state(key)?.adminTaken?[seat] ?? [])
+        }
+    }
+}
+
+/// A channel's administrator's right in the reference's words (MTChannelAdminRightsPage).
+extension MTChannelRight {
+    var title: LocalizedStringKey {
+        switch self {
+        case .info: return "Change Channel Info"
+        case .post: return "Post Messages"
+        case .delete: return "Delete Messages of Others"
+        case .invite: return "Add Subscribers"
+        }
     }
 }
