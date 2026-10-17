@@ -80,6 +80,9 @@ struct MTGroupState: Codable, Equatable {
     /// THE LINK ASKS THE OWNER FIRST (the checklist's G.8, the reference's «Request Admin Approval»): who opens it waits in the
     /// requests until the owner adds or dismisses them. The owner's phone alone keeps both; nothing of it rides the wire.
     var approval: Bool? = nil
+    /// CHAT HISTORY FOR NEW MEMBERS (the checklist's G.4, the reference's «Visible» / «Hidden»): true -- one added reads the group's
+    /// newest words, as everyone was carried them; absent -- hidden, the reference's default. The owner's choice, never on the wire.
+    var history: Bool? = nil
     var requests: [MTGroupRequest]? = nil
     /// THE CHANNEL SIGNS ITS POSTS (the reference's «Sign Messages»): the owner's choice, carried to every subscriber in its invitation
     /// (MTGroupWord.sg); each post then wears its writer's name in its stamp.
@@ -96,6 +99,9 @@ struct MTGroupState: Codable, Equatable {
     /// SUBSCRIBERS COMMENT UNDER THE CHANNEL'S POSTS (the reference's discussion under a post): the owner's choice, carried in its
     /// invitation (MTGroupWord.dc); the comments ride the channel itself (MTChannelComments), no group of their own.
     var talks: Bool? = nil
+    /// THE REACTIONS A CHANNEL TAKES (the reference's «Some Reactions»): the owner's list; absent -- every reaction (while it takes
+    /// any, MTGroupState.reacts). Carried in its invitation (MTGroupWord.rl).
+    var reactList: [String]? = nil
     var mine: Bool { owner.isEmpty }
     var canManage: Bool { mine && left != true }
     /// A group's every person writes; a channel's owner and the administrators it named post (the reference's «Post Messages»).
@@ -175,6 +181,11 @@ struct MTGroupWord: Codable {
     var lk: String? = nil
     /// 1 on a channel's «inv»: its subscribers comment under its posts. A build that does not read it skips the key.
     var dc: Int? = nil
+    /// 1 on a letter of the group's past handed to one just added (G.4): it lands silent, at its own moment, with no banner. A build
+    /// that does not read it skips the key and shows it as a letter.
+    var hs: Int? = nil
+    /// The reactions a channel takes, on its «inv» (Some Reactions); absent -- every one. A build that does not read it skips the key.
+    var rl: [String]? = nil
 }
 
 /// ONE WHO ASKED TO JOIN BY THE LINK (the reference's «Member Requests»): the pipe the owner met them by, the name they gave and when.
@@ -541,7 +552,7 @@ final class MTGroup {
         // notice leaves that screen at once; the copy waits for its receipt as every group word does.
         let wakes = w.t == "sig" && (w.tx ?? "").hasPrefix(deleteMark) && E2E.deletionQuiet(pipe)
         MontanaDeliveryEngine.shared.enqueue(to: pipe, chat: pipe, mid: name, text: text,
-                                             silent: (!ring && w.t != "say" && w.t != "inv" && !wakes) || w.sl == 1,   // a silent post rings nothing
+                                             silent: (!ring && w.t != "say" && w.t != "inv" && !wakes) || w.sl == 1 || w.hs == 1,   // a silent post, and the past (G.4), ring nothing
                                              headless: true)   // a room's invitation rings where it is carried (07.10)
         MontanaTrace.mark("group_tx", mid: name, "t=\(w.t) to=\(String(pipe.prefix(10)))")
         return name
@@ -825,6 +836,31 @@ final class MTGroup {
             spread(MTGroupWord(t: "cm", g: g.id, n: name.isEmpty ? nil : name, id: id, s: seat, tx: tx, qm: post), in: g, except: seat, own: false)
         }
         return .held
+    }
+    /// [I-14]: the reactions a channel's list names, at most, each a glyph of a few letters.
+    static let reactListLimit = 80
+    /// A list of reactions as it came: glyphs alone, each once, bounded; nil for none or for every one.
+    static func reactionList(_ l: [String]?) -> [String]? {
+        guard let l else { return nil }
+        var seen = Set<String>()
+        let out = l.filter { e in !e.isEmpty && e.count <= 4 && e.unicodeScalars.count <= 16 && seen.insert(e).inserted }
+        return out.isEmpty ? nil : Array(out.prefix(Self.reactListLimit))
+    }
+    /// The reactions a channel takes: its owner's list, or nil for every one.
+    func reactionList(_ key: String) -> [String]? { state(key)?.kind == .channel ? state(key)?.reactList : nil }
+    /// THE OWNER CHOOSES THE REACTIONS ITS CHANNEL TAKES (Some Reactions), or every one (nil): every subscriber hears it by the
+    /// invitation's word again.
+    @MainActor
+    func setReactionList(_ key: String, _ list: [String]?) {
+        guard var g = state(key), g.canManage, g.kind == .channel else { return }
+        let next = Self.reactionList(list)
+        guard next != g.reactList else { return }
+        g.reactList = next
+        act(&g, next == nil ? "reactOn" : "reactSome")
+        groups[g.id] = g
+        saveGroups()
+        tellAll(g, face: nil)
+        MontanaTrace.mark("channel_reactions", "list=\(next?.count ?? 0)")
     }
     /// Whether a channel's posts take reactions (Allow Reactions): on unless its owner turned them off.
     func reactionsOn(_ key: String) -> Bool { state(key)?.reacts != false }
@@ -1204,6 +1240,20 @@ final class MTGroup {
         renew(key, title: w.ti ?? g.title, faceFile: file, about: w.ds, by: m.seat, store: store)
         if let held = groups[g.id] { stand(held, face: file, store: store, fresh: false) }   // the owner's own row follows the group
         return .held
+    }
+
+    // -- chat history for new members (the checklist's G.4) ---------------------------------------------------------------------
+
+    /// The letters of the past one added may read (I-14: bounded, as the reference's own first page is).
+    static let historyLimit = 50
+    /// THE OWNER SHOWS OR HIDES THE GROUP'S PAST TO NEW MEMBERS (the reference's «Chat History For New Members»).
+    @MainActor
+    func setHistory(_ key: String, visible: Bool) {
+        guard var g = state(key), g.canManage, g.kind == .group, (g.history == true) != visible else { return }
+        g.history = visible ? true : nil
+        groups[g.id] = g
+        saveGroups()
+        MontanaTrace.mark("group_history", visible ? "visible" : "hidden")
     }
 
     // -- member requests (the checklist's G.8, the reference's «Request Admin Approval» and «Member Requests») ----------------------
@@ -1644,6 +1694,27 @@ final class MTGroup {
         // the author's words 17.10.2026 18:4x MSK: «channels ... 1 to 1»): the newest ten posts of words, each under its own one name
         // and so at its own moment, as every subscriber was carried it. A post with a file stays: its sealed pieces were laid for
         // the receivers of its day.
+        // CHAT HISTORY FOR NEW MEMBERS (G.4, the reference's «Visible»): one added reads the group's newest words -- fifty letters of
+        // words, each under its own one name and so at its own moment, by its own speaker, silent; a letter with a file stays, its
+        // sealed pieces laid for the receivers of its day.
+        if g.kind == .group, g.history == true {
+            let me = Self.clean(E2E.myDisplayName(), Self.nameLimit)
+            let past = (store.messages[key] ?? []).filter { m in
+                m.imageFile == nil && m.videoFile == nil && m.audioFile == nil && m.docFile == nil
+                    && MTGroupEvent.of(m.text) == nil && Self.carries(m.text) && !m.text.hasPrefix(mediaMark)
+            }
+            let head = Self.speaker(g.id, "")
+            for p in past.suffix(Self.historyLimit) {
+                let letter = p.mid.hasPrefix("mid:") ? String(p.mid.dropFirst(4)) : p.mid
+                let seat = p.isFromMe ? g.me : (p.senderRef.flatMap { r in r.hasPrefix(head) ? String(r.dropFirst(head.count)) : nil } ?? "")
+                guard Self.isLetterName(letter), Self.isSeat(seat), !fresh.contains(where: { f in f.seat == seat }) else { continue }
+                let name = seat == g.me ? me : (g.names[seat] ?? "")
+                var w = MTGroupWord(t: "say", g: g.id, k: g.kind.rawValue, ti: g.title, n: name.isEmpty ? nil : name, id: letter, s: seat, tx: p.text,
+                                    qt: (p.replyText ?? "").isEmpty ? nil : p.replyText)
+                w.hs = 1
+                for m in fresh { _ = carry(w, to: m.pipe, letter: "", own: false) }
+            }
+        }
         if g.kind == .channel {
             let me = Self.clean(E2E.myDisplayName(), Self.nameLimit)
             let posts = (store.messages[key] ?? []).filter { m in
@@ -1718,6 +1789,7 @@ final class MTGroup {
             w.sg = g.kind == .channel && g.signs == true ? 1 : nil   // a channel signs its posts (Sign Messages)
             w.rx = g.kind == .channel && g.reacts == false ? 0 : nil   // a channel takes no reactions (Allow Reactions off)
             w.dc = g.kind == .channel && g.talks == true ? 1 : nil   // a channel's subscribers comment (Allow Comments)
+            w.rl = g.kind == .channel ? g.reactList : nil   // the reactions a channel takes (Some Reactions)
             _ = carry(w, to: m.pipe, letter: "", own: false)
         }
     }
@@ -1866,6 +1938,7 @@ final class MTGroup {
             g.signs = w.sg == 1 ? true : nil
             g.reacts = w.rx == 0 ? false : nil
             g.talks = w.dc == 1 ? true : nil
+            g.reactList = Self.reactionList(w.rl)
             let tag = w.fc.map { String($0.count) + "-" + String($0.suffix(16)) }
             let newFace = tag != nil && tag != g.faceTag
             if newFace { g.faceTag = tag }
@@ -1889,6 +1962,7 @@ final class MTGroup {
         g.signs = w.sg == 1 ? true : nil
         g.reacts = w.rx == 0 ? false : nil
         g.talks = w.dc == 1 ? true : nil
+        g.reactList = Self.reactionList(w.rl)
         g.faceTag = w.fc.map { String($0.count) + "-" + String($0.suffix(16)) }
         groups[w.g] = g
         saveGroups()
@@ -1951,7 +2025,7 @@ final class MTGroup {
             if w.sl != 1 { MontanaNotify.presentGroup(title: g.title, body: String(localized: "New message", bundle: MTLanguage.bundle), chat: key, copy: copy) }
             return .held
         }
-        if landed, w.sl != 1 {   // a channel's post sent without sound shows no banner (Silent Broadcast)
+        if landed, w.sl != 1, w.hs != 1 {   // a channel's silent post, and a group's past handed to one just added (G.4), show no banner
             // The banner a running app owes its person: the group's title over who wrote and what (a channel speaks as itself).
             let shown = MontanaNotify.body(for: words) ?? String(localized: "New message", bundle: MTLanguage.bundle)
             let who = g.kind == .group ? speakerName(Self.speaker(g.id, seat)) : ""
@@ -1985,6 +2059,13 @@ final class MTGroup {
         guard !answersHeard.contains(id) else { return .held }
         // A CHANNEL WHOSE OWNER TURNED REACTIONS OFF TAKES NONE (the reference's «Allow Reactions»): a subscriber's reaction ends here
         if words.hasPrefix(reactionMark), g.kind == .channel, g.reacts == false, seat != Self.ownerSeat, g.admins?.contains(seat) != true {
+            return .refused
+        }
+        // A CHANNEL THAT TAKES SOME REACTIONS TAKES THOSE ALONE (the reference's «Some Reactions»): another added is refused here
+        if words.hasPrefix(reactionMark), g.kind == .channel, let list = g.reactList, seat != Self.ownerSeat, g.admins?.contains(seat) != true,
+           let o = Self.json(String(words.dropFirst(reactionMark.count))), (o["op"] as? String) == "add", let e = o["e"] as? String,
+           !list.contains(e) {
+            MontanaTrace.mark("group_refused", "a reaction outside the channel's list")
             return .refused
         }
         let key = Self.key(of: g.id)

@@ -647,3 +647,72 @@ struct MTGroupRequestsPage: View {
         .navigationTitle("Member Requests").navigationBarTitleDisplayMode(.inline)
     }
 }
+
+/// CHAT HISTORY FOR NEW MEMBERS, AS THE REFERENCE'S PAGE ASKS IT (the checklist's G.4): «Visible» -- one added reads the group's newest
+/// words; «Hidden» -- they begin where they came in, the reference's default.
+struct MTGroupHistoryPage: View {
+    let chat: String
+    @State private var visible = false
+    var body: some View {
+        List {
+            Section {
+                choice(true, "Visible")
+                choice(false, "Hidden")
+            } header: {
+                Text("History for new members")
+            } footer: {
+                if visible { Text("New members will see messages that were sent before they joined.") }
+                else { Text("New members won't see earlier messages.") }
+            }
+            .listRowBackground(MTGlassRowPlate())
+        }
+        .scrollContentBackground(.hidden).montanaPageGround()
+        .navigationTitle("Chat History Settings").navigationBarTitleDisplayMode(.inline)
+        .onAppear { visible = MTGroup.shared.state(chat)?.history == true }
+    }
+    private func choice(_ on: Bool, _ title: LocalizedStringKey) -> some View {
+        Button {
+            visible = on
+            MTGroup.shared.setHistory(chat, visible: on)
+        } label: {
+            HStack {
+                Text(title).foregroundColor(.primary)
+                Spacer()
+                if visible == on { Image(systemName: "checkmark").foregroundColor(.primary) }
+            }
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// THE GROUP'S TYPE, AS THE REFERENCE'S PAGE SAYS IT (the checklist's G.2): a group here is private -- joined by the owner's hand or
+/// by its invite link -- and the page says so in the reference's words, with the link under it. A public group is found by a search
+/// of all groups, and this network keeps no list of them: no server holds one, so no switch stands that could not keep its word.
+struct MTGroupTypePage: View {
+    let chat: String
+    var body: some View {
+        List {
+            Section {
+                HStack {
+                    Text("Private")
+                    Spacer()
+                    Image(systemName: "checkmark").foregroundColor(.primary)
+                }
+                .frame(minHeight: 44)
+            } header: {
+                Text("Group Type")
+            } footer: {
+                Text("Private groups can only be joined if you were invited or have an invite link.")
+            }
+            .listRowBackground(MTGlassRowPlate())
+            Section {
+                NavigationLink { MTGroupInviteLinksPage(chat: chat) } label: { Label("Invite Links", systemImage: "link") }
+            }
+            .listRowBackground(MTGlassRowPlate())
+        }
+        .scrollContentBackground(.hidden).montanaPageGround()
+        .navigationTitle("Group Type").navigationBarTitleDisplayMode(.inline)
+    }
+}

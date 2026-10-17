@@ -677,7 +677,9 @@ struct MontanaPeerInfoScreen: View {
                     NavigationLink { MTChannelDiscussionPage(key: chat.name) } label: { Label("Discussion", systemImage: "bubble.left.and.bubble.right") }
                     NavigationLink { MTChannelReactionsPage(key: chat.name) } label: {
                         LabeledContent {
-                            Text(MTGroup.shared.reactionsOn(chat.name) ? "All Reactions" : "Disabled")
+                            if !MTGroup.shared.reactionsOn(chat.name) { Text("Disabled") }
+                            else if let l = MTGroup.shared.reactionList(chat.name) { Text(verbatim: String(l.count)) }   // USER-DATA: a count
+                            else { Text("All Reactions") }
                         } label: { Label("Reactions", systemImage: "face.smiling") }
                     }
                 }
@@ -700,9 +702,31 @@ struct MontanaPeerInfoScreen: View {
                 .listRowBackground(MTGlassRowPlate())
             }
             if isGroupPage, MTGroup.shared.manages(chat.name) {
-                // THE GROUP'S LINK AND ITS END, where the reference's editor keeps them (the checklist's G.3 and G.11)
+                // THE GROUP'S LINK AND ITS END, where the reference's editor keeps them (the checklist's G.3 and G.11), its type first (G.2)
+                Section {
+                    NavigationLink { MTGroupTypePage(chat: chat.name) } label: {
+                        HStack {
+                            Label("Group Type", systemImage: "lock")
+                            Spacer()
+                            Text("Private").foregroundColor(.secondary)
+                        }
+                    }
+                }
+                .listRowBackground(MTGlassRowPlate())
                 Section {
                     NavigationLink { MTGroupInviteLinksPage(chat: chat.name) } label: { Label("Invite Links", systemImage: "link") }
+                }
+                .listRowBackground(MTGlassRowPlate())
+                // THE PAST FOR NEW MEMBERS, as the reference's editor names it (G.4): «Visible» or «Hidden»
+                Section {
+                    NavigationLink { MTGroupHistoryPage(chat: chat.name) } label: {
+                        HStack {
+                            Label("Chat History", systemImage: "clock.arrow.circlepath")
+                            Spacer()
+                            if MTGroup.shared.state(chat.name)?.history == true { Text("Visible").foregroundColor(.secondary) }
+                            else { Text("Hidden").foregroundColor(.secondary) }
+                        }
+                    }
                 }
                 .listRowBackground(MTGlassRowPlate())
                 // WHAT THE MEMBERS MAY DO, as the reference's editor counts it (G.5): the rights left of all of them

@@ -14590,7 +14590,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "已启用慢速模式。您可以在 %@ 后发送下一条消息。"
+            "value": "已开启慢速模式。你可以在 %@ 后发送下一条消息。"
           }
         }
       }
@@ -27866,22 +27866,6 @@
         }
       }
     },
-    "Slowmode is enabled. You can send your next message in %@.": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Включён медленный режим. Следующее сообщение можно отправить через %@."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已开启慢速模式。你可以在 %@ 后发送下一条消息。"
-          }
-        }
-      }
-    },
     "Send Messages": {
       "localizations": {
         "ru": {
@@ -28454,6 +28438,198 @@
           "stringUnit": {
             "state": "translated",
             "value": "入群申请"
+          }
+        }
+      }
+    },
+    "Visible": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Видна"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可见"
+          }
+        }
+      }
+    },
+    "Hidden": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скрыта"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏"
+          }
+        }
+      }
+    },
+    "History for new members": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "История для новых участников"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新成员可见的历史"
+          }
+        }
+      }
+    },
+    "New members will see messages that were sent before they joined.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новые участники увидят сообщения, отправленные до их вступления."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新成员将看到他们加入前发送的消息。"
+          }
+        }
+      }
+    },
+    "New members won't see earlier messages.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новые участники не увидят прежних сообщений."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新成员将看不到之前的消息。"
+          }
+        }
+      }
+    },
+    "Chat History Settings": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "История чата"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天记录设置"
+          }
+        }
+      }
+    },
+    "Chat History": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "История чата"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天记录"
+          }
+        }
+      }
+    },
+    "Private": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Частная"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "私密"
+          }
+        }
+      }
+    },
+    "Group Type": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тип группы"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "群组类型"
+          }
+        }
+      }
+    },
+    "Private groups can only be joined if you were invited or have an invite link.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В частную группу можно вступить только по приглашению или по ссылке-приглашению."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "私密群组只能通过邀请或邀请链接加入。"
+          }
+        }
+      }
+    },
+    "AVAILABLE REACTIONS": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ДОСТУПНЫЕ РЕАКЦИИ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可用回应"
+          }
+        }
+      }
+    },
+    "You updated the list of allowed reactions": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вы изменили список разрешённых реакций"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "您更新了允许的回应列表"
           }
         }
       }

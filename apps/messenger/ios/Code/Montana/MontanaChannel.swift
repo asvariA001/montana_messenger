@@ -723,12 +723,20 @@ struct MTChannelAdminsPage: View {
     }
 }
 
-/// THE CHANNEL'S REACTIONS (the reference's «Reactions» page of a channel): «Allow Reactions» and its caption. Off, the post's menu on
-/// every subscriber's phone stands without its strip, and the owner takes no subscriber's reaction (MTGroup.answered).
+/// THE CHANNEL'S REACTIONS (the reference's «Reactions» page of a channel): «Allow Reactions» and its caption; on, «AVAILABLE
+/// REACTIONS» -- every reaction a tap in or out, every one taken while all stand chosen. Off, the post's menu on every subscriber's
+/// phone stands without its strip; a list, the strip offers it alone; the owner takes nothing else (MTGroup.answered).
 struct MTChannelReactionsPage: View {
     let key: String
     @State private var on = true
+    @State private var chosen: Set<String> = []
+    /// The reactions the owner chooses among: the common ones first, then the emoji panel's own, each once.
+    static var choice: [String] {
+        var seen = Set<String>()
+        return Array((MTReactions.common + emojiCategories.flatMap(\.emojis)).filter { e in seen.insert(e).inserted }.prefix(MTGroup.reactListLimit))
+    }
     var body: some View {
+        let all = Self.choice
         List {
             Section {
                 Toggle(isOn: Binding(get: { on }, set: { v in on = v; MTGroup.shared.setReactions(key, on: v) })) {
@@ -739,10 +747,44 @@ struct MTChannelReactionsPage: View {
                 Text("Allow subscribers to react to channel posts.")
             }
             .listRowBackground(MTGlassRowPlate())
+            if on {
+                Section {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 6), spacing: 6) {
+                        ForEach(all, id: \.self) { e in
+                            Button { flip(e, all) } label: {
+                                Text(e).font(.system(size: 28))
+                                    .frame(width: montanaTouchTarget, height: montanaTouchTarget)
+                                    .opacity(chosen.contains(e) ? 1 : 0.3)
+                                    .overlay(alignment: .bottomTrailing) {
+                                        if chosen.contains(e) {
+                                            Image(systemName: "checkmark.circle.fill").font(.system(size: 13)).foregroundColor(.white)
+                                        }
+                                    }
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(Text(verbatim: e))   // USER-DATA: a reaction's glyph
+                        }
+                    }
+                    .padding(.vertical, 6)
+                } header: {
+                    Text("AVAILABLE REACTIONS")
+                }
+                .listRowBackground(MTGlassRowPlate())
+            }
         }
         .scrollContentBackground(.hidden).montanaPageGround()
         .navigationTitle("Reactions").navigationBarTitleDisplayMode(.inline)
-        .onAppear { on = MTGroup.shared.reactionsOn(key) }
+        .onAppear {
+            on = MTGroup.shared.reactionsOn(key)
+            chosen = Set(MTGroup.shared.reactionList(key) ?? all)
+        }
+    }
+    /// One reaction in or out: every one chosen is the whole choice (nil), any fewer the owner's list in the choice's order.
+    private func flip(_ e: String, _ all: [String]) {
+        if chosen.contains(e) { chosen.remove(e) } else { chosen.insert(e) }
+        guard !chosen.isEmpty else { chosen.insert(e); return }   // at least one: none at all is «Allow Reactions» off
+        MTGroup.shared.setReactionList(key, chosen.count == all.count ? nil : all.filter { x in chosen.contains(x) })
     }
 }
 
@@ -842,6 +884,7 @@ struct MTChannelActionsPage: View {
         case "signOn": return String(localized: "You enabled signatures", bundle: b)
         case "signOff": return String(localized: "You disabled signatures", bundle: b)
         case "reactOn": return String(localized: "You enabled all reactions", bundle: b)
+        case "reactSome": return String(localized: "You updated the list of allowed reactions", bundle: b)
         case "talkOn": return String(localized: "You enabled comments", bundle: b)
         case "talkOff": return String(localized: "You disabled comments", bundle: b)
         default: return String(localized: "You disabled reactions", bundle: b)

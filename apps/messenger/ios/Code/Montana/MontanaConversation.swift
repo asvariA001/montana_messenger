@@ -2420,7 +2420,8 @@ struct ChatConversationView: View {
                 members: group,
                 seenBy: chat.isGroup && m.isFromMe ? MTGroup.shared.seenBy(m, in: chat.name) : nil,   // the reference's «N Seen» (B.13)
                 readsOnly: readsOnly,   // a channel's subscriber: no reply, no pin (the reference's menu)
-                reactionsAllowed: !isChannel || MTGroup.shared.reactionsOn(chat.name)   // Allow Reactions (the channel owner's switch)
+                reactionsAllowed: !isChannel || MTGroup.shared.reactionsOn(chat.name),   // Allow Reactions (the channel owner's switch)
+                reactionsOnly: isChannel ? MTGroup.shared.reactionList(chat.name) : nil   // Some Reactions (the owner's list)
             )
         }
     }

@@ -232,6 +232,8 @@ struct MessageContextOverlay: View {
     var readsOnly = false
     /// A CHANNEL WHOSE OWNER TURNED REACTIONS OFF (the reference's «Allow Reactions»): no strip of reactions stands over the post.
     var reactionsAllowed = true
+    /// A CHANNEL THAT TAKES SOME REACTIONS (the reference's «Some Reactions»): the strip and the whole choice offer its list alone.
+    var reactionsOnly: [String]? = nil
     @State private var shown = false
     @State private var confirmingDelete = false
     @State private var parts: [String: CGFloat] = [:]
@@ -245,17 +247,18 @@ struct MessageContextOverlay: View {
     /// node of its own beside the scrolling cloud, at the place the cloud reserves (see the cloud).
     private var reactionsRow: some View {
         HStack(spacing: 10) {
-            ForEach(MTReactions.top(MTReactions.fitCount(width: MTScene.size().width)), id: \.self) { e in
+            let fit = MTReactions.fitCount(width: MTScene.size().width)
+            ForEach(reactionsOnly.map { l in Array(l.prefix(fit)) } ?? MTReactions.top(fit), id: \.self) { e in
                 Button { onReact(e) } label: { Text(e).font(.system(size: 30)) }
             }
-            Button {
+            if (reactionsOnly?.count ?? Int.max) > fit { Button {
                 withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) { reactionsOpen = true }
             } label: {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundColor(.white.opacity(0.75))
                     .montanaFingerRoom(layout: 17)   // the row keeps the chevron's 17 points, the finger gets 44
-            }
+            } }
         }
         .padding(.horizontal, 16).padding(.vertical, 10)
         .background(.ultraThinMaterial, in: Capsule())
@@ -360,7 +363,7 @@ struct MessageContextOverlay: View {
                 // from the first.
                 if reactionsAllowed { Group {
                     if reactionsOpen {
-                        let choice = MTReactions.all
+                        let choice = reactionsOnly ?? MTReactions.all
                         ScrollView(.vertical, showsIndicators: false) {
                             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 9),
                                       spacing: 6) {
