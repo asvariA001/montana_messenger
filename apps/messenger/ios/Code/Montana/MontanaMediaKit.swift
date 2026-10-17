@@ -1000,15 +1000,10 @@ extension MontanaMedia {
         }
     }
     static func previewBase64(_ imageData: Data, maxSide: CGFloat = 200, maxBytes: Int = 16_000) -> String? {
-        guard let img = UIImage(data: imageData) else { return nil }
-        let scale = min(1, maxSide / max(img.size.width, img.size.height))
-        let sz = CGSize(width: img.size.width * scale, height: img.size.height * scale)
-        let small = UIGraphicsImageRenderer(size: sz).image { _ in img.draw(in: CGRect(origin: .zero, size: sz)) }
-        var q: CGFloat = 0.7
-        var d = small.jpegData(compressionQuality: q)
-        while let dd = d, dd.count > maxBytes, q > 0.2 { q -= 0.15; d = small.jpegData(compressionQuality: q) }
-        guard let out = d, out.count <= maxBytes else { return nil }
-        return out.base64EncodedString()
+        // THE ONE PREVIEW RECIPE ([C-1], 17.10.2026): the sheet drew its own preview at the screen's scale, and a detailed photo
+        // weighed 27-48 KB at its lowest quality against 16 000 -- no preview, and since 13.10 a receiver keeps a photo without one
+        // out of the feed until its file lands. The app's recipe is total for every picture with pixels (mediaThumbnail).
+        UIImage(data: imageData)?.mediaThumbnail(maxDim: maxSide, maxBytes: maxBytes)?.base64EncodedString()
     }
 
 }
@@ -1136,4 +1131,47 @@ extension MontanaMedia {
         }
         return false
     }
+}
+
+// Thumbnail for MediaRef (inline preview in the ratchet, ≤ THUMB_MAX 16 KiB).
+extension UIImage {
+    func mediaThumbnail(maxDim: CGFloat = 96, maxBytes: Int = 1_200) -> Data? {   // mini-thumb (blur-up placeholder); full preview loads from the blob
+        // THE PREVIEW'S PIXELS ARE OURS, NOT THE PLATFORM'S GUESS (the author's word 17.10.2026 15:5x MSK, the iPhone 17: «media
+        // does not load»). The platform's renderer is never opaque by default, and in its automatic range a wide-colour picture --
+        // every camera photo is Display P3 -- or an HDR one is drawn in 16-bit float. The see-through test asked the RENDERER's
+        // output, so every photo took the sticker's PNG road, and in 16 bits its last rung of 32 pixels still weighed 4.5-5.4 KB
+        // against 4096: no preview, and the photo was refused at its owner (measured on this very code under the system's own
+        // renderer: P3, PQ, HLG and grey pictures refused; the fleet 14-17.10: three phones, the same photos refused at every
+        // resume). The preview is drawn in the standard range and opaque unless the SOURCE sees through: a photo always has its
+        // JPEG, and a see-through picture's PNG descends to a side whose 8-bit pixels fit the budget by arithmetic.
+        let seeThrough = cgImage.map { [CGImageAlphaInfo.first, .last, .premultipliedFirst, .premultipliedLast].contains($0.alphaInfo) } ?? false
+        func drawn(_ side: CGFloat) -> UIImage {
+            let k = min(side / max(size.width, 1), side / max(size.height, 1), 1)
+            let box = CGSize(width: max(1, size.width * k), height: max(1, size.height * k))
+            let fmt = UIGraphicsImageRendererFormat(); fmt.scale = 1; fmt.opaque = !seeThrough; fmt.preferredRange = .standard
+            return UIGraphicsImageRenderer(size: box, format: fmt).image { _ in draw(in: CGRect(origin: .zero, size: box)) }
+        }
+        // A SEE-THROUGH PICTURE IS NOT FLATTENED ONTO WHITE (the author's word 22.09: «the sticker
+        // loads as a photo on a white ground»). This mini-frame stands in the receiver's row while
+        // the file is still on its way, and JPEG has no transparency -- so a sticker arrived as a
+        // white square. A picture with an alpha channel rides as a small PNG instead; it keeps its
+        // own ground, and its size is held down by the side, not by a quality it does not have.
+        if seeThrough {
+            var side = maxDim
+            while side > Self.seeThroughFloor {
+                if let d = drawn(side).pngData(), d.count <= max(maxBytes, 4096) { return d }
+                side = max(Self.seeThroughFloor, floor(side * 0.7))
+            }
+            return drawn(Self.seeThroughFloor).pngData()   // 16 x 16 pixels of 8-bit RGBA are 1 KiB raw: under the budget by arithmetic
+        }
+        let small = drawn(maxDim)
+        var q: CGFloat = 0.6
+        while q > 0.1 {
+            if let d = small.jpegData(compressionQuality: q), d.count <= maxBytes { return d }
+            q -= 0.15
+        }
+        return small.jpegData(compressionQuality: 0.1)
+    }
+    /// The last rung of a see-through preview: its side in pixels.
+    private static let seeThroughFloor: CGFloat = 16
 }

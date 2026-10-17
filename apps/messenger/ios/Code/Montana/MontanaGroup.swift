@@ -56,6 +56,9 @@ struct MTGroupState: Codable, Equatable {
     var invite: String? = nil
     /// The face last taken from an invitation, by its length and its tail: a repeat of the same word lays no second file.
     var faceTag: String? = nil
+    /// THE GROUP'S FACE ON THIS PHONE, a file of the avatars folder (17.10.2026): the group is its one owner, so the row, the copy
+    /// and the notices read it here -- it used to live on the row alone and left with a row a copy did not carry.
+    var face: String? = nil
     var mine: Bool { owner.isEmpty }
     var canManage: Bool { mine && left != true }
     var canWrite: Bool { left != true && (kind == .group || mine) }
@@ -355,9 +358,17 @@ final class MTGroup {
 
     /// The group's row on the list: the one standing or archived, or a new one at the top. A deleted group's row comes back
     /// with its next word, as a deleted conversation does.
+    /// `fresh` -- a word of the group raised it now; a row stood back by standAll keeps its place by its newest letter.
     @MainActor @discardableResult
-    private func stand(_ g: MTGroupState, face: String?, store: ChatStore) -> Chat {
+    private func stand(_ g: MTGroupState, face: String?, store: ChatStore, fresh: Bool = true) -> Chat {
         let key = Self.key(of: g.id)
+        // THE GROUP OWNS ITS FACE (17.10.2026): a new face is written into the group's state first; the row and the notices'
+        // mirror follow it -- a row lost to a copy or a shelf comes back wearing it, and a banner wears it while the app sleeps.
+        if let face, groups[g.id] != nil, groups[g.id]?.face != face {
+            groups[g.id]?.face = face
+            saveGroups()
+            store.mirrorFaceToShared(key)
+        }
         if store.deletedChats.contains(key) { store.deletedChats.remove(key) }
         var rows = store.storedChats()
         if let i = rows.firstIndex(where: { $0.id == key }) {
@@ -369,12 +380,39 @@ final class MTGroup {
             return rows[i]
         }
         if let held = store.storedArchived().first(where: { $0.id == key }) { return held }
-        let row = Chat(name: key, lastMessage: "", time: nowHHMM(), unread: 0, status: "", photoURL: face,
+        let row = Chat(name: key, lastMessage: "", time: nowHHMM(), unread: 0, status: "", photoURL: face ?? groups[g.id]?.face,
                        isGroup: true, isAdmin: g.mine, members: [], convId: key, displayName: g.title)
         rows.insert(row, at: 0)
         store.saveStored(chats: rows)
-        store.bump(key)
+        if fresh { store.bump(key) }
         return row
+    }
+
+    /// EVERY GROUP THIS PHONE HOLDS STANDS ON A SHELF (the author's word 17.10.2026 16:0x MSK: «groups and channels did not come
+    /// back»). A group has no pipe, so no builder derives its row from the feed: the row lived on the saved shelf alone, and a
+    /// copy that did not carry the shelf -- or a shelf written over -- left the group's state and its feed on the phone with no
+    /// row to open them by (the Mac 17.10 16:03 MSK: feed_no_row=grp:9cf40d,grp:3d8826). The group is its row's owner: at every
+    /// load and after every copy laid, a held group with no row on either shelf stands one, in its place by its newest letter,
+    /// unless the person deleted it; a face only the old row knew is taken into the group once.
+    @MainActor
+    func standAll(store: ChatStore) {
+        guard ready(), !groups.isEmpty else { return }
+        let rows = store.storedChats(), archived = store.storedArchived()
+        var stood = 0, faces = 0
+        for id in groups.keys.sorted() {
+            guard let g = groups[id] else { continue }
+            let key = Self.key(of: id)
+            let row = rows.first { $0.id == key } ?? archived.first { $0.id == key }
+            if g.face == nil, let f = row?.photoURL, !f.isEmpty {
+                groups[id]?.face = f
+                faces += 1
+            }
+            guard row == nil, !store.deletedChats.contains(key) else { continue }
+            stand(groups[id] ?? g, face: nil, store: store, fresh: false)
+            stood += 1
+        }
+        if faces > 0 { saveGroups() }
+        if stood + faces > 0 { MontanaTrace.mark("group_stood", "rows=\(stood) faces=\(faces) held=\(groups.count)") }
     }
 
     // -- the wire ------------------------------------------------------------------------------
@@ -855,8 +893,10 @@ final class MTGroup {
         let renamed = name != g.title
         g.title = name
         if let words { g.about = words }
+        if face != nil, let faceFile { g.face = faceFile }   // the group owns its face (stand)
         groups[g.id] = g
         saveGroups()
+        if face != nil { store.mirrorFaceToShared(key) }
         // The owner's own row is the page's to write (ChatsListView.updateChat): a second writer of the shelf here would lay the
         // shelf back over the page's fresh copy.
         tellAll(g, face: face.flatMap { Self.thumb($0) })

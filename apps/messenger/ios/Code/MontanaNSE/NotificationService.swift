@@ -616,7 +616,10 @@ final class NotificationService: UNNotificationServiceExtension {
             var mirrorGlyph: String? = nil; var mirrorColor: String? = nil
             if let d = MontanaKeychain.get("shareChats"),
                let arr = try? JSONSerialization.jsonObject(with: d) as? [[String: String]] {
-                let hit = arr.first(where: { $0["name"] == ref }) ?? arr.first(where: { $0["name"] == Self.lastOpened })
+                // A GROUP'S FACE IS NEVER ITS CARRIER'S (17.10.2026): the opening key of a group's word is the pipe of the person
+                // who carried it, so a group outside the mirror's rows rang with that person's face. A group falls to its own circle.
+                let carrier = ref.hasPrefix("grp:") ? nil : arr.first(where: { $0["name"] == Self.lastOpened })   // COMPAT-LOCAL: MTGroup.keyHead
+                let hit = arr.first(where: { $0["name"] == ref }) ?? carrier
                 if let t = hit?["thumb"], let img = Data(base64Encoded: t), !img.isEmpty { return img }
                 mirrorGlyph = hit?["initial"]; mirrorColor = hit?["colorHex"]
             }

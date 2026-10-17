@@ -2285,7 +2285,8 @@ class ChatStore: ObservableObject {
     // initials circle in push banners.
     func syncPeerAvatarsToShared() {
         var refs = Set(peerAvatars.keys)
-        for c in storedChats() where !c.isGroup && !ChatStore.isLocalRoom(c.name) { refs.insert(c.convRef) }
+        // A group's face rides too (17.10.2026): the extension found none for a group and drew a letter, or its carrier's face.
+        for c in storedChats() where (!c.isGroup || MTGroup.isKey(c.convRef)) && !ChatStore.isLocalRoom(c.name) { refs.insert(c.convRef) }
         for ref in refs { mirrorFaceToShared(ref) }
         MontanaLog.event("avatar sync -> shared keychain: \(refs.count)")
     }
@@ -2311,11 +2312,17 @@ class ChatStore: ObservableObject {
     /// published face must have image bytes unique to its reference.  An unknown owner is never
     /// guessed from a shared folder or a previous seat's mirror.
     func avatarFor(ref: String) -> String? {
-        MTNameBook.uniqueManualPhoto(ref) ?? publishedFace(ref)
+        if MTGroup.isKey(ref) { return groupFace(ref) }   // a group's face is the group's own (MTGroupState.face, 17.10.2026)
+        return MTNameBook.uniqueManualPhoto(ref) ?? publishedFace(ref)
+    }
+    /// The face of a group by its key: its state's, else the one its row wore before the group owned it.
+    private func groupFace(_ key: String) -> String? {
+        let row = storedChats().first { $0.id == key } ?? storedArchived().first { $0.id == key }
+        return MTNameBook.avatarFile(for: key, local: MTGroup.shared.state(key)?.face ?? row?.photoURL)
     }
     /// The chat form adds only the group exception; every person uses the one resolver above.
     func avatarFor(_ chat: Chat) -> String? {
-        if chat.isGroup { return MTNameBook.avatarFile(for: chat.convRef, local: chat.photoURL) }
+        if chat.isGroup { return MTNameBook.avatarFile(for: chat.convRef, local: chat.photoURL ?? MTGroup.shared.state(chat.convRef)?.face) }
         return avatarFor(ref: chat.convRef)
     }
     /// THE VAULT'S LIGHT HALF — pins, order, the list's sets, names, faces, presence stamps, tombstones —
@@ -2413,6 +2420,7 @@ class ChatStore: ObservableObject {
             // The feed goes in AFTER the tombstones stand (the merge above laid them), and BEFORE the archive's
             // rebuild asks which conversations are occupied: a second later, on the ingest's own debounce.
             if let feed { self.takeRestoredFeed(feed) }
+            MainActor.assumeIsolated { MTGroup.shared.standAll(store: self) }   // every group the copy brought stands on a shelf (17.10.2026)
             self.remindAgain()
             self.syncPeerAvatarsToShared()
             // The list's rows came back by the card as a union even where no row of the feed did: the list reads them.
@@ -2809,6 +2817,7 @@ class ChatStore: ObservableObject {
                         ChatStore.unreadVerdictStands(after: gen)
                     }
                     self.historyLoaded = true   // the mirror law may judge the queue only from here
+                    MainActor.assumeIsolated { MTGroup.shared.standAll(store: self) }   // a held group with no row stands one (17.10.2026)
                     MainActor.assumeIsolated { MTCoinSend.settle(self) }   // the book holds every coin letter the chats hold (04.10 23:57)
         Task { @MainActor in await MTCoinTx.settle() }   // the transfers' records: the waiting ones decided, the pipes asked (MTCoinTx)
                     self.restoreFromArchive(epoch: loadEpoch, acct: loadAcct, folders: nil)
@@ -5585,10 +5594,15 @@ MontanaLocalVault.setEncrypted("scheduledMsgs", d)
         }()
         // A photo is admitted to the wire only with pixels the other phone can render. A
         // malformed source is refused at its owner; it never creates a synthetic photo tile.
+        // A REFUSAL OF THE BYTES IS A VERDICT, NOT WEATHER (17.10.2026, the iPhone 17): the same file gives the same answer at
+        // every resume, yet its intent stayed in the queue under the word «nothing carries it» -- the drain re-ran the refusal
+        // every half minute for days (one phone: 5373 refusals of the same photos) and the row blinked between the clock and red.
+        // The intent leaves the queue here, and the row says what is true: its file cannot be read.
         guard kind != "img" || thumb != nil else {
-            MontanaTrace.mark("image_refused", "source has no renderable preview — no manifest is sent")
+            MontanaTrace.mark("image_refused", "source has no renderable preview — no manifest is sent, the intent goes")
+            if let mid = forceMid { MontanaDeliveryEngine.shared.dropPiece(mid) }
             if let chat = statusChat, let file = statusFile {
-                Task { @MainActor in self.setMediaRefused(chat, file: file, because: .nothingCarries) }
+                Task { @MainActor in self.setMediaRefused(chat, file: file, because: .fileUnreadable) }
             }
             return
         }

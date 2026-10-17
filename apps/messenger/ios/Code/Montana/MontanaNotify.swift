@@ -147,20 +147,10 @@ enum MontanaNotify {
     static func drawAvatar(for name: String) -> Data? {
         // The face in the banner is THE SAME face as in the list: same resolver, same black
         // circle, same glyph size. A private drawing stood here — a palette color with a letter
-        // on top — and a person saw one face in the notification and another in the chat.
-        let initial = MontanaAvatar.initial(title: name, name: "")
-        let size = CGSize(width: 180, height: 180)
-        let r = UIGraphicsImageRenderer(size: size)
-        let img = r.image { ctx in
-            UIColor.black.setFill(); ctx.cgContext.fillEllipse(in: CGRect(origin: .zero, size: size))
-            let attrs: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: size.width * MontanaAvatar.glyphScale(initial), weight: .semibold),
-                .foregroundColor: UIColor(red: 0.831, green: 0.686, blue: 0.216, alpha: 1)]
-            let s = NSAttributedString(string: initial, attributes: attrs)
-            let b = s.size()
-            s.draw(at: CGPoint(x: (size.width - b.width) / 2, y: (size.height - b.height) / 2))
-        }
-        return img.jpegData(compressionQuality: 0.9)
+        // on top — and a person saw one face in the notification and another in the chat. Its second
+        // private drawing (a gold letter the list no longer draws) gives way to the one renderer the
+        // list and the extension draw with (MontanaFace.circleImage, 17.10.2026).
+        MontanaFace.circleImage(glyph: MontanaAvatar.initial(title: name, name: ""), side: 180).jpegData(compressionQuality: 0.9)
     }
 
     // ── the banner itself ─────────────────────────────────────────────────────
@@ -395,13 +385,17 @@ enum MontanaNotify {
             return
         }
         let preview = ud.object(forKey: "notifPreview") as? Bool ?? true
-        let content = UNMutableNotificationContent()
-        decorate(content, from: chat, chat: chat, body: preview ? body : String(localized: "New message", bundle: MTLanguage.bundle), countUnread: false)
-        content.title = title
+        let plate = UNMutableNotificationContent()
+        decorate(plate, from: chat, chat: chat, body: preview ? body : String(localized: "New message", bundle: MTLanguage.bundle), countUnread: false)
+        plate.title = title
         if mentioned {   // A MENTION RINGS THROUGH THE MUTE (stage R, as the reference rings one): the person was named
-            content.interruptionLevel = .active
-            content.sound = (MontanaKeychain.get("notifSound")?.first ?? 1) == 1 ? .default : nil
+            plate.interruptionLevel = .active
+            plate.sound = (MontanaKeychain.get("notifSound")?.first ?? 1) == 1 ? .default : nil
         }
+        // THE GROUP WEARS ITS OWN FACE HERE TOO (the author's word 17.10.2026 16:0x MSK: «the notifications' thumbnails for groups
+        // and channels»): this banner left as a bare plate with the app's icon, while the extension's twin of the same letter wore
+        // a face. The group's face is mirrored by its key (ChatStore.mirrorFaceToShared); a group without one wears the list's circle.
+        let content = withCommunication(plate, from: chat) ?? plate
         MontanaTrace.mark("notify", mid: key.isEmpty ? nil : key, "kind=group body_len=\(content.body.count) preview=\(preview ? 1 : 0)")
         UNUserNotificationCenter.current().add(
             // ONE LETTER, ONE PLACE ON THE SCREEN (16.10.2026, No.73, as present() above): the copy's bare name is the name its push

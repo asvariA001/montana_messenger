@@ -779,11 +779,13 @@ enum MontanaBackup {
     private static func seedCard(_ scope: Scope) -> Card? {
         var out: [String: String] = [:]
         var skipped = 0
-        // A copy that leaves a conversation out does not carry the list that names it: the list is
-        // rebuilt from the archive on the other side, and the archive of that copy has no such folder.
-        let listKeys: Set<String> = scope.excluding ? ["chatsJSON", "archivedJSON"] : []
+        // THE LIST TRAVELS WITH EVERY COPY (the author's word 17.10.2026 16:0x MSK: «groups and channels did not come back»): a
+        // copy that left a conversation -- or only a KIND of attachment -- out used to leave both shelves behind, and the list
+        // was rebuilt from the archive's folders on the other side; a group and a channel have no folder, so they came back as
+        // feeds without a row. The shelves are records like any other: a left-out conversation's row leaves them by its convId
+        // or its name (without, below), and every other row -- a group's, a pin's, a name's -- travels.
         let people = scope.people
-        for (k, v) in SeedScope.carried() where !listKeys.contains(k) && scope.takes(key: k) {
+        for (k, v) in SeedScope.carried() where scope.takes(key: k) {
             if let d = v as? Data {
                 if let opened = MontanaLocalVault.open(d, Data(k.utf8)) ?? MontanaLocalVault.open(d, Data()) {
                     out["d:" + k] = without(people, json: opened).base64EncodedString()

@@ -1785,40 +1785,5 @@ final class NodeChannel: MessagingChannel {
 
 
 
-// Thumbnail for MediaRef (inline preview in the ratchet, ≤ THUMB_MAX 16 KiB).
-extension UIImage {
-    func mediaThumbnail(maxDim: CGFloat = 96, maxBytes: Int = 1_200) -> Data? {   // mini-thumb (blur-up placeholder); full preview loads from the blob
-        let scale = min(maxDim / max(size.width, 1), maxDim / max(size.height, 1), 1)
-        let target = CGSize(width: size.width * scale, height: size.height * scale)
-        let fmt = UIGraphicsImageRendererFormat(); fmt.scale = 1
-        let small = UIGraphicsImageRenderer(size: target, format: fmt).image { _ in
-            draw(in: CGRect(origin: .zero, size: target))
-        }
-        // A SEE-THROUGH PICTURE IS NOT FLATTENED ONTO WHITE (the author's word 22.09: «the sticker
-        // loads as a photo on a white ground»). This mini-frame stands in the receiver's row while
-        // the file is still on its way, and JPEG has no transparency -- so a sticker arrived as a
-        // white square. A picture with an alpha channel rides as a small PNG instead; it keeps its
-        // own ground, and its size is held down by the side, not by a quality it does not have.
-        if case .some(let info) = small.cgImage?.alphaInfo,
-           [CGImageAlphaInfo.first, .last, .premultipliedFirst, .premultipliedLast].contains(info) {
-            var side = maxDim
-            while side >= 32 {
-                let fmt2 = UIGraphicsImageRendererFormat(); fmt2.scale = 1
-                let k = min(side / max(size.width, 1), side / max(size.height, 1), 1)
-                let box = CGSize(width: size.width * k, height: size.height * k)
-                let shot = UIGraphicsImageRenderer(size: box, format: fmt2).image { _ in
-                    draw(in: CGRect(origin: .zero, size: box))
-                }
-                if let d = shot.pngData(), d.count <= max(maxBytes, 4096) { return d }
-                side = floor(side * 0.7)
-            }
-            return nil   // nothing honest to show: better an empty place than a white square
-        }
-        var q: CGFloat = 0.6
-        while q > 0.1 {
-            if let d = small.jpegData(compressionQuality: q), d.count <= maxBytes { return d }
-            q -= 0.15
-        }
-        return small.jpegData(compressionQuality: 0.1)
-    }
-}
+// The preview of a picture (UIImage.mediaThumbnail) lives in MontanaMediaKit.swift: the app and the share sheet draw it by
+// one recipe ([C-1], 17.10.2026).
