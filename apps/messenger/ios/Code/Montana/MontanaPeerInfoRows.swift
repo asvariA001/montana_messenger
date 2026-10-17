@@ -33,6 +33,8 @@ struct MTInfoRow: Identifiable {
         case action(title: LocalizedStringKey, icon: String, destructive: Bool, action: () -> Void)
         case toggle(title: LocalizedStringKey, icon: String, isOn: Binding<Bool>)
         case member(name: String, subtitle: LocalizedStringKey, removable: Bool, onRemove: () -> Void, deeds: [MTMemberDeed] = [])
+        /// A person of a group's page as the reference draws it (MTGroupMemberRow).
+        case groupMember(MTGroupMemberLine)
     }
 
     let id: String
@@ -42,7 +44,7 @@ struct MTInfoRow: Identifiable {
         switch kind {
         case .header, .labeledValue: return 14
         case .disclosure, .action, .toggle: return 50
-        case .member: return 64
+        case .member, .groupMember: return 64
         }
     }
 }
@@ -91,9 +93,10 @@ struct MTInfoRowView: View {
                 .padding(.horizontal, 14).padding(.top, 10).padding(.bottom, 4)
 
         case .labeledValue(let value, let caption):
-            VStack(alignment: .leading, spacing: 2) {
-                Text(value).foregroundColor(.white).textSelection(.enabled)
+            // THE CAPTION OVER THE WORDS, as the reference's labelled row lays them (its label first, three points above the text)
+            VStack(alignment: .leading, spacing: 3) {
                 Text(caption).font(.caption).foregroundColor(.gray)
+                Text(value).foregroundColor(.white).textSelection(.enabled)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 14).padding(.vertical, 10)
@@ -165,6 +168,9 @@ struct MTInfoRowView: View {
                     Button(role: d.destructive ? .destructive : nil, action: d.action) { Label(d.title, systemImage: d.icon) }
                 }
             }
+
+        case .groupMember(let line):
+            MTGroupMemberRow(line: line)
 
         }
     }

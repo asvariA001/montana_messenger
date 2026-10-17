@@ -127,6 +127,7 @@ struct SettingsTabView: View {
                 .listRowBackground(MTGlassRowPlate())
                 Section {
                     NavigationLink { NotificationsView() } label: { navLabel("Notifications and Sounds", "bell.badge.fill", .red) }
+                    NavigationLink { MTFolderSettingsPage() } label: { navLabel("Chat Folders", "folder.fill", .blue) }   // the folders' tabs (17.10.2026)
                     NavigationLink { DataStorageView() } label: { navLabel("Data and Storage", "arrow.down.circle.fill", .indigo) }
                     NavigationLink { HomeNodeView() } label: { navLabel("Your node", "server.rack", .gray) }
                     NavigationLink { PrivacyView() } label: { navLabel("Privacy", "lock.fill", .gray) }
@@ -2754,10 +2755,12 @@ struct MTLevelAccessPage: View {
     }
 }
 
-/// THE GREEN SHIELD LEFT OF THE CHATS (the author's word 16.10.2026 20:34 MSK: «left of the chats a green shield stands -- a message
-/// cannot be deleted while the protection is on; a tap on the shield shows the rule of the levels and the way to the settings»): it
-/// stands while this phone keeps what others delete (MTLevelAccess.keepsDeleted), in the platform's green; a tap lays the rule over
-/// it in the platform's own popover, whose last row is the way to Access by level.
+/// THE GREEN SHIELD (the author's word 16.10.2026 20:34 MSK: «a message cannot be deleted while the protection is on; a tap on the
+/// shield shows the rule of the levels and the way to the settings»): it stands while this phone keeps what others delete
+/// (MTLevelAccess.keepsDeleted); a tap lays the rule over it in the platform's own popover, whose last row is the way to Access by level.
+/// A BADGE ON THE INTERLOCUTOR'S BUBBLE (the author's word 17.10.2026 18:4x MSK: «the shield moves to a badge in the top right corner
+/// of the interlocutor's bubble inside the chat»): the platform's green round with the white shield, over the corner of the name's
+/// capsule at the chat's top, as a count stands over a mark; its target is the platform's least.
 struct MTKeepShield: View {
     @Environment(UIState.self) private var ui
     @ObservedObject private var person = MTPersonChain.shared
@@ -2768,8 +2771,10 @@ struct MTKeepShield: View {
         if MTLevelAccess.keepsDeleted {
             Button { told = true } label: {
                 Image(systemName: "checkmark.shield.fill")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(Color(uiColor: .systemGreen))
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 20, height: 20)
+                    .background(Color(uiColor: .systemGreen), in: Circle())
                     .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
             }

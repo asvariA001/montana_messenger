@@ -656,6 +656,8 @@ struct ChatInputBar: View {
     /// ride the group's carrier (MTGroup.carryMedia); a place, a person's card and one's own card are words of the app a group does
     /// not carry, so their buttons do not stand.
     var groupRoom = false
+    /// A CHANNEL'S OWNER'S BAR (the reference: the field of a channel says «Broadcast» while it is empty).
+    var channel = false
     /// WHICH TIERS THIS NODE DRAWS (the author's word 03.10 13:35: the turned ribbon is the normal one mirrored -- the line
     /// of words on top under the bar, the buttons on the keys). The whole bar in normal mode; under the turned feed the page
     /// hosts the words at the top (.field) and the open bar's row of buttons on the keys (.row), two nodes of one model.
@@ -889,7 +891,7 @@ struct ChatInputBar: View {
                         if model.text.isEmpty {
                             // The hint stands where the placeholder stands (the reference's tooltip):
                             // a press that outlived the tap but not the tape is answered in words.
-                            Text(coinMode ? "Enter the coin amount" : hint ? "Hold to record" : "Message...").font(.system(size: 17)).foregroundColor(.gray)
+                            Text(coinMode ? "Enter the coin amount" : hint ? "Hold to record" : channel ? "Broadcast..." : "Message...").font(.system(size: 17)).foregroundColor(.gray)
                                 .padding(.leading, MTInputField.inset.left).allowsHitTesting(false)   // where the words start
                                 .animation(.easeOut(duration: 0.15), value: hint)
                         }
@@ -1379,6 +1381,7 @@ struct ChatConversationView: View {
     @AppStorage("chatBg") private var chatBg: String = "default"
     @AppStorage("chatBgPhoto") private var chatBgPhoto: Data = Data()
     @ObservedObject private var flows = MTMoneyFlow.shared   // the feed's turn of THIS chat (04.10): the newest letters on top
+    @ObservedObject private var channelViews = MTChannelViews.shared   // a channel's numbers under its posts (17.10)
     private var newestFirst: Bool { flows.on(chat.name) }
     @AppStorage("bubbleStyle") private var bubbleStyleAS: String = "montana"
     @AppStorage("cbBgOn") private var cbBgOn = false
@@ -1422,7 +1425,7 @@ struct ChatConversationView: View {
             // navigation bar, over the newest letter -- the same node and the same tree (MTKeyboardRider, bottomGroup), riding
             // nothing (onKeys: false). The keys then cover the feed's visual bottom alone, as its inset (MTFeedFrame), and the
             // platform's interactive drag begins at the keys' own top (the accessory holds no room: MTInputField).
-            if newestFirst, !channelWall {
+            if newestFirst {
                 MTKeyboardRider(geometry: pageKeyboard, onKeys: false, content: bottomGroup)
                     .mtMeasureSize($topBarSize)
                     .background(alignment: .top) { topFieldGround }
@@ -1433,7 +1436,9 @@ struct ChatConversationView: View {
             // The open note dims and blurs the feed as the recorder does (the author's word 15.09:
             // one to one) — and takes its touches: a tap outside the note closes it.
             let holding = rec.isRecording || (dock.file != nil && dock.chat == chat.name)
-            feedOrWall
+            messagesList
+                // A CHANNEL'S OLD WALL POSTS STAND IN ITS FEED (MTChannelWallFold, the critic's K-2): laid once on this phone as it opens.
+                .task(id: chat.name) { if isChannel { MTChannelWallFold.fold(chat.name, store: store) } }
                 .blur(radius: holding ? 10 : 0)
                 .allowsHitTesting(!holding)   // what stands behind the blur takes no touches — the voice's and the note's alike
                 .animation(.easeOut(duration: 0.25), value: holding)
@@ -1495,17 +1500,12 @@ struct ChatConversationView: View {
             // THE BOTTOM GROUP IS A NODE OF ITS OWN (the reference's input panel; the author's word 20.09):
             // the previews and the bar are hosted in a UIKit node the keyboard's transition moves by
             // its layer — the same spring the keys are drawn with — never laid out again for the move.
-            if !newestFirst, !channelWall { MTKeyboardRider(geometry: pageKeyboard, content: bottomGroup) }
+            if !newestFirst { MTKeyboardRider(geometry: pageKeyboard, content: bottomGroup) }
             // THE BUTTONS STAY ON THE KEYS (the author's word 03.10 13:35 and his drawing): turned, only the line of words goes
             // up; the open bar's row of buttons stands where it stands in normal mode, riding the keys in their spring.
-            else if composeOpen, barWrites, !channelWall {
+            else if composeOpen, barWrites {
                 MTKeyboardRider(geometry: pageKeyboard, row: true, content: rowGroup)
                     .zIndex(1)
-            }
-            // THE CHANNEL'S OWNER WRITES AT ITS FOOT (the author's words 16.10.2026 19:0x MSK, his picture of a thread's «Add another
-            // post»): the field is a sibling under the thread and rides the keys as a chat's bar does.
-            if channelWall, MTBoard.shared.canWrite(on: chat.name) {
-                MTKeyboardRider(geometry: pageKeyboard, content: MTChannelPostBar(channel: chat.name))
             }
         }
         // THE BLURRED STRIPS (the author's word 21.09): from the buttons' top up to the screen's edge,
@@ -1885,13 +1885,19 @@ struct ChatConversationView: View {
     private func chatRow(round: CGFloat, gap: CGFloat, room: CGFloat) -> some View {
         HStack(spacing: gap) {
             if let onBack { backMark(round, onBack) }
-            chatTitleDoor.frame(minWidth: room).padding(.horizontal, (44 - round) / 2)
+            // THE SHIELD ON THE INTERLOCUTOR'S BUBBLE (the author's word 17.10.2026 18:4x MSK): a badge over its top right corner while
+            // this phone keeps what others delete -- a sibling over the door, never inside its link, so its tap is its own. Its target
+            // is centred on the corner: it takes the corner of the bubble, not the bubble's right end, and the mark beside it stands
+            // over it.
+            chatTitleDoor.frame(minWidth: room)
+                .overlay(alignment: .topTrailing) { if !ChatStore.isLocalRoom(chat.name) { MTKeepShield().offset(x: 18, y: -18) } }
+                .padding(.horizontal, (44 - round) / 2)
             if coinStands {
                 walletMark(round)
                 flipMark(round)
                 chessMark(round)
                 handsetMark(round)
-            } else if chat.isGroup, !channelWall {
+            } else if chat.isGroup, !isChannel {
                 // A CHANNEL'S PAGE HAS NO HANDSET (the author's word 16.10.2026 20:34 MSK: «on the channels' pages the handset is not
                 // needed»): a group's top alone carries the call's mark.
                 MTRoomMark(chat: chat.name, side: round) { kind, video in roomAskVideo = video; roomAsk = kind }   // the kind, then whom (07.10)
@@ -1928,12 +1934,10 @@ struct ChatConversationView: View {
     /// members, M online» once someone besides this phone is online, «N members» otherwise. M is this phone and whoever of the group
     /// it sees online by the one ladder (presenceWord): the owner's phone everyone it carries to, a member's phone the owner -- it
     /// holds no pipe to the others and says nothing of them. A channel says its count alone, as the reference's does.
+    /// A CHANNEL'S HEAD SAYS ITS SUBSCRIBERS (the reference's channel title: «N subscribers»), the owner counted among them; a group's
+    /// is its page's one head (MTGroupPage.head).
     private func groupHead(_ n: Int) -> String {
-        let members = String(localized: "\(n) members", bundle: MTLanguage.bundle)
-        guard MTGroup.shared.kind(chat.name) == .group else { return members }
-        let lit = 1 + MTGroup.shared.heldConversations(chat.name).filter { (store.presenceWord($0)?.tier ?? 0) != 0 }.count
-        guard lit != 1 else { return members }
-        return members + ", " + String(localized: "\(lit) online", bundle: MTLanguage.bundle)
+        isChannel ? String(localized: "\(n) subscribers", bundle: MTLanguage.bundle) : MTGroupPage.head(chat.name, store: store)
     }
 
     /// THE NAME'S BUBBLE ON THE REST OF THE BAR (the author's word 04.10.2026 13:06 MSK: «the name's bubble on the rest of the room,
@@ -2122,6 +2126,13 @@ struct ChatConversationView: View {
             MontanaTrace.mark("jump_do", "found=\(msgs.contains { $0.id == a.mid } ? 1 : 0)")
             jumpTo(a.mid)
             ui.letterAsk = nil
+        }
+        // «Search» from the chat's page (UIState.chatSearchAsk): the search bar opens, its keys asked after the pass.
+        .onChange(of: ui.chatSearchAsk) { _, ask in
+            guard ask == chat.name else { return }
+            ui.chatSearchAsk = nil
+            searching = true
+            DispatchQueue.main.async { chatSearchFocused = true }
         }
         .onAppear {
             consumePendingForward(ui.pendingForward); consumePendingForwardMany()
@@ -2700,6 +2711,9 @@ struct ChatConversationView: View {
     func feedRow(_ row: ChatRowVM) -> some View {
         VStack(spacing: 0) {
                         let message = row.message
+                        // THE SPEAKER'S HEAD (MTSpeakerHead): inside a bubble of words on the first letter of a run, as the reference's group feed
+                        let speakerHead = chat.isGroup && row.topPad && MessageBubble.speakerPlace(message, plate: !row.members.isEmpty) == .inside
+                            ? MTSpeakerHead.of(message, in: chat.name) : nil
                         if row.newDay {
                             datePill(dayLabel(message.createdAt))   // new-day separator
                         }
@@ -2709,7 +2723,8 @@ struct ChatConversationView: View {
                             Text(verbatim: who).font(.caption.weight(.semibold)).foregroundColor(.secondary).lineLimit(1)
                                 .frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 18).padding(.top, 6)
                         }
-                        if chat.isGroup, row.topPad, let who = MTGroup.shared.speakerLine(message, in: chat.name) {
+                        if chat.isGroup, row.topPad, MessageBubble.speakerPlace(message, plate: !row.members.isEmpty) == .above,
+                           let who = MTGroup.shared.speakerLine(message, in: chat.name) {
                             // THE SPEAKER'S NAME IN THEIR OWN COLOUR AT THE HEAD OF THEIR RUN (the author's word 16.10.2026 20:34 MSK:
                             // «everything about groups -- atomic likeness to the reference folder»): once a run, in the colour every phone
                             // gives the speaker (MTSpeakerFace.tint), over the bubble's own edge.
@@ -2727,14 +2742,20 @@ struct ChatConversationView: View {
                                     .padding(.leading, 6)
                                     .transition(.move(edge: .leading).combined(with: .opacity))
                             }
-                            if chat.isGroup, !message.isFromMe {
+                            if chat.isGroup, !isChannel, !message.isFromMe {   // a channel speaks as itself: no face beside its posts
                                 // THE SPEAKER'S FACE AT THE FOOT OF THEIR RUN (the reference folder's group feed): the column stands beside
                                 // every letter of another, so a run keeps one edge; the face shows at its last letter.
-                                MTSpeakerFace(ref: message.senderRef ?? "", name: MTGroup.shared.speakerLine(message, in: chat.name) ?? "",
-                                              side: MTSpeakerFace.faceSide)
-                                    .opacity(row.tail ? 1 : 0)
-                                    .padding(.leading, 8)
-                                    .accessibilityHidden(true)
+                                // A tap on it opens the person's page where this phone holds their pipe, as the reference opens it.
+                                Button { openSpeaker(message.senderRef ?? "") } label: {
+                                    MTSpeakerFace(ref: message.senderRef ?? "", name: MTGroup.shared.speakerLine(message, in: chat.name) ?? "",
+                                                  side: MTSpeakerFace.faceSide)
+                                        .padding(7).contentShape(Rectangle()).padding(-7)   // the finger's 44 around the 30-point face
+                                }
+                                .buttonStyle(.plain)
+                                .opacity(row.tail ? 1 : 0)
+                                .allowsHitTesting(row.tail)
+                                .padding(.leading, 8)
+                                .accessibilityLabel(Text(verbatim: MTGroup.shared.speakerLine(message, in: chat.name) ?? ""))   // USER-DATA: the speaker's name
                             }
                             SwipeReplyRow(id: message.id, onReply: { replyingTo = message; inputFocused = true }) {
                                 MessageBubble(message: message, player: player, onTapImage: { _ in
@@ -2794,9 +2815,13 @@ struct ChatConversationView: View {
                                    quoteAuthor: message.replyToId.flatMap { rid in
                                        // The viewer's truth: the quoted row's own side names its author.
                                        guard let q = store.messages[chat.name]?.first(where: { $0.id == rid }) else { return nil }
+                                       // in a group the quoted letter's own speaker, never the group (the reference names its author)
                                        return q.isFromMe ? E2E.myDisplayName()
-                                                         : store.displayName(for: chat.convId ?? chat.name)
+                                                         : store.displayName(for: chat.isGroup ? (q.senderRef ?? chat.name) : (chat.convId ?? chat.name))
                                    },
+                                   quoteTint: chat.isGroup ? message.replyToId.flatMap { rid in store.messages[chat.name]?.first(where: { q in q.id == rid }) }
+                                       .flatMap { q in q.isFromMe ? nil : q.senderRef.map(MTSpeakerFace.tint) } : nil,
+                                   speaker: speakerHead,
                                    voiceSender: message.isFromMe ? E2E.myDisplayName()
                                                                  : store.displayName(for: message.senderRef ?? chat.convId ?? chat.name),
                                    onPlayVoice: { f in playVoice(f) },
@@ -2813,10 +2838,12 @@ struct ChatConversationView: View {
                                    },
                                    onTapReaction: { e in react(message, e) },
                                    faces: reactionFaces,
-                                   ladder: message.isFromMe && chat.convId != nil && !MTRowLetter.ownRow(message.text)   // no ladder under a note to oneself, nor a post's card: no letter rode
+                                   ladder: message.isFromMe && !isChannel && chat.convId != nil && !MTRowLetter.ownRow(message.text)   // no ladder under a note to oneself, nor a post's card: no letter rode
                                        && (message.id == lastRowId || row.members.contains { $0.id == lastRowId }),
                                    members: row.members,
-                                   onTileTap: { m in tileTap(m) })
+                                   onTileTap: { m in tileTap(m) },
+                                   post: postLook(row),
+                                   onShare: { sheet = .forward(message) })   // the round beside a channel's post: the menu's own «Forward»
                                 .equatable()
                             }
                             // Selection mode and search mode both hand the tap to the ROW: in the
@@ -2846,6 +2873,9 @@ struct ChatConversationView: View {
                         }
                         .animation(.easeInOut(duration: 0.2), value: selectingMsgs)
                         .id(message.id)
+                        // A CHANNEL'S POST ON A SUBSCRIBER'S SCREEN IS SEEN (the reference counts a post a screen showed): its row
+                        // appeared, and the owner is told once (MTChannelViews.shown).
+                        .onAppear { if isChannel { channelViews.shown(message, in: chat.name) } }
                         .background(GeometryReader { g in
                             Color.clear.preference(key: MsgRowMidYKey.self, value: [message.id: g.frame(in: .named("chatSel")).midY])
                         })
@@ -2867,17 +2897,15 @@ struct ChatConversationView: View {
         }
     }
 
-    /// A CHANNEL IS A WALL (the author's words 06.10.2026 14:2x-14:4x MSK: «in channels posts as on the Wall of Thoughts; everything the wall publishes is published in a channel»): its posts stand as the Wall of Thoughts
-    /// keeps them, in a thread's face (the author's words 16.10.2026 19:0x MSK: «the feed as now is right, only make it as the
-    /// thread of short posts», his three pictures) -- edge to edge, the owner writing at the page's foot (MTChannelPostBar), a subscriber reading.
-    private var channelWall: Bool { chat.isGroup && MTGroup.shared.kind(chat.name) == .channel }
-    @ViewBuilder private var feedOrWall: some View {
-        if channelWall {
-            ScrollView { MTBoardPane(owner: chat.name, edge: 0, thread: true) }
-                .scrollDismissesKeyboard(.interactively)
-        } else {
-            messagesList
-        }
+    /// A CHANNEL IS A CHAT'S FEED (the author's words 17.10.2026 18:4x MSK: «we do not need our own kinds of pages inside groups and
+    /// channels -- everything as in the reference folder 1 to 1»): its posts stand in the feed as letters do, drawn as the
+    /// reference draws a channel's posts (MTChannelPostLook); its owner writes in the chat's own field, a subscriber reads.
+    private var isChannel: Bool { chat.isGroup && MTGroup.shared.kind(chat.name) == .channel }
+    /// The look of a channel's row: the channel's name over the words at the head of a run, the owner's count of people who saw it.
+    private func postLook(_ row: ChatRowVM) -> MTChannelPostLook? {
+        guard isChannel else { return nil }
+        return MTChannelPostLook(head: row.topPad ? store.title(for: chat) : nil, tint: MTSpeakerFace.tint(chat.name),
+                                 views: channelViews.views(row.message, in: chat.name))
     }
 
     var messagesList: some View {
@@ -2898,6 +2926,7 @@ struct ChatConversationView: View {
         var stamp = Hasher()
         stamp.combine(rowCache.version); stamp.combine(highlightedId); stamp.combine(firstUnreadId)
         stamp.combine(selectingMsgs); stamp.combine(selectingMsgs ? selectedMsgs : [])
+        stamp.combine(isChannel ? channelViews.rev : 0)   // a channel's numbers moved: the feed reads its rows again
         let ribbonNow = ribbon   // read once per pass: every row's fingerprint and content take this one answer
         return MTFeedListView(
             rows: rows,
@@ -2932,6 +2961,7 @@ struct ChatConversationView: View {
                 }
                 h.combine(row.message.id == highlightedId)
                 h.combine(row.message.id == firstUnreadId)
+                h.combine(postLook(row))   // a channel's number moved: the row is measured again
                 h.combine(selectingMsgs)
                 h.combine(selectingMsgs && selectedMsgs.contains(row.message.id))
                 h.combine(ribbonNow)
@@ -3369,6 +3399,16 @@ struct ChatConversationView: View {
             }
         }
     }
+    /// A SPEAKER'S PAGE FROM THEIR FACE (the reference's group feed): the person this phone holds a pipe with -- the owner's phone,
+    /// every member it carries to; a member's phone, the owner -- opens on this chat's own stack; nobody else is known here by more
+    /// than the name they gave.
+    private func openSpeaker(_ ref: String) {
+        guard let pipe = MTGroup.shared.speakerPipe(ref) else { return }
+        let root = MTSamePair.root(pipe)
+        guard let row = store.listChats().first(where: { c in !c.isGroup && MTSamePair.root(c.convRef) == root }) else { return }
+        hideKeyboard()
+        wallPage = .person(row)
+    }
     /// A GROUP'S EVENT ROW (MTGroupEvent, stage R): the reference folder's service row -- a capsule in the middle of the feed in the
     /// day's own dress; a voice chat's row is the way in while its room lives.
     func groupEventRow(_ m: Message) -> some View {
@@ -3389,19 +3429,12 @@ struct ChatConversationView: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 4)
     }
-    /// A SUBSCRIBER READS, THE OWNER ALONE POSTS (the checklist, stage 4): a field whose letters the owner refuses would lie, so
-    /// in its place stands the platform's bell -- the channel's sound off or on, the same switch as the list's swipe.
+    /// A SUBSCRIBER READS, THE OWNER ALONE POSTS: a field whose letters the owner refuses would lie, so in its place stands the
+    /// reference's channel panel (MTChannelSubscriberBar) -- the channel's sound, and the chat's own search.
     var channelMuteBar: some View {
-        let muted = store.mutedChats.contains(chat.name)
-        return Button { store.toggleMuteChat(chat.name) } label: {
-            Image(systemName: muted ? "bell.slash.fill" : "bell.fill")
-                .font(.system(size: 20, weight: .semibold)).foregroundColor(.white)
-                .frame(width: montanaTouchTarget, height: montanaTouchTarget)
-                .contentShape(Rectangle())
-        }
-        .accessibilityLabel(Text(muted ? "Unmute" : "Mute"))
-        .padding(.vertical, 6)
-        .frame(maxWidth: .infinity)
+        MTChannelSubscriberBar(muted: store.mutedChats.contains(chat.name),
+                               onMute: { store.toggleMuteChat(chat.name) },
+                               onSearch: { searching = true; chatSearchFocused = true })
     }
 
     /// The previews and the bar, as one node — hosted by MTKeyboardRider; the environment rides in by hand.
@@ -3512,6 +3545,7 @@ struct ChatConversationView: View {
                          hint: holdHint,
                          meshRoom: ChatStore.isMeshRoom(chat.name),
                          groupRoom: chat.isGroup,
+                         channel: isChannel,
                          part: part,
                          minting: ribbon,
                          coins: MTCoinSend.canPay(chat, store: store),
@@ -4553,6 +4587,26 @@ struct MTSpeakerFace: View {
                     .font(.system(size: side * MontanaAvatar.glyphScale(initial), weight: .bold)).foregroundStyle(.white))
                 .frame(width: side, height: side)
         }
+    }
+}
+
+/// A SPEAKER'S HEAD INSIDE A GROUP'S BUBBLE (the reference's group feed): the name in the speaker's colour and the role the group
+/// gives them -- its owner and the administrators the owner named -- in the reference's own two colours.
+struct MTSpeakerHead: Equatable {
+    enum Role: Equatable {
+        case owner, admin
+        var word: LocalizedStringKey { self == .owner ? "owner" : "admin" }
+        var tint: Color { Color(montanaHexString: self == .owner ? "956ac8" : "49a355") }
+    }
+    let name: String
+    let tint: Color
+    let role: Role?
+    @MainActor
+    static func of(_ m: Message, in chat: String) -> MTSpeakerHead? {
+        guard let name = MTGroup.shared.speakerLine(m, in: chat), let ref = m.senderRef, let g = MTGroup.shared.state(chat) else { return nil }
+        let seat = String(ref.dropFirst(MTGroup.speaker(g.id, "").count))
+        let role: Role? = seat == MTGroup.ownerSeat ? .owner : (g.admins?.contains(seat) == true ? .admin : nil)
+        return MTSpeakerHead(name: name, tint: MTSpeakerFace.tint(ref), role: role)
     }
 }
 

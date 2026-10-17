@@ -3136,13 +3136,16 @@ class ChatStore: ObservableObject {
     /// on opening, on every letter that lands while the chat is open, and on the app coming back
     /// to the foreground with the chat open. Coalesced: one word per moment, not per letter.
     private var readMarkWork: DispatchWorkItem?
+    /// WHETHER THIS PERSON TELLS OTHERS THAT THEY SAW THEIR WORDS (Settings, «Read receipts»; the critic's K-1, 17.10.2026): the one
+    /// reading of the switch, on by default -- a pair's read mark and a channel's posts shown to its owner (MTChannelViews) ask it here.
+    static var readReceiptsOn: Bool { UserDefaults.standard.object(forKey: "readReceiptsEnabled") as? Bool ?? true }
     func sendReadMark(_ chat: String) {
         // Every silent exit leaves a line: «read never came» used to be indistinguishable from
         // «read was never asked for» (08.09, both phones inside the chat, no word).
         guard messages[chat]?.contains(where: { !$0.isFromMe }) == true else { MontanaTrace.mark("read_skip", "why=nothing-of-theirs"); return }
         guard MontanaConv.holds(chat) else { MontanaTrace.mark("read_skip", "why=no-conversation"); return }
         guard !blockedChats.contains(chat) else { MontanaTrace.mark("read_skip", "why=blocked"); return }   // a blocked person hears no word of mine
-        guard (UserDefaults.standard.object(forKey: "readReceiptsEnabled") as? Bool ?? true) else { MontanaTrace.mark("read_skip", "why=receipts-off"); return }
+        guard Self.readReceiptsOn else { MontanaTrace.mark("read_skip", "why=receipts-off"); return }
         readMarkWork?.cancel()
         let w = DispatchWorkItem { [weak self] in
             guard let self else { return }
@@ -6672,6 +6675,7 @@ enum SeedScope {
         "autoDownloadCellular", "autoDownloadWiFi",
         MTCallRecordingPolicy.key,   // recording preference follows the phone's other Privacy settings; consent is separate
         MTLevelAccess.keepKey,   // the person's «Forbid deletion on my phone», as their other settings (16.10.2026)
+        MTChatFolders.key,   // the person's folders over the chats, their tabs' order (17.10.2026)
         "presenceSharing", "readReceiptsEnabled", "liveTypingEnabled", "syncContactsToPhone", "linkPreviewsEnabled",
         "objectionableFilterOn", "termsAcceptedVersion", "barredPeers",
         "bubbleStyle", "cbMineFill1", "cbMineFill2", "cbMineOpacity", "cbMineText", "cbMineOutline", "cbMineOutlineOp", "cbMineOutlineW",
@@ -6757,7 +6761,8 @@ enum SeedScope {
         "callDeadSeeds", MontanaCallHandle.repeatKey, MontanaCall.heldKey, MTBoard.pagesKey, MTBoard.firstKey,
         "mt.backup.icloud.at", "mt.backup.icloud.engine", "mt.home.node.at",
         "mt.apple.signin.id", "mt.restore.outbox", MTSamePair.mergedKey,
-        MTGroup.copiesKey]   // the copies of the groups' words on their way (05.10): the person's own ledger of the queue
+        MTGroup.copiesKey,   // the copies of the groups' words on their way (05.10): the person's own ledger of the queue
+        MTChannelViews.storeKey]   // which subscriber's seat saw which post of a channel (17.10, the critic's K-1): who saw what never rides a copy
     static let seatPrefixes = ["ckpt_", "mrefGone_", "rdvFaceUp:", "sentAv4_", "sentAvNone2_", "sentNm2_", "sentAb1_", "sentPg1_"]
     /// THE PERSON'S OWN IN THE KEYCHAIN (the second identity checklist, 1.1): parked with the seat, lifted with it -- the two
     /// sets a copy carries, the outgoing queue's key and its knock ledger, the extension's box of this person's letters, and
@@ -6826,6 +6831,7 @@ enum SeedScope {
         VoicePlayer.shared.rereadRate()
         MTReactions.forgetOrder()
         MTGroup.shared.reread()
+        MTChannelViews.shared.reread()
         MTWallpaper.Book.shared.rev += 1
         MontanaNotifyGate.mirrorSettings()
         MontanaSafety.mirror()

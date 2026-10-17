@@ -220,6 +220,10 @@ struct MessageBubble: View, Equatable {
     var onTapReply: (MID) -> Void = { _ in }
     var tail: Bool = true     // show the "tail" (on the last one in the group),
     var quoteAuthor: String? = nil   // the quoted letter's author name (heads the quote block)
+    /// The quoted letter's author's own colour in a group (the reference's group feed): the quote's line and name wear it.
+    var quoteTint: Color? = nil
+    /// THE SPEAKER'S HEAD IN A GROUP (MTSpeakerHead): the first line inside a bubble of words, on the first letter of a run.
+    var speaker: MTSpeakerHead? = nil
     var voiceSender = ""             // who speaks in this voice message — the player's heading
     var onPlayVoice: (String) -> Void = { _ in }   // the chat starts it with the chat's voices behind it
     // UNIFIED media progress 0..1 (compression+send in one ring) — read LIVE off the board:
@@ -258,6 +262,16 @@ struct MessageBubble: View, Equatable {
     // its one tap finds the tile under the finger.
     var members: [Message] = []
     var onTileTap: (Message) -> Void = { _ in }
+    /// A CHANNEL'S POST (MTChannelPostLook, the author's words 17.10.2026 18:4x MSK: «channels ... 1 to 1 as in the reference
+    /// folder», «and the posts too»): drawn as one received whoever wrote it, wider, with the channel's name at the head of a run,
+    /// the eye in the stamp and the round beside it that hands the post on (onShare). Nil on every other letter.
+    var post: MTChannelPostLook? = nil
+    var onShare: () -> Void = {}
+    /// The side and the dress a letter is drawn in: a channel's post is drawn as received; the deeds -- the retry, the red mark --
+    /// still ask message.isMine.
+    private var drawnMine: Bool { post == nil && message.isMine }
+    /// The reference's channel post runs the row's width but the round's room beside it (45 points) and the feed's own edges.
+    static let postRoom: CGFloat = 61
     private let tileFrames = MTTileFrames()
     static let plateSpace = "mtBubblePlate"
     var isGroup: Bool { members.count > 1 }
@@ -299,12 +313,14 @@ struct MessageBubble: View, Equatable {
             && l.message.audioFile == r.message.audioFile
             && l.message.docFile == r.message.docFile
             && l.tail == r.tail
+            && l.speaker == r.speaker && l.quoteAuthor == r.quoteAuthor
             && l.chessOpen == r.chessOpen && l.chessNet == r.chessNet && l.chessStatus == r.chessStatus
             && l.members.map(\.id) == r.members.map(\.id)
             && l.members.map(\.text) == r.members.map(\.text)
             && l.members.map(\.deliveryStatus) == r.members.map(\.deliveryStatus)
             && l.members.map { $0.imageFile ?? $0.videoFile } == r.members.map { $0.imageFile ?? $0.videoFile }
             && l.textIsSelectable == r.textIsSelectable
+            && l.post == r.post
             // The face of a letter is drawn from the board, so equality asks the board as well —
             // otherwise a row could be called unchanged while what stands under it has changed.
             && MTReactionBoard.shared.shown(l.message).plates == MTReactionBoard.shared.shown(r.message).plates
@@ -408,7 +424,7 @@ struct MTSaveBeside<Badge: View>: ViewModifier {
 
     // Native bubble shape — fully rounded, with a little tail hooking
     // out of the bottom corner on the sender's side (last message in a group).
-    var bubbleShape: BubbleShape { BubbleShape(mine: message.isMine, tail: tail) }
+    var bubbleShape: BubbleShape { BubbleShape(mine: drawnMine, tail: tail) }
 
     // ── THE MESSAGE GESTURE SSOT (hook) ───────────────────────────────────────
     // EXACTLY ONE gesture node — the bubble root (body below): long-press = menu,
@@ -480,10 +496,15 @@ struct MTSaveBeside<Badge: View>: ViewModifier {
         if let place = placeLetter { onTapPlace(place); return }            // a place — its own page, the map over the whole screen
         if let rid = message.replyToId { onTapReply(rid); return }        // text with a quote — to the original
     }
+    /// How wide a bubble may grow: four fifths of the window, a channel's post the window but the round's room.
+    private var bubbleCeiling: CGFloat {
+        let w = mtWin.width > 0 ? mtWin.width : MTScene.size().width
+        return post == nil ? w * 0.80 : w - Self.postRoom
+    }
     var body: some View {
         HStack {
-            if message.isMine { Spacer(minLength: 38) }
-            VStack(alignment: message.isMine ? .trailing : .leading, spacing: 3) {
+            if drawnMine { Spacer(minLength: 38) }
+            VStack(alignment: drawnMine ? .trailing : .leading, spacing: 3) {
                 // THE FORWARD MARK — ONE place for every kind of letter (the author's word 16.09):
                 // text, picture, video, voice, round note, file alike wear it above the bubble.
                 if message.isForwarded {
@@ -495,7 +516,8 @@ struct MTSaveBeside<Badge: View>: ViewModifier {
                     // The bubble's OWN window rect — the face, not the row: the flight lands on it,
                     // the reply swipe admits from its top line down (22.09), the menu stands on its top.
                     .background { if !textIsSelectable { MTBubbleFrameAnchor(id: message.id) } }
-                    .frame(maxWidth: (mtWin.width > 0 ? mtWin.width : MTScene.size().width) * 0.80, alignment: message.isMine ? .trailing : .leading)
+                    .frame(maxWidth: bubbleCeiling, alignment: drawnMine ? .trailing : .leading)
+                    .modifier(MTShareBeside(on: post != nil, action: onShare))
                 if let call = callInfoOf(message.text), !call.missed, let coins = call.coins {
                     MTCallCoinReceipt(coins: coins)
                 }
@@ -566,7 +588,7 @@ struct MTSaveBeside<Badge: View>: ViewModifier {
                     }
                 }
             }
-            if !message.isMine { Spacer(minLength: 38) }
+            if !drawnMine { Spacer(minLength: post == nil ? 38 : 0) }   // a channel's post keeps the row but the round's room
         }
     }
 
@@ -612,7 +634,7 @@ struct MTSaveBeside<Badge: View>: ViewModifier {
             // text view finds the link — a bare host among other words too — and takes the touch only
             // where the link lies; everything else of the letter keeps the tap it had (MTLinkedText).
             MTLinkedText(text: MTRowLetter.words(s), font: font, color: UIColor(bubbleText),
-                         linkColor: UIColor(MontanaNativeBubble.link(mine: message.isMine)))
+                         linkColor: UIColor(MontanaNativeBubble.link(mine: drawnMine)))
         } else {
             Text(s).montanaTextScale()   // the letters follow the person's size; nothing else does
         }
@@ -1002,7 +1024,7 @@ struct MTSaveBeside<Badge: View>: ViewModifier {
         let onDisk = fileOnDisk(file)
         let length = message.audioDuration
         let width = MessageBubble.voiceWaveWidth(length, window: mtWin.width > 0 ? mtWin.width : MTScene.size().width)
-        return VStack(alignment: message.isMine ? .trailing : .leading, spacing: 8) {
+        return VStack(alignment: drawnMine ? .trailing : .leading, spacing: 8) {
             HStack(alignment: .center, spacing: 5) {
                 voicePlayRound(file, mine: mine, onDisk: onDisk)
                 if mine {
@@ -1081,7 +1103,7 @@ struct MTSaveBeside<Badge: View>: ViewModifier {
     private func voiceLine(_ file: String, share: Double, live: Double, width: CGFloat, length: Double, mine: Bool, onDisk: Bool) -> some View {
         let samples = wave ?? message.audioFile.flatMap(MTWaveform.cached) ?? []
         let bars = max(8, Int(width / 4))   // a 2-point bar at a 4-point pitch, the pictures' 12 px at 25
-        let ink = message.isMine ? Color(red: 0.62, green: 0.87, blue: 1.0) : Color.white
+        let ink = drawnMine ? Color(red: 0.62, green: 0.87, blue: 1.0) : Color.white
         let moving = mine || scrubPos != nil || pendingPos != nil
         return HStack(spacing: 8) {
             MTVoiceWaveShape(samples: samples, bars: bars).fill(ink.opacity(moving ? 0.4 : 0.9))
@@ -1694,19 +1716,54 @@ struct MTSaveBeside<Badge: View>: ViewModifier {
         if quoted, let reply = message.replyText {
             HStack(spacing: 6) {
                 Rectangle()
-                    .fill(message.isMine ? Color.white.opacity(0.6) : Color.accentColor)
+                    .fill(drawnMine ? Color.white.opacity(0.6) : (quoteTint ?? Color.accentColor))
                     .frame(width: 3, height: quoteAuthor == nil ? 16 : 32)
                 VStack(alignment: .leading, spacing: 1) {
                     if let qa = quoteAuthor {
                         Text(qa)
                             .font(.system(size: 12, weight: .bold))
-                            .foregroundColor(message.isMine ? .white : Color.accentColor)
+                            .foregroundColor(drawnMine ? .white : (quoteTint ?? Color.accentColor))
                             .lineLimit(1)
                     }
                     Text(reply)
                         .font(.system(size: 12))
-                        .foregroundColor(message.isMine ? Color.white.opacity(0.85) : .gray)
+                        .foregroundColor(drawnMine ? Color.white.opacity(0.85) : .gray)
                         .lineLimit(1)
+                }
+            }
+        }
+    }
+
+    /// WHERE A GROUP'S SPEAKER IS NAMED (the reference's group feed): on the first line inside a bubble of words; over a file, a
+    /// voice, a round note and every plate of our own; nowhere over a picture, a video, a plate of pictures or a place -- the
+    /// reference hides the name there. The branches are the body's own (bubble), asked in its order.
+    enum SpeakerPlace { case inside, above, none }
+    static func speakerPlace(_ m: Message, plate: Bool) -> SpeakerPlace {
+        if plate { return .none }
+        if m.chessLetter != nil || MTWallCard.of(m.text) != nil || MTMoneyFlowRow.of(m.text) || MTSecretLetter.parse(m.text) != nil
+            || m.coinLetter != nil || releaseInfoOf(m.text) != nil || callInfoOf(m.text) != nil { return .above }
+        let files = m.imageFile != nil || m.videoFile != nil || m.audioFile != nil || m.docFile != nil
+        if !files, bigEmojiText(m.text) != nil { return .above }
+        if m.audioFile != nil || m.docFile != nil { return .above }
+        if let v = m.videoFile { return v.hasPrefix("vnote_") ? .above : .none }
+        if m.imageFile != nil { return .none }
+        if m.text.hasPrefix(MontanaCardPlate.mark) || m.text.hasPrefix(MontanaWakePush.letterBlobMark) { return .above }
+        if m.replyText == nil, MTPlaceLetter.parse(m.text) != nil { return .none }
+        return .inside
+    }
+    /// The speaker's line at the top of a bubble of words, as the reference draws it: the name semibold at fourteen seventeenths
+    /// of the letter's size in the speaker's colour, the role's word a point smaller on a capsule of its own colour.
+    @ViewBuilder var speakerHeadLine: some View {
+        if let s = speaker {
+            let size = floor(MontanaTextSize.letterFont(.body).pointSize * 14 / 17)
+            HStack(spacing: 8) {
+                Text(verbatim: s.name).font(.system(size: size, weight: .semibold)).foregroundColor(s.tint)   // USER-DATA: the speaker's name
+                    .lineLimit(1)
+                if let role = s.role {
+                    Spacer(minLength: 0)
+                    Text(role.word).font(.system(size: size - 1)).foregroundColor(role.tint)
+                        .padding(.horizontal, 5).frame(height: 17)
+                        .background(role.tint.opacity(0.2), in: Capsule())
                 }
             }
         }
@@ -1718,6 +1775,12 @@ struct MTSaveBeside<Badge: View>: ViewModifier {
         // An invisible copy of timeRow INSIDE reserves the width and the bottom line for the time,
         // so on short messages the time is not clipped, and on long ones there's no empty space.
         VStack(alignment: .leading, spacing: 2) {
+            if let post, let head = post.head {
+                // USER-DATA: the channel's name at the head of a run of its posts (the reference's channel feed), in the speaker's head's size
+                Text(verbatim: head).font(.system(size: floor(MontanaTextSize.letterFont(.body).pointSize * 14 / 17), weight: .semibold))
+                    .foregroundColor(post.tint).lineLimit(1)
+            }
+            speakerHeadLine
             replyQuote
             words(message.text, MontanaTextSize.letterFont(.body))
                 .fixedSize(horizontal: false, vertical: true)
@@ -1730,7 +1793,7 @@ struct MTSaveBeside<Badge: View>: ViewModifier {
                 // A line and two grey bars of the card's own height stand there meanwhile.
                 HStack(alignment: .top, spacing: 6) {
                     RoundedRectangle(cornerRadius: 1.5)
-                        .fill(message.isMine ? Color.white.opacity(0.35) : Color.gray.opacity(0.4))
+                        .fill(drawnMine ? Color.white.opacity(0.35) : Color.gray.opacity(0.4))
                         .frame(width: 3)
                     VStack(alignment: .leading, spacing: 5) {
                         RoundedRectangle(cornerRadius: 3).fill(bubbleText.opacity(0.18)).frame(width: 90, height: 9)
@@ -1769,7 +1832,7 @@ struct MTSaveBeside<Badge: View>: ViewModifier {
         // The lines each block is allowed: two for the site, five for the title, twelve for the words.
         let base = MontanaTextSize.letterFont(.body).pointSize
         let f = floor(base * 14 / 17)
-        let accent = MontanaNativeBubble.link(mine: message.isMine)
+        let accent = MontanaNativeBubble.link(mine: drawnMine)
         // A picture drawn across the card keeps its own shape; a portrait one is held to four thirds
         // of the width so a single letter cannot take the whole screen.
         let ratio = max(0.75, min(3.0, CGFloat(card.w ?? 4) / CGFloat(max(card.h ?? 3, 1))))
@@ -1840,16 +1903,16 @@ struct MTSaveBeside<Badge: View>: ViewModifier {
     // theme readers (custom style stores hex colors + doubles in UserDefaults)
     func thHex(_ k: String, _ d: String) -> Color { MTBubbleStyle.hex(k, d) }
     func thDbl(_ k: String, _ d: Double) -> Double { MTBubbleStyle.dbl(k, d) }
-    @ViewBuilder var bubbleFill: some View { MTBubbleStyle.fill(mine: message.isMine, own: myColor) }
+    @ViewBuilder var bubbleFill: some View { MTBubbleStyle.fill(mine: drawnMine, own: myColor) }
     var bubbleText: Color {
-        if bubbleStyle == "custom" { return thHex((message.isMine ? "cbMine" : "cbPeer")+"Text", message.isMine ? BT.mTx : BT.pTx) }
+        if bubbleStyle == "custom" { return thHex((drawnMine ? "cbMine" : "cbPeer")+"Text", drawnMine ? BT.mTx : BT.pTx) }
         if bubbleStyle == "montana" {
-            return message.isMine ? MontanaNativeBubble.mineText : MontanaNativeBubble.peerText
+            return drawnMine ? MontanaNativeBubble.mineText : MontanaNativeBubble.peerText
         }
         return .white
     }
     // SSOT outline: montana (fixed) or custom (theme). One place, used by every bubble type.
-    @ViewBuilder var bubbleOutline: some View { MTBubbleStyle.outline(mine: message.isMine, bubbleShape) }
+    @ViewBuilder var bubbleOutline: some View { MTBubbleStyle.outline(mine: drawnMine, bubbleShape) }
 
     // THE stamp ([C-1]): time (+«edited») + my delivery checks — the ONE line every bubble
     // kind shows. Geometry may place it differently (inside a text bubble, on a media
@@ -1858,8 +1921,13 @@ struct MTSaveBeside<Badge: View>: ViewModifier {
     func metaLine(onMedia: Bool = false) -> some View {
         let ink: Color = onMedia ? .white
             : (bubbleStyle == "montana" ? bubbleText.opacity(0.82)
-                : (message.isMine ? Color.white.opacity(0.75) : .gray))
+                : (drawnMine ? Color.white.opacity(0.75) : .gray))
         let clock = HStack(spacing: 3) {
+            if let post {
+                // THE EYE AND ITS NUMBER BEFORE THE TIME (the reference's channel stamp): the owner's count of people (MTChannelViews)
+                Image(systemName: "eye").font(.system(size: 9, weight: .semibold)).accessibilityHidden(true)
+                Text(verbatim: MTChannelPostLook.count(post.views)).font(.caption2)   // USER-DATA: a count of people
+            }
             if message.edited {
                 Text("edited").font(.system(size: 9))
             }

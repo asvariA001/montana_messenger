@@ -184,7 +184,7 @@ final class MTTurnDrag: ObservableObject {
     /// settings and the profile are one open page at a time, risen over the tabs in the chat's own
     /// sliding container and closed by the cross or by the screen-edge swipe. The network left this slot
     /// for the finger's row (the author's word 25.09): it is a page under the bar, as the calls are.
-    enum Page: String, Identifiable { case settings, profile, card, birth, notifications, keeping, levels; var id: String { rawValue } }   // birth: one more person of Montana, from the drawer's plus; levels: the green shield's way (16.10)
+    enum Page: String, Identifiable { case settings, profile, card, birth, notifications, keeping, levels, folders; var id: String { rawValue } }   // birth: one more person of Montana, from the drawer's plus; levels: the green shield's way (16.10)
     var overlayPage: Page?
     /// The document page over everything (the author's word 19.09): the whole screen, above the tabs and the open chat.
     var docPage: MTDocOpen?
@@ -348,6 +348,9 @@ final class MTTurnDrag: ObservableObject {
     /// at it. No notification that only an open chat could hear, no delay to guess by.
     struct LetterAsk: Equatable { let chat: String; let mid: MID; let nonce = UUID() }
     var letterAsk: LetterAsk?
+    /// THE CHAT'S SEARCH ASKED FROM ITS PAGE (the reference's «Search» under a group's face): the chat by this name opens its search
+    /// bar and lets the record go.
+    var chatSearchAsk: String?
     func showLetter(_ c: Chat, _ mid: MID) {
         if overlayChat?.name == c.name { letterAsk = LetterAsk(chat: c.name, mid: mid) }
         else { openChat(c, jump: mid) }
@@ -2409,6 +2412,11 @@ struct MainTabView: View {
             // Access by level, its cross top left.
             case .levels: NavigationStack {
                 MTLevelAccessPage()
+                    .toolbar { ToolbarItem(placement: .topBarLeading) { MontanaCloseMark { ui.overlayPage = nil } } }
+            }
+            // A TAB'S MENU OPENS THE FOLDERS (the author's words 17.10.2026 18:4x MSK): the folders' page, its cross top left.
+            case .folders: NavigationStack {
+                MTFolderSettingsPage()
                     .toolbar { ToolbarItem(placement: .topBarLeading) { MontanaCloseMark { ui.overlayPage = nil } } }
             }
             }

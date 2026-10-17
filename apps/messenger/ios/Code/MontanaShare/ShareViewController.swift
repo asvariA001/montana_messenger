@@ -143,6 +143,7 @@ final class SharePickerController: UIViewController, UICollectionViewDataSource,
     private var shown: [ShareChat] = []
     private var selected: [String] = []           // the chats the finger chose, in the order it chose them
     private var selectedSet = Set([String]())
+    private var sends = [String: ShareAvatarCell.Send]()   // the chosen faces' circles while a send is on its way (17.10)
 
     private let search = UITextField()
     private var collection: UICollectionView!
@@ -237,6 +238,7 @@ final class SharePickerController: UIViewController, UICollectionViewDataSource,
         ShareGlass.lay(road, corner: 22)
         progress.translatesAutoresizingMaskIntoConstraints = false
         progress.progressTintColor = .systemBlue   // the platform's own blue (the author's word 30.09 23:21)
+        progress.isHidden = true   // the send fills the faces' circles now (ShareRing, 17.10); the road keeps its words
         status.font = .systemFont(ofSize: 15, weight: .medium)
         status.textColor = .label
         status.numberOfLines = 2
@@ -305,8 +307,23 @@ final class SharePickerController: UIViewController, UICollectionViewDataSource,
     func collectionView(_ cv: UICollectionView, cellForItemAt ip: IndexPath) -> UICollectionViewCell {
         let cell = cv.dequeueReusableCell(withReuseIdentifier: "c", for: ip) as! ShareAvatarCell
         let c = shown[ip.row]
-        cell.configure(c, selected: selectedSet.contains(c.name))
+        cell.configure(c, selected: selectedSet.contains(c.name), send: sends[c.name])
         return cell
+    }
+    /// The circles of the faces on the screen, from the send's one record -- moved, not drawn anew.
+    private func paintSends(animated: Bool) {
+        for case let cell as ShareAvatarCell in collection.visibleCells {
+            guard let ip = collection.indexPath(for: cell), ip.row < shown.count else { continue }
+            let name = shown[ip.row].name
+            cell.show(selected: selectedSet.contains(name), send: sends[name], animated: animated)
+        }
+    }
+    /// The circles fill by the network's truth -- a piece counts once it is on the node -- up to nine tenths; the rest is the
+    /// letter's, which only the node's acceptance of that chat's letters closes.
+    @MainActor private func fill(_ fraction: Double) {
+        let f = 0.9 * max(0, min(1, fraction))
+        for (peer, s) in sends where s != .sent { sends[peer] = .sending(f) }
+        paintSends(animated: true)
     }
     func collectionView(_ cv: UICollectionView, didSelectItemAt ip: IndexPath) {
         let name = shown[ip.row].name
@@ -420,6 +437,8 @@ final class SharePickerController: UIViewController, UICollectionViewDataSource,
         collection.isUserInteractionEnabled = false
         search.isEnabled = false
         status.text = String(localized: "Sending…", bundle: MTLanguage.bundle)
+        for peer in peers { sends[peer] = .waiting }
+        paintSends(animated: false)
         ShareSend.diag("sheet SEND tapped items=\(attachments.count) peers=\(peers.count)")
         watchHost(); stage = "prepare"
         Task { ShareSend.diag("sheet NET " + (await ShareSend.netEnv())) }   // the sheet's own path, at the tap
@@ -495,12 +514,14 @@ final class SharePickerController: UIViewController, UICollectionViewDataSource,
             await MainActor.run { self.stage = "upload" }
             var uploadedAt: [Bool] = Array(repeating: false, count: lettered.count)
             var failed = 0
+            let pieces = lettered.count
             for (idx, item) in lettered.enumerated() {
                 await MainActor.run { self.batchIndex = idx + 1; self.batchTotal = lettered.count }
                 guard let m = item["manifest"] as? [String: Any] else { uploadedAt[idx] = true; continue }   // a text has no pieces
                 let ok = await ShareSend.uploadManifestChunks(m) { done, totalChunks in
                     Task { @MainActor in
                         self.showStage(String(localized: "Sending", bundle: MTLanguage.bundle), Double(done) / Double(max(1, totalChunks)))
+                        self.fill((Double(idx) + Double(done) / Double(max(1, totalChunks))) / Double(max(1, pieces)))
                     }
                 }
                 uploadedAt[idx] = ok
@@ -533,6 +554,8 @@ final class SharePickerController: UIViewController, UICollectionViewDataSource,
                     items[ii] = item
                 }
                 batch[bi]["items"] = items
+                let whole = items.allSatisfy { i in (i["sent"] as? Bool) == true }
+                await MainActor.run { self.sends[peer] = whole ? .sent : .sending(0.9); self.paintSends(animated: true) }
             }
             // THE HAND PASSES HERE, ONCE: the final flags and the owner are written together, and only then the app is rung.
             // Rows the app already took (a dead-sheet lease that ran out) are left.
@@ -556,6 +579,8 @@ final class SharePickerController: UIViewController, UICollectionViewDataSource,
                     self.status.text = String(localized: "Some items are still on their way — Montana will send them.", bundle: MTLanguage.bundle)
                 }
                 try? await Task.sleep(nanoseconds: 1_800_000_000)
+            } else {
+                try? await Task.sleep(nanoseconds: 800_000_000)   // the blue «Sent» under each face is seen before the sheet goes
             }
             await MainActor.run { self.onClose?() }
         }
@@ -827,18 +852,23 @@ extension SharePickerController: UICollectionViewDelegateFlowLayout {
 
 // A cell: a round face -- a picture, or black with a white initial -- the name, and a tick when chosen. One's own wall wears the
 // platform's write glyph where a tick would stand: its circle opens the post's page and is never chosen.
-// THE TICK STANDS TRUE (the author's word 16.10.2026 19:0x MSK on T1: «the blue ticks are crooked»): the ring was a layer inside the
-// face's own clipped layer -- cut by the face's round mask -- and drawn from its frame, not its bounds, so it sat off to the upper
-// left; the tick was the symbol stretched into a white square's corners and pinned to the face's frame while the face shrank under
-// it. Now the ring is the cell's own layer, a true circle four points around the face's centre; the face shrinks inside it; the
-// tick is one round badge drawn whole -- the platform's blue, a white rim, a white check -- its centre on the face's circle at the
-// lower right, where it stands whether the face is shrunk or not.
+// THE CIRCLE STANDS TRUE BY CONSTRUCTION (the author's word 17.10.2026 18:4x MSK: «on the share page the circle of the chosen one is
+// found crooked -- make all of it system and native»): the ring was a layer placed by hand in the cell's layout from the face's
+// centre, read before the content view had laid the face out -- on a first pass it stood where the face had been, not where it is.
+// Now the circle is a view of its own (ShareRing), centred on the face by the layout engine and drawn from its own bounds in its own
+// layout; the face keeps its size; the tick is one round badge on that same circle at 45 degrees.
+// THE SEND FILLS THE CIRCLE (the same word: «the sending as the platform's nearby sharing -- around the circle it fills, system
+// blue»): each chosen face waits, then its circle fills in the platform's blue from the top, clockwise, as the pieces land on the
+// node, and closes, with «Sent» under the name, only when the node took that chat's letters.
 final class ShareAvatarCell: UICollectionViewCell {
+    enum Send: Equatable { case waiting, sending(Double), sent }
     private static let side: CGFloat = 60
+    private static let ringSide: CGFloat = side + 10   // the face, a gap of two points and the ring's line around it
     private let avatar = UIImageView()
     private let initialLabel = UILabel()
     private let nameLabel = UILabel()
-    private let ring = CAShapeLayer()
+    private let stateLabel = UILabel()
+    private let ring = ShareRing()
     private let check = ShareAvatarCell.badge("checkmark")
     private let pen = ShareAvatarCell.badge("square.and.pencil")
 
@@ -880,47 +910,48 @@ final class ShareAvatarCell: UICollectionViewCell {
         nameLabel.numberOfLines = 2
         nameLabel.lineBreakMode = .byTruncatingTail
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
-        ring.fillColor = UIColor.clear.cgColor
-        ring.strokeColor = UIColor.systemBlue.cgColor
-        ring.lineWidth = 2
+        stateLabel.font = .systemFont(ofSize: 11)
+        stateLabel.textAlignment = .center
+        stateLabel.isHidden = true
+        stateLabel.translatesAutoresizingMaskIntoConstraints = false
         ring.isHidden = true
-        contentView.layer.addSublayer(ring)
+        ring.translatesAutoresizingMaskIntoConstraints = false
         avatar.addSubview(initialLabel)
+        contentView.addSubview(ring)
         contentView.addSubview(avatar)
         contentView.addSubview(nameLabel)
+        contentView.addSubview(stateLabel)
         contentView.addSubview(check)
         contentView.addSubview(pen)
-        // The badge's centre on the face's circle at 45 degrees: the radius times the cosine of 45.
-        let off = (Self.side / 2) * 0.7071
+        // A badge's centre at 45 degrees: the tick on the ring's line, the pen on the face's rim -- the radius times the cosine of 45.
+        let onRing = (Self.ringSide / 2 - ShareRing.line / 2) * 0.7071
+        let onFace = (Self.side / 2) * 0.7071
         NSLayoutConstraint.activate([
-            avatar.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
+            avatar.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 6),
             avatar.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
             avatar.widthAnchor.constraint(equalToConstant: Self.side),
             avatar.heightAnchor.constraint(equalToConstant: Self.side),
+            ring.centerXAnchor.constraint(equalTo: avatar.centerXAnchor),
+            ring.centerYAnchor.constraint(equalTo: avatar.centerYAnchor),
+            ring.widthAnchor.constraint(equalToConstant: Self.ringSide),
+            ring.heightAnchor.constraint(equalToConstant: Self.ringSide),
             initialLabel.centerXAnchor.constraint(equalTo: avatar.centerXAnchor),
             initialLabel.centerYAnchor.constraint(equalTo: avatar.centerYAnchor),
-            nameLabel.topAnchor.constraint(equalTo: avatar.bottomAnchor, constant: 4),
+            nameLabel.topAnchor.constraint(equalTo: avatar.bottomAnchor, constant: 6),
             nameLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 2),
             nameLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -2),
-            check.centerXAnchor.constraint(equalTo: avatar.centerXAnchor, constant: off),
-            check.centerYAnchor.constraint(equalTo: avatar.centerYAnchor, constant: off),
-            pen.centerXAnchor.constraint(equalTo: avatar.centerXAnchor, constant: off),
-            pen.centerYAnchor.constraint(equalTo: avatar.centerYAnchor, constant: off),
+            stateLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 1),
+            stateLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 2),
+            stateLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -2),
+            check.centerXAnchor.constraint(equalTo: avatar.centerXAnchor, constant: onRing),
+            check.centerYAnchor.constraint(equalTo: avatar.centerYAnchor, constant: onRing),
+            pen.centerXAnchor.constraint(equalTo: avatar.centerXAnchor, constant: onFace),
+            pen.centerYAnchor.constraint(equalTo: avatar.centerYAnchor, constant: onFace),
         ])
     }
     required init?(coder: NSCoder) { fatalError() }
 
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        // The ring around the face's centre, read from its centre and the face's own side -- never from a frame a shrink changes.
-        let r = Self.side / 2 + 4
-        CATransaction.begin(); CATransaction.setDisableActions(true)
-        ring.frame = CGRect(x: avatar.center.x - r, y: avatar.center.y - r, width: 2 * r, height: 2 * r)
-        ring.path = UIBezierPath(ovalIn: ring.bounds.insetBy(dx: 1, dy: 1)).cgPath
-        CATransaction.commit()
-    }
-
-    func configure(_ c: ShareChat, selected: Bool) {
+    func configure(_ c: ShareChat, selected: Bool, send: Send?) {
         nameLabel.text = c.title
         if let t = c.thumb {
             avatar.image = t; avatar.backgroundColor = .clear; initialLabel.isHidden = true
@@ -931,15 +962,95 @@ final class ShareAvatarCell: UICollectionViewCell {
             initialLabel.text = c.initial; initialLabel.isHidden = false
         }
         nameLabel.textColor = .label
-        check.isHidden = !selected
         pen.isHidden = c.name != ShareChat.wallName
-        ring.isHidden = !selected
-        avatar.transform = selected ? CGAffineTransform(scaleX: 0.867, y: 0.867) : .identity
+        show(selected: selected, send: send, animated: false)
+    }
+
+    /// The chosen one's ring and tick, or the send's circle and its word -- one circle, the same place.
+    func show(selected: Bool, send: Send?, animated: Bool) {
+        guard let send else {
+            ring.tracked = false
+            ring.set(1, animated: false)
+            ring.isHidden = !selected
+            check.isHidden = !selected
+            stateLabel.isHidden = true
+            nameLabel.numberOfLines = 2
+            return
+        }
+        ring.isHidden = false
+        ring.tracked = true
+        check.isHidden = true
+        nameLabel.numberOfLines = 1
+        stateLabel.isHidden = false
+        switch send {
+        case .waiting:
+            ring.set(0, animated: false)
+            stateLabel.text = String(localized: "Waiting…", bundle: MTLanguage.bundle)
+            stateLabel.textColor = .secondaryLabel
+        case .sending(let f):
+            ring.set(f, animated: animated)
+            stateLabel.text = String(localized: "Sending…", bundle: MTLanguage.bundle)
+            stateLabel.textColor = .secondaryLabel
+        case .sent:
+            ring.set(1, animated: animated)
+            stateLabel.text = String(localized: "Sent", bundle: MTLanguage.bundle)
+            stateLabel.textColor = .systemBlue
+        }
     }
 
     override func prepareForReuse() {
         super.prepareForReuse()
-        avatar.transform = .identity; ring.isHidden = true; check.isHidden = true; pen.isHidden = true
+        ring.isHidden = true; check.isHidden = true; pen.isHidden = true; stateLabel.isHidden = true
+    }
+}
+
+/// One circle around a face, drawn from its own bounds in its own layout -- never from another view's frame: the chosen one's ring,
+/// whole, and the send's, filling in the platform's blue from the top, clockwise, over a faint track.
+final class ShareRing: UIView {
+    static let line: CGFloat = 3
+    private let track = CAShapeLayer()
+    private let fill = CAShapeLayer()
+    var tracked = false { didSet { track.isHidden = !tracked } }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        backgroundColor = .clear
+        for l in [track, fill] {
+            l.fillColor = UIColor.clear.cgColor
+            l.lineWidth = Self.line
+            l.lineCap = .round
+            layer.addSublayer(l)
+        }
+        track.strokeColor = UIColor.white.withAlphaComponent(0.18).cgColor
+        track.isHidden = true
+        fill.strokeColor = UIColor.systemBlue.cgColor
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let r = min(bounds.width, bounds.height) / 2 - Self.line / 2
+        let round = UIBezierPath(arcCenter: CGPoint(x: bounds.midX, y: bounds.midY), radius: r,
+                                 startAngle: -CGFloat.pi / 2, endAngle: CGFloat.pi * 1.5, clockwise: true).cgPath
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        for l in [track, fill] { l.frame = bounds; l.path = round }
+        CATransaction.commit()
+    }
+
+    func set(_ fraction: Double, animated: Bool) {
+        let to = CGFloat(max(0, min(1, fraction)))
+        if animated {
+            let a = CABasicAnimation(keyPath: "strokeEnd")
+            a.fromValue = fill.presentation()?.strokeEnd ?? fill.strokeEnd
+            a.toValue = to
+            a.duration = 0.25
+            a.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            fill.add(a, forKey: "fill")
+        }
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        fill.strokeEnd = to
+        CATransaction.commit()
     }
 }
 

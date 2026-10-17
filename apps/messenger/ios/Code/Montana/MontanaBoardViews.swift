@@ -146,8 +146,8 @@ struct MTBoardRows: View {
     let owner: String?          // the wall's owner by reference; nil — my own wall
     /// The wall's side margin: its own on a page of its own (My page), none inside a list that already gives one (24.09).
     var edge: CGFloat = MTPageEdge.side
-    /// A CHANNEL'S THREAD (the author's words 16.10.2026 19:0x MSK, MTBoardCell.thread): its posts edge to edge in the thread's face;
-    /// its owner writes at the page's foot (MTChannelPostBar), so no write button stands at its head.
+    /// A THREAD'S FACE (MTBoardCell.thread): its posts edge to edge, and no write button at its head. A channel is no wall since
+    /// 17.10.2026 (the author's words: «we do not need our own kinds of pages inside channels») -- its posts are its feed's letters.
     var thread = false
     @Binding var sheet: MTBoardSheet?
     @Binding var page: MTBoardRoute?
@@ -240,90 +240,6 @@ struct MTBoardPane: View {
             .padding(.top, 2)
             .modifier(MTBoardPresenting(sheet: $sheet, page: $page))
             .onAppear { MTBoard.shared.look(owner) }   // THE LOOK ASKS (25.09): a page of another's wall asks for it as it opens
-    }
-}
-
-/// THE CHANNEL'S OWNER PUBLISHES FROM THE CHANNEL ITSELF (the author's words 16.10.2026 19:0x MSK: «focus on publishing straight from
-/// it», his picture of a thread's foot «Add another post» with its Publish): my face and the field at the page's foot, riding the
-/// keys as a chat's bar does (MTKeyboardRider). The words typed here are a post at the press of Publish -- the wall's one birth and
-/// one road (MTBoard.begin, then publish), the very calls the new post's page makes; words the store refuses stay in the field. A
-/// picture, a file, a frame: the photo and the expand marks carry the words into the new post's page (the wall's draft) whole.
-struct MTChannelPostBar: View {
-    let channel: String
-    @State private var text = ""
-    @State private var posting = false
-    @FocusState private var focused: Bool
-    private var blank: Bool { text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-    var body: some View {
-        VStack(spacing: 6) {
-            HStack(alignment: .bottom, spacing: 10) {
-                MTSelfFace(size: 36).frame(height: 44)
-                HStack(alignment: .bottom, spacing: 0) {
-                    TextField("Add another post", text: $text, axis: .vertical)
-                        .lineLimit(1...6)
-                        .focused($focused)
-                        .padding(.leading, 14).padding(.vertical, 11)
-                    Button { toPage() } label: {
-                        Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 15, weight: .semibold))
-                            .foregroundColor(.secondary).frame(width: 44, height: 44).contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(Text("Expand"))
-                }
-                .background(Color(uiColor: .secondarySystemFill), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-            }
-            if focused || !blank {
-                HStack(spacing: 0) {
-                    Button { toPage() } label: {
-                        Image(systemName: "photo").font(.system(size: 20)).foregroundColor(Color(uiColor: .systemBlue))
-                            .frame(width: 44, height: 44).contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(Text("Photo"))
-                    Spacer(minLength: 0)
-                    Button { publish() } label: {
-                        Text("Publish").font(.subheadline.weight(.bold)).foregroundColor(.white)
-                            .padding(.horizontal, 18).frame(minHeight: 36)
-                            .background(Color(uiColor: .systemBlue), in: Capsule())
-                            .opacity(blank || posting ? 0.45 : 1)
-                            .frame(minHeight: 44).contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(blank || posting)
-                }
-            }
-        }
-        .padding(.horizontal, 16).padding(.vertical, 6)
-        .background(.bar)
-        .overlay(alignment: .top) { Divider() }
-        .animation(.easeOut(duration: 0.15), value: focused)
-    }
-    private func publish() {
-        guard !blank, !posting else { return }
-        let words = text
-        posting = true
-        MontanaTrace.mark("channel_post", "bar chars=\(words.count)")
-        Task {
-            guard let pid = await MTBoard.shared.begin(on: channel, text: words, attachments: []) else {
-                await MainActor.run { posting = false }
-                MontanaTrace.mark("channel_post", "refused by the store -- the words stay in the field")
-                return
-            }
-            await MainActor.run { text = ""; posting = false; focused = false }
-            let ok = await MTBoard.shared.publish(pid)
-            MontanaTrace.mark("channel_post", "published=\(ok ? 1 : 0)")
-        }
-    }
-    /// The words go into the wall's draft and the new post's page rises over it, whole: more pictures, files, frames, the card.
-    private func toPage() {
-        if !blank {
-            var d = MTBoard.shared.draft(on: channel) ?? MTBoardDraft(text: "", files: [], at: MontanaWakePush.nodeNow())
-            d.text = d.text.isEmpty ? text : d.text + "\n" + text
-            MTBoard.shared.lay(draft: d, on: channel)
-            text = ""
-        }
-        focused = false
-        MTBoardComposer.present(on: channel)
     }
 }
 

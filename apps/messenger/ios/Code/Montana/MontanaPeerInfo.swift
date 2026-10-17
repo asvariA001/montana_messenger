@@ -222,6 +222,8 @@ enum MTLinks {
 // connecting a button later changes one case and leaves the row untouched.
 enum MTPeerAction: Int, CaseIterable, Identifiable {
     case message, audioCall, videoCall, more   // «More» (the author's word 22.09): the chat's wallpaper lives behind it
+    // A GROUP'S OWN BUTTONS, AS THE REFERENCE'S GROUP PAGE HAS THEM (the author's word 17.10.2026): its voice chat, its sound, its search.
+    case voiceChat, mute, unmute, search
 
     var id: Int { rawValue }
 
@@ -231,6 +233,10 @@ enum MTPeerAction: Int, CaseIterable, Identifiable {
         case .audioCall: return "Voice Call"   // named as the chat's own menu names them (the author's word 18.09)
         case .videoCall: return "Video Call"
         case .more: return "More"
+        case .voiceChat: return "Voice Chat"
+        case .mute: return "Mute"
+        case .unmute: return "Unmute"
+        case .search: return "Search"
         }
     }
 
@@ -240,12 +246,16 @@ enum MTPeerAction: Int, CaseIterable, Identifiable {
         case .audioCall: return "phone.fill"
         case .videoCall: return "video.fill"
         case .more: return "ellipsis"
+        case .voiceChat: return "waveform"
+        case .mute: return "bell.fill"
+        case .unmute: return "bell.slash.fill"
+        case .search: return "magnifyingglass"
         }
     }
 
     static func available(for kind: MTPeerKind, blocked: Bool = false) -> [MTPeerAction] {
         switch kind {
-        case .person: return blocked ? [.message, .more] : allCases   // a blocked person is not called
+        case .person: return blocked ? [.message, .more] : [.message, .audioCall, .videoCall, .more]   // a blocked person is not called
         case .group: return [.message, .more]
         case .saved: return [.message]
         }
@@ -384,7 +394,11 @@ final class MTPeerInfoState: ObservableObject {
             draftFirst = parts.first ?? ""
             draftLast = parts.count > 1 ? parts[1] : ""
         }
-        draftNote = chat.note ?? ""
+        // A GROUP'S NOTE IS ITS DESCRIPTION, read above: the row's own note written over it opened the editor empty, and «Done» carried
+        // the empty words to every phone of the group (MTGroup.renew) -- the checklist's E.1.
+        if kind != .group { draftNote = chat.note ?? "" }
+        // A group's page opens on its media, as the reference's does: the wall and the transactions are a person's (the checklist's Zh.1).
+        if kind == .group, MTGroup.shared.kind(chat.name) == .group { tab = .media }
         draftPhoto = store.avatarFor(chat)
         draftMembers = chat.members
         isMuted = ChatStore.chatFlag("mute", chat.name)

@@ -24,6 +24,7 @@ struct MontanaPeerInfoScreen: View {
     @State private var removingSeat: String? = nil    // the owner takes a person out, asked first (MTGroup.remove)
     @State private var addingPeople = false           // the owner adds people from its correspondents (MTGroup.add)
     @State private var confirmDissolve = false        // the owner deletes the group for everyone, asked first (MTGroup.dissolve)
+    @State private var confirmClear = false           // a group's «Clear Messages», asked first (MTGroupClearAsk)
     @State private var roomAsk: MTRoomKind?           // the group's call chosen on its page: whom to invite (MTGroupRoom, 07.10)
     @State private var roomAskVideo = false
     @State private var originalNameShown = false     // the edit page: their own name revealed under the fields (20.09)
@@ -109,7 +110,8 @@ struct MontanaPeerInfoScreen: View {
         .onChange(of: state.editing) { _, on in MontanaTrace.mark("profile_edit", on ? "on" : "off") }   // measured: the switch's moment
         .onChange(of: letterCount) { _, _ in state.refreshConversation(chat: chat, store: store) }
         .sheet(item: $report) { r in
-            MontanaReportSheet(report: r, onBlock: { if !store.isBlocked(chat.name) { state.toggleBlocked(chat, store: store) } })
+            MontanaReportSheet(report: r, onBlock: { if !store.isBlocked(chat.name) { state.toggleBlocked(chat, store: store) } },
+                               offersBlock: !isGroupPage)   // a group is reported, never blocked as a person
         }
         .fullScreenCover(item: $state.modal) { m in
             switch m {
@@ -198,7 +200,8 @@ struct MontanaPeerInfoScreen: View {
                                  initial: data.initial,
                                  size: 100,
                                  title: state.editing ? nil : MontanaAvatar.spokenName(data.title),
-                                 subtitle: nil,
+                                 // «N members, M online» under a group's name, as the reference's page says it (MTGroupPage.head)
+                                 subtitle: isGroupPage && !state.editing ? LocalizedStringKey(MTGroupPage.head(chat.name, store: store)) : nil,
                                  subtitleIsActive: data.subtitleIsActive,
                                  note: state.editing ? "" : data.note,
                                  blocked: store.blockedChats.contains(chat.name),
@@ -235,6 +238,7 @@ struct MontanaPeerInfoScreen: View {
         .modifier(MTBoardPresenting(sheet: $wallSheet, page: $wallPage))
         .modifier(MTGroupPageAsks(chat: chat, confirmLeave: $confirmLeave, removingSeat: $removingSeat, addingPeople: $addingPeople,
                                   confirmDissolve: $confirmDissolve, onGone: { dismiss(); ui.closeChat() }))
+        .modifier(MTGroupClearAsk(chat: chat, asked: $confirmClear))
         .sheet(item: $roomAsk) { k in MTRoomInviteSheet(chat: chat.name, kind: k, video: roomAskVideo, opening: true) }
         .sheet(item: $explorer) { link in MTExplorerSheet(url: link.url).ignoresSafeArea() }
         .navigationDestination(item: $coinMove) { r in MTCoinMovePage(route: r, peer: data.title) }
@@ -253,7 +257,9 @@ struct MontanaPeerInfoScreen: View {
         if data.kind == .group, let about = MTGroup.shared.state(chat.name)?.about, !about.isEmpty {
             out[.about] = [MTInfoRow(id: "group.about", kind: .labeledValue(value: about, caption: "description"))]
         }
-        if data.kind.showsMembers {
+        if data.kind.showsMembers, isGroupPage {
+            out[.members] = groupMemberRows()
+        } else if data.kind.showsMembers {
             var rows: [MTInfoRow] = [MTInfoRow(id: "members.header", kind: .header("MEMBERS"))]
             // The owner is the creator; a member's page names the owner first (MTGroup.pagePeople), the others by their own words.
             // The owner's page takes a person out (asked first) and adds people; a member's page offers to leave.
@@ -377,6 +383,41 @@ struct MontanaPeerInfoScreen: View {
         return out
     }
 
+    /// A group's page, not a channel's: the reference's group page draws it (MTGroupPage), a channel keeps its own road.
+    private var isGroupPage: Bool { MTPeerKind(chat: chat) == .group && MTGroup.shared.kind(chat.name) == .group }
+    /// THE PEOPLE OF A GROUP, AS THE REFERENCE'S PAGE LISTS THEM (MTGroupPage.lines): «Add Member» first for its owner, then every
+    /// person, with no header over them; the ways out stand in «More» and in the editor, as there.
+    private func groupMemberRows() -> [MTInfoRow] {
+        var rows: [MTInfoRow] = []
+        if MTGroup.shared.manages(chat.name) {
+            rows.append(MTInfoRow(id: "members.add", kind: .action(title: "Add Member", icon: "person.badge.plus", destructive: false,
+                                                                   action: { addingPeople = true })))
+        }
+        let lines = MTGroupPage.lines(chat.name, store: store, remove: { seat in removingSeat = seat },
+                                      open: { c in wallPage = .person(c) },
+                                      write: { c in dismiss(); DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { ui.openChat(c) } })
+        for line in lines { rows.append(MTInfoRow(id: "members." + line.seat, kind: .groupMember(line))) }
+        return rows
+    }
+    /// A GROUP'S «MORE», AS THE REFERENCE'S MENU HAS IT: «Report» for one who does not own it, «Clear Messages», then the way out in
+    /// red -- «Leave Group» for a member, «Delete Group» for its owner -- each asked first.
+    @ViewBuilder private var groupMore: some View {
+        let g = MTGroup.shared.state(chat.name)
+        if g?.mine != true {
+            Button { report = MontanaReport(peer: chat.name, peerName: store.title(for: chat), text: "", mid: "") } label: {
+                Label("Report", systemImage: "exclamationmark.bubble")
+            }
+        }
+        Button { confirmClear = true } label: { Label("Clear Messages", systemImage: "eraser") }
+        if let g, g.left != true {
+            if g.mine {
+                Button(role: .destructive) { confirmDissolve = true } label: { Label("Delete Group", systemImage: "trash") }
+            } else {
+                Button(role: .destructive) { confirmLeave = true } label: { Label("Leave Group", systemImage: "rectangle.portrait.and.arrow.right") }
+            }
+        }
+    }
+
     private func shareContact(_ data: MTPeerInfoData) {
         if let link = MTPeerLinks.fresh(data.conv) {
             MTShare.present([MTShare.web(link).map { $0 as Any } ?? MontanaConv.contactMessage(name: data.title, link: link)])
@@ -482,7 +523,11 @@ struct MontanaPeerInfoScreen: View {
                     // «MORE» IS THE PLATFORM'S MENU (the author's word 22.09): the same plate as its neighbours,
                     // the system's menu behind it — the chat's wallpaper, chosen and previewed before it is set.
                     Menu {
-                        Button { ui.chatWall = MTWallOpen(id: chat.convId ?? chat.name) } label: { Label("Chat background", systemImage: "photo") }   // a page over everything, closed by the swipe from the left (23.09)
+                        if isGroupPage {
+                            groupMore   // the reference's menu of a group; the chat's background is a person's (the checklist's Zh.2)
+                        } else {
+                            Button { ui.chatWall = MTWallOpen(id: chat.convId ?? chat.name) } label: { Label("Chat background", systemImage: "photo") }   // a page over everything, closed by the swipe from the left (23.09)
+                        }
                     } label: {
                         actionFace(action)
                     }
@@ -503,6 +548,11 @@ struct MontanaPeerInfoScreen: View {
     /// The page's actions: a person's as they were; a group where calls are made (MTGroupRoom.kinds) adds its voice and video chat
     /// beside the message -- the same plates, the group's own room behind them.
     private func pageActions(_ data: MTPeerInfoData) -> [MTPeerAction] {
+        // A GROUP'S BUTTONS, AS THE REFERENCE'S GROUP PAGE HAS THEM: its voice chat where one may be held, its sound, its search, more.
+        if isGroupPage {
+            let call: [MTPeerAction] = MTGroupRoom.shared.kinds(for: chat.name).contains(.call) ? [.voiceChat] : []
+            return call + [store.mutedChats.contains(chat.name) ? .unmute : .mute, .search, .more]
+        }
         let base = MTPeerAction.available(for: data.kind, blocked: store.blockedChats.contains(chat.name))
         guard data.kind == .group, MTGroupRoom.shared.kinds(for: chat.name).contains(.call) else { return base }
         return [.message, .audioCall, .videoCall] + base.filter { $0 != .message }
@@ -535,6 +585,17 @@ struct MontanaPeerInfoScreen: View {
         case .videoCall:
             MontanaCall.shared.startCall(peer: data.conv, device: "", video: true,
                 displayName: MTNameBook.display(conv: data.conv))
+        case .voiceChat:
+            // the group's room, or whom to invite into a new one -- the same road as the chat's top (MTGroupRoom.tapped)
+            MTGroupRoom.shared.tapped(chat.name, kind: .call, video: false) { k, v in roomAskVideo = v; roomAsk = k }
+        case .mute, .unmute:
+            store.toggleMuteChat(chat.name)   // the one switch of a chat's sound, the list's swipe's own
+        case .search:
+            // the chat's own search: the page goes down to its chat -- opened first when the page stands elsewhere -- and asks it
+            let open = ui.overlayChat?.name == chat.name
+            dismiss()
+            if !open { DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { ui.openChat(chat) } }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { ui.chatSearchAsk = chat.name }
         case .more:
             break   // the menu answers itself
         }
@@ -549,7 +610,7 @@ struct MontanaPeerInfoScreen: View {
     @ViewBuilder private func editor(_ data: MTPeerInfoData) -> some View {
         if data.kind == .group {
             Section {
-                TextField("Title", text: $state.draftFirst)
+                TextField(isGroupPage ? LocalizedStringKey("Group Name") : LocalizedStringKey("Title"), text: $state.draftFirst)
                     .textContentType(.organizationName)
                     .textInputAutocapitalization(.words)
             }
@@ -561,6 +622,19 @@ struct MontanaPeerInfoScreen: View {
                         .lineLimit(1...5)
                 } footer: {
                     Text("You can provide an optional description for your group.")
+                }
+                .listRowBackground(MTGlassRowPlate())
+            }
+            if isGroupPage, MTGroup.shared.manages(chat.name) {
+                // THE GROUP'S LINK AND ITS END, where the reference's editor keeps them (the checklist's G.3 and G.11)
+                Section {
+                    NavigationLink { MTGroupInviteLinksPage(chat: chat.name) } label: { Label("Invite Links", systemImage: "link") }
+                }
+                .listRowBackground(MTGlassRowPlate())
+                Section {
+                    Button(role: .destructive) { confirmDissolve = true } label: {
+                        Text("Delete Group").frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle())
+                    }
                 }
                 .listRowBackground(MTGlassRowPlate())
             }
@@ -631,7 +705,7 @@ struct MontanaPeerInfoScreen: View {
             .padding(.horizontal, 16).padding(.top, 12)
     }
     @ViewBuilder private func panes(_ data: MTPeerInfoData) -> some View {
-        MTTabStrip(tab: $state.tab).frame(height: 52).padding(.top, 4)   // UIKit's own strip, 44 pt tall — the finger lands first time (18.09)
+        MTTabStrip(tab: $state.tab, tabs: paneTabs).frame(height: 52).padding(.top, 4)   // UIKit's own strip, 44 pt tall — the finger lands first time (18.09)
             .background(MTSwipePanes(onNext: { turnPane(+1) }, onBack: { turnPane(-1) }))
             .background(MTEdgeMark("tab-strip"))   // where the strip stands across the screen, said to the diary (24.09)
             // THE LOOK ASKS (the author's word 25.09: «entering the page must show the wall to everyone, at once»): the page asks
@@ -749,9 +823,12 @@ struct MontanaPeerInfoScreen: View {
                 .montanaOctagonFace(bar: true, height: Self.rowHeight)
         }
     }
+    /// The panes a page offers: a group's are the reference's -- its media, files, links, music and voices; the wall and the
+    /// transactions are a person's (the checklist's Zh.1). Every other page keeps them all.
+    private var paneTabs: [MTMediaTab] { isGroupPage ? [.media, .video, .files, .links, .music, .voice] : MTMediaTab.allCases }
     /// One step along the strip, stopping at its ends — the strip itself follows the tab.
     private func turnPane(_ step: Int) {
-        let all = MTMediaTab.allCases
+        let all = paneTabs
         guard let i = all.firstIndex(of: state.tab) else { return }
         let j = i + step
         guard j >= 0, j < all.count else { return }
@@ -958,6 +1035,8 @@ struct MTProfileItem: ViewModifier {
 /// view with a hundred points of lookahead.
 struct MTTabStrip: UIViewRepresentable {
     @Binding var tab: MTMediaTab
+    /// The panes the strip offers, in their order (a group's page leaves the wall and the transactions out).
+    var tabs: [MTMediaTab] = MTMediaTab.allCases
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     final class Track: UIScrollView {
         /// The scroll view's own hook: a touch begun over a word may become the scroll.
@@ -992,7 +1071,14 @@ struct MTTabStrip: UIViewRepresentable {
             pill.backgroundColor = .systemGray4
             track.addSubview(pill)
             addSubview(track)
-            for t in MTMediaTab.allCases {
+            lay(MTMediaTab.allCases)
+            addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped(_:))))
+        }
+        /// The words of the panes offered, laid anew for the page's own list.
+        func lay(_ tabs: [MTMediaTab]) {
+            for l in labels { l.removeFromSuperview() }
+            labels = []
+            for t in tabs {
                 let l = UILabel()
                 l.text = t.name
                 l.font = .systemFont(ofSize: 15, weight: .medium)
@@ -1002,7 +1088,7 @@ struct MTTabStrip: UIViewRepresentable {
                 track.addSubview(l)
                 labels.append(l)
             }
-            addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped(_:))))
+            setNeedsLayout()
         }
         required init?(coder: NSCoder) { nil }
         override func layoutSubviews() {
@@ -1068,15 +1154,18 @@ struct MTTabStrip: UIViewRepresentable {
     }
     func makeUIView(context: Context) -> Strip {
         let v = Strip()
-        v.selected = tab.rawValue
+        v.lay(tabs)
+        v.selected = tabs.firstIndex(of: tab) ?? 0
         v.onSelect = { [coordinator = context.coordinator] i in
-            if let t = MTMediaTab(rawValue: i) { coordinator.parent.tab = t }
+            let all = coordinator.parent.tabs
+            if i < all.count { coordinator.parent.tab = all[i] }
         }
         return v
     }
     func updateUIView(_ v: Strip, context: Context) {
         context.coordinator.parent = self
-        if v.selected != tab.rawValue { v.select(tab.rawValue, animated: true) }
+        let i = tabs.firstIndex(of: tab) ?? 0
+        if v.selected != i { v.select(i, animated: true) }
     }
     final class Coordinator {
         var parent: MTTabStrip

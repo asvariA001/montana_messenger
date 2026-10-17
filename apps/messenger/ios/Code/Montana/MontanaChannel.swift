@@ -171,3 +171,312 @@ struct MTFacePicker: View {
         }
     }
 }
+
+// ════════════════════════════════════════════════════════════
+// A CHANNEL'S FEED, AS THE REFERENCE DRAWS IT
+// ════════════════════════════════════════════════════════════
+//
+// The author's words 17.10.2026 18:4x MSK: «channels and groups entirely as in the reference folder, 1 to 1», «and the posts too,
+// everything exactly as there», «we do not need our own kinds of pages inside groups and channels». A channel is a chat's feed:
+// its posts stand one under another as letters do, every post drawn as one received -- the owner's own included -- with the
+// channel's name at the head of a run, the eye and its number in the stamp and a round beside it that hands the post on.
+
+/// How a channel's post is drawn (MessageBubble.post): a value the bubble compares and the feed hashes, so a moved number redraws the row.
+struct MTChannelPostLook: Hashable {
+    /// The channel's name over the words at the head of a run; nil inside a run.
+    var head: String?
+    /// The name's colour: the same on every phone, from the channel's key.
+    var tint: Color
+    /// How many people saw the post, as its owner counted them (MTChannelViews).
+    var views: Int
+    /// The reference's short count: «999», «1.2K», «3M» -- the tenth shown only where it is not a zero.
+    static func count(_ n: Int) -> String {
+        let dot = Locale.current.decimalSeparator ?? "."
+        func short(_ unit: Int, _ mark: String) -> String {
+            let tenth = (n % unit) / (unit / 10)
+            return String(n / unit) + (tenth == 0 ? "" : dot + String(tenth)) + mark
+        }
+        if 1_000_000 <= n { return short(1_000_000, "M") }
+        if 1_000 <= n { return short(1_000, "K") }
+        return String(n)
+    }
+}
+
+/// THE EYE UNDER A CHANNEL'S POST (the reference's view counter: a post is born with one view, its author's, and every person
+/// whose screen showed it adds one). No server counts. A subscriber's phone tells the owner which posts its screen showed
+/// (MTGroup.tellSeen); the owner counts each subscriber's seat once per post and carries the numbers that moved to every
+/// subscriber (MTGroup.tellCounts). The number is people, never openings: a seat is counted once, and a number only grows.
+final class MTChannelViews: ObservableObject {
+    static let shared = MTChannelViews()
+    static let storeKey = "channels.views"
+    /// [I-14]: the newest posts a channel keeps numbers for, and the posts a subscriber remembers having told.
+    static let postsKept = 400
+    static let saidKept = 1_000
+    /// Moves when a number shown moves: the open channel's feed reads its rows again.
+    @Published private(set) var rev = 0
+    private struct Book: Codable {
+        /// The owner's: a channel's post and the seats that showed it.
+        var seen: [String: [String: [String]]] = [:]
+        /// A subscriber's: a channel's post and the number its owner told.
+        var told: [String: [String: Int]] = [:]
+        /// A subscriber's: the posts already told as shown.
+        var said: [String: [String]] = [:]
+    }
+    private var book = Book()
+    private var waiting: [String: Set<String>] = [:]
+    private var moved: [String: Set<String>] = [:]
+    private var telling = false
+    private var counting = false
+
+    private init() {
+        load()
+        NotificationCenter.default.addObserver(forName: .montanaSeedForgotten, object: nil, queue: .main) { [weak self] _ in
+            self?.load()   // another person's channels are not this one's
+        }
+    }
+    /// The store was laid again under the living (a copy, a seat lifted): the numbers are read from it.
+    func reread() { load() }
+    private func load() {
+        book = MontanaLocalVault.getDecrypted(Self.storeKey).flatMap { try? JSONDecoder().decode(Book.self, from: $0) } ?? Book()
+        waiting = [:]
+        moved = [:]
+    }
+    private func save() {
+        guard let d = try? JSONEncoder().encode(book) else { return }
+        MontanaLocalVault.setEncrypted(Self.storeKey, d)
+    }
+    /// A post's one name without its wire head: the same on the owner's phone and on every subscriber's.
+    static func letter(_ m: Message) -> String? {
+        let bare = m.mid.hasPrefix("mid:") ? String(m.mid.dropFirst(4)) : m.mid
+        return MTGroup.isLetterName(bare) ? bare : nil
+    }
+    private static func trimmed<V>(_ page: [String: V]) -> [String: V] {
+        guard postsKept < page.count else { return page }
+        var out = page
+        for old in page.keys.sorted().prefix(page.count - postsKept) { out[old] = nil }   // a name begins with its birth moment
+        return out
+    }
+
+    /// The number under a post: on the owner's phone its own count -- one, the author, and every seat that showed it; on a
+    /// subscriber's phone what the owner told, one until it is told.
+    func views(_ m: Message, in key: String) -> Int {
+        guard let l = Self.letter(m) else { return 1 }
+        if MTGroup.shared.state(key)?.mine == true { return 1 + (book.seen[key]?[l]?.count ?? 0) }
+        return max(1, book.told[key]?[l] ?? 1)
+    }
+
+    /// A post stood on this subscriber's screen (its row appeared in the feed): told to the owner once, a moment later together
+    /// with the others that appeared. «I saw your words» is a read receipt: with the person's «Read receipts» off nothing is told
+    /// and nothing is kept to tell later (the critic's K-1, 17.10.2026).
+    @MainActor
+    func shown(_ m: Message, in key: String) {
+        guard ChatStore.readReceiptsOn, !m.isFromMe, let g = MTGroup.shared.state(key), g.kind == .channel, !g.mine, g.left != true,
+              let l = Self.letter(m), book.said[key]?.contains(l) != true else { return }
+        waiting[key, default: []].insert(l)
+        guard !telling else { return }
+        telling = true
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            self.tell()
+        }
+    }
+    @MainActor
+    private func tell() {
+        telling = false
+        guard ChatStore.readReceiptsOn else { waiting = [:]; return }   // turned off while they waited: they are let go untold
+        var told = false
+        for (key, letters) in waiting {
+            let list = Array(letters).sorted()
+            guard MTGroup.shared.tellSeen(list, in: key) else { continue }   // no pipe to the owner now: they wait for the next post shown
+            var said = (book.said[key] ?? []) + list
+            if Self.saidKept < said.count { said.removeFirst(said.count - Self.saidKept) }
+            book.said[key] = said
+            waiting[key] = nil
+            told = true
+        }
+        if told { save() }
+    }
+
+    /// A subscriber's seat showed these posts of mine (their «vw»): each seat counted once; the numbers that moved leave to every
+    /// subscriber a few seconds later, in one word.
+    @MainActor
+    func saw(_ letters: [String], by seat: String, in key: String) {
+        var page = book.seen[key] ?? [:]
+        var grew = false
+        for l in letters {
+            var seats = page[l] ?? []
+            guard !seats.contains(seat), seats.count < MTGroup.peopleLimit else { continue }
+            seats.append(seat)
+            page[l] = seats
+            moved[key, default: []].insert(l)
+            grew = true
+        }
+        guard grew else { return }
+        book.seen[key] = Self.trimmed(page)
+        save()
+        rev += 1
+        guard !counting else { return }
+        counting = true
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            self.count()
+        }
+    }
+    @MainActor
+    private func count() {
+        counting = false
+        for (key, letters) in moved {
+            let page = book.seen[key] ?? [:]
+            var numbers: [String: Int] = [:]
+            for l in letters.sorted().suffix(MTGroup.viewsBatch) { numbers[l] = 1 + (page[l]?.count ?? 0) }
+            MTGroup.shared.tellCounts(numbers, in: key)
+        }
+        moved = [:]
+    }
+    /// The owner told the numbers (their «vc»): a number only grows, so a word that came late changes nothing.
+    @MainActor
+    func told(_ numbers: [String: Int], in key: String) {
+        var page = book.told[key] ?? [:]
+        var grew = false
+        for (l, n) in numbers where (page[l] ?? 0) < n {
+            page[l] = min(n, MTGroup.peopleLimit + 1)
+            grew = true
+        }
+        guard grew else { return }
+        book.told[key] = Self.trimmed(page)
+        save()
+        rev += 1
+    }
+}
+
+/// THE ROUND BESIDE A CHANNEL'S POST (the reference: a round of glass thirty points across beside the post, its foot at the post's
+/// foot, eight points away): it hands the post on by the menu's own «Forward». The finger keeps its 44 around the 30 drawn.
+struct MTChannelShareRound: View {
+    let action: () -> Void
+    private static let side: CGFloat = 30
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "arrowshape.turn.up.right.fill")
+                .font(.system(size: 13, weight: .semibold)).foregroundColor(.white)
+                .frame(width: Self.side, height: Self.side)
+                .background { MTChannelGlass(shape: Circle()) }
+                .frame(width: montanaTouchTarget, height: montanaTouchTarget)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(-(montanaTouchTarget - Self.side) / 2)   // the finger keeps its 44; the row keeps the round's 30
+        .padding(.bottom, 1)
+        .accessibilityLabel(Text("Share"))
+    }
+}
+
+/// The round stands beside a channel's post alone; every other letter is drawn as it was.
+struct MTShareBeside: ViewModifier {
+    let on: Bool
+    let action: () -> Void
+    func body(content: Content) -> some View {
+        if on {
+            HStack(alignment: .bottom, spacing: 8) {
+                content
+                MTChannelShareRound(action: action)
+            }
+        } else {
+            content
+        }
+    }
+}
+
+/// The platform's glass where it has one, its thin material before.
+struct MTChannelGlass<S: Shape>: View {
+    let shape: S
+    var body: some View {
+        if #available(iOS 26.0, *), MontanaSkin.isNative {
+            MTGlassPlate(shape: shape)
+        } else {
+            shape.fill(MontanaOctagon.barMaterial)
+        }
+    }
+}
+
+/// A SUBSCRIBER'S PANEL IN THE FIELD'S PLACE (the reference's channel panel): one wide round of glass across the middle saying
+/// «Mute» or «Unmute» -- the channel's sound, the same switch as the list's swipe -- and a round of glass with the magnifier on
+/// the right, the chat's own search. A room as wide as the right round stands on the left, so the word stays in the middle.
+struct MTChannelSubscriberBar: View {
+    let muted: Bool
+    let onMute: () -> Void
+    let onSearch: () -> Void
+    var body: some View {
+        HStack(spacing: 8) {
+            Color.clear.frame(width: montanaTouchTarget, height: montanaTouchTarget)
+            Button(action: onMute) {
+                Text(muted ? "Unmute" : "Mute")
+                    .font(.system(size: 17, weight: .semibold)).foregroundColor(.white)
+                    .frame(maxWidth: .infinity, minHeight: montanaTouchTarget)
+                    .background { MTChannelGlass(shape: Capsule()) }
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            Button(action: onSearch) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 18, weight: .semibold)).foregroundColor(.white)
+                    .frame(width: montanaTouchTarget, height: montanaTouchTarget)
+                    .background { MTChannelGlass(shape: Circle()) }
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text("Search"))
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, MTInputField.barPad)
+    }
+}
+
+/// THE CHANNEL'S OLD POSTS COME INTO ITS FEED (the critic's K-2, 17.10.2026; the author's words 17.10: «we do not need our own kinds
+/// of pages inside channels»). Until 2233 a channel was a wall, and its posts lie in the wall's store on every phone -- the owner's
+/// own, a subscriber's page. Each is laid once into the channel's feed on this phone alone; nothing goes to the network. Its row's
+/// name is made of its moment and its wall name, the same on every phone, so a word of the channel about it -- a reaction, an
+/// edit, a deletion -- finds the same row everywhere. Its words come, and its first picture or video: the file when this phone
+/// holds it, else the poster the wall carried, as a picture.
+enum MTChannelWallFold {
+    /// The row's one name for a wall post: «t», its moment in milliseconds, «-», its wall name.
+    static func name(_ p: MTBoardSeen) -> String? {
+        let pid = String(p.id.filter { c in c.isASCII && (c.isLetter || c.isNumber) }.prefix(40))
+        guard !pid.isEmpty, p.at.isFinite, 0 < p.at else { return nil }
+        let bare = "t" + String(Int64(p.at * 1000)) + "-" + pid
+        return MTGroup.isLetterName(bare) ? "mid:" + bare : nil
+    }
+    @MainActor
+    static func fold(_ key: String, store: ChatStore) {
+        guard let g = MTGroup.shared.state(key), g.kind == .channel else { return }
+        let posts = MTBoard.shared.posts(on: key)
+        guard !posts.isEmpty else { return }
+        let held = Set((store.messages[key] ?? []).map(\.mid))
+        var laid = 0
+        for p in posts.sorted(by: { a, b in a.at < b.at }) {
+            guard let mid = name(p), !held.contains(mid), !store.buried(mid, in: key) else { continue }
+            var row = Message(text: p.text, isFromMe: g.mine, time: hhmm(at: p.at), deliveryStatus: .delivered, msgId: mid,
+                              senderRef: g.mine ? nil : MTGroup.speaker(g.id, MTGroup.ownerSeat), createdAt: p.at)
+            if let f = file(p) {
+                if f.video { row.videoFile = f.name } else { row.imageFile = f.name }
+            }
+            guard !row.text.isEmpty || row.imageFile != nil || row.videoFile != nil else { continue }
+            MTRowJournal.put(key, store.placeRow(key, row))
+            laid += 1
+        }
+        guard 0 < laid else { return }
+        store.noteListState(key, last: store.lastLetter(key))
+        MontanaTrace.mark("channel_fold", "posts=\(laid)")
+    }
+    /// The post's first picture or video on this phone: the file the wall brought when it is whole here, else the poster the
+    /// post carried, laid once in the store as a picture of its own name.
+    private static func file(_ p: MTBoardSeen) -> (name: String, video: Bool)? {
+        guard let i = p.media.firstIndex(where: { m in m.kind == "img" || m.kind == "vid" }) else { return nil }
+        let m = p.media[i]
+        let whole = MTBoard.fileName(p.id, i, m.ext)
+        if MontanaMediaStore.exists(whole) { return (whole, m.kind == "vid") }
+        guard let b64 = m.thumb, b64.count <= MTBoard.thumbLimit, let data = Data(base64Encoded: b64), UIImage(data: data) != nil else { return nil }
+        let poster = "wallposter_" + p.id + "_" + String(i) + ".jpg"
+        guard MontanaMediaStore.exists(poster) || MontanaMediaStore.put(poster, data: data) else { return nil }
+        return (poster, false)
+    }
+}

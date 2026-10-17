@@ -174,6 +174,8 @@ final class MTGroup {
     static let copyLife: Double = 8 * 24 * 3600
     /// A channel's post with its files' posters, at most (MTBoard.thumbLimit a poster, MTBoard.mediaLimit files, the words).
     static let wallPostLimit = 1_000_000
+    /// [I-14]: the posts one word of a channel's views names, at most (MTChannelViews).
+    static let viewsBatch = 200
 
     private(set) var groups: [String: MTGroupState] = [:]
     private var copies: [String: MTGroupCopy] = [:]
@@ -639,6 +641,50 @@ final class MTGroup {
         return .held
     }
 
+    // -- a channel's views (the reference's eye under a post; MTChannelViews) ---------------------------------
+
+    /// A SUBSCRIBER'S SCREEN SHOWED POSTS: their names go to the owner alone, silent, for its count. False -- no pipe to the owner
+    /// now, and the posts wait. It is a read receipt: with the person's «Read receipts» off the word never leaves (the critic's K-1).
+    @MainActor
+    func tellSeen(_ letters: [String], in key: String) -> Bool {
+        guard ChatStore.readReceiptsOn, let g = state(key), g.kind == .channel, !g.mine, g.left != true, !letters.isEmpty else { return false }
+        let w = MTGroupWord(t: "vw", g: g.id, id: ChatStore.mintMid().mid, s: g.me,
+                            tx: letters.prefix(Self.viewsBatch).joined(separator: ","))   // COMPAT-GATED: an older owner refuses «vw»
+        return carry(w, to: g.owner, letter: "", own: false) != nil
+    }
+    /// THE OWNER TELLS THE NUMBERS THAT MOVED: one silent word to every subscriber.
+    @MainActor
+    func tellCounts(_ numbers: [String: Int], in key: String) {
+        guard let g = state(key), g.kind == .channel, g.canManage, !numbers.isEmpty,
+              let d = try? JSONEncoder().encode(numbers), let js = String(data: d, encoding: .utf8) else { return }
+        let w = MTGroupWord(t: "vc", g: g.id, id: ChatStore.mintMid().mid, s: Self.ownerSeat, tx: js)   // COMPAT-GATED: an older subscriber refuses «vc»
+        for m in g.members { _ = carry(w, to: m.pipe, letter: "", own: false) }
+    }
+    /// A subscriber's posts shown, at the owner's phone: the seat is the pipe's, and only posts of this channel's feed count.
+    @MainActor
+    private func seen(_ w: MTGroupWord, from pipe: String, store: ChatStore) -> Verdict {
+        guard let g = groups[w.g] else { return .wait }
+        let from = MTSamePair.root(pipe)
+        guard g.mine, g.kind == .channel, g.left != true, let tx = w.tx, tx.utf8.count <= 16_384,
+              let m = g.members.first(where: { MTSamePair.root($0.pipe) == from }) else { return .refused }
+        let key = Self.key(of: g.id)
+        let posts = Set((store.messages[key] ?? []).filter { $0.isFromMe }.map(\.mid))
+        let letters = tx.split(separator: ",").prefix(Self.viewsBatch).map(String.init)
+            .filter { Self.isLetterName($0) && posts.contains("mid:" + $0) }
+        MTChannelViews.shared.saw(letters, by: m.seat, in: key)
+        return .held
+    }
+    /// The owner's numbers, at a subscriber's phone: from the owner's pipe alone.
+    @MainActor
+    private func counted(_ w: MTGroupWord, from pipe: String) -> Verdict {
+        guard let g = groups[w.g] else { return .wait }
+        guard !g.mine, g.kind == .channel, g.left != true, MTSamePair.root(g.owner) == MTSamePair.root(pipe),
+              let tx = w.tx, tx.utf8.count <= 16_384, let d = tx.data(using: .utf8),
+              let numbers = try? JSONDecoder().decode([String: Int].self, from: d) else { return .refused }
+        MTChannelViews.shared.told(numbers.filter { Self.isLetterName($0.key) }, in: Self.key(of: g.id))
+        return .held
+    }
+
     // -- the group's invite link (stage R.6, the reference folder: «Invite Link», «joined the group via invite link») -------------
 
     /// The link the owner hands out: its own card (whoever opens it meets the owner, the one road of a link) and the group's mark
@@ -933,15 +979,22 @@ final class MTGroup {
                            : MTGroupEvent(e: "added", g: g.id, a: Self.ownerSeat, p: fresh.map(\.seat))
         lay(came, store: store)
         tellEvent(came, in: g)
-        // A SUBSCRIBER ADDED LATER SEES THE CHANNEL'S PAGE (06.10): its newest posts, each as every subscriber was carried it.
+        // A SUBSCRIBER ADDED LATER READS THE CHANNEL'S NEWEST POSTS (the reference shows a channel's history to whoever comes in;
+        // the author's words 17.10.2026 18:4x MSK: «channels ... 1 to 1»): the newest ten posts of words, each under its own one name
+        // and so at its own moment, as every subscriber was carried it. A post with a file stays: its sealed pieces were laid for
+        // the receivers of its day.
         if g.kind == .channel {
             let me = Self.clean(E2E.myDisplayName(), Self.nameLimit)
-            for p in MTBoard.shared.channelPosts(key, newest: 10).reversed() {
-                guard let d = try? JSONEncoder().encode(MTBoardWord(t: "cpost", ps: [p])), let js = String(data: d, encoding: .utf8) else { continue }   // COMPAT-GATED
-                let text = MTBoard.mark + js
-                guard Self.carries(text) else { continue }
-                let w = MTGroupWord(t: "say", g: g.id, k: g.kind.rawValue, ti: g.title, n: me.isEmpty ? nil : me, id: ChatStore.mintMid().mid, s: g.me, tx: text)
-                for m in fresh { _ = carry(w, to: m.pipe, letter: w.id ?? "", own: false) }
+            let posts = (store.messages[key] ?? []).filter { m in
+                m.isFromMe && m.imageFile == nil && m.videoFile == nil && m.audioFile == nil && m.docFile == nil
+                    && MTGroupEvent.of(m.text) == nil && Self.carries(m.text)
+            }
+            for p in posts.suffix(10) {
+                let letter = p.mid.hasPrefix("mid:") ? String(p.mid.dropFirst(4)) : p.mid
+                guard Self.isLetterName(letter) else { continue }
+                let w = MTGroupWord(t: "say", g: g.id, k: g.kind.rawValue, ti: g.title, n: me.isEmpty ? nil : me, id: letter, s: g.me, tx: p.text,
+                                    qt: (p.replyText ?? "").isEmpty ? nil : p.replyText)
+                for m in fresh { _ = carry(w, to: m.pipe, letter: "", own: false) }
             }
         }
         MontanaTrace.mark("group_added", "people=\(fresh.count) count=\(g.count)")
@@ -1088,6 +1141,8 @@ final class MTGroup {
         case "kk": return kicked(w, from: pipe, store: store)   // COMPAT-GATED: an administrator's «take out», to the owner
         case "jn": return joined(w, from: pipe, store: store)   // COMPAT-GATED: a person who opened the group's invite link
         case "kp": return keptHeard(w, from: pipe)   // COMPAT-GATED: a keeper's word to a deleted letter's speaker (16.10)
+        case "vw": return seen(w, from: pipe, store: store)   // COMPAT-GATED: a subscriber's posts shown, to a channel's owner (17.10)
+        case "vc": return counted(w, from: pipe)   // COMPAT-GATED: a channel owner's view counts, to its subscribers (17.10)
         default:
             MontanaTrace.mark("group_refused", "kind=\(String(w.t.prefix(8)))")   // a newer build's word: its road ends here
             return .refused
