@@ -728,11 +728,16 @@ enum MTPersonLevel {
 /// Access by level -- where they open for each»; «we have the gamification of access to Montana's functions»): every function a level
 /// opens is named here once, with its level. The person's level is the Global Level the avatar shows (MTPersonChain.global); before
 /// this life has read it, the last one this phone knew stands, so a launch's first second never drops a choice the level opened.
+/// LEVEL 8 (the author's word 17.10.2026 18:1x MSK: «add to the accesses that only from level 8 can one connect one's own node to
+/// the Montana network through the client»): a machine the person owns joins the network through this app -- set up from here
+/// (MontanaNodeSetup), its daily copies and a copy sent at a tap (HomeNodeWatch) -- once the level opens it; taking one's own
+/// copy back from it asks no level.
 enum MTLevelAccess {
     enum Feature: String, CaseIterable {
         case keepDeleted   // a letter the correspondent deletes for everyone stays on this phone, and the correspondent is told
         case autoRecord    // calls are recorded by themselves; below its level a call is recorded by the call screen's own mark
-        var level: Int { 7 }
+        case ownNode       // a machine the person owns joins Montana's network through this app: set up from here, copies sent to it
+        var level: Int { self == .ownNode ? 8 : 7 }
     }
     static let lastKey = "levelAccess.last"                    // NOT-UI: the last Global Level this phone knew of this person
     static let keepKey = "levelAccess.keepDeleted"              // NOT-UI: the person's choice, on once the level opens it

@@ -25701,6 +25701,38 @@
           }
         }
       }
+    },
+    "Picture in Picture": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Картинка в картинке"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画中画"
+          }
+        }
+      }
+    },
+    "Connect a machine you own to the Montana network through this app: it is set up from here and copies of the whole phone go to it. Taking your copy back is open on every level.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подключите свою машину к сети Монтаны через это приложение: она настраивается отсюда, и на неё уходят копии всего телефона. Забрать свою копию можно на любом уровне."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通过本应用将您自己的机器接入 Montana 网络：在这里设置，整部手机的副本会发送到它。在任何等级都可以取回您的副本。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -2691,6 +2691,8 @@ struct MTLevelAccessPage: View {
         let seven = MTLevelAccess.Feature.keepDeleted.level
         let open = MTLevelAccess.opens(.keepDeleted)
         let recordOpen = MTLevelAccess.opens(.autoRecord)
+        let eight = MTLevelAccess.Feature.ownNode.level
+        let nodeOpen = MTLevelAccess.opens(.ownNode)
         List {
             Section {
                 Text("Global level \(level)")
@@ -2720,6 +2722,24 @@ struct MTLevelAccessPage: View {
                 if !open { Text("Opens at level \(seven). Your level is \(level).") }
             }
             .disabled(!open)
+            .listRowBackground(MTGlassRowPlate())
+            // LEVEL 8 (the author's word 17.10.2026 18:1x MSK: only from level 8 can one connect one's own node to the Montana
+            // network through the client): the page of one's node, where it is set up and its copies go; its copy comes back on
+            // every level, on that page and on the first screen.
+            Section {
+                NavigationLink { HomeNodeView() } label: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label("Your node", systemImage: "server.rack")
+                        Text("Connect a machine you own to the Montana network through this app: it is set up from here and copies of the whole phone go to it. Taking your copy back is open on every level.")
+                            .font(.caption).foregroundColor(.gray)
+                    }
+                }
+            } header: {
+                Text("Level \(eight)")
+            } footer: {
+                if !nodeOpen { Text("Opens at level \(eight). Your level is \(level).") }
+            }
+            .disabled(!nodeOpen)
             .listRowBackground(MTGlassRowPlate())
         }
         .foregroundColor(.white)

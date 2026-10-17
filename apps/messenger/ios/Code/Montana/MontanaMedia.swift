@@ -370,6 +370,7 @@ final class VoicePlayer: NSObject, ObservableObject {
         // THE CALL HOLDS THE SOUND (24.09, T1 12:31:40): under a call the player never touches the phone's sound -- the
         // person is told so and nothing starts (MontanaAudioSession, the one door).
         guard !MontanaAudioSession.refusedUnderCall(voice ? "voice message" : "music") else { return }
+        MTYouTube.rest()   // one sound: YouTube rests where it stands, its window stays (MTYouTube)
         // THE TRACK THAT STEPPED ASIDE IS THE ONE ASKED FOR (26.09): the voice over it ends and the track goes on from its place.
         if !voice, let pk = parked, pk.file == file {
             release()
@@ -480,6 +481,7 @@ final class VoicePlayer: NSObject, ObservableObject {
 
     func resume() {
         guard !MontanaAudioSession.refusedUnderCall(isVoice ? "voice message" : "music") else { return }
+        MTYouTube.rest()   // one sound (MTYouTube)
         // THROUGH THE KIND'S OWN DOOR (26.09): a tape or a voice between the pause and this resume left the sound in their own mode.
         let external = isVoice && MontanaAudioRoute.read("voice-resume").isExternal
         playRequest += 1

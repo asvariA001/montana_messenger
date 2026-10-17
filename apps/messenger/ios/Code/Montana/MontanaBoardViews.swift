@@ -885,7 +885,8 @@ struct MTWallLink: View {
     /// A MEDIA FILE ITSELF IS THE ONLY THING THAT PLAYS IN PLACE (App Review 5.2.2 and 5.2.3, 08.10.2026: a service's page plays in
     /// that service). It is fetched at the visitor's first tap and never before -- the card's own word above; a post shown once had
     /// told a stranger's site the visitor's address and the moment the feed was read (the finding of 09.10.2026). A YouTube video
-    /// is the service's own player on a sheet (MTYouTube, 17.10.2026): YouTube's embed, the road its own terms give, never its stream.
+    /// is the service's own player, in the system's picture in picture (MTYouTube, 17.10.2026): YouTube's embed, the road its own
+    /// terms give, never its stream.
     private var playable: URL? {
         guard let u = URL(string: card.u), kind != nil else { return nil }
         return ["mp4", "mov", "m4v", "webm", "mp3", "m4a", "aac", "wav", "flac"].contains(u.pathExtension.lowercased()) ? u : nil

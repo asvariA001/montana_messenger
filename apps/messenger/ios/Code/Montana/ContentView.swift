@@ -3379,10 +3379,10 @@ enum MontanaAudioSession {
         mtAudioTry("letting the input go") { try s.setPreferredInput(nil) }
         if !wholly { MontanaTrace.mark("audio_hold", "the road is closed; the session stays -- something of ours sounds") }
     }
-    /// Nothing of ours sounds -- asked of the owners: the player in hand, the video in the dock, a running call.
+    /// Nothing of ours sounds -- asked of the owners: the player in hand, the video in the dock, YouTube's player, a running call.
     private static var quiet: Bool {
         !MontanaCall.isBusy && (VoicePlayer.shared.playingFile == nil || VoicePlayer.shared.paused)
-            && MontanaVideoDock.shared.file == nil
+            && MontanaVideoDock.shared.file == nil && !MTYouTube.sounds
     }
     private static func lowerSession(again: Bool) {
         let ok = mtAudioTry("lowering the session") {
