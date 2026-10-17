@@ -264,6 +264,7 @@ private class RowNumber(c: Context) : FrameLayout(c) {
         typeface = android.graphics.Typeface.DEFAULT_BOLD
         fontFeatureSettings = "tnum"
         gravity = Gravity.CENTER
+        isSingleLine = true   // laid out in the plate's 28 the digits would break in two, and the plate's width is read from that layout
         setPadding(c.dp(10), 0, c.dp(10), 0)
     }
     private var shown = 0
