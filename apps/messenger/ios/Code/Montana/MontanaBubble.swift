@@ -1774,7 +1774,8 @@ struct MTSaveBeside<Badge: View>: ViewModifier {
         // of the width so a single letter cannot take the whole screen.
         let ratio = max(0.75, min(3.0, CGFloat(card.w ?? 4) / CGFloat(max(card.h ?? 3, 1))))
         return Button {
-            if let u = URL(string: card.u) { UIApplication.shared.open(u) }
+            // A YouTube card plays here, in YouTube's own player (MTYouTube); any other page opens where it lives.
+            if let u = URL(string: card.u), !MTYouTube.play(u, title: card.t) { UIApplication.shared.open(u) }
         } label: {
             HStack(alignment: .top, spacing: 6) {
                 RoundedRectangle(cornerRadius: 1.5)

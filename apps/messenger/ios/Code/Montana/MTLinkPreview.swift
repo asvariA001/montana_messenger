@@ -336,7 +336,8 @@ enum MTLinkPreviewBuilder {
         return card
     }
 
-    private static func youtubeWords(_ url: URL) async -> (String?, String?) {
+    /// The video's title and channel by YouTube's own oEmbed -- the card's words, and the player's name for a bare link (MTYouTube).
+    static func youtubeWords(_ url: URL) async -> (String?, String?) {
         var parts = URLComponents(string: "https://www.youtube.com/oembed")
         parts?.queryItems = [
             URLQueryItem(name: "url", value: url.absoluteString),

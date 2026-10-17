@@ -836,7 +836,7 @@ struct MontanaPeerInfoScreen: View {
                         Spacer(minLength: 0)
                         Text(m.time).font(.caption2).foregroundColor(.gray)
                     }
-                    .modifier(itemLaw(m, open: { UIApplication.shared.open(u) }))
+                    .modifier(itemLaw(m, open: { if !MTYouTube.play(u) { UIApplication.shared.open(u) } }))
                 }
             }
         }

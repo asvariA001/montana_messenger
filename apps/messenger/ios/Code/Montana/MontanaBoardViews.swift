@@ -884,7 +884,8 @@ struct MTWallLink: View {
 
     /// A MEDIA FILE ITSELF IS THE ONLY THING THAT PLAYS IN PLACE (App Review 5.2.2 and 5.2.3, 08.10.2026: a service's page plays in
     /// that service). It is fetched at the visitor's first tap and never before -- the card's own word above; a post shown once had
-    /// told a stranger's site the visitor's address and the moment the feed was read (the finding of 09.10.2026).
+    /// told a stranger's site the visitor's address and the moment the feed was read (the finding of 09.10.2026). A YouTube video
+    /// is the service's own player on a sheet (MTYouTube, 17.10.2026): YouTube's embed, the road its own terms give, never its stream.
     private var playable: URL? {
         guard let u = URL(string: card.u), kind != nil else { return nil }
         return ["mp4", "mov", "m4v", "webm", "mp3", "m4a", "aac", "wav", "flac"].contains(u.pathExtension.lowercased()) ? u : nil
@@ -904,6 +905,7 @@ struct MTWallLink: View {
     private func open() {
         guard let u = URL(string: card.u) else { return }
         MontanaTrace.mark("post_link", "open " + (kind ?? "page"))
+        if MTYouTube.play(u, title: card.t) { return }
         UIApplication.shared.open(u)
     }
 }
@@ -3089,7 +3091,10 @@ final class MTPostLinkPeek: NSObject, UITextViewDelegate {
     private static func wall(_ url: URL) -> Bool { url.scheme?.lowercased() == "montana" && url.host?.lowercased() == "wall" }
 
     func textView(_ textView: UITextView, primaryActionFor textItem: UITextItem, defaultAction: UIAction) -> UIAction? {
-        guard case .link(let url) = textItem.content, Self.wall(url) else { return defaultAction }
+        guard case .link(let url) = textItem.content else { return defaultAction }
+        // A YouTube link plays here, in YouTube's own player (MTYouTube, the author's word 17.10.2026 16:4x MSK).
+        if MTLinkPreviewBuilder.youtube(url) != nil { return UIAction { _ in _ = MTYouTube.play(url) } }
+        guard Self.wall(url) else { return defaultAction }
         return UIAction { _ in MontanaMeeting.handleLink(url) }
     }
     func textView(_ textView: UITextView, menuConfigurationFor textItem: UITextItem,
