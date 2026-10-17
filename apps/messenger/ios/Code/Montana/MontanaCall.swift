@@ -164,6 +164,7 @@ final class MTCallAudioOwner: NSObject, RTCAudioSessionDelegate {
     private var interrupted = false
     private var recoveryUsed = false
     private var deviceRequested = false
+    private var configureDeferred = false
     private let snapshotLock = NSLock()
     private var activeSnapshot = false
     var isSystemActive: Bool {
@@ -180,6 +181,10 @@ final class MTCallAudioOwner: NSObject, RTCAudioSessionDelegate {
         let session = RTCAudioSession.sharedInstance()
         session.useManualAudio = true
         session.isAudioEnabled = false
+        // THE PREFERRED ATTRIBUTES ARE WISHES, NOT CONDITIONS (17.10.2026, No.88): sample rate, buffer and channel count are asked
+        // of the system, which grants what the route allows. End & Accept on the iPhone 17 (14:55:51) refused one of them with -50
+        // while the old call's audio went down, and the answered call died 30 ms after the finger.
+        session.ignoresPreferredAttributeConfigurationErrors = true
         session.add(self)
     }
     func claim(_ uuid: UUID, timeline: MTCallTimeline, waitForCamera: Bool,
@@ -193,7 +198,7 @@ final class MTCallAudioOwner: NSObject, RTCAudioSessionDelegate {
             self.captureProgress = MTCallSampleProgress(); self.playoutProgress = MTCallSampleProgress()
             self.receivedSeen = 0; self.lastSampleAt = nil; self.cameraDeadlineArmed = false
             self.prepared = false; self.cameraReady = !waitForCamera
-            self.recoveryUsed = false; self.deviceRequested = false
+            self.recoveryUsed = false; self.deviceRequested = false; self.configureDeferred = false
             self.suspended = false
             timeline.mark("audio.claim", "camera_wait=\(waitForCamera ? 1 : 0)")
         }
@@ -222,10 +227,30 @@ final class MTCallAudioOwner: NSObject, RTCAudioSessionDelegate {
             guard self.holder == uuid else {
                 DispatchQueue.main.async { completion(false) }; return
             }
-            let ok = self.prepared || self.configure()
-            if ok { self.enableIfReady() }
-            DispatchQueue.main.async { completion(ok) }
+            if !self.prepared, !self.configure() { self.deferConfiguration(uuid) }
+            self.enableIfReady()
+            DispatchQueue.main.async { completion(true) }
         }
+    }
+    /// A REFUSAL IN THE SYSTEM'S TRANSITION IS NO VERDICT (17.10.2026, No.88): the system hands the session to a call only at its
+    /// grant, and until then the old call's teardown or another app's audio may refuse the configuration -- measured at 07:14 on a
+    /// 13 Pro Max («insufficient priority», 561017449) and at 14:55:51 on the iPhone 17 (-50 under End & Accept): two answered
+    /// calls ended by our rule within 30 ms of the finger. The configuration is asked again at the system's next word about the
+    /// session; a refusal at the grant is the verdict, and so is a transition that outlives the activation deadline.
+    private func deferConfiguration(_ uuid: UUID) {
+        guard !configureDeferred else { return }
+        configureDeferred = true
+        timeline?.mark("audio.configure.deferred")
+        let lease = self.lease
+        queue.asyncAfter(deadline: .now() + 8) {
+            guard self.holder == uuid, self.lease == lease, self.configureDeferred else { return }
+            self.fail("audio-configuration-failed")
+        }
+    }
+    private func configureAgain(granted: Bool) {
+        guard configureDeferred, holder != nil else { return }
+        if configure() { configureDeferred = false }
+        else if granted { configureDeferred = false; fail("audio-configuration-failed") }
     }
     func cameraDidStart(_ uuid: UUID) {
         queue.async {
@@ -250,6 +275,7 @@ final class MTCallAudioOwner: NSObject, RTCAudioSessionDelegate {
                 }
             }
             self.interrupted = false; self.publishActive()
+            self.configureAgain(granted: true)
             self.enableIfReady()
             DispatchQueue.main.async(execute: completion)
         }
@@ -308,6 +334,7 @@ final class MTCallAudioOwner: NSObject, RTCAudioSessionDelegate {
                 s.isAudioEnabled = false
                 self.deviceRequested = false
             }
+            self.configureAgain(granted: false)
             self.publishActive()
             if let uuid = self.holder, self.activations.isEmpty { self.expectActivation(uuid) }
             DispatchQueue.main.async { MontanaAudioSession.callEnded() }
@@ -320,7 +347,7 @@ final class MTCallAudioOwner: NSObject, RTCAudioSessionDelegate {
             self.timeline?.mark("audio.release")
             RTCAudioSession.sharedInstance().isAudioEnabled = false
             self.lease += 1
-            self.holder = nil; self.prepared = false; self.failure = nil
+            self.holder = nil; self.prepared = false; self.failure = nil; self.configureDeferred = false
             self.timeline = nil; self.deviceRequested = false
         }
     }
@@ -2410,7 +2437,7 @@ final class MontanaCall: NSObject {
         // ring at all -- the screen says so until that phone's own «ringing» (statusText), never «Calling…» over a silence.
         let firstContact = MTPipeBook.first(for: peer) != nil
         if firstContact { MontanaTrace.mark("call_first", "peer=\(String(peer.prefix(10))) -- not accepted yet, the ring knocks at the card") }
-        DispatchQueue.main.async { CallUIModel.shared.awaitingAccept = firstContact }
+        DispatchQueue.main.async { CallUIModel.shared.awaitingAccept = firstContact; CallUIModel.shared.reached = false }
         self.isInitiator = true; dropPendingIce(); self.sframeWrapped = []; self.frameCryptors = []
         bornSetup(heldForPeerWord: true)
         iceBatchTimer?.cancel(); iceBatchTimer = nil; iceOutBatch = []; iceFlushes = 0; resetSignalFlags(); measuring = false
@@ -2451,8 +2478,13 @@ final class MontanaCall: NSObject {
             var attempt = 0
             while true {
                 if self.state != "outgoing" || self.callGen != gen || self.peerRinging { break }
+                // A KNOCK IS MADE WHEN IT LEAVES (17.10.2026, No.88): counted on its return, a knock still on a stalled road when the
+                // person ended the call left knocks=0 and the verdict «ours» -- «we never knocked» -- for the iPhone 17's call at
+                // 14:55:24, whose wake was six seconds on the way. Counted at departure, the same call says «ours-road».
+                self.knockN += 1
                 let r = await self.ringReach?(peer, video, self.pendingOfferSdp, self.callSeed?.base64EncodedString(), inviteAtMS) ?? (rung: 0, online: false, nobody: false)
                 guard self.callGen == gen, self.state == "outgoing" else { break }
+                if r.nobody || r.online || r.rung > 0 { CallUIModel.shared.reached = true }
                 await MainActor.run {
                     guard self.state == "outgoing" else { return }
                     self.tlog("② bare-ring rung=\(r.rung) online=\(r.online) attempt=\(attempt + 1)")
@@ -2462,7 +2494,6 @@ final class MontanaCall: NSObject {
                     if r.nobody { MontanaTrace.mark("ring_nobody", "peer=\(String(peer.prefix(10)))") }
                 }
                 if r.nobody { self.knockNobody = true; break }
-                self.knockN += 1
                 if r.rung > 0 {
                     everRung = true; self.knockOk += 1
                     let s = Int(Date().timeIntervalSince(self.startedAt ?? Date()))
@@ -6430,6 +6461,10 @@ final class CallUIModel: ObservableObject {
     @Published var peerRinging: Bool = false
     @Published var connecting: Bool = false   // outgoing: answer received, ICE in progress -> "Connecting…"
     @Published var awaitingAccept: Bool = false   // outgoing to a pair in first contact: the contact has not accepted yet (No.63)
+    /// THE SCREEN SAYS «CALLING…» ONLY WHEN THE CALL LEFT THE PHONE (17.10.2026, No.88): the iPhone 17 said «Calling…» for six
+    /// seconds at 14:55:24 while its network carried nothing -- no door had taken the call's knock -- and the person hung up a
+    /// call that had not yet begun. Until a door answers the knock the screen says «Connecting…», as the system's own calls do.
+    @Published var reached: Bool = false
     @Published var signal: Int = 2            // the light before the call's name: 2 green, 1 yellow, 0 red
     @Published var powerSaving = false        // the light wears the battery: the power floor holds the picture down
     @Published var cameraOff = false { didSet { applyCovers("camera") } }   // my camera muted inside a video call (the Video button face)
@@ -6555,7 +6590,7 @@ final class CallUIModel: ObservableObject {
     var statusText: String {
         switch state {
         case "active", "reconnecting": return "Connecting…"
-        case "outgoing": return connecting ? "Connecting…" : (peerRinging ? "Ringing…" : (awaitingAccept ? "Waiting for the contact to accept" : "Calling…"))
+        case "outgoing": return connecting ? "Connecting…" : (peerRinging ? "Ringing…" : (awaitingAccept ? "Waiting for the contact to accept" : (reached ? "Calling…" : "Connecting…")))
         default: return ""
         }
     }
@@ -6753,7 +6788,7 @@ enum MontanaCallWiring {
             m.applyCall(state: state, peer: peer, video: c.isVideo, connectedAt: c.connectedAt)
             if state == "idle" {
                 m.fold(false, why: "idle"); m.speaker = false; m.miniCorner = 1
-                m.peerRinging = false; m.connecting = false; m.awaitingAccept = false; m.peerImage = nil
+                m.peerRinging = false; m.connecting = false; m.awaitingAccept = false; m.reached = false; m.peerImage = nil
             } else if let peer { loadPeerImage(peer) }
             if state == "connected" { m.connecting = false }
             CallWindowPresenter.shared.update()
