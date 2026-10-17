@@ -1273,6 +1273,7 @@ struct ChatConversationView: View {
     @State private var chessStake = ""           // the stake typed in that question (the author's word 06.10.2026 23:2x MSK)
     @State private var roomAsk: MTRoomKind?      // a group's call chosen at the top: whom to invite (07.10)
     @State private var roomAskVideo = false
+    @State private var groupRefusal: String?     // what the group took from its members, said when this phone tries it (G.5)
     @State private var askEraseGroup = false     // out of a group: «Delete and Exit» asks first (stage R)
     @AppStorage("composeMediaMode") private var composeMediaMode = "mic"
     @State private var wallPage: MTBoardRoute?   // the wall a post's card opens, on this chat's own stack (30.09)
@@ -1415,6 +1416,8 @@ struct ChatConversationView: View {
     @AppStorage("chatBgPhoto") private var chatBgPhoto: Data = Data()
     @ObservedObject private var flows = MTMoneyFlow.shared   // the feed's turn of THIS chat (04.10): the newest letters on top
     @ObservedObject private var channelViews = MTChannelViews.shared   // a channel's numbers under its posts (17.10)
+    @ObservedObject private var channelComments = MTChannelComments.shared   // a channel's comments under its posts (17.10)
+    @State private var commentsPost: Message? = nil   // the post whose comments stand open (MTChannelCommentsSheet)
     @State private var channelSilentTick = 0   // the channel's bell turned: the bar reads its sound again (MTGroup.silent)
     private var newestFirst: Bool { flows.on(chat.name) }
     @AppStorage("bubbleStyle") private var bubbleStyleAS: String = "montana"
@@ -1471,6 +1474,7 @@ struct ChatConversationView: View {
             // one to one) — and takes its touches: a tap outside the note closes it.
             let holding = rec.isRecording || (dock.file != nil && dock.chat == chat.name)
             messagesList
+                .sheet(item: $commentsPost) { m in MTChannelCommentsSheet(key: chat.name, post: m) }   // a channel's post's comments
                 // A CHANNEL'S OLD WALL POSTS STAND IN ITS FEED (MTChannelWallFold, the critic's K-2): laid once on this phone as it opens.
                 .task(id: chat.name) { if isChannel { MTChannelWallFold.fold(chat.name, store: store) } }
                 .blur(radius: holding ? 10 : 0)
@@ -1760,7 +1764,7 @@ struct ChatConversationView: View {
                                                 docFile: stored, docName: original,
                                                 deliveryStatus: .sending,
                                                 senderRef: nil))
-                sendMediaOverE2E(fileName: stored, kind: "doc", docName: original)
+                sendGatedMedia(fileName: stored, kind: "doc", docName: original)
             }
         }
         .sheet(isPresented: $showSchedule) { scheduleSheet }
@@ -2140,6 +2144,10 @@ struct ChatConversationView: View {
         }
         // WHOM TO INVITE INTO THE GROUP'S CALL (MTRoomMark chose the kind): the sheet hangs on the chat, never inside the bar's item
         .sheet(item: $roomAsk) { k in MTRoomInviteSheet(chat: chat.name, kind: k, video: roomAskVideo, opening: true) }
+        // A RIGHT THE GROUP TOOK, OR SLOW MODE'S WAIT (MTGroup.refusal, G.5): the reference's own sentence, the field left as it was
+        .alert(groupRefusal ?? "", isPresented: Binding(get: { groupRefusal != nil }, set: { on in if !on { groupRefusal = nil } })) {
+            Button("OK", role: .cancel) {}
+        }
         // THE STAKE FROM THE CHAT TOO (the author's word 06.10.2026 23:2x MSK: «from the chat too, when a game is created, the
         // invitation must say at which stake»): the question takes the stake under the balance; a short balance refuses it.
         .alert("Start a new game?", isPresented: $askChess) {
@@ -2899,7 +2907,8 @@ struct ChatConversationView: View {
                                    members: row.members,
                                    onTileTap: { m in tileTap(m) },
                                    post: postLook(row),
-                                   onShare: { sheet = .forward(message) })   // the round beside a channel's post: the menu's own «Forward»
+                                   onShare: { sheet = .forward(message) },   // the round beside a channel's post: the menu's own «Forward»
+                                   onComments: { commentsPost = message })   // the post's comments, the reference's thread
                                 .equatable()
                             }
                             // Selection mode and search mode both hand the tap to the ROW: in the
@@ -2964,7 +2973,9 @@ struct ChatConversationView: View {
         guard isChannel else { return nil }
         return MTChannelPostLook(head: row.topPad ? store.title(for: chat) : nil, tint: MTSpeakerFace.tint(chat.name),
                                  views: channelViews.views(row.message, in: chat.name),
-                                 signature: MTGroup.shared.signature(row.message, in: chat.name))
+                                 signature: MTGroup.shared.signature(row.message, in: chat.name),
+                                 comments: MTGroup.shared.talks(chat.name)
+                                     ? MTChannelViews.letter(row.message).map { l in channelComments.count(on: l, in: chat.name) } : nil)
     }
 
     var messagesList: some View {
@@ -2986,6 +2997,7 @@ struct ChatConversationView: View {
         stamp.combine(rowCache.version); stamp.combine(highlightedId); stamp.combine(firstUnreadId)
         stamp.combine(selectingMsgs); stamp.combine(selectingMsgs ? selectedMsgs : [])
         stamp.combine(isChannel ? channelViews.rev : 0)   // a channel's numbers moved: the feed reads its rows again
+        stamp.combine(isChannel ? channelComments.rev : 0)   // a comment came under a post
         let ribbonNow = ribbon   // read once per pass: every row's fingerprint and content take this one answer
         return MTFeedListView(
             rows: rows,
@@ -3351,7 +3363,7 @@ struct ChatConversationView: View {
                 row.groupKey = slot.key; row.groupIndex = slot.index; row.groupCount = slot.count
             }
             store.append(chat.name, row)
-            sendMediaOverE2E(fileName: item.name, kind: item.video ? "vid" : "img", docName: docName, caption: cap)
+            sendGatedMedia(fileName: item.name, kind: item.video ? "vid" : "img", docName: docName, caption: cap)
         }
     }
 
@@ -3433,6 +3445,14 @@ struct ChatConversationView: View {
     }
 
     /// A conversation the other side closed (24.09, pipeClosedMark): its letters stay readable; nobody is left to answer.
+    /// A MEMBER WHO MAY SEND NOTHING (G.5): the reference's sentence stands where the field stood.
+    var groupMutedNote: some View {
+        Text(verbatim: MTGroupRight.text.refusal)   // USER-DATA: the catalogue's sentence, said by MTGroupRight.refusal
+            .font(.footnote).foregroundColor(.gray).multilineTextAlignment(.center)
+            .padding(.horizontal, 20).padding(.vertical, 12)
+            .frame(maxWidth: .infinity)
+    }
+
     var closedNote: some View {
         Text("The other side closed this conversation: these messages can be read, not answered. To write again, open a new contact.")
             .font(.footnote).foregroundColor(.gray).multilineTextAlignment(.center)
@@ -3578,6 +3598,7 @@ struct ChatConversationView: View {
         else if isChannel, MTGroup.shared.state(chat.name)?.removed == true { channelJoinBar }   // taken out of a channel: Join, grey (3.3)
         else if chat.isGroup, MTGroup.shared.isOut(chat.name) { groupDeleteBar }   // out of the group: read, and the way out (stage R)
         else if chat.isGroup, !MTGroup.shared.canWrite(chat.name) { channelMuteBar }   // a subscriber reads; the owner alone posts
+        else if chat.isGroup, MTGroup.shared.mutes(chat.name) { groupMutedNote }   // the group took every way of writing (G.5)
         else {
             inputBar(newestFirst ? .field : .whole)
         }
@@ -3717,7 +3738,7 @@ struct ChatConversationView: View {
         }
         store.append(chat.name, Message(text: "", isFromMe: true, time: nowHHMM(),
                                         videoFile: stored, deliveryStatus: .sending, senderRef: nil))
-        if chat.convId != nil { sendMediaOverE2E(fileName: stored, kind: "vid") }
+        if chat.convId != nil { sendGatedMedia(fileName: stored, kind: "vid") }
         else { store.setMediaStatus(chat.name, file: stored, .sent) }
     }
 
@@ -3917,7 +3938,7 @@ struct ChatConversationView: View {
                                       msgId: mid, senderRef: nil, createdAt: born)
                     stamp(&row)
                     store.append(chat.name, row)
-                    self.sendMediaOverE2E(fileName: stored, kind: "vid", caption: caption)
+                    self.sendGatedMedia(fileName: stored, kind: "vid", caption: caption)
                 }
             }
         } else {
@@ -3933,7 +3954,7 @@ struct ChatConversationView: View {
                                       msgId: mid, senderRef: nil, createdAt: born)
                     stamp(&row)
                     store.append(chat.name, row)
-                    self.sendMediaOverE2E(fileName: name, kind: "img", caption: caption)
+                    self.sendGatedMedia(fileName: name, kind: "img", caption: caption)
                 }
             }
         }
@@ -3969,7 +3990,7 @@ struct ChatConversationView: View {
         guard let jpeg = card.photo(), let name = saveChatPhotoTmp(jpeg) else { MontanaTrace.mark("card_photo", "FAIL render"); return }
         _ = store.append(chat.name, Message(text: card.wire, isFromMe: true, time: nowHHMM(), imageFile: name,
                                             deliveryStatus: .sending, senderRef: nil))
-        sendMediaOverE2E(fileName: name, kind: "img", caption: card.wire)
+        sendGatedMedia(fileName: name, kind: "img", caption: card.wire)
         MontanaTrace.mark("card_photo", "bytes=\(jpeg.count) lines=\(card.lines.count)")
     }
 
@@ -3987,7 +4008,7 @@ struct ChatConversationView: View {
         _ = store.append(chat.name, Message(text: "", isFromMe: true, time: nowHHMM(),
                                             docFile: name, docName: name,
                                             deliveryStatus: .sending, senderRef: nil))
-        sendMediaOverE2E(fileName: name, kind: "doc", docName: name)
+        sendGatedMedia(fileName: name, kind: "doc", docName: name)
         MontanaTrace.mark("gif_send", "bytes=\(data.count)")
     }
 
@@ -4012,7 +4033,7 @@ struct ChatConversationView: View {
                     _ = MontanaGifBook.shared.add(data: full)
                     MTGifPlay.shared.renew(name)   // the full picture plays its own three cycles
                 }
-                sendMediaOverE2E(fileName: name, kind: "doc", docName: name)
+                sendGatedMedia(fileName: name, kind: "doc", docName: name)
                 MontanaTrace.mark("gif_send", "bytes=\(full?.count ?? light?.count ?? 0) full=\(full == nil ? 0 : 1) ms=\(Int(Date().timeIntervalSince(t0) * 1000))")
             }
         }
@@ -4047,7 +4068,7 @@ struct ChatConversationView: View {
                                             senderRef: nil, replyToId: answered?.id))
         // A sticker used is a sticker kept, and it moves to the front of the panel's strip (22.09).
         MontanaStickerBook.shared.adopt(file: name)
-        sendMediaOverE2E(fileName: name, kind: "img", docName: MontanaCardPlate.stickerName)
+        sendGatedMedia(fileName: name, kind: "img", docName: MontanaCardPlate.stickerName)
         MontanaTrace.mark("sticker_send", "bytes=\(png.count)")
         // THE PASSPORT RIDES BEHIND THE STICKER (22.09), named by the SAME letter the picture rides
         // under: on the other side the two meet by that name, and the menu grows its rows.
@@ -4062,7 +4083,7 @@ struct ChatConversationView: View {
             store.append(chat.name, Message(text: "", isFromMe: true, time: nowHHMM(),
                                             imageFile: name, deliveryStatus: .sending,
                                             senderRef: nil))
-            sendMediaOverE2E(fileName: name, kind: "img")
+            sendGatedMedia(fileName: name, kind: "img")
         }
     }
 
@@ -4072,7 +4093,7 @@ struct ChatConversationView: View {
             store.append(chat.name, Message(text: "", isFromMe: true, time: nowHHMM(),
                                             videoFile: stored, deliveryStatus: .sending,
                                             senderRef: nil))
-            sendMediaOverE2E(fileName: stored, kind: "vid")
+            sendGatedMedia(fileName: stored, kind: "vid")
         }
     }
 
@@ -4105,7 +4126,7 @@ struct ChatConversationView: View {
                                         deliveryStatus: .sending, senderRef: nil))
         // UNIFIED media path: vault + chunked-blob + honest status — like photo/video/file
         if chat.convId != nil {
-            sendMediaOverE2E(fileName: localName, kind: "aud")
+            sendGatedMedia(fileName: localName, kind: "aud")
         } else {
             store.setMediaStatus(chat.name, file: localName, .sent)
         }
@@ -4244,6 +4265,19 @@ struct ChatConversationView: View {
         sendMediaOverE2E(fileName: f, kind: kind, docName: m.docName, caption: m.text, peer: conv, chatKey: target.name)
     }
 
+    /// A MEDIA LETTER OF THIS CHAT, ASKED OF THE GROUP FIRST (G.5): a right the group took from its members, or slow mode's wait,
+    /// takes the row just laid off this phone and says the reference's sentence; every other letter goes on by the one media road.
+    func sendGatedMedia(fileName: String, kind: String, docName: String? = nil, caption: String = "") {
+        if chat.isGroup,
+           let why = MTGroup.shared.mediaRefusal(kind: kind, round: fileName.hasPrefix("vnote_"), name: docName ?? fileName, caption: caption,
+                                                 in: chat.name, store: store, except: fileName) {
+            let laid = (store.messages[chat.name] ?? []).filter { r in r.isFromMe && [r.imageFile, r.videoFile, r.audioFile, r.docFile].contains(fileName) }
+            store.deleteLocally(chat: chat.name, laid)
+            groupRefusal = why
+            return
+        }
+        sendMediaOverE2E(fileName: fileName, kind: kind, docName: docName, caption: caption)
+    }
     // `peer`/`chatKey` name another conversation when a letter is forwarded; the open chat otherwise.
     /// THE ONE MEDIA ROAD lives in MontanaMediaSender (16.09): the chat and the share sheet's
     /// ingest send by the same function; the screen only names its own peer and chat.
@@ -4301,6 +4335,7 @@ struct ChatConversationView: View {
     // The peer's answer is replaced the same way when it arrives, and the wire is unchanged: it
     // still says only "add this" and "drop that", so an older build speaks with us as before.
     func react(_ m: Message, _ e: String) {
+        if chat.isGroup, let why = MTGroup.shared.refusal(reactionMark, in: chat.name, letter: false, store: store) { groupRefusal = why; return }   // G.5
         MTReactClock.tapped(m.id)
         let began = Date().timeIntervalSince1970
         guard let i = store.messages[chat.name]?.firstIndex(where: { $0.id == m.id }) else {
@@ -4589,6 +4624,11 @@ struct ChatConversationView: View {
             return
         }
         guard !text.isEmpty else { return }
+        // A RIGHT THE GROUP TOOK, OR SLOW MODE'S WAIT (G.5): said before the field empties, so nothing typed is lost to it
+        if chat.isGroup, editingMessage == nil, let why = MTGroup.shared.refusal(text, in: chat.name, letter: true, store: store) {
+            groupRefusal = why
+            return
+        }
         // THE FIELD IS EMPTIED FIRST, and emptying the field is what ends the draft — the same one
         // road a person's backspace takes (handleDraftChange). Nothing here speaks to the peer about
         // drafts: a second voice for one event is exactly how the wire came to say what the field
@@ -4691,12 +4731,14 @@ struct MTSpeakerHead: Equatable {
     let name: String
     let tint: Color
     let role: Role?
+    /// The custom title the owner gave the speaker (G.6), worn instead of the role's own word.
+    var rank: String? = nil
     @MainActor
     static func of(_ m: Message, in chat: String) -> MTSpeakerHead? {
         guard let name = MTGroup.shared.speakerLine(m, in: chat), let ref = m.senderRef, let g = MTGroup.shared.state(chat) else { return nil }
         let seat = String(ref.dropFirst(MTGroup.speaker(g.id, "").count))
         let role: Role? = seat == MTGroup.ownerSeat ? .owner : (g.admins?.contains(seat) == true ? .admin : nil)
-        return MTSpeakerHead(name: name, tint: MTSpeakerFace.tint(ref), role: role)
+        return MTSpeakerHead(name: name, tint: MTSpeakerFace.tint(ref), role: role, rank: role == nil ? nil : MTGroup.shared.rank(chat, seat: seat))
     }
 }
 

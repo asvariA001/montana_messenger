@@ -27,6 +27,7 @@ struct MontanaPeerInfoScreen: View {
     @State private var channelPeople = false          // the owner opens the channel's subscribers (MTChannelPeoplePage)
     @State private var channelAdmins = false          // the owner opens the channel's administrators (MTChannelAdminsPage)
     @State private var confirmClear = false           // a group's «Clear Messages», asked first (MTGroupClearAsk)
+    @State private var adminSeat: String?             // the admin rights page a person's hold opened (G.6)
     @State private var roomAsk: MTRoomKind?           // the group's call chosen on its page: whom to invite (MTGroupRoom, 07.10)
     @State private var roomAskVideo = false
     @State private var originalNameShown = false     // the edit page: their own name revealed under the fields (20.09)
@@ -247,6 +248,10 @@ struct MontanaPeerInfoScreen: View {
         .navigationDestination(isPresented: $channelPeople) { MTChannelPeoplePage(key: chat.name) }   // a channel's subscribers (17.10)
         .navigationDestination(isPresented: $channelAdmins) { MTChannelAdminsPage(key: chat.name) }   // a channel's administrators (17.10)
         .navigationDestination(item: $coinMove) { r in MTCoinMovePage(route: r, peer: data.title) }
+        .navigationDestination(item: $adminSeat) { s in   // «Promote» and «Edit Admin Rights» open the admin's rights (G.6)
+            MTGroupAdminRightsPage(chat: chat.name, seat: s, name: MTGroup.shared.pagePeople(chat.name).first { p in p.seat == s }?.name ?? MTGroup.memberWord,
+                                   isNew: !MTGroup.shared.isAdmin(chat.name, seat: s))
+        }
     }
 
     private func openVideo(_ f: String, _ data: MTPeerInfoData) { VideoPresenter.present(f) }
@@ -419,7 +424,8 @@ struct MontanaPeerInfoScreen: View {
         }
         let lines = MTGroupPage.lines(chat.name, store: store, remove: { seat in removingSeat = seat },
                                       open: { c in wallPage = .person(c) },
-                                      write: { c in dismiss(); DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { ui.openChat(c) } })
+                                      write: { c in dismiss(); DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { ui.openChat(c) } },
+                                      promote: { seat in adminSeat = seat })
         for line in lines { rows.append(MTInfoRow(id: "members." + line.seat, kind: .groupMember(line))) }
         return rows
     }
@@ -649,10 +655,12 @@ struct MontanaPeerInfoScreen: View {
                           text: $state.draftFirst)
                     .textContentType(.organizationName)
                     .textInputAutocapitalization(.words)
+                    .disabled(!MTGroup.shared.mayChangeInfo(chat.name))   // an admin who may only invite reads the name (G.6)
             }
             .listRowBackground(MTGlassRowPlate())   // the editor's rows on the one glass, the page's ground under them (25.09)
-            if MTGroup.shared.manages(chat.name) {
-                // THE DESCRIPTION, AS THE REFERENCE'S GROUP EDITOR HAS IT: written by the owner, carried to every member (MTGroup.renew)
+            if MTGroup.shared.mayChangeInfo(chat.name) {
+                // THE DESCRIPTION, AS THE REFERENCE'S GROUP EDITOR HAS IT: written by the owner -- or a member the group lets (G.5) --
+                // carried to every member (MTGroup.renew)
                 Section {
                     TextField("Description", text: $state.draftNote, axis: .vertical)
                         .lineLimit(1...5)
@@ -666,6 +674,7 @@ struct MontanaPeerInfoScreen: View {
                 // THE CHANNEL'S LINK AND ITS END, where the reference's channel settings keep them (the channels checklist, 6.2 and 6.9)
                 Section {
                     NavigationLink { MTChannelInviteLinksPage(chat: chat.name) } label: { Label("Invite Links", systemImage: "link") }
+                    NavigationLink { MTChannelDiscussionPage(key: chat.name) } label: { Label("Discussion", systemImage: "bubble.left.and.bubble.right") }
                     NavigationLink { MTChannelReactionsPage(key: chat.name) } label: {
                         LabeledContent {
                             Text(MTGroup.shared.reactionsOn(chat.name) ? "All Reactions" : "Disabled")
@@ -696,10 +705,62 @@ struct MontanaPeerInfoScreen: View {
                     NavigationLink { MTGroupInviteLinksPage(chat: chat.name) } label: { Label("Invite Links", systemImage: "link") }
                 }
                 .listRowBackground(MTGlassRowPlate())
+                // WHAT THE MEMBERS MAY DO, as the reference's editor counts it (G.5): the rights left of all of them
+                Section {
+                    NavigationLink { MTGroupPermissionsPage(chat: chat.name) } label: {
+                        HStack {
+                            Label("Permissions", systemImage: "key")
+                            Spacer()
+                            Text(verbatim: MTGroupPermissionsPage.count(chat.name)).foregroundColor(.secondary)   // USER-DATA: a count
+                        }
+                    }
+                }
+                .listRowBackground(MTGlassRowPlate())
+                // THE ADMINISTRATORS, as the reference's editor lists them (G.6)
+                Section {
+                    NavigationLink { MTGroupAdminsPage(chat: chat.name) } label: {
+                        HStack {
+                            Label("Administrators", systemImage: "person.badge.shield.checkmark")
+                            Spacer()
+                            Text(verbatim: String(1 + (MTGroup.shared.state(chat.name)?.admins?.count ?? 0))).foregroundColor(.secondary)   // USER-DATA: a count
+                        }
+                    }
+                }
+                .listRowBackground(MTGlassRowPlate())
+                // WHO ASKED TO JOIN BY THE LINK, as the reference's editor shows it while any wait (G.8)
+                if !MTGroup.shared.requests(chat.name).isEmpty {
+                    Section {
+                        NavigationLink { MTGroupRequestsPage(chat: chat.name) } label: {
+                            HStack {
+                                Label("Member Requests", systemImage: "person.crop.circle.badge.questionmark")
+                                Spacer()
+                                Text(verbatim: String(MTGroup.shared.requests(chat.name).count)).foregroundColor(.secondary)   // USER-DATA: a count
+                            }
+                        }
+                    }
+                    .listRowBackground(MTGlassRowPlate())
+                }
+                // THE PEOPLE KEPT OUT, as the reference's editor lists them (G.7)
+                Section {
+                    NavigationLink { MTGroupRemovedPage(key: chat.name) } label: {
+                        HStack {
+                            Label("Removed Users", systemImage: "hand.raised")
+                            Spacer()
+                            Text(verbatim: String(MTGroup.shared.bannedPeople(chat.name).count)).foregroundColor(.secondary)   // USER-DATA: a count
+                        }
+                    }
+                }
+                .listRowBackground(MTGlassRowPlate())
                 Section {
                     Button(role: .destructive) { confirmDissolve = true } label: {
                         Text("Delete Group").frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle())
                     }
+                }
+                .listRowBackground(MTGlassRowPlate())
+            } else if isGroupPage, MTGroup.shared.state(chat.name)?.link != nil {
+                // an administrator who may invite holds the link the owner handed it (G.6)
+                Section {
+                    NavigationLink { MTGroupInviteLinksPage(chat: chat.name) } label: { Label("Invite Links", systemImage: "link") }
                 }
                 .listRowBackground(MTGlassRowPlate())
             }

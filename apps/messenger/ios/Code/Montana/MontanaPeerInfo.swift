@@ -336,7 +336,8 @@ struct MTPeerInfoData {
             // A GROUP'S PEOPLE ARE THE GROUP'S BOOK (MTGroup): its name, face and people change by the owner's word to every phone
             // (MTGroup.renew, add, remove), never on one phone alone -- so only the owner's page edits a group.
             members: kind == .group ? MTGroup.shared.shownPeople(chat.name) : state.draftMembers,
-            canEdit: kind.isEditable && (kind == .person || (kind == .group && chat.isAdmin && MTGroup.shared.state(chat.name)?.mine == true)),
+            // the owner edits a group, and a member the group lets change its info (G.5, MTGroup.mayChangeInfo); a channel, its owner
+            canEdit: kind.isEditable && (kind == .person || (kind == .group && (MTGroup.shared.mayChangeInfo(chat.name) || MTGroup.shared.state(chat.name)?.link != nil))),
             hasFingerprint: kind.showsFingerprint && MontanaConv.holds(conv),
             messages: state.conversation   // read once per change (MTPeerInfoState.refreshConversation), never per pass
         )

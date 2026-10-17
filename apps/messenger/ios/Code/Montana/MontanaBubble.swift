@@ -267,11 +267,15 @@ struct MessageBubble: View, Equatable {
     /// the eye in the stamp and the round beside it that hands the post on (onShare). Nil on every other letter.
     var post: MTChannelPostLook? = nil
     var onShare: () -> Void = {}
+    /// The footer of a channel's post where the channel takes comments: its thread opens (MTChannelCommentsSheet).
+    var onComments: () -> Void = {}
     /// The side and the dress a letter is drawn in: a channel's post is drawn as received; the deeds -- the retry, the red mark --
     /// still ask message.isMine.
     private var drawnMine: Bool { post == nil && message.isMine }
     /// The reference's channel post runs the row's width but the round's room beside it (45 points) and the feed's own edges.
     static let postRoom: CGFloat = 61
+    /// The least width of a post of words that wears the comments' footer: the footer's glyph, words and chevron.
+    static let commentsMin: CGFloat = 210
     private let tileFrames = MTTileFrames()
     static let plateSpace = "mtBubblePlate"
     var isGroup: Bool { members.count > 1 }
@@ -424,7 +428,7 @@ struct MTSaveBeside<Badge: View>: ViewModifier {
 
     // Native bubble shape — fully rounded, with a little tail hooking
     // out of the bottom corner on the sender's side (last message in a group).
-    var bubbleShape: BubbleShape { BubbleShape(mine: drawnMine, tail: tail) }
+    var bubbleShape: BubbleShape { BubbleShape(mine: drawnMine, tail: tail && post?.comments == nil) }   // the comments' footer wears the tail
 
     // ── THE MESSAGE GESTURE SSOT (hook) ───────────────────────────────────────
     // EXACTLY ONE gesture node — the bubble root (body below): long-press = menu,
@@ -496,6 +500,41 @@ struct MTSaveBeside<Badge: View>: ViewModifier {
         if let place = placeLetter { onTapPlace(place); return }            // a place — its own page, the map over the whole screen
         if let rid = message.replyToId { onTapReply(rid); return }        // text with a quote — to the original
     }
+    /// The bubble, and under a channel's post the footer of its comments, as wide as the bubble (MTFooterStack).
+    @ViewBuilder private var bubbleColumn: some View {
+        if let n = post?.comments {
+            MTFooterStack {
+                // The bubble's OWN window rect — the face, not the row: the flight lands on it,
+                // the reply swipe admits from its top line down (22.09), the menu stands on its top.
+                bubbleUnderFinger.background { if !textIsSelectable { MTBubbleFrameAnchor(id: message.id) } }
+                commentsPlate(n)
+            }
+        } else {
+            bubbleUnderFinger.background { if !textIsSelectable { MTBubbleFrameAnchor(id: message.id) } }
+        }
+    }
+    /// THE COMMENTS' FOOTER OF A CHANNEL'S POST (the reference's: «Leave a Comment», or the number of comments, and the chevron),
+    /// a plate of the bubble's own dress under it; the whole plate opens the thread.
+    private func commentsPlate(_ n: Int) -> some View {
+        Button(action: onComments) {
+            HStack(spacing: 8) {
+                Image(systemName: "bubble.left.and.bubble.right").font(.system(size: 15))
+                if n == 0 { Text("Leave a Comment").font(.system(size: 15, weight: .semibold)) }
+                else { Text("\(n) Comments").font(.system(size: 15, weight: .semibold)) }
+                Spacer(minLength: 12)
+                Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).opacity(0.6)
+            }
+            .foregroundColor(bubbleText)
+            .padding(.horizontal, 12)
+            .frame(minHeight: montanaTouchTarget)
+            .background(bubbleFill)
+            .clipShape(BubbleShape(mine: drawnMine, tail: tail))
+            .overlay { MTBubbleStyle.outline(mine: drawnMine, BubbleShape(mine: drawnMine, tail: tail)) }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.top, 2)
+    }
     /// How wide a bubble may grow: four fifths of the window, a channel's post the window but the round's room.
     private var bubbleCeiling: CGFloat {
         let w = mtWin.width > 0 ? mtWin.width : MTScene.size().width
@@ -519,10 +558,7 @@ struct MTSaveBeside<Badge: View>: ViewModifier {
                             .padding(.horizontal, 6)
                     }
                 }
-                bubbleUnderFinger
-                    // The bubble's OWN window rect — the face, not the row: the flight lands on it,
-                    // the reply swipe admits from its top line down (22.09), the menu stands on its top.
-                    .background { if !textIsSelectable { MTBubbleFrameAnchor(id: message.id) } }
+                bubbleColumn
                     .frame(maxWidth: bubbleCeiling, alignment: drawnMine ? .trailing : .leading)
                     .modifier(MTShareBeside(on: post != nil, action: onShare))
                 if let call = callInfoOf(message.text), !call.missed, let coins = call.coins {
@@ -1768,7 +1804,7 @@ struct MTSaveBeside<Badge: View>: ViewModifier {
                     .lineLimit(1)
                 if let role = s.role {
                     Spacer(minLength: 0)
-                    Text(role.word).font(.system(size: size - 1)).foregroundColor(role.tint)
+                    (s.rank.map { t in Text(verbatim: t) } ?? Text(role.word)).font(.system(size: size - 1)).foregroundColor(role.tint)   // USER-DATA: the owner's custom title
                         .padding(.horizontal, 5).frame(height: 17)
                         .background(role.tint.opacity(0.2), in: Capsule())
                 }
@@ -1819,6 +1855,7 @@ struct MTSaveBeside<Badge: View>: ViewModifier {
         .overlay(alignment: .bottomTrailing) {
             timeRow.padding(.horizontal, 12).padding(.bottom, 6)
         }
+        .frame(minWidth: post?.comments != nil ? Self.commentsMin : nil, alignment: .leading)   // as wide as its comments' footer
         .background(bubbleFill)
         .foregroundColor(bubbleText)
         .clipShape(bubbleShape)
@@ -3560,5 +3597,30 @@ struct MTReleaseScroll<Meta: View>: View {
                                               startPoint: .top, endPoint: .bottom)).opacity(0.92))
         .clipShape(shape)
         .overlay(shape.stroke(Color.accentColor, lineWidth: 1))
+    }
+}
+
+/// THE FOOTER TAKES THE BUBBLE'S WIDTH (a channel's comments under its post): the first view is laid as the room allows, every view
+/// after it is offered that width -- or its own, where it is wider -- so the footer neither widens a short post nor stops short of it.
+struct MTFooterStack: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let first = subviews.first else { return .zero }
+        let top = first.sizeThatFits(proposal)
+        var w = top.width
+        for s in subviews.dropFirst() {
+            let own = s.sizeThatFits(.unspecified).width
+            w = max(w, min(own, proposal.width ?? own))
+        }
+        var h = first.sizeThatFits(ProposedViewSize(width: w, height: nil)).height
+        for s in subviews.dropFirst() { h += s.sizeThatFits(ProposedViewSize(width: w, height: nil)).height }
+        return CGSize(width: w, height: h)
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        for s in subviews {
+            let h = s.sizeThatFits(ProposedViewSize(width: bounds.width, height: nil)).height
+            s.place(at: CGPoint(x: bounds.minX, y: y), anchor: .topLeading, proposal: ProposedViewSize(width: bounds.width, height: h))
+            y += h
+        }
     }
 }

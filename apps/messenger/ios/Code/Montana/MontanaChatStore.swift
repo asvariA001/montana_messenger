@@ -6633,6 +6633,8 @@ enum SeedScope {
         MTChessComputer.gameKey,
         // THE GROUPS AND CHANNELS (05.10): the ones this person owns or was invited to, with the pipes of their people.
         MTGroup.stateKey,
+        // A CHANNEL'S COMMENTS (17.10): the words under its posts, the person's own content as letters are.
+        MTChannelComments.storeKey,
         // THE NUMBER CONFIRMED (06.10): the service's signed confirmation that this number belongs to this person's key
         // (MTPhoneProof) -- it names the key the seed gives, so a copy laid back by the same words holds it true.
         "phoneProof"]
@@ -6845,6 +6847,7 @@ enum SeedScope {
         MTReactions.forgetOrder()
         MTGroup.shared.reread()
         MTChannelViews.shared.reread()
+        MTChannelComments.shared.reread()
         MTWallpaper.Book.shared.rev += 1
         MontanaNotifyGate.mirrorSettings()
         MontanaSafety.mirror()

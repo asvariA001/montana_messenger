@@ -193,6 +193,8 @@ struct MTChannelPostLook: Hashable {
     var views: Int
     /// Its writer's name, before the time, where the channel signs its posts (the reference's «Sign Messages»).
     var signature: String? = nil
+    /// The comments under it where the channel takes comments (the reference's footer «Leave a Comment» / «N Comments»); nil -- none.
+    var comments: Int? = nil
     /// The reference's short count: «999», «1.2K», «3M» -- the tenth shown only where it is not a zero.
     static func count(_ n: Int) -> String {
         let dot = Locale.current.decimalSeparator ?? "."
@@ -840,7 +842,169 @@ struct MTChannelActionsPage: View {
         case "signOn": return String(localized: "You enabled signatures", bundle: b)
         case "signOff": return String(localized: "You disabled signatures", bundle: b)
         case "reactOn": return String(localized: "You enabled all reactions", bundle: b)
+        case "talkOn": return String(localized: "You enabled comments", bundle: b)
+        case "talkOff": return String(localized: "You disabled comments", bundle: b)
         default: return String(localized: "You disabled reactions", bundle: b)
         }
+    }
+}
+
+/// ONE COMMENT UNDER A CHANNEL'S POST: its one name, its speaker's seat and the name they gave, its words, its moment.
+struct MTChannelComment: Codable, Equatable, Identifiable {
+    var id: String
+    var seat: String
+    var name: String
+    var text: String
+    var at: Double
+    var mine: Bool
+}
+
+/// THE COMMENTS OF A CHANNEL'S POSTS ON THIS PHONE (the reference's discussion under a post): each post's comments by their one
+/// names, in their order; the channel's carrier brings them (MTGroup.comment, commented). The person's own content, as letters are.
+final class MTChannelComments: ObservableObject {
+    static let shared = MTChannelComments()
+    static let storeKey = "channels.comments"
+    /// [I-14]: the comments a post keeps, and the posts a channel keeps comments for.
+    static let perPost = 500
+    static let postsKept = 300
+    @Published private(set) var rev = 0
+    private var book: [String: [String: [MTChannelComment]]] = [:]
+
+    private init() {
+        load()
+        NotificationCenter.default.addObserver(forName: .montanaSeedForgotten, object: nil, queue: .main) { [weak self] _ in
+            self?.load()   // another person's comments are not this one's
+        }
+    }
+    /// The store was laid again under the living (a copy, a seat lifted): the comments are read from it.
+    func reread() { load() }
+    private func load() {
+        book = MontanaLocalVault.getDecrypted(Self.storeKey).flatMap { try? JSONDecoder().decode([String: [String: [MTChannelComment]]].self, from: $0) } ?? [:]
+        rev += 1
+    }
+    private func save() {
+        guard let d = try? JSONEncoder().encode(book) else { return }
+        MontanaLocalVault.setEncrypted(Self.storeKey, d)
+    }
+    func comments(on post: String, in key: String) -> [MTChannelComment] { book[key]?[post] ?? [] }
+    func count(on post: String, in key: String) -> Int { book[key]?[post]?.count ?? 0 }
+    func has(_ id: String, on post: String, in key: String) -> Bool { book[key]?[post]?.contains { c in c.id == id } == true }
+    /// A comment comes: kept once by its name, in the order of its moment. False when it was here already.
+    @discardableResult
+    func put(_ c: MTChannelComment, on post: String, in key: String) -> Bool {
+        var page = book[key] ?? [:]
+        var list = page[post] ?? []
+        guard !list.contains(where: { x in x.id == c.id }) else { return false }
+        list.append(c)
+        list.sort { a, b in a.at < b.at }
+        if Self.perPost < list.count { list.removeFirst(list.count - Self.perPost) }
+        page[post] = list
+        if Self.postsKept < page.count {
+            for old in page.keys.sorted().prefix(page.count - Self.postsKept) { page[old] = nil }   // a post's name begins with its birth
+        }
+        book[key] = page
+        save()
+        rev += 1
+        return true
+    }
+}
+
+/// THE COMMENTS OF A POST (the reference's thread of a channel's post): the post's words over the comments, each with its speaker's
+/// name in the speaker's colour, and the field «Comment» at the foot where the channel takes comments.
+struct MTChannelCommentsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var board = MTChannelComments.shared
+    let key: String
+    let post: Message
+    @State private var draft = ""
+    @FocusState private var typing: Bool
+
+    var body: some View {
+        let letter = MTChannelViews.letter(post) ?? ""
+        let list = board.comments(on: letter, in: key)
+        let gid = MTGroup.id(of: key) ?? ""
+        NavigationStack {
+            List {
+                if !post.text.isEmpty {
+                    Section {
+                        Text(verbatim: MTRowLetter.words(post.text)).lineLimit(8).foregroundColor(.primary)   // USER-DATA: the post's words
+                    }
+                    .listRowBackground(MTGlassRowPlate())
+                }
+                Section {
+                    if list.isEmpty {
+                        Text("No comments here yet...").foregroundColor(.secondary).frame(maxWidth: .infinity).padding(.vertical, 24)
+                    }
+                    ForEach(list) { c in
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack(spacing: 6) {
+                                Text(verbatim: c.mine ? E2E.myDisplayName() : (c.name.isEmpty ? MTGroup.memberWord : c.name))   // USER-DATA: the speaker's name
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundColor(MTSpeakerFace.tint(MTGroup.speaker(gid, c.seat)))
+                                Spacer(minLength: 0)
+                                Text(verbatim: hhmm(at: c.at)).font(.caption2).foregroundColor(.secondary)   // USER-DATA: the comment's moment
+                            }
+                            Text(verbatim: c.text).foregroundColor(.primary)   // USER-DATA: the comment's words
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+                .listRowBackground(MTGlassRowPlate())
+            }
+            .scrollContentBackground(.hidden).montanaPageGround()
+            .navigationTitle(list.isEmpty ? Text("Comments") : Text("\(list.count) Comments"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { MontanaCloseMark { dismiss() } } }
+            .safeAreaInset(edge: .bottom) {
+                if MTGroup.shared.talks(key), !MTGroup.shared.isOut(key) { VStack(spacing: 4) {
+                    // THE FIELD SAYS WHAT IS LEFT (the reference's slowmode words): one comment in thirty seconds (MTGroup.commentGap)
+                    TimelineView(.periodic(from: .now, by: 1)) { _ in
+                        let wait = MTGroup.shared.commentWait(key)
+                        if 0 < wait {
+                            Text("Slowmode is enabled. You can send your next message in \(String(format: "0:%02d", wait)).")
+                                .font(.footnote).foregroundColor(.secondary).multilineTextAlignment(.center)
+                                .frame(maxWidth: .infinity).padding(.horizontal, 16)
+                        }
+                    }
+                    HStack(alignment: .bottom, spacing: 8) {
+                        TextField("Comment", text: $draft, axis: .vertical)
+                            .lineLimit(1...5).focused($typing)
+                            .padding(.horizontal, 14).padding(.vertical, 11)
+                            .background { MTChannelGlass(shape: RoundedRectangle(cornerRadius: 22, style: .continuous)) }
+                        Button {
+                            if MTGroup.shared.comment(draft, on: letter, in: key) { draft = "" }
+                        } label: {
+                            Image(systemName: "arrow.up.circle.fill").font(.system(size: 30)).foregroundColor(.white)
+                                .frame(width: montanaTouchTarget, height: montanaTouchTarget)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .accessibilityLabel(Text("Send"))
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+                } }
+            }
+        }
+    }
+}
+
+/// THE CHANNEL'S DISCUSSION (the reference's «Discussion» of a channel's settings): «Allow Comments» -- every post then wears its
+/// comments' footer on every subscriber's phone. The comments ride the channel itself; no group hosts them.
+struct MTChannelDiscussionPage: View {
+    let key: String
+    @State private var on = false
+    var body: some View {
+        List {
+            Section {
+                Toggle(isOn: Binding(get: { on }, set: { v in on = v; MTGroup.shared.setTalks(key, on: v) })) { Text("Allow Comments") }
+                    .frame(minHeight: montanaTouchTarget)
+            } footer: {
+                Text("Subscribers comment under every post. The comments ride the channel itself, phone to phone.")
+            }
+            .listRowBackground(MTGlassRowPlate())
+        }
+        .scrollContentBackground(.hidden).montanaPageGround()
+        .navigationTitle("Discussion").navigationBarTitleDisplayMode(.inline)
+        .onAppear { on = MTGroup.shared.talks(key) }
     }
 }
