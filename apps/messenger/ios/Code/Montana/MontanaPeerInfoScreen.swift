@@ -25,6 +25,7 @@ struct MontanaPeerInfoScreen: View {
     @State private var addingPeople = false           // the owner adds people from its correspondents (MTGroup.add)
     @State private var confirmDissolve = false        // the owner deletes the group for everyone, asked first (MTGroup.dissolve)
     @State private var channelPeople = false          // the owner opens the channel's subscribers (MTChannelPeoplePage)
+    @State private var channelAdmins = false          // the owner opens the channel's administrators (MTChannelAdminsPage)
     @State private var confirmClear = false           // a group's «Clear Messages», asked first (MTGroupClearAsk)
     @State private var roomAsk: MTRoomKind?           // the group's call chosen on its page: whom to invite (MTGroupRoom, 07.10)
     @State private var roomAskVideo = false
@@ -244,6 +245,7 @@ struct MontanaPeerInfoScreen: View {
         .sheet(item: $roomAsk) { k in MTRoomInviteSheet(chat: chat.name, kind: k, video: roomAskVideo, opening: true) }
         .sheet(item: $explorer) { link in MTExplorerSheet(url: link.url).ignoresSafeArea() }
         .navigationDestination(isPresented: $channelPeople) { MTChannelPeoplePage(key: chat.name) }   // a channel's subscribers (17.10)
+        .navigationDestination(isPresented: $channelAdmins) { MTChannelAdminsPage(key: chat.name) }   // a channel's administrators (17.10)
         .navigationDestination(item: $coinMove) { r in MTCoinMovePage(route: r, peer: data.title) }
     }
 
@@ -397,7 +399,10 @@ struct MontanaPeerInfoScreen: View {
     private func channelRows() -> [MTInfoRow] {
         guard MTGroup.shared.manages(chat.name) else { return [] }
         let n = MTGroup.shared.people(chat.name) ?? 1
+        let admins = 1 + (MTGroup.shared.state(chat.name)?.admins?.count ?? 0)   // the reference counts its owner among them
         return [
+            MTInfoRow(id: "channel.admins", kind: .disclosure(title: "Administrators", detail: LocalizedStringKey(String(admins)),
+                                                              icon: "person.badge.shield.checkmark", tint: .gray, action: { channelAdmins = true })),
             MTInfoRow(id: "channel.subscribers", kind: .disclosure(title: "Subscribers", detail: LocalizedStringKey(String(n)),
                                                                    icon: "person.2.fill", tint: .gray, action: { channelPeople = true })),
             MTInfoRow(id: "channel.settings", kind: .disclosure(title: "Channel Settings", detail: "", icon: "gearshape.fill", tint: .gray,
@@ -661,6 +666,21 @@ struct MontanaPeerInfoScreen: View {
                 // THE CHANNEL'S LINK AND ITS END, where the reference's channel settings keep them (the channels checklist, 6.2 and 6.9)
                 Section {
                     NavigationLink { MTChannelInviteLinksPage(chat: chat.name) } label: { Label("Invite Links", systemImage: "link") }
+                    NavigationLink { MTChannelReactionsPage(key: chat.name) } label: {
+                        LabeledContent {
+                            Text(MTGroup.shared.reactionsOn(chat.name) ? "All Reactions" : "Disabled")
+                        } label: { Label("Reactions", systemImage: "face.smiling") }
+                    }
+                }
+                .listRowBackground(MTGlassRowPlate())
+                // THE PEOPLE TAKEN OUT AND THE DEEDS (the reference's channel settings keep them under the links)
+                Section {
+                    NavigationLink { MTChannelRemovedPage(key: chat.name) } label: {
+                        LabeledContent {
+                            Text(verbatim: String(MTGroup.shared.bannedPeople(chat.name).count))   // USER-DATA: a count
+                        } label: { Label("Removed Users", systemImage: "person.fill.xmark") }
+                    }
+                    NavigationLink { MTChannelActionsPage(key: chat.name) } label: { Label("Recent Actions", systemImage: "clock.arrow.circlepath") }
                 }
                 .listRowBackground(MTGlassRowPlate())
                 Section {

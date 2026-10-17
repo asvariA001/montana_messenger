@@ -508,9 +508,16 @@ struct MTSaveBeside<Badge: View>: ViewModifier {
                 // THE FORWARD MARK — ONE place for every kind of letter (the author's word 16.09):
                 // text, picture, video, voice, round note, file alike wear it above the bubble.
                 if message.isForwarded {
-                    Label("Forwarded", systemImage: "arrowshape.turn.up.right")
-                        .font(.caption).foregroundColor(.gray)
-                        .padding(.horizontal, 6)
+                    // A CHANNEL'S POST NAMES ITS CHANNEL (the reference's «Forwarded from»); any other forward says it is one
+                    if let from = message.forwardedFrom {
+                        Label { Text("Forwarded from \(from)") } icon: { Image(systemName: "arrowshape.turn.up.right") }
+                            .font(.caption).foregroundColor(.gray).lineLimit(1)
+                            .padding(.horizontal, 6)
+                    } else {
+                        Label("Forwarded", systemImage: "arrowshape.turn.up.right")
+                            .font(.caption).foregroundColor(.gray)
+                            .padding(.horizontal, 6)
+                    }
                 }
                 bubbleUnderFinger
                     // The bubble's OWN window rect — the face, not the row: the flight lands on it,
@@ -1708,7 +1715,7 @@ struct MTSaveBeside<Badge: View>: ViewModifier {
     }
 
     /// A reply carries a quote to draw (a forward's wire quote is the mark above, not a quote).
-    private var quoted: Bool { message.replyText.map { $0 != Message.forwardedQuote } ?? false }
+    private var quoted: Bool { message.replyText.map { q in q != Message.forwardedQuote && !q.hasPrefix(Message.forwardedFromHead) } ?? false }
     /// THE QUOTE OF A REPLY, ONE DRAWING (the author's word 24.09: «a reply of one emoji does not show the quoted
     /// letter»): the text bubble and the big emoji both wear it. The big emoji stands on no plate of its own, so
     /// its quote takes the bubble's plate round itself.
@@ -1931,7 +1938,11 @@ struct MTSaveBeside<Badge: View>: ViewModifier {
             if message.edited {
                 Text("edited").font(.system(size: 9))
             }
-            Text(message.time).font(.caption2)
+            if let name = post?.signature {
+                Text(verbatim: name + ", " + message.time).font(.caption2).lineLimit(1)   // USER-DATA: the post's signer and its time (Sign Messages)
+            } else {
+                Text(message.time).font(.caption2)
+            }
             if message.isMine { checks }
         }.foregroundColor(ink)
         let seal = Group {

@@ -2411,7 +2411,8 @@ struct ChatConversationView: View {
                 onClose: close,
                 members: group,
                 seenBy: chat.isGroup && m.isFromMe ? MTGroup.shared.seenBy(m, in: chat.name) : nil,   // the reference's «N Seen» (B.13)
-                readsOnly: readsOnly   // a channel's subscriber: no reply, no pin (the reference's menu)
+                readsOnly: readsOnly,   // a channel's subscriber: no reply, no pin (the reference's menu)
+                reactionsAllowed: !isChannel || MTGroup.shared.reactionsOn(chat.name)   // Allow Reactions (the channel owner's switch)
             )
         }
     }
@@ -2962,7 +2963,8 @@ struct ChatConversationView: View {
     private func postLook(_ row: ChatRowVM) -> MTChannelPostLook? {
         guard isChannel else { return nil }
         return MTChannelPostLook(head: row.topPad ? store.title(for: chat) : nil, tint: MTSpeakerFace.tint(chat.name),
-                                 views: channelViews.views(row.message, in: chat.name))
+                                 views: channelViews.views(row.message, in: chat.name),
+                                 signature: MTGroup.shared.signature(row.message, in: chat.name))
     }
 
     var messagesList: some View {
@@ -3486,6 +3488,21 @@ struct ChatConversationView: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 4)
     }
+    /// TAKEN OUT OF A CHANNEL (the reference's panel then): «Join» in grey on the same wide glass, answering nothing -- the owner alone
+    /// lets a removed person back.
+    var channelJoinBar: some View {
+        HStack(spacing: 8) {
+            Color.clear.frame(width: montanaTouchTarget, height: montanaTouchTarget)
+            Text("Join")
+                .font(.system(size: 17, weight: .semibold)).foregroundColor(.secondary)
+                .frame(maxWidth: .infinity, minHeight: montanaTouchTarget)
+                .background { MTChannelGlass(shape: Capsule()) }
+                .accessibilityAddTraits(.isStaticText)
+            Color.clear.frame(width: montanaTouchTarget, height: montanaTouchTarget)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, MTInputField.barPad)
+    }
     /// A SUBSCRIBER READS, THE OWNER ALONE POSTS: a field whose letters the owner refuses would lie, so in its place stands the
     /// reference's channel panel (MTChannelSubscriberBar) -- the channel's sound, and the chat's own search.
     var channelMuteBar: some View {
@@ -3558,6 +3575,7 @@ struct ChatConversationView: View {
         // Messages read-only during the frame before its store is reconciled.
         else if !chat.isGroup, !ChatStore.isLocalRoom(chat.name), chat.convId != nil, !MontanaConv.holds(convKey) { recoveredNote }
         else if ChatStore.isMontanaRoom(chat.name) { Color.clear.frame(height: 0) }   // the room speaks; nobody writes into it (29.09)
+        else if isChannel, MTGroup.shared.state(chat.name)?.removed == true { channelJoinBar }   // taken out of a channel: Join, grey (3.3)
         else if chat.isGroup, MTGroup.shared.isOut(chat.name) { groupDeleteBar }   // out of the group: read, and the way out (stage R)
         else if chat.isGroup, !MTGroup.shared.canWrite(chat.name) { channelMuteBar }   // a subscriber reads; the owner alone posts
         else {
@@ -4161,6 +4179,9 @@ struct ChatConversationView: View {
 
     func forwardMessage(_ m: Message, to target: Chat) {
         let conv = target.convId ?? ""
+        // A CHANNEL'S POST FORWARDED NAMES ITS CHANNEL (the reference's «Forwarded from»): the wire quote carries its name; any other
+        // forward keeps the bare mark, and no person's name leaves with it.
+        let fwdQuote = isChannel ? Message.forwardedFromHead + String(store.title(for: chat).prefix(64)) : Message.forwardedQuote
         let source: String?; let kind: String
         if let v = m.videoFile { source = v; kind = "vid" }
         else if let i = m.imageFile { source = i; kind = "img" }
@@ -4200,18 +4221,19 @@ struct ChatConversationView: View {
                     await MainActor.run {
                         if let i = store.messages[src]?.firstIndex(where: { $0.id == m.id }) { store.messages[src]?[i].text = full }
                         let sent = store.send(text: full, chat: target.name, convRef: conv,
-                                              replyText: Message.forwardedQuote, linkCard: m.linkPreview)
+                                              replyText: fwdQuote, linkCard: m.linkPreview)
                         store.noteForwardSource(chat: target.name, id: sent.id, from: chat.name)
                     }
                 }
                 return
             }
             let sent = store.send(text: m.text, chat: target.name, convRef: conv,
-                                  replyText: Message.forwardedQuote, linkCard: m.linkPreview)
+                                  replyText: fwdQuote, linkCard: m.linkPreview)
             store.noteForwardSource(chat: target.name, id: sent.id, from: chat.name)
             return
         }
         store.append(target.name, Message(text: m.text, isFromMe: true, time: nowHHMM(),
+                                          replyText: isChannel ? fwdQuote : nil,   // this phone's row names the channel (the media's wire says «fw» alone)
                                           imageFile: kind == "img" ? f : nil, videoFile: kind == "vid" ? f : nil,
                                           audioFile: kind == "aud" ? f : nil, audioDuration: m.audioDuration,
                                           docFile: kind == "doc" ? f : nil, docName: m.docName,

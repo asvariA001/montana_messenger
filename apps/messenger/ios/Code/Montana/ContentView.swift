@@ -3680,8 +3680,17 @@ struct Message: Identifiable, Codable {
     /// The wire spelling every build understands: a text forward rides with this quote; a
     /// reader that knows the mark draws the mark and never the quote.
     static let forwardedQuote = "↪︎ Forwarded message"
+    /// A FORWARD OF A CHANNEL'S POST NAMES ITS CHANNEL (the reference's «Forwarded from», 17.10.2026): the wire quote is this head and
+    /// the channel's name; a build that does not know the head draws it as the quote it reads.
+    static let forwardedFromHead = "↪︎ Forwarded from "
     /// THE ONE ANSWER «is this a forward» ([C-1]): the field, the local source, or the wire quote.
-    var isForwarded: Bool { forwarded || fwdFrom != nil || replyText == Message.forwardedQuote }
+    var isForwarded: Bool { forwarded || fwdFrom != nil || replyText == Message.forwardedQuote || forwardedFrom != nil }
+    /// The channel a forward names, or nil.
+    var forwardedFrom: String? {
+        guard let q = replyText, q.hasPrefix(Message.forwardedFromHead) else { return nil }
+        let name = String(q.dropFirst(Message.forwardedFromHead.count).prefix(64))
+        return name.isEmpty ? nil : name
+    }
 
     init(text: String, isFromMe: Bool, time: String, reactions: [String] = [],
          replyText: String? = nil, isRead: Bool = false, imageFile: String? = nil,

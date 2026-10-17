@@ -230,6 +230,8 @@ struct MessageContextOverlay: View {
     /// A CHANNEL'S POST ON A SUBSCRIBER'S PHONE (the reference's menu there): the subscriber writes nothing into the channel, so no
     /// reply and no pin stand -- the words, the post handed on, a report and the selection.
     var readsOnly = false
+    /// A CHANNEL WHOSE OWNER TURNED REACTIONS OFF (the reference's «Allow Reactions»): no strip of reactions stands over the post.
+    var reactionsAllowed = true
     @State private var shown = false
     @State private var confirmingDelete = false
     @State private var parts: [String: CGFloat] = [:]
@@ -310,7 +312,7 @@ struct MessageContextOverlay: View {
                 // are what the hold asked for — the cloud comes to rest with its end in view, the letter's
                 // bottom above the list, at once and without a transition; a short letter keeps its place.
                 .onChange(of: parts) { _, p in
-                    guard let cloudH = p["cloud"], cloudH > 0, (p["reactions"] ?? 0) > 0 else { return }
+                    guard let cloudH = p["cloud"], cloudH > 0, (p["reactions"] ?? 0) > 0 || !reactionsAllowed else { return }
                     let room = geo.size.height - 8 - 10
                     if (place.top ?? 0) + cloudH > room {
                         var tx = Transaction(); tx.disablesAnimations = true
@@ -320,7 +322,7 @@ struct MessageContextOverlay: View {
                 }
                 // Where the cloud stands, in numbers — once the parts are measured (20.09).
                 .onChange(of: parts) { _, p in
-                    guard !placeSaid, (p["cloud"] ?? 0) > 0, (p["reactions"] ?? 0) > 0 else { return }
+                    guard !placeSaid, (p["cloud"] ?? 0) > 0, (p["reactions"] ?? 0) > 0 || !reactionsAllowed else { return }
                     placeSaid = true
                     let kind = message.imageFile != nil ? "img" : message.videoFile != nil ? "vid" : message.audioFile != nil ? "aud" : message.docFile != nil ? "doc" : "text"
                     let letter = letterTop.map { Int($0 - geo.frame(in: .global).minY) } ?? -1
@@ -333,7 +335,7 @@ struct MessageContextOverlay: View {
 
             // The row stands here, outside the scroll, at the place the cloud reserved for it —
             // the window names where every finger lands (MTTouchWindow) and menu_open names the row.
-            if !reactionsOpen {
+            if !reactionsOpen, reactionsAllowed {
                 GeometryReader { og in
                     let o = og.frame(in: .global)
                     reactionsRow
@@ -356,7 +358,7 @@ struct MessageContextOverlay: View {
                 // NOT written out again here: it is the same vocabulary the emoji panel of the
                 // input field speaks ([C-1]) — a second list of what a person may feel would drift
                 // from the first.
-                Group {
+                if reactionsAllowed { Group {
                     if reactionsOpen {
                         let choice = MTReactions.all
                         ScrollView(.vertical, showsIndicators: false) {
@@ -396,7 +398,7 @@ struct MessageContextOverlay: View {
                             })
                     }
                 }
-                .mtMenuPart("reactions")
+                .mtMenuPart("reactions") }
 
                 // The letter whole, at its own height. The author's word: a bubble is not cut into
                 // a window of its own — the whole picture travels together, reactions and actions

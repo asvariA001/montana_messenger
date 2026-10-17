@@ -65,9 +65,31 @@ struct MTGroupState: Codable, Equatable {
     /// THE OWNER'S POSTS GO WITHOUT SOUND (the reference's «Silent Broadcast», the bell in a channel's field): this phone's own choice
     /// for its channel, never on the wire as a setting -- each post says it (MTGroupWord.sl).
     var silent: Bool? = nil
+    /// THE CHANNEL SIGNS ITS POSTS (the reference's «Sign Messages»): the owner's choice, carried to every subscriber in its invitation
+    /// (MTGroupWord.sg); each post then wears its writer's name in its stamp.
+    var signs: Bool? = nil
+    /// THE CHANNEL TAKES NO REACTIONS (the reference's «Allow Reactions» off): false -- its owner turned them off; carried to every
+    /// subscriber in its invitation (MTGroupWord.rx). Absent -- every reaction is taken.
+    var reacts: Bool? = nil
+    /// THE PEOPLE ITS OWNER TOOK OUT OF A CHANNEL (the reference's «Removed Users»): they cannot come back by the invite link until the
+    /// owner lets them, or adds them again. The owner's phone alone keeps them; nothing of it rides the wire.
+    var banned: [MTGroupMember]? = nil
+    /// WHAT WAS DONE IN A CHANNEL (the reference's «Recent Actions»): the owner's phone writes each deed as it does it, by the names it
+    /// knew then, and shows the last two days. Never on the wire.
+    var acts: [MTChannelAct]? = nil
     var mine: Bool { owner.isEmpty }
     var canManage: Bool { mine && left != true }
-    var canWrite: Bool { left != true && (kind == .group || mine) }
+    /// A group's every person writes; a channel's owner and the administrators it named post (the reference's «Post Messages»).
+    var canWrite: Bool { left != true && (kind == .group || mine || admins?.contains(me) == true) }
+}
+
+/// One deed of a channel, as its owner's phone wrote it (MTGroupState.acts): what, about whom by the names known then, when.
+struct MTChannelAct: Codable, Equatable {
+    /// invited, joined, removed, left, title, about, photo, promoted, demoted, signOn, signOff, reactOn, reactOff
+    var e: String
+    var p: [String]? = nil
+    var t: String? = nil
+    var at: Double
 }
 
 /// A copy of a group's word on its way to one receiver. The queue knows the copy by its own name; the group knows by this record
@@ -119,6 +141,10 @@ struct MTGroupWord: Codable {
     /// 1 on a channel's post sent without sound (the reference's «Silent Broadcast»): it rides silent and rings nothing where it lands.
     /// A build that does not read it skips the key; the push is silent there too.
     var sl: Int? = nil
+    /// 1 on a channel's «inv»: its posts are signed (Sign Messages). A build that does not read it skips the key.
+    var sg: Int? = nil
+    /// 0 on a channel's «inv»: its posts take no reactions (Allow Reactions off). A build that does not read it skips the key.
+    var rx: Int? = nil
 }
 
 /// A GROUP'S EVENT, A ROW IN THE MIDDLE OF ITS FEED (stage R, the reference folder's service rows: «X created the group»,
@@ -620,21 +646,85 @@ final class MTGroup {
         saveGroups()
         MontanaTrace.mark("channel_silent", on ? "on" : "off")
     }
+    /// [I-14]: the deeds a channel's owner keeps for its Recent Actions.
+    static let actsKept = 100
+    /// A DEED OF A CHANNEL, WRITTEN ON ITS OWNER'S PHONE (MTGroupState.acts): a group keeps its events in its feed instead.
+    private func act(_ g: inout MTGroupState, _ e: String, p: [String]? = nil, t: String? = nil) {
+        guard g.kind == .channel, g.mine else { return }
+        var list = g.acts ?? []
+        list.append(MTChannelAct(e: e, p: p, t: t, at: Date().timeIntervalSince1970))
+        if Self.actsKept < list.count { list.removeFirst(list.count - Self.actsKept) }
+        g.acts = list
+    }
+    /// The name a seat of a group is known by on this phone, as the page lists it.
+    func seatName(_ g: MTGroupState, _ seat: String) -> String {
+        if let m = g.members.first(where: { m in m.seat == seat }) { return shownName(pipe: m.pipe, said: g.names[seat]) }
+        if let b = g.banned?.first(where: { b in b.seat == seat }) { return shownName(pipe: b.pipe, said: g.names[seat]) }
+        return shownName(pipe: nil, said: g.names[seat])
+    }
+    /// THE OWNER LETS A REMOVED PERSON BACK BY THE LINK (the reference's «Removed Users», Delete): they are no longer kept out.
+    @MainActor
+    func unban(_ key: String, seat: String) {
+        guard var g = state(key), g.canManage, g.banned?.contains(where: { b in b.seat == seat }) == true else { return }
+        g.banned = g.banned?.filter { b in b.seat != seat }.nilIfEmpty
+        groups[g.id] = g
+        saveGroups()
+        MontanaTrace.mark("channel_banned", "let back")
+    }
+    /// The people its owner took out of a channel, by the names they were known by, for its Removed Users.
+    func bannedPeople(_ key: String) -> [(seat: String, name: String, pipe: String)] {
+        guard let g = state(key) else { return [] }
+        return (g.banned ?? []).map { b in (b.seat, seatName(g, b.seat), b.pipe) }
+    }
+    /// Whether a channel's posts take reactions (Allow Reactions): on unless its owner turned them off.
+    func reactionsOn(_ key: String) -> Bool { state(key)?.reacts != false }
+    /// THE OWNER ALLOWS REACTIONS OR TURNS THEM OFF: every subscriber hears it by the invitation's word again.
+    @MainActor
+    func setReactions(_ key: String, on: Bool) {
+        guard var g = state(key), g.canManage, g.kind == .channel else { return }
+        g.reacts = on ? nil : false
+        act(&g, on ? "reactOn" : "reactOff")
+        groups[g.id] = g
+        saveGroups()
+        tellAll(g, face: nil)
+        MontanaTrace.mark("channel_reactions", on ? "on" : "off")
+    }
+    /// THE OWNER SIGNS THE CHANNEL'S POSTS OR STOPS (Sign Messages): every subscriber hears it by the invitation's word again.
+    @MainActor
+    func setSigns(_ key: String, on: Bool) {
+        guard var g = state(key), g.canManage, g.kind == .channel else { return }
+        g.signs = on ? true : nil
+        act(&g, on ? "signOn" : "signOff")
+        groups[g.id] = g
+        saveGroups()
+        tellAll(g, face: nil)
+        MontanaTrace.mark("channel_signs", on ? "on" : "off")
+    }
+    /// The name a signed channel's post wears in its stamp: its writer's -- this phone's own name on its own posts, the speaker's
+    /// on another's. Nil where the channel does not sign.
+    func signature(_ m: Message, in key: String) -> String? {
+        guard let g = state(key), g.kind == .channel, g.signs == true else { return nil }
+        if m.isFromMe { let me = Self.clean(E2E.myDisplayName(), Self.nameLimit); return me.isEmpty ? nil : me }
+        guard let ref = m.senderRef, Self.isSpeaker(ref) else { return nil }
+        let name = speakerName(ref)
+        return name == Self.memberWord ? nil : name
+    }
     /// Whether a seat is an administrator the owner of a carried group named.
     func isAdmin(_ key: String, seat: String) -> Bool { state(key)?.admins?.contains(seat) == true }
     /// Whether this phone moderates the group: its owner, an administrator the owner named, or -- in an organisation's chat -- an
     /// administrator of the core. A moderator takes another's letter away for everyone.
     func moderates(_ key: String) -> Bool {
-        guard let g = state(key), g.left != true, g.kind == .group else { return false }
+        guard let g = state(key), g.left != true else { return false }   // a channel's administrators delete posts too (the reference's)
         return g.mine || g.admins?.contains(g.me) == true
     }
     /// THE OWNER NAMES OR DISMISSES AN ADMINISTRATOR: every member hears the list by the invitation's word again.
     @MainActor
     func setAdmin(_ key: String, seat: String, on: Bool, store: ChatStore) {
-        guard var g = state(key), g.canManage, g.kind == .group, g.members.contains(where: { $0.seat == seat }) else { return }
+        guard var g = state(key), g.canManage, g.members.contains(where: { $0.seat == seat }) else { return }   // a group's or a channel's
         var list = Set(g.admins ?? [])
         if on { list.insert(seat) } else { list.remove(seat) }
         g.admins = Array(list).sorted().nilIfEmpty
+        act(&g, on ? "promoted" : "demoted", p: [seatName(g, seat)])
         groups[g.id] = g
         saveGroups()
         tellAll(g, face: nil)
@@ -866,7 +956,7 @@ final class MTGroup {
         guard g.mine, g.kind == .channel, g.left != true, let tx = w.tx, tx.utf8.count <= 16_384,
               let m = g.members.first(where: { MTSamePair.root($0.pipe) == from }) else { return .refused }
         let key = Self.key(of: g.id)
-        let posts = Set((store.messages[key] ?? []).filter { $0.isFromMe }.map(\.mid))
+        let posts = Set((store.messages[key] ?? []).filter { m in MTGroupEvent.of(m.text) == nil }.map(\.mid))   // the owner's posts and its administrators'
         let letters = tx.split(separator: ",").prefix(Self.viewsBatch).map(String.init)
             .filter { Self.isLetterName($0) && posts.contains("mid:" + $0) }
         MTChannelViews.shared.saw(letters, by: m.seat, in: key)
@@ -956,6 +1046,11 @@ final class MTGroup {
               let mark = w.tx, let held = g.invite, mark == held else { return .refused }
         let from = MTSamePair.root(pipe)
         if g.members.contains(where: { MTSamePair.root($0.pipe) == from }) { return .held }   // already in: nothing more
+        // ONE THE OWNER TOOK OUT DOES NOT COME BACK BY THE LINK (the reference's «Removed Users»): the owner lets them, or adds them
+        if g.banned?.contains(where: { MTSamePair.root($0.pipe) == from }) == true {
+            MontanaTrace.mark("group_link", "a removed person asked by the link -- refused")
+            return .refused
+        }
         add(Self.key(of: g.id), people: [Chat(name: from, lastMessage: "", time: "", unread: 0, status: "", convId: from)],
             viaLink: true, store: store)
         MontanaTrace.mark("group_link", "joined by the link")
@@ -1137,6 +1232,9 @@ final class MTGroup {
         let described = words.map { $0 != g.about } ?? false
         guard !name.isEmpty, name != g.title || face != nil || described else { return }
         let renamed = name != g.title
+        if renamed { act(&g, "title", t: name) }
+        if described { act(&g, "about") }
+        if face != nil { act(&g, "photo") }
         g.title = name
         if let words { g.about = words }
         if face != nil, let faceFile { g.face = faceFile }   // the group owns its face (stand)
@@ -1170,6 +1268,9 @@ final class MTGroup {
         guard !fresh.isEmpty else { return }
         g.members += fresh
         g.count = g.members.count + 1
+        // one taken out and added again by the owner's own hand is let back (the reference's «Add To Channel»)
+        g.banned = g.banned?.filter { b in !fresh.contains { f in f.pipe == MTSamePair.root(b.pipe) } }.nilIfEmpty
+        act(&g, viaLink ? "joined" : "invited", p: fresh.map { f in seatName(g, f.seat) })
         groups[g.id] = g
         saveGroups()
         let face = store.storedChats().first(where: { $0.id == key })?.photoURL.flatMap { try? Data(contentsOf: avatarsDirURL().appendingPathComponent($0)) }
@@ -1205,6 +1306,10 @@ final class MTGroup {
     @MainActor
     func remove(_ key: String, seat: String, by actor: String = MTGroup.ownerSeat, store: ChatStore) {
         guard var g = state(key), g.canManage, let m = g.members.first(where: { $0.seat == seat }) else { return }
+        if g.kind == .channel {
+            g.banned = Array(((g.banned ?? []).filter { b in b.seat != seat } + [m]).suffix(Self.peopleLimit))
+        }
+        act(&g, "removed", p: [seatName(g, seat)])
         g.members.removeAll { $0.seat == seat }
         g.admins = g.admins?.filter { $0 != seat }.nilIfEmpty   // a person taken out is nobody's administrator
         g.count = g.members.count + 1
@@ -1242,6 +1347,8 @@ final class MTGroup {
             var w = MTGroupWord(t: "inv", g: g.id, k: g.kind.rawValue, ti: g.title, ds: g.about.isEmpty ? nil : g.about, fc: fc,
                                 c: g.count, me: m.seat, n: me.isEmpty ? nil : me)
             w.ad = g.admins   // the administrators the owner named (stage R.6)
+            w.sg = g.kind == .channel && g.signs == true ? 1 : nil   // a channel signs its posts (Sign Messages)
+            w.rx = g.kind == .channel && g.reacts == false ? 0 : nil   // a channel takes no reactions (Allow Reactions off)
             _ = carry(w, to: m.pipe, letter: "", own: false)
         }
     }
@@ -1382,6 +1489,8 @@ final class MTGroup {
             g.me = seat
             if !ownerName.isEmpty { g.names[Self.ownerSeat] = ownerName }
             g.admins = w.ad.map { $0.filter(Self.isSeat) }.flatMap { $0.isEmpty ? nil : $0 }   // the owner's word alone names them
+            g.signs = w.sg == 1 ? true : nil
+            g.reacts = w.rx == 0 ? false : nil
             let tag = w.fc.map { String($0.count) + "-" + String($0.suffix(16)) }
             let newFace = tag != nil && tag != g.faceTag
             if newFace { g.faceTag = tag }
@@ -1398,6 +1507,8 @@ final class MTGroup {
                              members: [], count: count, names: ownerName.isEmpty ? [:] : [Self.ownerSeat: ownerName],
                              at: Date().timeIntervalSince1970)
         g.admins = w.ad.map { $0.filter(Self.isSeat) }.flatMap { $0.isEmpty ? nil : $0 }
+        g.signs = w.sg == 1 ? true : nil
+        g.reacts = w.rx == 0 ? false : nil
         g.faceTag = w.fc.map { String($0.count) + "-" + String($0.suffix(16)) }
         groups[w.g] = g
         saveGroups()
@@ -1421,7 +1532,9 @@ final class MTGroup {
         let seat: String
         if g.mine {
             guard let m = g.members.first(where: { MTSamePair.root($0.pipe) == from }) else { return .refused }
-            guard g.kind == .group else {
+            // A CHANNEL CARRIES ITS ADMINISTRATORS' POSTS (the reference's «Post Messages» right): the owner named them; anyone else
+            // only reads.
+            guard g.kind == .group || g.admins?.contains(m.seat) == true else {
                 MontanaTrace.mark("group_refused", "a member's letter in a channel is not carried")
                 return .refused
             }
@@ -1484,6 +1597,10 @@ final class MTGroup {
             seat = s
         }
         guard !answersHeard.contains(id) else { return .held }
+        // A CHANNEL WHOSE OWNER TURNED REACTIONS OFF TAKES NONE (the reference's «Allow Reactions»): a subscriber's reaction ends here
+        if words.hasPrefix(reactionMark), g.kind == .channel, g.reacts == false, seat != Self.ownerSeat, g.admins?.contains(seat) != true {
+            return .refused
+        }
         let key = Self.key(of: g.id)
         if words.hasPrefix(pinMark), !Self.pins(g, seat: seat) {
             MontanaTrace.mark("group_refused", "a pin by a seat without the right seat=\(seat)")
@@ -1614,6 +1731,7 @@ final class MTGroup {
         guard var g = groups[w.g] else { return .refused }
         let from = MTSamePair.root(pipe)
         guard g.mine, let m = g.members.first(where: { MTSamePair.root($0.pipe) == from }) else { return .refused }
+        act(&g, "left", p: [seatName(g, m.seat)])
         g.members.removeAll { $0.seat == m.seat }
         g.admins = g.admins?.filter { $0 != m.seat }.nilIfEmpty
         g.count = g.members.count + 1

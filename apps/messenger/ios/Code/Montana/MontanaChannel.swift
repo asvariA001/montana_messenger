@@ -191,6 +191,8 @@ struct MTChannelPostLook: Hashable {
     var tint: Color
     /// How many people saw the post, as its owner counted them (MTChannelViews).
     var views: Int
+    /// Its writer's name, before the time, where the channel signs its posts (the reference's «Sign Messages»).
+    var signature: String? = nil
     /// The reference's short count: «999», «1.2K», «3M» -- the tenth shown only where it is not a zero.
     static func count(_ n: Int) -> String {
         let dot = Locale.current.decimalSeparator ?? "."
@@ -613,6 +615,232 @@ struct MTChannelInviteLinksPage: View {
                 MTGroup.shared.resetInvite(chat)
                 link = MTGroup.shared.inviteLink(chat)
             }
+        }
+    }
+}
+
+/// THE CHANNEL'S ADMINISTRATORS (the reference's «Administrators» page of a channel): «CHANNEL ADMINS» -- the owner first, then every
+/// administrator it named, a swipe or a hold to dismiss one -- «Add Admin» from the channel's subscribers, and «Sign Messages». An
+/// administrator posts into the channel and takes a post away (MTGroup: the owner carries their posts on, MTGroup.answered takes
+/// their deletions); the owner alone names them, by its invitation's word, so every phone reads the same list.
+struct MTChannelAdminsPage: View {
+    @EnvironmentObject private var store: ChatStore
+    let key: String
+    @State private var picking = false
+    @State private var tick = 0   // the owner's choice moved: the page reads the channel again
+
+    private struct Person: Identifiable { let seat: String; let name: String; var id: String { seat } }
+
+    var body: some View {
+        let _ = tick
+        let g = MTGroup.shared.state(key)
+        let gid = g?.id ?? ""
+        let owns = g?.canManage == true
+        let admins = Set(g?.admins ?? [])
+        let people = MTGroup.shared.pagePeople(key).map { Person(seat: $0.seat, name: $0.name) }
+        let ownerName = g?.mine == true ? String(localized: "You", bundle: MTLanguage.bundle)
+            : (people.first { $0.seat == MTGroup.ownerSeat }?.name ?? MTGroup.memberWord)
+        List {
+            Section {
+                HStack(spacing: 12) {
+                    MTSpeakerFace(ref: MTGroup.speaker(gid, MTGroup.ownerSeat), name: ownerName, side: 40)
+                    Text(verbatim: ownerName).foregroundColor(.primary).lineLimit(1)   // USER-DATA: the owner's name
+                    Spacer(minLength: 0)
+                    Text("Owner").font(.subheadline).foregroundColor(.secondary)
+                }
+                .frame(minHeight: montanaTouchTarget)
+                ForEach(people.filter { admins.contains($0.seat) }) { p in
+                    HStack(spacing: 12) {
+                        MTSpeakerFace(ref: MTGroup.speaker(gid, p.seat), name: p.name, side: 40)
+                        Text(verbatim: p.name).foregroundColor(.primary).lineLimit(1)   // USER-DATA: an administrator's name
+                        Spacer(minLength: 0)
+                        Text("Admin").font(.subheadline).foregroundColor(.secondary)
+                    }
+                    .frame(minHeight: montanaTouchTarget)
+                    .contentShape(Rectangle())
+                    .swipeActions(edge: .trailing) {
+                        if owns { Button(role: .destructive) { set(p.seat, on: false) } label: { Text("Dismiss Admin") } }
+                    }
+                    .contextMenu {
+                        if owns { Button(role: .destructive) { set(p.seat, on: false) } label: { Label("Dismiss Admin", systemImage: "person.badge.minus") } }
+                    }
+                }
+                if owns {
+                    Button { picking = true } label: {
+                        Label("Add Admin", systemImage: "person.badge.plus")
+                            .frame(maxWidth: .infinity, minHeight: montanaTouchTarget, alignment: .leading).contentShape(Rectangle())
+                    }
+                }
+            } header: {
+                Text("CHANNEL ADMINS")
+            } footer: {
+                Text("You can add admins to help you manage your channel.")
+            }
+            .listRowBackground(MTGlassRowPlate())
+            if owns {
+                Section {
+                    Toggle(isOn: Binding(get: { g?.signs == true }, set: { on in MTGroup.shared.setSigns(key, on: on); tick += 1 })) {
+                        Text("Sign Messages")
+                    }
+                    .frame(minHeight: montanaTouchTarget)
+                } footer: {
+                    Text("Add names of the admins to the messages they post.")
+                }
+                .listRowBackground(MTGlassRowPlate())
+            }
+        }
+        .scrollContentBackground(.hidden).montanaPageGround()
+        .navigationTitle("Administrators").navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $picking) {
+            NavigationStack {
+                List {
+                    ForEach(people.filter { !admins.contains($0.seat) && $0.seat != MTGroup.ownerSeat }) { p in
+                        Button { set(p.seat, on: true); picking = false } label: {
+                            HStack(spacing: 12) {
+                                MTSpeakerFace(ref: MTGroup.speaker(gid, p.seat), name: p.name, side: 40)
+                                Text(verbatim: p.name).foregroundColor(.primary).lineLimit(1)   // USER-DATA: a subscriber's name
+                                Spacer(minLength: 0)
+                            }
+                            .frame(minHeight: montanaTouchTarget).contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .listRowBackground(MTGlassRowPlate())
+                }
+                .scrollContentBackground(.hidden).montanaPageGround()
+                .navigationTitle("Add Admin").navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .cancellationAction) { MontanaCloseMark { picking = false } } }
+            }
+            .environmentObject(store)
+        }
+    }
+
+    private func set(_ seat: String, on: Bool) {
+        MTGroup.shared.setAdmin(key, seat: seat, on: on, store: store)
+        tick += 1
+    }
+}
+
+/// THE CHANNEL'S REACTIONS (the reference's «Reactions» page of a channel): «Allow Reactions» and its caption. Off, the post's menu on
+/// every subscriber's phone stands without its strip, and the owner takes no subscriber's reaction (MTGroup.answered).
+struct MTChannelReactionsPage: View {
+    let key: String
+    @State private var on = true
+    var body: some View {
+        List {
+            Section {
+                Toggle(isOn: Binding(get: { on }, set: { v in on = v; MTGroup.shared.setReactions(key, on: v) })) {
+                    Text("Allow Reactions")
+                }
+                .frame(minHeight: montanaTouchTarget)
+            } footer: {
+                Text("Allow subscribers to react to channel posts.")
+            }
+            .listRowBackground(MTGlassRowPlate())
+        }
+        .scrollContentBackground(.hidden).montanaPageGround()
+        .navigationTitle("Reactions").navigationBarTitleDisplayMode(.inline)
+        .onAppear { on = MTGroup.shared.reactionsOn(key) }
+    }
+}
+
+/// THE CHANNEL'S REMOVED USERS (the reference's page): every person its owner took out, who cannot come back by the invite link; a
+/// swipe lets one back («Delete»), a hold adds one again («Add to Channel»).
+struct MTChannelRemovedPage: View {
+    @EnvironmentObject private var store: ChatStore
+    let key: String
+    @State private var tick = 0
+    private struct Person: Identifiable { let seat: String; let name: String; let pipe: String; var id: String { seat } }
+    var body: some View {
+        let _ = tick
+        let gid = MTGroup.id(of: key) ?? ""
+        let people = MTGroup.shared.bannedPeople(key).map { Person(seat: $0.seat, name: $0.name, pipe: $0.pipe) }
+        List {
+            Section {
+                ForEach(people) { p in
+                    HStack(spacing: 12) {
+                        MTSpeakerFace(ref: MTGroup.speaker(gid, p.seat), name: p.name, side: 40)
+                        Text(verbatim: p.name).foregroundColor(.primary).lineLimit(1)   // USER-DATA: a removed person's name
+                        Spacer(minLength: 0)
+                    }
+                    .frame(minHeight: montanaTouchTarget)
+                    .contentShape(Rectangle())
+                    .swipeActions(edge: .trailing) {
+                        Button(role: .destructive) { MTGroup.shared.unban(key, seat: p.seat); tick += 1 } label: { Text("Delete") }
+                    }
+                    .contextMenu {
+                        Button {
+                            MTGroup.shared.add(key, people: [Chat(name: p.pipe, lastMessage: "", time: "", unread: 0, status: "", convId: p.pipe)],
+                                               store: store)
+                            tick += 1
+                        } label: { Label("Add to Channel", systemImage: "person.badge.plus") }
+                        Button(role: .destructive) { MTGroup.shared.unban(key, seat: p.seat); tick += 1 } label: { Label("Delete", systemImage: "trash") }
+                    }
+                }
+            } header: {
+                Text("REMOVED USERS")
+            } footer: {
+                Text("Users removed from the channel by admins cannot rejoin it via invite links.")
+            }
+            .listRowBackground(MTGlassRowPlate())
+        }
+        .scrollContentBackground(.hidden).montanaPageGround()
+        .navigationTitle("Removed Users").navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+/// THE CHANNEL'S RECENT ACTIONS (the reference's event log of a channel): the deeds of the last two days, the newest first, each a
+/// sentence by the names known when it was done, and its moment. Its owner's phone writes them (MTGroupState.acts).
+struct MTChannelActionsPage: View {
+    let key: String
+    static let span: Double = 48 * 3600
+    var body: some View {
+        let now = Date().timeIntervalSince1970
+        let acts = (MTGroup.shared.state(key)?.acts ?? []).filter { a in now - a.at < Self.span }.reversed()
+        List {
+            if acts.isEmpty {
+                VStack(spacing: 8) {
+                    Text("No actions here yet").font(.headline)
+                    Text("No service actions were taken by the channel's subscribers and admins in the last 48 hours.")
+                        .font(.subheadline).foregroundColor(.secondary).multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity).padding(.vertical, 36)
+                .listRowBackground(Color.clear)
+            } else {
+                Section {
+                    ForEach(Array(acts.enumerated()), id: \.offset) { _, a in
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(verbatim: Self.words(a)).foregroundColor(.primary)   // USER-DATA: the people's names inside the catalogue's sentence
+                            Text(verbatim: Date(timeIntervalSince1970: a.at).formatted(date: .abbreviated, time: .shortened))   // USER-DATA: the deed's moment
+                                .font(.caption).foregroundColor(.secondary)
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+                .listRowBackground(MTGlassRowPlate())
+            }
+        }
+        .scrollContentBackground(.hidden).montanaPageGround()
+        .navigationTitle("Recent Actions").navigationBarTitleDisplayMode(.inline)
+    }
+    /// The deed in the reference's words, its doer this phone's owner.
+    static func words(_ a: MTChannelAct) -> String {
+        let names = (a.p ?? []).joined(separator: ", ")
+        let b = MTLanguage.bundle
+        switch a.e {
+        case "invited": return String(localized: "You added \(names)", bundle: b)
+        case "joined": return String(localized: "\(names) joined via invite link", bundle: b)
+        case "removed": return String(localized: "You removed \(names)", bundle: b)
+        case "left": return String(localized: "\(names) left the channel", bundle: b)
+        case "title": return String(localized: "You changed the channel name to \"\(a.t ?? "")\"", bundle: b)
+        case "about": return String(localized: "You edited channel description", bundle: b)
+        case "photo": return String(localized: "You changed the channel photo", bundle: b)
+        case "promoted": return String(localized: "You promoted \(names)", bundle: b)
+        case "demoted": return String(localized: "You demoted \(names)", bundle: b)
+        case "signOn": return String(localized: "You enabled signatures", bundle: b)
+        case "signOff": return String(localized: "You disabled signatures", bundle: b)
+        case "reactOn": return String(localized: "You enabled all reactions", bundle: b)
+        default: return String(localized: "You disabled reactions", bundle: b)
         }
     }
 }
