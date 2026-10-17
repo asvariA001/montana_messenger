@@ -619,7 +619,10 @@ struct MTCoinMovePage: View {
     struct Month: Identifiable { let id: Date; let spending: Int; let income: Int; let shares: [Share] }
     struct Fold { let days: [Day]; let months: [Month]; let whole: Month; let byPeer: [String: [Line]]; let moves: Int }
     /// What a fold needs of the screen's world, read on the screen's thread once: the people's names, the channels, the sources' words.
-    struct Ask { let names: [String: String]; let channels: Set<String>; let words: [String: String]; let minted: String; let mintedDay: String; let calendar: Calendar }
+    struct Ask {
+        let names: [String: String]; let channels: Set<String>; let words: [String: String]; let minted: String; let mintedDay: String
+        let burnedDay: String; let spentDay: String; let calendar: Calendar
+    }
     @Published private(set) var fold: Fold?
     private var watchers = 0
     private var bag: AnyCancellable?
@@ -650,6 +653,8 @@ struct MTCoinMovePage: View {
                       words: Dictionary(MTTimeChain.sources.map { s in (s, MTTimeChainRows.name(s)) }, uniquingKeysWith: { a, _ in a }),
                       minted: String(localized: "Minted", bundle: MTLanguage.bundle),
                       mintedDay: String(localized: "Minting of the day", bundle: MTLanguage.bundle),
+                      burnedDay: String(localized: "Burning of the day", bundle: MTLanguage.bundle),
+                      spentDay: String(localized: "Spending of the day", bundle: MTLanguage.bundle),
                       calendar: Calendar.current)
         let started = Date()
         Task.detached(priority: .userInitiated) {
@@ -672,9 +677,18 @@ struct MTCoinMovePage: View {
         case .burn: return "flame"
         }
     }
-    /// Every move of the book folded once: the lines day after day, a day's minting one line of it, the months' and the whole's sums by
-    /// source, and the transfers with each person. The days are found by the interval of the day the moment before fell in (and a
-    /// quarter-hour's memory of the days asked), never by a calendar's question for every move.
+    /// A DAY'S SMALL EXPENSES FOLD AS ITS MINTING DOES (the author's word 17.10.2026 13:46 MSK: «and in the history group the small
+    /// expenses, such as the burning for likes, comments and the other small ones, as a day's, the same as with the minting»): a burn or
+    /// a spend of no more coins than a second of life mints at most (MTCoinBook.limit) -- a coin on a letter or a post, a comment's coin,
+    /// a letter's burn of the builds before, a small move of a game. A transfer to a person, a call's seconds and a larger expense stay
+    /// lines of their own.
+    nonisolated static func small(_ e: MTCoinEntry, _ source: String) -> Bool {
+        (e.k == .spend || e.k == .burn) && source != "calls" && e.c <= MTCoinBook.limit
+    }
+    /// Every move of the book folded once: the lines day after day, a day's minting one line of it, a day's small expenses one line of
+    /// each source and kind, the months' and the whole's sums by source, and the transfers with each person. The days are found by the
+    /// interval of the day the moment before fell in (and a quarter-hour's memory of the days asked), never by a calendar's question for
+    /// every move.
     nonisolated static func fold(_ moves: [MTCoinEntry], _ ask: Ask) -> Fold {
         let cal = ask.calendar
         var low = 0.0, high = -1.0, current = Date.distantPast
@@ -707,6 +721,8 @@ struct MTCoinMovePage: View {
         var byMonth: [Date: Agg] = [:], whole = Agg()
         var byDay: [Date: [Line]] = [:]
         var minted: [Date: (sum: Int, count: Int, at: Double)] = [:]
+        struct Small: Hashable { let day: Date; let source: String; let kind: MTCoinEntry.Kind }
+        var smalls: [Small: (sum: Int, count: Int, at: Double)] = [:]
         var byPeer: [String: [Line]] = [:]
         for e in moves {
             let day = dayOf(e.at)
@@ -719,6 +735,13 @@ struct MTCoinMovePage: View {
                 minted[day] = (MTCoinCounts.plus(had.sum, e.c), had.count + 1, max(had.at, e.at))
                 continue
             }
+            if small(e, source) {
+                // Only the line folds: the months' and the whole's sums took the move above, one by one.
+                let key = Small(day: day, source: source, kind: e.k)
+                let had = smalls[key] ?? (0, 0, 0)
+                smalls[key] = (MTCoinCounts.plus(had.sum, e.c), had.count + 1, max(had.at, e.at))
+                continue
+            }
             let who = e.peer.map { p in ask.names[p] ?? String(p.prefix(10)) } ?? name
             let tx = e.ref.hasPrefix(MTCoinTx.refPrefix) ? String(e.ref.dropFirst(MTCoinTx.refPrefix.count)) : nil
             let line = Line(id: e.id, at: e.at, signed: e.signed, title: who, category: name, glyph: glyph(e.k), source: source, ref: e.ref,
@@ -729,6 +752,12 @@ struct MTCoinMovePage: View {
         for (day, m) in minted {
             byDay[day, default: []].append(Line(id: "minted:" + String(Int(day.timeIntervalSince1970)), at: m.at, signed: m.sum, title: ask.minted,
                                                 category: ask.mintedDay, glyph: "sparkles", source: "mint", ref: "", peer: nil, tx: nil, count: m.count))
+        }
+        for (k, m) in smalls {
+            byDay[k.day, default: []].append(Line(id: "small:" + k.kind.rawValue + ":" + k.source + ":" + String(Int(k.day.timeIntervalSince1970)),
+                                                  at: m.at, signed: -m.sum, title: ask.words[k.source] ?? k.source,
+                                                  category: k.kind == .burn ? ask.burnedDay : ask.spentDay, glyph: glyph(k.kind), source: k.source,
+                                                  ref: "", peer: nil, tx: nil, count: m.count))
         }
         let days = byDay.map { d, lines in
             let sorted = lines.sorted { a, b in b.at < a.at }

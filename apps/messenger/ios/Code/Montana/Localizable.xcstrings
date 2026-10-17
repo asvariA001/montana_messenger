@@ -24684,6 +24684,38 @@
         }
       }
     },
+    "Burning of the day": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сжигание за сутки"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当日燃烧"
+          }
+        }
+      }
+    },
+    "Spending of the day": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Расходы за сутки"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当日支出"
+          }
+        }
+      }
+    },
     "Category": {
       "localizations": {
         "ru": {
