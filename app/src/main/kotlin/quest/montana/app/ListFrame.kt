@@ -179,7 +179,7 @@ class ListFrame private constructor(private val host: FrameLayout, private val l
             val hx = e.rawX - hostX(); val hy = e.rawY - hostY()
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    if (!number.standing) return false
+                    if (!number.standing || !number.plateHas(hx, hy)) return false
                     downX = hx; downY = hy; downAt = SystemClock.uptimeMillis(); forward = false
                     number.postDelayed(take, 120)
                 }
@@ -254,7 +254,9 @@ private class ToTop(c: Context, onTap: () -> Unit) : FrameLayout(c) {
  * never while held. Taken, it grows 1.35 times and steps 60 aside from the finger.
  */
 private class RowNumber(c: Context) : FrameLayout(c) {
-    companion object { const val HEIGHT = 28; const val GAP = 14; const val LIFT = 60 }
+    /** ROOM_X / ROOM_Y: the frame's room left of and around the plate -- the page clips its children to their frames, so the
+     *  step aside and the growth must happen inside this one (439/440 lost the taken plate behind its own frame's edge). */
+    companion object { const val HEIGHT = 28; const val GAP = 14; const val LIFT = 60; const val ROOM_X = LIFT + 16; const val ROOM_Y = 8 }
     private val label = TextView(c).apply {
         background = c.glassPlate()
         setTextColor(android.graphics.Color.WHITE)
@@ -271,8 +273,13 @@ private class RowNumber(c: Context) : FrameLayout(c) {
     val standing get() = on && 0.01f < alpha
     init {
         clipChildren = false
-        addView(label, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        addView(label, LayoutParams(c.dp(HEIGHT), c.dp(HEIGHT), Gravity.END or Gravity.CENTER_VERTICAL))
         alpha = 0f; visibility = INVISIBLE
+    }
+    /** The plate's resting place holds the host's point: only there the finger takes it; the frame's room is the list's. */
+    fun plateHas(hx: Float, hy: Float): Boolean {
+        val w = label.width.toFloat(); val top = y + context.dp(ROOM_Y)
+        return x + width - w <= hx && hx <= x + width && top <= hy && hy <= top + context.dp(HEIGHT)
     }
     /** The number `n`, its right edge at `edge`, its middle at `centerY` (the host's pixels); true when it was not standing.
      *  The frame stands still at its place; the plate inside carries the slide, the growth and the step aside. */
@@ -281,8 +288,10 @@ private class RowNumber(c: Context) : FrameLayout(c) {
         if (n != shown) { shown = n; label.text = n.toString() }   // USER-DATA: the row's place in the list, digits
         label.measure(MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED), MeasureSpec.makeMeasureSpec(h, MeasureSpec.EXACTLY))
         val w = maxOf(label.measuredWidth, h)
-        if (layoutParams.width != w) { layoutParams = layoutParams.apply { width = w } }
-        x = edge - w; y = centerY - h / 2f
+        if (label.layoutParams.width != w) { label.layoutParams = label.layoutParams.apply { width = w } }
+        val fw = w + context.dp(ROOM_X); val fh = h + 2 * context.dp(ROOM_Y)
+        if (layoutParams.width != fw || layoutParams.height != fh) { layoutParams = layoutParams.apply { width = fw; height = fh } }
+        x = edge - fw; y = centerY - fh / 2f
         if (!held) linger()
         if (on) return false
         on = true
