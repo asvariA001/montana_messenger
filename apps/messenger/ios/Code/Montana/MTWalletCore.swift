@@ -2024,6 +2024,13 @@ enum MTTimeChain {
         guard !over else { return }
         let minted = MTCoinBook.ledger.mintInWindow(coins, prefix: Self.awayPrefix, seconds: Int(gone), byLevel: false)
         MontanaTrace.mark("person_away", "seconds=\(gone) level=\(w.level) minted=\(minted)")
+        // the pay for the seconds away goes to the chain at once, not a window later (17.10.2026, P1): the book holds it already,
+        // and a MINT the launch laid a moment before leaves the rest of the key's time to this one (section 4, fold-3)
+        guard 0 < minted else { return }
+        Task { @MainActor in
+            MTCoinTx.mintSoon()
+            await MTCoinTx.reconcile(force: true)
+        }
     }
 
     // MARK: the devices of the words join their seconds: one sealed piece a device, beside the coin book on every node
@@ -3276,7 +3283,7 @@ enum MTCoinChainRules {
     /// A record as the rules read it; a record of the layouts before kinds is a send that names no receiver.
     struct Rec { let id: String; let version: UInt8; let kind: UInt8; let amount: Int64; let from: String; let to: Data; let ref: String; let a: UInt64; let b: UInt64 }
     /// A key's state folded over its chain (section 3).
-    struct St: Equatable { var head = MTCoinChainRules.zero; var height = 0; var birth: Int64 = 0; var mintEnd: Int64 = 0; var proven: Int64 = 0; var declared: Int64 = 0; var v3 = false; var lastAt: Int64 = 0 }
+    struct St: Equatable { var head = MTCoinChainRules.zero; var height = 0; var birth: Int64 = 0; var mintEnd: Int64 = 0; var proven: Int64 = 0; var declared: Int64 = 0; var v3 = false; var lastAt: Int64 = 0; var minted: Int64 = 0 }
     struct SendInfo { let from: String; let amount: Int64; let at: Int64; let to: Data; let dec: Int64 }
     /// A(x) of section 4: what the seconds 1..x of a key's life may mint -- 2 x min(13, max(1, bit_length(s) - 1)) a second.
     nonisolated static func timeA(_ x: Int64) -> Int64 {
@@ -3342,8 +3349,11 @@ enum MTCoinChainRules {
         case .mint?:
             let t0 = Int64(p.a), t1 = Int64(p.b)
             if s.height == 0 || t0 < s.mintEnd || t1 < t0 + 60 || at < t1 { return (nil, false) }
-            if timeA(t1 - s.birth) - timeA(t0 - s.birth) < a { return (nil, false) }
-            n.proven = s.proven + a; n.mintEnd = t1
+            // THE SUM OF TIME (section 4, fold-3): all the key's MINTs together stay under A(t1 - birth), so a MINT below its
+            // interval's seconds leaves the key's time to the next one (17.10.2026, P1: a MINT of 120 laid before the pay for 4.4 days
+            // away had closed those days, and 2 452 406 coins stood in the book and not on the chain)
+            if timeA(t1 - s.birth) - s.minted < a { return (nil, false) }
+            n.proven = s.proven + a; n.mintEnd = t1; n.minted = s.minted + a
         case .send?:
             let dec = Int64(p.a)
             if s.proven + s.declared < a || dec != max(0, a - s.proven) { return (nil, false) }
@@ -3796,7 +3806,7 @@ extension MTCoinTx {
         return r
     }
     /// The state of a key's chain as its node folds it (POST /tx-head), and the node's own second.
-    struct Chain3 { let head: String; let height: Int; let birth: Int64; let mintEnd: Int64; let proven: Int64; let declared: Int64; let v3: Bool; let now: Int64 }
+    struct Chain3 { let head: String; let height: Int; let birth: Int64; let mintEnd: Int64; let proven: Int64; let declared: Int64; let v3: Bool; let now: Int64; let minted: Int64? }
     static func chain3(_ me: String, door: String) async -> Chain3? {
         let h = await ask(door + "/tx-head", ["from": me])
         guard h.code == 200, let o = h.obj, let head = o["head"] as? String, head.count == 64 else { return nil }
@@ -3806,7 +3816,8 @@ extension MTCoinTx {
         }
         let now = n("now")
         return Chain3(head: head, height: Int(n("height")), birth: n("birth"), mintEnd: n("mint_end"), proven: n("proven"),
-                      declared: n("declared"), v3: n("v3") == 1, now: now == 0 ? Int64(Date().timeIntervalSince1970) : now)
+                      declared: n("declared"), v3: n("v3") == 1, now: now == 0 ? Int64(Date().timeIntervalSince1970) : now,
+                      minted: o["minted"] == nil ? nil : n("minted"))
     }
     /// One record of my key laid on my chain's head, the head read back and verified as mine first; a head that moved is asked
     /// again once. (the node's code, its word, the record laid).
@@ -3867,7 +3878,9 @@ extension MTCoinTx {
         guard 0 < gap, st.mintEnd + 60 <= st.now - 120 else { return told(st) }
         let r = await layOnHead { s in
             let t0 = s.mintEnd, t1 = s.now - 120
-            let amount = min(book - s.proven - s.declared, MTCoinChainRules.timeA(t1 - s.birth) - MTCoinChainRules.timeA(t0 - s.birth))
+            // the key's time less what it minted (section 4, fold-3); a node that names no minted still folds by the interval
+            let room = MTCoinChainRules.timeA(t1 - s.birth) - (s.minted ?? MTCoinChainRules.timeA(t0 - s.birth))
+            let amount = min(book - s.proven - s.declared, room)
             guard 0 < amount, t0 + 60 <= t1 else { return nil }
             return build3(.mint, amount: UInt64(amount), prev: s.head, nonce: fresh(), a: UInt64(t0), b: UInt64(t1))
         }
