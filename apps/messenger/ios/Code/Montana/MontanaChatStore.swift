@@ -3143,6 +3143,18 @@ class ChatStore: ObservableObject {
         // Every silent exit leaves a line: «read never came» used to be indistinguishable from
         // «read was never asked for» (08.09, both phones inside the chat, no word).
         guard messages[chat]?.contains(where: { !$0.isFromMe }) == true else { MontanaTrace.mark("read_skip", "why=nothing-of-theirs"); return }
+        // A GROUP'S READ MARK RIDES THE GROUP'S OWN ROAD (MTGroup.tellRead, the checklist's B.13), on the same moment's terms: the chat
+        // on screen, the app active, coalesced -- a group has no pipe of its own to receipt on.
+        if MTGroup.isKey(chat) {
+            readMarkWork?.cancel()
+            let w = DispatchWorkItem { [weak self] in
+                guard let self, self.openConv == chat, MTForeground.active else { return }
+                MainActor.assumeIsolated { MTGroup.shared.tellRead(chat, store: self) }
+            }
+            readMarkWork = w
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: w)
+            return
+        }
         guard MontanaConv.holds(chat) else { MontanaTrace.mark("read_skip", "why=no-conversation"); return }
         guard !blockedChats.contains(chat) else { MontanaTrace.mark("read_skip", "why=blocked"); return }   // a blocked person hears no word of mine
         guard Self.readReceiptsOn else { MontanaTrace.mark("read_skip", "why=receipts-off"); return }
@@ -6361,7 +6373,8 @@ MontanaLocalVault.setEncrypted("scheduledMsgs", d)
         MontanaTrace.mark("pin_rx", "\(op) by=\(sid.isEmpty ? "words" : "name")")
         if op == "pin" {
             pin(chat, m.id)
-            if openConv != chat { MontanaNotify.presentPinned(from: chat, chat: chat, words: MTRowLetter.words(m.text), sid: sid) }
+            // «Only Pin» (a group's pin said with n 0, the reference's choice) pins without a banner
+            if openConv != chat, (obj["n"] as? Int) != 0 { MontanaNotify.presentPinned(from: chat, chat: chat, words: MTRowLetter.words(m.text), sid: sid) }
         } else {
             unpin(chat, m.id)
         }

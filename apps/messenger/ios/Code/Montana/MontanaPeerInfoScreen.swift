@@ -24,6 +24,7 @@ struct MontanaPeerInfoScreen: View {
     @State private var removingSeat: String? = nil    // the owner takes a person out, asked first (MTGroup.remove)
     @State private var addingPeople = false           // the owner adds people from its correspondents (MTGroup.add)
     @State private var confirmDissolve = false        // the owner deletes the group for everyone, asked first (MTGroup.dissolve)
+    @State private var channelPeople = false          // the owner opens the channel's subscribers (MTChannelPeoplePage)
     @State private var confirmClear = false           // a group's «Clear Messages», asked first (MTGroupClearAsk)
     @State private var roomAsk: MTRoomKind?           // the group's call chosen on its page: whom to invite (MTGroupRoom, 07.10)
     @State private var roomAskVideo = false
@@ -201,7 +202,8 @@ struct MontanaPeerInfoScreen: View {
                                  size: 100,
                                  title: state.editing ? nil : MontanaAvatar.spokenName(data.title),
                                  // «N members, M online» under a group's name, as the reference's page says it (MTGroupPage.head)
-                                 subtitle: isGroupPage && !state.editing ? LocalizedStringKey(MTGroupPage.head(chat.name, store: store)) : nil,
+                                 subtitle: isGroupPage && !state.editing ? LocalizedStringKey(MTGroupPage.head(chat.name, store: store))
+                                     : isChannelPage && !state.editing ? LocalizedStringKey(MTChannelPage.head(chat.name)) : nil,   // «N subscribers» (17.10)
                                  subtitleIsActive: data.subtitleIsActive,
                                  note: state.editing ? "" : data.note,
                                  blocked: store.blockedChats.contains(chat.name),
@@ -241,6 +243,7 @@ struct MontanaPeerInfoScreen: View {
         .modifier(MTGroupClearAsk(chat: chat, asked: $confirmClear))
         .sheet(item: $roomAsk) { k in MTRoomInviteSheet(chat: chat.name, kind: k, video: roomAskVideo, opening: true) }
         .sheet(item: $explorer) { link in MTExplorerSheet(url: link.url).ignoresSafeArea() }
+        .navigationDestination(isPresented: $channelPeople) { MTChannelPeoplePage(key: chat.name) }   // a channel's subscribers (17.10)
         .navigationDestination(item: $coinMove) { r in MTCoinMovePage(route: r, peer: data.title) }
     }
 
@@ -257,7 +260,9 @@ struct MontanaPeerInfoScreen: View {
         if data.kind == .group, let about = MTGroup.shared.state(chat.name)?.about, !about.isEmpty {
             out[.about] = [MTInfoRow(id: "group.about", kind: .labeledValue(value: about, caption: "description"))]
         }
-        if data.kind.showsMembers, isGroupPage {
+        if data.kind.showsMembers, isChannelPage {
+            out[.members] = channelRows()
+        } else if data.kind.showsMembers, isGroupPage {
             out[.members] = groupMemberRows()
         } else if data.kind.showsMembers {
             var rows: [MTInfoRow] = [MTInfoRow(id: "members.header", kind: .header("MEMBERS"))]
@@ -383,8 +388,22 @@ struct MontanaPeerInfoScreen: View {
         return out
     }
 
+    /// A CHANNEL'S PAGE (MTChannelPage, the author's words 17.10.2026 18:4x MSK: «channels ... 1 to 1»): its own head, buttons and rows.
+    private var isChannelPage: Bool { MTPeerKind(chat: chat) == .group && MTGroup.shared.kind(chat.name) == .channel }
     /// A group's page, not a channel's: the reference's group page draws it (MTGroupPage), a channel keeps its own road.
     private var isGroupPage: Bool { MTPeerKind(chat: chat) == .group && MTGroup.shared.kind(chat.name) == .group }
+    /// A CHANNEL'S ROWS, AS THE REFERENCE'S CHANNEL PAGE HAS THEM: its owner's «Subscribers» with their number and «Channel Settings»,
+    /// the invite link in the settings, as the reference keeps it; a subscriber sees no people of the channel.
+    private func channelRows() -> [MTInfoRow] {
+        guard MTGroup.shared.manages(chat.name) else { return [] }
+        let n = MTGroup.shared.people(chat.name) ?? 1
+        return [
+            MTInfoRow(id: "channel.subscribers", kind: .disclosure(title: "Subscribers", detail: LocalizedStringKey(String(n)),
+                                                                   icon: "person.2.fill", tint: .gray, action: { channelPeople = true })),
+            MTInfoRow(id: "channel.settings", kind: .disclosure(title: "Channel Settings", detail: "", icon: "gearshape.fill", tint: .gray,
+                                                                action: { state.editing = true })),
+        ]
+    }
     /// THE PEOPLE OF A GROUP, AS THE REFERENCE'S PAGE LISTS THEM (MTGroupPage.lines): «Add Member» first for its owner, then every
     /// person, with no header over them; the ways out stand in «More» and in the editor, as there.
     private func groupMemberRows() -> [MTInfoRow] {
@@ -525,6 +544,11 @@ struct MontanaPeerInfoScreen: View {
                     Menu {
                         if isGroupPage {
                             groupMore   // the reference's menu of a group; the chat's background is a person's (the checklist's Zh.2)
+                        } else if isChannelPage {
+                            // A SUBSCRIBER'S «MORE» ON A CHANNEL'S PAGE (the reference's): the report
+                            Button { report = MontanaReport(peer: chat.name, peerName: store.title(for: chat), text: "", mid: "") } label: {
+                                Label("Report", systemImage: "exclamationmark.bubble")
+                            }
                         } else {
                             Button { ui.chatWall = MTWallOpen(id: chat.convId ?? chat.name) } label: { Label("Chat background", systemImage: "photo") }   // a page over everything, closed by the swipe from the left (23.09)
                         }
@@ -549,6 +573,7 @@ struct MontanaPeerInfoScreen: View {
     /// beside the message -- the same plates, the group's own room behind them.
     private func pageActions(_ data: MTPeerInfoData) -> [MTPeerAction] {
         // A GROUP'S BUTTONS, AS THE REFERENCE'S GROUP PAGE HAS THEM: its voice chat where one may be held, its sound, its search, more.
+        if isChannelPage { return MTChannelPage.actions(chat.name, muted: store.mutedChats.contains(chat.name)) }
         if isGroupPage {
             let call: [MTPeerAction] = MTGroupRoom.shared.kinds(for: chat.name).contains(.call) ? [.voiceChat] : []
             return call + [store.mutedChats.contains(chat.name) ? .unmute : .mute, .search, .more]
@@ -596,6 +621,11 @@ struct MontanaPeerInfoScreen: View {
             dismiss()
             if !open { DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { ui.openChat(chat) } }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { ui.chatSearchAsk = chat.name }
+        case .liveStream:
+            // the channel's live stream: its room, or a new one -- the same road as a group's (MTGroupRoom.tapped)
+            MTGroupRoom.shared.tapped(chat.name, kind: .live, video: true) { k, v in roomAskVideo = v; roomAsk = k }
+        case .leave:
+            confirmLeave = true   // asked first (MTGroupPageAsks)
         case .more:
             break   // the menu answers itself
         }
@@ -610,7 +640,8 @@ struct MontanaPeerInfoScreen: View {
     @ViewBuilder private func editor(_ data: MTPeerInfoData) -> some View {
         if data.kind == .group {
             Section {
-                TextField(isGroupPage ? LocalizedStringKey("Group Name") : LocalizedStringKey("Title"), text: $state.draftFirst)
+                TextField(isGroupPage ? LocalizedStringKey("Group Name") : isChannelPage ? LocalizedStringKey("Channel Name") : LocalizedStringKey("Title"),
+                          text: $state.draftFirst)
                     .textContentType(.organizationName)
                     .textInputAutocapitalization(.words)
             }
@@ -621,7 +652,21 @@ struct MontanaPeerInfoScreen: View {
                     TextField("Description", text: $state.draftNote, axis: .vertical)
                         .lineLimit(1...5)
                 } footer: {
-                    Text("You can provide an optional description for your group.")
+                    if isChannelPage { Text("You can provide an optional description for your channel.") }
+                    else { Text("You can provide an optional description for your group.") }
+                }
+                .listRowBackground(MTGlassRowPlate())
+            }
+            if isChannelPage, MTGroup.shared.manages(chat.name) {
+                // THE CHANNEL'S LINK AND ITS END, where the reference's channel settings keep them (the channels checklist, 6.2 and 6.9)
+                Section {
+                    NavigationLink { MTChannelInviteLinksPage(chat: chat.name) } label: { Label("Invite Links", systemImage: "link") }
+                }
+                .listRowBackground(MTGlassRowPlate())
+                Section {
+                    Button(role: .destructive) { confirmDissolve = true } label: {
+                        Text("Delete Channel").frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle())
+                    }
                 }
                 .listRowBackground(MTGlassRowPlate())
             }
@@ -825,7 +870,7 @@ struct MontanaPeerInfoScreen: View {
     }
     /// The panes a page offers: a group's are the reference's -- its media, files, links, music and voices; the wall and the
     /// transactions are a person's (the checklist's Zh.1). Every other page keeps them all.
-    private var paneTabs: [MTMediaTab] { isGroupPage ? [.media, .video, .files, .links, .music, .voice] : MTMediaTab.allCases }
+    private var paneTabs: [MTMediaTab] { isGroupPage || isChannelPage ? [.media, .video, .files, .links, .music, .voice] : MTMediaTab.allCases }
     /// One step along the strip, stopping at its ends — the strip itself follows the tab.
     private func turnPane(_ step: Int) {
         let all = paneTabs

@@ -224,6 +224,8 @@ enum MTPeerAction: Int, CaseIterable, Identifiable {
     case message, audioCall, videoCall, more   // «More» (the author's word 22.09): the chat's wallpaper lives behind it
     // A GROUP'S OWN BUTTONS, AS THE REFERENCE'S GROUP PAGE HAS THEM (the author's word 17.10.2026): its voice chat, its sound, its search.
     case voiceChat, mute, unmute, search
+    // A CHANNEL'S OWN BUTTONS, AS THE REFERENCE'S CHANNEL PAGE HAS THEM (17.10.2026): its owner's live stream, a subscriber's way out.
+    case liveStream, leave
 
     var id: Int { rawValue }
 
@@ -237,6 +239,8 @@ enum MTPeerAction: Int, CaseIterable, Identifiable {
         case .mute: return "Mute"
         case .unmute: return "Unmute"
         case .search: return "Search"
+        case .liveStream: return "Live Stream"
+        case .leave: return "Leave"
         }
     }
 
@@ -250,6 +254,8 @@ enum MTPeerAction: Int, CaseIterable, Identifiable {
         case .mute: return "bell.fill"
         case .unmute: return "bell.slash.fill"
         case .search: return "magnifyingglass"
+        case .liveStream: return "dot.radiowaves.left.and.right"
+        case .leave: return "rectangle.portrait.and.arrow.right"
         }
     }
 

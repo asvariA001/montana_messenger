@@ -201,3 +201,52 @@ struct MTGroupClearAsk: ViewModifier {
         }
     }
 }
+
+/// THE LINE UNDER A GROUP'S NAME IN ITS CHAT (the reference's head): who types, while anyone does -- the green dot of the pair's own
+/// «typing…» beside it -- and «N members, M online» otherwise. A view of its own, so a typing word redraws this line, never the feed.
+struct MTGroupHeadLine: View {
+    @EnvironmentObject private var store: ChatStore
+    @ObservedObject private var typing = MTGroupTyping.shared
+    let key: String
+    var body: some View {
+        if let t = typing.line(key) {
+            HStack(spacing: 4) {
+                Circle().fill(Color.green).frame(width: 9, height: 9)
+                Text(verbatim: t).truncationMode(.tail)   // USER-DATA: the typing people's names inside the catalogue's sentence
+            }
+        } else {
+            Text(verbatim: MTGroupPage.head(key, store: store))   // USER-DATA: the catalogue's count, said by MTGroupPage.head
+        }
+    }
+}
+
+/// «N SEEN» OVER A GROUP LETTER'S MENU (the reference's small group, the checklist's B.13): how many read a letter of mine, and a tap
+/// opens their names under it; «Nobody Viewed» while none has.
+struct MTSeenByRow: View {
+    let names: [String]
+    @State private var open = false
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                if !names.isEmpty { withAnimation(.easeOut(duration: 0.15)) { open.toggle() } }
+            } label: {
+                HStack {
+                    if names.isEmpty { Text("Nobody Viewed") } else { Text("\(names.count) Seen") }
+                    Spacer()
+                    Image(systemName: "eye").foregroundColor(.white.opacity(0.8))
+                }
+                .foregroundColor(.white).font(.system(size: 16))
+                .padding(.horizontal, 14).padding(.vertical, 11)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if open {
+                ForEach(names, id: \.self) { n in
+                    Text(verbatim: n).font(.system(size: 15)).foregroundColor(.white.opacity(0.85)).lineLimit(1)   // USER-DATA: a reader's name
+                        .padding(.horizontal, 14).padding(.vertical, 6)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+    }
+}

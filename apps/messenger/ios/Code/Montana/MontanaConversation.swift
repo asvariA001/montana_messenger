@@ -297,6 +297,9 @@ enum MontanaPresencePrivacy {
         else { E2E.shared.presenceFarewell() }             // one honest word, then silence
     }
     static func peerHidesExact(_ ref: String) -> Bool { UserDefaults.standard.bool(forKey: "phide_" + ref) }
+    /// «TYPING» SAYS «HERE NOW» (the critic's K-G1, 17.10.2026): it is presence by another name, so a person who hides their presence
+    /// types in silence, and a person this phone blocked hears no typing of it -- the one check of the pair's word and the group's.
+    static func saysTyping(to peer: String) -> Bool { sharing && !E2E.shared.silenced(peer) }
     /// The LATEST word says whether they hide (24.09): the live lane, the chat's word and the node's swept word all
     /// carry it, and an older word swept from the node used to lift a newer «hides» -- one phone then read the
     /// exact moment and another the coarse class. The moment travels with the flag; an older word changes nothing.
@@ -658,6 +661,10 @@ struct ChatInputBar: View {
     var groupRoom = false
     /// A CHANNEL'S OWNER'S BAR (the reference: the field of a channel says «Broadcast» while it is empty).
     var channel = false
+    /// THE CHANNEL'S BELL IN ITS FIELD (the reference's «Silent Broadcast»): the owner's next posts go with sound or without it.
+    var silent = false
+    var onSilent: () -> Void = {}
+    @State private var bellSaid = false   // the bell's word stands over the field a moment after a tap
     /// WHICH TIERS THIS NODE DRAWS (the author's word 03.10 13:35: the turned ribbon is the normal one mirrored -- the line
     /// of words on top under the bar, the buttons on the keys). The whole bar in normal mode; under the turned feed the page
     /// hosts the words at the top (.field) and the open bar's row of buttons on the keys (.row), two nodes of one model.
@@ -782,6 +789,21 @@ struct ChatInputBar: View {
         .background(MTFrameMark("bar-plus"))   // measured, not eyeballed: it must stand where the player's play stands
     }
 
+    /// The bell inside a channel's field (the reference's Silent Broadcast): a tap turns the sound of the owner's next posts, and its
+    /// word stands over the field for two seconds.
+    private var bellKey: some View {
+        Button {
+            onSilent()
+            withAnimation(.easeOut(duration: 0.2)) { bellSaid = true }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { withAnimation(.easeIn(duration: 0.2)) { bellSaid = false } }
+        } label: {
+            Image(systemName: silent ? "bell.slash" : "bell")
+                .font(.system(size: 19)).foregroundColor(MontanaOctagon.barGlyph)
+                .frame(width: MTInputField.minH, height: MTInputField.minH)
+                .montanaFingerRoom(layout: MTInputField.minH)   // the key keeps the line's room, the finger its 44
+        }
+        .accessibilityLabel(Text(silent ? "Silent Broadcast..." : "Broadcast..."))
+    }
     /// The emoji key inside the plate, where it stood before the row opened: the field keeps its
     /// responder and only its inputView swaps, so the switch is one system animation.
     private var emojiKey: some View {
@@ -882,7 +904,7 @@ struct ChatInputBar: View {
                 // key stands on the lower tier then; folded, the key stands inside the plate.
                 MTInputField(text: $model.text, caret: $model.caret, focused: $focused, panel: panel, cap: cap,
                              onPasteImages: onPasteImages,
-                             extraRight: composeOpen ? MTInputField.inset.left - MTInputField.inset.right : 0,
+                             extraRight: (composeOpen ? MTInputField.inset.left - MTInputField.inset.right : 0) + (channel ? MTInputField.minH : 0),
                              restingBar: MTInputField.restingBar(open: composeOpen))   // the field answers its own height (sizeThatFits); its insets ARE the tier (MTInputField.inset)
                     .montanaFieldGlass(maxCut: 18)   // the plate's own glass (the author's word 21.09)
                     .overlay { if minting || coinMode { MontanaLongOctagon(maxCut: 18).stroke(MTMiniFace.playingRing, lineWidth: 1.5).allowsHitTesting(false) } }
@@ -891,7 +913,7 @@ struct ChatInputBar: View {
                         if model.text.isEmpty {
                             // The hint stands where the placeholder stands (the reference's tooltip):
                             // a press that outlived the tap but not the tape is answered in words.
-                            Text(coinMode ? "Enter the coin amount" : hint ? "Hold to record" : channel ? "Broadcast..." : "Message...").font(.system(size: 17)).foregroundColor(.gray)
+                            Text(coinMode ? "Enter the coin amount" : hint ? "Hold to record" : channel ? (silent ? "Silent Broadcast..." : "Broadcast...") : "Message...").font(.system(size: 17)).foregroundColor(.gray)
                                 .padding(.leading, MTInputField.inset.left).allowsHitTesting(false)   // where the words start
                                 .animation(.easeOut(duration: 0.15), value: hint)
                         }
@@ -899,7 +921,18 @@ struct ChatInputBar: View {
                     .overlay(alignment: .bottomTrailing) {
                         // Folded, the emoji key stands inside the plate; unfolded, it stands in the
                         // row below and the words take the room to the edge. One seat per shape.
-                        if !composeOpen { emojiKey.padding(.trailing, 11).padding(.bottom, MTInputField.inset.bottom) }
+                        HStack(spacing: 0) {
+                            if channel { bellKey }
+                            if !composeOpen { emojiKey }
+                        }
+                        .padding(.trailing, 11).padding(.bottom, MTInputField.inset.bottom)
+                    }
+                    .overlay(alignment: .topTrailing) {
+                        // THE BELL'S WORD (the reference's tooltip over the bell): what the subscribers will hear of the next posts
+                        if bellSaid {
+                            MontanaToastLabel(text: silent ? "Members will not be notified when you post" : "Members will be notified when you post")
+                                .fixedSize().offset(y: -52).allowsHitTesting(false)
+                        }
                     }
                     .onChange(of: model.text) { _, val in onTextChange(val) }
         }
@@ -1382,6 +1415,7 @@ struct ChatConversationView: View {
     @AppStorage("chatBgPhoto") private var chatBgPhoto: Data = Data()
     @ObservedObject private var flows = MTMoneyFlow.shared   // the feed's turn of THIS chat (04.10): the newest letters on top
     @ObservedObject private var channelViews = MTChannelViews.shared   // a channel's numbers under its posts (17.10)
+    @State private var channelSilentTick = 0   // the channel's bell turned: the bar reads its sound again (MTGroup.silent)
     private var newestFirst: Bool { flows.on(chat.name) }
     @AppStorage("bubbleStyle") private var bubbleStyleAS: String = "montana"
     @AppStorage("cbBgOn") private var cbBgOn = false
@@ -1818,11 +1852,20 @@ struct ChatConversationView: View {
         // dialog carried a Latin «Pin for …» built by hand, past the catalogue ([C-15]).
         .overlay {
             if let m = pinningMessage {
+                let groupPin = chat.isGroup && MTGroup.shared.mayPin(chat.name)
                 MontanaFaceSheet(photoURL: store.avatarFor(chat), color: chat.color, initial: store.initial(for: chat), who: chat.convRef,
-                                 question: "Pin this message?",
+                                 question: groupPin ? "Pin this message and notify all members of the group?" : "Pin this message?",
                                  note: nil,
-                                 // A group carries no pin yet: «for everyone» would pin on this phone alone, so a group pins for me.
-                                 actions: chat.isGroup ? [
+                                 // A GROUP PINS FOR EVERYONE AS THE REFERENCE DOES (MTGroup.pin): with a banner to every member, or only
+                                 // pinned; a phone without the right pins for itself.
+                                 actions: groupPin ? [
+                                     MontanaFaceSheet.Action(title: "Pin and notify all members", destructive: false) {
+                                         MTGroup.shared.pin(m, pin: true, notify: true, in: chat.name, store: store); pinningMessage = nil
+                                     },
+                                     MontanaFaceSheet.Action(title: "Only Pin", destructive: false) {
+                                         MTGroup.shared.pin(m, pin: true, notify: false, in: chat.name, store: store); pinningMessage = nil
+                                     },
+                                 ] : chat.isGroup ? [
                                      MontanaFaceSheet.Action(title: "Pin for me", destructive: false) {
                                          store.pin(chat.name, m.id); pinningMessage = nil
                                      },
@@ -1937,7 +1980,7 @@ struct ChatConversationView: View {
     /// A CHANNEL'S HEAD SAYS ITS SUBSCRIBERS (the reference's channel title: «N subscribers»), the owner counted among them; a group's
     /// is its page's one head (MTGroupPage.head).
     private func groupHead(_ n: Int) -> String {
-        isChannel ? String(localized: "\(n) subscribers", bundle: MTLanguage.bundle) : MTGroupPage.head(chat.name, store: store)
+        isChannel ? MTChannelPage.head(chat.name) : MTGroupPage.head(chat.name, store: store)
     }
 
     /// THE NAME'S BUBBLE ON THE REST OF THE BAR (the author's word 04.10.2026 13:06 MSK: «the name's bubble on the rest of the room,
@@ -1955,8 +1998,12 @@ struct ChatConversationView: View {
                 }
                 if chat.isGroup, let out = MTGroup.shared.outWords(chat.name) {
                     Text(out).font(.caption2).foregroundStyle(.secondary).lineLimit(1)   // the catalogue's words, read by MTGroup.outWords
-                } else if chat.isGroup, let n = MTGroup.shared.people(chat.name) {   // a group has no presence of one person: its people's count
-                    Text(groupHead(n)).font(.caption2).foregroundStyle(.secondary).lineLimit(1)   // the catalogue's words, read by groupHead
+                } else if chat.isGroup, let n = MTGroup.shared.people(chat.name) {   // a group has no presence of one person: who types, or its count
+                    if isChannel {
+                        Text(groupHead(n)).font(.caption2).foregroundStyle(.secondary).lineLimit(1)   // the catalogue's words, read by groupHead
+                    } else {
+                        MTGroupHeadLine(key: chat.name).font(.caption2).foregroundStyle(.secondary).lineLimit(1)   // who types, else the count
+                    }
                 }
                 if let w = store.presenceWord(chat.convId ?? chat.name) {   // the key every screen asks by (24.09)
                     HStack(spacing: 4) {
@@ -2338,7 +2385,7 @@ struct ChatConversationView: View {
                 // the group's owner and the administrators it named take another's letter away too (stage R.6, MTGroup.moderates)
                 canDeleteForEveryone: chat.isGroup ? (m.isMine || MTGroup.shared.moderates(chat.name))
                                                    : chat.convId != nil && (m.isMine || MontanaConv.holds(convKey)),
-                ladder: m.isMine && chat.convId != nil && !MTRowLetter.ownRow(m.text),   // the rung and its moment over the menu; none for a note to oneself, nor a post's card
+                ladder: m.isMine && !isChannel && chat.convId != nil && !MTRowLetter.ownRow(m.text),   // the rung and its moment over the menu; none for a note to oneself, nor a post's card
                 canDelete: !whole.contains { x in MTCoinSend.travels(x) },   // a coin letter on its way keeps its coins and its row (05.10)
                 // One road for the whole plate, one tombstone write and one history write (the critic R-1, 11.10.2026); «for
                 // everyone» finds every name already buried, so its notices write nothing more.
@@ -2362,7 +2409,9 @@ struct ChatConversationView: View {
                     close()
                 },
                 onClose: close,
-                members: group
+                members: group,
+                seenBy: chat.isGroup && m.isFromMe ? MTGroup.shared.seenBy(m, in: chat.name) : nil,   // the reference's «N Seen» (B.13)
+                readsOnly: readsOnly   // a channel's subscriber: no reply, no pin (the reference's menu)
             )
         }
     }
@@ -2612,6 +2661,12 @@ struct ChatConversationView: View {
         .padding(.horizontal).padding(.vertical, MTInputField.barPad)
     }
     private func tellPin(_ m: Message, pin: Bool) {
+        // A GROUP'S PIN RIDES THE GROUP'S OWN ROAD (MTGroup.pin): its key is no pipe -- an unpin was queued to «grp:…» and rode
+        // nowhere (the checklist's E.5); a phone without the right unpins for itself alone.
+        if chat.isGroup {
+            if MTGroup.shared.mayPin(chat.name) { MTGroup.shared.pin(m, pin: pin, notify: true, in: chat.name, store: store) }
+            return
+        }
         guard chat.convId != nil else { return }
         let obj: [String: Any] = ["sid": m.msgId ?? "", "txt": m.text, "op": pin ? "pin" : "unpin"]
         guard let json = try? JSONSerialization.data(withJSONObject: obj), let body = String(data: json, encoding: .utf8) else { return }
@@ -2757,7 +2812,7 @@ struct ChatConversationView: View {
                                 .padding(.leading, 8)
                                 .accessibilityLabel(Text(verbatim: MTGroup.shared.speakerLine(message, in: chat.name) ?? ""))   // USER-DATA: the speaker's name
                             }
-                            SwipeReplyRow(id: message.id, onReply: { replyingTo = message; inputFocused = true }) {
+                            SwipeReplyRow(id: message.id, onReply: { if !readsOnly { replyingTo = message; inputFocused = true } }) {
                                 MessageBubble(message: message, player: player, onTapImage: { _ in
                                     // No file — the tap repeats the download instead of opening emptiness.
                                     if let f = message.imageFile, !fileOnDisk(f) {
@@ -2901,6 +2956,8 @@ struct ChatConversationView: View {
     /// channels -- everything as in the reference folder 1 to 1»): its posts stand in the feed as letters do, drawn as the
     /// reference draws a channel's posts (MTChannelPostLook); its owner writes in the chat's own field, a subscriber reads.
     private var isChannel: Bool { chat.isGroup && MTGroup.shared.kind(chat.name) == .channel }
+    /// A channel's subscriber: writes nothing into it -- no reply by the menu, by the swipe or by the feed's own swipe.
+    private var readsOnly: Bool { isChannel && !MTGroup.shared.canWrite(chat.name) }
     /// The look of a channel's row: the channel's name over the words at the head of a run, the owner's count of people who saw it.
     private func postLook(_ row: ChatRowVM) -> MTChannelPostLook? {
         guard isChannel else { return nil }
@@ -2986,7 +3043,7 @@ struct ChatConversationView: View {
             newestOnTop: newestFirst,
             onAtBottom: { if !searching && visibleCount > 80 { visibleCount = 80 } },   // 11.5: the window narrows home
             onReplySwipe: { id in
-                if let m = chatRows.first(where: { $0.id == id })?.message, m.msgId != nil {
+                if !readsOnly, let m = chatRows.first(where: { $0.id == id })?.message, m.msgId != nil {
                     replyingTo = m
                     inputFocused = true
                 }
@@ -3546,6 +3603,8 @@ struct ChatConversationView: View {
                          meshRoom: ChatStore.isMeshRoom(chat.name),
                          groupRoom: chat.isGroup,
                          channel: isChannel,
+                         silent: isChannel && 0 <= channelSilentTick && MTGroup.shared.silent(chat.name),
+                         onSilent: { MTGroup.shared.setSilent(chat.name, on: !MTGroup.shared.silent(chat.name)); channelSilentTick += 1 },
                          part: part,
                          minting: ribbon,
                          coins: MTCoinSend.canPay(chat, store: store),
@@ -4413,6 +4472,15 @@ struct ChatConversationView: View {
         // before any gate; editing a letter is not a draft. The send clears by emptying the field;
         // leaving the screen writes nothing — the disk already says what the field says.
         persistDraft(editingMessage == nil ? val : "")
+        // A GROUP'S «TYPING» (the checklist's B.12, MTGroup.typing): an instant word to the pipes this phone holds for the group, at
+        // most every three seconds, as the pair's; a group streams no draft.
+        if chat.isGroup {
+            if !val.trimmingCharacters(in: .whitespaces).isEmpty, Date().timeIntervalSince(lastTypingSent) > 3 {
+                lastTypingSent = Date()
+                MTGroup.shared.typing(in: chat.name)
+            }
+            return
+        }
         guard let peer = chat.convId, !peer.isEmpty, !chat.isGroup else { return }   // SILENT-OK: Saved Messages and a group have no pipe of their own; Saved Messages has no wire — the draft is on disk, nothing to stream
         // Live chat, in the Money Flow alone (03.10): coalesced full-state snapshots (max ~8/s) while the peer's chat is OPEN —
         // their presence beacon is the gate, not reachability. Reachability lied by omission:
@@ -4460,7 +4528,7 @@ struct ChatConversationView: View {
             return
         }
         guard !val.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-        if Date().timeIntervalSince(lastTypingSent) > 3 {
+        if MontanaPresencePrivacy.saysTyping(to: peer), Date().timeIntervalSince(lastTypingSent) > 3 {   // K-G1: typing is presence
             lastTypingSent = Date()
             // The word says when it was said (24.09): the lane keeps it a minute and hands it over when the chat opens,
             // and a «typing» a minute old is not typing now.

@@ -225,6 +225,11 @@ struct MessageContextOverlay: View {
     var onClose: () -> Void
     /// The letters of a media group under the menu: the bubble is drawn as the plate it is in the feed.
     var members: [Message] = []
+    /// WHO READ A LETTER OF MINE IN A GROUP (the reference's «N Seen», MTGroup.seenBy): nil anywhere else.
+    var seenBy: [String]? = nil
+    /// A CHANNEL'S POST ON A SUBSCRIBER'S PHONE (the reference's menu there): the subscriber writes nothing into the channel, so no
+    /// reply and no pin stand -- the words, the post handed on, a report and the selection.
+    var readsOnly = false
     @State private var shown = false
     @State private var confirmingDelete = false
     @State private var parts: [String: CGFloat] = [:]
@@ -412,6 +417,13 @@ struct MessageContextOverlay: View {
                         row("Delete for me", "trash", destructive: true, action: onDeleteMine)
                         divider.padding(.vertical, 2)
                         row("Cancel", "xmark") { withAnimation(.easeOut(duration: 0.15)) { confirmingDelete = false } }
+                    } else if readsOnly {
+                        if !message.text.isEmpty { row("Copy", "doc.on.doc", action: onCopy); divider }
+                        row("Forward", "arrowshape.turn.up.right", action: onForward)
+                        divider
+                        row("Report", "exclamationmark.bubble", destructive: true, action: onReport)
+                        divider.padding(.vertical, 2)
+                        row("Select", "checkmark.circle", action: onSelect)
                     } else if let show = onShowInChat {
                         row("Show in chat", "text.bubble", action: show)
                         divider
@@ -433,6 +445,10 @@ struct MessageContextOverlay: View {
                             MTDeliveryLine(status: lead.deliveryStatus, at: lead.statusMoment, played: MTPlayed.of(lead))
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.horizontal, 16).padding(.vertical, 11)
+                            divider
+                        }
+                        if let seenBy {
+                            MTSeenByRow(names: seenBy)
                             divider
                         }
                         row("Reply", "arrowshape.turn.up.left", action: onReply)

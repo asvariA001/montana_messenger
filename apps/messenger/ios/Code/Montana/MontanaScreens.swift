@@ -669,18 +669,24 @@ struct MTGroupPageAsks: ViewModifier {
         let title = store.title(for: chat)
         content
             // LEAVE GROUP (the reference folder: «Are you sure you want to leave and delete %@?»): the owner is told, the chat goes
-            .confirmationDialog(channel ? Text("Leave the channel?") : Text("Are you sure you want to leave and delete \(title)?"),
+            // LEAVE CHANNEL (the reference's: «Are you sure you want to leave the channel %@?», «Leave Channel»): the owner is told and
+            // the channel leaves this phone, as a group does
+            .confirmationDialog(channel ? Text("Are you sure you want to leave the channel \(title)?") : Text("Are you sure you want to leave and delete \(title)?"),
                                 isPresented: $confirmLeave, titleVisibility: .visible) {
                 if channel {
-                    Button(role: .destructive) { MTGroup.shared.leave(chat.name, store: store) } label: { Text("Leave channel") }
+                    Button(role: .destructive) { MTGroup.shared.leaveAndErase(chat.name, store: store); onGone() } label: { Text("Leave Channel") }
                 } else {
                     Button(role: .destructive) { MTGroup.shared.leaveAndErase(chat.name, store: store); onGone() } label: { Text("Leave Group") }
                 }
             }
             // DELETE GROUP (the reference folder: «Delete for All»): every member's copy goes with the owner's
-            .confirmationDialog(Text("Are you sure you want to delete the group \(title) and all of its messages for all members of the group?"),
+            // DELETE CHANNEL (the reference's: «Wait! Deleting this channel will remove all members and all messages will be lost»)
+            .confirmationDialog(channel ? Text("Wait! Deleting this channel will remove all members and all messages will be lost. Delete the channel anyway?")
+                                        : Text("Are you sure you want to delete the group \(title) and all of its messages for all members of the group?"),
                                 isPresented: $confirmDissolve, titleVisibility: .visible) {
-                Button(role: .destructive) { MTGroup.shared.dissolve(chat.name, store: store); onGone() } label: { Text("Delete for All") }
+                Button(role: .destructive) { MTGroup.shared.dissolve(chat.name, store: store); onGone() } label: {
+                    if channel { Text("Delete Channel") } else { Text("Delete for All") }
+                }
             }
             .confirmationDialog("Remove from the group?",
                                 isPresented: Binding(get: { removingSeat != nil }, set: { if !$0 { removingSeat = nil } }),

@@ -1424,118 +1424,6 @@
         }
       }
     },
-    "What is a channel?": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Что такое канал?"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "什么是频道？"
-          }
-        }
-      }
-    },
-    "A channel sends your posts to the people you choose.": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Канал рассылает ваши посты людям, которых вы выбрали."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "频道会把你的帖子发送给你选择的人。"
-          }
-        }
-      }
-    },
-    "Only you post; subscribers read.": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Пишете только вы, подписчики читают."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "只有你能发布，订阅者阅读。"
-          }
-        }
-      }
-    },
-    "Every post goes phone to phone, over the pipe you hold with each subscriber.": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Каждый пост идёт с телефона на телефон — по каналу каждого подписчика."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "每条帖子都从手机直达手机，经由你与每位订阅者各自的通道。"
-          }
-        }
-      }
-    },
-    "Channel name": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Название канала"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "频道名称"
-          }
-        }
-      }
-    },
-    "You can add a description to your channel.": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Можно добавить описание канала."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "你可以为频道添加描述。"
-          }
-        }
-      }
-    },
-    "Add subscribers": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Добавить подписчиков"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "添加订阅者"
-          }
-        }
-      }
-    },
     "A post rides the pipe of each person, so only the people you write with are listed.": {
       "localizations": {
         "ru": {
@@ -14691,6 +14579,294 @@
         }
       }
     },
+    "What is a Channel?": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Что такое канал?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "什么是频道？"
+          }
+        }
+      }
+    },
+    "Channels are a new tool for broadcasting your messages to large audiences.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Каналы — это новый инструмент для трансляции ваших сообщений большой аудитории."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "频道是向大量受众广播消息的新工具。"
+          }
+        }
+      }
+    },
+    "Create Channel": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Создать канал"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "创建频道"
+          }
+        }
+      }
+    },
+    "Channel Name": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Название канала"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "频道名称"
+          }
+        }
+      }
+    },
+    "Description (Optional)": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Описание (необязательно)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "描述（可选）"
+          }
+        }
+      }
+    },
+    "You can provide an optional description for your channel.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Можно добавить описание канала."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "您可以为频道添加可选描述。"
+          }
+        }
+      }
+    },
+    "Anyone who follows this link will be able to join your channel.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Любой, кто перейдёт по этой ссылке, сможет подписаться на ваш канал."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "任何点击此链接的人都可以加入您的频道。"
+          }
+        }
+      }
+    },
+    "Are you sure you want to revoke this link? Once you do, no one will be able to join the channel using it.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отозвать эту ссылку? После этого никто не сможет подписаться на канал по ней."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "确定要撤销此链接吗？撤销后任何人都无法通过它加入频道。"
+          }
+        }
+      }
+    },
+    "Delete Channel": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить канал"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除频道"
+          }
+        }
+      }
+    },
+    "Wait! Deleting this channel will remove all members and all messages will be lost. Delete the channel anyway?": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подождите! Удаление канала удалит всех подписчиков, и все сообщения будут потеряны. Всё равно удалить канал?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等等！删除此频道将移除所有成员，所有消息都将丢失。仍要删除频道吗？"
+          }
+        }
+      }
+    },
+    "Silent Broadcast...": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Публикация без звука..."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "静音广播..."
+          }
+        }
+      }
+    },
+    "Members will be notified when you post": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подписчики получат уведомление о публикации"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "您发布时订阅者会收到通知"
+          }
+        }
+      }
+    },
+    "Members will not be notified when you post": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подписчики не получат уведомление о публикации"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "您发布时订阅者不会收到通知"
+          }
+        }
+      }
+    },
+    "Channel Settings": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Настройки канала"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "频道设置"
+          }
+        }
+      }
+    },
+    "Leave Channel": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Покинуть канал"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "退出频道"
+          }
+        }
+      }
+    },
+    "Are you sure you want to leave the channel %@?": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вы действительно хотите покинуть канал %@?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "确定要退出频道 %@ 吗？"
+          }
+        }
+      }
+    },
+    "Add Subscribers": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить подписчиков"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加订阅者"
+          }
+        }
+      }
+    },
+    "Remove from the channel?": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить из канала?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从频道中移除？"
+          }
+        }
+      }
+    },
     "Unpin": {
       "localizations": {
         "ru": {
@@ -18126,22 +18302,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "退出频道"
-          }
-        }
-      }
-    },
-    "Leave the channel?": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Покинуть канал?"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "退出频道？"
           }
         }
       }
@@ -26629,6 +26789,166 @@
           "stringUnit": {
             "state": "translated",
             "value": "发送消息"
+          }
+        }
+      }
+    },
+    "Pin this message and notify all members of the group?": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закрепить сообщение и уведомить всех участников группы?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "置顶此消息并通知群组所有成员？"
+          }
+        }
+      }
+    },
+    "Pin and notify all members": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закрепить и уведомить всех"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "置顶并通知所有成员"
+          }
+        }
+      }
+    },
+    "Only Pin": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Только закрепить"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅置顶"
+          }
+        }
+      }
+    },
+    "You pinned \"%@\"": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вы закрепили «%@»"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你置顶了“%@”"
+          }
+        }
+      }
+    },
+    "%@ pinned \"%@\"": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ закрепил(а) «%@»"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 置顶了“%@”"
+          }
+        }
+      }
+    },
+    "%@ is typing…": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ печатает…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 正在输入…"
+          }
+        }
+      }
+    },
+    "%@ and %@ are typing…": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ и %@ печатают…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 和 %@ 正在输入…"
+          }
+        }
+      }
+    },
+    "%@ and %@ others are typing…": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ и ещё %@ печатают…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 等 %@ 人正在输入…"
+          }
+        }
+      }
+    },
+    "%lld Seen": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прочитали: %lld"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 人已读"
+          }
+        }
+      }
+    },
+    "Nobody Viewed": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Никто не прочитал"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂无人阅读"
           }
         }
       }

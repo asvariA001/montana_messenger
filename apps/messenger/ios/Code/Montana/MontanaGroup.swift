@@ -59,6 +59,12 @@ struct MTGroupState: Codable, Equatable {
     /// THE GROUP'S FACE ON THIS PHONE, a file of the avatars folder (17.10.2026): the group is its one owner, so the row, the copy
     /// and the notices read it here -- it used to live on the row alone and left with a row a copy did not carry.
     var face: String? = nil
+    /// WHO READ THIS PHONE'S LETTERS, AND HOW FAR (the checklist's B.13): each reader's seat with the birth millisecond of the newest
+    /// letter they read. This phone's own record, never on the wire; bounded by the group's people (I-14).
+    var readBy: [String: Int64]? = nil
+    /// THE OWNER'S POSTS GO WITHOUT SOUND (the reference's «Silent Broadcast», the bell in a channel's field): this phone's own choice
+    /// for its channel, never on the wire as a setting -- each post says it (MTGroupWord.sl).
+    var silent: Bool? = nil
     var mine: Bool { owner.isEmpty }
     var canManage: Bool { mine && left != true }
     var canWrite: Bool { left != true && (kind == .group || mine) }
@@ -110,6 +116,9 @@ struct MTGroupWord: Codable {
     var dl: Int? = nil
     /// The owner's administrators on an «inv» (stage R.6): the seats it named; absent -- none.
     var ad: [String]? = nil
+    /// 1 on a channel's post sent without sound (the reference's «Silent Broadcast»): it rides silent and rings nothing where it lands.
+    /// A build that does not read it skips the key; the push is silent there too.
+    var sl: Int? = nil
 }
 
 /// A GROUP'S EVENT, A ROW IN THE MIDDLE OF ITS FEED (stage R, the reference folder's service rows: «X created the group»,
@@ -434,7 +443,8 @@ final class MTGroup {
         // A DELETION WAKES THE EXTENSION OF A BUILD THAT PROVED IT TAKES IT QUIETLY (E2E.deletionQuiet, 16.10.2026): the deleted letter's
         // notice leaves that screen at once; the copy waits for its receipt as every group word does.
         let wakes = w.t == "sig" && (w.tx ?? "").hasPrefix(deleteMark) && E2E.deletionQuiet(pipe)
-        MontanaDeliveryEngine.shared.enqueue(to: pipe, chat: pipe, mid: name, text: text, silent: !ring && w.t != "say" && w.t != "inv" && !wakes,
+        MontanaDeliveryEngine.shared.enqueue(to: pipe, chat: pipe, mid: name, text: text,
+                                             silent: (!ring && w.t != "say" && w.t != "inv" && !wakes) || w.sl == 1,   // a silent post rings nothing
                                              headless: true)   // a room's invitation rings where it is carried (07.10)
         MontanaTrace.mark("group_tx", mid: name, "t=\(w.t) to=\(String(pipe.prefix(10)))")
         return name
@@ -464,8 +474,9 @@ final class MTGroup {
         store.append(key, row)
         let me = Self.clean(E2E.myDisplayName(), Self.nameLimit)
         // The title and the kind ride every letter: the receiver's notification extension holds no group, and names it by these.
-        let w = MTGroupWord(t: "say", g: g.id, k: g.kind.rawValue, ti: g.title, n: me.isEmpty ? nil : me, id: minted.mid, s: g.me, tx: text,
+        var w = MTGroupWord(t: "say", g: g.id, k: g.kind.rawValue, ti: g.title, n: me.isEmpty ? nil : me, id: minted.mid, s: g.me, tx: text,
                             qt: (replyText ?? "").isEmpty ? nil : replyText, qm: (replyWireMid ?? "").isEmpty ? nil : replyWireMid)
+        w.sl = g.kind == .channel && g.silent == true ? 1 : nil   // the bell in the owner's field (Silent Broadcast)
         if spread(w, in: g, except: nil, own: true) == 0, let i = store.messages[key]?.firstIndex(where: { $0.mid == row.mid }) {
             store.putOut(key, i, because: .nobodyToCarry)   // nobody to carry to: honest red, a hand may try again
         }
@@ -482,7 +493,8 @@ final class MTGroup {
             return false
         }
         let me = Self.clean(E2E.myDisplayName(), Self.nameLimit)
-        let w = MTGroupWord(t: "say", g: g.id, k: g.kind.rawValue, ti: g.title, n: me.isEmpty ? nil : me, id: mid, s: g.me, tx: letter)
+        var w = MTGroupWord(t: "say", g: g.id, k: g.kind.rawValue, ti: g.title, n: me.isEmpty ? nil : me, id: mid, s: g.me, tx: letter)
+        w.sl = g.kind == .channel && g.silent == true ? 1 : nil   // the bell in the owner's field (Silent Broadcast)
         return spread(w, in: g, except: nil, own: true) > 0
     }
 
@@ -599,6 +611,15 @@ final class MTGroup {
 
     // -- administrators (stage R.6, the reference folder: «Promote», «Dismiss Admin») ---------------------------------
 
+    /// WHETHER THE OWNER'S NEXT POSTS GO WITHOUT SOUND (the bell in a channel's field): its owner's choice, kept on its state.
+    func silent(_ key: String) -> Bool { state(key)?.silent == true }
+    func setSilent(_ key: String, on: Bool) {
+        guard var g = state(key), g.canManage, g.kind == .channel else { return }
+        g.silent = on ? true : nil
+        groups[g.id] = g
+        saveGroups()
+        MontanaTrace.mark("channel_silent", on ? "on" : "off")
+    }
     /// Whether a seat is an administrator the owner of a carried group named.
     func isAdmin(_ key: String, seat: String) -> Bool { state(key)?.admins?.contains(seat) == true }
     /// Whether this phone moderates the group: its owner, an administrator the owner named, or -- in an organisation's chat -- an
@@ -639,6 +660,183 @@ final class MTGroup {
               g.members.contains(where: { $0.seat == target }) else { return .refused }
         remove(Self.key(of: g.id), seat: target, by: asker.seat, store: store)
         return .held
+    }
+
+    // -- typing (the checklist's B.12, the reference's «X is typing» in a group's head) ------------------------------------------
+
+    /// A GROUP'S TYPING WORD LIVES AN INSTANT: thrown at the pipes this phone holds for the group (E2E.signalNow) -- the owner's phone
+    /// at every member, a member's at the owner -- never queued, never receipted, never written; the owner throws a member's word on.
+    /// TYPING IS PRESENCE (the critic's K-G1): a phone that hides its presence says none, and none to a person it blocked
+    /// (MontanaPresencePrivacy.saysTyping). A person blocks only whom they hold a pipe with -- in a group, the owner for a member and
+    /// the members for the owner -- so the check at the sender covers every block there is; the owner, carrying another's word on,
+    /// passes it to nobody it blocked itself and takes none from a person it blocked.
+    @MainActor
+    func typing(in key: String) {
+        guard MontanaPresencePrivacy.sharing, let g = state(key), g.canWrite, g.kind == .group else { return }
+        let me = Self.clean(E2E.myDisplayName(), Self.nameLimit)
+        throwTyping(MTGroupWord(t: "ty", g: g.id, n: me.isEmpty ? nil : me, s: g.me), to: g.mine ? g.members.map(\.pipe) : [g.owner], own: true)
+    }
+    private func throwTyping(_ w: MTGroupWord, to pipes: [String], own: Bool) {
+        guard let d = try? JSONEncoder().encode(w), let js = String(data: d, encoding: .utf8) else { return }
+        let text = Self.mark + js
+        for p in pipes where MontanaConv.holds(p) && !ChatStore.refusesCold(p) {
+            guard own ? MontanaPresencePrivacy.saysTyping(to: p) : !E2E.shared.silenced(p) else { continue }
+            Task { _ = await E2E.shared.signalNow(to: p, text) }
+        }
+    }
+    /// The moment the owner last threw a member's typing on: once in two seconds a member, whatever it sends (I-15).
+    private var typingThrown: [String: Date] = [:]
+    /// A TYPING WORD LANDED: its seat proven by the pipe it came by, as every word's is; the head shows it for the store's typing life.
+    @MainActor
+    private func typed(_ w: MTGroupWord, from pipe: String) -> Verdict {
+        guard var g = groups[w.g], g.left != true, g.kind == .group else { return .instant }
+        let from = MTSamePair.root(pipe)
+        let seat: String
+        if g.mine {
+            guard let m = g.members.first(where: { x in MTSamePair.root(x.pipe) == from }), !E2E.shared.silenced(m.pipe) else { return .instant }
+            seat = m.seat
+            let k = g.id + "/" + seat
+            if Date().timeIntervalSince(typingThrown[k] ?? .distantPast) >= 2 {
+                typingThrown[k] = Date()
+                var on = w
+                on.s = seat
+                throwTyping(on, to: g.members.filter { x in x.seat != seat }.map(\.pipe), own: false)
+            }
+        } else {
+            guard MTSamePair.root(g.owner) == from, let s = w.s, Self.isSeat(s), s != g.me else { return .instant }
+            seat = s
+        }
+        let name = Self.clean(w.n ?? "", Self.nameLimit)
+        if !name.isEmpty, g.names[seat] != name {   // a person's name reaches the group from that person, as their letters bring it
+            g.names[seat] = name
+            groups[w.g] = g
+            saveGroups()
+        }
+        MTGroupTyping.shared.heard(Self.key(of: g.id), seat: seat)
+        return .instant
+    }
+
+    // -- read (the checklist's B.13, the reference's small group: a letter read, and who saw it) -------------------------------
+
+    /// How far this phone told each group it read: one word a moment, and only when the mark moved. Held in memory: a launch tells once.
+    private var readTold: [String: Int64] = [:]
+    /// How far the owner told the speakers each reader read, by group and reader: a speaker hears of a reader once for each new reach.
+    private var readSpread: [String: Int64] = [:]
+    /// THIS PHONE READ THE GROUP (ChatStore.sendReadMark, on the chat's own terms: on screen, the app active): the birth millisecond of
+    /// the newest letter of another before its eyes, told as its own word «rd» to the owner, who tells each speaker it covers; the
+    /// owner's own reading goes to them straight. Never with «Read receipts» off -- the switch is the person's word about themselves.
+    @MainActor
+    func tellRead(_ key: String, store: ChatStore) {
+        guard ChatStore.readReceiptsOn, let g = state(key), g.kind == .group, g.left != true,
+              let newest = (store.messages[key] ?? []).compactMap({ r in r.isFromMe ? nil : r.msgId.flatMap(ChatStore.birthMs(fromMid:)) }).max()
+        else { return }
+        let ms = Int64(newest * 1000)
+        guard (readTold[g.id] ?? 0) < ms else { return }
+        readTold[g.id] = ms
+        if g.mine {
+            spreadRead(g, reader: g.me, upTo: ms, store: store)
+        } else {
+            _ = carry(MTGroupWord(t: "rd", g: g.id, id: ChatStore.mintMid().mid, s: g.me, tx: String(ms)), to: g.owner, letter: "", own: false)
+        }
+        MontanaTrace.mark("read_tx", "group upto=\(MontanaTrace.shortMs(ms))")
+    }
+    /// THE OWNER TELLS EACH SPEAKER A READER REACHED: the seats of the letters born after the reader's last mark and up to the new one,
+    /// each told by a word of its own (ts names it); the owner's own letters are read here.
+    @MainActor
+    private func spreadRead(_ g: MTGroupState, reader: String, upTo ms: Int64, store: ChatStore) {
+        let key = Self.key(of: g.id)
+        let head = Self.speaker(g.id, "")
+        let k = g.id + "/" + reader
+        let since = readSpread[k] ?? 0
+        guard since < ms else { return }
+        readSpread[k] = ms
+        var speakers = Set<String>()
+        for r in store.messages[key] ?? [] {
+            guard let b = r.msgId.flatMap(ChatStore.birthMs(fromMid:)) else { continue }
+            let born = Int64(b * 1000)
+            guard since < born, born <= ms else { continue }
+            let seat = r.isFromMe ? g.me : (r.senderRef.flatMap { x in x.hasPrefix(head) ? String(x.dropFirst(head.count)) : nil } ?? "")
+            if !seat.isEmpty, seat != reader { speakers.insert(seat) }
+        }
+        if speakers.contains(g.me) { readMine(g.id, reader: reader, upTo: ms, store: store) }
+        for m in g.members where speakers.contains(m.seat) {
+            var w = MTGroupWord(t: "rd", g: g.id, id: ChatStore.mintMid().mid, s: reader, tx: String(ms))
+            w.ts = [m.seat]
+            _ = carry(w, to: m.pipe, letter: "", own: false)
+        }
+    }
+    /// A READER REACHED MY LETTERS: their mark kept, and every letter of mine born up to it raised to read through the ladder's one
+    /// door (delivered first, as everywhere).
+    @MainActor
+    private func readMine(_ gid: String, reader: String, upTo ms: Int64, store: ChatStore) {
+        guard var g = groups[gid], reader != g.me else { return }
+        var by = g.readBy ?? [:]
+        guard (by[reader] ?? 0) < ms else { return }
+        by[reader] = ms
+        g.readBy = by
+        groups[gid] = g
+        saveGroups()
+        let key = Self.key(of: gid)
+        var raised = 0
+        for (i, r) in (store.messages[key] ?? []).enumerated() where r.isFromMe {
+            if let b = r.msgId.flatMap(ChatStore.birthMs(fromMid:)), Int64(b * 1000) <= ms, store.advance(key, i, to: .read) { raised += 1 }
+        }
+        MontanaTrace.mark("read_rx", "group upto=\(MontanaTrace.shortMs(ms)) raised=\(raised)")
+    }
+    /// A READER'S WORD: at the owner, the reader's seat is the pipe's own, never the word's; at a member, the owner's word for a
+    /// reader of this phone's letters.
+    @MainActor
+    private func readWord(_ w: MTGroupWord, from pipe: String, store: ChatStore) -> Verdict {
+        guard let g = groups[w.g] else { return .wait }
+        guard g.left != true, g.kind == .group, let tx = w.tx, let ms = Int64(tx), 0 < ms else { return .refused }
+        let from = MTSamePair.root(pipe)
+        if g.mine {
+            guard let m = g.members.first(where: { x in MTSamePair.root(x.pipe) == from }) else { return .refused }
+            spreadRead(g, reader: m.seat, upTo: ms, store: store)
+        } else {
+            guard MTSamePair.root(g.owner) == from, let s = w.s, Self.isSeat(s), s != g.me, w.ts?.contains(g.me) != false else { return .refused }
+            readMine(g.id, reader: s, upTo: ms, store: store)
+        }
+        return .held
+    }
+    /// THE READERS OF A LETTER OF MINE, BY NAME (the reference's «N Seen» over the letter's menu): the seats whose mark covers its birth.
+    func seenBy(_ m: Message, in key: String) -> [String]? {
+        guard let g = state(key), g.kind == .group, m.isFromMe, let b = m.msgId.flatMap(ChatStore.birthMs(fromMid:)) else { return nil }
+        let ms = Int64(b * 1000)
+        return (g.readBy ?? [:]).filter { e in ms <= e.value }.map { e in speakerName(Self.speaker(g.id, e.key)) }
+            .sorted { a, b in a.localizedCaseInsensitiveCompare(b) == .orderedAscending }
+    }
+
+    // -- the pin for everyone (the checklist's B.11, the reference: «Pin this message and notify all members of the group?») ------
+
+    /// WHO PINS FOR EVERYONE: the owner, the administrators it named, and every member while the group lets its members pin -- the
+    /// reference's own default for a new group. The one gate of a pin, asked where it is sent and wherever it lands.
+    static func pins(_ g: MTGroupState, seat: String) -> Bool {
+        guard g.kind == .group else { return false }
+        return seat == ownerSeat || g.admins?.contains(seat) == true || true
+    }
+    /// Whether this phone pins a letter of the group for everyone.
+    func mayPin(_ key: String) -> Bool {
+        guard let g = state(key), g.left != true else { return false }
+        return Self.pins(g, seat: g.me)
+    }
+    /// A LETTER PINNED OR UNPINNED FOR EVERYONE: here at once, and its word carried to every phone of the group by the answers' road
+    /// (signal); a pin lays the reference's service row. `notify` -- «Pin and notify all members» against «Only Pin».
+    @MainActor
+    func pin(_ m: Message, pin: Bool, notify: Bool, in key: String, store: ChatStore) {
+        guard let g = state(key), g.left != true, Self.pins(g, seat: g.me), let sid = m.msgId, sid.hasPrefix("mid:") else { return }
+        if pin { store.pin(key, m.id) } else { store.unpin(key, m.id) }
+        var o: [String: Any] = ["sid": sid, "op": pin ? "pin" : "unpin"]
+        if !notify { o["n"] = 0 }
+        guard let d = try? JSONSerialization.data(withJSONObject: o), let body = String(data: d, encoding: .utf8) else { return }
+        signal(pinMark + body, in: key, store: store)
+        if pin { lay(MTGroupEvent(e: "pinned", g: g.id, a: g.me, t: Self.pinWords(m)), store: store) }
+        MontanaTrace.mark("pin_tx", "group \(pin ? "pin" : "unpin") notify=\(notify ? 1 : 0)")
+    }
+    /// The pinned letter's words as its service row quotes them: the list's own preview, cut at forty letters.
+    static func pinWords(_ m: Message) -> String {
+        let w = ChatStore.listPreview(m)
+        return w.count <= 40 ? w : String(w.prefix(40)) + "…"
     }
 
     // -- a channel's views (the reference's eye under a post; MTChannelViews) ---------------------------------
@@ -856,6 +1054,8 @@ final class MTGroup {
                         : String(localized: "\(who) changed the group name to \"\(title)\"", bundle: b)
         case "face":
             return mine ? String(localized: "You changed the group photo", bundle: b) : String(localized: "\(who) changed the group photo", bundle: b)
+        case "pinned":
+            return mine ? String(localized: "You pinned \"\(title)\"", bundle: b) : String(localized: "\(who) pinned \"\(title)\"", bundle: b)
         case "call":
             if e.k == "live" { return mine ? String(localized: "You started a live stream", bundle: b) : String(localized: "\(who) started a live stream", bundle: b) }
             if e.v == 1 { return mine ? String(localized: "You started a video chat", bundle: b) : String(localized: "\(who) started a video chat", bundle: b) }
@@ -1104,7 +1304,8 @@ final class MTGroup {
 
     // -- arrival -------------------------------------------------------------------------------
 
-    enum Verdict { case held, refused, wait }
+    /// `instant` -- a word that lived an instant (a typing word): it rode no queue, so nothing is receipted and nothing knocks again.
+    enum Verdict { case held, refused, wait, instant }
 
     /// A group's word arrived on a pipe (ChatStore.append). True when it was ours to read: it is never a row of the pipe. Every
     /// copy is answered by the one receipt door on the pipe it came by -- held, or with its road over here; a letter of a group
@@ -1120,7 +1321,7 @@ final class MTGroup {
         } else {
             MontanaTrace.mark("group_refused", "unreadable from=\(String(pipe.prefix(10)))")
         }
-        if verdict != .wait {
+        if verdict != .wait, verdict != .instant {
             store.sendDeliveryReceipt(pipe, msgId: sid, isFromMe: false, text: text, buried: verdict == .refused)
         }
         return true
@@ -1141,6 +1342,8 @@ final class MTGroup {
         case "kk": return kicked(w, from: pipe, store: store)   // COMPAT-GATED: an administrator's «take out», to the owner
         case "jn": return joined(w, from: pipe, store: store)   // COMPAT-GATED: a person who opened the group's invite link
         case "kp": return keptHeard(w, from: pipe)   // COMPAT-GATED: a keeper's word to a deleted letter's speaker (16.10)
+        case "ty": return typed(w, from: pipe)   // COMPAT-GATED: a member typing, an instant word an older build buries (B.12)
+        case "rd": return readWord(w, from: pipe, store: store)   // COMPAT-GATED: a reader's mark, an older build buries it (B.13)
         case "vw": return seen(w, from: pipe, store: store)   // COMPAT-GATED: a subscriber's posts shown, to a channel's owner (17.10)
         case "vc": return counted(w, from: pipe)   // COMPAT-GATED: a channel owner's view counts, to its subscribers (17.10)
         default:
@@ -1243,12 +1446,13 @@ final class MTGroup {
                           msgId: sid, senderRef: Self.speaker(g.id, seat), createdAt: born,
                           replyToId: store.localId(forMid: w.qm, chat: key))
         let landed = store.append(key, row)   // a channel's post lands on its wall, never as a row (MTBoard.handle)
+        MTGroupTyping.shared.stopped(key, seat: seat)   // the letter came: its speaker types no more (the reference's head)
         MontanaTrace.mark("group_rx", mid: id, "letter landed=\(landed ? 1 : 0) owner=\(g.mine ? 1 : 0) post=\(post ? 1 : 0)")
         if post {
-            MontanaNotify.presentGroup(title: g.title, body: String(localized: "New message", bundle: MTLanguage.bundle), chat: key, copy: copy)
+            if w.sl != 1 { MontanaNotify.presentGroup(title: g.title, body: String(localized: "New message", bundle: MTLanguage.bundle), chat: key, copy: copy) }
             return .held
         }
-        if landed {
+        if landed, w.sl != 1 {   // a channel's post sent without sound shows no banner (Silent Broadcast)
             // The banner a running app owes its person: the group's title over who wrote and what (a channel speaks as itself).
             let shown = MontanaNotify.body(for: words) ?? String(localized: "New message", bundle: MTLanguage.bundle)
             let who = g.kind == .group ? speakerName(Self.speaker(g.id, seat)) : ""
@@ -1281,6 +1485,10 @@ final class MTGroup {
         }
         guard !answersHeard.contains(id) else { return .held }
         let key = Self.key(of: g.id)
+        if words.hasPrefix(pinMark), !Self.pins(g, seat: seat) {
+            MontanaTrace.mark("group_refused", "a pin by a seat without the right seat=\(seat)")
+            return .refused
+        }
         // AN EDIT OR A DELETION IS THE SPEAKER'S OWN (applyEditFromPeer and deleteEverywhere ask only whose phone wrote a row):
         // the owner answers for every member, so it takes one only for a letter standing here under that member's seat; a member
         // takes the owner's word, and a deletion of a letter not landed yet buries it before it comes.
@@ -1307,6 +1515,11 @@ final class MTGroup {
         if 512 < answersHeard.count { answersHeard.removeFirst(answersHeard.count - 512) }
         let born = MontanaDeliveryEngine.letterMoment(mid: "mid:" + id, sentAt: nil)
         store.append(key, Message(text: words, isFromMe: false, time: "", msgId: "mid:" + id, senderRef: Self.speaker(g.id, seat), createdAt: born))
+        // the reference's service row of a pin: «X pinned "..."», laid on this phone under the pinned letter's own words
+        if words.hasPrefix(pinMark), let o = Self.json(String(words.dropFirst(pinMark.count))), (o["op"] as? String) == "pin",
+           let sid = o["sid"] as? String, let row = store.messages[key]?.first(where: { r in r.msgId == sid }) {
+            lay(MTGroupEvent(e: "pinned", g: g.id, a: seat, t: Self.pinWords(row)), store: store)
+        }
         if g.mine { spread(MTGroupWord(t: "sig", g: g.id, n: w.n, id: id, s: seat, tx: words), in: g, except: seat, own: false) }
         return .held
     }
@@ -1438,6 +1651,13 @@ final class MTGroup {
     // -- measures ------------------------------------------------------------------------------
 
     static func answers(_ text: String) -> Bool {
+        // A PIN FOR EVERYONE (the checklist's B.11): the letter by its one name, pinned or unpinned; an older build refuses it here
+        // and buries it (COMPAT-GATED: the word «sig» is known, its pin is not).
+        if text.hasPrefix(pinMark) {
+            guard text.utf8.count <= 1024, let o = json(String(text.dropFirst(pinMark.count))), let op = o["op"] as? String,
+                  op == "pin" || op == "unpin", let sid = o["sid"] as? String, sid.hasPrefix("mid:") else { return false }
+            return isLetterName(String(sid.dropFirst(4)))
+        }
         if text.hasPrefix(reactionMark) {
             guard text.count <= 2048, let o = json(String(text.dropFirst(reactionMark.count))), let op = o["op"] as? String else { return false }
             return op == "add" || op == "del"
@@ -1530,4 +1750,42 @@ final class MTMentionCompose: ObservableObject {
 extension Array {
     /// Nil for an empty list: a field that names nobody is not written at all.
     var nilIfEmpty: [Element]? { isEmpty ? nil : self }
+}
+
+/// WHO TYPES IN A GROUP NOW (the checklist's B.12): seats by the moment their word landed, each alive the store's typing life, and
+/// the head's line in the reference's words -- one name, two names, a name and how many others.
+final class MTGroupTyping: ObservableObject {
+    static let shared = MTGroupTyping()
+    @Published private(set) var seats: [String: [String: Date]] = [:]
+    @MainActor
+    func heard(_ key: String, seat: String) {
+        seats[key, default: [:]][seat] = Date()
+        DispatchQueue.main.asyncAfter(deadline: .now() + ChatStore.typingLife + 0.1) { [weak self] in self?.sweep(key) }
+    }
+    @MainActor
+    func stopped(_ key: String, seat: String) {
+        if seats[key]?[seat] != nil { seats[key]?[seat] = nil }
+    }
+    @MainActor
+    private func sweep(_ key: String) {
+        let now = Date()
+        let alive = (seats[key] ?? [:]).filter { e in now.timeIntervalSince(e.value) < ChatStore.typingLife }
+        if alive.count != seats[key]?.count { seats[key] = alive.isEmpty ? nil : alive }
+    }
+    /// The head's line while someone types, nil when nobody does.
+    @MainActor
+    func line(_ key: String) -> String? {
+        guard let gid = MTGroup.id(of: key) else { return nil }
+        let now = Date()
+        let names = (seats[key] ?? [:]).filter { e in now.timeIntervalSince(e.value) < ChatStore.typingLife }
+            .sorted { a, b in a.value < b.value }
+            .map { e in MTGroup.shared.speakerName(MTGroup.speaker(gid, e.key)) }
+        let b = MTLanguage.bundle
+        switch names.count {
+        case 0: return nil
+        case 1: return String(localized: "\(names[0]) is typing…", bundle: b)
+        case 2: return String(localized: "\(names[0]) and \(names[1]) are typing…", bundle: b)
+        default: return String(localized: "\(names[0]) and \(String(names.count - 1)) others are typing…", bundle: b)
+        }
+    }
 }

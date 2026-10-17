@@ -12,18 +12,21 @@ struct MTChannelIntroStep: View {
 
     var body: some View {
         NavigationStack {
+            // THE REFERENCE'S INTRODUCTION (the author's words 17.10.2026 18:4x MSK: «1 to 1»): the picture, «What is a Channel?», its
+            // one sentence, and «Create Channel» at the foot.
             VStack(spacing: 18) {
                 Spacer()
                 Image(systemName: "megaphone.fill").font(.system(size: 64)).foregroundColor(.white)
-                Text("What is a channel?").font(.title2.bold())
-                VStack(spacing: 10) {
-                    Text("A channel sends your posts to the people you choose.")
-                    Text("Only you post; subscribers read.")
-                    Text("Every post goes phone to phone, over the pipe you hold with each subscriber.")
+                Text("What is a Channel?").font(.title2.bold())
+                Text("Channels are a new tool for broadcasting your messages to large audiences.")
+                    .font(.body).foregroundColor(.secondary).multilineTextAlignment(.center)
+                Spacer()
+                Spacer()
+                Button { naming = true } label: {
+                    Text("Create Channel").font(.headline).frame(maxWidth: .infinity, minHeight: 50)
                 }
-                .font(.body).foregroundColor(.secondary).multilineTextAlignment(.center)
-                Spacer()
-                Spacer()
+                .buttonStyle(.borderedProminent).tint(.blue)
+                .padding(.bottom, 12)
             }
             .padding(.horizontal, 32)
             .frame(maxWidth: .infinity)
@@ -31,7 +34,6 @@ struct MTChannelIntroStep: View {
             .navigationTitle("New Channel").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { MontanaCloseMark { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) { MontanaDoneMark { naming = true } }
             }
             .navigationDestination(isPresented: $naming) {
                 MTChannelInfoStep { title, about, face, subscribers in
@@ -59,14 +61,14 @@ struct MTChannelInfoStep: View {
             Section {
                 HStack(spacing: 14) {
                     MTFacePicker(face: $face)
-                    TextField("Channel name", text: $name).focused($typing)
+                    TextField("Channel Name", text: $name).focused($typing)
                 }
             }
             .listRowBackground(MTGlassRowPlate())
             Section {
-                TextField("Description", text: $about, axis: .vertical).lineLimit(1...6)
+                TextField("Description (Optional)", text: $about, axis: .vertical).lineLimit(1...6)
             } footer: {
-                Text("You can add a description to your channel.")
+                Text("You can provide an optional description for your channel.")
             }
             .listRowBackground(MTGlassRowPlate())
         }
@@ -112,7 +114,7 @@ struct MTChannelSubscribersStep: View {
         }
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always))
         .scrollContentBackground(.hidden).montanaPageGround()
-        .navigationTitle("Add subscribers").navigationBarTitleDisplayMode(.inline)
+        .navigationTitle("Add Subscribers").navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 MontanaDoneMark { onCreate(chosen.compactMap { ref in people.first { $0.convRef == ref } }) }
@@ -478,5 +480,139 @@ enum MTChannelWallFold {
         let poster = "wallposter_" + p.id + "_" + String(i) + ".jpg"
         guard MontanaMediaStore.exists(poster) || MontanaMediaStore.put(poster, data: data) else { return nil }
         return (poster, false)
+    }
+}
+
+/// A CHANNEL'S PAGE, AS THE REFERENCE LAYS IT (the author's words 17.10.2026 18:4x-18:5x MSK: «channels ... 1 to 1», «we do not need our
+/// own kinds of pages inside channels»): the head's count and the buttons, said once here; the page (MontanaPeerInfoScreen) asks it
+/// for a channel alone, as it asks MTGroupPage for a group.
+enum MTChannelPage {
+    /// «N subscribers» under the channel's name, the owner counted among them -- the chat's top and the page say this one line.
+    static func head(_ key: String) -> String {
+        String(localized: "\(MTGroup.shared.people(key) ?? 1) subscribers", bundle: MTLanguage.bundle)
+    }
+    /// The page's buttons, as the reference's channel page has them: the owner's live stream, the sound and the search; a subscriber's
+    /// sound, search, the way out and more. A channel this phone is out of keeps the sound and the search.
+    @MainActor
+    static func actions(_ key: String, muted: Bool) -> [MTPeerAction] {
+        let g = MTGroup.shared.state(key)
+        let sound: MTPeerAction = muted ? .unmute : .mute
+        if g?.canManage == true {
+            return (MTGroupRoom.shared.kinds(for: key).contains(.live) ? [.liveStream] : []) + [sound, .search]
+        }
+        if g == nil || g?.left == true { return [sound, .search] }
+        return [sound, .search, .leave, .more]
+    }
+}
+
+/// THE CHANNEL'S SUBSCRIBERS (the reference's «Subscribers» page, its owner's alone): «Add Subscribers» first, then every person the
+/// owner's phone carries the channel to, a hold or a swipe to take one out -- asked first, as the reference asks.
+struct MTChannelPeoplePage: View {
+    @EnvironmentObject private var store: ChatStore
+    let key: String
+    @State private var adding = false
+    @State private var removing: String? = nil
+
+    private struct Person: Identifiable { let seat: String; let name: String; var id: String { seat } }
+
+    var body: some View {
+        let gid = MTGroup.id(of: key) ?? ""
+        let people = MTGroup.shared.pagePeople(key).map { Person(seat: $0.seat, name: $0.name) }
+        List {
+            if MTGroup.shared.manages(key) {
+                Section {
+                    Button { adding = true } label: {
+                        Label("Add Subscribers", systemImage: "person.badge.plus")
+                            .frame(maxWidth: .infinity, minHeight: montanaTouchTarget, alignment: .leading).contentShape(Rectangle())
+                    }
+                }
+                .listRowBackground(MTGlassRowPlate())
+            }
+            Section {
+                ForEach(people) { p in
+                    HStack(spacing: 12) {
+                        MTSpeakerFace(ref: MTGroup.speaker(gid, p.seat), name: p.name, side: 40)
+                        Text(verbatim: p.name).foregroundColor(.primary).lineLimit(1)   // USER-DATA: a subscriber's name
+                        Spacer(minLength: 0)
+                    }
+                    .frame(minHeight: montanaTouchTarget)
+                    .contentShape(Rectangle())
+                    .swipeActions(edge: .trailing) {
+                        if MTGroup.shared.manages(key) {
+                            Button(role: .destructive) { removing = p.seat } label: { Label("Remove", systemImage: "person.fill.xmark") }
+                        }
+                    }
+                    .contextMenu {
+                        if MTGroup.shared.manages(key) {
+                            Button(role: .destructive) { removing = p.seat } label: { Label("Remove", systemImage: "person.fill.xmark") }
+                        }
+                    }
+                }
+            }
+            .listRowBackground(MTGlassRowPlate())
+        }
+        .scrollContentBackground(.hidden).montanaPageGround()
+        .navigationTitle("Subscribers").navigationBarTitleDisplayMode(.inline)
+        .confirmationDialog("Remove from the channel?",
+                            isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
+                            titleVisibility: .visible) {
+            Button("Remove", role: .destructive) {
+                if let seat = removing { MTGroup.shared.remove(key, seat: seat, store: store) }
+                removing = nil
+            }
+        }
+        .sheet(isPresented: $adding) {
+            MTGroupPickStep(adding: key) { _, _, people in MTGroup.shared.add(key, people: people, store: store) }
+                .environmentObject(store)
+        }
+    }
+}
+
+/// THE CHANNEL'S INVITE LINK, WHERE THE REFERENCE'S CHANNEL SETTINGS KEEP IT: the link, «Copy» and «Share» under it, and «Revoke Link»
+/// -- a new mark that ends every link given before (MTGroup.resetInvite), asked first. Whoever opens the link meets the owner by its
+/// card and asks with the mark; the owner's phone adds them as a subscriber.
+struct MTChannelInviteLinksPage: View {
+    let chat: String
+    @State private var link: URL?
+    @State private var askRevoke = false
+    var body: some View {
+        List {
+            Section {
+                if let link {
+                    Text(verbatim: link.absoluteString).foregroundColor(.white).lineLimit(1).truncationMode(.middle)   // USER-DATA: the channel's link
+                    HStack(spacing: 12) {
+                        Button {
+                            UIPasteboard.general.url = link
+                            UINotificationFeedbackGenerator().notificationOccurred(.success)
+                        } label: { Text("Copy").frame(maxWidth: .infinity, minHeight: 44) }
+                        .buttonStyle(.borderedProminent)
+                        Button { MTShare.present([link]) } label: { Text("Share").frame(maxWidth: .infinity, minHeight: 44) }
+                            .buttonStyle(.borderedProminent)
+                    }
+                    .tint(.blue)
+                }
+            } header: {
+                Text("Invite Link")
+            } footer: {
+                Text("Anyone who follows this link will be able to join your channel.")
+            }
+            .listRowBackground(MTGlassRowPlate())
+            Section {
+                Button(role: .destructive) { askRevoke = true } label: {
+                    Text("Revoke Link").frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle())
+                }
+            }
+            .listRowBackground(MTGlassRowPlate())
+        }
+        .scrollContentBackground(.hidden).montanaPageGround()
+        .navigationTitle("Invite Links").navigationBarTitleDisplayMode(.inline)
+        .onAppear { link = MTGroup.shared.inviteLink(chat) }
+        .confirmationDialog(Text("Are you sure you want to revoke this link? Once you do, no one will be able to join the channel using it."),
+                            isPresented: $askRevoke, titleVisibility: .visible) {
+            Button("Revoke", role: .destructive) {
+                MTGroup.shared.resetInvite(chat)
+                link = MTGroup.shared.inviteLink(chat)
+            }
+        }
     }
 }
