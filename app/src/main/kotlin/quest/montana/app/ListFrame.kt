@@ -264,7 +264,7 @@ private class RowNumber(c: Context) : FrameLayout(c) {
         typeface = android.graphics.Typeface.DEFAULT_BOLD
         fontFeatureSettings = "tnum"
         gravity = Gravity.CENTER
-        isSingleLine = true   // laid out in the plate's 28 the digits would break in two, and the plate's width is read from that layout
+        isSingleLine = true
         setPadding(c.dp(10), 0, c.dp(10), 0)
     }
     private var shown = 0
@@ -287,8 +287,9 @@ private class RowNumber(c: Context) : FrameLayout(c) {
     fun show(n: Int, edge: Float, centerY: Float): Boolean {
         val h = context.dp(HEIGHT)
         if (n != shown) { shown = n; label.text = n.toString() }   // USER-DATA: the row's place in the list, digits
-        label.measure(MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED), MeasureSpec.makeMeasureSpec(h, MeasureSpec.EXACTLY))
-        val w = maxOf(label.measuredWidth, h)
+        // THE PLATE'S WIDTH FROM THE DIGITS THEMSELVES: a TextView measured unbounded reads its width from the layout it already
+        // holds -- the one made in the plate's first 28 -- so 441 and 442 stood one digit wide
+        val w = maxOf(Math.ceil(label.paint.measureText(label.text.toString()).toDouble()).toInt() + label.paddingLeft + label.paddingRight, h)
         if (label.layoutParams.width != w) { label.layoutParams = label.layoutParams.apply { width = w } }
         val fw = w + context.dp(ROOM_X); val fh = h + 2 * context.dp(ROOM_Y)
         if (layoutParams.width != fw || layoutParams.height != fh) { layoutParams = layoutParams.apply { width = fw; height = fh } }
