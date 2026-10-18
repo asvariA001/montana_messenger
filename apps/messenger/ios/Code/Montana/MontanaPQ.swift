@@ -1081,6 +1081,8 @@ extension MontanaArchive {
     // other ANSWERS with the rows it holds under those keys, by their names, a file by the cargo road, and the asker lays each one by
     // its own birth -- once, never over its tombstone. ──
     nonisolated static let twinAskMark = "\u{200B}\u{200B}TA:"   // NOT-UI: the asker's keys, to this seed's devices alone
+    nonisolated static let twinCardMark = "\u{200B}\u{200B}TC:"   // NOT-UI: a card this device gave birth to, to this seed's devices alone (MontanaCard.takeTwin)
+    nonisolated static let twinCardPipe = "twin:card"   // NOT-UI: the mirror's name for the cards' words, never a conversation
     nonisolated static let twinRowMark = "\u{200B}\u{200B}TW:"   // NOT-UI: one row given back, to this seed's devices alone
     private static let askedKey = "mt.twin.asked"   // NOT-UI: the keys this device already asked (SeedScope names it)
     /// The archive's key of a row's words, the same on every device of the seed: a hash of the words as the archive writes them.
@@ -1094,7 +1096,10 @@ extension MontanaArchive {
         guard !fresh.isEmpty, let d = try? JSONSerialization.data(withJSONObject: ["i": fresh.map { i in [i.s, i.m ? 1 : 0, i.h] as [Any] }]),
               let js = String(data: d, encoding: .utf8) else { return }
         for i in fresh { asked.insert(chat + "/" + String(i.s) + "/" + i.h) }
-        UserDefaults.standard.set(Array(asked).suffix(5000), forKey: askedKey)
+        // A SLICE IS NO PROPERTY LIST (the author's word 18.10.2026 14:0x MSK: «check why the app crashes on T1 and fix it urgently»):
+        // T1 on 2240 died on screen every half minute from 11:08:52Z -- NSInvalidArgumentException «Attempt to insert non-property list
+        // object ArraySlice([...]) for key mt.twin.asked»: suffix hands back an ArraySlice, and the settings store takes only arrays.
+        UserDefaults.standard.set(Array(Array(asked).suffix(5000)), forKey: askedKey)
         mirrorNote(TwinWord(c: chat, m: UUID().uuidString, x: twinAskMark + js, o: 1))
         MontanaTrace.mark("twin_ask", "chat=\(String(chat.prefix(10))) rows=\(fresh.count)")
     }

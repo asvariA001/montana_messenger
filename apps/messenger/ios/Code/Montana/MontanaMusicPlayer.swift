@@ -731,7 +731,12 @@ struct MTVolumeSlider: UIViewRepresentable {
     func makeUIView(context: Context) -> MTVolumeLineView { MTVolumeLineView() }
     func updateUIView(_ v: MTVolumeLineView, context: Context) {}
 }
-final class MTVolumeLineView: UIView {
+/// THE LINE OWNS ITS HORIZONTAL (the author's word 18.10.2026 13:3x MSK: «on T2, trying to make the sound louder on the big player, it
+/// turned the page -- before, everything worked»): the tabs' pan owns the page's centre and every other pan waits for it to fail
+/// (MTTabPan), and it gives way only over a view wearing the mark. The volume view's own slider wore it by nature; since the line
+/// took the finger itself (16.10) its drag was the tabs' -- a flat stroke on the line turned the pages. A slider is a horizontal by
+/// nature, so the line wears the mark as the app's one slider does (MontanaSliderView).
+final class MTVolumeLineView: UIView, MTHorizontalOwning {
     private let system = MPVolumeView()
     private var slider: UISlider? { system.subviews.compactMap { $0 as? UISlider }.first }
     override init(frame: CGRect) {
@@ -821,7 +826,12 @@ struct MTQueuePage: View {
                 ToolbarItem(placement: .cancellationAction) { MontanaCloseMark { montanaClose?() } }
                 ToolbarItemGroup(placement: .confirmationAction) {
                     MontanaBarMark(glyph: "music.note.list", label: "Show in playlist") { montanaClose?(); onPlace() }
-                    MontanaBarMark(glyph: editing.isEditing ? "checkmark" : "arrow.up.arrow.down", label: "Reorder") {
+                    // THE ARROWS TURN THE ORDER, THE LINES MOVE BY HAND (the author's word 18.10.2026 13:3x MSK: «change the arrow button
+                    // to the ordering icon, and to the left of it an arrow button that only turns the tracks' order over»).
+                    MontanaBarMark(glyph: "arrow.up.arrow.down", label: "Reverse order") {
+                        withAnimation { player.reverseQueue(); tracks = player.queue }
+                    }
+                    MontanaBarMark(glyph: editing.isEditing ? "checkmark" : "line.3.horizontal", label: "Reorder") {
                         withAnimation { editing = editing.isEditing ? .inactive : .active }
                     }
                 }

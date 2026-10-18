@@ -189,6 +189,11 @@ struct MTGroupWord: Codable {
     var hs: Int? = nil
     /// The reactions a channel takes, on its «inv» (Some Reactions); absent -- every one. A build that does not read it skips the key.
     var rl: [String]? = nil
+    /// THE WORD'S AUTHOR IS THE PERSON (MTGroup.ownTag, 18.10.2026): sixteen bytes only this person's devices make, over the pipe's
+    /// secret and the word's own fields. A group's word is too big for the letter's eighth field more often than not (an invitation
+    /// with the group's face, a channel's post), so it rode unsigned and the seed's other device judged it as a stranger's. A build
+    /// that does not read it skips the key.
+    var au: String? = nil
 }
 
 /// ONE WHO ASKED TO JOIN BY THE LINK (the reference's «Member Requests»): the pipe the owner met them by, the name they gave and when.
@@ -543,6 +548,18 @@ final class MTGroup {
         return row
     }
 
+    /// ONE MEMBER'S INVITATION AS THE GROUP'S ROAD CARRIES IT (a call of two growing into a room, MTGroupRoom.grow, the author's word
+    /// 18.10.2026 13:3x MSK: «adding to a call must not interrupt it»): the same word, handed to the call's own road, so the peer
+    /// stands the group the moment the call says so instead of the minutes the box takes. The word is the owner's alone.
+    func invitationText(_ key: String, seat: String) -> String? {
+        guard let g = state(key), g.mine, g.members.contains(where: { m in m.seat == seat }) else { return nil }
+        let me = Self.clean(E2E.myDisplayName(), Self.nameLimit)
+        let w = MTGroupWord(t: "inv", g: g.id, k: g.kind.rawValue, ti: g.title, ds: g.about.isEmpty ? nil : g.about, fc: nil,
+                            c: g.count, me: seat, n: me.isEmpty ? nil : me)
+        guard let d = try? JSONEncoder().encode(w), let js = String(data: d, encoding: .utf8) else { return nil }
+        return Self.mark + js
+    }
+
     /// The group's row on the list: the one standing or archived, or a new one at the top. A deleted group's row comes back
     /// with its next word, as a deleted conversation does.
     /// `fresh` -- a word of the group raised it now; a row stood back by standAll keeps its place by its newest letter.
@@ -662,6 +679,8 @@ final class MTGroup {
     /// invitation ring (the receiver's phone shows the group's face); an answer, a leaving and a taking out are silent words.
     @MainActor
     private func carry(_ w: MTGroupWord, to pipe: String, letter: String, own: Bool, ring: Bool = false) -> String? {
+        var w = w
+        w.au = Self.ownTag(w, pipe: pipe)   // signed by the person: the seed's other devices know the word as their own
         guard MontanaConv.holds(pipe), !ChatStore.refusesCold(pipe),
               let d = try? JSONEncoder().encode(w), let js = String(data: d, encoding: .utf8) else { return nil }
         let name = ChatStore.mintMid().mid
@@ -2023,6 +2042,16 @@ final class MTGroup {
         var verdict = Verdict.refused
         if let d = String(text.dropFirst(mark.count)).data(using: .utf8),
            let w = try? JSONDecoder().decode(MTGroupWord.self, from: d), MontanaArchive.isLabel(w.g) {
+            // THE PERSON'S OWN WORD, HEARD ON A PIPE ITS DEVICES SHARE (the author's word 18.10.2026 13:3x MSK: «check what the errors of
+            // sending into channels on T1 are, and fix everything»). Measured: T1 and the Mac refused each other's group words without
+            // end -- 292 «a member's letter in a channel is not carried» and 219 «invitation of a group held by another owner» on T1
+            // from 17.10 16:18 on: the Mac, the same person, carried its channel's posts and invitations to a member, and T1, holding the
+            // same end of that member's pipe, heard them as the member's. A word this person signed is done here as the hand did it
+            // there (replay) -- never judged as a stranger's, never answered: the device that spoke carries it.
+            if shared.ownWord(w, pipe: pipe) {
+                MainActor.assumeIsolated { shared.replay(w, to: pipe, store: store) }
+                return true
+            }
             verdict = shared.take(w, from: pipe, copy: sid ?? "", store: store)
         } else {
             MontanaTrace.mark("group_refused", "unreadable from=\(String(pipe.prefix(10)))")
@@ -2084,6 +2113,22 @@ final class MTGroup {
         guard let d = String(text.dropFirst(mark.count)).data(using: .utf8),
               let w = try? JSONDecoder().decode(MTGroupWord.self, from: d), MontanaArchive.isLabel(w.g) else { return }
         shared.replay(w, to: pipe, store: store)
+    }
+
+    /// The fields the person's tag is made over: the group, the kind, the letter's name, the seats and the words -- what a member
+    /// could alter to pass another's word off.
+    private static func tagText(_ w: MTGroupWord) -> String {
+        [w.t, w.id ?? "", w.me ?? "", w.s ?? "", w.ti ?? "", w.tx ?? ""].joined(separator: "\u{0}")
+    }
+    /// The person's tag on a word carried on one pipe: the letter author's key (MTLetterAuthor) over that pipe's secret.
+    static func ownTag(_ w: MTGroupWord, pipe: String) -> String? {
+        guard let key = MTLetterAuthor.key, let secret = MTPipeBook.secret(for: pipe) else { return nil }
+        return MTNodeWire.authorTag(key: key, secret: secret, mid: w.g, text: tagText(w))
+    }
+    /// Whether a word heard on a pipe was signed by this person -- on another of its devices.
+    func ownWord(_ w: MTGroupWord, pipe: String) -> Bool {
+        guard let tag = w.au, let secret = MTPipeBook.secret(for: pipe) else { return false }
+        return MTNodeWire.authorHolds(tag, key: MTLetterAuthor.key, secret: secret, mid: w.g, text: Self.tagText(w))
     }
 
     @MainActor

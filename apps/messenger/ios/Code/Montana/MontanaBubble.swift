@@ -2305,6 +2305,15 @@ final class MTGrowTextView: UITextView {
             MontanaTrace.mark("field_wrap", "from=\(Int(textContainer.size.width)) to=\(Int(w)) bounds=\(Int(bounds.width))")
             textContainer.size = CGSize(width: w, height: 1000000.0)
         }
+        // THE WORDS THAT FIT ARE NEVER SCROLLED AWAY (the author's word 18.10.2026 14:0x MSK: «in the Money Flow, in any scenario while
+        // it is on, I must see what I type»). A field born with a draft -- the Money Flow's field at the top of the turned feed is born
+        // anew at every turn -- scrolled to its caret while it was still 0 points high and kept the offset at its full height: T1
+        // 18.10.2026 08:11:50Z field_scroll from=0 to=27 h=0 content=36, then thirty seconds of typing with the line pushed up out of
+        // sight and not one scroll after. Words that fit the field stand at its top; only words past its ceiling scroll inside.
+        let top = -adjustedContentInset.top
+        if 0 < bounds.height, contentSize.height <= bounds.height + 0.5, abs(contentOffset.y - top) > 0.5, !isTracking {
+            setContentOffset(CGPoint(x: contentOffset.x, y: top), animated: false)
+        }
     }
     /// THE MEASURE'S OWN STACK (the reference's measureInternal): its own storage, its own layout
     /// manager, its own container — so asking how tall the words are at ANY width can never change

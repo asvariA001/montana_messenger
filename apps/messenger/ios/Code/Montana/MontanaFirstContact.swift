@@ -641,7 +641,7 @@ enum MontanaCard {
     /// rule 4). What is written here in memory is exactly what the vault will hold; nothing else reads these keys.
     private static let cardIO = DispatchQueue(label: "montana.card.io", qos: .utility)
     private static var held: [String: Data?] = [:]   // a record by its vault key: the truth once read; nil — the vault has none
-    private static var owned: [String] { [store, rdvStore, rdvPermKey, rdvCurrentKey, rdvBornKey] }
+    private static var owned: [String] { [store, rdvStore, rdvPermKey, rdvCurrentKey, rdvBornKey, rdvTwinKey] }
     /// A record, under cardLock: the memory's word, or the vault's on the first ask.
     private static func record(_ key: String) -> Data? {
         if let h = held[key] { return h }
@@ -716,8 +716,72 @@ enum MontanaCard {
     private static func permSave(_ m: [String: Data]) {
         if let d = try? JSONEncoder().encode(m) { write(rdvPermKey, d) }
     }
-    /// Every live invitation — the daily generations and the permanent one.
-    private static func rdvAll() -> [String: Data] { rdvLoad().merging(permLoad()) { a, _ in a } }
+    /// Every live invitation — the daily generations and the permanent one, this device's and the seed's other devices' (twinLoad):
+    /// the points listened at, the doorbell's subscriptions and the acceptance read them all.
+    private static func rdvAll() -> [String: Data] { ownAll().merging(twinLoad().mapValues { c in c.p }) { a, _ in a } }
+    /// The invitations this device gave birth to: only these are laid on the node again (reuploadRdv) -- a sibling's card is its own
+    /// device's to lay and to bury, or a spent link of the sibling would stand on the node again.
+    private static func ownAll() -> [String: Data] { rdvLoad().merging(permLoad()) { a, _ in a } }
+
+    // ── THE SEED'S OTHER DEVICES' CARDS (the author's word 18.10.2026 13:1x MSK: «on my Mac there is no chat that T1 has -- fix it at
+    // the root»). A card is born with a random key on the device that shows it. Measured 17.10.2026 21:12-21:33 MSK: Katana's first
+    // letter came by T1's daily link; T1 opened it (first_accept only-card) and the Mac, the same person, refused it fifty times
+    // («there is no card here for this introduction») -- the conversation was born on one device of the person. Every card a device
+    // gives birth to now rides to the seed's other devices in the pipe only they derive (the twin mirror, MontanaArchive.mirrorNote):
+    // they keep its secret beside their own (cardKeys: the points listened at, the acceptance by point) and its invitation in a record
+    // of its own (the doorbell, the acceptance by push), never in their daily record -- their own rotation buries nothing of the
+    // sibling's. A sibling's card lives its own day and the receiving generation after it.
+    private static let rdvTwinKey = "rdvTwin"
+    static let twinCardLife: TimeInterval = 2 * cardLifetimeSeconds + 3600
+    private struct TwinCard: Codable { let p: Data; let at: Double }
+    private static func twinLoad() -> [String: TwinCard] {
+        guard let d = record(rdvTwinKey), let m = try? JSONDecoder().decode([String: TwinCard].self, from: d) else { return [:] }
+        return m
+    }
+    /// THE LIVE CARDS GO TO THE SEED'S OTHER DEVICES: the daily one and the permanent one, each with its secret, in the pipe only the
+    /// seed's devices derive. Said at a birth and at every keeping-up; a repeat within the hour rides once (MontanaArchive.mirrorNote).
+    static func twinLiveCards() {
+        var out: [(inv: String, payload: Data, secret: Data)] = []
+        cardLock.lock()   // LOCK-OK: the card records read as one snapshot; the words leave after it
+        let keys = load()
+        if let cur = record(rdvCurrentKey).flatMap({ d in String(data: d, encoding: .utf8) }), let pl = rdvLoad()[cur],
+           let sk = keys[pl.prefix(1184).base64urlNoPad] { out.append((cur, pl, sk)) }
+        for (inv, pl) in permLoad() { if let sk = keys[pl.prefix(1184).base64urlNoPad] { out.append((inv, pl, sk)) } }
+        cardLock.unlock()
+        for c in out {
+            guard let d = try? JSONSerialization.data(withJSONObject: ["i": c.inv, "p": c.payload.base64EncodedString(),
+                                                                       "k": c.secret.base64EncodedString()]),
+                  let js = String(data: d, encoding: .utf8) else { continue }
+            MontanaArchive.mirrorNote(.init(c: MontanaArchive.twinCardPipe, m: c.inv, x: MontanaArchive.twinCardMark + js, o: 1))
+        }
+    }
+    /// A SIBLING'S CARD TAKEN (the twin mirror): its secret beside this device's own, its invitation in the sibling's record; a card
+    /// past its two days leaves both. The points listened at are counted again, and the doorbell learns a new invitation at once.
+    static func takeTwin(_ body: String) {
+        guard let d = body.data(using: .utf8), let o = (try? JSONSerialization.jsonObject(with: d)) as? [String: String],
+              let inv = o["i"], Data(base64urlNoPad: inv)?.count == 32,
+              let pl = o["p"].flatMap({ s in Data(base64Encoded: s) }), 1184 <= pl.count, pl.count <= 1184 + nameLimit,
+              let sk = o["k"].flatMap({ s in Data(base64Encoded: s) }), !sk.isEmpty else { return }
+        let now = Date().timeIntervalSince1970
+        cardLock.lock()   // LOCK-OK: the two records rewritten as one step in memory; the vault follows in order
+        var twins = twinLoad()
+        var keys = load()
+        let fresh = twins[inv] == nil
+        if fresh { twins[inv] = TwinCard(p: pl, at: now) }
+        keys[pl.prefix(1184).base64urlNoPad] = sk
+        for (k, c) in twins where twinCardLife < now - c.at {
+            twins.removeValue(forKey: k)
+            keys.removeValue(forKey: c.p.prefix(1184).base64urlNoPad)
+        }
+        save(keys)
+        if let w = try? JSONEncoder().encode(twins) { write(rdvTwinKey, w) }
+        let n = twins.count
+        cardLock.unlock()
+        MTPipeBook.dropFirstIndex()
+        guard fresh else { return }
+        MontanaTrace.mark("rdv_twin", "taken cards=\(n)")
+        DispatchQueue.main.async { MontanaWakePush.registerConvs() }
+    }
     private static func permBid(_ invite: Data) -> String {
         var m = Data("mt-rdv-p".utf8); m.append(0); m.append(invite)
         return SHA256.hash(data: m).map { String(format: "%02x", $0) }.joined()
@@ -784,6 +848,7 @@ enum MontanaCard {
         uploadRdv(invite: invite, payload: payload, stamp: "rdvPermUpOk")
         uploadPermMark(invite: invite)
         MontanaTrace.mark("rdv_perm", "born")
+        twinLiveCards()   // the seed's other devices open what this card brings
         return permPrefix + invite.base64urlNoPad
     }
 
@@ -886,6 +951,7 @@ enum MontanaCard {
         guard MontanaSeed.hasSeed else { return }   // SILENT-OK: the first screen — no identity, no card (the second critic's pass)
         _ = offerShort()
         if hasLivePermanent() { _ = offerPermanent() }
+        twinLiveCards()   // the seed's other devices hold every live card of this one
     }
     /// The permanent card the person holds, whole: its key in place. A record whose key is gone is no card, and
     /// offerPermanent would give birth to another — a standing address changes only by the person's own hand.
@@ -976,6 +1042,7 @@ enum MontanaCard {
         DispatchQueue.main.async {
             MontanaTrace.mark("rdv_born", "daily")
             MontanaWakePush.registerConvs()
+            twinLiveCards()   // the seed's other devices open what this card brings
             NotificationCenter.default.post(name: .montanaCardSpent, object: nil)   // the screen, if open, draws the new one
         }
         return tempPrefix + invite.base64urlNoPad
@@ -1077,7 +1144,7 @@ enum MontanaCard {
     /// Every live card goes onto the node again — a new face, a restored copy: a blob has no right to go stale before its
     /// card. Spent ones are cleaned out by the spending (accept). Not at every opening: that is keepLiveCardsUp, by term.
     static func reuploadRdv() {
-        for (inv64, payload) in rdvAll() {
+        for (inv64, payload) in ownAll() {
             guard let inv = Data(base64urlNoPad: inv64) else { continue }
             uploadRdv(invite: inv, payload: payload)
         }

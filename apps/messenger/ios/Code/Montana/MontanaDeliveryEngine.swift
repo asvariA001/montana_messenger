@@ -179,6 +179,8 @@ final class MontanaDeliveryEngine {
         }
         // The twin's past: an ask for rows its archive holds and its feed does not, and a row given back by its name.
         if w.x.hasPrefix(MontanaArchive.twinAskMark) { return store.giveTwinRows(w.c, asked: String(w.x.dropFirst(MontanaArchive.twinAskMark.count))) }
+        // A card the seed's other device gave birth to: this device opens the introductions it brings (MontanaCard.takeTwin).
+        if w.x.hasPrefix(MontanaArchive.twinCardMark) { return MontanaCard.takeTwin(String(w.x.dropFirst(MontanaArchive.twinCardMark.count))) }
         if w.x.hasPrefix(MontanaArchive.twinRowMark) {
             return store.takeTwinRow(w.c, mid: w.m, own: w.o == 1, at: w.at ?? 0, body: String(w.x.dropFirst(MontanaArchive.twinRowMark.count)))
         }

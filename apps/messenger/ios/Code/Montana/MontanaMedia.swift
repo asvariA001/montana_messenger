@@ -709,6 +709,18 @@ final class VoicePlayer: NSObject, ObservableObject {
         MontanaTrace.mark("music_queue", "moved n=\(queue.count) playing_at=\(queueIndex + 1)")
     }
 
+    /// THE QUEUE TURNED OVER (MTQueuePage's arrows, the author's word 18.10.2026 13:3x MSK: «an arrow button that only turns the
+    /// tracks' order over»): the queue, the playlist's one owner, reverses itself; the track that plays keeps playing, its place
+    /// followed by its file, and a second turn gives back the order as it stood.
+    func reverseQueue() {
+        guard 1 < queue.count else { return }
+        let playing = currentTrack?.file
+        objectWillChange.send()
+        queue.reverse()
+        if let playing, let i = queue.firstIndex(where: { t in t.file == playing }) { queueIndex = i }
+        MontanaTrace.mark("music_queue", "reversed n=\(queue.count) playing_at=\(queueIndex + 1)")
+    }
+
     /// The forward button turns the page even on the last track — the first follows (the author's
     /// word 16.09). Repeat governs what happens when a track ENDS by itself, not the button.
     func next() {

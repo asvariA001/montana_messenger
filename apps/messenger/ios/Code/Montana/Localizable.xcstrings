@@ -762,6 +762,23 @@
         }
       }
     },
+    "calling": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "вызов"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在呼叫"
+          }
+        }
+      }
+    },
     "connecting": {
       "extractionState": "manual",
       "localizations": {
@@ -999,6 +1016,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "播放来源：%@"
+          }
+        }
+      }
+    },
+    "Reverse order": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reverse order"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обратный порядок"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "倒序"
           }
         }
       }

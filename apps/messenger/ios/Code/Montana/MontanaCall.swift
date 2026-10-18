@@ -3368,12 +3368,24 @@ final class MontanaCall: NSObject {
             // with its camera as it stood. An older build passes the word by and hears the call end; the room's invitation is its way.
             guard from == peer, state == "connected" || state == "reconnecting", let word = reason else { return }
             if let held = peerDevice, !held.isEmpty, device != held { return }   // only the device that is the call speaks for it
+            // The peer's answer to my move (MTGroupRoom.grow): it comes in -- the call of two ends here now.
+            if word.hasPrefix(Self.roomInHead) { roomAnswered(String(word.dropFirst(Self.roomInHead.count))); return }
             let camera = isVideo ? !CallUIModel.shared.cameraOff : false
-            guard MTGroupRoom.shared.moveIn(word, from: from, video: camera) else {
+            // THE ROOM RODE WITH THE WORD (grow): the group and the room stand here at once, and my room key goes back on this road
+            // before the call of two ends, so the owner's pair with me stands without the group's road.
+            let lines = word.split(separator: "\n", maxSplits: 1).map(String.init)
+            let back = lines.count == 2 ? MTGroupRoom.shared.takeInline(lines[0], lines[1], from: from) : nil
+            guard MTGroupRoom.shared.moveIn(lines.first ?? word, from: from, video: camera) else {
                 MontanaTrace.mark("call_room", "rx unreadable -- the call stays")
                 return
             }
-            MontanaTrace.mark("call_room", "rx -- the call moves into a room")
+            if let back {
+                var w = CallSignalOut(ctrl: "call-room")
+                w.reason = Self.roomInHead + back
+                w.targetDevice = peerDevice
+                sendSignal?(from, w)
+            }
+            MontanaTrace.mark("call_room", "rx -- the call moves into a room inline=\(back == nil ? 0 : 1)")
             if endReason == "-" { endReason = "moved-to-room"; endDoor = "rule:moved-to-room" }
             endCall(silent: true)
         case "call-end":
@@ -3688,15 +3700,35 @@ final class MontanaCall: NSObject {
     /// from the user's contacts, up to 13 on a call»): the peer is told on the call's own road which room of which group the call
     /// moves into -- a word an older build passes by -- and the call of two ends by that rule. The room is the one owner of a call
     /// of more than two; the word rides before the end on the same road, in its order.
-    func moveIntoRoom(_ word: String) -> Bool {
-        guard Thread.isMainThread, let p = talkingWith else { return false }
+    /// THE CALL STANDS UNTIL THE PEER SAYS IT COMES (the author's word 18.10.2026 13:3x MSK: «adding must not interrupt the call»):
+    /// `carrying` -- the group's invitation and the room's open (MTGroupRoom.grow) ride after the word on a line of their own, which an
+    /// older build cannot read and so passes the move by as before; the peer's answer (its room key and moment, «in») ends the call of
+    /// two here by the rule and hands the answer on. A peer that says nothing in four seconds is an older build: the call ends then.
+    func moveIntoRoom(_ word: String, carrying inline: String?, answered: @escaping (String?) -> Void) -> Bool {
+        guard Thread.isMainThread, let p = talkingWith, roomAnswer == nil else { return false }
         var w = CallSignalOut(ctrl: "call-room")
-        w.reason = word
+        w.reason = inline.map { x in word + "\n" + x } ?? word
         w.targetDevice = peerDevice
         sendSignal?(p, w)
-        MontanaTrace.mark("call_room", "tx -- the call moves into a room")
-        endByRule("moved-to-room")
+        MontanaTrace.mark("call_room", "tx -- the call moves into a room inline=\(inline == nil ? 0 : 1)")
+        roomAnswer = answered
+        let ask = UUID()
+        roomAsk = ask
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in if self?.roomAsk == ask { self?.roomAnswered(nil) } }
         return true
+    }
+    /// The move the four seconds belong to: a later move's wait is never cut by an earlier one's.
+    private var roomAsk: UUID?
+    /// The answer a grown call waits for (moveIntoRoom); taken once.
+    private var roomAnswer: ((String?) -> Void)?
+    /// The head of the peer's answer to a move: «in», then its room key and moment.
+    static let roomInHead = "in\n"
+    private func roomAnswered(_ reply: String?) {
+        guard let done = roomAnswer else { return }
+        roomAnswer = nil
+        MontanaTrace.mark("call_room", reply == nil ? "no answer -- the call of two ends by the rule" : "answered -- the peer comes in")
+        endByRule("moved-to-room")
+        done(reply)
     }
 
     /// A RULE'S END NAMES THE RULE (23.09). A refused description, an offer that never came, a

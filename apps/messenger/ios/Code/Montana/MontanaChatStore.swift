@@ -1886,7 +1886,13 @@ class ChatStore: ObservableObject {
         // hand had written; the card belongs to my hand alone.
     }
     // SSOT name resolver: a manual contact rename wins, then the peer\'s self-declared name, then the short address form.
-    func displayName(for ref: String) -> String { MTGroup.isSpeaker(ref) ? MTGroup.shared.speakerName(ref) : MontanaName.of(ref) }   // a group's speaker by the group's book (MTGroup)
+    /// A GROUP OR A CHANNEL IS NAMED BY ITS OWN BOOK (the author's word 18.10.2026 13:3x MSK: «in the playlist that plays the groups are
+    /// named crookedly»): a group's key is no person's address, and the person's name book answered it with its neutral word -- the
+    /// queue's «Playing from», the source's chat picker and every other asker of this one question said «Correspondent» for a group.
+    func displayName(for ref: String) -> String {
+        if MTGroup.isKey(ref), let t = MTGroup.shared.state(ref)?.title, !t.isEmpty { return t }
+        return MTGroup.isSpeaker(ref) ? MTGroup.shared.speakerName(ref) : MontanaName.of(ref)   // a group's speaker by the group's book (MTGroup)
+    }
 
     /// How this peer is named ON SCREEN — one question, one answer ([C-1]).
     ///
@@ -6759,6 +6765,7 @@ enum SeedScope {
         "mtContacts", "pinnedContacts", "archivedContacts", "manualNames", "manualPhotos", "peerUsernames",
         "declaredAt", "blockedChats", "peerReadMap", "callsSeenAt", "deletedMids", "graves", "funerals", "mtVerifiedConversations",
         "mt.name", "rdvPermanent", "cardKeys", "rdvCards", "rdvCurrent", "rdvCurrentBorn",
+        "rdvTwin",   // the live cards the seed's other devices gave birth to (MontanaCard.takeTwin, 18.10.2026)
         "montana.stickers.mine", "montana.stickers.packid", "montana.stickers.packs", "montana.stickers.passports",
         "montana.stickers.givers", "montana.stickers.ids", "montana.gifs.mine", "videoLikes",
         // WHAT THE RESTORE PASS FOUND STILL MISSING (the critic, 23.09, «restore on T3 and see no difference»): the
@@ -6963,7 +6970,7 @@ enum SeedScope {
         "deletedChats", "peerAvatars", "peerNames", "peerSeenAt", "peerGoneAt", "lastSeenMap", "draftsMap",
         "muteFlagsMap", "blockFlagsMap", "pinnedMessages", "scheduledMsgs", "myStoryMedia", "viewedStories",
         "mtContacts", "pinnedContacts", "archivedContacts", "manualNames", "manualPhotos", "peerUsernames",
-        "declaredAt", "blockedChats", "peerReadMap", "deletedMids", "graves", "funerals", "mtVerifiedConversations", "cardKeys", "rdvCards",
+        "declaredAt", "blockedChats", "peerReadMap", "deletedMids", "graves", "funerals", "mtVerifiedConversations", "cardKeys", "rdvCards", "rdvTwin",
         "montana.stickers.mine", "montana.stickers.packs", "montana.stickers.passports", "montana.stickers.givers",
         "montana.stickers.ids", "montana.gifs.mine", "videoLikes", "barredPeers", "reactionUse",
         "mt.vpn.servers", "mt.vpn.plans", "chatsJSON", "archivedJSON", "savedToPhotos", "callHandleTokens",
