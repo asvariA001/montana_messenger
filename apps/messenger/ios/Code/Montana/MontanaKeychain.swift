@@ -122,7 +122,9 @@ enum MontanaKeychain {
         // Readable while the device is unlocked once, for extensions running in the background;
         // never leaves this device and never reaches a backup.
         add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        return SecItemAdd(add as CFDictionary, nil) == errSecSuccess
+        let ok = SecItemAdd(add as CFDictionary, nil) == errSecSuccess
+        MTColdMirror.wrote(key)
+        return ok
     }
 
     static func get(_ key: String) -> Data? {
@@ -142,6 +144,31 @@ enum MontanaKeychain {
                                 kSecAttrAccessGroup as String: group]
         q.merge(sameEverywhere) { a, _ in a }
         SecItemDelete(q as CFDictionary)
+        MTColdMirror.wrote(key)
+    }
+}
+
+/// THE MIRRORS ARE READ FROM THE KEYCHAIN ONCE A WRITE (the author's words 18.10.2026 14:3x-14:4x MSK: «the chats lag»; «as the
+/// critic, find the cause of all the lags and fix it in 2242»). Every «is this person refused», «is this chat pinned» asked the
+/// keychain afresh -- the system's keychain service, a decode, a set -- and the walk of the walls asked it once per correspondent
+/// on the main thread: T1 on 2241, 11:38:36Z, a frame of the chat list held 161 ms inside SecItemCopyMatching under MTBoard.send
+/// (ChatStore.refusesCold), and the same question stands in the groups' walks, the list's filter and the delivery queue. In the
+/// app every write of a key passes MontanaKeychain.set and delete, so the decoded set stands until that door writes the key; an
+/// extension reads afresh, for the app writes behind its back. A read that a write overtook is not kept (turn).
+enum MTColdMirror {
+    private static let lock = NSLock()
+    private static var sets: [String: Set<String>] = [:]
+    private static var turn = 0
+    private static let keeps = Bundle.main.bundleURL.pathExtension == "app"
+    static func set(_ key: String) -> Set<String> {
+        lock.lock(); let held = keeps ? sets[key] : nil; let seen = turn; lock.unlock()
+        if let held { return held }
+        let read = MontanaKeychain.get(key).flatMap { try? JSONDecoder().decode([String].self, from: $0) }.map { Set($0) } ?? []
+        lock.lock(); if keeps, seen == turn { sets[key] = read }; lock.unlock()
+        return read
+    }
+    static func wrote(_ key: String) {
+        lock.lock(); turn &+= 1; sets[key] = nil; lock.unlock()
     }
 }
 
@@ -462,4 +489,17 @@ enum MTExtensionDiary {
         }
         return out
     }
+}
+
+/// A CUT OF A LIST, A SET OR A PIECE OF A STRING IS NO PROPERTY LIST (the author's words 18.10.2026 14:1x MSK: «check the
+/// telemetry directly at both and fix it at the root»). 2239 and 2240 died at every launch on T1 and on the Mac --
+/// NSInvalidArgumentException «Attempt to insert non-property list object ArraySlice([...]) for key mt.twin.asked»: suffix
+/// hands back an ArraySlice, and the settings store takes property lists only. The store's door takes the three shapes Swift
+/// makes on its own and writes what they hold, an array or a string: the compiler picks these over set(_: Any?, forKey:) by
+/// the value's type, wherever the value was made, so no cut and no set reaches the store as itself. Here, beside the
+/// keychain, because the app and its extensions all carry this file.
+extension UserDefaults {
+    func set<Element>(_ value: ArraySlice<Element>, forKey defaultName: String) { set(Array(value), forKey: defaultName) }
+    func set<Element>(_ value: Set<Element>, forKey defaultName: String) { set(Array(value), forKey: defaultName) }
+    func set(_ value: Substring, forKey defaultName: String) { set(String(value), forKey: defaultName) }
 }

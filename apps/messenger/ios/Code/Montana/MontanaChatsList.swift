@@ -1000,6 +1000,11 @@ struct ChatsListView: View {
                 }
                 .frame(minHeight: 44)
                 .padding(.horizontal, 12).padding(.vertical, 2)
+                // OVER THE FEED, AS THE TIME PANEL (the author's word 18.10.2026 14:4x MSK: «in 2241 the chats' panel still stands behind
+                // the chats' feed -- it must be as the time panel, over the feed»): the rows run on past the list's frame (MTChatListFrame,
+                // clipsToBounds off -- «what stands there covers them»), and this strip was drawn before them, so they slid over it. The
+                // time panel's own law (chatsFloating): drawn after the rows -- the order of drawing, not of layout.
+                .zIndex(1)
                 .onAppear { ui.chatFolders = folderBook.folders.map(\.id) }
                 .onChange(of: folderBook.folders.map(\.id)) { _, ids in
                     ui.chatFolders = ids

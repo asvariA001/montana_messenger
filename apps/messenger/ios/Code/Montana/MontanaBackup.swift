@@ -122,6 +122,9 @@ enum MontanaBackup {
         /// name and face of every peer regardless (the critic, 23.09).
         var skipPeople: Set<String> = []
         var skipFaces: Set<String> = []
+        /// What the copy's road writes after it, in copies of it -- the ring's shares and the crates of one share, the light
+        /// copy's crates (MTKeeping): the room a copy asks for before its work counts them too (build).
+        var after: (num: Int, den: Int) = (0, 1)
         var excluding: Bool { !skipConvs.isEmpty || !skipKinds.isEmpty }
         var people: Set<String> { skipConvs.union(skipPeople) }
         func takes(file name: String) -> Bool {
@@ -142,6 +145,8 @@ enum MontanaBackup {
         }
     }
     private static let pieceBytes = (1 << 20) - 4096   // room for a record's own head inside one chunk
+    /// The room a copy leaves on the phone whatever it asks for: the system and every other app live on the same disk.
+    private static let roomKept = 1 << 30
 
     /// What a copy holds — COUNTED, never promised. A number shown to a person measures what actually
     /// happened, or it is a lie with a progress bar (the rule of the honest measure).
@@ -575,6 +580,22 @@ enum MontanaBackup {
         for p in placed { total += ((try? fm.attributesOfItem(atPath: p.url.path)[.size] as? Int) ?? nil) ?? 0 }
         let feed = SeedScope.feedNow().map { without(scope.people, json: $0) }
         total += feed?.count ?? 0
+        // THE ROOM ANSWERS BEFORE THE WORK, AS THE SHELF DOES (the author's words 18.10.2026 14:1x-14:4x MSK: «on T1 check why my
+        // phone heats up -- a deep closure at the root»; «at launch T1 lags at first»; «the chats lag»). The size of the copy was
+        // counted here before a byte was sealed, and the disk was asked for room only by running out of it: T1 began fourteen
+        // copies on 17.10 and four more by 11:00Z on 18.10 -- nine and four of them sealed for 13 to 36 s until the system said
+        // there was no room, four sealed whole and refused at the cut -- and each refused for room had filled the phone's disk
+        // to its end while the archive's queue waited behind it. The system's own count of the room it grants is read now, against the copy, what
+        // its road lays after it (Scope.after) and the room kept for the phone: a copy that cannot fit is refused before its
+        // first byte, and the diary carries both numbers.
+        let need = total + total * scope.after.num / max(1, scope.after.den) + roomKept
+        if let room = (try? dir.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?.volumeAvailableCapacityForImportantUsage,
+           room < Int64(need) {
+            try? fh.close()
+            try? fm.removeItem(at: part)
+            MontanaTrace.mark("backup_room", "need=" + String(need) + " room=" + String(room) + " -- refused before the work")
+            return .failure(.noSpace)
+        }
         // THE BAR STANDS FROM THE FIRST MOMENT (the author, 23.09 18:24: a spinner turned for minutes before any
         // bar appeared): zero is shown the moment the count is known, and the diary marks the start, so
         // the time a copy takes is read, not guessed.

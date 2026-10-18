@@ -345,6 +345,13 @@ enum MTKeepDerive {
         var short = false                          // the last asking found nobody
         var lightGen: UInt64? = nil                // the light copy last named in the pipe of light
         var lightAt: Double? = nil
+        /// THE ATTEMPT IS THE MOMENT THE RHYTHM COUNTS FROM (the author's words 18.10.2026 14:1x-14:4x MSK: «on T1 check why my
+        /// phone heats up -- a deep closure at the root»; «at launch T1 lags at first»; «the chats lag»). Only a renewal that
+        /// came to its end wrote renewedAt, so one refused on the way -- no room, the cut refused, a run killed while it laid its
+        /// shares -- left the renewal due, and the next tick asked again: T1 began fourteen copies of its whole store on 17.10
+        /// and four more by 11:00Z on 18.10, every one refused. A renewal or a light copy begun is one tried: the next waits the day.
+        var triedAt: Double? = nil
+        var lightTriedAt: Double? = nil
     }
     private static let ownerKey = "mt.keep.owner"  // NOT-UI: sealed under the device key; the person's own (SeedScope.dataKeys)
     @Published private(set) var owner = Owner()
@@ -443,7 +450,7 @@ enum MTKeepDerive {
         UserDefaults.standard.set(true, forKey: Self.toldKey)   // the switch stands under its own explanation
         objectWillChange.send()
         if on {
-            owner.renewedAt = 0; saveOwner(); tick()
+            owner.renewedAt = 0; owner.triedAt = nil; saveOwner(); tick()
         } else {
             for conv in owner.keepers.keys { say(conv, ["w": "release"]) }
             owner = Owner(generation: owner.generation); saveOwner()
@@ -455,7 +462,7 @@ enum MTKeepDerive {
     func tick() {
         guard Self.mine, Self.told, Self.agrees, MontanaSeed.hasSeed else { return }
         let now = Date().timeIntervalSince1970
-        if !lighting, now - (owner.lightAt ?? 0) >= 86_400 { layLight() }
+        if !lighting, now - max(owner.lightAt ?? 0, owner.lightTriedAt ?? 0) >= 86_400 { layLight() }
         guard !renewing else { return }
         if let g = owner.asking {
             if owner.yes.count >= MTKeepRing.most || (!owner.yes.isEmpty && now - owner.askedAt >= 600) { return renew(g) }
@@ -466,7 +473,7 @@ enum MTKeepDerive {
             DispatchQueue.main.asyncAfter(deadline: .now() + 120) { [weak self] in self?.tick() }
             return
         }
-        guard now - owner.renewedAt >= 86_400 else { return }
+        guard now - max(owner.renewedAt, owner.triedAt ?? 0) >= 86_400 else { return }
         ask()
     }
     private func ask() {
@@ -514,12 +521,14 @@ enum MTKeepDerive {
     private func renew(_ g: UInt64) {
         guard !owner.yes.isEmpty, !renewing else { return }
         renewing = true
-        owner.asking = nil; saveOwner()
+        owner.asking = nil; owner.triedAt = Date().timeIntervalSince1970; saveOwner()
         // THE RING IN THE ORDER OF THE LATEST LETTER (Network): the people written to last stand first, a full ring at most.
         let rank: [String: Int] = Dictionary(people().enumerated().map { ($1, $0) }, uniquingKeysWith: { a, _ in a })
         let chosen = Array(owner.yes.sorted { (rank[$0] ?? Int.max) < (rank[$1] ?? Int.max) }.prefix(MTKeepRing.most))
         CopyInventory.gather { inv in
-            MontanaBackup.create(scope: inv.scope(CopyPlan.load()), urgent: false) { r in
+            var scope = inv.scope(CopyPlan.load())
+            scope.after = (MTKeepCode.group + 1, MTKeepCode.data)   // the shares, a third more, and the crates of one share as it is laid
+            MontanaBackup.create(scope: scope, urgent: false) { r in
                 let me = MTKeeping.shared
                 switch r {
                 case .failure(let e):
@@ -578,10 +587,12 @@ enum MTKeepDerive {
     private func layLight() {
         guard !lighting else { return }
         lighting = true
+        owner.lightTriedAt = Date().timeIntervalSince1970; saveOwner()
         let g = (owner.lightGen ?? 0) + 1
         CopyInventory.gather { inv in
             var scope = inv.scope(CopyPlan.load())
             scope.skipKinds = Set(MontanaBackup.Kind.allCases)   // every letter, no attachment: the attachments come from the keepers
+            scope.after = (1, 1)   // the crates the copy is sealed into as it is laid
             MontanaBackup.create(scope: scope, urgent: false) { r in
                 let me = MTKeeping.shared
                 switch r {

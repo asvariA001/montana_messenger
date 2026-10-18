@@ -4600,7 +4600,10 @@ enum MTCoinReplica {
         running = true
         ranAt = Date().timeIntervalSince1970
         defer { running = false }
-        var held = load()
+        // THE BOOK IS READ AND WRITTEN OFF THE SCREEN'S THREAD (the author's words 18.10.2026 14:3x-14:4x MSK: «the chats lag»; «as
+        // the critic, find the cause of all the lags»): the whole network's rows, decoded and encoded on the main thread every ten
+        // minutes -- T1 on 2241, 11:38:36Z, a frame of the chat list held 438 ms in JSONEncoder under MTCoinReplica.save.
+        var held = await Task.detached(priority: .utility) { load() }.value
         var pulled = 0
         for n in MTCoinTx.chainNodes {
             let door = "https://" + n.host + "/pushwake"
@@ -4617,7 +4620,8 @@ enum MTCoinReplica {
                 if txs.count < 512 { break }
             }
         }
-        save(held)
+        let kept = held
+        await Task.detached(priority: .utility) { save(kept) }.value
         let me = MTCoinTx.keyTag(k.pk)
         guard let door = MTCoinTx.chainDoor(me) else { return }
         let r = await MTCoinTx.post(door + "/tx-root", [:])

@@ -546,11 +546,7 @@ class ChatStore: ObservableObject {
     /// first moments. So the first picture was drawn without them and the second one with — a
     /// pinned conversation jumped to the top, an archived one vanished, in front of the person.
     /// The muted set already had this mirror for the extension; the other five now have it too.
-    static func coldSet(_ key: String) -> Set<String> {
-        guard let d = MontanaKeychain.get(key),
-              let a = try? JSONDecoder().decode([String].self, from: d) else { return [] }
-        return Set(a)
-    }
+    static func coldSet(_ key: String) -> Set<String> { MTColdMirror.set(key) }   // read once a write (MTColdMirror)
     private func mirrorCold(_ key: String, _ set: Set<String>) {
         MontanaKeychain.set(key, (try? JSONEncoder().encode(Array(set))) ?? Data())
     }
