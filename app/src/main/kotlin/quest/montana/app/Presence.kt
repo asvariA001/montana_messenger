@@ -482,7 +482,9 @@ object Presence {
     private fun said(payload: String): Long? = saidRe.find(payload)?.let { m -> m.groupValues[1].toLong() * 1000 + m.groupValues[2].toLong() }
 
     // ── what I say ──
-    fun sayTyping(ref: String) { if (sharing) Signal.post(ref, TYPING + saidTail()) }
+    // «TYPING» SAYS «HERE NOW» (iOS MontanaPresencePrivacy.saysTyping, the critic's K-G1, fa7a5152 at 2240): presence by another name --
+    // a person who hides their presence types in silence, and a person this phone blocked hears no typing of it
+    fun sayTyping(ref: String) { if (sharing && !PeerSafety.isBlocked(ref)) Signal.post(ref, TYPING + saidTail()) }
     // «K…» — the peer's letters I hold whole (iOS HeldLetters, chatBeacon 700-701, 23.09): before the door, which every build reads to the end
     fun sayChat(ref: String, open: Boolean) { if (sharing) Signal.post(ref, WATCH + (if (open) "1" else "0") + saidTail() + heldTail(ref) + HeldLetters.tail(ref) + doorTail()) }
 

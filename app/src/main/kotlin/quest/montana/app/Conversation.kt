@@ -2030,6 +2030,8 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                 }, lp(WRAP, WRAP).apply { bottomMargin = dp(4) })
             }
             val call = Calls.info(m.text) != null
+            val plateFolds = (1 < members.size || m.text.startsWith(Marks.MEDIA)) && ContentFilter.plateFolds(m, members)
+            val bodyAt = childCount
             if (1 < members.size) albumBody(c, members, this)   // the plate of a media group (Album.kt)
             else if (Stickers.body(c, m, this)) Unit else if (m.text.startsWith(Marks.MEDIA)) mediaBody(c, m, this, chat)
             else if (call) Calls.body(c, m, this)   // a call's row carries its moment inside, as iOS callBubble
@@ -2076,6 +2078,22 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                 movementMethod = android.text.method.LinkMovementMethod.getInstance()
                 setLinkTextColor(BubbleStyle.text(mine))
             }, lp(WRAP, WRAP))   // USER-DATA: the letter
+            // THE FILTER FOLDS A PLATE OF PICTURES TOO (iOS filterFolds, read before the plate's branch): the plate stands hidden under the
+            // same fold, and the person's own tap shows it whole
+            if (plateFolds) {
+                val body = (bodyAt until childCount).map { getChildAt(it) }
+                body.forEach { it.visibility = View.GONE }
+                addView(c.vstack(Gravity.NO_GRAVITY) {
+                    setPadding(dp(12), dp(7), dp(12), dp(6))
+                    addView(c.hstack {
+                        gravity = Gravity.CENTER_VERTICAL
+                        addView(c.icon(R.drawable.ic_set_eye_slash, BubbleStyle.text(mine), 16), lp(dp(16), dp(16)).apply { marginEnd = dp(6) })
+                        addView(c.text(c.getString(R.string.filter_hidden), 16f, BubbleStyle.text(mine)), lp(WRAP, WRAP))
+                    }, lp(WRAP, WRAP))
+                    addView(c.text(c.getString(R.string.filter_tap), 12f, BubbleStyle.text(mine)).apply { alpha = 0.7f }, lp(WRAP, WRAP).apply { topMargin = dp(4) })
+                    pressable { ContentFilter.open(m.mid); visibility = View.GONE; body.forEach { it.visibility = View.VISIBLE } }
+                }, bodyAt, lp(WRAP, WRAP))
+            }
             // THE LINK'S CARD UNDER THE WORDS (iOS the link card in the bubble), drawn from the letter's own bytes
             LinkCard.parse(m.lp)?.let { addView(linkCardView(c, it, mine), lp(WRAP, WRAP)) }
             // A VOICE'S STAMP STANDS UNDER ITS CAPSULE (iOS voiceCapsuleBubble 982-994): the microphone with the length and the stamp,
