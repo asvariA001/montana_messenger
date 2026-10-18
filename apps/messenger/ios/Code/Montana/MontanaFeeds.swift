@@ -2563,9 +2563,51 @@ enum MTDocLink {
         try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
         return d
     }
+    static var folder: URL { dir }   // read by the disk's measure (MTDiskUse), named here alone
     /// The deleted document's links go with it (a deleted letter leaves nothing behind).
     static func forget(_ file: String) {
         try? FileManager.default.removeItem(at: dir.appendingPathComponent(file, isDirectory: true))
+    }
+    /// THE LINKS LEFT BEHIND (18.10.2026, Agent 93, T1: 7.4 GB in this folder under «History and the rest» of Data and Storage): a
+    /// link outlived its document -- the store cleared on the node's word, a wall's tile trimmed -- and alone kept the bytes on the
+    /// disk. The store and the wall's trim take their links with them now (MontanaMediaStore.remove, MTBoardLook.trim); what was
+    /// left before is counted here, a link whose bytes nothing else names, and released by the person's word.
+    static func left() -> [(name: String, file: URL, bytes: Int64)] {
+        let fm = FileManager.default
+        guard let names = try? fm.contentsOfDirectory(atPath: dir.path) else { return [] }
+        var out: [(name: String, file: URL, bytes: Int64)] = []
+        for n in names where !n.hasPrefix(".") {
+            let folder = dir.appendingPathComponent(n, isDirectory: true)
+            for f in (try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.totalFileAllocatedSizeKey])) ?? [] {
+                let links = ((try? fm.attributesOfItem(atPath: f.path))?[.referenceCount] as? Int) ?? 1
+                guard links == 1 else { continue }   // the store still names these bytes: the link costs nothing
+                let b = Int64((try? f.resourceValues(forKeys: [.totalFileAllocatedSizeKey]).totalFileAllocatedSize) ?? 0)
+                out.append((n, f, b))
+            }
+        }
+        return out
+    }
+    /// The person's word on the links left behind: a chat's file the store or the node holds whole leaves; one neither holds goes
+    /// back into the store, where the node's next pass takes it; a wall's video leaves -- its wall keeps it, not the person's node,
+    /// and the page says so before the word. Nothing that lies only here is lost.
+    static func release() async -> (freed: Int64, back: Int) {
+        let all = left()
+        let walls = all.filter { l in l.name.hasPrefix("wall_") }
+        let chats = all.filter { l in !l.name.hasPrefix("wall_") }
+        var freed: Int64 = 0, back = 0
+        for l in walls { forget(l.name); freed += l.bytes }
+        MTHomeBook.shared.ensure()
+        let book = MTHomeBook.shared.all()
+        let asked = chats.compactMap { l in book[l.name]?.p }.flatMap { p in p }
+        let held = asked.isEmpty ? Set<String>() : (await MTHomeShelf.have(asked) ?? Set<String>())
+        for l in chats {
+            if MontanaMediaStore.exists(l.name) { forget(l.name); freed += l.bytes; continue }
+            if let e = book[l.name], !held.isEmpty, e.p.allSatisfy(held.contains) { forget(l.name); freed += l.bytes; continue }
+            // the only copy: it goes back into the store, and stays here when the store refuses it
+            if MontanaMediaStore.adopt(from: l.file, name: l.name) { back += 1; forget(l.name) }
+        }
+        MontanaTrace.mark("doc_links", "released freed=\(freed) back=\(back) walls=\(walls.count) chats=\(chats.count)")
+        return (freed, back)
     }
     static func named(_ src: URL, as name: String) -> URL {
         var clean = name.replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: ":", with: "_")

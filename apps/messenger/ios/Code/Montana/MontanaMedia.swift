@@ -1555,6 +1555,7 @@ enum MontanaMediaStore {
         for n in names where !n.isEmpty {
             try? FileManager.default.removeItem(at: url(n))
             MontanaVideoMark.unmark(n)   // the «transcoded» mark has no life past its file
+            MTDocLink.forget(n)   // a viewer's link alone kept the bytes alive after the file left (T1 18.10: 7.4 GB in tmp)
         }
     }
     /// THE SAME BYTES UNDER A SECOND NAME (20.09): a forward is a letter of its own and wears a file

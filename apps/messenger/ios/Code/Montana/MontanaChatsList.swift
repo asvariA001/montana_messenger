@@ -457,7 +457,7 @@ struct ChatsListView: View {
             }
             .allowsHitTesting(false)   // a light under the glyphs: every touch belongs to the glyph above it
         }
-        .montanaOctagonFace(bar: true, panel: true)
+        .montanaOctagonFace(bar: true)
         // THE BADGE IS THE PLATE'S, NOT THE BUTTON'S (the author's word 18.09): drawn on a button, it
         // was cut by the button's own clip and covered by the neighbour drawn after it. The button
         // only names its corner through a preference anchor; the plate draws the badge over all

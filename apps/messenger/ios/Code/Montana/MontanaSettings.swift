@@ -1342,6 +1342,7 @@ struct DataStorageView: View {
     @State private var picturesCleared = false
     @State private var disk: MTDiskUse? = nil                 // what this phone holds, measured on its disk (MTDiskUse)
     @State private var clearingShelf = false
+    @State private var releasing = false   // the person's word on the opened files left behind (MTDocLink.release)
     @ObservedObject private var homeKeep = MTHomeKeep.shared   // the files on the person's own node, in the node's own word (18.10)
     @State private var clearingCache = false
     @State private var cacheWord: LocalizedStringKey? = nil
@@ -1483,7 +1484,22 @@ struct DataStorageView: View {
                         .accessibilityLabel(Text("Clear"))
                     }
                     diskRow("Kept for the people who write to you", "person.2.fill", .green, u.kept)
-                    diskRow("History and the rest", "clock.fill", .blue, u.other)
+                    // EVERY PART NAMED AND EACH IN THE PERSON'S HAND (the author's word 18.10.2026 23:3x MSK): the links a viewer was
+                    // handed that outlived their files are released by one word (MTDocLink.release) -- what the node does not hold
+                    // goes back to the chats, never lost; the history is the letters themselves, cleared chat by chat.
+                    HStack {
+                        diskRow("Opened files", "doc.on.doc.fill", .purple, u.opened)
+                        Button { releasing = true } label: {
+                            Image(systemName: "trash").foregroundColor(.red)
+                                .frame(width: 44, height: 44).contentShape(Rectangle())
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(u.opened == 0)
+                        .accessibilityLabel(Text("Clear"))
+                    }
+                    diskRow("History of chats", "clock.fill", .blue, u.history)
+                    diskRow("Faces", "person.crop.circle.fill", .pink, u.faces)
+                    diskRow("The rest", "ellipsis.circle.fill", .gray, u.other)
                     HStack {
                         Text("On this phone").fontWeight(.semibold)
                         Spacer()
@@ -1507,6 +1523,17 @@ struct DataStorageView: View {
                 }
             } message: {
                 Text("The copies and their shares made for iCloud, your node and your keepers leave this phone; the next round makes them again.")
+            }
+            .confirmationDialog("Clear opened files?", isPresented: $releasing, titleVisibility: .visible) {
+                Button("Clear", role: .destructive) {
+                    Task { @MainActor in
+                        let r = await MTDocLink.release()
+                        cacheWord = "Freed \(mtSize(Int(r.freed))). Files back in your chats: \(r.back)."
+                        if let inv = inventory { measureDisk(inv) }
+                    }
+                }
+            } message: {
+                Text("Copies a viewer was handed when you opened a file. A file your node holds leaves; one it does not hold yet goes back to your chats for your node. Videos of other people's walls leave too: their walls keep them, not your node.")
             }
 
             Section {

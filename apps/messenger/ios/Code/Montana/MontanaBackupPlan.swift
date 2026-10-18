@@ -256,8 +256,13 @@ struct MTDiskUse {
     var walls: Int64 = 0      // the walls' pictures brought to be seen (MTBoardLook), a gigabyte at most by its own trim
     var shelf: Int64 = 0      // copies and their shares waiting on the shelf (MontanaBackup)
     var kept: Int64 = 0       // the shares this phone keeps for the people who write to it (MTKeeping)
-    var other: Int64 = 0      // the history, the chains, the faces, the caches, the temporary
-    var total: Int64 { chats + unnamed + walls + shelf + kept + other }
+    // «History and the rest» named, each part where it lies (the author's word 18.10.2026 23:3x MSK: «I must manage every point of the
+    // cache fully -- History shows 7 GB and I cannot see what or how»; T1 measured: 7.4 GB were viewer links left in tmp, MTDocLink)
+    var opened: Int64 = 0     // the links a viewer was handed that outlived their document (MTDocLink.left)
+    var history: Int64 = 0    // the letters, the chats' rows and the chains of time
+    var faces: Int64 = 0      // the faces of the people and of the groups
+    var other: Int64 = 0      // the caches and the temporary the system keeps
+    var total: Int64 { chats + unnamed + walls + shelf + kept + opened + history + faces + other }
 
     static func measure(named: Set<String>) -> MTDiskUse {
         let fm = FileManager.default
@@ -280,6 +285,9 @@ struct MTDiskUse {
         walk(MTKeeping.folder) { _, b in use.kept += b }
         let lib = fm.urls(for: .libraryDirectory, in: .userDomainMask).first
         let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first
+        walk(MTDocLink.folder) { _, b in use.opened += b }
+        for h in [MTHistoryFile.folder, MontanaArchive.rootURL, MTTimeChainPlace.dir()] { walk(h) { _, b in use.history += b } }
+        walk(avatarsDirURL()) { _, b in use.faces += b }
         for root in [lib, docs, fm.temporaryDirectory] { walk(root) { _, b in use.other += b } }
         return use
     }
@@ -347,6 +355,7 @@ struct CopyFilesPage: View {
     @State private var choosing = false
     @State private var chosen = Set<String>()
     @State private var askingMany = false
+    @State private var stayed = 0   // the chosen files the node does not hold yet: they stayed
 
     private var files: [(name: String, bytes: Int)] {
         inventory.sizes.filter { inventory.kindOf($0.key) == kind }
@@ -439,7 +448,7 @@ struct CopyFilesPage: View {
                     }
                     .swipeActions(edge: .trailing) {
                         if deletable {
-                            Button { asking = f.name } label: { Label("Delete from the chat", systemImage: "trash") }
+                            Button { asking = f.name } label: { Label("Remove from this phone", systemImage: "trash") }
                                 .tint(.red)
                         }
                     }
@@ -473,40 +482,45 @@ struct CopyFilesPage: View {
                 }
             }
         }
-        .confirmationDialog("Delete \(chosen.count) files from this phone?", isPresented: $askingMany, titleVisibility: .visible) {
-            Button("Delete", role: .destructive) {
+        .confirmationDialog("Remove \(chosen.count) files from this phone?", isPresented: $askingMany, titleVisibility: .visible) {
+            Button("Remove from this phone", role: .destructive) {
                 let many = chosen
                 chosen = []
                 choosing = false
                 deleteMany(many)
             }
         } message: {
-            Text("The letters with these attachments are deleted on this device; the other side keeps its own. A file no letter names leaves this phone, and a wall shows it again while its owner keeps it.")
+            Text("Your node keeps them, and each comes back when you open it. The letters stay. A file your node does not hold yet stays on this phone.")
         }
-        .confirmationDialog("Delete from the chat?",
+        .confirmationDialog("Remove from this phone?",
                             isPresented: Binding(get: { asking != nil }, set: { if !$0 { asking = nil } }),
                             titleVisibility: .visible, presenting: asking) { f in
-            Button("Delete from the chat", role: .destructive) { delete(f) }
+            Button("Remove from this phone", role: .destructive) { delete(f) }
         } message: { _ in
-            Text("The letter with this attachment is deleted on this device. The other side keeps its own.")
+            Text("Your node keeps it, and it comes back when you open it. The letter stays.")
+        }
+        .alert("Cache", isPresented: Binding(get: { 0 < stayed }, set: { if !$0 { stayed = 0 } })) {
+            Button("OK") { stayed = 0 }
+        } message: {
+            Text("Your node does not hold \(stayed) of the chosen files yet: they stay on this phone.")
         }
     }
 
-    /// Delete for me by the chat's own road ([C-1]: ChatStore.deleteLocally), then the store's own
-    /// sweep carries off the file no letter names any more; the count on these pages follows at once.
     private func delete(_ file: String) { deleteMany([file]) }
-    /// MANY IN ONE PASS: every letter naming a chosen file by one road and one write (ChatStore.deleteLocally), a file no letter names
-    /// out of the store by its own remove, then the store's sweep and the counts.
+    /// THE PHONE'S COPY ONLY (18.10.2026, Agent 93, the author's word «check fully that everything I delete is only the local cache,
+    /// and my node holds all of it»): this page deleted the letters naming the chosen files (ChatStore.deleteLocally) and never asked
+    /// the node. The chosen files leave this phone now on the node's word asked at that moment (MTHomeShelf.removeHeld); every letter
+    /// stays, and a file comes back from the node when it is opened. A file the node does not hold whole stays, and the page says so.
     private func deleteMany(_ many: Set<String>) {
-        guard let store = ChatStore.live, !many.isEmpty else { return }
-        let ls = many.flatMap { f in inventory.letters[f] ?? [] }
-        let bare = many.filter { f in (inventory.letters[f] ?? []).isEmpty }
-        if !ls.isEmpty { store.deleteLocally(ls) }   // one tombstone write and one history write for every letter naming a file
-        if !bare.isEmpty { MontanaMediaStore.remove(Array(bare)) }
-        store.sweepMediaFiles()
-        plan.skipFiles.removeAll { f in many.contains(f) }
-        for f in many { inventory.forget(f) }
-        MontanaTrace.mark("backup_plan", "deleted files=\(many.count) letters=\(ls.count) bare=\(bare.count) kind=\(kind.rawValue)")
+        guard !many.isEmpty else { return }
+        Task { @MainActor in
+            let r = await MTHomeShelf.removeHeld(many)
+            let gone = r?.gone ?? Set<String>()
+            for f in gone { inventory.forget(f) }
+            plan.skipFiles.removeAll { f in gone.contains(f) }
+            stayed = many.count - gone.count
+            MontanaTrace.mark("backup_plan", "removed files=\(gone.count) of=\(many.count) node=\(r == nil ? 0 : 1) kind=\(kind.rawValue)")
+        }
     }
     static func title(_ k: MontanaBackup.Kind) -> LocalizedStringKey { CopyKindsPage.face(k).0 }
 }
@@ -552,14 +566,14 @@ struct CopyFileView: View {
                     Button { asking = true } label: {
                         Image(systemName: "trash").frame(width: 44, height: 44).contentShape(Rectangle())
                     }
-                    .accessibilityLabel(Text("Delete from the chat"))
+                    .accessibilityLabel(Text("Remove from this phone"))
                 }
             }
         }
-        .confirmationDialog("Delete from the chat?", isPresented: $asking, titleVisibility: .visible) {
-            Button("Delete from the chat", role: .destructive) { onDelete(); dismiss() }
+        .confirmationDialog("Remove from this phone?", isPresented: $asking, titleVisibility: .visible) {
+            Button("Remove from this phone", role: .destructive) { onDelete(); dismiss() }
         } message: {
-            Text("The letter with this attachment is deleted on this device. The other side keeps its own.")
+            Text("Your node keeps it, and it comes back when you open it. The letter stays.")
         }
         .task {
             let f = file

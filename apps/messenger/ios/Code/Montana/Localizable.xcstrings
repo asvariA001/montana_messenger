@@ -5656,38 +5656,6 @@
         }
       }
     },
-    "Delete from the chat": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Удалить из чата"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "从聊天中删除"
-          }
-        }
-      }
-    },
-    "Delete from the chat?": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Удалить из чата?"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "从聊天中删除？"
-          }
-        }
-      }
-    },
     "Delete message?": {
       "localizations": {
         "ru": {
@@ -14077,22 +14045,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "您身份的钥匙是即将显示的 24 个助记词。只有凭它才能恢复。\\n\\n一旦丢失，将永久失去对身份与聊天的访问权。请勿向任何人展示。\\n\\n请妥善保管：使用您信任的任何机密数据保管方式（例如密码管理器），或手写在纸上并离线保存。请勿截屏，也不要存入备忘录。"
-          }
-        }
-      }
-    },
-    "The letter with this attachment is deleted on this device. The other side keeps its own.": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Сообщение с этим вложением удаляется на этом устройстве. У собеседника оно останется."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "带有此附件的消息将在本设备上删除。对方仍保留自己的副本。"
           }
         }
       }
@@ -30002,38 +29954,6 @@
         }
       }
     },
-    "Delete %lld files from this phone?": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Удалить с телефона файлов: %lld?"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "从此手机删除 %lld 个文件？"
-          }
-        }
-      }
-    },
-    "The letters with these attachments are deleted on this device; the other side keeps its own. A file no letter names leaves this phone, and a wall shows it again while its owner keeps it.": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Письма с этими вложениями удаляются на этом устройстве; у другой стороны остаются свои. Файл без письма уходит с телефона, а стена покажет его снова, пока он есть у владельца."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "包含这些附件的消息将在此设备上删除；对方保留自己的副本。没有对应消息的文件将从此手机移除，只要所有者仍保留，墙面会再次显示它。"
-          }
-        }
-      }
-    },
     "Your files": {
       "localizations": {
         "ru": {
@@ -30414,6 +30334,214 @@
           "stringUnit": {
             "state": "translated",
             "value": "无限制"
+          }
+        }
+      }
+    },
+    "Opened files": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открытые файлы"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开过的文件"
+          }
+        }
+      }
+    },
+    "History of chats": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "История чатов"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天记录"
+          }
+        }
+      }
+    },
+    "Faces": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Лица"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "头像"
+          }
+        }
+      }
+    },
+    "The rest": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Остальное"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其他"
+          }
+        }
+      }
+    },
+    "Clear opened files?": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Очистить открытые файлы?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除打开过的文件？"
+          }
+        }
+      }
+    },
+    "Copies a viewer was handed when you opened a file. A file your node holds leaves; one it does not hold yet goes back to your chats for your node. Videos of other people's walls leave too: their walls keep them, not your node.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Копии, которые получал просмотр, когда вы открывали файл. Файл, который держит ваш узел, уходит; файл, которого на узле ещё нет, возвращается в ваши чаты для узла. Видео со стен других людей тоже уходят: их держат их стены, а не ваш узел."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开文件时查看器拿到的副本。您的节点已保存的文件会被移除；节点尚未保存的文件会回到您的聊天中，等待节点保存。他人墙上的视频也会移除：它们由各自的墙保存，而不是您的节点。"
+          }
+        }
+      }
+    },
+    "Freed %@. Files back in your chats: %lld.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Освобождено %@. Файлов вернулось в чаты: %lld."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已释放 %@。回到聊天中的文件：%lld。"
+          }
+        }
+      }
+    },
+    "Remove %lld files from this phone?": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Убрать с телефона файлов: %lld?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从此手机移除 %lld 个文件？"
+          }
+        }
+      }
+    },
+    "Remove from this phone": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Убрать с телефона"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从此手机移除"
+          }
+        }
+      }
+    },
+    "Your node keeps them, and each comes back when you open it. The letters stay. A file your node does not hold yet stays on this phone.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Их хранит ваш узел, и каждый вернётся, когда вы его откроете. Письма остаются. Файл, которого на узле ещё нет, остаётся на телефоне."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "您的节点会保存它们，打开时每个文件都会取回。信件保留。节点尚未保存的文件会留在此手机上。"
+          }
+        }
+      }
+    },
+    "Remove from this phone?": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Убрать с телефона?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从此手机移除？"
+          }
+        }
+      }
+    },
+    "Your node keeps it, and it comes back when you open it. The letter stays.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Его хранит ваш узел, и он вернётся, когда вы его откроете. Письмо остаётся."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "您的节点会保存它，打开时会取回。信件保留。"
+          }
+        }
+      }
+    },
+    "Your node does not hold %lld of the chosen files yet: they stay on this phone.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваш узел ещё не хранит выбранных файлов: %lld — они остаются на телефоне."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "您的节点尚未保存所选文件中的 %lld 个：它们会留在此手机上。"
           }
         }
       }

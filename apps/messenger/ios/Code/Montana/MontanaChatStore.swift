@@ -7327,6 +7327,7 @@ enum MTHistoryFile {
         try? d.setResourceValues(rv)
         return dir.appendingPathComponent("history.sealed")
     }()
+    static var folder: URL { url.deletingLastPathComponent() }   // read by the disk's measure (MTDiskUse)
     static func write(_ plain: Data) -> Bool {
         guard let sealed = MontanaLocalVault.seal(plain, aad) else { return false }
         return (try? sealed.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])) != nil

@@ -1485,10 +1485,8 @@ struct MTFeedGlyph: View {
         // THE LOGO ON THE SYSTEM'S GLASS (the author's word 26.09: «in the time panel too the new icon, without the black ground, on
         // the system's one-tone liquid glass»): under the native skin the gold logo stands on the tree's round glass plate
         // (MTGlassCirclePlate), as the app's icon now stands on the platform's glass; the black hexagon with its rim is the other skin's.
-        // On the panel's one glass (MTTimePanelGlass, 18.10.2026) the logo's plate is the same thin material on every system: the
-        // system's glass circle inside the panel's glass was a lens, darker than the panel on T1.
         if MontanaSkin.isNative {
-            Circle().fill(MontanaOctagon.barMaterial)
+            MTGlassCirclePlate()
                 .overlay(Image("Logo").resizable().scaledToFit().padding(side / 4))
                 .frame(width: side, height: side)
         } else {

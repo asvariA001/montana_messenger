@@ -2578,6 +2578,7 @@ enum MTBoardLook {
             guard keep < count || budget < total else { break }
             total -= bytes(u); count -= 1
             try? fm.removeItem(at: u)
+            MTDocLink.forget(u.lastPathComponent)   // and the link a viewer was handed, which alone kept the bytes (T1 18.10)
         }
     }
 }

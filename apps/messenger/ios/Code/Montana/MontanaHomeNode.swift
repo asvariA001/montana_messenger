@@ -775,19 +775,26 @@ enum MTHomeShelf {
 
     /// THE CACHE CLEARED: a file leaves this phone only when the node has just named every one of its pieces.
     static func clearPass() async -> (files: Int, bytes: Int)? {
+        guard let r = await removeHeld(nil) else { return nil }
+        return (r.gone.count, r.bytes)
+    }
+    /// A FILE LEAVES THIS PHONE ONLY ON THE NODE'S WORD ASKED NOW, whoever asks (18.10.2026, Agent 93, the author's word «everything I
+    /// delete is only the local cache, and my node holds it»): the hand's clearing, and the files the person chose on a kind's page
+    /// (CopyFilesPage) -- `only` names them, nil takes every file. A file the node does not hold whole stays; no letter is touched.
+    static func removeHeld(_ only: Set<String>?) async -> (gone: Set<String>, bytes: Int)? {
         MTHomeBook.shared.ensure()
         let all = MTHomeBook.shared.all(), here = MontanaMediaStore.names(), inHand = MontanaMediaStore.held
         let fm = FileManager.default
         let candidates = all.filter { n, e in
-            here.contains(n) && !inHand.contains(n) && !MontanaMediaStore.newborn(n)
+            (only?.contains(n) ?? true) && here.contains(n) && !inHand.contains(n) && !MontanaMediaStore.newborn(n)
                 && ((try? fm.attributesOfItem(atPath: MontanaMediaStore.url(n).path))?[.size] as? Int) == e.z
         }
-        guard let held = await have(candidates.values.flatMap { $0.p }) else { return nil }
-        let gone = candidates.filter { $0.value.p.allSatisfy(held.contains) }
+        guard let held = await have(candidates.values.flatMap { e in e.p }) else { return nil }
+        let gone = candidates.filter { kv in kv.value.p.allSatisfy(held.contains) }
         MontanaMediaStore.remove(Array(gone.keys))
-        let bytes = gone.values.reduce(0) { $0 + $1.z }
-        MontanaTrace.mark("home_clear", "files=\(gone.count) bytes=\(bytes) of=\(candidates.count) kept=\(all.count)")
-        return (gone.count, bytes)
+        let bytes = gone.values.reduce(0) { a, e in a + e.z }
+        MontanaTrace.mark("home_clear", "files=\(gone.count) bytes=\(bytes) of=\(candidates.count) kept=\(all.count) chosen=\(only?.count ?? -1)")
+        return (Set(gone.keys), bytes)
     }
 
     /// THE CACHE KEEPS ITSELF (the reference's «keep media» and «maximum cache size»): a file the node holds and nobody opened
