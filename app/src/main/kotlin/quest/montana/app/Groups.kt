@@ -52,18 +52,22 @@ object Groups {
         val id: String, val kind: String, var title: String, var about: String, val owner: String, var me: String,
         val members: MutableList<Member>, var count: Int, val names: MutableMap<String, String>, val at: Long,
         var left: Boolean = false, var faceTag: String? = null,
+        /** WHO READ THIS PHONE'S LETTERS, AND HOW FAR (iOS readBy, B.13): a reader's seat with the birth ms of the newest letter they read; never on the wire. */
+        val readBy: MutableMap<String, Long> = mutableMapOf(),
     ) {
         val mine: Boolean get() = owner.isEmpty()
         fun json(): JSONObject = JSONObject().put("id", id).put("k", kind).put("ti", title).put("ds", about).put("ow", owner).put("me", me)
             .put("mb", JSONArray().apply { members.forEach { put(JSONObject().put("s", it.seat).put("p", it.pipe)) } })
             .put("c", count).put("nm", JSONObject(names.toMap())).put("at", at).put("lf", left).put("ft", faceTag ?: "")
+            .put("rb", JSONObject(readBy.toMap()))
         companion object {
             fun of(o: JSONObject) = State(o.getString("id"), o.getString("k"), o.optString("ti"), o.optString("ds"), o.optString("ow"),
                 o.getString("me"),
                 o.optJSONArray("mb")?.let { a -> MutableList(a.length()) { i -> a.getJSONObject(i).let { Member(it.getString("s"), it.getString("p")) } } } ?: mutableListOf(),
                 o.optInt("c", 2),
                 o.optJSONObject("nm")?.let { n -> n.keys().asSequence().associateWith { n.getString(it) }.toMutableMap() } ?: mutableMapOf(),
-                o.optLong("at"), o.optBoolean("lf"), o.optString("ft").ifEmpty { null })
+                o.optLong("at"), o.optBoolean("lf"), o.optString("ft").ifEmpty { null },
+                o.optJSONObject("rb")?.let { r -> r.keys().asSequence().associateWith { r.getLong(it) }.toMutableMap() } ?: mutableMapOf())
         }
     }
 
@@ -293,6 +297,8 @@ object Groups {
      * a member's word on. The chat asks it at most every three seconds, while there are words in the field.
      */
     fun typing(key: String) {
+        // TYPING IS PRESENCE (iOS fa7a5152, the critic's K-G1, MontanaPresencePrivacy.saysTyping): a phone that hides its presence says none
+        if (!Presence.sharing) return
         val (w, pipes) = synchronized(lock) {
             val g = state(key) ?: return
             if (g.left || g.kind != GROUP) return
@@ -300,7 +306,14 @@ object Groups {
         }
         throwTyping(w, pipes)
     }
-    private fun throwTyping(w: JSONObject, pipes: List<String>) { val text = MARK + w.toString(); pipes.forEach { Post.now(it, text) } }
+    /**
+     * A person blocks only whom they hold a pipe with -- in a group the owner for a member and the members for the owner -- so the
+     * check at the sender covers every block there is; the owner carrying another's word on passes it to nobody it blocked.
+     */
+    private fun throwTyping(w: JSONObject, pipes: List<String>) {
+        val text = MARK + w.toString()
+        pipes.filter { !PeerSafety.isBlocked(it) }.forEach { Post.now(it, text) }
+    }
     /** The moment the owner last threw a member's typing on: once in two seconds a member, whatever it sends (iOS typingThrown, I-15). */
     private val typingThrown = HashMap<String, Long>()
     /** A TYPING WORD LANDED (iOS typed): its seat proven by the pipe it came by, as every word's is; the head shows it for the typing's life. */
@@ -310,7 +323,9 @@ object Groups {
         val from = SamePair.root(pipe)
         val seat: String
         if (g.mine) {
-            seat = g.members.firstOrNull { SamePair.root(it.pipe) == from }?.seat ?: return Verdict.INSTANT
+            val m = g.members.firstOrNull { SamePair.root(it.pipe) == from } ?: return Verdict.INSTANT
+            if (PeerSafety.isBlocked(m.pipe)) return Verdict.INSTANT   // the owner takes no typing from a person it blocked (K-G1)
+            seat = m.seat
             val k = g.id + "/" + seat
             val now = System.currentTimeMillis()
             if (now - (typingThrown[k] ?: 0L) >= 2000) {
@@ -353,6 +368,109 @@ object Groups {
             2 -> c.getString(R.string.gr_typing_two, names[0], names[1])
             else -> c.getString(R.string.gr_typing_many, names[0], (names.size - 1).toString())
         }
+    }
+
+    // ── read (the checklist's B.13, the reference's small group: a letter read, and who saw it; iOS fa7a5152) ──
+
+    /** How far this phone told each group it read (iOS readTold): one word a moment, and only when the mark moved. Held in memory. */
+    private val readTold = HashMap<String, Long>()
+    /** How far the owner told the speakers each reader read, by group and reader (iOS readSpread): once for each new reach. */
+    private val readSpread = HashMap<String, Long>()
+    /** The groups whose read mark is due (iOS readMarkWork, 0.8 s): a run of letters landing is told by one word. */
+    private val readDue = HashSet<String>()
+
+    /** THE GROUP ON SCREEN READ ITS LETTERS (iOS ChatStore.sendReadMark for a group): told a moment later, while it is still on screen. */
+    fun readSoon(key: String) {
+        if (!synchronized(readDue) { readDue.add(key) }) return
+        MainThread.later(800, Runnable {
+            synchronized(readDue) { readDue.remove(key) }
+            if (Book.openChat == key && Presence.shown) Thread { tellRead(key) }.start()
+        })
+    }
+
+    /**
+     * THIS PHONE READ THE GROUP (iOS MTGroup.tellRead): the birth millisecond of the newest letter of another before its eyes, told
+     * as its own word «rd» to the owner, who tells each speaker it covers; the owner's own reading goes to them straight. Never
+     * with «Read receipts» off -- the switch is the person's word about themselves.
+     */
+    private fun tellRead(key: String) {
+        synchronized(lock) {
+            if (!Prefs.bool("readReceiptsEnabled", true)) return
+            val g = state(key) ?: return
+            if (g.kind != GROUP || g.left) return
+            val ms = Book.chat(key)?.msgs?.toList()?.filter { !it.mine }?.mapNotNull { Marks.birthMs(it.mid) }?.maxOrNull() ?: return
+            if (ms <= (readTold[g.id] ?: 0L)) return
+            readTold[g.id] = ms
+            if (g.mine) spreadRead(g, g.me, ms)
+            else carry(JSONObject().put("t", "rd").put("g", g.id).put("id", Marks.mintMid()).put("s", g.me).put("tx", ms.toString()), g.owner, "", own = false)
+            Log.d("Montana", "read_tx group upto=" + Diary.shortMs(ms))
+        }
+    }
+
+    /**
+     * THE OWNER TELLS EACH SPEAKER A READER REACHED (iOS spreadRead): the seats of the letters born after the reader's last mark and
+     * up to the new one, each told by a word of its own (ts names it); the owner's own letters are read here.
+     */
+    private fun spreadRead(g: State, reader: String, ms: Long) {
+        val k = g.id + "/" + reader
+        val since = readSpread[k] ?: 0L
+        if (ms <= since) return
+        readSpread[k] = ms
+        val head = speaker(g.id, "")
+        val speakers = HashSet<String>()
+        for (r in Book.chat(key(g.id))?.msgs?.toList().orEmpty()) {
+            val born = Marks.birthMs(r.mid) ?: continue
+            if (born <= since || ms < born) continue
+            val seat = if (r.mine) g.me else r.from?.takeIf { it.startsWith(head) }?.removePrefix(head) ?: ""
+            if (seat.isNotEmpty() && seat != reader) speakers.add(seat)
+        }
+        if (g.me in speakers) readMine(g, reader, ms)
+        for (m in g.members) if (m.seat in speakers) {
+            val w = JSONObject().put("t", "rd").put("g", g.id).put("id", Marks.mintMid()).put("s", reader).put("tx", ms.toString())
+                .put("ts", JSONArray(listOf(m.seat)))
+            carry(w, m.pipe, "", own = false)
+        }
+    }
+
+    /** A READER REACHED MY LETTERS (iOS readMine): their mark kept, and every letter of mine born up to it raised to read by the ladder's one door. */
+    private fun readMine(g: State, reader: String, ms: Long) {
+        if (reader == g.me || ms <= (g.readBy[reader] ?: 0L)) return
+        g.readBy[reader] = ms
+        save()
+        var raised = 0
+        Book.edit(key(g.id)) { c -> c.msgs.forEach { if (it.mine && (Marks.birthMs(it.mid) ?: Long.MAX_VALUE) <= ms && it.advance(3)) raised++ } }
+        Log.d("Montana", "read_rx group upto=" + Diary.shortMs(ms) + " raised=" + raised)
+    }
+
+    /**
+     * A READER'S WORD (iOS readWord): at the owner, the reader's seat is the pipe's own, never the word's; at a member, the owner's
+     * word for a reader of this phone's letters.
+     */
+    private fun readWord(w: JSONObject, pipe: String): Verdict {
+        val g = groups[w.getString("g")] ?: return Verdict.WAIT
+        val ms = w.optString("tx").toLongOrNull()
+        if (g.left || g.kind != GROUP || ms == null || ms <= 0) return Verdict.REFUSED
+        val from = SamePair.root(pipe)
+        if (g.mine) {
+            val m = g.members.firstOrNull { SamePair.root(it.pipe) == from } ?: return Verdict.REFUSED
+            spreadRead(g, m.seat, ms)
+        } else {
+            val s = w.optString("s")
+            val ts = w.optJSONArray("ts")
+            val forMe = ts == null || (0 until ts.length()).any { ts.optString(it) == g.me }
+            if (SamePair.root(g.owner) != from || !isSeat(s) || s == g.me || !forMe) return Verdict.REFUSED
+            readMine(g, s, ms)
+        }
+        return Verdict.HELD
+    }
+
+    /** THE READERS OF A LETTER OF MINE, BY NAME (iOS seenBy, the reference's «N Seen» over the letter's menu); null outside a group. */
+    fun seenBy(c: Context, m: Msg, key: String): List<String>? {
+        val g = state(key) ?: return null
+        if (g.kind != GROUP || !m.mine) return null
+        val ms = Marks.birthMs(m.mid) ?: return null
+        val seats = synchronized(lock) { g.readBy.filterValues { ms <= it }.keys.toList() }
+        return seats.map { speakerName(c, speaker(g.id, it)) }.sortedWith(String.CASE_INSENSITIVE_ORDER)
     }
 
     // ── birth: this phone owns the group ──
@@ -571,6 +689,7 @@ object Groups {
             "out" -> dropped(w, pipe)
             "bye" -> parted(w, pipe)
             "ty" -> typed(w, pipe)   // COMPAT-GATED: a member typing, an instant word an older build buries (B.12)
+            "rd" -> readWord(w, pipe)   // COMPAT-GATED: a reader's mark, an older build buries it (B.13)
             else -> Verdict.REFUSED.also { Log.i("Montana", "group_refused kind=${t.take(8)}") }   // a newer build's word: its road ends here
         }
     }
@@ -659,7 +778,7 @@ object Groups {
         Book.edit(key) { c ->
             if (c.msgs.none { it.mid == id } && !Book.isBuried(key, id)) {   // a deleted letter's copy stays out (Book.bury)
                 c.msgs.add(Msg(id, words, false, at, qt = quote, qm = quoted, from = sp)); c.msgs.sortBy { it.at }
-                if (Book.openChat != key) c.unread++
+                if (Book.openChat != key || !Presence.shown) c.unread++   // a locked phone reads nothing (iOS placeRow)
                 landed = true
             }
         }
@@ -668,6 +787,7 @@ object Groups {
         if (landed && words.startsWith(Marks.MEDIA)) Media.fetch(Book.ctx, key, id, words)
         // the banner a running app owes its person: the group's title over who wrote and what (a channel speaks as itself)
         if (landed && Book.openChat != key) Notify.letter(key, words, if (g.kind == GROUP) speakerName(Book.ctx, sp) else null)
+        if (landed && Book.openChat == key && g.kind == GROUP) readSoon(key)   // read before the eyes: the speaker hears it (B.13)
         // THE OWNER CARRIES IT ON (iOS heard, g.mine): to every other member, under the speaker's seat and the name they gave
         typingStopped(key, seat)   // the letter came: its speaker types no more (the reference's head)
         if (landed && g.mine) {

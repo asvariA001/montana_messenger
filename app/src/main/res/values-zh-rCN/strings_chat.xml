@@ -56,6 +56,9 @@
     <string name="gr_typing_one">%1$s 正在输入…</string>
     <string name="gr_typing_two">%1$s 和 %2$s 正在输入…</string>
     <string name="gr_typing_many">%1$s 等 %2$s 人正在输入…</string>
+    <!-- B.13: who read a letter of mine in a group (iOS MTSeenByRow) -->
+    <string name="gr_seen_none">暂无人阅读</string>
+    <string name="gr_seen_n">%1$s 人已读</string>
     <string name="gr_out_note">您已不再是成员：消息仍可在此阅读。</string>
     <string name="gr_choose">选择成员</string>
     <string name="gr_pick_note">群组消息经由每个人各自的通道传送，因此这里只列出与你有通信的人。</string>

@@ -2413,6 +2413,23 @@ fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Unit, onEd
         } else {
             // THE RUNG AND ITS MOMENT over the actions (iOS MontanaMessageMenu ladder): the same line as under the bubble, with the time
             if (m.mine && !Book.isLocal(ref)) actions.addView(c.deliveryLine(ref, m, withMoment = true).apply { setPadding(dp(16), dp(11), dp(16), dp(11)) }, lp())
+            // «N SEEN» (iOS MTSeenByRow, B.13): who read a letter of mine in a group, «Nobody Viewed» while none has; a tap opens their names under it
+            val seen = if (group && m.mine) Groups.seenBy(c, m, ref) else null
+            if (seen != null) {
+                if (actions.childCount > 0) actions.addView(View(c).apply { setBackgroundColor(line) }, lp(MATCH, 1))
+                val names = c.vstack(Gravity.NO_GRAVITY) { visibility = View.GONE }
+                for (n in seen) names.addView(c.text(n, 15f, Color.argb(217, 255, 255, 255)).apply {
+                    maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; setPadding(dp(14), dp(6), dp(14), dp(6))
+                }, lp())
+                actions.addView(c.hstack {
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(14), dp(11), dp(14), dp(11))
+                    addView(c.text(if (seen.isEmpty()) c.getString(R.string.gr_seen_none) else c.getString(R.string.gr_seen_n, seen.size.toString()), 16f, Color.WHITE), lp(0, WRAP, 1f))
+                    addView(c.icon(R.drawable.ic_set_eye, Color.argb(204, 255, 255, 255), 20), lp(dp(20), dp(20)))
+                    if (seen.isNotEmpty()) pressable { names.visibility = if (names.visibility == View.GONE) View.VISIBLE else View.GONE }
+                }, lp())
+                actions.addView(names, lp())
+            }
             if (writes) row(c.getString(R.string.reply), R.drawable.ic_reply) { onReply() }
             // EDIT STICKER (iOS MontanaMessageMenu 474-476, MontanaConversation 2251-2254): a letter's own card sticker, re-cut into a new one
             if (Stickers.editable(m)) row(c.getString(R.string.sticker_edit), R.drawable.ic_pencil) { Stickers.editFromLetter(act, ref, m) }

@@ -1691,6 +1691,8 @@ object Post {
         // the person's eyes; Presence.appShown asks again the moment it is.
         if (!Presence.shown) return
         val c = Book.chat(ref) ?: return
+        // A GROUP'S READ MARK RIDES THE GROUP'S OWN ROAD (iOS sendReadMark → MTGroup.tellRead, B.13): a group has no pipe to receipt on
+        if (Groups.isKey(ref)) { Book.edit(ref) { it.unread = 0 }; Groups.readSoon(ref); return }
         // a blocked person hears no word of mine (iOS sendReadMark 2842: read_skip why=blocked)
         if (!Prefs.bool("readReceiptsEnabled", true) || PeerSafety.isBlocked(ref)) { Book.edit(ref) { it.unread = 0 }; return }
         val upTo = c.msgs.filter { !it.mine }.mapNotNull { Marks.birthMs(it.mid) }.maxOrNull()
