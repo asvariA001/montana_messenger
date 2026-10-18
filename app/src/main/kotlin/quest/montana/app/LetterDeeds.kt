@@ -69,8 +69,12 @@ object MsgPins {
  * THE PIN TRAVELS (iOS tellPin: «both see it»): the letter's wire name and its words, «pin» or «unpin», silent on the one
  * delivery road.
  */
-fun tellPin(ref: String, m: Msg, pin: Boolean) =
+fun tellPin(ref: String, m: Msg, pin: Boolean) {
+    // A GROUP'S PIN RIDES THE GROUP'S OWN ROAD (iOS tellPin, MTGroup.pin): its key is no pipe -- an unpin went to Post.send under
+    // the group's key and rode nowhere (the checklist's E.5); a phone without the right unpins for itself alone.
+    if (Groups.isKey(ref)) { if (Groups.mayPin(ref)) Groups.pin(ref, m, pin, notify = true); return }
     Post.send(ref, Marks.mintMid(), PIN_MARK + JSONObject().put("sid", "mid:" + m.mid).put("txt", m.text.take(200)).put("op", if (pin) "pin" else "unpin"))
+}
 
 /** A pin or an unpin of theirs (iOS applyPinFromControl): the letter is found by its wire name, else by its words; a fresh
  * pin tells the person by the app's own banner, unless this chat stands open (iOS presentPinned). */
@@ -83,13 +87,18 @@ fun applyPin(ref: String, body: String) {
 }
 
 /** «Pin this message?» ON THE PERSON'S FACE (iOS the FaceSheet over the chat, MontanaConversation.swift:1798-1812 at 2155):
- * for both first, for me under it, no line of its own (note: nil); a group carries no pin for everyone yet, so a group pins
- * for me alone (1801); an unpin asks nothing and is told. */
+ * for both first, for me under it, no line of its own (note: nil); a group pins for everyone as the reference does (iOS e0bb03bf,
+ * the checklist's B.11): «Pin and notify all members» or «Only Pin», and a phone without the right pins for itself; an unpin
+ * asks nothing and is told. */
 fun pinOrUnpin(act: MainActivity, ref: String, m: Msg) {
     if (MsgPins.isPinned(ref, m.mid)) { MsgPins.unpin(ref, m.mid); tellPin(ref, m, false); return }
     val forMe = FaceDeed(act.getString(R.string.ld_pin_me), false) { MsgPins.pin(ref, m.mid) }
-    faceSheet(act, ref, act.getString(R.string.ld_pin_q), null,
-        if (Groups.isKey(ref)) listOf(forMe)
+    val groupPin = Groups.isKey(ref) && Groups.mayPin(ref)
+    faceSheet(act, ref, act.getString(if (groupPin) R.string.ld_pin_q_group else R.string.ld_pin_q), null,
+        if (groupPin) listOf(
+            FaceDeed(act.getString(R.string.ld_pin_all), false) { Groups.pin(ref, m, pin = true, notify = true) },
+            FaceDeed(act.getString(R.string.ld_pin_only), false) { Groups.pin(ref, m, pin = true, notify = false) })
+        else if (Groups.isKey(ref)) listOf(forMe)
         else listOf(FaceDeed(act.getString(R.string.ld_pin_both), false) { MsgPins.pin(ref, m.mid); tellPin(ref, m, true) }, forMe))
 }
 

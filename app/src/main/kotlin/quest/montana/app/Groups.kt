@@ -145,6 +145,9 @@ object Groups {
     fun isChannel(key: String) = state(key)?.kind == CHANNEL
     /** Everyone writes in a group, the owner alone in a channel (iOS canWrite). */
     fun canWrite(key: String): Boolean { val g = state(key) ?: return false; return !g.left && (g.kind == GROUP || g.mine) }
+    /** Whether this phone pins a letter of the group for everyone (iOS mayPin). */
+    fun mayPin(key: String): Boolean { val g = state(key) ?: return false; return !g.left && pins(g, g.me) }
+
     /** The moment the group stood here: its row stands by it until its first letter (iOS stand puts the row at the top). */
     fun bornAt(key: String): Long = state(key)?.at ?: 0L
 
@@ -256,6 +259,30 @@ object Groups {
             if (g == null || g.left || !answers(text)) { Log.i("Montana", "group_refused answer -- group=" + (if (g == null) 0 else 1)); return }
             spread(word("sig", g).put("id", Marks.mintMid()).put("s", g.me).put("tx", text), g, null, own = false)
         }
+    }
+
+    // ── the pin for everyone (the checklist's B.11, the reference: «Pin this message and notify all members of the group?») ──
+
+    /**
+     * WHO PINS FOR EVERYONE (iOS MTGroup.pins): every member of a group while the group lets its members pin -- the reference's own
+     * default for a new group; never in a channel. The one gate of a pin, asked where it is sent and wherever it lands; the
+     * administrators and the group's permissions narrow it once they stand here (G.6, G.5).
+     */
+    private fun pins(g: State, seat: String): Boolean = g.kind == GROUP && seat.isNotEmpty()
+
+    /**
+     * A LETTER PINNED OR UNPINNED FOR EVERYONE (iOS MTGroup.pin): here at once, and its word carried to every phone of the group by
+     * the answers' road; `notify` -- «Pin and notify all members» against «Only Pin» (n 0: pinned without a banner). The service row
+     * «X pinned "..."» waits for the group's events (iOS lay, MTGroupEvent), which this build does not carry yet.
+     */
+    fun pin(key: String, m: Msg, pin: Boolean, notify: Boolean) {
+        synchronized(lock) {
+            val g = state(key)
+            if (g == null || g.left || !pins(g, g.me) || !isLetterName(m.mid)) { Log.i("Montana", "group_refused pin -- group=" + (if (g == null) 0 else 1)); return }
+        }
+        if (pin) MsgPins.pin(key, m.mid) else MsgPins.unpin(key, m.mid)
+        signal(key, PIN_MARK + JSONObject().put("sid", "mid:" + m.mid).put("op", if (pin) "pin" else "unpin").apply { if (!notify) put("n", 0) })
+        Log.d("Montana", "pin_tx group " + (if (pin) "pin" else "unpin") + " notify=" + (if (notify) 1 else 0))
     }
 
     // ── typing (the checklist's B.12, the reference's «X is typing» in a group's head) ──
@@ -669,6 +696,10 @@ object Groups {
         val seat = if (g.mine) g.members.firstOrNull { SamePair.root(it.pipe) == from }?.seat ?: return Verdict.REFUSED
             else w.optString("s").takeIf { SamePair.root(g.owner) == from && isSeat(it) && it != g.me } ?: return Verdict.REFUSED
         if (id in heard) return Verdict.HELD
+        if (words.startsWith(PIN_MARK) && !pins(g, seat)) {
+            Log.i("Montana", "group_refused a pin by a seat without the right seat=$seat")
+            return Verdict.REFUSED
+        }
         val key = key(g.id)
         target(words)?.let { t ->
             val row = Book.chat(key)?.msgs?.firstOrNull { it.mid == t }
@@ -710,6 +741,16 @@ object Groups {
                 val t = target(words)
                 if (tx != null && t != null) Book.edit(key) { c -> c.msgs.find { it.mid == t && !it.mine }?.let { it.text = tx; it.edited = true } }
             }
+            // a pin for everyone lands by the letter's one name; «Only Pin» (n 0) pins without a banner (iOS pin_rx)
+            words.startsWith(PIN_MARK) -> runCatching {
+                val o = JSONObject(words.removePrefix(PIN_MARK)); val t = o.getString("sid").removePrefix("mid:")
+                val m = Book.chat(key)?.msgs?.find { it.mid == t }
+                when (o.optString("op")) {
+                    "pin" -> if (m != null) { MsgPins.pin(key, t); if (o.optInt("n", 1) != 0) Notify.pinned(key, t, m) }
+                    "unpin" -> MsgPins.unpin(key, t)
+                }
+                Log.d("Montana", "pin_rx group " + o.optString("op") + " found=" + (if (m == null) 0 else 1))
+            }
             words.startsWith(Marks.REACTION) -> runCatching {
                 val o = JSONObject(words.removePrefix(Marks.REACTION)); val t = o.getString("sid").removePrefix("mid:"); val e = o.getString("e")
                 Book.edit(key) { c -> c.msgs.find { it.mid == t }?.let { m -> if (o.optString("op") == "del") m.reactions.remove(e) else m.reactions.add(e) } }
@@ -746,8 +787,13 @@ object Groups {
     private fun author(row: Msg, g: State): String? =
         if (row.mine) g.me else row.from?.takeIf { it.startsWith(speaker(g.id, "")) }?.removePrefix(speaker(g.id, ""))
 
-    /** WHAT AN ANSWER MAY BE IN A GROUP (iOS answers): an emoji put on or taken off, a letter's new words, a letter taken away. */
+    /** WHAT AN ANSWER MAY BE IN A GROUP (iOS answers): a pin, an emoji put on or taken off, a letter's new words, a letter taken away. */
     private fun answers(text: String): Boolean = when {
+        // A PIN FOR EVERYONE (the checklist's B.11): the letter by its one name, pinned or unpinned; an older build refuses it here
+        text.startsWith(PIN_MARK) -> text.toByteArray().size <= 1024 && runCatching {
+            val o = JSONObject(text.removePrefix(PIN_MARK)); val sid = o.getString("sid")
+            o.getString("op").let { it == "pin" || it == "unpin" } && sid.startsWith("mid:") && isLetterName(sid.removePrefix("mid:"))
+        }.getOrDefault(false)
         text.startsWith(Marks.REACTION) -> text.length <= 2048 &&
             runCatching { JSONObject(text.removePrefix(Marks.REACTION)).optString("op") }.getOrNull().let { it == "add" || it == "del" }
         text.startsWith(Marks.EDIT) -> target(text) != null &&
