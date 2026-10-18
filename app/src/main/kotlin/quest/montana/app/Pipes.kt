@@ -292,6 +292,7 @@ object Marks {
     const val DELIVERED = "​⁤"     // «delivered», + the letter's mid
     const val REACTION = "​​RC:"   // {sid, txt, e, op}
     const val DELETE = "​​DL:"     // + "mid:" + the letter's mid
+    const val DELETE_KEPT = "\u200B\u200BDK:"   // + the letter's wire name: the correspondent kept my deletion (iOS deleteKeptMark) -- never a row
     const val EDIT = "​​ED:"       // {sid, tx}
     const val NAME = "​​NM:"       // + the display name
     const val PIPE_CLOSED = "\u200B\u200BPX:"   // the pipe closed at the other end (iOS pipeClosedMark): never a row
@@ -1442,6 +1443,8 @@ object Post {
                     Notify.withdraw(ref, d)   // its banner leaves with it (iOS b6ab7094 at 2240)
                 }
             }
+            // MY DELETION WAS KEPT THERE (iOS deleteKeptMark, MontanaChatStore.swift:4674 at 2242): the keeper's own word, told as a banner
+            text.startsWith(Marks.DELETE_KEPT) -> { Log.d("Montana", "delete_kept_rx to=" + ref.take(10)); Notify.kept(ref) }
             text.startsWith(Marks.EDIT) -> runCatching {
                 val o = JSONObject(text.removePrefix(Marks.EDIT)); val d = o.getString("sid").removePrefix("mid:"); val tx = o.optString("tx")
                 // only a person's words: within a bubble's length, carrying no service mark of their own (iOS applyEditFromPeer 3380-3387)

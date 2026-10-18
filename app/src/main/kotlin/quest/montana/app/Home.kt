@@ -167,8 +167,10 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
     var goContacts: () -> Unit = {}   // the calls' «New call» turns to the contacts (set once choose stands)
     val views = mapOf(Pane.CHATS to chats, Pane.CONTACTS to contactsPane(act), Pane.CALLS to callsPane(act) { goContacts() },
         Pane.FEED to feed, Pane.MUSIC to music.view, Pane.GALLERY to galleryPane(act),
-        Pane.GROUPS to groupsPane(act, channel = false), Pane.CHANNELS to groupsPane(act, channel = true), Pane.MESH to meshPane(act), Pane.P2P to p2pPane(act))
-    views.values.forEach { v -> v.visibility = View.GONE; panes.addView(v, FrameLayout.LayoutParams(MATCH, MATCH)) }
+        // THE DRAWER'S GROUPS AND CHANNELS ARE THE CHATS' PAGE ON THE FOLDER OF THEIR KIND (iOS paneFolder at 2242): one page, its tabs
+        // over it; a tab tapped there turns it back to the chats (ChatsPane.showKind)
+        Pane.GROUPS to chats, Pane.CHANNELS to chats, Pane.MESH to meshPane(act), Pane.P2P to p2pPane(act))
+    views.values.distinct().forEach { v -> v.visibility = View.GONE; panes.addView(v, FrameLayout.LayoutParams(MATCH, MATCH)) }
     views.getValue(Pane.CHATS).visibility = View.VISIBLE
     // THE FLOATING PLAYER stands on the chats, the feed and the music while anything plays (iOS playerBar).
     val player = miniBar(act)
@@ -179,7 +181,7 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
         if (on) player.live()
         music.reserve(on && pane == Pane.MUSIC)
         feed.reserve(on && pane == Pane.FEED)   // the write button steps above the bar, as the music's plus (iOS MTFeedTabView reserve)
-        chats.reserve(on && pane == Pane.CHATS)   // the rows keep its room and «Write» steps above it too (iOS MontanaChatsList.swift:1021,1030 at 2155)
+        chats.reserve(on && views[pane] === chats)   // the rows keep its room and «Write» steps above it too (iOS MontanaChatsList.swift:1021,1030 at 2155)
     }
     Playing.listen { if (player.isAttachedToWindow) showPlayer() }   // a track, a voice or a note: the one gate (iOS MontanaPlayerBar.Gate)
     // THE ONE SEARCH (iOS searchResults, [C-1]): the same field and the same results stand on the chats, the contacts and the
@@ -209,6 +211,7 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
         // a word typed over the tracks does not follow the person to the chats, nor the other way (iOS 12063b4d0f35)
         if ((p == Pane.MUSIC) != (pane == Pane.MUSIC) && search.query.isNotEmpty()) search.clear()
         pane = p
+        chats.showKind(when (p) { Pane.GROUPS -> ChatFolders.GROUPS; Pane.CHANNELS -> ChatFolders.CHANNELS; else -> null })
         if (p == Pane.CALLS) CallsSeen.clear()   // the calls page is looked at: the missed calls are seen (iOS 3010-3012)
         bar.badges()
         if (p == Pane.MUSIC || p == Pane.GALLERY) Prefs.setStr("lastMediaPane", if (p == Pane.MUSIC) "music" else "gallery")
@@ -220,12 +223,15 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
     fun choose(p: Pane) {
         if (p == pane) return
         val off = views.getValue(pane); val on = views.getValue(p)
-        off.visibility = View.GONE
-        on.translationX = 0f; on.alpha = 0f; on.visibility = View.VISIBLE
-        on.animate().alpha(1f).setDuration(200).start()   // iOS .easeInOut(duration: 0.2)
+        if (off !== on) {   // the chats and the drawer's groups and channels are one page: only its folder changes
+            off.visibility = View.GONE
+            on.translationX = 0f; on.alpha = 0f; on.visibility = View.VISIBLE
+            on.animate().alpha(1f).setDuration(200).start()   // iOS .easeInOut(duration: 0.2)
+        }
         arrived(p)
     }
     goContacts = { choose(Pane.CONTACTS) }
+    chats.toChats = { choose(Pane.CHATS) }
     val shell = DrawerShell(act)
     act.drawer = shell
     // THE PAGES FOLLOW THE FINGER (iOS turnOrder, turnStroke): the pane moves by the finger and the page beside it slides in
@@ -951,7 +957,11 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
     private val foot = View(c)   // the floating player's room at the foot (reserve)
     // THE FOLDERS (iOS MTChatFolders at 2240): the chosen one -- All at every launch, as the reference -- and its tabs over the rows
     private var folderId = ChatFolders.ALL
-    private val folder get() = ChatFolders.folder(folderId) ?: ChatFolders.folder(ChatFolders.ALL)!!
+    // the drawer's Groups or Channels: the folder of that kind alone, or one of that kind for the moment when the person has none
+    private var kindShown: String? = null
+    var toChats: () -> Unit = {}
+    private val folder get() = kindShown?.let { k -> ChatFolders.folders().firstOrNull { it.onlyKind == k } ?: ChatFolder(k, preset = k, kinds = listOf(k)) }
+        ?: ChatFolders.folder(folderId) ?: ChatFolders.folder(ChatFolders.ALL)!!
     private val tabs = FolderTabs(c, pick = { id -> chooseFolder(id) }, hold = { id, v ->
         ChatFolders.folder(id)?.let { f ->
             ChatFolders.menu(act, f, v, ChatFolders.rows(f, listedChats() + Bot.chat, archivedChats())) {
@@ -1104,10 +1114,20 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
     }, folder.id)
     /** A tab chosen (iOS pick): the selection ends, the folder's rows stand from the top. */
     fun chooseFolder(id: String) {
+        if (kindShown != null) { folderId = id; toChats(); return }   // iOS pick: ui.pane = .chats -- the chats' page on the tab tapped
         if (id == folderId) return
         if (sel.on) sel.end()
         folderId = id
         android.util.Log.d("Montana", "folder_pick " + id)
+        redrawRows()
+        list.scrollTo(0, 0)
+    }
+    /** The drawer's Groups or Channels (iOS paneFolder): the page shows the folder of that kind; null gives it back its tab. */
+    fun showKind(k: String?) {
+        if (k == kindShown) return
+        if (sel.on) sel.end()
+        kindShown = k
+        android.util.Log.d("Montana", "folder_pane " + (k ?: "chats"))
         redrawRows()
         list.scrollTo(0, 0)
     }
@@ -1169,48 +1189,6 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
         addView(write, PageCorner.params(c))
         addView(bar, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM).apply { bottomMargin = dp(26) })
         ListFrame.attach(this, "chats", corner = write)   // the arrow back to the top over «Write» (iOS MTToTopButton)
-    }
-}
-
-/**
- * THE GROUPS' PAGE AND THE CHANNELS' PAGE (iOS ChatsTabView .groups / .channels, the author's words 06.10.2026 11:5x-12:0x MSK:
- * «in the side panel, under Chats, separate apps Groups and Channels — whole apps of their own, where groups and channels are
- * created and where they live; the chats list does not show them»): the rows of its kind alone, drawn as the chats list draws them.
- */
-private fun groupsPane(act: MainActivity, channel: Boolean): View {
-    val c = act
-    val rows = c.vstack(Gravity.NO_GRAVITY)
-    fun fill() {
-        rows.removeAllViews()
-        for (ch in groupRows(channel)) {
-            rows.addView(listRow(act, ch, inArchive = false, sel = null), lp())
-            rows.addView(View(c).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = c.dp(82) })
-        }
-    }
-    val onBook: () -> Unit = { act.onMain { fill() } }
-    rows.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
-        override fun onViewAttachedToWindow(v: View) { Book.listen(onBook); ChatMarks.listen(onBook); fill() }
-        override fun onViewDetachedFromWindow(v: View) { Book.unlisten(onBook); ChatMarks.unlisten(onBook) }
-    })
-    val list = ScrollView(c).apply {
-        isVerticalScrollBarEnabled = false
-        addView(c.vstack(Gravity.NO_GRAVITY) { addView(rows, lp()); gap(120) })   // the floating player's room at the foot
-    }
-    if (channel) return FrameLayout(c).apply {   // a channel is born by its own three steps (the plan's stage 6)
-        addView(list, FrameLayout.LayoutParams(MATCH, MATCH))
-        ListFrame.attach(this, "channels")
-    }
-    // THE CORNER CREATES ONE OF THE PAGE'S KIND (iOS createButton): the plus on the bar's glass, the group's two steps
-    return FrameLayout(c).apply {
-        addView(list, FrameLayout.LayoutParams(MATCH, MATCH))
-        val create = FrameLayout(c).apply {
-            background = c.glassPlate(oval = true)
-            contentDescription = c.getString(R.string.app_groups)
-            addView(c.icon(R.drawable.ic_plus, barGlyph), FrameLayout.LayoutParams(dp(30), dp(30), Gravity.CENTER))
-            pressable { act.push { close -> groupPickPage(act, close, onCreated = { key -> act.push { back -> conversationPage(act, key, back) } }) } }
-        }
-        addView(create, PageCorner.params(c))
-        ListFrame.attach(this, "groups", corner = create)
     }
 }
 

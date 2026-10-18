@@ -15,6 +15,7 @@
     <string name="peer">Собеседник</string>
     <string name="channel_letters">Сообщения</string>
     <string name="new_message">Новое сообщение</string>
+    <string name="kept_banner">Сообщение, которое вы удалили у всех, осталось на телефоне собеседника. В Монтане уровни открывают функции: с уровня %1$d человек может запретить удаление у себя.</string>
     <string name="voice_message">🎤 Голосовое сообщение</string>
     <string name="long_letter">Длинное сообщение</string>
     <string name="photo_or_video">Фото или видео</string>

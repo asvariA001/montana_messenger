@@ -315,6 +315,47 @@ object Notify {
         runCatching { nm.notify("pin:$ref", sid.hashCode(), n) }
     }
     fun clear(ref: String) { Book.ctx.getSystemService(NotificationManager::class.java)?.cancel(ref.hashCode()); Prefs.remove(NOTICE + ref) }
+    /**
+     * MY DELETION WAS KEPT THERE (iOS presentKept, MontanaNotify.swift:348 at 2242; MTLevelAccess.keepDeleted 16.10.2026 No.72): the
+     * keeper's own word -- the correspondent's name over the fact that the letter I deleted for everyone stays on their phone, and
+     * the rule of the levels that made it. An album is several letters, each kept by its own word: one banner a chat in half a
+     * minute; a newer one stands in its place. It shows in the open chat too -- it is no letter the chat draws.
+     */
+    private val keptToldAt = HashMap<String, Long>()
+    fun kept(ref: String) {
+        val c = Book.ctx
+        val nm = c.getSystemService(NotificationManager::class.java) ?: return
+        if (!Prefs.bool("notifMessages", true)) { android.util.Log.d("Montana", "notify_skip why=disabled kind=kept"); return }
+        val now = System.currentTimeMillis()
+        synchronized(keptToldAt) {
+            if (keptToldAt[ref]?.let { now - it < 30_000 } == true) { android.util.Log.d("Montana", "notify_skip why=kept-already-told"); return }
+            keptToldAt[ref] = now
+        }
+        val sound = Prefs.bool("notifSound", true)
+        val channel = if (sound) CHANNEL else QUIET
+        nm.createNotificationChannel(NotificationChannel(channel, c.getString(if (sound) R.string.channel_letters else R.string.channel_letters_quiet), NotificationManager.IMPORTANCE_HIGH).apply {
+            if (!sound) { setSound(null, null); enableVibration(false) }
+        })
+        val title = if (Prefs.bool("notifSender", true)) Book.chat(ref)?.shown?.ifBlank { null } ?: c.getString(R.string.peer) else "Montana"
+        val body = c.getString(R.string.kept_banner, KEEP_DELETED_LEVEL)
+        val n = Notification.Builder(c, channel)
+            .setSmallIcon(R.drawable.ic_launcher_monochrome)
+            .setContentTitle(title)   // USER-DATA: the correspondent's name
+            .setContentText(body)
+            .setStyle(Notification.BigTextStyle().bigText(body))
+            .setAutoCancel(true)
+            .setContentIntent(opening(c, ref))
+            .setPublicVersion(Notification.Builder(c, channel)
+                .setSmallIcon(R.drawable.ic_launcher_monochrome)
+                .setContentTitle(if (Prefs.bool("notifLockName", true)) title else "Montana")   // USER-DATA: the correspondent's name
+                .setContentText(body)
+                .build())
+            .build()
+        android.util.Log.d("Montana", "notify kind=kept from=" + ref.take(10))
+        runCatching { nm.notify("kept:$ref", 0, n) }
+    }
+    /** The level that opens «Forbid deletion on my phone» (iOS MTLevelAccess.Feature.keepDeleted.level). */
+    const val KEEP_DELETED_LEVEL = 7
 }
 
 // ─────────────────────────── the chats as rows (iOS MTChatListView rows) ───────────────────────────
