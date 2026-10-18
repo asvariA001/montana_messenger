@@ -511,7 +511,12 @@ final class MontanaPhoneNode: ObservableObject {
     // packet — measured 05.09, «Too many open files» and both nodes lost for seven minutes.
     private var pathAt: [String: (at: Date, step: Double)] = [:]
     private static let pathStepMin: Double = 5
-    private static let pathStepMax: Double = 60
+    /// AN ADDRESS THAT NEVER ANSWERED IS ASKED MORE RARELY, NOT EVERY MINUTE FOREVER (18.10.2026, Agent 89, T1 2238): the ceiling of a
+    /// minute dialled the same dead IPv6 every sixty seconds for the whole day -- 1 127 tries and 844 handshake timeouts in 11 h,
+    /// most through the tunnel, whose own stack answers the SYN in 3 ms and lets the Noise key fail (936 closes «noise-key»). The
+    /// doubling runs on to sixteen minutes; a channel that stands forgets it, and a network that returns asks every address anew.
+    private static let pathStepMax: Double = 960
+    private var pathEpochSeen = 0
     private var bleStateAt = Date.distantPast
 
     private func maintainPaths() {
@@ -528,6 +533,8 @@ final class MontanaPhoneNode: ObservableObject {
             MontanaTrace.markChanged("ble_state", s)
         }
         MontanaTrace.markChanged("roads", "all")
+        let epoch = Self.pathEpoch
+        if epoch != pathEpochSeen { pathEpochSeen = epoch; pathAt.removeAll() }   // the network came back: every address is a question again
         var attempts = 0
         // A CALL OWNS THE RADIO (13.09, measured on a cellular call that took twenty-one seconds to
         // find its path): while a call is being set up or held, this walk knocks the doors of EVERY
@@ -596,6 +603,12 @@ final class MontanaPhoneNode: ObservableObject {
         get { pathLock.lock(); defer { pathLock.unlock() }; return _pathCarriesV6 }
         set { pathLock.lock(); _pathCarriesV6 = newValue; pathLock.unlock() }
     }
+    /// The count of the network's returns, written by the path monitor and read by the walk of the paths -- two queues, one lock.
+    private static var _pathEpoch = 0
+    private static var pathEpoch: Int {
+        pathLock.lock(); defer { pathLock.unlock() }; return _pathEpoch
+    }
+    private static func pathReturned() { pathLock.lock(); _pathEpoch += 1; pathLock.unlock() }
     private func startPathMonitor() {
         guard pathMonitor == nil else { return }
         let m = NWPathMonitor()
@@ -613,6 +626,7 @@ final class MontanaPhoneNode: ObservableObject {
                 self.seenPeers.removeAll()
                 DispatchQueue.main.async { self.peers = []; self.nodeUp = false }
             } else {
+                Self.pathReturned()
                 self.refreshNodePresence()
                 if self.localPort > 0, Self.meshDiscoverable {
                     self.courier.advertiseMDNS(port: self.localPort, directPort: MontanaDirect.shared.port)

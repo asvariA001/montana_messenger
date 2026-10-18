@@ -1005,8 +1005,12 @@ enum MTLevelAccess {
     /// A node answered this seed's book since the launch or the seat's move.
     @Published private(set) var heard = false
     private var heardAt: Double = 0
-    /// The seed's union was gathered within half a minute: what this device tells the top is the seed's, not its own share.
-    var fresh: Bool { heard && Date().timeIntervalSince1970 - heardAt < 30 }
+    /// The seed's union was gathered within the minting's minute: what this device tells the top is the seed's, not its own share.
+    /// ONE CLOCK FOR THE GATHER (18.10.2026, Agent 89, T1 2238): the moves of a minute ride one piece (soon, after 60), and a half-minute
+    /// freshness asked by the top's two-second round gathered twice a minute -- 287 of 372 gathers within 30 s of the one before, a
+    /// piece per row each time, the fold to the whole book twice as often as its own count says. The top waits for the same minute.
+    static let freshS: Double = 60
+    var fresh: Bool { heard && Date().timeIntervalSince1970 - heardAt < Self.freshS }
     private var pieces: [String: Set<String>] = [:]   // a piece's name -> the names of the moves it carries, opened once
     private var held: [String: [String]] = [:]         // a node's door -> the pieces it said it keeps
     private var full = Set<String>()                   // the doors that refused a piece as full: laid whole next
@@ -1108,7 +1112,11 @@ enum MTLevelAccess {
         var fresh: [MTCoinEntry] = []
         for r in rows {
             let door = r.door
-            let have = Array(pieces.keys.prefix(256))
+            // THE ROW IS ASKED FOR WHAT IT LACKS HERE, NOT FOR AN ARBITRARY 256 OF EVERY ROW'S PIECES (18.10.2026, Agent 89, T1 2238): four
+            // rows hold one book under four piece names, the pieces this process opened ran past the node's 256, and the prefix of a
+            // dictionary named a different part each time -- 296 of 372 gathers in 11 h took the whole book again (12.3 M moves fetched,
+            // opened and decoded, a gather every half minute while minting). A row's own pieces, opened here, are what it need not send.
+            let have = Array((held[r.slot] ?? []).filter { pieces[$0] != nil }.prefix(256))
             guard case let (200, o?) = await Self.post(door + "/vault-get", ["token": r.token, "have": have], timeout: 20),
                   let ids = o["held"] as? [String] else { continue }
             if moved(gen, why) { return }

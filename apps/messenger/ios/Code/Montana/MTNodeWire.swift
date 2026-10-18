@@ -197,6 +197,12 @@ enum MTNodeWire {
     }
     static func minuteWindow() -> UInt64 { UInt64(Date().timeIntervalSince1970) / 60 }
     static func dayWindow() -> UInt64 { UInt64(Date().timeIntervalSince1970) / 86400 }
+    /// THE DAYS A BOX READ LISTENS AT -- one owner for the app's pickup and the extension's (18.10.2026, Agent 89, T1 2238). A
+    /// letter lies in the box a day from its last knock (BOX_TTL, MontanaWakePush.boxTerm) under the day its knock was sealed in
+    /// (knockLetter: dayWindow at the knock), so the read needs that day and the one before, a day more for a sender's clock
+    /// behind and one ahead. Ten days stood in both readers from the week-long box of August: 1 140 labels, nine pages to every
+    /// store at every pickup, seven of each ten asking a day no box keeps.
+    static func boxDays(around w0: UInt64) -> ClosedRange<UInt64> { (w0 - 2)...(w0 + 1) }
 
     // ── seal / open by the core — no own cipher exists ─────────────────────
     static func sealBlob(key: [UInt8], _ plain: Data) -> Data? {

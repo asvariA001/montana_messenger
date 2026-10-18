@@ -1570,6 +1570,15 @@ final class E2E {
         let keyDue = coinKey.map { k in !MTCoinTx.toldKey(peer, k) } ?? false
         if held == tag, !coinsDue, !keyDue { return }                 // RECEIPTED with these words and this balance
         if held == nil, tag == "0", !force, !coinsDue, !keyDue { return }   // nothing was ever said, and nothing is said now
+        // A BALANCE ALONE RIDES A ROAD THAT STANDS, NEVER A BELL (18.10.2026, Agent 89, T1 2238): a second is a coin, so «told again
+        // when it changed» is true at every occasion past the ten minutes -- 639 of T1's 640 words about itself in 11 h carried the
+        // words already receipted and a new balance, each a queued letter whose first turn pushed the correspondent's phone awake,
+        // at every launch to the whole book. The people in the app hear the balance in the app word (coinBeacon); the word about
+        // oneself takes it to the others when a road to them stands, and the words themselves still go at once when they change.
+        if held == tag || (held == nil && tag == "0"), !keyDue, !force, !MontanaPhoneNode.shared.hasLiveChannel(peer) {
+            MontanaTrace.markFolded("about_tx", "balance waits for a standing road to=\(String(peer.prefix(10)))", window: 600, key: peer)
+            return
+        }
         if MontanaDeliveryEngine.shared.pendingStateTag(kind: .about, to: peer) == tag, !coinsDue, !keyDue { return }   // on their way
         var word: [String: Any] = ["b": bio, "l": link, "at": now]
         if let coins { word["c"] = coins }

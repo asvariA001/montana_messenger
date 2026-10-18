@@ -455,11 +455,25 @@ enum MTPipeBook {
               let m = try? JSONDecoder().decode([String: Data].self, from: d) else { return [:] }
         return m
     }
+    /// THE CORRESPONDENCES AWAITING A FIRST ANSWER, AS A SET (18.10.2026, Agent 89): the queue's one-second look asks it for every
+    /// letter (MontanaDeliveryEngine.backoff), and a sealed record opened that often is the heat it exists to save. A mirror of the
+    /// record, dropped at its every write and at a reread; the record stays the one owner.
+    private static var awaitingCache: Set<String>?   // BOUND-OK: the keys of the sealed record, no more
+    private static let awaitingLock = NSLock()
+    static func awaitingFirst() -> Set<String> {
+        awaitingLock.lock(); let held = awaitingCache; awaitingLock.unlock()
+        if let held { return held }
+        let fresh = Set(firsts().keys)
+        awaitingLock.lock(); awaitingCache = fresh; awaitingLock.unlock()
+        return fresh
+    }
+    private static func dropAwaiting() { awaitingLock.lock(); awaitingCache = nil; awaitingLock.unlock() }
     @discardableResult
     static func rememberFirst(_ ct: Data, for conv: String) -> Bool {
         guard ct.count == 1088, !conv.isEmpty else { return false }
         var m = firsts(); m[conv] = ct
         guard let d = try? JSONEncoder().encode(m) else { return false }
+        defer { dropAwaiting() }
         return MontanaLocalVault.setEncrypted(firstKey, d)
     }
     static func first(for conv: String) -> Data? { firsts()[conv] }
@@ -468,6 +482,7 @@ enum MTPipeBook {
         var m = firsts()
         guard m.removeValue(forKey: conv) != nil, let d = try? JSONEncoder().encode(m) else { return }
         _ = MontanaLocalVault.setEncrypted(firstKey, d)
+        dropAwaiting()
     }
 
     /// The contact key a correspondence was BEGUN at, kept until the other side answers.
@@ -610,6 +625,7 @@ enum MTPipeBook {
         cacheLock.lock(); namesCache = nil; cacheLock.unlock()
         dropIndex()
         dropFirstIndex()
+        dropAwaiting()
     }
 
     /// Where a letter of this correspondence is deposited in this window.

@@ -2158,16 +2158,26 @@ class ChatStore: ObservableObject {
     /// on the node beside their daily card (MontanaCard.uploadFace) and every correspondent holds that card's link (MTPeerLinks), so a
     /// correspondent this phone draws no face for is read from the node at once -- the owner's own bytes (MontanaCard.wearFace) -- once
     /// a life.
+    /// ONCE A CARD, NOT ONCE A LIFE (18.10.2026, Agent 89, T1 2238): a life ends at every reclaim, and every launch read the same
+    /// cards again -- 18-19 node reads a launch, 16 cards holding no face and two answering with one picture two correspondents share
+    /// (it leaves the book at the next read, dropSharedFaces), four launches a day on T1 and up to 27 on a tester's iPhone 17. A card's
+    /// face is read once per card link; the owner's next card, or the face their own letter brings, heals it.
+    private static let faceHealKey = "faceHealCards"   // NOT-UI: correspondent -- the card link last read for a face
     func healFacesFromCards() {
         var asked = 0
-        for c in storedChats() where !c.isGroup && !ChatStore.isLocalRoom(c.name) {
+        let chats = storedChats().filter { c in !c.isGroup && !ChatStore.isLocalRoom(c.name) }
+        let held = Set(chats.map(\.convRef))
+        var read = ((UserDefaults.standard.dictionary(forKey: Self.faceHealKey) as? [String: String]) ?? [:]).filter { held.contains($0.key) }
+        for c in chats {
             let ref = c.convRef
             guard publishedFace(ref) == nil, !Self.faceFetched.contains(ref),
-                  let link = MTPeerLinks.any(ref), let inv = MontanaCard.invite(inShort: link) else { continue }
+                  let link = MTPeerLinks.any(ref), read[ref] != link, let inv = MontanaCard.invite(inShort: link) else { continue }
             Self.faceFetched.insert(ref)
+            read[ref] = link
             asked += 1
             Task.detached(priority: .utility) { await MontanaCard.refaceFromCard(invite: inv, conv: ref) }
         }
+        UserDefaults.standard.set(read, forKey: Self.faceHealKey)
         if 0 < asked { MontanaTrace.mark("face_heal", "from_cards=\(asked)") }
     }
     private static var faceFetched = Set<String>()
@@ -3604,6 +3614,14 @@ class ChatStore: ObservableObject {
     /// line; the diary ships once for each kind of disagreement in a launch. Zero on every count is
     /// what «closed by construction» means.
     func auditListAgainstFeed(stage: String) {
+        // EVERY LAUNCH AND EVERY RESTORE, AND A DRAIN ONCE A MINUTE (18.10.2026, Agent 89, T1 2238): the drained stage ran after every
+        // batch the box gave -- 453 audits in 11 h, 238 in one hour, both shelves decoded and the archive's folders listed on the main
+        // thread each time -- while a disagreement it exists to catch stands until it is healed and is named by the next look as well.
+        if stage == "drained" {
+            let now = Date().timeIntervalSince1970
+            guard 60 <= now - lastDrainedAudit else { return }
+            lastDrainedAudit = now
+        }
         MontanaMainProbe.crumb = "list-audit"; defer { MontanaMainProbe.crumb = "" }
         // THE LIST IS BOTH ITS SHELVES (23.09): the rows standing and the rows in the archive — the store's own two
         // decodes; an archived conversation is no feed without a row. A SHELF THAT DOES NOT READ SAYS SO (err) and is
@@ -3668,6 +3686,7 @@ class ChatStore: ObservableObject {
         }
     }
     private var auditShipped = Set<String>()
+    private var lastDrainedAudit: Double = 0
 
     // Wipe ALL local history and chat metadata (a different seed takes over -> another identity's data is not shown).
     func wipeLocal() {
@@ -6897,6 +6916,8 @@ enum SeedScope {
         MTLevelAccess.lastKey,   // the last Global Level this phone knew of this person (16.10.2026): this person's, read anew by a copy
         "vpnwall.sent", "vpnwall.asked", "vpnwall.cap",
         "peerFaceOwned",   // the digests of the faces the correspondents themselves sent (ChatStore.faceOwned, 04.10): this person's
+        "faceHealCards",   // the card link last read for each correspondent's face (ChatStore.healFacesFromCards, 18.10): this person's
+        MontanaArchive.forgottenKey,   // the erased conversations' folders whose marks are gone (MontanaArchive.deleteChatFolder, 18.10)
         "chatCoinSince",   // the moment this person's chat coin came on (MTChatMint): the person's, as the tally in Montana/Coins is (04.10)
         MTVPNWallMint.paidKey,   // the tunnel's living seconds this person was paid (MTVPNWallMint): the person's, armed anew at a lift (04.10)
         "coinBoard.told",   // the balances this person's correspondents told (MTCoinBoard, 03.10): learned for this person, told again

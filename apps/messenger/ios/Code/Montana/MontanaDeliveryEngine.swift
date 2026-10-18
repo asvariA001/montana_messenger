@@ -446,8 +446,21 @@ final class MontanaDeliveryEngine {
     /// NO FLOOR BEFORE THE NODE TAKES IT (the author's word 20.09: nothing waits): a letter the
     /// node has not accepted knocks every twenty seconds for its whole term — the five-minute
     /// rhythm belongs only to a letter already on the node, where the knock is a receipt check.
-    private func backoff(_ tries: Int, nodeAck: Bool) -> Double {
-        if nodeAck { return sparse }
+    /// A LETTER THE NODE HOLDS IS RE-BOXED, NOT HAMMERED (18.10.2026, Agent 89, T1 2238). The box keeps a letter a day from its last
+    /// knock, and the node's own ringer tells a sleeping receiver about it (RING_STEPS, two minutes to an hour); the five-minute rhythm
+    /// stood flat for the whole thirty-day carriage, and every turn knocked both nodes and pushed the receiver's phone silently: 5 342
+    /// pushes in 11 h from T1, 1 232 of them to one correspondent with no device left, 106 group copies re-sent about forty times
+    /// each, a 52 KB letter re-posted twice every five minutes. Past the fast ramp the turn doubles up to four hours -- the box's day
+    /// six times over -- and a receiver that appears is drained at once (onPeerUp), as before.
+    /// A FIRST WORD NOBODY CAN HEAR YET WAITS FOR THE ROAD, NOT ON A DRUM: a silent word to a pipe not answered (the same-person
+    /// question, the keeping words) has no box and no bell -- only the other side's live road can take it, and that road drains it the
+    /// moment it stands; twenty seconds for the seven days of its horizon was T1's same-ask, 529 turns and 1 027 posts in 11 h. Past the
+    /// fast ramp it doubles to the five minutes a held letter starts at.
+    static let sparseCapS: Double = 4 * 3600
+    private func backoff(_ tries: Int, nodeAck: Bool, firstContact: Bool = false) -> Double {
+        let past = Double(max(0, tries - fastTries))
+        if nodeAck { return min(Self.sparseCapS, sparse * pow(2, past)) }
+        if firstContact, fastTries <= tries { return min(sparse, 20 * pow(2, past)) }
         return min(20, pow(2, Double(max(0, tries - 1))))
     }
     private let q = DispatchQueue(label: "montana.delivery")
@@ -1310,7 +1323,8 @@ final class MontanaDeliveryEngine {
                     Task { @MainActor in self.store?.resumePieces(items) }
                 }
             }
-            for it in a where it.tries == 0 || now - it.lastTry > backoff(it.tries, nodeAck: it.nodeAck == true) {
+            let awaiting = MTPipeBook.awaitingFirst()
+            for it in a where it.tries == 0 || now - it.lastTry > backoff(it.tries, nodeAck: it.nodeAck == true, firstContact: awaiting.contains(it.to)) {
                 attempt(it.mid)
             }
             // The cargo check rides the DRAIN, not the per-letter attempt rhythm: a letter
@@ -1947,7 +1961,8 @@ final class MontanaDeliveryEngine {
                         let a = self.load()
                         if a.isEmpty { self.tick?.cancel(); self.tick = nil; return }
                         let now = Date().timeIntervalSince1970
-                        for it in a where now - it.lastTry > self.backoff(it.tries, nodeAck: it.nodeAck == true) { self.attempt(it.mid) }
+                        let awaiting = MTPipeBook.awaitingFirst()
+                        for it in a where now - it.lastTry > self.backoff(it.tries, nodeAck: it.nodeAck == true, firstContact: awaiting.contains(it.to)) { self.attempt(it.mid) }
                         // The cargo check rides the TICK too: with the app sitting open, drainAll
                         // never re-runs, and a node-side wipe would stay invisible until the next
                         // launch. The per-letter throttle inside checkCargo keeps this to 1/min.

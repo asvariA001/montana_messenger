@@ -891,7 +891,7 @@ final class NotificationService: UNNotificationServiceExtension {
             if key.hasPrefix("rdv:") {
                 // The label derives from the invite ITSELF — the mirror key carries it.
                 guard let inv = b64urlData(String(key.dropFirst(4))) else { continue }
-                for w in (w0 - 8)...(w0 + 1) {
+                for w in MTNodeWire.boxDays(around: w0) {
                     let cw = rdvConvW(inv, window: w)
                     secretOf[cw] = secret; rdvLabels.insert(cw)
                     invOf[cw] = String(key.dropFirst(4))
@@ -899,7 +899,7 @@ final class NotificationService: UNNotificationServiceExtension {
                 }
             } else {
                 if isBlocked(key) { continue }   // a blocked person's letters stay in the box (15.09)
-                for w in (w0 - 8)...(w0 + 1) {
+                for w in MTNodeWire.boxDays(around: w0) {
                     let cw = convW(secret, window: w)
                     secretOf[cw] = secret; chatOf[cw] = key
                     subs.append(cw); sids.append(subId(cw, ref: ref))

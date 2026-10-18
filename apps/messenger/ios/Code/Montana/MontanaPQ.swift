@@ -707,7 +707,12 @@ extension MontanaArchive {
     /// 276 archive_forget lines, five sealed records read and written again for every folder each time). A folder's marks are
     /// forgotten once in a run; a folder that stands on the disk again -- an assembly that caught up after the erasure -- is removed
     /// and forgotten anew, so the pass keeps its guarantee and loses its repeat.
-    private static var forgottenFolders = Set<String>()   // BOUND-OK: the erased conversations' folders of this run; ioQueue alone
+    /// ONCE A FOLDER, NOT ONCE A RUN (18.10.2026, Agent 89, T1 2238): a run ends at every reclaim, and every opening walked the same
+    /// ninety-two erased folders again -- five sealed records opened per folder, 460 at each launch, and a line each saying «marks
+    /// cleared» when nothing was left to clear (560 lines in 11 h). The folders forgotten are kept beside the archive's other marks;
+    /// a folder that stands on the disk again is removed and forgotten anew, as before.
+    static let forgottenKey = "mt.history.forgotten"   // NOT-UI: the erased conversations' folders whose marks are gone
+    private static var forgottenFolders: Set<String> = Set(UserDefaults.standard.stringArray(forKey: forgottenKey) ?? [])   // BOUND-OK: one label per erased conversation; ioQueue alone
     static func deleteChatFolder(convRef: String) {
         ioQueue.async {
             guard let label = folderLabel(for: convRef) else { return }
@@ -717,6 +722,7 @@ extension MontanaArchive {
             guard stood || !forgottenFolders.contains(label) else { return }
             forgottenFolders.insert(label)
             forgetFolderMarks(convRef: convRef, folder: label)
+            UserDefaults.standard.set(forgottenFolders.sorted(), forKey: forgottenKey)
         }
     }
     /// THE FOLDER'S MARKS GO WITH THE FOLDER (the critic B-3, 11.10.2026; the author's word 11.10.2026 20:1x MSK: «check the whole

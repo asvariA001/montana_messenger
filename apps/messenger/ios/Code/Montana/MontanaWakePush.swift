@@ -252,6 +252,37 @@ enum MontanaWakePush {
         if let conv { let k = busyKey(host, conv); busyStreak[k] = nil; busyUntil[k] = nil }
         busyLock.unlock()
     }
+    /// The box's own rest: the node counts /fetch on a budget of its own, so its «too often» rests the box read alone, never the
+    /// wake's walk; kept in the same book under a key no conversation wears.
+    static let boxRest = "box"
+    /// The moment the first of these doors stops resting for this key, or nil when none rests.
+    static func restEnd(_ doors: [String], conv: String) -> Date? {
+        busyLock.lock(); let m = busyUntil; busyLock.unlock()
+        let now = Date()
+        return doors.compactMap { d in URL(string: d)?.host.flatMap { m[busyKey($0, conv)] } }.filter { now < $0 }.min()
+    }
+    /// The box's doors to read now: the living ones (all of them when none lives), not resting after «too often», one per machine.
+    static func boxReadDoors(_ all: [String]) -> [String] {
+        let awake = all.filter { doorAlive($0) }
+        return oneDoorPerNode(notBusy(awake.isEmpty ? all : awake, conv: boxRest))
+    }
+    /// Every machine of the box rests: the walk says so once in five minutes and books one pickup at the first one's waking.
+    static func boxRested() {
+        let wait = max(1, (restEnd(bases(for: "box"), conv: boxRest) ?? Date()).timeIntervalSinceNow)
+        MontanaTrace.markFolded("box_fetch", "every machine rests after «too often» — the pickup waits \(Int(wait))s", window: 300)
+        bookAfterRest(wait)
+    }
+    /// A PICKUP THE REST HELD IS BOOKED, NOT DROPPED (23.09, the author's word: a «you have a letter» is never thrown away): one
+    /// pickup at the end of the rest, however many asked inside it.
+    private static var restBooked = false
+    static func bookAfterRest(_ wait: TimeInterval) {
+        boxLock.lock(); let booked = restBooked; restBooked = true; boxLock.unlock()
+        guard !booked else { return }
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + wait + 1) {
+            boxLock.lock(); restBooked = false; boxLock.unlock()
+            Task { await fetchBox() }
+        }
+    }
     static func notBusy(_ doors: [String], conv: String? = nil) -> [String] {
         busyLock.lock(); let m = busyUntil; busyLock.unlock()
         let now = Date()
@@ -2493,7 +2524,7 @@ enum MontanaWakePush {
             MontanaTrace.markFolded("box_fetch", "no proven box — the walk waits for a store that answers", window: 300)
             return
         }
-        // Tags across the box's term (7 days) plus a day ahead — for the sender's skewed clock.
+        // Tags across the box's term (MTNodeWire.boxDays) — for the sender's skewed clock.
         var pipes: [String: Data] = [:]
         for conv in MTPipeBook.all() {   // a blocked person's letters are read too — and buried below, not left to wait
             if let secret = MTPipeBook.secret(for: conv) { pipes[conv] = secret }
@@ -2528,8 +2559,7 @@ enum MontanaWakePush {
     }
 
     /// THE LABELS ONE PERSON LISTENS AT (07.10, MTShelfPost): the person seated now, or a person on this phone's shelf -- one
-    /// recipe for both, so the phone hears every person it holds the same way. Tags across the box's term (7 days) plus a day
-    /// ahead, for the sender's skewed clock.
+    /// recipe for both, so the phone hears every person it holds the same way. Tags across the box's term (MTNodeWire.boxDays).
     struct BoxEar {
         var subs: [String] = [], sids: [String] = []
         var secretOf: [String: Data] = [:], invOf: [String: String] = [:], chatOf: [String: String] = [:]
@@ -2543,7 +2573,7 @@ enum MontanaWakePush {
             let w0 = MontanaWakePush.dayWindow()
             for inv in invites {
                 let sec = MontanaWakePush.rdvLetterSecret(inv)
-                for w in (w0 - 8)...(w0 + 1) {
+                for w in MTNodeWire.boxDays(around: w0) {
                     let cw = MontanaWakePush.rdvConvW(inv, window: w)
                     rdvLabels.insert(cw); secretOf[cw] = sec; invOf[cw] = inv.base64urlNoPad
                     subs.append(cw); sids.append(MontanaWakePush.subId(cw, ref: owner))
@@ -2553,7 +2583,7 @@ enum MontanaWakePush {
                 // THE SEED'S OWN PIPE NAMES EACH DEVICE APART (11.10.2026, No.60): the store yields no letter to the sid that laid
                 // it, so a device asks under its own name there (MontanaArchive.twinSid) -- its own letters stay for the others.
                 let own = conv == MontanaArchive.twinPipe
-                for w in (w0 - 8)...(w0 + 1) {
+                for w in MTNodeWire.boxDays(around: w0) {
                     let cw = MontanaWakePush.convW(secret, window: w)
                     secretOf[cw] = secret; chatOf[cw] = conv
                     subs.append(cw); sids.append(own ? MontanaArchive.twinSid(cw) : MontanaWakePush.subId(cw, ref: owner))
@@ -2590,13 +2620,18 @@ enum MontanaWakePush {
                 // and two doors dead on this network cost every fetch ten seconds (T2 21:52:07 to
                 // 21:52:11) before the living one was asked. One deadline for all; a door resting
                 // after two silences is not asked while it rests, unless no door is left.
+                // ONE DOOR PER MACHINE, AND A MACHINE THAT SAID «TOO OFTEN» RESTS (18.10.2026, Agent 89, T1 2238): the read asked both
+                // names of each node -- the walk the wake and the registration left on 24.09 (P-104) -- so every page spent the node's
+                // fetch budget twice, and a 429 counted as a door alive asked again at the next hint: 5 817 refusals and 1 059 whole
+                // pages refused in 11 h, 665 box lines in the minute 08:43Z. A machine is read once, and the one that named its rule
+                // rests by the same doubling the wake's walk keeps; when every machine rests, the pickup waits for the first to wake.
+                typealias DoorAnswer = (door: String, code: Int, letters: [[String: Any]]?)
+                let doors = boxReadDoors(bases(for: "box"))
+                guard !doors.isEmpty else { boxRested(); return stashed }
                 let page = try? JSONSerialization.data(withJSONObject:
                     ["subs": Array(subs[start..<end]), "sids": Array(sids[start..<end])])
-                let doors = bases(for: "box")
-                let awake = doors.filter { doorAlive($0) }
-                typealias DoorAnswer = (door: String, code: Int, letters: [[String: Any]]?)
                 let answers = await withTaskGroup(of: DoorAnswer.self, returning: [DoorAnswer].self) { group in
-                    for b in (awake.isEmpty ? doors : awake) {
+                    for b in doors {
                         group.addTask {
                             guard let u = URL(string: b + "/fetch") else { return (b, -1, nil) }   // SERVER-DEBT-ACK: the accelerator node (rung 4), not the delivery road
                             var req = URLRequest(url: u); req.httpMethod = "POST"   // SERVER-DEBT-ACK: the accelerator node (rung 4), E2E envelope — the node is blind
@@ -2622,10 +2657,12 @@ enum MontanaWakePush {
                     guard let ls = a.letters else {
                         code = a.code
                         baseFailed(a.door, code: a.code)
+                        if a.code == 429 { noteTooOften(a.door, conv: boxRest) }
                         MontanaTrace.mark("box_fetch", "door refused code=\(a.code) at=\(URL(string: a.door)?.host ?? a.door)")
                         continue
                     }
                     doorSpoke(a.door)
+                    noteAnswered(a.door, conv: boxRest)
                     anyDoor = true
                     for l in ls where seenMid.insert(l["m"] as? String ?? UUID().uuidString).inserted {
                         letters.append(l)
