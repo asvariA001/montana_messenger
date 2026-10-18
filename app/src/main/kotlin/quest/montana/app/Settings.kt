@@ -135,6 +135,7 @@ fun settingsRoot(act: MainActivity, onForget: () -> Unit, onClose: () -> Unit): 
     return settingsPage(act, c.getString(R.string.settings), onClose, cross = true) {
         section(null, null,
             c.settingsRow(R.drawable.ic_set_bell, SysColor.red, c.getString(R.string.notif_sounds)) { act.push { notificationsPage(act, it) } },
+            c.settingsRow(R.drawable.ic_folder, SysColor.blue, c.getString(R.string.cf_chat_folders)) { act.push { folderSettingsPage(act, it) } },   // the folders' tabs (iOS 17.10.2026)
             c.settingsRow(R.drawable.ic_arrow_circle_down, SysColor.indigo, c.getString(R.string.data_storage)) { act.push { dataStoragePage(act, it) } },
             c.settingsRow(R.drawable.ic_set_server, SysColor.gray, c.getString(R.string.your_node)) { act.push { NodePage(act, it).view } },
             c.settingsRow(R.drawable.ic_set_lock, SysColor.gray, c.getString(R.string.privacy)) { act.push { privacyPage(act, onForget, it) } },

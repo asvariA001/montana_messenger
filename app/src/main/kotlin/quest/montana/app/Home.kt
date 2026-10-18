@@ -1064,6 +1064,7 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
                 val all = ChatFolders.rows(f, live, gone)
                 drawTabs(live, gone)
                 val saved = ChatFolders.showsSaved(f)
+                corner(f)
                 savedRow?.visibility = if (saved) View.VISIBLE else View.GONE
                 savedHair?.visibility = if (saved) View.VISIBLE else View.GONE
                 if (f.isAll && all.all { it.ref == Bot.REF } && archived == 0) rows.addView(emptyCard, lp())
@@ -1089,8 +1090,8 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
             fillRows()
             val onBook: () -> Unit = { act.onMain { fillRows() } }
             rows.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
-                override fun onViewAttachedToWindow(v: View) { Book.listen(onBook); ChatMarks.listen(onBook); refresh(); fillRows() }
-                override fun onViewDetachedFromWindow(v: View) { Book.unlisten(onBook); ChatMarks.unlisten(onBook) }
+                override fun onViewAttachedToWindow(v: View) { Book.listen(onBook); ChatMarks.listen(onBook); ChatFolders.listen(onBook); refresh(); fillRows() }
+                override fun onViewDetachedFromWindow(v: View) { Book.unlisten(onBook); ChatMarks.unlisten(onBook); ChatFolders.unlisten(onBook) }
             })
             addView(rows, lp())
             addView(foot, lp(MATCH, dp(120)))
@@ -1120,6 +1121,18 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
         val j = ids.indexOf(folder.id) + side
         return ids.getOrNull(j)
     }
+    /**
+     * THE CORNER OF THE GROUPS' FOLDER CREATES A GROUP (iOS mtPageAction: folder.onlyKind .groups -> createButton): the plus and the
+     * group's two steps; every other folder keeps «Write». A channel is not born on this phone yet, so its folder keeps «Write» too.
+     */
+    private fun corner(f: ChatFolder) {
+        if (!::write.isInitialized) return   // the list's first fill comes before the corner is built
+        val w = write as? FrameLayout ?: return
+        val group = f.onlyKind == ChatFolders.GROUPS
+        (w.getChildAt(0) as? android.widget.ImageView)?.setImageResource(if (group) R.drawable.ic_plus else R.drawable.ic_compose)
+        w.contentDescription = c.getString(if (group) R.string.app_groups else R.string.share)
+    }
+    private fun createGroup() = act.push { close -> groupPickPage(act, close, onCreated = { key -> act.push { back -> conversationPage(act, key, back) } }) }
     /** The bar stands: the rows keep room under it and «Write» steps above it, as the music's plus and the feed's write. */
     fun reserve(on: Boolean) {
         foot.layoutParams = lp(MATCH, dp(if (on) 180 else 120)); foot.requestLayout()
@@ -1146,8 +1159,9 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
             background = c.glassPlate(oval = true)
             contentDescription = c.getString(R.string.share)
             addView(c.icon(R.drawable.ic_compose, barGlyph), FrameLayout.LayoutParams(dp(30), dp(30), Gravity.CENTER))
-            pressable { act.push { cardPage(act, it) } }
+            pressable { if (folder.onlyKind == ChatFolders.GROUPS) createGroup() else act.push { cardPage(act, it) } }
         }
+        corner(folder)
         // THE FOLDERS' TABS AS THE TIME PANEL (iOS MTFolderTabs at 2240, the author's word 18.10.2026 10:2x MSK): at the panel's side
         // margins, under it, standing while the rows run beneath -- the list's own top room is the panel's, measured where it is laid
         addView(tabs, FrameLayout.LayoutParams(MATCH, dp(44)).apply { setMargins(dp(12), 0, dp(12), 0) })
