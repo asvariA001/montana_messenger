@@ -1346,7 +1346,10 @@ object Post {
             text.startsWith(Marks.DELETE) -> {
                 val d = text.removePrefix(Marks.DELETE).removePrefix("mid:")
                 // a coin letter of mine on its way keeps its row whoever asks (iOS deleteLocally 122-128: every door asks first)
-                if (Book.chat(ref)?.msgs?.find { it.mid == d }?.let { CoinSend.travels(it) } != true) Book.edit(ref) { c -> c.msgs.removeAll { it.mid == d } }
+                if (Book.chat(ref)?.msgs?.find { it.mid == d }?.let { CoinSend.travels(it) } != true) {
+                    Book.edit(ref) { c -> c.msgs.removeAll { it.mid == d } }
+                    Notify.withdraw(ref, d)   // its banner leaves with it (iOS b6ab7094 at 2240)
+                }
             }
             text.startsWith(Marks.EDIT) -> runCatching {
                 val o = JSONObject(text.removePrefix(Marks.EDIT)); val d = o.getString("sid").removePrefix("mid:"); val tx = o.optString("tx")
@@ -1450,7 +1453,7 @@ object Post {
                 // A MEDIA LETTER IS ANSWERED ONLY ONCE ITS FILE IS ASSEMBLED (iOS: the receipt waits for the file).
                 if (text.startsWith(Marks.MEDIA)) Media.fetch(Book.ctx, ref, mid, text) else receipt(ref, sid)
                 if (isNew && Book.openChat == ref) markRead(ref)
-                if (isNew && Book.openChat != ref) Notify.letter(ref, text)
+                if (isNew && Book.openChat != ref) Notify.letter(ref, text, mid = mid)
                 if (isNew) CoinSend.landed(ref, mid, text, qt)   // a coin letter is credited once by its wire name (iOS MTCoinSend)
                 if (isNew) takeEdit(ref, mid)?.let { applyEdit(ref, mid, it) }   // the words that outran the letter (iOS takePendingEdit)
             }

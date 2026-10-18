@@ -234,7 +234,7 @@ object Notify {
         (c.packageManager.getLaunchIntentForPackage(c.packageName) ?: Intent()).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP).putExtra(EXTRA_CHAT, ref),
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
     private const val QUIET = "letters_quiet"
-    fun letter(ref: String, text: String, who: String? = null) {
+    fun letter(ref: String, text: String, who: String? = null, mid: String? = null) {
         val c = Book.ctx
         val nm = c.getSystemService(NotificationManager::class.java) ?: return
         if (!Prefs.bool("notifMessages", true)) return
@@ -269,6 +269,19 @@ object Notify {
                 .build())
             .build()
         runCatching { nm.notify(ref.hashCode(), n) }
+        // the letter the banner speaks of: its deletion takes the banner off (withdraw); a call's or a game's banner names none
+        if (mid != null) Prefs.setStr(NOTICE + ref, mid) else Prefs.remove(NOTICE + ref)
+    }
+    private const val NOTICE = "noticeMid."
+    /**
+     * A DELETION TAKES ITS LETTER'S BANNER OFF (iOS b6ab7094 at 2240, the author's words 16.10.2026 18:19-18:59 MSK: «let deletion
+     * reach me by a silent push»; the extension takes off every notice named by the deleted letter's mid): the row left the feed, and
+     * the banner kept its words on the shade and the locked screen. A banner of a later letter of the chat stands.
+     */
+    fun withdraw(ref: String, mid: String) {
+        if (Prefs.str(NOTICE + ref, "") != mid) return
+        clear(ref)
+        android.util.Log.d("Montana", "notice_off why=deleted to=" + ref.take(10))
     }
     /**
      * THE PEER PINNED A LETTER (iOS presentPinned, MontanaNotify.swift:334-350 at 2155, the author's word 22.09): the app's own
@@ -301,7 +314,7 @@ object Notify {
             .build()
         runCatching { nm.notify("pin:$ref", sid.hashCode(), n) }
     }
-    fun clear(ref: String) { Book.ctx.getSystemService(NotificationManager::class.java)?.cancel(ref.hashCode()) }
+    fun clear(ref: String) { Book.ctx.getSystemService(NotificationManager::class.java)?.cancel(ref.hashCode()); Prefs.remove(NOTICE + ref) }
 }
 
 // ─────────────────────────── the chats as rows (iOS MTChatListView rows) ───────────────────────────
