@@ -49,7 +49,10 @@ object SelfFace {
     /** THE ONE EVENT OF A CHANGE OF FACE (iOS MontanaSelfFace.changed, E2E.broadcastAvatar, MontanaShapes.swift:424-429 at 2155):
      * every correspondent is told at once -- the face waited for the next pickup of the box (Post.fetch), and a new face set
      * 10.10.2026 23:01 had gone to nobody a minute later. */
-    private fun changed() = Thread { Book.refs().filter { SamePair.merged(it) == null }.forEach { Post.announce(it) } }.start()
+    private fun changed() = Thread {
+        Book.refs().filter { SamePair.merged(it) == null }.forEach { Post.announce(it) }
+        MontanaCard.faceChanged(Book.ctx)   // the face beside every live card follows at once (iOS MontanaCard.faceChanged)
+    }.start()
 }
 
 /** A page's top bar: an optional back mark on the left, a title, an optional mark on the right. */

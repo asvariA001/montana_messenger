@@ -248,7 +248,17 @@ object MontanaCard {
         if (!MontanaSeed.hasSeed) return   // SILENT-OK: the first screen -- no identity, no card
         offerShort(c)
         if (hasLivePermanent()) offerPermanent(c)
+        faceChanged(c)   // a face laid before this build beside a card stays no longer than the next return; a fresh one is not poured again
     }
+
+    /**
+     * MY FACE CHANGED: EVERY LIVE CARD GETS THE NEW ONE BESIDE IT AT ONCE (iOS MontanaCard.faceChanged → reuploadRdv,
+     * MontanaFirstContact.swift:1075-1084 at 2240). Android laid the face only with the card, by its two-hour term, and only for the
+     * card of the day: the old face stood on the node beside every other live card, and an iPhone that reads a correspondent's face
+     * from the card (ChatStore.healFacesFromCards → MontanaCard.refaceFromCard, which wears it over the letter's) put the old picture
+     * of A1 back on T1 (18.10.2026, the author's word: «avatars must change at once»). Off the main thread: every card is a node write.
+     */
+    fun faceChanged(c: Context) { for (inv in outstandingInvites()) uploadFace(c, inv) }
     private fun hasLivePermanent(): Boolean = synchronized(lock) { map(PERM).values.firstOrNull()?.let { keyHeld(it) } ?: false }
 
     /** The person leaves: the card records leave with them (iOS MontanaCard.wipe). */
