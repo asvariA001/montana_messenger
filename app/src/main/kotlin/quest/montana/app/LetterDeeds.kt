@@ -51,6 +51,8 @@ object MsgPins {
     fun isPinned(ref: String, mid: String) = mid in of(ref)
     fun pin(ref: String, mid: String) = change { m -> m.getOrPut(ref) { mutableListOf() }.apply { remove(mid); add(mid) } }
     fun unpin(ref: String, mid: String) = change { m -> m[ref]?.remove(mid) }
+    /** The conversation gone: its pins go with it (iOS forgetConversation, f33985eb's sibling f5889c70). */
+    fun forget(ref: String) { if (of(ref).isNotEmpty()) change { m -> m.remove(ref) } }
     /** Every chat's pins, for a copy (iOS ChatStore.savePinned 3232-3236: «pinnedMessages», one map of chat to letters). */
     fun carried(): Map<String, List<String>> = synchronized(lock) { ensure().filterValues { it.isNotEmpty() }.mapValues { it.value.toList() } }
     /** A copy laid (iOS SeedScope.unionKeys 6305): a chat with pins here keeps its own, a chat without takes the copy's. */

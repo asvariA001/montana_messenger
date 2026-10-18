@@ -92,7 +92,15 @@ const val CONVDEL_MARK = "\u2063mtconvdel:"
 fun buryChat(ref: String) = Thread { Post.flush(); forgetChat(ref) }.start()
 
 /** The chat leaves here with its letters' names buried (iOS removeConversationLocally → bury): a late copy raises no chat again. */
-fun forgetChat(ref: String) { Book.chat(ref)?.let { ch -> Book.bury(ref, ch.msgs.map { it.mid }) }; ChatMarks.forget(ref); Book.forget(ref); Notify.clear(ref) }
+fun forgetChat(ref: String) {
+    Book.chat(ref)?.let { ch -> Book.bury(ref, ch.msgs.map { it.mid }) }
+    ChatMarks.forget(ref); Book.forget(ref); Notify.clear(ref)
+    // A CONVERSATION GONE LEAVES NO STATE OF ITS OWN (iOS forgetConversation, f5889c70 at 2240): its draft, its pins, the letters
+    // scheduled into it and its own keys go; the block, the mute, the name and the face, the correspondent's hide word and the
+    // graves stay -- they keep what must stay closed
+    MsgPins.forget(ref); Scheduled.forget(ref)
+    for (k in listOf("draft.", "plcap_", "pgcap_", "pgHeld.")) Prefs.remove(k + ref)
+}
 
 /** Deleted at both (iOS deleteChat forBoth): the funeral leaves by the pipe, then the chat is buried here. */
 fun deleteForBoth(ref: String) { Post.send(ref, Marks.mintMid(), CONVDEL_MARK); buryChat(ref) }
