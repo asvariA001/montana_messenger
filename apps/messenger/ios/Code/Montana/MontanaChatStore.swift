@@ -2213,16 +2213,24 @@ class ChatStore: ObservableObject {
         MontanaTrace.mark("face_echo", "dropped=\(echoes.count) own faces worn by correspondents")
     }
     /// `owned`: the bytes came from the correspondent themselves -- their letter or their card on the node (faceOwned).
-    func setPeerAvatar(ref: String, data: Data, owned: Bool = false) {
+    /// THE ONE WRITER REFUSES MY OWN FACE (18.10.2026, Agent 93, T1 2242): the refusal stood on the letter's door alone, and the card's
+    /// door wore it back at every launch -- face_echo dropped=2, then rdv_face ok bytes=72837 on the same two correspondents 0.3 s later.
+    /// false: nothing was written.
+    @discardableResult
+    func setPeerAvatar(ref: String, data: Data, owned: Bool = false) -> Bool {
+        if MontanaSelfFace.isMine(data) {
+            MontanaTrace.mark("face_echo", "own face offered for \(String(ref.prefix(10))) -- not theirs")
+            return false
+        }
         if owned { noteOwned(ref, data) }
         // A repeated delivery is not a new face.  Saving it under a new name used to remove the
         // visible file and publish a second list change, which made an unchanged portrait blink.
         if let old = peerAvatars[ref],
            let present = try? Data(contentsOf: avatarsDirURL().appendingPathComponent(old)),
-           present == data { return }
+           present == data { return true }
         var saved = saveChatAvatar(data)
         if saved == nil { saved = saveChatAvatar(data) }   // one retry: a transient error must not eat a face
-        guard let name = saved else { MontanaLog.event("AVATAR save FAILED for \(ref.prefix(10))"); return }
+        guard let name = saved else { MontanaLog.event("AVATAR save FAILED for \(ref.prefix(10))"); return false }
         // The previous file is removed: the name is new every time, and without the sweep the
         // disk collects one file per update of a correspondent's picture.
         let old = peerAvatars[ref]
@@ -2240,6 +2248,7 @@ class ChatStore: ObservableObject {
             MontanaArchive.putMedia(convRef: ref, legacy: legacyFolderNames(ref), blobId: MontanaArchive.faceBlob, data: data)
         }
         mirrorFaceToShared(ref)   // the small copy for the banner and the call screen — the one writer
+        return true
     }
     // Failure -> retry queue (next foreground). Tag a message (by mid) with the transport it went/came
     // over — drives the glyph next to the time.
@@ -2276,16 +2285,12 @@ class ChatStore: ObservableObject {
             MontanaLog.event("AVATAR ← \(chat.prefix(10)) unreadable payload buried")
             return
         }
-        let face = MontanaSelfFace.isNormal(d) ? d : (MontanaSelfFace.normalize(d) ?? d)
         // A FACE EQUAL TO THIS SEED'S OWN IS NO CORRESPONDENT'S (11.10.2026, No.61, the author's word «the avatar is determined by
         // the seed phrase»): the pipe of a correspondence is shared by every device of my seed and a letter names no author, so the
         // face my other device announced to a correspondent reached this device on the same pipe and was stored as theirs -- T1 wore
-        // its own face on thirty-six correspondents. My face is mine, whoever's pipe it came by.
-        if let mine = E2E.myAvatarData(), mine == face {
-            MontanaTrace.mark("face_echo", "own face on the pipe of \(String(chat.prefix(10))) -- not theirs")
-            return
-        }
-        setPeerAvatar(ref: chat, data: face, owned: true)
+        // its own face on thirty-six correspondents. The one writer refuses it (MontanaSelfFace.isMine), whoever's pipe it came by.
+        let face = MontanaSelfFace.shaped(d)
+        guard setPeerAvatar(ref: chat, data: face, owned: true) else { return }
         E2E.faceNone.remove(chat)
         peerBack(chat, at: Date().timeIntervalSince1970)
         MontanaLog.event("AVATAR ← \(chat.prefix(10)) received \(d.count)B stored \(face.count)B")
@@ -3555,7 +3560,6 @@ class ChatStore: ObservableObject {
         // out of the book, and its true owner is asked for it (holdsFace).
         var faceCount: [Data: Int] = [:]
         for (rc, _) in built { if let f = rc.face { faceCount[f, default: 0] += 1 } }
-        let ownFace = E2E.myAvatarData()   // this seed's own face is never a correspondent's, however the archive carried it (No.61)
         for (rc, arr) in built {
             let key = rc.ref ?? ("arc:" + rc.folder)
             // The build left out every key the feed held when the restore began (occupied); a row landed since wins here, and an
@@ -3591,7 +3595,7 @@ class ChatStore: ObservableObject {
                 peerNames[key] = n
                 MTNameBook.syncContact(conv: key, first: n, last: nil)
             }
-            if let face = rc.face, faceCount[face] == 1, peerAvatars[key] == nil, face != ownFace { setPeerAvatar(ref: key, data: face); faces += 1 }   // never this seed's own face (No.61)
+            if let face = rc.face, faceCount[face] == 1, peerAvatars[key] == nil, setPeerAvatar(ref: key, data: face) { faces += 1 }   // never this seed's own face: the writer refuses it (No.61)
             media += arr.filter { $0.imageFile ?? $0.videoFile ?? $0.audioFile ?? $0.docFile != nil }.count
             let last = arr.max(by: ChatStore.before) ?? arr[arr.count - 1]
             noteOrder(key, at: Int(last.createdAt * 1000))

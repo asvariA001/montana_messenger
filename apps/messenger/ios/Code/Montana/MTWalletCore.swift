@@ -633,14 +633,58 @@ enum MTCoinBalance {
         UserDefaults.standard.data(forKey: levelsKey).flatMap { d in try? JSONDecoder().decode([String: Level].self, from: d) } ?? [:]
     }
 
+    /// THE TOLD IS CAPPED BY THE CHAIN (18.10.2026, Agent 93, the critic's P-3; the author's word «close every point»): a pair's
+    /// word says its balance and its level, and any build can say any number -- a third-party build says L13 and a billion coins, and
+    /// every honest phone drew them by the face and in the rating. A told balance is kept now only up to what the pair's own coin
+    /// chain proves on its node (proven and declared, by the key the pair named, MTCoinTx.peerFrom), and a told level up to the
+    /// wallet member of that balance -- the Global Level is never above it (MTPersonChain.global). A pair whose chain is not read yet
+    /// stands in no rating and wears no level; its chain is read at most once in ten minutes.
+    private var chain: [String: (coins: Int, at: Double)] = [:]
+    private var heardCoins: [String: Told] = [:]
+    private var heardLevel: [String: Level] = [:]
+    private var asking = Set<String>()
+    private func proveChain(_ conv: String) {
+        if let c = chain[conv], Date().timeIntervalSince1970 - c.at < 600 { return }
+        guard !asking.contains(conv), let from = MTCoinTx.peerFrom(conv), let door = MTCoinTx.chainDoor(from) else { return }
+        asking.insert(conv)
+        Task { @MainActor in
+            let st = await MTCoinTx.chain3(from, door: door)
+            self.asking.remove(conv)
+            guard let st else { return }
+            self.chain[conv] = (Int(clamping: st.proven + st.declared), Date().timeIntervalSince1970)
+            if let t = self.heardCoins[conv] { self.keepCoins(conv, t) }
+            if let l = self.heardLevel[conv] { self.keepLevel(conv, l) }
+        }
+    }
+    private func keepCoins(_ conv: String, _ t: Told) {
+        guard let cap = chain[conv]?.coins else { return }
+        let coins = min(t.coins, cap)
+        let moved = told[conv]?.coins != coins
+        told[conv] = Told(coins: coins, at: t.at)
+        guard moved else { return }
+        if let d = try? JSONEncoder().encode(told) { UserDefaults.standard.set(d, forKey: Self.key) }
+        MontanaTrace.markFolded("coin_board", "told=\(told.count)", window: 60)
+    }
+    private func keepLevel(_ conv: String, _ l: Level) {
+        guard let cap = chain[conv]?.coins else { return }
+        let level = min(l.level, MTFabricRules.walletLevel(cap))
+        guard levels[conv]?.level != level else { return }
+        levels[conv] = Level(level: level, at: l.at)
+        if let d = try? JSONEncoder().encode(levels) { UserDefaults.standard.set(d, forKey: Self.levelsKey) }
+        MontanaTrace.markFolded("level_board", "told=\(levels.count)", window: 60)
+    }
+
     /// A pair's presence word told its Global Level, or named none (a negative level): kept when the word is newer than the last.
     func noteLevel(_ conv: String, level: Int, at: Double) {
         guard max(levels[conv]?.at ?? 0, levelHeardAt[conv] ?? 0) <= at else { return }
         levelHeardAt[conv] = at
         if 0 <= level {
-            guard levels[conv]?.level != level else { return }
-            levels[conv] = Level(level: level, at: at)
+            heardLevel[conv] = Level(level: level, at: at)
+            proveChain(conv)
+            keepLevel(conv, Level(level: level, at: at))
+            return
         } else {
+            heardLevel[conv] = nil
             guard levels.removeValue(forKey: conv) != nil else { return }
         }
         if let d = try? JSONEncoder().encode(levels) { UserDefaults.standard.set(d, forKey: Self.levelsKey) }
@@ -652,17 +696,16 @@ enum MTCoinBalance {
         guard (told[conv]?.at ?? 0) <= at else { return }
         // A NEGATIVE BALANCE IS «HIDDEN» (04.10, MTCoinShow): the pair turned its coins off, and its row leaves this rating.
         guard 0 <= coins else {
+            heardCoins[conv] = nil
             guard told.removeValue(forKey: conv) != nil else { return }
             if let d = try? JSONEncoder().encode(told) { UserDefaults.standard.set(d, forKey: Self.key) }
             MontanaTrace.markFolded("coin_board", "hidden told=\(told.count)", window: 60)
             return
         }
-        // Every presence word tells the balance now (E2E.coinTail): the moment always moves, the disk only when the coins did.
-        let moved = told[conv]?.coins != coins
-        told[conv] = Told(coins: coins, at: at)
-        guard moved else { return }
-        if let d = try? JSONEncoder().encode(told) { UserDefaults.standard.set(d, forKey: Self.key) }
-        MontanaTrace.markFolded("coin_board", "told=\(told.count)", window: 60)
+        // Every presence word tells the balance now (E2E.coinTail): kept up to what the pair's chain proves (keepCoins).
+        heardCoins[conv] = Told(coins: coins, at: at)
+        proveChain(conv)
+        keepCoins(conv, Told(coins: coins, at: at))
     }
 
     /// A pair holding my words told my own coins, not a person's beside me (MTOwnWords): it stands in no rating.
@@ -3746,6 +3789,15 @@ enum MTCoinChainRules {
         return 2 * total
     }
     nonisolated static var genesisCap: Int64 { timeA(v2Cut - coinEpoch) }
+    /// A BOOK'S PAST, NEVER A FRESH KEY'S WORD (18.10.2026, the critic's P-1; the node's TX_GENESIS_GATE): from this node second a
+    /// GENESIS above 0 stands only on the key's own past on its chain and announces at most the time since that past began.
+    nonisolated static let genesisGate: Int64 = 1_792_354_500
+    /// What a GENESIS of a key at the node second `at` may announce: the book's past, under the cap and the time since its birth.
+    nonisolated static func genesisRoom(height: Int, birth: Int64, at: Int64) -> Int64 {
+        if v2Cut <= at { return 0 }
+        if at < genesisGate { return genesisCap }
+        return height == 0 ? 0 : min(genesisCap, timeA(at - birth))
+    }
     /// Section 1: a field its kind does not use is zero; a SEND names its commitment, a RECV and a REFUND the SEND they settle, and the
     /// announced part of a SEND or RECV (t0) is never above its amount -- as the node's reader holds them.
     nonisolated static func fieldsHold(kind: UInt8, amount: UInt64, pair: Data, to: Data, ref: Data, a: UInt64, b: UInt64) -> Bool {
@@ -3795,6 +3847,7 @@ enum MTCoinChainRules {
         switch Kind(rawValue: p.kind) {
         case .genesis?:
             if s.v3 || (0 < a && v2Cut <= at) || genesisCap < a { return (nil, false) }
+            if 0 < a && genesisGate <= at && (s.height == 0 || timeA(at - s.birth) < a) { return (nil, false) }
             n.declared = a
         case .mint?:
             let t0 = Int64(p.a), t1 = Int64(p.b)
@@ -4315,7 +4368,7 @@ extension MTCoinTx {
         }
         let book = Int64(MTLocalCoinLedger.shared.whole.balance)
         if !st.v3 {
-            let amount = st.now < v2Cut ? min(max(0, book), MTCoinChainRules.genesisCap) : 0
+            let amount = min(max(0, book), MTCoinChainRules.genesisRoom(height: st.height, birth: st.birth, at: st.now))
             let r = await layOnHead { s in build3(.genesis, amount: UInt64(amount), prev: s.head, nonce: fresh()) }
             MontanaTrace.mark("coin_v3", "genesis code=\(r.code) word=\(r.word) amount=\(amount)")
             guard r.code == 200, let again = await chain3(me, door: door) else { return nil }
@@ -4467,7 +4520,7 @@ extension MTCoinTx {
                 let blind = MTCoinChainRules.blind(secret: secret, nonce: s.nonce)
                 if MTCoinChainRules.commitment(from: theirs, blind: blind) == s.to {
                     if let st = await chain3(hands.from, door: tdoor), !st.v3 {
-                        let amount = st.now < v2Cut ? min(max(0, Int64(shelf.book)), MTCoinChainRules.genesisCap) : 0
+                        let amount = min(max(0, Int64(shelf.book)), MTCoinChainRules.genesisRoom(height: st.height, birth: st.birth, at: st.now))
                         let r = await layOnHead(hands: hands) { c in build3(.genesis, amount: UInt64(amount), prev: c.head, nonce: fresh(), hands: hands) }
                         MontanaTrace.mark("coin_own", "seat=\(seat) genesis code=\(r.code) word=\(r.word) amount=\(amount)")
                     }

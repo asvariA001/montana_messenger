@@ -58,6 +58,15 @@ enum MTPeerLinks {
         MontanaTrace.mark("link_rx", "from=\(String(conv.prefix(10)))")
         DispatchQueue.main.async { NotificationCenter.default.post(name: .montanaPeerLinkArrived, object: nil, userInfo: ["conv": conv]) }
     }
+    /// A link whose card wears this seed's own face is mine, noted off the shared pipe (18.10.2026): it leaves both books.
+    static func forget(_ conv: String) {
+        var l = links()
+        guard l.removeValue(forKey: conv) != nil else { return }
+        var b = born(); b[conv] = nil
+        if let d = try? JSONEncoder().encode(l) { _ = MontanaLocalVault.setEncrypted(key, d) }
+        if let d = try? JSONEncoder().encode(b) { _ = MontanaLocalVault.setEncrypted(key + ".b", d) }
+        MontanaTrace.mark("link_forget", "conv=\(String(conv.prefix(10))) own card")
+    }
     /// The last link they handed, whatever its day: the face their card wears on the node outlives the card's day.
     static func any(_ conv: String) -> String? { links()[conv] }
     /// The link, while its day runs.

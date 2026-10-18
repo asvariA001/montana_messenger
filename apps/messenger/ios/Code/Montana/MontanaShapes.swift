@@ -135,6 +135,8 @@ struct MontanaOctagonFace: ViewModifier {
     /// only thin as now»): the face keeps its size and its finger room and draws neither plate nor rim -- the row's glass is the
     /// plate (MTChatListView.canvasRow).
     var bare = false
+    /// The time panel's own plate: its one glass on every system (MTTimePanelGlass).
+    var panel = false
     private var plateTint: Color? { tint ?? (prominent ? Color.accentColor : nil) }
     private var h: CGFloat { height ?? (bar ? MontanaOctagon.barHeight : MontanaOctagon.height) }
     func body(content: Content) -> some View {
@@ -183,6 +185,10 @@ struct MontanaOctagonFace: ViewModifier {
                     .frame(width: montanaTouchTarget, height: montanaTouchTarget)
                     .contentShape(Rectangle())
             }
+        } else if panel {
+            base.modifier(MTTimePanelGlass(shape: MontanaLongOctagon()))
+                .scaleEffect(pressed ? 0.96 : 1)
+                .animation(.easeOut(duration: 0.12), value: pressed)
         } else if #available(iOS 26.0, *) {
             // The bar plate is plain glass: it stands over a scrolling list, and the interactive variant samples the finger
             // every frame on top of the backdrop; its glyphs answer the finger themselves (MTBarGlyphStyle). The puck
@@ -227,10 +233,23 @@ struct MontanaOctagonFace: ViewModifier {
 }
 
 extension View {
-    func montanaOctagonFace(prominent: Bool = false, square: Bool = false, pressed: Bool = false, ghost: Bool = false, bar: Bool = false, height: CGFloat? = nil, mark: Bool = false, tint: Color? = nil, bare: Bool = false) -> some View {
-        modifier(MontanaOctagonFace(prominent: prominent, square: square, pressed: pressed, ghost: ghost, bar: bar, height: height, mark: mark, tint: tint, bare: bare))
+    func montanaOctagonFace(prominent: Bool = false, square: Bool = false, pressed: Bool = false, ghost: Bool = false, bar: Bool = false, height: CGFloat? = nil, mark: Bool = false, tint: Color? = nil, bare: Bool = false, panel: Bool = false) -> some View {
+        modifier(MontanaOctagonFace(prominent: prominent, square: square, pressed: pressed, ghost: ghost, bar: bar, height: height, mark: mark, tint: tint, bare: bare, panel: panel))
     }
     func montanaFieldGlass(maxCut: CGFloat) -> some View { modifier(MontanaFieldGlass(maxCut: maxCut)) }
+}
+
+/// THE TIME PANEL'S GLASS, ONE OWNER ON EVERY SYSTEM (the author's word 18.10.2026 21:3x MSK: «on T3 the time panel's button looks
+/// transparent, on T1 worse -- make it as there, like glass, and one owner of the style»). T3 (iOS 18.3) drew the thin material with its
+/// rim; T1 (iOS 26.7.1) the system's regular glass with the logo's glass circle inside it -- glass over glass, the lens that draws
+/// darker (MTBarPuck). One drawing now, no branch by system: the ground blurs through the thin material, the rim keeps the contour.
+struct MTTimePanelGlass<S: Shape>: ViewModifier {
+    let shape: S
+    func body(content: Content) -> some View {
+        content
+            .background(MontanaOctagon.barMaterial, in: shape)
+            .overlay(shape.stroke(Color.white.opacity(0.28), lineWidth: 1))
+    }
 }
 
 /// THE FIELD WEARS THE PLATE'S GLASS (the author's word 21.09): the message field is the same
@@ -347,14 +366,11 @@ struct MTBarGlyphStyle: ButtonStyle {
 /// it drew darker than the plate and blurred whatever it stood over. A lit capsule before iOS 26.
 /// NO LENS (the author's word 25.09, 1942: the platform's clear glass drawn over the glyph as the system's tab bar
 /// selection — «take that lens away»): the light under the glyph, as on 1941.
+/// One light on every system, as the panel's glass is one (MTTimePanelGlass, 18.10.2026).
 struct MTBarPuck: View {
     var body: some View {
-        if #available(iOS 26.0, *) {
-            Capsule().fill(Color.white.opacity(0.16))
-        } else {
-            Capsule().fill(Color.white.opacity(0.14))
-                .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 0.5))
-        }
+        Capsule().fill(Color.white.opacity(0.14))
+            .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 0.5))
     }
 }
 
@@ -398,6 +414,14 @@ enum MontanaSelfFace {
             q -= 0.1
         }
         return sized.jpegData(compressionQuality: 0.35)
+    }
+    /// A received face in the wire shape: kept as it came when it already is.
+    static func shaped(_ d: Data) -> Data { isNormal(d) ? d : (normalize(d) ?? d) }
+    /// THIS SEED'S OWN FACE IS NO CORRESPONDENT'S, WHATEVER DOOR BROUGHT IT (No.61 for the letter; 18.10.2026, Agent 93, for the card:
+    /// the author's word «on T1 my avatar is duplicated onto chats with others»). The one rule every writer of a correspondent's face asks.
+    static func isMine(_ shapedFace: Data) -> Bool {
+        guard let mine = E2E.myAvatarData() else { return false }
+        return mine == shapedFace
     }
     /// Already in the wire shape — nothing to redo (keeps stored bytes byte-stable).
     static func isNormal(_ d: Data) -> Bool {

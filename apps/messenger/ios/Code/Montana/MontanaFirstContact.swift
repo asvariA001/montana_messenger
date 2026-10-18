@@ -1235,6 +1235,9 @@ enum MontanaCard {
         let face = await MontanaCard.face(invite: invite)
         MontanaTrace.mark("rdv_face", face == nil ? "none conv=\(String(conv.prefix(10))) rescan" : "ok bytes=\(face?.count ?? 0) conv=\(String(conv.prefix(10))) rescan")
         guard let face else { return }
+        // A CARD THAT WEARS MY FACE IS MINE (18.10.2026, Agent 93, T1 2242): its link came by the pipe my other device shares with this
+        // correspondent and was noted as theirs. Forgotten, it is neither read for a face again nor handed on as theirs.
+        if MontanaSelfFace.isMine(MontanaSelfFace.shaped(face)) { MTPeerLinks.forget(conv); return }
         await wearFace(face, conv: conv)
     }
 
@@ -1242,12 +1245,11 @@ enum MontanaCard {
     /// `onlyIfBare`: a face that came first by the person's own letter is kept.
     @discardableResult
     static func wearFace(_ face: Data, conv: String, onlyIfBare: Bool = false) async -> Bool {
-        let shaped = MontanaSelfFace.isNormal(face) ? face : (MontanaSelfFace.normalize(face) ?? face)
+        let shaped = MontanaSelfFace.shaped(face)
         return await MainActor.run { () -> Bool in
             guard let store = MontanaDeliveryEngine.shared.store else { return false }
             if onlyIfBare, store.peerAvatars[conv] != nil { return false }
-            store.setPeerAvatar(ref: conv, data: shaped, owned: true)   // the face its owner laid beside their own card
-            return true
+            return store.setPeerAvatar(ref: conv, data: shaped, owned: true)   // the face its owner laid beside their own card
         }
     }
 

@@ -244,7 +244,7 @@ struct MTFolderTabs: View {
             }
         }
         .frame(height: 44)
-        .montanaOctagonFace(bar: true)   // the time panel's own plate (the author's word 18.10.2026 10:2x MSK)
+        .montanaOctagonFace(bar: true, panel: true)   // the time panel's own plate (the author's word 18.10.2026 10:2x MSK)
     }
 
     /// The strip's width with every name whole, by the platform's own measure of the words.
