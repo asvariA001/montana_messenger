@@ -92,7 +92,7 @@ const val CONVDEL_MARK = "\u2063mtconvdel:"
 fun buryChat(ref: String) = Thread { Post.flush(); forgetChat(ref) }.start()
 
 /** The chat leaves here with its letters' names buried (iOS removeConversationLocally → bury): a late copy raises no chat again. */
-fun forgetChat(ref: String) { Book.chat(ref)?.let { ch -> Book.bury(ch.msgs.map { it.mid }) }; ChatMarks.forget(ref); Book.forget(ref) }
+fun forgetChat(ref: String) { Book.chat(ref)?.let { ch -> Book.bury(ref, ch.msgs.map { it.mid }) }; ChatMarks.forget(ref); Book.forget(ref); Notify.clear(ref) }
 
 /** Deleted at both (iOS deleteChat forBoth): the funeral leaves by the pipe, then the chat is buried here. */
 fun deleteForBoth(ref: String) { Post.send(ref, Marks.mintMid(), CONVDEL_MARK); buryChat(ref) }

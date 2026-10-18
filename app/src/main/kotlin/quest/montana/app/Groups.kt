@@ -558,7 +558,7 @@ object Groups {
         val quoted = w.optString("qm").removePrefix("mid:").ifEmpty { null }
         var landed = false
         Book.edit(key) { c ->
-            if (c.msgs.none { it.mid == id } && !Book.isBuried(id)) {   // a deleted letter's copy stays out (Book.bury)
+            if (c.msgs.none { it.mid == id } && !Book.isBuried(key, id)) {   // a deleted letter's copy stays out (Book.bury)
                 c.msgs.add(Msg(id, words, false, at, qt = quote, qm = quoted, from = sp)); c.msgs.sortBy { it.at }
                 if (Book.openChat != key) c.unread++
                 landed = true

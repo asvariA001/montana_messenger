@@ -557,33 +557,47 @@ object Book {
     }
 
     /**
-     * THE ONE TOMBSTONE DOOR (iOS ChatStore.bury(names), deletedMids, 092e4fcb at 2240): a letter deleted here -- by me, by its
-     * sender's word, with its whole chat -- leaves its name behind, written BEFORE the row goes, so a copy of it that comes again by
-     * the second road or the node's next pass is not laid in the feed once more. Only names not buried yet touch the store; the
-     * oldest names leave past the cap.
+     * THE ONE TOMBSTONE DOOR (iOS bury(_:in:), buried(_:in:); 092e4fcb, f33985eb, a5047d15 at 2240): a letter deleted here -- by me,
+     * by its sender's word, with its whole chat -- leaves its name behind IN ITS CONVERSATION, written BEFORE the row goes, so a copy
+     * that comes again by the second road or the node's next pass is not laid in the feed once more. A grave stands in its own
+     * conversation alone: a correspondent's word buries nothing of another chat. Only names not buried yet touch the store. The 4000
+     * kept are shared: past them the conversation holding the most graves gives up its oldest (the order is the moment this phone
+     * buried the name, never the birth a sender claims), so a flood costs its own conversation first.
      */
-    private const val BURIED = "buriedMids"
-    private const val BURIED_CAP = 5000
-    private var buried: LinkedHashSet<String>? = null
-    private fun tombs(): LinkedHashSet<String> = buried ?: LinkedHashSet<String>().also { s ->
-        DeviceVault.get(BURIED)?.let { b -> runCatching { val a = JSONArray(String(b, Charsets.UTF_8)); for (i in 0 until a.length()) s.add(a.getString(i)) } }
-        buried = s
+    private const val GRAVES = "graves"
+    private const val GRAVES_CAP = 4000
+    private var graves: LinkedHashMap<String, LinkedHashSet<String>>? = null
+    private fun graveSets(): LinkedHashMap<String, LinkedHashSet<String>> = graves ?: LinkedHashMap<String, LinkedHashSet<String>>().also { g ->
+        DeviceVault.get(GRAVES)?.let { b -> runCatching {
+            val o = JSONObject(String(b, Charsets.UTF_8))
+            for (k in o.keys()) { val a = o.getJSONArray(k); g[k] = LinkedHashSet<String>().apply { for (i in 0 until a.length()) add(a.getString(i)) } }
+        } }
+        graves = g
     }
-    fun bury(mids: Collection<String>) = synchronized(lock) {
-        val s = tombs()
+    fun bury(ref: String, mids: Collection<String>) = synchronized(lock) {
+        val g = graveSets()
+        val set = g.getOrPut(ref) { LinkedHashSet() }
         var fresh = 0
-        for (m in mids) if (m.isNotEmpty() && s.add(m)) fresh++
+        for (m in mids) if (m.isNotEmpty() && set.add(m)) fresh++
+        if (set.isEmpty()) g.remove(ref)
         if (fresh > 0) {
-            while (s.size > BURIED_CAP) s.remove(s.first())
-            DeviceVault.set(BURIED, JSONArray(s.toList()).toString().toByteArray())
+            var total = g.values.sumOf { it.size }
+            while (total > GRAVES_CAP) {
+                val (k, most) = g.entries.maxByOrNull { it.value.size }!!
+                most.remove(most.first()); total--
+                if (most.isEmpty()) g.remove(k)
+            }
+            val o = JSONObject(); g.forEach { (k, v) -> o.put(k, JSONArray(v.toList())) }
+            DeviceVault.set(GRAVES, o.toString().toByteArray())
         }
     }
-    fun isBuried(mid: String) = synchronized(lock) { mid in tombs() }
+    fun isBuried(ref: String, mid: String) = synchronized(lock) { graveSets()[ref]?.contains(mid) == true }
     /** Letters leave a chat by the one road (iOS deleteLocally([(chat, msg)])): their names buried once, their rows by one write. */
     fun drop(ref: String, mids: Collection<String>) {
         if (mids.isEmpty()) return
-        bury(mids)
+        bury(ref, mids)
         edit(ref) { c -> c.msgs.removeAll { it.mid in mids } }
+        mids.forEach { Notify.withdraw(ref, it) }   // a letter deleted for me is a letter gone too: its banner leaves (iOS 5a82f7cb)
     }
 
     /** A chat deleted here (and its pipe with it — iOS MTPipeBook.forget), with every pipe folded into it. */
@@ -1474,7 +1488,7 @@ object Post {
                         had.text = text; had.meta = null
                         Log.d("Montana", "rx_refill m=" + mid.take(8) + " the row stands without its file — the copy's cargo is taken")
                     }
-                    if (had == null && Book.isBuried(mid)) Log.d("Montana", "rx_buried m=" + mid.take(8) + " — a deleted letter's copy stays out of the feed")
+                    if (had == null && Book.isBuried(ref, mid)) Log.d("Montana", "rx_buried m=" + mid.take(8) + " — a deleted letter's copy stays out of the feed")
                     else if (had == null) {
                         val at = Marks.birthMs(mid) ?: System.currentTimeMillis()
                         c.msgs.add(Msg(mid, text, false, at, qt = qt, qm = qm, lp = lp?.takeIf { LinkCard.parse(it) != null })); c.msgs.sortBy { it.at }
