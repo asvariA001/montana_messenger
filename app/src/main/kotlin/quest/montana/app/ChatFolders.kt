@@ -183,8 +183,8 @@ object Bot {
 }
 
 /**
- * THE FOLDERS' TABS (iOS MTFolderTabs at 2240): one plate the page's width in the time panel's own glass, the names from its left
- * edge (44 high, 6 between two tabs, each at least 44 wide, 10 inside), the chosen one on the time panel's puck that slides to the
+ * THE FOLDERS' TABS (iOS MTFolderTabs at 2240): one plate the page's width in the time panel's own glass, the names in its middle
+ * (the author's word 18.10.2026 16:3x MSK; from the left edge once they do not fit) (44 high, 6 between two tabs, each at least 44 wide, 10 inside), the chosen one on the time panel's puck that slides to the
  * next, each name followed by its badge -- the folder's unread conversations, blue while one of them is not muted, grey otherwise;
  * All wears none. The strip scrolls under the finger when the names do not fit. A hold on a tab is that folder's menu.
  */
@@ -194,7 +194,7 @@ class FolderTabs(private val c: Context, private val pick: (String) -> Unit, pri
         background = GradientDrawable().apply { cornerRadius = c.dp(100).toFloat(); setColor(Color.argb(41, 255, 255, 255)) }   // iOS MTBarPuck
     }
     private val strip = LinearLayout(c).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(c.dp(4), 0, c.dp(4), 0) }
-    private val scroll = HorizontalScrollView(c).apply { isHorizontalScrollBarEnabled = false; overScrollMode = View.OVER_SCROLL_NEVER }
+    private val scroll = HorizontalScrollView(c).apply { isHorizontalScrollBarEnabled = false; overScrollMode = View.OVER_SCROLL_NEVER; isFillViewport = true }
     private var chosen = ChatFolders.ALL
     private var placed = false
 
@@ -202,7 +202,7 @@ class FolderTabs(private val c: Context, private val pick: (String) -> Unit, pri
         background = c.glassPlate()   // the time panel's own plate (the author's word 18.10.2026 10:2x MSK)
         scroll.addView(FrameLayout(c).apply {
             addView(puck, LayoutParams(0, c.dp(36), Gravity.CENTER_VERTICAL))
-            addView(strip, LayoutParams(WRAP, c.dp(44)))
+            addView(strip, LayoutParams(WRAP, c.dp(44), Gravity.CENTER))
         }, LayoutParams(WRAP, c.dp(44)))
         addView(scroll, LayoutParams(MATCH, c.dp(44)))
     }
@@ -211,7 +211,7 @@ class FolderTabs(private val c: Context, private val pick: (String) -> Unit, pri
         val moved = chosenId != chosen
         chosen = chosenId
         strip.removeAllViews()
-        for (t in tabs) strip.addView(tab(t), LinearLayout.LayoutParams(WRAP, c.dp(44)).apply { marginEnd = c.dp(6) })
+        for ((i, t) in tabs.withIndex()) strip.addView(tab(t), LinearLayout.LayoutParams(WRAP, c.dp(44)).apply { if (i < tabs.lastIndex) marginEnd = c.dp(6) })
         strip.post { placePuck(animated = moved && placed) }
     }
 
