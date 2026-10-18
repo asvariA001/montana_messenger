@@ -592,6 +592,8 @@ object Book {
         }
     }
     fun isBuried(ref: String, mid: String) = synchronized(lock) { graveSets()[ref]?.contains(mid) == true }
+    /** The conversation holds graves: its letters were deleted here, and an empty feed of it is emptied, not unborn (iOS 95294cf8). */
+    fun hasGraves(ref: String) = synchronized(lock) { graveSets()[ref]?.isNotEmpty() == true }
     /** Letters leave a chat by the one road (iOS deleteLocally([(chat, msg)])): their names buried once, their rows by one write. */
     fun drop(ref: String, mids: Collection<String>) {
         if (mids.isEmpty()) return

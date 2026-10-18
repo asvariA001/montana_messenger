@@ -298,6 +298,10 @@ object Archive {
                 }
                 continue
             }
+            // AN EMPTIED CONVERSATION STAYS EMPTY (iOS 95294cf8 at 2240): a feed whose letters were deleted here -- by me or by the
+            // correspondent's word -- holds graves, and the append-only archive gave every erased letter back at the next launch; an
+            // empty feed never deleted from (a chat just named by its head, a twin's history landing) still takes its transcript
+            if (Book.chat(key) != null && Book.hasGraves(key)) { Log.d("Montana", "archive_skip chat=" + key.take(10) + " emptied here"); continue }
             val built = rows(items)
             if (built.isEmpty()) continue
             val shown = name?.trim()?.takeIf { it.isNotEmpty() } ?: if (ref == null) Book.ctx.getString(R.string.recovered_history) else ""
