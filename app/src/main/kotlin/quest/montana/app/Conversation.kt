@@ -1007,8 +1007,13 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         override fun afterTextChanged(s: Editable?) {
             LinkCompose.look(s?.toString() ?: "")   // the plate above the field follows the words (iOS handleDraftChange:4308 at 2155)
             if (editing == null) Prefs.setStr("draft.$ref", s?.toString() ?: "")
-            // a group says neither: it has no pipe of its own (iOS: a group streams no draft); nor does the room without an address
-            if (group || local) return
+            // A GROUP'S «TYPING» (the checklist's B.12, iOS MTGroup.typing): an instant word to the pipes this phone holds for the
+            // group, at most every three seconds, as the pair's; a group streams no draft, nor does the room without an address
+            if (group) {
+                if (!s.isNullOrBlank() && System.currentTimeMillis() - typedAt > 3000) { typedAt = System.currentTimeMillis(); Thread { Groups.typing(ref) }.start() }
+                return
+            }
+            if (local) return
             // «TYPING…» TO THEM (iOS: a word on the lane, at most every three seconds, only while there are words)
             if (!s.isNullOrBlank() && System.currentTimeMillis() - typedAt > 3000) { typedAt = System.currentTimeMillis(); Presence.sayTyping(ref) }
             // MY WORDS AS I TYPE THEM (iOS sendDraft): the field and its caret; emptied — sent or erased — the draft ends
@@ -1492,9 +1497,11 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         addView(presenceLine, lp(WRAP, WRAP))
     }
     fun drawPresence() {
-        if (group) {   // a group has no presence of one person: its people's count (iOS the group chat's head)
-            presenceLine.text = Groups.peopleLine(c, ref) ?: ""
-            presenceDot.visibility = View.GONE
+        if (group) {   // a group has no presence of one person: who types, with the pair's green dot, or its people's count (iOS MTGroupHeadLine)
+            val typing = Groups.typingLine(c, ref)
+            presenceLine.text = typing ?: Groups.peopleLine(c, ref) ?: ""
+            presenceDot.visibility = if (typing != null) View.VISIBLE else View.GONE
+            if (typing != null) presenceDot.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(SysColor.green) }
             presenceRow.visibility = if (presenceLine.text.isEmpty()) View.GONE else View.VISIBLE
             return
         }

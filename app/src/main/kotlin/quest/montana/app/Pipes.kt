@@ -880,6 +880,16 @@ object Post {
         }
         Thread { flush() }.start()
     }
+    /**
+     * AN INSTANT WORD (iOS E2E.signalNow): one throw at the pipe's doors and no promises -- never queued, never receipted, never
+     * written; only what lives an instant goes here (a group's «typing»), for which a word not delivered is no loss.
+     */
+    fun now(to0: String, text: String) {
+        val to = SamePair.root(to0)
+        val secret = Book.secret(to) ?: return
+        if (Meeting.first(to) != null || PeerSafety.isBlocked(to)) return   // an unanswered introduction carries the person's letters alone
+        Thread { knock(secret, Marks.mintMid(), text, null, null, quiet = true) }.start()
+    }
     /** A letter taken off the road unsent: it leaves the queue (a coin letter whose day is over, CoinSend.expire). */
     fun unqueue(mid: String) {
         synchronized(outLock) {

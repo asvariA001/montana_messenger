@@ -42,7 +42,8 @@ object Groups {
     private const val HEARD_LIMIT = 512
     private val CROWNS = setOf(0x1F451, 0x2654, 0x2655, 0x265A, 0x265B)   // iOS MTCrown: only the Montana room wears a crown
 
-    enum class Verdict { HELD, REFUSED, WAIT }
+    /** `INSTANT` -- a word that lived an instant (a typing word): it rode no queue, so nothing is receipted and nothing knocks again. */
+    enum class Verdict { HELD, REFUSED, WAIT, INSTANT }
 
     class Member(val seat: String, val pipe: String)
 
@@ -257,6 +258,76 @@ object Groups {
         }
     }
 
+    // ── typing (the checklist's B.12, the reference's «X is typing» in a group's head) ──
+
+    /**
+     * A GROUP'S TYPING WORD LIVES AN INSTANT (iOS MTGroup.typing): thrown at the pipes this phone holds for the group (Post.now) --
+     * the owner's phone at every member, a member's at the owner -- never queued, never receipted, never written; the owner throws
+     * a member's word on. The chat asks it at most every three seconds, while there are words in the field.
+     */
+    fun typing(key: String) {
+        val (w, pipes) = synchronized(lock) {
+            val g = state(key) ?: return
+            if (g.left || g.kind != GROUP) return
+            word("ty", g).put("s", g.me) to (if (g.mine) g.members.map { it.pipe } else listOf(g.owner))
+        }
+        throwTyping(w, pipes)
+    }
+    private fun throwTyping(w: JSONObject, pipes: List<String>) { val text = MARK + w.toString(); pipes.forEach { Post.now(it, text) } }
+    /** The moment the owner last threw a member's typing on: once in two seconds a member, whatever it sends (iOS typingThrown, I-15). */
+    private val typingThrown = HashMap<String, Long>()
+    /** A TYPING WORD LANDED (iOS typed): its seat proven by the pipe it came by, as every word's is; the head shows it for the typing's life. */
+    private fun typed(w: JSONObject, pipe: String): Verdict {
+        val g = groups[w.getString("g")] ?: return Verdict.INSTANT
+        if (g.left || g.kind != GROUP) return Verdict.INSTANT
+        val from = SamePair.root(pipe)
+        val seat: String
+        if (g.mine) {
+            seat = g.members.firstOrNull { SamePair.root(it.pipe) == from }?.seat ?: return Verdict.INSTANT
+            val k = g.id + "/" + seat
+            val now = System.currentTimeMillis()
+            if (now - (typingThrown[k] ?: 0L) >= 2000) {
+                typingThrown[k] = now
+                throwTyping(JSONObject(w.toString()).put("s", seat), g.members.filter { it.seat != seat }.map { it.pipe })
+            }
+        } else {
+            val s = w.optString("s")
+            if (SamePair.root(g.owner) != from || !isSeat(s) || s == g.me) return Verdict.INSTANT
+            seat = s
+        }
+        // a person's name reaches the group from that person, as their letters bring it
+        val name = clean(w.optString("n"), NAME_LIMIT)
+        if (name.isNotEmpty() && g.names[seat] != name) { g.names[seat] = name; save() }
+        typingHeard(key(g.id), seat)
+        return Verdict.INSTANT
+    }
+
+    /** WHO TYPES IN A GROUP NOW (iOS MTGroupTyping): seats by the moment their word landed, each alive the typing's life. */
+    private val typers = HashMap<String, HashMap<String, Long>>()
+    private const val TYPING_LIFE = 5_000L   // iOS ChatStore.typingLife
+    private fun typingHeard(key: String, seat: String) {
+        synchronized(typers) { typers.getOrPut(key) { HashMap() }[seat] = System.currentTimeMillis() }
+        Log.d("Montana", "group_typing_rx seat=" + seat.take(4))
+        Presence.redraw()
+        MainThread.later(TYPING_LIFE + 100, Runnable { Presence.redraw() })
+    }
+    private fun typingStopped(key: String, seat: String) {
+        if (synchronized(typers) { typers[key]?.remove(seat) != null }) Presence.redraw()
+    }
+    /** The head's line while someone types, in the reference's words -- one name, two names, a name and how many others; null when nobody does. */
+    fun typingLine(c: Context, key: String): String? {
+        val now = System.currentTimeMillis()
+        val seats = synchronized(typers) { typers[key]?.entries?.filter { now - it.value < TYPING_LIFE }?.sortedBy { it.value }?.map { it.key } }
+        if (seats.isNullOrEmpty()) return null
+        val id = key.removePrefix(KEY_HEAD)
+        val names = seats.map { speakerName(c, speaker(id, it)) }
+        return when (names.size) {
+            1 -> c.getString(R.string.gr_typing_one, names[0])
+            2 -> c.getString(R.string.gr_typing_two, names[0], names[1])
+            else -> c.getString(R.string.gr_typing_many, names[0], (names.size - 1).toString())
+        }
+    }
+
     // ── birth: this phone owns the group ──
 
     /**
@@ -461,7 +532,7 @@ object Groups {
         val w = runCatching { JSONObject(text.removePrefix(MARK)) }.getOrNull()
         val verdict = if (w != null && isLabel(w.optString("g"))) synchronized(lock) { take(w, pipe) }
             else Verdict.REFUSED.also { Log.i("Montana", "group_refused unreadable from=${pipe.take(10)}") }
-        if (verdict != Verdict.WAIT) Post.receiptFor(pipe, sid)
+        if (verdict != Verdict.WAIT && verdict != Verdict.INSTANT) Post.receiptFor(pipe, sid)
     }
 
     private fun take(w: JSONObject, pipe: String): Verdict {
@@ -472,6 +543,7 @@ object Groups {
             "sig" -> answered(w, pipe)
             "out" -> dropped(w, pipe)
             "bye" -> parted(w, pipe)
+            "ty" -> typed(w, pipe)   // COMPAT-GATED: a member typing, an instant word an older build buries (B.12)
             else -> Verdict.REFUSED.also { Log.i("Montana", "group_refused kind=${t.take(8)}") }   // a newer build's word: its road ends here
         }
     }
@@ -570,6 +642,7 @@ object Groups {
         // the banner a running app owes its person: the group's title over who wrote and what (a channel speaks as itself)
         if (landed && Book.openChat != key) Notify.letter(key, words, if (g.kind == GROUP) speakerName(Book.ctx, sp) else null)
         // THE OWNER CARRIES IT ON (iOS heard, g.mine): to every other member, under the speaker's seat and the name they gave
+        typingStopped(key, seat)   // the letter came: its speaker types no more (the reference's head)
         if (landed && g.mine) {
             val on = JSONObject().put("t", "say").put("g", g.id).put("k", g.kind).put("ti", g.title).put("id", id).put("s", seat).put("tx", words)
             if (name.isNotEmpty()) on.put("n", name)

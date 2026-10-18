@@ -53,6 +53,9 @@
     <string name="coins_travel_note">Письмо с монетами держит их, пока его не доставят или монеты не вернутся. Тогда его можно удалить.</string>
     <string name="coins_travel_chat">Письмо с монетами в этом чате ещё в пути. Чат можно удалить, когда его доставят или монеты вернутся.</string>
     <string name="gr_member">Участник</string>
+    <string name="gr_typing_one">%1$s печатает…</string>
+    <string name="gr_typing_two">%1$s и %2$s печатают…</string>
+    <string name="gr_typing_many">%1$s и ещё %2$s печатают…</string>
     <string name="gr_out_note">Вы больше не участник: сообщения остаются здесь для чтения.</string>
     <string name="gr_choose">Выберите участников</string>
     <string name="gr_pick_note">Письмо группы идёт по каналу каждого человека, поэтому в списке только те, с кем вы переписываетесь.</string>

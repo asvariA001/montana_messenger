@@ -452,6 +452,8 @@ object Presence {
     private val listeners = mutableListOf<() -> Unit>()
     fun listen(l: () -> Unit) { synchronized(listeners) { listeners.add(l) } }
     fun unlisten(l: () -> Unit) { synchronized(listeners) { listeners.remove(l) } }
+    /** The live lines redraw: a group's «typing» lives in its own book (Groups.typingLine) and lights the same heads. */
+    fun redraw() = changed()
     private fun changed() {
         val ls = synchronized(listeners) { listeners.toList() }
         MainThread.post { ls.forEach { it() } }

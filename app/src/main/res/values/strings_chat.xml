@@ -53,6 +53,9 @@
     <string name="coins_travel_note">A coin letter keeps its coins until it is delivered or they come back. Then it can be deleted.</string>
     <string name="coins_travel_chat">A coin letter in this chat is on its way. The chat can be deleted once it is delivered or its coins come back.</string>
     <string name="gr_member">Member</string>
+    <string name="gr_typing_one">%1$s is typing…</string>
+    <string name="gr_typing_two">%1$s and %2$s are typing…</string>
+    <string name="gr_typing_many">%1$s and %2$s others are typing…</string>
     <string name="gr_out_note">You are no longer a member: the messages stay here to read.</string>
     <string name="gr_choose">Choose members</string>
     <string name="gr_pick_note">A group letter rides the pipe of each person, so only the people you write with are listed.</string>

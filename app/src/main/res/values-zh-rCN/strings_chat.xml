@@ -53,6 +53,9 @@
     <string name="coins_travel_note">硬币信件会保留硬币，直到送达或硬币退回。之后即可删除。</string>
     <string name="coins_travel_chat">此聊天中的硬币信件仍在途中。送达或硬币退回后即可删除聊天。</string>
     <string name="gr_member">成员</string>
+    <string name="gr_typing_one">%1$s 正在输入…</string>
+    <string name="gr_typing_two">%1$s 和 %2$s 正在输入…</string>
+    <string name="gr_typing_many">%1$s 等 %2$s 人正在输入…</string>
     <string name="gr_out_note">您已不再是成员：消息仍可在此阅读。</string>
     <string name="gr_choose">选择成员</string>
     <string name="gr_pick_note">群组消息经由每个人各自的通道传送，因此这里只列出与你有通信的人。</string>
