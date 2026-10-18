@@ -693,4 +693,16 @@
     <string name="vo_orb">Orb</string>
     <string name="vo_histogram">Histogram</string>
     <string name="vo_histogram_note">The histogram wears the colours of the text bubble.</string>
+    <!-- the folders over the chats (iOS MTChatFolders, d335474b + 786313d3 at 2240) -->
+    <string name="cf_all">All</string>
+    <string name="cf_bots">Bots</string>
+    <string name="cf_bot">bot</string>
+    <string name="cf_read_all">Read All</string>
+    <string name="cf_mute_all">Mute All</string>
+    <string name="cf_unmute_all">Unmute All</string>
+    <string name="cf_remove">Remove</string>
+    <string name="cf_remove_q">Remove «%1$s»?</string>
+    <string name="cf_remove_note">This will remove the folder, your chats will not be deleted.</string>
+    <string name="cf_empty">Folder is empty.</string>
+    <string name="cf_empty_note">No chats currently match this folder.</string>
 </resources>

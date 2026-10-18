@@ -688,4 +688,16 @@
     <string name="vo_orb">球体</string>
     <string name="vo_histogram">柱状图</string>
     <string name="vo_histogram_note">柱状图使用文字气泡的颜色。</string>
+    <!-- the folders over the chats (iOS MTChatFolders, d335474b + 786313d3 at 2240) -->
+    <string name="cf_all">全部</string>
+    <string name="cf_bots">机器人</string>
+    <string name="cf_bot">机器人</string>
+    <string name="cf_read_all">全部标为已读</string>
+    <string name="cf_mute_all">全部静音</string>
+    <string name="cf_unmute_all">全部取消静音</string>
+    <string name="cf_remove">移除</string>
+    <string name="cf_remove_q">删除“%1$s”？</string>
+    <string name="cf_remove_note">这将删除该文件夹，你的聊天不会被删除。</string>
+    <string name="cf_empty">文件夹为空。</string>
+    <string name="cf_empty_note">目前没有符合此文件夹的聊天。</string>
 </resources>

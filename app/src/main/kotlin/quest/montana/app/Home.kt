@@ -235,12 +235,15 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
     shell.turner = object : DrawerShell.Turner {
         var next: Pane? = null
         var side = 0
+        var folderTo: String? = null   // the stroke turns the chats' folders first (ChatsPane.folderBeside)
         fun order(): List<Pane> {
             val media = if (pane == Pane.MUSIC || pane == Pane.GALLERY) pane
                         else if (Prefs.str("lastMediaPane", "music") == "gallery") Pane.GALLERY else Pane.MUSIC
             return listOf(Pane.CONTACTS, Pane.CALLS, Pane.FEED, Pane.CHATS, media, Pane.P2P)   // iOS turnOrder
         }
         override fun begin(side: Int): Boolean {
+            folderTo = if (pane == Pane.CHATS && !search.active) chats.folderBeside(side) else null
+            if (folderTo != null) { this.side = side; return true }
             val o = order(); val i = o.indexOf(pane); val j = i + side
             if (i < 0 || j !in o.indices) return false
             next = o[j]; this.side = side
@@ -250,12 +253,21 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
             return true
         }
         override fun move(dx: Float) {
+            if (folderTo != null) return
             val w = panes.width.toFloat()
             val d = if (side > 0) dx.coerceIn(-w, 0f) else dx.coerceIn(0f, w)
             views.getValue(pane).translationX = d
             next?.let { views.getValue(it).translationX = d + side * w }
         }
         override fun end(dx: Float, velocity: Float) {
+            folderTo?.let { id ->
+                // the way read at the release as the pages read it: a moving finger says the way, a still one a third of the width
+                val go = if (kotlin.math.abs(velocity) > c.dp(400)) (velocity < 0) == (side > 0) else kotlin.math.abs(dx) > panes.width / 3f
+                folderTo = null
+                android.util.Log.d("Montana", "folder_stroke to=" + id + " go=" + (if (go) 1 else 0))
+                if (go) chats.chooseFolder(id)
+                return
+            }
             val to = next ?: return
             val w = panes.width.toFloat()
             val fling = c.dp(400)
@@ -937,6 +949,19 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
     private var headFloats = false
     private var pinned = false
     private val foot = View(c)   // the floating player's room at the foot (reserve)
+    // THE FOLDERS (iOS MTChatFolders at 2240): the chosen one -- All at every launch, as the reference -- and its tabs over the rows
+    private var folderId = ChatFolders.ALL
+    private val folder get() = ChatFolders.folder(folderId) ?: ChatFolders.folder(ChatFolders.ALL)!!
+    private val tabs = FolderTabs(c, pick = { id -> chooseFolder(id) }, hold = { id, v ->
+        ChatFolders.folder(id)?.let { f ->
+            ChatFolders.menu(act, f, v, ChatFolders.rows(f, listedChats() + Bot.chat, archivedChats())) {
+                if (folderId == id) folderId = ChatFolders.ALL
+                redrawRows()
+            }
+        }
+    })
+    private var savedRow: View? = null
+    private var savedHair: View? = null
     private val sel = ChatSelection { s ->
         redrawRows()
         bar.removeAllViews()
@@ -947,6 +972,7 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
     private val list = ScrollView(c).apply {
         isVerticalScrollBarEnabled = false
         addView(c.vstack(Gravity.NO_GRAVITY) {
+            addView(View(c), lp(MATCH, dp(48)))   // the folders' tabs stand here, over the rows (FolderTabs)
             // The local room: stands in the list from the first moment; a tap opens it (iOS: the row opens its conversation).
             val preview = c.text("", 16f, MT.gray).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
             val thumb = FrameLayout(c)   // the last letter's small picture before its words, as every chat's row (iOS MTLetterThumb, side 20)
@@ -1002,8 +1028,8 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
                         }
                     }
                 }
-            }, lp())
-            addView(View(c).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = dp(82) })
+            }.also { savedRow = it }, lp())
+            addView(View(c).apply { setBackgroundColor(MT.hairline); savedHair = this }, lp(MATCH, 1).apply { marginStart = dp(82) })
             // THE CONVERSATIONS (iOS MTChatListView): newest first, each row a person; «No chats yet» while there are none.
             val rows = c.vstack(Gravity.NO_GRAVITY)
             // THE EMPTY LIST (iOS MontanaQRCard, the author's word 17.09): «No chats yet» and the code itself under the local
@@ -1021,8 +1047,10 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
                 rows.removeAllViews()
                 // THE ARCHIVE'S ROW over the chats while it is summoned and something is archived (iOS archiveRevealed: a pull-down
                 // summons it, a stroke up folds it -- the contacts' one law, «as on the chats»)
-                val archived = archivedChats().size
-                headFloats = archiveRevealed && archived > 0 && !sel.on   // iOS archiveShown (storiesShown: test mode only)
+                val gone = archivedChats()
+                val archived = gone.size
+                val f = folder
+                headFloats = f.isAll && archiveRevealed && archived > 0 && !sel.on   // iOS archiveShown: All alone (storiesShown: test mode only)
                 sink?.up = !headFloats
                 if (headFloats) {
                     rows.addView(archiveEntry(act, archived), lp())
@@ -1030,17 +1058,26 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
                 }
                 // a meeting that never carried a word leaves no row (iOS: the list stands on letters) — the silent question
                 // of a scan must not raise an empty person here; the pinned stand first (listedChats)
-                val all = ListWork.build { chatRows() }   // the groups and the channels stand in their own pages (iOS bare, 06.10)
-                if (all.isEmpty() && archived == 0) rows.addView(emptyCard, lp())
+                // THE FOLDER'S ROWS (iOS folderBook.rows at 2240): All holds every chat, the groups and the channels too, and our bot
+                // after them; another folder its kinds and its chats. The tabs read every folder's rows for their badges.
+                val live = ListWork.build { listedChats() } + Bot.chat
+                val all = ChatFolders.rows(f, live, gone)
+                drawTabs(live, gone)
+                val saved = ChatFolders.showsSaved(f)
+                savedRow?.visibility = if (saved) View.VISIBLE else View.GONE
+                savedHair?.visibility = if (saved) View.VISIBLE else View.GONE
+                if (f.isAll && all.all { it.ref == Bot.REF } && archived == 0) rows.addView(emptyCard, lp())
+                else if (all.isEmpty() && !saved) rows.addView(ChatFolders.emptyCard(c), lp())
                 for (ch in all) {
-                    rows.addView(listRow(act, ch, inArchive = false, sel = sel), lp())
+                    if (ch.ref == Bot.REF) { if (!sel.on) { rows.addView(Bot.row(c), lp()); rows.addView(View(c).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = dp(82) }) }; continue }
+                    rows.addView(listRow(act, ch, inArchive = ChatMarks.isArchived(ch.ref), sel = sel), lp())
                     rows.addView(View(c).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = dp(82) })
                 }
                 ListWork.note((System.nanoTime() - began) / 1e6, all.size, ListWork.print(all, headFloats))
             }
             redrawRows = { fillRows() }
             revealArchive = { on ->
-                if (on != archiveRevealed && !(on && archivedChats().isEmpty())) {
+                if (on != archiveRevealed && !(on && (archivedChats().isEmpty() || !folder.isAll))) {
                     archiveRevealed = on
                     fillRows()
                     if (on) rows.getChildAt(0)?.let { v ->
@@ -1059,6 +1096,30 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
             addView(foot, lp(MATCH, dp(120)))
         })
     }
+    /** The tabs over the rows: every folder with its badge, the chosen one on the puck (iOS folderTabs). */
+    private fun drawTabs(live: List<Chat>, gone: List<Chat>) = tabs.show(ChatFolders.folders().map { f ->
+        val (n, loud) = if (f.isAll) 0 to false else ChatFolders.badge(ChatFolders.rows(f, live, gone))
+        FolderTabs.Tab(f.id, f.shownTitle(c), n, loud)
+    }, folder.id)
+    /** A tab chosen (iOS pick): the selection ends, the folder's rows stand from the top. */
+    fun chooseFolder(id: String) {
+        if (id == folderId) return
+        if (sel.on) sel.end()
+        folderId = id
+        android.util.Log.d("Montana", "folder_pick " + id)
+        redrawRows()
+        list.scrollTo(0, 0)
+    }
+    /**
+     * THE PAGE'S STROKE TURNS THE FOLDERS FIRST (iOS UIState.turnStroke at 2240, 786313d3; the author's word 18.10.2026 10:2x MSK):
+     * on the chats page a stroke to the left goes to the next folder, to the right to the one before; from the last folder to the
+     * left and the first to the right it turns the pages as before.
+     */
+    fun folderBeside(side: Int): String? {
+        val ids = ChatFolders.folders().map { it.id }
+        val j = ids.indexOf(folder.id) + side
+        return ids.getOrNull(j)
+    }
     /** The bar stands: the rows keep room under it and «Write» steps above it, as the music's plus and the feed's write. */
     fun reserve(on: Boolean) {
         foot.layoutParams = lp(MATCH, dp(if (on) 180 else 120)); foot.requestLayout()
@@ -1076,7 +1137,7 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
         // underlapPage) and the screen's own bottom edge below.
         // While the archive row stands (headFloats) the rows stop at the list's top, the head's lower edge (iOS up: false); while
         // the search holds the list (pinned) they stop at the page's bottom (iOS down: false).
-        addView(EdgeSink(c, top = { list.paddingTop + dp(34) }, bottom = { height }, edgeTop = { list.paddingTop }).apply {
+        addView(EdgeSink(c, top = { list.paddingTop + dp(48 + 34) }, bottom = { height }, edgeTop = { list.paddingTop + dp(48) }).apply {
             sink = this; up = !headFloats; down = !pinned; page = "chats"
             addView(CoinPull(c, list).apply { onPull = { pull -> if (25f < pull) revealArchive(true) } }, FrameLayout.LayoutParams(MATCH, MATCH))   // the coin's pull refreshes the feed (iOS MontanaCoinSpinner) and summons the archive's row
         }, FrameLayout.LayoutParams(MATCH, MATCH))
@@ -1087,6 +1148,10 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
             addView(c.icon(R.drawable.ic_compose, barGlyph), FrameLayout.LayoutParams(dp(30), dp(30), Gravity.CENTER))
             pressable { act.push { cardPage(act, it) } }
         }
+        // THE FOLDERS' TABS AS THE TIME PANEL (iOS MTFolderTabs at 2240, the author's word 18.10.2026 10:2x MSK): at the panel's side
+        // margins, under it, standing while the rows run beneath -- the list's own top room is the panel's, measured where it is laid
+        addView(tabs, FrameLayout.LayoutParams(MATCH, dp(44)).apply { setMargins(dp(12), 0, dp(12), 0) })
+        list.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> tabs.translationY = (list.paddingTop + dp(2)).toFloat() }
         addView(write, PageCorner.params(c))
         addView(bar, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM).apply { bottomMargin = dp(26) })
         ListFrame.attach(this, "chats", corner = write)   // the arrow back to the top over «Write» (iOS MTToTopButton)

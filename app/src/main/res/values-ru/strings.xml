@@ -688,4 +688,16 @@
     <string name="vo_orb">Шар</string>
     <string name="vo_histogram">Гистограмма</string>
     <string name="vo_histogram_note">Гистограмма носит цвета текстового пузыря.</string>
+    <!-- the folders over the chats (iOS MTChatFolders, d335474b + 786313d3 at 2240) -->
+    <string name="cf_all">Все</string>
+    <string name="cf_bots">Боты</string>
+    <string name="cf_bot">бот</string>
+    <string name="cf_read_all">Прочитать все</string>
+    <string name="cf_mute_all">Выключить звук у всех</string>
+    <string name="cf_unmute_all">Включить звук у всех</string>
+    <string name="cf_remove">Убрать</string>
+    <string name="cf_remove_q">Удалить «%1$s»?</string>
+    <string name="cf_remove_note">Папка будет удалена, ваши чаты останутся.</string>
+    <string name="cf_empty">Папка пуста.</string>
+    <string name="cf_empty_note">Сейчас в этой папке нет чатов.</string>
 </resources>
