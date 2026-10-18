@@ -38,6 +38,8 @@ import java.util.Date
 /** The words a letter shows in the list and the banner: its text, or the name of what it carries. */
 fun letterWords(c: Context, t: String, meta: String? = null): String = when {
     t.startsWith(Marks.CALL) -> Calls.info(t)?.let { Calls.words(c, it) } ?: ""
+    // a group's event row speaks the group's names (iOS MTRowLetter.eventWords, stage R)
+    Groups.isEvent(t) -> Groups.eventWords(c, t) ?: ""
     // a post's card: «Wall post» and the post's words (iOS MTRowLetter.preview, MTRowLetter.swift:143 at 2155)
     t.startsWith(WallCard.MARK) -> WallCard.of(t)?.let { k -> c.getString(R.string.wall_post) + WallCard.words(c, k).let { w -> if (w.isEmpty()) "" else " · " + w } } ?: ""
     t.startsWith(Marks.VOICE) -> c.getString(R.string.voice_message)
@@ -397,7 +399,7 @@ fun chatRow(act: MainActivity, chat: Chat): View {
                     addView(FrameLayout(c).apply {
                         addView(c.hstack {
                             gravity = Gravity.CENTER_VERTICAL
-                            if (last.mine) addView(if (stage.state == -1) c.failedMark() else c.deliveryDots(Ladder.of(chat.ref, stage).first),
+                            if (last.mine && !Groups.isEvent(last.text)) addView(if (stage.state == -1) c.failedMark() else c.deliveryDots(Ladder.of(chat.ref, stage).first),
                                 lp(WRAP, WRAP).apply { marginEnd = dp(6) })
                             addView(c.text(rowTime(c, last.at), 14f, MT.gray))
                         }, FrameLayout.LayoutParams(WRAP, WRAP))
@@ -937,7 +939,17 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                     layoutParams = lp().apply { topMargin = c.dp(2); bottomMargin = c.dp(2) }
                 }
             }
-            lay(m.mid, signOf(row), true) { letterRow(m, row) }
+            // A GROUP'S EVENT (iOS groupEventRow, stage R): the reference's service row, a capsule in the middle of the feed in the day's
+            // own dress -- no bubble, no rung, no menu
+            val event = if (group) Groups.eventWords(c, m.text) else null
+            if (event != null) lay(m.mid, listOf(event), false) {
+                FrameLayout(c).apply {
+                    addView(c.text(event, 12f, Color.WHITE, center = true).apply { background = c.glassPlate(); setPadding(dp(12), dp(5), dp(12), dp(5)) },   // USER-DATA: names inside the sentence
+                        FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER).apply { marginStart = dp(24); marginEnd = dp(24) })
+                    layoutParams = lp().apply { topMargin = c.dp(4); bottomMargin = c.dp(4) }
+                }
+            }
+            else lay(m.mid, signOf(row), true) { letterRow(m, row) }
         }
         if (want.size != feed.size || want.indices.any { want[it].key != feed[it].key || want[it].sig != feed[it].sig }) {
             val began = System.nanoTime()
@@ -1499,7 +1511,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     fun drawPresence() {
         if (group) {   // a group has no presence of one person: who types, with the pair's green dot, or its people's count (iOS MTGroupHeadLine)
             val typing = Groups.typingLine(c, ref)
-            presenceLine.text = typing ?: Groups.peopleLine(c, ref) ?: ""
+            presenceLine.text = Groups.outWords(c, ref) ?: typing ?: Groups.peopleLine(c, ref) ?: ""   // out of the group: removed or left (iOS outWords)
             presenceDot.visibility = if (typing != null) View.VISIBLE else View.GONE
             if (typing != null) presenceDot.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(SysColor.green) }
             presenceRow.visibility = if (presenceLine.text.isEmpty()) View.GONE else View.VISIBLE
@@ -1678,6 +1690,11 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     chatBeat = Runnable { if (lane && !local) { if (Presence.shown) Presence.sayChat(ref, true); MainThread.later(Presence.BEAT, chatBeat) } }
     var folded = false
     val listener: () -> Unit = listener@{
+        // THE GROUP LEFT THIS PHONE (iOS erase / dissolve → closeChat): «Delete and Exit», «Leave Group», «Delete for All»
+        if (group && Book.chat(ref) == null) {
+            if (!folded) { folded = true; hideKeys(); onClose() }
+            return@listener
+        }
         // THIS CHAT WAS FOLDED INTO THE OLDER ONE WITH THE SAME PERSON (iOS foldConversation → openChatRequest): the older opens instead.
         val into = SamePair.root(ref)
         if (into != ref && Book.chat(ref) == null) {
@@ -1759,7 +1776,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                             // in a group a speaker takes away their own letters for everyone (iOS MTGroup.answered checks the seat)
                             if (which == 0) letters.forEach { m ->
                                 if (!group) Post.send(ref, Marks.mintMid(), Marks.DELETE + "mid:" + m.mid)
-                                else if (m.mine) Groups.signal(ref, Marks.DELETE + "mid:" + m.mid)
+                                else if (m.mine || Groups.moderates(ref)) Groups.signal(ref, Marks.DELETE + "mid:" + m.mid)
                             }
                             done(); told()
                         }
@@ -2053,8 +2070,14 @@ class ReplySwipe(c: Context) : FrameLayout(c) {
  */
 private fun fillGroupFoot(c: Context, ref: String, into: FrameLayout) {
     into.removeAllViews()
-    if (Groups.isOut(ref)) into.addView(c.text(c.getString(R.string.gr_out_note), 13f, MT.gray, center = true).apply {
-        setPadding(c.dp(20), c.dp(12), c.dp(20), c.dp(12))
+    // OUT OF A GROUP, THE FIELD'S PLACE IS THE WAY OUT (iOS groupDeleteBar, stage R): «Delete and Exit» after the platform's question
+    if (Groups.isOut(ref)) into.addView(c.text(c.getString(R.string.gr_erase), 17f, SysColor.red, center = true).apply {
+        setPadding(c.dp(20), c.dp(14), c.dp(20), c.dp(14))
+        pressable {
+            AlertDialog.Builder(c).setTitle(c.getString(R.string.gr_erase_q, Book.chat(ref)?.shown ?: ""))   // USER-DATA: the group's title
+                .setPositiveButton(R.string.gr_erase) { _, _ -> Groups.erase(ref) }
+                .setNegativeButton(R.string.cancel, null).show()
+        }
     }, FrameLayout.LayoutParams(MATCH, WRAP))
     else if (!Groups.canWrite(ref)) {
         val muted = ChatMarks.isMuted(ref)
@@ -2455,7 +2478,8 @@ fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Unit, onEd
             // in a group a speaker takes away their own letter for everyone (iOS canDeleteForEveryone: chat.isGroup ? m.isMine)
             // a plate of a media group goes whole (iOS rowLetters: a group is one bubble)
             val mids = members.map { it.mid }.toSet()
-            if (profile == null && !Book.isLocal(ref) && (!group || m.mine)) row(c.getString(R.string.delete_for_everyone), R.drawable.ic_delete, red = true) {
+            // the group's owner and the administrators it named take another's letter away too (iOS moderates, stage R.6)
+            if (profile == null && !Book.isLocal(ref) && (!group || m.mine || Groups.moderates(ref))) row(c.getString(R.string.delete_for_everyone), R.drawable.ic_delete, red = true) {
                 Book.drop(ref, mids)
                 for (x in mids) if (group) Groups.signal(ref, Marks.DELETE + "mid:" + x) else Post.send(ref, Marks.mintMid(), Marks.DELETE + "mid:" + x)
             }

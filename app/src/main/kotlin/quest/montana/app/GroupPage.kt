@@ -65,24 +65,58 @@ fun groupPage(act: MainActivity, key: String, onClose: () -> Unit): View {
             addView(c.text(title, 24f, Color.WHITE, bold = true, center = true), lp(WRAP, WRAP))   // USER-DATA: the group's title
             Groups.peopleLine(c, key)?.let { addView(c.text(it, 15f, MT.gray, center = true), lp(WRAP, WRAP)) }
         }, lp())
+        // THE GROUP'S DESCRIPTION (iOS the group page's info above its people, stage R): the owner's words, read by all
+        Groups.about(key).takeIf { it.isNotEmpty() && !channel }?.let { about ->
+            body.section(null, null, c.vstack(Gravity.NO_GRAVITY) {
+                setPadding(dp(16), dp(10), dp(16), dp(10))
+                addView(c.text(about, 17f, Color.WHITE).apply { setTextIsSelectable(true) }, lp())   // USER-DATA: the owner's words
+                addView(c.text(c.getString(R.string.gp_about), 13f, MT.gray), lp())
+            })
+        }
         val rows = mutableListOf<View>()
+        // «Add Member» heads the people, as the reference folder's group page has it (iOS stage R)
+        if (owns) rows += actionRow(R.drawable.ic_person_add, c.getString(R.string.gp_add), red = false) {
+            act.push { close -> groupPickPage(act, close, {}, adding = key) }
+        }
+        // THE ROLES, AS THE REFERENCE'S MEMBER LIST NAMES THEM (iOS stage R.6): owner, admin, member; the owner's hold on a person names
+        // or dismisses an administrator and takes the person out; an administrator's takes out a member who is none
+        val iAdmin = !owns && Groups.mySeat(key)?.let { Groups.isAdmin(key, it) } == true
         rows += memberRow(c.avatar(SelfFace.load(c), Prefs.userName, 40), c.getString(R.string.gp_you),
-            c.getString(if (owns) R.string.gp_creator else R.string.gp_member), null)
-        Groups.shownSeats(c, key).forEachIndexed { i, s ->
-            val ref = SamePair.root(s.pipe)
-            rows += memberRow(c.peerFace(ref, s.name, 40), s.name, c.getString(if (!owns && i == 0) R.string.gp_creator else R.string.gp_member),
-                if (!owns) null else ({
-                    AlertDialog.Builder(c).setTitle(R.string.gp_remove_q)
-                        .setPositiveButton(R.string.gp_remove) { _, _ -> Groups.remove(key, s.seat); draw() }
+            c.getString(if (owns) R.string.gp_owner else if (iAdmin) R.string.gp_admin else R.string.gp_member), null)
+        Groups.pagePeople(c, key).forEach { s ->
+            val theOwner = !owns && s.seat == Groups.OWNER
+            val admin = Groups.isAdmin(key, s.seat)
+            val mayRemove = owns || (iAdmin && !theOwner && !admin)
+            val deeds = mutableListOf<Pair<String, () -> Unit>>()
+            if (owns && !channel) deeds += if (admin) c.getString(R.string.gp_dismiss) to { Groups.setAdmin(key, s.seat, false); draw() }
+                else c.getString(R.string.gp_promote) to { Groups.setAdmin(key, s.seat, true); draw() }
+            if (mayRemove) deeds += c.getString(R.string.gp_remove_from) to {
+                AlertDialog.Builder(c).setTitle(R.string.gp_remove_q)
+                    .setPositiveButton(R.string.gp_remove) { _, _ -> Groups.kick(key, s.seat); draw() }
+                    .setNegativeButton(R.string.cancel, null).show()
+            }
+            val face = if (s.pipe.isEmpty()) c.avatar(null, s.name, 40) else c.peerFace(SamePair.root(s.pipe), s.name, 40)
+            rows += memberRow(face, s.name, c.getString(if (theOwner) R.string.gp_owner else if (admin) R.string.gp_admin else R.string.gp_member),
+                if (deeds.isEmpty()) null else ({
+                    AlertDialog.Builder(c).setTitle(s.name)   // USER-DATA: a person's name
+                        .setItems(deeds.map { it.first }.toTypedArray()) { _, i -> deeds[i].second() }
                         .setNegativeButton(R.string.cancel, null).show()
                 }))
         }
-        if (owns) rows += actionRow(R.drawable.ic_person_add, c.getString(R.string.gp_add), red = false) {
-            act.push { close -> groupPickPage(act, close, {}, adding = key) }
-        } else if (!Groups.isOut(key)) rows += actionRow(R.drawable.ic_leave,
+        val title0 = Book.chat(key)?.shown ?: ""
+        // the owner's way out is the group's end for everyone (iOS «Delete Group», «Delete for All»)
+        if (owns && !channel) rows += actionRow(R.drawable.ic_delete, c.getString(R.string.gp_dissolve), red = true) {
+            AlertDialog.Builder(c).setTitle(c.getString(R.string.gp_dissolve_q, title0))   // USER-DATA: the group's title
+                .setPositiveButton(R.string.gp_dissolve_all) { _, _ -> Groups.dissolve(key); onClose() }
+                .setNegativeButton(R.string.cancel, null).show()
+        } else if (!owns && !Groups.isOut(key)) rows += actionRow(R.drawable.ic_leave,
             c.getString(if (channel) R.string.gp_leave_channel else R.string.gp_leave_group), red = true) {
-            AlertDialog.Builder(c).setTitle(if (channel) R.string.gp_leave_channel_q else R.string.gp_leave_group_q)
-                .setPositiveButton(if (channel) R.string.gp_leave_channel else R.string.gp_leave_group) { _, _ -> Groups.leave(key); draw() }
+            // LEAVE GROUP (iOS «Are you sure you want to leave and delete %@?»): the owner is told, and the chat goes; a channel is left as before
+            if (channel) AlertDialog.Builder(c).setTitle(R.string.gp_leave_channel_q)
+                .setPositiveButton(R.string.gp_leave_channel) { _, _ -> Groups.leave(key); draw() }
+                .setNegativeButton(R.string.cancel, null).show()
+            else AlertDialog.Builder(c).setTitle(c.getString(R.string.gr_erase_q, title0))
+                .setPositiveButton(R.string.gp_leave_group) { _, _ -> Groups.leaveAndErase(key); onClose() }
                 .setNegativeButton(R.string.cancel, null).show()
         }
         body.section(c.getString(R.string.gp_members), null, *rows.toTypedArray())
@@ -130,10 +164,20 @@ private fun groupEditPage(act: MainActivity, key: String, onBack: () -> Unit): V
         isSingleLine = true
         setPadding(c.dp(16), c.dp(12), c.dp(16), c.dp(12))
     }
+    // THE DESCRIPTION, AS THE REFERENCE'S GROUP EDITOR HAS IT (iOS stage R): written by the owner, carried to every member (Groups.renew)
+    val channel = Groups.isChannel(key)
+    val about = EditText(c).apply {
+        setText(Groups.about(key))   // USER-DATA: the owner's words about the group
+        hint = c.getString(R.string.gp_about_hint)
+        setTextColor(Color.WHITE); setHintTextColor(MT.gray)
+        background = null
+        minLines = 1; maxLines = 5
+        setPadding(c.dp(16), c.dp(12), c.dp(16), c.dp(12))
+    }
     val done = c.text(c.getString(R.string.gp_done), 17f, SysColor.blue, bold = true).apply { setPadding(c.dp(8), c.dp(10), c.dp(8), c.dp(10)) }
     done.pressable {
         c.getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(name.windowToken, 0)
-        Groups.renew(key, name.text.toString(), face)
+        Groups.renew(key, name.text.toString(), face, if (channel) null else about.text.toString())
         onBack()
     }
     val bar = FrameLayout(c).apply {
@@ -153,6 +197,11 @@ private fun groupEditPage(act: MainActivity, key: String, onBack: () -> Unit): V
                     addView(faceBox, lp(dp(100), dp(100)))
                     gap(20)
                     addView(c.plate { addView(name, lp()) }, lp())
+                    if (!channel) {
+                        gap(20)
+                        addView(c.plate { addView(about, lp()) }, lp())
+                        addView(c.text(c.getString(R.string.gp_about_note), 13f, MT.gray).apply { setPadding(dp(16), dp(6), dp(16), 0) }, lp())
+                    }
                 })
             }, lp(MATCH, 0, 1f))
         }, FrameLayout.LayoutParams(MATCH, MATCH))
