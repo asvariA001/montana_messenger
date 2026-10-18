@@ -529,7 +529,7 @@ object Presence {
         if (!faceOff && !nameOff) return
         val now = System.currentTimeMillis()
         synchronized(heldAskedAt) { if (now - (heldAskedAt[ref] ?: 0L) < 60_000L) return; heldAskedAt[ref] = now }
-        Log.d("Montana", "held_differs face=" + (if (faceOff) 1 else 0) + " name=" + (if (nameOff) 1 else 0))
+        Log.d("Montana", "held_differs to=" + ref.take(10) + " face=" + (if (faceOff) 1 else 0) + " name=" + (if (nameOff) 1 else 0))   // iOS names the peer too
         Thread { Post.announceAgain(ref, faceOff, nameOff, f, n) }.start()
     }
     /** «@DOORS» — the doors alive for me, in the chat word's tail (iOS doorTail 685-691): UPPERCASE, so no old reader takes a host's «h» for hiding. */

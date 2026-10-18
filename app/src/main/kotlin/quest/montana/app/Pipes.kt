@@ -1024,9 +1024,14 @@ object Post {
         MyAbout.sendIfNeeded(ref)
         val face = SelfFace.bytes(Book.ctx) ?: ByteArray(0)
         val tag = Wire.hex(Wire.sha(face)).take(16)
-        if (Prefs.str("annFace2." + ref, "") != tag && !inFlight("F", ref, tag)) {
-            val mid = Marks.mintMid(); flight("F", ref, tag, mid)
-            send(ref, mid, Marks.AVATAR + if (face.isEmpty()) "" else Base64.encodeToString(face, Base64.NO_WRAP))
+        if (Prefs.str("annFace2." + ref, "") != tag) {
+            // THE FACE'S ROAD IS NAMED (18.10.2026: a held_differs answered by nothing the diary could show): sent, or still on its way
+            if (inFlight("F", ref, tag)) Log.d("Montana", "face_tx to=" + ref.take(10) + " tag=" + tag.take(8) + " in-flight")
+            else {
+                val mid = Marks.mintMid(); flight("F", ref, tag, mid)
+                send(ref, mid, Marks.AVATAR + if (face.isEmpty()) "" else Base64.encodeToString(face, Base64.NO_WRAP))
+                Log.d("Montana", "face_tx to=" + ref.take(10) + " tag=" + tag.take(8) + " bytes=" + face.size + " mid=" + mid.take(8))
+            }
         }
     }
 

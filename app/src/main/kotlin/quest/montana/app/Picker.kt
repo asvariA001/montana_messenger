@@ -687,6 +687,9 @@ class Picker(
                     setPadding(dp(12), 0, dp(12), 0)
                     for (n in mine.take(24)) addView(FrameLayout(c).also { mineCell(n, 44)(it) }, lp(dp(44), dp(44)).apply { marginEnd = dp(10) })
                 })
+                // the one strip leaves the holder of the last pass first: a second pass (a sticker sent, a pack come) laid it in a
+                // new holder while the old one still held it, and the app fell (A1 446, 18.10.2026 14:31 MSK, Picker.kt:691)
+                (stripRow.parent as? android.view.ViewGroup)?.removeView(stripRow)
                 rows.add(Holder(c.vstack(Gravity.NO_GRAVITY) {
                     addView(stripRow, lp(MATCH, dp(54)).apply { topMargin = dp(6) })
                     addView(View(c).apply { setBackgroundColor(Color.argb(20, 255, 255, 255)) }, lp(MATCH, 1))
