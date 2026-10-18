@@ -248,7 +248,8 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
             return listOf(Pane.CONTACTS, Pane.CALLS, Pane.FEED, Pane.CHATS, media, Pane.P2P)   // iOS turnOrder
         }
         override fun begin(side: Int): Boolean {
-            folderTo = if (pane == Pane.CHATS && !search.active) chats.folderBeside(side) else null
+            // the drawer's groups and channels are the chats' page too: their stroke turns the folders and, as a tab, the page back to the chats
+            folderTo = if (views[pane] === chats && !search.active) chats.folderBeside(side) else null
             if (folderTo != null) { this.side = side; return true }
             val o = order(); val i = o.indexOf(pane); val j = i + side
             if (i < 0 || j !in o.indices) return false
