@@ -538,6 +538,7 @@ final class MTBoard: ObservableObject {
     /// One who hides their presence carries the wall only right after an act of their own (the critic's N6): a carry at
     /// a return of the app, or after marks that came while it was closed, would say when they came back.
     func renewVersion(own: Bool = false) {
+        if own { MTBoardGlobal.shared.laySoon() }   // my wall moved: the table for everyone hears it (18.10)
         let v = postsTag
         Self.versionLock.lock(); Self.versionKept = v; Self.versionLock.unlock()
         if own || MontanaPresencePrivacy.sharing { schedulePush() }
@@ -589,6 +590,7 @@ final class MTBoard: ObservableObject {
     /// this phone knows speaks the wall and never came is asked for when my app comes back — every one of them, a third of a
     /// second apart. Three at a time with waits of 5–45 s (24.09) left a person with ten walls waiting four returns of the app.
     func sweep() {
+        MTBoardGlobal.shared.laySoon()   // at the app's return: what the table holds of mine is set right (18.10)
         // A WALL WHOSE PAGE NEVER CAME FROM ITS OWNER IS A WALL NOT YET SEEN (the author's word 25.09: «from T3 I must see the
         // iPhone 15's wall when she shows it to everyone»): a post of mine on it made a page of one post here, and that page
         // stood for the wall for ever — no ask ever went, and an owner who carries nothing never sent the wall itself.
@@ -609,6 +611,7 @@ final class MTBoard: ObservableObject {
         ask(wall)
     }
     func lookFeed() {
+        MTBoardGlobal.shared.read()   // the posts of everyone, from the nodes' table (18.10)
         var n = 0
         for conv in cap where MontanaConv.holds(conv) {
             if let pg = pages[conv], Date().timeIntervalSince1970 - pg.at < Self.lookStale { continue }
@@ -727,11 +730,56 @@ final class MTBoard: ObservableObject {
     /// each once by its wall and its name, the most seen first (06.10). A wall whose correspondence this phone no longer
     /// holds, or whose owner is blocked or barred, stands out of it; at most the newest three hundred.
     static let feedSize = 300
+    /// MY POSTS AS THE TABLE CARRIES THEM TO EVERYONE (MTBoardGlobal): my own words on my own wall -- never a post another wrote
+    /// here, never a repost -- the newest first, a month at most, with my name and my face as they stand now. Nobody's comment
+    /// leaves (its writer showed it to my wall alone), and a post past the table's room sheds its posters from the last file.
+    func publicPosts(limit: Int, budget: Int) -> [String: (digest: String, body: [String: Any])] {
+        let edge = Date().timeIntervalSince1970 - 29 * 86400
+        let name = String(E2E.myDisplayName().prefix(64)), face = Self.myFace()
+        let enc = JSONEncoder()
+        enc.outputFormatting = .sortedKeys   // one post, one digest: what was laid is not laid again
+        var out: [String: (digest: String, body: [String: Any])] = [:]
+        let own = mine.filter { q in q.author.isEmpty && q.from == nil && edge < q.at }.sorted { a, b in b.at < a.at }
+        for p in own.prefix(limit) {
+            var x = Self.clean(seen(p, by: "", conceal: true))
+            if !name.isEmpty { x.byName = name }
+            x.face = face; x.own = true; x.mine = false; x.pinned = false
+            x.comments = []; x.commentCount = 0; x.liked = false; x.kept = false; x.reposted = false
+            var i = x.media.count - 1
+            while 0 <= i, let d = try? enc.encode(x), budget < d.count { x.media[i].thumb = nil; i -= 1 }
+            guard let d = try? enc.encode(x), d.count <= budget,
+                  let body = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { continue }
+            out[p.id] = (MontanaHomeNode.hex(Data(SHA256.hash(data: d))), body)
+        }
+        return out
+    }
+    /// THE WRITER'S NAME AS IT STANDS NOW (the author's word 18.10.2026: «everything right -- the avatars, the names»): a post kept
+    /// the name it was written under, and the face beside it was this phone's current one -- a renamed writer stood under the old
+    /// name and the new face. Mine as I am named now; a correspondent as this phone names them, as their face is this phone's;
+    /// a writer this phone never met, by the name the post carried.
+    static func shownName(_ w: MTBoardWriter, carried: String) -> String {
+        switch w {
+        case .me:
+            let n = E2E.myDisplayName()
+            return n.isEmpty ? carried : n
+        case .peer(let c):
+            let n = ChatStore.live?.displayName(for: c) ?? ""
+            return n.isEmpty ? carried : n
+        case .unknown:
+            return carried
+        }
+    }
     func feed() -> [MTBoardFeedItem] {
         let blocked = ChatStore.live?.blockedChats ?? [], barred = MontanaSafety.barred
         var all = mine.map { MTBoardFeedItem(wall: "", post: seen($0, by: "")) }
         for (wall, pg) in pages where !wall.isEmpty && !blocked.contains(wall) && !barred.contains(wall) && MontanaConv.holds(wall) {
             for p in pg.posts { all.append(MTBoardFeedItem(wall: wall, post: p)) }
+        }
+        // THE WALL OF THOUGHTS FOR EVERYONE (18.10): the posts of all people from the nodes' table, each once -- a post this phone
+        // already holds from a wall stays as that wall carried it, and a writer the person hid stays out.
+        let held = Set(all.map { it in it.post.id }), hidden = MTBoardGlobal.hidden
+        for g in MTBoardGlobal.shared.posts where !held.contains(g.post.id) && !hidden.contains(g.row) {
+            all.append(MTBoardFeedItem(wall: MTBoardGlobal.prefix + g.row, post: g.post))
         }
         var once = Set<String>()
         all = all.filter { once.insert($0.id).inserted }
@@ -1182,6 +1230,7 @@ final class MTBoard: ObservableObject {
     /// COINS ON ANOTHER'S POST (the author's word 03.10 13:40): the book pays first — a short balance refuses and nothing
     /// leaves — then the wall's word carries the coins to its owner, as a like travels.
     @MainActor func coin(_ p: MTBoardSeen, on wall: String?, _ coins: Int) -> Bool {
+        guard !MTBoardGlobal.isRef(wall) else { return false }   // a post of the table answers nobody (18.10)
         guard let wall, !p.mine, 0 < coins, !MTGroup.isKey(wall) else { return false }   // a channel's owner keeps no coins of its posts yet
         let r = UUID().uuidString
         guard MTCoinBook.ledger.spend(coins, on: "post:" + p.id, peer: wall, ref: r) else { return false }
@@ -1189,6 +1238,7 @@ final class MTBoard: ObservableObject {
         return true
     }
     func like(_ p: MTBoardSeen, on wall: String?) {
+        guard !MTBoardGlobal.isRef(wall) else { return }   // a post of the table answers nobody (18.10)
         let on = !p.liked
         guard let wall else { mutate(p.id, own: true) { q in Self.toggle(&q.likes, "", on) }; return }
         if owned[wall] != nil { mutateOwned(wall, p.id) { q in Self.toggle(&q.likes, "", on) }; return }   // a channel of mine
@@ -1206,6 +1256,7 @@ final class MTBoard: ObservableObject {
     private lazy var viewed: [String] = UserDefaults.standard.stringArray(forKey: Self.viewedKey) ?? []
     private var seenDue: [String: [String]] = [:]
     func view(_ p: MTBoardSeen, on wall: String?) {
+        guard !MTBoardGlobal.isRef(wall) else { return }   // a post of the table answers nobody (18.10)
         guard let wall, !p.mine, p.views != nil, !viewed.contains(wall + "#" + p.id),
               !(seenDue[wall] ?? []).contains(p.id) else { return }
         let first = seenDue[wall] == nil
@@ -1518,6 +1569,7 @@ struct MTWallWindow: Identifiable {
     }
 
     func comment(_ p: MTBoardSeen, on wall: String?, text: String) {
+        guard !MTBoardGlobal.isRef(wall) else { return }   // a post of the table answers nobody (18.10)
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return }
         var c = MTBoardComment(id: UUID().uuidString, by: E2E.myDisplayName(), glyph: E2E.myFaceGlyph(),
@@ -1605,6 +1657,7 @@ struct MTWallWindow: Identifiable {
     /// every file of the post is here.
     @discardableResult
     func keep(_ p: MTBoardSeen, on wall: String?, progress: (@Sendable (Int, Int) -> Void)? = nil) async -> Bool {
+        guard !MTBoardGlobal.isRef(wall) else { return false }   // a post of the table answers nobody (18.10)
         for i in p.media.indices {
             var hook: (@Sendable (Int, Int) -> Void)? = nil
             if let progress { hook = { @Sendable n, _ in progress(i, n) } }
@@ -1617,6 +1670,7 @@ struct MTWallWindow: Identifiable {
     /// makes this phone a peer of the post»): what it holds of the post stays — the sweep reads the kept files — and
     /// the wall's owner is told it keeps the post. The writer keeps theirs from the start.
     private func becomePeer(_ p: MTBoardSeen, on wall: String?) {
+        guard !MTBoardGlobal.isRef(wall) else { return }   // a post of the table answers nobody (18.10)
         let here = p.media.indices.map { Self.fileName(p.id, $0, p.media[$0].ext) }.filter { MontanaMediaStore.exists($0) }
         guard let wall else {
             if let q = mine.first(where: { $0.id == p.id }), !q.keepers.contains("") {
@@ -1640,6 +1694,7 @@ struct MTWallWindow: Identifiable {
         patchPost(wall, p.id) { x in if !x.kept { x.kept = true; x.keepers += 1 } }
     }
     func unkeep(_ p: MTBoardSeen, on wall: String?) {
+        guard !MTBoardGlobal.isRef(wall) else { return }   // a post of the table answers nobody (18.10)
         guard let wall else { mutate(p.id, own: true) { q in Self.toggle(&q.keepers, "", false) }; return }
         guard !p.mine else { return }   // the writer keeps their post while it stands; only the wall's owner takes it down
         forgetKept(p.id)
@@ -1654,6 +1709,7 @@ struct MTWallWindow: Identifiable {
     /// when the post was that wall's owner's own — its writer, by reference on this phone, and the face this phone holds
     /// for them, so the repost wears it.
     func repost(_ p: MTBoardSeen, from wall: String) async {
+        guard !MTBoardGlobal.isRef(wall) else { return }   // a post of the table answers nobody (18.10)
         let pid = p.id
         let sizes = p.media.map { max(0, $0.size) }
         let started = await MainActor.run { () -> Bool in
@@ -1693,12 +1749,18 @@ struct MTWallWindow: Identifiable {
     /// The file of a post on this phone: fetched from the node's store by its chunks, kept under its wall name.
     /// WHAT A PLAYER READS BEFORE THE FILE IS WHOLE (25.09): a post's file as the loader needs it — its pieces and their key —
     /// laid, when whole, where a look's copy stands (MTBoardLook), so a tile and a touch find it as they always did.
-    static func streamSource(_ p: MTBoardSeen, _ i: Int) -> MTStreamSource? {
+    static func streamSource(_ p: MTBoardSeen, _ i: Int, on wall: String?) -> MTStreamSource? {
         guard i < p.media.count else { return nil }
         let m = p.media[i]
         guard !m.chunks.isEmpty, 0 < m.size, let key = Data(base64Encoded: m.key) else { return nil }
         return MTStreamSource(name: Self.fileName(p.id, i, m.ext), ext: m.ext, size: m.size, key: key, chunks: m.chunks,
-                              folder: MTBoardLook.folder())
+                              folder: MTBoardLook.folder(), post: MTBoardPostRef(id: p.id, wall: wall))
+    }
+    /// A PLAYER'S PIECE IS GONE FROM EVERY DOOR (T2 18.10.2026 17:25:57Z, the author: «the seconds do not go, the wall's media do
+    /// not play»): the wall's tracks and clips play through their loader, and only a touch's whole download ever said «gone» --
+    /// so the owner never laid the files again and every play stood on its first piece. Said as the touch says it, once a launch.
+    static func piecesGone(_ post: MTBoardPostRef) {
+        DispatchQueue.main.async { shared.reportGone(post.id, on: post.wall) }
     }
     func file(_ p: MTBoardSeen, _ i: Int, on wall: String?, progress: (@Sendable (Int, Int) -> Void)? = nil) async -> String? {
         guard i < p.media.count else { return nil }
@@ -1741,6 +1803,7 @@ struct MTWallWindow: Identifiable {
     /// 24.09: «the downloads' count must be right and must move»): on the owner's wall, and on this page at once — the
     /// owner's next page says the same number, for the owner counts each person once.
     private func noteDownloaded(_ p: MTBoardSeen, on wall: String?) {
+        guard !MTBoardGlobal.isRef(wall) else { return }   // a post of the table answers nobody (18.10)
         guard !p.media.isEmpty else { return }
         let all = p.media.indices.allSatisfy { MontanaMediaStore.exists(Self.fileName(p.id, $0, p.media[$0].ext)) }
         guard all, !countedDownload.contains(p.id) else { return }
@@ -2157,6 +2220,7 @@ struct MTWallWindow: Identifiable {
     /// post is mine, the owner's own, or by a writer this phone is not told of — and a repost wears its first writer's
     /// name, a writer not named to this phone either.
     func writer(of p: MTBoardSeen, on wall: String?) -> MTBoardWriter {
+        if MTBoardGlobal.isRef(wall) { return .unknown }   // a writer of the table: nobody this phone knows (18.10)
         guard let wall else {
             guard let q = mine.first(where: { $0.id == p.id }) else { return p.mine ? .me : .unknown }
             // A REPOST ON MY WALL WEARS ITS WRITER when this phone knows them (the author's word 25.09): me, when I wrote it.
@@ -2415,6 +2479,12 @@ enum MTBoardDrafts {
 }
 
 
+/// A wall post by its id and the wall it stands on -- nil, my own.
+struct MTBoardPostRef: Equatable {
+    let id: String
+    let wall: String?
+}
+
 /// A PICTURE BROUGHT TO BE SEEN, AND KEPT UNDER A BOUND (the author's word 25.09: «on my page and on another's the media are
 /// blurred and not beautiful»; 29.09: «fix it at the root»): on another's wall a tile drew the poster the post carries -- 320
 /// pixels stretched over the width. The picture itself is brought from the node's blind store, by the same chunks a touch
@@ -2509,5 +2579,152 @@ enum MTBoardLook {
             total -= bytes(u); count -= 1
             try? fm.removeItem(at: u)
         }
+    }
+}
+
+
+// THE WALL OF THOUGHTS FOR EVERYONE (the author's word 18.10.2026 20:1x MSK: «the whole wall must be global for all users, as the
+// top is, and everything right -- the avatars, the names, the order»). A wall shown to everyone (the sight rule .everyone) lays its
+// owner's own posts on the nodes' public table (/wall-put) under a row only the owner's words derive, as the top lays its rows;
+// every phone reads the table (/wall-get), and the feed stands the posts of all people by the moment each was published. A post of
+// the table is read here and answered nowhere: its writer is nobody this phone knows (MTBoard.writer gives .unknown), it wears the
+// name and the face it carried, and no word of a wall goes to it -- its wall's reference (prefix and row) is held by no conversation.
+// Nothing of a person leaves whose wall is not shown to everyone; a rule moved from everyone withdraws every post at once.
+final class MTBoardGlobal: ObservableObject {
+    static let shared = MTBoardGlobal()
+    static let prefix = "g:"                                       // NOT-UI: a wall of the table, held by no conversation
+    static let sentKey = "wall.global.sent"                        // NOT-UI: this device's own record of what it laid
+    static let hiddenKey = "wall.global.hidden"                    // NOT-UI: the writers of the table the person hid
+    private static let keyLabel = Data("mt-wall-owner-v1".utf8)    // NOT-UI: the derivation's own label
+    private static let tokenLabel = Data("mt-wall-token".utf8)     // NOT-UI: the token's own label
+    static let perOwner = 20
+    static let budget = 90 * 1024
+    @Published private(set) var posts: [(row: String, post: MTBoardSeen)] = []
+    private var readAt = Date.distantPast
+    private var reading = false
+    private var laying = false
+    private var layWork: DispatchWorkItem?
+
+    static func isRef(_ wall: String?) -> Bool { wall?.hasPrefix(prefix) == true }
+    static func key(entropy: Data) -> SymmetricKey {
+        HKDF<SHA256>.deriveKey(inputKeyMaterial: SymmetricKey(data: entropy), salt: Data(), info: keyLabel, outputByteCount: 32)
+    }
+    static func token(_ k: SymmetricKey) -> Data { Data(HMAC<SHA256>.authenticationCode(for: tokenLabel, using: k)) }
+    static func row(token t: Data) -> String { MontanaHomeNode.hex(Data(SHA256.hash(data: t))) }
+    private static func myToken() -> Data? { MTHomeShelf.entropy().map { e in token(key(entropy: e)) } }
+    /// THE FROZEN VECTORS (computed outside this code: RFC 5869 HKDF-SHA-256, HMAC-SHA-256 and SHA-256 on the counting bytes
+    /// 0x00..0x1f; tools/mt-top-check.py computes them again on every commit): the top's label in place of this one, a reversed
+    /// root or a row hashed as hex text all fail them.
+    static func keyKAT() -> Bool {
+        let counting = Data((0..<32).map { i in UInt8(i) })
+        let k = key(entropy: counting)
+        let t = token(k)
+        return MontanaHomeNode.hex(k.withUnsafeBytes { b in Data(b) }) == "e2cdd8ddc43893fd6761039367f5d55e8ac52d2427d346383b0d12fd64d13ec9"
+            && MontanaHomeNode.hex(t) == "23fc0c606a9a9d8665c3fb328e12cf35376b6491c689d010a2528135e1d3eb7a"
+            && row(token: t) == "4b600b4950935a76a7c63c815f7af404dc71dfa22e1400391f763e7bb8730c8f"
+    }
+    static var hidden: Set<String> { Set(UserDefaults.standard.stringArray(forKey: hiddenKey) ?? []) }
+    /// THE PERSON HIDES A WRITER OF THE TABLE (Guideline 1.2: a way to stop seeing a person): their posts leave this feed for good.
+    func hide(_ wall: String) {
+        guard Self.isRef(wall) else { return }
+        let r = String(wall.dropFirst(Self.prefix.count))
+        var h = Self.hidden
+        h.insert(r)
+        UserDefaults.standard.set(Array(h).sorted(), forKey: Self.hiddenKey)
+        posts.removeAll { g in g.row == r }
+        MTBoard.shared.objectWillChange.send()
+        MontanaTrace.mark("wall_global", "hid a writer hidden=\(h.count)")
+    }
+
+    // -- the owner lays --
+    func laySoon() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.layWork?.cancel()
+            let w = DispatchWorkItem { [weak self] in self?.lay() }
+            self.layWork = w
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: w)
+        }
+    }
+    private func lay() {
+        guard !laying, let tok = Self.myToken() else { return }
+        let hex = MontanaHomeNode.hex(tok)
+        let sent = (UserDefaults.standard.dictionary(forKey: Self.sentKey) as? [String: String]) ?? [:]
+        var work: [(id: String, digest: String?, body: [String: Any])] = []
+        if MTBoardRule.current(.see) != .everyone {
+            guard !sent.isEmpty else { return }
+            work.append((id: "*", digest: nil, body: ["token": hex, "hide": "*"]))
+        } else {
+            let shown = MTBoard.shared.publicPosts(limit: Self.perOwner, budget: Self.budget)
+            for id in sent.keys where shown[id] == nil { work.append((id: id, digest: nil, body: ["token": hex, "hide": id])) }
+            for (id, x) in shown where sent[id] != x.digest { work.append((id: id, digest: x.digest, body: ["token": hex, "post": x.body])) }
+        }
+        guard !work.isEmpty else { return }
+        laying = true
+        let jobs = work
+        Task {
+            var done: [(String, String?)] = []
+            for w in jobs where await Self.send("/wall-put", w.body) != nil { done.append((w.id, w.digest)) }
+            let settled = done
+            await MainActor.run {
+                MTBoardGlobal.shared.laying = false
+                var now = (UserDefaults.standard.dictionary(forKey: Self.sentKey) as? [String: String]) ?? [:]
+                for (id, dg) in settled {
+                    if id == "*" { now = [:] } else { now[id] = dg }
+                }
+                UserDefaults.standard.set(now, forKey: Self.sentKey)
+                MontanaTrace.mark("wall_global", "laid=\(settled.count) of=\(jobs.count) held=\(now.count)")
+            }
+        }
+    }
+
+    // -- every phone reads --
+    func read() {
+        guard !reading, 60 < Date().timeIntervalSince(readAt) else { return }
+        reading = true
+        Task {
+            let got = await Self.fetch()
+            await MainActor.run {
+                let me = MTBoardGlobal.shared
+                me.reading = false
+                me.readAt = Date()
+                guard let got else { return MontanaTrace.markFolded("wall_global", "read: no node answered", window: 300) }
+                let hidden = Self.hidden
+                me.posts = got.filter { g in !hidden.contains(g.row) }
+                MTBoard.shared.objectWillChange.send()
+                MontanaTrace.markChanged("wall_global", "read posts=\(got.count)")
+            }
+        }
+    }
+    private static func send(_ path: String, _ body: [String: Any]) async -> [String: Any]? {
+        guard let d = try? JSONSerialization.data(withJSONObject: body) else { return nil }
+        for b in MontanaWakePush.orderedBases(for: "top") {
+            guard let u = URL(string: b + path) else { continue }   // SERVER-DEBT-ACK: the accelerator node (rung 4), the public table
+            var req = URLRequest(url: u); req.httpMethod = "POST"; req.timeoutInterval = 8   // SERVER-DEBT-ACK: the accelerator node (rung 4)
+            req.setValue("application/json", forHTTPHeaderField: "content-type")
+            req.httpBody = d
+            if let r = try? await URLSession.shared.data(for: req), (r.1 as? HTTPURLResponse)?.statusCode == 200 {   // SERVER-DEBT-ACK: the accelerator node (rung 4)
+                return (try? JSONSerialization.jsonObject(with: r.0) as? [String: Any]) ?? [:]
+            }
+        }
+        return nil
+    }
+    /// A post of another hand owes this screen nothing: it is read as a post, its marks of mine set to none, its name letters only.
+    private static func fetch() async -> [(row: String, post: MTBoardSeen)]? {
+        guard let j = await send("/wall-get", [:]), let list = j["posts"] as? [[String: Any]] else { return nil }
+        let mine = myToken().map { t in row(token: t) }
+        var out: [(row: String, post: MTBoardSeen)] = []
+        for x in list {
+            guard let r = x["row"] as? String, r.count == 64, r != mine, let p = x["post"] as? [String: Any],
+                  let d = try? JSONSerialization.data(withJSONObject: p), var s = try? JSONDecoder().decode(MTBoardSeen.self, from: d)
+            else { continue }
+            s.mine = false; s.liked = false; s.kept = false; s.reposted = false; s.own = true; s.pinned = false; s.from = nil
+            s.comments = []
+            let letters = s.byName.unicodeScalars.filter { u in u.properties.generalCategory != .control }
+                .filter { u in u.properties.generalCategory != .format }
+            s.byName = String(String(String.UnicodeScalarView(letters)).prefix(64))
+            out.append((row: r, post: s))
+        }
+        return out
     }
 }

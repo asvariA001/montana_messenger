@@ -30033,6 +30033,390 @@
           }
         }
       }
+    },
+    "Your files": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваши файлы"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "您的文件"
+          }
+        }
+      }
+    },
+    "Files held by your node": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Файлы на вашем узле"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "您节点上的文件"
+          }
+        }
+      }
+    },
+    "Laying your files on your node": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Файлы уходят на ваш узел"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在将文件存入您的节点"
+          }
+        }
+      }
+    },
+    "Keep files on your node now": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отдать файлы узлу сейчас"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "立即将文件存入节点"
+          }
+        }
+      }
+    },
+    "FILES ON YOUR NODE": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ФАЙЛЫ НА ВАШЕМ УЗЛЕ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "您节点上的文件"
+          }
+        }
+      }
+    },
+    "Every photo, video, voice and file of your chats goes to your node in sealed pieces, over Wi-Fi while Montana is open. Data and Storage clears from this phone what your node holds; each comes back when you open it.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Каждое фото, видео, голосовое и файл ваших чатов уходят на ваш узел запечатанными кусками — по Wi-Fi, пока Montana открыта. В «Данных и памяти» с телефона стирается то, что держит узел; каждый файл возвращается, когда вы его открываете."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "您聊天中的每张照片、视频、语音和文件都会在 Montana 打开时通过 Wi-Fi 以加密分块存入您的节点。在「数据与存储」中可从本机清除节点已保存的内容；打开时即取回。"
+          }
+        }
+      }
+    },
+    "Kept on your node": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хранится на вашем узле"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "存于您的节点"
+          }
+        }
+      }
+    },
+    "Clear cache": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Очистить кеш"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除缓存"
+          }
+        }
+      }
+    },
+    "CACHE": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "КЕШ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "缓存"
+          }
+        }
+      }
+    },
+    "What your node holds leaves this phone. Each photo, video and file comes back from your node when you open it, here or on a new phone with your 24 words.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "То, что держит ваш узел, уходит с телефона. Каждое фото, видео и файл возвращаются с узла, когда вы их открываете, — здесь или на новом телефоне по вашим 24 словам."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "节点已保存的内容将从本机移除。每张照片、视频和文件在您打开时从节点取回——在本机，或凭您的 24 个词在新手机上。"
+          }
+        }
+      }
+    },
+    "Set up your node in Settings, Your node: what it holds can then be cleared from this phone and comes back when you open it.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Настройте свой узел: Настройки, «Ваш узел». Тогда то, что он держит, можно стирать с телефона, и оно вернётся, когда вы его откроете."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请在「设置」中的「您的节点」设置节点：之后可从本机清除节点保存的内容，打开时即取回。"
+          }
+        }
+      }
+    },
+    "Clear the cache?": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Очистить кеш?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除缓存？"
+          }
+        }
+      }
+    },
+    "Cleared from this phone: %lld files, %@. Your node keeps them.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стёрто с телефона: файлов — %lld, %@. Узел их хранит."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已从本机清除 %lld 个文件，%@。您的节点仍保存着它们。"
+          }
+        }
+      }
+    },
+    "Your node did not answer. Nothing was cleared.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваш узел не ответил. Ничего не стёрто."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "您的节点没有回应。未清除任何内容。"
+          }
+        }
+      }
+    },
+    "Only what your node holds leaves this phone; what it does not hold stays.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "С телефона уходит только то, что держит ваш узел; остальное остаётся."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只有节点已保存的内容会从本机移除；其余保留。"
+          }
+        }
+      }
+    },
+    "Cache": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кеш"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "缓存"
+          }
+        }
+      }
+    },
+    "Hide this person": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скрыть этого человека"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏此人"
+          }
+        }
+      }
+    },
+    "Keep media": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хранить медиа"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保留媒体"
+          }
+        }
+      }
+    },
+    "3 days": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3 дня"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3 天"
+          }
+        }
+      }
+    },
+    "1 week": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 неделю"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 周"
+          }
+        }
+      }
+    },
+    "1 month": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 месяц"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 个月"
+          }
+        }
+      }
+    },
+    "Forever": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Всегда"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "永久"
+          }
+        }
+      }
+    },
+    "Maximum cache size": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Максимальный размер кеша"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最大缓存大小"
+          }
+        }
+      }
+    },
+    "No limit": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Без предела"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无限制"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

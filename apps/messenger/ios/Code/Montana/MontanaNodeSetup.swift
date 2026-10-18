@@ -115,76 +115,27 @@ final class MTSSHRun {
 /// THE SET-UP OF ONE'S OWN NODE: the door's source, the certificate, the unit -- and the digest the phone keeps.
 enum MontanaNodeSetup {
     static let tlsPort = 8463   // NOT-UI: the door's own TLS port, beside the plain one a front proxies to
-    /// The door this app carries, byte for byte the one deployed (Audit/Internal, lauterbourg-node-store.py).
-    static func door() -> Data? {
-        Bundle.main.url(forResource: "lauterbourg-node-store", withExtension: "py").flatMap { try? Data(contentsOf: $0) }
+    /// THE DOOR AND ITS SET-UP, ONE SOURCE (Code/Node, 18.10): the app carries the very two files a person runs by hand from the
+    /// public tree -- the door (montana-home-node.py, byte for byte the one Lauterbourg runs) and install.sh, which makes the
+    /// store's own user and folders, the unit, a certificate of the machine's own under a closed umask, the port, and answers with
+    /// the certificate's digest. A unit already there keeps every word it had and gains the shelf.
+    static func door() -> Data? { resource("montana-home-node", "py") }
+    static func script() -> Data? { resource("install", "sh") }
+    private static func resource(_ name: String, _ ext: String) -> Data? {
+        Bundle.main.url(forResource: name, withExtension: ext).flatMap { try? Data(contentsOf: $0) }
     }
-    /// What the machine does to itself, as root: the store's own user and folders, the unit, a certificate of its own made
-    /// by that user under a closed umask, the port -- and it answers with the certificate's digest. A unit already there
-    /// keeps every word it had and gains the shelf.
-    static let script = """
-set -e
-IP="$1"
-id montana 2>/dev/null || useradd -r -m -d /var/lib/montana-node-wake -s /usr/sbin/nologin montana
-runuser -u montana -- mkdir -p /var/lib/montana-node-wake/blobs /var/lib/montana-node-wake/vault /var/lib/montana-node-wake/tls
-python3 - <<'PYEOF'
-import os
-u = '/etc/systemd/system/montana-node-store.service'
-want = {'VAULT_DIR': '/var/lib/montana-node-wake/vault', 'VAULT_TLS_CERT': '/var/lib/montana-node-wake/tls/cert.pem',
-        'VAULT_TLS_KEY': '/var/lib/montana-node-wake/tls/key.pem', 'STORE_TLS_PORT': '8463',
-        'STORE_DB': '/var/lib/montana-node-wake/tokens.db', 'WAKE_BLOBS': '/var/lib/montana-node-wake/blobs'}
-if os.path.exists(u):
-    rows = open(u).read().split(chr(10))
-    env = {}
-    for r in rows:
-        if r.startswith('Environment='):
-            k, _, v = r[12:].partition('=')
-            env[k] = v
-    caps = [c for c in env.get('MONTANA_CAPS', '').split(',') if c]
-    if 'vault' not in caps: caps.append('vault')
-    env['MONTANA_CAPS'] = ','.join(caps)
-    for k, v in want.items():
-        if k not in env: env[k] = v
-    out = []
-    for r in rows:
-        if r.startswith('Environment='): continue
-        out.append(r)
-        if r.strip() == '[Service]':
-            for k, v in env.items(): out.append('Environment=' + k + '=' + v)
-    open(u, 'w').write(chr(10).join(out))
-else:
-    env = {'MONTANA_CAPS': 'vault'}
-    env.update(want)
-    text = ['[Unit]', 'Description=Montana node store (the shelf of the whole phone)', 'After=network.target', '', '[Service]']
-    text += ['Environment=' + k + '=' + v for k, v in env.items()]
-    text += ['User=montana', 'ExecStart=/usr/bin/python3 /opt/montana-node-store/montana-node-store.py', 'Restart=always',
-             'RestartSec=2', 'LimitNOFILE=65536', '', '[Install]', 'WantedBy=multi-user.target', '']
-    open(u, 'w').write(chr(10).join(text))
-PYEOF
-if [ ! -f /var/lib/montana-node-wake/tls/key.pem ]; then
-  case "$IP" in *[a-zA-Z]*) SAN="DNS:$IP";; *) SAN="IP:$IP";; esac
-  runuser -u montana -- sh -c "umask 077; openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 3650 -keyout /var/lib/montana-node-wake/tls/key.pem -out /var/lib/montana-node-wake/tls/cert.pem -subj /CN=montana-node -addext subjectAltName=$SAN" 2>/dev/null
-fi
-command -v ufw >/dev/null 2>&1 && ufw allow 8463/tcp >/dev/null 2>&1 || true
-systemctl daemon-reload
-systemctl enable montana-node-store >/dev/null 2>&1 || true
-systemctl restart montana-node-store
-sleep 1
-systemctl is-active montana-node-store
-openssl x509 -in /var/lib/montana-node-wake/tls/cert.pem -noout -fingerprint -sha256
-"""   // NOT-UI: the machine's own commands
 
     /// Puts the door up on the machine and brings back the digest of its certificate, 64 hex.
     static func run(host: String, user: String, password: String) async throws -> String {
         // A MACHINE JOINS MONTANA'S NETWORK FROM LEVEL 8 (MTLevelAccess.ownNode, the author's word 17.10.2026 18:1x MSK).
         guard MTLevelAccess.opens(.ownNode) else { throw MTSSHError.belowLevel(MTLevelAccess.Feature.ownNode.level) }
-        guard let d = door() else { throw MTSSHError.channel }
+        guard let d = door(), let sc = script() else { throw MTSSHError.channel }
         let put = try await MTSSHRun.run(host: host, user: user, password: password,
                                          command: "mkdir -p /opt/montana-node-store && cat > /opt/montana-node-store/montana-node-store.py",   // NOT-UI
                                          stdin: d, seconds: 120)
         guard put.status == 0 else { throw MTSSHError.refused(put.status, put.err) }
         let ran = try await MTSSHRun.run(host: host, user: user, password: password, command: "bash -s -- " + host,   // NOT-UI
-                                         stdin: Data(script.utf8), seconds: 300)
+                                         stdin: sc, seconds: 300)
         guard ran.status == 0 else { throw MTSSHError.refused(ran.status, ran.err.isEmpty ? ran.out : ran.err) }
         MontanaTrace.mark("home_node", "set up: active=" + (ran.out.contains("active") ? "1" : "0"))
         guard let line = ran.out.split(separator: "\n").last(where: { $0.contains("Fingerprint=") }),   // NOT-UI: openssl's own word

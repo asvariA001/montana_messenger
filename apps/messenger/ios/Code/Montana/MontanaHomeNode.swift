@@ -192,7 +192,11 @@ enum MontanaHomeNode {
         sealing = 0
         CopyInventory.gather { [weak self] inv in
             let plan = CopyPlan.load()
-            MontanaBackup.create(scope: inv.scope(plan), urgent: urgent, progress: { f in self?.sealing = f }) { r in
+            // THE COPY STAYS LIGHT (18.10): a file the node already keeps in pieces is not sealed into the copy a second time;
+            // the book brings it back (MTHomeShelf).
+            var scope = inv.scope(plan)
+            scope.skipFiles.formUnion(MTHomeBook.shared.kept())
+            MontanaBackup.create(scope: scope, urgent: urgent, progress: { f in self?.sealing = f }) { r in
                 guard let self else { return }
                 self.sealing = nil
                 switch r {
@@ -334,6 +338,7 @@ final class MTComeMeter: MTNodeTrust, URLSessionDownloadDelegate {
 /// field and switch on the glass rows, as every settings page stands (the author's word 25.09).
 struct HomeNodeView: View {
     @ObservedObject private var node = HomeNodeWatch.shared
+    @ObservedObject private var keep = MTHomeKeep.shared
     @State private var host = MontanaHomeNode.host
     @State private var on = MontanaHomeNode.on
     @State private var word: LocalizedStringKey? = nil
@@ -352,6 +357,7 @@ struct HomeNodeView: View {
     private struct Cap: Identifiable { let id: String; let word: LocalizedStringKey; let glyph: String }
     private static let capWords: [Cap] = [
         Cap(id: "vault", word: "Copies of the whole phone", glyph: "externaldrive.fill"),
+        Cap(id: "home", word: "Your files", glyph: "photo.stack.fill"),
         Cap(id: "box", word: "Letters for sleeping phones", glyph: "tray.full.fill"),
         Cap(id: "blob", word: "Attachments in transit", glyph: "paperclip"),
         Cap(id: "signal", word: "Call signalling", glyph: "phone.fill"),
@@ -425,6 +431,32 @@ struct HomeNodeView: View {
                 if !open { Text("Opens at level \(eight). Your level is \(level).") }
             }
             .listRowBackground(MTGlassRowPlate())
+            // THE FILES ON YOUR NODE (18.10): every attachment in sealed pieces, the node's word on what it holds, this phone's
+            // own count of what it is laying now.
+            Section {
+                switch keep.word {
+                case .unknown:
+                    EmptyView()
+                case .held(let files, let bytes, _):
+                    HStack {
+                        Text("Files held by your node").foregroundColor(.white)
+                        Spacer()
+                        Text(verbatim: String(files) + " · " + mtSize(bytes)).foregroundColor(.secondary)   // USER-DATA: the node's count and size
+                    }
+                case .silent(let why):
+                    HStack { Text("Your node did not answer").foregroundColor(.white); Spacer(); Text(verbatim: why).font(.footnote).foregroundColor(.secondary) }   // USER-DATA: the reason
+                }
+                if let f = keep.sending { bar("Laying your files on your node", f) }
+                Button { keep.keep(cellular: true) } label: {
+                    HStack { settingsToggleLabel("Keep files on your node now", "externaldrive.badge.plus", .green); Spacer() }.contentShape(Rectangle())
+                }
+                .disabled(host.isEmpty || keep.sending != nil || !open || !on)
+            } header: {
+                Text("FILES ON YOUR NODE")
+            } footer: {
+                Text("Every photo, video, voice and file of your chats goes to your node in sealed pieces, over Wi-Fi while Montana is open. Data and Storage clears from this phone what your node holds; each comes back when you open it.")
+            }
+            .listRowBackground(MTGlassRowPlate())
             if !node.caps.isEmpty {
                 Section {
                     ForEach(Self.capWords) { c in
@@ -445,7 +477,7 @@ struct HomeNodeView: View {
         .montanaPageGround()   // my page's ground, as every page wears it (26.09)
         .navigationTitle("Your node")
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear { node.ask() }
+        .onAppear { node.ask(); keep.ask() }
         .onChange(of: editing) { _, now in if !now { commit() } }
         .alert("Your node", isPresented: Binding(get: { word != nil }, set: { v in if !v { word = nil } })) {
             Button("OK") { word = nil }
@@ -553,6 +585,432 @@ extension MontanaBackup.Refusal {
         case .wrongWords: return "These 24 words do not open this backup: it belongs to another phrase."
         case .unopened: return "These 24 words do not open this file: it is a backup of another phrase, or not a Montana backup at all."
         case .torn: return "This backup is cut short or damaged. Whatever could be read has been filed."
+        }
+    }
+}
+
+
+// ── THE FILES ON YOUR NODE ────────────────────────────────────────────────────────────────────────────────────────
+// The author's word 18.10.2026 20:1x MSK: «make my Lauterbourg node my personal storage for T1, so I clear the cache in the
+// app and it weighs nothing, and even after deleting the app I come back and load everything from my own node».
+//
+// Every file of this phone's media store is sealed by this phone under a key of its own, cut into the pieces the doors
+// already carry, and laid on the shelf of the words' token beside the copies (/home-put). Which file is which pieces is THE
+// BOOK; it lies on the node as well, sealed under a key the words alone derive and named by a name the words alone derive --
+// so the 24 words bring the book back, and the book every file. The node holds what it says it holds (/home-have): a file
+// leaves this phone only when the node has just named every one of its pieces, and comes back at a look or a tap.
+
+/// The node's rooms for the pieces, and the keys the words derive for them.
+enum MTHomeShelf {
+    private static let bookKeyLabel = Data("mt-home-book-key".utf8)     // NOT-UI: the derivation's own label
+    private static let bookNameLabel = Data("mt-home-book-name".utf8)   // NOT-UI: the book's name on the shelf
+    private static let fileKeyLabel = Data("mt-home-file-key".utf8)     // NOT-UI: a file's own key
+    static let chunk = MontanaMedia.chunkSize
+
+    /// Files go to the node while its copies do (the switch, level 8); taking one's own files back asks no level.
+    static var keeping: Bool { MontanaHomeNode.on && bringing }
+    static var bringing: Bool { !MontanaHomeNode.host.isEmpty && entropy() != nil }
+    static func entropy() -> Data? {
+        guard let m = MontanaSeed.mnemonic, let e = MontanaSeedKeys.entropyFrom(mnemonic: m), e.count == 32 else { return nil }
+        return e
+    }
+    static func bookKey(entropy e: Data) -> SymmetricKey {
+        HKDF<SHA256>.deriveKey(inputKeyMaterial: SymmetricKey(data: e), salt: Data(), info: bookKeyLabel, outputByteCount: 32)
+    }
+    static func bookName(entropy e: Data) -> String {
+        MontanaHomeNode.hex(Data(HMAC<SHA256>.authenticationCode(for: bookNameLabel, using: bookKey(entropy: e))))
+    }
+    /// A file's key, from the words and the file's name: the same file sealed again gives the same pieces, so a pass cut short
+    /// goes on from what the node already holds.
+    static func fileKey(entropy e: Data, name: String) -> Data {
+        Data(HMAC<SHA256>.authenticationCode(for: fileKeyLabel + Data(name.utf8), using: bookKey(entropy: e)))
+    }
+    private static func raw(_ k: SymmetricKey) -> [UInt8] { k.withUnsafeBytes { [UInt8]($0) } }
+    /// THE FROZEN VECTORS (computed outside this code: RFC 5869 HKDF-SHA-256 and HMAC-SHA-256 on the counting bytes 0x00..0x1f and
+    /// the name img_a1.jpg; tools/mt-home-node-check.py computes them again on every commit). A drifted label loses the book of
+    /// every phone before it: the shelf's label in place of the book's, the name before its label, or img_1a.jpg all fail them.
+    static func keyKAT() -> Bool {
+        let counting = Data((0..<32).map { UInt8($0) })
+        return MontanaHomeNode.hex(Data(raw(bookKey(entropy: counting)))) == "9bece1c15302a5154b382514015c9d888be32876f01e00963cecdaf7156bb992"
+            && bookName(entropy: counting) == "5d536d3dc037f357cc0430d317072ac117cc72efaafcae76d4a9e923edbe28a1"
+            && MontanaHomeNode.hex(fileKey(entropy: counting, name: "img_a1.jpg")) == "0362e58cd7c26c3fd0735391a2b64c012744647e42bacbe6745d1373d6775901"   // NOT-UI: a vector's name
+    }
+
+    // ── the wire ──
+    private static let session: URLSession = {
+        let c = URLSessionConfiguration.default
+        c.timeoutIntervalForRequest = 30
+        return URLSession(configuration: c)
+    }()
+    private static func post(_ path: String, _ body: [String: Any]) async -> (Int, [String: Any])? {
+        guard let tok = MontanaHomeNode.tokenHex(), let b = MontanaHomeNode.base(MontanaHomeNode.host),
+              let u = URL(string: b.absoluteString + path), let d = try? JSONSerialization.data(withJSONObject: body) else { return nil }
+        var r = URLRequest(url: u)
+        r.httpMethod = "POST"
+        r.setValue("application/json", forHTTPHeaderField: "content-type")
+        r.setValue(tok, forHTTPHeaderField: MontanaHomeNode.tokenHeader)
+        r.httpBody = d
+        guard let (data, resp) = try? await session.data(for: r, delegate: MTNodeTrust()) else { return nil }
+        return ((resp as? HTTPURLResponse)?.statusCode ?? -1, (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:])
+    }
+    static func get(_ bid: String) async -> Data? {
+        guard let (code, j) = await post("/home-get", ["bid": bid]), code == 200, let s = j["data"] as? String else { return nil }
+        return Data(base64Encoded: s)
+    }
+    /// The node's own word on which of these pieces it holds; nil when it did not answer.
+    static func have(_ bids: [String]) async -> Set<String>? {
+        var out = Set<String>()
+        var at = 0
+        while at < bids.count {
+            let part = Array(bids[at..<min(at + 4096, bids.count)])
+            guard let (code, j) = await post("/home-have", ["bids": part]), code == 200, let h = j["have"] as? [String] else { return nil }
+            out.formUnion(h)
+            at += part.count
+        }
+        return out
+    }
+    /// True only on the node's «held».
+    static func put(_ bid: String, _ sealed: Data, over: Bool = false) async -> Bool {
+        guard let (code, j) = await post("/home-put", ["bid": bid, "data": sealed.base64EncodedString(), "over": over]) else { return false }
+        if code != 200 { MontanaTrace.markFolded("home_put", "refused code=\(code) \((j["error"] as? String) ?? "")", window: 60) }
+        return code == 200 && (j["held"] as? Bool) == true
+    }
+
+    // ── the book on the node ──
+    static func putBook(entropy e: Data) async {
+        guard let plain = MTHomeBook.shared.json(), let sealed = MTNodeWire.sealBlob(key: raw(bookKey(entropy: e)), plain) else { return }
+        let ok = await put(bookName(entropy: e), sealed, over: true)
+        MontanaTrace.mark("home_book", "put files=\(MTHomeBook.shared.count) bytes=\(sealed.count) held=\(ok ? 1 : 0)")
+    }
+    static func takeBook(entropy e: Data) async {
+        guard let sealed = await get(bookName(entropy: e)), let plain = MontanaDirect.open(key: raw(bookKey(entropy: e)), sealed) else {
+            MontanaTrace.mark("home_book", "none on your node")
+            return
+        }
+        let n = MTHomeBook.shared.merge(plain)
+        MontanaTrace.mark("home_book", "taken files=\(n)")
+    }
+
+    // ── a file to the node ──
+    private static func piece(_ url: URL, _ i: Int, _ size: Int, _ key: Data) -> MontanaMedia.SealedChunk? {
+        autoreleasepool {
+            guard let h = try? FileHandle(forReadingFrom: url) else { return nil }
+            defer { try? h.close() }
+            let len = min(chunk, size - i * chunk)
+            guard (try? h.seek(toOffset: UInt64(i * chunk))) != nil, let d = try? h.read(upToCount: len), d.count == len else { return nil }
+            return MontanaMedia.sealPiece(d, blobKey: key, index: i)
+        }
+    }
+    /// Every piece's name first (each sealed once to learn it), the node's word on them, then what it lacks, three at a time.
+    static func keepFile(_ name: String, size: Int, entropy e: Data) async -> MTHomeBook.Entry? {
+        let key = fileKey(entropy: e, name: name), url = MontanaMediaStore.url(name)
+        let count = (size + chunk - 1) / chunk
+        guard 0 < count else { return nil }
+        var bids: [String] = []
+        for i in 0..<count {
+            guard let sc = piece(url, i, size, key) else { return nil }
+            bids.append(sc.blobId)
+        }
+        guard let held = await have(bids) else { return nil }
+        let missing = (0..<count).filter { !held.contains(bids[$0]) }
+        let ok = await withTaskGroup(of: Bool.self) { g -> Bool in
+            var next = 0, good = true
+            func launch() {
+                let i = missing[next]; next += 1
+                g.addTask {
+                    guard let sc = piece(url, i, size, key), sc.blobId == bids[i] else { return false }   // the file changed under us
+                    return await put(sc.blobId, sc.sealed)
+                }
+            }
+            while next < min(3, missing.count) { launch() }
+            for await r in g {
+                if !r { good = false; g.cancelAll(); break }
+                if next < missing.count { launch() }
+            }
+            return good
+        }
+        return ok ? MTHomeBook.Entry(z: size, p: bids, at: Date().timeIntervalSince1970) : nil
+    }
+
+    /// THE PASS: every file of the store the book does not name at its size goes to the node; the book follows every
+    /// twenty-five files and at the end. The answer is the node's word on the whole book.
+    static func keepPass(progress: @escaping @Sendable (Double) -> Void) async -> MTHomeKeep.Word {
+        guard let e = entropy() else { return .silent("seed") }
+        let book = MTHomeBook.shared
+        book.ensure()
+        if book.count == 0 { await takeBook(entropy: e) }
+        let fm = FileManager.default
+        var todo: [(String, Int)] = []
+        for n in MontanaMediaStore.names() where !MontanaMediaStore.newborn(n) && !n.hasSuffix(MTStreamLoader.partTail) && !n.hasSuffix(MTStreamLoader.ledgerTail) {
+            guard let size = (try? fm.attributesOfItem(atPath: MontanaMediaStore.url(n).path))?[.size] as? Int, 0 < size else { continue }
+            if book.entry(n)?.z == size { continue }
+            todo.append((n, size))
+        }
+        let total = max(1, todo.reduce(0) { $0 + $1.1 })
+        var done = 0, laid = 0, since = 0, refused = 0
+        MontanaTrace.mark("home_keep", "begin files=\(todo.count) bytes=\(total) kept=\(book.count)")
+        for (n, size) in todo {
+            if Task.isCancelled { break }
+            if let entry = await keepFile(n, size: size, entropy: e) {
+                book.set(n, entry); laid += 1; since += 1
+            } else {
+                refused += 1
+                if 3 <= refused, laid == 0 { break }   // the node does not take anything now: the next pass goes on
+            }
+            done += size
+            progress(Double(done) / Double(total))
+            if 25 <= since { book.save(); await putBook(entropy: e); since = 0 }
+        }
+        if 0 < since { book.save(); await putBook(entropy: e) }
+        MontanaTrace.mark("home_keep", "end laid=\(laid) refused=\(refused) kept=\(book.count)")
+        return await word()
+    }
+    /// What the node holds of the book, in its own word, asked now.
+    static func word() async -> MTHomeKeep.Word {
+        let all = MTHomeBook.shared.all()
+        guard let held = await have(all.values.flatMap { $0.p }) else { return .silent("no answer") }
+        let whole = all.filter { $0.value.p.allSatisfy(held.contains) }
+        return .held(files: whole.count, bytes: whole.values.reduce(0) { $0 + $1.z }, at: Date())
+    }
+
+    /// THE CACHE CLEARED: a file leaves this phone only when the node has just named every one of its pieces.
+    static func clearPass() async -> (files: Int, bytes: Int)? {
+        MTHomeBook.shared.ensure()
+        let all = MTHomeBook.shared.all(), here = MontanaMediaStore.names(), inHand = MontanaMediaStore.held
+        let fm = FileManager.default
+        let candidates = all.filter { n, e in
+            here.contains(n) && !inHand.contains(n) && !MontanaMediaStore.newborn(n)
+                && ((try? fm.attributesOfItem(atPath: MontanaMediaStore.url(n).path))?[.size] as? Int) == e.z
+        }
+        guard let held = await have(candidates.values.flatMap { $0.p }) else { return nil }
+        let gone = candidates.filter { $0.value.p.allSatisfy(held.contains) }
+        MontanaMediaStore.remove(Array(gone.keys))
+        let bytes = gone.values.reduce(0) { $0 + $1.z }
+        MontanaTrace.mark("home_clear", "files=\(gone.count) bytes=\(bytes) of=\(candidates.count) kept=\(all.count)")
+        return (gone.count, bytes)
+    }
+
+    /// THE CACHE KEEPS ITSELF (the reference's «keep media» and «maximum cache size»): a file the node holds and nobody opened
+    /// within the person's term leaves this phone, and past the person's ceiling the files opened longest ago leave first -- each
+    /// only on the node's word asked now, as the hand's clearing.
+    static func trimPass(days: Int, limitGB: Int) async -> (files: Int, bytes: Int)? {
+        guard 0 < days + limitGB else { return (0, 0) }
+        MTHomeBook.shared.ensure()
+        let all = MTHomeBook.shared.all(), inHand = MontanaMediaStore.held
+        let keys: Set<URLResourceKey> = [.contentAccessDateKey, .contentModificationDateKey, .fileSizeKey]
+        var files: [(name: String, at: Date, size: Int, kept: Bool)] = []
+        for n in MontanaMediaStore.names() where !inHand.contains(n) && !MontanaMediaStore.newborn(n) {
+            guard let v = try? MontanaMediaStore.url(n).resourceValues(forKeys: keys), let size = v.fileSize else { continue }
+            files.append((n, v.contentAccessDate ?? v.contentModificationDate ?? Date(), size, all[n]?.z == size))
+        }
+        let edge = Date().addingTimeInterval(-Double(days) * 86_400)
+        var going = Set(files.filter { f in f.kept && 0 < days && f.at < edge }.map { f in f.name })
+        if 0 < limitGB {
+            var total = files.reduce(0) { a, f in a + f.size } - files.filter { f in going.contains(f.name) }.reduce(0) { a, f in a + f.size }
+            let ceiling = limitGB * 1_073_741_824
+            for f in files.sorted(by: { a, b in a.at < b.at }) where ceiling < total {
+                guard f.kept, !going.contains(f.name) else { continue }
+                going.insert(f.name); total -= f.size
+            }
+        }
+        guard !going.isEmpty else { return (0, 0) }
+        guard let held = await have(going.compactMap { n in all[n]?.p }.flatMap { p in p }) else { return nil }
+        let gone = going.filter { n in all[n]?.p.allSatisfy(held.contains) == true }
+        MontanaMediaStore.remove(Array(gone))
+        let bytes = gone.reduce(0) { a, n in a + (all[n]?.z ?? 0) }
+        MontanaTrace.mark("home_trim", "files=\(gone.count) bytes=\(bytes) days=\(days) limit_gb=\(limitGB)")
+        return (gone.count, bytes)
+    }
+
+    /// A file back from the node into the store, by the one road of every piece (MTCargoLane, MontanaWakePush.bringChunk).
+    static func bring(_ name: String, _ e: MTHomeBook.Entry) async -> Bool {
+        guard let en = entropy() else { return false }
+        let manifest = manifest(e)
+        guard case .complete = await MontanaWakePush.fetchChunks(manifest, need: .look) else {
+            MontanaTrace.mark("home_bring", "FAIL name=\(String(name.prefix(20))) -- your node did not give every piece")
+            return false
+        }
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("home_" + UUID().uuidString)
+        guard await MontanaMedia.downloadToFile(manifest: manifest, blobKey: fileKey(entropy: en, name: name), totalSize: e.z, dest: tmp),
+              MontanaMediaStore.adopt(from: tmp, name: name) else {
+            try? FileManager.default.removeItem(at: tmp)
+            MontanaTrace.mark("home_bring", "FAIL name=\(String(name.prefix(20))) -- the pieces did not open")
+            return false
+        }
+        MontanaBlobStore.drop(e.p)
+        MontanaTrace.mark("home_bring", "name=\(String(name.prefix(20))) bytes=\(e.z)")
+        return true
+    }
+    static func manifest(_ e: MTHomeBook.Entry) -> [[String: Any]] {
+        e.p.enumerated().map { ["bid": $0.element, "cs": min(chunk, e.z - $0.offset * chunk)] }
+    }
+    /// A video or a track of the book plays from its first pieces, as a letter's does (MTStreamLoader).
+    static func streamSource(_ name: String) -> MTStreamSource? {
+        guard let e = MTHomeBook.shared.entry(name), let en = entropy() else { return nil }
+        let pieces = e.p.enumerated().map { MTBoardChunk(bid: $0.element, cs: min(chunk, e.z - $0.offset * chunk)) }
+        return MTStreamSource(name: name, ext: (name as NSString).pathExtension, size: e.z, key: fileKey(entropy: en, name: name),
+                              chunks: pieces, folder: MontanaMediaStore.dir)
+    }
+}
+
+/// THE BOOK: each file this phone gave its node, by name -- its size, its pieces in order, and when the node named them all.
+/// Its copy on this phone is a cache of the one on the node (MTHomeShelf.putBook): the words bring it back. ONE BOOK PER
+/// PERSON: its file is named by the words, so a second person seated on this phone never reads the first one's book as theirs.
+final class MTHomeBook: @unchecked Sendable {
+    static let shared = MTHomeBook()
+    struct Entry: Codable, Equatable { var z: Int; var p: [String]; var at: Double }
+    private let lock = NSLock()
+    private var files: [String: Entry] = [:]
+    private var bids = Set<String>()
+    private var tag = ""   // the person whose book is in hand
+    private static let dir: URL = {
+        let fm = FileManager.default
+        var d = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Montana", isDirectory: true).appendingPathComponent("HomeBook", isDirectory: true)
+        if !fm.fileExists(atPath: d.path) {
+            try? fm.createDirectory(at: d, withIntermediateDirectories: true,
+                                    attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication])
+        }
+        if (try? d.resourceValues(forKeys: [.isExcludedFromBackupKey]))?.isExcludedFromBackup != true {
+            var rv = URLResourceValues(); rv.isExcludedFromBackup = true
+            try? d.setResourceValues(rv)
+        }
+        return d
+    }()
+    private static func file(_ tag: String) -> URL { dir.appendingPathComponent("book-" + tag + ".json") }   // NOT-UI: the file's own name
+    private static func person() -> String { MTHomeShelf.entropy().map { String(MTHomeShelf.bookName(entropy: $0).prefix(16)) } ?? "" }
+    private init() { ensure() }
+    /// The book of the person seated now: read again when the seat changed.
+    func ensure() {
+        let t = Self.person()
+        lock.lock(); let same = t == tag; lock.unlock()   // LOCK-OK: a word in memory
+        guard !same else { return }
+        var f: [String: Entry] = [:]
+        if !t.isEmpty, let d = try? Data(contentsOf: Self.file(t)), let read = try? JSONDecoder().decode([String: Entry].self, from: d) { f = read }
+        lock.lock(); tag = t; lock.unlock()   // LOCK-OK: a word in memory
+        lay(f)
+    }
+    private func lay(_ f: [String: Entry]) {
+        lock.lock()   // LOCK-OK: two values in memory
+        files = f
+        bids = Set(f.values.flatMap { $0.p })
+        lock.unlock()
+    }
+    var count: Int { lock.lock(); defer { lock.unlock() }; return files.count }   // LOCK-OK: a word in memory
+    func holds(_ bid: String) -> Bool { lock.lock(); defer { lock.unlock() }; return bids.contains(bid) }   // LOCK-OK: a word in memory
+    func entry(_ name: String) -> Entry? { lock.lock(); defer { lock.unlock() }; return files[name] }   // LOCK-OK: a word in memory
+    func all() -> [String: Entry] { lock.lock(); defer { lock.unlock() }; return files }   // LOCK-OK: a word in memory
+    /// The names whose every piece the node named: a copy for the node leaves them out (HomeNodeWatch.send).
+    func kept() -> Set<String> { lock.lock(); defer { lock.unlock() }; return Set(files.filter { 0 < $0.value.at }.keys) }   // LOCK-OK: a word in memory
+    func set(_ name: String, _ e: Entry) {
+        lock.lock()   // LOCK-OK: two values in memory
+        files[name] = e
+        bids.formUnion(e.p)
+        lock.unlock()
+    }
+    func json() -> Data? { try? JSONEncoder().encode(all()) }
+    /// The node's book joins this phone's: what either names stays named.
+    @discardableResult func merge(_ plain: Data) -> Int {
+        guard let f = try? JSONDecoder().decode([String: Entry].self, from: plain) else { return 0 }
+        var mine = all()
+        for (n, e) in f where mine[n] == nil { mine[n] = e }
+        lay(mine)
+        save()
+        return f.count
+    }
+    func save() {
+        lock.lock(); let t = tag; lock.unlock()   // LOCK-OK: a word in memory
+        guard !t.isEmpty, let d = json() else { return }
+        try? d.write(to: Self.file(t), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+    }
+}
+
+/// THE KEEPER ON THIS PHONE: the pass to the node, the cache cleared, a file brought back. One per process; pages observe it.
+@MainActor final class MTHomeKeep: ObservableObject {
+    static let shared = MTHomeKeep()
+    enum Word: Equatable {
+        case unknown
+        case held(files: Int, bytes: Int, at: Date)   // the node's own word on the book
+        case silent(String)
+    }
+    @Published private(set) var sending: Double? = nil   // this phone's own count of the pass
+    @Published private(set) var word: Word = .unknown
+    @Published private(set) var clearing = false
+    nonisolated static let keepDaysKey = "home.keep.days"     // NOT-UI: the person's term for a file nobody opened; 0 -- for ever
+    nonisolated static let limitKey = "home.cache.limit"      // NOT-UI: the person's ceiling of the cache in gigabytes; 0 -- none
+    nonisolated static var keepDays: Int { UserDefaults.standard.integer(forKey: keepDaysKey) }
+    nonisolated static var limitGB: Int { UserDefaults.standard.integer(forKey: limitKey) }
+    /// The person moved the term or the ceiling: the cache keeps itself now, not at the next pass.
+    func trim() {
+        guard MTHomeShelf.bringing else { return }
+        Task.detached(priority: .utility) {
+            _ = await MTHomeShelf.trimPass(days: MTHomeKeep.keepDays, limitGB: MTHomeKeep.limitGB)
+            await MainActor.run { ChatStore.live?.objectWillChange.send() }
+        }
+    }
+    private var running = false
+    private var bringing = Set<String>()
+
+    /// At launch: the node's book first on a phone that has none, then a pass over Wi-Fi when the copies ride.
+    func tickSoon() {
+        guard MTHomeShelf.bringing else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self] in
+            guard let self else { return }
+            MTHomeBook.shared.ensure()
+            if MTHomeShelf.keeping { self.keep(cellular: false) }
+            else if MTHomeBook.shared.count == 0, let e = MTHomeShelf.entropy() { Task { await MTHomeShelf.takeBook(entropy: e) } }
+        }
+    }
+    func keep(cellular: Bool) {
+        guard MTHomeShelf.keeping, !running else { return }
+        if !cellular, MontanaNet.shared.isCellular { return MontanaTrace.mark("home_keep", "waits for Wi-Fi") }
+        running = true
+        sending = 0
+        Task.detached(priority: .utility) {
+            let w = await MTHomeShelf.keepPass { f in Task { @MainActor in MTHomeKeep.shared.sending = f } }
+            _ = await MTHomeShelf.trimPass(days: MTHomeKeep.keepDays, limitGB: MTHomeKeep.limitGB)   // the cache keeps itself after the pass
+            await MainActor.run {
+                let me = MTHomeKeep.shared
+                me.running = false; me.sending = nil; me.word = w
+            }
+        }
+    }
+    func ask() {
+        guard MTHomeShelf.bringing, MTHomeBook.shared.count != 0 else { return }
+        Task.detached(priority: .utility) {
+            let w = await MTHomeShelf.word()
+            await MainActor.run { MTHomeKeep.shared.word = w }
+        }
+    }
+    func clear(_ done: @escaping ((files: Int, bytes: Int)?) -> Void) {
+        guard MTHomeShelf.bringing, !clearing else { return done(nil) }
+        clearing = true
+        Task.detached(priority: .userInitiated) {
+            let r = await MTHomeShelf.clearPass()
+            await MainActor.run {
+                MTHomeKeep.shared.clearing = false
+                ChatStore.live?.objectWillChange.send()
+                done(r)
+            }
+        }
+    }
+    /// A LOOK BRINGS IT BACK (as the reference does): a file the book names and this phone no longer holds comes from the
+    /// node when its bubble stands on the screen and the attachments of this network download by themselves; a tap always.
+    nonisolated static func want(_ name: String) { Task { @MainActor in shared.bring(name, force: false) } }
+    func bring(_ name: String, force: Bool) {
+        guard !bringing.contains(name), !MontanaMediaStore.exists(name), let e = MTHomeBook.shared.entry(name), MTHomeShelf.bringing else { return }
+        if !force, !MontanaNet.shared.autoDownloadAllowed { return }
+        bringing.insert(name)
+        Task.detached(priority: .userInitiated) {
+            let ok = await MTHomeShelf.bring(name, e)
+            await MainActor.run {
+                MTHomeKeep.shared.bringing.remove(name)
+                guard ok, let store = ChatStore.live else { return }
+                let chat = store.messages.first { _, rows in
+                    rows.contains { m in [m.imageFile, m.videoFile, m.audioFile, m.docFile].contains(name) }
+                }?.key
+                if let chat { store.fillMedia(chat, name: name) } else { store.objectWillChange.send() }
+            }
         }
     }
 }

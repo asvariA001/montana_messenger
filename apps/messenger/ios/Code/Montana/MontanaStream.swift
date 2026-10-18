@@ -143,6 +143,9 @@ struct MTStreamSource: Equatable {
     let key: Data
     let chunks: [MTBoardChunk]  // bid and the piece's own length, in order
     let folder: URL
+    /// The wall post the file is of, when it is one: a piece every door calls gone is said to the wall's owner, whose phone
+    /// lays the post's files again (MTBoard.piecesGone) -- a player alone never said it, and the track stood at 0:00 for good.
+    var post: MTBoardPostRef? = nil
 
     var url: URL {
         let safe = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name
@@ -315,10 +318,18 @@ final class MTStreamLoader: NSObject, AVAssetResourceLoaderDelegate {
         defer { release(i) }
         let c = source.chunks[i]
         let t0 = Date()
-        guard case .found(let sealed) = await MTCargoLane.shared.bring(c.bid, need: .play),
+        let answer = await MTCargoLane.shared.bring(c.bid, need: .play)
+        guard case .found(let sealed) = answer,
               let plain = MontanaMedia.openChunk(sealed: sealed, blobKey: source.key, expectedIdHex: c.bid, size: c.cs) else {
-            MontanaTrace.markFolded("stream_piece", "FAIL i=\(i) of \(source.chunks.count) name=\(String(source.name.prefix(20)))",
+            let why: String
+            switch answer {
+            case .found: why = "unsealed"
+            case .gone: why = "gone"
+            case .unreachable: why = "unreachable"
+            }
+            MontanaTrace.markFolded("stream_piece", "FAIL i=\(i) of \(source.chunks.count) name=\(String(source.name.prefix(20))) why=\(why)",
                                        window: 10, key: source.name)
+            if case .gone = answer, let post = source.post { MTBoard.piecesGone(post) }
             return nil
         }
         // The disk refusing the piece costs the player nothing: it gets its bytes; the piece is simply not kept.

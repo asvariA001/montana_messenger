@@ -315,7 +315,7 @@ struct MTBoardCell: View {
                 MTBoardMediaView(post: post, owner: owner, sources: draft?.sources ?? sources, onTile: draft?.onTile, inFeed: !onItsWall,
                                  onShow: sending ? nil : onShow)
             }
-            if !sending { counters.allowsHitTesting(draft == nil) }
+            if !sending, !global { counters.allowsHitTesting(draft == nil) }   // a post of the table for everyone is read, not answered (18.10)
         }
         .padding(12)
         .contentShape(Rectangle())
@@ -383,6 +383,8 @@ struct MTBoardCell: View {
         .buttonStyle(.plain)
     }
 
+    /// A post of the table for everyone (MTBoardGlobal): its writer is nobody this phone knows.
+    private var global: Bool { MTBoardGlobal.isRef(owner) }
     /// Whether the writer's face and name open their page here: not the page the post already stands on.
     private func opens(_ w: MTBoardWriter) -> Bool {
         switch w {
@@ -395,7 +397,7 @@ struct MTBoardCell: View {
         let w = board.writer(of: post, on: owner)
         let opens = opens(w)
         return HStack(spacing: 10) {
-            MTBoardByline(writer: w, name: post.byName, glyph: post.byGlyph, face: post.face, at: post.at,
+            MTBoardByline(writer: w, name: MTBoard.shownName(w, carried: post.byName), glyph: post.byGlyph, face: post.face, at: post.at,
                           minting: minting, share: minting ? MTBoard.window(of: post)?.share : nil,
                           onOpen: opens && draft == nil ? { onWriter(w) } : nil)
             if post.pinned {
@@ -431,14 +433,19 @@ struct MTBoardCell: View {
         if owner == nil, post.mine, post.from == nil {
             Button { MTBoardEditor.present(post) } label: { Label("Edit", systemImage: "pencil") }
         }
-        if post.kept {
+        if global {
+            // THE PERSON STOPS SEEING A WRITER OF THE TABLE (Guideline 1.2), as a block stops a correspondent.
+            Button(role: .destructive) { if let owner { MTBoardGlobal.shared.hide(owner) } } label: {
+                Label("Hide this person", systemImage: "eye.slash")
+            }
+        } else if post.kept {
             if !post.mine || owner == nil {
                 Button { board.unkeep(post, on: owner) } label: { Label("Remove from saved", systemImage: "tray.and.arrow.up") }
             }
         } else {
             Button { Task { await board.keep(post, on: owner) } } label: { Label("Save", systemImage: "tray.and.arrow.down") }
         }
-        if let owner, !post.reposted, !post.mine {
+        if let owner, !global, !post.reposted, !post.mine {
             Button { Task { await board.repost(post, from: owner) } } label: { Label("Repost", systemImage: "arrow.2.squarepath") }
         }
         if !post.text.isEmpty {
@@ -559,7 +566,7 @@ struct MTBoardCell: View {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 4) {
                         // USER-DATA: the writer's name
-                        Text(verbatim: post.byName).font(.subheadline.weight(.bold)).foregroundColor(.primary).lineLimit(1)
+                        Text(verbatim: MTBoard.shownName(w, carried: post.byName)).font(.subheadline.weight(.bold)).foregroundColor(.primary).lineLimit(1)
                         if minting { MTMintCoin() }
                         // USER-DATA: how long ago the post was written, in the platform's short units
                         Text(verbatim: "\u{00B7} " + Self.ago(post.at)).font(.subheadline).foregroundColor(.secondary).lineLimit(1)
@@ -578,7 +585,7 @@ struct MTBoardCell: View {
             HStack(spacing: 10) {
                 threadFace(w, size: 44)
                 // USER-DATA: the writer's name
-                Text(verbatim: post.byName).font(.headline).foregroundColor(.primary).lineLimit(1)
+                Text(verbatim: MTBoard.shownName(w, carried: post.byName)).font(.headline).foregroundColor(.primary).lineLimit(1)
                 if minting { MTMintCoin() }
                 Spacer(minLength: 4)
                 threadMenu
@@ -602,7 +609,7 @@ struct MTBoardCell: View {
         }
     }
     @ViewBuilder private func threadFace(_ w: MTBoardWriter, size: CGFloat) -> some View {
-        let face = MTBoardFace(writer: w, name: post.byName, glyph: post.byGlyph, face: post.face, size: size)
+        let face = MTBoardFace(writer: w, name: MTBoard.shownName(w, carried: post.byName), glyph: post.byGlyph, face: post.face, size: size)
             .frame(minWidth: 44, minHeight: 44, alignment: .top)
         if draft == nil, opens(w) {
             Button { onWriter(w) } label: { face.contentShape(Rectangle()) }.buttonStyle(.plain)
@@ -883,7 +890,7 @@ struct MTBoardMediaView: View {
         return Button { if let onTile { onTile(i) } else if let onShow, sources == nil { onShow(i) } else { open(i) } } label: {
             ZStack {
                 if m.kind == "vid", sources == nil {
-                    MTBoardClip(media: m, local: local(i), source: MTBoard.streamSource(post, i))   // a video plays by itself (25.09)
+                    MTBoardClip(media: m, local: local(i), source: MTBoard.streamSource(post, i, on: owner))   // a video plays by itself (25.09)
                 } else {
                     MTBoardPicture(media: m, source: local(i))
                     if m.kind == "vid" {
@@ -971,7 +978,7 @@ struct MTBoardMediaView: View {
         }
         // A VIDEO PLAYS FROM ITS FIRST PIECES (the author's word 25.09): the full player opens on the loader at once, with
         // sound; the file, whole, is kept as a touch's copy (file — this phone becomes the post's peer, the download counted).
-        if m.kind == "vid", sources == nil, local(i) == nil, let s = MTBoard.streamSource(p, i) {
+        if m.kind == "vid", sources == nil, local(i) == nil, let s = MTBoard.streamSource(p, i, on: wall) {
             VideoPresenter.present(stream: s) { Task { _ = await MTBoard.shared.file(p, i, on: wall) } }
             return
         }
@@ -1038,7 +1045,7 @@ struct MTBoardMediaView: View {
                 guard once.insert(fj).inserted else { continue }
                 var t = MusicTrack(file: fj, title: mj.name, msgId: p.id, chat: wall ?? "", chatTitle: p.byName, at: p.at, inPost: true)
                 if !MontanaMediaStore.exists(fj) {
-                    guard let sj = MTBoard.streamSource(p, j) else { continue }
+                    guard let sj = MTBoard.streamSource(p, j, on: wall) else { continue }
                     t.stream = sj
                     t.whole = { Task { _ = await MTBoard.shared.file(p, j, on: wall) } }
                 }
@@ -3493,7 +3500,7 @@ struct MTBoardShownVideo: View {
     }
     private static func born(_ it: MTBoardShown) -> AVPlayerItem? {
         if let u = it.local { return AVPlayerItem(url: u) }
-        guard let s = MTBoard.streamSource(it.post, it.i) else { return nil }
+        guard let s = MTBoard.streamSource(it.post, it.i, on: it.wall) else { return nil }
         let p = it.post, i = it.i, wall = it.wall
         let v = AVPlayerItem(asset: MTStreams.asset(s, whole: { Task { _ = await MTBoard.shared.file(p, i, on: wall) } }))
         v.preferredForwardBufferDuration = 8

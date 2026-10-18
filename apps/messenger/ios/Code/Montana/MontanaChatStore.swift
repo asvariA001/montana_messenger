@@ -4971,6 +4971,14 @@ MontanaLocalVault.setEncrypted("scheduledMsgs", d)
     /// No isolation of its own: it stands exactly where retryPendingMedia() stood, in the same
     /// taps, and touches what that one touches — so whatever compiled before compiles now.
     func retryOneMedia(_ msgId: String?) {
+        // A FILE YOUR NODE KEEPS COMES BACK FROM IT (18.10): the cache cleared it from this phone, the book names its pieces.
+        if let sid = msgId, !sid.isEmpty,
+           let row = messages.values.lazy.compactMap({ rows in rows.first { $0.msgId == sid } }).first,
+           let file = row.videoFile ?? row.imageFile ?? row.audioFile ?? row.docFile,
+           !MontanaMediaStore.exists(file), MTHomeBook.shared.entry(file) != nil {
+            Task { @MainActor in MTHomeKeep.shared.bring(file, force: true) }
+            return
+        }
         if let sid = msgId, !sid.isEmpty {
             var arr = (try? JSONSerialization.jsonObject(with: Data(pendingMediaJSON.utf8)) as? [[String: String]]) ?? []
             if let i = arr.firstIndex(where: { $0["sid"] == sid }), arr[i]["gone"] == "1" {
@@ -5605,6 +5613,11 @@ MontanaLocalVault.setEncrypted("scheduledMsgs", d)
             let src = MTStreamSource(name: name, ext: (name as NSString).pathExtension, size: size, key: key, chunks: pieces,
                                      folder: MontanaMediaStore.dir)
             return (src, { [weak self] in self?.mediaLanded(chat, name: name, msgId: sid, isFromMe: mine, docName: docName) })
+        }
+        // A file your node keeps plays from its first pieces there (MTHomeShelf), and lands as the bring would.
+        if let src = MTHomeShelf.streamSource(name) {
+            let chat = messages.first { _, rows in rows.contains { [$0.videoFile, $0.audioFile].contains(name) } }?.key
+            return (src, { [weak self] in if let chat { self?.fillMedia(chat, name: name) } })
         }
         return nil
     }
@@ -6747,6 +6760,7 @@ enum SeedScope {
     // Account content: conversations, profile, sync. Reset on account SWITCH.
     static let dataKeys = ["chatsJSON", "archivedJSON", "chatMessages", "pinnedMessages",
                            "mt.keep.owner",   // the keepers of my copy and its generation (MTKeeping): the person's own
+                           MTBoardGlobal.hiddenKey,   // the writers of the table for everyone the person hid (18.10.2026): the person's own
         "scheduledMsgs", "recentOrder", "orderSeq", "readChats", "pinnedChatsList", "forcedUnread",
         "mutedChats", "archivedNames", "deletedChats", "peerAvatars", "peerNames", "peerSeenAt", "peerGoneAt",
         "userName", "userLastName", "userUsername", "userBio", "userBirthday", "profileBio", "profileLink", "peerAbout",
@@ -6847,6 +6861,7 @@ enum SeedScope {
         "autoDownloadCellular", "autoDownloadWiFi",
         MTCallRecordingPolicy.key,   // recording preference follows the phone's other Privacy settings; consent is separate
         MTLevelAccess.keepKey,   // the person's «Forbid deletion on my phone», as their other settings (16.10.2026)
+        MTHomeKeep.keepDaysKey, MTHomeKeep.limitKey,   // the person's term and ceiling of the cache their node backs (18.10.2026)
         MTChatFolders.key,   // the person's folders over the chats, their tabs' order (17.10.2026)
         "presenceSharing", "readReceiptsEnabled", "liveTypingEnabled", "syncContactsToPhone", "linkPreviewsEnabled",
         "objectionableFilterOn", "termsAcceptedVersion", "barredPeers",
@@ -6899,6 +6914,7 @@ enum SeedScope {
         MontanaDiagConsent.askedKey,   // the build this device last asked that yes for (11.10.2026): each device is asked itself
         MTTopNet.unaskedKey,   // this device withdrew the top row of a person never asked (08.10.2026)
         MTTopNet.toldBeforeKey,   // whether an earlier build of this device had published the top row (08.10.2026)
+        MTBoardGlobal.sentKey,   // what this device laid on the nodes' table for everyone, and its digest (18.10.2026): this device's own record
         "mtVPNStartTicks", "mtVPNStartWall", "mt.vpn.extCursor", "mt.vpn.dead",
         MontanaVPNDelayBook.key,   // what every server last answered on this network, this hour (29.09): never a copy's
         MontanaVPNSelection.handKey,   // the person's last hand on this device's VPN (30.09): the ten minutes nothing automatic overrides

@@ -183,6 +183,8 @@ enum MontanaMedia {
         let sealed = Data(bytes: ptr, count: outLen); mt_e2e_free(ptr, outLen)
         return SealedChunk(sealed: sealed, blobId: blobIdHex(sealed), size: piece.count)
     }
+    /// One piece sealed as a letter seals it (MTHomeShelf: a file laid on one's own node under its own key).
+    static func sealPiece(_ piece: Data, blobKey: Data, index: Int) -> SealedChunk? { sealOne(piece, blobKey: blobKey, index: index) }
     static func blobIdHex(_ sealed: Data) -> String {
         var out = [UInt8](repeating: 0, count: 32)
         _ = sealed.withUnsafeBytes { s in mt_e2e_blob_id(s.bindMemory(to: UInt8.self).baseAddress, sealed.count, &out) }

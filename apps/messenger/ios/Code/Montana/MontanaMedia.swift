@@ -402,7 +402,9 @@ final class VoicePlayer: NSObject, ObservableObject {
         // A TRACK NOT YET WHOLE (the author's word 25.09: «a tap on a track starts it at once, with a buffer»): the streaming
         // player on the track's loader — from its first pieces, a few seconds buffered ahead, never the whole file first.
         if player == nil, let stream {
-            player = MTStreamSound(asset: MTStreams.asset(stream, whole: whole))
+            let s = MTStreamSound(asset: MTStreams.asset(stream, whole: whole))
+            s.onFail = { [weak self] why in self?.streamFailed(file, why) }
+            player = s
             MontanaTrace.mark("music_stream", "file=\(String(file.prefix(20))) pieces=\(stream.chunks.count)")
         }
         player?.onEnd = { [weak self] in self?.finished() }
@@ -603,6 +605,15 @@ final class VoicePlayer: NSObject, ObservableObject {
         guard playingFile != nil, !paused else { return }
         pause()
         MontanaTrace.mark("music_hold", "tape voice=\(isVoice ? 1 : 0) at=\(Int(elapsed))s")
+    }
+
+    /// A STREAM THAT BROUGHT NOTHING RESTS, IT IS NOT SHOWN PLAYING (T2 18.10.2026 17:25:57Z, the author: «the seconds do not go»):
+    /// the wall's track waited on a piece every door called gone, and the bar stood on 0:00 as if it played. The bar rests where
+    /// the track stood; a touch plays it again once its owner has laid the pieces back (MTBoard.piecesGone).
+    private func streamFailed(_ file: String, _ why: String) {
+        MontanaTrace.mark("music_stream", "failed file=\(String(file.prefix(20))) \(why)")
+        guard playingFile == file, !paused else { return }
+        pause()
     }
 
     /// The sound ran to its end — the file player's word and the stream player's alike.
@@ -920,8 +931,13 @@ final class MTStreamSound: MTSound {
     private let p: AVPlayer
     private let item: AVPlayerItem
     private var endToken: NSObjectProtocol?
+    private var failToken: NSObjectProtocol?
+    private var statusWatch: NSKeyValueObservation?
     private var wantRate: Float = 1
+    private var failed = false
     var onEnd: (() -> Void)?
+    /// The item could not be read (its loader brought no piece): said once, on the main thread.
+    var onFail: ((String) -> Void)?
     init(asset: AVURLAsset) {
         item = AVPlayerItem(asset: asset)
         item.preferredForwardBufferDuration = 8   // a buffer, never the whole file (25.09)
@@ -930,15 +946,32 @@ final class MTStreamSound: MTSound {
         endToken = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
             self?.onEnd?()
         }
+        failToken = NotificationCenter.default.addObserver(forName: .AVPlayerItemFailedToPlayToEndTime, object: item, queue: .main) { [weak self] n in
+            let e = n.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? NSError
+            self?.fail("end code=\(e?.code ?? 0)")
+        }
+        statusWatch = item.observe(\.status, options: [.new]) { [weak self] it, _ in
+            guard it.status == .failed else { return }
+            let code = (it.error as NSError?)?.code ?? 0
+            DispatchQueue.main.async { self?.fail("item code=\(code)") }
+        }
     }
-    deinit { if let t = endToken { NotificationCenter.default.removeObserver(t) } }
+    deinit {
+        if let t = endToken { NotificationCenter.default.removeObserver(t) }
+        if let t = failToken { NotificationCenter.default.removeObserver(t) }
+    }
+    private func fail(_ why: String) {
+        guard !failed else { return }
+        failed = true
+        onFail?(why)
+    }
     var currentTime: TimeInterval {
         get { let t = p.currentTime().seconds; return t.isFinite ? t : 0 }
         set { p.seek(to: CMTime(seconds: newValue, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) }
     }
     var duration: TimeInterval { let d = item.duration.seconds; return d.isFinite ? d : 0 }
-    /// Playing, or waiting for its buffer to fill: the bar says «playing» while the first pieces come.
-    var isPlaying: Bool { p.timeControlStatus != .paused }
+    /// Playing, or waiting for its buffer to fill: the bar says «playing» while the first pieces come -- never once the item failed.
+    var isPlaying: Bool { !failed && p.timeControlStatus != .paused }
     var rate: Float {
         get { wantRate }
         set { wantRate = newValue; if p.timeControlStatus != .paused { p.rate = newValue } }

@@ -1429,7 +1429,29 @@ enum MontanaWakePush {
         return had
     }
 
+    /// ONE SEAL OF A LONG LETTER AT A TIME (T1 18.10.2026 18:33:05Z, the author: «T1 closed by itself when I ended a call»):
+    /// every attempt of the delivery engine (1-2-4-8 s and on) began its own seal of the same letter, and through a call of
+    /// thirteen minutes each waited at the bulk lane holding its own sealed copy -- 1023 waits held, some 400 let go in the one
+    /// second the call ended, each building its body of 8 MB at once: NSMallocException «Failed to grow buffer to 8183027» on
+    /// four threads (putBlob, from sealLongLetter, from DeliveryEngine.attempt; the 2242 archive's own symbols). A letter's seal
+    /// in flight is joined, never begun twice; it waits for the lane before it seals, so a wait holds no bytes; and the bodies
+    /// the lane lets go are built a few at a time (MTBulkPuts).
+    private static let longLock = NSLock()
+    private static var longFlight: [String: Task<String?, Never>] = [:]
     static func sealLongLetter(mid: String, text: String) async -> String? {
+        if let t = longLock.withLock({ longFlight[mid] }) { return await t.value }   // LOCK-OK: one map in memory
+        let t = Task { await sealLongLetterOnce(mid: mid, text: text) }
+        let other = longLock.withLock { () -> Task<String?, Never>? in   // LOCK-OK: one map in memory
+            if let o = longFlight[mid] { return o }
+            longFlight[mid] = t
+            return nil
+        }
+        if let other { t.cancel(); return await other.value }
+        let v = await t.value
+        longLock.withLock { longFlight[mid] = nil }   // LOCK-OK: one map in memory
+        return v
+    }
+    private static func sealLongLetterOnce(mid: String, text: String) async -> String? {
         // ONE BLOB PER LETTER, WHILE ITS CARGO IS STILL OURS TO SERVE (23.09, the critic). The cached
         // reference was reused whatever had happened to its cargo: a letter whose chunks were released —
         // the cargo check found them gone and the row went red — was resent by hand under the same name
@@ -1441,6 +1463,7 @@ enum MontanaWakePush {
             setLongRef(mid, nil)
             MontanaTrace.mark("letter_blob", mid: mid, "the cached reference names a released cargo — a fresh one is sealed")
         }
+        guard !Task.isCancelled, await enterBulkLane("put") else { return nil }   // the wait first: a waiting seal holds no bytes
         var full = Data(mid.utf8); full.append(0); full.append(contentsOf: text.utf8)
         let mk = montanaRandom(32)
         guard let sealed = MontanaDirect.seal(key: [UInt8](mk), full) else { return nil }
@@ -1880,6 +1903,10 @@ enum MontanaWakePush {
             MontanaTrace.markFolded("blob_put", "already on the node id=\(String(bid.prefix(8))) — not sent again", window: 30)
             return true
         }
+        // THE BODIES THE LANE LETS GO ARE BUILT A FEW AT A TIME (18.10, T1 18:33:05Z): a base64 and a JSON of the piece live
+        // for the whole put; hundreds let go in one second asked for gigabytes at once.
+        if bulk { await MTBulkPuts.shared.enter() }
+        defer { if bulk { Task { await MTBulkPuts.shared.leave() } } }
         let t0 = Date()
         defer {
             let ms = max(1, Int(Date().timeIntervalSince(t0) * 1000))
@@ -2854,6 +2881,17 @@ enum MontanaWakePush {
     /// (MTCargoLane, 25.09): three pieces in flight for the whole phone, the one a player waits for first.
     static func bringChunk(_ bid: String) async -> MTCargoLane.Answer {
         if let d = MontanaBlobStore.get(bid) { return .found(d) }
+        // A PIECE OF ONE'S OWN NODE IS ASKED THERE AND ONLY THERE (18.10): the book names it (MTHomeBook); the doors never
+        // carried it, and they never hear its name.
+        if MTHomeBook.shared.holds(bid) {
+            if let d = await MTHomeShelf.get(bid) {
+                MontanaBlobStore.put(bid, d)
+                MontanaTrace.markFolded("home_get", "found id=\(String(bid.prefix(8))) bytes=\(d.count)", window: 30)
+                return .found(d)
+            }
+            MontanaTrace.mark("home_get", "FAIL id=\(String(bid.prefix(8))) -- your node did not give it")
+            return .unreachable
+        }
         var unreachableTries = 0, busyTries = 0
         while unreachableTries < 3 && busyTries < 6 {
             // The receive lane has already stopped new work, but an answer can finish exactly
@@ -5361,5 +5399,20 @@ final class MTCallRoute {
             if !allowsNear, doors[index] == Self.nearDoor { index = (index + 1) % doors.count }
         }
         proven = false; misses = 0
+    }
+}
+
+/// THE BULK PUTS IN FLIGHT FOR THE WHOLE PHONE: a few, the rest wait in the order they came (MontanaWakePush.putBlob).
+actor MTBulkPuts {
+    static let shared = MTBulkPuts()
+    static let width = 3
+    private var running = 0
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+    func enter() async {
+        if running < Self.width { running += 1; return }
+        await withCheckedContinuation { c in waiting.append(c) }
+    }
+    func leave() {
+        if waiting.isEmpty { running -= 1 } else { waiting.removeFirst().resume() }
     }
 }

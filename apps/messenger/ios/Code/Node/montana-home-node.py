@@ -16,7 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 DB       = os.environ.get("STORE_DB",   "/var/lib/montana-node-wake/tokens.db")
 PORT     = int(os.environ.get("STORE_PORT", "8462"))
 NOTIFY   = os.environ.get("NOTIFY_URL", "http://127.0.0.1:8461")
-MAX_BODY = 65536   # /register carries chunks of up to 128 (conv, sid) pairs ≈ 21 KB; /wake — an E2E envelope in base64
+MAX_BODY = 65536   # /register carries chunks of up to 128 pairs (conv, sid), about 21 KB; /wake an E2E envelope in base64
 BLOB_DIR  = os.environ.get("WAKE_BLOBS", "/var/lib/montana-node-wake/blobs")
 # WHAT THIS MACHINE DOES is configuration, not code: a node names its capabilities in /health and
 # refuses the rest with 404, so one program serves a full door and a diaries-only door alike.
@@ -40,6 +40,31 @@ VAULT_TLS_CERT = os.environ.get("VAULT_TLS_CERT", "")
 VAULT_TLS_KEY = os.environ.get("VAULT_TLS_KEY", "")
 RE_VTOKEN = re.compile(r"^[0-9a-f]{64}$")
 RE_VNAME = re.compile(r"^montana-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{6}-[0-9a-f]{16}\.mtbak$")
+# THE PIECES OF ONE'S OWN (the author's word 18.10.2026 20:1x MSK: «make my Lauterbourg node my personal storage, so I clear the
+# cache in the app and it weighs nothing, and even after deleting the app I come back and load everything from my own node»).
+# Beside the copies of a shelf lie the sealed pieces of every file its owner keeps: the very pieces the doors carry for a week,
+# kept here until the owner takes them away. The node sees a name and sealed bytes and nothing else; the name is the phone's own
+# check when it opens a piece (its id is the hash of the sealed bytes), never this node's. The shelf's ceiling counts the copies
+# and the pieces together; what the node holds it says in its own words (/home-have), and a phone clears only what it heard held.
+RE_HBID = re.compile(r"^[0-9a-f]{64}$")
+HOME_HAVE_MAX = 4096
+_home_lock = threading.Lock()
+_home_used = {}   # shelf: bytes of its pieces, counted from the disk once per run
+def _home_dir(shelf): return os.path.join(VAULT_DIR, shelf, "pieces")
+def _home_path(shelf, bid): return os.path.join(_home_dir(shelf), bid[:2], bid)
+def _home_bytes(shelf):
+    with _home_lock:
+        if shelf in _home_used: return _home_used[shelf]
+    total = 0
+    for dp, _dn, fn in os.walk(_home_dir(shelf)):
+        for f in fn:
+            try: total += os.path.getsize(os.path.join(dp, f))
+            except OSError: pass
+    with _home_lock:
+        return _home_used.setdefault(shelf, total)
+def _home_add(shelf, n):
+    _home_bytes(shelf)
+    with _home_lock: _home_used[shelf] = max(0, _home_used.get(shelf, 0) + n)
 # The diaries live on ONE machine (the author's word 08.09): a door that does not keep diaries
 # forwards /diag-put there, one hop, keeps nothing, and reports diag=false so a client that has
 # learned the diaries door goes straight to it.
@@ -50,20 +75,21 @@ DIAG_FORWARD = os.environ.get("DIAG_FORWARD", "")
 BOX_TTL = int(os.environ.get("BOX_TTL", str(24 * 3600)))
 CAP_OF_PATH = {"/fetch": "box", "/box-del": "box", "/wake": "box", "/turn-cred": "turn", "/diag-put": "diag",
                "/blob-put": "blob", "/blob-get": "blob", "/blob-have": "blob", "/blob-drop": "blob",
-               "/signal": "signal", "/signal-fetch": "signal", "/signal-last": "signal"}
-BLOB_MAX  = 12 * 1024 * 1024   # /blob-put body: 512 KiB chunk + base64 + headroom
-BLOB_TTL  = 7 * 86400          # media lives a week — the recipient fetches it and keeps it locally
-# CARGO IS CLOSED OR ABANDONED — THE NODE TELLS THE TWO APART WITHOUT KNOWING THE CONTENT (9-D.5).
-# A chunk arrives with two marks: cg — a random cargo label (same for chunks of one
-# media item, linked to nothing), last — the final-chunk flag. Per label the node stores only
-# a counter and a touch time. An unclosed cargo not topped up for over an hour is abandoned
-# midway: the sender cancelled or died, and there is no point waiting a week for it.
-CARGO_ABANDON = 3600        # an hour without top-up for an UNCLOSED cargo = abandoned
-_cargo = {}                 # label -> {"n": chunks, "last": bool, "at": time, "bids": [names]}
+               "/signal": "signal", "/signal-fetch": "signal", "/signal-last": "signal",
+               "/home-put": "vault", "/home-get": "vault", "/home-have": "vault", "/home-drop": "vault"}
+BLOB_MAX  = 12 * 1024 * 1024   # the body of /blob-put: a 512 KiB chunk, its base64 and a margin
+BLOB_TTL  = 7 * 86400          # media lives a week -- the receiver takes it and keeps it
+# A CARGO CLOSED OR ABANDONED -- THE NODE TELLS ONE FROM THE OTHER WITHOUT KNOWING THE CONTENT (9-D.5).
+# A piece comes with two marks: cg -- a random cargo label (the same on the pieces of one media, tied to
+# nothing), last -- the sign of the last piece. By the label the node keeps only a count and the moment of
+# the last touch. An unclosed cargo not added to for over an hour is abandoned half-way: the sender cancelled
+# or died, and there is no reason to wait a week for it.
+CARGO_ABANDON = 3600        # an hour without a new piece for an UNCLOSED cargo = abandoned
+_cargo = {}                 # label -> {"n": pieces, "last": bool, "at": moment, "bids": [names]}
 CARGO_DB = "/var/lib/montana-node-wake/cargo.json"
 def _cargo_load():
-    # The registry lived only in memory: a node restart forgot unclosed groups, and their chunks
-    # degraded to the weekly term instead of an hour. The snapshot is written by the sweep, loaded at start.
+    # The register lived in memory alone: a restart of the node forgot the unclosed groups, and their pieces
+    # aged to the week instead of the hour. The cleanup writes a snapshot; the start loads it.
     global _cargo
     try:
         import json as _j
@@ -80,22 +106,22 @@ def _cargo_save_locked():
         pass
 _cargo_load()
 _cargo_lock = threading.Lock()
-# Beta observability (stage 8-N, design decision of 23.08): tester telemetry, anonymous by
-# construction (random diagnostic id, addresses scrubbed on the device). Ceilings and TTLs guard
-# against bloat: 512 KiB packet. Design decision of 28.08: all events are kept 7 days WITHOUT overwriting —
-# files are per-day, cleanup only by file age; the tree ceiling is a fuse against
-# someone else's flood, evicts the oldest FILES, not devices.
+# The beta's observability (stage 8-N, the author's word 23.08): the testers' telemetry, anonymous by
+# construction (a random diary identity, addresses wiped on the device). Ceilings and TTL against
+# swelling: a 512 KiB packet. The author's word 28.08: every event lies 7 days WITHOUT being overwritten --
+# the files are per day, the cleanup goes by the age of a file alone; the ceiling of the tree is a fuse
+# against a stranger's flood and pushes out the oldest FILES, not devices.
 DIAG_DIR  = "/var/lib/montana-node-wake/diag"
 DIAG_BODY = 512 * 1024
-DIAG_DEV_DAY = 4 * 1024 * 1024   # a device's diary per UTC day; beyond it the node answers ok and keeps nothing (22.1: the disk is finite, the phone must not retry)
+DIAG_DEV_DAY = 64 * 1024 * 1024   # a device's diary per UTC day (29.09: 4 MiB held two hours of a busy phone, and the ring cut T1's whole day of 28.09 five times); the tree cap and the week's window bound the disk
 DIAG_TREE = 24 * 1024 * 1024 * 1024
 DIAG_TTL  = 7 * 86400   # sliding window: the author reads a week back, never further
 RE_DG = re.compile(r"^[0-9A-Fa-f-]{8,64}$")
-# AN ADDRESS IS ACCEPTED FROM NO ONE. The phone has not written it since build 1042 — but the rule lives on the device, and
-# devices can be old and foreign: a 26.08 measurement found 82 addresses in a payload sent from build 1013. A foreign
-# Montana implementation may send anything, and the node need not trust it. It does not anonymise —
-# it has no sender salt and must not have one — it SCRUBS: the line stays readable, the addresses
-# are not in it.
+# AN ADDRESS IS TAKEN FROM NOBODY. The phone has not written one since 1042 -- but the rule lives on the device,
+# and devices can be old or foreign: the measure of 26.08 found 82 addresses in what build 1013 sent. A foreign
+# implementation of Montana may send anything, and the node owes it no trust. It does not anonymise -- it has
+# no sender's salt and must not -- it STRIKES OUT: the line stays readable, and no address is in it.
+#
 RE_IP4 = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b")
 RE_IP6 = re.compile(r"[0-9a-fA-F:]{3,}")
 
@@ -114,7 +140,7 @@ def strip_addresses(line):
 RE_CARGO = re.compile(r"^[0-9A-Za-z-]{8,64}$")
 
 def diag_gc():
-    # No event younger than the TTL is erased by anything except the disk ceiling (design decision of 28.08).
+    # No event younger than the TTL is erased by anything but the disk's ceiling (the author's word 28.08).
     try:
         if not os.path.isdir(DIAG_DIR): return
         now = time.time()
@@ -140,11 +166,11 @@ def diag_gc():
             except OSError: pass
     except Exception as e:
         print(f"[diag] gc error {e}", flush=True)
-BLOB_CAP  = 16 * 1024**3       # disk ceiling; beyond it the oldest are evicted (large files/audio)
-# ── ADDRESS REFLECTOR (STUN binding) with its OWN metric ─────────────────────────
-# The phone needs the external address of exactly the socket it will punch through with. A foreign
-# reflector answers but is silent in our logs: there is nothing to measure "did the request arrive" with. Our own is
-# twenty lines, writes a line per request and lives in the same feed as everything else.
+BLOB_CAP  = 16 * 1024**3       # the ceiling of the disk; above it the oldest go first (large files, audio)
+# -- THE ADDRESS REFLECTOR (STUN binding) WITH ITS OWN METRIC ---------------------------------
+# The phone needs its outer address of exactly the socket it will punch through with. A stranger's
+# reflector answers but stays silent in our journals: there is nothing to measure «did the ask arrive» by. Our own
+# is twenty lines, writes a line for every ask and lives in the same stream as everything else.
 STUN_PORT = int(os.environ.get("WAKE_STUN_PORT", "3480"))
 STUN_MAGIC = 0x2112A442
 
@@ -253,15 +279,15 @@ def blob_gc():
     try:
         os.makedirs(BLOB_DIR, exist_ok=True)
         now = time.time()
-        # Chunks of abandoned cargo: UNCLOSED and not topped up for over an hour. The node knows this
-        # without a single bit about the content — only the counter and the touch time.
+        # The pieces of abandoned cargoes: UNCLOSED and not added to for over an hour. The node knows this
+        # without a single bit of the content -- only a count and the moment of the touch.
         abandoned = set()
         with _cargo_lock:
             for cg, e in list(_cargo.items()):
                 if not e["last"] and now - e["at"] > CARGO_ABANDON:
                     abandoned.update(e["bids"]); _cargo.pop(cg, None)
                 elif now - e["at"] > BLOB_TTL:
-                    _cargo.pop(cg, None)   # closed cargo lives out its term by the usual path
+                    _cargo.pop(cg, None)   # a closed cargo lives out its term the ordinary way
         with _cargo_lock:
             _cargo_save_locked()
         dropped_abandoned = 0
@@ -280,11 +306,11 @@ def blob_gc():
                 os.remove(pth); total -= sz
                 if total <= BLOB_CAP * 3 // 4: break
         if dropped_abandoned:
-            print(f"[blob] abandoned chunks removed: {dropped_abandoned}", flush=True)
+            print(f"[blob] abandoned pieces taken: {dropped_abandoned}", flush=True)
     except Exception as e:
         print(f"[blob] gc error {e}", flush=True)
 
-RE_TOPIC = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.\-]*[A-Za-z0-9]$")   # a form, not a list
+RE_TOPIC = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.\-]*[A-Za-z0-9]$")   # a shape, not a list
 RE_SID   = re.compile(r"^[0-9a-f]{64}$")
 RE_SLOT   = re.compile(r"^[A-Za-z0-9-]{1,64}$")   # the screen slot of a call: «call-<short seed>»
 
@@ -305,8 +331,8 @@ def migrate(db):
     db.commit()
 
 def prune(db, now=None):
-    # Subscription mortality: a live recipient renews the registration once a day (the client debounce
-    # includes the day number), so any row older than the TTL is abandoned — deleted.
+    # The mortality of subscriptions: a living receiver renews its registration once a day (the client's debounce
+    # carries the day's number), so any row older than the TTL is abandoned -- removed.
     now = int(time.time()) if now is None else now
     blob_gc()
     diag_gc()
@@ -327,9 +353,9 @@ def db():
         prune(_db)
     return _db
 
-# Pace: a cheap action must not be able to wake endlessly, but the ceiling must lie above the
-# pace of a live conversation — 4/min silenced the fifth message in a row (the wake silently did not happen).
-RATE_WAKE, RATE_REG, WINDOW = 30, 360, 60   # reg: sliding minute per IP; 13 devices behind NAT x 12 chunks x 2 passes = 312, headroom up to 360
+# The pace: a cheap act may not wake without end, but the ceiling must lie above the pace of a living
+# conversation -- 4 a minute silenced the fifth message in a row (and the wake went silently missing).
+RATE_WAKE, RATE_REG, WINDOW = 30, 360, 60   # reg: a sliding minute per IP; 13 devices behind NAT x 12 chunks x 2 rounds = 312, a margin to 360
 _rate = collections.defaultdict(list)
 _ratelock = threading.Lock()
 def _allow(key: str, limit: int) -> bool:
@@ -345,8 +371,8 @@ def _allow(key: str, limit: int) -> bool:
             _rate.clear()
         return True
 
-# Call signalling: blind E2E envelopes in MEMORY for the duration of the call (no WS — short polling).
-# TTL 60s, ceilings: 64 envelopes per conversation, 16 KB envelope. Does not touch the disk.
+# Call signalling: blind E2E envelopes IN MEMORY for the life of a call (no WS -- a short poll).
+# TTL 60 s, ceilings: 64 envelopes a conversation, 16 KB an envelope. It never touches the disk.
 SIG_TTL, SIG_CAP, SIG_MAX = 60, 256, 16384
 _sig = {}
 _siglk = threading.RLock()
@@ -396,7 +422,7 @@ class H(BaseHTTPRequestHandler):
         out.sort(key=lambda x: x["name"], reverse=True)   # the moment stands in the name: the newest first
         return out
     def _vault_free(self, shelf):
-        used = sum(x["bytes"] for x in self._vault_held(shelf))
+        used = sum(x["bytes"] for x in self._vault_held(shelf)) + _home_bytes(shelf)
         try: sv = os.statvfs(VAULT_DIR if os.path.isdir(VAULT_DIR) else "/")
         except OSError: return 0
         disk = sv.f_bavail * sv.f_frsize - VAULT_FLOOR
@@ -424,6 +450,51 @@ class H(BaseHTTPRequestHandler):
                     self.wfile.write(chunk)
         except (BrokenPipeError, ConnectionResetError): pass
         print(f"[vault] get shelf={shelf[:8]} bytes={size}", flush=True)
+
+    def _home(self, body, _t0):
+        shelf = self._vault_shelf()
+        if shelf is None: return self._m(403, self.path, _t0, {"error": "no token"})
+        if self.path == "/home-put":
+            bid = str(body.get("bid", "")); b64 = body.get("data", "")
+            if not RE_HBID.match(bid) or not isinstance(b64, str) or not b64:
+                return self._m(400, "/home-put", _t0, {"error": "bad piece"})
+            try: raw = base64.b64decode(b64, validate=True)
+            except Exception: return self._m(400, "/home-put", _t0, {"error": "bad b64"})
+            if not raw or BLOB_MAX < len(raw): return self._m(413, "/home-put", _t0, {"error": "too big"})
+            pth = _home_path(shelf, bid)
+            # A piece is named by its own bytes and laid once. The owner's book of what is where is one record it rewrites
+            # under one name (over): the same room, the old bytes counted out as the new ones are counted in.
+            was = os.path.getsize(pth) if os.path.exists(pth) else 0
+            if was and not body.get("over"): return self._m(200, "/home-put", _t0, {"ok": True, "held": True, "bytes": was})
+            free = self._vault_free(shelf) + was
+            if free < len(raw): return self._m(507, "/home-put", _t0, {"error": "no room", "free": free})
+            os.makedirs(os.path.dirname(pth), exist_ok=True)
+            with open(pth + ".tmp", "wb") as f: f.write(raw)
+            os.replace(pth + ".tmp", pth)
+            _home_add(shelf, len(raw) - was)
+            return self._m(200, "/home-put", _t0, {"ok": True, "held": True, "bytes": len(raw)})
+        if self.path in ("/home-have", "/home-drop"):
+            bids = body.get("bids", [])
+            if not isinstance(bids, list) or HOME_HAVE_MAX < len(bids):
+                return self._m(400, self.path, _t0, {"error": "bad bids"})
+            named = [str(b) for b in bids if RE_HBID.match(str(b))]
+            if self.path == "/home-drop":
+                freed = 0
+                for b in named:
+                    pth = _home_path(shelf, b)
+                    try: sz = os.path.getsize(pth); os.unlink(pth); freed += sz
+                    except OSError: pass
+                _home_add(shelf, -freed)
+                return self._m(200, "/home-drop", _t0, {"ok": True, "freed": freed})
+            have = [b for b in named if os.path.exists(_home_path(shelf, b))]
+            return self._m(200, "/home-have", _t0, {"have": have, "free": self._vault_free(shelf), "held": _home_bytes(shelf)})
+        bid = str(body.get("bid", ""))
+        if not RE_HBID.match(bid): return self._m(400, "/home-get", _t0, {"error": "bad bid"})
+        try:
+            with open(_home_path(shelf, bid), "rb") as f: raw = f.read()
+        except OSError:
+            return self._m(404, "/home-get", _t0, {"error": "no piece"})
+        return self._m(200, "/home-get", _t0, {"data": base64.b64encode(raw).decode()})
 
     def do_PUT(self):
         path, _q, query = self.path.partition("?")
@@ -508,6 +579,22 @@ class H(BaseHTTPRequestHandler):
                 out["nodes"] = [n for n in nodes if n["doors"]]
             return self._j(200, out)
 
+        if self.path == "/release":
+            # THE CURRENT BUILD IN TESTFLIGHT (29.09): the upload road writes /etc/montana/release.json -- the build, the
+            # version, what changed since the build before, the TestFlight link -- and every phone reads it with the doors'
+            # round; a phone older than the build tells its person in the Montana room. Data the network hands out, never
+            # code baked into a client; absent file -- an honest 404, nothing invented.
+            try:
+                with open("/etc/montana/release.json") as f:
+                    rel = json.load(f)
+                if not isinstance(rel, dict) or not isinstance(rel.get("build"), int):
+                    return self._j(404, {"error": "no release"})
+            except Exception:
+                return self._j(404, {"error": "no release"})
+            return self._j(200, {"build": rel["build"], "version": str(rel.get("version", ""))[:16],
+                                 "notes": [str(n)[:300] for n in (rel.get("notes") or [])][:40],
+                                 "url": str(rel.get("url", ""))[:200], "at": int(rel.get("at", 0) or 0)})
+
         if self.path == "/health":
             # The capability map (stage 10.2): the client reads what this node CAN instead of
             # guessing by path kinds. Health never dies of a busy database.
@@ -526,13 +613,13 @@ class H(BaseHTTPRequestHandler):
                                  "caps": {"box": "box" in CAPS, "blob": "blob" in CAPS, "signal": "signal" in CAPS,
                                           "turn": "turn" in CAPS, "diag": "diag" in CAPS and not DIAG_FORWARD,
                                           "stun": "stun" in CAPS, "notify": notify_ok and "notify" in CAPS,
-                                          "vault": "vault" in CAPS},
+                                          "vault": "vault" in CAPS, "home": "vault" in CAPS},
                                  "rows": boxed})
         self._j(404, {"error": "not found"})
 
-    # ── POINT METRIC: one line per request and a live summary ──────────────────
-    # Measure at all points at once: the phone knows what it sent, the node — whether it arrived and how fast.
-    # While the node wrote only the words "NO RECIPIENTS", there was nothing to join the two traces with.
+    # -- THE POINT'S METRIC: one line per request and a live summary ------------------------------
+    # Measure at every point at once: the phone knows what it sent, the node -- whether it arrived and how fast.
+    # While the node wrote only the words «NO RECIPIENTS», there was nothing to join the two traces by.
     def _m(self, code, path, t0, obj):
         self._metric(path, code, t0)
         return self._j(code, obj)
@@ -551,7 +638,7 @@ class H(BaseHTTPRequestHandler):
 
     def do_POST(self):
         n = int(self.headers.get("content-length", 0))
-        cap = BLOB_MAX if self.path == "/blob-put" else (DIAG_BODY if self.path == "/diag-put" else MAX_BODY)
+        cap = BLOB_MAX if self.path in ("/blob-put", "/home-put") else (DIAG_BODY if self.path == "/diag-put" else MAX_BODY)
         _t0 = time.time()
         if n <= 0 or n > cap: return self._j(413, {"error": "bad body"})
         raw_body = self.rfile.read(n)
@@ -560,10 +647,12 @@ class H(BaseHTTPRequestHandler):
         need = CAP_OF_PATH.get(self.path)
         if need and need not in CAPS and not (need == "diag" and DIAG_FORWARD):
             return self._j(404, {"error": "no such capability here"})
+        if self.path in ("/home-put", "/home-get", "/home-have", "/home-drop"):
+            return self._home(body, _t0)
 
         if self.path == "/fetch":
-            # Mailbox fetch: conversation labels + the sender's OWN labels (sids) — as in /wake, a letter
-            # is not handed to whoever put it there, otherwise the sender would empty the mailbox itself.
+            # The box taken: the conversations' labels + the sender's OWN labels (sids) -- as in /wake, a letter
+            # is not handed to the one who laid it, or the sender would empty the box by itself.
             subs = body.get("subs") or []; sids = body.get("sids") or []
             if not isinstance(subs, list) or not subs or len(subs) > 512:
                 return self._j(400, {"error": "bad subs"})
@@ -577,15 +666,15 @@ class H(BaseHTTPRequestHandler):
             rows = db().execute(f"SELECT conv, mid, env, at FROM box WHERE conv IN ({qc})"
                                 f" AND frm NOT IN ({qs}) ORDER BY at LIMIT 128",
                                 convs + own).fetchall()
-            # Delivery does NOT destroy: the letter lives in the mailbox until CONFIRMATION of storage (/box-del from the
-            # recipient) or until expiry. Destructive reading destroyed the letter on any failure
-            # of opening on the client — silently and forever (precedent 24.08, two runs in a row).
+            # Handing out does NOT destroy: the letter lives in the box until its placement is CONFIRMED (/box-del from
+            # the receiver) or until its term. A destroying read lost the letter at any failure to open it on the
+            # client -- silently and for good (precedent 24.08, two runs in a row).
             print(f"[fetch] labels={len(convs)} sids={len(own)} letters={len(rows)}"
                   f" c0={convs[0][:10]} s0={(own[0][:10] if own else '-')}", flush=True)
             return self._j(200, {"letters": [{"c": c, "m": m, "e": e, "at": a} for c, m, e, a in rows]})
         if self.path == "/box-del":
-            # Mailbox letter tombstone: delivered by the direct path or "delete for both" —
-            # nothing remains on the node. mid is globally unique (uuid) — no label needed.
+            # The burial of a letter in the box: handed by the direct road, or «delete for both» --
+            # nothing stays on the node. The mid is globally unique (a uuid) -- no label is needed.
             mids = body.get("mids") or []
             if not isinstance(mids, list) or not mids or len(mids) > 256:
                 return self._j(400, {"error": "bad mids"})
@@ -662,9 +751,9 @@ class H(BaseHTTPRequestHandler):
             return self._m(200, "/wake", _t0, {"ok": True, "woken": woken, "of": of, "apns": apns})
 
         if self.path == "/turn-cred":
-            # Temporary credentials for our own TURN (TURN-REST): username=<expiry-unixtime>,
+            # Temporary credentials of our own TURN (TURN-REST): username=<expiry-unixtime>,
             # password=base64(HMAC-SHA1(static-auth-secret, username)). The secret lives in the coturn
-            # config on this same node. Credentials self-expire; media is E2E (SFrame), the relay is blind.
+            # config on this same node. The credentials expire by themselves; the media is E2E (SFrame), the relay blind.
             import hmac, hashlib as _hl
             try:
                 conf = open("/etc/turnserver.conf").read()
@@ -752,8 +841,8 @@ class H(BaseHTTPRequestHandler):
                 ext = str(dev.get("model", "")) in ("nse", "sheet")
                 if not (ext and os.path.exists(dj)):
                     with open(dj, "w") as f: json.dump(dev, f)
-            # A file per DAY (UTC): no rotation by size — the former "one generation .1"
-            # held ~5 hours of the live stream instead of the promised 7 days.
+            # A file per DAY (UTC): no rotation by size -- the former «one generation .1»
+            # held about 5 hours of a live stream instead of the promised 7 days.
             pth = os.path.join(d, f"{base}-{time.strftime('%Y%m%d', time.gmtime())}.log")
             wrote = 0
             # THE DAY FILE IS A RING, NOT A CLIFF (16.09): past the cap the OLDEST half leaves and the
@@ -777,8 +866,8 @@ class H(BaseHTTPRequestHandler):
 
         if self.path == "/blob-put":
             ip = self.headers.get("X-Real-IP", self.client_address[0])
-            # 20 chunks/s: a gigabyte file (2048 chunks of 512 KiB) goes through in ~2 minutes;
-            # the former 120/min killed any file larger than ~60 MB at the 121st chunk.
+            # 20 pieces a second: a gigabyte file (2048 pieces of 512 KiB) leaves in about 2 minutes;
+            # the former 120 a minute killed any file over about 60 MB at its 121st piece.
             if not _allow("blob:" + ip, 1200): return self._m(429, "/blob-put", _t0, {"error": "rate"})
             bid = str(body.get("bid", "")); data_b64 = body.get("data", "")
             if not RE_BID.match(bid) or not isinstance(data_b64, str) or not data_b64:
@@ -788,11 +877,11 @@ class H(BaseHTTPRequestHandler):
             if not raw or len(raw) > BLOB_MAX: return self._m(413, "/blob-put", _t0, {"error": "too big"})
             os.makedirs(BLOB_DIR, exist_ok=True)
             pth = os.path.join(BLOB_DIR, bid)
-            if body.get("over") or not os.path.exists(pth):   # profile deposit is overwritten
+            if body.get("over") or not os.path.exists(pth):   # a profile deposit is overwritten
                 with open(pth + ".tmp", "wb") as f: f.write(raw)
                 os.replace(pth + ".tmp", pth)
-            # Cargo marks are optional and content-free. Their absence means
-            # an old sender: such cargo behaves as before, by term alone.
+            # The cargo marks are optional and carry no content. Their absence means an
+            # old sender: such a cargo behaves as before, by its term alone.
             cg = str(body.get("cg", ""))[:64]
             if cg and RE_CARGO.match(cg):
                 with _cargo_lock:
@@ -828,15 +917,15 @@ class H(BaseHTTPRequestHandler):
                         _log("blob-get", "sibling hit bid=" + bid[:8])
                 if raw is None:
                     return self._m(404, "/blob-get", _t0, {"error": "no blob"})
-            os.utime(pth, None)   # live interest extends life
+            os.utime(pth, None)   # a living interest prolongs its life
             _keep(bid)
             return self._m(200, "/blob-get", _t0, {"data": base64.b64encode(raw).decode()})
 
         if self.path == "/blob-have":
-            # The sender checks its OWN cargo: which of the named chunks lie in storage.
-            # Nothing new leaks out: the asker names the names itself, foreign
-            # names honestly get "no". Needed by the mirror invariant: lost cargo
-            # must become "repeat" at the sender within a minute, not at the recipient's report.
+            # The sender checks ITS OWN cargo: which of the named pieces lie in the store.
+            # Nothing new goes out: the asker names the names itself, and another's
+            # names honestly get «no». The mirror's invariant needs it: a lost cargo
+            # must become «repeat» at the sender within a minute, not at the receiver's report.
             ip = self.headers.get("X-Real-IP", self.client_address[0])
             if not _allow("blobh:" + ip, 2400): return self._m(429, "/blob-have", _t0, {"error": "rate"})
             bids = body.get("bids", [])
@@ -859,10 +948,10 @@ class H(BaseHTTPRequestHandler):
             return self._m(200, "/blob-have", _t0, {"have": have})
 
         if self.path == "/blob-drop":
-            # The file is assembled at the recipient — the chunks on the node are no longer needed by anyone. Before, they lay
-            # until the seven-day term, i.e. after cleanup on both phones a third copy
-            # stayed here: 334 MB per transferred track. The term remains as insurance for
-            # someone who did not turn the phone on for a week, and the usual path is now to remove at once.
+            # The file is assembled at the receiver -- nobody needs the pieces on the node any more. Before, they lay
+            # until the seven-day term, so after the cleanup on both phones a third copy
+            # stayed here: 334 MB for every track handed over. The term stays as insurance for
+            # one who did not switch the phone on for a week; the ordinary road now is to take them at once.
             ip = self.headers.get("X-Real-IP", self.client_address[0])
             if not _allow("blobd:" + ip, 1200): return self._m(429, "/blob-drop", _t0, {"error": "rate"})
             bids = body.get("bids", [])
@@ -922,10 +1011,10 @@ class H(BaseHTTPRequestHandler):
             conv = str(body.get("conv", ""))[:64]; frm = str(body.get("from_id", ""))
             if not conv or not RE_SID.match(frm): return self._m(400, "/signal-fetch", _t0, {"error": "bad fetch"})
             if not _allow("sig:" + conv + ":" + frm, 600): return self._m(429, "/signal-fetch", _t0, {"error": "rate"})
-            # LONG REQUEST. The phone asks once and waits; the node answers IN THE VERY SAME
-            # MILLISECOND the signal appears. The former frequent polling caused two troubles:
-            # a delay up to a whole polling step and a shared per-conversation request counter, because of
-            # which the two sides of a call silenced each other with a "too often" refusal.
+            # A LONG ASK. The phone asks once and waits; the node answers IN THE SAME
+            # MILLISECOND the signal appears. The former frequent poll brought two troubles:
+            # a delay of up to a whole poll step, and a common count of asks per conversation, by
+            # which the two sides of a call silenced each other with «too often».
             wait = min(max(int(body.get("wait", 0) or 0), 0), 25)
             deadline = time.time() + wait
             with _siglock:
@@ -995,15 +1084,28 @@ def _gc_loop():
 if __name__ == "__main__":
     if "stun" in CAPS:
         threading.Thread(target=_stun_serve, daemon=True).start()
-        # Second reflection point: the same answer from ANOTHER port. Comparing the two numbers issued by the operator,
-        # the phone learns its behaviour as a number — whether it changes the port per destination and with
-        # what step. Without the second measurement the hole-punch fan hits at random.
+        # The second reflection point: the same answer from ANOTHER port. Comparing the two numbers the carrier
+        # gave, the phone learns its behaviour as a number -- whether it changes the port for every addressee and
+        # by what step. Without the second measure the fan of punches strikes at random.
         threading.Thread(target=_stun_serve, args=(STUN_PORT + 1,), daemon=True).start()
     db()
     with _wlock:
         _gc_report()
     if "blob" in CAPS: _truth_probe()
     threading.Thread(target=_gc_loop, daemon=True).start()
+    # THE COIN CHAINS' COPY (COIN-TX-V3 section 2, the node's replica-only mode; the chairman's task 12.10.2026, No.65: «Lauterbourg and
+    # Frankfurt keep no copy of the coin chains»): the chain nodes' own file, imported as it stands (COIN_REPLICA_FILE), keeps every
+    # chain in a database of its own and signs each checkpoint's root as a holder. This store opens no door and no port for it, and a
+    # copy that fails to start takes nothing of this store down.
+    if os.environ.get("COIN_REPLICA_FILE"):
+        try:
+            import importlib.util
+            spec = importlib.util.spec_from_file_location("montana_coin_node", os.environ["COIN_REPLICA_FILE"])
+            coin = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(coin)
+            coin.coin_replica_hosted(os.environ.get("COIN_REPLICA_DB", "/var/lib/montana-node-wake/coin.db"))
+        except Exception as e:
+            print(f"[tx] ALARM the coin replica did not start: {e}", flush=True)
     print(f"[node-store] port={PORT} db={DB} blobs={BLOB_DIR} notify={NOTIFY}", flush=True)
     if VAULT_TLS_CERT and VAULT_TLS_KEY and os.path.exists(VAULT_TLS_CERT) and os.path.exists(VAULT_TLS_KEY):
         import ssl

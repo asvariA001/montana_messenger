@@ -1342,6 +1342,11 @@ struct DataStorageView: View {
     @State private var picturesCleared = false
     @State private var disk: MTDiskUse? = nil                 // what this phone holds, measured on its disk (MTDiskUse)
     @State private var clearingShelf = false
+    @ObservedObject private var homeKeep = MTHomeKeep.shared   // the files on the person's own node, in the node's own word (18.10)
+    @State private var clearingCache = false
+    @State private var cacheWord: LocalizedStringKey? = nil
+    @AppStorage(MTHomeKeep.keepDaysKey) private var keepDays = 0
+    @AppStorage(MTHomeKeep.limitKey) private var cacheLimit = 0
     private func measureDisk(_ inv: CopyInventory) {
         let named = Set(inv.owner.keys)
         DispatchQueue.global(qos: .utility).async {
@@ -1392,6 +1397,68 @@ struct DataStorageView: View {
                 Text("Pictures are kept in memory so chats and walls open without waiting. They stay until you clear them here.")
             }
             .listRowBackground(MTGlassRowPlate())
+
+            // THE CACHE, CLEARED AS THE REFERENCE CLEARS IT (the author's word 18.10.2026 20:1x MSK): what the person's own node
+            // holds leaves this phone, and comes back from the node at a look or a tap -- the node's word decides, asked anew.
+            Section {
+                if case .held(let files, let bytes, _) = homeKeep.word {
+                    HStack {
+                        settingsToggleLabel("Kept on your node", "externaldrive.fill", .gray)
+                        Spacer()
+                        Text(verbatim: String(files) + " · " + mtSize(bytes)).foregroundColor(.secondary)   // USER-DATA: the node's count and size
+                    }
+                }
+                Button { clearingCache = true } label: {
+                    HStack {
+                        settingsToggleLabel("Clear cache", "trash.fill", .red)
+                        Spacer()
+                        if homeKeep.clearing { ProgressView() }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .disabled(!MTHomeShelf.bringing || homeKeep.clearing)
+                // AS THE REFERENCE KEEPS ITS CACHE: a term for what nobody opened, a ceiling for the whole -- what leaves is what
+                // the node holds, asked anew.
+                Picker(selection: $keepDays) {
+                    Text("3 days").tag(3)
+                    Text("1 week").tag(7)
+                    Text("1 month").tag(30)
+                    Text("Forever").tag(0)
+                } label: { settingsToggleLabel("Keep media", "clock.arrow.circlepath", .blue) }
+                .disabled(!MTHomeShelf.bringing)
+                .onChange(of: keepDays) { _, _ in homeKeep.trim() }
+                Picker(selection: $cacheLimit) {
+                    ForEach([5, 16, 32], id: \.self) { g in
+                        Text(verbatim: mtSize(g * 1_073_741_824)).tag(g)   // USER-DATA: a size in the platform's own units
+                    }
+                    Text("No limit").tag(0)
+                } label: { settingsToggleLabel("Maximum cache size", "internaldrive.fill", .gray) }
+                .disabled(!MTHomeShelf.bringing)
+                .onChange(of: cacheLimit) { _, _ in homeKeep.trim() }
+            } header: {
+                Text("CACHE")
+            } footer: {
+                Text(MTHomeShelf.bringing
+                     ? "What your node holds leaves this phone. Each photo, video and file comes back from your node when you open it, here or on a new phone with your 24 words."
+                     : "Set up your node in Settings, Your node: what it holds can then be cleared from this phone and comes back when you open it.")
+            }
+            .listRowBackground(MTGlassRowPlate())
+            .confirmationDialog("Clear the cache?", isPresented: $clearingCache, titleVisibility: .visible) {
+                Button("Clear", role: .destructive) {
+                    homeKeep.clear { r in
+                        if let r { cacheWord = "Cleared from this phone: \(r.files) files, \(mtSize(r.bytes)). Your node keeps them." }
+                        else { cacheWord = "Your node did not answer. Nothing was cleared." }
+                        if let inv = inventory { measureDisk(inv) }
+                    }
+                }
+            } message: {
+                Text("Only what your node holds leaves this phone; what it does not hold stays.")
+            }
+            .alert("Cache", isPresented: Binding(get: { cacheWord != nil }, set: { if !$0 { cacheWord = nil } })) {
+                Button("OK") { cacheWord = nil }
+            } message: {
+                if let w = cacheWord { Text(w) }
+            }
 
             // WHAT THIS PHONE HOLDS, MEASURED ON ITS DISK (the author's word 18.10.2026 10:2x MSK: «on T1 Montana weighs 20 GB, I cannot
             // see what weighs so much nor how to clean it, and Data and Storage shows other numbers»): the sum is the phone's own, each
@@ -1623,6 +1690,7 @@ struct DataStorageView: View {
         .onChange(of: plan) { _, p in p.save() }
         .onAppear {
             CopyInventory.gather { inv in inventory = inv; measureDisk(inv) }
+            homeKeep.ask()
             MontanaBackupCloud.ready { r in
                 cloudReady = r
                 if r { cloud.start() }
