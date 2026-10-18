@@ -75,7 +75,7 @@ struct MTChatFolder: Codable, Identifiable, Hashable {
     static let all = MTChatFolder(id: allID, leaves: [])
     var isAll: Bool { id == Self.allID }
     var shownTitle: String {
-        if isAll { return String(localized: "All Chats", bundle: MTLanguage.bundle) }
+        if isAll { return String(localized: "All", bundle: MTLanguage.bundle) }   // the author's word 18.10.2026 10:2x MSK: «call it simply All»
         guard title.isEmpty, let p = preset else { return title }
         switch p {
         case .contacts, .nonContacts: return String(localized: "Chats", bundle: MTLanguage.bundle)
@@ -244,7 +244,7 @@ struct MTFolderTabs: View {
             }
         }
         .frame(height: 44)
-        .mtGlassPill(corner: 22)
+        .montanaOctagonFace(bar: true)   // the time panel's own plate (the author's word 18.10.2026 10:2x MSK)
     }
 
     /// The strip's width with every name whole, by the platform's own measure of the words.
@@ -286,7 +286,7 @@ struct MTFolderTabs: View {
             .frame(minWidth: 44, minHeight: 36)
             .background {
                 if on {
-                    Capsule().fill(Color.white.opacity(0.16)).matchedGeometryEffect(id: "lens", in: lens)
+                    MTBarPuck().matchedGeometryEffect(id: "lens", in: lens)   // the time panel's own puck under the chosen name
                 }
             }
             .frame(minHeight: 44)

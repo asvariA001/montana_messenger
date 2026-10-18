@@ -487,12 +487,18 @@ final class SharePickerController: UIViewController, UICollectionViewDataSource,
                 lettered.append(item)
             }
             if lettered.count > 1 { ShareSend.diag("sheet GROUP n=\(foldable) of=\(lettered.count) key=\(String((slots.first??.key ?? "-").prefix(8)))") }
+            // THE ORDER RIDES IN THE NAMES (the author's word 18.10.2026 10:2x MSK: «the order of the messages broke, and it must be
+            // strictly as I sent them»): a receiver orders letters by the birth the name carries (ChatStore.birthMs), and a bare
+            // UUID carries none -- a big video that came last stood first. Each item is born a millisecond after the one before, in
+            // the order the person chose them, under the app's own form of a name (ChatStore.mintMid: «t» + ms + «-» + a UUID).
             var batch: [[String: Any]] = []
+            var born = Int64(Date().timeIntervalSince1970 * 1000)
             for peer in peers {
                 let title = all.first { $0.name == peer }?.title ?? peer
                 var items0: [[String: Any]] = []
                 for var item in lettered {
-                    item["mid"] = UUID().uuidString
+                    item["mid"] = "t" + String(born) + "-" + UUID().uuidString
+                    born += 1
                     item["sent"] = false
                     items0.append(item)
                 }
@@ -550,7 +556,11 @@ final class SharePickerController: UIViewController, UICollectionViewDataSource,
                         }
                     }
                     if !text.isEmpty { item["letter"] = text }   // composed ONCE: the app's guarantee leg re-sends these very bytes
-                    item["sent"] = text.isEmpty ? false : await ShareSend.sendLetter(peer: peer, mid: mid, text: text)
+                    // A GROUP OR A CHANNEL HAS NO PIPE (the author's word 18.10.2026 10:2x MSK: «sharing into a channel failed and hung
+                    // with Retry»): its letter is the group's to carry to every member, which the app alone can do (MTGroup) -- the sheet
+                    // lays the pieces and the letter and hands the row over.
+                    let toGroup = peer.hasPrefix("grp:")
+                    item["sent"] = text.isEmpty || toGroup ? false : await ShareSend.sendLetter(peer: peer, mid: mid, text: text)
                     items[ii] = item
                 }
                 batch[bi]["items"] = items

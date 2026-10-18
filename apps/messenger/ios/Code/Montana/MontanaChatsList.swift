@@ -280,8 +280,12 @@ final class ConnectionStatus: ObservableObject {
 }
 
 struct ChatsListView: View {
-    // THE FOLDERS' TABS (the author's words 17.10.2026 18:4x MSK): the chosen folder -- All Chats at every launch, as the reference.
-    @State private var folderID = MTChatFolder.allID
+    // THE FOLDERS' TABS (the author's words 17.10.2026 18:4x MSK): the chosen folder -- All at every launch, as the reference -- is
+    // the state's (UIState.chatFolder), so the page's stroke turns the folders before the pages (18.10.2026 10:2x MSK).
+    private var folderID: String {
+        get { ui.chatFolder }
+        nonmutating set { ui.chatFolder = newValue }
+    }
     @ObservedObject private var folderBook = MTChatFolders.shared
     @State private var removingFolder: MTChatFolder?
     @ObservedObject private var release = MTReleaseState.shared
@@ -980,9 +984,11 @@ struct ChatsListView: View {
             let known = folderBook.tellsContacts ? MTChatFolders.contactRefs() : nil
             let bare = folderBook.rows(of: folder, live: live, archived: archivedChats, store: store, contacts: known)
             VStack(spacing: 0) {
-                // THE FOLDERS' TABS IN PLACE OF THE SEGMENTS (the author's words 17.10.2026 18:4x MSK): All Chats left of the chats, the
+                // THE FOLDERS' TABS IN PLACE OF THE SEGMENTS (the author's words 17.10.2026 18:4x MSK): All left of the chats, the
                 // groups and the channels, the bots after them, each with its badge, the folder's own menu on a hold (MTFolderTabs). The
-                // green shield left them for the interlocutor's bubble in the chat (MTKeepShield, the same hour).
+                // green shield left them for the interlocutor's bubble in the chat (MTKeepShield, the same hour). AS THE TIME PANEL
+                // (18.10.2026 10:2x MSK: «this strip of tabs over the chats' feed as the time panel, by its style and its place»): the
+                // panel's own plate and puck, at the panel's side margins, under it.
                 HStack(spacing: 6) {
                     MTFolderTabs(tabs: folderTabs(live: live, contacts: known), chosen: folder.id,
                                  pick: { id in
@@ -993,7 +999,12 @@ struct ChatsListView: View {
                                  menu: { id in AnyView(folderMenu(id, live: live, contacts: known)) })
                 }
                 .frame(minHeight: 44)
-                .padding(.horizontal, MTSearchField.rowPad).padding(.vertical, 2)
+                .padding(.horizontal, 12).padding(.vertical, 2)
+                .onAppear { ui.chatFolders = folderBook.folders.map(\.id) }
+                .onChange(of: folderBook.folders.map(\.id)) { _, ids in
+                    ui.chatFolders = ids
+                    if !ids.contains(folderID) { folderID = MTChatFolder.allID }   // a folder taken away hands the page back to All
+                }
                 let empty = folder.isAll && bare.allSatisfy { c in ChatStore.isLocalRoom(c.name) || c.name == MTBot.row } && archivedChats.isEmpty
                 let rows = empty ? bare + [Chat(name: Self.qrRow, lastMessage: "", time: "", unread: 0, status: "", convId: Self.qrRow)] : bare
                 MontanaTimePanelList(panel: timePanel(.chats, listEmpty: false, ownSearch: false), rows: rows,

@@ -1555,7 +1555,7 @@ struct MTRisingPlus: View {
 
 /// YOUR PLACE ON THE COIN (the author's words 03.10 21:41 and 22:00: «take the badge off the minting coin»; «on the coins' badge
 /// your number in the rating»): the box of π the person's balance fills (MTPiLevels.place), as the platform's badge; nothing
-/// below the first box. The balance itself stands on the wallet's mark beside it (MTWalletBalanceBadge).
+/// below the first box. The balance itself stands on the wallet's page (the wallet's mark wears no badge, 18.10.2026).
 struct MTCoinPlaceBadge: View {
     @ObservedObject private var book = MTLocalCoinLedger.shared
     @ObservedObject private var board = MTCoinBoard.shared
@@ -1565,15 +1565,6 @@ struct MTCoinPlaceBadge: View {
     // and among the people who told their balance before that (MTCoinBoard.rank).
     var body: some View {
         MTCountBadge(top.answered ? (top.rank ?? 0) : board.rank(mine: book.balance)).offset(x: 6, y: -6).allowsHitTesting(false)
-    }
-}
-
-/// THE BALANCE ON THE WALLET'S MARK (the author's words 03.10 21:19 and 21:41: «only the wallet's sum as the badge, as 1k, 10k,
-/// 100k up to a whole Montana, 1kkk»): the coin book's balance in its short form; nothing while it is empty.
-struct MTWalletBalanceBadge: View {
-    @ObservedObject private var book = MTLocalCoinLedger.shared
-    var body: some View {
-        MTCountBadge(word: 0 < book.balance ? MTPiLevels.short(book.balance) : "").offset(x: 8, y: -6).allowsHitTesting(false)
     }
 }
 

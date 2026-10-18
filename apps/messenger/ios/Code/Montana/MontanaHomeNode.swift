@@ -506,12 +506,12 @@ struct HomeNodeView: View {
                 MontanaHomeNode.setOn(true); on = true
                 password = ""
                 settingUp = false
-                word = "Your node is set up: its door stands at \\(h) and its certificate is pinned."
+                word = "Your node is set up: its door stands at \(h) and its certificate is pinned."
                 node.ask()
             } catch {
                 settingUp = false
                 MontanaTrace.mark("home_node", "set-up refused " + String(String(describing: error).prefix(120)))
-                word = "The set-up refused: \\(String(describing: error))"
+                word = "The set-up refused: \(String(describing: error))"
             }
         }
     }

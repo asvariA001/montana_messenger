@@ -211,6 +211,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     private static let lifeOutFloor = 16 * 1024       // bytes out per sample that make silence a verdict, not idleness
     private static let lifeInFloor = 1024             // bytes in per sample that still count as silence (the ACKs of dead flows)
     private var lifeInAfterRaise = false
+    private var road = MTTunnelRoad()                 // the road's word: bytes a hook, the probe through the engine the verdict
     private var lifetime = MTTunnelLifetime()
     // THE LIVING SECONDS (MTTunnelAlive): counted on the engine's line by the life watch, told to the app when it asks.
     private var living = MTTunnelAlive(total: UserDefaults.standard.double(forKey: MTTunnelAlive.totalKey))
@@ -329,6 +330,19 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                         self.recovering = true; self.reasserting = true; self.retry.reset()
                     }
                 }
+                // THE SESSION IS BORN BY THE ROAD'S ANSWER (the critic, 17.10.2026, finding 3: on 85938459, 12.10 18:54, a session was
+                // born on a dead server and held the phone 1 h 26 min with nothing in). An engine that stood is asked through its own
+                // outbound before the tunnel is said to stand; a road that does not answer on the phone's own network lifts the
+                // reconnect -- or the system would raise the same dead session at once -- and the start is refused with its reason.
+                if initialError == nil, self.phonePathUp, MontanaXrayBridge.probeRunning() == nil {
+                    MontanaXrayBridge.stop()
+                    ExtLog.write("birth refused: the engine stood and the road did not answer its probe -- the reconnect is lifted")
+                    ExtReconnect.lift(dead: Date().timeIntervalSince1970) {
+                        completionHandler(NSError(domain: "montana.tunnel", code: 7,
+                                                  userInfo: [NSLocalizedDescriptionKey: "The VPN carried nothing: VPN off"]))
+                    }
+                    return
+                }
                 ExtLog.write("starting packet pump")
                 if initialError == nil, !MontanaPacketPump.shared.start(socksHost: "127.0.0.1", socksPort: self.socksPort) {
                     self.recovering = true
@@ -340,11 +354,19 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 self.startMemoryWatch()
                 self.startMemoryPressureWatch()
                 self.startLifeWatch()
+                self.pathMark = Self.mark(of: self.defaultPath)
                 self.pathObservation = self.observe(\.defaultPath, options: [.new]) { [weak self] _, _ in
                     guard let self else { return }
                     self.engineLine.async {
                         guard self.lifetime.isAlive else { return }
+                        // THE BACKOFF HOLDS UNTIL THE PATH ITSELF CHANGES (the critic, 17.10.2026: a probe every 2-3 s for twenty
+                        // minutes -- every notice of the same path started the backoff over): a notice of the same status and cost is
+                        // no change of the road, and the reconnect keeps its pace.
+                        let mark = Self.mark(of: self.defaultPath)
+                        guard mark != self.pathMark else { return }
+                        self.pathMark = mark
                         self.retry.reset()
+                        self.road.forget()
                         self.lifeLast = nil
                         if self.phonePathUp, self.recovering { self.recoverUpstream() }
                     }
@@ -538,6 +560,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         }
         guard lifetime.isAlive else { MontanaXrayBridge.stop(); return "session stopped" }
         engineConfig = cfgStr
+        road.forget()   // the probe's answer was the engine's before
         guard MontanaPacketPump.shared.start(socksHost: "127.0.0.1", socksPort: socksPort) else {
             MontanaXrayBridge.stop(); return "packet pump did not start"
         }
@@ -553,8 +576,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         t.resume(); lifeTimer = t
     }
 
-    /// Silence is bytes out and none in, for twenty seconds; idleness (nothing asked out) is not silence, and a
-    /// single byte in ends it. A silent upstream is raised anew, no sooner than the backoff allows.
+    /// Silence is a road asked and not answering (MTTunnelRoad), for twenty seconds; idleness (nothing either way) is not
+    /// silence, and an answer ends it. A silent upstream is raised anew, no sooner than the backoff allows.
     private func judgeLife() {
         guard lifetime.isAlive else { return }
         defer { countLife() }
@@ -562,7 +585,12 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         let s = MontanaPacketPump.shared.rawStats()
         let now = Date()
         let sample = recovering ? nil : lifeLast.map { (dtx: s.txb - $0.txb, drx: s.rxb - $0.rxb) }
-        if judgeDeath(now: now, sample: sample) { return }
+        // The road's word on this beat. A recovery is a road asked and not answering -- its candidates failed their probes -- so its
+        // clock runs from its first beat, a session born into it included (sample=nil read as nothing held a dead road 2 h 34 min).
+        let word: MTTunnelRoad.Word = sample.map { d in
+            road.word(dtx: d.dtx, drx: d.drx, now: now.timeIntervalSince1970) { MontanaXrayBridge.probeRunning() != nil }
+        } ?? (recovering ? .unanswered : .idle)
+        if judgeDeath(now: now, road: word) { return }
         if recovering { recoverUpstream(); return }
         guard phonePathUp else {
             lifeLast = nil; lifeSilentSince = nil
@@ -572,7 +600,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         guard let prev = lifeLast else { lifeLast = (s.txb, s.rxb, now); return }
         lifeLast = (s.txb, s.rxb, now)
         let dtx = s.txb - prev.txb, drx = s.rxb - prev.rxb
-        if drx > Self.lifeInFloor {
+        if word == .answered {
             lifeInAfterRaise = true
             if lifeSilentSince != nil || lifeRaiseStep != 30 {
                 ExtLog.write("upstream alive: in=\(drx / 1024)KB out=\(dtx / 1024)KB in the last \(Int(Self.lifeSample))s raised=\(lifeRaises)")
@@ -580,7 +608,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             lifeSilentSince = nil; lifeRaiseStep = 30
             return
         }
-        guard dtx >= Self.lifeOutFloor else { return }   // nothing asked to go out: idleness, not silence
+        guard word == .unanswered else { return }   // nothing either way: idleness, not silence
         if lifeSilentSince == nil { lifeSilentSince = prev.at }
         guard let since = lifeSilentSince else { return }
         let silent = now.timeIntervalSince(since)
@@ -618,14 +646,13 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
 
     /// The dead session's judge (MTTunnelDeath), on the engine's line: true when the session was restarted or released.
     /// The app's witness counts no further back than this session: a block carried over a restart is judged afresh.
-    private func judgeDeath(now: Date, sample: (dtx: Int, drx: Int)?) -> Bool {
+    private func judgeDeath(now: Date, road word: MTTunnelRoad.Word) -> Bool {
         guard !releasing else { return true }
         let reported = appBlocked.flatMap { now.timeIntervalSince($0.at) <= Self.witnessFresh ? $0.seconds : nil } ?? 0
         let witness = min(reported, max(0, Int(now.timeIntervalSince(sessionStart))))
         let store = UserDefaults.standard
         let verdict = death.judge(now: now.timeIntervalSince1970, phonePath: phonePathUp,
-                                  bytesIn: Self.lifeInFloor < (sample?.drx ?? 0),
-                                  bytesOut: Self.lifeOutFloor <= (sample?.dtx ?? 0),
+                                  answered: word == .answered, unanswered: word == .unanswered,
                                   blocked: TimeInterval(witness),
                                   lastBlockedRestart: store.object(forKey: Self.blockedRestartKey) as? Double)
         switch verdict {
@@ -680,6 +707,10 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     }
 
     private var phonePathUp: Bool { defaultPath?.status == .satisfied }
+    /// The phone's own road as the backoff reads it: its status and its cost -- Wi-Fi to cellular moves the cost, a lost road the status.
+    private static func mark(of path: NWPath?) -> String {
+        String(path?.status.rawValue ?? -1) + "/" + String(path?.isExpensive == true) + "/" + String(path?.isConstrained == true)
+    }
 
     private func yieldDeadUpstream(out: Int, inb: Int, silent: Int, why: String) {
         guard lifetime.isAlive else { return }
@@ -773,6 +804,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 Double(info.limit_bytes_remaining) / mb)
     }
     private var lastNumGC: Int = 0
+    private var lastCPU: Double = 0            // the process's own seconds of the cores at the minute line before (the timer's queue alone)
+    private var lastFreed = Date.distantPast   // the last release of the runtime's pages (the pressure queue alone)
+    private var pathMark = ""                  // the path's status and cost the backoff last started over at (the engine's line alone)
     private var sessionStart = Date()
     private var memPressure: DispatchSourceMemoryPressure?
 
@@ -803,6 +837,11 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             // to 9 MB while the runtime still held 45 MB and the process was killed twice in twenty
             // minutes. Here the pages go back at once, which is the one thing that moves the number the
             // system is looking at.
+            // ONE RELEASE IN HALF A MINUTE (the critic, 17.10.2026: 14 full collections in 200 ms on 88AEAE81, 12.10 23:20:18, 795
+            // announcements): the system announces in bursts, and every release is a full collection of the runtime -- the heat the
+            // person felt. A burst is answered once; the runtime's own pacer answers the rest.
+            guard let me = self, 30 <= Date().timeIntervalSince(me.lastFreed) else { return }
+            me.lastFreed = Date()
             let freed = MontanaXrayBridge.freeMemory()
             ExtLog.write(String(format: "MEMORY RELEASED after %@ footprint=%.1fMB %@", lvl, Self.memoryFootprintMB(), freed))
         }
@@ -830,8 +869,17 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             let gcRate = self.lastNumGC == 0 ? 0 : max(0, gc - self.lastNumGC)   // per minute
             self.lastNumGC = gc
             let up = Int(Date().timeIntervalSince(self.sessionStart))
-            let line = String(format: "up=%dh%02dm%02ds footprint=%.1fMB peak=%.1fMB left=%.1fMB gc=%d %@",
-                              up / 3600, (up % 3600) / 60, up % 60, mem.now, mem.peak, mem.left, gcRate, stats)
+            // THE HEAT IS MEASURED HERE (the critic, 17.10.2026: the tunnel wrote neither its share of the cores nor the phone's
+            // thermal state, so «it heats» stood on the person's hand alone): the process's own seconds of the cores over the minute,
+            // as a share of one core, and the system's thermal state (0 nominal, 1 fair, 2 serious, 3 critical).
+            var use = rusage()
+            getrusage(RUSAGE_SELF, &use)
+            let cpu = Double(use.ru_utime.tv_sec + use.ru_stime.tv_sec) + Double(use.ru_utime.tv_usec + use.ru_stime.tv_usec) / 1_000_000
+            let cpuPct = self.lastCPU == 0 ? 0 : Int(((cpu - self.lastCPU) / 60 * 100).rounded())
+            self.lastCPU = cpu
+            let thermal = ProcessInfo.processInfo.thermalState.rawValue
+            let line = String(format: "up=%dh%02dm%02ds footprint=%.1fMB peak=%.1fMB left=%.1fMB gc=%d cpu=%d thermal=%d %@",
+                              up / 3600, (up % 3600) / 60, up % 60, mem.now, mem.peak, mem.left, gcRate, cpuPct, thermal, stats)
             ExtLog.write(line)
             // The only file this process touches while running: 80 bytes overwritten once a minute.
             // A termination gives no chance to flush anything, so this marker is the sole way the next
@@ -1026,6 +1074,19 @@ enum MontanaXrayBridge {
         let ok = stun.isEmpty ? MontanaxrayMeasureDelay(config, "", "", &delay, &error)
                              : MontanaxrayMeasureUDP(config, stun, "", &delay, &error)
         guard ok, delay >= 0 else { return nil }
+        return Int(delay)
+        #else
+        return nil
+        #endif
+    }
+
+    /// The road the person's packets take, asked through the running engine's own outbound (ProbeRunning in the wrapper): its
+    /// delay, or nil when it did not answer within the probe's deadline. No second engine stands and no flow is touched.
+    static func probeRunning() -> Int? {
+        #if canImport(MontanaXray)
+        var delay: Int64 = -1
+        var error: NSError?
+        guard MontanaxrayProbeRunning(&delay, &error), delay >= 0 else { return nil }
         return Int(delay)
         #else
         return nil

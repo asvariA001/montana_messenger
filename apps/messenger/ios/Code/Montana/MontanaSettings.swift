@@ -274,7 +274,7 @@ struct MTQuestionsPage: View {
     static let topics: [Topic] = [
         Topic(title: "Levels", systemImage: "stairs", items: [
             Item(question: "What is the Global level?",
-                 answer: "Your Global level is the lowest of three levels: the level of the chain of the person, which grows with your time on the network, the level of π, which grows with the coins you hold, and the Fabric of Time, which stands on your regular calls of the last two weeks. You see it in TimeCoin, on the TimeChain page, and in Settings, under Access by level."),
+                 answer: "Your Global level is the lowest of three levels: the level of the chain of the person, which grows with your time on the network, the level of π, which grows with the coins you hold, and the Fabric of Time, which stands on the people you write to and call regularly in the last two weeks. You see it in TimeCoin, on the TimeChain page, and in Settings, under Access by level."),
             Item(question: "How does the chain of the person count my time?",
                  answer: "A second counts while Montana is open on the screen of one of your devices and a Montana node answers it. The second is read from the node, never from the clock of your phone. Each level doubles the seconds of the one before: 1 second is level 0, 2 seconds level 1, 4 seconds level 2, then 8, 16, 32 and on. When you leave the network, your level stays, and nothing is added until you return."),
             Item(question: "What is the level of π?",
@@ -286,29 +286,30 @@ struct MTQuestionsPage: View {
             Item(question: "Can I take my copy back from my node below level 8?",
                  answer: "Yes. Setting up your node and sending copies to it open at level 8. Taking your copy back from it is open on every level."),
         ]),
-        // THE FABRIC OF TIME (the author's words 17.10.2026 22:24-22:50 MSK; MTFabric): what this build does of it and no more -- its two
-        // deviations from the specification named, not hidden (the window from the nodes' seconds, no witness into the network yet).
+        // THE FABRIC OF TIME (the author's words 17.10.2026 22:24-22:50 MSK; 18.10.2026 00:4x «a sliding window of t2 over live activity»,
+        // 10:2x a correspondent weighed by their ceiling; MTFabric): what this build does of it and no more -- its deviations from the
+        // specification named, not hidden (the window from the nodes' seconds, no witness into the network yet).
         Topic(title: "Fabric of Time", systemImage: "point.3.connected.trianglepath.dotted", items: [
             Item(question: "What is the Fabric of Time?",
-                 answer: "The third level your Global level is set by: your regular calls of the last two weeks, weighed by how high the people you call stand. Your Global level is the lowest of the three, so the Fabric of Time can lower it and never raises it."),
-            Item(question: "Which call counts?",
-                 answer: "A call of two that connected, in which each phone received the other's voice for at least 60 seconds. Each phone counts the voice it received itself, from the sound that reached it: silence and a muted microphone do not count, and neither does a ring answered and declined. A group call does not count."),
+                 answer: "The third level your Global level is set by: the people you write to and call regularly, each weighed by the level their own time and wallet give them. Your Global level is the lowest of the three, so the Fabric of Time can lower it and never raises it."),
+            Item(question: "What counts as an exchange?",
+                 answer: "Anything you and a person send each other that stands in your conversation: words, voice and video messages, photos, files, stickers and GIFs, coin transfers, the moves of a game, and a call in which each phone received the other's voice for at least 60 seconds. Receipts, typing and presence do not count, and neither does a group."),
+            Item(question: "When does a person's phone sign for me?",
+                 answer: "When a word of yours reaches their phone and they wrote to you themselves in the last 7 days, their phone signs, once a day at most, that your word reached it: the minute it arrived, the hash the fingerprint of your conversation is read from, and their own ceiling. It gives the signature to you alone, inside your conversation. A person who only writes and is never answered receives none."),
             Item(question: "Who is a regular correspondent?",
-                 answer: "Montana reads the Fabric of Time in weeks of 7 days, each beginning on Thursday at 00:00 UTC. A person is your regular correspondent in a week when your phone holds a testimony of a counted call from them in each of the two weeks before it. People are told apart by the key their testimonies are signed with, not by anything they say about themselves."),
+                 answer: "A person from whom your phone holds a signature in each of the last two weeks: the newer 7 days and the 7 before them. The window slides with the clock of the network; there are no fixed weeks. People are told apart by the key their signatures are made with, which their 24 words give for your conversation alone, not by anything they say about themselves."),
             Item(question: "How is the level of the Fabric of Time counted?",
-                 answer: "It is the greatest number g for which at least g of your regular correspondents stand at level g or above; a person far above g adds one, exactly as one at g does. It is counted at the first reading of each week from what your regular correspondents stated by the end of the week before, and holds through the week. Your ceiling is the lower of your two other levels, at its lowest since the week began. Through the week your phone keeps your estimate: the same count over what your regular correspondents state this week, never above your ceiling, and it only falls until the week ends."),
+                 answer: "Each regular correspondent stands at their ceiling: the lower of their two other levels, at its lowest in their signatures of the last two weeks. The level is the greatest number g for which at least g of your regular correspondents stand at g or above; a person far above g adds one, exactly as one at g does. It is counted again whenever a signature arrives or leaves the two weeks. Their own Fabric of Time does not enter it, so one person's dip never pulls a whole circle down."),
             Item(question: "Does the Fabric of Time lower a newcomer?",
-                 answer: "Not in the first two weeks. From the first launch of this version on this phone with your 24 words, for the week of that launch and the week after it, the Fabric of Time stands at your ceiling, so in these weeks your Global level follows the lowest point of your two other levels since the week began. TimeCoin and Access by level show the days left until the first count."),
-            Item(question: "What is a testimony of a call?",
-                 answer: "At the end of a counted call each phone signs, with the key of your 24 words, what it heard: the call, the hash the other person's fingerprint is read from, the minute the call ended, the seconds of their voice it received, and your ceiling and estimate. It gives the testimony only to the other person, inside your conversation, with your public key, so their phone can check the signature. Their phone counts it only when it names them, the signature holds, it is of a call that phone held with you and heard you in for a minute, and its minute lies within that call."),
-            Item(question: "What do the people I call learn?",
-                 answer: "The people you call receive your testimonies with your public key. Your public key is the same for everyone you call, so two people you call can tell that they speak with the same person. The people you write with receive your ceiling and estimate in each presence word, and the people you had a counted call with in the last three weeks also in a silent letter whenever they change."),
+                 answer: "Not in the first two weeks. From the first launch of this version on this phone with your 24 words, for 14 days the Fabric of Time stands at your ceiling, so your Global level follows your two other levels. TimeCoin and Access by level show the days left until the first count."),
+            Item(question: "What do the people I write to learn?",
+                 answer: "Your ceiling, inside the signatures your phone gives them, and nothing else of the Fabric of Time. A signature names your conversation by the hash its fingerprint is read from, which only the two of you can compute, and it is made with a key your 24 words give for that conversation alone. No key and no number in it is the same with two people, so two people you write to cannot tell from it that they speak with the same person."),
             Item(question: "What do the nodes of the network learn?",
-                 answer: "Nothing they can read: testimonies, ceilings and estimates ride inside your conversation, sealed for the other person, by the same road as your letters. The testimonies stay on the phone that held the call until the third week after the call's week ends, then leave it."),
+                 answer: "Nothing they can read: signatures and ceilings ride inside your conversation, sealed for the other person, by the same road as your letters. Signatures stay on your phone for two weeks and then leave it."),
             Item(question: "How does this version differ from the specification?",
-                 answer: "In three ways. A phone holds no window of the network's core, so the minute of a testimony and the weeks are read from the clock of the Montana nodes, learned from their answers. The testimonies are not yet witnessed into the network at the end of each week; they stay on the phone. And your devices with the same 24 words do not join their Fabric of Time yet: a testimony counts on the device that held the call."),
-            Item(question: "Can false testimonies lift a level?",
-                 answer: "No. The Fabric of Time only lowers: a person who states a false ceiling or estimate can at most spare someone a lowering. Two testimonies of one call under one key that differ, or two in one week of which the later states the higher estimate, make that signer count as nothing for the week."),
+                 answer: "In four ways. A phone holds no window of the network's core, so the minute of a signature and the two weeks are read from the clock of the Montana nodes, learned from their answers. The signatures are not yet witnessed into the network; they stay on the phone that received them. Each of your devices with the same 24 words counts the signatures that reached it. And a signature names a conversation and is made with a key for that conversation alone, where the specification names the key of a person: this version knows people only by their conversations."),
+            Item(question: "Can false signatures lift a level?",
+                 answer: "No. The Fabric of Time only lowers: a person who states a false ceiling can at most spare someone a lowering and never lifts anyone above their own ceiling. One signature a day from one person is kept, the one with the lower ceiling, so two of their devices answering the same word weigh as one."),
         ]),
         Topic(title: "Coins and time", systemImage: "hourglass", items: [
             Item(question: "What is a Time Coin?",
@@ -1339,6 +1340,22 @@ struct DataStorageView: View {
     }
     @State private var plan = CopyPlan.load()                 // what the person left out
     @State private var picturesCleared = false
+    @State private var disk: MTDiskUse? = nil                 // what this phone holds, measured on its disk (MTDiskUse)
+    @State private var clearingShelf = false
+    private func measureDisk(_ inv: CopyInventory) {
+        let named = Set(inv.owner.keys)
+        DispatchQueue.global(qos: .utility).async {
+            let u = MTDiskUse.measure(named: named)
+            DispatchQueue.main.async { disk = u }
+        }
+    }
+    private func diskRow(_ title: LocalizedStringKey, _ icon: String, _ color: Color, _ bytes: Int64) -> some View {
+        HStack {
+            settingsToggleLabel(title, icon, color)
+            Spacer()
+            Text(verbatim: mtSize(Int(bytes))).foregroundColor(.secondary)   // USER-DATA: a size measured on this phone
+        }
+    }
 
     var body: some View {
         List {
@@ -1375,6 +1392,55 @@ struct DataStorageView: View {
                 Text("Pictures are kept in memory so chats and walls open without waiting. They stay until you clear them here.")
             }
             .listRowBackground(MTGlassRowPlate())
+
+            // WHAT THIS PHONE HOLDS, MEASURED ON ITS DISK (the author's word 18.10.2026 10:2x MSK: «on T1 Montana weighs 20 GB, I cannot
+            // see what weighs so much nor how to clean it, and Data and Storage shows other numbers»): the sum is the phone's own, each
+            // file counted once; the attachments are chosen by kind below, the waiting copies cleared here.
+            Section {
+                if let u = disk {
+                    NavigationLink { CopyKindsPage(inventory: held(inventory ?? CopyInventory()), plan: $plan) } label: {
+                        diskRow("Attachments of chats", "paperclip", .indigo, u.chats)
+                    }
+                    NavigationLink { CopyKindsPage(inventory: held(inventory ?? CopyInventory()), plan: $plan) } label: {
+                        diskRow("Files no letter names", "doc.badge.ellipsis", .gray, u.unnamed)
+                    }
+                    diskRow("Pictures of walls", "square.grid.2x2.fill", .teal, u.walls)
+                    HStack {
+                        diskRow("Copies waiting on this phone", "shippingbox.fill", .orange, u.shelf)
+                        Button { clearingShelf = true } label: {
+                            Image(systemName: "trash").foregroundColor(.red)
+                                .frame(width: 44, height: 44).contentShape(Rectangle())
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(u.shelf == 0)
+                        .accessibilityLabel(Text("Clear"))
+                    }
+                    diskRow("Kept for the people who write to you", "person.2.fill", .green, u.kept)
+                    diskRow("History and the rest", "clock.fill", .blue, u.other)
+                    HStack {
+                        Text("On this phone").fontWeight(.semibold)
+                        Spacer()
+                        Text(verbatim: mtSize(Int(u.total))).fontWeight(.semibold)   // USER-DATA: the sum measured on this phone
+                    }
+                } else {
+                    ProgressView().frame(maxWidth: .infinity)
+                }
+            } header: {
+                Text("ON THIS PHONE")
+            } footer: {
+                Text("Measured on this phone's disk, each file once. Attachments and files no letter names are chosen by kind: select all of a kind and delete them.")
+            }
+            .listRowBackground(MTGlassRowPlate())
+            .confirmationDialog("Clear the copies waiting on this phone?", isPresented: $clearingShelf, titleVisibility: .visible) {
+                Button("Clear", role: .destructive) {
+                    MontanaArchive.onOwnQueue {
+                        MontanaBackup.sweep(all: true)
+                        DispatchQueue.main.async { if let inv = inventory { measureDisk(inv) } }
+                    }
+                }
+            } message: {
+                Text("The copies and their shares made for iCloud, your node and your keepers leave this phone; the next round makes them again.")
+            }
 
             Section {
                 Toggle(isOn: cloudSwitch) {
@@ -1556,7 +1622,7 @@ struct DataStorageView: View {
         .navigationBarTitleDisplayMode(.inline)
         .onChange(of: plan) { _, p in p.save() }
         .onAppear {
-            CopyInventory.gather { inventory = $0 }
+            CopyInventory.gather { inv in inventory = inv; measureDisk(inv) }
             MontanaBackupCloud.ready { r in
                 cloudReady = r
                 if r { cloud.start() }
@@ -2843,7 +2909,7 @@ struct MTLevelAccessPage: View {
                 // the clients that sets the global one, named Fabric of Time»): its level this turn, and through its first two turns
                 // the days until its first count.
                 LabeledContent {
-                    // USER-DATA: the level of the fabric of time this turn, a number, or a dash before this life has read it
+                    // USER-DATA: the level of the fabric of time now, a number, or a dash before this life has read it
                     Text(verbatim: fabric.level.map { n in String(n) } ?? "—").monospacedDigit()
                 } label: {
                     Label("Fabric of Time", systemImage: "point.3.connected.trianglepath.dotted")
@@ -2852,7 +2918,7 @@ struct MTLevelAccessPage: View {
                     Text("Days until the first count: \(days)").font(.caption).foregroundColor(.gray)
                 }
             } footer: {
-                Text("Your level is the lowest of three: your time in Montana, the coins you hold and the Fabric of Time, your regular calls of the last two weeks weighed by the levels of the people you call. Each level opens new functions of Montana.")
+                Text("Your level is the lowest of three: your time in Montana, the coins you hold and the Fabric of Time, the people you write to and call regularly in the last two weeks, weighed by the levels their own time and wallet give them. Each level opens new functions of Montana.")
             }
             .listRowBackground(MTGlassRowPlate())
             Section {

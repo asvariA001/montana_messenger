@@ -2065,8 +2065,9 @@ struct ChatConversationView: View {
         Button {
             NotificationCenter.default.post(name: .montanaOpenWallet, object: nil)
         } label: {
+            // NO BADGE OVER THE WALLET (the author's word 18.10.2026 10:3x MSK: «in the chat at the top take the red badge above the
+            // wallet away»): the platform's wallet glyph alone, as everywhere else it stands.
             MTBarRoundMark(ringed: false, side: side) { MontanaBarGlyph(glyph: "wallet.pass") }
-                .overlay(alignment: .topTrailing) { MTWalletBalanceBadge() }   // the balance, short (03.10 21:41)
         }
         .accessibilityLabel(Text("TimeCoin"))
     }
@@ -2837,7 +2838,7 @@ struct ChatConversationView: View {
                                 .accessibilityLabel(Text(verbatim: MTGroup.shared.speakerLine(message, in: chat.name) ?? ""))   // USER-DATA: the speaker's name
                             }
                             SwipeReplyRow(id: message.id, onReply: { if !readsOnly { replyingTo = message; inputFocused = true } }) {
-                                MessageBubble(message: message, player: player, onTapImage: { _ in
+                                MessageBubble(message: message, player: player, bottomUp: newestFirst, onTapImage: { _ in
                                     // No file — the tap repeats the download instead of opening emptiness.
                                     if let f = message.imageFile, !fileOnDisk(f) {
                                         MontanaTrace.markFolded("media_tap", "no file -- the download is asked again", window: 5)

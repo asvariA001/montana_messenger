@@ -244,6 +244,47 @@ struct CopyChatsPage: View {
 
 /// THE ATTACHMENTS OF A COPY — by kind, each with its count and weight on this device. A row opens
 /// the kind's own files; the mark on the row says whether the copy takes that kind.
+/// WHAT THIS PHONE HOLDS, MEASURED ON ITS DISK (the author's word 18.10.2026 10:2x MSK: «on T1 Montana weighs 20 GB, and I cannot see
+/// what weighs so much nor how to clean it; Data and Storage shows other numbers, the backup's»). T1 18.10.2026 measured: Application
+/// Support 20.6 GB -- Montana 10.6 (the media, the videos of walls opened among them), MontanaBackup 9.0 (the shares of a copy a killed
+/// hand left), MontanaKeeping 1.0 -- and 6.9 GB of hard links to the media in tmp. The page counted only what the backup takes. One
+/// walk over the app's own folders now, off the main thread: every file counted once by its identity (a hard link names the bytes it
+/// links, never a second copy) and by the disk it takes, each under the one place it belongs to.
+struct MTDiskUse {
+    var chats: Int64 = 0      // attachments the letters name
+    var unnamed: Int64 = 0    // files of the store no letter names: videos of walls opened, a letter deleted elsewhere
+    var walls: Int64 = 0      // the walls' pictures brought to be seen (MTBoardLook), a gigabyte at most by its own trim
+    var shelf: Int64 = 0      // copies and their shares waiting on the shelf (MontanaBackup)
+    var kept: Int64 = 0       // the shares this phone keeps for the people who write to it (MTKeeping)
+    var other: Int64 = 0      // the history, the chains, the faces, the caches, the temporary
+    var total: Int64 { chats + unnamed + walls + shelf + kept + other }
+
+    static func measure(named: Set<String>) -> MTDiskUse {
+        let fm = FileManager.default
+        let keys: [URLResourceKey] = [.totalFileAllocatedSizeKey, .fileResourceIdentifierKey, .isRegularFileKey]
+        var seen = Set<AnyHashable>()
+        var use = MTDiskUse()
+        func walk(_ root: URL?, _ add: (URL, Int64) -> Void) {
+            guard let root, let e = fm.enumerator(at: root, includingPropertiesForKeys: keys) else { return }
+            for case let u as URL in e {
+                guard let v = try? u.resourceValues(forKeys: Set(keys)), v.isRegularFile == true else { continue }
+                if let id = v.fileResourceIdentifier as? NSObject, !seen.insert(AnyHashable(id)).inserted { continue }
+                add(u, Int64(v.totalFileAllocatedSize ?? 0))
+            }
+        }
+        walk(MontanaMediaStore.dir) { u, b in
+            if named.contains(u.lastPathComponent) { use.chats += b } else { use.unnamed += b }
+        }
+        walk(MTBoardLook.folder()) { _, b in use.walls += b }
+        walk(try? MontanaBackup.shelf()) { _, b in use.shelf += b }
+        walk(MTKeeping.folder) { _, b in use.kept += b }
+        let lib = fm.urls(for: .libraryDirectory, in: .userDomainMask).first
+        let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first
+        for root in [lib, docs, fm.temporaryDirectory] { walk(root) { _, b in use.other += b } }
+        return use
+    }
+}
+
 struct CopyKindsPage: View {
     @Binding var inventory: CopyInventory
     @Binding var plan: CopyPlan
@@ -300,6 +341,12 @@ struct CopyFilesPage: View {
     let kind: MontanaBackup.Kind
     @Binding var plan: CopyPlan
     @State private var asking: String? = nil
+    // MANY AT ONCE (the author's word 18.10.2026 10:2x MSK: «in the management make a convenient mass way to select everything and
+    // delete, for example all videos»): the platform's selection -- the marks turn to choosing, every file of the kind is chosen by
+    // one glyph, and the chosen leave by one confirmation.
+    @State private var choosing = false
+    @State private var chosen = Set<String>()
+    @State private var askingMany = false
 
     private var files: [(name: String, bytes: Int)] {
         inventory.sizes.filter { inventory.kindOf($0.key) == kind }
@@ -341,19 +388,29 @@ struct CopyFilesPage: View {
                 ForEach(list, id: \.name) { f in
                     let takes = scope.takes(file: f.name)
                     let open = free(f.name)
-                    let deletable = !(inventory.letters[f.name] ?? []).isEmpty
+                    let deletable = true   // a file no letter names leaves this phone by itself (delete)
                     NavigationLink {
                         CopyFileView(file: f.name, title: whose(f.name), kind: kind, deletable: deletable) { delete(f.name) }
                     } label: {
                         HStack(spacing: 8) {
-                            Button { flip(f.name) } label: {
-                                Image(systemName: takes ? "checkmark.circle.fill" : "circle")
-                                    .font(.title2).foregroundColor(takes ? .accentColor : .secondary)
-                                    .frame(width: 44, height: 44).contentShape(Rectangle())
+                            if choosing {
+                                Button { if chosen.contains(f.name) { chosen.remove(f.name) } else { chosen.insert(f.name) } } label: {
+                                    Image(systemName: chosen.contains(f.name) ? "checkmark.circle.fill" : "circle")
+                                        .font(.title2).foregroundColor(chosen.contains(f.name) ? .red : .secondary)
+                                        .frame(width: 44, height: 44).contentShape(Rectangle())
+                                }
+                                .buttonStyle(.borderless)
+                                .accessibilityLabel(Text("Select"))
+                            } else {
+                                Button { flip(f.name) } label: {
+                                    Image(systemName: takes ? "checkmark.circle.fill" : "circle")
+                                        .font(.title2).foregroundColor(takes ? .accentColor : .secondary)
+                                        .frame(width: 44, height: 44).contentShape(Rectangle())
+                                }
+                                .buttonStyle(.borderless)
+                                .disabled(!open)
+                                .accessibilityLabel(takes ? Text("Leave out of the copy") : Text("Put back into the copy"))
                             }
-                            .buttonStyle(.borderless)
-                            .disabled(!open)
-                            .accessibilityLabel(takes ? Text("Leave out of the copy") : Text("Put back into the copy"))
                             MTFileIcon(file: f.name, name: f.name, width: 44, height: 44)
                             VStack(alignment: .leading, spacing: 2) {
                                 if let w = whose(f.name) {
@@ -396,6 +453,36 @@ struct CopyFilesPage: View {
         .montanaPageGround()   // my page's ground, as the drawer and my page wear it (25.09)
         .navigationTitle(Self.title(kind))
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                if choosing {
+                    Button {
+                        let names = Set(list.map(\.name))
+                        chosen = chosen == names ? [] : names
+                    } label: { Image(systemName: chosen.count == list.count && !list.isEmpty ? "checkmark.circle.fill" : "checkmark.circle") }
+                    .accessibilityLabel(Text("Select All"))
+                    Button { askingMany = true } label: { Image(systemName: "trash") }
+                        .disabled(chosen.isEmpty)
+                        .accessibilityLabel(Text("Delete"))
+                    Button { choosing = false; chosen = [] } label: { Image(systemName: "xmark") }
+                        .accessibilityLabel(Text("Done"))
+                } else {
+                    Button { choosing = true } label: { Image(systemName: "checklist") }
+                        .disabled(list.isEmpty)
+                        .accessibilityLabel(Text("Select"))
+                }
+            }
+        }
+        .confirmationDialog("Delete \(chosen.count) files from this phone?", isPresented: $askingMany, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                let many = chosen
+                chosen = []
+                choosing = false
+                deleteMany(many)
+            }
+        } message: {
+            Text("The letters with these attachments are deleted on this device; the other side keeps its own. A file no letter names leaves this phone, and a wall shows it again while its owner keeps it.")
+        }
         .confirmationDialog("Delete from the chat?",
                             isPresented: Binding(get: { asking != nil }, set: { if !$0 { asking = nil } }),
                             titleVisibility: .visible, presenting: asking) { f in
@@ -407,14 +494,19 @@ struct CopyFilesPage: View {
 
     /// Delete for me by the chat's own road ([C-1]: ChatStore.deleteLocally), then the store's own
     /// sweep carries off the file no letter names any more; the count on these pages follows at once.
-    private func delete(_ file: String) {
-        guard let store = ChatStore.live else { return }
-        let ls = inventory.letters[file] ?? []
-        store.deleteLocally(ls)   // one tombstone write and one history write for every letter naming the file
+    private func delete(_ file: String) { deleteMany([file]) }
+    /// MANY IN ONE PASS: every letter naming a chosen file by one road and one write (ChatStore.deleteLocally), a file no letter names
+    /// out of the store by its own remove, then the store's sweep and the counts.
+    private func deleteMany(_ many: Set<String>) {
+        guard let store = ChatStore.live, !many.isEmpty else { return }
+        let ls = many.flatMap { f in inventory.letters[f] ?? [] }
+        let bare = many.filter { f in (inventory.letters[f] ?? []).isEmpty }
+        if !ls.isEmpty { store.deleteLocally(ls) }   // one tombstone write and one history write for every letter naming a file
+        if !bare.isEmpty { MontanaMediaStore.remove(Array(bare)) }
         store.sweepMediaFiles()
-        plan.skipFiles.removeAll { $0 == file }
-        inventory.forget(file)
-        MontanaTrace.mark("backup_plan", "deleted from chat letters=" + String(ls.count))
+        plan.skipFiles.removeAll { f in many.contains(f) }
+        for f in many { inventory.forget(f) }
+        MontanaTrace.mark("backup_plan", "deleted files=\(many.count) letters=\(ls.count) bare=\(bare.count) kind=\(kind.rawValue)")
     }
     static func title(_ k: MontanaBackup.Kind) -> LocalizedStringKey { CopyKindsPage.face(k).0 }
 }

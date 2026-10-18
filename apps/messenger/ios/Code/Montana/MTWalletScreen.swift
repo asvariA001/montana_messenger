@@ -1569,28 +1569,29 @@ struct MTTimeChainsPage: View {
                 Text("Your balance reveals π: each level opens when the balance reaches the next amount — 3, 31, 314 …")
             }
             // THE FABRIC OF TIME (the author's words 17.10.2026 22:24-22:50 MSK: «the 3rd level ... regular calls over the last 14 days»;
-            // «a new level that sets the global one, named Fabric of Time»; App, «The chains of time a client shows»): the third chain of
-            // time -- the level of this turn, the regular correspondents it weighs, the testimonies held, the person's own ceiling and
-            // estimate, and its chain; through the first two turns, the days until the first count, the level standing at the ceiling.
+            // «a new level that sets the global one, named Fabric of Time»; 18.10.2026 00:4x «a sliding window of t2 over live activity»;
+            // App, «The chains of time a client shows»): the third chain of time -- the level now, the regular correspondents it weighs,
+            // the testimonies held in the window, the person's own ceiling, and its chain; through the first τ₂, the days until the
+            // first count, the level standing at the ceiling.
             Section {
                 LabeledContent("Level") {
-                    // USER-DATA: the level of the fabric of time this turn, a number, or a dash before this life has read it
+                    // USER-DATA: the level of the fabric of time now, a number, or a dash before this life has read it
                     Text(verbatim: fabric.level.map { n in String(n) } ?? "—").monospacedDigit()
                 }
                 if let days = fabric.graceDays {
                     Text("Days until the first count: \(days)").font(.subheadline).foregroundStyle(.secondary)
                 }
                 LabeledContent("Regular correspondents") {
-                    // USER-DATA: how many correspondents this turn weighs, a number
+                    // USER-DATA: how many correspondents the window weighs now, a number
                     Text(verbatim: String(fabric.regulars)).monospacedDigit()
                 }
-                LabeledContent("Testimonies of calls") {
-                    // USER-DATA: how many testimonies of calls this phone holds, a number
+                LabeledContent("Signatures") {
+                    // USER-DATA: how many testimonies of exchanges this phone holds in the window, a number
                     Text(verbatim: String(fabric.testimonies)).monospacedDigit()
                 }
-                LabeledContent("Ceiling and estimate") {
-                    // USER-DATA: the person's own ceiling and estimate this turn, two numbers, or dashes before they are read
-                    Text(verbatim: (fabric.ceiling.map { n in String(n) } ?? "—") + " · " + (fabric.estimate.map { n in String(n) } ?? "—")).monospacedDigit()
+                LabeledContent("Ceiling") {
+                    // USER-DATA: the person's own ceiling, a number, or a dash before it is read
+                    Text(verbatim: fabric.ceiling.map { n in String(n) } ?? "—").monospacedDigit()
                 }
                 NavigationLink { MTTimeChainPage(source: "fabric") } label: {
                     LabeledContent("Chain links") {
@@ -1602,7 +1603,7 @@ struct MTTimeChainsPage: View {
             } header: {
                 Label("Fabric of Time", systemImage: "3.circle")
             } footer: {
-                Text("Your regular calls of the last two weeks, weighed by how high the people you call stand: the greatest number g for which at least g people you called in each of the last two weeks stand at level g or above. A call counts when each of you heard the other for a minute; at its end each phone signs what it heard and gives it to the other. Counted again every week; through its first two weeks it stands at the lower of your two levels above. Your ceiling and estimate go only to the people you call, inside your conversation.")
+                Text("The people you write to and call regularly, each weighed by the level their own time and wallet give them: the greatest number g for which at least g people you exchanged with — words, voice, video, photos, stickers, transfers, games or a call — in each of the last two weeks stand at level g or above. An exchange counts when both of you write: once a day each phone signs that the other's word reached it and gives the signature to the other. Counted again whenever a signature comes or leaves the two weeks; through its first two weeks it stands at the lower of your two levels above. Your ceiling goes only to the people you write to, inside your conversation.")
             }
             Section {
                 MTTimeChainRows(sources: Self.talk)

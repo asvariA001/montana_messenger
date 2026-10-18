@@ -240,6 +240,12 @@ final class MTTurnDrag: ObservableObject {
     /// the music while the glyph is the music's, else the gallery (25.09) -- and THE NETWORK under the globe at the row's end
     /// (the author's word 25.09).
     var turnOrder: [Pane] { [.contacts, .calls, .feed, .chats, mediaIsMusic ? .music : .gallery, .vpn] }
+    /// THE FOLDER CHOSEN ON THE CHATS PAGE, AND THE FOLDERS IN THEIR TABS' ORDER (the author's word 18.10.2026 10:2x MSK: «swipes
+    /// right and left on the chats page turn between the tabs too, and from the outermost go on to the other pages»): the page names
+    /// its folders here (ChatsListView), and the stroke reads them (turnStroke) -- All at every launch, as the reference.
+    var chatFolder = MTChatFolder.allID
+    var chatFolders: [String] = []
+    @ObservationIgnored private var folderTurn: Int?   // the stroke's folder step, read at its start: +1 the next, -1 the one before
     /// THE PAGE'S OWN HOLDS (24.09): the chats page says whether something of its own stands open — the search, the
     /// selection, a row's menu, the gallery, the code page, the music's page, the deletion's sheet; nothing else
     /// knows them. The tabs do not turn while it holds.
@@ -270,6 +276,7 @@ final class MTTurnDrag: ObservableObject {
         return (offset < 0 ? -1 : 1) * (1 - 1 / ((abs(offset) * k / range) + 1)) * range
     }
     func turnStroke(_ state: UIGestureRecognizer.State, x: CGFloat, vx: CGFloat, width: CGFloat) {
+        if folderStroke(state, x: x, vx: vx, width: width) { return }
         let order = turnOrder
         guard let i = order.firstIndex(of: pane) else { return }
         // The stroke moves the pane from where it STOOD when the stroke began (the reference's fraction offset): a
@@ -298,6 +305,28 @@ final class MTTurnDrag: ObservableObject {
             settle(goes: goes, width: width)
         default: break
         }
+    }
+    /// A STROKE ON THE CHATS PAGE TURNS ITS FOLDERS FIRST: a stroke to the left goes to the next folder, to the right to the one
+    /// before, read once at the stroke's start; from the last folder to the left and the first to the right there is no folder
+    /// beside, and the stroke turns the pages as before. At the release the way is read as the pages read it: a moving finger says
+    /// the way, a still one the distance -- a third of the width.
+    private func folderStroke(_ state: UIGestureRecognizer.State, x: CGFloat, vx: CGFloat, width: CGFloat) -> Bool {
+        if state == .began {
+            folderTurn = nil
+            guard pane == .chats, let i = chatFolders.firstIndex(of: chatFolder), x != 0 else { return false }
+            let step = x < 0 ? 1 : -1
+            guard chatFolders.indices.contains(i + step) else { return false }
+            folderTurn = step
+            return true
+        }
+        guard let step = folderTurn else { return false }
+        guard state == .ended || state == .cancelled || state == .failed else { return true }
+        folderTurn = nil
+        let goes = state == .ended && (10 < abs(vx) ? (step > 0 ? vx < 0 : 0 < vx) : width / 3 < abs(x))
+        MontanaTrace.mark("tab_swipe", "folder step=\(step) dx=\(Int(x)) v=\(Int(vx)) goes=\(goes ? 1 : 0)")
+        guard goes, let i = chatFolders.firstIndex(of: chatFolder), chatFolders.indices.contains(i + step) else { return true }
+        withAnimation(.easeInOut(duration: 0.25)) { chatFolder = chatFolders[i + step] }
+        return true
     }
     /// THE ROLES SWAP AFTER THE SPRING, NOT BEFORE IT (the author's word 30.09 ~23:13: «systemically, without hand-written
     /// stories, super fast»): the spring carries the neighbour to the pane's place under the same roles, and at its end the
@@ -334,6 +363,18 @@ final class MTTurnDrag: ObservableObject {
         var still = Transaction(); still.disablesAnimations = true
         withTransaction(still) { turnDrag.x = base }
         return base
+    }
+    /// A BANNER'S TAP LEAVES NO PAGE STANDING (the author's word 18.10.2026 10:3x MSK: «check that on a notification no page of the
+    /// app stays open -- the Time Coin page does not change even when I tap a notification to go to the chat»): the platform's sheets
+    /// are taken down by the outside road (MontanaOutsideOpen.chat); the pages this state draws over the tabs leave here, by the same
+    /// tap, and the chat the banner names opens over the tabs alone.
+    func clearPages() {
+        let standing = [walletPage != nil, passwordsPage != nil, chessPage != nil, chatWall != nil, docPage != nil,
+                        placeAsk != nil, placeOpen != nil, overlayPage != nil, drawerOpen].filter { held in held }.count
+        walletPage = nil; passwordsPage = nil; chessPage = nil; chatWall = nil; docPage = nil
+        placeAsk = nil; placeOpen = nil; overlayPage = nil
+        if drawerOpen { drawerOpen = false }
+        if 0 < standing { MontanaTrace.mark("outside_open", "pages taken down=\(standing)") }
     }
     func openChat(_ c: Chat, jump: MID? = nil) {
         overlayJump = jump
@@ -827,6 +868,18 @@ final class MontanaSlideController: UIViewController, UIGestureRecognizerDelegat
         let edge = UIScreenEdgePanGestureRecognizer(target: self, action: #selector(pan(_:)))
         edge.edges = .left; edge.delegate = self
         view.addGestureRecognizer(edge)
+        // THE PAGE LEAVES FROM ITS CENTRE TOO (the author's word 18.10.2026 10:3x MSK: «the swipe out of a chat not only from the
+        // screen's edge but, as when a page is turned, from its centre, so that it catches»): the reference's own back stroke, by the
+        // tabs' pan with no edge zone and to the right alone -- a stroke to the left stays the bubble's reply, a vertical one the
+        // feed's, a sideways strip keeps its own; the same road as the edge's (pan), the same spring at the release.
+        // A chat's page alone (the page of its own keyboard): a map, a document or a game on this road keeps its own right stroke.
+        if keyboardPinned {
+            let back = MTTabPan(target: self, action: #selector(pan(_:)))
+            back.edges = false
+            back.rightward = true
+            back.delegate = self
+            view.addGestureRecognizer(back)
+        }
     }
     /// The edge pan wins over the feed's scroll and the rows' swipes: THE PANS wait for it to fail —
     /// the platform's own rule for its back gesture, which holds only scroll views back. A tap or a
@@ -835,7 +888,8 @@ final class MontanaSlideController: UIViewController, UIGestureRecognizerDelegat
     /// edge pan, and a still finger at the edge kept it in doubt until the lift). Another edge pan —
     /// the system's own pop on a pushed page — is not held either: it is deeper and takes the touch.
     func gestureRecognizer(_ g: UIGestureRecognizer, shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
-        g is UIScreenEdgePanGestureRecognizer && other is UIPanGestureRecognizer && !(other is UIScreenEdgePanGestureRecognizer)
+        (g is UIScreenEdgePanGestureRecognizer || g is MTTabPan) && other is UIPanGestureRecognizer
+            && !(other is UIScreenEdgePanGestureRecognizer) && !(other is MTTabPan)
     }
     /// A SwiftUI gesture of the hosted tree (the music cover's drag, 19.09) is not a pan of the
     /// platform's: it neither waits for the edge pan nor yields to it, and whichever began first
@@ -2178,6 +2232,10 @@ final class MontanaDrawerController: UIViewController, UIGestureRecognizerDelega
 /// first points run flat, down at once when they run down, the dominant way after ten points.
 final class MTTabPan: UIPanGestureRecognizer {
     var allowed: () -> Bool = { true }
+    /// The edges are the rows' (the tabs' own pan); a page's back stroke takes the whole width (MontanaSlideController).
+    var edges = true
+    /// Rightward alone (a page's back stroke): a stroke that runs left is a bubble's own -- the reply's swipe -- and fails at once.
+    var rightward = false
     private var validated = false
     private var first = CGPoint.zero
 
@@ -2192,7 +2250,7 @@ final class MTTabPan: UIPanGestureRecognizer {
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
         guard allowed(), let t = touches.first, let v = view else { state = .failed; return }
         let p = t.location(in: v), w = v.bounds.width
-        if p.x < Self.edge(w) || p.x > w - Self.edge(w) { state = .failed; return }   // the rows' and the drawer's
+        if edges, p.x < Self.edge(w) || p.x > w - Self.edge(w) { state = .failed; return }   // the rows' and the drawer's
         if Self.refuses(v.hitTest(p, with: event)) { state = .failed; return }
         super.touchesBegan(touches, with: event)
         first = p
@@ -2226,6 +2284,7 @@ final class MTTabPan: UIPanGestureRecognizer {
                 validated = true                                                     // flat at once: the tabs'
             }
         }
+        if validated, rightward, p.x < first.x { state = .failed; return }   // a stroke to the left is the bubble's
         if validated {
             super.touchesMoved(touches, with: event)
             if state == .possible { state = .began }
@@ -2366,7 +2425,10 @@ struct MainTabView: View {
             // completion store and are retried by retryPendingMedia one line above — there is no second head ([C-1]).
             E2E.shared.broadcastAvatar()
         } }
-        .onReceive(NotificationCenter.default.publisher(for: .openChatRequest)) { _ in ui.pane = .chats }
+        .onReceive(NotificationCenter.default.publisher(for: .openChatRequest)) { note in
+            ui.pane = .chats
+            if (note.userInfo?["outside"] as? Bool) == true { ui.clearPages() }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .montanaOpenWallet)) { _ in ui.walletPage = MTPageFlag(id: "wallet") }
         .onReceive(NotificationCenter.default.publisher(for: .montanaAddPerson)) { _ in ui.walletPage = nil; ui.overlayPage = .birth }
         .onReceive(scheduleTick) { _ in store.fireDueScheduled() }

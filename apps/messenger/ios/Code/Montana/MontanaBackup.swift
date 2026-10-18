@@ -325,19 +325,32 @@ enum MontanaBackup {
     /// phone: the shelf created at 00:25 and empty. The sweep now cannot touch the file being built,
     /// wherever a future hand puts the call — the rule lives in the sweep, not in the order of lines.
     private static var building: String? = nil
-    static func sweep() {
+    /// THE SHARES AND THE CARGO OF A DEAD PROCESS LEAVE TOO (the author's word 18.10.2026 10:2x MSK: «on T1 Montana weighs 20 GB and I
+    /// cannot see what weighs so much»; T1 measured: 9.0 GB of «.keep» on this shelf). A copy cut for the keepers (MTKeeping.hand) and
+    /// the history laid for the twin (MontanaArchive) are removed by a defer when their hand returns -- and a hand laying sixteen
+    /// shares of a copy of gigabytes runs for hours, so a process the system took left them here for good. At a launch no hand runs
+    /// (they live in memory and died with the process), so every share and every cargo a minute old or older is an orphan; the next
+    /// round cuts them again. `all` -- the person's own «clear»: every finished copy too, whatever its age, never the file being built.
+    static func sweep(all: Bool = false) {
         let fm = FileManager.default
         guard let dir = try? shelf() else { return }
-        let hourAgo = Date().addingTimeInterval(-3600)
+        let hourAgo = Date().addingTimeInterval(-3600), minuteAgo = Date().addingTimeInterval(-60)
+        var freed: Int64 = 0
         for n in (try? fm.contentsOfDirectory(atPath: dir.path)) ?? [] where n != building {
             let u = dir.appendingPathComponent(n)
+            let born = (try? u.resourceValues(forKeys: [.creationDateKey]))?.creationDate ?? .distantPast
+            let size = Int64((try? u.resourceValues(forKeys: [.totalFileAllocatedSizeKey]))?.totalFileAllocatedSize ?? 0)
+            var goes = false
             if n.hasSuffix(".part") {
-                try? fm.removeItem(at: u)
+                goes = true
             } else if n.hasSuffix(ext) {
-                let born = (try? u.resourceValues(forKeys: [.creationDateKey]))?.creationDate ?? .distantPast
-                if born < hourAgo { try? fm.removeItem(at: u) }
+                goes = all || born < hourAgo
+            } else if n.hasSuffix(".keep") || n.hasSuffix(".twin") {
+                goes = born < minuteAgo
             }
+            if goes, (try? fm.removeItem(at: u)) != nil { freed += size }
         }
+        if 0 < freed { MontanaTrace.mark("shelf_swept", "freed_mb=\(freed / 1_048_576) all=\(all ? 1 : 0)") }
     }
     /// A finished copy nobody will take leaves the shelf at once — the shelf is the engine's, and so is this.
     static func discard(_ m: Made) { try? FileManager.default.removeItem(at: m.url) }

@@ -3104,6 +3104,12 @@ class ChatStore: ObservableObject {
     /// the chat opened on screen. The list's «mark as read» is bookkeeping of one's own badge and
     /// says nothing to the peer (15.47.2: it used to declare «read» for letters nobody read).
     func markRead(_ chat: String, tellPeer: Bool = true) {
+        // THE SEED'S OTHER DEVICES READ IT TOO (the twin mirror; the author's word 18.10.2026 10:2x MSK: «read on the phone -- read on
+        // every device, not hanging as a banner on the computer»): what was unread here is read there up to the same letter.
+        let wasUnread = messages[chat]?.contains(where: { m in !m.isFromMe && !m.isRead }) == true || unreadCounts[chat] != nil
+        if wasUnread, let newest = messages[chat]?.filter({ m in !m.isFromMe }).map(\.createdAt).max(), 0 < newest {
+            MontanaArchive.mirrorNote(.init(c: chat, m: UUID().uuidString, x: MontanaArchive.twinReadMark + String(Int64(newest * 1000)), o: 1))
+        }
         // EVERY LETTER OF THEIRS HERE IS READ NOW (the author's word 23.09): the count is the letters that are not, so
         // a chat read stays read whatever lands elsewhere. Before the history has landed its letters are not all
         // here — the chat is remembered and read when they land.
@@ -3129,6 +3135,96 @@ class ChatStore: ObservableObject {
         // the moment another's phone opened the screen. That same letter came first in a
         // fresh introduction.
         if tellPeer { sendReadMark(chat) }
+    }
+
+    /// THE SEED'S OTHER DEVICE READ THIS CONVERSATION (the twin mirror, MontanaDeliveryEngine.landMirrored): its letters up to the
+    /// same one are read here too, the count follows what is left, and the banners of the conversation leave this device -- nothing
+    /// is said to the correspondent: the device that read already said it, if the person tells it at all.
+    func readByTwin(_ chat: String, upToMs: Int64?) {
+        guard let ms = upToMs, 0 < ms else { return }
+        let edge = Double(ms) / 1000 + 0.001
+        if let arr = messages[chat], arr.contains(where: { m in !m.isFromMe && !m.isRead && m.createdAt <= edge }) {
+            messages[chat] = arr.map { m in
+                guard !m.isFromMe, !m.isRead, m.createdAt <= edge else { return m }
+                var r = m
+                r.isRead = true
+                return r
+            }
+        }
+        let left = messages[chat]?.filter { m in !m.isFromMe && !m.isRead }.count ?? 0
+        if left == 0, forcedUnread.contains(chat) { forcedUnread.remove(chat) }
+        if !forcedUnread.contains(chat), unreadCounts[chat] != (left == 0 ? nil : left) {
+            unreadCounts[chat] = left == 0 ? nil : left
+            ChatStore.updateBadge(unreadCounts, missed: missedCallsUnseen)
+        }
+        if left == 0 { MontanaNotify.removeBanners(chat: chat) }
+        MontanaTrace.mark("twin_read", "chat=\(String(chat.prefix(10))) left=\(left)")
+    }
+
+    /// THE SEED'S OTHER DEVICE ASKS FOR ROWS ITS ARCHIVE HOLDS AND ITS FEED DOES NOT (MontanaArchive.askTwin): each row held here
+    /// under the archive's own key -- its second, its side, the hash of its words -- is given back by its name; a row this device
+    /// does not hold is the truth too (deleted here, or never here) and nothing is said of it.
+    func giveTwinRows(_ chat: String, asked body: String) {
+        guard let d = body.data(using: .utf8), let o = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any],
+              let items = o["i"] as? [[Any]], let rows = messages[chat], !rows.isEmpty else { return }
+        var want = Set<String>()
+        for i in items.prefix(200) {
+            guard i.count == 3, let sec = i[0] as? Int, let side = i[1] as? Int, let h = i[2] as? String else { continue }
+            want.insert(String(sec) + "|" + String(side) + "|" + h)
+        }
+        var given = 0
+        for m in rows where !m.mid.hasPrefix("mid:") {
+            guard 0 < m.createdAt, let t = Self.archivedText(m),
+                  want.contains(String(Int(m.createdAt)) + "|" + (m.isFromMe ? "1" : "0") + "|" + MontanaArchive.rowHash(t)) else { continue }
+            let kind = m.imageFile != nil ? "img" : (m.videoFile != nil ? "vid" : (m.audioFile != nil ? "aud" : "doc"))
+            let file = (m.imageFile ?? m.videoFile ?? m.audioFile ?? m.docFile).map { f in (kind: kind, name: f, docName: m.docName, duration: m.audioDuration) }
+            MontanaArchive.giveTwin(chat: chat, mid: m.mid, text: m.text, own: m.isFromMe, at: m.createdAt, senderRef: m.senderRef, file: file)
+            given += 1
+        }
+        MontanaTrace.mark("twin_answer", "chat=\(String(chat.prefix(10))) asked=\(want.count) given=\(given)")
+    }
+    /// A ROW THE SEED'S OTHER DEVICE GAVE BACK: laid by its own birth, once -- never over a row of the same name or the same archive
+    /// key standing here, never over its tombstone; a file comes by the cargo road into the store under the name it bears on every
+    /// device of the seed. The archive already holds the row: it is not written there twice.
+    func takeTwinRow(_ chat: String, mid: String, own: Bool, at: Double, body: String) {
+        guard let d = body.data(using: .utf8), let o = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any],
+              0 < at, !mid.isEmpty, let rows = messages[chat], !rows.contains(where: { m in m.mid == mid }), !buried(mid, in: chat) else { return }
+        let text = o["t"] as? String ?? "", sr = o["sr"] as? String
+        var row = Message(text: text, isFromMe: own, time: hhmm(at: at), isRead: true, deliveryStatus: .delivered,
+                          msgId: mid, senderRef: sr, createdAt: at, transport: "node")
+        let kind = o["k"] as? String, name = o["f"] as? String ?? ""
+        if let kind {
+            guard ["img", "vid", "aud", "doc"].contains(kind), !name.isEmpty, !name.contains("/"), !name.hasPrefix(".") else { return }
+            switch kind {
+            case "img": row.imageFile = name; row.docName = o["n"] as? String
+            case "vid": row.videoFile = name
+            case "aud": row.audioFile = name; row.audioDuration = o["d"] as? Double ?? 0; row.text = ""
+            default: row.docFile = name; row.docName = o["n"] as? String ?? name; row.text = ""
+            }
+        }
+        guard let sig = Self.archiveSig(row), !rows.contains(where: { m in Self.archiveSig(m) == sig }) else { return }
+        guard kind != nil, !MontanaMediaStore.exists(name), let road = o["road"] as? [String: Any] else { return layTwinRow(chat, row) }
+        let fileName = name, s = Int(at), h = MontanaArchive.rowHash(Self.archivedText(row) ?? "")
+        Task.detached(priority: .utility) {
+            guard let dir = try? MontanaBackup.shelf() else { return }
+            let tmp = dir.appendingPathComponent(UUID().uuidString + ".twin")
+            defer { try? FileManager.default.removeItem(at: tmp) }
+            guard await MTKeeping.fetch(road, to: tmp), MontanaMediaStore.adopt(from: tmp, name: fileName) else {
+                MontanaArchive.unaskTwin(chat: chat, s: s, h: h)
+                return MontanaTrace.mark("twin_row", "a file did not come whole -- asked again at the next gap")
+            }
+            await MainActor.run { [weak self] in
+                guard let self, let now = self.messages[chat], !now.contains(where: { m in m.mid == mid }), !self.buried(mid, in: chat) else { return }
+                self.layTwinRow(chat, row)
+            }
+        }
+    }
+    private func layTwinRow(_ chat: String, _ row: Message) {
+        let placed = placeRow(chat, row)
+        _ = MTRowJournal.put(chat, placed)
+        bump(chat)
+        noteListState(chat, last: lastLetter(chat))
+        MontanaTrace.mark("twin_row", "chat=\(String(chat.prefix(10))) sid=\(String(row.mid.prefix(16))) n=\(messages[chat]?.count ?? 0)")
     }
 
     /// THE ONE EMITTER of the read mark ([C-1], 15.47.2): the chat is on screen and the app is
@@ -3376,6 +3472,8 @@ class ChatStore: ObservableObject {
                 }
                 guard !missing.isEmpty else { continue }
                 gapChats += 1; gapRows += missing.count
+                // The seed's other device is asked for these rows by their names (MontanaArchive.askTwin): it gives back what it holds.
+                MontanaArchive.askTwin(chat: key, items: missing.map { it in (Int(it.sentAt), it.mine, MontanaArchive.rowHash(it.text)) })
                 let newest = missing.map { $0.sentAt }.max() ?? 0
                 let media = missing.filter { $0.text.hasPrefix(mediaMark) }.count
                 MontanaTrace.mark("archive_gap", "chat=\(String(key.prefix(10))) feed=\(have.count) archive=\(rc.items.count) missing=\(missing.count) media=\(media) theirs=\(missing.filter { !$0.mine }.count) newest=\(hhmm(at: newest))")
@@ -4312,7 +4410,6 @@ MontanaLocalVault.setEncrypted("scheduledMsgs", d)
                 E2E.heardCapable(from: chat, payload: payload)   // what its build reads, from every word, late ones too (25.09)
                 E2E.heardCoins(from: chat, payload: payload, at: wordAt)   // the balance the word tells (04.10)
                 E2E.heardLevel(from: chat, payload: payload, at: wordAt)   // the Global Level the word tells, or its withdrawal (11.10)
-                E2E.heardFabric(from: chat, payload: payload, at: wordAt)   // the ceiling and the estimate the word states (MTFabric, 17.10)
                 if fresh { E2E.shared.heardHeld(from: chat, payload: payload) }   // what of mine their screen holds (20.09)
                 heardHeldLetters(chat, payload: payload)   // which of my letters they hold whole (23.09)
                 if let at = payload.firstIndex(of: "@") {   // the door they ask — my words for them go there
@@ -4340,7 +4437,6 @@ MontanaLocalVault.setEncrypted("scheduledMsgs", d)
                 E2E.heardCapable(from: chat, payload: payload)   // what its build reads, from every word, late ones too (25.09)
                 E2E.heardCoins(from: chat, payload: payload, at: wordAt)   // the balance the word tells (04.10)
                 E2E.heardLevel(from: chat, payload: payload, at: wordAt)   // the Global Level the word tells, or its withdrawal (11.10)
-                E2E.heardFabric(from: chat, payload: payload, at: wordAt)   // the ceiling and the estimate the word states (MTFabric, 17.10)
                 if fresh { E2E.shared.heardHeld(from: chat, payload: payload) }   // what of mine their screen holds (20.09)
                 heardHeldLetters(chat, payload: payload)   // which of my letters they hold whole (23.09)
                 E2E.notePresenceCapable(chat)
@@ -6156,10 +6252,20 @@ MontanaLocalVault.setEncrypted("scheduledMsgs", d)
                 // banner, receipt. The extension has already uploaded the pieces to the node;
                 // what travels here is the letter.
                 var captionCarried = false
+                // A GROUP OR A CHANNEL SHARED INTO (the author's word 18.10.2026 10:2x MSK: «sharing into a channel on T1 failed and hung
+                // with Retry, and the order broke -- it must be strictly as I sent»): the letters went to the queue of a pair, which
+                // holds no pipe by a group's key and put every one of them out red. The group carries its own: a text by its send, a
+                // media letter by its carriage, in the order the person chose, each once.
+                let group = MTGroup.isKey(peer)
                 for one in items {
                     let kind = (one["kind"] as? String) ?? ""
                     let itemMid = (one["mid"] as? String) ?? UUID().uuidString
                     let alreadySent = (one["sent"] as? Bool) ?? false
+                    if kind == "text", group {
+                        guard let t = one["text"] as? String, !t.isEmpty else { continue }
+                        _ = MTGroup.shared.send(t, in: peer, replyText: nil, replyToId: nil, replyWireMid: nil, store: self)
+                        continue
+                    }
                     if kind == "text" {
                         guard let t = one["text"] as? String, !t.isEmpty else { continue }
                         // Saved Messages is this device writing to itself: the letter is local,
@@ -6246,9 +6352,22 @@ MontanaLocalVault.setEncrypted("scheduledMsgs", d)
                                 await MontanaWakePush.putBlob($0, data: $1, bulk: true)
                             })?.letter ?? (mediaMark + body)
                         }
+                        if group {
+                            // The pieces lie on the nodes for every member already; the manifest leaves to everyone the group carries
+                            // to, under the row's own name, and the copies' receipts raise the row.
+                            if !MTGroup.shared.carryMedia(letter, mid: itemMid, in: peer, store: self) {
+                                MontanaTrace.mark("share_group", mid: itemMid, "nobody to carry the shared media to -- the row is red")
+                                self.setMediaRefused(peer, file: handed ?? fileName, because: .nothingCarries)
+                            }
+                            continue
+                        }
                         MontanaDeliveryEngine.shared.enqueue(to: peer, chat: peer,
                                                              mid: itemMid, text: letter, silent: alreadySent)
                     }
+                }
+                if !caption.isEmpty, !captionCarried, group {
+                    _ = MTGroup.shared.send(caption, in: peer, replyText: nil, replyToId: nil, replyWireMid: nil, store: self)
+                    captionCarried = true
                 }
                 if !caption.isEmpty, !captionCarried {
                     let capMid = UUID().uuidString
@@ -6785,6 +6904,8 @@ enum SeedScope {
         "mt.account.keys", "mt.twin.ref", "mt.node.identity", "mt.node.kem", "pipeSecrets",
         "mt.history.folders", "mt.history.heads.form", "mt.history.nameheads", "mt.history.pushed",
         "mt.history.boxed", "mt.history.twinSeen",   // the history laid for this seed's other devices, and theirs filed here (11.10)
+        "mt.group.mirrored.1",   // this device gave this person's groups to the seed's other devices (the twin mirror, 18.10)
+        "mt.twin.asked",   // the rows this device asked of the seed's other devices (the twin's past, 18.10)
         "mt.endpoint.book", "rdvPermUpOk", "rdvUpOk", "rdvPermUpAt", "rdvUpAt", "pendingInvite",
         MontanaDeliveryEngine.pendingKey, "orphanDelivered", "handoffTaken",
         "longLetterRefs", "nodeChunkLedger", "nodeChunkOrphanSince", "wakeUnsentDrops",

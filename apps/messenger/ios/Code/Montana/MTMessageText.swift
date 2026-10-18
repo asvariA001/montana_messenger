@@ -138,6 +138,31 @@ struct MTMessageText: UIViewRepresentable {
         return CGSize(width: max(1, ceil(used.width)), height: ceil(used.height))
     }
 
+    /// THE LINES OF A LETTER BOTTOM UP (MTLinkedText.bottomUp): laid at the width by the same TextKit stack the box is measured by, each
+    /// visual line as it falls, then the last first -- every line stands at the width it was laid at, so nothing wraps anew. Kept by
+    /// its inputs, as the box is.
+    private static let keptUp: NSCache<NSString, NSString> = { let c = NSCache<NSString, NSString>(); c.countLimit = 512; return c }()
+    static func bottomUp(_ text: String, font: UIFont, width: CGFloat) -> String {
+        let key = "\(font.fontName)/\(font.pointSize)/\(width)/\(text)" as NSString
+        if let kept = keptUp.object(forKey: key) { return kept as String }
+        let storage = NSTextStorage(string: text, attributes: [.font: font])
+        let container = NSTextContainer(size: CGSize(width: max(width, 1), height: 1_000_000))
+        container.lineFragmentPadding = 0
+        let layout = NSLayoutManager()
+        layout.addTextContainer(container)
+        storage.addLayoutManager(layout)
+        layout.ensureLayout(for: container)
+        let whole = text as NSString
+        var lines: [String] = []
+        layout.enumerateLineFragments(forGlyphRange: layout.glyphRange(for: container)) { _, _, _, glyphs, _ in
+            let chars = layout.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
+            lines.append(whole.substring(with: chars).trimmingCharacters(in: .newlines))
+        }
+        let out = lines.count < 2 ? text : lines.reversed().joined(separator: "\n")
+        keptUp.setObject(out as NSString, forKey: key)
+        return out
+    }
+
     // The widest a bubble is allowed to be: four fifths of the window, less the bubble's own side
     // padding. The same fraction the feed lays bubbles out by ([C-1]).
     static var widestBubble: CGFloat { widest(MTScene.size().width) }
@@ -197,11 +222,20 @@ struct MTMessageText: UIViewRepresentable {
 final class MTLinkTextView: UITextView {
     /// A post's own page gives its words every touch, the selection's too (02.10); everywhere else a link alone answers.
     var takesEveryTouch = false
+    /// The words laid bottom up (MTLinkedText.bottomUp) and the width they were last laid at: the view's own layout lays them, at its own
+    /// width -- the measure never touches the view (P-78), and at the box's width the greedy breaks fall where the measure found them.
+    var upSource: (text: String, font: UIFont, color: UIColor)?
+    var laidWidth: CGFloat = 0
     override func layoutSubviews() {
         super.layoutSubviews()
         let w = bounds.width
         if w > 1, textContainer.size.width != w {
             textContainer.size = CGSize(width: w, height: 1_000_000)
+        }
+        if let up = upSource, 1 < w, laidWidth != w {
+            laidWidth = w
+            attributedText = MTLinks.marked(MTMessageText.bottomUp(up.text, font: up.font, width: w),
+                                            attributes: [.font: up.font, .foregroundColor: up.color])
         }
     }
     /// The point is the view's only if a link lies under it -- or anywhere, where the words take every touch.
@@ -229,6 +263,13 @@ struct MTLinkedText: UIViewRepresentable {
     let font: UIFont
     let color: UIColor
     let linkColor: UIColor
+    /// THE LINES BOTTOM UP (the author's word 18.10.2026 10:3x MSK: «the text inside the bubble in the Money Flow game must also go
+    /// bottom up by lines -- line 1, above it the second, and so on»): in the turned feed the newest stands on top, and the words of
+    /// one bubble now read the same way -- the lines as the bubble's width lays them, the first at the bottom (MTMessageText.bottomUp).
+    var bottomUp = false
+    private func shown(_ width: CGFloat) -> String {
+        bottomUp ? MTMessageText.bottomUp(text, font: font, width: width) : text
+    }
 
     func makeUIView(context: Context) -> MTLinkTextView {
         let v = MTLinkTextView()
@@ -249,8 +290,17 @@ struct MTLinkedText: UIViewRepresentable {
     }
 
     func updateUIView(_ v: MTLinkTextView, context: Context) {
-        let words = MTLinks.marked(text, attributes: [.font: font, .foregroundColor: color])
-        if !v.attributedText.isEqual(to: words) { v.attributedText = words }
+        if bottomUp {
+            if v.upSource?.text != text || v.upSource?.font != font || v.upSource?.color != color {
+                v.upSource = (text, font, color)
+                v.laidWidth = 0
+                v.setNeedsLayout()
+            }
+        } else {
+            v.upSource = nil
+            let words = MTLinks.marked(text, attributes: [.font: font, .foregroundColor: color])
+            if !v.attributedText.isEqual(to: words) { v.attributedText = words }
+        }
         let link: [NSAttributedString.Key: Any] = [.foregroundColor: linkColor,
                                                    .underlineStyle: NSUnderlineStyle.single.rawValue]
         if !NSDictionary(dictionary: v.linkTextAttributes).isEqual(to: link) { v.linkTextAttributes = link }
@@ -259,7 +309,7 @@ struct MTLinkedText: UIViewRepresentable {
     /// The same measure the menu's words use ([C-1]): the box the lines actually occupy.
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: MTLinkTextView, context: Context) -> CGSize? {
         let limit = max(proposal.width ?? MTMessageText.widestBubble, 1)
-        let box = MTMessageText.box(of: text, font: font, maxWidth: limit)
+        let box = MTMessageText.box(of: shown(limit), font: font, maxWidth: limit)
         return CGSize(width: min(box.width, limit), height: max(box.height, ceil(font.lineHeight)))
     }
 }

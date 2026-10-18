@@ -104,6 +104,12 @@ final class MontanaDeliveryEngine {
     /// to nobody here; a deletion is not such a word (landOwnDeletion).
     @MainActor private func landOwn(_ store: ChatStore, from: String, mid: String, text: String, transport: String?,
                                     quoteText: String?, quoteMid: String?, linkPreview: String?, sentAt: Double?) {
+        // THE SEED'S OWN GROUP WORD (the twin mirror, 18.10.2026): the group stands on every device of the seed, so what that device
+        // said there is done here as it was done there (MTGroup.handleOwn) -- never a row of the pipe it rode.
+        if text.hasPrefix(MTGroup.mark) {
+            MTGroup.handleOwn(text, from: from, store: store)
+            return
+        }
         let sid = "mid:" + mid
         let kind = MontanaNotify.kind(for: text)
         let row = !isControlMarker(text) || text.hasPrefix(mediaMark) || text.hasPrefix(voiceMark) || text.hasPrefix(stickerMark)
@@ -162,6 +168,33 @@ final class MontanaDeliveryEngine {
         return false
     }
 
+    /// A WORD THE SEED'S OTHER DEVICE MIRRORED HERE (MontanaArchive.takeMirror): a read mark reads the conversation here too and
+    /// takes its banners down; the twin's past is asked and given back by name; every other word walks the one landing road under
+    /// the name it was born with.
+    @MainActor func landMirrored(_ w: MontanaArchive.TwinWord) {
+        guard let store else { return }
+        if w.x.hasPrefix(MontanaArchive.twinReadMark) {
+            store.readByTwin(w.c, upToMs: Int64(String(w.x.dropFirst(MontanaArchive.twinReadMark.count))))
+            return
+        }
+        // The twin's past: an ask for rows its archive holds and its feed does not, and a row given back by its name.
+        if w.x.hasPrefix(MontanaArchive.twinAskMark) { return store.giveTwinRows(w.c, asked: String(w.x.dropFirst(MontanaArchive.twinAskMark.count))) }
+        if w.x.hasPrefix(MontanaArchive.twinRowMark) {
+            return store.takeTwinRow(w.c, mid: w.m, own: w.o == 1, at: w.at ?? 0, body: String(w.x.dropFirst(MontanaArchive.twinRowMark.count)))
+        }
+        receive(from: w.c, mid: w.m, text: w.x, transport: "node", quoteText: w.qt, quoteMid: w.qm, linkPreview: w.lp,
+                sentAt: w.at, own: w.o == 1, mirrored: true)
+    }
+    /// THE MIRROR'S CHOICE OF WORDS: what stands in a conversation or moves a row -- a letter of every kind, a reaction, an edit, a
+    /// deletion, a receipt, a group's word -- rides to the seed's other devices; what says only «here, now» (typing, presence, a
+    /// call's signal, a draft, a name, a face) does not: it would be stale where it landed.
+    nonisolated static func mirrors(_ text: String) -> Bool {
+        if text.hasPrefix(MTGroup.mark) { return MTGroup.mirrors(text) }
+        if text.hasPrefix(deliveryReceiptMark) || text.hasPrefix(readReceiptMark) || text.hasPrefix(deleteMark) { return true }
+        if !isControlMarker(text) || text.hasPrefix(mediaMark) || text.hasPrefix(voiceMark) || text.hasPrefix(stickerMark) { return true }
+        return MTRowLetter.changesRow(text)
+    }
+
     /// Letters that arrived before the history was read — replayed in arrival order the moment it is.
     @MainActor private var parkedInbound: [() -> Void] = []
     @MainActor func replayParkedInbound() {
@@ -177,7 +210,7 @@ final class MontanaDeliveryEngine {
     func receive(from: String, mid: String, text: String, senderName: String? = nil, senderGlyph: String? = nil,
                  transport: String?,
                  quoteText: String? = nil, quoteMid: String? = nil, linkPreview: String? = nil,
-                 sentAt: Double? = nil, own: Bool = false, author: String? = nil) {
+                 sentAt: Double? = nil, own: Bool = false, author: String? = nil, mirrored: Bool = false) {
         // A WORD OF THEIRS ENDS THE INTRODUCTION (26.09): every road lands here, so the proof is read here, before
         // the row lands and its receipt leaves -- a receipt to a peer still in the introduction waits for the pipe.
         // The queue turns at once from the knock at their point to the node and the wake.
@@ -193,7 +226,7 @@ final class MontanaDeliveryEngine {
             parkedInbound.append { [weak self] in
                 self?.receive(from: from, mid: mid, text: text, senderName: senderName, senderGlyph: senderGlyph,
                               transport: transport, quoteText: quoteText, quoteMid: quoteMid, linkPreview: linkPreview, sentAt: sentAt,
-                              own: own, author: author)
+                              own: own, author: author, mirrored: mirrored)
             }
             MontanaTrace.markFolded("inbound_parked", "history not read yet n=\(parkedInbound.count)", window: 10)
             return
@@ -208,6 +241,14 @@ final class MontanaDeliveryEngine {
             MontanaTrace.markFolded("rx_blocked", "door peer=\(String(from.prefix(10)))", window: 60, key: "door:" + from)
             return
         }
+        // THE TWIN MIRROR (MontanaArchive.mirrorNote): a correspondent's word this device took rides to the seed's other devices -- the
+        // box gave it to this one, and this one's confirmation erases it there; one that came by the mirror rides no further.
+        if !mirrored, !own, Self.mirrors(text) {
+            MontanaArchive.mirrorNote(.init(c: from, m: mid, x: text, at: sentAt, qt: quoteText, qm: quoteMid, lp: linkPreview))
+        }
+        // THE FABRIC OF TIME: a live act of the correspondent may be answered by a testimony (MTFabric.heard); the device that took it
+        // from the box answers, the mirror's copy does not.
+        if !mirrored, !own, MTFabricRules.isLiveAct(text) { MTFabric.shared.heard(from) }
         let sid = "mid:\(mid)"
         // THE PERSON'S OWN LETTER FROM ANOTHER OF THEIR DEVICES (MTNodeWire.authorHolds, 11.10.2026, No.62): a word the same
         // words wrote is mine, whichever device wrote it and whatever road brought it -- never the correspondent's name, face,
@@ -256,6 +297,8 @@ final class MontanaDeliveryEngine {
             // answering once per process life, sent nothing — five letters of iPhone 15 knocked 43
             // times at T1, every copy written as answered. The door answers every ask now, one answer
             // in flight per letter, and this line carries the door's own word.
+            // A mirrored copy is the twin's word, never the correspondent's ask: the row stands, and nobody waits for an answer.
+            if mirrored { return }
             if MTRowLetter.changesRow(text) { MTHeldLetters.note(mid) }
             Task { await MainActor.run {
                 let answer = store.sendDeliveryReceipt(from, msgId: sid, isFromMe: false, text: text)
@@ -896,6 +939,16 @@ final class MontanaDeliveryEngine {
                     MontanaTrace.mark("piece_reshaped", mid: mid, "the intent follows the file")
                 }
                 return
+            }
+            // THE TWIN MIRROR: what the person sends rides to the seed's other devices under its name (MontanaArchive.mirrorNote); a
+            // receipt and a read mark are this device's word to the correspondent, and an intent rides as its letter (promotePiece).
+            // A silent word that is not a marked one stays here: on the other device the own road would stand it as a row.
+            // THE FABRIC OF TIME: a live act this phone leaves for a correspondent (MTFabric.spoke); an intent is a media letter's.
+            if kind == .piece || MTFabricRules.isLiveAct(text) { Task { @MainActor in MTFabric.shared.spoke(to) } }
+            if kind == .letter, Self.mirrors(text), !text.hasPrefix(deliveryReceiptMark), !text.hasPrefix(readReceiptMark),
+               !silent || isControlMarker(text) {
+                MontanaArchive.mirrorNote(.init(c: to, m: mid, x: text, o: 1, at: Date().timeIntervalSince1970,
+                                                qt: quoteText, qm: quoteMid, lp: linkPreview))
             }
             // ONE STATE, ONE LETTER: a read mark says «read up to here» — a newer one for the
             // same correspondence makes the queued one meaningless, and forty-three of them
@@ -1852,6 +1905,7 @@ final class MontanaDeliveryEngine {
             a[i].kind = .letter; a[i].text = text
             a[i].since = Date().timeIntervalSince1970; a[i].tries = 0; a[i].lastTry = 0
             save(a)
+            MontanaArchive.mirrorNote(.init(c: to, m: mid, x: text, o: 1, at: Date().timeIntervalSince1970))   // the media letter, to the twin
             attempt(mid)
         }
     }

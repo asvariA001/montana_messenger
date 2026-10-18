@@ -944,8 +944,12 @@ extension MontanaArchive {
     /// A row of the box in the pipe of this seed's devices is this file's own, never a letter of the feed.
     nonisolated static func twinTakes(_ row: [String: String]) -> Bool {
         guard row["c"] == twinPipe else { return false }
-        guard let o = MTKeeping.word(row["t"] ?? ""), (o["w"] as? String) == "hist", let mid = row["m"], !mid.isEmpty else { return true }
-        Task.detached(priority: .utility) { await takeFromTwin(o, mid: mid) }
+        guard let o = MTKeeping.word(row["t"] ?? ""), let mid = row["m"], !mid.isEmpty else { return true }
+        switch o["w"] as? String {
+        case "hist": Task.detached(priority: .utility) { await takeFromTwin(o, mid: mid) }
+        case "lt": Task.detached(priority: .utility) { await takeMirror(o, mid: mid) }   // COMPAT-GATED: an older build takes it unread
+        default: break
+        }
         return true
     }
     private static func takeFromTwin(_ o: [String: Any], mid: String) async {
@@ -970,6 +974,172 @@ extension MontanaArchive {
         }
         UserDefaults.standard.set(Array((seen + [mid]).suffix(512)), forKey: twinSeenKey)
         MontanaTrace.mark("twin_hist", "taken blocks=\(filed)")
+    }
+
+    // ── THE TWIN MIRROR (the author's words 18.10.2026 10:3x-10:4x MSK: «on T1 the letters of 10:07 are not seen, on the Mac with the
+    // same person they are»; «on the Mac, in my own groups and channels, what I posted from the phone is not seen -- it does not
+    // sync as the chats do»; «read on the phone -- read on every device, not hanging as a banner on the computer») ──
+    // Measured on T1 18.10.2026 07:05Z (archive_gap): chat a:f91e4b held 53 rows against 63 in the archive, all 12 missing ones the
+    // correspondent's, 8 of them media, the newest at 10:04 -- letters the Mac took. Three causes, each read in the set: the node's
+    // box gives a letter to whichever device of the seed takes it first, and that device's confirmation erases it for the rest
+    // (/box-del, by name); the twin's blocks join only a conversation the device does not hold (restoreFromArchive); and a group's
+    // word or a read mark of the seed's other device was applied to nobody (MontanaDeliveryEngine.landOwn). So every word a device
+    // lands from a correspondent, sends, or reads rides to the seed's other devices in the pipe only they derive, on the cargo road
+    // the history takes, under the name it was born with; there it walks the one landing road (MontanaDeliveryEngine.receive),
+    // where a name already standing is a repeat and a buried name stays buried. A word that came by the mirror rides no further.
+    struct TwinWord: Codable {
+        var c: String            // the pipe it rode, or the conversation a read mark reads
+        var m: String            // its wire name, as it was born
+        var x: String            // the letter's words, as the correspondent's device opens them
+        var o: Int? = nil        // 1: the person's own word
+        var at: Double? = nil
+        var qt: String? = nil
+        var qm: String? = nil
+        var lp: String? = nil
+        var q: Int? = nil        // its place in this device's queue, never read by the other
+    }
+    nonisolated static let twinReadMark = "\u{200B}\u{200B}TR:"   // NOT-UI: a read mark for this seed's devices alone, never on a pair's wire
+    private static var mirror: [TwinWord] = []   // the archive's queue alone touches it
+    private static var mirrorRead = false, mirrorDue = false, mirrorNext = 0
+    private static var mirrorGiven: [String: Double] = [:]   // a name given within the hour: a later copy of it by another road stays
+    private static let mirrorKept = 4000      // [I-14]: a device away for long is given the newest, the history road keeps the rest
+    private static let mirrorRound = 500
+    private static var mirrorFile: URL { rootURL.appendingPathComponent("twin-mirror.json") }
+    private static func readMirror() {
+        guard !mirrorRead else { return }
+        mirrorRead = true
+        if let d = try? Data(contentsOf: mirrorFile), let a = try? JSONDecoder().decode([TwinWord].self, from: d) { mirror = a }
+        mirrorNext = (mirror.compactMap(\.q).max() ?? 0) + 1
+    }
+    private static func keepMirror() {
+        guard let d = try? JSONEncoder().encode(mirror) else { return }
+        try? d.write(to: mirrorFile, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+    }
+    /// A word for the seed's other devices: on disk beside the history until it rode, laid within half a minute with whatever came
+    /// beside it. A repeat of a queued word is not queued twice; a newer read mark of a conversation stands for the older.
+    nonisolated static func mirrorNote(_ w: TwinWord) {
+        ioQueue.async {
+            readMirror()
+            let reads = w.x.hasPrefix(twinReadMark)
+            if reads { mirror.removeAll { e in e.c == w.c && e.x.hasPrefix(twinReadMark) } }
+            let now = Date().timeIntervalSince1970, name = w.c + "/" + w.m + "/" + String(w.x.prefix(24))
+            guard reads || now - (mirrorGiven[name] ?? 0) > 3600 else { return }
+            mirrorGiven[name] = now
+            if 2000 < mirrorGiven.count { mirrorGiven = mirrorGiven.filter { e in now - e.value < 3600 } }
+            var e = w
+            e.q = mirrorNext
+            mirrorNext += 1
+            mirror.append(e)
+            if mirrorKept < mirror.count { mirror.removeFirst(mirror.count - mirrorKept) }
+            keepMirror()
+            mirrorSoon()
+        }
+    }
+    private static func mirrorSoon() {
+        guard !mirrorDue else { return }
+        mirrorDue = true
+        ioQueue.asyncAfter(deadline: .now() + 30) {
+            mirrorDue = false
+            Task.detached(priority: .utility) { await layMirror() }
+        }
+    }
+    private static func layMirror() async {
+        let batch: [TwinWord] = ioQueue.sync { readMirror(); return Array(mirror.prefix(mirrorRound)) }   // MAIN-SAFE-SYNC: a detached task waits on the archive's queue, never the main thread
+        guard !batch.isEmpty, let secret = twinSecret(), let body = try? JSONEncoder().encode(batch),
+              let dir = try? MontanaBackup.shelf() else { return }
+        let url = dir.appendingPathComponent(UUID().uuidString + ".twin")
+        defer { try? FileManager.default.removeItem(at: url) }
+        guard (try? body.write(to: url)) != nil, var road = await MTKeeping.lay(url) else {
+            ioQueue.async { mirrorSoon() }
+            return MontanaTrace.mark("twin_mirror", "the words did not reach the nodes n=\(batch.count)")
+        }
+        road["w"] = "lt"; road["n"] = batch.count; road["f"] = ioQueue.sync { writerTag()?.montanaHexString ?? "" }   // MAIN-SAFE-SYNC: a detached task waits on the archive's queue, never the main thread
+        guard await MTKeeping.knock(secret, road, silent: true, sender: twinDeviceRef) else {
+            ioQueue.async { mirrorSoon() }
+            return MontanaTrace.mark("twin_mirror", "no door boxed the letter n=\(batch.count)")
+        }
+        let top = batch.compactMap(\.q).max() ?? -1
+        let left: Int = ioQueue.sync {   // MAIN-SAFE-SYNC: a detached task waits on the archive's queue, never the main thread
+            mirror.removeAll { e in (e.q ?? -1) <= top }
+            keepMirror()
+            if !mirror.isEmpty { mirrorSoon() }
+            return mirror.count
+        }
+        MontanaTrace.mark("twin_mirror", "laid words=\(batch.count) left=\(left)")
+    }
+    // ── THE PAST THE TWIN MISSED (the author's words 18.10.2026 10:3x MSK: «on T1 there is no media of yesterday 17:33 in the chat, on
+    // the Mac there is»; 12:1x «finish and close every item»): the mirror carries what lands from now on; what one device took before
+    // it stands in that device's archive, which the other files (twin_hist) and measures against its feed (archive_gap) but never
+    // lays into a conversation it holds -- an archive row carries no letter's name, so no tombstone could be asked of it. So the
+    // device that sees the gap ASKS the other by the archive's own key of each row (its second, its side, a hash of its words), the
+    // other ANSWERS with the rows it holds under those keys, by their names, a file by the cargo road, and the asker lays each one by
+    // its own birth -- once, never over its tombstone. ──
+    nonisolated static let twinAskMark = "\u{200B}\u{200B}TA:"   // NOT-UI: the asker's keys, to this seed's devices alone
+    nonisolated static let twinRowMark = "\u{200B}\u{200B}TW:"   // NOT-UI: one row given back, to this seed's devices alone
+    private static let askedKey = "mt.twin.asked"   // NOT-UI: the keys this device already asked (SeedScope names it)
+    /// The archive's key of a row's words, the same on every device of the seed: a hash of the words as the archive writes them.
+    nonisolated static func rowHash(_ archived: String) -> String {
+        SHA256.hash(data: Data(archived.utf8)).prefix(8).map { b in String(format: "%02x", b) }.joined()
+    }
+    /// The rows of a conversation the archive holds and the feed does not: asked once, two hundred at most a round.
+    nonisolated static func askTwin(chat: String, items: [(s: Int, m: Bool, h: String)]) {
+        var asked = Set(UserDefaults.standard.stringArray(forKey: askedKey) ?? [])
+        let fresh = Array(items.filter { i in !asked.contains(chat + "/" + String(i.s) + "/" + i.h) }.prefix(200))
+        guard !fresh.isEmpty, let d = try? JSONSerialization.data(withJSONObject: ["i": fresh.map { i in [i.s, i.m ? 1 : 0, i.h] as [Any] }]),
+              let js = String(data: d, encoding: .utf8) else { return }
+        for i in fresh { asked.insert(chat + "/" + String(i.s) + "/" + i.h) }
+        UserDefaults.standard.set(Array(asked).suffix(5000), forKey: askedKey)
+        mirrorNote(TwinWord(c: chat, m: UUID().uuidString, x: twinAskMark + js, o: 1))
+        MontanaTrace.mark("twin_ask", "chat=\(String(chat.prefix(10))) rows=\(fresh.count)")
+    }
+    /// A row whose file did not come whole is asked again the next time the gap is measured.
+    nonisolated static func unaskTwin(chat: String, s: Int, h: String) {
+        var asked = UserDefaults.standard.stringArray(forKey: askedKey) ?? []
+        asked.removeAll { k in k == chat + "/" + String(s) + "/" + h }
+        UserDefaults.standard.set(asked, forKey: askedKey)
+    }
+    /// One row given back: its words, and a file by the cargo road -- the file's pieces sealed under a fresh key, the key inside the
+    /// pipe only the seed's devices open.
+    nonisolated static func giveTwin(chat: String, mid: String, text: String, own: Bool, at: Double, senderRef: String?,
+                                     file: (kind: String, name: String, docName: String?, duration: Double)?) {
+        var o: [String: Any] = [:]
+        if !text.isEmpty { o["t"] = text }
+        if let sr = senderRef { o["sr"] = sr }
+        guard let f = file else {
+            guard !text.isEmpty, let d = try? JSONSerialization.data(withJSONObject: o), let js = String(data: d, encoding: .utf8) else { return }
+            mirrorNote(TwinWord(c: chat, m: mid, x: twinRowMark + js, o: own ? 1 : nil, at: at))
+            return
+        }
+        o["k"] = f.kind; o["f"] = f.name
+        if let n = f.docName { o["n"] = n }
+        if 0 < f.duration { o["d"] = f.duration }
+        let url = MontanaMediaStore.url(f.name)
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        let given = o
+        Task.detached(priority: .utility) {
+            guard let road = await MTKeeping.lay(url) else { return MontanaTrace.mark("twin_answer", "a file did not reach the nodes") }
+            var all = given
+            all["road"] = road
+            guard let d = try? JSONSerialization.data(withJSONObject: all), let js = String(data: d, encoding: .utf8) else { return }
+            mirrorNote(TwinWord(c: chat, m: mid, x: twinRowMark + js, o: own ? 1 : nil, at: at))
+        }
+    }
+
+    /// The words of the seed's other device: each lands here by the one landing road, in the order that device heard them.
+    private static func takeMirror(_ o: [String: Any], mid: String) async {
+        let mine = ioQueue.sync { writerTag()?.montanaHexString ?? "" }   // MAIN-SAFE-SYNC: a detached task waits on the archive's queue, never the main thread
+        guard (o["f"] as? String) != mine else { return }   // this device's own letter, heard back from the box
+        let seen = UserDefaults.standard.stringArray(forKey: twinSeenKey) ?? []
+        guard !seen.contains(mid), let dir = try? MontanaBackup.shelf() else { return }
+        let url = dir.appendingPathComponent(UUID().uuidString + ".twin")
+        defer { try? FileManager.default.removeItem(at: url) }
+        guard await MTKeeping.fetch(o, to: url), let d = try? Data(contentsOf: url),
+              let words = try? JSONDecoder().decode([TwinWord].self, from: d) else {
+            return MontanaTrace.mark("twin_mirror", "the words did not come whole")
+        }
+        UserDefaults.standard.set(Array((seen + [mid]).suffix(512)), forKey: twinSeenKey)
+        await MainActor.run { for w in words { MontanaDeliveryEngine.shared.landMirrored(w) } }
+        MontanaTrace.mark("twin_mirror", "taken words=\(words.count)")
     }
 
     /// Wire name of a sealed block: the same name a media chunk gets, computed by the same core

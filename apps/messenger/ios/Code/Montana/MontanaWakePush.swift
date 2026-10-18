@@ -3764,7 +3764,6 @@ enum MontanaWakePush {
                     E2E.heardCapable(from: chat, payload: payload)   // what its build reads, learned from the stamp as its presence is (25.09)
                     E2E.heardCoins(from: chat, payload: payload, at: at)   // the balance the last word tells (04.10, the wallet's live top)
                     E2E.heardLevel(from: chat, payload: payload, at: at)   // the Global Level the last word tells, or its withdrawal (11.10)
-                    E2E.heardFabric(from: chat, payload: payload, at: at)   // the ceiling and the estimate the last word states (MTFabric, 17.10)
                     MontanaPresencePrivacy.notePeerHides(chat, payload.dropFirst(1).contains("h"), at: at)
                     if let a = payload.firstIndex(of: "@") { notePeerDoor(chat, host: String(payload[payload.index(after: a)...])) }
                     MontanaDeliveryEngine.shared.store?.noteSeen(chat, at: at)

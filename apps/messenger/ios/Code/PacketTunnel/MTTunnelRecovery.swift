@@ -59,8 +59,9 @@ struct MTTunnelRetry {
 /// WHEN A SESSION IS DEAD, AND WHAT IT OWES THE PHONE (29.09: the author's word «let a dead session release itself», and the
 /// critic's blind spot «the watch does not tell "the system gives the tunnel nothing" from idleness»). Under the protection
 /// of all networks a dead session holds every byte of the phone, so each death is judged by the thing it names:
-///  · the road behind the tunnel is dead when bytes go out and none come in -- counted from the first such sample through
-///    every raise of the engine and every candidate the recovery tries -- for `upstreamLimit`: the session is released;
+///  · the road behind the tunnel is dead when it was asked and did not answer (MTTunnelRoad: the probe through the running engine,
+///    and every candidate the recovery tries) -- counted from the first such beat through every raise of the engine and every
+///    candidate -- for `upstreamLimit`: the session is released;
 ///  · the system carries nothing into the tunnel when the app's own path -- the system's word for every app -- has stood
 ///    unsatisfied for `blockedAfter` while the phone's own network is up: the session is restarted once, and blocked
 ///    again within `blockedRepeat` of that restart it is released.
@@ -80,14 +81,37 @@ struct MTTunnelDeath {
 
     mutating func reset() { silentSince = nil }
 
-    mutating func judge(now: TimeInterval, phonePath: Bool, bytesIn: Bool, bytesOut: Bool,
+    mutating func judge(now: TimeInterval, phonePath: Bool, answered: Bool, unanswered: Bool,
                         blocked: TimeInterval, lastBlockedRestart: TimeInterval?) -> Verdict {
         guard phonePath else { silentSince = nil; return .alive }
-        if bytesIn { silentSince = nil } else if bytesOut, silentSince == nil { silentSince = now }
+        if answered { silentSince = nil } else if unanswered, silentSince == nil { silentSince = now }
         if let since = silentSince, Self.upstreamLimit <= now - since { return .release("upstream") }
         guard Self.blockedAfter <= blocked else { return .alive }
         if let at = lastBlockedRestart, now - at < Self.blockedRepeat { return .release("blocked") }
         return .restart
+    }
+}
+
+/// THE ROAD'S WORD ON A BEAT (the critic, 17.10.2026, findings 3 and 4; the author's word «carry it in»). The silence used to be a
+/// count of bytes: 16 KB out in ten seconds made it a verdict and a kilobyte in made the road alive. A phone whose apps only knock
+/// asks less than that, and the packet stack's own replies to the knocks make the kilobyte -- on 85938459 a session stood 2 h 34 min
+/// at rx=0 unreleased. Bytes are now a hook alone: what only an upstream gives (`answerFloor` in a beat) answers by itself, nothing
+/// either way is idleness, and everything between is put to the probe -- the 204-endpoint asked through the running engine's own
+/// outbound -- whose answer holds `held`; a raise of the engine or a new path of the phone forgets it.
+struct MTTunnelRoad {
+    enum Word: Equatable { case idle, answered, unanswered }
+    static let answerFloor = 64 * 1024
+    static let held: TimeInterval = 60
+    private(set) var probedAt: TimeInterval?
+    private(set) var answered = false
+    mutating func forget() { probedAt = nil }
+    mutating func word(dtx: Int, drx: Int, now: TimeInterval, probe: () -> Bool) -> Word {
+        if Self.answerFloor <= drx { return .answered }
+        guard 0 < dtx || 0 < drx else { return .idle }
+        if let at = probedAt, now - at < Self.held { return answered ? .answered : .unanswered }
+        answered = probe()
+        probedAt = now
+        return answered ? .answered : .unanswered
     }
 }
 

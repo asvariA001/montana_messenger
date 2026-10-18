@@ -83,16 +83,21 @@ const probeDeadlineSeconds = 8
 //go:linkname xrayUseReadv github.com/xtls/xray-core/common/buf.useReadv
 var xrayUseReadv bool
 
+// THE RUNTIME'S MEMORY IS ITS OWN PACER'S, UNDER ONE CEILING NEAR THE SYSTEM'S (the critic, 17.10.2026; the author's word
+// «carry it in»): a soft limit of 30 MB stood below the engine's working set, so the collector ran without rest -- up to 4942
+// collections a minute on T1 and 3558 on an iPhone 17 Pro Max, on the live road too -- and the phone heated under the VPN. The
+// extension is taken by the system near 50 MB; the ceiling stands at 42, leaving the packet pump and the Swift side their room,
+// and the collector's own pace (the default percent) works below it, so a working set under the ceiling is collected as often as
+// it grows, not on every allocation.
 func init() {
 	xrayUseReadv = false
-	debug.SetMemoryLimit(30 << 20)
-	debug.SetGCPercent(30)
+	debug.SetMemoryLimit(42 << 20)
 }
 
 var instance *core.Instance
 
-// MemStats reports Go runtime memory use for the extension's memory log. Read-only: it measures, it does
-// not tune anything (no heap limit, no forced GC — those made things worse and are deliberately absent).
+// MemStats reports Go runtime memory use for the extension's memory log. Read-only: it measures and tunes
+// nothing -- the one ceiling stands in init, and a forced collection is the pressure handler's, once in half a minute.
 func MemStats() string {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
@@ -155,6 +160,17 @@ func FreeMemory() string {
 
 // Version returns the Xray-core version string.
 func Version() string { return core.Version() }
+
+// ProbeRunning asks the 204-endpoint through the running instance's own outbound -- the road the person's packets take -- within
+// the probe's deadline, and reports its delay. No second instance stands and no flow of the tunnel is touched: the tunnel's judge
+// of a silent road and of a session's birth (the critic, 17.10.2026: a session born on a dead server held the phone 1 h 26 min,
+// another stood 2 h 34 min with nothing in) asks the road itself rather than counting bytes the packet stack can make on its own.
+func ProbeRunning() (int64, error) {
+	if instance == nil {
+		return -1, fmt.Errorf("no engine")
+	}
+	return delayVia(instance, "proxy", probeURL, probeDeadlineSeconds*time.Second)
+}
 
 // MeasureDelay reports the delay of a server the way every reference client reports it: bring the outbound up,
 // ask a 204-endpoint through it and time the answer. A TCP handshake with the address in the link measures

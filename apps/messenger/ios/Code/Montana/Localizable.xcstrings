@@ -1,6 +1,22 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Full Screen": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Во весь экран"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全屏"
+          }
+        }
+      }
+    },
     "Waiting…": {
       "extractionState": "manual",
       "localizations": {
@@ -65,23 +81,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "已归档"
-          }
-        }
-      }
-    },
-    "All Chats": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Все чаты"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "所有聊天"
           }
         }
       }
@@ -29372,86 +29371,6 @@
         }
       }
     },
-    "Testimonies of calls": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Печати созвонов"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "通话证明"
-          }
-        }
-      }
-    },
-    "Ceiling and estimate": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Потолок и оценка"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "上限与估值"
-          }
-        }
-      }
-    },
-    "Your regular calls of the last two weeks, weighed by how high the people you call stand: the greatest number g for which at least g people you called in each of the last two weeks stand at level g or above. A call counts when each of you heard the other for a minute; at its end each phone signs what it heard and gives it to the other. Counted again every week; through its first two weeks it stands at the lower of your two levels above. Your ceiling and estimate go only to the people you call, inside your conversation.": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ваши регулярные созвоны за последние две недели, взвешенные по тому, насколько высоко стоят собеседники: наибольшее число g, при котором не меньше g людей, с которыми вы созванивались в каждую из двух последних недель, стоят на уровне g или выше. Звонок засчитывается, когда каждый из вас слышал другого не меньше минуты; в конце звонка каждый телефон подписывает услышанное и отдаёт печать другому. Пересчитывается каждую неделю; первые две недели равна меньшему из двух уровней выше. Потолок и оценка уходят только тем, с кем вы созваниваетесь, внутри вашей переписки."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "你过去两周的固定通话，按通话对象的等级加权：最大的数 g，使得过去两周中每周都与你通话的人里至少有 g 人处于 g 级或以上。双方都听到对方至少一分钟，通话才计入；通话结束时，每部手机签署所听到的内容并交给对方。每周重新计算；前两周等于上面两个等级中较低的一个。你的上限与估值只发给与你通话的人，且只在你们的对话之内。"
-          }
-        }
-      }
-    },
-    "Your level is the lowest of three: your time in Montana, the coins you hold and the Fabric of Time, your regular calls of the last two weeks weighed by the levels of the people you call. Each level opens new functions of Montana.": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ваш уровень — наименьший из трёх: ваше время в Монтане, монеты, которые вы держите, и Ткань времени — регулярные созвоны последних двух недель, взвешенные по уровням тех, с кем вы созваниваетесь. Каждый уровень открывает новые функции Монтаны."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "你的等级是三者中最低的：你在 Montana 的时间、你持有的硬币，以及时间织网——你过去两周的固定通话，按通话对象的等级加权。每个等级都会开放 Montana 的新功能。"
-          }
-        }
-      }
-    },
-    "Your Global level is the lowest of three levels: the level of the chain of the person, which grows with your time on the network, the level of π, which grows with the coins you hold, and the Fabric of Time, which stands on your regular calls of the last two weeks. You see it in TimeCoin, on the TimeChain page, and in Settings, under Access by level.": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ваш Глобальный уровень — наименьший из трёх уровней: уровня цепи Личности, который растёт с вашим временем в сети, уровня по Пи, который растёт с монетами, которые вы держите, и Ткани времени, которая стоит на ваших регулярных созвонах последних двух недель. Он виден в Монете Времени на странице TimeChain и в Настройках, в разделе Доступ по уровню."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "你的全局等级是三个等级中最低的那个：个人链的等级，随你在网络上的时间增长；π 等级，随你持有的硬币增长；时间织网，建立在你过去两周的固定通话之上。你可以在时间币的 TimeChain 页面，以及设置的“按等级开放”中看到它。"
-          }
-        }
-      }
-    },
     "What is the Fabric of Time?": {
       "localizations": {
         "ru": {
@@ -29468,54 +29387,6 @@
         }
       }
     },
-    "The third level your Global level is set by: your regular calls of the last two weeks, weighed by how high the people you call stand. Your Global level is the lowest of the three, so the Fabric of Time can lower it and never raises it.": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Третий уровень, по которому определяется ваш Глобальный уровень: ваши регулярные созвоны за последние две недели, взвешенные по тому, насколько высоко стоят те, кому вы звоните. Глобальный уровень — наименьший из трёх, поэтому Ткань времени может его опустить и никогда не поднимает."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "决定你全局等级的第三个等级：你过去两周的固定通话，按你通话对象的等级高低来衡量。全局等级是三者中最低的，因此时间织网可能拉低它，但绝不会抬高它。"
-          }
-        }
-      }
-    },
-    "Which call counts?": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Какой звонок засчитывается?"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "哪种通话会计入？"
-          }
-        }
-      }
-    },
-    "A call of two that connected, in which each phone received the other's voice for at least 60 seconds. Each phone counts the voice it received itself, from the sound that reached it: silence and a muted microphone do not count, and neither does a ring answered and declined. A group call does not count.": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Звонок вдвоём, который соединился и в котором каждый телефон получил голос другого не меньше 60 секунд. Каждый телефон сам считает голос, который получил, по дошедшему до него звуку: тишина и выключенный микрофон не считаются, как и звонок, принятый и сразу сброшенный. Групповой звонок не засчитывается."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已接通的双人通话，且每部手机都收到对方至少 60 秒的声音。每部手机根据到达它的声音，自己统计收到的语音：静音和关闭的麦克风不计入，接听后立即挂断的来电也不计入。群组通话不计入。"
-          }
-        }
-      }
-    },
     "Who is a regular correspondent?": {
       "localizations": {
         "ru": {
@@ -29527,23 +29398,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "谁是固定通话对象？"
-          }
-        }
-      }
-    },
-    "Montana reads the Fabric of Time in weeks of 7 days, each beginning on Thursday at 00:00 UTC. A person is your regular correspondent in a week when your phone holds a testimony of a counted call from them in each of the two weeks before it. People are told apart by the key their testimonies are signed with, not by anything they say about themselves.": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Монтана читает Ткань времени неделями по 7 дней, каждая начинается в четверг в 00:00 UTC. Человек — ваш регулярный собеседник в неделе, когда у вашего телефона есть печать засчитанного созвона от него в каждой из двух предыдущих недель. Людей различают по ключу, которым подписаны их печати, а не по тому, что они говорят о себе."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Montana 以每周 7 天读取时间织网，每周从星期四 00:00 UTC 开始。如果你的手机在前两周的每一周都持有某人的一份已计入通话证明，那么在本周他就是你的固定通话对象。人们仅凭其通话证明的签名密钥来区分，与他们对自己的说法无关。"
+            "value": "谁是固定交流对象？"
           }
         }
       }
@@ -29564,22 +29419,6 @@
         }
       }
     },
-    "It is the greatest number g for which at least g of your regular correspondents stand at level g or above; a person far above g adds one, exactly as one at g does. It is counted at the first reading of each week from what your regular correspondents stated by the end of the week before, and holds through the week. Your ceiling is the lower of your two other levels, at its lowest since the week began. Through the week your phone keeps your estimate: the same count over what your regular correspondents state this week, never above your ceiling, and it only falls until the week ends.": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Это наибольшее число g, при котором не меньше g ваших регулярных собеседников стоят на уровне g или выше; человек намного выше g добавляет одного, ровно как стоящий на g. Уровень считается при первом чтении каждой недели по тому, что ваши регулярные собеседники заявили к концу прошлой недели, и держится всю неделю. Ваш потолок — меньший из двух других ваших уровней, по самому низкому значению с начала недели. В течение недели телефон держит вашу оценку: тот же счёт по тому, что ваши регулярные собеседники заявляют на этой неделе, не выше вашего потолка; до конца недели она только опускается."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "它是最大的数 g，使得你至少有 g 位固定通话对象的等级在 g 或以上；远高于 g 的人只算一位，与恰好处于 g 的人完全一样。它在每周第一次读取时，按你的固定通话对象在上周结束前声明的内容计算，并在整周保持不变。你的上限是你另外两个等级中较低的那个，取本周开始以来的最低值。在一周之内，你的手机保存你的估计值：按你的固定通话对象本周声明的内容做同样的计算，不高于你的上限，并且在本周结束前只会下降。"
-          }
-        }
-      }
-    },
     "Does the Fabric of Time lower a newcomer?": {
       "localizations": {
         "ru": {
@@ -29591,87 +29430,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "时间织网会拉低新用户吗？"
-          }
-        }
-      }
-    },
-    "Not in the first two weeks. From the first launch of this version on this phone with your 24 words, for the week of that launch and the week after it, the Fabric of Time stands at your ceiling, so in these weeks your Global level follows the lowest point of your two other levels since the week began. TimeCoin and Access by level show the days left until the first count.": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не в первые две недели. С первого запуска этой версии на этом телефоне с вашими 24 словами, в неделю этого запуска и в следующую, Ткань времени равна вашему потолку, поэтому в эти недели ваш Глобальный уровень следует за самой низкой точкой двух других ваших уровней с начала недели. Монета Времени и Доступ по уровню показывают, сколько дней осталось до первого счёта."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "前两周不会。从这个版本在这部手机上用你的 24 个词首次启动起，在启动所在的那一周及下一周，时间织网等于你的上限，因此在这两周里，你的全局等级跟随另外两个等级自本周开始以来的最低点。时间币和“按等级开放”会显示距首次计算还剩几天。"
-          }
-        }
-      }
-    },
-    "What is a testimony of a call?": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Что такое печать созвона?"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "什么是通话证明？"
-          }
-        }
-      }
-    },
-    "At the end of a counted call each phone signs, with the key of your 24 words, what it heard: the call, the hash the other person's fingerprint is read from, the minute the call ended, the seconds of their voice it received, and your ceiling and estimate. It gives the testimony only to the other person, inside your conversation, with your public key, so their phone can check the signature. Their phone counts it only when it names them, the signature holds, it is of a call that phone held with you and heard you in for a minute, and its minute lies within that call.": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "В конце засчитанного созвона каждый телефон подписывает ключом ваших 24 слов то, что он услышал: созвон, хеш, из которого читается отпечаток собеседника, минуту окончания созвона, полученные телефоном секунды его голоса, а также ваш потолок и оценку. Печать уходит только собеседнику, внутри вашей переписки, вместе с вашим открытым ключом, чтобы его телефон мог проверить подпись. Его телефон засчитывает печать, только если она называет его, подпись верна, она относится к созвону, который этот телефон вёл с вами и в котором слышал вас не меньше минуты, и её минута лежит внутри этого созвона."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已计入的通话结束时，每部手机都用你 24 个词的密钥签署它听到的内容：这次通话、读取对方指纹所依据的哈希、通话结束的那一分钟、它收到的对方语音秒数，以及你的上限和估计值。通话证明只交给对方，在你们的对话之内，并附上你的公钥，让对方的手机能核验签名。只有当它指明对方、签名有效、属于对方手机与你进行并听到你至少一分钟的通话、且其分钟落在该通话之内时，对方的手机才会计入它。"
-          }
-        }
-      }
-    },
-    "What do the people I call learn?": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Что узнают те, кому я звоню?"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "与我通话的人会知道什么？"
-          }
-        }
-      }
-    },
-    "The people you call receive your testimonies with your public key. Your public key is the same for everyone you call, so two people you call can tell that they speak with the same person. The people you write with receive your ceiling and estimate in each presence word, and the people you had a counted call with in the last three weeks also in a silent letter whenever they change.": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Те, кому вы звоните, получают ваши печати вместе с вашим открытым ключом. Ваш открытый ключ один для всех, кому вы звоните, поэтому двое ваших собеседников могут понять, что говорят с одним и тем же человеком. Те, с кем вы переписываетесь, получают ваш потолок и оценку в каждом слове присутствия, а те, с кем у вас был засчитанный созвон за последние три недели, — ещё и в тихом письме, когда они меняются."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "与你通话的人会收到你的通话证明和你的公钥。你的公钥对所有与你通话的人都相同，因此两位与你通话的人可以知道他们在和同一个人交谈。与你通信的人会在每一条在线状态消息中收到你的上限和估计值，过去三周与你有过已计入通话的人还会在它们变化时收到一封静默消息。"
+            "value": "时间织网会降低新用户的等级吗？"
           }
         }
       }
@@ -29692,22 +29451,6 @@
         }
       }
     },
-    "Nothing they can read: testimonies, ceilings and estimates ride inside your conversation, sealed for the other person, by the same road as your letters. The testimonies stay on the phone that held the call until the third week after the call's week ends, then leave it.": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ничего, что они могли бы прочитать: печати, потолки и оценки идут внутри вашей переписки, запечатанные для собеседника, той же дорогой, что и ваши письма. Печати хранятся на телефоне, который вёл созвон, пока не закончится третья неделя после недели созвона, затем удаляются."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "没有任何它们能读取的内容：通话证明、上限和估计值都在你们的对话之内，为对方加密，走与你的消息相同的通道。通话证明保存在进行通话的手机上，直到通话所在周之后的第三周结束，之后删除。"
-          }
-        }
-      }
-    },
     "How does this version differ from the specification?": {
       "localizations": {
         "ru": {
@@ -29724,50 +29467,530 @@
         }
       }
     },
-    "In three ways. A phone holds no window of the network's core, so the minute of a testimony and the weeks are read from the clock of the Montana nodes, learned from their answers. The testimonies are not yet witnessed into the network at the end of each week; they stay on the phone. And your devices with the same 24 words do not join their Fabric of Time yet: a testimony counts on the device that held the call.": {
+    "The third level your Global level is set by: the people you write to and call regularly, each weighed by the level their own time and wallet give them. Your Global level is the lowest of the three, so the Fabric of Time can lower it and never raises it.": {
       "localizations": {
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Тремя вещами. У телефона нет окна ядра сети, поэтому минута печати и недели читаются по часам узлов Монтаны, которые телефон узнаёт из их ответов. Печати пока не свидетельствуются в сеть в конце каждой недели — они остаются на телефоне. И ваши устройства с одними 24 словами пока не объединяют свою Ткань времени: печать засчитывается на том устройстве, которое вело созвон."
+            "value": "Третий уровень, которым задаётся ваш Глобальный уровень: люди, с которыми вы регулярно переписываетесь и созваниваетесь, каждый — по уровню, который дают ему его собственное время и кошелёк. Глобальный уровень — наименьший из трёх, поэтому Ткань времени может его опустить и никогда не поднимает."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "有三点不同。手机不持有网络核心的窗口，因此通话证明的分钟和每周都按 Montana 节点的时钟读取，由手机从节点的回复中获知。通话证明尚未在每周结束时向网络见证，它们保留在手机上。并且使用相同 24 个词的设备尚未合并各自的时间织网：通话证明只在进行通话的设备上计入。"
+            "value": "设定你全局等级的第三个等级：你经常发消息和通话的人，每人按其自身时间与钱包给出的等级加权。全局等级是三者中最低的，因此时间织网只会降低它，从不提高它。"
           }
         }
       }
     },
-    "Can false testimonies lift a level?": {
+    "What counts as an exchange?": {
       "localizations": {
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Могут ли ложные печати поднять уровень?"
+            "value": "Что считается обменом?"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "虚假的通话证明能抬高等级吗？"
+            "value": "什么算作交流？"
           }
         }
       }
     },
-    "No. The Fabric of Time only lowers: a person who states a false ceiling or estimate can at most spare someone a lowering. Two testimonies of one call under one key that differ, or two in one week of which the later states the higher estimate, make that signer count as nothing for the week.": {
+    "Anything you and a person send each other that stands in your conversation: words, voice and video messages, photos, files, stickers and GIFs, coin transfers, the moves of a game, and a call in which each phone received the other's voice for at least 60 seconds. Receipts, typing and presence do not count, and neither does a group.": {
       "localizations": {
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Нет. Ткань времени только опускает: человек, заявивший ложный потолок или оценку, может самое большее избавить кого-то от понижения. Две различающиеся печати одного созвона под одним ключом или две печати одной недели, из которых более поздняя заявляет более высокую оценку, делают подписавшего нулём на эту неделю."
+            "value": "Всё, что вы с человеком отправляете друг другу и что стоит в вашей переписке: слова, голосовые и видеосообщения, фото, файлы, стикеры и GIF, переводы монет, ходы игры, а также звонок, в котором каждый телефон слышал голос другого не меньше 60 секунд. Квитанции, «печатает» и присутствие не считаются, группа тоже."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "不能。时间织网只会拉低：声明虚假上限或估计值的人，最多只能让某人免于一次降低。同一密钥对同一通话给出的两份不同证明，或同一周内后一份声明了更高估计值的两份证明，会使该签署者在这一周被计为零。"
+            "value": "你与对方互相发送并留在对话中的一切：文字、语音和视频消息、照片、文件、贴纸和 GIF、硬币转账、游戏的走步，以及双方手机都听到对方声音至少 60 秒的通话。回执、正在输入和在线状态不算，群组也不算。"
+          }
+        }
+      }
+    },
+    "When does a person's phone sign for me?": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Когда телефон собеседника подписывает за меня?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "对方的手机何时为我签名？"
+          }
+        }
+      }
+    },
+    "When a word of yours reaches their phone and they wrote to you themselves in the last 7 days, their phone signs, once a day at most, that your word reached it: the minute it arrived, the hash the fingerprint of your conversation is read from, and their own ceiling. It gives the signature to you alone, inside your conversation. A person who only writes and is never answered receives none.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Когда ваше слово доходит до его телефона, а он сам писал вам за последние 7 дней, его телефон не чаще раза в сутки подписывает, что ваше слово дошло: минуту прихода, хеш, из которого читается отпечаток вашей переписки, и свой потолок. Подпись он отдаёт только вам, внутри вашей переписки. Тот, кто только пишет и не получает ответа, не получает ни одной."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当你的消息到达对方手机，而对方在最近 7 天内也给你发过消息时，对方手机每天最多签名一次，证明你的消息已到达：到达的分钟、读取你们对话指纹的哈希，以及他自己的上限。签名只交给你，且只在你们的对话之内。只发消息却从未得到回复的人收不到任何签名。"
+          }
+        }
+      }
+    },
+    "A person from whom your phone holds a signature in each of the last two weeks: the newer 7 days and the 7 before them. The window slides with the clock of the network; there are no fixed weeks. People are told apart by the key their signatures are made with, which their 24 words give for your conversation alone, not by anything they say about themselves.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Человек, от которого у вашего телефона есть подпись в каждой из двух последних недель: в последние 7 дней и в 7 дней до них. Окно скользит вместе с часами сети, фиксированных недель нет. Людей различают по ключу их подписей, который их 24 слова дают только для переписки с вами, а не по тому, что они говорят о себе."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在最近两周的每一周里（最近 7 天和之前的 7 天），你的手机都持有其签名的人。窗口随网络时钟滑动，没有固定的周。人们按签名所用的密钥区分，这把密钥由对方的 24 个词只为你们的对话生成，而不是按他们对自己的说法。"
+          }
+        }
+      }
+    },
+    "Each regular correspondent stands at their ceiling: the lower of their two other levels, at its lowest in their signatures of the last two weeks. The level is the greatest number g for which at least g of your regular correspondents stand at g or above; a person far above g adds one, exactly as one at g does. It is counted again whenever a signature arrives or leaves the two weeks. Their own Fabric of Time does not enter it, so one person's dip never pulls a whole circle down.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Каждый регулярный собеседник стоит на своём потолке: меньшем из двух его других уровней, в самой низкой точке его подписей за последние две недели. Уровень — наибольшее число g, при котором не меньше g ваших регулярных собеседников стоят на g или выше; человек намного выше g добавляет одного, ровно как стоящий на g. Уровень пересчитывается, как только подпись приходит или выходит из двух недель. Их собственная Ткань времени в счёт не входит, поэтому провал одного человека никогда не тянет вниз весь круг."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每位固定交流对象都处于其上限：他另外两个等级中较低的一个，取其最近两周签名中的最低值。等级是最大的数 g，使得至少 g 位固定交流对象处于 g 级或以上；远高于 g 的人只算一个，与处于 g 的人完全一样。每当有签名到达或离开这两周就重新计算。他们自己的时间织网不计入，因此一个人的下滑永远不会拖低整个圈子。"
+          }
+        }
+      }
+    },
+    "Not in the first two weeks. From the first launch of this version on this phone with your 24 words, for 14 days the Fabric of Time stands at your ceiling, so your Global level follows your two other levels. TimeCoin and Access by level show the days left until the first count.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не в первые две недели. С первого запуска этой версии на этом телефоне с вашими 24 словами 14 дней Ткань времени стоит на вашем потолке, поэтому Глобальный уровень следует за двумя другими уровнями. Монета Времени и «Доступ по уровню» показывают, сколько дней осталось до первого счёта."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前两周不会。从这台手机上用你的 24 个词首次启动此版本起的 14 天内，时间织网处于你的上限，因此你的全局等级随另外两个等级变化。时间币和“按等级开放”会显示距首次计算还剩几天。"
+          }
+        }
+      }
+    },
+    "What do the people I write to learn?": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Что узнают те, с кем я переписываюсь?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "与我交流的人会知道什么？"
+          }
+        }
+      }
+    },
+    "Your ceiling, inside the signatures your phone gives them, and nothing else of the Fabric of Time. A signature names your conversation by the hash its fingerprint is read from, which only the two of you can compute, and it is made with a key your 24 words give for that conversation alone. No key and no number in it is the same with two people, so two people you write to cannot tell from it that they speak with the same person.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваш потолок внутри подписей, которые им даёт ваш телефон, и больше ничего из Ткани времени. Подпись называет вашу переписку хешем, из которого читается её отпечаток, и вычислить его можете только вы двое, а сделана она ключом, который ваши 24 слова дают только для этой переписки. Ни ключ, ни число в ней не совпадают у двух людей, поэтому двое ваших собеседников не могут понять по ней, что говорят с одним человеком."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的上限，只在你的手机交给他们的签名之内，此外没有任何时间织网的内容。签名用读取你们对话指纹的哈希来指明这段对话，只有你们两人能算出它；签名所用的密钥由你的 24 个词只为这段对话生成。其中没有任何密钥或数字在两个人那里相同，因此与你交流的两个人无法据此知道他们在和同一个人交谈。"
+          }
+        }
+      }
+    },
+    "Nothing they can read: signatures and ceilings ride inside your conversation, sealed for the other person, by the same road as your letters. Signatures stay on your phone for two weeks and then leave it.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ничего, что они могут прочесть: подписи и потолки идут внутри вашей переписки, запечатанные для другого человека, той же дорогой, что ваши письма. Подписи хранятся на вашем телефоне две недели, затем уходят."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有他们能读懂的内容：签名和上限在你们的对话内传送，为对方加密，走与你的消息相同的道路。签名在你的手机上保留两周，然后删除。"
+          }
+        }
+      }
+    },
+    "In four ways. A phone holds no window of the network's core, so the minute of a signature and the two weeks are read from the clock of the Montana nodes, learned from their answers. The signatures are not yet witnessed into the network; they stay on the phone that received them. Each of your devices with the same 24 words counts the signatures that reached it. And a signature names a conversation and is made with a key for that conversation alone, where the specification names the key of a person: this version knows people only by their conversations.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В четырёх местах. Телефон не держит окна ядра сети, поэтому минута подписи и две недели читаются по часам узлов Монтаны, узнанным из их ответов. Подписи пока не свидетельствуются в сеть: они остаются на телефоне, который их получил. Каждое ваше устройство с теми же 24 словами считает подписи, дошедшие до него. И подпись называет переписку и делается ключом только этой переписки, тогда как спецификация называет ключ человека: эта версия знает людей только по их перепискам."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有四点不同。手机不持有网络核心的窗口，因此签名的分钟和两周按从 Montana 节点回复中得知的时钟读取。签名尚未见证到网络中，它们留在收到它们的手机上。你用同样 24 个词的每台设备只计算到达它的签名。并且签名指明的是一段对话，所用密钥只属于这段对话，而规范指明的是一个人的密钥：这个版本只通过对话认识人。"
+          }
+        }
+      }
+    },
+    "Can false signatures lift a level?": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Могут ли ложные подписи поднять уровень?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "虚假签名能提高等级吗？"
+          }
+        }
+      }
+    },
+    "No. The Fabric of Time only lowers: a person who states a false ceiling can at most spare someone a lowering and never lifts anyone above their own ceiling. One signature a day from one person is kept, the one with the lower ceiling, so two of their devices answering the same word weigh as one.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет. Ткань времени только опускает: человек, заявивший ложный потолок, может самое большее избавить кого-то от понижения и никогда не поднимает никого выше его собственного потолка. От одного человека хранится одна подпись в сутки, с меньшим потолком, поэтому два его устройства, ответившие на одно слово, весят как одно."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不能。时间织网只会降低：声称虚假上限的人最多只能让某人免于降低，永远不能把任何人提高到其自身上限之上。来自同一个人的签名每天只保留一条，即上限较低的那条，因此他的两台设备回应同一条消息时只算一次。"
+          }
+        }
+      }
+    },
+    "The people you write to and call regularly, each weighed by the level their own time and wallet give them: the greatest number g for which at least g people you exchanged with — words, voice, video, photos, stickers, transfers, games or a call — in each of the last two weeks stand at level g or above. An exchange counts when both of you write: once a day each phone signs that the other's word reached it and gives the signature to the other. Counted again whenever a signature comes or leaves the two weeks; through its first two weeks it stands at the lower of your two levels above. Your ceiling goes only to the people you write to, inside your conversation.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Люди, с которыми вы регулярно переписываетесь и созваниваетесь, каждый — по уровню, который дают ему его собственное время и кошелёк: наибольшее число g, при котором не меньше g людей, с которыми вы обменивались — словами, голосом, видео, фото, стикерами, переводами, играми или звонком — в каждую из двух последних недель, стоят на уровне g или выше. Обмен засчитывается, когда пишете оба: раз в сутки каждый телефон подписывает, что слово другого дошло, и отдаёт подпись другому. Пересчитывается, как только подпись приходит или выходит из двух недель; первые две недели равна меньшему из двух уровней выше. Ваш потолок уходит только тем, с кем вы переписываетесь, внутри вашей переписки."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "与你经常发消息和通话的人，每人按其自身时间与钱包给出的等级加权：最大的数 g，使得在过去两周的每一周里与你有过交流（文字、语音、视频、照片、贴纸、转账、游戏或通话）的人中，至少有 g 人处于 g 级或以上。双方都发过消息，交流才计入：每部手机每天一次签署对方的消息已送达，并把签名交给对方。每当签名到达或离开这两周就重新计算；前两周等于上面两个等级中较低的一个。你的上限只发给与你交流的人，且只在你们的对话之内。"
+          }
+        }
+      }
+    },
+    "Signatures": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подписи"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "签名"
+          }
+        }
+      }
+    },
+    "Ceiling": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Потолок"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上限"
+          }
+        }
+      }
+    },
+    "Your Global level is the lowest of three levels: the level of the chain of the person, which grows with your time on the network, the level of π, which grows with the coins you hold, and the Fabric of Time, which stands on the people you write to and call regularly in the last two weeks. You see it in TimeCoin, on the TimeChain page, and in Settings, under Access by level.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваш Глобальный уровень — наименьший из трёх уровней: уровня цепи Личности, который растёт с вашим временем в сети, уровня по Пи, который растёт с монетами, которые вы держите, и Ткани времени, которая стоит на людях, с которыми вы регулярно переписываетесь и созваниваетесь за последние две недели. Он виден в Монете Времени на странице TimeChain и в Настройках, в разделе Доступ по уровню."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的全局等级是三个等级中最低的那个：个人链的等级，随你在网络上的时间增长；π 等级，随你持有的硬币增长；时间织网，建立在你过去两周经常发消息和通话的人之上。你可以在时间币的 TimeChain 页面，以及设置的“按等级开放”中看到它。"
+          }
+        }
+      }
+    },
+    "Your level is the lowest of three: your time in Montana, the coins you hold and the Fabric of Time, the people you write to and call regularly in the last two weeks, weighed by the levels their own time and wallet give them. Each level opens new functions of Montana.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваш уровень — наименьший из трёх: ваше время в Монтане, монеты, которые вы держите, и Ткань времени — люди, с которыми вы регулярно переписываетесь и созваниваетесь последние две недели, взвешенные по уровням, которые дают им их собственное время и кошелёк. Каждый уровень открывает новые функции Монтаны."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的等级是三者中最低的：你在 Montana 的时间、你持有的硬币，以及时间织网——你过去两周经常发消息和通话的人，按其自身时间与钱包给出的等级加权。每个等级都会开放 Montana 的新功能。"
+          }
+        }
+      }
+    },
+    "ON THIS PHONE": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "НА ЭТОМ ТЕЛЕФОНЕ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此手机上"
+          }
+        }
+      }
+    },
+    "On this phone": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На этом телефоне"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此手机上"
+          }
+        }
+      }
+    },
+    "Attachments of chats": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вложения чатов"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天附件"
+          }
+        }
+      }
+    },
+    "Files no letter names": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Файлы без письма"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有对应消息的文件"
+          }
+        }
+      }
+    },
+    "Pictures of walls": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Картинки стен"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "墙面图片"
+          }
+        }
+      }
+    },
+    "Copies waiting on this phone": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Копии, ждущие на телефоне"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手机上等待的副本"
+          }
+        }
+      }
+    },
+    "Kept for the people who write to you": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хранится для ваших собеседников"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "为与你交流的人保管"
+          }
+        }
+      }
+    },
+    "History and the rest": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "История и остальное"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "历史与其他"
+          }
+        }
+      }
+    },
+    "Measured on this phone's disk, each file once. Attachments and files no letter names are chosen by kind: select all of a kind and delete them.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Измерено на диске этого телефона, каждый файл один раз. Вложения и файлы без письма выбираются по роду: выберите все одного рода и удалите."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按此手机磁盘测量，每个文件只计一次。附件和没有对应消息的文件按类型选择：选中某一类型的全部并删除。"
+          }
+        }
+      }
+    },
+    "Clear the copies waiting on this phone?": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Очистить копии, ждущие на телефоне?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除手机上等待的副本？"
+          }
+        }
+      }
+    },
+    "The copies and their shares made for iCloud, your node and your keepers leave this phone; the next round makes them again.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Копии и их доли, сделанные для iCloud, вашего узла и ваших хранителей, уйдут с телефона; следующий круг сделает их снова."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "为 iCloud、你的节点和你的保管人制作的副本及其分片将从此手机移除；下一轮会重新生成。"
+          }
+        }
+      }
+    },
+    "Select All": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выбрать все"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全选"
+          }
+        }
+      }
+    },
+    "Delete %lld files from this phone?": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить с телефона файлов: %lld?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从此手机删除 %lld 个文件？"
+          }
+        }
+      }
+    },
+    "The letters with these attachments are deleted on this device; the other side keeps its own. A file no letter names leaves this phone, and a wall shows it again while its owner keeps it.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Письма с этими вложениями удаляются на этом устройстве; у другой стороны остаются свои. Файл без письма уходит с телефона, а стена покажет его снова, пока он есть у владельца."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "包含这些附件的消息将在此设备上删除；对方保留自己的副本。没有对应消息的文件将从此手机移除，只要所有者仍保留，墙面会再次显示它。"
           }
         }
       }

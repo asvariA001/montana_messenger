@@ -600,6 +600,59 @@ final class MTGroup {
         }
         if faces > 0 { saveGroups() }
         if stood + faces > 0 { MontanaTrace.mark("group_stood", "rows=\(stood) faces=\(faces) held=\(groups.count)") }
+        mirrorHeld(store: store)
+    }
+
+    /// THE GROUPS THIS DEVICE HELD BEFORE THE MIRROR, ONCE A DEVICE (the twin mirror, 18.10.2026): each rides to the seed's other
+    /// devices as the words that made it here -- the owner's invitation of every member, a member's invitation from its owner -- and
+    /// with it the person's own letters of the box's term, so a group born on one device before the mirror stands on every device
+    /// of the seed by the same replay a new one takes (MTGroup.handleOwn). A media letter's cargo is not on this device to give.
+    @MainActor
+    private func mirrorHeld(store: ChatStore) {
+        let flag = "mt.group.mirrored.1"   // NOT-UI: this device gave its groups to the seed's other devices
+        guard ready(), !UserDefaults.standard.bool(forKey: flag) else { return }
+        UserDefaults.standard.set(true, forKey: flag)
+        let edge = Date().timeIntervalSince1970 - 7 * 86_400
+        var words = 0, letters = 0
+        func note(_ w: MTGroupWord, on pipe: String, own: Bool) {
+            guard !pipe.isEmpty, let d = try? JSONEncoder().encode(w), let js = String(data: d, encoding: .utf8) else { return }
+            MontanaArchive.mirrorNote(.init(c: pipe, m: ChatStore.mintMid().mid, x: Self.mark + js, o: own ? 1 : nil))
+            words += 1
+        }
+        for id in groups.keys.sorted() {
+            guard let g = groups[id], g.left != true else { continue }
+            func invitation(_ seat: String) -> MTGroupWord {
+                var w = MTGroupWord(t: "inv", g: g.id, k: g.kind.rawValue, ti: g.title, ds: g.about.isEmpty ? nil : g.about, fc: nil,
+                                    c: g.count, me: seat, n: g.mine ? nil : g.names[Self.ownerSeat])
+                w.ad = g.admins
+                w.bn = g.barred
+                w.sw = g.slow
+                w.ax = g.adminTaken
+                w.rk = g.ranks
+                w.sg = g.kind == .channel && g.signs == true ? 1 : nil
+                w.rx = g.kind == .channel && g.reacts == false ? 0 : nil
+                w.dc = g.kind == .channel && g.talks == true ? 1 : nil
+                w.rl = g.kind == .channel ? g.reactList : nil
+                return w
+            }
+            if g.mine {
+                for m in g.members { note(invitation(m.seat), on: m.pipe, own: true) }
+            } else {
+                note(invitation(g.me), on: g.owner, own: false)
+            }
+            // the person's own letters of the box's term, by their names: the other device lands each once (replayLetter)
+            let carrier = g.mine ? g.members.first?.pipe ?? "" : g.owner
+            for r in (store.messages[Self.key(of: id)] ?? []).suffix(300) where r.isFromMe && edge < r.createdAt {
+                guard r.mid.hasPrefix("mid:"), r.imageFile == nil, r.videoFile == nil, r.audioFile == nil, r.docFile == nil,
+                      Self.carries(r.text) else { continue }
+                let name = String(r.mid.dropFirst(4))
+                guard Self.isLetterName(name) else { continue }
+                note(MTGroupWord(t: "say", g: g.id, k: g.kind.rawValue, ti: g.title, id: name, s: g.me, tx: r.text, qt: r.replyText),
+                     on: carrier, own: true)
+                letters += 1
+            }
+        }
+        MontanaTrace.mark("group_mirrored", "words=\(words) letters=\(letters) groups=\(groups.count)")
     }
 
     // -- the wire ------------------------------------------------------------------------------
@@ -2007,6 +2060,116 @@ final class MTGroup {
             MontanaTrace.mark("group_refused", "kind=\(String(w.t.prefix(8)))")   // a newer build's word: its road ends here
             return .refused
         }
+    }
+
+    // -- the seed's own words from its other devices (the twin mirror, 18.10.2026) --------------------------------------
+
+    /// A group's word rides to the seed's other devices unless it lived an instant: a typing word would be stale where it landed
+    /// (MontanaDeliveryEngine.mirrors).
+    nonisolated static func mirrors(_ text: String) -> Bool {
+        guard let d = String(text.dropFirst(mark.count)).data(using: .utf8),
+              let w = try? JSONDecoder().decode(MTGroupWord.self, from: d) else { return false }
+        return w.t != "ty"
+    }
+
+    /// THE SEED'S OWN GROUP WORD FROM ANOTHER OF ITS DEVICES (the author's words 18.10.2026 10:3x-10:4x MSK: «on the Mac, in my own
+    /// groups and channels, what I posted from the phone is not seen -- it does not sync as the chats do»; «on T1 and on the Mac one
+    /// and the same person»). A group was its owner's PHONE: a seed's second device stood in no group the first made, heard none of
+    /// its letters (handle buries a word of the person's own), and judged a member's letter by another state -- T1 18.10.2026
+    /// 07:07:00Z refused four channel letters the Mac took. What that device said is what this person said, so it is done here as
+    /// the hand did it there: an invitation stands the group and its member, a letter its row, a taking out and a leaving their
+    /// state -- and nothing is said to anyone again: the device that spoke already carried it.
+    @MainActor
+    static func handleOwn(_ text: String, from pipe: String, store: ChatStore) {
+        guard let d = String(text.dropFirst(mark.count)).data(using: .utf8),
+              let w = try? JSONDecoder().decode(MTGroupWord.self, from: d), MontanaArchive.isLabel(w.g) else { return }
+        shared.replay(w, to: pipe, store: store)
+    }
+
+    @MainActor
+    private func replay(_ w: MTGroupWord, to pipe: String, store: ChatStore) {
+        guard ready() else { return }
+        switch w.t {
+        case "inv": replayInvitation(w, to: pipe, store: store)
+        case "say": replayLetter(w, store: store)
+        case "out":
+            let gone = MTSamePair.root(pipe)
+            guard var g = groups[w.g], g.mine, let m = g.members.first(where: { x in MTSamePair.root(x.pipe) == gone }) else { return }
+            g.banned = Array(((g.banned ?? []).filter { b in b.seat != m.seat } + [m]).suffix(Self.peopleLimit))
+            g.members.removeAll { x in x.seat == m.seat }
+            g.admins = g.admins?.filter { a in a != m.seat }.nilIfEmpty
+            g.count = g.members.count + 1
+            groups[g.id] = g
+            saveGroups()
+            lay(MTGroupEvent(e: "removed", g: g.id, a: Self.ownerSeat, p: [m.seat]), store: store)
+        case "bye":
+            guard var g = groups[w.g], !g.mine, g.left != true else { return }
+            g.left = true
+            groups[g.id] = g
+            saveGroups()
+            MTGroupRoom.shared.groupGone(g.id)
+        default:
+            MontanaTrace.markFolded("group_own", "kind=\(String(w.t.prefix(8))) -- the other device's word, applied to nobody", window: 30, key: w.t)
+            return
+        }
+        MontanaTrace.mark("group_own", "kind=\(w.t) group=\(String(w.g.prefix(6)))")
+    }
+
+    /// The sibling invited a person into a group of this seed -- its birth, an addition, a renewal: the group stands here as its
+    /// owner's, with that person at the seat the word gave them, by the pipe the word rode (the pipes of one seed are one book).
+    @MainActor
+    private func replayInvitation(_ w: MTGroupWord, to pipe: String, store: ChatStore) {
+        let title = Self.clean(w.ti ?? "", Self.titleLimit)
+        guard let kind = MTGroupKind(rawValue: w.k ?? ""), !title.isEmpty,
+              let seat = w.me, Self.isSeat(seat), seat != Self.ownerSeat else { return }
+        let member = MTSamePair.root(pipe)
+        let fresh = groups[w.g] == nil
+        var g = groups[w.g] ?? MTGroupState(id: w.g, kind: kind, title: title, owner: "", me: Self.ownerSeat, members: [], count: 2,
+                                           names: [:], at: Date().timeIntervalSince1970)
+        guard g.mine else { return MontanaTrace.mark("group_refused", "an own invitation of a group this device holds as a member") }
+        let renamed = !fresh && g.title != title
+        g.title = title
+        g.about = Self.clean(w.ds ?? "", Self.aboutLimit)
+        g.members.removeAll { m in m.seat == seat || MTSamePair.root(m.pipe) == member }
+        g.members.append(MTGroupMember(seat: seat, pipe: member))
+        g.banned = g.banned?.filter { b in MTSamePair.root(b.pipe) != member }.nilIfEmpty
+        g.count = max(g.members.count + 1, min(w.c ?? 2, Self.peopleLimit + 1))
+        g.admins = w.ad.map { a in a.filter(Self.isSeat) }.flatMap { a in a.isEmpty ? nil : a }
+        g.barred = w.bn.map { b in b.filter { x in MTGroupRight(rawValue: x) != nil } }.flatMap { b in b.isEmpty ? nil : b }
+        g.slow = w.sw.flatMap { x in 0 < x ? min(x, 3600) : nil }
+        Self.takeAdmins(w, into: &g)
+        g.signs = w.sg == 1 ? true : nil
+        g.reacts = w.rx == 0 ? false : nil
+        g.talks = w.dc == 1 ? true : nil
+        g.reactList = Self.reactionList(w.rl)
+        let tag = w.fc.map { f in String(f.count) + "-" + String(f.suffix(16)) }
+        let newFace = tag != nil && tag != g.faceTag
+        if newFace { g.faceTag = tag }
+        groups[w.g] = g
+        saveGroups()
+        stand(g, face: newFace ? Self.face(w.fc) : nil, store: store)
+        if fresh { lay(MTGroupEvent(e: "made", g: g.id, a: Self.ownerSeat, t: title), store: store) }
+        if renamed { lay(MTGroupEvent(e: "named", g: g.id, a: Self.ownerSeat, t: title), store: store) }
+    }
+
+    /// A letter the sibling wrote into a group of this seed, or carried there for a member: its row stands here under its one name,
+    /// as the person's own when its seat is this person's, never a second time and never over its tombstone.
+    @MainActor
+    private func replayLetter(_ w: MTGroupWord, store: ChatStore) {
+        guard let g = groups[w.g], g.left != true, let id = w.id, Self.isLetterName(id), let words = w.tx, Self.carries(words),
+              let seat = w.s, Self.isSeat(seat) else { return }
+        let key = Self.key(of: g.id)
+        let sid = "mid:" + id
+        guard store.messages[key]?.contains(where: { r in r.mid == sid }) != true, !store.buried(sid, in: key) else { return }
+        let mine = seat == g.me
+        stand(g, face: nil, store: store)
+        let born = MontanaDeliveryEngine.letterMoment(mid: sid, sentAt: nil, own: mine)
+        let quote = (w.qt ?? "").isEmpty ? nil : w.qt
+        let row = Message(text: words, isFromMe: mine, time: hhmm(at: born), replyText: quote, deliveryStatus: mine ? .sent : .delivered,
+                          msgId: sid, senderRef: mine ? nil : Self.speaker(g.id, seat), createdAt: born,
+                          replyToId: store.localId(forMid: w.qm, chat: key))
+        let landed = store.append(key, row)
+        MontanaTrace.mark("group_own", mid: id, "letter landed=\(landed ? 1 : 0) mine=\(mine ? 1 : 0)")
     }
 
     /// AN INVITATION: the group stands on this phone, owned by the pipe the word came by. A second invitation of the same owner

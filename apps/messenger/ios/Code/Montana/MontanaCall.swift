@@ -1606,9 +1606,8 @@ final class MontanaCall: NSObject {
         // enabling exists below (call-key / call-key-ok -> sframeAuthorized); flipping this flag
         // is a change of live call behaviour and is accepted on two phones, not blind.
         var caps = CallCaps(tier: "ios-native", ver: 1, opus_max: 64000, hw_aec: true, sframe: false, av: false, rejoin: true)
-        // THE FABRIC'S TWO WORDS (17.10.2026, MTWeave): the hash this person's fingerprint is read from, which the far side names
-        // them by in its testimony of the call, and the call's identifier, drawn by its caller. Older builds skip both keys.
-        caps.fm = MTFabricLevel.material?.montanaHexString
+        // THE FABRIC'S WORD (17.10.2026, MTWeave): the call's identifier, drawn by its caller; older builds skip the key. Whom a
+        // testimony of the call names is the correspondence's own secret (MTFabric), never a word of the caps (18.10.2026).
         caps.fc = weaveCall()?.montanaHexString
         return caps
     }
@@ -1633,7 +1632,6 @@ final class MontanaCall: NSObject {
         var w = weaves[epoch] ?? MTWeave()
         if !epoch.isEmpty, let early = weaves.removeValue(forKey: "") {
             if w.call == nil { w.call = early.call }
-            if w.peerMaterial == nil { w.peerMaterial = early.peerMaterial }
         }
         return w
     }
@@ -1646,13 +1644,11 @@ final class MontanaCall: NSObject {
         weaves[e] = w
         return w.call
     }
-    /// The far build's two fabric words, from any word of the call in hand that carries caps: the hash its person's fingerprint is
-    /// read from, and -- for a callee -- the identifier its caller drew.
+    /// The far build's fabric word, from any word of the call in hand that carries caps: for a callee, the identifier its caller drew.
     private func learnWeave(_ caps: CallCaps?) {
-        guard let caps, caps.fm != nil || caps.fc != nil else { return }
+        guard let caps, caps.fc != nil else { return }
         let e = callEpoch ?? ""
         var w = weave(e)
-        if let fm = caps.fm.flatMap({ s in Data(montanaHex: s) }), fm.count == 32 { w.peerMaterial = fm }
         if !isInitiator, w.call == nil, let fc = caps.fc.flatMap({ s in Data(montanaHex: s) }), fc.count == 32 { w.call = fc }
         weaves[e] = w
     }

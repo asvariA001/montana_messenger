@@ -273,8 +273,9 @@ enum MontanaOutsideOpen {
                 .flatMap { $0.windows }
                 .first { $0.isKeyWindow }?
                 .rootViewController
+            // «outside»: the pages the state draws over the tabs leave too (UIState.clearPages) -- a banner's tap leaves none standing.
             let announce = {
-                NotificationCenter.default.post(name: .openChatRequest, object: nil, userInfo: ["address": ref])
+                NotificationCenter.default.post(name: .openChatRequest, object: nil, userInfo: ["address": ref, "outside": true])
             }
             if let root, let standing = root.presentedViewController {
                 MontanaTrace.mark("outside_open", "sheet closes first")
