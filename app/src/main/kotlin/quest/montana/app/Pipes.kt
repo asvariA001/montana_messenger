@@ -594,6 +594,42 @@ object Book {
     fun isBuried(ref: String, mid: String) = synchronized(lock) { graveSets()[ref]?.contains(mid) == true }
     /** The conversation holds graves: its letters were deleted here, and an empty feed of it is emptied, not unborn (iOS 95294cf8). */
     fun hasGraves(ref: String) = synchronized(lock) { graveSets()[ref]?.isNotEmpty() == true }
+
+    /**
+     * THE FUNERAL HAS A BIRTH (iOS funerals, noteFuneral, diedBefore; 876ab288 at 2240): each side keeps the newest funeral's moment
+     * of a conversation -- mine before the chat goes, theirs by the funeral's name. A letter of it born at or before that moment is
+     * the dead conversation's and stands nothing again; a funeral no newer than the one kept is a repeat. A record lives a carriage
+     * and a day (a letter rides its sender's queue thirty days), at most 512 stand; the funerals outlive the chat, as the graves.
+     */
+    private const val FUNERALS = "funerals"
+    private const val FUNERALS_CAP = 512
+    private const val FUNERAL_LIFE = 31L * 86_400_000L
+    private var funerals: HashMap<String, Long>? = null
+    private fun funeralBook(): HashMap<String, Long> = funerals ?: HashMap<String, Long>().also { f ->
+        DeviceVault.get(FUNERALS)?.let { b -> runCatching {
+            val o = JSONObject(String(b, Charsets.UTF_8))
+            for (k in o.keys()) f[k] = o.getLong(k)
+        } }
+        funerals = f
+    }
+    /** A funeral's moment is kept when it is newer than the one kept; the answer says whether it was. */
+    fun noteFuneral(ref: String, at: Long): Boolean = synchronized(lock) {
+        val f = funeralBook()
+        if (at <= (f[ref] ?: 0L)) return false
+        f[ref] = at
+        val now = System.currentTimeMillis()
+        f.entries.removeAll { now - it.value >= FUNERAL_LIFE }
+        if (f.size > FUNERALS_CAP) f.entries.sortedBy { it.value }.take(f.size - FUNERALS_CAP).map { it.key }.forEach { f.remove(it) }
+        val o = JSONObject(); f.forEach { (k, v) -> o.put(k, v) }
+        DeviceVault.set(FUNERALS, o.toString().toByteArray())
+        true
+    }
+    /** A letter whose name says it was born at or before its conversation's funeral belongs to the dead conversation. */
+    fun diedBefore(ref: String, mid: String): Boolean {
+        val born = Marks.birthMs(mid) ?: return false
+        val funeral = synchronized(lock) { funeralBook()[ref] } ?: return false
+        return born <= funeral
+    }
     /** Letters leave a chat by the one road (iOS deleteLocally([(chat, msg)])): their names buried once, their rows by one write. */
     fun drop(ref: String, mids: Collection<String>) {
         if (mids.isEmpty()) return
@@ -1290,6 +1326,10 @@ object Post {
     }
 
     private fun land(secret: ByteArray, root: ByteArray, mid: String, text: String, name0: String): Boolean {
+        // a letter of a conversation buried after it was born opens no chat again (iOS 876ab288): the funeral's moment says so
+        if (Book.chat(Wire.reference(secret)) == null && Book.diedBefore(Wire.reference(secret), mid)) {
+            Log.d("Montana", "rx_funeral m=" + mid.take(16) + " — no chat is opened for a letter born before its funeral"); return true
+        }
         val ref = Book.establish(secret) ?: return false
         val name = name0.takeIf { it.isNotBlank() && it.length <= 64 } ?: ""
         val fresh = Book.chat(ref) == null
@@ -1431,7 +1471,7 @@ object Post {
             // 1927): receipted, then a folded pipe simply dies, a meeting that never carried a word leaves no row, and a conversation keeps
             // its history, readable, with a note where the field stood. Android swallowed the word unreceipted and wrote on into nothing.
             text.startsWith(Marks.PIPE_CLOSED) -> { receipt(ref, sid); peerClosed(ref) }
-            text.startsWith(CONVDEL_MARK) -> { receipt(ref, sid); Book.chat(ref)?.msgs?.toList()?.forEach { CoinSend.release(it, ref) }; buryChat(ref) }
+            text.startsWith(CONVDEL_MARK) -> { receipt(ref, sid); peerFuneral(ref, sid) }
             text.startsWith(Marks.NAME) -> {
                 val n = text.removePrefix(Marks.NAME).trim()
                 // A CORRESPONDENT'S SENT NAME LOSES ITS CROWN (iOS MTCrown.plain, atom d4142dd38143): only a Royal hands one out.
@@ -1464,6 +1504,9 @@ object Post {
             // A STEP OF A GAME (iOS MTChessLetter.isStep): the board reads it; no bubble, no unread, the closing letter alone rings
             ChessLetter.isStep(text) && !PeerSafety.isBlocked(ref) -> ChessSend.landed(ref, mid, text)
             PeerSafety.isBlocked(ref) -> {}
+            // A LETTER BORN BEFORE ITS CONVERSATION'S FUNERAL IS THE DEAD CONVERSATION'S (iOS append diedBefore, 876ab288): it lands
+            // nowhere and revives nothing, and the grave answers it as it answers a buried one
+            Book.diedBefore(ref, mid) -> { Log.d("Montana", "rx_funeral m=" + mid.take(16) + " — born before the conversation's funeral"); receipt(ref, sid) }
             else -> {
                 var isNew = false
                 if (lp != null) Log.d("Montana", "link card: rides the letter mid=" + mid.take(8))

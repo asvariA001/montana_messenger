@@ -5,6 +5,7 @@ import android.app.AlertDialog
 import android.content.Context
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
+import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -102,8 +103,39 @@ fun forgetChat(ref: String) {
     for (k in listOf("draft.", "plcap_", "pgcap_", "pgHeld.")) Prefs.remove(k + ref)
 }
 
-/** Deleted at both (iOS deleteChat forBoth): the funeral leaves by the pipe, then the chat is buried here. */
-fun deleteForBoth(ref: String) { Post.send(ref, Marks.mintMid(), CONVDEL_MARK); buryChat(ref) }
+/**
+ * Deleted at both (iOS deleteChat forBoth): the funeral leaves by the pipe, then the chat is buried here. Its moment is kept first
+ * (iOS 876ab288): a letter of theirs born before it and still on its way stands nothing again.
+ */
+fun deleteForBoth(ref: String) {
+    val funeral = Marks.mintMid()
+    Marks.birthMs(funeral)?.let { Book.noteFuneral(ref, it) }
+    Post.send(ref, funeral, CONVDEL_MARK); buryChat(ref)
+}
+
+/**
+ * THE CORRESPONDENT'S FUNERAL, BY ITS BIRTH (iOS peerFuneral, 876ab288 at 2240): a repeat or an older one changes nothing; one older
+ * than a letter of theirs standing here takes only what was born before it, and the conversation lives on their later word; any
+ * other erases the conversation here. A funeral of a build that names none is believed as it always was. A coin letter of mine not
+ * proven delivered gives its coins back before its row goes (iOS removeConversationLocally 3484).
+ */
+fun peerFuneral(ref: String, sid: String) {
+    val moment = Marks.birthMs(sid)
+    if (moment != null) {
+        if (!Book.noteFuneral(ref, moment)) { Log.d("Montana", "funeral_repeat conv=" + ref.take(10) + " — no newer than the one kept"); return }
+        val rows = Book.chat(ref)?.msgs?.toList().orEmpty()
+        val born = { m: Msg -> Marks.birthMs(m.mid) ?: m.at }
+        if (rows.any { !it.mine && moment < born(it) }) {
+            val before = rows.filter { born(it) <= moment }
+            before.forEach { CoinSend.release(it, ref) }
+            Book.drop(ref, before.map { it.mid })
+            Log.d("Montana", "funeral_older conv=" + ref.take(10) + " — their later word stands, " + before.size + " before it go")
+            return
+        }
+    }
+    Book.chat(ref)?.msgs?.toList()?.forEach { CoinSend.release(it, ref) }
+    buryChat(ref)
+}
 
 /**
  * THE DELETION ASKED ONCE (iOS MontanaDeleteChatSheet, ContentView 4442-4467): «Permanently delete the chat with …?» on the person's
