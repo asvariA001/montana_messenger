@@ -1068,7 +1068,7 @@ object Post {
     fun announceAgain(ref: String, face: Boolean, name: Boolean, theirFace: String, theirName: String) {
         // THE ANSWERS GIVEN WHILE THE CARD'S FACE STOOD OLD ARE GIVEN ONCE MORE (18.10.2026): T1 wore my face, then the card's stale one
         // over it, and named that stale tag again -- the same state, answered, so nothing went for ever. Once, as the card's face is fresh.
-        if (!Prefs.bool("annHeldCardFace", false)) { Prefs.remove(*Prefs.keys("annHeldF.").toTypedArray()); Prefs.setBool("annHeldCardFace", true) }
+        if (!Prefs.bool("annHeldCardFace2", false)) { Prefs.remove(*Prefs.keys("annHeldF.").toTypedArray()); Prefs.setBool("annHeldCardFace2", true) }
         val f = face && again("F", ref, "annFace2.", Wire.hex(Wire.sha(SelfFace.bytes(Book.ctx) ?: ByteArray(0))).take(16), theirFace)
         val n = name && again("N", ref, "annName2.", stripCrown(Prefs.userName.trim()), theirName)
         if (f) Prefs.remove("annFace2." + ref)
