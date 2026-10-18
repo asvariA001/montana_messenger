@@ -76,8 +76,26 @@ object Calls {
     /** The words of a call on the node's lane (iOS handleMeshCallSignal, handleSignal): its birth, and the end of a ring here. */
     fun hear(ref: String, epoch: String, payload: ByteArray) {
         val words = runCatching { JSONArray(String(payload, Charsets.UTF_8)) }.getOrNull() ?: return
-        for (k in 0 until words.length()) {
+        val receipts = JSONArray()
+        val verdict = HashMap<String, Boolean>()   // «q» → first: one packet's words share its «q» (a batch of candidates), judged once (iOS acceptedReceipt)
+        try { for (k in 0 until words.length()) {
             val w = words.optJSONObject(k) ?: continue
+            // EVERY PACKET THAT NAMES «q» IS RECEIPTED, AND APPLIED ONCE (iOS receivedCallSignal, MontanaWakePush.swift:716-738 at 2240,
+            // 777c4fb8 of 13.10): the iPhone carries each call packet until the far phone says «call-receipt»; Android said none, so it
+            // read as a build that reads one mailbox, and the iPhone carried the same first packet from node to node while every copy
+            // of it drew a «ringing» here that turned the iPhone back -- its candidates, queued behind, never left (T1 on LTE → A1,
+            // 18.10.2026 14:46 MSK: 13 s of the same «call», no call-ice, ice=new). Every repeat is receipted too: a lost receipt must
+            // not leave the sender carrying a packet already taken.
+            if (w.optString("ctrl") == "call-receipt") continue   // a receipt of ours answered: this build carries no packet that waits for one
+            val q = w.optString("q")
+            if (q.isNotEmpty()) {
+                val e = w.optString("e").ifEmpty { epoch }
+                val first = verdict.getOrPut(e + "\u0000" + q) {
+                    receipts.put(JSONObject().put("t", "cal").put("ctrl", "call-receipt").put("e", e).put("q", q))
+                    firstHeard(ref, e, q)
+                }
+                if (!first) continue   // a repeat: receipted, not applied again
+            }
             // EVERY CALL WORD OF THEIRS IS PRESENCE (iOS handleSignal 2026-2036, notePeerSeen 1243-1245): stamped now, whatever it
             // says; only the invitation of a call already ended here proves nothing
             if (!(w.optString("ctrl") == "call" && seedState(w.optString("s")) == "dead")) Presence.noteSeen(ref, System.currentTimeMillis(), "call")
@@ -127,7 +145,22 @@ object Calls {
                 }
                 else -> {}   // the frame key (SFrame) and the run that comes back into its call: not in this build
             }
+        } } finally {
+            // one answer for the words of one delivery, on every door the call knocks (the sender's door among them)
+            if (receipts.length() > 0) {
+                Signal.postWord(ref, epoch, receipts.toString().toByteArray())
+                log("call_receipt tx n=" + receipts.length() + " applied=" + verdict.values.count { it })
+            }
         }
+    }
+
+    /** The packets of a call already taken (iOS callReceipts): conversation, call and «q»; a call's life long, bounded. */
+    private val taken = LinkedHashMap<String, Long>()
+    private fun firstHeard(ref: String, e: String, q: String): Boolean = synchronized(taken) {
+        val now = System.currentTimeMillis()
+        taken.entries.removeAll { now - it.value > LIFE_MS }
+        while (taken.size >= 2048) taken.remove(taken.keys.first())
+        taken.put(ref + "\u0000" + e + "\u0000" + q, now) == null
     }
 
     /**
