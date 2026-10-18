@@ -556,6 +556,36 @@ object Book {
         changed()
     }
 
+    /**
+     * THE ONE TOMBSTONE DOOR (iOS ChatStore.bury(names), deletedMids, 092e4fcb at 2240): a letter deleted here -- by me, by its
+     * sender's word, with its whole chat -- leaves its name behind, written BEFORE the row goes, so a copy of it that comes again by
+     * the second road or the node's next pass is not laid in the feed once more. Only names not buried yet touch the store; the
+     * oldest names leave past the cap.
+     */
+    private const val BURIED = "buriedMids"
+    private const val BURIED_CAP = 5000
+    private var buried: LinkedHashSet<String>? = null
+    private fun tombs(): LinkedHashSet<String> = buried ?: LinkedHashSet<String>().also { s ->
+        DeviceVault.get(BURIED)?.let { b -> runCatching { val a = JSONArray(String(b, Charsets.UTF_8)); for (i in 0 until a.length()) s.add(a.getString(i)) } }
+        buried = s
+    }
+    fun bury(mids: Collection<String>) = synchronized(lock) {
+        val s = tombs()
+        var fresh = 0
+        for (m in mids) if (m.isNotEmpty() && s.add(m)) fresh++
+        if (fresh > 0) {
+            while (s.size > BURIED_CAP) s.remove(s.first())
+            DeviceVault.set(BURIED, JSONArray(s.toList()).toString().toByteArray())
+        }
+    }
+    fun isBuried(mid: String) = synchronized(lock) { mid in tombs() }
+    /** Letters leave a chat by the one road (iOS deleteLocally([(chat, msg)])): their names buried once, their rows by one write. */
+    fun drop(ref: String, mids: Collection<String>) {
+        if (mids.isEmpty()) return
+        bury(mids)
+        edit(ref) { c -> c.msgs.removeAll { it.mid in mids } }
+    }
+
     /** A chat deleted here (and its pipe with it — iOS MTPipeBook.forget), with every pipe folded into it. */
     fun forget(ref: String) {
         val dead = listOf(ref) + SamePair.folded(ref)
@@ -1352,7 +1382,7 @@ object Post {
                 val d = text.removePrefix(Marks.DELETE).removePrefix("mid:")
                 // a coin letter of mine on its way keeps its row whoever asks (iOS deleteLocally 122-128: every door asks first)
                 if (Book.chat(ref)?.msgs?.find { it.mid == d }?.let { CoinSend.travels(it) } != true) {
-                    Book.edit(ref) { c -> c.msgs.removeAll { it.mid == d } }
+                    Book.drop(ref, listOf(d))
                     Notify.withdraw(ref, d)   // its banner leaves with it (iOS b6ab7094 at 2240)
                 }
             }
@@ -1444,7 +1474,8 @@ object Post {
                         had.text = text; had.meta = null
                         Log.d("Montana", "rx_refill m=" + mid.take(8) + " the row stands without its file — the copy's cargo is taken")
                     }
-                    if (had == null) {
+                    if (had == null && Book.isBuried(mid)) Log.d("Montana", "rx_buried m=" + mid.take(8) + " — a deleted letter's copy stays out of the feed")
+                    else if (had == null) {
                         val at = Marks.birthMs(mid) ?: System.currentTimeMillis()
                         c.msgs.add(Msg(mid, text, false, at, qt = qt, qm = qm, lp = lp?.takeIf { LinkCard.parse(it) != null })); c.msgs.sortBy { it.at }
                         // A LOCKED PHONE DOES NOT READ WHAT IT CANNOT SHOW (iOS placeRow, MontanaChatStore.swift:184 at 2155): a letter

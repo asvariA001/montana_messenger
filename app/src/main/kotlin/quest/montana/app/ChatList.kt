@@ -89,7 +89,10 @@ const val CONVDEL_MARK = "\u2063mtconvdel:"
  * THE CONVERSATION LEAVES THIS DEVICE (iOS removeConversationLocally): its marks and its book. A word still queued for it (the
  * funeral, the funeral's receipt) is knocked out first — the pipe's secret must outlive the last word it carries.
  */
-fun buryChat(ref: String) = Thread { Post.flush(); ChatMarks.forget(ref); Book.forget(ref) }.start()
+fun buryChat(ref: String) = Thread { Post.flush(); forgetChat(ref) }.start()
+
+/** The chat leaves here with its letters' names buried (iOS removeConversationLocally → bury): a late copy raises no chat again. */
+fun forgetChat(ref: String) { Book.chat(ref)?.let { ch -> Book.bury(ch.msgs.map { it.mid }) }; ChatMarks.forget(ref); Book.forget(ref) }
 
 /** Deleted at both (iOS deleteChat forBoth): the funeral leaves by the pipe, then the chat is buried here. */
 fun deleteForBoth(ref: String) { Post.send(ref, Marks.mintMid(), CONVDEL_MARK); buryChat(ref) }
@@ -107,7 +110,7 @@ fun askDeleteChat(act: MainActivity, ref: String, done: () -> Unit = {}) {
     val both = Book.secret(ref) != null
     faceSheet(act, ref, question, null, listOfNotNull(
         if (both) FaceDeed(act.getString(R.string.dl_both), true) { deleteForBoth(ref); done() } else null,
-        FaceDeed(act.getString(R.string.dl_mine), false) { ChatMarks.forget(ref); Book.forget(ref); done() }))
+        FaceDeed(act.getString(R.string.dl_mine), false) { forgetChat(ref); done() }))
 }
 
 /** «Block this person?» on the person's face (iOS MontanaBlockSheet 4469-4483): one question for the profile and the contacts. */
@@ -360,7 +363,7 @@ fun selectionBar(act: MainActivity, sel: ChatSelection): View {
             val refs = sel.chosen.toList().filter { !CoinSend.travelsIn(it) }   // a chat with coins on their way waits (iOS deleteChat 5429)
             AlertDialog.Builder(act).setMessage(R.string.delete_chat_q)
                 .setItems(arrayOf(c.getString(R.string.dl_both), c.getString(R.string.dl_mine))) { _, which ->
-                    refs.forEach { if (which == 0 && Book.secret(it) != null) deleteForBoth(it) else { ChatMarks.forget(it); Book.forget(it) } }
+                    refs.forEach { if (which == 0 && Book.secret(it) != null) deleteForBoth(it) else forgetChat(it) }
                 }
                 .setNegativeButton(R.string.cancel, null).show()
         }, lp(0, WRAP, 1f))

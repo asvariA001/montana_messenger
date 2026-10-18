@@ -124,7 +124,7 @@ fun callsPane(act: MainActivity, onNewCall: () -> Unit = {}): View {
     val selected = linkedSetOf<String>()   // ref + "/" + mid
     val foot = FrameLayout(c).apply { visibility = View.GONE }
     lateinit var fill: () -> Unit
-    fun delete(ref: String, mid: String) = Book.edit(ref) { ch -> ch.msgs.removeAll { it.mid == mid } }
+    fun delete(ref: String, mid: String) = Book.drop(ref, listOf(mid))
     fun endSelecting() { selecting = false; selected.clear(); fill() }
     // the bar of the selection (iOS selectionBar): the cross out of it, the bin for the chosen, the cleared bin for the whole log
     fun drawFoot() {

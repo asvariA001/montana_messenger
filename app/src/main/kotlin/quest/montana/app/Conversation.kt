@@ -1707,7 +1707,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                     AlertDialog.Builder(c).setTitle(R.string.delete_message_q)
                         .setItems(arrayOf(c.getString(R.string.delete_for_everyone), c.getString(R.string.delete_for_me))) { _, which ->
                             val mids = letters.map { it.mid }.toSet()
-                            Book.edit(ref) { ch -> ch.msgs.removeAll { it.mid in mids } }
+                            Book.drop(ref, mids)
                             // in a group a speaker takes away their own letters for everyone (iOS MTGroup.answered checks the seat)
                             if (which == 0) letters.forEach { m ->
                                 if (!group) Post.send(ref, Marks.mintMid(), Marks.DELETE + "mid:" + m.mid)
@@ -2391,10 +2391,10 @@ fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Unit, onEd
             // a plate of a media group goes whole (iOS rowLetters: a group is one bubble)
             val mids = members.map { it.mid }.toSet()
             if (profile == null && !Book.isLocal(ref) && (!group || m.mine)) row(c.getString(R.string.delete_for_everyone), R.drawable.ic_delete, red = true) {
-                Book.edit(ref) { ch -> ch.msgs.removeAll { it.mid in mids } }
+                Book.drop(ref, mids)
                 for (x in mids) if (group) Groups.signal(ref, Marks.DELETE + "mid:" + x) else Post.send(ref, Marks.mintMid(), Marks.DELETE + "mid:" + x)
             }
-            row(c.getString(R.string.delete_for_me), R.drawable.ic_delete, red = true) { Book.edit(ref) { ch -> ch.msgs.removeAll { it.mid in mids } } }
+            row(c.getString(R.string.delete_for_me), R.drawable.ic_delete, red = true) { Book.drop(ref, mids) }
             row(c.getString(R.string.cancel), R.drawable.ic_close, keep = true) { fillActions() }
         }
         // «Report» on their letter (iOS 499-502): the report of its sender, in a group's chat too — iOS carries no such guard
