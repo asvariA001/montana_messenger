@@ -1666,15 +1666,32 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     toQuoted = { q -> jumpTo(Book.chat(ref)?.let { ch -> feedRows(ch.msgs).firstOrNull { r -> r.any { it.mid == q } }?.get(0)?.mid } ?: q) }
     // THE FOOT WHILE THE CHAT SELECTS (iOS the selection bar): Forward and Delete for the chosen letters, in place of the field
     val foot = FrameLayout(c).apply { visibility = View.GONE }
+    // THE HEAD WHILE THE CHAT SELECTS (iOS selectionTopBar, MontanaConversation.swift:4433-4453 at 2240): «Delete chat» on the
+    // left, «Selected: N» in the middle, the cross on the right, in place of the chat's own head
+    val selTop = FrameLayout(c).apply { visibility = View.GONE }
     drawFoot = {
         foot.removeAllViews()
         foot.visibility = if (selecting) View.VISIBLE else View.GONE
+        selTop.removeAllViews()
+        selTop.visibility = if (selecting) View.VISIBLE else View.GONE
+        top.visibility = if (selecting) View.GONE else View.VISIBLE
         bar.visibility = if (selecting || (group && !Groups.canWrite(ref)) || Post.closed(ref)) View.GONE else View.VISIBLE
         if (selecting) {
             strip.visibility = View.GONE
             fun done() { selecting = false; picked.clear(); redraw(); drawFoot() }
             fun chosen() = Book.chat(ref)?.msgs?.filter { it.mid in picked } ?: emptyList()
-            foot.addView(letterSelectionFoot(act, picked.size, onClose = { done() },
+            // THE SELECTION'S «DELETE CHAT» TAKES THE ONE ROAD (iOS 2144d461, deleteWholeChat): the one sheet of the chats tab asks
+            // the one question -- for me and them, for me only, nothing while a coin letter of mine is on its way -- and the open chat
+            // closes only when the conversation went. The room with no wire is not deleted: its bar offers no such deed; a group
+            // leaves by its own road (the group's page).
+            selTop.addView(letterSelectionHead(act, picked.size, canDeleteChat = !local && !group,
+                onDeleteChat = { askDeleteChat(act, ref) { done(); hideKeys(); onClose() } }, onClose = { done() }), FrameLayout.LayoutParams(MATCH, WRAP))
+            foot.addView(letterSelectionFoot(act, picked.size,
+                onShare = {
+                    // the chosen letters' words and finished files through the platform's share (iOS shareSelected 4475-4488)
+                    val letters = chosen()
+                    if (shareLetters(act, letters)) done()
+                },
                 onForward = {
                     val letters = chosen().filter { canForward(it) }
                     done()
@@ -1714,6 +1731,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         // at its end when the panel grows (a reply line, a recording, the keyboard).
         val head = c.vstack(Gravity.NO_GRAVITY) {
             addView(top)
+            addView(selTop, lp(MATCH, WRAP))
             // THE PINNED PLATE under the header (iOS the pinned bar): shown while a letter of this chat is pinned
             addView(pinnedPlate(act, ref) { mid -> jumpTo(mid) }, lp().apply { marginStart = dp(10); marginEnd = dp(10); bottomMargin = dp(4) })
         }

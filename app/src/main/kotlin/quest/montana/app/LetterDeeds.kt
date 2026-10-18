@@ -184,30 +184,65 @@ fun forwardPage(act: MainActivity, from: String, letters: List<Msg>, onBack: () 
 }
 
 /**
- * THE CHAT'S SELECTION FOOT (iOS the selection bar of the chat): the cross out, «Selected: N», then Forward and Delete for the
- * chosen letters; dim and deaf while nothing is chosen.
+ * THE CHAT'S SELECTION HEAD (iOS selectionTopBar, MontanaConversation.swift:4433-4453 at 2240): «Delete chat» on the left where the
+ * road allows it, «Selected: N» in the middle, the cross on the right.
  */
-fun letterSelectionFoot(act: MainActivity, count: Int, onClose: () -> Unit, onForward: () -> Unit, onDelete: () -> Unit): View {
+fun letterSelectionHead(act: MainActivity, count: Int, canDeleteChat: Boolean, onDeleteChat: () -> Unit, onClose: () -> Unit): View {
+    val c: Context = act
+    return FrameLayout(c).apply {
+        background = c.glassPlate()   // the bar's own glass (iOS .ultraThinMaterial)
+        setPadding(dp(16), dp(4), dp(4), dp(4))
+        if (canDeleteChat) addView(c.text(c.getString(R.string.delete_chat), 15f, SysColor.red, bold = true).apply {
+            setPadding(0, dp(10), dp(10), dp(10))
+            pressable(onDeleteChat)
+        }, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.START or Gravity.CENTER_VERTICAL))
+        addView(c.text(c.getString(R.string.cl_selected, count), 15f, Color.WHITE), FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
+        addView(FrameLayout(c).apply {
+            contentDescription = c.getString(R.string.cancel)
+            addView(c.icon(R.drawable.ic_close, Color.WHITE, 20), FrameLayout.LayoutParams(dp(20), dp(20), Gravity.CENTER))
+            pressable(onClose)
+        }, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.END or Gravity.CENTER_VERTICAL))
+    }
+}
+
+/**
+ * THE CHAT'S SELECTION FOOT (iOS selectionBar, MontanaConversation.swift:4454-4463 at 2240): Delete, Share, Forward for the chosen
+ * letters; dim and deaf while nothing is chosen.
+ */
+fun letterSelectionFoot(act: MainActivity, count: Int, onDelete: () -> Unit, onShare: () -> Unit, onForward: () -> Unit): View {
     val c: Context = act
     val any = count > 0
     fun pill(words: String, red: Boolean = false, work: () -> Unit) = c.text(words, 15f, if (red) SysColor.red else Color.WHITE, bold = true, center = true).apply {
         background = c.glassPlate()
-        setPadding(dp(14), dp(10), dp(14), dp(10))
+        setPadding(dp(10), dp(10), dp(10), dp(10))
         alpha = if (any) 1f else 0.5f
         if (any) pressable(work)
     }
     return c.hstack {
         gravity = Gravity.CENTER_VERTICAL
         setPadding(dp(12), dp(8), dp(12), dp(10))
-        addView(FrameLayout(c).apply {
-            background = c.glassPlate()
-            addView(c.icon(R.drawable.ic_close, Color.WHITE, 20), FrameLayout.LayoutParams(dp(20), dp(20), Gravity.CENTER))
-            pressable(onClose)
-        }, lp(dp(44), dp(44)))
-        gap(10)
-        addView(c.text(c.getString(R.string.cl_selected, count), 15f, MT.gray), lp(0, WRAP, 1f))
-        addView(pill(c.getString(R.string.ld_forward), work = onForward), lp(WRAP, WRAP))
+        addView(pill(c.getString(R.string.delete), red = true, work = onDelete), lp(0, WRAP, 1f))
         gap(8)
-        addView(pill(c.getString(R.string.delete), red = true, work = onDelete), lp(WRAP, WRAP))
+        addView(pill(c.getString(R.string.share), work = onShare), lp(0, WRAP, 1f))
+        gap(8)
+        addView(pill(c.getString(R.string.ld_forward), work = onForward), lp(0, WRAP, 1f))
     }
+}
+
+/**
+ * THE CHOSEN LETTERS SHARED (iOS shareSelected): the words of each and every finished file that stands on this phone, through the
+ * platform's one share. False when there is nothing to give.
+ */
+fun shareLetters(act: MainActivity, letters: List<Msg>): Boolean {
+    val words = letters.filter { !it.text.startsWith(Marks.MEDIA) && !Marks.isService(it.text) && it.text.isNotBlank() }.map { it.text }
+    val files = ArrayList(letters.mapNotNull { m -> m.file?.let { File(it) }?.takeIf { it.exists() }?.let { Media.uri(act, it) } })
+    if (words.isEmpty() && files.isEmpty()) return false
+    val send = if (files.size > 1) android.content.Intent(android.content.Intent.ACTION_SEND_MULTIPLE).setType("*/*").putParcelableArrayListExtra(android.content.Intent.EXTRA_STREAM, files)
+        else android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+            if (files.isEmpty()) setType("text/plain")
+            else { setType(act.contentResolver.getType(files[0]) ?: "*/*"); putExtra(android.content.Intent.EXTRA_STREAM, files[0]) }
+        }
+    if (words.isNotEmpty()) send.putExtra(android.content.Intent.EXTRA_TEXT, words.joinToString("\n\n"))
+    send.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    return runCatching { act.startActivity(android.content.Intent.createChooser(send, null)) }.isSuccess
 }
