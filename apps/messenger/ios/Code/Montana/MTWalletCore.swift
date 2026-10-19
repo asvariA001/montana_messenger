@@ -658,7 +658,10 @@ enum MTCoinBalance {
     }
     private func keepCoins(_ conv: String, _ t: Told) {
         guard let cap = chain[conv]?.coins else { return }
-        let coins = min(t.coins, cap)
+        // THE CHAIN'S NUMBER, NEVER THE TOLD ONE (P-4 of Agent 95, the author's word 19.10.2026 12:2x MSK «put it in»): the lower of the two
+        // still let a build of one's own say 0 and draw every levelling's gift (MTCoinSendPage.levelPlan); the pair's word now only says
+        // that it shows its coins, and the number is its chain's
+        let coins = cap
         let moved = told[conv]?.coins != coins
         told[conv] = Told(coins: coins, at: t.at)
         guard moved else { return }
@@ -938,7 +941,19 @@ enum MTLevelAccess {
         // row down to its own share and the next device would lift it again; it gathers first, and the gathering puts the row.
         guard MTCoinVault.shared.fresh else { MTCoinVault.shared.soon("put", after: 1); return }
         let body: [String: Any] = ["token": MontanaHomeNode.hex(t), "name": String(E2E.myDisplayName().prefix(64)), "coins": coins]
-        Task { await self.send(body, why: "put") }
+        Task {
+            // THE ROW PROVES ITS COIN KEY (P-4 of Agent 95, the author's word 19.10.2026 12:2x MSK «put it in»): the node shows that key's
+            // chain as it folds it, never the number told here -- a build of one's own once stood first by saying a billion
+            let proof = await Task.detached(priority: .utility) { Self.keyProof(t) }.value
+            var b = body
+            for (k, v) in proof ?? [:] { b[k] = v }
+            await self.send(b, why: "put")
+        }
+    }
+    /// The seed's coin key signs ASCII mt-top-key-v1 and the row's token: the node verifies it with the core and reads that key's chain.
+    nonisolated static func keyProof(_ token: Data) -> [String: String]? {
+        guard let k = MTCoinTx.keys(), let sig = MontanaPQ.sign(seckey: k.sk, message: Data("mt-top-key-v1".utf8) + token) else { return nil }
+        return ["pk": k.pk.base64EncodedString(), "sig": sig.base64EncodedString()]
     }
     /// A ROW PUT BEFORE THE YES WAS ASKED LEAVES (5.1.2(i), 08.10.2026): earlier builds showed a person in the table by default; a
     /// person who never turned the switch has their row withdrawn from every node once, as soon as their words can name it.
@@ -3827,6 +3842,13 @@ enum MTCoinChainRules {
         }
         return out
     }
+    /// A V2 RECORD THAT SPENT STANDS OPEN AS A SEND (section 5, fold-4; P-3 of Agent 95): on an opened chain it takes this declared
+    /// part, and its sender's REFUND gives the same split back after its day -- it names no receiver, so no chain could ever take it.
+    /// nil: a v2 record of the book's past (the chain not opened), which spent nothing, or one above the balance.
+    nonisolated static func v2Spent(_ s: St, amount: Int64) -> Int64? {
+        guard s.v3, amount <= s.proven + s.declared else { return nil }
+        return max(0, amount - s.proven)
+    }
     /// One record folded onto its key's state by the nodes' rules: the next state, or nil for a record that breaks a rule; wait for a
     /// RECV or REFUND whose SEND is not folded yet.
     nonisolated static func step(_ s: St, _ p: Rec, _ at: Int64, _ sends: [String: SendInfo], _ settled: Set<String>) -> (next: St?, wait: Bool) {
@@ -3838,8 +3860,7 @@ enum MTCoinChainRules {
             // EVERY TRANSFER MOVES ITS BALANCE (section 3, fold-2; the author's words 12.10.2026 12:1x MSK: «all transfers must be
             // simply correct, not versions»): after the chain opened, a send that names no receiver spends as a SEND, proven first
             guard s.v3 else { return (n, false) }
-            if s.proven + s.declared < a { return (nil, false) }
-            let d = max(0, a - s.proven)
+            guard let d = v2Spent(s, amount: a) else { return (nil, false) }
             n.proven = s.proven - (a - d); n.declared = s.declared - d
             return (n, false)
         }
@@ -4243,8 +4264,9 @@ enum MTCoinTx {
                             if !book.holds(.send, refPrefix + r.id), book.retake(r.coins, to: c, ref: refPrefix + r.id) { own += 1 }
                         } else if r.version == 3 {
                             if await receive3(r, conv: c) { credited += 1 }
-                        } else if book.receive(r.coins, from: c, ref: refPrefix + r.id, on: nil) {
-                            credited += 1
+                        } else {
+                            if book.receive(r.coins, from: c, ref: refPrefix + r.id, on: nil) { credited += 1 }
+                            if r.version == 2, book.holds(.receive, refPrefix + r.id) { noteCredit2(r.id, from: r.from, coins: r.coins, conv: c) }
                         }
                     }
                     let last = a.obj?["last"] as? Int ?? since
@@ -4256,6 +4278,7 @@ enum MTCoinTx {
         MontanaTrace.mark("coin_tx_scan", "why=\(why) pipes=\(conv.count) got=\(got) credited=\(credited) own=\(own) bad=\(bad) foreign=\(foreign)")
         await reconcile()       // the chain announced and the book's mints laid (COIN-TX-V3 sections 3-4)
         await refundDue()       // a SEND no one took in a day comes back (section 5)
+        await creditsGone()     // a v2 record its sender took back leaves this book too (fold-4)
         await MTCoinReplica.run(why: why)   // this phone's copy of the network's chains and its signed root (section 6)
     }
 }
@@ -4543,10 +4566,11 @@ extension MTCoinTx {
     /// An untaken SEND comes back after a day by a REFUND on my chain (section 5): its node's clock decides, one fate a SEND.
     @MainActor static func refundDue() async {
         guard let me = myKeyTag, let door = chainDoor(me) else { return }
+        let book = MTLocalCoinLedger.shared.whole
+        await refundSpent2(me: me, door: door, book: book)
         let rows = openSends()
         guard !rows.isEmpty else { return }
         var left: [[String: Any]] = []
-        let book = MTLocalCoinLedger.shared.whole
         for o in rows {
             guard let id = o["id"] as? String, let conv = o["conv"] as? String, let coins = o["coins"] as? Int else { continue }
             let at = (o["at"] as? NSNumber)?.int64Value ?? 0
@@ -4563,6 +4587,54 @@ extension MTCoinTx {
     }
 }
 
+
+extension MTCoinTx {
+    /// A V2 RECORD THAT SPENT COMES BACK AFTER ITS DAY (fold-4, P-3 of Agent 95; the author's words 19.10.2026 12:2x MSK «put it in» and
+    /// «at 19:23 I sent 1898535 from T1 to the Android»): a v2 record laid on my opened chain names no receiver, so no chain could ever take
+    /// its coins -- 18.10 T1 sent 1 369 000 and 2 000 000 that way to an Android phone, which reads no chain, and they stood for no one.
+    /// My chain's node names my unsettled sends (/tx-unsettled); a v2 one a day old is taken back by a REFUND, and the book receives it
+    /// under the send's own name, from the pair the send left to. A v3 SEND keeps its own road (the open list in refundDue).
+    @MainActor static func refundSpent2(me: String, door: String, book: MTLocalCoinLedger) async {
+        let u = await ask(door + "/tx-unsettled", ["from": me])
+        guard u.code == 200, let rows = u.obj?["sends"] as? [[String: Any]], !rows.isEmpty, let st = await chain3(me, door: door) else { return }
+        for o in rows {
+            guard (o["v"] as? NSNumber)?.intValue == 2, let id = o["id"] as? String, let coins = Int((o["amount"] as? String) ?? ""),
+                  let at = (o["at"] as? NSNumber)?.int64Value, at + 86_460 <= st.now else { continue }
+            let r = await layOnHead { c in build3(.refund, amount: UInt64(coins), prev: c.head, nonce: fresh(), ref: id) }
+            MontanaTrace.mark("coin_v3", "refund v2 code=\(r.code) word=\(r.word) coins=\(coins) id=\(id.prefix(12))")
+            if r.code == 200 { book.receive(coins, from: book.entry(.send, refPrefix + id)?.peer ?? "", ref: backPrefix + id, on: nil) }
+        }
+    }
+    /// The v2 records this book credited, each with its sender's key, its coins and its pair: a REFUND by the sender takes them back.
+    private static let credits2File = "coin2-credits.json"
+    private static let gonePrefix = "txgone:"   // NOT-UI: the book's name of a credit its sender took back
+    static func noteCredit2(_ id: String, from: String, coins: Int, conv: String) {
+        var o = load(credits2File)
+        var m = (o["c"] as? [String: [String: Any]]) ?? [:]
+        guard m[id] == nil else { return }
+        m[id] = ["f": from, "n": coins, "p": conv]; o["c"] = m
+        save(credits2File, o)
+    }
+    /// THE COINS ARE EITHER GONE OR NOT (constitution, article 8): a v2 record credited here whose sender's REFUND took it back at its
+    /// chain node leaves this book by one move under its name, whatever the balance (retake: the truth of a debt). Asked once an hour.
+    @MainActor static func creditsGone() async {
+        var o = load(credits2File)
+        var m = (o["c"] as? [String: [String: Any]]) ?? [:]
+        let now = Date().timeIntervalSince1970
+        guard !m.isEmpty, 3600 <= now - ((o["at"] as? NSNumber)?.doubleValue ?? 0) else { return }
+        let book = MTLocalCoinLedger.shared.whole
+        for (id, c) in m {
+            guard let from = c["f"] as? String, let coins = (c["n"] as? NSNumber)?.intValue, let conv = c["p"] as? String,
+                  let door = chainDoor(from) else { m[id] = nil; continue }
+            let f = await ask(door + "/tx-settle", ["send": id])
+            guard f.code == 200, (f.obj?["state"] as? String) == "refund" else { continue }
+            if book.holds(.send, gonePrefix + id) || book.retake(coins, to: conv, ref: gonePrefix + id) { m[id] = nil }
+            MontanaTrace.mark("coin_v3", "credit gone coins=\(coins) id=\(id.prefix(12))")
+        }
+        o["c"] = m; o["at"] = now
+        save(credits2File, o)
+    }
+}
 
 // MARK: - the phone's copy of the network's coin chains (COIN-TX-V3 section 6)
 /// EVERY PHONE THAT KEEPS A COPY IS A NODE OF THE COIN CHAINS (the author's words 11.10.2026 22:5x MSK: "the core and the nodes are
@@ -4624,6 +4696,9 @@ enum MTCoinReplica {
                     guard let n = next.next else { broken.insert(from); out.bad += 1; break }
                     if r.version == 3, r.kind == MTCoinTx.Kind3.send.rawValue {
                         sends[r.id] = SendInfo(from: from, amount: Int64(r.coins), at: at, to: r.to, dec: Int64(r.a))
+                    }
+                    if r.version == 2, let d = MTCoinChainRules.v2Spent(s, amount: Int64(r.coins)) {
+                        sends[r.id] = SendInfo(from: from, amount: Int64(r.coins), at: at, to: Data(count: 32), dec: d)
                     }
                     if r.version == 3, r.kind == MTCoinTx.Kind3.recv.rawValue || r.kind == MTCoinTx.Kind3.refund.rawValue { settled.insert(r.ref) }
                     order[from, default: []].append(r.id)
