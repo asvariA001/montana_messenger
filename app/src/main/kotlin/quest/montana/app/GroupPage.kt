@@ -251,7 +251,7 @@ private fun groupEditPage(act: MainActivity, key: String, onBack: () -> Unit): V
                         fun reweigh() { removed.text = Groups.bannedPeople(c, key).size.toString() }   // USER-DATA: a count
                         reweigh()
                         val out = c.navRow(R.drawable.ic_hand, c.getString(R.string.gp_removed), removed) {
-                            act.push { back -> groupRemovedPage(act, key) { back(); reweigh() } }
+                            act.push { back -> groupRemovedPage(act, key, back) { reweigh() } }
                         }
                         addView(c.plate { addView(out, lp()) }, lp())
                     }
@@ -279,7 +279,7 @@ private fun Context.navRow(glyph: Int?, words: String, trail: View?, onTap: () -
  * THE GROUP'S REMOVED USERS, AS THE REFERENCE'S PAGE KEEPS THEM (iOS MTGroupRemovedPage, G.7): everyone the owner or an administrator
  * took out; a tap offers «Add To Group» (added again by the owner's own road, the ban lifts) and «Delete» (let back, no longer kept out).
  */
-private fun groupRemovedPage(act: MainActivity, key: String, onBack: () -> Unit): View {
+private fun groupRemovedPage(act: MainActivity, key: String, onBack: () -> Unit, onLeft: () -> Unit): View {
     val c: Context = act
     val body = c.vstack(Gravity.NO_GRAVITY) {}
     fun draw() {
@@ -304,7 +304,13 @@ private fun groupRemovedPage(act: MainActivity, key: String, onBack: () -> Unit)
         body.section(c.getString(R.string.gp_removed_head), c.getString(R.string.gp_removed_note), *rows.toTypedArray())
     }
     draw()
-    return settingsPage(act, c.getString(R.string.gp_removed), onBack) { addView(body, lp()) }
+    val page = settingsPage(act, c.getString(R.string.gp_removed), onBack) { addView(body, lp()) }
+    // the editor counts again however the page leaves: its own mark or the system's back, which closes it without onBack
+    page.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+        override fun onViewAttachedToWindow(v: View) {}
+        override fun onViewDetachedFromWindow(v: View) { onLeft() }
+    })
+    return page
 }
 
 /** The rights' rows in the reference's own words (iOS MTAdminRight.title). */
