@@ -216,6 +216,10 @@
     <string name="gp_history_off">Скрыта</string>
     <string name="gp_history_on_note">Новые участники увидят сообщения, отправленные до их вступления.</string>
     <string name="gp_history_off_note">Новые участники не увидят прежних сообщений.</string>
+    <string name="gp_removed">Удалённые пользователи</string>
+    <string name="gp_removed_head">УДАЛЁННЫЕ ПОЛЬЗОВАТЕЛИ</string>
+    <string name="gp_removed_note">Удалённые администраторами не могут вернуться в группу по ссылке-приглашению.</string>
+    <string name="gp_removed_add">Вернуть в группу</string>
     <string name="gp_slow_off">Выкл.</string>
     <string name="gp_slow_s">%d с</string>
     <string name="gp_slow_m">%d мин</string>

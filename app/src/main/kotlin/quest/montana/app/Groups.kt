@@ -70,6 +70,8 @@ object Groups {
         var slow: Int = 0,
         /** CHAT HISTORY FOR NEW MEMBERS (iOS history, G.4, the reference's «Visible» / «Hidden»): true -- one added reads the group's newest words; false -- hidden, the reference's default. The owner's choice, never on the wire. */
         var history: Boolean = false,
+        /** THE PEOPLE KEPT OUT (iOS banned, G.7, the reference's «Removed Users»): everyone the owner or an administrator took out, by seat and pipe; the owner's alone, never on the wire. */
+        val banned: MutableList<Member> = mutableListOf(),
     ) {
         val mine: Boolean get() = owner.isEmpty()
         fun json(): JSONObject = JSONObject().put("id", id).put("k", kind).put("ti", title).put("ds", about).put("ow", owner).put("me", me)
@@ -78,6 +80,7 @@ object Groups {
             .put("rb", JSONObject(readBy.toMap())).put("rm", removed).put("ad", JSONArray(admins))
             .put("ax", JSONObject().apply { taken.forEach { (k, v) -> put(k, JSONArray(v)) } }).put("rk", JSONObject(ranks.toMap()))
             .put("bn", JSONArray(barred)).put("sw", slow).put("hy", history)
+            .put("bd", JSONArray().apply { banned.forEach { put(JSONObject().put("s", it.seat).put("p", it.pipe)) } })
         companion object {
             fun of(o: JSONObject) = State(o.getString("id"), o.getString("k"), o.optString("ti"), o.optString("ds"), o.optString("ow"),
                 o.getString("me"),
@@ -90,7 +93,8 @@ object Groups {
                 o.optJSONObject("ax")?.let { x -> x.keys().asSequence().associateWith { k -> x.getJSONArray(k).let { a -> List(a.length()) { a.getString(it) } } }.toMutableMap() } ?: mutableMapOf(),
                 o.optJSONObject("rk")?.let { r -> r.keys().asSequence().associateWith { r.getString(it) }.toMutableMap() } ?: mutableMapOf(),
                 o.optJSONArray("bn")?.let { a -> MutableList(a.length()) { a.getString(it) } } ?: mutableListOf(), o.optInt("sw"),
-                o.optBoolean("hy"))
+                o.optBoolean("hy"),
+                o.optJSONArray("bd")?.let { a -> MutableList(a.length()) { i -> a.getJSONObject(i).let { Member(it.getString("s"), it.getString("p")) } } } ?: mutableListOf())
         }
     }
 
@@ -687,6 +691,8 @@ object Groups {
             if (fresh.isEmpty()) return
             g.members.addAll(fresh)
             g.count = g.members.size + 1
+            // one taken out and added again by the owner's own hand is let back (iOS add, the reference's «Add To Group», G.7)
+            g.banned.removeAll { b -> fresh.any { it.pipe == SamePair.root(b.pipe) } }
             save()
             val face = Book.face(key).takeIf { it.exists() }?.readBytes()?.let { thumb(it) }
             tellAll(g, face, fresh.map { it.seat }.toSet())
@@ -707,6 +713,10 @@ object Groups {
             val g = state(key) ?: return
             val m = (if (g.mine) g.members.firstOrNull { it.seat == seat } else null) ?: return
             keepName(g, m)
+            // ONE TAKEN OUT IS KEPT OUT (iOS remove, G.7 and E.4, the reference's «Removed Users»): until the owner lets them back or adds them again
+            g.banned.removeAll { it.seat == seat }
+            g.banned.add(m)
+            while (PEOPLE_LIMIT < g.banned.size) g.banned.removeAt(0)
             g.members.removeAll { it.seat == seat }
             g.admins.remove(seat)   // a person taken out is nobody's administrator
             g.taken.remove(seat); g.ranks.remove(seat)
@@ -718,6 +728,22 @@ object Groups {
             lay(g, out)
             tellEvent(g, out)
             Log.i("Montana", "group_removed count=" + g.count)
+        }
+    }
+    /** THE OWNER LETS A REMOVED PERSON BACK (iOS unban, the reference's «Removed Users», Delete): they are no longer kept out. */
+    fun unban(key: String, seat: String) = synchronized(lock) {
+        val g = state(key) ?: return@synchronized
+        if (!g.mine || !g.banned.removeAll { it.seat == seat }) return@synchronized
+        save()
+        Log.i("Montana", "group_banned let back left=" + g.banned.size)
+    }
+    /** The people the owner took out, by the names they were known by, for the editor's «Removed Users» (iOS bannedPeople), newest first. */
+    fun bannedPeople(c: Context, key: String): List<Seat> {
+        val g = state(key)?.takeIf { it.mine } ?: return emptyList()
+        val list = synchronized(lock) { g.banned.toList() }
+        return list.asReversed().map { b ->
+            val name = Book.chat(SamePair.root(b.pipe))?.shown?.ifBlank { null } ?: g.names[b.seat]?.ifEmpty { null } ?: c.getString(R.string.gr_member)
+            Seat(b.seat, name, b.pipe)
         }
     }
     /** A person leaving the owner's book keeps the name the rows call them by: «You removed Anna», never «You removed Member». */

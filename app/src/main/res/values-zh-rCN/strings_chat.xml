@@ -216,6 +216,10 @@
     <string name="gp_history_off">隐藏</string>
     <string name="gp_history_on_note">新成员将看到他们加入前发送的消息。</string>
     <string name="gp_history_off_note">新成员将看不到之前的消息。</string>
+    <string name="gp_removed">已移除的用户</string>
+    <string name="gp_removed_head">已移除的用户</string>
+    <string name="gp_removed_note">被管理员移出群组的用户无法通过邀请链接重新加入。</string>
+    <string name="gp_removed_add">添加到群组</string>
     <string name="gp_slow_off">关闭</string>
     <string name="gp_slow_s">%d秒</string>
     <string name="gp_slow_m">%d分钟</string>

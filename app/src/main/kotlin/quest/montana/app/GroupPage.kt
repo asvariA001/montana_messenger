@@ -245,6 +245,15 @@ private fun groupEditPage(act: MainActivity, key: String, onBack: () -> Unit): V
                             act.push { back -> groupHistoryPage(act, key) { back(); reshow() } }
                         }
                         addView(c.plate { addView(history, lp()) }, lp())
+                        // THE PEOPLE KEPT OUT, as the reference's editor lists them, with their count (iOS MTGroupRemovedPage, G.7)
+                        gap(20)
+                        val removed = c.text("", 17f, MT.gray)
+                        fun reweigh() { removed.text = Groups.bannedPeople(c, key).size.toString() }   // USER-DATA: a count
+                        reweigh()
+                        val out = c.navRow(R.drawable.ic_hand, c.getString(R.string.gp_removed), removed) {
+                            act.push { back -> groupRemovedPage(act, key) { back(); reweigh() } }
+                        }
+                        addView(c.plate { addView(out, lp()) }, lp())
                     }
                 })
             }, lp(MATCH, 0, 1f))
@@ -264,6 +273,38 @@ private fun Context.navRow(glyph: Int?, words: String, trail: View?, onTap: () -
     if (trail != null) addView(trail, lp(WRAP, WRAP).apply { marginEnd = dp(6) })
     addView(icon(R.drawable.ic_chevron_right, MT.gray, 16), lp(dp(16), dp(16)))
     pressable(onTap)
+}
+
+/**
+ * THE GROUP'S REMOVED USERS, AS THE REFERENCE'S PAGE KEEPS THEM (iOS MTGroupRemovedPage, G.7): everyone the owner or an administrator
+ * took out; a tap offers «Add To Group» (added again by the owner's own road, the ban lifts) and «Delete» (let back, no longer kept out).
+ */
+private fun groupRemovedPage(act: MainActivity, key: String, onBack: () -> Unit): View {
+    val c: Context = act
+    val body = c.vstack(Gravity.NO_GRAVITY) {}
+    fun draw() {
+        body.removeAllViews()
+        val rows = Groups.bannedPeople(c, key).map { p ->
+            c.hstack {
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(16), dp(6), dp(16), dp(6))
+                minimumHeight = dp(52)
+                addView(c.peerFace(SamePair.root(p.pipe), p.name, 40), lp(dp(40), dp(40)).apply { marginEnd = dp(12) })
+                addView(c.text(p.name, 17f, Color.WHITE).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))   // USER-DATA: a removed person's name
+                pressable {
+                    AlertDialog.Builder(c).setTitle(p.name)   // USER-DATA: a person's name
+                        .setItems(arrayOf(c.getString(R.string.gp_removed_add), c.getString(R.string.delete))) { _, i ->
+                            if (i == 0) Groups.add(key, listOf(p.pipe)) else Groups.unban(key, p.seat)
+                            draw()
+                        }
+                        .setNegativeButton(R.string.cancel, null).show()
+                }
+            }
+        }
+        body.section(c.getString(R.string.gp_removed_head), c.getString(R.string.gp_removed_note), *rows.toTypedArray())
+    }
+    draw()
+    return settingsPage(act, c.getString(R.string.gp_removed), onBack) { addView(body, lp()) }
 }
 
 /** The rights' rows in the reference's own words (iOS MTAdminRight.title). */

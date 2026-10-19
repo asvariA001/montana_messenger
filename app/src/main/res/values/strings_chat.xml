@@ -216,6 +216,10 @@
     <string name="gp_history_off">Hidden</string>
     <string name="gp_history_on_note">New members will see messages that were sent before they joined.</string>
     <string name="gp_history_off_note">New members won\'t see earlier messages.</string>
+    <string name="gp_removed">Removed Users</string>
+    <string name="gp_removed_head">REMOVED USERS</string>
+    <string name="gp_removed_note">Users removed from the group by admins cannot rejoin it via invite links.</string>
+    <string name="gp_removed_add">Add To Group</string>
     <string name="gp_slow_off">Off</string>
     <string name="gp_slow_s">%ds</string>
     <string name="gp_slow_m">%dm</string>
