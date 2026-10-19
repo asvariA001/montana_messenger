@@ -193,4 +193,36 @@
     <string name="cam_video">视频</string>
     <string name="cam_photo">照片</string>
     <string name="reactions_all">全部表情</string>   <!-- the chevron after the quick reactions row, iOS MontanaMessageMenu.swift 244-251 -->
+    <!-- the group's permissions and slow mode (iOS MTGroupPermissionsPage, MTGroupRight.refusal, G.5) -->
+    <string name="gp_perms">权限</string>
+    <string name="gp_perms_q">此群组成员可以做什么？</string>
+    <string name="gm_text">发送消息</string>
+    <string name="gm_media">发送媒体</string>
+    <string name="gm_photos">发送照片</string>
+    <string name="gm_videos">发送视频</string>
+    <string name="gm_stickers">发送贴纸和 GIF</string>
+    <string name="gm_music">发送音乐</string>
+    <string name="gm_files">发送文件</string>
+    <string name="gm_voice">发送语音消息</string>
+    <string name="gm_rounds">发送视频消息</string>
+    <string name="gm_links">嵌入链接</string>
+    <string name="gm_reactions">发送回应</string>
+    <string name="gp_slow">慢速模式</string>
+    <string name="gp_slow_note">成员在此间隔内只能发送一条消息。</string>
+    <string name="gp_slow_off">关闭</string>
+    <string name="gp_slow_s">%d秒</string>
+    <string name="gp_slow_m">%d分钟</string>
+    <string name="gp_slow_h">%d小时</string>
+    <string name="gn_text">此群组禁止发送消息</string>
+    <string name="gn_photos">此群组禁止发送照片</string>
+    <string name="gn_videos">此群组禁止发送视频</string>
+    <string name="gn_stickers">此群组禁止发送贴纸。</string>
+    <string name="gn_music">此群组禁止发送音乐</string>
+    <string name="gn_files">此群组禁止发送文件</string>
+    <string name="gn_voice">此群组禁止发送语音消息</string>
+    <string name="gn_rounds">此群组禁止发送视频消息</string>
+    <string name="gn_links">此群组禁止发送链接</string>
+    <string name="gn_reactions">此群组禁止发送回应</string>
+    <string name="gn_fixed">你无法编辑此权限。</string>
+    <string name="gn_slow">已开启慢速模式。你可以在 %s 后发送下一条消息。</string>
 </resources>

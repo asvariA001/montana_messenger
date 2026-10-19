@@ -64,6 +64,10 @@ object Groups {
         val taken: MutableMap<String, List<String>> = mutableMapOf(),
         /** The custom titles the owner gave (iOS ranks, the reference's «Custom Title»), by seat: shown instead of «admin». */
         val ranks: MutableMap<String, String> = mutableMapOf(),
+        /** WHAT THE MEMBERS MAY NOT DO (iOS barred, G.5, the reference's «Permissions»): the rights the owner took, by their short words; empty -- everything. */
+        val barred: MutableList<String> = mutableListOf(),
+        /** SLOW MODE (iOS slow, the reference's «Slowmode»): the seconds a member waits between letters; 0 -- off. */
+        var slow: Int = 0,
     ) {
         val mine: Boolean get() = owner.isEmpty()
         fun json(): JSONObject = JSONObject().put("id", id).put("k", kind).put("ti", title).put("ds", about).put("ow", owner).put("me", me)
@@ -71,6 +75,7 @@ object Groups {
             .put("c", count).put("nm", JSONObject(names.toMap())).put("at", at).put("lf", left).put("ft", faceTag ?: "")
             .put("rb", JSONObject(readBy.toMap())).put("rm", removed).put("ad", JSONArray(admins))
             .put("ax", JSONObject().apply { taken.forEach { (k, v) -> put(k, JSONArray(v)) } }).put("rk", JSONObject(ranks.toMap()))
+            .put("bn", JSONArray(barred)).put("sw", slow)
         companion object {
             fun of(o: JSONObject) = State(o.getString("id"), o.getString("k"), o.optString("ti"), o.optString("ds"), o.optString("ow"),
                 o.getString("me"),
@@ -81,7 +86,8 @@ object Groups {
                 o.optJSONObject("rb")?.let { r -> r.keys().asSequence().associateWith { r.getLong(it) }.toMutableMap() } ?: mutableMapOf(),
                 o.optBoolean("rm"), o.optJSONArray("ad")?.let { a -> MutableList(a.length()) { a.getString(it) } } ?: mutableListOf(),
                 o.optJSONObject("ax")?.let { x -> x.keys().asSequence().associateWith { k -> x.getJSONArray(k).let { a -> List(a.length()) { a.getString(it) } } }.toMutableMap() } ?: mutableMapOf(),
-                o.optJSONObject("rk")?.let { r -> r.keys().asSequence().associateWith { r.getString(it) }.toMutableMap() } ?: mutableMapOf())
+                o.optJSONObject("rk")?.let { r -> r.keys().asSequence().associateWith { r.getString(it) }.toMutableMap() } ?: mutableMapOf(),
+                o.optJSONArray("bn")?.let { a -> MutableList(a.length()) { a.getString(it) } } ?: mutableListOf(), o.optInt("sw"))
         }
     }
 
@@ -235,6 +241,8 @@ object Groups {
                 Log.i("Montana", "group_refused send -- group=" + (if (g == null) 0 else 1))
                 return false
             }
+            // A RIGHT THE GROUP TOOK, OR SLOW MODE'S WAIT (iOS refusal, G.5): said, and the letter is not made
+            refusal(Book.ctx, key, words, letter = true)?.let { tellRefusal(it); return false }
             pieces(words).forEachIndexed { i, piece ->
                 if (!carries(piece)) return@forEachIndexed
                 val first = i == 0
@@ -283,11 +291,11 @@ object Groups {
 
     /**
      * WHO PINS FOR EVERYONE (iOS MTGroup.pins): every member of a group while the group lets its members pin -- the reference's own
-     * default for a new group; never in a channel. The one gate of a pin, asked where it is sent and wherever it lands. iOS asks
-     * adminCan(.pin) or the members' own right (G.5); while the members' permissions are not here every member pins, so an
-     * administrator's «Pin Messages» narrows nothing yet.
+     * default for a new group; never in a channel. The one gate of a pin, asked where it is sent and wherever it lands: the owner,
+     * an administrator holding «Pin Messages» (G.6), or anyone while the members keep their own «Pin Messages» (G.5).
      */
-    private fun pins(g: State, seat: String): Boolean = g.kind == GROUP && seat.isNotEmpty()
+    private fun pins(g: State, seat: String): Boolean =
+        g.kind == GROUP && seat.isNotEmpty() && (adminCan(g, seat, PIN) || M_PIN !in g.barred)
 
     // ── what an administrator may do (the checklist's G.6, the reference's «What can this admin do?») ──
 
@@ -542,7 +550,7 @@ object Groups {
      * The invitation's word to every member (iOS tellAll): the title, the words about the group, the count, the receiver's own
      * seat, and the face where it is given — `only`, the seats the face goes to (the people just added).
      */
-    private fun tellAll(g: State, face: String?, only: Set<String>? = null) {
+    private fun tellAll(g: State, face: String?, only: Set<String>? = null, by: String = OWNER_SEAT) {
         for (m in g.members) {
             val w = word("inv", g).put("k", g.kind).put("ti", g.title).put("c", g.count).put("me", m.seat)
             if (g.about.isNotEmpty()) w.put("ds", g.about)
@@ -551,6 +559,10 @@ object Groups {
             // the administrators' rights left out and the custom titles (iOS ax, rk, G.6); an older build skips the keys
             if (g.taken.isNotEmpty()) w.put("ax", JSONObject().apply { g.taken.forEach { (k, v) -> put(k, JSONArray(v)) } })
             if (g.ranks.isNotEmpty()) w.put("rk", JSONObject(g.ranks.toMap()))
+            // what the members may not do, and the slow mode (iOS bn, sw, G.5): an older build skips the keys, the owner's door holds
+            if (g.barred.isNotEmpty()) w.put("bn", JSONArray(g.barred))
+            if (0 < g.slow) w.put("sw", g.slow)
+            if (by != OWNER_SEAT) w.put("s", by)   // a member's renewal names its own hand (iOS w.s, G.5)
             carry(w, m.pipe, "", own = false)
         }
     }
@@ -630,22 +642,24 @@ object Groups {
      * THE OWNER RENAMES THE GROUP OR GIVES IT A NEW FACE (iOS renew): every member is told by the invitation's own word again —
      * the same group, the same seat, the new title and face — so every phone shows what the owner's shows.
      */
-    fun renew(key: String, title: String, face: ByteArray?, about: String? = null) {
+    fun renew(key: String, title: String, face: ByteArray?, about: String? = null, by: String = OWNER_SEAT) {
         synchronized(lock) {
             val g = state(key) ?: return
             val name = clean(title, TITLE_LIMIT)
             // the description, the owner's words about the group (iOS renew about, stage R): carried in the invitation's ds
             val words = about?.let { clean(it, ABOUT_LIMIT) }
             val described = words != null && words != g.about
-            if (!g.mine || name.isEmpty() || (name == g.title && face == null && !described)) return
+            if (name.isEmpty() || (name == g.title && face == null && !described)) return
+            // A MEMBER WITH «CHANGE GROUP INFO» (iOS askRenew, G.5) asks the owner, whose phone carries the group; the owner's own hand renews here
+            if (!g.mine) { if (!g.left) askRenew(g, name, face, words); return }
             val renamed = name != g.title
             g.title = name
             if (words != null) g.about = words
             save()
             stand(g, face)
-            tellAll(g, face?.let { thumb(it) })
-            if (renamed) lay(g, event("named", OWNER_SEAT, t = name))
-            if (face != null) lay(g, event("face", OWNER_SEAT))
+            tellAll(g, face?.let { thumb(it) }, by = by)
+            if (renamed) lay(g, event("named", by, t = name))
+            if (face != null) lay(g, event("face", by))
             Log.i("Montana", "group_renewed face=" + (if (face == null) 0 else 1) + " about=" + (if (described) 1 else 0))
         }
     }
@@ -773,6 +787,167 @@ object Groups {
         val target = w.optString("s")
         if (!adminCan(g, asker.seat, BAN) || target == asker.seat || target in g.admins || g.members.none { it.seat == target }) return Verdict.REFUSED
         remove(key(g.id), target, by = asker.seat)
+        return Verdict.HELD
+    }
+
+    // ── permissions and slow mode (the checklist's G.5, the reference's «Permissions» and «Slowmode»; iOS d61b38fe) ──
+
+    /** WHAT MEMBERS OF A GROUP MAY DO (iOS MTGroupRight), each a short word on the wire: the owner names the ones its members lack. */
+    const val M_TEXT = "tx"; const val M_PHOTOS = "ph"; const val M_VIDEOS = "vd"; const val M_STICKERS = "gf"; const val M_MUSIC = "mu"
+    const val M_FILES = "fl"; const val M_VOICE = "vo"; const val M_ROUNDS = "rv"; const val M_LINKS = "ln"; const val M_REACTIONS = "re"
+    const val M_PIN = "pn"; const val M_INFO = "ci"
+    /** «Send Media» opened, in the reference's order (iOS MTGroupRight.media). */
+    val MEDIA_RIGHTS = listOf(M_PHOTOS, M_VIDEOS, M_STICKERS, M_MUSIC, M_FILES, M_VOICE, M_ROUNDS, M_LINKS, M_REACTIONS)
+    /** The rows of the permissions page (iOS MTGroupRight.shown): words, the media, the pin, the group's info. */
+    val MEMBER_RIGHTS = listOf(M_TEXT) + MEDIA_RIGHTS + listOf(M_PIN, M_INFO)
+    /** The slow mode's steps, as the reference's slider has them (iOS MTGroupPermissionsPage.steps): off, 10 s, 30 s, 1, 5, 15 min, an hour. */
+    val SLOW_STEPS = listOf(0, 10, 30, 60, 300, 900, 3600)
+
+    /**
+     * THE RIGHTS A LETTER ASKS OF ITS SPEAKER (iOS rightsAsked): a reaction, a pin, a sticker, each kind of media by its manifest,
+     * and words -- with «Embed Links» where they carry a link. A deletion of one's own asks none.
+     */
+    private fun rightsAsked(words: String): List<String> = when {
+        words.startsWith(Marks.REACTION) -> listOf(M_REACTIONS)
+        words.startsWith(PIN_MARK) -> listOf(M_PIN)
+        words.startsWith(Marks.DELETE) -> emptyList()
+        words.startsWith(Marks.STICKER) -> listOf(M_STICKERS)
+        words.startsWith(Marks.MEDIA) -> {
+            val o = runCatching { JSONObject(words.removePrefix(Marks.MEDIA)) }.getOrNull() ?: JSONObject()
+            val name = o.optString("n").ifEmpty { o.optString("name") }
+            listOf(mediaRight(o.optString("k"), o.optBoolean("r"), name)) + (if (links(o.optString("cap"))) listOf(M_LINKS) else emptyList())
+        }
+        else -> {
+            val text = if (words.startsWith(Marks.EDIT)) runCatching { JSONObject(words.removePrefix(Marks.EDIT)).optString("tx") }.getOrDefault("") else words
+            if (links(text)) listOf(M_TEXT, M_LINKS) else listOf(M_TEXT)
+        }
+    }
+    private fun links(text: String) = text.isNotEmpty() && LinkPreview.webURLs(text).isNotEmpty()
+    /** The right one media letter asks (iOS mediaRight), by its kind, its roundness and its file's name. */
+    private fun mediaRight(kind: String, round: Boolean, name: String): String = when (kind) {
+        "img" -> if (name == Stickers.CARD) M_STICKERS else M_PHOTOS
+        "vid", "video" -> if (round) M_ROUNDS else M_VIDEOS
+        "aud" -> M_VOICE
+        else -> if (Waveform.isAudio(name)) M_MUSIC else if (name.lowercase().endsWith(".gif")) M_STICKERS else M_FILES
+    }
+    /** WHETHER A SEAT MAY SAY THESE WORDS INTO THE GROUP (iOS allows): the owner and its administrators always; a member by the rights left them. */
+    private fun allows(g: State, seat: String, words: String): Boolean {
+        if (seat == OWNER_SEAT || seat in g.admins) return true
+        return rightsAsked(words).none { it in g.barred }
+    }
+    /** The moment the owner last took a letter of each member while slow mode stands, by group and seat (iOS slowAt; I-15: time, not money). */
+    private val slowAt = HashMap<String, Long>()
+    /**
+     * A MEMBER'S LETTER IN SLOW MODE (iOS paceSlow): taken once an interval; a letter before it is held unanswered and knocks again --
+     * delayed, never lost. The owner and its administrators are not paced, as in the reference.
+     */
+    private fun paceSlow(g: State, seat: String): Boolean {
+        if (g.slow <= 0 || seat == OWNER_SEAT || seat in g.admins) return true
+        val k = g.id + "/" + seat
+        val now = System.currentTimeMillis()
+        if (now - (slowAt[k] ?: 0L) < g.slow * 1000L) return false
+        slowAt[k] = now
+        return true
+    }
+    /** The group whose permissions bind this phone (iOS refusal's guard): a group proper, not its owner's, not an administrator's, not left. */
+    private fun bound(key: String): State? = state(key)?.takeIf { it.kind == GROUP && !it.mine && !it.left && it.me !in it.admins }
+    /** The sentence a right says when this phone tries what the group took (iOS MTGroupRight.refusal). */
+    private fun refusalOf(c: Context, r: String): String = c.getString(when (r) {
+        M_TEXT -> R.string.gn_text; M_PHOTOS -> R.string.gn_photos; M_VIDEOS -> R.string.gn_videos; M_STICKERS -> R.string.gn_stickers
+        M_MUSIC -> R.string.gn_music; M_FILES -> R.string.gn_files; M_VOICE -> R.string.gn_voice; M_ROUNDS -> R.string.gn_rounds
+        M_LINKS -> R.string.gn_links; M_REACTIONS -> R.string.gn_reactions
+        else -> R.string.gn_fixed
+    })
+    /**
+     * WHY THIS PHONE MAY NOT SEND THESE WORDS NOW (iOS refusal), in the reference's sentence -- a right the group took, or slow mode's
+     * wait (`letter`: a letter, not an answer); null when it may. Asked before the field empties, so nothing typed is lost to it.
+     */
+    fun refusal(c: Context, key: String, words: String, letter: Boolean): String? {
+        val g = synchronized(lock) { bound(key) } ?: return null
+        rightsAsked(words).firstOrNull { it in g.barred }?.let { return refusalOf(c, it) }
+        return if (letter) slowRefusal(c, g, key) else null
+    }
+    /** The same for a media letter not yet made (iOS mediaRefusal), by its kind, roundness, file name and caption. */
+    fun mediaRefusal(c: Context, key: String, kind: String, round: Boolean, name: String, caption: String): String? {
+        val g = synchronized(lock) { bound(key) } ?: return null
+        val asked = listOf(mediaRight(kind, round, name)) + (if (links(caption)) listOf(M_LINKS) else emptyList())
+        asked.firstOrNull { it in g.barred }?.let { return refusalOf(c, it) }
+        return slowRefusal(c, g, key)
+    }
+    /** The slow mode's wait from this phone's last letter in the group (iOS slowRefusal): «m:ss» left, as the reference says it. */
+    private fun slowRefusal(c: Context, g: State, key: String): String? {
+        if (g.slow <= 0) return null
+        val last = Book.chat(key)?.msgs?.toList()?.filter { it.mine && !isEvent(it.text) }?.maxOfOrNull { it.at } ?: return null
+        val left = g.slow * 1000L - (System.currentTimeMillis() - last)
+        if (left <= 0) return null
+        val s = ((left + 999) / 1000).toInt()
+        val span = if (3600 <= s) String.format(java.util.Locale.ROOT, "%d:%02d:%02d", s / 3600, s % 3600 / 60, s % 60)
+            else String.format(java.util.Locale.ROOT, "%d:%02d", s / 60, s % 60)
+        return c.getString(R.string.gn_slow, span)
+    }
+    /**
+     * WHERE A REFUSAL IS SAID (iOS groupRefusal's alert): the open chat hangs its own here; with no chat open, a toast. A refusal
+     * may come from any thread -- the saying is on the main one.
+     */
+    @Volatile var refused: ((String) -> Unit)? = null
+    fun tellRefusal(why: String) {
+        Log.i("Montana", "group_refusal said")
+        val say = refused
+        MainThread.post { if (say != null) say(why) else android.widget.Toast.makeText(Book.ctx, why, android.widget.Toast.LENGTH_LONG).show() }
+    }
+    /** Whether the group took every way of writing from this phone (iOS mutes): words and every kind of media -- the field gives way. */
+    fun mutes(key: String): Boolean {
+        val g = synchronized(lock) { bound(key) } ?: return false
+        return M_TEXT in g.barred && MEDIA_RIGHTS.filter { it != M_REACTIONS }.all { it in g.barred }
+    }
+    /** The field stands (iOS composeSlot): the group takes letters from this phone, and left it some way of writing. */
+    fun fieldOpen(key: String) = canWrite(key) && !mutes(key)
+    /** Whether this phone may change the group's name, words and face (iOS mayChangeInfo): its owner, an administrator with the right, or a member the group lets. */
+    fun mayChangeInfo(key: String): Boolean {
+        val g = state(key) ?: return false
+        if (g.left) return false
+        if (g.kind != GROUP) return g.mine
+        return adminCan(g, g.me, INFO) || M_INFO !in g.barred
+    }
+    /** What the members may not do, and the slow mode's seconds (the permissions page reads them). */
+    fun barred(key: String): Set<String> = state(key)?.barred?.toSet() ?: emptySet()
+    fun slow(key: String): Int = state(key)?.slow ?: 0
+    /** «n/m», the rights left of all of them, as the editor's row counts them (iOS MTGroupPermissionsPage.count). */
+    fun rightsLeft(key: String): String { val b = barred(key); return MEMBER_RIGHTS.count { it !in b }.toString() + "/" + MEMBER_RIGHTS.size }
+
+    /** THE OWNER SETS WHAT THE MEMBERS MAY DO AND THE SLOW MODE (iOS setRights): every member hears it by the invitation's word again. */
+    fun setRights(key: String, barred: Set<String>, slow: Int) {
+        synchronized(lock) {
+            val g = state(key) ?: return
+            if (!g.mine || g.left || g.kind != GROUP) return
+            val list = MEMBER_RIGHTS.filter { it in barred }
+            val s = slow.coerceIn(0, 3600)
+            if (list == g.barred && s == g.slow) return
+            g.barred.clear(); g.barred.addAll(list)
+            g.slow = s
+            save()
+            tellAll(g, null)
+            Log.i("Montana", "group_rights barred=" + list.size + " slow=" + s)
+        }
+    }
+    /** A MEMBER'S RENEWAL ASKED OF THE OWNER (iOS askRenew, their «ci»): the new name, words and face, small, as an invitation carries them. */
+    private fun askRenew(g: State, title: String, face: ByteArray?, about: String?) {
+        if (!mayChangeInfo(key(g.id))) return
+        val w = JSONObject().put("t", "ci").put("g", g.id).put("ti", title).put("id", Marks.mintMid()).put("s", g.me)
+        if (about != null) w.put("ds", about)
+        face?.let { thumb(it) }?.let { w.put("fc", it) }
+        carry(w, g.owner, "", own = false)
+        Log.i("Montana", "group_renewed asked of the owner face=" + (if (w.has("fc")) 1 else 0))
+    }
+    /** A MEMBER'S RENEWAL AT THE OWNER'S PHONE (iOS infoAsked): the seat is the pipe's; the right is the group's «Change Group Info» or the admin's. */
+    private fun infoAsked(w: JSONObject, pipe: String): Verdict {
+        val g = groups[w.getString("g")] ?: return Verdict.REFUSED
+        if (!g.mine || g.left) return Verdict.REFUSED
+        val from = SamePair.root(pipe)
+        val m = g.members.firstOrNull { SamePair.root(it.pipe) == from } ?: return Verdict.REFUSED
+        if (!adminCan(g, m.seat, INFO) && !(g.kind == GROUP && M_INFO !in g.barred)) return Verdict.REFUSED
+        val title = clean(w.optString("ti"), TITLE_LIMIT).ifEmpty { g.title }
+        renew(key(g.id), title, face(w.optString("fc").ifEmpty { null }), if (w.has("ds")) w.optString("ds") else null, by = m.seat)
         return Verdict.HELD
     }
 
@@ -983,6 +1158,7 @@ object Groups {
             "rd" -> readWord(w, pipe)   // COMPAT-GATED: a reader's mark, an older build buries it (B.13)
             "ev" -> evented(w, pipe)   // COMPAT-GATED: the owner's event, a row in the feed (iOS stage R)
             "kk" -> kicked(w, pipe)   // COMPAT-GATED: an administrator's «take out», to the owner (iOS stage R.6)
+            "ci" -> infoAsked(w, pipe)   // COMPAT-GATED: a member's renewal, to the owner (iOS G.5)
             else -> Verdict.REFUSED.also { Log.i("Montana", "group_refused kind=${t.take(8)}") }   // a newer build's word: its road ends here
         }
     }
@@ -1017,20 +1193,24 @@ object Groups {
             if (ownerName.isNotEmpty()) had.names[OWNER_SEAT] = ownerName
             had.admins.clear(); had.admins.addAll(admins(w))   // the owner's word alone names them
             takeAdmins(w, had)
+            takeRights(w, had)
             val newFace = tag != null && tag != had.faceTag
             if (newFace) had.faceTag = tag
             save()
             stand(had, if (newFace) face(fc) else null)
             // the reference folder's rows: added again, a new name, a new face -- each the owner's deed
             if (back) lay(had, event("added", OWNER_SEAT, listOf(seat)))
-            if (renamed) lay(had, event("named", OWNER_SEAT, t = title))
-            if (newFace && hadFace && !back) lay(had, event("face", OWNER_SEAT))
+            // a member's renewal is named by the owner (iOS w.s, G.5); else the owner's own deed
+            val actor = w.optString("s").takeIf { isSeat(it) } ?: OWNER_SEAT
+            if (renamed) lay(had, event("named", actor, t = title))
+            if (newFace && hadFace && !back) lay(had, event("face", actor))
             return Verdict.HELD
         }
         val g = State(id, kind, title, clean(w.optString("ds"), ABOUT_LIMIT), owner, seat, mutableListOf(), count,
             if (ownerName.isEmpty()) mutableMapOf() else mutableMapOf(OWNER_SEAT to ownerName), System.currentTimeMillis(), faceTag = tag,
             admins = admins(w).toMutableList())
         takeAdmins(w, g)
+        takeRights(w, g)
         groups[id] = g
         save()
         stand(g, face(fc))
@@ -1061,6 +1241,13 @@ object Groups {
                 if (t.isNotEmpty()) g.ranks[seat] = t
             }
         }
+    }
+
+    /** What the members may not do and the slow mode, as the owner's word says them (iOS bn, sw, G.5): known rights alone, an hour at most. */
+    private fun takeRights(w: JSONObject, g: State) {
+        g.barred.clear()
+        w.optJSONArray("bn")?.let { a -> g.barred.addAll((0 until a.length()).map { a.optString(it) }.filter { it in MEMBER_RIGHTS }.distinct()) }
+        g.slow = w.optInt("sw").coerceIn(0, 3600)
     }
 
     /** The administrators an invitation names (iOS ad): seats alone. */
@@ -1102,6 +1289,12 @@ object Groups {
         if (id in gone) return Verdict.HELD
         val key = key(g.id)
         if (Book.chat(key)?.msgs?.any { it.mid == id } == true) return Verdict.HELD   // a repeat: the row stands
+        if (g.mine) {
+            // THE GROUP'S PERMISSIONS AT THE DOOR (iOS heard, G.5): the owner carries every letter, so the owner refuses what the members
+            // may not send -- whatever a member's build shows -- and holds a letter that came inside its slow mode's interval: it knocks again
+            if (!allows(g, seat, words)) { Log.i("Montana", "group_refused a letter past the group's permissions"); return Verdict.REFUSED }
+            if (!paceSlow(g, seat)) { Log.i("Montana", "group_slow a letter held inside the slow mode's interval"); return Verdict.WAIT }
+        }
         stand(g, null)
         val sp = speaker(g.id, seat)
         val at = Marks.birthMs(id) ?: System.currentTimeMillis()
@@ -1152,6 +1345,10 @@ object Groups {
         if (id in heard) return Verdict.HELD
         if (words.startsWith(PIN_MARK) && !pins(g, seat)) {
             Log.i("Montana", "group_refused a pin by a seat without the right seat=$seat")
+            return Verdict.REFUSED
+        }
+        if (g.mine && !allows(g, seat, words)) {   // a reaction or an edit past the group's permissions (iOS answered, G.5)
+            Log.i("Montana", "group_refused an answer past the group's permissions")
             return Verdict.REFUSED
         }
         val key = key(g.id)

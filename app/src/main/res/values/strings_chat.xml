@@ -193,4 +193,36 @@
     <string name="cam_video">Video</string>
     <string name="cam_photo">Photo</string>
     <string name="reactions_all">All reactions</string>   <!-- the chevron after the quick reactions row, iOS MontanaMessageMenu.swift 244-251 -->
+    <!-- the group's permissions and slow mode (iOS MTGroupPermissionsPage, MTGroupRight.refusal, G.5) -->
+    <string name="gp_perms">Permissions</string>
+    <string name="gp_perms_q">What can members of this group do?</string>
+    <string name="gm_text">Send Messages</string>
+    <string name="gm_media">Send Media</string>
+    <string name="gm_photos">Send Photos</string>
+    <string name="gm_videos">Send Videos</string>
+    <string name="gm_stickers">Send Stickers &amp; GIFs</string>
+    <string name="gm_music">Send Music</string>
+    <string name="gm_files">Send Files</string>
+    <string name="gm_voice">Send Audio Messages</string>
+    <string name="gm_rounds">Send Video Messages</string>
+    <string name="gm_links">Embed Links</string>
+    <string name="gm_reactions">Send Reactions</string>
+    <string name="gp_slow">Slowmode</string>
+    <string name="gp_slow_note">Members will be restricted to send one message per this interval.</string>
+    <string name="gp_slow_off">Off</string>
+    <string name="gp_slow_s">%ds</string>
+    <string name="gp_slow_m">%dm</string>
+    <string name="gp_slow_h">%dh</string>
+    <string name="gn_text">Sending messages is not allowed in this group</string>
+    <string name="gn_photos">Sending photos is not allowed in this group</string>
+    <string name="gn_videos">Sending videos is not allowed in this group</string>
+    <string name="gn_stickers">Posting stickers isn\u2019t allowed in this group.</string>
+    <string name="gn_music">Sending music is not allowed in this group</string>
+    <string name="gn_files">Sending files is not allowed in this group</string>
+    <string name="gn_voice">Sending audio messages is not allowed in this group</string>
+    <string name="gn_rounds">Sending video messages is not allowed in this group</string>
+    <string name="gn_links">Sending links is not allowed in this group</string>
+    <string name="gn_reactions">Sending reactions is not allowed in this group</string>
+    <string name="gn_fixed">You cannot edit this permission.</string>
+    <string name="gn_slow">Slowmode is enabled. You can send your next message in %s.</string>
 </resources>

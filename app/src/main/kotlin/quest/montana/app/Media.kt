@@ -171,7 +171,10 @@ object Media {
      * then the letter with the manifest leaves by the ordinary post (the pieces first — the receiver must find them).
      */
     fun send(c: Context, ref: String, picked: Picked, caption: String, qt: String? = null, group: MediaGroup.Slot? = null,
-             swap: (() -> ByteArray?)? = null) {
+             swap: (() -> ByteArray?)? = null, gate: Boolean = true) {
+        // A MEDIA LETTER OF A GROUP IS ASKED OF THE GROUP FIRST (iOS sendGatedMedia, G.5): a right the group took from its members, or
+        // slow mode's wait, is said and no row is laid; every other letter goes on by the one road
+        if (gate && Groups.isKey(ref)) refusal(c, ref, picked, caption)?.let { Groups.tellRefusal(it); return }
         var p = picked
         val mid = Marks.mintMid()
         val local = file(c, mid, p.ext)
@@ -273,9 +276,15 @@ object Media {
      * key for the pick, the pick's order, the words with the first letter only; one picture is no group.
      */
     fun sendAll(c: Context, ref: String, picks: List<Picked>, caption: String) {
+        // an album is asked of the group whole, before its first row (G.5): its own rows are not the slow mode's last letter
+        if (Groups.isKey(ref)) picks.firstNotNullOfOrNull { p -> refusal(c, ref, p, if (p === picks.firstOrNull()) caption else "") }
+            ?.let { Groups.tellRefusal(it); return }
         val slots = MediaGroup.slots(picks.size)
-        picks.forEachIndexed { i, p -> send(c, ref, p, if (i == 0) caption else "", group = slots[i]) }
+        picks.forEachIndexed { i, p -> send(c, ref, p, if (i == 0) caption else "", group = slots[i], gate = false) }
     }
+    /** What the group says to this media letter (Groups.mediaRefusal): by its kind, roundness, file name -- its extension at least -- and caption. */
+    private fun refusal(c: Context, ref: String, p: Picked, caption: String): String? =
+        Groups.mediaRefusal(c, ref, p.kind, p.round, p.name ?: ("." + p.ext), caption)
 
     /** The letter and the manifest it stands for (the sender keeps its own manifest: its row draws from it). */
     private fun seal(c: Context, p: Picked, caption: String, local: File, group: MediaGroup.Slot? = null, mid: String? = null): Pair<String, String>? {

@@ -58,7 +58,8 @@ fun groupPage(act: MainActivity, key: String, onClose: () -> Unit): View {
         val title = ch?.shown?.ifBlank { null } ?: c.getString(R.string.app_groups)
         val owns = Groups.owns(key)
         val channel = Groups.isChannel(key)
-        edit.visibility = if (owns) View.VISIBLE else View.GONE
+        // the owner edits the group, and a member the group lets change its info (iOS mayChangeInfo, G.5)
+        edit.visibility = if (Groups.mayChangeInfo(key)) View.VISIBLE else View.GONE
         body.addView(c.vstack(Gravity.CENTER_HORIZONTAL) {
             setPadding(0, dp(8), 0, dp(8))
             addView(c.peerFace(key, title, 100), lp(dp(100), dp(100)))
@@ -148,7 +149,10 @@ fun groupPage(act: MainActivity, key: String, onClose: () -> Unit): View {
     }
 }
 
-/** THE OWNER'S EDIT (iOS the group page's edit mode → MTGroup.renew): the face and the name; «Done» tells every member. */
+/**
+ * THE GROUP'S EDIT (iOS the group page's edit mode → MTGroup.renew): the face and the name; «Done» tells every member. A member the
+ * group lets change its info edits the same three, asked of the owner (G.5); the administrators and the permissions are the owner's.
+ */
 private fun groupEditPage(act: MainActivity, key: String, onBack: () -> Unit): View {
     val c: Context = act
     var face: ByteArray? = null
@@ -212,6 +216,8 @@ private fun groupEditPage(act: MainActivity, key: String, onBack: () -> Unit): V
                         gap(20)
                         addView(c.plate { addView(about, lp()) }, lp())
                         addView(c.text(c.getString(R.string.gp_about_note), 13f, MT.gray).apply { setPadding(dp(16), dp(6), dp(16), 0) }, lp())
+                    }
+                    if (!channel && Groups.owns(key)) {
                         // THE ADMINISTRATORS, as the reference's editor lists them, with their count (iOS MTGroupAdminsPage, G.6)
                         gap(20)
                         val count = c.text("", 17f, MT.gray)
@@ -221,6 +227,15 @@ private fun groupEditPage(act: MainActivity, key: String, onBack: () -> Unit): V
                             act.push { back -> groupAdminsPage(act, key) { back(); recount() } }
                         }
                         addView(c.plate { addView(admins, lp()) }, lp())
+                        // WHAT THE MEMBERS MAY DO, as the reference's editor counts it (iOS MTGroupPermissionsPage, G.5): the rights left of all
+                        gap(20)
+                        val left = c.text("", 17f, MT.gray)
+                        fun reckon() { left.text = Groups.rightsLeft(key) }   // USER-DATA: a count
+                        reckon()
+                        val perms = c.navRow(R.drawable.ic_key, c.getString(R.string.gp_perms), left) {
+                            act.push { back -> groupPermissionsPage(act, key) { back(); reckon() } }
+                        }
+                        addView(c.plate { addView(perms, lp()) }, lp())
                     }
                 })
             }, lp(MATCH, 0, 1f))
@@ -342,4 +357,124 @@ private fun groupAdminRightsPage(act: MainActivity, key: String, seat: String, n
             pressable { hideKeys(); Groups.setAdmin(key, seat, false); onBack() }
         })
     }
+}
+
+// ─────────────────────────── the members' permissions and slow mode (iOS MTGroupPermissionsPage, G.5) ───────────────────────────
+
+/** The members' rights in the reference's own words (iOS MTGroupRight.title). */
+private fun memberRightWord(r: String) = when (r) {
+    Groups.M_TEXT -> R.string.gm_text
+    Groups.M_PHOTOS -> R.string.gm_photos
+    Groups.M_VIDEOS -> R.string.gm_videos
+    Groups.M_STICKERS -> R.string.gm_stickers
+    Groups.M_MUSIC -> R.string.gm_music
+    Groups.M_FILES -> R.string.gm_files
+    Groups.M_VOICE -> R.string.gm_voice
+    Groups.M_ROUNDS -> R.string.gm_rounds
+    Groups.M_LINKS -> R.string.gm_links
+    Groups.M_REACTIONS -> R.string.gm_reactions
+    Groups.M_PIN -> R.string.gp_r_pin
+    else -> R.string.gp_r_info
+}
+/** A slow mode step's word (iOS MTGroupPermissionsPage.word): «Off», seconds, minutes, an hour, in the language's short units. */
+private fun slowWord(c: Context, s: Int) = when {
+    s <= 0 -> c.getString(R.string.gp_slow_off)
+    s < 60 -> c.getString(R.string.gp_slow_s, s)
+    s < 3600 -> c.getString(R.string.gp_slow_m, s / 60)
+    else -> c.getString(R.string.gp_slow_h, s / 3600)
+}
+
+/**
+ * THE GROUP'S PERMISSIONS, AS THE REFERENCE'S PAGE KEEPS THEM (iOS MTGroupPermissionsPage, G.5): «What can members of this group
+ * do?» -- one switch a right, «Send Media» opening its own under it -- and «Slowmode» below; what the owner leaves goes to every
+ * member as the page closes (Groups.setRights), one word for all the changes.
+ */
+private fun groupPermissionsPage(act: MainActivity, key: String, onBack: () -> Unit): View {
+    val c: Context = act
+    val barred = Groups.barred(key).toMutableSet()
+    var slow = Groups.slow(key).let { s -> Groups.SLOW_STEPS.lastOrNull { it <= s } ?: 0 }
+    var told = false
+    fun tell() { if (!told) { told = true; Groups.setRights(key, barred, slow) } }
+    var quiet = true   // the switches set to what is stored, or to each other, are not the owner's taps
+    fun switchOf(row: android.widget.LinearLayout) = (0 until row.childCount).map { row.getChildAt(it) }.filterIsInstance<Switch>().first()
+    val mediaSwitches = HashMap<String, Switch>()
+    val mediaCount = c.text("", 17f, MT.gray)
+    lateinit var mediaAll: Switch
+    fun recount() {
+        val left = Groups.MEDIA_RIGHTS.count { it !in barred }
+        mediaCount.text = left.toString() + "/" + Groups.MEDIA_RIGHTS.size   // USER-DATA: a count
+        quiet = true; mediaAll.isChecked = left == Groups.MEDIA_RIGHTS.size; quiet = false
+    }
+    fun toggle(r: String, indent: Int = 0) = c.toggleRow(c.getString(memberRightWord(r))) { on ->
+        if (quiet) return@toggleRow
+        if (on) barred.remove(r) else barred.add(r)
+        if (r in Groups.MEDIA_RIGHTS) recount()
+    }.apply {
+        setPadding(dp(16 + indent), dp(10), dp(16), dp(10)); minimumHeight = dp(48)
+        switchOf(this).isChecked = r !in barred
+        if (r in Groups.MEDIA_RIGHTS) mediaSwitches[r] = switchOf(this)
+    }
+    // the nine of «Send Media», shown under it while it is open
+    val mediaBox = c.vstack(Gravity.NO_GRAVITY) { visibility = View.GONE }
+    Groups.MEDIA_RIGHTS.forEach { r ->
+        mediaBox.addView(View(c).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = c.dp(16) })
+        mediaBox.addView(toggle(r, indent = 20), lp())
+    }
+    val chevron = c.icon(R.drawable.ic_chevron_down, MT.gray, 14)
+    // «Send Media» with how many of its own are left: the words open them, the switch turns them all (iOS mediaRow)
+    val mediaRow = c.hstack {
+        gravity = Gravity.CENTER_VERTICAL
+        setPadding(dp(16), dp(10), dp(16), dp(10)); minimumHeight = dp(48)
+        addView(c.hstack {
+            gravity = Gravity.CENTER_VERTICAL
+            addView(c.text(c.getString(R.string.gm_media), 15f), lp(WRAP, WRAP).apply { marginEnd = dp(6) })
+            addView(mediaCount, lp(WRAP, WRAP).apply { marginEnd = dp(6) })
+            addView(chevron, lp(dp(14), dp(14)))
+            pressable {
+                val open = mediaBox.visibility != View.VISIBLE
+                mediaBox.visibility = if (open) View.VISIBLE else View.GONE
+                chevron.rotation = if (open) 180f else 0f
+            }
+        }, lp(0, WRAP, 1f))
+        mediaAll = c.toggleRow("") { on ->
+            if (quiet) return@toggleRow
+            Groups.MEDIA_RIGHTS.forEach { r -> if (on) barred.remove(r) else barred.add(r) }
+            quiet = true; mediaSwitches.forEach { (r, sw) -> sw.isChecked = r !in barred }; quiet = false
+            recount()
+        }.let { row -> switchOf(row).also { row.removeView(it) } }
+        addView(mediaAll)
+    }
+    recount()
+    // SLOWMODE (iOS the slider over its steps): off, ten and thirty seconds, one, five and fifteen minutes, an hour
+    val words = c.hstack {
+        Groups.SLOW_STEPS.forEach { s -> addView(c.text(slowWord(c, s), 11f, if (s == slow) Color.WHITE else MT.gray, center = true), lp(0, WRAP, 1f)) }
+    }
+    fun paint() { for (i in 0 until words.childCount) (words.getChildAt(i) as android.widget.TextView).setTextColor(if (Groups.SLOW_STEPS[i] == slow) Color.WHITE else MT.gray) }
+    val slider = android.widget.SeekBar(c).apply {
+        max = Groups.SLOW_STEPS.size - 1
+        progress = Groups.SLOW_STEPS.indexOf(slow).coerceAtLeast(0)
+        setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(b: android.widget.SeekBar, p: Int, user: Boolean) { slow = Groups.SLOW_STEPS[p]; paint() }
+            override fun onStartTrackingTouch(b: android.widget.SeekBar) {}
+            override fun onStopTrackingTouch(b: android.widget.SeekBar) {}
+        })
+    }
+    val slowBox = c.vstack(Gravity.NO_GRAVITY) {
+        setPadding(dp(8), dp(8), dp(8), dp(10))
+        addView(slider, lp(MATCH, dp(44)))
+        addView(words, lp())
+    }
+    quiet = false
+    val page = settingsPage(act, c.getString(R.string.gp_perms), { tell(); onBack() }) {
+        section(c.getString(R.string.gp_perms_q), null, toggle(Groups.M_TEXT), c.vstack(Gravity.NO_GRAVITY) {
+            addView(mediaRow, lp()); addView(mediaBox, lp())
+        }, toggle(Groups.M_PIN), toggle(Groups.M_INFO))
+        section(c.getString(R.string.gp_slow), c.getString(R.string.gp_slow_note), slowBox)
+    }
+    // the page leaving by the system's back too: what the owner left goes as it closes (iOS onDisappear)
+    page.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+        override fun onViewAttachedToWindow(v: View) {}
+        override fun onViewDetachedFromWindow(v: View) { tell() }
+    })
+    return page
 }

@@ -1103,7 +1103,8 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             // A GROUP'S LETTER HAS ITS OWN CARRIER (iOS ChatStore.send → MTGroup.send): the row here, a copy to everyone it carries to
             val r = replyTo
             replyTo = null
-            if (!Groups.send(ref, words, r?.let { letterWords(c, it).take(200) }, r?.mid)) field.setText(words)
+            // refused (G.5: a right the group took, slow mode's wait) -- the words and the answer stay where they were
+            if (!Groups.send(ref, words, r?.let { letterWords(c, it).take(200) }, r?.mid)) { field.setText(words); field.setSelection(field.length()); replyTo = r; showStrip() }
         } else {
             val r = replyTo
             replyTo = null
@@ -1737,7 +1738,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         if (group) {
             drawPresence(); fillGroupFoot(c, ref, groupFoot)
             // taken out of the group, or let back in: the field follows (iOS composeSlot)
-            if (!selecting) bar.visibility = if (Groups.canWrite(ref)) View.VISIBLE else View.GONE
+            if (!selecting) bar.visibility = if (Groups.fieldOpen(ref)) View.VISIBLE else View.GONE
         }
         if (column.childCount != before) toBottom()
         if ((Book.chat(ref)?.unread ?: 0) > 0) Thread { Post.markRead(ref) }.start()
@@ -1771,7 +1772,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         selTop.removeAllViews()
         selTop.visibility = if (selecting) View.VISIBLE else View.GONE
         top.visibility = if (selecting) View.GONE else View.VISIBLE
-        bar.visibility = if (selecting || (group && !Groups.canWrite(ref)) || Post.closed(ref)) View.GONE else View.VISIBLE
+        bar.visibility = if (selecting || (group && !Groups.fieldOpen(ref)) || Post.closed(ref)) View.GONE else View.VISIBLE
         if (selecting) {
             strip.visibility = View.GONE
             fun done() { selecting = false; picked.clear(); redraw(); drawFoot() }
@@ -1838,7 +1839,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             addView(stagedStrip, lp())
             addView(liveBar(act), lp().apply { bottomMargin = dp(2) })   // the one player bar above the field (iOS MontanaPlayerBar in the chat)
             addView(recStrip, lp().apply { marginStart = dp(10); marginEnd = dp(10); bottomMargin = dp(4) })
-            addView(bar.apply { if ((group && !Groups.canWrite(ref)) || Post.closed(ref)) visibility = View.GONE }, lp())
+            addView(bar.apply { if ((group && !Groups.fieldOpen(ref)) || Post.closed(ref)) visibility = View.GONE }, lp())
             addView(panel.host, lp(MATCH, dp(300)))
             addView(closedNote, lp().apply { marginStart = dp(10); marginEnd = dp(10); bottomMargin = dp(6) })
             addView(foot, lp())
@@ -1960,10 +1961,13 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             if (panelWas && !panel.up) { hold = minOf(panel.host.layoutParams.height, imeCover); ridePlace() }
             insets
         }
+        val sayRefusal: (String) -> Unit = { why -> AlertDialog.Builder(c).setTitle(why).setPositiveButton(android.R.string.ok, null).show() }
         addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
             override fun onViewAttachedToWindow(v: View) {
                 v.requestApplyInsets()
                 Book.openChat = ref; Book.listen(listener); Notify.clear(ref)
+                // WHAT THE GROUP REFUSED IS SAID HERE (iOS groupRefusal's alert): the reference's sentence, the field left as it was
+                if (group) Groups.refused = sayRefusal
                 ShowLetter.open = showLetter
                 // the banner's road measured (iOS chat_open why=banner ms=…, 4b49d03f071b): from the tap to the chat standing
                 if (Notify.tappedAt != 0L) { android.util.Log.d("Montana", "chat_open why=banner ms=" + (android.os.SystemClock.elapsedRealtime() - Notify.tappedAt)); Notify.tappedAt = 0L }
@@ -1985,6 +1989,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 bar.cancelRecording()
                 VoiceTape.standDown()   // a tape readied by a hold that never began goes with the chat (iOS MontanaConversation.swift:1667)
                 if (Book.openChat == ref) Book.openChat = null; Book.unlisten(listener)
+                if (Groups.refused === sayRefusal) Groups.refused = null   // only this chat's own: another may stand over it
                 if (ShowLetter.open === showLetter) ShowLetter.open = null
                 Presence.unlisten(presenceListener); LiveDraft.unlisten(draftListener); LinkCompose.unlisten(linkListener)
                 // words left in the field stand on their screen as a checkpoint, frozen, not typing (iOS «ck»)
@@ -2119,6 +2124,10 @@ private fun fillGroupFoot(c: Context, ref: String, into: FrameLayout) {
             pressable { ChatMarks.toggleMute(ref); fillGroupFoot(c, ref, into) }
         }, FrameLayout.LayoutParams(c.dp(44), c.dp(44), Gravity.CENTER).apply { topMargin = c.dp(6); bottomMargin = c.dp(6) })
     }
+    // A MEMBER WHO MAY SEND NOTHING (iOS groupMutedNote, G.5): the reference's sentence stands where the field stood
+    else if (Groups.mutes(ref)) into.addView(c.text(c.getString(R.string.gn_text), 13f, MT.gray, center = true).apply {
+        setPadding(c.dp(20), c.dp(12), c.dp(20), c.dp(12))
+    }, FrameLayout.LayoutParams(MATCH, WRAP))
     into.visibility = if (into.childCount > 0) View.VISIBLE else View.GONE
 }
 
@@ -2301,6 +2310,8 @@ private fun smallSelfFace(c: Context): android.graphics.Bitmap? {
  * and the answer's own plate under the letter both come here ([C-1]).
  */
 internal fun answerLetter(ref: String, m: Msg, e: String, group: Boolean) {
+    // «Send Reactions» taken from the members (iOS react → MTGroup.refusal, G.5): said, and nothing changes
+    if (group) Groups.refusal(Book.ctx, ref, Marks.REACTION, letter = false)?.let { Groups.tellRefusal(it); return }
     var added = false
     val prev = m.myReact
     Book.edit(ref) { ch ->

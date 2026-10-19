@@ -193,4 +193,36 @@
     <string name="cam_video">Видео</string>
     <string name="cam_photo">Фото</string>
     <string name="reactions_all">Все реакции</string>   <!-- the chevron after the quick reactions row, iOS MontanaMessageMenu.swift 244-251 -->
+    <!-- the group's permissions and slow mode (iOS MTGroupPermissionsPage, MTGroupRight.refusal, G.5) -->
+    <string name="gp_perms">Разрешения</string>
+    <string name="gp_perms_q">Что могут участники этой группы?</string>
+    <string name="gm_text">Отправлять сообщения</string>
+    <string name="gm_media">Отправлять медиа</string>
+    <string name="gm_photos">Отправлять фото</string>
+    <string name="gm_videos">Отправлять видео</string>
+    <string name="gm_stickers">Отправлять стикеры и GIF</string>
+    <string name="gm_music">Отправлять музыку</string>
+    <string name="gm_files">Отправлять файлы</string>
+    <string name="gm_voice">Отправлять голосовые</string>
+    <string name="gm_rounds">Отправлять видеосообщения</string>
+    <string name="gm_links">Ссылки с превью</string>
+    <string name="gm_reactions">Ставить реакции</string>
+    <string name="gp_slow">Медленный режим</string>
+    <string name="gp_slow_note">Участники смогут отправлять одно сообщение за этот промежуток.</string>
+    <string name="gp_slow_off">Выкл.</string>
+    <string name="gp_slow_s">%d с</string>
+    <string name="gp_slow_m">%d мин</string>
+    <string name="gp_slow_h">%d ч</string>
+    <string name="gn_text">Отправка сообщений в этой группе запрещена</string>
+    <string name="gn_photos">Отправка фото в этой группе запрещена</string>
+    <string name="gn_videos">Отправка видео в этой группе запрещена</string>
+    <string name="gn_stickers">Отправка стикеров в этой группе запрещена.</string>
+    <string name="gn_music">Отправка музыки в этой группе запрещена</string>
+    <string name="gn_files">Отправка файлов в этой группе запрещена</string>
+    <string name="gn_voice">Отправка голосовых сообщений в этой группе запрещена</string>
+    <string name="gn_rounds">Отправка видеосообщений в этой группе запрещена</string>
+    <string name="gn_links">Отправка ссылок в этой группе запрещена</string>
+    <string name="gn_reactions">Реакции в этой группе запрещены</string>
+    <string name="gn_fixed">Это разрешение нельзя изменить.</string>
+    <string name="gn_slow">Включён медленный режим. Следующее сообщение можно отправить через %s.</string>
 </resources>
