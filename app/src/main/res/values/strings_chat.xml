@@ -89,6 +89,22 @@
     <string name="gp_admin">admin</string>
     <string name="gp_promote">Promote to Admin</string>
     <string name="gp_dismiss">Dismiss Admin</string>
+    <!-- the group's administrators and their rights (iOS MTGroupAdminsPage, MTGroupAdminRightsPage, G.6) -->
+    <string name="gp_edit_rights">Edit Admin Rights</string>
+    <string name="gp_admins">Administrators</string>
+    <string name="gp_add_admin">Add Admin</string>
+    <string name="gp_add_admin_note">You can add admins to help you manage your group.</string>
+    <string name="gp_rights">Admin Rights</string>
+    <string name="gp_rank">Custom Title</string>
+    <string name="gp_rank_note">A title that will be shown instead of \'admin\'.</string>
+    <string name="gp_rights_q">What can this admin do?</string>
+    <string name="gp_r_info">Change Group Info</string>
+    <string name="gp_r_delete">Delete Messages</string>
+    <string name="gp_r_ban">Ban Users</string>
+    <string name="gp_r_invite">Invite Users via Link</string>
+    <string name="gp_r_pin">Pin Messages</string>
+    <string name="gp_owner_cap">Owner</string>
+    <string name="gp_admin_cap">Admin</string>
     <string name="gp_remove_from">Remove from Group</string>
     <string name="gp_about">description</string>
     <string name="gp_about_hint">Description</string>

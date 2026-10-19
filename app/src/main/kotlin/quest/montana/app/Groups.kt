@@ -60,12 +60,17 @@ object Groups {
         var removed: Boolean = false,
         /** The seats the owner named its administrators (iOS admins, stage R.6): named by the owner alone, in its invitation. */
         val admins: MutableList<String> = mutableListOf(),
+        /** WHAT EACH ADMINISTRATOR MAY NOT DO (iOS adminTaken, G.6): by seat, the rights the owner left out; absent -- all of them. */
+        val taken: MutableMap<String, List<String>> = mutableMapOf(),
+        /** The custom titles the owner gave (iOS ranks, the reference's «Custom Title»), by seat: shown instead of «admin». */
+        val ranks: MutableMap<String, String> = mutableMapOf(),
     ) {
         val mine: Boolean get() = owner.isEmpty()
         fun json(): JSONObject = JSONObject().put("id", id).put("k", kind).put("ti", title).put("ds", about).put("ow", owner).put("me", me)
             .put("mb", JSONArray().apply { members.forEach { put(JSONObject().put("s", it.seat).put("p", it.pipe)) } })
             .put("c", count).put("nm", JSONObject(names.toMap())).put("at", at).put("lf", left).put("ft", faceTag ?: "")
             .put("rb", JSONObject(readBy.toMap())).put("rm", removed).put("ad", JSONArray(admins))
+            .put("ax", JSONObject().apply { taken.forEach { (k, v) -> put(k, JSONArray(v)) } }).put("rk", JSONObject(ranks.toMap()))
         companion object {
             fun of(o: JSONObject) = State(o.getString("id"), o.getString("k"), o.optString("ti"), o.optString("ds"), o.optString("ow"),
                 o.getString("me"),
@@ -74,7 +79,9 @@ object Groups {
                 o.optJSONObject("nm")?.let { n -> n.keys().asSequence().associateWith { n.getString(it) }.toMutableMap() } ?: mutableMapOf(),
                 o.optLong("at"), o.optBoolean("lf"), o.optString("ft").ifEmpty { null },
                 o.optJSONObject("rb")?.let { r -> r.keys().asSequence().associateWith { r.getLong(it) }.toMutableMap() } ?: mutableMapOf(),
-                o.optBoolean("rm"), o.optJSONArray("ad")?.let { a -> MutableList(a.length()) { a.getString(it) } } ?: mutableListOf())
+                o.optBoolean("rm"), o.optJSONArray("ad")?.let { a -> MutableList(a.length()) { a.getString(it) } } ?: mutableListOf(),
+                o.optJSONObject("ax")?.let { x -> x.keys().asSequence().associateWith { k -> x.getJSONArray(k).let { a -> List(a.length()) { a.getString(it) } } }.toMutableMap() } ?: mutableMapOf(),
+                o.optJSONObject("rk")?.let { r -> r.keys().asSequence().associateWith { r.getString(it) }.toMutableMap() } ?: mutableMapOf())
         }
     }
 
@@ -276,10 +283,24 @@ object Groups {
 
     /**
      * WHO PINS FOR EVERYONE (iOS MTGroup.pins): every member of a group while the group lets its members pin -- the reference's own
-     * default for a new group; never in a channel. The one gate of a pin, asked where it is sent and wherever it lands; the
-     * administrators and the group's permissions narrow it once they stand here (G.6, G.5).
+     * default for a new group; never in a channel. The one gate of a pin, asked where it is sent and wherever it lands. iOS asks
+     * adminCan(.pin) or the members' own right (G.5); while the members' permissions are not here every member pins, so an
+     * administrator's «Pin Messages» narrows nothing yet.
      */
     private fun pins(g: State, seat: String): Boolean = g.kind == GROUP && seat.isNotEmpty()
+
+    // ── what an administrator may do (the checklist's G.6, the reference's «What can this admin do?») ──
+
+    /** The rights, each a short word on the wire (iOS MTAdminRight): the owner names the ones an administrator lacks. */
+    const val INFO = "ci"; const val DELETE = "dm"; const val BAN = "bu"; const val INVITE = "il"; const val PIN = "pm"
+    val RIGHTS = listOf(INFO, DELETE, BAN, INVITE, PIN)
+    private const val RANK_LIMIT = 16   // iOS clean(rank, 16)
+    /** WHETHER A SEAT HOLDS AN ADMINISTRATOR'S RIGHT (iOS adminCan): the owner every one; an administrator the ones the owner did not take. */
+    private fun adminCan(g: State, seat: String, r: String): Boolean {
+        if (seat == OWNER_SEAT) return true
+        if (seat !in g.admins) return false
+        return r !in (g.taken[seat] ?: emptyList())
+    }
 
     /**
      * A LETTER PINNED OR UNPINNED FOR EVERYONE (iOS MTGroup.pin): here at once, and its word carried to every phone of the group by
@@ -527,6 +548,9 @@ object Groups {
             if (g.about.isNotEmpty()) w.put("ds", g.about)
             if (face != null && (only == null || m.seat in only)) w.put("fc", face)
             if (g.admins.isNotEmpty()) w.put("ad", JSONArray(g.admins))   // the administrators the owner named (iOS ad, stage R.6)
+            // the administrators' rights left out and the custom titles (iOS ax, rk, G.6); an older build skips the keys
+            if (g.taken.isNotEmpty()) w.put("ax", JSONObject().apply { g.taken.forEach { (k, v) -> put(k, JSONArray(v)) } })
+            if (g.ranks.isNotEmpty()) w.put("rk", JSONObject(g.ranks.toMap()))
             carry(w, m.pipe, "", own = false)
         }
     }
@@ -667,6 +691,7 @@ object Groups {
             keepName(g, m)
             g.members.removeAll { it.seat == seat }
             g.admins.remove(seat)   // a person taken out is nobody's administrator
+            g.taken.remove(seat); g.ranks.remove(seat)
             g.count = g.members.size + 1
             save()
             carry(JSONObject().put("t", "out").put("g", g.id), m.pipe, "", own = false)
@@ -691,16 +716,35 @@ object Groups {
     /** Whether this phone moderates the group (iOS moderates): its owner or an administrator it named -- they take another's letter away for everyone. */
     fun moderates(key: String): Boolean {
         val g = state(key) ?: return false
-        return !g.left && g.kind == GROUP && (g.mine || g.me in g.admins)
+        return !g.left && g.kind == GROUP && adminCan(g, g.me, DELETE)
     }
-    /** THE OWNER NAMES OR DISMISSES AN ADMINISTRATOR (iOS setAdmin): every member hears the list by the invitation's word again. */
-    fun setAdmin(key: String, seat: String, on: Boolean) {
+    /** Whether this phone takes a person out of the group (iOS «Ban Users», G.6): its owner, or an administrator holding the right. */
+    fun mayBan(key: String): Boolean {
+        val g = state(key) ?: return false
+        return !g.left && adminCan(g, g.me, BAN)
+    }
+    /** The custom title the owner gave a seat (iOS rank, G.6), else null: the role's own word stands. */
+    fun rank(key: String, seat: String): String? = state(key)?.ranks?.get(seat)?.ifEmpty { null }
+    /** The rights the owner left out of an administrator (iOS adminTaken, G.6). */
+    fun taken(key: String, seat: String): Set<String> = state(key)?.taken?.get(seat)?.toSet() ?: emptySet()
+    /** The administrators the owner named, in its order (iOS admins). */
+    fun admins(key: String): List<String> = state(key)?.admins?.toList() ?: emptyList()
+
+    /**
+     * THE OWNER NAMES OR DISMISSES AN ADMINISTRATOR (iOS setAdmin): every member hears the list by the invitation's word again;
+     * `taken` -- the rights left out of it, `rank` -- its custom title (G.6), kept while it is one and gone with its dismissal.
+     */
+    fun setAdmin(key: String, seat: String, on: Boolean, taken: Set<String> = emptySet(), rank: String? = null) {
         synchronized(lock) {
             val g = state(key) ?: return
             if (!g.mine || g.kind != GROUP || g.members.none { it.seat == seat }) return
             g.admins.remove(seat)
             if (on) g.admins.add(seat)
             g.admins.sort()
+            val left = RIGHTS.filter { it in taken }
+            if (on && left.isNotEmpty()) g.taken[seat] = left else g.taken.remove(seat)
+            val title = clean(rank ?: "", RANK_LIMIT)
+            if (on && title.isNotEmpty()) g.ranks[seat] = title else g.ranks.remove(seat)
             save()
             tellAll(g, null)
             Log.i("Montana", "group_admin " + (if (on) "named" else "dismissed"))
@@ -715,7 +759,7 @@ object Groups {
             val g = state(key) ?: return
             if (g.left) return
             if (g.mine) { remove(key, seat); return }
-            if (g.me !in g.admins || seat == OWNER_SEAT || seat == g.me || seat in g.admins) return
+            if (!adminCan(g, g.me, BAN) || seat == OWNER_SEAT || seat == g.me || seat in g.admins) return
             carry(JSONObject().put("t", "kk").put("g", g.id).put("id", Marks.mintMid()).put("s", seat), g.owner, "", own = false)
             Log.i("Montana", "group_admin asked the owner to take a person out")
         }
@@ -727,7 +771,7 @@ object Groups {
         val from = SamePair.root(pipe)
         val asker = g.members.firstOrNull { SamePair.root(it.pipe) == from } ?: return Verdict.REFUSED
         val target = w.optString("s")
-        if (asker.seat !in g.admins || target == asker.seat || target in g.admins || g.members.none { it.seat == target }) return Verdict.REFUSED
+        if (!adminCan(g, asker.seat, BAN) || target == asker.seat || target in g.admins || g.members.none { it.seat == target }) return Verdict.REFUSED
         remove(key(g.id), target, by = asker.seat)
         return Verdict.HELD
     }
@@ -972,6 +1016,7 @@ object Groups {
             had.title = title; had.about = clean(w.optString("ds"), ABOUT_LIMIT); had.count = count; had.me = seat
             if (ownerName.isNotEmpty()) had.names[OWNER_SEAT] = ownerName
             had.admins.clear(); had.admins.addAll(admins(w))   // the owner's word alone names them
+            takeAdmins(w, had)
             val newFace = tag != null && tag != had.faceTag
             if (newFace) had.faceTag = tag
             save()
@@ -985,12 +1030,37 @@ object Groups {
         val g = State(id, kind, title, clean(w.optString("ds"), ABOUT_LIMIT), owner, seat, mutableListOf(), count,
             if (ownerName.isEmpty()) mutableMapOf() else mutableMapOf(OWNER_SEAT to ownerName), System.currentTimeMillis(), faceTag = tag,
             admins = admins(w).toMutableList())
+        takeAdmins(w, g)
         groups[id] = g
         save()
         stand(g, face(fc))
         lay(g, event("added", OWNER_SEAT, listOf(seat)))   // «X added you»
         Log.i("Montana", "group_rx invitation kind=$kind people=$count from=${pipe.take(10)}")
         return Verdict.HELD
+    }
+
+    /**
+     * The owner's word about its administrators, taken as it stands (iOS takeAdmins, G.6): the rights left out (known ones alone)
+     * and the custom titles. The link an inviting administrator holds (iOS lk) waits for the group's invite links on this phone.
+     */
+    private fun takeAdmins(w: JSONObject, g: State) {
+        g.taken.clear()
+        w.optJSONObject("ax")?.let { x ->
+            for (seat in x.keys()) {
+                if (!isSeat(seat)) continue
+                val a = x.optJSONArray(seat) ?: continue
+                val known = (0 until a.length()).map { a.optString(it) }.filter { it in RIGHTS }.distinct()
+                if (known.isNotEmpty()) g.taken[seat] = known
+            }
+        }
+        g.ranks.clear()
+        w.optJSONObject("rk")?.let { r ->
+            for (seat in r.keys()) {
+                if (!isSeat(seat)) continue
+                val t = clean(r.optString(seat), RANK_LIMIT)
+                if (t.isNotEmpty()) g.ranks[seat] = t
+            }
+        }
     }
 
     /** The administrators an invitation names (iOS ad): seats alone. */
@@ -1089,7 +1159,7 @@ object Groups {
             val row = Book.chat(key)?.msgs?.firstOrNull { it.mid == t }
             if (row != null) {
                 // the owner and the administrators it named take another's letter away (iOS stage R.6); an edit stays the speaker's own
-                val boss = words.startsWith(Marks.DELETE) && (seat == OWNER_SEAT || seat in g.admins)
+                val boss = words.startsWith(Marks.DELETE) && adminCan(g, seat, DELETE)   // G.6: «Delete Messages»
                 if (author(row, g) != seat && !boss) {
                     Log.i("Montana", "group_refused an answer to another's letter seat=$seat")
                     return Verdict.REFUSED
@@ -1120,6 +1190,7 @@ object Groups {
         keepName(g, m)
         g.members.removeAll { it.seat == m.seat }
         g.admins.remove(m.seat)
+        g.taken.remove(m.seat); g.ranks.remove(m.seat)
         g.count = g.members.size + 1
         save()
         tellAll(g, null)

@@ -89,6 +89,22 @@
     <string name="gp_admin">админ</string>
     <string name="gp_promote">Назначить администратором</string>
     <string name="gp_dismiss">Разжаловать администратора</string>
+    <!-- the group's administrators and their rights (iOS MTGroupAdminsPage, MTGroupAdminRightsPage, G.6) -->
+    <string name="gp_edit_rights">Изменить права администратора</string>
+    <string name="gp_admins">Администраторы</string>
+    <string name="gp_add_admin">Добавить администратора</string>
+    <string name="gp_add_admin_note">Администраторы помогут вам управлять группой.</string>
+    <string name="gp_rights">Права администратора</string>
+    <string name="gp_rank">Своя подпись</string>
+    <string name="gp_rank_note">Подпись, которая будет видна вместо «админ».</string>
+    <string name="gp_rights_q">Что может этот администратор?</string>
+    <string name="gp_r_info">Менять профиль группы</string>
+    <string name="gp_r_delete">Удалять сообщения</string>
+    <string name="gp_r_ban">Блокировать участников</string>
+    <string name="gp_r_invite">Приглашать по ссылке</string>
+    <string name="gp_r_pin">Закреплять сообщения</string>
+    <string name="gp_owner_cap">Владелец</string>
+    <string name="gp_admin_cap">Администратор</string>
     <string name="gp_remove_from">Удалить из группы</string>
     <string name="gp_about">описание</string>
     <string name="gp_about_hint">Описание</string>

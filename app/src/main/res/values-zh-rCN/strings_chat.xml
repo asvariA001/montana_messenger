@@ -89,6 +89,22 @@
     <string name="gp_admin">管理员</string>
     <string name="gp_promote">设为管理员</string>
     <string name="gp_dismiss">撤销管理员</string>
+    <!-- the group's administrators and their rights (iOS MTGroupAdminsPage, MTGroupAdminRightsPage, G.6) -->
+    <string name="gp_edit_rights">编辑管理员权限</string>
+    <string name="gp_admins">管理员</string>
+    <string name="gp_add_admin">添加管理员</string>
+    <string name="gp_add_admin_note">你可以添加管理员来帮助管理群组。</string>
+    <string name="gp_rights">管理员权限</string>
+    <string name="gp_rank">自定义头衔</string>
+    <string name="gp_rank_note">将代替“管理员”显示的头衔。</string>
+    <string name="gp_rights_q">此管理员可以做什么？</string>
+    <string name="gp_r_info">更改群组信息</string>
+    <string name="gp_r_delete">删除消息</string>
+    <string name="gp_r_ban">封禁用户</string>
+    <string name="gp_r_invite">通过链接邀请用户</string>
+    <string name="gp_r_pin">置顶消息</string>
+    <string name="gp_owner_cap">群主</string>
+    <string name="gp_admin_cap">管理员</string>
     <string name="gp_remove_from">移出群组</string>
     <string name="gp_about">描述</string>
     <string name="gp_about_hint">描述</string>
