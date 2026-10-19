@@ -2768,9 +2768,24 @@ enum MTCoinBook {
         MTVPNWallMint.shared.reread()
         MontanaTrace.mark("coin_book", "reread")
     }
+    /// A SEAT BEGINS TO MOVE (MTSeats.parkThenLift, in the same turn as the last write of the person leaving and before their folder
+    /// moves): from this instant no walk of the chain begun under them writes anything (MTCoinSeat).
+    @MainActor static func leave() { generation &+= 1 }
     /// NO LIMIT BUT THE BALANCE AND ONE AT LEAST (the author's word 03.10): a move of any whole number of coins from one up; the
     /// one bound is the arithmetic's -- the count must still fit the book's integer beside the balance -- never a rule of the coin.
     static func fits(_ coins: Int, beside balance: Int) -> Bool { 0 < coins && !balance.addingReportingOverflow(coins).overflow }
+}
+
+/// A WALK OF THE CHAIN WRITES ONLY ITS OWN PERSON (the critic 19.10.2026 on T2; the author's words 20:25 «a separate person, wholly
+/// separate, with none of this mixing» and 20:4x «build by the constitution with chains of time, strictly with no races allowed»): a
+/// walk asks the nodes and waits, and a seat that moves during the wait seats another person behind the same book, the same folder
+/// and the same key's name. The walk takes its seat at its first step; after every wait it reaches the book, the person's files and
+/// the records it signs only through that seat. Once the seat moved it writes nothing: what it had begun waits in the folder of its
+/// own person, which moved with them, and their own walks decide it when they sit again.
+@MainActor struct MTCoinSeat {
+    let generation = MTCoinBook.generation
+    var stands: Bool { generation == MTCoinBook.generation }
+    var book: MTLocalCoinLedger? { stands ? MTLocalCoinLedger.shared.whole : nil }
 }
 
 /// THE LOCAL BOOK: one line of JSON per move, appended, in Application Support (protected until the first unlock, as the
@@ -4152,6 +4167,7 @@ enum MTCoinTx {
             MontanaTrace.mark("coin_v3", "v2 road why=\(why) coins=\(coins)")
             if v2Cut <= Int64(Date().timeIntervalSince1970) { return .refused }
         }
+        let seat = MTCoinSeat()
         guard let me = myKeyTag, let door = chainDoor(me) else { return .refused }
         // A SEND THAT NAMES NO RECEIVER SPENDS THE CHAIN TOO (COIN-TX-V3 section 3, fold-2): the chain opened and holding the sum first,
         // else the node refuses it as an overspend -- the coins stay, said here before anything is signed
@@ -4159,7 +4175,6 @@ enum MTCoinTx {
             MontanaTrace.mark("coin_v3", "v2 road refused: chain short coins=\(coins) chain=\(st.proven + st.declared)")
             return .refused
         }
-        let book = MTLocalCoinLedger.shared.whole
         for attempt in 1...2 {
             let h = await ask(door + "/tx-head", ["from": me])
             guard h.code == 200, let head = h.obj?["head"] as? String, head.count == 64 else {
@@ -4175,11 +4190,12 @@ enum MTCoinTx {
                 return .refused
             }
             let id = name(rec)
-            guard book.send(coins, to: conv, ref: refPrefix + id) else { return .refused }
+            guard let book = seat.book, book.send(coins, to: conv, ref: refPrefix + id) else { return .refused }
             let pending = pendingURL(id)
             if let pending { try? rec.write(to: pending, options: .atomic) }
             let word = await lay(rec)
             MontanaTrace.mark("coin_tx", "word=\(word) coins=\(coins) id=\(id.prefix(12)) attempt=\(attempt)")
+            guard seat.stands else { return .pending }   // the record waits in its person's folder (settle)
             switch word {
             case .left:
                 if let pending { try? FileManager.default.removeItem(at: pending) }
@@ -4197,16 +4213,19 @@ enum MTCoinTx {
     }
     /// The records an ended process left waiting, each decided by a node's word; then the pipes are asked.
     @MainActor static func settle() async {
+        let seat = MTCoinSeat()
         let fm = FileManager.default
         if let dir = MTTimeChainPlace.dir() {
             for n in (try? fm.contentsOfDirectory(atPath: dir.path)) ?? [] where n.hasPrefix("tx-pending-") && n.hasSuffix(".rec") {
                 let u = dir.appendingPathComponent(n)
                 guard let rec = try? Data(contentsOf: u), let r = read(rec) else { try? fm.removeItem(at: u); continue }
                 let conv = MTPipeBook.all().first { c in pairTag(c) == r.pair }
-                switch await lay(rec) {
+                let word = await lay(rec)
+                guard let book = seat.book else { return }   // the records wait in their person's folder
+                switch word {
                 case .left: try? fm.removeItem(at: u)
                 case .notLeft, .behind:
-                    if let conv { MTLocalCoinLedger.shared.whole.receive(r.coins, from: conv, ref: backPrefix + r.id, on: nil) }
+                    if let conv { book.receive(r.coins, from: conv, ref: backPrefix + r.id, on: nil) }
                     try? fm.removeItem(at: u)
                 case .unknown: continue
                 }
@@ -4232,6 +4251,7 @@ enum MTCoinTx {
     /// chain node, so a record laid on another node (a fork a dishonest client tried) moves nothing.
     @MainActor static func scan(why: String) async {
         if scanning { again = true; return }
+        let seat = MTCoinSeat()
         guard let me = myKeyTag else { return }
         var conv: [String: String] = [:]
         for c in MTPipeBook.all() { if let t = pairTag(c) { conv[hex(t)] = c } }
@@ -4260,7 +4280,7 @@ enum MTCoinTx {
                               let c = conv[hex(r.pair)] else { bad += 1; continue }
                         if r.version != 1, chainNode(of: r.from) != node { foreign += 1; continue }
                         seen.insert(id)
-                        let book = MTLocalCoinLedger.shared.whole
+                        guard let book = seat.book else { return }   // the pipes and the key were the person's who left
                         if r.from == me {
                             if !book.holds(.send, refPrefix + r.id), book.retake(r.coins, to: c, ref: refPrefix + r.id) { own += 1 }
                         } else if r.version == 3 {
@@ -4277,6 +4297,7 @@ enum MTCoinTx {
             }
         }
         MontanaTrace.mark("coin_tx_scan", "why=\(why) pipes=\(conv.count) got=\(got) credited=\(credited) own=\(own) bad=\(bad) foreign=\(foreign)")
+        guard seat.stands else { return }
         await reconcile()       // the chain announced and the book's mints laid (COIN-TX-V3 sections 3-4)
         await refundDue()       // a SEND no one took in a day comes back (section 5)
         await creditsGone()     // a v2 record its sender took back leaves this book too (fold-4)
@@ -4384,16 +4405,21 @@ extension MTCoinTx {
     /// interval, never the phone's.
     @MainActor @discardableResult static func reconcile(force: Bool = false) async -> Chain3? {
         guard let me = myKeyTag, let door = chainDoor(me) else { return nil }
+        // ONE PERSON'S BOOK ON ONE PERSON'S CHAIN (the critic 19.10.2026, T2: the author's word 20:25 «a separate person, wholly
+        // separate»): a seat that moves during a wait seats another key and another book -- the book read before it would be laid on
+        // the next person's chain. Every record is built only while the seat that began this stands and its key is the one laying.
+        let seat = MTCoinSeat()
         guard var st = await chain3(me, door: door) else { return nil }
         // what the chain's node folds is told to the wallet's split, after every word of it
         func told(_ s: Chain3?) -> Chain3? {
-            if let s { MTCoinSplit.shared.heard(proven: s.proven, declared: s.declared, opened: s.v3, fromCopy: false, height: s.height) }
+            if let s, seat.stands { MTCoinSplit.shared.heard(proven: s.proven, declared: s.declared, opened: s.v3, fromCopy: false, height: s.height) }
             return s
         }
+        guard seat.stands else { MontanaTrace.mark("coin_v3", "the seat moved -- nothing laid"); return nil }
         let book = Int64(MTLocalCoinLedger.shared.whole.balance)
         if !st.v3 {
             let amount = min(max(0, book), MTCoinChainRules.genesisRoom(height: st.height, birth: st.birth, at: st.now))
-            let r = await layOnHead { s in build3(.genesis, amount: UInt64(amount), prev: s.head, nonce: fresh()) }
+            let r = await layOnHead { s in seat.stands ? build3(.genesis, amount: UInt64(amount), prev: s.head, nonce: fresh()) : nil }
             MontanaTrace.mark("coin_v3", "genesis code=\(r.code) word=\(r.word) amount=\(amount)")
             guard r.code == 200, let again = await chain3(me, door: door) else { return nil }
             st = again
@@ -4404,6 +4430,7 @@ extension MTCoinTx {
         let gap = book - st.proven - st.declared
         guard 0 < gap, st.mintEnd + 60 <= st.now - 120 else { return told(st) }
         let r = await layOnHead { s in
+            guard seat.stands else { return nil }
             let t0 = s.mintEnd, t1 = s.now - 120
             // the key's time less what it minted (section 4, fold-3; from the second's cut 1 coin a second, weighed at the node's now,
             // the at it gives the record); a node that names no minted still folds by the interval
@@ -4458,6 +4485,7 @@ extension MTCoinTx {
     /// chain's head. Anything that makes v3 impossible (an older correspondent, the chain not holding the sum yet) is said as
     /// notApplicable -- the version 2 road takes it until the cut.
     @MainActor static func send3(_ coins: Int, conv: String) async -> Send3 {
+        let seat = MTCoinSeat()
         guard let me = myKeyTag, let door = chainDoor(me), let secret = MTPipeBook.secret(for: conv), !secret.isEmpty,
               let pair = pairTag(conv) else { return .notApplicable("no pipe") }
         guard let peer = peerFrom(conv), let peerBytes = unhex(peer), peerBytes.count == 32 else { return .notApplicable("no receiver key") }
@@ -4465,10 +4493,10 @@ extension MTCoinTx {
         let nonce = fresh()
         let blind = MTCoinChainRules.blind(secret: secret, nonce: nonce)
         let commit = MTCoinChainRules.commitment(from: peerBytes, blind: blind)
-        let book = MTLocalCoinLedger.shared.whole
         for attempt in 1...2 {
             guard let st = await chain3(me, door: door), st.v3, Int64(coins) <= st.proven + st.declared else { return .notApplicable("chain short") }
             guard await headIsMine(st.head, me: me, door: door) else { return .failed }
+            guard let book = seat.book else { return .failed }
             let dec = max(0, Int64(coins) - st.proven)
             guard let rec = build3(.send, amount: UInt64(coins), prev: st.head, nonce: nonce, pair: pair, to: commit, a: UInt64(dec)) else { return .failed }
             let id = name(rec)
@@ -4477,6 +4505,7 @@ extension MTCoinTx {
             if let pending { try? rec.write(to: pending, options: .atomic) }
             let word = await lay(rec)
             MontanaTrace.mark("coin_v3", "send word=\(word) coins=\(coins) dec=\(dec) id=\(id.prefix(12)) attempt=\(attempt)")
+            guard seat.stands else { return .pending }   // the record waits in its person's folder (settle)
             switch word {
             case .left:
                 if let pending { try? FileManager.default.removeItem(at: pending) }
@@ -4496,6 +4525,7 @@ extension MTCoinTx {
     /// RECEIVES (version 3): a SEND of my pair that commits to my key is taken by a RECV on my chain -- the book credits it only
     /// when my chain holds it (200, or another device of my words took it: the SEND's node names me).
     @MainActor static func receive3(_ s: Record, conv: String) async -> Bool {
+        let seat = MTCoinSeat()
         guard s.kind == Kind3.send.rawValue, let me = myKeyTag, let mine = unhex(me),
               let secret = MTPipeBook.secret(for: conv), !secret.isEmpty else { return false }
         let blind = MTCoinChainRules.blind(secret: secret, nonce: s.nonce)
@@ -4503,14 +4533,14 @@ extension MTCoinTx {
         let book = MTLocalCoinLedger.shared.whole
         if book.holds(.receive, refPrefix + s.id) { return false }
         guard let st = await reconcile(), st.v3 else { return false }
-        let r = await layOnHead { c in build3(.recv, amount: UInt64(s.coins), prev: c.head, nonce: fresh(), to: blind, ref: s.id, a: s.a) }
+        let r = await layOnHead { c in seat.stands ? build3(.recv, amount: UInt64(s.coins), prev: c.head, nonce: fresh(), to: blind, ref: s.id, a: s.a) : nil }
         var taken = r.code == 200
         if !taken, r.word == "settled" || r.word == "not yours", let door = chainDoor(s.from) {
             let f = await ask(door + "/tx-settle", ["send": s.id])
             taken = (f.obj?["state"] as? String) == "recv" && (f.obj?["by"] as? String) == me
         }
         MontanaTrace.mark("coin_v3", "recv code=\(r.code) word=\(r.word) taken=\(taken ? 1 : 0) id=\(s.id.prefix(12))")
-        return taken && book.receive(s.coins, from: conv, ref: refPrefix + s.id, on: nil)
+        return taken && seat.book?.receive(s.coins, from: conv, ref: refPrefix + s.id, on: nil) == true
     }
     /// A TRANSFER TO ONE'S OWN OTHER ACCOUNT IS ONE PAIR, SENT AND RECEIVED IN THE SAME STEP (the author's words 12.10.2026 13:2x MSK:
     /// «either the coins left or not -- there is no third -- this is point 0»; 15:3x, No.66: «a transfer to oneself in Montana must
@@ -4567,9 +4597,10 @@ extension MTCoinTx {
     }
     /// An untaken SEND comes back after a day by a REFUND on my chain (section 5): its node's clock decides, one fate a SEND.
     @MainActor static func refundDue() async {
+        let seat = MTCoinSeat()
         guard let me = myKeyTag, let door = chainDoor(me) else { return }
-        let book = MTLocalCoinLedger.shared.whole
-        await refundSpent2(me: me, door: door, book: book)
+        await refundSpent2(me: me, door: door, seat: seat)
+        guard seat.stands else { return }
         let rows = openSends()
         guard !rows.isEmpty else { return }
         var left: [[String: Any]] = []
@@ -4577,14 +4608,17 @@ extension MTCoinTx {
             guard let id = o["id"] as? String, let conv = o["conv"] as? String, let coins = o["coins"] as? Int else { continue }
             let at = (o["at"] as? NSNumber)?.int64Value ?? 0
             let f = await ask(door + "/tx-settle", ["send": id])
+            guard let book = seat.book else { return }   // the open sends stay in their person's folder
             let state = (f.obj?["state"] as? String) ?? ""
             if state == "recv" { continue }
             if state == "refund" { book.receive(coins, from: conv, ref: backPrefix + id, on: nil); continue }
             guard state == "open", let st = await chain3(me, door: door), at + 86_460 <= st.now else { left.append(o); continue }
-            let r = await layOnHead { c in build3(.refund, amount: UInt64(coins), prev: c.head, nonce: fresh(), ref: id) }
+            let r = await layOnHead { c in seat.stands ? build3(.refund, amount: UInt64(coins), prev: c.head, nonce: fresh(), ref: id) : nil }
             MontanaTrace.mark("coin_v3", "refund code=\(r.code) word=\(r.word) id=\(id.prefix(12))")
-            if r.code == 200 { book.receive(coins, from: conv, ref: backPrefix + id, on: nil) } else { left.append(o) }
+            guard let after = seat.book else { return }
+            if r.code == 200 { after.receive(coins, from: conv, ref: backPrefix + id, on: nil) } else { left.append(o) }
         }
+        guard seat.stands else { return }
         keepOpen(left)
     }
 }
@@ -4596,14 +4630,15 @@ extension MTCoinTx {
     /// its coins -- 18.10 T1 sent 1 369 000 and 2 000 000 that way to an Android phone, which reads no chain, and they stood for no one.
     /// My chain's node names my unsettled sends (/tx-unsettled); a v2 one a day old is taken back by a REFUND, and the book receives it
     /// under the send's own name, from the pair the send left to. A v3 SEND keeps its own road (the open list in refundDue).
-    @MainActor static func refundSpent2(me: String, door: String, book: MTLocalCoinLedger) async {
+    @MainActor static func refundSpent2(me: String, door: String, seat: MTCoinSeat) async {
         let u = await ask(door + "/tx-unsettled", ["from": me])
         guard u.code == 200, let rows = u.obj?["sends"] as? [[String: Any]], !rows.isEmpty, let st = await chain3(me, door: door) else { return }
         for o in rows {
             guard (o["v"] as? NSNumber)?.intValue == 2, let id = o["id"] as? String, let coins = Int((o["amount"] as? String) ?? ""),
                   let at = (o["at"] as? NSNumber)?.int64Value, at + 86_460 <= st.now else { continue }
-            let r = await layOnHead { c in build3(.refund, amount: UInt64(coins), prev: c.head, nonce: fresh(), ref: id) }
+            let r = await layOnHead { c in seat.stands ? build3(.refund, amount: UInt64(coins), prev: c.head, nonce: fresh(), ref: id) : nil }
             MontanaTrace.mark("coin_v3", "refund v2 code=\(r.code) word=\(r.word) coins=\(coins) id=\(id.prefix(12))")
+            guard let book = seat.book else { return }
             if r.code == 200 { book.receive(coins, from: book.entry(.send, refPrefix + id)?.peer ?? "", ref: backPrefix + id, on: nil) }
         }
     }
@@ -4620,15 +4655,16 @@ extension MTCoinTx {
     /// THE COINS ARE EITHER GONE OR NOT (constitution, article 8): a v2 record credited here whose sender's REFUND took it back at its
     /// chain node leaves this book by one move under its name, whatever the balance (retake: the truth of a debt). Asked once an hour.
     @MainActor static func creditsGone() async {
+        let seat = MTCoinSeat()
         var o = load(credits2File)
         var m = (o["c"] as? [String: [String: Any]]) ?? [:]
         let now = Date().timeIntervalSince1970
         guard !m.isEmpty, 3600 <= now - ((o["at"] as? NSNumber)?.doubleValue ?? 0) else { return }
-        let book = MTLocalCoinLedger.shared.whole
         for (id, c) in m {
             guard let from = c["f"] as? String, let coins = (c["n"] as? NSNumber)?.intValue, let conv = c["p"] as? String,
                   let door = chainDoor(from) else { m[id] = nil; continue }
             let f = await ask(door + "/tx-settle", ["send": id])
+            guard let book = seat.book else { return }   // the credits' file stays in its person's folder
             guard f.code == 200, (f.obj?["state"] as? String) == "refund" else { continue }
             if book.holds(.send, gonePrefix + id) || book.retake(coins, to: conv, ref: gonePrefix + id) { m[id] = nil }
             MontanaTrace.mark("coin_v3", "credit gone coins=\(coins) id=\(id.prefix(12))")

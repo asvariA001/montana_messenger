@@ -6905,7 +6905,8 @@ enum SeedScope {
         MTCoinShow.key, MTCoinShow.toldKey,   // the owner shows or hides their coins, and the wallet has said what that does (04.10)
         MTLevelShow.shownKey,   // retired switch, retained for old copies; reputation is always shown (14.10)
         MTAvatarBadges.coinsKey,   // retired viewer switch; the balance owner alone governs disclosure (14.10)
-        MTPersonalRate.key]   // the person's earning, its period and currency: their own rate of the coin (04.10 19:19)
+        MTPersonalRate.key,   // the person's earning, its period and currency: their own rate of the coin (04.10 19:19)
+        MTCoinUnit.mainKey]   // the sum of the balance the person made the main one: time, coins or the ticker (19.10.2026)
     /// THE MARKS OF MIGRATIONS ALREADY RUN over the data they describe: a copy carries them with that data, so a
     /// one-time sweep never runs a second time over what it already swept; a change of seed keeps them.
     static let markKeys = ["profilePurge805", "pinsWiped1782", "cardNamesRestored1784", "phoneNamesRestored1787",
@@ -6995,11 +6996,13 @@ enum SeedScope {
         "mt.passwords"]   // the person's Passwords (MTPasswordVault, 06.10): parked with the seat, never shown to the next person
     /// THE PERSON'S FOLDERS: every folder a copy carries, each parked into the seat and lifted from it by one rename, and the
     /// person's folders a copy leaves on the phone: the files of the posts being written (the wall's load lets go of every
-    /// file no draft of the person seated names, so a parked person's drafts would lose theirs). The copy's guard
-    /// (tools/mt-copy-scope-check.py) holds every carried folder here and every other one named as staying.
+    /// file no draft of the person seated names, so a parked person's drafts would lose theirs), the person's coins
+    /// (MTCoinPlace: the book, the chats' tally, the lane's tip -- T2 19.10.2026: out of this list two persons read one book,
+    /// and the chain of the one seated minted the other's coins) and the person's TimeChain. The copy's guard
+    /// (tools/mt-copy-scope-check.py) holds every carried folder here and every staying one of the person (SEAT_STAYS).
     static let seatFolders = ["AS:Avatars", "AS:Wallpapers", "AS:Montana/Media", "AS:Montana/Pictures", "DOC:stories",
         "DOC:Montana/Chats", "AS:MontanaHistory", "AS:MontanaJournal", "GROUP:delivery", "AS:Montana/WallDrafts",
-        "DOC:Montana/TimeChain"]
+        "AS:Montana/Coins", "DOC:Montana/TimeChain"]
     // Per-chat keys of the era before the sealed maps (SC-05): collapsed once, forgotten with the person.
     static let legacyPrefixes = ["lastSeen_", "draft_", "mute_", "block_"]
     /// COLLECTIONS OF INDEPENDENT ENTRIES are laid back as a union: what this device holds stays, and the

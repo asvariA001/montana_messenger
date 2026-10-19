@@ -561,8 +561,9 @@ final class MTSeats: ObservableObject {
         ChatStore.badgeLine.sync {}   // MAIN-SAFE-SYNC: two keychain writes at most, never a wait on main; the leaving count lands before the park reads it
         let ground = target == nil && from != nil ? MTWallpaper.carry() : nil   // a seat emptied for a new person keeps the cover (03.10)
         if let from {
-            // The coins of the person leaving are on disk in their own folder before it moves (the coin audit's fourth point).
-            let keep = { MainActor.assumeIsolated { MTLocalCoinLedger.shared.writeWhole() } }
+            // The coins of the person leaving are on disk in their own folder before it moves (the coin audit's fourth point), and
+            // no walk of the chain begun under them writes from this turn on (MTCoinSeat, the critic 19.10.2026 on T2).
+            let keep = { MainActor.assumeIsolated { MTLocalCoinLedger.shared.writeWhole(); MTCoinBook.leave() } }
             // MAIN-SAFE-SYNC: the main thread runs keep itself; only a caller off it waits, on main, which waits on nobody here.
             if Thread.isMainThread { keep() } else { DispatchQueue.main.sync(execute: keep) }
             Self.stage("park")

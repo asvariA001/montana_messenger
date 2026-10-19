@@ -16,6 +16,7 @@ struct MTWalletPage: View {
     @ObservedObject private var coinSplit = MTCoinSplit.shared   // the balance as its chain holds it, proven and declared
     @AppStorage(MTCoinShow.key) private var coinsShown = true   // the owner's switch (Privacy), read here for the table's line
     @AppStorage(MTPersonalRate.key) private var personalRate = ""   // the person's own rate of the coin, for the balance in their currency
+    @AppStorage(MTCoinUnit.mainKey) private var mainUnit = MTCoinUnit.time   // the sum the person made the main one, time by default
     @State private var sending = false
     @State private var toppingUp = false
     @State private var levelsShown = false
@@ -35,6 +36,21 @@ struct MTWalletPage: View {
     @State private var pullReleased: (at: Date, angle: Double)?
     /// Every coin the book holds; before the seed's book lands, the balance a device of the same words told in its tip (04.10 16:34).
     private var total: Int { vault.heard ? book.balance : max(book.balance, tipNet.seen ?? 0) }
+    /// One of the three sums of the balance: the main one large and white, the others small; the whole row takes the finger and
+    /// makes its sum the main one.
+    private func balanceSum(_ unit: MTCoinUnit) -> some View {
+        let main = unit == mainUnit
+        return Button { withAnimation(.snappy) { mainUnit = unit } } label: {
+            unit.balance(total)
+                .font(main ? .system(size: 48, weight: .bold).monospacedDigit() : .subheadline.monospacedDigit())
+                .foregroundStyle(main ? .white : .secondary)
+                .lineLimit(1).minimumScaleFactor(main ? 0.3 : 0.5)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(main ? .isSelected : [])
+    }
     var body: some View {
         NavigationStack {
             List {
@@ -142,22 +158,18 @@ struct MTWalletPage: View {
                         // the TimeChain both the time and the coins»): a coin is a second (the constitution, article 11), so the figure is the
                         // time the book holds; the coins under it are what a transfer moves -- coins, never TCM (a TCM is a billion of them).
                         Text("Time Balance").font(.subheadline).foregroundStyle(.secondary)
-                        // USER-DATA: the balance as a span of time, years, days, hours, minutes and seconds
-                        Text(verbatim: MTCoinText.time(total))
-                            .font(.system(size: 48, weight: .bold).monospacedDigit()).foregroundStyle(.white)
-                            .lineLimit(1).minimumScaleFactor(0.3)
-                            .textSelection(.enabled)
-                        Text("\(MTCoinText.count(total)) coins")
-                            .font(.subheadline.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.5)
-                            .textSelection(.enabled)
+                        // THE MAIN SUM BY THE PERSON'S TAP (the author's words 19.10.2026 20:4x MSK: «at a tap on the coins or on $TCM show
+                        // it as the main currency, the user's choice on the page -- of the 3, the one you tap becomes the main, large and
+                        // white, and by default the Time Balance in units of time»; «leave the words Time Balance, and the tap area of the
+                        // kind of balance right, native, system, so it switches easily»): the three are one count read three ways
+                        // (MTCoinUnit); the chosen stands large under the words, the other two small beneath, each a whole row's button.
+                        balanceSum(mainUnit)
+                        ForEach(MTCoinUnit.allCases.filter { $0 != mainUnit }) { balanceSum($0) }
                         // THE SEED'S BOOK IS ON ITS WAY (the author's word 04.10.2026 15:51 MSK: «I log in on T3 by T1's seed and see my
                         // balance»): a device restored by its words says it is gathering until the nodes answer, never a balance of nothing.
                         if !vault.heard, book.balance == 0 || tipNet.seen != nil {
                             ProgressView("Gathering your coins").controlSize(.small).font(.footnote)
                         }
-                        // USER-DATA: the same balance in Montana (one coin is 0.000000001)
-                        Text(verbatim: MTChatMint.montana(total) + " Ɱ")
-                            .font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
                         // THE AVAILABLE, AND NOTHING MORE BENEATH (the author's word 16.10.2026 17:19 MSK: «on the coins page do not show
                         // below Proven, Declared, More wait to be minted -- it is enough to show how much is available with one owner»):
                         // the one number every transfer page shows and weighs by (MTCoinSplit.available).
@@ -484,26 +496,156 @@ struct MTWalletPullKey: PreferenceKey {
 
 
 /// THE TIME A COUNT OF COINS IS (the constitution, article 11: «1 second -- 1 coin»; the author's word 19.10.2026 17:44 MSK: «in
-/// transfers and everywhere in the TimeChain both the time and the coins»): the one owner -- years of 365 days, days, hours, minutes
-/// and seconds, written by the system in the app's language; split here, never by a calendar, so one count reads the same on every date.
+/// transfers and everywhere in the TimeChain both the time and the coins»): the one owner, written in the app's language.
+/// THE UNITS AS PEOPLE COUNT THEM (the author's word 19.10.2026 20:2x MSK: «divide the units of time humanly -- second, minute,
+/// hour, day, week, month, year, century, epoch»): the spans of MTTimeSpan, each taking what the larger left, a unit at zero
+/// unsaid. Split here, never by a calendar, so one count reads the same on every date; the system writes year to second, the
+/// catalogue the century and the epoch.
 extension MTCoinText {
     static func time(_ coins: Int, signed: Bool = true) -> String {
-        let s = coins.magnitude
+        var rest = coins.magnitude
+        func take(_ span: MTTimeSpan) -> Int {
+            let n = rest / UInt(span.seconds)
+            rest %= UInt(span.seconds)
+            return Int(n)
+        }
+        let epochs = take(.epoch), centuries = take(.century)
         var c = DateComponents()
-        c.year = Int(s / 31_536_000)
-        c.day = Int(s % 31_536_000 / 86_400)
-        c.hour = Int(s % 86_400 / 3_600)
-        c.minute = Int(s % 3_600 / 60)
-        c.second = Int(s % 60)
-        let f = DateComponentsFormatter()
-        f.allowedUnits = [.year, .day, .hour, .minute, .second]
-        f.unitsStyle = .abbreviated
-        f.zeroFormattingBehavior = .dropLeading
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.locale = MTLanguage.locale
-        f.calendar = calendar
-        let told = f.string(from: c) ?? String(s)
+        c.year = take(.year)
+        c.month = take(.month)
+        c.weekOfMonth = take(.week)
+        c.day = take(.day)
+        c.hour = take(.hour)
+        c.minute = take(.minute)
+        c.second = Int(rest)
+        var parts: [String] = []
+        if 0 < epochs { parts.append(String(localized: "\(epochs) ep.", bundle: MTLanguage.bundle)) }
+        if 0 < centuries { parts.append(String(localized: "\(centuries) cent.", bundle: MTLanguage.bundle)) }
+        if parts.isEmpty || coins.magnitude % UInt(MTTimeSpan.century.seconds) != 0 {
+            let f = DateComponentsFormatter()
+            f.allowedUnits = [.year, .month, .weekOfMonth, .day, .hour, .minute, .second]
+            f.unitsStyle = .abbreviated
+            f.zeroFormattingBehavior = .dropAll
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.locale = MTLanguage.locale
+            f.calendar = calendar
+            parts.append(f.string(from: c) ?? String(coins.magnitude))
+        }
+        let told = parts.joined(separator: " ")
         return signed && coins < 0 ? "−" + told : told
+    }
+}
+
+/// THE UNIT A SUM IS TYPED IN (the author's word 19.10.2026 20:1x MSK: «when sending, an option to type either time, or coins,
+/// or Montana -- a choice, like a currency»): a coin is a second (the constitution, article 11) and a Montana a billion coins, so
+/// the three are one count read three ways. The page keeps coins; the field reads and writes the unit chosen -- the time in the
+/// span chosen beside it (MTTimeSpan), the Montana with up to nine places after the point.
+@MainActor enum MTCoinUnit: String, CaseIterable, Identifiable {
+    case time, coins, montana
+    nonisolated var id: String { rawValue }
+    var title: Text {
+        switch self {
+        case .time: return Text("Time")
+        case .coins: return Text("Coins")
+        case .montana: return Text(verbatim: MTCoinBook.ticker)   // USER-DATA: the ticker, as the balance writes it (constitution, article 12)
+        }
+    }
+    /// The sum the person made the main one on the wallet's page (the author's word 19.10.2026 20:4x MSK), a setting of the person.
+    nonisolated static let mainKey = "mt.coin.mainUnit"
+    /// The whole balance as its row on the wallet's page reads it.
+    func balance(_ coins: Int) -> Text {
+        switch self {
+        // USER-DATA: the balance as a span of time, years, days, hours, minutes and seconds
+        case .time: return Text(verbatim: MTCoinText.time(coins))
+        // USER-DATA: the balance in coins, a number
+        case .coins: return Text("\(MTCoinText.count(coins)) coins")
+        // USER-DATA: the balance in Montana (one coin is 0.000000001) under the ticker
+        case .montana: return Text(verbatim: told(coins))
+        }
+    }
+    var keyboard: UIKeyboardType { self == .coins ? .numberPad : .decimalPad }
+    /// A sum as the person reads it beside the total.
+    func told(_ coins: Int) -> String {
+        switch self {
+        case .time: return MTCoinText.time(coins, signed: false)
+        case .coins: return MTCoinText.count(coins)
+        case .montana: return MTChatMint.montana(coins) + " " + MTCoinBook.ticker
+        }
+    }
+    /// A sum as its field shows it; none shows nothing, so the field's own zero stands. A span holds no whole count of a sum the
+    /// page wrote itself (a box of π in hours): it shows six places, and the total beside says the sum exactly.
+    func written(_ coins: Int, in span: MTTimeSpan) -> String {
+        guard 0 < coins else { return "" }
+        switch self {
+        case .coins: return String(coins)
+        case .time: return Self.decimal(coins, over: span.seconds, places: 6)
+        case .montana: return Self.decimal(coins, over: MTChatMint.coinsPerMontana, places: 9)
+        }
+    }
+    /// What is typed, as the field keeps it and as the coins it is, never more than fifteen digits of coins. Digits of every
+    /// script are read, as the keyboard gives them; the point is either mark the keyboard of the language gives.
+    func read(_ typed: String, in span: MTTimeSpan) -> (shown: String, coins: Int) {
+        switch self {
+        case .coins:
+            let digits = String(Self.digits(typed).prefix(15))
+            return (digits, Int(digits) ?? 0)
+        case .time: return Self.number(typed, per: span.seconds, places: 6)
+        case .montana: return Self.number(typed, per: MTChatMint.coinsPerMontana, places: 9)
+        }
+    }
+    private static let ceiling = 999_999_999_999_999
+    private static func digits(_ typed: String) -> String { typed.compactMap(\.wholeNumberValue).map(String.init).joined() }
+    /// A number with a point, read as so many units of `per` coins, rounded down to a whole coin.
+    private static func number(_ typed: String, per: Int, places: Int) -> (shown: String, coins: Int) {
+        var whole = "", fraction = "", pointed = false
+        for c in typed {
+            if let d = c.wholeNumberValue {
+                if pointed { if fraction.count < places { fraction += String(d) } } else if whole.count < 15 { whole += String(d) }
+            } else if c == "." || c == ",", !pointed {
+                pointed = true
+            }
+        }
+        let shown = whole + (pointed ? "." + fraction : "")
+        guard let value = Decimal(string: (whole.isEmpty ? "0" : whole) + "." + fraction + "0", locale: Locale(identifier: "en_US_POSIX")) else { return (shown, 0) }
+        var exact = value * Decimal(per), down = Decimal()
+        NSDecimalRound(&down, &exact, 0, .down)
+        // A digit past the ceiling is not taken, so the field never shows more than it sends.
+        guard down <= Decimal(ceiling) else { return number(String(typed.dropLast()), per: per, places: places) }
+        return (shown, Int(truncating: NSDecimalNumber(decimal: down)))
+    }
+    /// A count of coins as so many units of `per`, its places trimmed of the zeros that end them.
+    private static func decimal(_ coins: Int, over per: Int, places: Int) -> String {
+        var value = Decimal(coins) / Decimal(per), kept = Decimal()
+        NSDecimalRound(&kept, &value, places, .down)
+        let f = NumberFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.minimumFractionDigits = 0
+        f.maximumFractionDigits = places
+        f.usesGroupingSeparator = false
+        return f.string(from: NSDecimalNumber(decimal: kept)) ?? String(coins)
+    }
+}
+
+/// THE SPANS OF TIME AS PEOPLE COUNT THEM (the author's word 19.10.2026 20:2x MSK: «divide the units of time humanly -- second,
+/// minute, hour, day, week, month, year, century, epoch»): the one table of their lengths in seconds, the same the Time Balance
+/// splits by (MTCoinText.time) -- a year of 365 days, a month its twelfth, a century a hundred years, an epoch a thousand.
+enum MTTimeSpan: Int, CaseIterable, Identifiable {
+    case second = 1, minute = 60, hour = 3_600, day = 86_400, week = 604_800, month = 2_628_000, year = 31_536_000
+    case century = 3_153_600_000, epoch = 31_536_000_000
+    var id: Int { rawValue }
+    var seconds: Int { rawValue }
+    var title: Text {
+        switch self {
+        case .second: return Text("Second")
+        case .minute: return Text("Minute")
+        case .hour: return Text("Hour")
+        case .day: return Text("Day")
+        case .week: return Text("Week")
+        case .month: return Text("Month")
+        case .year: return Text("Year")
+        case .century: return Text("Century")
+        case .epoch: return Text("Epoch")
+        }
     }
 }
 
@@ -1573,14 +1715,22 @@ struct MTTimeChainsPage: View {
                     Text(verbatim: person.level.map { n in String(n) } ?? "—").monospacedDigit()
                 }
                 LabeledContent("Time online") {
-                    // USER-DATA: the seconds the chain of the person counts, as the system writes a span of time
-                    Text(verbatim: Duration.seconds(person.seconds).formatted(.units(allowed: [.days, .hours, .minutes, .seconds], width: .abbreviated)))
+                    // USER-DATA: the seconds the chain of the person counts, in the units of the Time Balance
+                    Text(verbatim: MTCoinText.time(Int(person.seconds), signed: false))
                         .monospacedDigit()
                 }
+                // THE NEXT LEVEL IN TIME (the author's word 19.10.2026 20:12 MSK: «on the page, in the row to the next level, write it
+                // as the Time Balance does -- measured in time»): the seconds left until the level doubles, by the Time Balance's owner.
                 if let n = person.level, n < 62 {
                     let from = Int64(1) << n
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("To the next level").font(.subheadline).foregroundStyle(.secondary)
+                        LabeledContent {
+                            // USER-DATA: the seconds left to the next level, as the Time Balance writes a span of time
+                            Text(verbatim: MTCoinText.time(Int(max(0, 2 * from - person.seconds)), signed: false))
+                                .font(.subheadline.monospacedDigit())
+                        } label: {
+                            Text("To the next level").font(.subheadline).foregroundStyle(.secondary)
+                        }
                         ProgressView(value: Double(person.seconds - from), total: Double(from))
                     }
                     .frame(minHeight: 44)
@@ -1864,6 +2014,10 @@ struct MTCoinSendSheet: View {
     /// EACH NAME ITS OWN COINS (the author's word 06.10.2026 17:3x MSK: «the field of the coins entered beside the name»): what is
     /// typed beside a chat is what that chat gets; a chat picked with nothing typed takes the box of π last chosen.
     @State private var amounts: [String: String] = [:]
+    /// The unit the fields are typed in (MTCoinUnit) and each field's text as typed in it; amounts stay coins.
+    @State private var unit = MTCoinUnit.coins
+    @State private var span = MTTimeSpan.hour
+    @State private var typed: [String: String] = [:]
     @State private var chosen = 1
     @State private var going: [String: Bool] = [:]   // the coins in flight per chat: false while they go, true when the letter stands
     /// THE ONE QUESTION OF THE PAGE (the author's word 11.10.2026 17:5x MSK: «the button Level the top 13 does not work»): three alerts
@@ -1887,6 +2041,22 @@ struct MTCoinSendSheet: View {
         NavigationStack {
             List {
                 Section {
+                    HStack(spacing: 12) {
+                        Picker("Amount", selection: $unit) {
+                            ForEach(MTCoinUnit.allCases) { u in u.title.tag(u) }
+                        }
+                        .pickerStyle(.segmented)
+                        if unit == .time {
+                            Picker("Unit of time", selection: $span) {
+                                ForEach(MTTimeSpan.allCases) { s in s.title.tag(s) }
+                            }
+                            .pickerStyle(.menu)
+                            .labelsHidden()
+                        }
+                    }
+                    .frame(minHeight: 44)
+                    .onChange(of: unit) { typed = [:] }
+                    .onChange(of: span) { typed = [:] }
                     // THE THIRTEEN BOXES OF π AS THE AMOUNTS SENT (the author's word 03.10 22:02: «when sending, the same thirteen boxes»):
                     // a box chosen stands beside every chat picked.
                     ScrollView(.horizontal, showsIndicators: false) {
@@ -1917,7 +2087,7 @@ struct MTCoinSendSheet: View {
                     .frame(minHeight: 44)
                     if !picked.isEmpty {
                         // USER-DATA: the coins of every picked chat together, a number
-                        LabeledContent { Text(verbatim: MTCoinText.count(total)).monospacedDigit() } label: { Text("Total") }
+                        LabeledContent { Text(verbatim: unit.told(total)).monospacedDigit() } label: { Text("Total") }
                     }
                 }
                 .listRowBackground(MTGlassRowPlate())
@@ -1942,12 +2112,12 @@ struct MTCoinSendSheet: View {
                                 }
                                 .buttonStyle(.plain)
                                 TextField("0", text: field(key))
-                                    .keyboardType(.numberPad)
+                                    .keyboardType(unit.keyboard)
                                     .multilineTextAlignment(.trailing)
                                     .font(.body.monospacedDigit())
                                     .textFieldStyle(.roundedBorder)
                                     .focused($typing, equals: key)
-                                    .frame(width: 96, height: 44)
+                                    .frame(width: 120, height: 44)
                                 Button { toggle(key) } label: { MTPickMark(picked: picked.contains(key), going: going[key]) }
                                     .buttonStyle(.plain)
                                     .frame(minWidth: 44, minHeight: 44)
@@ -1976,12 +2146,12 @@ struct MTCoinSendSheet: View {
                                 // the check -- active, the system's, with a blinking cursor): the platform's rounded field, and a chat picked
                                 // hands it the keyboard at once.
                                 TextField("0", text: field(c.name))
-                                    .keyboardType(.numberPad)
+                                    .keyboardType(unit.keyboard)
                                     .multilineTextAlignment(.trailing)
                                     .font(.body.monospacedDigit())
                                     .textFieldStyle(.roundedBorder)
                                     .focused($typing, equals: c.name)
-                                    .frame(width: 96, height: 44)
+                                    .frame(width: 120, height: 44)
                                 Button { toggle(c.name) } label: { MTPickMark(picked: picked.contains(c.name), going: going[c.name]) }
                                     .buttonStyle(.plain)
                                     .frame(minWidth: 44, minHeight: 44)
@@ -2075,19 +2245,22 @@ struct MTCoinSendSheet: View {
             MontanaTrace.mark("coin_send_page", "pairs=" + String(pairs.count))
         }
     }
-    /// The coins typed beside a chat: digits alone; coins typed pick the chat, a field emptied lets it go.
+    /// The sum typed beside a chat, in the unit chosen: kept as typed, weighed as coins; coins typed pick the chat, a field emptied
+    /// lets it go. A sum the page writes itself (a box, the levelling) drops the typed text, and the field shows it in the unit.
     private func field(_ name: String) -> Binding<String> {
-        Binding(get: { amounts[name] ?? "" }, set: { typed in
-            let digits = String(typed.filter(\.isNumber).prefix(15))
-            amounts[name] = digits
-            if 0 < (Int(digits) ?? 0) { picked.insert(name) } else { picked.remove(name) }
+        Binding(get: { typed[name] ?? unit.written(coins(name), in: span) }, set: { text in
+            let read = unit.read(text, in: span)
+            typed[name] = read.shown
+            amounts[name] = 0 < read.coins ? String(read.coins) : ""
+            if 0 < read.coins { picked.insert(name) } else { picked.remove(name) }
         })
     }
     private func choose(_ n: Int) {
         chosen = n
-        for name in picked { amounts[name] = String(n) }
+        for name in picked { amounts[name] = String(n); typed[name] = nil }
     }
     private func toggle(_ name: String) {
+        typed[name] = nil
         if picked.contains(name) {
             picked.remove(name)
             amounts[name] = nil
@@ -2141,6 +2314,7 @@ struct MTCoinSendSheet: View {
     private func level() {
         let plan = levelPlan()
         for p in topThirteen {
+            typed[p.name] = nil
             if let gift = plan.gifts.first(where: { g in g.name == p.name }) {
                 amounts[p.name] = String(gift.give)
                 picked.insert(p.name)

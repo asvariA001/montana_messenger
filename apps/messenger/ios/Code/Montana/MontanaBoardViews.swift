@@ -1599,7 +1599,7 @@ struct MTPiLevelsSheet: View {
                             // USER-DATA: π revealed to this level
                             Text(verbatim: "π " + MTPiLevels.revealed(n)).font(.headline.monospacedDigit())
                             // USER-DATA: the level's coins, short and as a share of a Montana
-                            Text(verbatim: MTPiLevels.short(coins) + " · " + MTChatMint.montana(coins) + " Ɱ").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                            Text(verbatim: MTPiLevels.short(coins) + " · " + MTChatMint.montana(coins) + " " + MTCoinBook.ticker).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                         }
                         Spacer(minLength: 0)
                         if reached { Image(systemName: "checkmark.circle.fill").foregroundColor(Color.accentColor) }
