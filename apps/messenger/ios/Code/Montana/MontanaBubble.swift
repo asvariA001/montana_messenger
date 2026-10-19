@@ -193,7 +193,6 @@ struct MessageBubble: View, Equatable {
     /// The one player, read and asked -- never watched whole (28.09): the bubble watches the player's face (VoicePlayer.Face),
     /// and only the playing bubble's wave watches its clock (MTAudioLive).
     let player: VoicePlayer
-    var bottomUp = false      // the Money Flow's turned feed: the words of the bubble read bottom up too (MTLinkedText.bottomUp)
     @ObservedObject private var playFace = VoicePlayer.shared.face
     private let imgFrameBox = MTFrameBox()
     /// The picture's own frame in the plate's space (the author's word 22.09): a tap on the caption's words is
@@ -673,11 +672,6 @@ struct MTSaveBeside<Badge: View>: ViewModifier {
     @ViewBuilder private func words(_ s: String, _ font: UIFont) -> some View {
         if textIsSelectable {
             MTMessageText(text: MTRowLetter.words(s), font: font, color: UIColor(bubbleText))
-        } else if bottomUp {
-            // THE MONEY FLOW'S BUBBLE READS AS ITS FEED (the author's word 18.10.2026 10:3x MSK): the lines as the bubble lays them, the first
-            // at the bottom -- the platform's text view lays them at its own width, a link in them still a link.
-            MTLinkedText(text: MTRowLetter.words(s), font: font, color: UIColor(bubbleText),
-                         linkColor: UIColor(MontanaNativeBubble.link(mine: drawnMine)), bottomUp: true)
         } else if !MTLinks.urls(in: s).isEmpty {   // the finder's own gate and its kept answer (MTLinks.urls, 28.09)
             // A LETTER THAT CARRIES A LINK IS DRAWN BY THE PLATFORM (the author's word 22.09): its own
             // text view finds the link — a bare host among other words too — and takes the touch only

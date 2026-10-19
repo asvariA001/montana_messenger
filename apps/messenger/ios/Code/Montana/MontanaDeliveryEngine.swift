@@ -273,9 +273,14 @@ final class MontanaDeliveryEngine {
             return
         }
         // A copy of the same letter over another transport is not a second letter.
-        if store.messages[from]?.contains(where: { $0.msgId == sid }) == true {
-            if let qt = quoteText, !qt.isEmpty { store.enrichQuote(from, sid: sid, qt: qt, qm: quoteMid) }
-            if let lp = linkPreview, !lp.isEmpty { store.enrichLinkPreview(from, sid: sid, lp: lp) }
+        // THE COPY IS LOOKED FOR WHERE THE ROW STANDS (19.10.2026, T1 11:01 MSK on 2246): a pipe folded into its conversation
+        // (MTSamePair) holds no rows of its own -- its letters land in the conversation, and the copy check that read the pipe
+        // found nothing there; the person's own «hello» of 10.10, brought back by the twin mirror, stood twice under one name,
+        // rang a banner with the person's own name and the feed died on the repeated identifier.
+        let home = MTSamePair.root(from)
+        if store.messages[home]?.contains(where: { $0.msgId == sid }) == true {
+            if let qt = quoteText, !qt.isEmpty { store.enrichQuote(home, sid: sid, qt: qt, qm: quoteMid) }
+            if let lp = linkPreview, !lp.isEmpty { store.enrichLinkPreview(home, sid: sid, lp: lp) }
             // A copy is not a second letter, but it is not silence either. The sender waits
             // for «I have it» and resends forever without it: measured 24.08 — the letter LAY
             // in the first phone's feed while the seventeenth resent it forty-three times in
@@ -288,7 +293,7 @@ final class MontanaDeliveryEngine {
             // in the sender's chat stands in the receiver's): a media row without its file takes the
             // copy's manifest — the sender re-uploaded under the same name — and the assembly road
             // receipts when the file is whole. Nothing is erased, nothing is doubled.
-            if text.hasPrefix(mediaMark), let row = store.messages[from]?.first(where: { $0.msgId == sid }),
+            if text.hasPrefix(mediaMark), let row = store.messages[home]?.first(where: { $0.msgId == sid }),
                let f = row.videoFile ?? row.imageFile ?? row.audioFile ?? row.docFile, !MontanaMediaStore.exists(f) {
                 MontanaTrace.mark("rx_refill", mid: mid, "the row stands without its file — the copy's cargo is taken")
                 store.reconstructMedia(from, body: String(text.dropFirst(mediaMark.count)), isFromMe: false,

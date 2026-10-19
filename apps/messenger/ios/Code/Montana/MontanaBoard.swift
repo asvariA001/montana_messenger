@@ -729,17 +729,16 @@ final class MTBoard: ObservableObject {
     /// own wall — my reposts among them, and what I write from the feed — and of every wall of my people this phone holds,
     /// each once by its wall and its name, the most seen first (06.10). A wall whose correspondence this phone no longer
     /// holds, or whose owner is blocked or barred, stands out of it; at most the newest three hundred.
-    static let feedSize = 300
+    static let feedSize = MTBoardGlobal.tableWhole   // the feed shows the whole table, not its newest page (19.10.2026)
     /// MY POSTS AS THE TABLE CARRIES THEM TO EVERYONE (MTBoardGlobal): my own words on my own wall -- never a post another wrote
     /// here, never a repost -- the newest first, a month at most, with my name and my face as they stand now. Nobody's comment
     /// leaves (its writer showed it to my wall alone), and a post past the table's room sheds its posters from the last file.
     func publicPosts(limit: Int, budget: Int) -> [String: (digest: String, body: [String: Any])] {
-        let edge = Date().timeIntervalSince1970 - 29 * 86400
         let name = String(E2E.myDisplayName().prefix(64)), face = Self.myFace()
         let enc = JSONEncoder()
         enc.outputFormatting = .sortedKeys   // one post, one digest: what was laid is not laid again
         var out: [String: (digest: String, body: [String: Any])] = [:]
-        let own = mine.filter { q in q.author.isEmpty && q.from == nil && edge < q.at }.sorted { a, b in b.at < a.at }
+        let own = mine.filter { q in q.author.isEmpty && q.from == nil }.sorted { a, b in b.at < a.at }
         for p in own.prefix(limit) {
             var x = Self.clean(seen(p, by: "", conceal: true))
             if !name.isEmpty { x.byName = name }
@@ -2598,7 +2597,10 @@ final class MTBoardGlobal: ObservableObject {
     static let hiddenKey = "wall.global.hidden"                    // NOT-UI: the writers of the table the person hid
     private static let keyLabel = Data("mt-wall-owner-v1".utf8)    // NOT-UI: the derivation's own label
     private static let tokenLabel = Data("mt-wall-token".utf8)     // NOT-UI: the token's own label
-    static let perOwner = 20
+    // THE WHOLE WALL (the author's word 19.10.2026 11:4x MSK: «everyone must see the global feed of everyone, totally»): every post of
+    // mine, of any age, up to the node's row (WALL_PER_ROW); the table read page by page up to the node's whole (WALL_POSTS).
+    static let perOwner = 1000
+    static let tableWhole = 5000
     static let budget = 90 * 1024
     @Published private(set) var posts: [(row: String, post: MTBoardSeen)] = []
     private var readAt = Date.distantPast
@@ -2710,9 +2712,27 @@ final class MTBoardGlobal: ObservableObject {
         }
         return nil
     }
+    /// A post's name in the table: its row and its id.
+    private static func name(_ x: [String: Any]) -> String? {
+        guard let r = x["row"] as? String, let id = (x["post"] as? [String: Any])?["id"] as? String else { return nil }
+        return r + "/" + id
+    }
     /// A post of another hand owes this screen nothing: it is read as a post, its marks of mine set to none, its name letters only.
     private static func fetch() async -> [(row: String, post: MTBoardSeen)]? {
-        guard let j = await send("/wall-get", [:]), let list = j["posts"] as? [[String: Any]] else { return nil }
+        // THE TABLE PAGE BY PAGE (19.10.2026): a node answers 300 posts at most; the next page is asked below the oldest moment held,
+        // one second over it so a moment shared across the edge is not lost -- the repeats fall to the name -- until a page brings
+        // nothing new or the node's whole is read.
+        guard let first = await send("/wall-get", [:]), var list = first["posts"] as? [[String: Any]] else { return nil }
+        var names = Set(list.compactMap { x in Self.name(x) })
+        var page = list
+        while list.count < tableWhole, page.count == 300,
+              let oldest = page.compactMap({ x in (x["post"] as? [String: Any])?["at"] as? Double }).min() {
+            guard let j = await send("/wall-get", ["before": Int(oldest) + 1]), let more = j["posts"] as? [[String: Any]] else { break }
+            page = more.filter { x in Self.name(x).map { n in names.insert(n).inserted } ?? false }
+            if page.isEmpty { break }
+            list += page
+            page = more
+        }
         let mine = myToken().map { t in row(token: t) }
         var out: [(row: String, post: MTBoardSeen)] = []
         for x in list {

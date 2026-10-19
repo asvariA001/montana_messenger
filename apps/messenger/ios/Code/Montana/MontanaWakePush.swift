@@ -5175,8 +5175,12 @@ struct MTClientRelease: Codable, Equatable {
         return channel
     }
     func refresh() async {
-        guard !asking else { return }
+        // THE WORD IS TOLD BEFORE ANY QUESTION IS ASKED (19.10.2026, the author's word 11:4x MSK: «the update messages must
+        // come to every user»): the launch's refresh asks the site while the history still loads, and the history's own
+        // refresh, arriving mid-question, left at «asking» -- a phone whose history loads longer than the site answers was
+        // never told (T1: no «RELEASE told» for 2245 nor 2246, T2 told). The release already in hand lands first, every call.
         deliver()
+        guard !asking else { return }
         guard Date().timeIntervalSince(lastAsked) >= 30, let client else { return }
         asking = true
         defer { asking = false }

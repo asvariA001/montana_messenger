@@ -2838,7 +2838,7 @@ struct ChatConversationView: View {
                                 .accessibilityLabel(Text(verbatim: MTGroup.shared.speakerLine(message, in: chat.name) ?? ""))   // USER-DATA: the speaker's name
                             }
                             SwipeReplyRow(id: message.id, onReply: { if !readsOnly { replyingTo = message; inputFocused = true } }) {
-                                MessageBubble(message: message, player: player, bottomUp: newestFirst, onTapImage: { _ in
+                                MessageBubble(message: message, player: player, onTapImage: { _ in
                                     // No file — the tap repeats the download instead of opening emptiness.
                                     if let f = message.imageFile, !fileOnDisk(f) {
                                         MontanaTrace.markFolded("media_tap", "no file -- the download is asked again", window: 5)

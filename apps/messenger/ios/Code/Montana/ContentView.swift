@@ -4064,6 +4064,14 @@ func releaseInfoOf(_ text: String) -> (build: Int, version: String, notes: [Stri
     return (b, (o["v"] as? String) ?? "", own.isEmpty ? ((o["n"] as? [String]) ?? []) : own, (o["u"] as? String) ?? "")
 }
 
+/// Every language a release row carries ([:] -- a row born before the translations rode).
+func releaseLanguages(_ text: String) -> [String: [String]] {
+    guard text.hasPrefix(releaseMark),
+          let d = String(text.dropFirst(releaseMark.count)).data(using: .utf8),
+          let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return [:] }
+    return (o["l"] as? [String: [String]]) ?? [:]
+}
+
 // Parse a call log entry from the message text.
 func callInfoOf(_ text: String) -> MTCallInfo? {
     guard text.hasPrefix(callMark) else { return nil }

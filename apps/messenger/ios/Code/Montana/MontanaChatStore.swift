@@ -198,6 +198,13 @@ class ChatStore: ObservableObject {
         var row = row
         if !row.isFromMe, chat == openConv, MTForeground.active { row.isRead = true }
         var arr = messages[chat] ?? []
+        // ONE NAME, ONE ROW AT BIRTH (19.10.2026, T1 11:01 MSK on 2246): the feed's snapshot refuses two rows of one identity
+        // outright -- a crash, not a warning -- and the history's load was the only place that kept the rule. A row whose name
+        // already stands is not born again; the standing row answers.
+        if let sid = row.msgId, let standing = arr.first(where: { $0.msgId == sid }) {
+            MontanaTrace.mark("row_twin", mid: String(sid.dropFirst(4)), "the name already stands in the chat -- not born twice")
+            return standing
+        }
         if let last = arr.last, !ChatStore.before(row, last) { arr.append(row) }
         else { arr.insert(row, at: arr.firstIndex(where: { ChatStore.before(row, $0) }) ?? arr.count) }
         messages[chat] = arr
@@ -1382,7 +1389,7 @@ class ChatStore: ObservableObject {
         // the photo's second copy receipted at 23:26:15 with no file on disk, the sender swept the
         // cargo one second later, and the receiver hunted a manifest that no longer existed for
         // thirteen minutes. A row that owns a file IS a media letter, whatever the envelope says.
-        let row = messages[chat]?.first(where: { $0.msgId == rsid })
+        let row = messages[MTSamePair.root(chat)]?.first(where: { $0.msgId == rsid })   // a folded pipe's row stands in its conversation
         let rowFile = row.flatMap { $0.videoFile ?? $0.imageFile ?? $0.audioFile ?? $0.docFile }
         if !buried, text.hasPrefix(mediaMark) || text.hasPrefix(voiceMark) || rowFile != nil {
             let file = rowFile
@@ -2941,13 +2948,22 @@ class ChatStore: ObservableObject {
     /// room is opened; the row carries the build, the version, what changed and the TestFlight link (releaseMark).
     @discardableResult
     func appendRelease(build: Int, version: String, notes: [String], l10n: [String: [String]], url: String) -> Bool {
-        if let rows = messages[montanaRoomKey], rows.contains(where: { releaseInfoOf($0.text)?.build == build }) {
-            MontanaTrace.mark("release", "row stands build=\(build) — once"); return false
-        }
         var payload: [String: Any] = ["b": build, "v": version, "n": notes, "u": url]
         if !l10n.isEmpty { payload["l"] = l10n }
         guard let d = try? JSONSerialization.data(withJSONObject: payload),
               let json = String(data: d, encoding: .utf8) else { return false }
+        if let i = messages[montanaRoomKey]?.firstIndex(where: { releaseInfoOf($0.text)?.build == build }) {
+            // THE ROW SPEAKS EVERY LANGUAGE THE WORD CARRIES (19.10.2026, the author's word 11:4x MSK: «the text must be all in
+            // the chosen system language»): a row born by a build that kept no translations stood in English under a Russian
+            // title for good (T2, 2246). The same row, its same name, takes the languages the word brings now -- never a second row.
+            if let row = messages[montanaRoomKey]?[i], !l10n.isEmpty, releaseLanguages(row.text) != l10n {
+                messages[montanaRoomKey]?[i].text = releaseMark + json
+                if let healed = messages[montanaRoomKey]?[i] { _ = MTRowJournal.put(montanaRoomKey, healed) }
+                MontanaTrace.mark("release", "row stands build=\(build) — its languages filled in")
+                return false
+            }
+            MontanaTrace.mark("release", "row stands build=\(build) — once"); return false
+        }
         if deletedChats.contains(montanaRoomKey) { deletedChats.remove(montanaRoomKey) }
         let m = Message(text: releaseMark + json, isFromMe: false, time: nowHHMM(), deliveryStatus: .delivered)
         placeRow(montanaRoomKey, m)
@@ -4780,6 +4796,13 @@ MontanaLocalVault.setEncrypted("scheduledMsgs", d)
         // mark are not moved by it.
         let step = row.isChessStep
         if step, !row.isFromMe { row.isRead = true }
+        // A LETTER WHOSE NAME ALREADY STANDS IS A COPY (19.10.2026, T1 11:01 MSK): no second row, no banner, no count -- the
+        // receipt alone, as the copy road answers it.
+        if let sid = row.msgId, messages[chat]?.contains(where: { $0.msgId == sid }) == true {
+            MontanaTrace.mark("row_twin", mid: String(sid.dropFirst(4)), "copy at the landing -- the row already stands")
+            if !row.isFromMe { _ = sendDeliveryReceipt(chat, msgId: row.msgId, isFromMe: false, text: m.text) }
+            return false
+        }
         var placed = row
         MontanaMainProbe.step("place") { placed = placeRow(chat, row) }
         // ...AND ITS LANDING STARTS THE CLOCK OF THE ONE WHO RECEIVED IT (29.09): the rung «read» is written through the
