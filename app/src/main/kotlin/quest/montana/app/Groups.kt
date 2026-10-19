@@ -72,6 +72,8 @@ object Groups {
         var history: Boolean = false,
         /** THE PEOPLE KEPT OUT (iOS banned, G.7, the reference's «Removed Users»): everyone the owner or an administrator took out, by seat and pipe; the owner's alone, never on the wire. */
         val banned: MutableList<Member> = mutableListOf(),
+        /** THE STANDING MARK OF THE GROUP'S INVITE LINK (iOS invite, the reference's «Invite Link»): whoever opens the link meets the owner by its card and asks with it; a new mark ends every link given before. The owner's alone. */
+        var invite: String? = null,
     ) {
         val mine: Boolean get() = owner.isEmpty()
         fun json(): JSONObject = JSONObject().put("id", id).put("k", kind).put("ti", title).put("ds", about).put("ow", owner).put("me", me)
@@ -81,6 +83,7 @@ object Groups {
             .put("ax", JSONObject().apply { taken.forEach { (k, v) -> put(k, JSONArray(v)) } }).put("rk", JSONObject(ranks.toMap()))
             .put("bn", JSONArray(barred)).put("sw", slow).put("hy", history)
             .put("bd", JSONArray().apply { banned.forEach { put(JSONObject().put("s", it.seat).put("p", it.pipe)) } })
+            .put("iv", invite ?: "")
         companion object {
             fun of(o: JSONObject) = State(o.getString("id"), o.getString("k"), o.optString("ti"), o.optString("ds"), o.optString("ow"),
                 o.getString("me"),
@@ -94,7 +97,8 @@ object Groups {
                 o.optJSONObject("rk")?.let { r -> r.keys().asSequence().associateWith { r.getString(it) }.toMutableMap() } ?: mutableMapOf(),
                 o.optJSONArray("bn")?.let { a -> MutableList(a.length()) { a.getString(it) } } ?: mutableListOf(), o.optInt("sw"),
                 o.optBoolean("hy"),
-                o.optJSONArray("bd")?.let { a -> MutableList(a.length()) { i -> a.getJSONObject(i).let { Member(it.getString("s"), it.getString("p")) } } } ?: mutableListOf())
+                o.optJSONArray("bd")?.let { a -> MutableList(a.length()) { i -> a.getJSONObject(i).let { Member(it.getString("s"), it.getString("p")) } } } ?: mutableListOf(),
+                o.optString("iv").ifEmpty { null })
         }
     }
 
@@ -674,7 +678,7 @@ object Groups {
     fun about(key: String): String = state(key)?.about ?: ""
 
     /** THE OWNER ADDS PEOPLE (iOS add): each new one is invited with a seat of their own and the group's face; everyone learns the count. */
-    fun add(key: String, people: List<String>) {
+    fun add(key: String, people: List<String>, viaLink: Boolean = false) {
         synchronized(lock) {
             val g = state(key) ?: return
             if (!g.mine) return
@@ -696,7 +700,8 @@ object Groups {
             save()
             val face = Book.face(key).takeIf { it.exists() }?.readBytes()?.let { thumb(it) }
             tellAll(g, face, fresh.map { it.seat }.toSet())
-            val came = event("added", OWNER_SEAT, fresh.map { it.seat })
+            // one who came by the group's link joined by their own hand (iOS add viaLink, the reference: «%@ joined the group via invite link»)
+            val came = if (viaLink) event("joined", fresh[0].seat) else event("added", OWNER_SEAT, fresh.map { it.seat })
             lay(g, came)
             tellEvent(g, came)
             handPast(g, fresh)
@@ -730,6 +735,86 @@ object Groups {
             Log.i("Montana", "group_removed count=" + g.count)
         }
     }
+    // ── the group's invite link (iOS stage R.6 and G.3, the reference's «Invite Link», «joined the group via invite link») ──
+
+    /** The link's query word: the group's id and its standing mark, «jg=<id>.<mark>» (iOS joinParam). */
+    private const val JOIN_PARAM = "jg"
+    /**
+     * THE LINK THE OWNER HANDS OUT (iOS inviteLink): its own permanent card -- whoever opens it meets the owner, the one road of a
+     * link -- and the group's mark after it. Null: no card stands, or this phone owns no such group. The card may be born on the
+     * network: off the main thread.
+     */
+    fun inviteLink(c: Context, key: String): String? {
+        val mark = synchronized(lock) {
+            val g = state(key) ?: return null
+            if (!g.mine || g.kind != GROUP || g.left) return null
+            g.invite ?: mintId().also { g.invite = it; save() }
+        }
+        val card = MontanaCard.offerPermanent(c) ?: return null
+        val id = state(key)?.id ?: return null
+        return card + (if ('?' in card) "&" else "?") + JOIN_PARAM + "=" + id + "." + mark
+    }
+    /** A NEW MARK (iOS resetInvite, the reference's «Revoke Link»): every link given before opens nothing more. */
+    fun resetInvite(key: String) = synchronized(lock) {
+        val g = state(key) ?: return@synchronized
+        if (!g.mine || g.kind != GROUP) return@synchronized
+        g.invite = mintId()
+        save()
+        Log.i("Montana", "group_link reset")
+    }
+    /** A group's id or a link's mark: 32 lowercase hex, the form mintId makes (iOS isMark). */
+    private fun isMark(s: String) = s.length == 32 && s.all { it in '0'..'9' || it in 'a'..'f' }
+    /** A JOIN THAT WAITS FOR ITS MEETING (iOS waitingJoin): the link's group and mark, asked of the owner once the meeting opens; ten minutes at most. */
+    private var waitingJoin: Triple<String, String, Long>? = null
+    /**
+     * THE LINK'S GROUP MARK IS TAKEN OFF BEFORE THE MEETING (iOS joinMark + waitJoin, MontanaMeeting.handleLink): the join waits,
+     * and the bare card goes on by the one road of a link. A link without the mark comes back as it was.
+     */
+    fun takeJoin(link: String): String {
+        val u = runCatching { android.net.Uri.parse(link.trim()) }.getOrNull() ?: return link
+        val v = runCatching { u.getQueryParameter(JOIN_PARAM) }.getOrNull() ?: return link
+        val bits = v.split(".", limit = 2)
+        if (bits.size != 2 || !isMark(bits[0]) || !isMark(bits[1])) return link
+        val bare = u.buildUpon().clearQuery().apply {
+            u.queryParameterNames.filter { it != JOIN_PARAM }.forEach { n -> u.getQueryParameters(n).forEach { appendQueryParameter(n, it) } }
+        }.build().toString()
+        synchronized(lock) { waitingJoin = Triple(bits[0], bits[1], System.currentTimeMillis()) }
+        Log.i("Montana", "group_link a join waits for its meeting")
+        return bare
+    }
+    /** THE MEETING OPENED ITS CONVERSATION (iOS askJoin): the waiting join is asked of the owner over it, the mark and this phone's name. */
+    fun askJoin(pipe: String) {
+        synchronized(lock) {
+            val j = waitingJoin ?: return
+            waitingJoin = null
+            if (System.currentTimeMillis() - j.third > 600_000 || !ready()) return
+            val me = clean(Prefs.userName, NAME_LIMIT)
+            val w = JSONObject().put("t", "jn").put("g", j.first).put("id", Marks.mintMid()).put("tx", j.second)
+            if (me.isNotEmpty()) w.put("n", me)
+            val sent = carry(w, pipe, "", own = false) != null
+            Log.i("Montana", "group_link join asked sent=" + (if (sent) 1 else 0))
+        }
+    }
+    /**
+     * ONE WHO OPENED THE GROUP'S LINK ASKS AT THE OWNER'S PHONE (iOS joined): the mark must be the group's standing one; one the
+     * owner took out is refused (G.7, the reference's «Removed Users»); then the person is added by the owner's own road, and
+     * everyone reads that they joined by the link.
+     */
+    private fun joined(w: JSONObject, pipe: String): Verdict {
+        val g = groups[w.optString("g")] ?: return Verdict.REFUSED
+        val held = g.invite
+        if (!g.mine || g.kind != GROUP || g.left || held == null || w.optString("tx") != held) return Verdict.REFUSED
+        val from = SamePair.root(pipe)
+        if (g.members.any { SamePair.root(it.pipe) == from }) return Verdict.HELD   // already in: nothing more
+        if (g.banned.any { SamePair.root(it.pipe) == from }) {
+            Log.i("Montana", "group_link a removed person asked by the link -- refused")
+            return Verdict.REFUSED
+        }
+        add(key(g.id), listOf(from), viaLink = true)
+        Log.i("Montana", "group_link joined by the link")
+        return Verdict.HELD
+    }
+
     /** THE OWNER LETS A REMOVED PERSON BACK (iOS unban, the reference's «Removed Users», Delete): they are no longer kept out. */
     fun unban(key: String, seat: String) = synchronized(lock) {
         val g = state(key) ?: return@synchronized
@@ -1082,6 +1167,7 @@ object Groups {
             "added" -> if (mine) c.getString(R.string.ge_added_me, names) else if (you) c.getString(R.string.ge_added_you, who) else c.getString(R.string.ge_added, who, names)
             "removed" -> if (mine) c.getString(R.string.ge_removed_me, names) else if (you) c.getString(R.string.ge_removed_you, who) else c.getString(R.string.ge_removed, who, names)
             "left" -> if (mine) c.getString(R.string.ge_left_me) else c.getString(R.string.ge_left, who)
+            "joined" -> if (mine) c.getString(R.string.ge_joined_me) else c.getString(R.string.ge_joined, who)
             "named" -> if (mine) c.getString(R.string.ge_named_me, t) else c.getString(R.string.ge_named, who, t)
             "face" -> if (mine) c.getString(R.string.ge_face_me) else c.getString(R.string.ge_face, who)
             "pinned" -> if (mine) c.getString(R.string.ge_pinned_me, t) else c.getString(R.string.ge_pinned, who, t)
@@ -1230,6 +1316,7 @@ object Groups {
             "ev" -> evented(w, pipe)   // COMPAT-GATED: the owner's event, a row in the feed (iOS stage R)
             "kk" -> kicked(w, pipe)   // COMPAT-GATED: an administrator's «take out», to the owner (iOS stage R.6)
             "ci" -> infoAsked(w, pipe)   // COMPAT-GATED: a member's renewal, to the owner (iOS G.5)
+            "jn" -> joined(w, pipe)   // COMPAT-GATED: a person who opened the group's invite link, to the owner (iOS stage R.6)
             else -> Verdict.REFUSED.also { Log.i("Montana", "group_refused kind=${t.take(8)}") }   // a newer build's word: its road ends here
         }
     }

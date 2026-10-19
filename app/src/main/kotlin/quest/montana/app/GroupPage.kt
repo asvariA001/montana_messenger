@@ -236,6 +236,12 @@ private fun groupEditPage(act: MainActivity, key: String, onBack: () -> Unit): V
                             act.push { back -> groupPermissionsPage(act, key) { back(); reckon() } }
                         }
                         addView(c.plate { addView(perms, lp()) }, lp())
+                        // THE GROUP'S LINK, where the reference's editor keeps it (iOS MTGroupInviteLinksPage, G.3)
+                        gap(20)
+                        val links = c.navRow(R.drawable.ic_link, c.getString(R.string.gp_links), null) {
+                            act.push { back -> groupLinksPage(act, key, back) }
+                        }
+                        addView(c.plate { addView(links, lp()) }, lp())
                         // THE PAST FOR NEW MEMBERS, as the reference's editor names it (iOS MTGroupHistoryPage, G.4): «Visible» or «Hidden»
                         gap(20)
                         val shown = c.text("", 17f, MT.gray)
@@ -273,6 +279,63 @@ private fun Context.navRow(glyph: Int?, words: String, trail: View?, onTap: () -
     if (trail != null) addView(trail, lp(WRAP, WRAP).apply { marginEnd = dp(6) })
     addView(icon(R.drawable.ic_chevron_right, MT.gray, 16), lp(dp(16), dp(16)))
     pressable(onTap)
+}
+
+/**
+ * THE GROUP'S INVITE LINK, AS THE REFERENCE'S PAGE KEEPS IT (iOS MTGroupInviteLinksPage, G.3): the link, «Copy» and «Share» under it,
+ * and «Revoke Link» -- a new mark that ends every link given before, asked first. Whoever opens the link meets the owner by its card
+ * and asks with the mark; the card may be born on the network, so the link is drawn when it comes.
+ */
+private fun groupLinksPage(act: MainActivity, key: String, onBack: () -> Unit): View {
+    val c: Context = act
+    var link: String? = null
+    val shown = c.text("…", 17f, Color.WHITE).apply { setSingleLine(true); ellipsize = android.text.TextUtils.TruncateAt.MIDDLE }   // USER-DATA: the group's link
+    fun button(words: Int, onTap: () -> Unit) = c.text(c.getString(words), 17f, Color.WHITE, bold = true, center = true).apply {
+        gravity = Gravity.CENTER
+        minHeight = dp(44)
+        background = c.rounded(SysColor.blue, 12)
+        pressable { if (link != null) onTap() }
+    }
+    val copy = button(R.string.copy) {
+        c.getSystemService(android.content.ClipboardManager::class.java).setPrimaryClip(android.content.ClipData.newPlainText("", link))
+        android.widget.Toast.makeText(c, R.string.copied, android.widget.Toast.LENGTH_SHORT).show()
+    }
+    val share = button(R.string.share) {
+        act.startActivity(android.content.Intent.createChooser(android.content.Intent(android.content.Intent.ACTION_SEND)
+            .setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT, link), null))
+    }
+    fun fetch() = act.background {
+        val l = Groups.inviteLink(act, key)
+        act.onMain {
+            link = l
+            if (l == null) android.widget.Toast.makeText(c, R.string.card_failed, android.widget.Toast.LENGTH_LONG).show()
+            shown.text = l ?: ""
+        }
+    }
+    val revoke = c.text(c.getString(R.string.gp_link_revoke), 17f, SysColor.red).apply {
+        setPadding(dp(16), dp(12), dp(16), dp(12))
+        minHeight = dp(48)
+        gravity = Gravity.CENTER_VERTICAL
+        pressable {
+            AlertDialog.Builder(c).setMessage(R.string.gp_link_revoke_q)
+                .setPositiveButton(R.string.gp_link_revoke_do) { _, _ -> Groups.resetInvite(key); shown.text = "…"; link = null; fetch() }
+                .setNegativeButton(R.string.cancel, null).show()
+        }
+    }
+    fetch()
+    return settingsPage(act, c.getString(R.string.gp_links), onBack) {
+        section(c.getString(R.string.gp_link_head), c.getString(R.string.gp_link_note), c.vstack(Gravity.NO_GRAVITY) {
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+            addView(shown, lp())
+            gap(12)
+            addView(c.hstack {
+                addView(copy, lp(0, WRAP, 1f))
+                gap(12)
+                addView(share, lp(0, WRAP, 1f))
+            }, lp())
+        })
+        section(null, null, revoke)
+    }
 }
 
 /**

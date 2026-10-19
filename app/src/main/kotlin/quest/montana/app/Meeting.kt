@@ -311,12 +311,17 @@ object Meeting {
 
 /** The person handed a link in: the meeting runs off the main thread, and the person is answered aloud (iOS resolveInvite, verdict). */
 fun openInvitation(act: MainActivity, link: String) {
+    // a group's invite link is its owner's card and the group's mark: the mark waits for the meeting (iOS handleLink, stage R.6)
+    val card = Groups.takeJoin(link)
     act.background {
-        val o = Meeting.meet(act, link)
+        val o = Meeting.meet(act, card)
         act.onMain {
             when (o) {
                 // a pipe folded into a conversation is never opened as a page of its own (iOS meet → MTSamePair.root)
-                is Meeting.Outcome.Opened -> act.push { close -> conversationPage(act, SamePair.root(o.ref), close) }
+                is Meeting.Outcome.Opened -> {
+                    act.push { close -> conversationPage(act, SamePair.root(o.ref), close) }
+                    act.background { Groups.askJoin(o.ref) }   // a group's link: the join is asked of the owner just met
+                }
                 else -> sayVerdict(act, Meeting.verdict(o))
             }
         }

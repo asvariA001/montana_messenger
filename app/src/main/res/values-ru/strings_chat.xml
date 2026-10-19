@@ -220,6 +220,14 @@
     <string name="gp_removed_head">УДАЛЁННЫЕ ПОЛЬЗОВАТЕЛИ</string>
     <string name="gp_removed_note">Удалённые администраторами не могут вернуться в группу по ссылке-приглашению.</string>
     <string name="gp_removed_add">Вернуть в группу</string>
+    <string name="gp_links">Ссылки-приглашения</string>
+    <string name="gp_link_head">Ссылка-приглашение</string>
+    <string name="gp_link_note">Любой, кто откроет эту ссылку, сможет вступить в вашу группу.</string>
+    <string name="gp_link_revoke">Сбросить ссылку</string>
+    <string name="gp_link_revoke_q">Сбросить ссылку? После этого по ней никто не сможет вступить в группу.</string>
+    <string name="gp_link_revoke_do">Сбросить</string>
+    <string name="ge_joined_me">Вы вступили в группу по ссылке-приглашению</string>
+    <string name="ge_joined">%1$s вступил(а) в группу по ссылке-приглашению</string>
     <string name="gp_slow_off">Выкл.</string>
     <string name="gp_slow_s">%d с</string>
     <string name="gp_slow_m">%d мин</string>

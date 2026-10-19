@@ -220,6 +220,14 @@
     <string name="gp_removed_head">已移除的用户</string>
     <string name="gp_removed_note">被管理员移出群组的用户无法通过邀请链接重新加入。</string>
     <string name="gp_removed_add">添加到群组</string>
+    <string name="gp_links">邀请链接</string>
+    <string name="gp_link_head">邀请链接</string>
+    <string name="gp_link_note">任何人打开此链接都可以加入你的群组。</string>
+    <string name="gp_link_revoke">撤销链接</string>
+    <string name="gp_link_revoke_q">确定要撤销此链接吗？撤销后，任何人都无法再通过它加入群组。</string>
+    <string name="gp_link_revoke_do">撤销</string>
+    <string name="ge_joined_me">你通过邀请链接加入了群组</string>
+    <string name="ge_joined">%1$s 通过邀请链接加入了群组</string>
     <string name="gp_slow_off">关闭</string>
     <string name="gp_slow_s">%d秒</string>
     <string name="gp_slow_m">%d分钟</string>

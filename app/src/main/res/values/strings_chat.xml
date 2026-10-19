@@ -220,6 +220,14 @@
     <string name="gp_removed_head">REMOVED USERS</string>
     <string name="gp_removed_note">Users removed from the group by admins cannot rejoin it via invite links.</string>
     <string name="gp_removed_add">Add To Group</string>
+    <string name="gp_links">Invite Links</string>
+    <string name="gp_link_head">Invite Link</string>
+    <string name="gp_link_note">Anyone who follows this link will be able to join your group.</string>
+    <string name="gp_link_revoke">Revoke Link</string>
+    <string name="gp_link_revoke_q">Are you sure you want to revoke this link? Once you do, no one will be able to join the group using it.</string>
+    <string name="gp_link_revoke_do">Revoke</string>
+    <string name="ge_joined_me">You joined the group via invite link</string>
+    <string name="ge_joined">%1$s joined the group via invite link</string>
     <string name="gp_slow_off">Off</string>
     <string name="gp_slow_s">%ds</string>
     <string name="gp_slow_m">%dm</string>
