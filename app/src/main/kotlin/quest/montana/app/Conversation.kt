@@ -236,12 +236,13 @@ object Notify {
         (c.packageManager.getLaunchIntentForPackage(c.packageName) ?: Intent()).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP).putExtra(EXTRA_CHAT, ref),
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
     private const val QUIET = "letters_quiet"
-    fun letter(ref: String, text: String, who: String? = null, mid: String? = null) {
+    fun letter(ref: String, text: String, who: String? = null, mid: String? = null, mentioned: Boolean = false) {
         val c = Book.ctx
         val nm = c.getSystemService(NotificationManager::class.java) ?: return
         if (!Prefs.bool("notifMessages", true)) return
-        // A MUTED OR ARCHIVED CHAT SAYS NOTHING (iOS MTQuietChats, MontanaNotify 190-193; build 2083): no banner, no sound, no count
-        if (ChatMarks.isMuted(ref) || ChatMarks.isArchived(ref)) return
+        // A MUTED OR ARCHIVED CHAT SAYS NOTHING (iOS MTQuietChats, MontanaNotify 190-193; build 2083): no banner, no sound, no count --
+        // but A MENTION RINGS THROUGH THE MUTE (iOS presentGroup mentioned, stage R): the person was named in a group
+        if (!mentioned && (ChatMarks.isMuted(ref) || ChatMarks.isArchived(ref))) return
         // THE SOUND IS THE PERSON'S SWITCH (iOS MontanaNotify 379, NotificationService 400): a channel's sound is the platform's
         // once made, so the quiet letters have a channel of their own
         val sound = Prefs.bool("notifSound", true)
@@ -716,6 +717,35 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     linkPlate.setOnClickListener { runCatching { c.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(LinkCompose.url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }
     val linkListener: () -> Unit = { act.onMain { drawLink() } }
 
+    // THE PEOPLE A «@» NAMES (iOS mentionPlate + MTMentionCompose, stage R, the reference folder's mention list): above a group's field
+    // while a word follows «@», five at most -- the people whose name, by any of its words, begins with what is typed; the whole row
+    // is the target, and the name goes into the words with a space after it
+    val mentionPlate = c.vstack(Gravity.NO_GRAVITY) {
+        visibility = View.GONE
+        background = c.glassPlate().apply { cornerRadius = dp(18).toFloat() }
+    }
+    fun drawMentions(text: String) {
+        val q = if (group && Groups.isGroup(ref)) Groups.mentionTail(text)?.lowercase() else null
+        val all = if (q == null) emptyList() else Groups.mentionable(c, ref)
+        val hit = (if (q.isNullOrEmpty()) all else all.filter { p -> p.name.lowercase().split(" ").any { it.startsWith(q) } }).take(5)
+        mentionPlate.removeAllViews()
+        mentionPlate.visibility = if (hit.isEmpty()) View.GONE else View.VISIBLE
+        for (p in hit) mentionPlate.addView(c.hstack {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(12), 0, dp(12), 0)
+            minimumHeight = dp(44)
+            addView(c.avatar(null, p.name, 30), lp(dp(30), dp(30)).apply { marginEnd = dp(10) })
+            addView(c.text(p.name, 16f, Color.WHITE).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))   // USER-DATA: a person's name in the group
+            pressable {
+                val now = field.text.toString()
+                val tail = Groups.mentionTail(now) ?: return@pressable
+                val next = now.dropLast(tail.length + 1) + "@" + p.name + " "
+                field.setText(next)
+                field.setSelection(next.length)   // the caret stands at the end
+            }
+        }, lp(MATCH, WRAP))
+    }
+
     // ── the feed ──
     // THE FIRST UNREAD AT THIS OPENING (iOS firstUnreadId, MontanaConversation 1225, 2661): the quiet «Unread messages» line stands
     // before it while the page does; read before the page marks the chat read
@@ -1018,6 +1048,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         override fun onTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
         override fun afterTextChanged(s: Editable?) {
             LinkCompose.look(s?.toString() ?: "")   // the plate above the field follows the words (iOS handleDraftChange:4308 at 2155)
+            drawMentions(s?.toString() ?: "")   // «@» in a group raises its people (iOS MTMentionCompose.look, stage R)
             if (editing == null) Prefs.setStr("draft.$ref", s?.toString() ?: "")
             // A GROUP'S «TYPING» (the checklist's B.12, iOS MTGroup.typing): an instant word to the pipes this phone holds for the
             // group, at most every three seconds, as the pair's; a group streams no draft, nor does the room without an address
@@ -1803,6 +1834,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         val under = c.vstack(Gravity.NO_GRAVITY) {
             addView(strip, lp().apply { marginStart = dp(10); marginEnd = dp(10); bottomMargin = dp(4) })
             addView(linkPlate, lp().apply { marginStart = dp(10); marginEnd = dp(10); bottomMargin = dp(4) })
+            addView(mentionPlate, lp().apply { marginStart = dp(8); marginEnd = dp(8); bottomMargin = dp(4) })
             addView(stagedStrip, lp())
             addView(liveBar(act), lp().apply { bottomMargin = dp(2) })   // the one player bar above the field (iOS MontanaPlayerBar in the chat)
             addView(recStrip, lp().apply { marginStart = dp(10); marginEnd = dp(10); bottomMargin = dp(4) })

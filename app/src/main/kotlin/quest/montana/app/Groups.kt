@@ -555,6 +555,45 @@ object Groups {
             .forEach { out.add(it) }
         return out
     }
+    // ── mentions (iOS stage R, the reference folder: «@» names a person of the group) ──
+
+    /** A group proper, not a channel (iOS kind == .group): only its field raises the «@» plate and only its letters name me. */
+    fun isGroup(key: String) = state(key)?.kind == GROUP
+    /**
+     * The people a «@» may name in a group (iOS mentionable): everyone this phone knows by name in it -- the page's people -- this
+     * phone aside, and nobody known only as «Member»; by their names.
+     */
+    fun mentionable(c: Context, key: String): List<Seat> {
+        val g = state(key)?.takeIf { it.kind == GROUP } ?: return emptyList()
+        val member = c.getString(R.string.gr_member)
+        return pagePeople(c, key).filter { it.seat != g.me && it.name != member }.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
+    }
+    /** The word after the last «@» at the text's end (iOS MTMentionCompose.tail): «@» at the start or after a space, then no space, 32 letters at most. */
+    fun mentionTail(text: String): String? {
+        val at = text.lastIndexOf('@')
+        if (at < 0 || (0 < at && !text[at - 1].isWhitespace())) return null
+        val rest = text.substring(at + 1)
+        return if (rest.length <= 32 && rest.none { it.isWhitespace() }) rest else null
+    }
+    /**
+     * A LETTER THAT NAMES ME (iOS mentionsMe): «@» and the name I go by -- my own name or my nick. The name must end where a word ends:
+     * «@Al» is not a mention of a person named «Al» inside «@Alex». It rings even in a chat whose sound is off (Notify.letter).
+     */
+    fun mentionsMe(words: String): Boolean {
+        val low = words.lowercase()
+        return listOf(Prefs.userName, Names.heldName ?: "").map { it.trim().lowercase() }.filter { it.isNotEmpty() }.any { name ->
+            var from = 0
+            while (true) {
+                val at = low.indexOf("@$name", from)
+                if (at < 0) break
+                val end = at + 1 + name.length
+                if (end == low.length || !low[end].isLetterOrDigit()) return@any true
+                from = end
+            }
+            false
+        }
+    }
+
     /** This phone owns the group: its page edits it (iOS state.mine). */
     fun owns(key: String) = state(key)?.mine == true
     /** Whether the owner's phone already carries the group to this person (iOS carries(to:in:)): the page's «add» lists the others only. */
@@ -1010,7 +1049,8 @@ object Groups {
         // a media letter's file is gathered from the pieces every member reads; its copy was receipted already (handle)
         if (landed && words.startsWith(Marks.MEDIA)) Media.fetch(Book.ctx, key, id, words)
         // the banner a running app owes its person: the group's title over who wrote and what (a channel speaks as itself)
-        if (landed && Book.openChat != key) Notify.letter(key, words, if (g.kind == GROUP) speakerName(Book.ctx, sp) else null)
+        if (landed && Book.openChat != key) Notify.letter(key, words, if (g.kind == GROUP) speakerName(Book.ctx, sp) else null,
+            mentioned = g.kind == GROUP && mentionsMe(words))   // a mention rings through the mute (iOS presentGroup mentioned)
         if (landed && Book.openChat == key && g.kind == GROUP) readSoon(key)   // read before the eyes: the speaker hears it (B.13)
         // THE OWNER CARRIES IT ON (iOS heard, g.mine): to every other member, under the speaker's seat and the name they gave
         typingStopped(key, seat)   // the letter came: its speaker types no more (the reference's head)
