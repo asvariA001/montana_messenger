@@ -30688,6 +30688,38 @@
           }
         }
       }
+    },
+    "%@ needs build %lld. This build is %lld.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ требует сборку %lld. Эта сборка — %lld."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 需要版本 %lld。当前版本为 %lld。"
+          }
+        }
+      }
+    },
+    "Install the new build to go on.": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Установите новую сборку, чтобы продолжить."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请安装新版本以继续。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

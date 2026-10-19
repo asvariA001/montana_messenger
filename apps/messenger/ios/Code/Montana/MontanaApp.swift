@@ -33,6 +33,7 @@ struct MontanaApp: App {
     @State private var chooseLink: String?   // an invitation waiting for the person to choose the Montana app that opens it
     @State private var diagAsk = false   // the diagnostics yes, asked at the install and at every update (MontanaDiagConsent)
     @AppStorage("AppLanguage") private var appLang = ""   // "" = follow system
+    @ObservedObject private var release = MTReleaseState.shared   // the least build the network admits (MTUpdateRequired)
     init() {
         // Before any screen: an installation that has just appeared must not inherit a person.
         MontanaInstall.forgetLeftoverSeed { SeedScope.forget() }
@@ -64,6 +65,11 @@ struct MontanaApp: App {
                     .task { await askDiagnosticsWhenFree() }
                     .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
                         Task { await askDiagnosticsWhenFree() }
+                    }
+                    // THE UPDATE THAT CANNOT BE PUT OFF (the author's words 19.10.2026 22:2x MSK): a build below the least the
+                    // network admits sees the update page over everything, at the launch and at every return; it cannot be swiped away.
+                    .fullScreenCover(isPresented: Binding(get: { release.required != nil }, set: { _ in })) {
+                        if let r = release.required { MTUpdateRequired(release: r).environment(\.locale, appLocale) }
                     }
                     .montanaRoot()
                     .environment(\.locale, appLocale)   // drives SwiftUI Text localization to the chosen language
@@ -1929,5 +1935,43 @@ enum MTVoipReport {
     static func required(_ metadata: NSObject) -> Bool {
         guard metadata.responds(to: NSSelectorFromString("mustReport")) else { return true }
         return (metadata.value(forKey: "mustReport") as? NSNumber)?.boolValue ?? true
+    }
+}
+
+/// THE UPDATE THAT CANNOT BE PUT OFF (the author's words 19.10.2026 22:2x MSK: «on every build, at opening, a forced update to the new
+/// build»; «our build is Montana Core v1.0»): the release document (MTClientRelease) names the least build the network admits and the
+/// level of the core; a build below the least sees this page over everything, with the one way out -- the update's link. The page
+/// cannot be swiped away (MontanaApp). A build that knows no page (before 2252) is held by the node alone: from the second's cut it
+/// takes no MINT above one coin a second (COIN-TX-V3 section 4). The words come from the catalogue; the core's level is the
+/// document's own name.
+struct MTUpdateRequired: View {
+    let release: MTClientRelease
+    var body: some View {
+        VStack(spacing: 20) {
+            Spacer()
+            Image(systemName: "arrow.down.app.fill")   // TOUCH-OK: a picture, the button stands below
+                .font(.system(size: 72, weight: .regular))
+                .foregroundStyle(.primary)
+            Text("Update Montana").font(.title2.weight(.semibold))
+            Text(String(localized: "\(release.core) needs build \(release.least). This build is \(MontanaRelease.ownBuild).", bundle: MTLanguage.bundle))
+                .font(.body).foregroundStyle(.secondary)
+            Text("Install the new build to go on.").font(.body).foregroundStyle(.secondary)
+            Spacer()
+            Button {
+                if let url = URL(string: release.url) { UIApplication.shared.open(url) }
+            } label: {
+                Image(systemName: "arrow.down.circle.fill")
+                    .font(.system(size: 56, weight: .regular))
+                    .foregroundStyle(.primary)
+                    .frame(width: 88, height: 88)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel(Text("Update Montana"))
+            Spacer().frame(height: 48)
+        }
+        .multilineTextAlignment(.center)
+        .padding(.horizontal, 32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemBackground))
     }
 }

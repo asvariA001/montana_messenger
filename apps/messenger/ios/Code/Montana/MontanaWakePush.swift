@@ -5125,6 +5125,11 @@ struct MTClientRelease: Codable, Equatable {
     let url: String
     let bundle: String
     let channel: String
+    /// THE LEAST BUILD THE NETWORK ADMITS AND THE LEVEL OF THE CORE (the author's words 19.10.2026 22:2x MSK: «on every build, at
+    /// opening, a forced update to the new build»; «our build is Montana Core v1.0»): the release document names them (min, core);
+    /// a build below the least sees the update page over everything (MTUpdateRequired). A document without them admits every build.
+    let least: Int
+    let core: String
 
     static func read(_ data: Data, bundle: String, channel: String) -> MTClientRelease? {
         guard let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -5140,7 +5145,8 @@ struct MTClientRelease: Codable, Equatable {
             translated[lang] = Array(list.prefix(40).map { String($0.prefix(300)) })
         }
         return MTClientRelease(build: build, version: String(((j["version"] as? String) ?? "").prefix(16)),
-            notes: notes, l10n: translated, url: word, bundle: bundle, channel: channel)
+            notes: notes, l10n: translated, url: word, bundle: bundle, channel: channel,
+            least: max(0, (j["min"] as? Int) ?? 0), core: String(((j["core"] as? String) ?? "").prefix(32)))
     }
 }
 
@@ -5154,6 +5160,11 @@ struct MTClientRelease: Codable, Equatable {
     var updateURL: URL? {
         guard let r = latest, r.build > MontanaRelease.ownBuild else { return nil }
         return URL(string: r.url)
+    }
+    /// The release this build must take before anything else: the network admits no build below its least (MTUpdateRequired).
+    var required: MTClientRelease? {
+        guard let r = latest, MontanaRelease.ownBuild < r.least else { return nil }
+        return r
     }
     private var bundle: String { Bundle.main.bundleIdentifier ?? "" }
     private var client: String? {
