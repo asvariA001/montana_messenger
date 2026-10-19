@@ -262,7 +262,7 @@ object Archive {
                         when {
                             s.startsWith("s:") -> runCatching { Base64.decode(s.drop(2), Base64.DEFAULT) }.getOrNull()?.takeIf { it.size == 32 }?.let { secret = it; hs++ }
                             s.startsWith("x:") -> closedThere = true
-                            s.startsWith("a:") -> { ha++; val n = s.drop(2); if (ref == null && (Book.secret(n) != null || Book.isLocal(n))) ref = n }
+                            s.startsWith("a:") -> { ha++; val n = s.drop(2); if (ref == null && (Book.secret(n) != null || Book.isLocal(n) || Groups.isKey(n))) ref = n }
                             s.startsWith("n:") -> { hn++; name = s.drop(2) }
                             ref == null && Book.secret(s) != null -> ref = s   // the head of build 1345: the bare name
                         }
@@ -278,6 +278,13 @@ object Archive {
             // THE LOCAL ROOM'S FOLDER IS NOT A STRANGER'S (build 427 read it as «Recovered history» while its head named a room with no
             // secret): a row of it born so leaves the list -- the folder stays, it is the room's own
             if (ref != null && Book.isLocal(ref!!) && Book.chat("arc:$folder") != null) { Book.discard("arc:$folder"); Log.d("Montana", "archive_heal folder named again") }
+            // A GROUP'S FOLDER IS THE GROUP'S (its head is «a:» and the group's key, no pipe's secret): the builds before 470 read it as «Recovered
+            // history» at every first launch and laid the group's rows as a second chat -- that one leaves; a group gone from this
+            // phone is the group store's word, its archive never brings the chat back
+            if (ref != null && Groups.isKey(ref!!)) {
+                if (Book.chat("arc:$folder") != null) { Book.discard("arc:$folder"); Log.d("Montana", "archive_heal group folder") }
+                if (Book.chat(ref!!) == null) continue
+            }
             if (items.isEmpty() && ref == null) continue
             if (ref != null) headed++
             val key = ref ?: ("arc:" + folder)
