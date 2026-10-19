@@ -209,6 +209,13 @@
     <string name="gm_reactions">Ставить реакции</string>
     <string name="gp_slow">Медленный режим</string>
     <string name="gp_slow_note">Участники смогут отправлять одно сообщение за этот промежуток.</string>
+    <string name="gp_history">История чата</string>
+    <string name="gp_history_title">История чата</string>
+    <string name="gp_history_head">История для новых участников</string>
+    <string name="gp_history_on">Видна</string>
+    <string name="gp_history_off">Скрыта</string>
+    <string name="gp_history_on_note">Новые участники увидят сообщения, отправленные до их вступления.</string>
+    <string name="gp_history_off_note">Новые участники не увидят прежних сообщений.</string>
     <string name="gp_slow_off">Выкл.</string>
     <string name="gp_slow_s">%d с</string>
     <string name="gp_slow_m">%d мин</string>

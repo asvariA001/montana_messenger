@@ -68,6 +68,8 @@ object Groups {
         val barred: MutableList<String> = mutableListOf(),
         /** SLOW MODE (iOS slow, the reference's «Slowmode»): the seconds a member waits between letters; 0 -- off. */
         var slow: Int = 0,
+        /** CHAT HISTORY FOR NEW MEMBERS (iOS history, G.4, the reference's «Visible» / «Hidden»): true -- one added reads the group's newest words; false -- hidden, the reference's default. The owner's choice, never on the wire. */
+        var history: Boolean = false,
     ) {
         val mine: Boolean get() = owner.isEmpty()
         fun json(): JSONObject = JSONObject().put("id", id).put("k", kind).put("ti", title).put("ds", about).put("ow", owner).put("me", me)
@@ -75,7 +77,7 @@ object Groups {
             .put("c", count).put("nm", JSONObject(names.toMap())).put("at", at).put("lf", left).put("ft", faceTag ?: "")
             .put("rb", JSONObject(readBy.toMap())).put("rm", removed).put("ad", JSONArray(admins))
             .put("ax", JSONObject().apply { taken.forEach { (k, v) -> put(k, JSONArray(v)) } }).put("rk", JSONObject(ranks.toMap()))
-            .put("bn", JSONArray(barred)).put("sw", slow)
+            .put("bn", JSONArray(barred)).put("sw", slow).put("hy", history)
         companion object {
             fun of(o: JSONObject) = State(o.getString("id"), o.getString("k"), o.optString("ti"), o.optString("ds"), o.optString("ow"),
                 o.getString("me"),
@@ -87,7 +89,8 @@ object Groups {
                 o.optBoolean("rm"), o.optJSONArray("ad")?.let { a -> MutableList(a.length()) { a.getString(it) } } ?: mutableListOf(),
                 o.optJSONObject("ax")?.let { x -> x.keys().asSequence().associateWith { k -> x.getJSONArray(k).let { a -> List(a.length()) { a.getString(it) } } }.toMutableMap() } ?: mutableMapOf(),
                 o.optJSONObject("rk")?.let { r -> r.keys().asSequence().associateWith { r.getString(it) }.toMutableMap() } ?: mutableMapOf(),
-                o.optJSONArray("bn")?.let { a -> MutableList(a.length()) { a.getString(it) } } ?: mutableListOf(), o.optInt("sw"))
+                o.optJSONArray("bn")?.let { a -> MutableList(a.length()) { a.getString(it) } } ?: mutableListOf(), o.optInt("sw"),
+                o.optBoolean("hy"))
         }
     }
 
@@ -204,7 +207,7 @@ object Groups {
         val name = Marks.mintMid()
         copies[name] = Copy(w.getString("g"), letter, pipe, own, 1)
         saveCopies()
-        Post.send(pipe, name, MARK + w.toString())
+        Post.send(pipe, name, MARK + w.toString(), quiet = w.optInt("hs") == 1)   // the past (G.4) rings nothing on the wire
         Log.i("Montana", "group_tx mid=" + name.take(14) + " t=" + w.optString("t") + " to=" + pipe.take(10))
         return name
     }
@@ -690,6 +693,7 @@ object Groups {
             val came = event("added", OWNER_SEAT, fresh.map { it.seat })
             lay(g, came)
             tellEvent(g, came)
+            handPast(g, fresh)
             Log.i("Montana", "group_added people=" + fresh.size + " count=" + g.count)
         }
     }
@@ -788,6 +792,47 @@ object Groups {
         if (!adminCan(g, asker.seat, BAN) || target == asker.seat || target in g.admins || g.members.none { it.seat == target }) return Verdict.REFUSED
         remove(key(g.id), target, by = asker.seat)
         return Verdict.HELD
+    }
+
+    // ── chat history for new members (the checklist's G.4, the reference's «Chat History For New Members»; iOS 7ffa3211) ──
+
+    /** The letters of the past one added may read (iOS historyLimit; I-14: bounded, as the reference's own first page is). */
+    private const val HISTORY_LIMIT = 50
+    /** The group's past is shown to new members (iOS state.history). */
+    fun history(key: String): Boolean = state(key)?.history == true
+    /** THE OWNER SHOWS OR HIDES THE GROUP'S PAST TO NEW MEMBERS (iOS setHistory): the owner's phone alone keeps it, nothing rides the wire. */
+    fun setHistory(key: String, visible: Boolean) = synchronized(lock) {
+        val g = state(key) ?: return@synchronized
+        if (!g.mine || g.kind != GROUP || g.history == visible) return@synchronized
+        g.history = visible
+        save()
+        Log.i("Montana", "group_history " + if (visible) "visible" else "hidden")
+    }
+    /**
+     * THE PAST FOR ONE JUST ADDED (iOS add, G.4, the reference's «Visible»): the group's newest fifty letters of words, each under its
+     * own one name and so at its own moment, by its own speaker, marked as the past (hs) -- silent on the wire, no banner where it
+     * lands; a letter with a file stays, its sealed pieces were laid for the receivers of its day. Inside the lock, after the invitation.
+     */
+    private fun handPast(g: State, fresh: List<Member>) {
+        if (g.kind != GROUP || !g.history || fresh.isEmpty()) return
+        val head = SPEAKER_HEAD + g.id + "/"
+        val me = clean(Prefs.userName, NAME_LIMIT)
+        val past = Book.chat(key(g.id))?.msgs?.toList().orEmpty().filter { m ->
+            m.file == null && !isEvent(m.text) && carries(m.text) && !m.text.startsWith(Marks.MEDIA)
+        }
+        var sent = 0
+        for (p in past.takeLast(HISTORY_LIMIT)) {
+            val seat = if (p.mine) g.me else p.from?.takeIf { it.startsWith(head) }?.removePrefix(head) ?: ""
+            if (!isLetterName(p.mid) || !isSeat(seat) || fresh.any { it.seat == seat }) continue
+            val name = if (seat == g.me) me else g.names[seat] ?: ""
+            val w = JSONObject().put("t", "say").put("g", g.id).put("k", g.kind).put("ti", g.title).put("id", p.mid).put("s", seat)
+                .put("tx", p.text).put("hs", 1)
+            if (name.isNotEmpty()) w.put("n", name)
+            p.qt?.takeIf { it.isNotEmpty() }?.let { w.put("qt", it) }
+            for (m in fresh) carry(w, m.pipe, "", own = false)
+            sent++
+        }
+        Log.i("Montana", "group_history_tx letters=" + sent + " to=" + fresh.size)
     }
 
     // ── permissions and slow mode (the checklist's G.5, the reference's «Permissions» and «Slowmode»; iOS d61b38fe) ──
@@ -1312,7 +1357,8 @@ object Groups {
         // a media letter's file is gathered from the pieces every member reads; its copy was receipted already (handle)
         if (landed && words.startsWith(Marks.MEDIA)) Media.fetch(Book.ctx, key, id, words)
         // the banner a running app owes its person: the group's title over who wrote and what (a channel speaks as itself)
-        if (landed && Book.openChat != key) Notify.letter(key, words, if (g.kind == GROUP) speakerName(Book.ctx, sp) else null,
+        val past = w.optInt("hs") == 1   // a letter of the group's past handed to one just added (G.4): it lands silent, no banner
+        if (landed && Book.openChat != key && !past) Notify.letter(key, words, if (g.kind == GROUP) speakerName(Book.ctx, sp) else null,
             mentioned = g.kind == GROUP && mentionsMe(words))   // a mention rings through the mute (iOS presentGroup mentioned)
         if (landed && Book.openChat == key && g.kind == GROUP) readSoon(key)   // read before the eyes: the speaker hears it (B.13)
         // THE OWNER CARRIES IT ON (iOS heard, g.mine): to every other member, under the speaker's seat and the name they gave

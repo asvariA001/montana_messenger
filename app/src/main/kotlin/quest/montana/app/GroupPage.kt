@@ -236,6 +236,15 @@ private fun groupEditPage(act: MainActivity, key: String, onBack: () -> Unit): V
                             act.push { back -> groupPermissionsPage(act, key) { back(); reckon() } }
                         }
                         addView(c.plate { addView(perms, lp()) }, lp())
+                        // THE PAST FOR NEW MEMBERS, as the reference's editor names it (iOS MTGroupHistoryPage, G.4): «Visible» or «Hidden»
+                        gap(20)
+                        val shown = c.text("", 17f, MT.gray)
+                        fun reshow() { shown.text = c.getString(if (Groups.history(key)) R.string.gp_history_on else R.string.gp_history_off) }
+                        reshow()
+                        val history = c.navRow(R.drawable.ic_restore, c.getString(R.string.gp_history), shown) {
+                            act.push { back -> groupHistoryPage(act, key) { back(); reshow() } }
+                        }
+                        addView(c.plate { addView(history, lp()) }, lp())
                     }
                 })
             }, lp(MATCH, 0, 1f))
@@ -357,6 +366,36 @@ private fun groupAdminRightsPage(act: MainActivity, key: String, seat: String, n
             pressable { hideKeys(); Groups.setAdmin(key, seat, false); onBack() }
         })
     }
+}
+
+// ─────────────────────────── chat history for new members (iOS MTGroupHistoryPage, G.4) ───────────────────────────
+
+/**
+ * CHAT HISTORY FOR NEW MEMBERS, AS THE REFERENCE'S PAGE ASKS IT (iOS MTGroupHistoryPage, G.4): «Visible» -- one added reads the
+ * group's newest words; «Hidden» -- they begin where they came in, the reference's default. A tap is the choice (Groups.setHistory).
+ */
+private fun groupHistoryPage(act: MainActivity, key: String, onBack: () -> Unit): View {
+    val c: Context = act
+    val marks = HashMap<Boolean, View>()
+    lateinit var note: android.widget.TextView
+    fun paint() {
+        val on = Groups.history(key)
+        marks.forEach { (v, m) -> m.alpha = if (v == on) 1f else 0f }
+        note.text = c.getString(if (on) R.string.gp_history_on_note else R.string.gp_history_off_note)
+    }
+    fun choice(visible: Boolean, word: Int) = c.hstack {
+        gravity = Gravity.CENTER_VERTICAL
+        setPadding(dp(16), dp(12), dp(16), dp(12)); minimumHeight = dp(48)
+        addView(c.text(c.getString(word), 17f, Color.WHITE), lp(0, WRAP, 1f))
+        addView(c.icon(R.drawable.ic_check, Color.WHITE).also { marks[visible] = it }, lp(dp(20), dp(20)))
+        pressable { Groups.setHistory(key, visible); paint() }
+    }
+    val page = settingsPage(act, c.getString(R.string.gp_history_title), onBack) {
+        section(c.getString(R.string.gp_history_head), "", choice(true, R.string.gp_history_on), choice(false, R.string.gp_history_off))
+        note = getChildAt(childCount - 1) as android.widget.TextView   // the section's words under it change with the choice
+    }
+    paint()
+    return page
 }
 
 // ─────────────────────────── the members' permissions and slow mode (iOS MTGroupPermissionsPage, G.5) ───────────────────────────

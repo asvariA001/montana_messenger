@@ -209,6 +209,13 @@
     <string name="gm_reactions">发送回应</string>
     <string name="gp_slow">慢速模式</string>
     <string name="gp_slow_note">成员在此间隔内只能发送一条消息。</string>
+    <string name="gp_history">聊天记录</string>
+    <string name="gp_history_title">聊天记录设置</string>
+    <string name="gp_history_head">新成员可见的历史</string>
+    <string name="gp_history_on">可见</string>
+    <string name="gp_history_off">隐藏</string>
+    <string name="gp_history_on_note">新成员将看到他们加入前发送的消息。</string>
+    <string name="gp_history_off_note">新成员将看不到之前的消息。</string>
     <string name="gp_slow_off">关闭</string>
     <string name="gp_slow_s">%d秒</string>
     <string name="gp_slow_m">%d分钟</string>

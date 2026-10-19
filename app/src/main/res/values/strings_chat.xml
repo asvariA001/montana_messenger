@@ -209,6 +209,13 @@
     <string name="gm_reactions">Send Reactions</string>
     <string name="gp_slow">Slowmode</string>
     <string name="gp_slow_note">Members will be restricted to send one message per this interval.</string>
+    <string name="gp_history">Chat History</string>
+    <string name="gp_history_title">Chat History Settings</string>
+    <string name="gp_history_head">History for new members</string>
+    <string name="gp_history_on">Visible</string>
+    <string name="gp_history_off">Hidden</string>
+    <string name="gp_history_on_note">New members will see messages that were sent before they joined.</string>
+    <string name="gp_history_off_note">New members won\'t see earlier messages.</string>
     <string name="gp_slow_off">Off</string>
     <string name="gp_slow_s">%ds</string>
     <string name="gp_slow_m">%dm</string>
