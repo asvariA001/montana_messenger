@@ -815,6 +815,8 @@ struct MTSaveBeside<Badge: View>: ViewModifier {
                             } else {
                                 MTCoinDelta(coins: message.isMine ? -coin.c : coin.c)
                             }
+                            // THE TIME THE COINS ARE (the author's word 19.10.2026 17:44 MSK: «in transfers both the time and the coins»).
+                            MTCoinTime(coins: coin.c)
                             // NOT DELIVERED, RETURNED (the author's word 05.10.2026 01:40 MSK, MTCoinSend.hold): a red coin letter's coins are back.
                             Text(message.isMine ? (stampStatus == .failed ? "Not delivered, coins returned" : "Coins sent") : "Coins received").font(.subheadline)
                         }

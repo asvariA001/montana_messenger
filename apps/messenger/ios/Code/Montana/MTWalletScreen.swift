@@ -33,16 +33,6 @@ struct MTWalletPage: View {
     @State private var pull: CGFloat = 0
     @State private var pullArmed = false
     @State private var pullReleased: (at: Date, angle: Double)?
-    /// The caption under the name (the author's word 09.10.2026): it comes with a finger on the coin and leaves three seconds after
-    /// the last finger lifts; a finger landing again keeps it.
-    @State private var hint = false
-    @State private var hintTurn = 0
-    private func showHint() { hintTurn += 1; hint = true }
-    private func hideHintSoon() {
-        hintTurn += 1
-        let turn = hintTurn
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { if turn == hintTurn { hint = false } }
-    }
     /// Every coin the book holds; before the seed's book lands, the balance a device of the same words told in its tip (04.10 16:34).
     private var total: Int { vault.heard ? book.balance : max(book.balance, tipNet.seen ?? 0) }
     var body: some View {
@@ -72,16 +62,8 @@ struct MTWalletPage: View {
                         }
                         .font(.title2.bold())
                         .shadow(color: .orange.opacity(pantheon.lit ? 0.8 : 0), radius: 8)
-                        // THE CAPTION COMES WITH THE FINGER (the author's word 09.10.2026 11:3x MSK: «remove this canvas under the name
-                        // Pantheon, and only at a press of the coin show under the name Pantheon on Fire: hold the coin 9 seconds for auto
-                        // minting, music doubles auto minting -- then the caption goes; show it only at the touch of the coin»): one line
-                        // while a finger is on the coin and three seconds after the last one lifts; hidden, it keeps its place, so the coin
-                        // never moves under the finger.
-                        Text("Hold the coin for 9 seconds for auto minting: one coin a second.")
-                            .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
-                            .opacity(hint ? 1 : 0)
-                            .accessibilityHidden(!hint)
-                            .animation(.easeInOut(duration: 0.25), value: hint)
+                        // NO CAPTION UNDER THE NAME (the author's word 19.10.2026 17:4x MSK: «on the Time Coins page remove the words
+                        // hold 9 seconds»): the hold still starts the auto minting; the rules behind Top up say it (MTCoinRules).
                         // THE APPS THAT MINT, ABOVE THE COIN (the author's word 04.10.2026 18:08 MSK): their icons, the row kept in its place.
                         MTMintingApps()
                         ZStack {
@@ -98,7 +80,7 @@ struct MTWalletPage: View {
                             // THE COIN AND A LITTLE PAST ITS RIM (the author's word 04.10.2026 03:13 MSK: «the tap area only on the coin and a
                             // little wider than its border»): the pad reaches past the coin's frame by its rim; the rising capsule stands
                             // where the finger touched, in the coin's own frame.
-                            MTCoinTapPad(locked: pantheon.lit, onDown: { pantheon.touched(); showHint() }, onUp: { pantheon.released(); hideHintSoon() },
+                            MTCoinTapPad(locked: pantheon.lit, onDown: { pantheon.touched() }, onUp: { pantheon.released() },
                                          onLongHold: { autoMint.fire() }) { point in
                                 let coins = pantheon.tap()
                                 let r = MTCoinTapPad.rim
@@ -133,11 +115,9 @@ struct MTWalletPage: View {
                         .accessibilityLabel(Text("Coin"))
                         .accessibilityAddTraits(.isButton)
                         .accessibilityAction { pantheon.tap() }
-                        // USER-DATA: the taps of the last second, a number from 0 to 13
-                        Text(verbatim: String(pantheon.speed) + " / " + String(MTPantheon.ceiling))
-                            .font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
-                            .opacity(pantheon.lit ? 1 : 0)
-                            .accessibilityHidden(!pantheon.lit)
+                        // NO COUNT OF THE TAPS UNDER THE COIN (the author's word 19.10.2026 17:4x MSK: «at taps and swipes on the coin do
+                        // not show 13/13 below; leave the taps, at most +1 a second»): a tap mints the second's one coin at most
+                        // (MTPantheon.tap, MTLocalCoinLedger.priced) and its +1 rises only when it minted.
                         MTLevelProgress(balance: book.balance)
                             .opacity(pantheon.lit || autoMint.on ? 1 : 0)
                             .accessibilityHidden(!(pantheon.lit || autoMint.on))
@@ -155,9 +135,20 @@ struct MTWalletPage: View {
                         // holding back the credits of transfers»). T1 at 12:44:25Z: a transfer of 100 000 credited, and the figure -- then the
                         // chain's fold -- stood still. The figure is every coin the book holds, minted and received by every road; under it the
                         // part the person's chain on the network holds for its one owner (MTCoinSplit.available), and nothing more.
-                        // USER-DATA: the balance, a number, and the ticker, one symbol in every language
-                        (Text(verbatim: MTCoinText.count(total)) + Text(verbatim: " " + MTCoinBook.ticker))
-                            .font(.system(size: 48, weight: .bold).monospacedDigit()).lineLimit(1).minimumScaleFactor(0.5)
+                        // THE TIME BALANCE (the author's words 19.10.2026 17:2x MSK: «the time on the Time Coins page white and large, as in
+                        // the film In Time -- seconds, minutes, days and so on; the transfer by the fact of the coins, Montana, TCM»; 17:4x:
+                        // «in 2250 I want to see Time Balance, and below it in a small font the TCM»; 17:44: «the rate is exactly 1 Coin =
+                        // 0.000000001 TCM = 1 second; white and large the Time Balance, below it in Coins, and in transfers and everywhere in
+                        // the TimeChain both the time and the coins»): a coin is a second (the constitution, article 11), so the figure is the
+                        // time the book holds; the coins under it are what a transfer moves -- coins, never TCM (a TCM is a billion of them).
+                        Text("Time Balance").font(.subheadline).foregroundStyle(.secondary)
+                        // USER-DATA: the balance as a span of time, years, days, hours, minutes and seconds
+                        Text(verbatim: MTCoinText.time(total))
+                            .font(.system(size: 48, weight: .bold).monospacedDigit()).foregroundStyle(.white)
+                            .lineLimit(1).minimumScaleFactor(0.3)
+                            .textSelection(.enabled)
+                        Text("\(MTCoinText.count(total)) coins")
+                            .font(.subheadline.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.5)
                             .textSelection(.enabled)
                         // THE SEED'S BOOK IS ON ITS WAY (the author's word 04.10.2026 15:51 MSK: «I log in on T3 by T1's seed and see my
                         // balance»): a device restored by its words says it is gathering until the nodes answer, never a balance of nothing.
@@ -492,6 +483,40 @@ struct MTWalletPullKey: PreferenceKey {
 }
 
 
+/// THE TIME A COUNT OF COINS IS (the constitution, article 11: «1 second -- 1 coin»; the author's word 19.10.2026 17:44 MSK: «in
+/// transfers and everywhere in the TimeChain both the time and the coins»): the one owner -- years of 365 days, days, hours, minutes
+/// and seconds, written by the system in the app's language; split here, never by a calendar, so one count reads the same on every date.
+extension MTCoinText {
+    static func time(_ coins: Int, signed: Bool = true) -> String {
+        let s = coins.magnitude
+        var c = DateComponents()
+        c.year = Int(s / 31_536_000)
+        c.day = Int(s % 31_536_000 / 86_400)
+        c.hour = Int(s % 86_400 / 3_600)
+        c.minute = Int(s % 3_600 / 60)
+        c.second = Int(s % 60)
+        let f = DateComponentsFormatter()
+        f.allowedUnits = [.year, .day, .hour, .minute, .second]
+        f.unitsStyle = .abbreviated
+        f.zeroFormattingBehavior = .dropLeading
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.locale = MTLanguage.locale
+        f.calendar = calendar
+        let told = f.string(from: c) ?? String(s)
+        return signed && coins < 0 ? "−" + told : told
+    }
+}
+
+/// THE TIME UNDER THE COINS (the author's word 19.10.2026 17:44 MSK): one look beside every count of coins a transfer or a link of
+/// the TimeChain moved -- the count's own time, small and secondary, never signed (the coins beside it carry the way).
+struct MTCoinTime: View {
+    let coins: Int
+    var body: some View {
+        // USER-DATA: the coins as a span of time
+        Text(verbatim: MTCoinText.time(coins, signed: false)).font(.caption.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
+    }
+}
+
 /// ONE COIN MOVE ON ITS OWN PAGE (the author's word 05.10.2026: «a tap on the coins opens this transaction»): a coin letter's bubble
 /// opens the move it made in this phone's book -- the coins, who they came from or went to, the moment -- and the link its TimeChain
 /// sealed for it, with the seal and the seal before it.
@@ -521,6 +546,10 @@ struct MTCoinMovePage: View {
                         // USER-DATA: the coins the move carried, signed by its way
                         Text(verbatim: (route.mine ? "−" : "+") + MTCoinText.count(move.c)).monospacedDigit()
                             .foregroundStyle(route.mine ? Color.primary : Color.green)
+                    }
+                    LabeledContent("Time") {
+                        // USER-DATA: the coins the move carried as a span of time
+                        Text(verbatim: MTCoinText.time(move.c)).monospacedDigit()
                     }
                     LabeledContent(route.mine ? "To" : "From") {
                         // USER-DATA: the person the coins went to or came from
@@ -892,9 +921,12 @@ struct MTHistoryRow: View {
                     .font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 8)
-            // USER-DATA: the operation's coins, signed
-            Text(verbatim: (0 < line.signed ? "+" : "") + MTCoinText.count(line.signed)).font(.body.monospacedDigit())
-                .foregroundStyle(0 < line.signed ? Color.green : Color.primary)
+            VStack(alignment: .trailing, spacing: 2) {
+                // USER-DATA: the operation's coins, signed
+                Text(verbatim: (0 < line.signed ? "+" : "") + MTCoinText.count(line.signed)).font(.body.monospacedDigit())
+                    .foregroundStyle(0 < line.signed ? Color.green : Color.primary)
+                MTCoinTime(coins: line.signed)
+            }
         }
         .frame(minHeight: 44)
         .contentShape(Rectangle())
@@ -946,9 +978,12 @@ struct MTCoinAnalyticsPage: View {
                             // USER-DATA: where the coins came from or went
                             Text(verbatim: a.name).font(.subheadline)
                             Spacer()
-                            // USER-DATA: the coins of this source over the period, signed
-                            Text(verbatim: (0 < a.signed ? "+" : "") + MTCoinText.count(a.signed)).font(.subheadline.monospacedDigit())
-                                .foregroundStyle(0 < a.signed ? Color.green : Color.primary)
+                            VStack(alignment: .trailing, spacing: 2) {
+                                // USER-DATA: the coins of this source over the period, signed
+                                Text(verbatim: (0 < a.signed ? "+" : "") + MTCoinText.count(a.signed)).font(.subheadline.monospacedDigit())
+                                    .foregroundStyle(0 < a.signed ? Color.green : Color.primary)
+                                MTCoinTime(coins: a.signed)
+                            }
                         }
                         ProgressView(value: Double(a.moved), total: Double(max(1, moved)))
                     }
@@ -970,6 +1005,7 @@ struct MTCoinAnalyticsPage: View {
             Label { title } icon: { Image(systemName: glyph) }.font(.subheadline).foregroundStyle(.secondary)
             // USER-DATA: the period's coins of this side
             Text(verbatim: MTCoinText.count(coins)).font(.title3.bold().monospacedDigit()).lineLimit(1).minimumScaleFactor(0.5)
+            MTCoinTime(coins: coins)
         }
         .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
         .padding(12)
@@ -987,6 +1023,8 @@ struct MTHistoryCard: View {
             Section {
                 // USER-DATA: the operation's coins, signed
                 LabeledContent { Text(verbatim: (0 < line.signed ? "+" : "") + MTCoinText.count(line.signed)).monospacedDigit() } label: { Text("Amount") }
+                // USER-DATA: the operation's coins as a span of time
+                LabeledContent { Text(verbatim: MTCoinText.time(line.signed, signed: false)).monospacedDigit() } label: { Text("Time") }
                 // USER-DATA: who or what the operation was with
                 LabeledContent { Text(verbatim: line.title) } label: { Text("Kind") }
                 // USER-DATA: the operation's category
@@ -1033,8 +1071,8 @@ struct MTCallCoinReceipt: View {
         } label: {
             HStack(spacing: 5) {
                 MTMintCoin(spinning: false, side: 18)
-                // USER-DATA: only the amount settled for this call, never a duration estimate.
-                Text(verbatim: (coins > 0 ? "+" : "") + MTCoinText.count(coins) + " " + MTCoinBook.ticker)
+                // USER-DATA: only the amount settled for this call and its own time (1 coin = 1 second), never a duration estimate.
+                Text(verbatim: (coins > 0 ? "+" : "") + MTCoinText.count(coins) + " · " + MTCoinText.time(coins, signed: false))
                     .font(.system(size: 15, weight: .semibold).monospacedDigit())
                     .foregroundStyle(coins > 0 ? Color.green : (coins < 0 ? Color.red : Color.secondary))
                     .lineLimit(1).minimumScaleFactor(0.65)
@@ -1442,8 +1480,11 @@ struct MTTimeChainPage: View {
                         if l.k == "level" {
                             Text("Level \(l.c)").font(.body.monospacedDigit())
                         } else if 0 < l.c {
-                            // USER-DATA: the coins the link moved, signed by its way; a link of the wall's posts moves none
-                            Text(verbatim: (["earn", "receive", "keep"].contains(l.k) ? "+" : "−") + MTCoinText.count(l.c)).font(.body.monospacedDigit())
+                            VStack(alignment: .trailing, spacing: 2) {
+                                // USER-DATA: the coins the link moved, signed by its way; a link of the wall's posts moves none
+                                Text(verbatim: (["earn", "receive", "keep"].contains(l.k) ? "+" : "−") + MTCoinText.count(l.c)).font(.body.monospacedDigit())
+                                MTCoinTime(coins: l.c)
+                            }
                         }
                     }
                     // USER-DATA: the link's moment, on this phone's clock

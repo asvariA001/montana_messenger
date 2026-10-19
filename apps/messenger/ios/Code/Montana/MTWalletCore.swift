@@ -3489,8 +3489,10 @@ enum MTCoinSend {
         }
         switch await MTCoinTx.sendResult(coins, conv: conv) {
         case .sent(let id):
-            // USER-DATA: the coin glyph, the number and the ticker, the same in every language; the link is the transfer's own address
-            let text = "🪙 " + MTCoinText.count(coins) + " " + MTCoinBook.ticker + "\n" + MTCoinTx.link + id
+            // USER-DATA: the coin glyph, the number of coins and the time they are (the author's word 19.10.2026 17:44 MSK: «1 Coin
+            // = 0.000000001 TCM = 1 second; in transfers both the time and the coins» -- coins, never TCM), the time in the sender's
+            // language as the words of the letter are; the link is the transfer's own address
+            let text = "🪙 " + MTCoinText.count(coins) + " · " + MTCoinText.time(coins) + "\n" + MTCoinTx.link + id
             _ = store.send(text: text, chat: chat.name, convRef: conv, silent: false, noLinkCard: true)
             return .sent(id)
         case .pending:
@@ -3785,7 +3787,8 @@ enum MTCoinChainRules {
     /// A key's state folded over its chain (section 3).
     struct St: Equatable { var head = MTCoinChainRules.zero; var height = 0; var birth: Int64 = 0; var mintEnd: Int64 = 0; var proven: Int64 = 0; var declared: Int64 = 0; var v3 = false; var lastAt: Int64 = 0; var minted: Int64 = 0 }
     struct SendInfo { let from: String; let amount: Int64; let at: Int64; let to: Data; let dec: Int64 }
-    /// A(x) of section 4: what the seconds 1..x of a key's life may mint -- 2 x min(13, max(1, bit_length(s) - 1)) a second.
+    /// A_2(x) of section 4, the doubling rule: what the seconds 1..x of a key's life could mint before the second's cut, and the bound
+    /// of every GENESIS -- 2 x min(13, max(1, bit_length(s) - 1)) a second.
     nonisolated static func timeA(_ x: Int64) -> Int64 {
         var total: Int64 = 0, lo: Int64 = 1, k: Int64 = 0
         while 0 < x, lo <= x {
@@ -3796,6 +3799,12 @@ enum MTCoinChainRules {
         return 2 * total
     }
     nonisolated static var genesisCap: Int64 { timeA(v2Cut - coinEpoch) }
+    /// 1 SECOND -- 1 COIN (section 4; the constitution, article 11; the author's words 19.10.2026 15:3x MSK: «the ceiling, an invariant --
+    /// nothing else can mint or speed it up»): from this node second a MINT is weighed by A(x) = x over the key's whole life less all
+    /// it minted; one taken before stands by the doubling rule. The node's TX_SECOND_CUT, the same second as the v2 cut.
+    nonisolated static let secondCut: Int64 = v2Cut
+    /// What the seconds 1..x of a key's life may mint by a MINT its node takes at the second `at`: chosen by at, never by the interval.
+    nonisolated static func allowTime(_ x: Int64, at: Int64) -> Int64 { secondCut <= at ? max(0, x) : timeA(x) }
     /// A BOOK'S PAST, NEVER A FRESH KEY'S WORD (18.10.2026, the critic's P-1; the node's TX_GENESIS_GATE): from this node second a
     /// GENESIS above 0 stands only on the key's own past on its chain and announces at most the time since that past began.
     nonisolated static let genesisGate: Int64 = 1_792_354_500
@@ -3867,8 +3876,8 @@ enum MTCoinChainRules {
             if s.height == 0 || t0 < s.mintEnd || t1 < t0 + 60 || at < t1 { return (nil, false) }
             // THE SUM OF TIME (section 4, fold-3): all the key's MINTs together stay under A(t1 - birth), so a MINT below its
             // interval's seconds leaves the key's time to the next one (17.10.2026, P1: a MINT of 120 laid before the pay for 4.4 days
-            // away had closed those days, and 2 452 406 coins stood in the book and not on the chain)
-            if timeA(t1 - s.birth) - s.minted < a { return (nil, false) }
+            // away had closed those days, and 2 452 406 coins stood in the book and not on the chain); from the cut 1 coin a second
+            if allowTime(t1 - s.birth, at: at) - s.minted < a { return (nil, false) }
             n.proven = s.proven + a; n.mintEnd = t1; n.minted = s.minted + a
         case .send?:
             let dec = Int64(p.a)
@@ -4396,8 +4405,9 @@ extension MTCoinTx {
         guard 0 < gap, st.mintEnd + 60 <= st.now - 120 else { return told(st) }
         let r = await layOnHead { s in
             let t0 = s.mintEnd, t1 = s.now - 120
-            // the key's time less what it minted (section 4, fold-3); a node that names no minted still folds by the interval
-            let room = MTCoinChainRules.timeA(t1 - s.birth) - (s.minted ?? MTCoinChainRules.timeA(t0 - s.birth))
+            // the key's time less what it minted (section 4, fold-3; from the second's cut 1 coin a second, weighed at the node's now,
+            // the at it gives the record); a node that names no minted still folds by the interval
+            let room = MTCoinChainRules.allowTime(t1 - s.birth, at: s.now) - (s.minted ?? MTCoinChainRules.allowTime(t0 - s.birth, at: s.now))
             let amount = min(book - s.proven - s.declared, room)
             guard 0 < amount, t0 + 60 <= t1 else { return nil }
             return build3(.mint, amount: UInt64(amount), prev: s.head, nonce: fresh(), a: UInt64(t0), b: UInt64(t1))

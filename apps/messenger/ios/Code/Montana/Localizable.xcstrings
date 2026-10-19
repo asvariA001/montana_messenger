@@ -17,6 +17,22 @@
         }
       }
     },
+    "Time Balance": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Баланс Времени"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "时间余额"
+          }
+        }
+      }
+    },
     "Waiting…": {
       "extractionState": "manual",
       "localizations": {
@@ -26208,23 +26224,6 @@
         }
       }
     },
-    "Hold the coin for 9 seconds for auto minting: one coin a second.": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Удерживайте монету 9 секунд для авточеканки: одна монета в секунду."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "按住硬币 9 秒开始自动铸币：每秒一枚硬币。"
-          }
-        }
-      }
-    },
     "No balances to level": {
       "localizations": {
         "ru": {
@@ -30542,6 +30541,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "您的节点尚未保存所选文件中的 %lld 个：它们会留在此手机上。"
+          }
+        }
+      }
+    },
+    "Time": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Время"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "时间"
           }
         }
       }
