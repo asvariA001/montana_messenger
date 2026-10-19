@@ -315,7 +315,7 @@ struct MTQuestionsPage: View {
             Item(question: "What is a Time Coin?",
                  answer: "The coin of Montana, ticker $TCM. Its measure is time: one second is one coin, so an hour is 3600 coins. A billion coins is one Montana."),
             Item(question: "Do coins mint while Montana is in the background?",
-                 answer: "Yes. When Montana leaves the screen, it keeps your Global level of that moment. When you come back, every second you were away is minted at that level: level 5 mints 5 coins a second, and no level mints more than 13 a second. At Global level 0 the time away mints nothing, and neither does it when the network did not answer Montana before it left the screen. Both moments are read from the Montana network, so turning the clock of the phone changes nothing."),
+                 answer: "Yes. When Montana leaves the screen, it keeps the moment it left. When you come back, every second you were away mints one coin, the same one coin a second as everywhere. At Global level 0 the time away mints nothing, and neither does it when the network did not answer Montana before it left the screen. Both moments are read from the Montana network, so turning the clock of the phone changes nothing."),
         ]),
         Topic(title: "Your words and devices", systemImage: "key.horizontal", items: [
             Item(question: "What if I use Montana on several devices?",

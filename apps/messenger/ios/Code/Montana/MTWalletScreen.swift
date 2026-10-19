@@ -77,7 +77,7 @@ struct MTWalletPage: View {
                         // minting, music doubles auto minting -- then the caption goes; show it only at the touch of the coin»): one line
                         // while a finger is on the coin and three seconds after the last one lifts; hidden, it keeps its place, so the coin
                         // never moves under the finger.
-                        Text("Hold the coin for 9 seconds for auto minting; music doubles auto minting.")
+                        Text("Hold the coin for 9 seconds for auto minting: one coin a second.")
                             .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
                             .opacity(hint ? 1 : 0)
                             .accessibilityHidden(!hint)
@@ -679,11 +679,11 @@ struct MTCoinMovePage: View {
     }
     /// A DAY'S SMALL EXPENSES FOLD AS ITS MINTING DOES (the author's word 17.10.2026 13:46 MSK: «and in the history group the small
     /// expenses, such as the burning for likes, comments and the other small ones, as a day's, the same as with the minting»): a burn or
-    /// a spend of no more coins than a second of life mints at most (MTCoinBook.limit) -- a coin on a letter or a post, a comment's coin,
+    /// a small spend of at most thirteen coins (MTCoinBook.smallSpend) -- a coin on a letter or a post, a comment's coin,
     /// a letter's burn of the builds before, a small move of a game. A transfer to a person, a call's seconds and a larger expense stay
     /// lines of their own.
     nonisolated static func small(_ e: MTCoinEntry, _ source: String) -> Bool {
-        (e.k == .spend || e.k == .burn) && source != "calls" && e.c <= MTCoinBook.limit
+        (e.k == .spend || e.k == .burn) && source != "calls" && e.c <= MTCoinBook.smallSpend
     }
     /// Every move of the book folded once: the lines day after day, a day's minting one line of it, a day's small expenses one line of
     /// each source and kind, the months' and the whole's sums by source, and the transfers with each person. The days are found by the
@@ -1688,13 +1688,13 @@ struct MTTimeChainsPage: View {
 /// App Review 2.3.1(a)): how coins come and how they go, each rule as the code keeps it -- the Pantheon (MTPantheon), the auto
 /// minting (MTWalletPull), the Money Flow and the ordinary chat (MTChatMint, MTCoinSend.pay, MTCallMint), people, comments, chess --
 /// and what the coins are not. One list for the wallet's page and the Top up sheet.
-/// The wallet and its instructions read the same multiplier that the ledger applies.
+/// The wallet reads the one owner of a second's coin (MTCoinBook.price), the same the book mints by.
 /// The player's face changes only with playback state, never with its progress clock.
 struct MTCurrentMintRate: View {
     @ObservedObject private var book = MTLocalCoinLedger.shared
     @ObservedObject private var music = VoicePlayer.shared.face
     var body: some View {
-        Text("1 second = \(MTCoinBook.price * MTPiLevels.multiplier(book.balance)) coins")
+        Text("1 second = \(MTCoinBook.price) coins")
     }
 }
 
@@ -1702,22 +1702,22 @@ struct MTCoinRules: View {
     var body: some View {
         Section {
             MTCurrentMintRate().monospacedDigit()
-            Text("Your level increases minting. Playing music in Montana doubles it. The rate above already includes these multipliers.")
+            Text("All minting together never exceeds one coin a second. Your level and music do not change it.")
         } header: { Text("Your minting rate now") }
         Section {
             Label("Audio and video calls with recording earn coins. Calls without recording burn coins at the same current rate for every full second after connection.", systemImage: "phone")
             Text("Each participant is counted separately by the recording on their device. Recording starts counting when audio is captured; switching it off or a recording failure switches the following seconds to burning.")
-            Text("Other minting does not reduce call earnings. The call record shows your total: a plus for coins earned, a minus for coins burned. Ringing and missed calls cost nothing. An empty balance does not stop the call or create debt.")
+            Text("A call shares the same one coin a second with all other minting. The call record shows your total: a plus for coins earned, a minus for coins burned. Ringing and missed calls cost nothing. An empty balance does not stop the call or create debt.")
         } header: { Text("Calls and recording") }
         Section {
-            Label("Tap the coin on the Time Coins page to mint. Up to 13 taps count each second. After a minute of tapping, the game rests for a minute.", systemImage: "hand.tap")
+            Label("Tap the coin on the Time Coins page to mint. Taps share the same one coin a second. After a minute of tapping, the game rests for a minute.", systemImage: "hand.tap")
             Label("Hold the coin for 9 seconds or pull down the Time Coins page to start auto minting. It stops when you leave that page or lock the screen.", systemImage: "arrow.down.circle")
-            Label("Messages you send and receive earn coins at your level. Transfers and call records do not mint again as messages.", systemImage: "bubble.left.and.bubble.right")
-            Label("In groups and channels, text messages longer than 13 characters earn coins at your level.", systemImage: "person.3")
+            Label("Messages you send and receive earn coins within the same one coin a second. Transfers and call records do not mint again as messages.", systemImage: "bubble.left.and.bubble.right")
+            Label("In groups and channels, text messages longer than 13 characters earn coins within the same one coin a second.", systemImage: "person.3")
             Label("An active VPN connection earns coins for the seconds it works.", systemImage: "network")
         } header: { Text("More ways to mint") }
         Section {
-            Label("Chess moves add coins to the prize at the player's level. The winner takes the prize; a draw returns each player's share. A stake is optional.", systemImage: "checkerboard.rectangle")
+            Label("Chess moves add coins to the prize within the same one coin a second. The winner takes the prize; a draw returns each player's share. A stake is optional.", systemImage: "checkerboard.rectangle")
             Label("In Chess Timer, coins grow while your opponent thinks.", systemImage: "timer")
             Label("Someone can send you coins in a chat. These coins come from that person.", systemImage: "person.2")
         } header: { Text("Games and transfers") }

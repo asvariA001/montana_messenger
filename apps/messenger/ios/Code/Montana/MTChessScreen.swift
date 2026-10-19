@@ -296,7 +296,6 @@ enum MTChessCoins {
     /// end the replay both phones share pays the pot (pay): the winner mints every coin of the moves and takes both stakes; the
     /// loser takes nothing; a draw, a declined, ended or replaced game gives each side its own moves' coins and its own stake
     /// back. No coin is born on two phones, and none from a stake that never left a book.
-    static let moveTimes = 1000
     static let potPrefix = "chess-pot:"
     static let stakePrefix = "chess-stake:"
     static let backPrefix = "chess-back:"
@@ -304,11 +303,9 @@ enum MTChessCoins {
     static func owns(_ ref: String) -> Bool {
         [movePrefix, wonPrefix, lostPrefix, potPrefix, stakePrefix, backPrefix].contains { ref.hasPrefix($0) }
     }
-    /// The coins a move of this phone mints into the pot: the level now, times a thousand.
-    @MainActor static func moveCoins() -> Int {
-        let (c, over) = MTPiLevels.multiplier(MTCoinBook.ledger.balance).multipliedReportingOverflow(by: moveTimes)
-        return over ? 0 : min(c, MTChessLetter.mostCoins)
-    }
+    /// The coins a move of this phone names for the pot: the second's one coin (MTCoinBook.price; point 11 as the ceiling,
+    /// 19.10.2026 -- the level times a thousand is gone), and the pot itself mints through the book's second (MTLocalCoinLedger.priced).
+    @MainActor static func moveCoins() -> Int { MTCoinBook.price }
     /// The stake leaves the book into the game's pot; a stake already put is not put twice; a short balance refuses it.
     @MainActor static func put(_ stake: Int, game: String, peer: String) -> Bool {
         let book = MTCoinBook.ledger
@@ -359,9 +356,12 @@ enum MTChessCoins {
     }
     /// WHAT THE GAME GAVE OR TOOK (the author's word 06.10.2026 23:2x MSK: «in the chat after the game show the coins' transfer or
     /// top-up, plainly; fix the minuses and the pluses»): this side's share against what it put -- the same reading pay books by.
-    static func net(_ game: MTChessGame) -> Int? {
+    /// The pot's coins are read as the book took them, never the moves' sum the replay names: the book's second
+    /// (MTLocalCoinLedger.priced, point 11 as the ceiling, 19.10.2026) mints a pot one coin at most.
+    @MainActor static func net(_ game: MTChessGame) -> Int? {
         guard let s = share(game) else { return nil }
-        return s.minted + s.back - s.put
+        let minted = MTCoinBook.ledger.entries.first { $0.k == .earn && $0.ref == potPrefix + game.id }?.c ?? 0
+        return minted + s.back - s.put
     }
     /// THE POT PAID AT THE END: each phone books its own side once, by the game's names.
     @MainActor private static func pay(_ game: MTChessGame, chat: String, book: any MTCoinLedger) {
@@ -763,7 +763,7 @@ private struct MTChessNewGame: View {
                 } header: {
                     Text("Invite a correspondent")
                 } footer: {
-                    Text("Both players put the stake into the game's pot, and every move mints its maker's level times a thousand into it. The winner takes the whole pot; a draw gives each their own back.")
+                    Text("Both players put the stake into the game's pot, and every move adds a coin to it within the same one coin a second. The winner takes the whole pot; a draw gives each their own back.")
                 }
             }
             .searchable(text: $query)

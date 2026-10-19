@@ -1531,7 +1531,7 @@ struct MTCoinTapPad: UIViewRepresentable {
 struct MTTapPop: Identifiable {
     let id = UUID()
     let point: CGPoint
-    var coins = 1               // the level's number of coins the touch minted (MTPiLevels.multiplier)
+    var coins = 1               // the coin the touch minted (MTCoinBook.price, the second's one)
 }
 struct MTRisingPlus: View {
     let point: CGPoint

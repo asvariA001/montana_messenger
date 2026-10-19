@@ -278,7 +278,7 @@ enum MTWalletCore {
     @discardableResult private func mint(_ names: [String], times: Int, peer: String? = nil, oneEach: Bool = false) -> Int {
         // ONE COIN TIMES THE LEVEL A BUBBLE (MTMoneyFlow): the level read at every name, minted by the bubble's name -- the name keeps
         // it one, whichever door asks.
-        let paid = oneEach ? names.reduce(0) { sum, n in sum + MTCoinBook.ledger.mint(MTPiLevels.multiplier(MTCoinBook.ledger.balance), ref: n, peer: peer) }
+        let paid = oneEach ? names.reduce(0) { sum, n in sum + MTCoinBook.ledger.mint(MTCoinBook.price, ref: n, peer: peer) }
                            : MTCoinBook.ledger.earn(names, times: times, peer: peer)
         guard let file else { return paid }
         let lines = Data((names.joined(separator: "\n") + "\n").utf8)
@@ -340,20 +340,10 @@ enum MTPiLevels {
     static let shown = 13
     /// The number of levels the balance fills: 0 below the first.
     static func place(_ balance: Int) -> Int { all.filter { $0 <= balance }.count }
-    /// THE BOX IS THE MINTING'S MULTIPLIER (the author's words 04.10.2026 03:06 MSK: «every open box is a multiplier of the minting:
-    /// box 1 one coin, box 2 two coins for a tap, a move, a chat and everywhere, as the box's invariant; box 5 five coins a tap»):
-    /// every coin minted anywhere is the box's number of coins, one below the first box. Each next box asks about ten times the
-    /// coins of the one before (the digits of π), so the rate grows with the logarithm of the balance, and time still bounds it.
-    /// «Every mechanism multiplies by the level, and the minting's highest level is 13» (04.10.2026 17:27 MSK): the price of a second.
-    /// THE MUSIC DOUBLES WHAT THERE IS (the author's words 05.10.2026 14:16-14:17 MSK: «music is a hidden ×2 to what there is, at
-    /// any level: level 5 gives 10, not 13»; «even if you already have the limit of 13, it doubles»; «music ×2 above the limit of
-    /// 13, up to 26 a second»): the level's coins, bounded by the most a second mints, then twice that while a track plays.
-    static func multiplier(_ balance: Int) -> Int { min(MTCoinBook.limit, max(1, place(balance))) * (musicPlays ? 2 : 1) }
-    /// The most one second mints, all minting together (MTLocalCoinLedger.priced): thirteen, twice that while a track plays.
-    static var ceiling: Int { MTCoinBook.limit * (musicPlays ? 2 : 1) }
-    /// A track of the music plays: not resting, not a voice -- a voice and music are two things (10.09), and a voice taking the
-    /// player is a voice before its sound starts, while the track's facts still stand (VoicePlayer.park(handing:)).
-    static var musicPlays: Bool { let p = VoicePlayer.shared; return p.currentTrack != nil && p.playingFile != nil && !p.paused && !p.isVoice }
+    /// THE LEVEL IS A READING, NEVER A RATE (the constitution of the chain, point 11; the author's words 19.10.2026 15:3x MSK: «this
+    /// is the ceiling, the invariant -- nothing else can mint or accelerate it, no music, no VPN and so on»; «the Global Level is
+    /// untied from the minting»; 16:4x: «bring it all to one owner of the function 1 coin = 1 second, and that is all»): the one
+    /// owner of a second's coin is the book (MTCoinBook.price, MTLocalCoinLedger.priced); a level multiplies nothing.
     /// π as far as a level reveals it: 3, 3.1, 3.14 ...
     static func revealed(_ place: Int) -> String {
         let d = String(digits.prefix(max(0, place)))
@@ -500,7 +490,8 @@ enum MTPiLevels {
         holding = false
         goOutAfterQuiet()
     }
-    /// One touch of the coin: the coins it minted -- the box's number of them -- or none past the thirteenth of a second.
+    /// One touch of the coin: the coin it minted -- the second's one (MTLocalCoinLedger.priced), none for a second already paid;
+    /// the speed still counts up to thirteen touches, the finger's speed, never a rate.
     @discardableResult func tap() -> Int {
         let now = Date().timeIntervalSince1970
         taps.removeAll { 1 <= now - $0 }
@@ -734,7 +725,7 @@ enum MTCoinBalance {
     /// coin multiplied by the level: for the 7th level 7 coins a message and 7 coins a second of talk; a level 1 on the call -- x1
     /// for him»; it replaces the hundred levels a long text minted, 05.10): every bubble of a chat whose flow is on -- words, a
     /// picture, a voice, a file, of either side -- mints the level's coins on this phone, once by its name (MTChatMint.credit,
-    /// oneEach; MTPiLevels.multiplier, the one function of the level); a coin letter, a chess step and a row of the phone's own mint
+    /// oneEach; the second's one coin, MTCoinBook.price); a coin letter, a chess step and a row of the phone's own mint
     /// nothing. In an ordinary chat a bubble of mine burns one (MTCoinSend.pay). A call follows its chat the same way (MTCallMint).
     @Published private(set) var turns = 0
     nonisolated static func isOn(_ conv: String) -> Bool { !conv.isEmpty && UserDefaults.standard.bool(forKey: "moneyFlow." + conv) }   // a conversation's own key (SeedScope.dataPrefixes)
@@ -1656,9 +1647,9 @@ struct MTCallCredit {
         let recording = MTCallRecording.shared.isRecording(t.call)
         let coins: Int
         if recording {
-            coins = MTCoinBook.ledger.mintInWindow(MTCoinBook.price * fresh, prefix: refPrefix + t.call + ":", seconds: fresh, byLevel: true)
+            coins = MTCoinBook.ledger.mintInWindow(MTCoinBook.price * fresh, prefix: refPrefix + t.call + ":", seconds: fresh)
         } else {
-            coins = -MTCoinBook.ledger.burnInWindow(MTCoinBook.price * fresh, prefix: burnPrefix + t.call + ":", seconds: fresh, byLevel: true)
+            coins = -MTCoinBook.ledger.burnInWindow(MTCoinBook.price * fresh, prefix: burnPrefix + t.call + ":", seconds: fresh)
         }
         MontanaTrace.markFolded("call_coins", "coins=\(coins) seconds=\(fresh) recording=\(recording ? 1 : 0)", window: 60)
     }
@@ -1680,7 +1671,7 @@ struct MTCallCredit {
 /// THE PULL SWITCHES THE AUTO MINTING ON (the author's words 04.10.2026 03:52 and 04:18 MSK: «pulling the wallet's page, as the time
 /// panel does, calls the coin for a forced refresh of the tops and the activation of the auto minting once a second»; «at such a
 /// refresh switch the auto minting on: every second coins by the box's level»): a pull let go past the coin's trigger mints at once
-/// and goes on minting every second -- the box's number of coins, the book multiplies (MTPiLevels.multiplier) -- while the wallet
+/// and goes on minting every second -- the second's one coin, the book's (MTCoinBook.price) -- while the wallet
 /// stands open. Time bounds it, not a quicker hand.
 /// THE PERSON ENDS IT, NO CLOCK (the author's word 04.10.2026 13:33 MSK: «it must not stop until I touch the coin myself or leave
 /// the wallet's page -- it mints only while the wallet's screen is active, without taps on it, and deactivates at any action; all
@@ -2084,14 +2075,14 @@ enum MTTimeChain {
     /// THE MINTING GOES ON WHILE THE APP IS AWAY (the author's word 10.10.2026 15:0x MSK: «when any of our apps is minimized, the
     /// minting must go on at the lowest level among the chain of the person and the chain of the wallet -- the levels of π»): the app
     /// leaving the screen keeps the node second of its last answer and the Global Level of that moment; the first answer after its
-    /// return names the second it came back, and every second between is minted at that level, the limit of a second at most
-    /// (MTCoinBook.limit). Both ends are the nodes' seconds, so a clock turned on the phone moves nothing, and a stretch with no
+    /// return names the second it came back, and every second between mints the second's one coin (MTCoinBook.price; point 11
+    /// as the ceiling, 19.10.2026: the level no longer multiplies). Both ends are the nodes' seconds, so a clock turned on the phone moves nothing, and a stretch with no
     /// answer before the leave mints nothing.
     func left(level global: Int) {
         load()
         defer { last = nil }
         guard let from = last, 0 < global else { return }
-        away = Away(at: from, level: min(global, MTCoinBook.limit))
+        away = Away(at: from, level: MTCoinBook.price)   // one coin a second away, whatever the level (point 11, 19.10.2026)
         keep()
         Task { await self.put() }
     }
@@ -2102,7 +2093,7 @@ enum MTTimeChain {
         guard 0 < gone, 0 < w.level else { return }
         let (coins, over) = Int(gone).multipliedReportingOverflow(by: w.level)
         guard !over else { return }
-        let minted = MTCoinBook.ledger.mintInWindow(coins, prefix: Self.awayPrefix, seconds: Int(gone), byLevel: false)
+        let minted = MTCoinBook.ledger.mintInWindow(coins, prefix: Self.awayPrefix, seconds: Int(gone))
         MontanaTrace.mark("person_away", "seconds=\(gone) level=\(w.level) minted=\(minted)")
         // the pay for the seconds away goes to the chain at once, not a window later (17.10.2026, P1): the book holds it already,
         // and a MINT the launch laid a moment before leaves the rest of the key's time to this one (section 4, fold-3)
@@ -2654,15 +2645,15 @@ struct MTCoinEntry: Codable, Hashable, Identifiable {
 @MainActor protocol MTCoinLedger: AnyObject {
     var balance: Int { get }
     var entries: [MTCoinEntry] { get }
-    /// The box's coins for every name not paid before (MTPiLevels.multiplier), `times` levels a name (one, since the Money Flow
+    /// The second's coin for every name not paid before (MTCoinBook.price, MTLocalCoinLedger.priced); `times` is read no more (the Money Flow
     /// mints a bubble's level by mint, 07.10); the coins this call added. `peer` names the conversation the
     /// letters came in when it is a group's or a channel's: their coins stand in their own chains.
     @discardableResult func earn(_ names: [String], times: Int, peer: String?) -> Int
     /// A game's coins gathered in its open window of τ1 and booked as one move when it closes (MTLocalCoinLedger.mintInWindow).
-    /// `seconds` is the span the coins were earned over: one for a tap or a second now, more for seconds lived away. `byLevel`
-    /// multiplies by the same current rate shown in the wallet (MTPiLevels.multiplier), including calls.
-    @discardableResult func mintInWindow(_ coins: Int, prefix: String, seconds: Int, byLevel: Bool) -> Int
-    @discardableResult func burnInWindow(_ coins: Int, prefix: String, seconds: Int, byLevel: Bool) -> Int
+    /// `seconds` is the span the coins were earned over: one for a tap or a second now, more for seconds lived away; the book
+    /// mints at most one coin for each of them, all minting together (point 11, MTLocalCoinLedger.priced).
+    @discardableResult func mintInWindow(_ coins: Int, prefix: String, seconds: Int) -> Int
+    @discardableResult func burnInWindow(_ coins: Int, prefix: String, seconds: Int) -> Int
     /// Close this source's current window and return its signed booked amount, without moving coins again.
     func closeMintWindow(_ prefix: String) -> Int
     /// Coins already counted elsewhere, minted once under their name: a chess game's pot at its end (MTChessCoins.pay), whose
@@ -2686,10 +2677,6 @@ extension MTCoinLedger {
     @discardableResult func earn(_ names: [String]) -> Int { earn(names, times: 1, peer: nil) }
     /// A game's or a ribbon's coins with no conversation named.
     @discardableResult func earn(_ names: [String], times: Int) -> Int { earn(names, times: times, peer: nil) }
-    /// A game's coins at the box's level.
-    @discardableResult func mintInWindow(_ coins: Int, prefix: String, seconds: Int) -> Int {
-        mintInWindow(coins, prefix: prefix, seconds: seconds, byLevel: true)
-    }
 }
 
 /// THE TIMECHAIN FOLDER (the author's words 04.10.2026 13:42 MSK: «in the Montana folder make a folder TimeChain, so I see it on all
@@ -2748,13 +2735,13 @@ enum MTTimeChainPlace {
 /// The app's one book of coins, today (see MTCoinLedger for the seam).
 enum MTCoinBook {
     @MainActor static var ledger: any MTCoinLedger { MTLocalCoinLedger.shared.whole }
-    /// THE LIMIT OF A SECOND (the constitution of the chain, point 11, the author's words 04.10.2026 17:27 MSK and 05.10.2026 14:17
-    /// MSK): a second of life mints thirteen coins at most -- the level's multiplier stops at it, MTLocalCoinLedger.priced shares it
-    /// among every minting of the second, and the music doubles it (MTPiLevels.ceiling); a bubble of the Money Flow mints the
-    /// level's coins by its name, beside the second's room (MTMoneyFlow, 07.10.2026 21:4x MSK).
-    static let limit = 13
-    /// THE PRICE OF A SECOND (point 11 as the author changed it 05.10.2026 14:17 MSK: «a second = 1 coin everywhere, point 11
-    /// changes»): one coin -- a person's hour is 3 600 coins and their personal rate is read by it (MTHourWorth, MTPersonalRate);
+    /// THE SMALL SPEND (the wallet's history folds them, MTWalletScreen): a coin on a letter or a post carries at most thirteen.
+    /// Not a rate: since 19.10.2026 a second of life mints one coin, all minting together (price, below).
+    static let smallSpend = 13
+    /// THE PRICE OF A SECOND, THE ONE OWNER OF THE FUNCTION «1 COIN = 1 SECOND» (point 11; the author's words 05.10.2026 14:17 MSK:
+    /// «a second = 1 coin everywhere»; 19.10.2026 15:3x: «the ceiling, the invariant -- nothing else can mint or accelerate it»;
+    /// 16:4x: «one owner of the function 1 coin = 1 second, and that is all»): one coin, the most a second mints, every door
+    /// together (MTLocalCoinLedger.priced) -- a person's hour is 3 600 coins and their personal rate is read by it (MTHourWorth, MTPersonalRate);
     /// a second of a connected call mints it times each side's level in a Money Flow chat and burns it on each side in an ordinary
     /// one (MTCallMint, 07.10.2026 21:3x-21:4x MSK).
     static let price = 1
@@ -3122,19 +3109,21 @@ struct MTCoinCounts {
     /// its own window, so two games at once do not cut each other's.
     static let window: Double = 60
     private var windows: [String: (ref: String, coins: Int, at: Double)] = [:]
-    @discardableResult func mintInWindow(_ coins: Int, prefix: String, seconds: Int, byLevel: Bool) -> Int {
-        moveInWindow(coins, prefix: prefix, seconds: seconds, byLevel: byLevel, burning: false)
+    @discardableResult func mintInWindow(_ coins: Int, prefix: String, seconds: Int) -> Int {
+        moveInWindow(coins, prefix: prefix, seconds: seconds, burning: false)
     }
-    @discardableResult func burnInWindow(_ coins: Int, prefix: String, seconds: Int, byLevel: Bool) -> Int {
-        moveInWindow(coins, prefix: prefix, seconds: seconds, byLevel: byLevel, burning: true)
+    @discardableResult func burnInWindow(_ coins: Int, prefix: String, seconds: Int) -> Int {
+        moveInWindow(coins, prefix: prefix, seconds: seconds, burning: true)
     }
-    private func moveInWindow(_ coins: Int, prefix: String, seconds: Int, byLevel: Bool, burning: Bool) -> Int {
-        let (whole, over) = coins.multipliedReportingOverflow(by: byLevel ? MTPiLevels.multiplier(balance) : 1)
-        guard !over, 0 < whole else { return 0 }
+    private func moveInWindow(_ coins: Int, prefix: String, seconds: Int, burning: Bool) -> Int {
+        let whole = coins
+        guard 0 < whole else { return 0 }
         if !burning && !MTCoinBook.fits(whole, beside: balance) { return 0 }
         // A connected call owns every elapsed second (14.10.2026): other minting must
         // not consume its earnings. MTCallMint advances each call's paid second once.
-        let c = burning ? min(whole, max(0, balance)) : (prefix.hasPrefix(MTCallMint.refPrefix) ? whole : priced(whole, seconds: seconds))
+        // A CALL SHARES THE SECOND (19.10.2026, point 11 as the ceiling): its seconds take the second's one coin like every other
+        // minting -- a call beside the VPN or the pull once minted two coins a second.
+        let c = burning ? min(whole, max(0, balance)) : priced(whole, seconds: seconds)
         guard 0 < c else { return 0 }
         let signed = burning ? -c : c
         let (windowCoins, overflow) = (windows[prefix]?.coins ?? 0).addingReportingOverflow(signed)
@@ -3173,15 +3162,15 @@ struct MTCoinCounts {
             return overflow ? (signed < 0 ? -Int.max : Int.max) : next
         }
     }
-    /// THE LIMIT OF A SECOND (point 11, MTCoinBook.limit): all the minting of one second -- letters, taps, the pull, the VPN wall,
-    /// chess -- shares that second's thirteen coins; a payment for seconds lived away carries thirteen for each of its seconds before
-    /// this one, which it shares like any other. What the price leaves out is not minted.
+    /// THE ONE COIN OF A SECOND (point 11, MTCoinBook.price -- the one owner): all the minting of one second -- letters, taps, the
+    /// pull, the VPN wall, calls, a named mint, chess -- shares that second's one coin; a payment for seconds lived away carries one
+    /// for each of its seconds before this one, which it shares like any other. What the price leaves out is not minted.
     private var second: (at: Int64, minted: Int) = (0, 0)
     private func priced(_ coins: Int, seconds: Int) -> Int {
         let now = Int64(Date().timeIntervalSince1970)
         if second.at != now { second = (now, 0) }
-        let (away, over) = MTPiLevels.ceiling.multipliedReportingOverflow(by: max(0, seconds - 1))
-        let room = max(0, MTPiLevels.ceiling - second.minted)
+        let (away, over) = MTCoinBook.price.multipliedReportingOverflow(by: max(0, seconds - 1))
+        let room = max(0, MTCoinBook.price - second.minted)
         let c = over ? coins : min(coins, room + away)
         second.minted += min(room, max(0, c - (over ? c : away)))
         return c
@@ -3273,8 +3262,7 @@ struct MTCoinCounts {
             let born = ChatStore.birthMs(fromMid: n) ?? now
             // The box is read at every name: a name that opens a box mints the next one at the new rate; more than one level a
             // name stands above the limit of a second and takes none of the second's room.
-            let level = MTPiLevels.multiplier(balance)
-            let c = 1 < times ? level * times : priced(level, seconds: 1)
+            let c = priced(MTCoinBook.price, seconds: 1)   // a name's coin is the second's coin (point 11), `times` no more
             guard 0 < c else { continue }
             let e = MTCoinEntry(k: .earn, c: c, ref: n, peer: peer, at: born)
             guard take(e) else { continue }
@@ -3289,12 +3277,16 @@ struct MTCoinCounts {
 
     @discardableResult func mint(_ coins: Int, ref: String, peer: String?) -> Int {
         guard MTCoinBook.fits(coins, beside: balance), !ref.isEmpty, !taken.contains("earn:" + ref) else { return 0 }
-        let e = MTCoinEntry(k: .earn, c: coins, ref: ref, peer: peer, at: MTTimeChain.now())
+        // A NAMED MINT IS THE SECOND'S COIN TOO (point 11 as the ceiling, 19.10.2026): a bubble of the Money Flow and a chess pot
+        // minted beside the second's room; now they take it, so no door of the book mints faster than one coin a second.
+        let c = priced(coins, seconds: 1)
+        guard 0 < c else { return 0 }
+        let e = MTCoinEntry(k: .earn, c: c, ref: ref, peer: peer, at: MTTimeChain.now())
         guard take(e) else { return 0 }
         keep([e])
-        MTCoinFlash.shared.born(coins, ref: ref)
-        MontanaTrace.markFolded("coin_earn", "named coins=\(coins) balance=\(balance)", window: 60)
-        return coins
+        MTCoinFlash.shared.born(c, ref: ref)
+        MontanaTrace.markFolded("coin_earn", "named coins=\(c) balance=\(balance)", window: 60)
+        return c
     }
 
     @discardableResult func burn(_ coins: Int, ref: String) -> Int {
