@@ -1247,7 +1247,9 @@ struct MTLevelProgress: View {
                     // the system's blue, not white as now»): the page's tint is the label colour, so the bar names its own.
                     .tint(.blue)
                     .frame(maxWidth: 240)
-                Text("\(MTCoinText.count(high - balance)) coins to level \(place + 1)").font(.footnote.monospacedDigit()).foregroundStyle(.secondary)
+                // THE NEXT LEVEL IN TIME (the author's word 20.10.2026 00:08 MSK: «on the coins page, to the next level under the coin,
+                // show it in units of time»): one coin is one second, so what is left reads as the Time Balance writes a span.
+                Text("\(MTCoinText.time(high - balance, signed: false)) to level \(place + 1)").font(.footnote.monospacedDigit()).foregroundStyle(.secondary)
             }
         }
     }

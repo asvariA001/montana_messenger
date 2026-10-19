@@ -23593,7 +23593,7 @@
         }
       }
     },
-    "%@ coins to level %lld": {
+    "%@ to level %lld": {
       "extractionState": "manual",
       "localizations": {
         "ru": {
@@ -23605,7 +23605,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "距离第 %2$lld 级还差 %1$@ 枚"
+            "value": "距离第 %2$lld 级还差 %1$@"
           }
         }
       }
