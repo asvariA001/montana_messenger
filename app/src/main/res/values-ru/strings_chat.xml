@@ -226,6 +226,14 @@
     <string name="gp_link_revoke">Сбросить ссылку</string>
     <string name="gp_link_revoke_q">Сбросить ссылку? После этого по ней никто не сможет вступить в группу.</string>
     <string name="gp_link_revoke_do">Сбросить</string>
+    <string name="gp_approval">Одобрение администратором</string>
+    <string name="gp_approval_on_note">Новые участники смогут вступить в группу только после одобрения администратором.</string>
+    <string name="gp_approval_off_note">Новые участники смогут вступить в группу без одобрения администратором.</string>
+    <string name="gp_requests">Заявки на вступление</string>
+    <string name="gp_requests_none">Нет заявок</string>
+    <string name="gp_requests_none_note">Заявок на вступление в группу пока нет.</string>
+    <string name="gp_requests_add">Добавить в группу</string>
+    <string name="gp_requests_dismiss">Отклонить</string>
     <string name="ge_joined_me">Вы вступили в группу по ссылке-приглашению</string>
     <string name="ge_joined">%1$s вступил(а) в группу по ссылке-приглашению</string>
     <string name="gp_slow_off">Выкл.</string>

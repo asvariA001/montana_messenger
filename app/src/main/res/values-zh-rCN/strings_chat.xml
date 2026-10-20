@@ -226,6 +226,14 @@
     <string name="gp_link_revoke">撤销链接</string>
     <string name="gp_link_revoke_q">确定要撤销此链接吗？撤销后，任何人都无法再通过它加入群组。</string>
     <string name="gp_link_revoke_do">撤销</string>
+    <string name="gp_approval">需要管理员批准</string>
+    <string name="gp_approval_on_note">新用户只有在管理员批准后才能加入群组。</string>
+    <string name="gp_approval_off_note">新用户无需管理员批准即可加入群组。</string>
+    <string name="gp_requests">入群申请</string>
+    <string name="gp_requests_none">没有入群申请</string>
+    <string name="gp_requests_none_note">目前没有加入群组的申请。</string>
+    <string name="gp_requests_add">添加到群组</string>
+    <string name="gp_requests_dismiss">忽略</string>
     <string name="ge_joined_me">你通过邀请链接加入了群组</string>
     <string name="ge_joined">%1$s 通过邀请链接加入了群组</string>
     <string name="gp_slow_off">关闭</string>

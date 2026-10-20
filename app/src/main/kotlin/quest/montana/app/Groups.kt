@@ -48,6 +48,8 @@ object Groups {
     enum class Verdict { HELD, REFUSED, WAIT, INSTANT }
 
     class Member(val seat: String, val pipe: String)
+    /** ONE WHO ASKED TO JOIN BY THE LINK (iOS MTGroupRequest, the reference's «Member Requests»): the pipe the owner met them by, the name they gave and when (ms). */
+    class Request(val pipe: String, val name: String, val at: Long)
 
     /** A group as this phone holds it (iOS MTGroupState): `owner` — the pipe to the owner, empty on the owner's phone; `me` — this phone's seat. */
     class State(
@@ -74,6 +76,9 @@ object Groups {
         val banned: MutableList<Member> = mutableListOf(),
         /** THE STANDING MARK OF THE GROUP'S INVITE LINK (iOS invite, the reference's «Invite Link»): whoever opens the link meets the owner by its card and asks with it; a new mark ends every link given before. The owner's alone. */
         var invite: String? = null,
+        /** THE LINK ASKS THE OWNER FIRST (iOS approval, G.8, the reference's «Request Admin Approval»): who opens it waits in `requests` until the owner adds or dismisses them. The owner's alone, never on the wire. */
+        var approval: Boolean = false,
+        val requests: MutableList<Request> = mutableListOf(),
     ) {
         val mine: Boolean get() = owner.isEmpty()
         fun json(): JSONObject = JSONObject().put("id", id).put("k", kind).put("ti", title).put("ds", about).put("ow", owner).put("me", me)
@@ -83,7 +88,8 @@ object Groups {
             .put("ax", JSONObject().apply { taken.forEach { (k, v) -> put(k, JSONArray(v)) } }).put("rk", JSONObject(ranks.toMap()))
             .put("bn", JSONArray(barred)).put("sw", slow).put("hy", history)
             .put("bd", JSONArray().apply { banned.forEach { put(JSONObject().put("s", it.seat).put("p", it.pipe)) } })
-            .put("iv", invite ?: "")
+            .put("iv", invite ?: "").put("ap", approval)
+            .put("rq", JSONArray().apply { requests.forEach { put(JSONObject().put("p", it.pipe).put("n", it.name).put("at", it.at)) } })
         companion object {
             fun of(o: JSONObject) = State(o.getString("id"), o.getString("k"), o.optString("ti"), o.optString("ds"), o.optString("ow"),
                 o.getString("me"),
@@ -98,7 +104,8 @@ object Groups {
                 o.optJSONArray("bn")?.let { a -> MutableList(a.length()) { a.getString(it) } } ?: mutableListOf(), o.optInt("sw"),
                 o.optBoolean("hy"),
                 o.optJSONArray("bd")?.let { a -> MutableList(a.length()) { i -> a.getJSONObject(i).let { Member(it.getString("s"), it.getString("p")) } } } ?: mutableListOf(),
-                o.optString("iv").ifEmpty { null })
+                o.optString("iv").ifEmpty { null }, o.optBoolean("ap"),
+                o.optJSONArray("rq")?.let { a -> MutableList(a.length()) { i -> a.getJSONObject(i).let { Request(it.getString("p"), it.optString("n"), it.optLong("at")) } } } ?: mutableListOf())
         }
     }
 
@@ -810,9 +817,60 @@ object Groups {
             Log.i("Montana", "group_link a removed person asked by the link -- refused")
             return Verdict.REFUSED
         }
+        // THE LINK ASKS THE OWNER FIRST (iOS joined, G.8): the asker waits among the requests, once, until the owner adds or dismisses them
+        if (g.approval) {
+            synchronized(lock) {
+                g.requests.removeAll { SamePair.root(it.pipe) == from }
+                g.requests.add(Request(from, clean(w.optString("n"), NAME_LIMIT), System.currentTimeMillis()))
+                while (PEOPLE_LIMIT < g.requests.size) g.requests.removeAt(0)
+                save()
+            }
+            Log.i("Montana", "group_link a join waits for approval")
+            return Verdict.HELD
+        }
         add(key(g.id), listOf(from), viaLink = true)
         Log.i("Montana", "group_link joined by the link")
         return Verdict.HELD
+    }
+
+    // ── member requests (iOS G.8, the reference's «Request Admin Approval» and «Member Requests») ──
+
+    /** Whether the group's link asks the owner first. */
+    fun approval(key: String): Boolean = state(key)?.approval == true
+    /** THE OWNER TURNS THE LINK'S APPROVAL ON OR OFF (iOS setApproval): the requests already waiting stay until they are answered. */
+    fun setApproval(key: String, on: Boolean) = synchronized(lock) {
+        val g = state(key) ?: return@synchronized
+        if (!g.mine || g.kind != GROUP || g.approval == on) return@synchronized
+        g.approval = on
+        save()
+        Log.i("Montana", "group_link approval=" + if (on) 1 else 0)
+    }
+    /** The people waiting to join, by the names they are known by, the newest first (iOS requests). */
+    fun requests(c: Context, key: String): List<Request> {
+        val g = state(key)?.takeIf { it.mine } ?: return emptyList()
+        val list = synchronized(lock) { g.requests.toList() }
+        return list.sortedByDescending { it.at }.map { r ->
+            val name = Book.chat(SamePair.root(r.pipe))?.shown?.ifBlank { null } ?: r.name.ifEmpty { c.getString(R.string.gr_member) }
+            Request(r.pipe, name, r.at)
+        }
+    }
+    /** THE OWNER ADDS ONE WHO ASKED (iOS approve): by the owner's own road, as by the link -- they joined by it. */
+    fun approve(key: String, pipe: String) = synchronized(lock) {
+        if (state(key)?.mine != true) return@synchronized
+        drop(key, pipe)
+        add(key, listOf(pipe), viaLink = true)
+        Log.i("Montana", "group_link request approved")
+    }
+    /** THE OWNER DISMISSES ONE WHO ASKED (iOS dismiss): they are told nothing; the link may bring them again. */
+    fun dismiss(key: String, pipe: String) = synchronized(lock) {
+        if (state(key)?.mine != true) return@synchronized
+        drop(key, pipe)
+        Log.i("Montana", "group_link request dismissed")
+    }
+    private fun drop(key: String, pipe: String) {
+        val g = state(key) ?: return
+        val root = SamePair.root(pipe)
+        if (g.requests.removeAll { SamePair.root(it.pipe) == root }) save()
     }
 
     /** THE OWNER LETS A REMOVED PERSON BACK (iOS unban, the reference's «Removed Users», Delete): they are no longer kept out. */

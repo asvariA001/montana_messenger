@@ -226,6 +226,14 @@
     <string name="gp_link_revoke">Revoke Link</string>
     <string name="gp_link_revoke_q">Are you sure you want to revoke this link? Once you do, no one will be able to join the group using it.</string>
     <string name="gp_link_revoke_do">Revoke</string>
+    <string name="gp_approval">Request Admin Approval</string>
+    <string name="gp_approval_on_note">New users will be able to join the group only after having been approved by the admins.</string>
+    <string name="gp_approval_off_note">New users will be able to join the group without being approved by the admins.</string>
+    <string name="gp_requests">Member Requests</string>
+    <string name="gp_requests_none">No Member Requests</string>
+    <string name="gp_requests_none_note">You have no pending requests to join the group.</string>
+    <string name="gp_requests_add">Add to Group</string>
+    <string name="gp_requests_dismiss">Dismiss</string>
     <string name="ge_joined_me">You joined the group via invite link</string>
     <string name="ge_joined">%1$s joined the group via invite link</string>
     <string name="gp_slow_off">Off</string>

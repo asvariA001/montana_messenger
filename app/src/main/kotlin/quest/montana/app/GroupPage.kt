@@ -251,6 +251,23 @@ private fun groupEditPage(act: MainActivity, key: String, onBack: () -> Unit): V
                             act.push { back -> groupHistoryPage(act, key) { back(); reshow() } }
                         }
                         addView(c.plate { addView(history, lp()) }, lp())
+                        // WHO ASKED TO JOIN BY THE LINK, as the reference's editor shows it while any wait (iOS MTGroupRequestsPage, G.8)
+                        val asked = c.text("", 17f, MT.gray)
+                        lateinit var askedPlate: View
+                        fun reask() {
+                            val n = Groups.requests(c, key).size
+                            asked.text = n.toString()   // USER-DATA: a count
+                            askedPlate.visibility = if (n == 0) View.GONE else View.VISIBLE
+                        }
+                        val requests = c.navRow(R.drawable.ic_person_add, c.getString(R.string.gp_requests), asked) {
+                            act.push { back -> groupRequestsPage(act, key, back) { reask() } }
+                        }
+                        askedPlate = c.vstack(Gravity.NO_GRAVITY) {
+                            gap(20)
+                            addView(c.plate { addView(requests, lp()) }, lp())
+                        }
+                        addView(askedPlate, lp())
+                        reask()
                         // THE PEOPLE KEPT OUT, as the reference's editor lists them, with their count (iOS MTGroupRemovedPage, G.7)
                         gap(20)
                         val removed = c.text("", 17f, MT.gray)
@@ -334,8 +351,81 @@ private fun groupLinksPage(act: MainActivity, key: String, onBack: () -> Unit): 
                 addView(share, lp(0, WRAP, 1f))
             }, lp())
         })
+        // THE LINK ASKS THE OWNER FIRST (iOS MTGroupInviteLinksPage, G.8): who opens it waits among the requests
+        var ready = false   // the switch set to what is stored is not the owner's tap
+        lateinit var note: android.widget.TextView
+        fun renote(on: Boolean) { note.text = c.getString(if (on) R.string.gp_approval_on_note else R.string.gp_approval_off_note) }
+        val approval = c.toggleRow(c.getString(R.string.gp_approval)) { on ->
+            if (!ready) return@toggleRow
+            Groups.setApproval(key, on)
+            renote(on)
+        }.apply {
+            setPadding(dp(16), dp(10), dp(16), dp(10)); minimumHeight = dp(48)
+            (getChildAt(0) as android.widget.TextView).textSize = 17f
+            (0 until childCount).map { getChildAt(it) }.filterIsInstance<Switch>().firstOrNull()?.isChecked = Groups.approval(key)
+            ready = true
+        }
+        section(null, "", approval)
+        note = getChildAt(childCount - 1) as android.widget.TextView   // the section's words under it change with the switch
+        renote(Groups.approval(key))
         section(null, null, revoke)
     }
+}
+
+/**
+ * THE GROUP'S MEMBER REQUESTS, AS THE REFERENCE'S PAGE KEEPS THEM (iOS MTGroupRequestsPage, G.8): who asked to join by the link
+ * while it asks the owner first, the newest first -- «Add to Group» adds them by the owner's own road, «Dismiss» lets the request go.
+ */
+private fun groupRequestsPage(act: MainActivity, key: String, onBack: () -> Unit, onLeft: () -> Unit): View {
+    val c: Context = act
+    val body = c.vstack(Gravity.NO_GRAVITY) {}
+    val stamp = java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM, java.text.DateFormat.SHORT)
+    fun draw() {
+        body.removeAllViews()
+        val list = Groups.requests(c, key)
+        if (list.isEmpty()) {
+            body.addView(c.vstack(Gravity.CENTER_HORIZONTAL) {
+                setPadding(dp(16), dp(24), dp(16), dp(24))
+                addView(c.text(c.getString(R.string.gp_requests_none), 17f, Color.WHITE, bold = true, center = true), lp())
+                gap(8)
+                addView(c.text(c.getString(R.string.gp_requests_none_note), 15f, MT.gray, center = true), lp())
+            }, lp())
+            return
+        }
+        fun button(words: Int, tone: Int, onTap: () -> Unit) = c.text(c.getString(words), 17f, Color.WHITE, bold = true, center = true).apply {
+            gravity = Gravity.CENTER
+            minHeight = dp(44)
+            background = c.rounded(tone, 12)
+            pressable(onTap)
+        }
+        body.section(null, null, *list.map { r ->
+            c.vstack(Gravity.NO_GRAVITY) {
+                setPadding(dp(16), dp(10), dp(16), dp(10))
+                addView(c.hstack {
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(c.peerFace(SamePair.root(r.pipe), r.name, 40), lp(dp(40), dp(40)).apply { marginEnd = dp(12) })
+                    addView(c.vstack(Gravity.NO_GRAVITY) {
+                        addView(c.text(r.name, 17f, Color.WHITE).apply { singleLineEllipsis() }, lp())   // USER-DATA: the asker's name
+                        addView(c.text(stamp.format(java.util.Date(r.at)), 12f, MT.gray), lp())   // USER-DATA: when they asked
+                    }, lp(0, WRAP, 1f))
+                }, lp())
+                gap(8)
+                addView(c.hstack {
+                    addView(button(R.string.gp_requests_add, SysColor.blue) { Groups.approve(key, r.pipe); draw() }, lp(0, WRAP, 1f))
+                    gap(10)
+                    addView(button(R.string.gp_requests_dismiss, Color.rgb(57, 57, 61)) { Groups.dismiss(key, r.pipe); draw() }, lp(0, WRAP, 1f))
+                }, lp())
+            }
+        }.toTypedArray())
+    }
+    draw()
+    val page = settingsPage(act, c.getString(R.string.gp_requests), onBack) { addView(body, lp()) }
+    // the editor counts again however the page leaves: its own mark or the system's back
+    page.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+        override fun onViewAttachedToWindow(v: View) {}
+        override fun onViewDetachedFromWindow(v: View) { onLeft() }
+    })
+    return page
 }
 
 /**
