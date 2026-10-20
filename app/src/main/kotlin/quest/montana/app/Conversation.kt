@@ -1131,7 +1131,12 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             val r = replyTo
             replyTo = null
             // refused (G.5: a right the group took, slow mode's wait) -- the words and the answer stay where they were
-            if (!Groups.send(ref, words, r?.let { letterWords(c, it).take(200) }, r?.mid)) { field.setText(words); field.setSelection(field.length()); replyTo = r; showStrip() }
+            // THE CARD BELONGS TO THE LETTER IN A GROUP TOO (iOS 89dfd51d): the plate above the field held it; the first piece takes it
+            val seenCard = LinkCompose.attachable
+            val refusedCard = LinkCompose.url.isEmpty() && LinkPreview.webURLs(words).isNotEmpty()
+            val qt = r?.let { letterWords(c, it).take(200) }
+            if (Groups.send(ref, words, qt, r?.mid) { mid, piece -> LinkPreview.attend(ref, mid, piece, qt, r?.mid, seen = seenCard, refused = refusedCard) }) LinkCompose.sent()
+            else { field.setText(words); field.setSelection(field.length()); replyTo = r; showStrip() }
         } else {
             val r = replyTo
             replyTo = null

@@ -253,7 +253,8 @@ object LinkPreview {
      * and longer read, lands after, on the row only.
      */
     fun attend(ref: String, mid: String, text: String, qt: String?, qm: String?, seen: String? = null, refused: Boolean = false) {
-        LinkCard.parse(seen)?.let { land(ref, mid, text, qt, qm, it); return }
+        // off the screen's thread: a seen card without its picture reads the picture now (a read on the main thread never came back)
+        LinkCard.parse(seen)?.let { Thread { land(ref, mid, text, qt, qm, it) }.start(); return }
         if (refused || !enabled || Marks.isService(text) || webURLs(text).isEmpty()) return
         Thread {
             var card: LinkCard? = null
@@ -264,11 +265,35 @@ object LinkPreview {
             land(ref, mid, text, qt, qm, c)
         }.start()
     }
-    /** The card lands on my row and a same-mid copy of the letter carries it to the correspondent, without its picture. */
+    /**
+     * The card lands on my row and a same-mid copy of the letter carries it to the correspondent, without its picture; in a group,
+     * to everyone by the group's own word «lp», and its picture once more when it catches up (iOS MTLinkCards.land → carryCard, 89dfd51d).
+     */
     private fun land(ref: String, mid: String, text: String, qt: String?, qm: String?, card: LinkCard) {
+        val group = Groups.isKey(ref)
         Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.lp = card.json() }
-        Post.send(ref, mid, text, qt, qm, lp = card.json(withPicture = false))   // the envelope leg: the card without its picture
-        picture(card)?.let { full -> Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.lp = full.json() } }
+        if (group) Groups.carryCard(ref, mid, card)
+        else Post.send(ref, mid, text, qt, qm, lp = card.json(withPicture = false))   // the envelope leg: the card without its picture
+        picture(card)?.let { full ->
+            Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.lp = full.json() }
+            if (group) Groups.carryCard(ref, mid, full)
+        }
+    }
+    /**
+     * A LATE CARD ON A STANDING ROW (iOS enrichLinkPreview, the critic 22.09): a row without a card takes it whole; a card without its
+     * picture takes the picture of the same link, and nothing else of a standing card moves. True: the row changed.
+     */
+    fun enrich(row: Msg, lp: String, mid: String): Boolean {
+        val fresh = LinkCard.parse(lp) ?: return false
+        val old = row.lp?.let { s -> LinkCard.parse(s) }
+        if (old == null) { row.lp = lp; android.util.Log.d("Montana", "link card: landed on a standing row mid=" + mid.take(8)); return true }
+        if (old.i == null && fresh.i != null && fresh.u == old.u) {
+            old.i = fresh.i; old.w = fresh.w; old.h = fresh.h; old.p = fresh.p ?: old.p
+            row.lp = old.json()
+            android.util.Log.d("Montana", "link card: the picture caught up mid=" + mid.take(8))
+            return true
+        }
+        return false
     }
 }
 

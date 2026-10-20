@@ -178,6 +178,9 @@ object Groups {
 
     fun isKey(chat: String) = chat.startsWith(KEY_HEAD)
     private fun key(id: String) = KEY_HEAD + id
+    /** [I-14]: a letter's link card on the wire, at most -- the pair's leg (iOS cardLimit). [I-15]: how long a card that outran its letter waits for it (iOS cardWait). */
+    private const val CARD_LIMIT = 16_384
+    private const val CARD_WAIT_MS = 600_000L
     private fun state(key: String): State? = synchronized(lock) { if (isKey(key) && ready()) groups[key.removePrefix(KEY_HEAD)] else null }
     /** The people in the group, the owner included — the head of the group's chat says this number (iOS people). */
     fun peopleLine(c: Context, key: String): String? = state(key)?.count?.let { c.resources.getQuantityString(R.plurals.gr_members, it, it) }
@@ -294,7 +297,8 @@ object Groups {
      * born in the group's feed under its one name and a copy to everyone this phone carries to — on a member's phone, the owner;
      * the receipts raise the row (follow). Nobody to carry to: honest red. False when the group takes no letter from this phone.
      */
-    fun send(key: String, words: String, qt: String?, qm: String?): Boolean {
+    fun send(key: String, words: String, qt: String?, qm: String?, first: ((String, String) -> Unit)? = null): Boolean {
+        var lead: Pair<String, String>? = null
         synchronized(lock) {
             val g = state(key)
             if (g == null || g.left || (g.kind != GROUP && !g.mine) || words.isBlank()) {
@@ -313,9 +317,60 @@ object Groups {
                 if (first && !qt.isNullOrEmpty()) w.put("qt", qt)
                 if (first && !qm.isNullOrEmpty()) w.put("qm", qm)
                 if (spread(w, g, null, own = true) == 0) Book.edit(key) { c -> c.msgs.find { it.mid == mid }?.advance(-1) }
+                if (first && lead == null) lead = mid to piece
             }
-            return true
         }
+        // the first piece's row, out of the lock: the card the person saw above the field attends it (iOS MTLinkCards.attend)
+        lead?.let { (mid, piece) -> first?.invoke(mid, piece) }
+        return true
+    }
+
+    /**
+     * THE CARD OF A LETTER OF MINE, TO EVERYONE THIS PHONE CARRIES TO (iOS carryCard, 89dfd51d; the author's word 17.10: «everything as
+     * in chats, one to one»): the card the person saw above the field, and its picture when it catches up, ride as the group's own word
+     * «lp» under the letter's name -- the pair's same-name copy that carries the card, said the group's way, cut to the pair's leg.
+     */
+    fun carryCard(key: String, mid: String, card: LinkCard) {
+        synchronized(lock) {
+            val g = state(key) ?: return
+            if (g.left || (g.kind != GROUP && !g.mine) || !isLetterName(mid)) return
+            if (Book.chat(key)?.msgs?.any { it.mine && it.mid == mid } != true) return
+            val tx = card.json().takeIf { it.toByteArray().size <= CARD_LIMIT }
+                ?: card.json(withPicture = false).takeIf { it.toByteArray().size <= CARD_LIMIT } ?: return
+            val n = spread(word("lp", g).put("id", mid).put("s", g.me).put("tx", tx), g, null, own = false)   // no copy of a card witnesses the row
+            Log.i("Montana", "group_tx mid=" + mid.take(14) + " card copies=$n bytes=" + tx.toByteArray().size)
+        }
+    }
+
+    /**
+     * A LETTER'S CARD (iOS carded, 89dfd51d): it lands on its letter's row by the pair's one rule of a late card (LinkPreview.enrich),
+     * and the owner carries it on. Only the letter's speaker names its card, and only for a link the letter's own words carry; a card
+     * that outran its letter waits for it ten minutes by the letter's birth.
+     */
+    private fun carded(w: JSONObject, pipe: String): Verdict {
+        val g = groups[w.getString("g")] ?: return Verdict.WAIT
+        if (g.left) return Verdict.REFUSED
+        val id = w.optString("id"); val lp = w.optString("tx")
+        if (!isLetterName(id) || lp.toByteArray().size > CARD_LIMIT) return Verdict.REFUSED
+        val card = LinkCard.parse(lp) ?: return Verdict.REFUSED
+        val from = SamePair.root(pipe)
+        val seat = (if (g.mine) g.members.firstOrNull { SamePair.root(it.pipe) == from }?.seat
+            else w.optString("s").takeIf { SamePair.root(g.owner) == from && isSeat(it) && it != g.me }) ?: return Verdict.REFUSED
+        val key = key(g.id)
+        val row = Book.chat(key)?.msgs?.firstOrNull { it.mid == id }
+        if (row == null) {
+            if (id in gone || Book.isBuried(key, id)) return Verdict.HELD   // the letter is gone here already
+            val born = Marks.birthMs(id) ?: return Verdict.REFUSED
+            return if (System.currentTimeMillis() - born < CARD_WAIT_MS) Verdict.WAIT else Verdict.REFUSED
+        }
+        if (row.mine || author(row, g) != seat || card.u !in LinkPreview.webURLs(row.text)) {
+            Log.i("Montana", "group_refused a card past its letter's speaker or its words")
+            return Verdict.REFUSED
+        }
+        Book.edit(key) { c -> c.msgs.find { it.mid == id }?.let { LinkPreview.enrich(it, lp, id) } }
+        if (g.mine) spread(word("lp", g).put("id", id).put("s", seat).put("tx", lp), g, seat, own = false)
+        Log.i("Montana", "group_rx mid=$id card owner=" + (if (g.mine) 1 else 0))
+        return Verdict.HELD
     }
 
     /**
@@ -1439,6 +1494,7 @@ object Groups {
             "kk" -> kicked(w, pipe)   // COMPAT-GATED: an administrator's «take out», to the owner (iOS stage R.6)
             "ci" -> infoAsked(w, pipe)   // COMPAT-GATED: a member's renewal, to the owner (iOS G.5)
             "jn" -> joined(w, pipe)   // COMPAT-GATED: a person who opened the group's invite link, to the owner (iOS stage R.6)
+            "lp" -> carded(w, pipe)   // COMPAT-GATED: a letter's link card (iOS 17.10, 89dfd51d), an older build buries it
             "kp" -> keptHeard(w, pipe)   // COMPAT-GATED: a keeper's word to the one who deleted a letter (iOS 16.10, fbd8a190)
             else -> Verdict.REFUSED.also { Log.i("Montana", "group_refused kind=${t.take(8)}") }   // a newer build's word: its road ends here
         }
