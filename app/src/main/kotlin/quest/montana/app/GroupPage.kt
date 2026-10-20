@@ -22,8 +22,13 @@ import android.widget.Switch
  * adds people, takes a person out (asked first) and changes the name and the face («Edit»); a member leaves (asked first). Every
  * change is the owner's word to every phone of the group (Groups.renew, add, remove, leave), never one phone's alone.
  */
-fun groupPage(act: MainActivity, key: String, onClose: () -> Unit): View {
+fun groupPage(act: MainActivity, key: String, onClose: () -> Unit,
+              toChat: (String, String?) -> Unit = { to, mid -> act.push { close -> conversationPage(act, to, close, jump = mid) } }): View {
     val c: Context = act
+    // THE GROUP'S PANES UNDER ITS PEOPLE, AS THE REFERENCE'S PAGE HAS THEM (iOS 82c9ae3f, V.7): Media -- its photos and its videos
+    // together --, Files, Links, Music and Voice; a channel keeps its page as it was
+    val panes = if (Groups.isChannel(key)) null else panesOf(act, key, group = true, onClose, toChat) {}
+    panes?.pane?.setPadding(0, 0, 0, 0)   // the page's own margins hold it
     val edit = c.text(c.getString(R.string.edit), 17f, SysColor.blue).apply { setPadding(c.dp(8), c.dp(10), c.dp(8), c.dp(10)) }
     edit.pressable { act.push { back -> groupEditPage(act, key, back) { back(); onClose() } } }
     val bar = FrameLayout(c).apply {
@@ -197,7 +202,15 @@ fun groupPage(act: MainActivity, key: String, onClose: () -> Unit): View {
             // «N members, M online», said once for the chat's top and the page (iOS MTGroupPage.head, 1915a7f4)
             Groups.headLine(c, key)?.let { addView(c.text(it, 15f, MT.gray, center = true), lp(WRAP, WRAP)) }
         }, lp())
-        if (!channel) { drawGroup(); return }
+        if (!channel) {
+            drawGroup()
+            panes?.let { p ->
+                body.addView(p.bar, lp(MATCH, c.dp(44)).apply { topMargin = c.dp(24) })
+                body.addView(p.pane, lp())
+                p.heard()
+            }
+            return
+        }
         // THE GROUP'S DESCRIPTION (iOS the group page's info above its people, stage R): the owner's words, read by all
         Groups.about(key).takeIf { it.isNotEmpty() && !channel }?.let { about ->
             body.section(null, null, c.vstack(Gravity.NO_GRAVITY) {
@@ -267,16 +280,24 @@ fun groupPage(act: MainActivity, key: String, onClose: () -> Unit): View {
     redraw = { draw() }
     draw()
     val again: () -> Unit = { act.onMain { draw() } }
+    val music: () -> Unit = { panes?.music?.invoke() }
     body.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
-        override fun onViewAttachedToWindow(v: View) { Book.listen(again); draw() }
-        override fun onViewDetachedFromWindow(v: View) { Book.unlisten(again) }
+        override fun onViewAttachedToWindow(v: View) { Book.listen(again); MusicPlayer.listeners.add(music); draw() }
+        override fun onViewDetachedFromWindow(v: View) { Book.unlisten(again); MusicPlayer.listeners.remove(music) }
     })
     return FrameLayout(c).apply {
         setBackgroundColor(Color.BLACK)
         addView(c.chatGround(ChatWall.PAGE), FrameLayout.LayoutParams(MATCH, MATCH))
         addView(c.vstack(Gravity.NO_GRAVITY) {
             addView(bar, lp(MATCH, dp(52)))
-            addView(ScrollView(c).apply { addView(body) }, lp(MATCH, 0, 1f))
+            // a sideways stroke turns the panes, as on a person's page; one begun on the strip rolls the strip (iOS MTSwipePanes)
+            val p = panes
+            addView(if (p == null) ScrollView(c).apply { addView(body) }
+                else PanesScroll(c, skip = { y -> y in p.bar.top.toFloat()..p.bar.bottom.toFloat() }, turn = p.turn).apply {
+                    isVerticalScrollBarEnabled = false; addView(body)
+                }, lp(MATCH, 0, 1f))
+            // the selection's bar and the mini player at the foot, outside the rows (iOS MontanaPeerInfoScreen.swift:69-84)
+            if (p != null) { addView(p.foot, lp()); addView(liveBar(act), lp()) }
         }, FrameLayout.LayoutParams(MATCH, MATCH))
     }
 }

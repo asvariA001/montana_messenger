@@ -1632,9 +1632,10 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     // the button into the correspondent's page (a group's into the group's page), the keyboard going down with it; a hold: «Copy name»
     // the page's «Show in chat» and its forward land here (iOS ui.showLetter): this chat jumps to the letter, another opens in its place
     var jumpHere: (String) -> Unit = {}
-    val openPage = { hideKeys(); act.push { close -> if (group) groupPage(act, ref, close) else peerInfoPage(act, ref, close) { to, mid ->
+    val pageLanding: (String, String?) -> Unit = { to, mid ->
         if (to != ref) { onClose(); act.push { c2 -> conversationPage(act, to, c2) } } else if (mid != null) jumpHere(mid)
-    } } }
+    }
+    val openPage = { hideKeys(); act.push { close -> if (group) groupPage(act, ref, close, pageLanding) else peerInfoPage(act, ref, close, pageLanding) } }
     // THE CHESS MARK'S TAP (iOS chessMark 1975-1986): an invitation waiting for my answer is answered in the feed, a played game opens
     // its board; with none the platform's question asks for a new game and takes the stake under the balance (iOS 2054-2067)
     fun chessTap() {
