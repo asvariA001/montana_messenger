@@ -1930,7 +1930,17 @@ enum MontanaWakePush {
             let doors = bases(for: "blob").filter { !doorResting($0) }.map { ($0, $0 + "/blob-put") }   // SERVER-DEBT-ACK: the accelerator node (rung 4)
             guard !doors.isEmpty else { why = "no live door"; break }
             let (code, w) = await hedgedPut(doors, payload: payload, bytes: data.count, bid: bid, bulk: bulk)
-            if code == 200 { return true }
+            if code == 200 {
+                // A LETTER'S CARGO LIES ON EVERY MACHINE (20.10, T1 16:53Z). A piece lay on the one machine its put reached,
+                // and the sender dropped its crate at that 200. Two photos of the iPhone 15 landed on Amsterdam at 16:47:11Z;
+                // T1 had not reached Amsterdam since 16:17Z (both its doors timed out) and the Moscow node's own hop to its
+                // sibling timed out as well (503 to every ask), so the photos stood as «loading» on T1 while the sender had
+                // reached both machines a second before. A node's copy to its sibling rides that same broken road; only the
+                // sender, who has just reached a machine, can lay the piece on the others. A failed copy costs the redundancy
+                // alone -- the first machine still holds the piece -- and a drop already goes to every store (dropBids).
+                if bulk { MontanaBlobUpload.shared.mirror(bid: bid, body: payload, besides: w) }
+                return true
+            }
             why = w
             if bulk, code == -2, w == "held=call" { continue }
             if code == 429 { try? await Task.sleep(nanoseconds: 1_200_000_000); continue }
@@ -1949,7 +1959,7 @@ enum MontanaWakePush {
     /// answered in half its own deadline. The first 200 wins and the rest are cancelled. A put is
     /// idempotent by its name, and a receiver asks every door at once, so the chunk found on a
     /// second node is the same chunk. A healthy slow link is never uploaded twice: it neither dies
-    /// nor goes silent past half its deadline.
+    /// nor goes silent past half its deadline. A 200 names the door that took the piece -- the copy goes to the other machines.
     private static func hedgedPut(_ doors: [(door: String, road: String)], payload: Data, bytes: Int, bid: String,
                                   bulk: Bool) async -> (Int, String) {
         let deadline = MTNodeWire.cargoTimeoutS(bytes: bytes)   // one deadline rule with the sheet (17.09)
@@ -1987,7 +1997,7 @@ enum MontanaWakePush {
                 case .answer(let door, let code, let w):
                     inFlight -= 1
                     started[door] = nil
-                    if code == 200 { doorSpoke(door); group.cancelAll(); return (200, "") }
+                    if code == 200 { doorSpoke(door); group.cancelAll(); return (200, door) }
                     if code == -2 { break }   // a lost race says nothing about the door
                     if code == -1 || code >= 500 { baseFailed(door, code: code) } else { doorSpoke(door) }
                     last = (code, w)
@@ -4351,19 +4361,47 @@ final class MontanaBlobUpload: NSObject, URLSessionDataDelegate {
         // living door; a failed task re-enqueues on the next pass through the ordinary road.
         guard let b = MontanaWakePush.bases(for: "blob").first,
               let url = URL(string: b + "/blob-put") else { return }   // SERVER-DEBT-ACK: the accelerator node (rung 4)
-        let bodyURL = bodyDir.appendingPathComponent(bid + ".json")
-        if FileManager.default.fileExists(atPath: bodyURL.path) { return }
+        if FileManager.default.fileExists(atPath: bodyDir.appendingPathComponent(bid + ".json").path) { return }
         guard let body = try? JSONSerialization.data(withJSONObject:
             ["bid": bid, "data": sealed.base64EncodedString()]) else { return }
+        ride(bid, body: body, to: url)
+        mirror(bid: bid, body: body, besides: b)
+    }
+
+    /// The copy of a letter's piece for every machine but the one that took it (putBlob says why). The body is the very put
+    /// that machine took -- the same name, the same cargo marks -- under a file of its own, so a copy riding is never read
+    /// as the piece itself still riding (anyPending). The system carries it from the file: the sender waits for nothing,
+    /// no body is held in memory, and it lands even after the process dies.
+    func mirror(bid: String, body: Data, besides taken: String) {
+        let takenHost = URL(string: taken)?.host
+        let doors = MontanaWakePush.bases(for: "blob").filter { !MontanaWakePush.doorResting($0) }
+        for m in MontanaNodes.machines() {
+            let hosts = Set(m.doors.map { $0.host })
+            if let takenHost, hosts.contains(takenHost) { continue }
+            guard let door = doors.first(where: { URL(string: $0)?.host.map(hosts.contains) == true }),
+                  let url = URL(string: door + "/blob-put") else { continue }   // SERVER-DEBT-ACK: the accelerator node (rung 4)
+            ride(bid + "-" + m.id.filter { $0.isLetter || $0.isNumber }, body: body, to: url)
+        }
+    }
+
+    private func ride(_ name: String, body: Data, to url: URL) {
+        let bodyURL = bodyDir.appendingPathComponent(name + ".json")
+        if FileManager.default.fileExists(atPath: bodyURL.path) { return }
         guard (try? body.write(to: bodyURL, options: .atomic)) != nil else {
-            MontanaTrace.mark("blob_bgup", "body write refused bid=\(bid.prefix(8))"); return
+            MontanaTrace.mark("blob_bgup", "body write refused \(Self.label(name))"); return
         }
         var req = URLRequest(url: url); req.httpMethod = "POST"   // SERVER-DEBT-ACK: the accelerator node (rung 4)
         req.setValue("application/json", forHTTPHeaderField: "content-type")
         let t = session.uploadTask(with: req, fromFile: bodyURL)
-        t.taskDescription = bid
+        t.taskDescription = name
         t.resume()
-        MontanaTrace.mark("blob_bgup", "enqueued bid=\(bid.prefix(8))")
+        MontanaTrace.mark("blob_bgup", "enqueued \(Self.label(name))")
+    }
+
+    /// The diary's word for a body: the piece itself, or its copy for a named machine (a piece's name is hex, never a dash).
+    private static func label(_ name: String) -> String {
+        let parts = name.split(separator: "-", maxSplits: 1)
+        return parts.count == 2 ? "copy=\(parts[0].prefix(8)) to=\(parts[1])" : "bid=\(name.prefix(8))"
     }
 
     /// Orphan body sweep: bodies no live task owns are dead weight AND they silence the
@@ -4400,16 +4438,16 @@ final class MontanaBlobUpload: NSObject, URLSessionDataDelegate {
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        let bid = task.taskDescription ?? "?"
+        let name = task.taskDescription ?? "?"
         let code = (task.response as? HTTPURLResponse)?.statusCode ?? -1
         if error == nil, code == 200 {
-            MontanaTrace.mark("blob_bgup", "done bid=\(bid.prefix(8))")
-            if bid.count == 64 { try? FileManager.default.removeItem(at: bodyDir.appendingPathComponent(bid + ".json")) }
+            MontanaTrace.mark("blob_bgup", "done \(Self.label(name))")
+            if name.split(separator: "-").first?.count == 64 { try? FileManager.default.removeItem(at: bodyDir.appendingPathComponent(name + ".json")) }
         } else {
             // One honest retry for a node-side refusal; a transport error the system retried
             // already. Beyond that the receiver's pending-media re-fetch and the sender's
             // manual repeat stay the honest legs — nothing pretends the chunk made it.
-            MontanaTrace.mark("blob_bgup", "FAIL bid=\(bid.prefix(8)) code=\(code)\(error == nil ? "" : " err")")
+            MontanaTrace.mark("blob_bgup", "FAIL \(Self.label(name)) code=\(code)\(error == nil ? "" : " err")")
         }
     }
 
