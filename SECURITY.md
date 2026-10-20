@@ -18,3 +18,9 @@ Not a finding on its own:
 
 - a dropped or redirected call or letter that a party can detect;
 - rate limiting, missing headers or version disclosure on the public web site.
+
+<!-- current-build:start -->
+## The current build
+
+The current build is 1.0 (2261), source commit `1b0f742d9473`. What each build changes for the security and the anonymity of Montana is written in its entry in [`CHANGELOG.md`](CHANGELOG.md), under **Security and anonymity**, before the build is made.
+<!-- current-build:end -->

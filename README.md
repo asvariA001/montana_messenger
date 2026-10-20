@@ -26,7 +26,8 @@ statements or passing primitive tests as evidence of these properties.
 | [`WHITEPAPER.md`](WHITEPAPER.md) | The protocol and what the applications implement of it today |
 | [`RELEASES.md`](RELEASES.md) | The source commit, build and git tree of every folder, written by the publisher in the commit that changes the folder; the published binaries |
 | [`SECURITY.md`](SECURITY.md) | How to report a weakness |
-| [`CHANGELOG.md`](CHANGELOG.md) | The project's log of changes as it stood on 2026-10-03, when it stopped being published |
+| [`CHANGELOG.md`](CHANGELOG.md) | Every build, newest first: its notes, what it changes for security and anonymity, and its source commit, written before the build is made; each build's full notes in [`doc/release-notes`](doc/release-notes) |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | How to review, test and propose changes |
 
 Until 2026-10-11 the repository also held the folders of MT Wallet, MT Mesh, MT P2P and MT VPN. They were retired from
 publication and remain in the history of this repository; nothing in the current tree depends on them.
