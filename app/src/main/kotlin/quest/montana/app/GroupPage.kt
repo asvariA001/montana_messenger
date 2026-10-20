@@ -94,7 +94,7 @@ fun groupPage(act: MainActivity, key: String, onClose: () -> Unit): View {
         val owns = Groups.owns(key)
         val plates = c.hstack { setPadding(0, dp(4), 0, dp(10)) }
         fun plate(icon: Int, label: String, work: (View) -> Unit) {
-            if (plates.childCount > 0) plates.addView(View(c), lp(dp(10), 1))
+            if (plates.childCount > 0) plates.addView(View(c), lp(c.dp(10), 1))
             plates.addView(c.vstack(Gravity.CENTER_HORIZONTAL) {
                 background = c.glassPlate().apply { cornerRadius = dp(14).toFloat() }
                 setPadding(dp(4), dp(8), dp(4), dp(6))
