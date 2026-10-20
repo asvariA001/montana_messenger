@@ -220,6 +220,10 @@
     <string name="gp_removed_head">REMOVED USERS</string>
     <string name="gp_removed_note">Users removed from the group by admins cannot rejoin it via invite links.</string>
     <string name="gp_removed_add">Add To Group</string>
+    <string name="gp_type">Group Type</string>
+    <string name="gp_type_head">GROUP TYPE</string>
+    <string name="gp_type_private">Private</string>
+    <string name="gp_type_note">Private groups can only be joined if you were invited or have an invite link.</string>
     <string name="gp_links">Invite Links</string>
     <string name="gp_link_head">Invite Link</string>
     <string name="gp_link_note">Anyone who follows this link will be able to join your group.</string>

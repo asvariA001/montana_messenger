@@ -220,6 +220,10 @@
     <string name="gp_removed_head">已移除的用户</string>
     <string name="gp_removed_note">被管理员移出群组的用户无法通过邀请链接重新加入。</string>
     <string name="gp_removed_add">添加到群组</string>
+    <string name="gp_type">群组类型</string>
+    <string name="gp_type_head">群组类型</string>
+    <string name="gp_type_private">私密</string>
+    <string name="gp_type_note">私密群组只能通过邀请或邀请链接加入。</string>
     <string name="gp_links">邀请链接</string>
     <string name="gp_link_head">邀请链接</string>
     <string name="gp_link_note">任何人打开此链接都可以加入你的群组。</string>

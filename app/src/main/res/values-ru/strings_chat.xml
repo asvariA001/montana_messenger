@@ -220,6 +220,10 @@
     <string name="gp_removed_head">УДАЛЁННЫЕ ПОЛЬЗОВАТЕЛИ</string>
     <string name="gp_removed_note">Удалённые администраторами не могут вернуться в группу по ссылке-приглашению.</string>
     <string name="gp_removed_add">Вернуть в группу</string>
+    <string name="gp_type">Тип группы</string>
+    <string name="gp_type_head">ТИП ГРУППЫ</string>
+    <string name="gp_type_private">Частная</string>
+    <string name="gp_type_note">В частную группу можно вступить только по приглашению или по ссылке-приглашению.</string>
     <string name="gp_links">Ссылки-приглашения</string>
     <string name="gp_link_head">Ссылка-приглашение</string>
     <string name="gp_link_note">Любой, кто откроет эту ссылку, сможет вступить в вашу группу.</string>

@@ -236,6 +236,12 @@ private fun groupEditPage(act: MainActivity, key: String, onBack: () -> Unit): V
                             act.push { back -> groupPermissionsPage(act, key) { back(); reckon() } }
                         }
                         addView(c.plate { addView(perms, lp()) }, lp())
+                        // THE GROUP'S TYPE, before its link, as the reference's editor names it (iOS MTGroupTypePage, G.2): always «Private»
+                        gap(20)
+                        val type = c.navRow(R.drawable.ic_lock, c.getString(R.string.gp_type), c.text(c.getString(R.string.gp_type_private), 17f, MT.gray)) {
+                            act.push { back -> groupTypePage(act, key, back) }
+                        }
+                        addView(c.plate { addView(type, lp()) }, lp())
                         // THE GROUP'S LINK, where the reference's editor keeps it (iOS MTGroupInviteLinksPage, G.3)
                         gap(20)
                         val links = c.navRow(R.drawable.ic_link, c.getString(R.string.gp_links), null) {
@@ -369,6 +375,28 @@ private fun groupLinksPage(act: MainActivity, key: String, onBack: () -> Unit): 
         note = getChildAt(childCount - 1) as android.widget.TextView   // the section's words under it change with the switch
         renote(Groups.approval(key))
         section(null, null, revoke)
+    }
+}
+
+/**
+ * THE GROUP'S TYPE, AS THE REFERENCE'S PAGE SAYS IT (iOS MTGroupTypePage, G.2): a group here is private -- joined by the owner's hand
+ * or by its invite link -- and the page says so in the reference's words, with the link under it. A public group is found by a search
+ * of all groups, and this network keeps no list of them: no server holds one, so no switch stands that could not keep its word.
+ */
+private fun groupTypePage(act: MainActivity, key: String, onBack: () -> Unit): View {
+    val c: Context = act
+    val private = c.hstack {
+        gravity = Gravity.CENTER_VERTICAL
+        setPadding(dp(16), dp(12), dp(16), dp(12)); minimumHeight = dp(48)
+        addView(c.text(c.getString(R.string.gp_type_private), 17f, Color.WHITE), lp(0, WRAP, 1f))
+        addView(c.icon(R.drawable.ic_check, Color.WHITE), lp(dp(20), dp(20)))
+    }
+    val links = c.navRow(R.drawable.ic_link, c.getString(R.string.gp_links), null) {
+        act.push { back -> groupLinksPage(act, key, back) }
+    }
+    return settingsPage(act, c.getString(R.string.gp_type), onBack) {
+        section(c.getString(R.string.gp_type_head), c.getString(R.string.gp_type_note), private)
+        section(null, null, links)
     }
 }
 
