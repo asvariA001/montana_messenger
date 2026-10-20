@@ -207,6 +207,33 @@ object Groups {
         val book = pipe?.takeIf { it.isNotEmpty() }?.let { Book.chat(SamePair.root(it))?.shown }
         return book?.ifBlank { null } ?: g.names[seat]?.ifEmpty { null } ?: c.getString(R.string.gr_member)
     }
+    /**
+     * THE PIPE THIS PHONE HOLDS TO A SPEAKER (iOS speakerPipe): the owner's phone to every member it carries to, a member's phone to
+     * the owner -- the others are known by their own words alone.
+     */
+    fun speakerPipe(ref: String?): String? {
+        val parts = ref?.takeIf { it.startsWith(SPEAKER_HEAD) }?.removePrefix(SPEAKER_HEAD)?.split("/", limit = 2) ?: return null
+        if (parts.size != 2) return null
+        val g = state(key(parts[0])) ?: return null
+        val pipe = if (!g.mine && parts[1] == OWNER_SEAT) g.owner else g.members.firstOrNull { it.seat == parts[1] }?.pipe
+        return pipe?.ifEmpty { null }
+    }
+    /** THE SPEAKER'S ROLE (iOS MTSpeakerHead.Role): 1 -- the group's owner, 2 -- an administrator the owner named, 0 -- neither. */
+    fun roleOf(ref: String?): Int {
+        val parts = ref?.takeIf { it.startsWith(SPEAKER_HEAD) }?.removePrefix(SPEAKER_HEAD)?.split("/", limit = 2) ?: return 0
+        if (parts.size != 2) return 0
+        val g = state(key(parts[0])) ?: return 0
+        return if (parts[1] == OWNER_SEAT) 1 else if (parts[1] in g.admins) 2 else 0
+    }
+    /** The faces' one palette (iOS MontanaAvatar.paletteHex). */
+    private val TINTS = intArrayOf(0xFF007AFF.toInt(), 0xFF34C759.toInt(), 0xFFFF9500.toInt(), 0xFFAF52DE.toInt(),
+        0xFFFF2D55.toInt(), 0xFFFF3B30.toInt(), 0xFF30B0C7.toInt(), 0xFFD99E38.toInt())
+    /** THE COLOUR EVERY PHONE GIVES A SPEAKER (iOS MTSpeakerFace.tint, MontanaAvatar.colorIndex): FNV-1a of their ref over the palette. */
+    fun tint(ref: String): Int {
+        var h = -2128831035   // 2166136261
+        for (b in ref.toByteArray(Charsets.UTF_8)) h = (h xor (b.toInt() and 0xFF)) * 16777619
+        return TINTS[(h.toUInt() % TINTS.size.toUInt()).toInt()]
+    }
     /** The line above a speaker's bubble (iOS speakerLine): in a group every letter of another says who wrote it; a channel speaks as itself. */
     fun speakerLine(c: Context, m: Msg, chat: String): String? =
         if (m.mine || m.from?.startsWith(SPEAKER_HEAD) != true || state(chat)?.kind != GROUP) null else speakerName(c, m.from)

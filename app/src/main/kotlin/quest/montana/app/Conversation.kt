@@ -868,8 +868,25 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             return s
         }
         // ONE LETTER'S ROW, drawn as the column always drew it
-        fun letterRow(m: Msg, row: List<Msg>): View {
-            val b = letterBubble(c, m, feedChat, row)
+        // A GROUP'S LETTER OF ANOTHER STANDS BESIDE ITS SPEAKER'S FACE COLUMN (iOS MTSpeakerFace.column): the face shows at the run's
+        // last letter, a tap on it opens the person's page where this phone holds their pipe
+        fun withFace(v: View, m: Msg, tail: Boolean): View {
+            val from = m.from
+            if (!group || m.mine || from == null || Groups.speakerLine(c, m, ref) == null) return v
+            val top = (v.layoutParams as? LinearLayout.LayoutParams)?.topMargin ?: c.dp(3)
+            val face = speakerFace(c, from, lines.getOrPut(from) { Groups.speakerLine(c, m, ref) ?: "" })
+            face.visibility = if (tail) View.VISIBLE else View.INVISIBLE
+            val pipe = Groups.speakerPipe(from)
+            if (tail && pipe != null) face.pressable { hideKeys(); act.push { close -> peerInfoPage(act, SamePair.root(pipe), close) } }
+            return c.hstack {
+                gravity = Gravity.BOTTOM
+                addView(face, lp(dp(SPEAKER_FACE), dp(SPEAKER_FACE)).apply { marginStart = dp(2); marginEnd = dp(6) })
+                addView(v, lp(0, WRAP, 1f))
+                layoutParams = lp().apply { topMargin = top }
+            }
+        }
+        fun letterRow(m: Msg, row: List<Msg>, head: Boolean = true, tail: Boolean = true): View {
+            val b = letterBubble(c, m, feedChat, row, head)
             if (selecting) {
                 // WHILE THE CHAT SELECTS a letter is a choice: a circle on the left, a tap chooses (iOS the selection rows); a plate whole
                 val chosen = m.mid in picked
@@ -931,10 +948,10 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                     addView(badge, lp(dp(40), dp(40)).apply { marginStart = dp(6) })
                 }
                 beside.layoutParams = lp().apply { topMargin = c.dp(3) }
-                return beside
+                return withFace(beside, m, tail)
             }
             b.layoutParams = lp().apply { topMargin = c.dp(3) }
-            return b
+            return withFace(b, m, tail)
         }
         // the column as this pass wants it: each child named, its signature, and how it is built when it must be
         val want = ArrayList<FeedRow>()
@@ -947,8 +964,18 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         }
         var lastDay = -1L
         // A MEDIA GROUP IS ONE ROW (iOS buildRows): its letters stand as one plate, chosen, forwarded and deleted together
-        for (row in feedRows(chat.msgs.filter { !ChessLetter.isStep(it.text) })) {
+        val rows = feedRows(chat.msgs.filter { !ChessLetter.isStep(it.text) }).toList()
+        // A GROUP'S RUN IS ONE PERSON'S (iOS buildRows): another speaker, a gap of ten minutes, a new day or an event begins another
+        fun dayOf(at: Long) = java.util.Calendar.getInstance().apply { timeInMillis = at }.let { it.get(java.util.Calendar.YEAR) * 1000L + it.get(java.util.Calendar.DAY_OF_YEAR) }
+        fun sameRun(a: List<Msg>, b: List<Msg>): Boolean {
+            val x = a[0]; val y = b[0]
+            return group && !x.mine && !y.mine && x.from != null && x.from == y.from && b[0].at - a.last().at < 600_000
+                && dayOf(a.last().at) == dayOf(y.at) && Groups.eventWords(c, x.text) == null && Groups.eventWords(c, y.text) == null
+        }
+        for ((at, row) in rows.withIndex()) {
             val m = row[0]
+            val head = !group || at == 0 || !sameRun(rows[at - 1], row)
+            val tail = !group || at == rows.size - 1 || !sameRun(row, rows[at + 1])
             val cal = java.util.Calendar.getInstance().apply { timeInMillis = m.at }
             val day = cal.get(java.util.Calendar.YEAR) * 1000L + cal.get(java.util.Calendar.DAY_OF_YEAR)
             if (day != lastDay) {
@@ -979,7 +1006,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                     layoutParams = lp().apply { topMargin = c.dp(4); bottomMargin = c.dp(4) }
                 }
             }
-            else lay(m.mid, signOf(row), true) { letterRow(m, row) }
+            else lay(m.mid, signOf(row) + listOf(head, tail), true) { letterRow(m, row, head, tail) }
         }
         if (want.size != feed.size || want.indices.any { want[it].key != feed[it].key || want[it].sig != feed[it].sig }) {
             val began = System.nanoTime()
@@ -2131,14 +2158,17 @@ private fun fillGroupFoot(c: Context, ref: String, into: FrameLayout) {
     into.visibility = if (into.childCount > 0) View.VISIBLE else View.GONE
 }
 
-private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = listOf(m)): ReplySwipe = ReplySwipe(c).apply {
+private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = listOf(m), head: Boolean = true): ReplySwipe = ReplySwipe(c).apply {
     mine = m.mine
     val mine = m.mine
+    // THE SPEAKER AT THE HEAD OF THEIR RUN (iOS speakerPlace, MTSpeakerHead -- the reference's group feed): once a run, in the colour
+    // every phone gives them; inside a bubble of words, over a file, a voice, a round note and our own plates, nowhere over a picture
+    val place = if (head) speakerPlace(c, m, members) else SPEAKER_NONE
+    val who = if (place != SPEAKER_NONE) Groups.speakerLine(c, m, chat.ref) else null
     addView(c.vstack(if (mine) Gravity.END else Gravity.START) {
-        // THE SPEAKER OVER A GROUP'S LETTER (iOS speakerLine): every letter of another says who wrote it; a channel speaks as itself
-        Groups.speakerLine(c, m, chat.ref)?.let { who ->
-            addView(c.text(who, 12f, MT.gray, bold = true).apply { singleLineEllipsis(); setPadding(c.dp(8), c.dp(6), 0, c.dp(2)) }, lp(WRAP, WRAP))   // USER-DATA: the speaker's name
-        }
+        if (who != null && place == SPEAKER_ABOVE) addView(c.text(who, 12f, Groups.tint(m.from ?: ""), bold = true).apply {   // USER-DATA: the speaker's name
+            singleLineEllipsis(); setPadding(c.dp(8), c.dp(6), 0, c.dp(2))
+        }, lp(WRAP, WRAP))
         // THE PICTURE IS THE BUBBLE (iOS mediaBubble 1534-1600 and gifBubble 1113-1160, MontanaBubble.swift at 2155): a photo, a film or a
         // moving picture fills its bubble edge to edge, clipped to the bubble's own shape; the time stands ON the picture in a dark
         // capsule; the bubble's fill shows only under a caption. Android drew the picture inside the padded bubble: a blue frame round it.
@@ -2159,15 +2189,18 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                 }
                 clipToOutline = true
             } else setPadding(dp(12), dp(7), dp(12), dp(6))
+            if (who != null && place == SPEAKER_INSIDE) addView(speakerHead(c, who, m.from), lp(MATCH, WRAP).apply { bottomMargin = dp(2) })
             // A FORWARDED LETTER (iOS isForwarded): one grey line over its words, no name and no bar
             if (m.qt == FORWARDED_QUOTE) addView(c.text(c.getString(R.string.ld_forwarded), 13f, BubbleStyle.time(mine)), lp(WRAP, WRAP).apply { bottomMargin = dp(3) })
             else if (m.qt != null) {
                 val whose = m.qm?.let { q -> chat.msgs.find { it.mid == q } }
+                // in a group the quoted letter's speaker wears their own colour (iOS quoteTint)
+                val quoteInk = if (!mine && whose != null && !whose.mine && Groups.isKey(chat.ref) && whose.from != null) Groups.tint(whose.from) else BubbleStyle.text(mine)
                 addView(c.hstack {
                     if (bare) { background = BubbleStyle.drawable(context, mine); setPadding(dp(10), dp(6), dp(10), dp(6)) }
-                    addView(View(c).apply { setBackgroundColor(BubbleStyle.text(mine)) }, lp(dp(2), MATCH).apply { marginEnd = dp(6) })
+                    addView(View(c).apply { setBackgroundColor(quoteInk) }, lp(dp(2), MATCH).apply { marginEnd = dp(6) })
                     addView(c.vstack(Gravity.NO_GRAVITY) {
-                        addView(c.text(if (whose?.mine == true) Prefs.userName.ifBlank { "·" } else if (Groups.isKey(chat.ref)) Groups.speakerName(c, whose?.from) else chat.shown.ifBlank { c.getString(R.string.peer) }, 13f, BubbleStyle.text(mine), bold = true))
+                        addView(c.text(if (whose?.mine == true) Prefs.userName.ifBlank { "·" } else if (Groups.isKey(chat.ref)) Groups.speakerName(c, whose?.from) else chat.shown.ifBlank { c.getString(R.string.peer) }, 13f, quoteInk, bold = true))
                         addView(c.text(m.qt, 13f, BubbleStyle.time(mine)).apply { maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END; maxWidth = dp(240) })   // USER-DATA
                     })
                 }, lp(WRAP, WRAP).apply { bottomMargin = dp(4) })
@@ -2330,6 +2363,52 @@ internal fun answerLetter(ref: String, m: Msg, e: String, group: Boolean) {
 
 /** A letter whose picture fills its bubble (iOS mediaBubble, gifBubble): a photo, a film that is not a round note, or a moving
  * picture already on the phone (before that it is a file's plate, as mediaBody draws it). A sticker stands bare instead. */
+private const val SPEAKER_NONE = 0
+private const val SPEAKER_ABOVE = 1
+private const val SPEAKER_INSIDE = 2
+/**
+ * WHERE A GROUP'S SPEAKER IS NAMED (iOS MessageBubble.speakerPlace): on the first line inside a bubble of words; over a file, a voice,
+ * a round note, a sticker and every plate of our own; nowhere over a picture, a video, a plate of pictures or a place.
+ */
+private fun speakerPlace(c: Context, m: Msg, members: List<Msg>): Int = when {
+    1 < members.size || edgePlate(m) -> SPEAKER_NONE
+    m.text.startsWith(Marks.MEDIA) || Stickers.bare(m) || Calls.info(m.text) != null || WallCard.of(m.text) != null
+        || ChessSend.letterOf(m) != null || CoinSend.coinOf(m) != null || SecretLetter.parse(m.text) != null -> SPEAKER_ABOVE
+    m.qt == null && PlaceLetter.parse(c, m.text) != null -> SPEAKER_NONE
+    else -> SPEAKER_INSIDE
+}
+/**
+ * THE SPEAKER'S LINE INSIDE A GROUP'S BUBBLE (iOS speakerHeadLine): the name semibold at fourteen seventeenths of the letter in the
+ * speaker's colour, the role's word a point smaller at its right on a capsule of its own colour -- owner in violet, admin in green.
+ */
+private fun speakerHead(c: Context, who: String, ref: String?): View = c.hstack {
+    gravity = Gravity.CENTER_VERTICAL
+    val size = Math.floor(16.0 * MontanaTextSize.system * 14 / 17).toFloat()
+    addView(c.text(who, size, Groups.tint(ref ?: "")).apply {   // USER-DATA: the speaker's name
+        singleLineEllipsis(); typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+    }, lp(WRAP, WRAP))
+    val role = Groups.roleOf(ref)
+    if (role != 0) {
+        addView(View(c), lp(0, 1, 1f))
+        val tone = if (role == 1) Color.rgb(0x95, 0x6a, 0xc8) else Color.rgb(0x49, 0xa3, 0x55)
+        addView(c.text(c.getString(if (role == 1) R.string.gp_owner else R.string.gp_admin), size - 1, tone).apply {
+            gravity = Gravity.CENTER
+            setPadding(c.dp(5), 0, c.dp(5), 0)
+            background = c.rounded(Color.argb(51, Color.red(tone), Color.green(tone), Color.blue(tone)), 100)
+        }, lp(WRAP, c.dp(17)).apply { marginStart = c.dp(8) })
+    }
+}
+/**
+ * THE SPEAKER'S FACE AT THE FOOT OF THEIR RUN (iOS MTSpeakerFace): the person's own picture where this phone holds their pipe, else
+ * their initial on the colour every phone gives them.
+ */
+private fun speakerFace(c: Context, ref: String, name: String): View {
+    val pipe = Groups.speakerPipe(ref)
+    if (pipe != null) return c.peerFace(SamePair.root(pipe), name, SPEAKER_FACE)
+    return c.avatar(null, name, SPEAKER_FACE).apply { background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Groups.tint(ref)) } }
+}
+private const val SPEAKER_FACE = 30
+
 private fun edgePlate(m: Msg): Boolean {
     if (!m.text.startsWith(Marks.MEDIA) || Stickers.bare(m)) return false
     val man = Media.manifestOf(m)
