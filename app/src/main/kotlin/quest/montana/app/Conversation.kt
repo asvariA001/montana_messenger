@@ -1109,6 +1109,10 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     val bar = ChatInputBar(act, field) {
         if (staged.isNotEmpty() && editing == null) { sendStaged(); return@ChatInputBar }
         val words = field.text.toString().trim()
+        // THE CARD THE PERSON SAW IS TAKEN BEFORE THE FIELD EMPTIES (iOS sendMessage:4423-4432): the emptied field clears the plate
+        // (LinkCompose.look("")), and a card read after it was always «dropped» -- every typed link left bare
+        val seenCard = LinkCompose.attachable
+        val refusedCard = LinkCompose.url.isEmpty() && LinkPreview.webURLs(words).isNotEmpty()
         field.setText("")
         val e = editing
         if (e != null) {
@@ -1132,8 +1136,6 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             replyTo = null
             // refused (G.5: a right the group took, slow mode's wait) -- the words and the answer stay where they were
             // THE CARD BELONGS TO THE LETTER IN A GROUP TOO (iOS 89dfd51d): the plate above the field held it; the first piece takes it
-            val seenCard = LinkCompose.attachable
-            val refusedCard = LinkCompose.url.isEmpty() && LinkPreview.webURLs(words).isNotEmpty()
             val qt = r?.let { letterWords(c, it).take(200) }
             if (Groups.send(ref, words, qt, r?.mid) { mid, piece -> LinkPreview.attend(ref, mid, piece, qt, r?.mid, seen = seenCard, refused = refusedCard) }) LinkCompose.sent()
             else { field.setText(words); field.setSelection(field.length()); replyTo = r; showStrip() }
@@ -1142,8 +1144,6 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             replyTo = null
             // THE LETTER TAKES THE CARD THE PERSON SAW (iOS sendMessage:4423-4432 at 2155, the critic 22.09): the plate above
             // the field held it, the cross could drop it -- the first piece carries exactly that and reads the page no more
-            val seenCard = LinkCompose.attachable
-            val refusedCard = LinkCompose.url.isEmpty() && LinkPreview.webURLs(words).isNotEmpty()
             LinkCompose.sent()
             // A LONG LETTER LEAVES IN PIECES (iOS breakOutgoingText 5917-5945, send 5973-5989): up to 4500 characters a bubble, backing off
             // to the last line break or period, each piece a letter of its own; the quote rides with the first piece only
