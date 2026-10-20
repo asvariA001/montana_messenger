@@ -2189,7 +2189,7 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                 }
                 clipToOutline = true
             } else setPadding(dp(12), dp(7), dp(12), dp(6))
-            if (who != null && place == SPEAKER_INSIDE) addView(speakerHead(c, who, m.from), lp(MATCH, WRAP).apply { bottomMargin = dp(2) })
+            if (who != null && place == SPEAKER_INSIDE) addView(speakerHead(c, who, m.from), lp(WRAP, WRAP).apply { gravity = Gravity.START; bottomMargin = dp(2) })   // the name widens the bubble, never cut by its words
             // A FORWARDED LETTER (iOS isForwarded): one grey line over its words, no name and no bar
             if (m.qt == FORWARDED_QUOTE) addView(c.text(c.getString(R.string.ld_forwarded), 13f, BubbleStyle.time(mine)), lp(WRAP, WRAP).apply { bottomMargin = dp(3) })
             else if (m.qt != null) {
@@ -2389,7 +2389,6 @@ private fun speakerHead(c: Context, who: String, ref: String?): View = c.hstack 
     }, lp(WRAP, WRAP))
     val role = Groups.roleOf(ref)
     if (role != 0) {
-        addView(View(c), lp(0, 1, 1f))
         val tone = if (role == 1) Color.rgb(0x95, 0x6a, 0xc8) else Color.rgb(0x49, 0xa3, 0x55)
         addView(c.text(c.getString(if (role == 1) R.string.gp_owner else R.string.gp_admin), size - 1, tone).apply {
             gravity = Gravity.CENTER
