@@ -1267,15 +1267,23 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     // «SEND LATER» (iOS: the send key's hold): the words leave the field and wait for their moment (Schedule.kt)
     bar.onSendLater = { v -> sendLaterMenu(act, v, ref, { field.text.toString() }) { field.setText(""); Prefs.setStr("draft.$ref", "") } }
     // A CONTACT OF THE PHONE (iOS ContactPicker): its name and number leave as one letter
-    bar.onContact = { hideKeys(); act.pickContact { u -> u?.let { contactLetter(c, it) }?.let { words -> sendWords(ref, words); toBottom() } } }
+    // A KEY OF THE BAR ASKS THE GROUP BEFORE ITS PAGE OPENS (iOS groupLets, 18b97c6c, G.5): a right the group took, or slow mode's
+    // wait, is said at the tap, as the field says it at the arrow, so nothing chosen on a page is lost to a refusal
+    val groupLets: (String, Boolean) -> Boolean = lets@{ words, photo ->
+        if (!group) return@lets true
+        val why = (if (photo) Groups.mediaRefusal(c, ref, "img", false, "card.jpg", "") else Groups.refusal(c, ref, words, true)) ?: return@lets true
+        AlertDialog.Builder(c).setMessage(why).setPositiveButton(android.R.string.ok, null).show()
+        false
+    }
+    bar.onContact = { hideKeys(); if (groupLets("\uD83D\uDC64", false)) act.pickContact { u -> u?.let { contactLetter(c, it) }?.let { words -> sendWords(ref, words); toBottom() } } }
     bar.onFile = { hideKeys(); act.openDocument(sendPicked(true)) }
     // THE CARD AS A PHOTO (iOS sendCardPhoto): the kept card drawn at the standard size, its words the caption under the card's mark
-    bar.onCard = { hideKeys(); act.push { close -> businessCardPage(act, close) { card ->
+    bar.onCard = { hideKeys(); if (groupLets("", true)) act.push { close -> businessCardPage(act, close) { card ->
         close()
         Thread { Media.send(c, ref, Media.Picked(cardPhoto(c, card), "img", "jpg", null), card.wire); MainThread.post { toBottom() } }.start()
     } } }
     // THE PLACE (iOS onLocation → MTLocationPicker → mtSendPlace): this spot leaves as the place's words, by the one road of words
-    bar.onLocation = { hideKeys(); act.push { close -> placePage(act, close) { words -> sendWords(ref, words); toBottom() } } }
+    bar.onLocation = { hideKeys(); if (groupLets(PlaceLetter.ROAD, false)) act.push { close -> placePage(act, close) { words -> sendWords(ref, words); toBottom() } } }
     // THE EMOJI KEY SWAPS THE KEYBOARD FOR THE FIELD'S OWN PANEL AND BACK (iOS emojiKey: showEmoji.toggle(), the glyph «keyboard»
     // while the panel stands; MontanaConversation.swift 803-813 at 2155). Android lets no app view be the field's input view, so the
     // panel stands in the keyboard's place under the bar, as tall as the keyboard last stood (Picker.kt); the keyboard rising puts it
