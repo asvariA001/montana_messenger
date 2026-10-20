@@ -1230,6 +1230,9 @@ final class MontanaCall: NSObject {
     /// The caller reads an ANSWER off the wake road (their `av`). Learned from the ring envelope —
     /// which arrives BEFORE any lane of ours is up — and from the caps of the lane copy.
     private(set) var peerReadsVoipAnswer = false
+    /// The correspondent's recording switch and Global Level as their caps said them (MTCallRecordingPolicy.mayRecord); nil: unsaid.
+    private var peerRecordSwitch: Bool?
+    private var peerLevel: Int?
     private var declinedByMe = false   // user tapped Decline on the ringing call — no "missed" banner
     private var answeredElsewhere = false   // another device of this person took the call (call-taken): no "missed" banner
     private var takenTold = false   // the caller told the person's other devices which one took the call
@@ -1325,7 +1328,14 @@ final class MontanaCall: NSObject {
         guard !ended, let uuid = callUUID, let seed = callSeed, let peer, let since = connectedAt else { return }
         MainActor.assumeIsolated {
             let recorder = MTCallRecording.shared
-            recorder.begin(uuid: uuid, id: MTCallName.name(seed), chat: peer, since: since, sendsToChat: isInitiator, timeline: callTimeline)
+            // THE RECORDING REACHES THE CHAT WHOEVER RECORDS (the author's word 20.10.2026 19:5x MSK: «the call's recording must be in
+            // the chat in any case, even if the correspondent's does not record»): the caller sends it, and the callee does when the
+            // caller does not record by itself -- one copy in the chat, never none. The correspondent's switch holds by level (mayRecord).
+            let mine = MTLevelAccess.level
+            recorder.forbid(uuid, !MTCallRecordingPolicy.mayRecord(theirSwitch: peerRecordSwitch, theirLevel: peerLevel, mine: mine))
+            let peerRecords = peerRecordSwitch == true
+                && MTCallRecordingPolicy.mayRecord(theirSwitch: MTCallRecording.automatic, theirLevel: mine, mine: peerLevel)
+            recorder.begin(uuid: uuid, id: MTCallName.name(seed), chat: peer, since: since, sendsToChat: isInitiator || !peerRecords, timeline: callTimeline)
             MTCallRecordingGate.mute(uuid, desiredMuted)
             recorder.video(localVideo, uuid: uuid, source: "video-local")
             recorder.video(remoteVideoTrack, uuid: uuid, source: "video-remote")
@@ -1609,6 +1619,7 @@ final class MontanaCall: NSObject {
         // THE FABRIC'S WORD (17.10.2026, MTWeave): the call's identifier, drawn by its caller; older builds skip the key. Whom a
         // testimony of the call names is the correspondence's own secret (MTFabric), never a word of the caps (18.10.2026).
         caps.fc = weaveCall()?.montanaHexString
+        caps.rec = MTCallRecording.automatic; caps.lv = MTLevelAccess.level
         return caps
     }
     /// WHAT THE FAR BUILD CAN DO IS LEARNED FROM EVERY WORD OF THE CALL IN HAND (24.09 23:14, T3): a call born by the wake
@@ -1617,6 +1628,8 @@ final class MontanaCall: NSObject {
     /// A capability, once said, stands for the call; cleanup forgets it.
     private func learnPeerCaps(_ caps: CallCaps?) {
         learnWeave(caps)
+        if let r = caps?.rec { peerRecordSwitch = r }
+        if let l = caps?.lv { peerLevel = l }
         if caps?.av == true { peerReadsVoipAnswer = true }
         if caps?.rejoin == true, !peerRebuilds {
             peerRebuilds = true
@@ -3860,7 +3873,7 @@ final class MontanaCall: NSObject {
         let finishingTimeline = callTimeline
         finishingTimeline?.mark("call.cleanup.begin")
         ended = true
-        if let uuid = callUUID { MainActor.assumeIsolated { MTCallRecording.shared.finish(uuid) } }
+        if let uuid = callUUID { MainActor.assumeIsolated { MTCallRecording.shared.finish(uuid); MTCallRecording.shared.forbid(uuid, false) } }
         let credit = MainActor.assumeIsolated { MTCallMint.finish() }
         weaveClosed(callEpoch, peer: peer, connected: connectedAt != nil)   // the fabric weighs a call of two that connected (MTWeave)
         weaves[""] = nil
@@ -4016,7 +4029,7 @@ final class MontanaCall: NSObject {
         if let s = callSeed { MontanaCall.dropBell(s.base64EncodedString()) }
         peer = nil; peerDevice = nil; pendingOffer = nil; dropPendingIce(); callUUID = nil
         callSeed = nil; peerPremium = false; peerReadsVoipAnswer = false; startedAt = nil; connectedAt = nil
-        peerRebuilds = false; rejoining = false; freshConnection = false; seenRejoinOffer = ""; heldRejoins = 0
+        peerRecordSwitch = nil; peerLevel = nil; peerRebuilds = false; rejoining = false; freshConnection = false; seenRejoinOffer = ""; heldRejoins = 0
         rejoinOffering = false; rejoinUntil = .distantPast
         seedlessOffer = nil; knockN = 0; knockOk = 0; knockFirstOkS = -1; knockLastOkS = -1; knockNobody = false; bellRung = false
         speakerOn = false; desiredMuted = false; videoSpeakerDecided = false

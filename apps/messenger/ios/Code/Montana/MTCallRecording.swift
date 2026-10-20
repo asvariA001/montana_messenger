@@ -19,6 +19,16 @@ enum MTCallRecordingPolicy {
     static let consentKey = "callRecordingConsent.v1"
     static var enabled: Bool { UserDefaults.standard.object(forKey: key) as? Bool ?? true }
     static var consented: Bool { UserDefaults.standard.bool(forKey: consentKey) }
+    /// THE CORRESPONDENT'S SWITCH HOLDS BY LEVEL (the author's word 20.10.2026 20:2x MSK: «if the user's checkmark allowing the recording
+    /// of a conversation is off, the level decides: lower or equal -- the checkmark holds and no recording happens; if I am level 7 and
+    /// the user 6, in the chat and the call with me the recording happens on my side, and on theirs nothing happens»). Their switch is
+    /// the one their person sees on Access by level, off below its level. A build that says nothing of it forbids nothing; a forbidding
+    /// correspondent whose level or mine is unknown holds.
+    static func mayRecord(theirSwitch: Bool?, theirLevel: Int?, mine: Int?) -> Bool {
+        guard theirSwitch == false else { return true }
+        guard let theirLevel, let mine else { return false }
+        return mine > theirLevel
+    }
 }
 
 /// THE CALL AS THE PERSON SAW IT (the author's word 16.10.2026 18:27 MSK: «the video call must be recorded as I saw it -- now the
@@ -420,8 +430,16 @@ final class MTCallRecordingVideo: NSObject, RTCVideoRenderer {
     /// it, and those they ended by it -- an ended one is not recorded again by itself.
     @Published private(set) var byHand = Set<UUID>()
     @Published private(set) var stoppedByHand = Set<UUID>()
+    /// The calls whose correspondent's switch holds against this phone (MTCallRecordingPolicy.mayRecord): recorded neither by
+    /// themselves nor by the mark, and the mark is not shown. Their word comes with the offer and the answer, before the call connects.
+    @Published private(set) var forbidden = Set<UUID>()
+    func forbid(_ uuid: UUID, _ on: Bool) {
+        guard on != forbidden.contains(uuid) else { return }
+        if on { forbidden.insert(uuid) } else { forbidden.remove(uuid) }
+    }
     /// RECORDING BY ITSELF OPENS AT ITS LEVEL (MTLevelAccess.autoRecord): the person's switch, once the level opens it.
-    static var automatic: Bool { MTCallRecordingPolicy.enabled && MTLevelAccess.opens(.autoRecord) }
+    /// Read off the main actor too: the call's caps say it (MontanaCall.myCaps); its inputs are the defaults and the level.
+    nonisolated static var automatic: Bool { MTCallRecordingPolicy.enabled && MTLevelAccess.opens(.autoRecord) }
     private struct Active {
         var tape: MTCallTape
         var manifestID: String
@@ -444,6 +462,7 @@ final class MTCallRecordingVideo: NSObject, RTCVideoRenderer {
 
     func begin(uuid: UUID, id: String, chat: String, since: Date, sendsToChat: Bool, timeline: MTCallTimeline? = nil) {
         guard Self.automatic || byHand.contains(uuid), !stoppedByHand.contains(uuid), active[uuid] == nil else { return }
+        guard !forbidden.contains(uuid) else { MontanaTrace.markFolded("call_record_held", "the correspondent's switch holds", window: 60); return }
         if closing[uuid] != nil {
             pending[uuid] = Pending(uuid: uuid, id: id, chat: chat, since: since, sendsToChat: sendsToChat, timeline: timeline); return
         }
@@ -525,7 +544,7 @@ final class MTCallRecordingVideo: NSObject, RTCVideoRenderer {
             stoppedByHand.insert(uuid); byHand.remove(uuid)
             MontanaTrace.mark("call_record_hand", "stop")
             finish(uuid)
-        } else if !stoppedByHand.contains(uuid) {
+        } else if !stoppedByHand.contains(uuid), !forbidden.contains(uuid) {
             byHand.insert(uuid)
             MontanaTrace.mark("call_record_hand", "start level=" + String(MTLevelAccess.level ?? -1))
             MontanaCall.shared.refreshRecording(); MTGroupRoom.shared.refreshRecording()
@@ -789,7 +808,7 @@ struct MTCallRecordingConsent: ViewModifier {
             Button("Record calls") { recorder.consent(true) }
             Button("Do not record", role: .cancel) { recorder.consent(false) }
         } message: {
-            Text("Audio and video are saved on this phone. For a one-to-one call, only the caller sends the recording to the chat. Room participants send their own recordings. Participants are notified. You can turn this off in Settings, Access by level, at any time.")
+            Text("Audio and video are saved on this phone. For a one-to-one call, the caller sends the recording to the chat, or the one who answered when the caller does not record. Room participants send their own recordings. Participants are notified. You can turn this off in Settings, Access by level, at any time.")
         }
     }
 }
@@ -801,7 +820,7 @@ struct MTCallRecordMark: View {
     let uuid: UUID?
     @ObservedObject private var recorder = MTCallRecording.shared
     var body: some View {
-        if let uuid, !recorder.stoppedByHand.contains(uuid) {
+        if let uuid, !recorder.stoppedByHand.contains(uuid), !recorder.forbidden.contains(uuid) {
             let on = recorder.recording.contains(uuid) || recorder.byHand.contains(uuid)
             MontanaCallMark(glyph: on ? "stop.circle" : "record.circle", label: on ? "Stop recording" : "Record") {
                 recorder.toggleByHand(uuid)

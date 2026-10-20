@@ -2797,19 +2797,87 @@
         }
       }
     },
-    "Yes. On every level a call can be recorded by the record button on the call screen. From level 7 calls are recorded by themselves once you agree the first time, and you can turn it off in Settings, under Access by level.": {
+    "Yes. On every level a call can be recorded by the record button on the call screen, unless your correspondent's switch holds. From level 7 calls are recorded by themselves once you agree the first time, and you can turn it off in Settings, under Access by level.": {
       "extractionState": "manual",
       "localizations": {
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Да. На любом уровне звонок можно записать кнопкой записи на экране звонка. С уровня 7 звонки записываются сами после вашего первого согласия, и это можно выключить в Настройках, в разделе Доступ по уровню."
+            "value": "Да. На любом уровне звонок можно записать кнопкой записи на экране звонка, если этого не запрещает переключатель собеседника. С уровня 7 звонки записываются сами после вашего первого согласия, и это можно выключить в Настройках, в разделе «Доступ по уровню»."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "可以。任何等级都可以用通话界面上的录制按钮录制通话。从 7 级起，在你第一次同意后通话会自动录制，你可以在设置的“按等级开放”中关闭。"
+            "value": "可以。任何等级都可以用通话界面上的录制按钮录制通话，除非对方的开关加以限制。从 7 级起，首次同意后通话会自动录制，您可以在设置的“按等级开放”中关闭。"
+          }
+        }
+      }
+    },
+    "Who can record a call with me?": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кто может записать звонок со мной?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "谁可以录制与我的通话？"
+          }
+        }
+      }
+    },
+    "While your Record calls switch in Access by level is off, and below level 7 it stands off, a correspondent whose Global level is not above yours cannot record your calls: neither by themselves nor by the record button, which they do not see. A correspondent with a higher level records on their side only; your phone records nothing, and the chat is told that the call is being recorded. A version of Montana that does not say the switch forbids nothing.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пока ваш переключатель «Записывать звонки» в разделе «Доступ по уровню» выключен, а ниже уровня 7 он выключен всегда, собеседник, чей Глобальный уровень не выше вашего, не может записать ваши звонки: ни сам, ни кнопкой записи, которую он не видит. Собеседник с более высоким уровнем записывает только на своей стороне; ваш телефон ничего не записывает, а в чат приходит сообщение, что звонок записывается. Версия Монтаны, которая не сообщает о переключателе, ничего не запрещает."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当您在“按等级开放”中的“录制通话”开关关闭时（低于 7 级时它始终关闭），全局等级不高于您的对方无法录制您的通话：既不会自动录制，也无法使用录制按钮，对方看不到该按钮。等级更高的对方只在其一侧录制；您的手机不录制任何内容，聊天中会收到通话正在录制的提示。不告知该开关的 Montana 版本不作任何限制。"
+          }
+        }
+      }
+    },
+    "Who sends the recording to the chat?": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кто отправляет запись в чат?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "谁将录音发送到聊天？"
+          }
+        }
+      }
+    },
+    "In a one-to-one call the caller sends the recording to the chat. When the caller does not record, the one who answered sends it, so a recorded call always reaches the chat, once.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В личном звонке запись в чат отправляет тот, кто позвонил. Если он не записывает, её отправляет тот, кто ответил, поэтому записанный звонок всегда попадает в чат, один раз."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一对一通话中，由主叫方将录音发送到聊天。主叫方未录制时，由接听方发送，因此录制的通话总会进入聊天，且只发送一次。"
           }
         }
       }
@@ -28011,19 +28079,19 @@
         }
       }
     },
-    "Calls are recorded by themselves on this phone and sent to the call's chat after your first consent. On every level a call can be recorded by the record button on the call screen.": {
+    "Calls are recorded by themselves on this phone and sent to the call's chat after your first consent. While this is off, a correspondent whose level is not above yours cannot record your calls; one with a higher level records on their side only. The record button on the call screen works on every level unless the correspondent's switch holds.": {
       "extractionState": "manual",
       "localizations": {
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Звонки записываются сами на этом телефоне и после вашего первого согласия отправляются в чат звонка. На любом уровне звонок можно записать кнопкой записи на экране звонка."
+            "value": "Звонки записываются сами на этом телефоне и после вашего первого согласия отправляются в чат звонка. Пока это выключено, собеседник, чей уровень не выше вашего, не может записать ваши звонки; собеседник с более высоким уровнем записывает только на своей стороне. Кнопка записи на экране звонка работает на любом уровне, если её не держит переключатель собеседника."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "首次同意后，通话会在这部手机上自动录制，并发送到通话所在的聊天。任何等级都可以用通话界面上的录制按钮录制通话。"
+            "value": "首次同意后，通话会在这部手机上自动录制，并发送到通话所在的聊天。关闭此项时，等级不高于您的对方无法录制您的通话；等级更高的对方只在其一侧录制。通话界面上的录制按钮在任何等级都可用，除非对方的开关加以限制。"
           }
         }
       }
@@ -28096,19 +28164,19 @@
         }
       }
     },
-    "Audio and video are saved on this phone. For a one-to-one call, only the caller sends the recording to the chat. Room participants send their own recordings. Participants are notified. You can turn this off in Settings, Access by level, at any time.": {
+    "Audio and video are saved on this phone. For a one-to-one call, the caller sends the recording to the chat, or the one who answered when the caller does not record. Room participants send their own recordings. Participants are notified. You can turn this off in Settings, Access by level, at any time.": {
       "extractionState": "manual",
       "localizations": {
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Аудио и видео сохраняются на этом телефоне. В личном звонке запись в чат отправляет только тот, кто позвонил. Участники комнат отправляют собственные записи. Участники получают уведомление. Вы можете отключить запись в Настройках, в разделе «Доступ по уровню», в любой момент."
+            "value": "Аудио и видео сохраняются на этом телефоне. В личном звонке запись в чат отправляет тот, кто позвонил, а если он не записывает — тот, кто ответил. Участники комнат отправляют собственные записи. Участники получают уведомление. Вы можете отключить запись в Настройках, в разделе «Доступ по уровню», в любой момент."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "音频和视频保存在本机。一对一通话中，只有主叫方将录音发送到聊天。房间参与者各自发送录音。参与者会收到通知。您随时可以在设置的“按等级开放”中关闭录制。"
+            "value": "音频和视频保存在本机。一对一通话中，由主叫方将录音发送到聊天；主叫方未录制时，由接听方发送。房间参与者各自发送录音。参与者会收到通知。您随时可以在设置的“按等级开放”中关闭录制。"
           }
         }
       }

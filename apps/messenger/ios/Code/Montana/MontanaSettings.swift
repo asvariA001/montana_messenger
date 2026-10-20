@@ -282,7 +282,11 @@ struct MTQuestionsPage: View {
             Item(question: "What do the levels open?",
                  answer: "Each level opens functions of Montana. Level 7 opens Forbid deletion on my phone: a message your correspondent deletes for everyone stays on your phone, and their phone is told so. Level 7 also opens Record calls: calls are recorded by themselves on your phone and sent to the call's chat after your first consent. Level 8 opens your own node: a machine you own joins the Montana network through this app. All of them are in Settings, under Access by level."),
             Item(question: "Can I record a call below level 7?",
-                 answer: "Yes. On every level a call can be recorded by the record button on the call screen. From level 7 calls are recorded by themselves once you agree the first time, and you can turn it off in Settings, under Access by level."),
+                 answer: "Yes. On every level a call can be recorded by the record button on the call screen, unless your correspondent's switch holds. From level 7 calls are recorded by themselves once you agree the first time, and you can turn it off in Settings, under Access by level."),
+            Item(question: "Who can record a call with me?",
+                 answer: "While your Record calls switch in Access by level is off, and below level 7 it stands off, a correspondent whose Global level is not above yours cannot record your calls: neither by themselves nor by the record button, which they do not see. A correspondent with a higher level records on their side only; your phone records nothing, and the chat is told that the call is being recorded. A version of Montana that does not say the switch forbids nothing."),
+            Item(question: "Who sends the recording to the chat?",
+                 answer: "In a one-to-one call the caller sends the recording to the chat. When the caller does not record, the one who answered sends it, so a recorded call always reaches the chat, once."),
             Item(question: "Can I take my copy back from my node below level 8?",
                  answer: "Yes. Setting up your node and sending copies to it open at level 8. Taking your copy back from it is open on every level."),
         ]),
@@ -3029,7 +3033,7 @@ struct MTLevelAccessPage: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Toggle("Record calls", systemImage: "record.circle",
                            isOn: Binding(get: { recordOpen && recordCalls }, set: { on in recordCalls = on }))
-                    Text("Calls are recorded by themselves on this phone and sent to the call's chat after your first consent. On every level a call can be recorded by the record button on the call screen.")
+                    Text("Calls are recorded by themselves on this phone and sent to the call's chat after your first consent. While this is off, a correspondent whose level is not above yours cannot record your calls; one with a higher level records on their side only. The record button on the call screen works on every level unless the correspondent's switch holds.")
                         .font(.caption).foregroundColor(.gray)
                 }
             } header: {
