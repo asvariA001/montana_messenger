@@ -1385,6 +1385,7 @@ final class MontanaCall: NSObject {
     private func setVideoSource(_ v: RTCVideoSource?) { shareLock.lock(); videoSource = v; shareLock.unlock() }
     private func setShareActive(_ a: Bool) { shareLock.lock(); screenShareActive = a; shareLock.unlock(); if a { videoFramesSeen = true } }
     private var cameraWasLive = false                 // the camera returns when the share ends
+    private var cameraMutedByPerson = false           // the Video button put my camera to rest; the peer's picture stays (the author's word 20.10 19:5x)
     private var audioBeforeShare = false              // the video state grew FOR the share — falls with it
     private var peerShareGrewVideo = false            // same truth on the watching side
     private var videoAskTimer: Timer?                 // consent waits this long, then «no answer»
@@ -1898,6 +1899,15 @@ final class MontanaCall: NSObject {
         videoFramesSeen = true
         let source = factory.videoSource()
         setVideoSource(source)
+        if cameraMutedByPerson {
+            // THE CAMERA THE PERSON PUT TO REST DOES NOT RISE BY ITSELF: a connection rebuilt while my camera rests gets
+            // the lane and a silent track; only the Video button raises the camera again (raiseMyCamera).
+            let track = factory.videoTrack(with: source, trackId: "mt_video")
+            track.isEnabled = false
+            localVideo = track
+            DispatchQueue.main.async { CallUIModel.shared.tick += 1 }
+            return
+        }
         let counter = FrameCountingCapturerDelegate(sink: source)
         frameCounter = counter
         let cap = MontanaCamera(delegate: counter)
@@ -3303,6 +3313,17 @@ final class MontanaCall: NSObject {
             guard from == peer else { return }
             MontanaTrace.mark("call_video", "peer ended video mode")
             DispatchQueue.main.async { self.dropVideoMode(tellPeer: false) }
+        case "call-camera-off":
+            guard from == peer else { return }
+            MontanaTrace.mark("call_video", "peer's camera rests mine=\(cameraMutedByPerson ? "resting" : "live")")
+            DispatchQueue.main.async {
+                CallUIModel.shared.peerCameraOff = true
+                if self.cameraMutedByPerson { self.dropVideoMode(tellPeer: false) }   // the last live camera left -- both sides return to audio
+            }
+        case "call-camera-on":
+            guard from == peer else { return }
+            MontanaTrace.mark("call_video", "peer's camera rises again")
+            DispatchQueue.main.async { CallUIModel.shared.peerCameraOff = false }
         case "call-video-ask":
             guard from == peer else { return }
             MontanaTrace.mark("call_video", "consent asked by peer")
@@ -4026,7 +4047,7 @@ final class MontanaCall: NSObject {
         captureObservers.removeAll()
         peerRinging = false; unreachable = false
         for fc in frameCryptors { fc.enabled = false }; frameCryptors = []; keyProvider = nil; sframeWrapped = []
-        sframeAuthorized = false; captureRunning = false
+        sframeAuthorized = false; captureRunning = false; cameraMutedByPerson = false
         wantFrontCamera = true; usingFrontCamera = true
         let cap = capturer; capturer = nil
         cap?.stop { }   // asynchronous stop of AVCaptureSession with completion
@@ -4108,9 +4129,57 @@ final class MontanaCall: NSObject {
                     MontanaTrace.mark("call_video", "consent timeout")
                 }
             }
+        } else if cameraMutedByPerson {
+            raiseMyCamera(why: "button")
+        } else if CallUIModel.shared.remoteLive, !CallUIModel.shared.peerCameraOff {
+            restMyCamera()   // the peer's picture stays on my screen until the peer rests his own camera
         } else {
-            dropVideoMode(tellPeer: true)   // the second press leaves video — both sides return to audio
+            dropVideoMode(tellPeer: true)   // the last live camera leaves — both sides return to audio
         }
+    }
+
+    /// MY CAMERA RESTS, THE PEER'S PICTURE STAYS (the author's word 20.10 19:5x: «on a video call, when I switch my video
+    /// off I must keep watching the peer's video until he switches his off»). The second press of Video used to end the
+    /// video mode for both sides. Now it stops MY camera alone: the capturer is stopped (no light, no frames), the track
+    /// falls silent, my own picture wears my cover (CallUIModel.cameraOff), and the peer is told with a word so his cover
+    /// stands at once -- an old build buries the word and covers me when my frames stop (peerPaused). The video mode ends
+    /// only when the last live camera leaves: the person whose camera is the last one presses Video (toggleVideo), or
+    /// the peer's camera rests while mine already rests (call-camera-off) -- both sides reach audio on the same facts.
+    private func restMyCamera() {
+        guard isVideo, !cameraMutedByPerson, !screenShareActive else { return }   // SILENT-OK: nothing to rest
+        cameraMutedByPerson = true
+        captureRunning = false
+        let cap = capturer; capturer = nil
+        cap?.stop { }
+        localVideo?.isEnabled = false
+        if let p = peer {
+            var so = CallSignalOut(ctrl: "call-camera-off"); so.targetDevice = peerDevice
+            sendSignal?(p, so)   // old builds bury the unknown word; my stopped frames cover me there
+        }
+        DispatchQueue.main.async { CallUIModel.shared.cameraOff = true; CallUIModel.shared.tick += 1 }
+        MontanaTrace.mark("call_video", "my camera rests, the peer's picture stays")
+    }
+
+    private func raiseMyCamera(why: String) {
+        guard isVideo, cameraMutedByPerson else { return }   // SILENT-OK: the camera is not resting
+        cameraMutedByPerson = false
+        localVideo?.isEnabled = true
+        if capturer == nil, let src = videoSource {
+            // the camera returns into the SAME track through a fresh capturer (the share's return road)
+            let counter = FrameCountingCapturerDelegate(sink: src)
+            frameCounter = counter
+            let cap = MontanaCamera(delegate: counter)
+            capturer = cap
+            observeCaptureSession(cap)
+            startCapture(front: wantFrontCamera)
+        }
+        pushCaptureUntilRunning()
+        if let p = peer {
+            var so = CallSignalOut(ctrl: "call-camera-on"); so.targetDevice = peerDevice
+            sendSignal?(p, so)
+        }
+        DispatchQueue.main.async { CallUIModel.shared.cameraOff = false; CallUIModel.shared.tick += 1 }
+        MontanaTrace.mark("call_video", "my camera rises again why=\(why)")
     }
 
     private func dropVideoMode(tellPeer: Bool) {
@@ -4126,6 +4195,7 @@ final class MontanaCall: NSObject {
         localVideo = nil
         setVideoSource(nil)
         remoteVideoTrack = nil   // recovered from the standing receiver if video rises again
+        cameraMutedByPerson = false
         isVideo = false
         updateProximity()
         if let u = callUUID {
@@ -4134,6 +4204,7 @@ final class MontanaCall: NSObject {
         }
         DispatchQueue.main.async {
             CallUIModel.shared.cameraOff = false
+            CallUIModel.shared.peerCameraOff = false
             CallUIModel.shared.videoAsk = false
             CallUIModel.shared.tick += 1
         }
@@ -5583,6 +5654,7 @@ final class MontanaCall: NSObject {
             CallUIModel.shared.pipSwapped = false
             CallUIModel.shared.remoteLive = false; CallUIModel.shared.mirrorLocal = true
             CallUIModel.shared.peerPaused = false
+            CallUIModel.shared.peerCameraOff = false
             CallUIModel.shared.selfPaused = false
             self.reconnectTone?.stop(); self.reconnectTone = nil   // 12.10: a tone never outlives its call
             self.frameSniffer = nil
@@ -6628,6 +6700,8 @@ final class CallUIModel: ObservableObject {
     @Published var peerImage: UIImage? = nil  // full-size peer photo for the call screens
     /// The peer's picture stood still after it once flowed (23.09): one writer, MontanaCall.notePeerPicture.
     @Published var peerPaused = false { didSet { applyCovers("frames") } }
+    /// The peer put his camera to rest with a word (call-camera-off): his picture wears his cover until his camera rises again.
+    @Published var peerCameraOff = false { didSet { applyCovers("peer-camera") } }
     /// My own camera was taken by the system (another app, the background): one writer, MontanaCall.noteSelfPicture.
     @Published var selfPaused = false { didSet { applyCovers("own-camera") } }
     /// THE COVERS HAVE ONE OWNER (the author's word 23.09: «on hold the same cover, and wherever else the
@@ -6638,7 +6712,7 @@ final class CallUIModel: ObservableObject {
     @Published private(set) var remoteCovered = false
     @Published private(set) var selfCovered = false
     private func applyCovers(_ why: String) {
-        let remote = held || heldByPeer || (peerPaused && !peerSharing)
+        let remote = held || heldByPeer || peerCameraOff || (peerPaused && !peerSharing)
         let own = held || cameraOff || selfPaused
         guard remote != remoteCovered || own != selfCovered else { return }
         remoteCovered = remote; selfCovered = own
