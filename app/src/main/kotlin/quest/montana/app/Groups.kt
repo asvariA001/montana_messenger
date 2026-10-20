@@ -414,6 +414,28 @@ object Groups {
     /** The moment the owner last threw a member's typing on: once in two seconds a member, whatever it sends (iOS typingThrown, I-15). */
     private val typingThrown = HashMap<String, Long>()
     /** A TYPING WORD LANDED (iOS typed): its seat proven by the pipe it came by, as every word's is; the head shows it for the typing's life. */
+    /**
+     * MY DELETION WAS KEPT IN THE GROUP (iOS keptHeard, fbd8a190): a member whose level keeps deleted letters tells the one who took
+     * the letter away -- its speaker, or the owner or an administrator who deleted it -- by the group's word «kp» to that seat. The
+     * owner passes it on to the seat; the seat reads the banner. This phone keeps no deletion itself: it never says «kp».
+     */
+    private fun keptHeard(w: JSONObject, pipe: String): Verdict {
+        val g = groups[w.getString("g")] ?: return Verdict.REFUSED
+        val to = w.optJSONArray("ts")?.optString(0).orEmpty()
+        if (g.left || to.isEmpty() || !w.optString("tx").startsWith(Marks.DELETE_KEPT)) return Verdict.REFUSED
+        val from = SamePair.root(pipe)
+        if (g.mine) {
+            if (g.members.none { SamePair.root(it.pipe) == from }) return Verdict.REFUSED   // a member's word alone
+            if (to != g.me) {
+                g.members.firstOrNull { it.seat == to }?.let { carry(w, it.pipe, "", false) }
+                return Verdict.HELD
+            }
+        } else if (SamePair.root(g.owner) != from || to != g.me) return Verdict.REFUSED
+        Log.d("Montana", "delete_kept_rx group=" + g.id.take(8))
+        Notify.kept(key(g.id))
+        return Verdict.HELD
+    }
+
     private fun typed(w: JSONObject, pipe: String): Verdict {
         val g = groups[w.getString("g")] ?: return Verdict.INSTANT
         if (g.left || g.kind != GROUP) return Verdict.INSTANT
@@ -1417,6 +1439,7 @@ object Groups {
             "kk" -> kicked(w, pipe)   // COMPAT-GATED: an administrator's «take out», to the owner (iOS stage R.6)
             "ci" -> infoAsked(w, pipe)   // COMPAT-GATED: a member's renewal, to the owner (iOS G.5)
             "jn" -> joined(w, pipe)   // COMPAT-GATED: a person who opened the group's invite link, to the owner (iOS stage R.6)
+            "kp" -> keptHeard(w, pipe)   // COMPAT-GATED: a keeper's word to the one who deleted a letter (iOS 16.10, fbd8a190)
             else -> Verdict.REFUSED.also { Log.i("Montana", "group_refused kind=${t.take(8)}") }   // a newer build's word: its road ends here
         }
     }
