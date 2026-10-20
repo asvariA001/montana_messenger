@@ -4605,7 +4605,9 @@ MontanaLocalVault.setEncrypted("scheduledMsgs", d)
                 if let d = String(m.text.dropFirst(aboutMark.count)).data(using: .utf8),
                    let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] {
                     let at = (o["at"] as? Double) ?? wordAt
-                    MTPeerAbout.note(chat, bio: (o["b"] as? String) ?? "", link: (o["l"] as? String) ?? "", at: at)
+                    if o["b"] != nil || o["l"] != nil {   // a word with the coin key alone says nothing of the bio (20.10)
+                        MTPeerAbout.note(chat, bio: (o["b"] as? String) ?? "", link: (o["l"] as? String) ?? "", at: at)
+                    }
                     if let coins = o["c"] as? Int { MTCoinBoard.shared.note(chat, coins: coins, at: at) }   // the pair's balance (03.10)
                     if let k = o["k"] as? String { MTCoinTx.notePeerFrom(chat, k) }   // the pair's coin key: v3 sends commit to it (COIN-TX-V3)
                     if let own = o["o"] as? String { MTOwnWords.heard(own, from: chat) }   // the pair holds my words: no coin goes to it (06.10)

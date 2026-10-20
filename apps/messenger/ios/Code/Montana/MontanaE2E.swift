@@ -1558,9 +1558,14 @@ final class E2E {
         // THE PAGE'S GROUND RIDES EVERY OCCASION OF THE BIO (25.09): one list of occasions heals my words and my ground.
         defer { sendGroundIfNeeded(to: peer) }
         guard MontanaConv.holds(peer), !silenced(peer) else { return }
-        guard MontanaSelf.holds("profileBio", "profileLink") else { return }   // unread words are silence, not «no words»
+        // Unread words are silence, not «no words» -- but silence of the words only. MY COIN KEY IS NOT A WORD ABOUT MYSELF
+        // (20.10, T1 «Petros got no coins, he just made his identity»): a person who never wrote a bio holds no profileBio
+        // key at all (the profile's storage writes it at the first edit), and the whole word, the coin key with it, never
+        // went -- every SEND of version 3 to them stopped on «no receiver key». Unread words leave b and l out of the word;
+        // the key still goes.
+        let wordsHeld = MontanaSelf.holds("profileBio", "profileLink")
         let bio = MTPeerAbout.myBio, link = MTPeerAbout.myLink
-        sendAboutByDraft(to: peer, bio: bio, link: link)   // the builds 1919-1921 read only the draft word's keys
+        if wordsHeld { sendAboutByDraft(to: peer, bio: bio, link: link) }   // the builds 1919-1921 read only the draft word's keys
         guard Self.aboutCapable(peer) else { return }
         let tag = MontanaDeliveryEngine.Announced.aboutTag(bio: bio, link: link)
         let key = MontanaDeliveryEngine.Announced.about(to: peer)   // sentAb1_ -- this device's own (SeedScope)
@@ -1577,6 +1582,7 @@ final class E2E {
         // correspondent learns mine once -- a coin key's tag, never a name -- and only from the key this process already derived.
         let coinKey = MTCoinTx.cachedKeyTag
         let keyDue = coinKey.map { k in !MTCoinTx.toldKey(peer, k) } ?? false
+        if !wordsHeld, !keyDue { return }
         if held == tag, !coinsDue, !keyDue { return }                 // RECEIPTED with these words and this balance
         if held == nil, tag == "0", !force, !coinsDue, !keyDue { return }   // nothing was ever said, and nothing is said now
         // A BALANCE ALONE RIDES A ROAD THAT STANDS, NEVER A BELL (18.10.2026, Agent 89, T1 2238): a second is a coin, so «told again
@@ -1589,7 +1595,8 @@ final class E2E {
             return
         }
         if MontanaDeliveryEngine.shared.pendingStateTag(kind: .about, to: peer) == tag, !coinsDue, !keyDue { return }   // on their way
-        var word: [String: Any] = ["b": bio, "l": link, "at": now]
+        var word: [String: Any] = ["at": now]
+        if wordsHeld { word["b"] = bio; word["l"] = link }
         if let coins { word["c"] = coins }
         if let coinKey { word["k"] = coinKey }
         if let own = MTOwnWords.tag(for: peer) { word["o"] = own }   // a tag only my words make: a pair of my words knows itself (06.10)

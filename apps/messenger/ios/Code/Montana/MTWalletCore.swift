@@ -3461,7 +3461,7 @@ enum MTOwnWords {
 enum MTCoinSend {
     /// A field transfer has three honest outcomes. Only the available the page shows (MTCoinSplit.available) may call it short;
     /// an unanswered node record is pending, not an insufficient balance and not a second send.
-    enum TransferResult { case sent(String), short, pending }
+    enum TransferResult { case sent(String), short, pending, refused, noKey }
     /// The system chain's name for a restored credit: this prefix and the coin letter's wire name.
     static let restorePrefix = "restore:"
     /// A pair's own conversation, open to letters, of other words than mine: where a bubble burns its coin (pay).
@@ -3498,7 +3498,7 @@ enum MTCoinSend {
         let available = MTCoinSplit.shared.available   // the number every transfer page shows weighs the sum (16.10.2026 No.72)
         guard canPay(chat, store: store), 0 < coins else {
             MontanaTrace.mark("coin_refused", "transfer invalid coins=\(coins) balance=\(balance) own=\(MTOwnWords.mine(conv) ? 1 : 0)")
-            return .pending
+            return .refused
         }
         guard coins <= available else {
             MontanaTrace.mark("coin_refused", "transfer coins=\(coins) available=\(available) balance=\(balance) own=\(MTOwnWords.mine(conv) ? 1 : 0)")
@@ -3516,10 +3516,16 @@ enum MTCoinSend {
             MontanaTrace.mark("coin_pending", "transfer coins=\(coins) balance=\(balance)")
             return .pending
         case .refused:
-            // The book already proved the sum was present. A refusal after that is a
-            // chain/transport state, never an arithmetic shortage shown to the person.
-            MontanaTrace.mark("coin_pending", "transfer unconfirmed coins=\(coins) balance=\(balance)")
-            return .pending
+            // NOTHING LEFT, AND THE PERSON IS TOLD SO (the author's word 20.10.2026 22:0x MSK: «on T1 it does not let me send a
+            // transfer, it says it is being confirmed /// fix it -- everything must work at once and instantly»): every refused road
+            // of send and send3 either never debited the book or
+            // gave the coins back before it answered, so «being confirmed» over a refusal was a false gauge. The book already proved
+            // the sum, so it is never shown as a shortage either.
+            MontanaTrace.mark("coin_refused", "transfer not sent coins=\(coins) balance=\(balance)")
+            return .refused
+        case .noKey:
+            MontanaTrace.mark("coin_refused", "transfer no receiver key coins=\(coins) balance=\(balance)")
+            return .noKey
         }
     }
     /// Coins given on the correspondent's letter: the book pays, the reaction word carries them («op»: «coin»). An older build
@@ -4153,7 +4159,7 @@ enum MTCoinTx {
     /// record laid there. Taken -- the coins left. A head that moved (another device of the words sent meanwhile) -- the coins come
     /// back under the same number, the seed's own records join the book, the balance is asked again and one more record goes on the
     /// new head. Refused, or never reached -- the coins come back. No answer -- the record waits on disk for the node's word (settle).
-    enum SendResult { case sent(String), pending, refused }
+    enum SendResult { case sent(String), pending, refused, noKey }
     @MainActor static func send(_ coins: Int, conv: String) async -> String? {
         if case let .sent(id) = await sendResult(coins, conv: conv) { return id }
         return nil
@@ -4167,7 +4173,7 @@ enum MTCoinTx {
         case .notApplicable(let why):
             // the reason a version 3 SEND could not go, said: 11:59:58 MSK of 12.10 laid a v2 record and nothing told why
             MontanaTrace.mark("coin_v3", "v2 road why=\(why) coins=\(coins)")
-            if v2Cut <= Int64(Date().timeIntervalSince1970) { return .refused }
+            if v2Cut <= Int64(Date().timeIntervalSince1970) { return why == noReceiverKey ? .noKey : .refused }
         }
         let seat = MTCoinSeat()
         guard let me = myKeyTag, let door = chainDoor(me) else { return .refused }
@@ -4482,6 +4488,7 @@ extension MTCoinTx {
     private static func openSends() -> [[String: Any]] { (load("coin3-open.json")["open"] as? [[String: Any]]) ?? [] }
     private static func keepOpen(_ rows: [[String: Any]]) { save("coin3-open.json", ["open": rows]) }
     enum Send3 { case sent(String), pending, notApplicable(String), failed }
+    private static let noReceiverKey = "no receiver key"   // NOT-UI: the trace's reason, and the one the send page names
     /// SENDS (version 3): the receiver's key known (their about word), my chain announced and holding the sum, the record names
     /// the declared part of it (proven is spent first), commits to the receiver's key under the pair's blind, and is laid on my
     /// chain's head. Anything that makes v3 impossible (an older correspondent, the chain not holding the sum yet) is said as
@@ -4490,7 +4497,7 @@ extension MTCoinTx {
         let seat = MTCoinSeat()
         guard let me = myKeyTag, let door = chainDoor(me), let secret = MTPipeBook.secret(for: conv), !secret.isEmpty,
               let pair = pairTag(conv) else { return .notApplicable("no pipe") }
-        guard let peer = peerFrom(conv), let peerBytes = unhex(peer), peerBytes.count == 32 else { return .notApplicable("no receiver key") }
+        guard let peer = peerFrom(conv), let peerBytes = unhex(peer), peerBytes.count == 32 else { return .notApplicable(noReceiverKey) }
         guard let first = await reconcile(force: true), first.v3, Int64(coins) <= first.proven + first.declared else { return .notApplicable("chain short") }
         let nonce = fresh()
         let blind = MTCoinChainRules.blind(secret: secret, nonce: nonce)
