@@ -2,9 +2,19 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
+## 1.0 (2263) - 2026-10-21
+
+Source commit `da721028f130`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2263.md).
+
+- On a video call, switching your own camera off now keeps the other person's video on your screen. Your camera rests, they see your cover, and the call returns to voice only when the last camera is switched off.
+
+**Security and anonymity**
+
+- The camera is stopped at the hardware level when you switch it off: no frames leave the phone. One short word tells the other side your camera rests; it carries no picture and no new data. No message, key or coin road changes.
+
 ## 1.0 (2262) - 2026-10-21
 
-Source commit `9ef0bdd33c2e`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2262.md).
+Source commit `e0b8cc7b791c`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2262.md).
 
 - On the gold background every word is now dark and easy to read: the whole app takes the light look of the system on it, and switches back to the dark look on every dark background.
 
