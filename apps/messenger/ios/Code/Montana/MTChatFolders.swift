@@ -268,13 +268,13 @@ struct MTFolderTabs: View {
             HStack(spacing: 4) {
                 Text(short ? t.short : t.title)
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(.white)
+                    .foregroundColor(.primary)
                     .lineLimit(1)
                     .fixedSize()
                 if 0 < t.unread {
                     Text("\(t.unread)")
                         .font(.system(size: 14))
-                        .foregroundColor(.white)
+                        .foregroundColor(.primary)
                         .lineLimit(1)
                         .fixedSize()
                         .padding(.horizontal, 4)
@@ -425,7 +425,7 @@ struct MTFolderSettingsPage: View {
     private func folderRow(_ f: MTChatFolder, count: Int) -> some View {
         Button { if !f.isAll { open(f, addChats: false) } } label: {
             HStack {
-                Text(f.shownTitle).foregroundColor(.white)
+                Text(f.shownTitle).foregroundColor(.primary)
                 Spacer()
                 if 0 < count { Text("\(count)").foregroundColor(.secondary) }
                 if !f.isAll {
@@ -447,7 +447,7 @@ struct MTFolderSettingsPage: View {
         } label: {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(s.title).foregroundColor(.white)
+                    Text(s.title).foregroundColor(.primary)
                     Text(s.words).font(.footnote).foregroundColor(.secondary)
                 }
                 Spacer()
@@ -582,7 +582,7 @@ struct MTFolderEditPage: View {
                 .foregroundColor(.white)
                 .frame(width: 32, height: 32)
                 .background(tint, in: Circle())
-            Text(title).foregroundColor(.white)
+            Text(title).foregroundColor(.primary)
         }
         .frame(minHeight: 44)
     }
@@ -591,7 +591,7 @@ struct MTFolderEditPage: View {
         let c = pool.first { c in c.name == n } ?? Chat(name: n, lastMessage: "", time: "", unread: 0)
         return HStack(spacing: 12) {
             MTFolderChatPicker.face(c, side: 32)
-            Text(MTFolderChatPicker.title(c, store: store)).foregroundColor(.white).lineLimit(1)
+            Text(MTFolderChatPicker.title(c, store: store)).foregroundColor(.primary).lineLimit(1)
         }
         .frame(minHeight: 44)
     }
@@ -648,7 +648,7 @@ struct MTFolderChatPicker: View {
                         Button { flip(chat: c.name) } label: {
                             HStack(spacing: 12) {
                                 Self.face(c, side: 40)
-                                Text(Self.title(c, store: store)).foregroundColor(.white).lineLimit(1)
+                                Text(Self.title(c, store: store)).foregroundColor(.primary).lineLimit(1)
                                 Spacer()
                                 tick(on)
                             }
@@ -685,7 +685,7 @@ struct MTFolderChatPicker: View {
                 .foregroundColor(.white)
                 .frame(width: 40, height: 40)
                 .background(tint, in: Circle())
-            Text(title).foregroundColor(.white)
+            Text(title).foregroundColor(.primary)
             Spacer()
             tick(on)
         }

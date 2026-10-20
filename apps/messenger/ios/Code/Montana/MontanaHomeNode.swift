@@ -377,11 +377,11 @@ struct HomeNodeView: View {
                     TextField("Address", text: $host)
                         .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
                         .focused($editing).onSubmit { commit() }
-                        .foregroundColor(.white)
+                        .foregroundColor(.primary)
                 }
                 stateRow
                 if settingUp {
-                    HStack { Text("Setting up your node…").foregroundColor(.white); Spacer(); ProgressView() }
+                    HStack { Text("Setting up your node…").foregroundColor(.primary); Spacer(); ProgressView() }
                 }
                 if let f = node.sealing { bar("Sealing the copy for your node", f) }
                 if let f = node.sending { bar("Sending to your node", f) }
@@ -399,7 +399,7 @@ struct HomeNodeView: View {
                 HStack(spacing: 12) {
                     settingsToggleLabel("Login", "person.fill", .gray)
                     TextField("Login", text: $login).textInputAutocapitalization(.never).autocorrectionDisabled()
-                        .multilineTextAlignment(.trailing).foregroundColor(.white)
+                        .multilineTextAlignment(.trailing).foregroundColor(.primary)
                 }
                 HStack(spacing: 12) {
                     settingsToggleLabel("Password", "key.fill", .gray)
@@ -439,12 +439,12 @@ struct HomeNodeView: View {
                     EmptyView()
                 case .held(let files, let bytes, _):
                     HStack {
-                        Text("Files held by your node").foregroundColor(.white)
+                        Text("Files held by your node").foregroundColor(.primary)
                         Spacer()
                         Text(verbatim: String(files) + " · " + mtSize(bytes)).foregroundColor(.secondary)   // USER-DATA: the node's count and size
                     }
                 case .silent(let why):
-                    HStack { Text("Your node did not answer").foregroundColor(.white); Spacer(); Text(verbatim: why).font(.footnote).foregroundColor(.secondary) }   // USER-DATA: the reason
+                    HStack { Text("Your node did not answer").foregroundColor(.primary); Spacer(); Text(verbatim: why).font(.footnote).foregroundColor(.secondary) }   // USER-DATA: the reason
                 }
                 if let f = keep.sending { bar("Laying your files on your node", f) }
                 Button { keep.keep(cellular: true) } label: {
@@ -491,19 +491,19 @@ struct HomeNodeView: View {
         case .unknown, .noHost:
             EmptyView()
         case .asking:
-            HStack { Text("Asking your node…").foregroundColor(.white); Spacer(); ProgressView() }
+            HStack { Text("Asking your node…").foregroundColor(.primary); Spacer(); ProgressView() }
         case .none:
-            Text("Your node holds no copy").foregroundColor(.white)
+            Text("Your node holds no copy").foregroundColor(.primary)
         case .held(let h, _):
             HStack {
-                Text("Held by your node").foregroundColor(.white)
+                Text("Held by your node").foregroundColor(.primary)
                 Spacer()
                 Text(verbatim: h.date.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened, locale: MTLanguage.locale)) + " · " + mtSize(h.bytes)).foregroundColor(.secondary)   // USER-DATA: a moment and a size
             }
         case .refused(let why):
             HStack { Text("Your node refused").foregroundColor(.red); Spacer(); Text(verbatim: why).font(.footnote).foregroundColor(.secondary) }   // USER-DATA: the node's code
         case .silent(let why):
-            HStack { Text("Your node did not answer").foregroundColor(.white); Spacer(); Text(verbatim: why).font(.footnote).foregroundColor(.secondary) }   // USER-DATA: the system's code
+            HStack { Text("Your node did not answer").foregroundColor(.primary); Spacer(); Text(verbatim: why).font(.footnote).foregroundColor(.secondary) }   // USER-DATA: the system's code
         }
     }
     private var holds: Bool { if case .held = node.state { return true } else { return false } }
@@ -515,7 +515,7 @@ struct HomeNodeView: View {
     }
     private func bar(_ title: LocalizedStringKey, _ f: Double) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack { Text(title).foregroundColor(.white); Spacer(); Text(verbatim: String(Int(f * 100)) + "%").foregroundColor(.secondary) }   // USER-DATA: a share
+            HStack { Text(title).foregroundColor(.primary); Spacer(); Text(verbatim: String(Int(f * 100)) + "%").foregroundColor(.secondary) }   // USER-DATA: a share
             ProgressView(value: f)
         }
         .padding(.vertical, 4)

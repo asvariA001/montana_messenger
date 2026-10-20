@@ -1123,7 +1123,7 @@ struct MTKeepingSection: View {
             }
             ForEach(keep.keptFor, id: \.self) { conv in   // one row a person, their parts summed
                 HStack {
-                    Text(verbatim: ChatStore.live?.peerNames[conv] ?? "").foregroundColor(.white)   // USER-DATA: a correspondent's name
+                    Text(verbatim: ChatStore.live?.peerNames[conv] ?? "").foregroundColor(.primary)   // USER-DATA: a correspondent's name
                     Spacer()
                     Text(verbatim: mtSize(keep.bytes(for: conv))).foregroundColor(.secondary)   // USER-DATA: a size
                 }

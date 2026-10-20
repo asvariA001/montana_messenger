@@ -438,7 +438,7 @@ struct NotificationsView: View {
                 } label: {
                     HStack(spacing: 12) {
                         icon("bell.badge.fill", .red)
-                        Text("Allow notifications").foregroundColor(.white)
+                        Text("Allow notifications").foregroundColor(.primary)
                         Spacer()
                         Text(LocalizedStringKey(statusKey)).foregroundColor(.gray)
                         Image(systemName: "chevron.right").foregroundColor(Color(white: 0.35)).font(.footnote.weight(.semibold))
@@ -541,7 +541,7 @@ struct LanguagePickerView: View {
                                 else { Text(o.flag).font(.title2) }
                             }
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(LocalizedStringKey(o.native)).font(.body).foregroundColor(.white)
+                                Text(LocalizedStringKey(o.native)).font(.body).foregroundColor(.primary)
                                 Text(LocalizedStringKey(o.english)).font(.caption).foregroundColor(.gray)
                             }
                             Spacer()
@@ -1143,7 +1143,7 @@ struct AppearanceView: View {
             editor = ColEdit(title: title, start: bind.wrappedValue, key: key, apply: { bind.wrappedValue = $0 })
         } label: {
             HStack {
-                Text(title).foregroundColor(.white)
+                Text(title).foregroundColor(.primary)
                 Spacer()
                 RoundedRectangle(cornerRadius: 5).fill(Color(montanaHexString: bind.wrappedValue))
                     .frame(width: 30, height: 22)
@@ -1172,7 +1172,7 @@ struct AppearanceView: View {
                 NavigationLink { MTLibraryIconStyleView() } label: {
                     HStack(spacing: 14) {
                         MTApplicationIcon(app: .chats, side: 48)
-                        Text("Application icons").foregroundColor(.white)
+                        Text("Application icons").foregroundColor(.primary)
                     }
                 }
             }.listRowBackground(MTGlassRowPlate())
@@ -1238,7 +1238,7 @@ struct AppearanceView: View {
                 NavigationLink { MontanaVoiceOrbStyleView() } label: {
                     HStack(spacing: 12) {
                         MontanaVoiceOrbBadge(animating: false, mine: false).frame(width: 34, height: 34)
-                        Text("Voice message style").foregroundColor(.white)
+                        Text("Voice message style").foregroundColor(.primary)
                     }
                 }
             }.listRowBackground(MTGlassRowPlate())
@@ -1550,7 +1550,7 @@ struct DataStorageView: View {
                 if let f = copying.sealing {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
-                            Text("Sealing the copy for iCloud").foregroundColor(.white)
+                            Text("Sealing the copy for iCloud").foregroundColor(.primary)
                             Spacer()
                             Text(verbatim: String(Int(f * 100)) + "%").foregroundColor(.secondary)   // USER-DATA: a share
                         }
@@ -1564,11 +1564,11 @@ struct DataStorageView: View {
                         HStack {
                             switch fetch {
                             case .coming(let f):
-                                Text("Downloading from iCloud").foregroundColor(.white)
+                                Text("Downloading from iCloud").foregroundColor(.primary)
                                 Spacer()
                                 if let f { Text(verbatim: String(Int(f * 100)) + "%").foregroundColor(.secondary) }   // USER-DATA: a share
                             case .waiting(let why):
-                                Text("Waiting for iCloud").foregroundColor(.white)
+                                Text("Waiting for iCloud").foregroundColor(.primary)
                                 Spacer()
                                 Text(verbatim: why).font(.footnote).foregroundColor(.secondary)   // USER-DATA: iCloud's code
                             }
@@ -1591,14 +1591,14 @@ struct DataStorageView: View {
                     EmptyView()
                 case .held(let d, let b):
                     HStack {
-                        Text("In iCloud").foregroundColor(.white)
+                        Text("In iCloud").foregroundColor(.primary)
                         Spacer()
                         Text(verbatim: d.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened, locale: MTLanguage.locale)) + " · " + mtSize(b)).foregroundColor(.secondary)   // USER-DATA: a moment and a size
                     }
                 case .sending(let f, _, let b):
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
-                            Text("Uploading to iCloud").foregroundColor(.white)
+                            Text("Uploading to iCloud").foregroundColor(.primary)
                             Spacer()
                             Text(verbatim: (f.map { String(Int($0 * 100)) + "% · " } ?? "") + mtSize(b)).foregroundColor(.secondary)   // USER-DATA: a share and a size
                         }
@@ -1610,7 +1610,7 @@ struct DataStorageView: View {
                     // and goes on by itself; the words say so, and nothing here is painted as an error.
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
-                            Text("Waiting for iCloud").foregroundColor(.white)
+                            Text("Waiting for iCloud").foregroundColor(.primary)
                             Spacer()
                             Text(verbatim: mtSize(b)).foregroundColor(.secondary)   // USER-DATA: a size
                         }
@@ -1636,7 +1636,7 @@ struct DataStorageView: View {
                 // THE COPY iCLOUD STILL HOLDS while a newer one is on its way or refused — iCloud's own word too.
                 if let k = cloud.kept {
                     HStack {
-                        Text("Previous copy in iCloud").foregroundColor(.white)
+                        Text("Previous copy in iCloud").foregroundColor(.primary)
                         Spacer()
                         Text(verbatim: k.date.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened, locale: MTLanguage.locale)) + " · " + mtSize(k.bytes)).foregroundColor(.secondary)   // USER-DATA: a moment and a size
                     }
@@ -1671,7 +1671,7 @@ struct DataStorageView: View {
                 if let f = restoring {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
-                            Text("Restoring from the backup").foregroundColor(.white)
+                            Text("Restoring from the backup").foregroundColor(.primary)
                             Spacer()
                             Text(verbatim: String(Int(f * 100)) + "%").foregroundColor(.secondary)   // USER-DATA: a share
                         }
@@ -1919,7 +1919,7 @@ func settingsToggleLabel(_ title: LocalizedStringKey, _ icon: String, _ color: C
             .frame(width: 29, height: 29)
             .background(color)
             .clipShape(RoundedRectangle(cornerRadius: 7))
-        Text(title).foregroundColor(.white)
+        Text(title).foregroundColor(.primary)
     }
 }
 
@@ -2060,7 +2060,7 @@ struct PrivacyView: View {
                 Button { MontanaSystemSettings.open() } label: {
                     HStack(spacing: 12) {
                         icon("globe", .blue)
-                        Text("Local Network").foregroundColor(.white)
+                        Text("Local Network").foregroundColor(.primary)
                         Spacer()
                         Text(localNetwork ? "Connected" : "Disconnected").foregroundColor(.gray)
                         Image(systemName: "chevron.right").foregroundColor(Color(white: 0.35)).font(.footnote.weight(.semibold))
@@ -2074,7 +2074,7 @@ struct PrivacyView: View {
                 Button { place.tap() } label: {
                     HStack(spacing: 12) {
                         icon("location.fill", .blue)
-                        Text("Location").foregroundColor(.white)
+                        Text("Location").foregroundColor(.primary)
                         Spacer()
                         Text(LocalizedStringKey(place.word)).foregroundColor(.gray)
                         Image(systemName: "chevron.right").foregroundColor(Color(white: 0.35)).font(.footnote.weight(.semibold))
@@ -2086,7 +2086,7 @@ struct PrivacyView: View {
                 Button { MTSystemAccess.tapPhotos { refreshAccess() } } label: {
                     HStack(spacing: 12) {
                         icon("photo.fill", .blue)
-                        Text("Photos").foregroundColor(.white)
+                        Text("Photos").foregroundColor(.primary)
                         Spacer()
                         Text(LocalizedStringKey(photosAccess)).foregroundColor(.gray)
                         Image(systemName: "chevron.right").foregroundColor(Color(white: 0.35)).font(.footnote.weight(.semibold))
@@ -2096,7 +2096,7 @@ struct PrivacyView: View {
                 Button { MTSystemAccess.tapContacts { refreshAccess() } } label: {
                     HStack(spacing: 12) {
                         icon("person.crop.circle.fill", .gray)
-                        Text("Contacts").foregroundColor(.white)
+                        Text("Contacts").foregroundColor(.primary)
                         Spacer()
                         Text(LocalizedStringKey(contactsAccess)).foregroundColor(.gray)
                         Image(systemName: "chevron.right").foregroundColor(Color(white: 0.35)).font(.footnote.weight(.semibold))
@@ -2167,13 +2167,13 @@ struct PrivacyView: View {
                 NavigationLink { MTBoardRulePage(act: .write) } label: {
                     HStack(spacing: 12) {
                         icon("text.below.photo", .blue)
-                        Text("Who can write on my wall").foregroundColor(.white)
+                        Text("Who can write on my wall").foregroundColor(.primary)
                     }
                 }
                 NavigationLink { MTBoardRulePage(act: .see) } label: {
                     HStack(spacing: 12) {
                         icon("eye", .blue)
-                        Text("Who can see my wall").foregroundColor(.white)
+                        Text("Who can see my wall").foregroundColor(.primary)
                     }
                 }
             } footer: {
@@ -2191,7 +2191,7 @@ struct PrivacyView: View {
                 NavigationLink { MontanaBlockedView() } label: {
                     HStack(spacing: 12) {
                         icon("hand.raised.fill", .red)
-                        Text("Blocked users").foregroundColor(.white)
+                        Text("Blocked users").foregroundColor(.primary)
                     }
                 }
             }
@@ -2201,7 +2201,7 @@ struct PrivacyView: View {
                 NavigationLink { SeedShowView().montanaMotionMeter() } label: {
                     HStack(spacing: 12) {
                         icon("key.horizontal.fill", .gray)
-                        Text("Seed phrase").foregroundColor(.white)
+                        Text("Seed phrase").foregroundColor(.primary)
                     }
                 }
             }
@@ -2574,7 +2574,7 @@ struct MontanaOnboardingView: View {
         VStack(spacing: 16) {
             Spacer().frame(height: 6)
             Image(systemName: "arrow.clockwise.circle.fill").font(.system(size: 46)).foregroundColor(Color.accentColor)
-            Text("Recovery from phrase").font(.title3.bold()).foregroundColor(.white)
+            Text("Recovery from phrase").font(.title3.bold()).foregroundColor(.primary)
             Text("Enter the 24 words separated by spaces, in the correct order.").font(.caption).foregroundColor(.gray).multilineTextAlignment(.center)
             TextEditor(text: $recoverInput).frame(height: 130).padding(8).scrollContentBackground(.hidden)
                 .background(MTGlassCardPlate(cornerRadius: 14))
@@ -2624,10 +2624,10 @@ struct MontanaOnboardingView: View {
         VStack(spacing: 18) {
             Spacer()
             Image(systemName: "exclamationmark.shield.fill").font(.system(size: 52)).foregroundColor(.orange)
-            Text("Full control — full responsibility").font(.title3.bold()).foregroundColor(.white).multilineTextAlignment(.center)
+            Text("Full control — full responsibility").font(.title3.bold()).foregroundColor(.primary).multilineTextAlignment(.center)
             Text("The key to your identity is your 24-word seed phrase, which you're about to see. Recovery is only possible with it.\n\nLose it and you lose access to your identity and chats forever. Don't show it to anyone.\n\nStore it securely — using whatever method of storing confidential data you trust (for example, a password manager), or write it down by hand on paper and keep it offline. Don't take a screenshot or save it in Notes.")
                 .foregroundColor(.gray).font(.subheadline)
-            Toggle(isOn: $understood) { Text("I understand and take responsibility").foregroundColor(.white).font(.subheadline) }
+            Toggle(isOn: $understood) { Text("I understand and take responsibility").foregroundColor(.primary).font(.subheadline) }
             Spacer()
             Button { if understood { step = 2 } } label: { Text("Show Words") }
                 .buttonStyle(MTLoginDoorStyle(tint: MontanaOctagon.platformBlue)).disabled(!understood)
@@ -2636,7 +2636,7 @@ struct MontanaOnboardingView: View {
 
     var seed: some View {
         VStack(spacing: 14) {
-            Text("Your 24-word seed phrase").font(.title3.bold()).foregroundColor(.white)
+            Text("Your 24-word seed phrase").font(.title3.bold()).foregroundColor(.primary)
             Text("Store it securely: a password manager you trust, or write it down on paper and keep it offline. Don't take a screenshot or store it in Notes.").font(.caption).foregroundColor(.gray).multilineTextAlignment(.center)
             if let acc = bornKeys {
                 let words = acc.mnemonic.split(separator: " ").map(String.init)
@@ -2647,14 +2647,14 @@ struct MontanaOnboardingView: View {
                         ForEach(order, id: \.self) { i in
                             HStack(spacing: 6) {
                                 Text("\(i + 1).").foregroundColor(.gray).frame(width: 26, alignment: .trailing)
-                                Text(words[i]).foregroundColor(.white).bold(); Spacer()
+                                Text(words[i]).foregroundColor(.primary).bold(); Spacer()
                             }.padding(7).background(MTGlassCardPlate(cornerRadius: 10))
                         }
                     }
                 }
                 Button { UIPasteboard.general.string = acc.mnemonic; copied = true } label: { Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc") }
                     .buttonStyle(MTLoginDoorStyle())
-                Toggle(isOn: $savedWords) { Text("I've saved the words in a safe place").foregroundColor(.white).font(.subheadline) }
+                Toggle(isOn: $savedWords) { Text("I've saved the words in a safe place").foregroundColor(.primary).font(.subheadline) }
                 Button {
                     // address page removed: the address and QR are now on the empty chats screen and in settings
                     // The identity is already active from the moment of its creation (see
@@ -2744,7 +2744,7 @@ struct MontanaOnboardingView: View {
         VStack(spacing: 16) {
             Spacer()
             Image(systemName: "arrow.down.circle.fill").font(.system(size: 46)).foregroundColor(Color.accentColor)
-            Text(takingWord).font(.title3.bold()).foregroundColor(.white).multilineTextAlignment(.center)
+            Text(takingWord).font(.title3.bold()).foregroundColor(.primary).multilineTextAlignment(.center)
             if case .calling(let have, let need) = keep.taking, need > 0, keepLaying == nil {
                 Text("Parts in hand: \(have) of \(need)").foregroundColor(.gray).font(.caption)
             }
@@ -2778,7 +2778,7 @@ struct MontanaOnboardingView: View {
         VStack(spacing: 0) {
             Spacer(minLength: 0)
             Image("IconGlassPreview").resizable().scaledToFit().frame(width: 120, height: 120)
-            Text("Sign in to Montana").font(.title.bold()).foregroundColor(.white).padding(.top, 22)
+            Text("Sign in to Montana").font(.title.bold()).foregroundColor(.primary).padding(.top, 22)
             Spacer(minLength: 0)
             VStack(spacing: 10) {
                 // ONE LOGIN PAGE, at the first launch and when a person is added from the drawer (the author's word 29.09 evening).
@@ -2809,7 +2809,7 @@ struct MontanaOnboardingView: View {
         HStack(spacing: 12) {
             Image(systemName: icon).foregroundColor(Color.accentColor).frame(width: 28)
             VStack(alignment: .leading, spacing: 2) {
-                Text(LocalizedStringKey(title)).foregroundColor(.white).font(.subheadline.bold())
+                Text(LocalizedStringKey(title)).foregroundColor(.primary).font(.subheadline.bold())
                 Text(LocalizedStringKey(sub)).foregroundColor(.gray).font(.caption)
             }
             Spacer()

@@ -421,6 +421,7 @@ struct RootView: View {
     // person is shown a stranger's screen.
     @State private var hasSeed = MontanaSeed.hasSeed
     @ObservedObject private var seats = MTSeats.shared        // the persons of Montana on this phone (the second identity checklist)
+    @ObservedObject private var grounds = MTWallpaper.Book.shared   // a ground chosen anew decides the ink again (MTWallpaper.scheme)
     @State private var termsAccepted = MontanaSafety.termsAccepted   // Guideline 1.2: the terms come before the first word
     @State private var showWelcome = false
     @State private var needPassword = false
@@ -468,7 +469,7 @@ struct RootView: View {
                 MainTabView().id(skin + "|seat:" + (seats.activeId ?? "unseated"))
             }
         }
-        .preferredColorScheme(.dark)   // the whole theme is dark
+        .preferredColorScheme(MTWallpaper.scheme)   // the ground decides the ink: black on the light gold, white on every dark ground
         .onAppear {
             MontanaCallWiring.setup()
         }
@@ -1600,7 +1601,7 @@ struct MTDrawerFace<Picture: View>: View {
             }
             if !name.isEmpty {
                 Text(verbatim: name)   // USER-DATA: the person's own name
-                    .font(.caption).foregroundColor(.white)
+                    .font(.caption).foregroundColor(.primary)
                     .lineLimit(2).multilineTextAlignment(.center)
             }
         }
@@ -1790,7 +1791,7 @@ struct MontanaSideDrawer: View {
         Button { open(app) } label: {
             HStack(spacing: 22) {
                 MTApplicationIcon(app: app, side: 30)
-                Text(app.title).font(.system(size: 22, weight: .bold)).foregroundColor(.white).lineLimit(1)
+                Text(app.title).font(.system(size: 22, weight: .bold)).foregroundColor(.primary).lineLimit(1)
                 MTCountBadge(badges[app] ?? 0)
             }
             .padding(.vertical, 16)
@@ -2003,7 +2004,7 @@ private struct MTLibrarySearch: UIViewRepresentable {
             cell.contentConfiguration = UIHostingConfiguration {
                 HStack(spacing: 16) {
                     MTApplicationIcon(app: app, side: 56)
-                    Text(app.title).font(.title3).foregroundColor(.white)
+                    Text(app.title).font(.title3).foregroundColor(.primary)
                     Spacer(minLength: 0)
                     if pinned { Image(systemName: "pin.fill").font(.caption).foregroundStyle(.secondary) }
                     MTCountBadge(count)
@@ -2758,7 +2759,7 @@ struct ContactsTabView: View {
                 .overlay(MontanaHexagon().stroke(Color.white.opacity(0.45), lineWidth: 1))
             VStack(alignment: .leading, spacing: 3) {
                 Text(MontanaAvatar.spokenName(store.title(for: chat))).font(.system(size: 17, weight: .semibold))
-                    .foregroundColor(.white).lineLimit(1).truncationMode(.tail)
+                    .foregroundColor(.primary).lineLimit(1).truncationMode(.tail)
                 Text(word?.text ?? "").font(.system(size: 16))
                     .foregroundColor(.gray)
                     .lineLimit(1).truncationMode(.tail)
@@ -2810,7 +2811,7 @@ struct ContactsTabView: View {
                     .overlay(Image(systemName: "archivebox.fill").font(.system(size: 24)).foregroundColor(.gray))
                     .overlay(Circle().stroke(Color.white.opacity(0.45), lineWidth: 1))
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Archive").font(.system(size: 17, weight: .semibold)).foregroundColor(.white)
+                    Text("Archive").font(.system(size: 17, weight: .semibold)).foregroundColor(.primary)
                     Text(verbatim: String(store.archivedContacts.count)).font(.system(size: 16)).foregroundColor(.gray)   // USER-DATA: a count
                 }
                 Spacer()
@@ -4213,7 +4214,7 @@ struct StartByNameView: View {
                 Section {
                     TextField("@name", text: $ref)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
-                        .foregroundColor(.white)
+                        .foregroundColor(.primary)
                 } footer: {
                     // A name resolves through the plane of names (24.09): whoever holds one is reached by it,
                     // met before or not.
@@ -4517,7 +4518,7 @@ struct MontanaCodeView: View {
             if !shownName.isEmpty {
                 // The name opens its own page: its term, and the road to change it (the critic's noticed point 8).
                 Button { naming = true } label: {
-                    Text("@" + shownName).font(.title3.bold()).foregroundColor(.white)
+                    Text("@" + shownName).font(.title3.bold()).foregroundColor(.primary)
                         .frame(minHeight: 44).contentShape(Rectangle())
                 }.buttonStyle(.plain)
             }
@@ -4576,7 +4577,7 @@ struct MontanaCodeView: View {
             if let c = card {
                 Text(linkify(c))   // the link under the code is a link: a tap opens it, a long press selects it
                     .font(.system(size: 16, weight: .semibold, design: .monospaced))
-                    .foregroundColor(.white)
+                    .foregroundColor(.primary)
                     .textSelection(.enabled)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 20)
@@ -4599,7 +4600,7 @@ struct MontanaCodeView: View {
             if shownName.isEmpty {
                 Button { naming = true } label: {
                     Label("Take a name", systemImage: "at")
-                        .font(.subheadline.weight(.semibold)).foregroundColor(.white)
+                        .font(.subheadline.weight(.semibold)).foregroundColor(.primary)
                         .frame(minHeight: 44).contentShape(Rectangle())
                 }.padding(.top, 2)
             }
@@ -4677,7 +4678,7 @@ struct MontanaFaceSheet: View {
                     VStack(spacing: 12) {
                         AvatarCircle(photoURL: photoURL, color: color, initial: initial, size: 72, who: who)
                         Text(question)
-                            .font(.subheadline).foregroundColor(.white)
+                            .font(.subheadline).foregroundColor(.primary)
                             .multilineTextAlignment(.center)
                         if let note {
                             Text(note)
@@ -4744,7 +4745,7 @@ struct MontanaQRCard: View {
     var onScan: () -> Void
     var body: some View {
         VStack(spacing: 16) {
-            Text("No chats yet").font(.title3.bold()).foregroundColor(.white)
+            Text("No chats yet").font(.title3.bold()).foregroundColor(.primary)
             Button(action: onExpand) {
                 MontanaCodeView(name: name, onScan: onScan)
             }.buttonStyle(.plain)

@@ -251,16 +251,16 @@ struct MTFeedEmpty: View {
                 Image(systemName: "antenna.radiowaves.left.and.right.slash")
                     .font(.system(size: 30)).foregroundColor(.gray)
                 Text(LocalizedStringKey("No connection to the network"))
-                    .font(.system(size: 17, weight: .bold)).foregroundColor(.white)
+                    .font(.system(size: 17, weight: .bold)).foregroundColor(.primary)
                 Text(LocalizedStringKey("Messages will be sent as soon as a door answers"))
                     .font(.footnote).foregroundColor(.gray).multilineTextAlignment(.center)
             case .noResults:
                 Image(systemName: "magnifyingglass").font(.system(size: 30)).foregroundColor(.gray)
                 Text(LocalizedStringKey("Nothing found"))
-                    .font(.system(size: 17, weight: .bold)).foregroundColor(.white)
+                    .font(.system(size: 17, weight: .bold)).foregroundColor(.primary)
             case .freshChat:
                 Text(LocalizedStringKey("No messages yet"))
-                    .font(.system(size: 17, weight: .bold)).foregroundColor(.white)
+                    .font(.system(size: 17, weight: .bold)).foregroundColor(.primary)
                 Text(LocalizedStringKey("Write the first one — it will wait for them on a node"))
                     .font(.footnote).foregroundColor(.gray).multilineTextAlignment(.center)
             }

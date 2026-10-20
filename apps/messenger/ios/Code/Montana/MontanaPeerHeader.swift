@@ -63,7 +63,7 @@ struct MTPeerHeader: View {
 
             if let title {
                 Text(title)
-                    .font(.title2).bold().foregroundColor(.white)
+                    .font(.title2).bold().foregroundColor(.primary)
                     .multilineTextAlignment(.center)
             }
             if blocked { MTBlockedPill() }
@@ -307,7 +307,7 @@ struct MTFaceHeader: View {
             // THE NAME, THE BIO AND THE LINK IN BUBBLES OF ONE-TONE GLASS (the author's word 25.09): each its own plate of the
             // system's regular glass hugging its words, standing where the head's lines stand -- on my page and on a
             // correspondent's alike, this one head drawing both.
-            bubble(Text(MontanaAvatar.spokenName(name)).font(.title3.bold()).foregroundColor(.white).lineLimit(2))
+            bubble(Text(MontanaAvatar.spokenName(name)).font(.title3.bold()).foregroundColor(.primary).lineLimit(2))
                 .frame(maxWidth: .infinity, alignment: side)
                 .padding(.horizontal, 18)
             if blocked {

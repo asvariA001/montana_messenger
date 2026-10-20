@@ -1234,7 +1234,7 @@ struct MontanaVPNMenuOverlay: View {
                     // USER-DATA: the title arrives ALREADY resolved -- either as a catalogue string
                     // (`String(localized: "Servers")`) or as a server name. It is never a key in any
                     // call, so here a value is shown, not a key.
-                    Text(verbatim: title).font(.system(size: 17, weight: .bold)).foregroundColor(.white).lineLimit(1)
+                    Text(verbatim: title).font(.system(size: 17, weight: .bold)).foregroundColor(.primary).lineLimit(1)
                 }
                 .padding(.horizontal, 16).padding(.vertical, 12)
                 .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))

@@ -173,7 +173,7 @@ struct SafetyNumberView: View {
                     }
                     Text(grouped(digits))
                         .font(.system(.body, design: .monospaced))
-                        .foregroundColor(.white).multilineTextAlignment(.center)
+                        .foregroundColor(.primary).multilineTextAlignment(.center)
                         .padding(.horizontal)
                     Text("Compare these 60 digits with the other person (by voice or in person), or scan their QR. If they match, mark “Verified”.")
                         .font(.caption).foregroundColor(.gray)
@@ -471,16 +471,16 @@ struct SeedShowView: View {
                     Image(systemName: "shield.lefthalf.filled")
                         .font(.system(size: 72)).foregroundColor(Color.accentColor).padding(.top, 36)
                     Label("This information is for you only!", systemImage: "exclamationmark.triangle")
-                        .font(.headline).foregroundColor(.white).padding(.top, 8)
+                        .font(.headline).foregroundColor(.primary).padding(.top, 8)
                     Text("This seed phrase unlocks access to your wallet")
-                        .font(.title2.bold()).foregroundColor(.white)
+                        .font(.title2.bold()).foregroundColor(.primary)
                         .multilineTextAlignment(.center).padding(.horizontal, 24)
                     Button { ack1.toggle() } label: {
                         HStack(alignment: .top, spacing: 12) {
                             Image(systemName: ack1 ? "checkmark.square.fill" : "square")
                                 .font(.title3).foregroundColor(ack1 ? .green : .gray)
                             Text("Montana has no access to this key.")
-                                .foregroundColor(.white).multilineTextAlignment(.leading)
+                                .foregroundColor(.primary).multilineTextAlignment(.leading)
                             Spacer()
                         }.padding(14).background { MTGlassCardPlate(cornerRadius: 12) }.clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                         .contentShape(Rectangle())   // the whole row is the target, not only its words (22.09)
@@ -490,7 +490,7 @@ struct SeedShowView: View {
                             Image(systemName: ack2 ? "checkmark.square.fill" : "square")
                                 .font(.title3).foregroundColor(ack2 ? .green : .gray)
                             Text("Don't store this information digitally — write it on paper and keep it in a safe place.")
-                                .foregroundColor(.white).multilineTextAlignment(.leading)
+                                .foregroundColor(.primary).multilineTextAlignment(.leading)
                             Spacer()
                         }.padding(14).background { MTGlassCardPlate(cornerRadius: 12) }.clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                         .contentShape(Rectangle())   // the whole row is the target, not only its words (22.09)
@@ -516,7 +516,7 @@ struct SeedShowView: View {
                         ForEach(order, id: \.self) { i in
                             HStack(spacing: 6) {
                                 Text("\(i+1).").foregroundColor(.gray).frame(width: 26, alignment: .trailing)
-                                Text(words[i]).foregroundColor(.white).bold()
+                                Text(words[i]).foregroundColor(.primary).bold()
                                 Spacer()
                             }.padding(8).background { MTGlassCardPlate(cornerRadius: 8) }.clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                         }
@@ -555,15 +555,15 @@ struct SupportView: View {
         List {
             Section("Write to us") {
                 Button { write(MontanaSafety.supportMail, String(localized: "Montana question", bundle: MTLanguage.bundle)) } label: {
-                    HStack { Text("Ask a question").foregroundColor(.white); Spacer(); Text(verbatim: MontanaSafety.supportMail).foregroundColor(.gray).font(.footnote) }   // USER-DATA: an address
+                    HStack { Text("Ask a question").foregroundColor(.primary); Spacer(); Text(verbatim: MontanaSafety.supportMail).foregroundColor(.gray).font(.footnote) }   // USER-DATA: an address
                     .contentShape(Rectangle())   // the whole row is the target, not only its words (22.09)
                 }
                 Button { write(MontanaSafety.abuseMail, String(localized: "Montana report", bundle: MTLanguage.bundle)) } label: {
-                    HStack { Text("Report inappropriate activity").foregroundColor(.white); Spacer(); Text(verbatim: MontanaSafety.abuseMail).foregroundColor(.gray).font(.footnote) }   // USER-DATA: an address
+                    HStack { Text("Report inappropriate activity").foregroundColor(.primary); Spacer(); Text(verbatim: MontanaSafety.abuseMail).foregroundColor(.gray).font(.footnote) }   // USER-DATA: an address
                     .contentShape(Rectangle())   // the whole row is the target, not only its words (22.09)
                 }
                 Link(destination: URL(string: MontanaSafety.site)!) {
-                    HStack { Text("Website").foregroundColor(.white); Spacer(); Text(verbatim: MontanaSafety.site).foregroundColor(.gray).font(.footnote) }   // USER-DATA: an address
+                    HStack { Text("Website").foregroundColor(.primary); Spacer(); Text(verbatim: MontanaSafety.site).foregroundColor(.gray).font(.footnote) }   // USER-DATA: an address
                 }
             }.listRowBackground(MTGlassRowPlate())
             Section {

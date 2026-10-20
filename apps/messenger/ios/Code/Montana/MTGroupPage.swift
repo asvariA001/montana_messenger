@@ -108,7 +108,7 @@ struct MTGroupMemberRow: View {
             HStack(spacing: 12) {
                 face
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(verbatim: line.name).foregroundColor(.white).lineLimit(1)   // USER-DATA: a person's name
+                    Text(verbatim: line.name).foregroundColor(.primary).lineLimit(1)   // USER-DATA: a person's name
                     if let p = line.presence {
                         // USER-DATA: the presence ladder's own word, already in the person's language (ChatStore.presenceWord)
                         Text(verbatim: p).font(.caption).foregroundColor(.gray).lineLimit(1)
@@ -156,7 +156,7 @@ struct MTGroupInviteLinksPage: View {
         List {
             Section {
                 if let link {
-                    Text(verbatim: link.absoluteString).foregroundColor(.white).lineLimit(1).truncationMode(.middle)   // USER-DATA: the group's link
+                    Text(verbatim: link.absoluteString).foregroundColor(.primary).lineLimit(1).truncationMode(.middle)   // USER-DATA: the group's link
                     HStack(spacing: 12) {
                         Button {
                             UIPasteboard.general.url = link

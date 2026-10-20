@@ -61,7 +61,7 @@ struct AvatarGalleryView: View {
                     }
                     Spacer()
                     Text(current.isEmpty ? "" : "\(index + 1) of \(current.count)")
-                        .foregroundColor(.white).font(.subheadline)
+                        .foregroundColor(.primary).font(.subheadline)
                     Spacer()
                     Image(systemName: "xmark").foregroundColor(.clear).font(.title2).padding()
                 }
@@ -1181,7 +1181,7 @@ struct StoryViewer: View {
                         .overlay(Text(String(story.name.prefix(1)))
                             .foregroundColor(.white).font(.caption).bold())
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(story.name).foregroundColor(.white).bold()
+                        Text(story.name).foregroundColor(.primary).bold()
                         if !agoText.isEmpty {
                             Text(agoText).foregroundColor(.white.opacity(0.7)).font(.caption2)
                         }

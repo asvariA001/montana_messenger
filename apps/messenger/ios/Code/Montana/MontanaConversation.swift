@@ -516,7 +516,7 @@ struct LiveDraftBubble: View {
                         Rectangle().fill(Color.accentColor).frame(width: 3, height: quoteAuthor == nil ? 16 : 32)
                         VStack(alignment: .leading, spacing: 1) {
                             if let qa = quoteAuthor {
-                                Text(qa).font(.system(size: 12, weight: .bold)).foregroundColor(.white).lineLimit(1)
+                                Text(qa).font(.system(size: 12, weight: .bold)).foregroundColor(.primary).lineLimit(1)
                             }
                             Text(qt).font(.system(size: 12)).foregroundColor(color.opacity(0.7)).lineLimit(1)
                         }
@@ -595,7 +595,7 @@ struct LiveDraftSection: View {
             HStack {
                 HStack(spacing: 6) {
                     MTPresenceDot()
-                    Text(word.text).font(.caption).foregroundColor(.white)
+                    Text(word.text).font(.caption).foregroundColor(.primary)
                 }
                 .padding(.horizontal, 12).padding(.vertical, 8)
                 .montanaFieldGlass(maxCut: .greatestFiniteMagnitude)
@@ -2668,7 +2668,7 @@ struct ChatConversationView: View {
                 Image(systemName: "pin.fill").font(.system(size: 14, weight: .semibold)).foregroundColor(Color.accentColor)
                 VStack(alignment: .leading, spacing: 0) {
                     Text("Pinned message").font(.caption2).foregroundColor(.secondary)
-                    Text(previewText(m)).font(.footnote).foregroundColor(.white).lineLimit(1)   // USER-DATA: the letter's words
+                    Text(previewText(m)).font(.footnote).foregroundColor(.primary).lineLimit(1)   // USER-DATA: the letter's words
                 }
                 Spacer(minLength: 0)
                 if list.count > 1 {
@@ -2727,7 +2727,7 @@ struct ChatConversationView: View {
                 if let thumb { thumb.frame(width: h - 8, height: h - 8).clipShape(RoundedRectangle(cornerRadius: 6)) }
                 VStack(alignment: .leading, spacing: 0) {
                     title.font(.caption2).foregroundColor(Color.accentColor).lineLimit(1)
-                    Text(verbatim: words).font(.footnote).foregroundColor(.white).lineLimit(1)   // USER-DATA: the letter's words
+                    Text(verbatim: words).font(.footnote).foregroundColor(.primary).lineLimit(1)   // USER-DATA: the letter's words
                 }
                 Spacer(minLength: 0)
             }
@@ -3409,7 +3409,7 @@ struct ChatConversationView: View {
                         Button { mention(p.name) } label: {
                             HStack(spacing: 10) {
                                 AvatarCircle(photoURL: nil, color: .gray, initial: MontanaAvatar.initial(title: p.name, name: p.name), size: 30)
-                                Text(verbatim: p.name).foregroundColor(.white).lineLimit(1)   // USER-DATA: a person's name in the group
+                                Text(verbatim: p.name).foregroundColor(.primary).lineLimit(1)   // USER-DATA: a person's name in the group
                                 Spacer(minLength: 0)
                             }
                             .padding(.horizontal, 12)
@@ -3528,7 +3528,7 @@ struct ChatConversationView: View {
             }
         } label: {
             Text(verbatim: MTGroup.shared.eventWords(m.text) ?? "")   // USER-DATA: the people's names inside the catalogue's sentence
-                .font(.caption2).foregroundColor(.white).multilineTextAlignment(.center)
+                .font(.caption2).foregroundColor(.primary).multilineTextAlignment(.center)
                 .padding(.horizontal, 12).padding(.vertical, 5)
                 .montanaFieldGlass(maxCut: .greatestFiniteMagnitude)
         }
@@ -4358,7 +4358,7 @@ struct ChatConversationView: View {
     // The flow and floating day share the same white text and glass capsule.
     func datePill(_ text: String) -> some View {
         Text(LocalizedStringKey(text))
-            .font(.caption2).foregroundColor(.white)
+            .font(.caption2).foregroundColor(.primary)
             .padding(.horizontal, 12).padding(.vertical, 5)
             .montanaFieldGlass(maxCut: .greatestFiniteMagnitude)
             .padding(.vertical, 4)
@@ -4451,7 +4451,7 @@ struct ChatConversationView: View {
                 }
             }
             Spacer()
-            Text("Selected: \(selectedMsgs.count)").foregroundColor(.white).font(.subheadline)
+            Text("Selected: \(selectedMsgs.count)").foregroundColor(.primary).font(.subheadline)
             Spacer()
             Button { selectingMsgs = false; selectedMsgs.removeAll() } label: {
                 Image(systemName: "xmark").font(.system(size: 17, weight: .semibold))
@@ -4517,7 +4517,7 @@ struct ChatConversationView: View {
     var scheduleSheet: some View {
         NavigationStack {
             VStack(spacing: 18) {
-                Text(chat.convId == nil ? "Remind me" : "Send later").font(.headline).foregroundColor(.white)
+                Text(chat.convId == nil ? "Remind me" : "Send later").font(.headline).foregroundColor(.primary)
                 DatePicker("When", selection: $scheduleDate, in: Date()...,
                            displayedComponents: [.date, .hourAndMinute])
                     .datePickerStyle(.graphical)
@@ -4838,7 +4838,7 @@ struct MontanaChatFace: View {
                 .overlay { if rim { MontanaHexagon().stroke(Color.white.opacity(0.45), lineWidth: 1) } }
             Text(MontanaAvatar.spokenName(store.title(for: chat)))
                 .font(rim ? .system(size: 17, weight: .semibold) : .body)
-                .foregroundColor(.white).lineLimit(1).truncationMode(.tail)
+                .foregroundColor(.primary).lineLimit(1).truncationMode(.tail)
             if ChatStore.isMontanaRoom(chat.name) { MTMontanaCrownMark(height: rim ? 18 : 16) }
         }
     }

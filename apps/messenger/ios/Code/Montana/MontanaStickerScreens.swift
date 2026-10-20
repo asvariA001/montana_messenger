@@ -200,7 +200,7 @@ struct MontanaStickerSetPage: View {
                 MontanaCloseMark { onClose() }
                 Spacer()
                 Text(verbatim: title)   // USER-DATA: the set's own title, as its owner wrote it
-                    .font(.system(size: 17, weight: .semibold)).foregroundColor(.white)
+                    .font(.system(size: 17, weight: .semibold)).foregroundColor(.primary)
                 Spacer()
                 Button {
                     UIPasteboard.general.string = MontanaStickerPack.link(id: isMine ? book.mineId : pack, title: title)

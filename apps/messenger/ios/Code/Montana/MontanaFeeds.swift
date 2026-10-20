@@ -182,6 +182,15 @@ enum MTWallpaper {
     /// The one default: every page and every chat that chose none wear my page's ground, so nothing chosen reads here.
     /// «No background» chosen by hand is stored, never read as nothing chosen.
     static let byDefault = gold   // the author's word 03.10: the gold ground by default
+    /// THE GROUND DECIDES THE INK (the author's word 20.10 21:4x: the gold ground, the font by default black in the whole
+    /// app, so that everything reads). The gold is a light ground; white words on it do not read. The platform's own answer
+    /// to a light ground is its light appearance: every primary word, bar and material turns to the platform's dark ink.
+    /// So the scheme of the whole app is decided here, from the ground my page wears, and nowhere else ([C-1]).
+    static let lightGrounds = [gold]
+    static var scheme: ColorScheme {
+        if case .named(let n) = choice(for: page), lightGrounds.contains(n) { return .light }
+        return .dark
+    }
     static func choice(for conv: String) -> Choice {
         let s = UserDefaults.standard.string(forKey: "chatWall." + conv)
         if s == nil, conv == page { return .named(byDefault) }

@@ -173,7 +173,7 @@ struct MontanaReportSheet: View {
                             reasonKey = r.0; reason = r.1
                         } label: {
                             HStack {
-                                Text(r.1).foregroundColor(.white)
+                                Text(r.1).foregroundColor(.primary)
                                 Spacer()
                                 if reasonKey == r.0 { Image(systemName: "checkmark").foregroundColor(Color.accentColor) }
                             }
@@ -254,7 +254,7 @@ struct MontanaBlockedView: View {
             } else {
                 ForEach(store.blockedChats.sorted(), id: \.self) { name in
                     HStack {
-                        Text(verbatim: store.displayName(for: name)).foregroundColor(.white).lineLimit(1)   // USER-DATA: a person's name
+                        Text(verbatim: store.displayName(for: name)).foregroundColor(.primary).lineLimit(1)   // USER-DATA: a person's name
                         Spacer()
                         Button("Unblock") { store.toggleBlocked(name) }.foregroundColor(Color.accentColor)
                     }

@@ -745,7 +745,7 @@ struct ChatsListView: View {
                         .font(.system(size: 20)).foregroundColor(.gray))
                     .overlay(Circle().stroke(Color.white.opacity(0.45), lineWidth: 1))
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Archive").font(.system(size: 17, weight: .semibold)).foregroundColor(.white)
+                    Text("Archive").font(.system(size: 17, weight: .semibold)).foregroundColor(.primary)
                     Text("\(archivedChats.count)").font(.system(size: 16)).foregroundColor(.gray)
                 }
                 Spacer()
@@ -1141,7 +1141,7 @@ struct ChatsListView: View {
     private var folderEmpty: some View {
         VStack(spacing: 8) {
             Image(systemName: "folder").font(.system(size: 44)).foregroundStyle(.secondary)
-            Text("Folder is empty.").font(.headline).foregroundColor(.white)
+            Text("Folder is empty.").font(.headline).foregroundColor(.primary)
             Text("No chats currently match this folder.")
                 .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
         }
@@ -1853,7 +1853,7 @@ struct ChatsListView: View {
                             HStack(spacing: 12) {
                                 AvatarCircle(photoURL: nil, color: .blue, initial: MTNameBook.face(e, title: MTNameBook.display(conv: e)), size: 46, who: e)
                                 VStack(alignment: .leading, spacing: 3) {
-                                    Text(MTNameBook.display(conv: e)).font(.subheadline).bold().foregroundColor(.white)
+                                    Text(MTNameBook.display(conv: e)).font(.subheadline).bold().foregroundColor(.primary)
                                     // NO YELLOW WORD (24.09, the noticed point 4 — the author's word «close it»): the accent is the
                                     // root's gold tint, and the line under the name wore it; it wears the platform's quiet colour.
                                     Text("Message on Montana").font(.caption).foregroundColor(.secondary)
@@ -1887,7 +1887,7 @@ struct ChatsListView: View {
         HStack(spacing: 12) {
             MTChatAvatar(chat: chat, size: 46, showPresence: true)
             VStack(alignment: .leading, spacing: 3) {
-                Text(MontanaAvatar.spokenName(store.title(for: chat))).font(.subheadline).bold().foregroundColor(.white)
+                Text(MontanaAvatar.spokenName(store.title(for: chat))).font(.subheadline).bold().foregroundColor(.primary)
                         .lineLimit(1).truncationMode(.tail)
                 Text(chat.isGroup || chat.convId == nil
                         ? String(localized: String.LocalizationValue(chat.status), bundle: MTLanguage.bundle)
@@ -1906,7 +1906,7 @@ struct ChatsListView: View {
         HStack(spacing: 12) {
             MTChatAvatar(chat: hit.chat, size: 46)   // the one face of a chat
             VStack(alignment: .leading, spacing: 3) {
-                Text(MontanaAvatar.spokenName(store.title(for: hit.chat))).font(.subheadline).bold().foregroundColor(.white)
+                Text(MontanaAvatar.spokenName(store.title(for: hit.chat))).font(.subheadline).bold().foregroundColor(.primary)
                 Text(hit.message.text).font(.caption).foregroundColor(.gray).lineLimit(2)
             }
             Spacer()
@@ -2254,7 +2254,7 @@ struct ChatRow: View {
                     CallInlineHandset(side: .green, peer: model.ref)   // 15.8
                     Text(model.title)
                         .font(.system(size: 17, weight: .semibold))
-                        .foregroundColor(.white)
+                        .foregroundColor(.primary)
                         .lineLimit(1)
                     if model.montana { MTMontanaCrownMark(height: 18) }
                     if MTGroup.isKey(model.ref) { MTRoomRowMark(chat: model.ref) }   // a group's living room (07.10)

@@ -583,7 +583,7 @@ struct MTChannelInviteLinksPage: View {
         List {
             Section {
                 if let link {
-                    Text(verbatim: link.absoluteString).foregroundColor(.white).lineLimit(1).truncationMode(.middle)   // USER-DATA: the channel's link
+                    Text(verbatim: link.absoluteString).foregroundColor(.primary).lineLimit(1).truncationMode(.middle)   // USER-DATA: the channel's link
                     HStack(spacing: 12) {
                         Button {
                             UIPasteboard.general.url = link

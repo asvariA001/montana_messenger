@@ -96,7 +96,7 @@ struct MTInfoRowView: View {
             // THE CAPTION OVER THE WORDS, as the reference's labelled row lays them (its label first, three points above the text)
             VStack(alignment: .leading, spacing: 3) {
                 Text(caption).font(.caption).foregroundColor(.gray)
-                Text(value).foregroundColor(.white).textSelection(.enabled)
+                Text(value).foregroundColor(.primary).textSelection(.enabled)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 14).padding(.vertical, 10)
@@ -111,7 +111,7 @@ struct MTInfoRowView: View {
                 HStack(spacing: 12) {
                     Image(systemName: icon).foregroundColor(tint).frame(width: 24)
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(title).foregroundColor(.white)
+                        Text(title).foregroundColor(.primary)
                         Text(detail).font(.caption2).foregroundColor(tint)
                     }
                     Spacer()
@@ -136,7 +136,7 @@ struct MTInfoRowView: View {
         case .toggle(let title, let icon, let isOn):
             Toggle(isOn: isOn) {
                 Label {
-                    Text(title).foregroundColor(.white)
+                    Text(title).foregroundColor(.primary)
                 } icon: {
                     Image(systemName: icon).foregroundColor(.white)
                 }
@@ -149,7 +149,7 @@ struct MTInfoRowView: View {
                              color: Color(montanaHexString: MontanaAvatar.colorHex(name)),
                              initial: MontanaAvatar.initial(title: name, name: ""), size: 40)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(name).foregroundColor(.white)
+                    Text(name).foregroundColor(.primary)
                     Text(subtitle).font(.caption).foregroundColor(.gray)
                 }
                 Spacer()

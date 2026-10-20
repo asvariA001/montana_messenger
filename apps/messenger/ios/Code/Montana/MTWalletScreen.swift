@@ -439,7 +439,7 @@ struct MTCoinTop13: View {
                 if r.id == mine {
                     MTSelfFace(size: 40)
                     // USER-DATA: the person's own name
-                    Text(verbatim: MontanaAvatar.spokenName(E2E.myDisplayName())).font(.body).foregroundColor(.white).lineLimit(1)
+                    Text(verbatim: MontanaAvatar.spokenName(E2E.myDisplayName())).font(.body).foregroundColor(.primary).lineLimit(1)
                 } else if r.name.isEmpty {
                     AvatarCircle(photoURL: nil, color: .black, initial: "", size: 40, image: nil)
                     Text("No name").font(.body).foregroundStyle(.secondary).lineLimit(1)
@@ -452,7 +452,7 @@ struct MTCoinTop13: View {
                     // The one owner of a face's letter (MontanaAvatar.initial): a glyph put first is the face itself.
                     AvatarCircle(photoURL: nil, color: .black, initial: MontanaAvatar.initial(title: r.name, name: ""), size: 40, image: nil)
                     // USER-DATA: the name its owner shows in the top
-                    Text(verbatim: MontanaAvatar.spokenName(r.name)).font(.body).foregroundColor(.white).lineLimit(1)
+                    Text(verbatim: MontanaAvatar.spokenName(r.name)).font(.body).foregroundColor(.primary).lineLimit(1)
                 }
                 Spacer()
                 // USER-DATA: the coins the row's owner shows
@@ -473,7 +473,7 @@ struct MTCoinTop13: View {
                     HStack(spacing: 12) {
                         MTSelfFace(size: 40)
                         // USER-DATA: the person's own name
-                        Text(verbatim: MontanaAvatar.spokenName(E2E.myDisplayName())).font(.body).foregroundColor(.white).lineLimit(1)
+                        Text(verbatim: MontanaAvatar.spokenName(E2E.myDisplayName())).font(.body).foregroundColor(.primary).lineLimit(1)
                     }
                 } else if let c = chats.first(where: { $0.name == p.id }) {
                     MontanaChatFace(chat: c)
@@ -2106,7 +2106,7 @@ struct MTCoinSendSheet: View {
                                     HStack(spacing: 12) {
                                         AvatarCircle(photoURL: nil, color: .black, initial: s.glyph, size: 40, image: MTSeats.face(s.id))
                                         Text(verbatim: MontanaAvatar.spokenName(s.name.isEmpty ? "Montana" : s.name))   // USER-DATA: the person's own name
-                                            .foregroundColor(.white).lineLimit(1).truncationMode(.tail)
+                                            .foregroundColor(.primary).lineLimit(1).truncationMode(.tail)
                                         Spacer(minLength: 0)
                                     }
                                     .frame(minHeight: 44)

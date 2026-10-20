@@ -462,7 +462,7 @@ struct MessageContextOverlay: View {
                             HStack(spacing: 6) {
                                 Button { MTReactClock.act = "row:coin"; onCoin(1) } label: {
                                     HStack(spacing: 8) {
-                                        Text("Give a coin").foregroundColor(.white)
+                                        Text("Give a coin").foregroundColor(.primary)
                                         Spacer(minLength: 0)
                                         MTMintCoin(spinning: false, side: 20)
                                     }

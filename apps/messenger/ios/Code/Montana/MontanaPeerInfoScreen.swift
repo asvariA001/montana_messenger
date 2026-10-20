@@ -940,7 +940,7 @@ struct MontanaPeerInfoScreen: View {
                             glassRow(glyph: l.glyph) {
                                 VStack(alignment: .leading, spacing: 2) {
                                     // USER-DATA: the move's kind -- coins sent or received -- in the person's language
-                                    Text(verbatim: l.category).foregroundColor(.white).lineLimit(1)
+                                    Text(verbatim: l.category).foregroundColor(.primary).lineLimit(1)
                                     // USER-DATA: the move's moment on this phone's clock
                                     Text(verbatim: Date(timeIntervalSince1970: l.at).formatted(date: .omitted, time: .shortened))
                                         .font(.caption).foregroundColor(.gray)
@@ -1079,7 +1079,7 @@ struct MontanaPeerInfoScreen: View {
                 if let f = m.docFile {
                     glassRow(glyph: "doc") {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(m.docName ?? String(localized: "File", bundle: MTLanguage.bundle)).foregroundColor(.white).lineLimit(1)
+                            Text(m.docName ?? String(localized: "File", bundle: MTLanguage.bundle)).foregroundColor(.primary).lineLimit(1)
                             Text(fileSizeString(f)).font(.caption).foregroundColor(.gray)
                         }
                         Spacer(minLength: 0)
@@ -1101,7 +1101,7 @@ struct MontanaPeerInfoScreen: View {
                     glassRow(glyph: "link") {
                         VStack(alignment: .leading, spacing: 2) {
                             // USER-DATA: the link's host and the link itself.
-                            Text(verbatim: u.host ?? u.absoluteString).foregroundColor(.white).lineLimit(1)
+                            Text(verbatim: u.host ?? u.absoluteString).foregroundColor(.primary).lineLimit(1)
                             Text(verbatim: u.absoluteString).font(.caption).foregroundColor(.gray).lineLimit(1).truncationMode(.middle)
                         }
                         Spacer(minLength: 0)
@@ -1123,7 +1123,7 @@ struct MontanaPeerInfoScreen: View {
                     glassRow(glyph: player.playingFile == f && !player.paused ? "pause.fill" : "play.fill") {
                         VStack(alignment: .leading, spacing: 2) {
                             // USER-DATA: the track's own name.
-                            Text(verbatim: ((m.docName ?? f) as NSString).deletingPathExtension).foregroundColor(.white).lineLimit(1)
+                            Text(verbatim: ((m.docName ?? f) as NSString).deletingPathExtension).foregroundColor(.primary).lineLimit(1)
                             Text(fileSizeString(f)).font(.caption).foregroundColor(.gray)
                         }
                         Spacer(minLength: 0)
@@ -1158,7 +1158,7 @@ struct MontanaPeerInfoScreen: View {
             ForEach(items) { m in
                 if let af = m.audioFile {
                     glassRow(glyph: voice.playingFile == af && !voice.paused ? "pause.fill" : "play.fill") {
-                        Text("Voice message").foregroundColor(.white)
+                        Text("Voice message").foregroundColor(.primary)
                         Spacer(minLength: 0)
                         Text(fmtDuration(m.audioDuration)).font(.caption).foregroundColor(.gray)
                         Text(m.time).font(.caption2).foregroundColor(.gray)

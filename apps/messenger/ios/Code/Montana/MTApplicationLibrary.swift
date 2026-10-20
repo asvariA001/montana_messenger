@@ -163,7 +163,7 @@ struct MTLibraryIconStyleView: View {
         } label: {
             VStack(alignment: .leading, spacing: 18) {
                 HStack {
-                    Text(style.title).font(.headline).foregroundColor(.white)
+                    Text(style.title).font(.headline).foregroundColor(.primary)
                     Spacer(minLength: 0)
                     Image(systemName: selected == style ? "checkmark.circle.fill" : "circle")
                         .foregroundStyle(selected == style ? MontanaOctagon.platformBlue : Color.secondary)
@@ -172,7 +172,7 @@ struct MTLibraryIconStyleView: View {
                     ForEach(preview) { app in
                         VStack(spacing: 7) {
                             MTApplicationIcon(app: app, side: 56, style: style)
-                            Text(app.title).font(.caption2).foregroundColor(.white)
+                            Text(app.title).font(.caption2).foregroundColor(.primary)
                                 .lineLimit(2).multilineTextAlignment(.center)
                         }
                         .frame(maxWidth: .infinity, alignment: .top)
@@ -273,7 +273,7 @@ struct MTLibraryTile: View {
             VStack(spacing: 6) {
                 MTApplicationIcon(app: app)
                     .overlay(alignment: .topTrailing) { MTCountBadge(count) }
-                Text(app.title).font(.caption).foregroundColor(.white)
+                Text(app.title).font(.caption).foregroundColor(.primary)
                     .lineLimit(2).multilineTextAlignment(.center)
             }
             .frame(maxWidth: .infinity, minHeight: 92, alignment: .top)
