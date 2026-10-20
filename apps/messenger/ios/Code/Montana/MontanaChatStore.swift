@@ -4732,9 +4732,15 @@ MontanaLocalVault.setEncrypted("scheduledMsgs", d)
         if m.text.hasPrefix(sameYesMark) {
             if !m.isFromMe { MontanaMainProbe.step("same") {
                 sendDeliveryReceipt(chat, msgId: m.msgId, isFromMe: m.isFromMe, text: m.text)
-                MTSamePair.settle(chat)
+                let left = MTSamePair.settle(chat)
                 if let q = MTSamePair.proven(answer: String(m.text.dropFirst(sameYesMark.count)), new: chat) {
                     joinSamePerson(chat, q)
+                } else if let theirs = left {
+                    // My question came back empty: the other end did not hold this pipe yet, so the question I left to it
+                    // by rank is mine to prove after all.
+                    MTSamePair.answer(chat, new: theirs)
+                    joinSamePerson(theirs, chat)
+                    MontanaTrace.mark("same_late", "conv=\(String(theirs.prefix(10)))")
                 } else {
                     MontanaTrace.mark("same_none", "conv=\(String(chat.prefix(10)))")
                 }
@@ -6980,7 +6986,7 @@ enum SeedScope {
         "pendingOpenChat", "pendingPeerAvatars", "peerDraftsMap",
         "callDeadSeeds", MontanaCallHandle.repeatKey, MontanaCall.heldKey, MTBoard.pagesKey, MTBoard.firstKey,
         "mt.backup.icloud.at", "mt.backup.icloud.engine", "mt.home.node.at",
-        "mt.apple.signin.id", "mt.restore.outbox", MTSamePair.mergedKey,
+        "mt.apple.signin.id", "mt.restore.outbox", MTSamePair.mergedKey, MTSamePair.deferredKey,
         MTGroup.copiesKey,   // the copies of the groups' words on their way (05.10): the person's own ledger of the queue
         MTChannelViews.storeKey]   // which subscriber's seat saw which post of a channel (17.10, the critic's K-1): who saw what never rides a copy
     static let seatPrefixes = ["ckpt_", "mrefGone_", "rdvFaceUp:", "sentAv4_", "sentAvNone2_", "sentNm2_", "sentAb1_", "sentPg1_"]
@@ -7470,10 +7476,13 @@ enum MTRowJournal {
 /// unread and the meeting stays as it was. Both ends fold into the SAME conversation by construction: an established
 /// pipe is proven before a newborn one; a newborn pipe of my own is proven when my question over it did not name the
 /// pipe asked about — the other side cannot prove through it; and two pipes whose questions named each other are tied
-/// by a rank both ends compute alike, so exactly one end proves. Modelled over random orders (24.09): every re-meeting
-/// folds into the old conversation at both ends; two scans so simultaneous that neither question names the other pipe
-/// stay two conversations, as before, and never a different survivor at each end. A folded pipe forwards into its
-/// conversation until the orphan sweep buries it.
+/// by a rank both ends compute alike, so exactly one end proves. Two scans crossing in the air (20.10, T1 «Petros twice»)
+/// once stayed two conversations: neither question named the other pipe. Now the side that accepts a first letter asks
+/// too (MontanaCard.offerMet), so the later of each phone's two events names the other pipe; and a question left to the
+/// other end by rank gets its proof after all when my own question comes back empty — the other end did not hold my
+/// pipe yet when it answered. Modelled over every order and every rank (tools/mt-same-pair-check.py): a re-meeting and
+/// two crossing scans fold into one conversation with one survivor at both ends; without either rule, two remain.
+/// A folded pipe forwards into its conversation until the orphan sweep buries it.
 enum MTSamePair {
     static let slots = 32
     /// The question lives an hour in the queue: an older build buries it unread and never receipts it, and a week of
@@ -7508,7 +7517,33 @@ enum MTSamePair {
         guard let q = asked[conv], Date().timeIntervalSince1970 - q.at < askLifeS else { return nil }
         return q.named
     }
-    static func settle(_ conv: String) { lock.lock(); asked[conv] = nil; lock.unlock() }
+    /// My question over this pipe is answered; what comes back is the question I left to the other end by rank, if any.
+    @discardableResult
+    static func settle(_ conv: String) -> String? {
+        lock.lock(); asked[conv] = nil; lock.unlock()
+        var d = deferredBook()
+        guard let back = d.removeValue(forKey: conv) else { return nil }
+        keepDeferred(d)
+        return back
+    }
+
+    // -- the other end's questions I left to it by rank, under my own question's pipe, answered after all if mine comes
+    //    back empty. Kept in the vault, not in memory (20.10): a phone put to sleep between the deferral and the empty
+    //    answer still proves, or the crossing scans stay two conversations. Bounded by the pipes both entries name. --
+    static let deferredKey = "sameDeferred"
+    private static var deferredKept: [String: String]?
+    private static func deferredBook() -> [String: String] {
+        lock.lock(); let k = deferredKept; lock.unlock()
+        if let k { return k }
+        let read = MontanaLocalVault.getDecrypted(deferredKey).flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
+        lock.lock(); if deferredKept == nil { deferredKept = read }; let now = deferredKept ?? read; lock.unlock()
+        return now
+    }
+    private static func keepDeferred(_ d: [String: String]) {
+        let m = d.filter { MTPipeBook.holds($0.key) && MTPipeBook.holds($0.value) }   // a dead pipe leaves nothing to prove
+        lock.lock(); deferredKept = m; lock.unlock()
+        if let data = try? JSONEncoder().encode(m) { _ = MontanaLocalVault.setEncrypted(deferredKey, data) }
+    }
 
     /// The question: the silent first letter of a pipe just born at a meeting, carrying the pipe's ciphertext.
     static func ask(new conv: String) {
@@ -7536,7 +7571,13 @@ enum MTSamePair {
         if let q = matches.first(where: { waiting($0) == nil }) { return q }
         if let q = matches.first(where: { !(waiting($0)?.contains(conv) ?? false) }) { return q }
         let mine = rank(sn)
-        return matches.first { q in MTPipeBook.secret(for: q).map { rank($0).lexicographicallyPrecedes(mine) } ?? false }
+        if let q = matches.first(where: { q in MTPipeBook.secret(for: q).map { rank($0).lexicographicallyPrecedes(mine) } ?? false }) {
+            return q
+        }
+        var book = deferredBook()
+        for q in matches { book[q] = conv }
+        keepDeferred(book)
+        return nil
     }
     /// The answer, one shape for «yes» and «no»: the proof over the chosen pipe, or a tag nobody can check.
     static func answer(_ older: String?, new conv: String) {

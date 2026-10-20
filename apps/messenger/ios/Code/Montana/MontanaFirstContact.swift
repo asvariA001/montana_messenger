@@ -1262,6 +1262,11 @@ enum MontanaCard {
     private static func offerMet(ref: String, root: Data) {
         metLock.lock(); let first = metOnce.insert(ref).inserted; metLock.unlock()
         guard first else { return }
+        // ONE PERSON, ONE CONVERSATION BY CONSTRUCTION (20.10, T1 «Petros twice» at a new chat): the accepting side asks
+        // too, over the pipe just accepted. Two scans crossing in the air each asked before the other pipe reached them, so
+        // neither question named it; now the later of a phone's two events — its scan or its acceptance — asks naming
+        // the other pipe (MTSamePair).
+        MTSamePair.ask(new: ref)
         cardLock.lock()   // LOCK-OK: one read of the invitation records
         let inv = rdvAll().first(where: { $0.value.prefix(1184) == root })?.key ?? ""
         cardLock.unlock()
