@@ -179,6 +179,7 @@
     <string name="pw_reason">Откройте свои пароли</string>
     <string name="pw_locked">Пароли открываются отпечатком, лицом или кодом устройства.</string>
     <plurals name="gr_members"><item quantity="one">%d участник</item><item quantity="few">%d участника</item><item quantity="many">%d участников</item><item quantity="other">%d участника</item></plurals>
+    <plurals name="gr_online"><item quantity="one">%d в сети</item><item quantity="few">%d в сети</item><item quantity="many">%d в сети</item><item quantity="other">%d в сети</item></plurals>
     <string name="lw_photo">Фото</string>
     <string name="lw_video">Видео</string>
     <string name="lw_video_message">Видеосообщение</string>

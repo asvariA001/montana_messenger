@@ -1570,7 +1570,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     fun drawPresence() {
         if (group) {   // a group has no presence of one person: who types, with the pair's green dot, or its people's count (iOS MTGroupHeadLine)
             val typing = Groups.typingLine(c, ref)
-            presenceLine.text = Groups.outWords(c, ref) ?: typing ?: Groups.peopleLine(c, ref) ?: ""   // out of the group: removed or left (iOS outWords)
+            presenceLine.text = Groups.outWords(c, ref) ?: typing ?: Groups.headLine(c, ref) ?: ""   // out of the group: removed or left (iOS outWords)
             presenceDot.visibility = if (typing != null) View.VISIBLE else View.GONE
             if (typing != null) presenceDot.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(SysColor.green) }
             presenceRow.visibility = if (presenceLine.text.isEmpty()) View.GONE else View.VISIBLE

@@ -181,6 +181,21 @@ object Groups {
     private fun state(key: String): State? = synchronized(lock) { if (isKey(key) && ready()) groups[key.removePrefix(KEY_HEAD)] else null }
     /** The people in the group, the owner included — the head of the group's chat says this number (iOS people). */
     fun peopleLine(c: Context, key: String): String? = state(key)?.count?.let { c.resources.getQuantityString(R.plurals.gr_members, it, it) }
+    /**
+     * A GROUP'S HEAD AS THE REFERENCE SAYS IT (iOS groupHead, 9bff8550): «N members, M online» once someone besides this phone is
+     * online, «N members» otherwise. M is this phone and whoever of the group it sees live by the one ladder (Presence.word): the
+     * owner's phone everyone it carries to, a member's phone the owner -- it holds no pipe to the others. A channel says its count alone.
+     */
+    fun headLine(c: Context, key: String): String? {
+        val g = state(key) ?: return null
+        val members = c.resources.getQuantityString(R.plurals.gr_members, g.count, g.count)
+        if (g.kind != GROUP) return members
+        val lit = 1 + heldConversations(g).count { Presence.word(c, it)?.second == true }
+        return if (lit == 1) members else members + ", " + c.resources.getQuantityString(R.plurals.gr_online, lit, lit)
+    }
+    /** The conversations this phone holds with people of the group, by their roots (iOS heldConversations): whom it may see online at all. */
+    private fun heldConversations(g: State): List<String> =
+        if (g.mine) g.members.map { it.pipe }.filter { it.isNotEmpty() }.map { SamePair.root(it) }.distinct() else listOf(SamePair.root(g.owner))
     /** Out of the group — it left, or the owner took it out: the chat says so instead of a field (iOS isOut). */
     fun isOut(key: String) = state(key)?.left == true
     /** A channel, not a group: its page is the channels' (iOS kind == .channel). */
