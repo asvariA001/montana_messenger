@@ -120,6 +120,12 @@
     <string name="gp_creator">создатель</string>
     <string name="gp_member">участник</string>
     <string name="gp_add">Добавить участника</string>
+    <string name="gp_mute">Выкл. звук</string>
+    <string name="gp_unmute">Вкл. звук</string>
+    <string name="gp_clear">Очистить историю</string>
+    <string name="gp_clear_q">Удалить все сообщения в «%1$s»?</string>
+    <string name="gp_delete_all">Удалить все</string>
+    <string name="gp_send_message">Написать сообщение</string>
     <string name="gp_leave_group">Покинуть группу</string>
     <string name="gp_leave_channel">Покинуть канал</string>
     <string name="gp_leave_group_q">Покинуть группу?</string>

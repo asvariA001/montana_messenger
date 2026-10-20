@@ -229,6 +229,8 @@ object Groups {
      * THE PIPE THIS PHONE HOLDS TO A SPEAKER (iOS speakerPipe): the owner's phone to every member it carries to, a member's phone to
      * the owner -- the others are known by their own words alone.
      */
+    /** A seat's speaker reference in a group (iOS MTGroup.speaker): the key its colour and its pipe are read by. */
+    fun seatRef(key: String, seat: String): String? = state(key)?.let { speaker(it.id, seat) }
     fun speakerPipe(ref: String?): String? {
         val parts = ref?.takeIf { it.startsWith(SPEAKER_HEAD) }?.removePrefix(SPEAKER_HEAD)?.split("/", limit = 2) ?: return null
         if (parts.size != 2) return null

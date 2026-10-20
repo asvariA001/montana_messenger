@@ -120,6 +120,12 @@
     <string name="gp_creator">创建者</string>
     <string name="gp_member">成员</string>
     <string name="gp_add">添加成员</string>
+    <string name="gp_mute">静音</string>
+    <string name="gp_unmute">取消静音</string>
+    <string name="gp_clear">清除消息</string>
+    <string name="gp_clear_q">确定要删除“%1$s”中的所有消息吗？</string>
+    <string name="gp_delete_all">全部删除</string>
+    <string name="gp_send_message">发送消息</string>
     <string name="gp_leave_group">退出群组</string>
     <string name="gp_leave_channel">退出频道</string>
     <string name="gp_leave_group_q">退出群组？</string>

@@ -10,6 +10,7 @@ import android.view.View
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.PopupMenu
 import android.widget.ScrollView
 import android.widget.Switch
 
@@ -24,7 +25,7 @@ import android.widget.Switch
 fun groupPage(act: MainActivity, key: String, onClose: () -> Unit): View {
     val c: Context = act
     val edit = c.text(c.getString(R.string.edit), 17f, SysColor.blue).apply { setPadding(c.dp(8), c.dp(10), c.dp(8), c.dp(10)) }
-    edit.pressable { act.push { back -> groupEditPage(act, key, back) } }
+    edit.pressable { act.push { back -> groupEditPage(act, key, back) { back(); onClose() } } }
     val bar = FrameLayout(c).apply {
         setPadding(dp(8), 0, dp(8), 0)
         addView(c.icon(R.drawable.ic_arrow_back_ios_new, Color.WHITE).apply { setPadding(dp(10), dp(10), dp(10), dp(10)); pressable(onClose) },
@@ -52,6 +53,134 @@ fun groupPage(act: MainActivity, key: String, onClose: () -> Unit): View {
         addView(c.text(words, 17f, tint), lp(0, WRAP, 1f))
         pressable(onTap)
     }
+    lateinit var redraw: () -> Unit
+    // A GROUP'S «MORE», AS THE REFERENCE'S MENU HAS IT (iOS groupMore, 1915a7f4): «Report» for one who does not own it, «Clear Messages»,
+    // then the way out -- «Leave Group» for a member, «Delete Group» for its owner -- each asked first
+    fun groupMore(v: View) {
+        val title0 = Book.chat(key)?.shown ?: ""
+        val items = mutableListOf<Pair<String, () -> Unit>>()
+        if (!Groups.owns(key)) items += c.getString(R.string.pi_report) to {
+            act.push { close -> reportPage(act, key, title0, offersBlock = false, onClose = close) }   // a group is reported, never blocked as a person
+        }
+        items += c.getString(R.string.gp_clear) to {
+            AlertDialog.Builder(c).setTitle(c.getString(R.string.gp_clear_q, title0))   // USER-DATA: the group's title
+                .setPositiveButton(R.string.gp_delete_all) { _, _ -> Book.chat(key)?.msgs?.map { it.mid }?.let { Book.drop(key, it) } }
+                .setNegativeButton(R.string.cancel, null).show()
+        }
+        if (!Groups.isOut(key)) {
+            if (Groups.owns(key)) items += c.getString(R.string.gp_dissolve) to {
+                AlertDialog.Builder(c).setTitle(c.getString(R.string.gp_dissolve_q, title0))   // USER-DATA: the group's title
+                    .setPositiveButton(R.string.gp_dissolve_all) { _, _ -> Groups.dissolve(key); onClose() }
+                    .setNegativeButton(R.string.cancel, null).show()
+            } else items += c.getString(R.string.gp_leave_group) to {
+                AlertDialog.Builder(c).setTitle(c.getString(R.string.gr_erase_q, title0))
+                    .setPositiveButton(R.string.gp_leave_group) { _, _ -> Groups.leaveAndErase(key); onClose() }
+                    .setNegativeButton(R.string.cancel, null).show()
+            }
+        }
+        PopupMenu(c, v).apply {
+            items.forEachIndexed { i, (t, _) -> menu.add(0, i, i, t) }
+            setOnMenuItemClickListener { items[it.itemId].second(); true }
+        }.show()
+    }
+    /**
+     * A GROUP'S PAGE AS THE REFERENCE LAYS IT (iOS 1915a7f4, MTGroupPage): under the head its buttons -- its sound and «More» (no voice
+     * chat is held on this phone, nor has a chat its own search yet) -- the description with its caption over its words, then the people
+     * with no header: «Add Member» first for the owner, the owner, the administrators, everyone else by name, this phone among them.
+     * A row: the face, the name, online under it, the role on a capsule of its own colour; a tap opens the person's page where this
+     * phone holds their pipe, a hold names the deeds. The ways out stand in «More» and in the editor.
+     */
+    fun drawGroup() {
+        val owns = Groups.owns(key)
+        val plates = c.hstack { setPadding(0, dp(4), 0, dp(10)) }
+        fun plate(icon: Int, label: String, work: (View) -> Unit) {
+            if (plates.childCount > 0) plates.addView(View(c), lp(dp(10), 1))
+            plates.addView(c.vstack(Gravity.CENTER_HORIZONTAL) {
+                background = c.glassPlate().apply { cornerRadius = dp(14).toFloat() }
+                setPadding(dp(4), dp(8), dp(4), dp(6))
+                contentDescription = label
+                addView(c.icon(icon, SysColor.blue, 22), lp(dp(22), dp(22)))
+                addView(c.text(label, 12f, SysColor.blue, center = true).apply { singleLineEllipsis() }, lp(WRAP, WRAP).apply { topMargin = dp(4) })
+                pressable { work(this) }
+            }, lp(0, WRAP, 1f))
+        }
+        val muted = ChatMarks.isMuted(key)
+        plate(if (muted) R.drawable.ic_set_bell else R.drawable.ic_bell_off, c.getString(if (muted) R.string.gp_unmute else R.string.gp_mute)) {
+            ChatMarks.toggleMute(key); redraw()   // the one switch of a chat's sound, the list's swipe's own
+        }
+        plate(R.drawable.ic_more_horiz, c.getString(R.string.pi_more)) { v -> groupMore(v) }
+        body.addView(plates, lp())
+        Groups.about(key).takeIf { it.isNotEmpty() }?.let { about ->
+            body.section(null, null, c.vstack(Gravity.NO_GRAVITY) {
+                setPadding(dp(16), dp(10), dp(16), dp(10))
+                addView(c.text(c.getString(R.string.gp_about), 13f, MT.gray), lp())   // the caption over the words, as the reference's
+                addView(c.text(about, 17f, Color.WHITE).apply { setTextIsSelectable(true) }, lp())   // USER-DATA: the owner's words
+            })
+        }
+        val rows = mutableListOf<View>()
+        if (owns) rows += actionRow(R.drawable.ic_person_add, c.getString(R.string.gp_add), red = false) {
+            act.push { close -> groupPickPage(act, close, {}, adding = key) }
+        }
+        val mySeat = Groups.mySeat(key)
+        val iBan = !owns && Groups.mayBan(key)   // an administrator takes out a member who is none, while «Ban Users» stands (G.6)
+        class Person(val seat: String, val name: String, val pipe: String, val me: Boolean)
+        val people = Groups.pagePeople(c, key).map { Person(it.seat, it.name, it.pipe, false) } +
+            listOfNotNull(mySeat?.let { Person(it, Prefs.userName, "", true) })
+        fun rank(seat: String) = if (seat == Groups.OWNER) 0 else if (Groups.isAdmin(key, seat)) 1 else 2
+        for (p in people.sortedWith(compareBy<Person> { rank(it.seat) }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.name })) {
+            val r = rank(p.seat)
+            val ref = Groups.seatRef(key, p.seat) ?: ""
+            val root = p.pipe.takeIf { it.isNotEmpty() }?.let { SamePair.root(it) }
+            val chat = root?.takeIf { Book.chat(it) != null }
+            val deeds = mutableListOf<Pair<String, () -> Unit>>()
+            if (chat != null) deeds += c.getString(R.string.gp_send_message) to { act.push { close -> conversationPage(act, chat, close) } }
+            if (owns && !p.me) {
+                if (r == 1) {
+                    deeds += c.getString(R.string.gp_edit_rights) to { act.push { back -> groupAdminRightsPage(act, key, p.seat, p.name, isNew = false) { back(); redraw() } } }
+                    deeds += c.getString(R.string.gp_dismiss) to { Groups.setAdmin(key, p.seat, false); redraw() }
+                } else deeds += c.getString(R.string.gp_promote) to { act.push { back -> groupAdminRightsPage(act, key, p.seat, p.name, isNew = true) { back(); redraw() } } }
+            }
+            if (!p.me && (owns || (iBan && r == 2))) deeds += c.getString(R.string.gp_remove_from) to {
+                AlertDialog.Builder(c).setTitle(R.string.gp_remove_q)
+                    .setPositiveButton(R.string.gp_remove) { _, _ -> Groups.kick(key, p.seat); redraw() }
+                    .setNegativeButton(R.string.cancel, null).show()
+            }
+            rows += c.hstack {
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(16), dp(8), dp(16), dp(8))
+                minimumHeight = dp(56)
+                val face = when {
+                    p.me -> c.avatar(SelfFace.load(c), Prefs.userName, 40)
+                    root != null -> c.peerFace(root, p.name, 40)
+                    else -> c.avatar(null, p.name, 40).apply { background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Groups.tint(ref)) } }
+                }
+                addView(face, lp(dp(40), dp(40)).apply { marginEnd = dp(12) })
+                addView(c.vstack(Gravity.NO_GRAVITY) {
+                    addView(c.text(p.name, 17f, Color.WHITE).apply { singleLineEllipsis() }, lp())   // USER-DATA: a person's name
+                    val seen = if (p.me) c.getString(R.string.pr_online) else root?.let { Presence.word(c, it)?.first }
+                    seen?.let { addView(c.text(it, 13f, MT.gray).apply { singleLineEllipsis() }, lp()) }   // the presence ladder's own word
+                }, lp(0, WRAP, 1f))
+                if (r < 2) {
+                    // the role on a capsule of its own colour -- owner in violet, admin in green -- the custom title instead of its word (G.6)
+                    val tone = if (r == 0) Color.rgb(0x95, 0x6a, 0xc8) else Color.rgb(0x49, 0xa3, 0x55)
+                    val word = Groups.rank(key, p.seat) ?: c.getString(if (r == 0) R.string.gp_owner else R.string.gp_admin)
+                    addView(c.text(word, 15f, tone).apply {   // USER-DATA: the owner's custom title
+                        gravity = Gravity.CENTER
+                        setPadding(dp(7), dp(2), dp(7), dp(2))
+                        background = c.rounded(Color.argb(51, Color.red(tone), Color.green(tone), Color.blue(tone)), 100)
+                    }, lp(WRAP, WRAP).apply { marginStart = dp(8) })
+                }
+                if (chat != null) pressable { act.push { close -> peerInfoPage(act, chat, close) } }
+                if (deeds.isNotEmpty()) setOnLongClickListener {
+                    AlertDialog.Builder(c).setTitle(p.name)   // USER-DATA: a person's name
+                        .setItems(deeds.map { it.first }.toTypedArray()) { _, i -> deeds[i].second() }
+                        .setNegativeButton(R.string.cancel, null).show()
+                    true
+                }
+            }
+        }
+        body.section(null, null, *rows.toTypedArray())
+    }
     fun draw() {
         body.removeAllViews()
         val ch = Book.chat(key)
@@ -65,8 +194,10 @@ fun groupPage(act: MainActivity, key: String, onClose: () -> Unit): View {
             addView(c.peerFace(key, title, 100), lp(dp(100), dp(100)))
             gap(12)
             addView(c.text(title, 24f, Color.WHITE, bold = true, center = true), lp(WRAP, WRAP))   // USER-DATA: the group's title
-            Groups.peopleLine(c, key)?.let { addView(c.text(it, 15f, MT.gray, center = true), lp(WRAP, WRAP)) }
+            // «N members, M online», said once for the chat's top and the page (iOS MTGroupPage.head, 1915a7f4)
+            Groups.headLine(c, key)?.let { addView(c.text(it, 15f, MT.gray, center = true), lp(WRAP, WRAP)) }
         }, lp())
+        if (!channel) { drawGroup(); return }
         // THE GROUP'S DESCRIPTION (iOS the group page's info above its people, stage R): the owner's words, read by all
         Groups.about(key).takeIf { it.isNotEmpty() && !channel }?.let { about ->
             body.section(null, null, c.vstack(Gravity.NO_GRAVITY) {
@@ -133,6 +264,7 @@ fun groupPage(act: MainActivity, key: String, onClose: () -> Unit): View {
         }
         body.section(c.getString(R.string.gp_members), null, *rows.toTypedArray())
     }
+    redraw = { draw() }
     draw()
     val again: () -> Unit = { act.onMain { draw() } }
     body.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
@@ -153,7 +285,7 @@ fun groupPage(act: MainActivity, key: String, onClose: () -> Unit): View {
  * THE GROUP'S EDIT (iOS the group page's edit mode → MTGroup.renew): the face and the name; «Done» tells every member. A member the
  * group lets change its info edits the same three, asked of the owner (G.5); the administrators and the permissions are the owner's.
  */
-private fun groupEditPage(act: MainActivity, key: String, onBack: () -> Unit): View {
+private fun groupEditPage(act: MainActivity, key: String, onBack: () -> Unit, onGone: () -> Unit = onBack): View {
     val c: Context = act
     var face: ByteArray? = null
     val faceBox = FrameLayout(c)
@@ -283,6 +415,21 @@ private fun groupEditPage(act: MainActivity, key: String, onBack: () -> Unit): V
                             act.push { back -> groupRemovedPage(act, key, back) { reweigh() } }
                         }
                         addView(c.plate { addView(out, lp()) }, lp())
+                        // THE GROUP'S END, where the reference's editor keeps it (iOS 1915a7f4, the checklist's G.11): the owner's alone, asked first
+                        if (Groups.owns(key)) {
+                            gap(20)
+                            addView(c.plate {
+                                addView(c.text(c.getString(R.string.gp_dissolve), 17f, SysColor.red).apply {
+                                    setPadding(dp(16), dp(12), dp(16), dp(12)); minimumHeight = dp(48); gravity = Gravity.CENTER_VERTICAL
+                                    pressable {
+                                        val title0 = Book.chat(key)?.shown ?: ""
+                                        AlertDialog.Builder(c).setTitle(c.getString(R.string.gp_dissolve_q, title0))   // USER-DATA: the group's title
+                                            .setPositiveButton(R.string.gp_dissolve_all) { _, _ -> Groups.dissolve(key); onGone() }
+                                            .setNegativeButton(R.string.cancel, null).show()
+                                    }
+                                }, lp())
+                            }, lp())
+                        }
                     }
                 })
             }, lp(MATCH, 0, 1f))
