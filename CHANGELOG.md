@@ -4,7 +4,7 @@ Every build of Montana for iPhone, iPad and Mac, newest first. The version is th
 
 ## 1.0 (2262) - 2026-10-21
 
-Source commit `e0b8cc7b791c`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2262.md).
+Source commit `9ef0bdd33c2e`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2262.md).
 
 - On the gold background every word is now dark and easy to read: the whole app takes the light look of the system on it, and switches back to the dark look on every dark background.
 
