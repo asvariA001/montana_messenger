@@ -29,7 +29,7 @@
 // the session with the word that lets another app's music go on. A sound of ours that starts rests YouTube where it stands: one
 // sound at a time.
 //
-// THE SEARCH GOES BY OUR OWN SERVICE (MTPhoneService.base): YouTube's key lives there, never in this open code, where anyone could
+// THE SEARCH GOES BY OUR OWN SERVICE (Info.plist MontanaService): YouTube's key lives there, never in this open code, where anyone could
 // spend its daily count; YouTube sees the service ask, never the person's address. The words are asked once they settle -- the
 // count is a hundred searches a day for the whole app -- and a service that does not answer shows no YouTube row at all.
 
@@ -84,9 +84,14 @@ enum MTYouTube {
         else { DispatchQueue.main.async { MainActor.assumeIsolated { work() } } }
     }
 
+    /// Our own service on Montana's site, where YouTube's key lives.
+    private static var service: String {
+        "https://" + (Bundle.main.object(forInfoDictionaryKey: "MontanaService") as? String ?? "").lowercased() + "/b/v1"
+    }
+
     /// YouTube's music for the words, found by our service; nil when the service does not answer.
     static func search(_ words: String) async -> [Found]? {
-        var c = URLComponents(string: MTPhoneService.base + "/tube/search")
+        var c = URLComponents(string: service + "/tube/search")
         c?.queryItems = [URLQueryItem(name: "q", value: words)]
         guard let u = c?.url else { return nil }
         var q = URLRequest(url: u, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)

@@ -29,9 +29,7 @@ final class MTSeats: ObservableObject {
     @Published private(set) var parked: [Seat] = []      // the persons on the shelf, for the drawer's faces
     @Published private(set) var canReturn = false        // the layer is empty and somebody waits on the shelf
     @Published private(set) var adding = false           // the first screen stands to make a second person
-    @Published private(set) var addingByPhone = false    // ... and the door tapped was the number's: the road stands while adding (06.10)
     private var montanaRoad = false                      // the first screen after making room opens on the Montana road
-    private var phoneRoad = false                        // ... or on the number's road (the Business's door, 06.10)
     private init() { refresh() }
 
     struct Seat: Codable, Equatable, Identifiable {
@@ -496,28 +494,20 @@ final class MTSeats: ObservableObject {
         guard !refusedForCall("switch") else { return }
         move(to: id)
     }
-    /// The Montana door beside a person already seated: the seat is emptied, and the first screen stands on the Montana road --
-    /// or on the number's road, when the door of the number was the one tapped (06.10).
-    func makeRoom(phone: Bool = false) {
+    /// The Montana door beside a person already seated: the seat is emptied, and the first screen stands on the Montana road.
+    func makeRoom() {
         guard !moving, MontanaSeed.hasSeed else { return }
         guard !refusedForCall("make-room") else { return }
-        montanaRoad = !phone
-        phoneRoad = phone
-        addingByPhone = phone
+        montanaRoad = true
         adding = true
         move(to: nil)
     }
     /// The first screen closed: a person was made.
-    func doneAdding() { adding = false; addingByPhone = false }
+    func doneAdding() { adding = false }
     /// The first screen asks once whether it was opened to make a person (the Montana road) rather than to choose a door.
     func takeMontanaRoad() -> Bool {
         defer { montanaRoad = false }
         return montanaRoad
-    }
-    /// The same question for the number's road: the door of the number was tapped beside a person already seated.
-    func takePhoneRoad() -> Bool {
-        defer { phoneRoad = false }
-        return phoneRoad
     }
     /// The first screen's cross: the person who waited on the shelf last comes back.
     func returnToLast() {
@@ -525,7 +515,7 @@ final class MTSeats: ObservableObject {
         guard !refusedForCall("return") else { return }
         let b = Self.book()
         guard let id = b.last.flatMap({ l in b.seats.first { $0.id == l }?.id }) ?? b.seats.first?.id else { return }
-        adding = false; addingByPhone = false
+        adding = false
         move(to: id)
     }
 
@@ -597,7 +587,7 @@ final class MTSeats: ObservableObject {
         }
     }
     private func finish(_ t0: Date, _ word: String) {
-        if word == "refused" { adding = false; montanaRoad = false; phoneRoad = false }   // the person stays seated: nothing to make room for
+        if word == "refused" { adding = false; montanaRoad = false }   // the person stays seated: nothing to make room for
         refresh()
         moving = false
         MontanaTrace.mark("seat_move", word + " active=" + (Self.book().active ?? "-") + " ms=" + String(Int(Date().timeIntervalSince(t0) * 1000)))

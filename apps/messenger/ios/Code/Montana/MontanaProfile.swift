@@ -640,8 +640,6 @@ struct ProfileView: View {
     @State private var info = ""
     @State private var fieldsSave: Task<Void, Never>?
     @State private var showInfo = false
-    @State private var phoneDoor = false          // the number's sheet: the bot's own sign-in confirms the number (06.10)
-    @State private var phoneShown: String?        // the number the confirmation service signed for this person
     /// Where the cursor stands. The cursor is also dismissed through it — the system road,
     /// not a hand-rolled first-responder intercept.
     @FocusState private var focus: ProfileField?
@@ -711,25 +709,6 @@ struct ProfileView: View {
                     .listRowBackground(MTGlassRowPlate())
                     // No row leads to my page: the editor opens from it, by its mark top right (the author's word 25.09).
 
-                    // ── THE NUMBER (the author's word 06.10.2026 18:3x MSK: attach the number at once): the number the confirmation
-                    // service signed for this person, or the door of the bot's own sign-in that confirms it ──
-                    Section {
-                        Button { focus = nil; phoneDoor = true } label: {
-                            HStack {
-                                editRow("Phone number", "phone.fill")
-                                Spacer()
-                                if let n = phoneShown {
-                                    // USER-DATA: the person's own confirmed number
-                                    Text(verbatim: n).foregroundColor(.gray)
-                                }
-                            }
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.borderless)
-                        .sheet(isPresented: $phoneDoor) { MTPhoneSheet { phoneDoor = false; phoneShown = MTPhoneProof.shownNumber } }
-                    }
-                    .listRowBackground(MTGlassRowPlate())
-                    .task { phoneShown = MTPhoneProof.shownNumber }
                 }
 
     }

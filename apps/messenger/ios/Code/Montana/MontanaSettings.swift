@@ -2335,9 +2335,6 @@ extension MontanaSeed {
     static func forgetKeys() { MontanaLocalVault.setEncrypted(keysKey, Data()) }
 
 
-    /// A person being born behind the number's page (MontanaOnboardingView.createSeed): the road of the number waits for it.
-    @MainActor static var birth: Task<Void, Never>? = nil
-
     @discardableResult
     static func open(_ acc: MontanaSeedKeys.Keys) -> Bool {
         // SINGLE seed record: device-local Keychain (Secure Enclave) + encrypted file backup; all other
@@ -2426,13 +2423,11 @@ struct MontanaOnboardingView: View {
                     // THE PAGE DOES NOT OPEN TWICE (the author's word 06.10.2026 15:1x MSK: «from the side panel the login page reloads, and
                     // after the tap opens again»): a person being added (MTSeats.adding) already chose Montana at the door; the first screen
                     // that stands after the seat is emptied opens on the Montana road, whichever page took the road's one-time word.
-                    // A person being added by the number's door stands on the number's page (06.10), never on the Montana road.
-                    case 0: if montanaRoad || (seats.adding && !seats.addingByPhone) { intro } else { doors }   // the doors first (the author's design 29.09), the Montana road behind
+                    case 0: if montanaRoad || seats.adding { intro } else { doors }   // the doors first (the author's design 29.09), the Montana road behind
                     case 1: responsibility
                     case 2: seed
                     case 4: recover
                     case 5: takingBack
-                    case 6: phone        // the number's page (the Business's door, 06.10)
                     default: EmptyView()
                     }
                 } }.padding(24)
@@ -2446,9 +2441,8 @@ struct MontanaOnboardingView: View {
             }
         }
         .interactiveDismissDisabled()
-        .onAppear {   // opened to make a second person: the road whose door was tapped beside the seated one
-            if MTSeats.shared.takeMontanaRoad() { montanaRoad = true } else if MTSeats.shared.takePhoneRoad() { createSeed(then: 6) }
-            else if seats.adding, seats.addingByPhone { adoptRoad(6) }
+        .onAppear {   // opened to make a second person: the Montana road beside the seated one
+            if MTSeats.shared.takeMontanaRoad() { montanaRoad = true }
         }
         // THE GROUND COMES BEFORE THE PERSON (the author's word 30.09: «before the identity is made it shows the page choosing the
         // identity's ground, then that ground on every page of the making, up to the chats»): the very page of my page's ground,
@@ -2484,7 +2478,6 @@ struct MontanaOnboardingView: View {
         case 1: return { step = 0 }
         case 2: return { step = 1 }
         case 4: return { step = 0; recoverError = "" }
-        case 6: return { step = 0 }   // the person born at the number's door stays this screen's own (guarded, own)
         default: return nil
         }
     }
@@ -2496,43 +2489,30 @@ struct MontanaOnboardingView: View {
     /// held an identity they had not asked for. The act is the tap on «Create», and the boundary
     /// that leaves the previous identity is crossed here — before the person enters anything for
     /// the new one, so their own profile is never taken for the previous identity's content.
-    /// ONE ROAD OF A BIRTH FOR BOTH DOORS (the Business's door, 06.10): «Create» walks on to the words (step 1); the number's door
-    /// walks on to the number's page (step 6), and the words wait in Settings.
-    func createSeed(then next: Int = 1) {
-        guard bornKeys == nil, !creating else { step = next; return }
+    func createSeed() {
+        guard bornKeys == nil, !creating else { step = 1; return }
         creating = true
-        // THE NUMBER'S PAGE OPENS AT ONCE: the person is born behind the page while the number is typed; the road of the number
-        // waits for the birth (MontanaSeed.birth), never starts another.
-        if next == 6 { step = next }
-        MontanaSeed.birth = Task.detached {
+        Task.detached {
             let t0 = Date()
             let acc = MontanaSeedKeys.generate()
             let ms = Int(Date().timeIntervalSince(t0) * 1000)
             await MainActor.run {
                 creating = false
-                MontanaSeed.birth = nil   // no birth stands behind the page any more: the next page of the number begins its own
                 guard let acc else { birthFailed = true; return }
                 // The seed must land in storage: without it there is no identity, and the next
                 // launch has nothing to derive it from. This boundary's answer used to be
                 // discarded — the person walked on as born, then hit a screen that would not close.
-                let road = next == 6 ? " road=phone" : ""
                 guard MontanaSeed.enter(acc) else {   // the seed and the boundary between two people, in one act
-                    MontanaTrace.mark("seed_born", "ms=\(ms) stored=0" + road)
+                    MontanaTrace.mark("seed_born", "ms=\(ms) stored=0")
                     birthFailed = true
                     return
                 }
                 bornKeys = acc
-                MontanaTrace.mark("seed_born", "ms=\(ms) stored=1" + road)
+                MontanaTrace.mark("seed_born", "ms=\(ms) stored=1")
                 MontanaEntropy.report("birth")   // what this identity stands on — recorded that same instant
-                step = next
+                step = 1
             }
         }
-    }
-
-    /// The number's road of a person being added, on a screen that did not take the one-time word: a birth already begun at
-    /// the door by a screen that did not stay is not begun twice -- the page stands and the road waits for that birth.
-    private func adoptRoad(_ next: Int) {
-        if MontanaSeed.birth != nil { step = next } else { createSeed(then: next) }
     }
 
     var intro: some View {
@@ -2584,10 +2564,10 @@ struct MontanaOnboardingView: View {
     /// empty seat. Beside a person already seated, that person goes to the shelf first (MTSeats.makeRoom: parked, never
     /// wiped) and the first screen opens again on this road; only «Create» continues the person this very screen has just
     /// made, to their words.
-    private func guarded(own: Bool = false, phone: Bool = false, _ act: @escaping () -> Void) {
+    private func guarded(own: Bool = false, _ act: @escaping () -> Void) {
         guard MontanaSeed.hasSeed else { act(); return }
         if own, let b = bornKeys, MontanaSeed.mnemonic == b.mnemonic { act(); return }
-        MTSeats.shared.makeRoom(phone: phone)
+        MTSeats.shared.makeRoom()
     }
 
     var recover: some View {
@@ -2799,34 +2779,14 @@ struct MontanaOnboardingView: View {
             Spacer(minLength: 0)
             Image("IconGlassPreview").resizable().scaledToFit().frame(width: 120, height: 120)
             Text("Sign in to Montana").font(.title.bold()).foregroundColor(.white).padding(.top, 22)
-            Text("Choose how to sign in").font(.body).foregroundColor(.gray).padding(.top, 6)
             Spacer(minLength: 0)
             VStack(spacing: 10) {
-                // THE NUMBER'S DOOR (the Business's own, the author's word 06.10.2026 18:1x MSK: «the same page for the Montana
-                // messenger as the Business has»): the platform's own prominent button, a capsule at the large size, tinted with the
-                // blue of my bubbles. The tap opens the number's page at once; the person is born behind it by the one road of a
-                // birth (createSeed); the 24 words are not shown -- they wait in Settings. Beside a person already seated, that
-                // person is parked first (MTSeats).
-                Button {
-                    MontanaTrace.mark("first_screen", "door=phone")
-                    guarded(own: true, phone: true) { createSeed(then: 6) }
-                } label: {
-                    Label("Continue with phone number", systemImage: "phone.fill")
-                        .font(.body.weight(.semibold))
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .buttonBorderShape(.capsule)
-                .controlSize(.large)
-                .tint(MontanaOctagon.platformBlue)
-                .frame(maxWidth: 420)
                 // ONE LOGIN PAGE, at the first launch and when a person is added from the drawer (the author's word 29.09 evening).
                 // Beside a seed already held, the Montana door parks the person and opens the road again (MTSeats).
                 Button {
                     MontanaTrace.mark("first_screen", "door=montana")
                     // Beside a person already seated the seat is emptied first (the second identity checklist, 1.4): the root's
                     // first screen then stands on this road, with the way back to the person on the shelf; nobody is replaced.
-                    // The person this very screen made at the number's door walks on as themselves, to their words.
                     guarded(own: true) { montanaRoad = true }
                 } label: {
                     MTDoorLabel(glyph: Image("Logo").resizable().scaledToFit(), word: Text("Continue with Montana"))
@@ -2844,23 +2804,6 @@ struct MontanaOnboardingView: View {
             return .systemAction
         })
         .sheet(isPresented: $terms) { NavigationStack { MontanaTermsView() } }
-    }
-    /// THE NUMBER'S PAGE (the Business's own, 06.10): the person was born at the door, and here stand the title, the field of the
-    /// number and «Next», which takes the bot's own sign-in (the number's door, MTPhoneDoor). Without a living service one
-    /// honest line and the way on without a number; the number is confirmed later from the profile. Confirmed or not, the path
-    /// goes on to the name (step 3) and into the app.
-    var phone: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Join us via phone number").font(.largeTitle.bold()).foregroundColor(.white)
-                .fixedSize(horizontal: false, vertical: true)
-            Text("A messaging bot confirms your number; no text message is sent").font(.title3).foregroundColor(.white)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.bottom, 24)
-            // NO CONTACTS QUESTION RIDES THE NUMBER (App Review 5.1.1(iii), 08.10.2026): nothing here reads the address book at
-            // this moment; the system asks when a person is first written into it (upsertSystemCard) or one is shared.
-            MTPhoneDoor(onConfirmed: { step = 3 }, onWithout: { step = 3 })
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
     func privRow(_ icon: String, _ title: String, _ sub: String) -> some View {
         HStack(spacing: 12) {

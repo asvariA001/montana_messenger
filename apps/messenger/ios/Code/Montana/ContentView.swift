@@ -532,6 +532,9 @@ struct RootView: View {
                 // The share sheet offers the chats at once after an update, not only after the next letter (23.09).
                 DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 3) { MontanaNotify.seedSuggestions() }
                 MontanaHousekeeping.run()   // disk cleanup — one call, and not only on return from background
+                // THE NUMBER LEFT MONTANA (the author's word 20.10.2026 21:3x MSK: «remove the sign-in by the phone number in Montana,
+                // leave it only in the Business»): a confirmation an older build kept leaves the device, with no door left to show it.
+                UserDefaults.standard.removeObject(forKey: "phoneProof")
                 if !UserDefaults.standard.bool(forKey: "profilePurge805") {
                     // The four retired profile fields leave the device, and the nick book drops
                     // the artefacts of the old name-into-nick mix-up: a real nick never holds a

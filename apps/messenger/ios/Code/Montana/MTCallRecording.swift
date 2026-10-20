@@ -29,6 +29,15 @@ enum MTCallRecordingPolicy {
         guard let theirLevel, let mine else { return false }
         return mine > theirLevel
     }
+    /// THE CALL'S COINS ARE ONE FOR BOTH (the author's word 20.10.2026 22:0x MSK: «the minting of coins for a call must by default be
+    /// the same for both»): whether the call is recorded is read from the two words both phones hold -- each side's switch (rec) and
+    /// level (lv) of the call's caps -- by the one rule each side records by (mayRecord). Recorded by either -- both earn; by neither
+    /// -- both burn. The rule is symmetric in the two sides, so both phones answer the same by construction.
+    static func callRecorded(mySwitch: Bool?, myLevel: Int?, theirSwitch: Bool?, theirLevel: Int?) -> Bool {
+        let iRecord = mySwitch == true && mayRecord(theirSwitch: theirSwitch, theirLevel: theirLevel, mine: myLevel)
+        let theyRecord = theirSwitch == true && mayRecord(theirSwitch: mySwitch, theirLevel: myLevel, mine: theirLevel)
+        return iRecord || theyRecord
+    }
 }
 
 /// THE CALL AS THE PERSON SAW IT (the author's word 16.10.2026 18:27 MSK: «the video call must be recorded as I saw it -- now the

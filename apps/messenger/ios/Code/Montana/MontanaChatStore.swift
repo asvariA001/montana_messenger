@@ -6833,8 +6833,8 @@ enum SeedScope {
         MTGroup.stateKey,
         // A CHANNEL'S COMMENTS (17.10): the words under its posts, the person's own content as letters are.
         MTChannelComments.storeKey,
-        // THE NUMBER CONFIRMED (06.10): the service's signed confirmation that this number belongs to this person's key
-        // (MTPhoneProof) -- it names the key the seed gives, so a copy laid back by the same words holds it true.
+        // THE NUMBER CONFIRMED (06.10), retired 20.10 with the number's door: an older build's confirmation leaves with the seed,
+        // and the launch forgets it (ContentView).
         "phoneProof"]
     /// A conversation's own choices — its ground and the ground's softness — and what this device knows of a
     /// correspondent by their own word: whether they hide the exact moment they were seen, whether their build

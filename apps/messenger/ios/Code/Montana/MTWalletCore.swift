@@ -1644,7 +1644,9 @@ struct MTCallCredit {
             return
         }
         minted[t.call] = t.seconds
-        let recording = MTCallRecording.shared.isRecording(t.call)
+        // ONE SIGN FOR BOTH (MTCallRecordingPolicy.callRecorded, 20.10.2026 22:0x): a call of two is read from both sides' words; a
+        // recording started by this hand earns too; a parked call and a room keep this phone's own recording
+        let recording = (MontanaCall.shared.recordedForBoth(t.call) ?? false) || MTCallRecording.shared.isRecording(t.call)
         let coins: Int
         if recording {
             coins = MTCoinBook.ledger.mintInWindow(MTCoinBook.price * fresh, prefix: refPrefix + t.call + ":", seconds: fresh)

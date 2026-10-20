@@ -1341,6 +1341,12 @@ final class MontanaCall: NSObject {
             recorder.video(remoteVideoTrack, uuid: uuid, source: "video-remote")
         }
     }
+    /// The call in hand's one sign of coins for both phones (MTCallRecordingPolicy.callRecorded); nil for any other call.
+    func recordedForBoth(_ call: String) -> Bool? {
+        guard talkElapsed?.call == call else { return nil }
+        return MTCallRecordingPolicy.callRecorded(mySwitch: MTCallRecording.automatic, myLevel: MTLevelAccess.level,
+                                                  theirSwitch: peerRecordSwitch, theirLevel: peerLevel)
+    }
     /// The second of talk now (MTCallMint): the call's peer, a name of this call alone and a name of this call's second.
     var talkSecond: (peer: String, call: String, ref: String)? {
         guard let p = peer, let t = talkElapsed else { return nil }

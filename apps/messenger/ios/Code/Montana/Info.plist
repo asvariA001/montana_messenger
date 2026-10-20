@@ -25,9 +25,7 @@
 	<false/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
-	<key>MontanaPhoneAppDoor</key>
-	<string>tg</string>
-	<key>MontanaPhoneService</key>
+	<key>MontanaService</key>
 	<string>id.montana.quest</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Montana uses Bluetooth to form a direct device-to-device mesh, so your phones can exchange messages nearby.</string>

@@ -1929,14 +1929,6 @@ enum MontanaMeeting {
             DispatchQueue.main.async { MTGroup.shared.waitJoin(j.g, j.mark) }
         }
         if MTBoardComments.open(url) { return }
-        // THE BOT'S OWN SIGN-IN COMES BACK (06.10): the link the other app opens after its native confirmation carries the code to
-        // the number's page that waits for it (MTPhoneFlow.cameBackWith) -- before the scheme's guard, which would read it as an
-        // invitation and answer that it could not be opened.
-        if MTPhoneReturn.matches(url) {
-            MontanaTrace.mark("link_done", "phone sign-in back")
-            Task { @MainActor in MTPhoneFlow.current?.cameBackWith(url) }
-            return
-        }
         // A WALL'S LINK IS NEVER AN INVITATION (02.10): a post this phone does not hold yet is said so -- the invitation road
         // below answered it «the invitation could not be opened».
         if url.scheme?.lowercased() == "montana", url.host?.lowercased() == "wall" {
