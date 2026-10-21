@@ -2,6 +2,16 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
+## 1.0 (2274) - 2026-10-21
+
+Source commit `9d106575163d`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2274.md).
+
+- Montana Core for Apple silicon Macs is downloadable from montana.quest: signed with Developer ID and notarized by Apple. On the Mac the globe opens the P2P wall; the VPN stays on phones.
+
+**Security and anonymity**
+
+- The Mac app carries no network extension and asks for no tunnel right; nothing new is stored or sent.
+
 ## 1.0 (2273) - 2026-10-21
 
 Source commit `dc181f7316a5`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2273.md).
