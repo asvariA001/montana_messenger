@@ -186,10 +186,27 @@ enum MTPipe {
         // reversing the secret (c04889ba...) and one taking the label domain instead of the key domain
         // (de05839d...). The values are derived from the set formula apart from this code, not read off it.
         let bodySecret = Data((0..<32).map { UInt8($0) })
-        guard bodyKey(sharedSecret: bodySecret, window: 0x0102030405060708).montanaHexString
+        guard Data(MTNodeWire.sealKey(stepSecret: bodySecret, window: 0x0102030405060708)).montanaHexString
                   == "e55fbc1e0f95c4fe012b476c4dd1a51c9455e24641248f4f1557ed57f8c14f35",
               bodyKey(sharedSecret: bodySecret, window: 1000).montanaHexString
                   == "e25542e65a84d1a5b5c72a13172ecb62319c18f21a59978a53e7dac2c22a966a" else { return false }
+
+        // The walk of the pipe secret by the day. The anchor day itself is the established secret (the earlier builds meet
+        // there), the next two are one and two steps down. What it rejects is named: an implementation that never steps
+        // (the key of the anchor's secret, a656c407...), one stepping once whatever the distance (1110b376...), one stepping
+        // by the day's number rather than its distance from the anchor (a walk of twenty thousand), and one without the domain
+        // (630dcd29...). The values are derived from the formula in Python apart from this code.
+        let a = MTNodeWire.walkAnchorDay
+        guard MTNodeWire.pipeSecret(bodySecret, day: a) == bodySecret,
+              MTNodeWire.pipeSecret(bodySecret, day: a + 1).montanaHexString
+                  == "5dcfd87692fcd444a4344d756dfa37abe670d2eb252aa9b402646be97cf3c50a",
+              MTNodeWire.pipeSecret(bodySecret, day: a + 2).montanaHexString
+                  == "0c31775e80ae463de61fecee68bee8bb4ebbcee8e6b2045f8714e93ef18cb1b0",
+              bodyKey(sharedSecret: bodySecret, window: (a + 2) * MTNodeWire.minutesPerDay).montanaHexString
+                  == "925378a4bb83e7137cbb1f8cdaba8b79fc37e30d3159e4158da6e0fee8518bb5",
+              MTNodeWire.convW(bodySecret, window: a) == "d29425fcf807a325b74d8bb017420cfe2250cc47e8bdc6351f6006cd4a6bdc9b",
+              MTNodeWire.convW(bodySecret, window: a + 2) == "c665fdca8978b9c6e54b9a4f16a06ccac657ba7da259df0a8f3e2550d7c2d518"
+        else { return false }
 
         guard ownerRef(ownerSecret: owner, sharedSecret: shared).montanaHexString == "f4f72dafb742470e49defbd3c2326c27",
               ownerRef(ownerSecret: owner, sharedSecret: Data(repeating: 0x45, count: 32)).montanaHexString == "d24f63a8c1220ea9c176ec706b8a256f" else { return false }

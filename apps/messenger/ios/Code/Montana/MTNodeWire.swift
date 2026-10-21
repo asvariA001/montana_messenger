@@ -38,17 +38,48 @@ enum MTNodeWire {
     static func hexHash(_ m: Data) -> String {
         SHA256.hash(data: m).map { String(format: "%02x", $0) }.joined()   // LOCAL-HASH-OK: canon owner
     }
-    /// The letter body key: SHA-256("mt-pipe-key" ‖ 0x00 ‖ secret ‖ W_8B_LE) — the set's value.
-    static func bodyKey(secret: Data, window: UInt64) -> [UInt8] {
-        var m = Data("mt-pipe-key".utf8); m.append(0); m.append(secret)   // LOCAL-HASH-OK: canon owner
+    /// The raw seal key of the set: SHA-256("mt-pipe-key" ‖ 0x00 ‖ step_secret ‖ W_8B_LE) — held by the canon vectors.
+    static func sealKey(stepSecret: Data, window: UInt64) -> [UInt8] {
+        var m = Data("mt-pipe-key".utf8); m.append(0); m.append(stepSecret)   // LOCAL-HASH-OK: canon owner
         var w = window.littleEndian; withUnsafeBytes(of: &w) { m.append(contentsOf: $0) }
         return Array(SHA256.hash(data: m))   // LOCAL-HASH-OK: canon owner, held by the vectors
     }
-    /// The conversation's daily tag: both sides derive it from the shared pipe secret.
+    /// The letter body key of a minute: the seal key under the pipe secret of that minute's day.
+    static func bodyKey(secret: Data, window: UInt64) -> [UInt8] {
+        sealKey(stepSecret: pipeSecret(secret, day: window / minutesPerDay), window: window)
+    }
+    /// The conversation's daily tag: both sides derive it from the pipe secret of that day.
     static func convW(_ secret: Data, window: UInt64) -> String {
-        var m = Data("mt-wake-conv".utf8); m.append(0); m.append(secret)   // LOCAL-HASH-OK: canon owner
+        var m = Data("mt-wake-conv".utf8); m.append(0); m.append(pipeSecret(secret, day: window))   // LOCAL-HASH-OK: canon owner
         var w = window.littleEndian; withUnsafeBytes(of: &w) { m.append(contentsOf: $0) }
         return hexHash(m)
+    }
+
+    /// THE PIPE SECRET WALKS WITH THE CLIENT'S DAY (21.10.2026, the author's word at 12:00: the day; Canon, "The secret a tag
+    /// stands on walks with the window"). pipe_secret(D + 1) = SHA-256("mt-pipe-ratchet" ‖ 0x00 ‖ pipe_secret(D)), one step a
+    /// day, standing still through walkAnchorDay: up to that day every key is byte for byte the one the earlier builds and
+    /// Android derive, so they still meet, and from the day after each day stands one hash further down a one-way walk. The
+    /// client counts its own day, not the Canon's window: its box keeps days (boxDays) and its seal minutes, and one anchor for
+    /// every pipe brings both sides to one value without a letter about it. A day read off a node's time is clamped to maxWalk
+    /// steps, so a forged time costs a bounded walk and opens nothing.
+    static let walkAnchorDay: UInt64 = 20754   // 28.10.2026 UTC
+    static let minutesPerDay: UInt64 = 1440
+    static let maxWalk: UInt64 = 36_600
+    private static let walkLock = NSLock()
+    private static var walked: [Data: (steps: UInt64, value: Data)] = [:]
+    static func pipeSecret(_ secret: Data, day: UInt64) -> Data {
+        let steps = min(day > walkAnchorDay ? day - walkAnchorDay : 0, maxWalk)
+        if steps == 0 { return secret }
+        walkLock.lock(); defer { walkLock.unlock() }
+        var at: UInt64 = 0, value = secret
+        if let c = walked[secret], c.steps <= steps { at = c.steps; value = c.value }
+        while at < steps {
+            var m = Data("mt-pipe-ratchet".utf8); m.append(0); m.append(value)   // LOCAL-HASH-OK: canon owner
+            value = Data(SHA256.hash(data: m)); at += 1
+        }
+        if walked.count >= 256 { walked.removeAll() }
+        walked[secret] = (steps, value)
+        return value
     }
     /// The daily tag of a handed-out invite (F-2: the first-letter wake).
     static func rdvConvW(_ invite: Data, window: UInt64) -> String {
