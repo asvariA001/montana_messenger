@@ -58,8 +58,19 @@ object LinkPreview {
     val enabled get() = Prefs.bool("linkPreviewsEnabled", true)
 
     private val linkRE = Regex("""https?://[^\s<>"']+""", RegexOption.IGNORE_CASE)
-    fun webURLs(text: String): List<String> = linkRE.findAll(text).map { it.value.trimEnd('.', ',', ')', '!', '?', ';', ':') }
+    fun webURLs(text: String): List<String> = linkRE.findAll(text).map { wired(it.value.trimEnd('.', ',', ')', '!', '?', ';', ':')) }
         .filter { runCatching { URL(it).host }.getOrNull()?.isNotEmpty() == true }.toList()
+    /**
+     * A LINK AS THE REFERENCE WRITES IT (iOS NSDataDetector's URL.absoluteString): a letter beyond ASCII is percent-escaped by its
+     * UTF-8 bytes, so a card's «u» is one string on both sides. iPhone «Анна» → A1 21.10 10:27 UTC, ru.wikipedia.org/wiki/Заглавная…:
+     * the card named the escaped link, the letter's words the plain one, and the group refused the card as past its words.
+     */
+    private fun wired(link: String): String = buildString {
+        link.codePoints().forEach { cp ->
+            if (cp in 0x21..0x7E && cp.toChar() !in "\"<>\\^`{|}") append(cp.toChar())
+            else for (b in String(Character.toChars(cp)).toByteArray()) append('%').append("%02X".format(b.toInt() and 0xFF))
+        }
+    }
 
     private val read = HashMap<String, LinkCard>()
     private val readNothing = HashSet<String>()
