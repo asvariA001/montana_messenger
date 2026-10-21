@@ -2,9 +2,9 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
-## 1.0 (2275) - 2026-10-21
+## 1.0 (2276) - 2026-10-21
 
-Source commit `a04cf122d7f6`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2275.md).
+Source commit `d49860c9d61f`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2276.md).
 
 - The correspondent's bubble stays the platform's dark grey under white words on every chat background, the gold one included.
 
