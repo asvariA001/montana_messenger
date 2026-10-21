@@ -49,7 +49,7 @@ struct MontanaMeshCard: View {
             if MontanaPhoneNode.meshDiscoverable {
                 Button { onOpenRoom() } label: {
                     HStack(spacing: MTLibraryRow.gap) {
-                        Image(systemName: "antenna.radiowaves.left.and.right").font(.system(size: 22)).foregroundColor(.white)
+                        Image(systemName: "antenna.radiowaves.left.and.right").font(.system(size: 22)).foregroundColor(.primary)
                             .frame(width: MTLibraryRow.face, height: MTLibraryRow.face)
                             .background { MTGlassCirclePlate() }
                         VStack(alignment: .leading, spacing: 2) {

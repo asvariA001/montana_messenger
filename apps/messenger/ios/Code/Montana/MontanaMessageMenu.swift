@@ -256,7 +256,7 @@ struct MessageContextOverlay: View {
             } label: {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 17, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.75))
+                    .foregroundColor(.secondary)
                     .montanaFingerRoom(layout: 17)   // the row keeps the chevron's 17 points, the finger gets 44
             } }
         }

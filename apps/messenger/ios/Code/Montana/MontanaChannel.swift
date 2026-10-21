@@ -159,7 +159,7 @@ struct MTFacePicker: View {
                     Image(uiImage: ui).resizable().scaledToFill()
                 } else {
                     Circle().fill(Color(.tertiarySystemFill))
-                        .overlay(Image(systemName: "camera.fill").font(.title3).foregroundColor(.white))
+                        .overlay(Image(systemName: "camera.fill").font(.title3).foregroundColor(.primary))
                 }
             }
             .frame(width: 60, height: 60).clipShape(Circle())
@@ -363,7 +363,7 @@ struct MTChannelShareRound: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: "arrowshape.turn.up.right.fill")
-                .font(.system(size: 13, weight: .semibold)).foregroundColor(.white)
+                .font(.system(size: 13, weight: .semibold)).foregroundColor(.primary)
                 .frame(width: Self.side, height: Self.side)
                 .background { MTChannelGlass(shape: Circle()) }
                 .frame(width: montanaTouchTarget, height: montanaTouchTarget)
@@ -416,7 +416,7 @@ struct MTChannelSubscriberBar: View {
             Color.clear.frame(width: montanaTouchTarget, height: montanaTouchTarget)
             Button(action: onMute) {
                 Text(muted ? "Unmute" : "Mute")
-                    .font(.system(size: 17, weight: .semibold)).foregroundColor(.white)
+                    .font(.system(size: 17, weight: .semibold)).foregroundColor(.primary)
                     .frame(maxWidth: .infinity, minHeight: montanaTouchTarget)
                     .background { MTChannelGlass(shape: Capsule()) }
                     .contentShape(Capsule())
@@ -424,7 +424,7 @@ struct MTChannelSubscriberBar: View {
             .buttonStyle(.plain)
             Button(action: onSearch) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 18, weight: .semibold)).foregroundColor(.white)
+                    .font(.system(size: 18, weight: .semibold)).foregroundColor(.primary)
                     .frame(width: montanaTouchTarget, height: montanaTouchTarget)
                     .background { MTChannelGlass(shape: Circle()) }
                     .contentShape(Circle())

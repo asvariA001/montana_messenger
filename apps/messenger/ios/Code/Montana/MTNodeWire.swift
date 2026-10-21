@@ -71,6 +71,20 @@ enum MTNodeWire {
     /// steps, so a forged time costs a bounded walk and opens nothing.
     static let walkAnchorDay: UInt64 = 20754   // 28.10.2026 UTC
     static let minutesPerDay: UInt64 = 1440
+    /// THE ROOT OF A CONVERSATION (21.10.2026, the author's word at 15:2x MSK: «yes»): SHA-256("mt-conv-root" ‖ 0x00 ‖ the
+    /// established secret). What a pair derives afresh for every item -- the blind of a coin SEND and the author field of a
+    /// letter -- stands on the root from the day after walkAnchorDay, never on the established secret, so the walk can erase
+    /// that secret. The root opens no letter: it is one hash in a domain of its own, and nothing of the walk is derived from it.
+    static func convRoot(_ secret: Data) -> Data {
+        var m = Data("mt-conv-root".utf8); m.append(0); m.append(secret)   // LOCAL-HASH-OK: canon owner
+        return Data(SHA256.hash(data: m))
+    }
+    /// The key an item laid today stands on: the root past the anchor, the established secret up to it, so a phone and an
+    /// earlier build blind and sign alike until the walk begins.
+    static func itemKey(_ secret: Data, day: UInt64 = dayWindow()) -> Data { day > walkAnchorDay ? convRoot(secret) : secret }
+    /// The keys a received item may stand on, the root first: the sender's day is its own clock, so the receiver tries both
+    /// while it still holds the established secret; no third party computes either.
+    static func itemKeys(_ secret: Data) -> [Data] { [convRoot(secret), secret] }
     static let maxWalk: UInt64 = 36_600
     private static let walkLock = NSLock()
     private static var walked: [Data: (steps: UInt64, value: Data)] = [:]
@@ -134,6 +148,8 @@ enum MTNodeWire {
     // under a branch of the master seed only the person's devices derive, over the pipe's secret, the letter's name and its
     // words, cut to sixteen bytes. Every device of the person reads its own letter as its own, whatever road brought it; the
     // correspondent holds sixteen bytes it can neither open nor make; an older build reads seven fields and none of this.
+    // Past walkAnchorDay the field stands on the conversation's root (itemKey), not on the pipe's secret, so the walk can
+    // erase that secret; a reader tries the root first, then the secret while it still holds it (itemKeys).
     static let authorFields = 7   // the fields before the author: mid, text, name, glyph, quote, quoted mid, card
     static func authorTag(key: Data, secret: Data, mid: String, text: String) -> String {
         var m = Data("mt-letter-author".utf8); m.append(0); m.append(secret)   // LOCAL-HASH-OK: canon owner
@@ -143,22 +159,24 @@ enum MTNodeWire {
     }
     /// Whether a letter's author field is this person's: the tag made again under this person's key, compared in constant time.
     static func authorHolds(_ tag: String, key: Data?, secret: Data, mid: String, text: String) -> Bool {
-        guard let key, key.count == 32, !tag.isEmpty, let got = Data(base64Encoded: tag), got.count == 16,
-              let want = Data(base64Encoded: authorTag(key: key, secret: secret, mid: mid, text: text)) else { return false }
-        var diff: UInt8 = 0
-        for (a, b) in zip(got, want) { diff |= a ^ b }
-        return diff == 0
+        guard let key, key.count == 32, !tag.isEmpty, let got = Data(base64Encoded: tag), got.count == 16 else { return false }
+        return itemKeys(secret).contains { k in
+            guard let want = Data(base64Encoded: authorTag(key: key, secret: k, mid: mid, text: text)) else { return false }
+            var diff: UInt8 = 0
+            for (a, b) in zip(got, want) { diff |= a ^ b }
+            return diff == 0
+        }
     }
     /// The body with the author's field: every field before it closed and the empty ones written, so the tag stands eighth
     /// whatever the letter carries; a body that would outgrow the envelope rides without it.
-    static func withAuthor(_ body: Data, key: Data?, secret: Data, mid: String, text: String) -> Data {
+    static func withAuthor(_ body: Data, key: Data?, secret: Data, mid: String, text: String, day: UInt64 = dayWindow()) -> Data {
         guard let key, key.count == 32 else { return body }
         var b = body
         if let last = b.last, last != 0 { b.append(0) }
         var closed = b.reduce(0) { n, x in x == 0 ? n + 1 : n }
         while closed < authorFields { b.append(0); closed += 1 }
         guard closed == authorFields else { return body }
-        b.append(contentsOf: authorTag(key: key, secret: secret, mid: mid, text: text).utf8); b.append(0)
+        b.append(contentsOf: authorTag(key: key, secret: itemKey(secret, day: day), mid: mid, text: text).utf8); b.append(0)
         return b.count <= envelopeSize ? b : body
     }
     /// The author's key the app mirrors for the extensions (wakeMyAuthor): the share sheet and the notification extension sign

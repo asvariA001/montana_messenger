@@ -4535,7 +4535,7 @@ extension MTCoinTx {
         guard let peer = peerFrom(conv), let peerBytes = unhex(peer), peerBytes.count == 32 else { return .notApplicable(noReceiverKey) }
         guard let first = await reconcile(force: true), first.v3, Int64(coins) <= first.proven + first.declared else { return .notApplicable("chain short") }
         let nonce = fresh()
-        let blind = MTCoinChainRules.blind(secret: secret, nonce: nonce)
+        let blind = MTCoinChainRules.blind(secret: MTNodeWire.itemKey(secret), nonce: nonce)
         let commit = MTCoinChainRules.commitment(from: peerBytes, blind: blind)
         for attempt in 1...2 {
             guard let st = await chain3(me, door: door), st.v3, Int64(coins) <= st.proven + st.declared else { return .notApplicable("chain short") }
@@ -4572,8 +4572,8 @@ extension MTCoinTx {
         let seat = MTCoinSeat()
         guard s.kind == Kind3.send.rawValue, let me = myKeyTag, let mine = unhex(me),
               let secret = MTPipeBook.secret(for: conv), !secret.isEmpty else { return false }
-        let blind = MTCoinChainRules.blind(secret: secret, nonce: s.nonce)
-        guard MTCoinChainRules.commitment(from: mine, blind: blind) == s.to else { return false }
+        guard let blind = MTNodeWire.itemKeys(secret).lazy.map({ k in MTCoinChainRules.blind(secret: k, nonce: s.nonce) })
+                .first(where: { b in MTCoinChainRules.commitment(from: mine, blind: b) == s.to }) else { return false }
         let book = MTLocalCoinLedger.shared.whole
         if book.holds(.receive, refPrefix + s.id) { return false }
         guard let st = await reconcile(), st.v3 else { return false }
@@ -4616,8 +4616,8 @@ extension MTCoinTx {
             v3 = b.count == size3
             if v3, let s = await Task.detached(priority: .userInitiated, operation: { read3(b) }).value, s.id == id,
                let secret = MTPipeBook.secret(for: conv), !secret.isEmpty, let theirs = unhex(hands.from), let tdoor = chainDoor(hands.from) {
-                let blind = MTCoinChainRules.blind(secret: secret, nonce: s.nonce)
-                if MTCoinChainRules.commitment(from: theirs, blind: blind) == s.to {
+                if let blind = MTNodeWire.itemKeys(secret).lazy.map({ k in MTCoinChainRules.blind(secret: k, nonce: s.nonce) })
+                    .first(where: { b in MTCoinChainRules.commitment(from: theirs, blind: b) == s.to }) {
                     if let st = await chain3(hands.from, door: tdoor), !st.v3 {
                         let amount = min(max(0, Int64(shelf.book)), MTCoinChainRules.genesisRoom(height: st.height, birth: st.birth, at: st.now))
                         let r = await layOnHead(hands: hands) { c in build3(.genesis, amount: UInt64(amount), prev: c.head, nonce: fresh(), hands: hands) }

@@ -208,6 +208,30 @@ enum MTPipe {
               MTNodeWire.convW(bodySecret, window: a + 2) == "c665fdca8978b9c6e54b9a4f16a06ccac657ba7da259df0a8f3e2550d7c2d518"
         else { return false }
 
+        // The root of a conversation, what a coin SEND is blinded under past the anchor. It rejects a root without the zero
+        // separator (3be77415...) and one that takes the walk's domain (5dcfd876..., the walk's first step), and the anchor day
+        // still blinds under the established secret as the earlier builds do. Derived from the formula in Python apart from this code.
+        guard MTNodeWire.convRoot(bodySecret).montanaHexString == "d9c3e7f533da2d0ed10b6729601c478ab29d1b0cafed60443113ee6a63824e11",
+              MTNodeWire.itemKey(bodySecret, day: a) == bodySecret,
+              MTNodeWire.itemKey(bodySecret, day: a + 1) == MTNodeWire.convRoot(bodySecret),
+              MTNodeWire.itemKeys(bodySecret) == [MTNodeWire.convRoot(bodySecret), bodySecret]
+        else { return false }
+
+        // The author field of a letter stands on the same key: the root past the anchor, the established secret on the anchor
+        // day, and a reader holds both. It rejects a signer that keeps the established secret past the anchor and a reader
+        // that tries the root alone.
+        let person = Data(repeating: 0x33, count: 32)
+        let rootTag = MTNodeWire.authorTag(key: person, secret: MTNodeWire.convRoot(bodySecret), mid: "m", text: "t")
+        let anchorTag = MTNodeWire.authorTag(key: person, secret: bodySecret, mid: "m", text: "t")
+        guard rootTag.utf8.elementsEqual(anchorTag.utf8) == false,
+              MTNodeWire.withAuthor(Data(), key: person, secret: bodySecret, mid: "m", text: "t", day: a + 1)
+                == Data(count: 7) + Data(rootTag.utf8) + Data([0]),
+              MTNodeWire.withAuthor(Data(), key: person, secret: bodySecret, mid: "m", text: "t", day: a)
+                == Data(count: 7) + Data(anchorTag.utf8) + Data([0]),
+              MTNodeWire.authorHolds(rootTag, key: person, secret: bodySecret, mid: "m", text: "t"),
+              MTNodeWire.authorHolds(anchorTag, key: person, secret: bodySecret, mid: "m", text: "t")
+        else { return false }
+
         guard ownerRef(ownerSecret: owner, sharedSecret: shared).montanaHexString == "f4f72dafb742470e49defbd3c2326c27",
               ownerRef(ownerSecret: owner, sharedSecret: Data(repeating: 0x45, count: 32)).montanaHexString == "d24f63a8c1220ea9c176ec706b8a256f" else { return false }
 
