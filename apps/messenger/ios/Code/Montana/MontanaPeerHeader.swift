@@ -246,7 +246,7 @@ struct MTFaceHeader: View {
     let pageWidth: CGFloat
     var blocked = false
     var bio = ""
-    var link: URL? = nil
+    var links: [URL] = []
     var note = ""
     /// THE HEAD'S OWN WIDTH, MEASURED (the author's word 25.09: «in the landscape layout the page and the wall must stand
     /// straight, now they are crooked»): the head drew itself at the window's width, and in landscape the window is wider
@@ -324,9 +324,9 @@ struct MTFaceHeader: View {
                     .frame(maxWidth: .infinity, alignment: side)
                     .padding(.horizontal, 18)
             }
-            if let link {
-                // The web alone ever opens from here (MTPeerAbout.url keeps nothing else), in the
-                // platform's own link colour and through its own control.
+            ForEach(links, id: \.self) { link in
+                // The web alone ever opens from here (MTPeerAbout.links keeps nothing else), in the
+                // platform's own link colour and through its own control; each link its own bubble.
                 bubble(Link(destination: link) {
                     Text(verbatim: MTPeerAbout.shown(link))   // USER-DATA: the link the person gave
                         .foregroundColor(Color(uiColor: .link))
@@ -373,7 +373,7 @@ struct MTFacePage<Content: View>: View {
     let name: String
     let blocked: Bool
     let bio: String
-    let link: URL?
+    let links: [URL]
     let note: String
     /// Whose page this is — mine (the settings, My page from the settings or from the drawer) or a correspondent's.
     let of: MTWallpaper.PageOf?
@@ -385,12 +385,12 @@ struct MTFacePage<Content: View>: View {
     let content: Content
 
     init(face: MTFaceDock, shown: Bool = true, glyph: String, name: String, blocked: Bool = false,
-         bio: String = "", link: URL? = nil, note: String = "", of: MTWallpaper.PageOf? = nil,
+         bio: String = "", links: [URL] = [], note: String = "", of: MTWallpaper.PageOf? = nil,
          @ViewBuilder content: (MTFacePageHead) -> Content) {
         self.face = face; self.shown = shown; self.glyph = glyph; self.name = name
-        self.blocked = blocked; self.bio = bio; self.link = link; self.note = note; self.of = of
+        self.blocked = blocked; self.bio = bio; self.links = links; self.note = note; self.of = of
         self.content = content(MTFacePageHead(face: face, shown: shown, glyph: glyph, name: name,
-                                              blocked: blocked, bio: bio, link: link, note: note))
+                                              blocked: blocked, bio: bio, links: links, note: note))
     }
 
     var body: some View {
@@ -431,12 +431,12 @@ struct MTFacePageHead: View {
     let name: String
     let blocked: Bool
     let bio: String
-    let link: URL?
+    let links: [URL]
     let note: String
     var body: some View {
         if shown {
             MTFaceHeader(face: face, glyph: glyph, name: name, pageWidth: MTScene.size().width,
-                         blocked: blocked, bio: bio, link: link, note: note)
+                         blocked: blocked, bio: bio, links: links, note: note)
         }
     }
 }

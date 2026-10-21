@@ -65,7 +65,7 @@ struct MontanaPeerInfoScreen: View {
         let about = faced ? MTPeerAbout.of(data.conv) : nil
         MTFacePage(face: face, shown: faced, glyph: data.initial, name: data.title,
                    blocked: store.blockedChats.contains(chat.name),
-                   bio: about?.bio ?? "", link: MTPeerAbout.url(about?.link ?? ""), note: data.note,
+                   bio: about?.bio ?? "", links: MTPeerAbout.links(about?.link ?? ""), note: data.note,
                    of: data.kind == .person && !saved ? .peer(data.conv) : nil) { head in   // the ground they sent of their page (MTPageGround, 25.09), kept while the card is edited
             page(data, saved: saved, faced: faced, head: head)
         }

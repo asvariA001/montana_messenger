@@ -1604,5 +1604,16 @@ final class MontanaVPNTests: XCTestCase {
         XCTAssertTrue(MontanaBackup.keyKAT(), "the container key drifted from the frozen vector")
     }
 
+    // EVERY LINK OF THE PAGE'S FIELD (the author's word 21.10 16:37), from the field T1 held. What it REFUSES: the old
+    // reading of the whole field as one address (no link or one crooked link), a reader that keeps the first link only,
+    // and one that sorts the links (the second field gives them in the other order and must keep it).
+    func testPageFieldLinks() {
+        XCTAssertEqual(MTPeerAbout.links("dreamdepartment.io /// montana.xxx").map { $0.absoluteString },
+                       ["https://dreamdepartment.io", "https://montana.xxx"])
+        XCTAssertEqual(MTPeerAbout.links("montana.xxx, dreamdepartment.io montana.xxx").map { $0.absoluteString },
+                       ["https://montana.xxx", "https://dreamdepartment.io"])
+        XCTAssertEqual(MTPeerAbout.spoken("///"), "")
+    }
+
 
 }

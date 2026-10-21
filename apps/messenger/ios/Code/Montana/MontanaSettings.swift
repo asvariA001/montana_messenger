@@ -1015,7 +1015,7 @@ struct MTPagePreviewDress: View {
         GeometryReader { g in
             VStack(spacing: 12) {
                 MTFaceHeader(face: face, glyph: E2E.myFaceGlyph(), name: E2E.myDisplayName(), pageWidth: g.size.width,
-                             bio: MTPeerAbout.said(bio), link: MTPeerAbout.url(link))
+                             bio: MTPeerAbout.said(bio), links: MTPeerAbout.links(link))
                 MTBoardWriteFace().padding(.horizontal, MTPageEdge.side)
                 MTBoardCell(post: sample, owner: nil, onComments: {}).padding(.horizontal, MTPageEdge.side)
                 Spacer(minLength: 0)

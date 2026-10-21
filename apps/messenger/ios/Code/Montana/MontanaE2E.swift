@@ -95,7 +95,7 @@ enum MTPeerAbout {
         if s.hasSuffix("/") { s = String(s.dropLast()) }
         return s
     }
-    static var myLink: String { url(UserDefaults.standard.string(forKey: "profileLink") ?? "")?.absoluteString ?? "" }
+    static var myLink: String { spoken(UserDefaults.standard.string(forKey: "profileLink") ?? "") }
     /// A link as a person types it: «site.org» wears https; nothing but the web is a link here.
     static func url(_ s: String) -> URL? {
         let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -105,6 +105,21 @@ enum MTPeerAbout {
               let host = u.host, host.contains(".") else { return nil }
         return u
     }
+    /// EVERY LINK OF THE FIELD (the author's word 21.10 16:37: «on my page on T1 the links are not seen»): the field held
+    /// «dreamdepartment.io /// montana.xxx», and the whole field read as one address -- no link, or one crooked link. A
+    /// person gives as many links as they type, set apart by spaces or commas; each word is read by the one rule above,
+    /// the words that are not the web (the «///» between them) stand aside. The one reader of the field: my page, the
+    /// wire, a correspondent's page.
+    static func links(_ s: String) -> [URL] {
+        guard s.count <= linkLimit else { return [] }
+        var out: [URL] = []
+        for w in s.split(whereSeparator: { $0.isWhitespace || $0 == "," }) {
+            if let u = url(String(w)), !out.contains(u) { out.append(u) }
+        }
+        return out
+    }
+    /// The field as it leaves for the wire and as it is kept of a correspondent: its links, one space apart.
+    static func spoken(_ s: String) -> String { links(s).map { $0.absoluteString }.joined(separator: " ") }
     private static func all() -> [String: About] {
         (MontanaLocalVault.getDecrypted(key).flatMap { try? JSONDecoder().decode([String: About].self, from: $0) }) ?? [:]
     }
@@ -123,7 +138,7 @@ enum MTPeerAbout {
     static func note(_ conv: String, bio: String, link: String, at: Double) {
         var a = all()
         if let held = a[conv], held.at > at { return }   // an older word changes nothing
-        let kept = About(bio: String(bio.prefix(bioLimit)), link: url(link)?.absoluteString ?? "", at: at)
+        let kept = About(bio: String(bio.prefix(bioLimit)), link: spoken(link), at: at)
         a[conv] = kept
         if let d = try? JSONEncoder().encode(a) { _ = MontanaLocalVault.setEncrypted(key, d) }
         let tag = MontanaDeliveryEngine.Announced.aboutTag(bio: kept.bio, link: kept.link)

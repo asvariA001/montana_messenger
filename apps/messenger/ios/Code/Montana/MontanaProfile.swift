@@ -950,7 +950,7 @@ struct MontanaMyProfileView: View {
     var body: some View {
         let _ = displayName   // the page follows the name as it is typed
         MTFacePage(face: face, glyph: E2E.myFaceGlyph(), name: E2E.myDisplayName(),
-                   bio: MTPeerAbout.said(bio), link: MTPeerAbout.url(link), of: .me) { head in
+                   bio: MTPeerAbout.said(bio), links: MTPeerAbout.links(link), of: .me) { head in
             ScrollView {
                 head   // the face, the page's first row: it scrolls away with the page (25.09)
                 Color.clear.frame(height: 1)
