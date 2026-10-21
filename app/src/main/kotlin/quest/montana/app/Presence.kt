@@ -937,6 +937,7 @@ object NodeClock {
         if (server > 0L) learn(server)   // no Date, or one unread: nothing is learned (iOS learnSkew 1028-1029)
     }
     @Synchronized fun learn(serverMs: Long) {
+        PersonChain.answered(serverMs)   // a node's answer is a second of the person on the network (iOS learnSkew, personFeed)
         load()
         val s = System.currentTimeMillis() - serverMs
         val moved = Math.abs(s - skew)

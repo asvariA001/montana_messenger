@@ -128,6 +128,7 @@ object MontanaSeed {
         Names.forget()   // the name's record and its blinding factor are the person's: they leave with the seed (iOS SeedScope)
         Names.wipeBook()
         LetterAuthor.forget()   // the author's key is the person's: it leaves with the words
+        PersonChain.forget()   // the person's seconds and their level leave with the words
     }
 
     /**
