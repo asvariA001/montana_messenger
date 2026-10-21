@@ -2,15 +2,17 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
-## 1.0 (2264) - 2026-10-21
+## 1.0 (2265) - 2026-10-21
 
-Source commit `e65ee5e7c6e5`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2264.md).
+Source commit `1fc72aed12f7`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2265.md).
 
 - Voice messages can now be read as text. Tap the quote icon beside a voice message and its words appear under it. On iOS 26 the system's new speech analyzer does the work; on earlier iOS the phone's own on-device recognizer does, with punctuation and the names from your chat.
+- Coins go to anyone you have a chat with at once. Your phone now tells its coin key to your correspondents by itself, and a transfer that meets a correspondent whose key has not come yet asks for it and goes through within seconds instead of refusing.
 
 **Security and anonymity**
 
 - Recognition runs only on the phone: no audio and no text is sent to Apple or anyone else. A phone that cannot recognise the language on the device says so and sends nothing. The text lives in memory only and is never written to disk, so a deleted chat leaves no transcript behind. No message, key or coin road changes.
+- The coin key told to correspondents is the public tag of the coin key, never a name or a secret; it rides the same end-to-end encrypted word about oneself as before, and the ask for it carries nothing but a flag. No coin moves without the sender's signature.
 
 ## 1.0 (2263) - 2026-10-21
 
