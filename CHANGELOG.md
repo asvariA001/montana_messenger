@@ -2,6 +2,17 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
+## 1.0 (2270) - 2026-10-21
+
+Source commit `dafe38980253`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2270.md).
+
+- The last icons on glass over the gold background are dark now too: network, channel and reactions.
+- Groundwork for protecting the past: from 29 October coin transfers and the signature that marks a letter as yours rest on a key of the conversation's own, so the conversation's first secret can later be erased.
+
+**Security and anonymity**
+
+- From 29.10.2026 UTC a coin transfer's blind and a letter's author field are computed from the conversation root, SHA-256 of mt-conv-root, a zero byte and the established secret, instead of the established secret itself; a receiver checks the root first, then the secret. Nothing new is stored or sent and the nodes do not change. Until then every build blinds and signs as before.
+
 ## 1.0 (2269) - 2026-10-21
 
 Source commit `94b449d4a69f`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2269.md).
