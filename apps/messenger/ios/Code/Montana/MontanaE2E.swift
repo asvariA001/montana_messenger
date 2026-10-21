@@ -1554,7 +1554,7 @@ final class E2E {
     /// «about» in the one queue, repeated until the peer's receipt, and ONLY the receipt writes the mark
     /// (Announced.recordDelivered). Every occasion that heals the name heals them: the peer's letter, the chat opened,
     /// the peer's return, a presence word naming other words than mine, the launch and the return to the app.
-    func sendAboutIfNeeded(to peer: String, force: Bool = false) {
+    func sendAboutIfNeeded(to peer: String, force: Bool = false, askKey: Bool = false) {
         // THE PAGE'S GROUND RIDES EVERY OCCASION OF THE BIO (25.09): one list of occasions heals my words and my ground.
         defer { sendGroundIfNeeded(to: peer) }
         guard MontanaConv.holds(peer), !silenced(peer) else { return }
@@ -1566,7 +1566,20 @@ final class E2E {
         let wordsHeld = MontanaSelf.holds("profileBio", "profileLink")
         let bio = MTPeerAbout.myBio, link = MTPeerAbout.myLink
         if wordsHeld { sendAboutByDraft(to: peer, bio: bio, link: link) }   // the builds 1919-1921 read only the draft word's keys
-        guard Self.aboutCapable(peer) else { return }
+        // MY COIN KEY RIDES THE SAME WORD (COIN-TX-V3 section 1): a SEND of version 3 commits to the receiver's key, so a
+        // correspondent learns mine -- a coin key's tag, never a name. THE KEY IS DERIVED FOR THE WORD, NEVER WAITED FOR (the
+        // author's word 21.10.2026 12:41 MSK: «on 2263 I still cannot send coins from T1 to Petros, it says the correspondent's
+        // Montana has not told its key -- if there is a chat there is everything, and it must work at once»): the word took only
+        // a key this process had already derived, so a phone whose person never opened the wallet told none -- T1's diary
+        // 09:39:15Z refused for «no receiver key» while Petros's phone receipted T1's words within 4 s. A key not derived yet
+        // is derived off the main thread now, and the whole book hears it when it stands (MTCoinTx.deriveForTheWord).
+        let coinKey = MTCoinTx.cachedKeyTag
+        if coinKey == nil { MTCoinTx.deriveForTheWord() }
+        let keyDue = askKey || (coinKey.map { k in !MTCoinTx.toldKey(peer, k) } ?? false)
+        // THE KEY WAITS FOR NO PROOF OF THE BUILD: «never inferred» spared the builds that bury the word, and none of them runs
+        // below the floor 2254 (the site's min, TestFlight expired), while the key in the word is read since 2193. The proof
+        // rides a presence word, which crosses live roads only -- a pair that never stood on one never held each other's key.
+        guard Self.aboutCapable(peer) || keyDue else { return }
         let tag = MontanaDeliveryEngine.Announced.aboutTag(bio: bio, link: link)
         let key = MontanaDeliveryEngine.Announced.about(to: peer)   // sentAb1_ -- this device's own (SeedScope)
         let held = UserDefaults.standard.string(forKey: key)
@@ -1578,10 +1591,6 @@ final class E2E {
         let coinsKey = "aboutCoins." + peer
         let said = UserDefaults.standard.dictionary(forKey: coinsKey)
         let coinsDue = coins.map { c in (said?["c"] as? Int) != c && 600 <= now - ((said?["at"] as? Double) ?? 0) } ?? false
-        // MY COIN KEY RIDES THE SAME WORD (COIN-TX-V3 section 1): a SEND of version 3 commits to the receiver's key, so a
-        // correspondent learns mine once -- a coin key's tag, never a name -- and only from the key this process already derived.
-        let coinKey = MTCoinTx.cachedKeyTag
-        let keyDue = coinKey.map { k in !MTCoinTx.toldKey(peer, k) } ?? false
         if !wordsHeld, !keyDue { return }
         if held == tag, !coinsDue, !keyDue { return }                 // RECEIPTED with these words and this balance
         if held == nil, tag == "0", !force, !coinsDue, !keyDue { return }   // nothing was ever said, and nothing is said now
@@ -1599,6 +1608,7 @@ final class E2E {
         if wordsHeld { word["b"] = bio; word["l"] = link }
         if let coins { word["c"] = coins }
         if let coinKey { word["k"] = coinKey }
+        if askKey { word["q"] = 1 }   // my send found no key of theirs: their phone tells it again (ChatStore, the about word)
         if let own = MTOwnWords.tag(for: peer) { word["o"] = own }   // a tag only my words make: a pair of my words knows itself (06.10)
         guard let d = try? JSONSerialization.data(withJSONObject: word),
               let body = String(data: d, encoding: .utf8) else { return }
@@ -1607,7 +1617,7 @@ final class E2E {
                                              text: aboutMark + body, silent: true, kind: .about)
         if let coins { UserDefaults.standard.set(["c": coins, "at": now] as [String: Any], forKey: coinsKey) }
         if let coinKey { MTCoinTx.noteToldKey(peer, coinKey) }
-        MontanaTrace.mark("about_tx", "to=\(String(peer.prefix(10))) bio=\(bio.isEmpty ? 0 : 1) link=\(link.isEmpty ? 0 : 1) tag=\(tag)")
+        MontanaTrace.mark("about_tx", "to=\(String(peer.prefix(10))) bio=\(bio.isEmpty ? 0 : 1) link=\(link.isEmpty ? 0 : 1) tag=\(tag) key=\(coinKey == nil ? 0 : 1) ask=\(askKey ? 1 : 0)")
     }
     /// The balance told now, past the word's ten minutes (MTWalletPull): the pace's mark is let go and the word goes.
     func tellBalance(to peer: String) {

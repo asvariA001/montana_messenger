@@ -226,6 +226,7 @@ struct MessageBubble: View, Equatable {
     var speaker: MTSpeakerHead? = nil
     var voiceSender = ""             // who speaks in this voice message — the player's heading
     var onPlayVoice: (String) -> Void = { _ in }   // the chat starts it with the chat's voices behind it
+    var voiceHints: () -> [String] = { [] }   // the chat's names and frequent words, read only when a voice is transcribed
     // UNIFIED media progress 0..1 (compression+send in one ring) — read LIVE off the board:
     // the cell is not reconfigured per tick, the bubble redraws itself ([C-1]).
     @ObservedObject private var transfers = MTTransferBoard.shared
@@ -233,6 +234,8 @@ struct MessageBubble: View, Equatable {
     @ObservedObject private var reactionBoard = MTReactionBoard.shared
     /// The coins given on letters (MTCoinLedger): the coin total stands under the letter beside its answers (03.10).
     @ObservedObject private var coinBook = MTLocalCoinLedger.shared
+    @ObservedObject private var transcripts = MTVoiceTranscript.shared
+    @State private var transcriptOpen = false
     private var mediaFileKey: String {
         message.videoFile ?? message.imageFile ?? message.audioFile ?? message.docFile ?? ""
     }
@@ -1085,6 +1088,7 @@ struct MTSaveBeside<Badge: View>: ViewModifier {
             .background(bubbleFill)
             .clipShape(bubbleShape)
             .overlay { bubbleOutline }
+            voiceTranscript(file)
             HStack(spacing: 4) {
                 if let p = mediaProgress {
                     progressPill(p)   // the tape on its way: its progress where its length will stand
@@ -1097,6 +1101,7 @@ struct MTSaveBeside<Badge: View>: ViewModifier {
                     .modifier(MTVoicePill())
                 }
                 metaLine(onMedia: true).modifier(MTVoicePill())
+                if MTVoiceTranscript.canRead, mediaProgress == nil, onDisk { transcriptGlyph(file) }
             }
             .font(.caption2)
             .foregroundColor(.white)
@@ -1113,6 +1118,54 @@ struct MTSaveBeside<Badge: View>: ViewModifier {
         if player.playingFile == file && !player.paused { player.pause(); return }
         onPlayVoice(file)
         if let at = pendingPos { player.seek(to: at); pendingPos = nil }
+    }
+    /// THE VOICE AS TEXT (the author's word 21.10.2026 12:15): the quote glyph beside the plates reads the voice on this phone and
+    /// lays its words under the capsule, as the system's own recordings do; a second touch folds them. MTVoiceTranscript owns
+    /// the reading, the bubble only asks and shows.
+    private func transcriptGlyph(_ file: String) -> some View {
+        Button {
+            MTTouchClaim.claim()
+            if transcriptOpen { transcriptOpen = false; return }
+            transcriptOpen = true
+            transcripts.read(file, hints: voiceHints())
+        } label: {
+            Group {
+                if transcripts.readings[file] == .working {
+                    ProgressView().controlSize(.mini).tint(.white)
+                } else {
+                    Image(systemName: transcriptOpen ? "quote.bubble.fill" : "quote.bubble")
+                }
+            }
+            .modifier(MTVoicePill())
+            .frame(minWidth: montanaTouchTarget, minHeight: montanaTouchTarget)
+            .contentShape(Rectangle())
+            .padding(.vertical, -12)   // the finger's 44 points around the plate; the row keeps the plates' height
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(String(localized: transcriptOpen ? "Hide transcription" : "Transcribe", bundle: MTLanguage.bundle))
+    }
+    /// The voice's words under its capsule, in the letter's own fill; what the recogniser could not do, said in a word.
+    @ViewBuilder private func voiceTranscript(_ file: String) -> some View {
+        if transcriptOpen, let r = transcripts.readings[file], r != .working {
+            Group {
+                switch r {
+                case .text(let words):
+                    // USER-DATA: the voice's own words, read on this phone
+                    Text(verbatim: words).foregroundColor(bubbleText).textSelection(.enabled)
+                case .refused:
+                    Text("Allow speech recognition in Settings").foregroundColor(bubbleText.opacity(0.7))
+                case .unsupported:
+                    Text("Speech recognition is not available for this language").foregroundColor(bubbleText.opacity(0.7))
+                default:
+                    Text("No speech recognized").foregroundColor(bubbleText.opacity(0.7))
+                }
+            }
+            .font(.subheadline)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            .background(bubbleFill)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
     }
     /// The play glyph on a round of glass with a quiet sheen; the tape's ring while it rides.
     @ViewBuilder private func voicePlayRound(_ file: String, mine: Bool, onDisk: Bool) -> some View {

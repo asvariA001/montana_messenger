@@ -4611,6 +4611,8 @@ MontanaLocalVault.setEncrypted("scheduledMsgs", d)
                     if let coins = o["c"] as? Int { MTCoinBoard.shared.note(chat, coins: coins, at: at) }   // the pair's balance (03.10)
                     if let k = o["k"] as? String { MTCoinTx.notePeerFrom(chat, k) }   // the pair's coin key: v3 sends commit to it (COIN-TX-V3)
                     if let own = o["o"] as? String { MTOwnWords.heard(own, from: chat) }   // the pair holds my words: no coin goes to it (06.10)
+                    // THEIR SEND FOUND NO KEY OF MINE (21.10.2026, «q»): the word they hold is lost or never came -- told again now
+                    if o["q"] != nil { MTCoinTx.forgetToldKey(chat); E2E.shared.sendAboutIfNeeded(to: chat) }
                 }
                 E2E.noteAboutCapable(chat)   // a build that speaks the word reads it
                 sendDeliveryReceipt(chat, msgId: m.msgId, isFromMe: m.isFromMe, text: m.text)

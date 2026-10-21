@@ -3504,7 +3504,22 @@ enum MTCoinSend {
             MontanaTrace.mark("coin_refused", "transfer coins=\(coins) available=\(available) balance=\(balance) own=\(MTOwnWords.mine(conv) ? 1 : 0)")
             return .short
         }
-        switch await MTCoinTx.sendResult(coins, conv: conv) {
+        var result = await MTCoinTx.sendResult(coins, conv: conv)
+        if case .noKey = result {
+            // THE KEY IS ASKED, AND THE SAME SEND GOES WHEN IT COMES (the author's word 21.10.2026 12:41 MSK: «if there is a chat
+            // there is everything -- the tunnel, the key -- and it must work at once and instantly»): nothing left the book, the
+            // correspondent's phone answers the ask with its key (the about word's «q»), a live one within seconds -- T1's diary
+            // 09:39:18Z, Petros's receipts in 4 s.
+            E2E.shared.sendAboutIfNeeded(to: chat.name, askKey: true)
+            var waited = 0
+            while MTCoinTx.peerFrom(conv) == nil, waited < 40 {
+                waited += 1
+                try? await Task.sleep(nanoseconds: 250_000_000)
+            }
+            MontanaTrace.mark("coin_v3", "key asked got=\(MTCoinTx.peerFrom(conv) == nil ? 0 : 1) waited_ms=\(waited * 250)")
+            if MTCoinTx.peerFrom(conv) != nil { result = await MTCoinTx.sendResult(coins, conv: conv) }
+        }
+        switch result {
         case .sent(let id):
             // USER-DATA: the coin glyph, the number of coins and the time they are (the author's word 19.10.2026 17:44 MSK: «1 Coin
             // = 0.000000001 TCM = 1 second; in transfers both the time and the coins» -- coins, never TCM), the time in the sender's
@@ -4479,6 +4494,26 @@ extension MTCoinTx {
         var m = (o["told"] as? [String: String]) ?? [:]
         m[conv] = k; o["told"] = m
         save("coin3-peers.json", o)
+    }
+    static func forgetToldKey(_ conv: String) {
+        var o = load("coin3-peers.json")
+        var m = (o["told"] as? [String: String]) ?? [:]
+        guard m.removeValue(forKey: conv) != nil else { return }
+        o["told"] = m
+        save("coin3-peers.json", o)
+    }
+    /// THE KEY DERIVED FOR THE WORD ABOUT ONESELF (the author's word 21.10.2026 12:41 MSK, E2E.sendAboutIfNeeded): once at a time,
+    /// off the main thread; when it stands, every correspondent not yet told hears it.
+    private static var deriving = false
+    static func deriveForTheWord() {
+        keyLock.lock(); let busy = deriving; deriving = true; keyLock.unlock()   // LOCK-OK: one flag
+        guard !busy else { return }
+        DispatchQueue.global(qos: .utility).async {
+            let k = keys()
+            keyLock.lock(); deriving = false; keyLock.unlock()   // LOCK-OK: one flag
+            guard k != nil else { return }
+            DispatchQueue.main.async { E2E.shared.broadcastAbout() }
+        }
     }
     /// The coin key already derived in this process, never derived here (a main-thread caller must not pay the seed's derivation).
     static var cachedKeyTag: String? {

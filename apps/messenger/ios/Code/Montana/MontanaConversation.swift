@@ -2915,6 +2915,11 @@ struct ChatConversationView: View {
                                    voiceSender: message.isFromMe ? E2E.myDisplayName()
                                                                  : store.displayName(for: message.senderRef ?? chat.convId ?? chat.name),
                                    onPlayVoice: { f in playVoice(f) },
+                                   voiceHints: {
+                                       let rows = store.messages[chat.name] ?? []
+                                       let peers = Set(rows.compactMap(\.senderRef)).prefix(20).map { store.displayName(for: $0) }
+                                       return MTVoiceTranscript.hints(names: [E2E.myDisplayName(), store.displayName(for: chat.convId ?? chat.name)] + peers, rows: rows)
+                                   },
                                    onCancel: {
                                        for m in (row.members.isEmpty ? [message] : row.members) {
                                            if let f = m.videoFile ?? m.imageFile ?? m.audioFile ?? m.docFile {

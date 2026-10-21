@@ -47,6 +47,8 @@
 	<string>Montana uses your location so you can send it in a chat.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Montana uses the microphone to record voice messages, videos and calls.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Montana uses speech recognition on your device to show voice messages as text when you ask. The audio never leaves your device.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Montana saves photos from your chats to your library.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

@@ -10,6 +10,7 @@
 "NSLocalNetworkUsageDescription" = "Montana соединяет ваше устройство и устройство собеседника напрямую по Wi-Fi. Разрешение нужно только чтобы телефоны нашли друг друга в одной сети.";
 "NSLocationWhenInUseUsageDescription" = "Montana использует геопозицию, чтобы вы могли отправить своё местоположение в чат.";
 "NSMicrophoneUsageDescription" = "Montana использует микрофон для записи голосовых сообщений, видео и звонков.";
+"NSSpeechRecognitionUsageDescription" = "Montana распознаёт речь на вашем устройстве, чтобы по вашему касанию показать голосовое сообщение текстом. Звук не покидает устройство.";
 "NSPhotoLibraryAddUsageDescription" = "Montana сохраняет фото из чатов в вашу галерею.";
 "NSPhotoLibraryUsageDescription" = "Montana показывает последние фото и видео, чтобы быстро отправить их в чат.";
 

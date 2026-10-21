@@ -10,6 +10,7 @@
 "NSLocalNetworkUsageDescription" = "Montana 通过 Wi-Fi 直接连接你与对方的设备。该权限仅用于让手机在同一网络中找到彼此。";
 "NSLocationWhenInUseUsageDescription" = "Montana 使用你的位置，以便你在聊天中发送它。";
 "NSMicrophoneUsageDescription" = "Montana 使用麦克风录制语音消息、视频和通话。";
+"NSSpeechRecognitionUsageDescription" = "Montana 在您的设备上进行语音识别，在您点按时将语音消息显示为文字。音频不会离开您的设备。";
 "NSPhotoLibraryAddUsageDescription" = "Montana 将聊天中的照片保存到你的相册。";
 "NSPhotoLibraryUsageDescription" = "Montana 显示你最近的照片和视频，以便快速发送。";
 
