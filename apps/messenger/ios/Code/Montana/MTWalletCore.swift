@@ -3843,6 +3843,17 @@ enum MTCoinChainRules {
     nonisolated static let secondCut: Int64 = v2Cut
     /// What the seconds 1..x of a key's life may mint by a MINT its node takes at the second `at`: chosen by at, never by the interval.
     nonisolated static func allowTime(_ x: Int64, at: Int64) -> Int64 { secondCut <= at ? max(0, x) : timeA(x) }
+    /// THE CHAIN MINTS THE KEY'S TIME ITSELF (section 4, fold-6; the author's words 21.10.2026 17:1x MSK: «only the core mints», «1 coin --
+    /// 1 second, the client merely shows it»): from this node second every v3 record first folds the seconds its key has lived, so no
+    /// phone lays a MINT for its time. The node's TX_TIME_CUT, 23.10.2026 00:00 MSK.
+    nonisolated static let timeCut: Int64 = 1_792_702_800
+    /// The key's seconds of life up to the node second `at`, credited once: minted = max(minted, at - birth), proven by the same step.
+    nonisolated static func timeStep(_ s: St, at: Int64) -> St {
+        guard timeCut <= at, 0 < s.height, s.minted < at - s.birth else { return s }
+        var n = s
+        n.proven = s.proven + at - s.birth - s.minted; n.minted = at - s.birth
+        return n
+    }
     /// A BOOK'S PAST, NEVER A FRESH KEY'S WORD (18.10.2026, the critic's P-1; the node's TX_GENESIS_GATE): from this node second a
     /// GENESIS above 0 stands only on the key's own past on its chain and announces at most the time since that past began.
     nonisolated static let genesisGate: Int64 = 1_792_354_500
@@ -3891,6 +3902,8 @@ enum MTCoinChainRules {
     /// One record folded onto its key's state by the nodes' rules: the next state, or nil for a record that breaks a rule; wait for a
     /// RECV or REFUND whose SEND is not folded yet.
     nonisolated static func step(_ s: St, _ p: Rec, _ at: Int64, _ sends: [String: SendInfo], _ settled: Set<String>) -> (next: St?, wait: Bool) {
+        // first the key's time, then the record's kind (section 3, fold-6); a refused record leaves the state as it stood
+        let s = p.version == 3 ? timeStep(s, at: at) : s
         var n = s
         n.head = p.id; n.height += 1; n.lastAt = max(at, s.lastAt)
         if s.height == 0 { n.birth = at; n.mintEnd = at }
@@ -4447,6 +4460,9 @@ extension MTCoinTx {
             guard r.code == 200, let again = await chain3(me, door: door) else { return nil }
             st = again
         }
+        // ONLY THE CHAIN MINTS (section 4, fold-6): from the node's TX_TIME_CUT the chain credits the key's seconds itself, so the phone
+        // lays no MINT and shows the fold /tx-head answers
+        guard st.now < MTCoinChainRules.timeCut else { return told(st) }
         let wall = Date().timeIntervalSince1970
         guard force || Double(MTCoinChainRules.window) <= wall - mintedAt else { return told(st) }
         mintedAt = wall
