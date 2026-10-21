@@ -1,6 +1,6 @@
 # Montana — Canon
 
-**Version:** 8.0.0
+**Version:** 8.1.0
 
 Canon is the one place where the values and the bytes of Montana live. Every other document
 of the set names a quantity and points here; none of them restates a number, a size, a
@@ -1335,6 +1335,31 @@ step_label(handshake_secret, W) = SHA-256("mt-step" || 0x00 || handshake_secret 
 `W` is the height of the last cemented window as an unsigned eight-byte little-endian integer,
 and both results are the first sixteen bytes of the digest.
 
+**The secret a tag stands on walks with the window.** What the two correspondents establish is the
+secret of the window their first letter travels under, and every later window has a secret of its
+own, one step further down a one-way walk:
+
+```
+pipe_secret(W0)     = shared_secret, W0 being the window of the tag the first letter travels under
+pipe_secret(W + 1)  = SHA-256("mt-pipe-ratchet" || 0x00 || pipe_secret(W))
+```
+
+Every quantity a pipe derives for a window takes `pipe_secret(W)` and never the value the first
+letter established: the tag above, the right to collect and the key of the inner seal below. A
+device holds the secret of the earliest window at which it still accepts a cell of that pipe and
+erases every earlier value, so what a device holds at a window reaches every window after it and
+none before it: whoever takes the device, or a copy of its storage, opens nothing that was sealed
+before the window they took it at. The walk is one way by the primitive and costs one hash per
+window, so a device returning after an absence walks to the present rather than asking anybody. A
+publication of a channel and an object of consensus stand on no secret and walk nothing — their
+point is public by construction — and the walk belongs to the letter alone.
+
+**Invariants of the walk:**
+
+- The walk begins at the window of the first letter's tag and advances exactly one step per window; an implementation that holds the established secret unchanged, or steps it by the height of the window rather than by one, derives tags the other side never computes, and the frozen vectors name both mistakes.
+- A device erases every value of the walk earlier than the earliest window it still accepts a cell at; a value kept past that window is a defect.
+- A value of the walk is held and never published, exactly as the established secret is; nothing of the walk crosses the wire, and a hop computes none of it.
+
 The two take the same shape and different domains because they answer different questions. A
 **tag** stands on the secret two correspondents share and names the pipe between them. A **step
 label** stands on the secret two neighbouring machines established at acquaintance and names
@@ -2124,7 +2149,7 @@ derived from the value that carries the right to read what travels in it, and th
 what is travelling:
 
 ```
-a letter in a pipe        shared_secret = the secret the two correspondents derive
+a letter in a pipe        shared_secret = pipe_secret(W), the secret the two correspondents derive, walked to the window
 a publication of a channel shared_secret = the slot of that channel
 an object of consensus     shared_secret = the point it stands at, of its own round or window
 ```
@@ -2217,8 +2242,8 @@ shape before reading fields; an encoder checks that shape before publishing or s
 
 **Depositing and collecting.** A deposit places one cell at a point; a collection takes what
 stands there. The right to take mail from a pipe is sealed to the collector by a value only the
-two correspondents can derive; the right to take a publication is public, so its collection
-presents nothing.
+two correspondents can derive — the secret of the pipe at that window, by the walk the integer form
+of a tag fixes; the right to take a publication is public, so its collection presents nothing.
 
 ```
 collect_right(shared_secret, W) = SHA-256("mt-collect" || 0x00 || shared_secret || W_8B_LE)
@@ -2329,6 +2354,9 @@ serialize(slot_answer)
 ```
 shared_secret = 0x22 x 32, W = 1000
 collect_right              = 0bf7dd6548455ec0650828135980e7dc9b05180d459ca2bae0006def6159ae39
+pipe_key                   = 2097f12c25ecf20a14b191f77d0dc6407dbc3dc8fe28ecd90d1970d42faabefd
+collect_right (W = 1001)   = ecde8139be6233ef23519ddb361dd6faea274138916b841d335b982d5c7aabb3
+pipe_key (W = 1001)        = 63b394b362ae40d238abf09c174ef6bafd9e546c4325190bf1ffbcd375ca5e35
 round_point(W = 1000, j = 0, r = 7, i = 0)  = 534c4a72958d71edd7425654f881f341
 window_point(W = 1000, i = 0)               = a2e9b61c437f761c4bb35fc87c98af79
 point_step_key(round_point(1000, 0, 7, 0), 1000)  = 6b0b6615179098270042b16f0856a77541db65c59a6bb81ade3717d046bab363
@@ -2342,6 +2370,8 @@ notice_point(nf = test_nullifier, W = 1000, i = 1) = 36a0b66cffbe152974ebec740ff
 notice_point(nf = test_nullifier, W = 1000, i = 2) = 40704a6a8149bee128df9e72d73446d9
 ```
 
+The two rows at `W = 1001` stand on `pipe_secret(W + 1)`, the secret walked one step, so an
+implementation that keys a second window off the established secret reproduces neither.
 The nullifier of the vector stands on neither end of its own bytes and repeats no byte pattern, and
 the three indices are given rather than one, so an implementation that read the window from the
 other end, that dropped the index, that took the last sixteen bytes instead of the first, or that
@@ -2861,7 +2891,9 @@ shared_secret = SHA-256("mt-name-first" || 0x00 || ss || contact_root || ct)
 `ct` is the ciphertext the request carried. Both sides hold all three values and nobody else
 holds any, so every letter of the correspondence — the first one included — travels under an
 ordinary tag, and one begun by a name differs from one begun by acquaintance in nothing an
-implementation or an observer can name. The contact root enters the derivation so
+implementation or an observer can name. This value is where the walk of the pipe begins:
+`pipe_secret(W0) = shared_secret` at the window the first letter's tag is derived for, and every
+later window of the correspondence stands on the step after it, by the integer form of a tag. The contact root enters the derivation so
 that two people writing to one name never land on one secret, and the ciphertext enters it so
 that two letters from one stranger to one name do not either.
 
@@ -3182,19 +3214,37 @@ about their bytes would be a claim about luck.
 ```
 shared_secret = 0x44 x 32, W = 1000
 tag                          = 1d99467017fe1d0cc7c7ba29df6fd1b6
-tag (W = 1001)               = c146445f67c990e25256dd88dfb39a49
+pipe_secret(W + 1)           = 1defe2877d6630f056ebaff2b6b94cd31baeb24747346b542ff5f31fe35db94d
+pipe_secret(W + 2)           = a84614faf98fddb2d569aaf7a8bd3d6ff8b20fb5c22e72338af4558993176798
+tag (W = 1001)               = 5bcdd791565a49a2764157d72a8450dc
+tag (W = 1002)               = 7d15bb090586a75f651ab429b86e62f4
 
 handshake_secret = 0x51 x 32 for one pair, 0x52 x 32 for the next
 step_label(first pair)       = 4b8cb5c6442a52d0750bfb4fac0ba39d
 step_label(second pair)      = 401d8ab71a2e2554ab30c11aab1ae97d
 step_label(first pair, W + 1)= 1cc3ac539a8b1d2701e489455a8b04d5
 
+test_secret = SHA-256("mt-vector-pipe-secret")
+            = a225e0b87df8a5568331badccfa4b217aaee3c7077b6021a52fab89d8856ef56
+pipe_secret(test_secret, W + 1)                  = 92aa039f4d82a59e12a6e65eacaa998fa06455b63e4aef6405556f9e99e4c666
+tag(test_secret, W)                              = 42b13c7133439d4222c9bdf52b5f27b0
+tag(pipe_secret(test_secret, W + 1), W + 1)      = 39e4abcd4db155761253830a3afa9959
+pipe_key(pipe_secret(test_secret, W + 1), W + 1) = eed13b68a4fecd9c91ff7ddca945f8289b62b02835f95260639616d2ba236ba8
+
 negative: substituting a public 32-byte value for the shared secret
 tag(public value 0x55 x 32) = 783b2b17dffaab016d1aca852f60ea3e
+negative: a secret that did not walk, and one walked by the height of the window
+tag(unwalked secret, W = 1001)    = c146445f67c990e25256dd88dfb39a49
+tag(walked 1001 steps, W = 1001)  = 11062c7ece61d640abf601e486170994
 ```
 
-The negative line is normative: an implementation that derives a tag from anything public
-produces that value instead of the first, and fails this comparison.
+The negative lines are normative: an implementation that derives a tag from anything public
+produces the value frozen for that mistake instead of the first, and fails this comparison; one
+that keys the second window off the established secret, or walks it once per unit of height rather
+than once per window, produces one of the last two instead of `tag (W = 1001)`, and fails it too.
+The secret of the first block repeats one byte, so the walk and the key stand a second time on
+`test_secret`, a value no permutation of which is itself: an implementation reading the secret from
+its other end reproduces the first block and parts from the set here.
 
 **The right of a machine, and the moment of extinguishing it.** One absorption of the machine's
 secret yields the half that names it and the half that spends; the leaf it stands at is over the
@@ -3676,13 +3726,14 @@ line, which of the two it is writing.
 | `mt-entry` | the offset of a ring in the choice of the entries a sender holds for a period |
 | `mt-name-contact-key` | the contact key a claimed name is reached by |
 | `mt-name-tag` | the tag of first contact to a claimed name |
-| `mt-name-first` | the secret a first letter establishes, on which every later tag of that correspondence stands |
+| `mt-name-first` | the secret a first letter establishes, from which the walk of that pipe begins |
 | `mt-tag` | the tag of a pipe, derived from a shared secret and a window |
 | `mt-step` | the label of one step, derived from the secret two neighbouring machines share and the height of the window |
 | `mt-slot` | the ephemeral identity from which a sender's slot within a window is placed |
 | `mt-relay-seal` | the seal a hop attaches to prove distinctness of owners within one delivery |
 | `mt-relay-path` | the identity of a path, taken over the pipe layer that crosses it unchanged |
 | `mt-pipe-key` | the key sealing the delivery layer of a cell, held by the two correspondents alone |
+| `mt-pipe-ratchet` | the step of the walk by which the secret of a pipe moves from one window to the next |
 | `mt-collect` | the right to take mail from a pipe, sealed to the two correspondents for one window |
 | `mt-round-point` | the points a beacon and its attestations stand at |
 | `mt-window-point` | the points a proposal stands at |
@@ -5163,7 +5214,7 @@ An implementation conforms to this document when all of the following hold.
    and claims no conformance over them until the value lands.
 7. It reproduces **every frozen vector of this document byte for byte**, from the domain-separated
    primitive and the empty values and the pinned walks of both trees through the note, the nullifiers of both rates and
-   of a share, the tag and its step labels, the seal of a step, the placement of a sender, the slot
+   of a share, the tag and its step labels, the walk of the secret of a pipe, the seal of a step, the placement of a sender, the slot
    of a name and the slot of a channel, the tag of first contact, the handshake and the words of a
    seed. This item is the first an implementation
    should run and the cheapest to run: an implementation that reproduces the vectors has the hash

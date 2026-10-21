@@ -2300,10 +2300,29 @@ pub fn check_derivations(md: &str) -> Result<(), String> {
     let shared = repeat32(bare_input(tag_inputs))?;
     let tw = window_of(tag_inputs)?;
     compare16("tag", labeled(&tag_rows, "tag")?, mt_derive::tag::tag(&shared, tw))?;
+    // The walk of the secret: the tags of the second and third windows stand on the secret walked
+    // one and two steps, and the two values of the walk are compared on their own.
+    let one = mt_derive::tag::pipe_secret_step(&shared);
+    let two = mt_derive::tag::pipe_secret_step(&one);
+    compare_hash(
+        "pipe_secret(W + 1)",
+        labeled(&tag_rows, "pipe_secret(W + 1)")?,
+        &one,
+    )?;
+    compare_hash(
+        "pipe_secret(W + 2)",
+        labeled(&tag_rows, "pipe_secret(W + 2)")?,
+        &two,
+    )?;
     compare16(
         "tag (W = 1001)",
         labeled(&tag_rows, "tag (W = 1001)")?,
-        mt_derive::tag::tag(&shared, tw + 1),
+        mt_derive::tag::tag(&one, tw + 1),
+    )?;
+    compare16(
+        "tag (W = 1002)",
+        labeled(&tag_rows, "tag (W = 1002)")?,
+        mt_derive::tag::tag(&two, tw + 2),
     )?;
     // The two pairs of the block, each written as a repeated byte with words beside it.
     let pairs: Vec<[u8; 32]> = labeled(&tag_rows, "handshake_secret")?
@@ -2341,6 +2360,58 @@ pub fn check_derivations(md: &str) -> Result<(), String> {
                 return Err("the negative vector of a tag equals the positive one".to_string());
             }
         }
+    }
+    // The walk a second time, on a secret no permutation of which is itself, and the first frozen
+    // value of the key of the inner seal standing on it.
+    let test_secret = sha256(b"mt-vector-pipe-secret");
+    compare_hash(
+        "test_secret",
+        labeled(&tag_rows, "test_secret")?,
+        &test_secret,
+    )?;
+    let walked = mt_derive::tag::pipe_secret_step(&test_secret);
+    compare_hash(
+        "pipe_secret(test_secret, W + 1)",
+        labeled(&tag_rows, "pipe_secret(test_secret, W + 1)")?,
+        &walked,
+    )?;
+    compare16(
+        "tag(test_secret, W)",
+        labeled(&tag_rows, "tag(test_secret, W)")?,
+        mt_derive::tag::tag(&test_secret, tw),
+    )?;
+    compare16(
+        "tag(pipe_secret(test_secret, W + 1), W + 1)",
+        labeled(&tag_rows, "tag(pipe_secret(test_secret, W + 1), W + 1)")?,
+        mt_derive::tag::tag(&walked, tw + 1),
+    )?;
+    compare_hash(
+        "pipe_key(pipe_secret(test_secret, W + 1), W + 1)",
+        labeled(&tag_rows, "pipe_key(pipe_secret(test_secret, W + 1), W + 1)")?,
+        &mt_derive::delivery::pipe_key(&walked, tw + 1),
+    )?;
+    // The two named wrong walks: the secret held unchanged, and the secret walked once per unit
+    // of height. Each yields the value frozen for it, and neither yields the tag of the window.
+    let of_window = mt_derive::tag::tag(&one, tw + 1);
+    let unwalked = mt_derive::tag::tag(&shared, tw + 1);
+    compare16(
+        "tag(unwalked secret, W = 1001)",
+        labeled(&tag_rows, "tag(unwalked secret, W = 1001)")?,
+        unwalked,
+    )?;
+    if unwalked == of_window {
+        return Err("the tag of an unwalked secret equals the tag of the window".to_string());
+    }
+    let by_height = mt_derive::tag::pipe_secret_at(&shared, 0, tw + 1)
+        .ok_or("the walk forward from the origin stands")?;
+    let by_height_tag = mt_derive::tag::tag(&by_height, tw + 1);
+    compare16(
+        "tag(walked 1001 steps, W = 1001)",
+        labeled(&tag_rows, "tag(walked 1001 steps, W = 1001)")?,
+        by_height_tag,
+    )?;
+    if by_height_tag == of_window {
+        return Err("the tag of a secret walked by height equals the tag of the window".to_string());
     }
 
     // The seal of a step and the placement of a sender.
@@ -2985,6 +3056,23 @@ pub fn check_delivery(md: &str) -> Result<(), String> {
         "collect_right",
         labeled(&rows, "collect_right")?,
         &mt_derive::delivery::collect_right(&shared, window),
+    )?;
+    compare_hash(
+        "pipe_key",
+        labeled(&rows, "pipe_key")?,
+        &mt_derive::delivery::pipe_key(&shared, window),
+    )?;
+    // The two rows of the next window stand on the secret walked one step.
+    let walked = mt_derive::tag::pipe_secret_step(&shared);
+    compare_hash(
+        "collect_right (W = 1001)",
+        labeled(&rows, "collect_right (W = 1001)")?,
+        &mt_derive::delivery::collect_right(&walked, window + 1),
+    )?;
+    compare_hash(
+        "pipe_key (W = 1001)",
+        labeled(&rows, "pipe_key (W = 1001)")?,
+        &mt_derive::delivery::pipe_key(&walked, window + 1),
     )?;
     for (label, value) in &rows {
         if let Some(rest) = label.strip_prefix("round_point(") {

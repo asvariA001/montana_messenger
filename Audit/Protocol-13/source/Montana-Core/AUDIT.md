@@ -15,6 +15,28 @@ with the commit that closes it.
 Nothing here is scheduled by this file. What the plan already owns is listed at the end so it is
 not filed twice, and what the plan does not yet own is marked as exactly that.
 
+## The secret of a pipe walks with the window (Canon 8.1.0, Core 0.26.0)
+
+**A letter's key did not ratchet, and the public audit said so (F-3).** The key of the inner seal,
+the tag and the right to collect all stood on the secret the first letter established, unchanged
+for the life of the correspondence: whoever obtained that secret from a device, or from a copy of
+its storage, opened every cell of the pipe they had recorded, before and after the taking. Closed
+by construction in the set rather than in a client: Canon walks the secret one step per window
+under `mt-pipe-ratchet`, every quantity of a window takes the value of that window, and a device
+erases what it walked from — so a value taken at a window reaches no earlier one. `mt-derive` holds
+the step and the walk; the gate compares the walk at both frozen inputs (a repeated byte and a
+secret no permutation of which is itself), the tags and the first frozen key of the inner seal
+standing on it, and the two values frozen for the named wrong walks — a secret held unchanged,
+which is exactly the old vector of the second window, and a secret stepped once per unit of height.
+The harness flips each of those rows and holds the gate to refusing every one.
+
+**What the walk does not give is named in Network's threat model rather than implied.** It does not
+heal after a taking: the pipe is read from that window on until the correspondents establish a new
+secret, and a healing step is a mechanism of its own, not claimed here. The clients hold the walk as
+they hold the tag — in one place each, against these vectors; until a client walks, its letters
+stand on the unwalked secret and fail the second vector of the block, which is the state this entry
+exists to make visible.
+
 ## What the gate does not compare
 
 ### The standing weighs in the close and is disclosed nowhere, 2026-10-16
@@ -2024,23 +2046,23 @@ numbers, which says the method and not the tree is what is missing.
 | rows of the Decree the library reads | 28 of 54 |
 | of those, rows that decide a width | 9, and one relation tying a tenth to a parameter |
 | implementations of `Layout` | 16, each one declaration, and the register is held against the source |
-| domains of the registry | 96, each one declaration, counted by the harness rather than by a grep |
+| domains of the registry | 97, each one declaration, counted by the harness rather than by a grep |
 | values of the set awaiting a stage | 0 — every one is read by a checker on every build |
-| domains of the registry a run takes a preimage under | 74 of 96 — the gate refuses a domain that is neither taken nor named, so this number is ninety-six less the twenty-two named and is not a count anybody keeps |
+| domains of the registry a run takes a preimage under | 75 of 97 — the gate refuses a domain that is neither taken nor named, so this number is ninety-seven less the twenty-two named and is not a count anybody keeps |
 | of the rest, named with what owes them a vector | 22, and a silent one that is unnamed fails the build |
 | prefix pairs among them, closed by the zero and the alphabet | 5 |
-| frozen lines of the set of the shape the coverage pass reads | 255, counted by the pass itself |
+| frozen lines of the set of the shape the coverage pass reads | 268, counted by the pass itself |
 | numerals of the library, every one of them in a register | 160, the free rows of a proof among them — counted by the pass that enforces it rather than by a reading of its author, and held by the measurements on every run |
 | of those, compared against a place of the set | 69 |
 | of those, named as of this tree with the reason each is | the rest, each with the reason it is of this tree and of no document |
 | rows a wrong value would pass | 0 of 69 |
 | headings of a derivation restating a value of the Decree | 19, all compared |
-| rows of the Registry of mechanisms | 96: 37 closed, 59 awaiting a stage, 0 awaiting the artifact — the Registry recounts its own table on every build, and this row is held against that recount rather than counted a second time |
-| domains of the separator registry owned by exactly one row | 96 of 96 |
+| rows of the Registry of mechanisms | 98: 38 closed, 60 awaiting a stage, 0 awaiting the artifact — the Registry recounts its own table on every build, and this row is held against that recount rather than counted a second time |
+| domains of the separator registry owned by exactly one row | 97 of 97 |
 | places reaching a preimage through the door of one body | 11 in library code under SHA-256, none of them assembling |
 | the same under the proof hash, where the set writes the preimage as a concatenation | 5, of which 3 assemble fields of fixed width, which cannot erase one |
 | kinds a field of a layout may stand under | 5, and a sixth does not compile |
-| tests of the workspace | 629 written, counted where they are declared. Whether they pass is what a run says and never a row of a table: the four checks are the place that answers it, and a number here claiming a run would be the ledger remembering one |
+| tests of the workspace | 632 written, counted where they are declared. Whether they pass is what a run says and never a row of a table: the four checks are the place that answers it, and a number here claiming a run would be the ledger remembering one |
 | crates carrying the gate in their own tests | 15 of 15, by one macro of the harness rather than fifteen readings of one invocation |
 | columns the width of a proof admits, and columns each written circuit **declares** | 64, and 64 / 59 / 30 / 30 / 30 / 63 for the frame, the ticket, the admission, the presence, the opening and the ballot; the width check reads all six registered descriptions |
 | the circuit of the ticket, written and green | the chains of the presence with the ticket's absorption in place of the nullifier's, the digest of the runner's key, and the comparison of thirty-two rows; the window, fold, discharge and reduce circuits left the tree with the relation they served |

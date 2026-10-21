@@ -373,6 +373,49 @@ fn a_changed_value_of_any_derivation_breaks_the_build_with_both_values() {
 }
 
 #[test]
+fn a_changed_value_of_the_walk_of_a_pipe_breaks_the_build_with_both_values() {
+    // The walk of the secret of a pipe is named row by row rather than left to the sweep above:
+    // the secret walked one and two steps, the tags standing on them, the first frozen key of the
+    // inner seal, the two values frozen for the wrong walks, and the rows of the messages at the
+    // next window.
+    let md = canon();
+    let rows_of = [
+        (TAG_HEADER, "pipe_secret(W + 1)"),
+        (TAG_HEADER, "pipe_secret(W + 2)"),
+        (TAG_HEADER, "tag (W = 1001)"),
+        (TAG_HEADER, "tag (W = 1002)"),
+        (TAG_HEADER, "test_secret"),
+        (TAG_HEADER, "pipe_secret(test_secret, W + 1)"),
+        (TAG_HEADER, "tag(test_secret, W)"),
+        (TAG_HEADER, "tag(pipe_secret(test_secret, W + 1), W + 1)"),
+        (
+            TAG_HEADER,
+            "pipe_key(pipe_secret(test_secret, W + 1), W + 1)",
+        ),
+        (TAG_HEADER, "tag(unwalked secret, W = 1001)"),
+        (TAG_HEADER, "tag(walked 1001 steps, W = 1001)"),
+        (MESSAGES_HEADER, "pipe_key"),
+        (MESSAGES_HEADER, "collect_right (W = 1001)"),
+        (MESSAGES_HEADER, "pipe_key (W = 1001)"),
+    ];
+    for (header, label) in rows_of {
+        let rows = parse_labeled(&md, header).expect("the block parses");
+        let mut old = String::new();
+        for (l, v) in &rows {
+            if l == label {
+                old = v.clone();
+            }
+        }
+        assert!(!old.is_empty(), "{label} stands frozen");
+        let flipped = flip_first_hex(&old);
+        let err =
+            check_all(&doctored_canon(&md, &old, &flipped)).expect_err("the gate must refuse");
+        assert!(err.contains(&old), "{label}: {err}");
+        assert!(err.contains(&flipped), "{label}: {err}");
+    }
+}
+
+#[test]
 fn a_changed_fingerprint_or_its_count_of_iterations_breaks_the_build() {
     let md = canon();
     // Both values are read out of the set and doctored where they stand: a test restating one

@@ -39,9 +39,9 @@ code that computes it.
 
 | Count | Value |
 |---|---|
-| rows | 96 |
-| closed — nothing awaited | 37 |
-| awaiting a stage of the plan | 59 |
+| rows | 98 |
+| closed — nothing awaited | 38 |
+| awaiting a stage of the plan | 60 |
 | awaiting the artifact `air_hash` | 0 |
 
 The artifact stands published, so no row awaits it; what a row may still await is its stage.
@@ -145,6 +145,7 @@ The artifact stands published, so no row awaits it; what a row may still await i
 | NET-21 | how the objects of consensus travel | Network, "How the objects of consensus travel" | — | — | a scenario of an object of consensus riding the same cells as correspondence, deposited at every point of its round by a machine that computed them without asking anybody | stage 13 |
 | NET-22 | privacy is not rented | Network, "Privacy is not rented" | — | — | a scenario of privacy standing whole with every external tunnel switched off | stage 18 |
 | NET-23 | the threat model of the wire | Network, "Threat model of the wire" | — | — | the model itself, read against the observability ledger of this document | stage 22 |
+| NET-24 | the walk of the secret of a pipe | Canon, "The integer form of a tag"; Network, "There is no address" | — | `mt-pipe-ratchet` | vectors: "A tag and the labels of its steps" | — |
 
 ## App
 
@@ -156,6 +157,7 @@ The artifact stands published, so no row awaits it; what a row may still await i
 | APP-04 | the reproducibility of a client | App, "The reproducibility of a client" | — | — | a scenario of one release hash in three places | stage 20 |
 | APP-05 | the boundary of the protocol and the client | App, "The boundary" | — | — | a scenario of a client holding none of the four layers and asking the protocol to carry none of its own, and of proving moved only between the devices of one owner | stage 21 |
 | APP-06 | what a client owes the person | App, "What a client owes the person" | — | — | a scenario of an unverified handshake marked as such until a comparison, and of a consequence stated before the act | stage 21 |
+| APP-07 | an agent | App, "An agent" | — | — | a scenario of an agent on a seed born on its own machine exchanging letters with a phone through the pipes, its reasoning program holding no key | stage 21 |
 
 ## Canon
 

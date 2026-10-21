@@ -328,6 +328,7 @@ registry! {
         MT_RELAY_SEAL => "mt-relay-seal",
         MT_RELAY_PATH => "mt-relay-path",
         MT_PIPE_KEY => "mt-pipe-key",
+        MT_PIPE_RATCHET => "mt-pipe-ratchet",
         MT_COLLECT => "mt-collect",
         MT_ROUND_POINT => "mt-round-point",
         MT_WINDOW_POINT => "mt-window-point",

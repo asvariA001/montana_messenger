@@ -1,6 +1,6 @@
 # Montana — Network
 
-**Version:** 3.2.0
+**Version:** 3.3.0
 
 Network holds delivery: how a thing crosses from one person to another when neither of them
 has an address and no map of the network exists. It is the layer that makes the transport
@@ -73,8 +73,9 @@ holder without asking.
 
 **Invariants of a tag:**
 
-- A tag is derived from a secret the two parties share and the height of the last cemented window, and from nothing else; deriving it from a public address is a defect a conforming implementation must fail on. For a first letter to a claimed name the shared value is the contact root that name published, and every later tag of that correspondence comes from the secret established inside the first letter.
+- A tag is derived from a secret the two parties share and the height of the last cemented window, and from nothing else; deriving it from a public address is a defect a conforming implementation must fail on. For a first letter to a claimed name the shared value is the contact root that name published, and every later tag of that correspondence comes from the secret established inside the first letter, walked to its window by the ratchet Canon fixes.
 - A tag lives one window; a deposit under a tag of a past window is refused in silence.
+- The secret a pipe stands on walks one way with the window, and a device erases what it walked from: whoever takes a device, or a copy of its storage, holds the pipe from that window on and nothing sealed before it.
 - Tags of two windows, and tags of two correspondents of one owner, are unlinkable to each other.
 - A pipe lives no longer than its tag, so no permanent mailbox exists and no holder accumulates anyone's history.
 
@@ -673,6 +674,7 @@ needed them would have no privacy of its own.
 | an adversary scanning for participants | the fact that some machine answers at some address, and no way to tell whether it is a machine |
 | that a device is at its ceiling of links | closed: a refusal is silence and reads exactly as an address where nothing listens |
 | that a link carried nothing in a window | **observable to the device holding it, and to nobody else**: it is the one fact the release stands on, it names no person and no machine, and it leaves the device with the window it was read in |
+| whoever takes a device, or a copy of its storage | every pipe of that device from the window of the taking on, and nothing before it: the secret of a pipe walks one way and the earlier values are erased, so a cell recorded earlier stays sealed. **What follows the taking is named rather than closed**: the walk does not heal, so the pipe is read from that window until the correspondents establish a new secret, and a device is its holder's to guard |
 
 ## Observability ledger
 
@@ -682,6 +684,7 @@ needed them would have no privacy of its own.
 | who originated an envelope | closed: no marker of position, no hop counter, one size, and a per-step label |
 | origin against transit | closed by carriage: a reachable device carries others' traffic by the rule that pays it |
 | two deliveries of one pipe | closed: tags of different windows do not join |
+| the past of a pipe, to whoever later holds its secret | closed: the secret of a window reaches no earlier window, and a device erases the values before the earliest window it still accepts |
 | the moment of sending | closed: the canonical slot, taken from the height of the chain |
 | the shape and size of anything | closed: one cell, one type |
 | the count of what a device carried | closed: rights are spent at the holder and enter no state |
@@ -706,7 +709,7 @@ needed them would have no privacy of its own.
 
 An implementation conforms to this document when all of the following hold.
 
-1. It derives a tag by the integer form Canon fixes, from a secret the two parties share and the height of the last cemented window, never from a public address, and it fails the negative comparison that substitutes one.
+1. It derives a tag by the integer form Canon fixes, from the secret the two parties share walked to that window and the height of the last cemented window, never from a public address, and it fails the negative comparisons that substitute a public value or a secret that did not walk.
 2. It treats a tag as a right: derived not stored, spent once within its window, sealed to the holder, and recorded nowhere but at the holder for that window.
 3. It emits one cell of the one length Canon fixes, sealed twice — the routing layer to the next step under the directional key of that handshake, the delivery layer to the correspondent under the pipe key — with a fresh nonce for each seal, a full seal array from the origin, and consensus data carried in the same cells as correspondence.
 4. It derives the label of a step under the step domain from the raw secret the two neighbouring machines share and the height of the window, taking nothing of the delivery and no index of any kind, and re-seals everything but the target commitment at every step so that no two points on a path carry one byte in common.
@@ -727,3 +730,4 @@ An implementation conforms to this document when all of the following hold.
 19. It spends a reach to learn what a slot publishes and never for collecting a publication, and it deposits a channel again in every window it is to remain readable.
 20. It holds at most `inbound_slots` links it did not open, serves a deposit at a point of a window or of a round without taking a slot for it, refuses a further handshake at that ceiling in silence, releases a link that carried nothing across a whole window, counts neither its own entries against that ceiling nor releases them by that rule, divides the budget of a window equally across every link it holds, and drops what exceeds a share without an answer and without remembering it.
 21. It deposits at every point Canon derives — a beacon and an attestation at the points of their round, a frame and an operation of the identity plane at the points of the round their slot names, a proposal at the points of its window — collects from every one of them and takes the union, treats the right to collect there as public, and floods nothing to anybody.
+22. It walks the secret of a pipe one step per window under the domain Canon names, derives the tag, the right to collect and the key of the inner seal of a window from the value of that window alone, holds the value of the earliest window it still accepts a cell at and erases every earlier one, and reproduces the frozen vectors of the walk.
