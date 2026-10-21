@@ -2,6 +2,16 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
+## 1.0 (2267) - 2026-10-21
+
+Source commit `e4cd136fc54c`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2267.md).
+
+- Each chat's key now moves forward on a one-way chain once a day, starting 29 October: the letters of every day are sealed under a key of that day, derived from the day before and never back. Up to 28 October nothing changes in how letters travel, and this version talks with the earlier ones as before.
+
+**Security and anonymity**
+
+- The daily step is one SHA-256 under its own domain over the day before, the same rule the protocol's Canon states for a pipe; nothing of the chain crosses the wire. From 29 October a version older than this one no longer opens this one's letters, so update every phone before then. The secret the chat began with is still kept on the phone in this version (for the safety number, the backup and the copies kept by correspondents); erasing it, which is what makes earlier days unreadable from a taken phone, comes as its own step.
+
 ## 1.0 (2266) - 2026-10-21
 
 Source commit `c608f4df732b`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2266.md).
