@@ -713,7 +713,7 @@ object Calls {
         val name = Book.chat(ref)?.shown?.ifBlank { null } ?: c.getString(R.string.peer)
         val flags = PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         fun page(answer: Boolean) = PendingIntent.getActivity(c, if (answer) 2 else 1,
-            Intent(c, MainActivity::class.java).putExtra(EXTRA_REF, ref).putExtra(EXTRA_ANSWER, answer)
+            Intent(c, MainActivity::class.java).putExtra(EXTRA_REF, NoticeAlias.of(ref)).putExtra(EXTRA_ANSWER, answer)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP), flags)
         val decline = PendingIntent.getBroadcast(c, 3, Intent(c, CallDecline::class.java), flags)
         val b = Notification.Builder(c, CHANNEL)

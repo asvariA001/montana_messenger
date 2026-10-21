@@ -226,15 +226,59 @@ object BubblePicture {
 
 // ─────────────────────────── the banner (iOS MontanaNotify) ───────────────────────────
 
+/**
+ * THE SYSTEM HEARS A CONVERSATION'S ALIAS, NEVER ITS LINK (iOS MTNoticeAlias, 4a729f25): a banner's tag, its id, the pending intent
+ * of its tap and the ring's page handed the system the conversation link -- and every app the person lets read notifications reads
+ * a banner's tag. Each conversation wears one alias on this device -- «n:» and sixteen random bytes, made of nothing, different on
+ * the other phone of the pair -- read back here alone. The store is this device's: mt.defaults is out of every system copy and no
+ * copy of ours names the key; a conversation erased takes its alias, the person leaving takes them all (Prefs.forgetPerson).
+ */
+object NoticeAlias {
+    private const val KEY = "noticeAliases"   // NOT-UI: alias to link, this device's names, never a copy
+    const val HEAD = "n:"
+    private val random = java.security.SecureRandom()
+    // BOUND-OK: one row a conversation that rang; a conversation erased takes its row (forget).
+    private fun rows(): JSONObject = runCatching { JSONObject(Prefs.str(KEY, "{}")) }.getOrElse { JSONObject() }
+    /** The alias a conversation already wears here, or none: a look that gives birth to nothing. */
+    @Synchronized fun held(conv: String): String? {
+        val m = rows()
+        return m.keys().asSequence().firstOrNull { a -> m.optString(a) == conv }
+    }
+    /** The alias a conversation wears on this device, born once, of nothing. */
+    @Synchronized fun of(conv: String): String {
+        if (conv.isEmpty()) return conv
+        held(conv)?.let { return it }
+        val a = HEAD + ByteArray(16).also { random.nextBytes(it) }.joinToString("") { "%02x".format(it) }
+        Prefs.setStr(KEY, rows().put(a, conv).toString())
+        return a
+    }
+    /** A value the system handed back: an alias read to its conversation; any other value (a link of the builds before) as it is. */
+    @Synchronized fun open(value: String): String =
+        if (!value.startsWith(HEAD)) value else rows().optString(value).ifEmpty { value }
+    /** A conversation erased: its alias leaves, and is said, so the banners it named go with it. */
+    @Synchronized fun forget(conv: String): List<String> {
+        val m = rows()
+        val gone = m.keys().asSequence().filter { a -> m.optString(a) == conv }.toList()
+        if (gone.isEmpty()) return gone
+        gone.forEach { m.remove(it) }
+        Prefs.setStr(KEY, m.toString())
+        return gone
+    }
+}
+
 object Notify {
     private const val CHANNEL = "letters"
     /** The chat a banner speaks of, carried by its tap (iOS userInfo «chat» → ui.openChat, MontanaApp.didReceive). */
     const val EXTRA_CHAT = "montana.chat"
     @Volatile var tappedAt = 0L   // the tap's moment, read by the conversation's appearance (iOS notif_tap → chat_open why=banner)
     /** THE BANNER OPENS ITS CHAT (iOS didReceive → ui.openChat, atoms 4b49d03f071b, 86cef409a440): not the app's first page. */
-    private fun opening(c: Context, ref: String): PendingIntent = PendingIntent.getActivity(c, ref.hashCode(),
-        (c.packageManager.getLaunchIntentForPackage(c.packageName) ?: Intent()).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP).putExtra(EXTRA_CHAT, ref),
-        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+    private fun opening(c: Context, ref: String): PendingIntent {
+        val sys = NoticeAlias.of(ref)   // the tap names its chat by this phone's alias, read back in MainActivity.takeChat
+        return PendingIntent.getActivity(c, sys.hashCode(),
+            (c.packageManager.getLaunchIntentForPackage(c.packageName) ?: Intent()).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP).putExtra(EXTRA_CHAT, sys),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+    }
+    private const val LETTER = 1   // a letter's banner: one a chat, under the chat's alias as its tag
     private const val QUIET = "letters_quiet"
     fun letter(ref: String, text: String, who: String? = null, mid: String? = null, mentioned: Boolean = false) {
         val c = Book.ctx
@@ -271,7 +315,7 @@ object Notify {
                 .setContentText(c.getString(R.string.new_message))
                 .build())
             .build()
-        runCatching { nm.notify(ref.hashCode(), n) }
+        runCatching { nm.notify(NoticeAlias.of(ref), LETTER, n) }
         // the letter the banner speaks of: its deletion takes the banner off (withdraw); a call's or a game's banner names none
         if (mid != null) Prefs.setStr(NOTICE + ref, mid) else Prefs.remove(NOTICE + ref)
     }
@@ -315,9 +359,24 @@ object Notify {
                 .setContentText(c.getString(R.string.new_message))
                 .build())
             .build()
-        runCatching { nm.notify("pin:$ref", sid.hashCode(), n) }
+        runCatching { nm.notify("pin:" + NoticeAlias.of(ref), sid.hashCode(), n) }
     }
-    fun clear(ref: String) { Book.ctx.getSystemService(NotificationManager::class.java)?.cancel(ref.hashCode()); Prefs.remove(NOTICE + ref) }
+    fun clear(ref: String) {
+        val nm = Book.ctx.getSystemService(NotificationManager::class.java)
+        NoticeAlias.held(ref)?.let { nm?.cancel(it, LETTER) }
+        nm?.cancel(ref.hashCode())   // a banner of the builds before, under the link's own number
+        Prefs.remove(NOTICE + ref)
+    }
+    /** The conversation left this device: every banner it named goes, the pins' and the keeper's too, and its alias with them. */
+    fun forget(ref: String) {
+        clear(ref)
+        val gone = (NoticeAlias.forget(ref) + ref).toSet()
+        val nm = Book.ctx.getSystemService(NotificationManager::class.java) ?: return
+        runCatching { nm.activeNotifications }.getOrNull()?.forEach { s ->
+            val t = s.tag ?: return@forEach
+            if (t in gone || t.substringAfter(':') in gone) nm.cancel(t, s.id)
+        }
+    }
     /**
      * MY DELETION WAS KEPT THERE (iOS presentKept, MontanaNotify.swift:348 at 2242; MTLevelAccess.keepDeleted 16.10.2026 No.72): the
      * keeper's own word -- the correspondent's name over the fact that the letter I deleted for everyone stays on their phone, and
@@ -355,7 +414,7 @@ object Notify {
                 .build())
             .build()
         android.util.Log.d("Montana", "notify kind=kept from=" + ref.take(10))
-        runCatching { nm.notify("kept:$ref", 0, n) }
+        runCatching { nm.notify("kept:" + NoticeAlias.of(ref), 0, n) }
     }
     /** The level that opens «Forbid deletion on my phone» (iOS MTLevelAccess.Feature.keepDeleted.level). */
     const val KEEP_DELETED_LEVEL = 7

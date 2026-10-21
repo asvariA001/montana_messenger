@@ -96,7 +96,7 @@ class MainActivity : Activity() {
      * takes the call first, the microphone asked once.
      */
     private fun takeCall(i: Intent?): Boolean {
-        val ref = i?.getStringExtra(Calls.EXTRA_REF) ?: return false
+        val ref = i?.getStringExtra(Calls.EXTRA_REF)?.let(NoticeAlias::open) ?: return false
         val answer = i.getBooleanExtra(Calls.EXTRA_ANSWER, false)
         i.removeExtra(Calls.EXTRA_REF)
         if (hasSeed && termsAccepted && Book.chat(ref) != null) push { close -> conversationPage(this, ref, close) }
@@ -127,7 +127,7 @@ class MainActivity : Activity() {
      * stamped for the diary (notif_tap), the conversation's appearance reads the stamp (chat_open why=banner ms=…).
      */
     private fun takeChat(i: Intent?): Boolean {
-        val ref = i?.getStringExtra(Notify.EXTRA_CHAT) ?: return false
+        val ref = i?.getStringExtra(Notify.EXTRA_CHAT)?.let(NoticeAlias::open) ?: return false
         i.removeExtra(Notify.EXTRA_CHAT)
         Notify.tappedAt = android.os.SystemClock.elapsedRealtime()
         android.util.Log.d("Montana", "notif_tap chat=" + ref.take(10) + " same=" + (if (Book.openChat == ref) 1 else 0))
