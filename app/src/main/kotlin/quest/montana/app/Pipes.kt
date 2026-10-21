@@ -10,6 +10,8 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
 import java.util.UUID
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
 
 // ─────────────────────────── the wire (iOS MTNodeWire, MTPipe) ───────────────────────────
 
@@ -119,23 +121,84 @@ object Wire {
         return null
     }
 
-    /** mid‖0‖text‖0‖name‖0‖glyph‖0… — up to seven fields, the last one whole (iOS parseLetterFields). */
+    /** mid‖0‖text‖0‖name‖0‖glyph‖0‖quote‖0‖quoted mid‖0‖card‖0‖author — eight fields, an absent one empty (iOS MTNodeWire.letterFields). */
     fun fields(plain: ByteArray, from: Int = 0): List<String> {
-        val out = ArrayList<String>(7)
+        val out = ArrayList<String>(AUTHOR_FIELDS + 1)
         var i = from
-        while (out.size < 7) {
+        while (out.size <= AUTHOR_FIELDS) {
             var z = i
             while (z < plain.size && plain[z] != 0.toByte()) z++
             out.add(String(plain, i, z - i, Charsets.UTF_8))
             if (z >= plain.size) break
             i = z + 1
         }
-        while (out.size < 7) out.add("")
+        while (out.size <= AUTHOR_FIELDS) out.add("")
         return out
     }
 
     /** One size for every envelope — the node cannot tell letter lengths apart (iOS envelopeSize). */
     const val ENVELOPE = 2048
+
+    /**
+     * THE LETTER'S AUTHOR IS THE PERSON, NOT THE DEVICE (iOS MTNodeWire.authorTag, withAuthor, authorHolds; cd109c31): a pipe's
+     * secret is held by every device of one person and by the correspondent, and a letter named no author -- the words of my
+     * other device reached me on the same pipe as the correspondent's and stood as theirs. The eighth field is HMAC-SHA-256 under
+     * the person's author key (LetterAuthor) over «mt-letter-author» 0 ‖ the pipe's raw secret ‖ mid ‖ 0 ‖ the words as they ride,
+     * cut to sixteen bytes in base64. The correspondent holds sixteen bytes it can neither open nor make; an older build reads seven.
+     */
+    const val AUTHOR_FIELDS = 7   // the fields before the author: mid, text, name, glyph, quote, quoted mid, card
+    fun authorTag(key: ByteArray, secret: ByteArray, mid: String, text: String): String {
+        val mac = Mac.getInstance("HmacSHA256").apply { init(SecretKeySpec(key, "HmacSHA256")) }
+        val m = d("mt-letter-author") + secret + mid.toByteArray() + byteArrayOf(0) + text.toByteArray()
+        return Base64.encodeToString(mac.doFinal(m).copyOf(16), Base64.NO_WRAP)
+    }
+    /** Whether a letter's author field is this person's: the tag made again under this person's key, compared in constant time. */
+    fun authorHolds(tag: String, key: ByteArray?, secret: ByteArray, mid: String, text: String): Boolean {
+        if (key == null || key.size != 32 || tag.isEmpty()) return false
+        val got = runCatching { Base64.decode(tag, Base64.NO_WRAP) }.getOrNull()?.takeIf { it.size == 16 } ?: return false
+        val want = Base64.decode(authorTag(key, secret, mid, text), Base64.NO_WRAP)
+        var diff = 0
+        for (i in 0 until 16) diff = diff or (got[i].toInt() xor want[i].toInt())
+        return diff == 0
+    }
+    /** The body with the author's field: every field before it closed and the empty ones written, so the tag stands eighth
+     *  whatever the letter carries; a body that would outgrow the envelope rides without it. */
+    fun withAuthor(body: ByteArray, key: ByteArray?, secret: ByteArray, mid: String, text: String): ByteArray {
+        if (key == null || key.size != 32) return body
+        var b = body
+        if (b.isNotEmpty() && b.last() != 0.toByte()) b += byteArrayOf(0)
+        val closed = b.count { it == 0.toByte() }
+        if (closed > AUTHOR_FIELDS) return body
+        b += ByteArray(AUTHOR_FIELDS - closed)
+        b += authorTag(key, secret, mid, text).toByteArray() + byteArrayOf(0)
+        return if (b.size <= ENVELOPE) b else body
+    }
+    /**
+     * The author's vectors, derived apart from this code (python hmac): key = bytes 0..31, secret = bytes 32..63. They reject a tag
+     * without its domain (N7afF/Hi…), plain SHA-256 in place of the HMAC (87X47Wdd…), mid and words swapped, no zero between mid
+     * and words («ab», «c» and «a», «bc» would both be y6GqbLv5…), the URL alphabet (the first vector carries «/»), words read other
+     * than UTF-8 (the Cyrillic one); the body's vectors reject a tag that is not the eighth field or rides past the envelope.
+     */
+    fun authorAgreesWithCanon(): Boolean {
+        val k = ByteArray(32) { it.toByte() }
+        val s = ByteArray(32) { (32 + it).toByte() }
+        val a = "t1760000000000-A"
+        val tag = authorTag(k, s, a, "hello")
+        val head = (a + "\u0000hello\u0000\u0000\u0000").toByteArray()
+        val signed = withAuthor(head, k, s, a, "hello")
+        val carded = withAuthor((a + "\u0000hello\u0000\u0000\u0000\u0000\u0000{\"u\":1}").toByteArray(), k, s, a, "hello")
+        val big = head + ByteArray(ENVELOPE - head.size - 10) { 0x41.toByte() }
+        return tag == "BlkjB/780CuSnoy9yO1MCg=="
+            && authorTag(k, s, "hello", a) == "ccFvBbdQCRxil2lLe0NGfw=="
+            && authorTag(k, s, "ab", "c") == "AmHB/IBs8lxFI/6uUuKpRg=="
+            && authorTag(k, s, "a", "bc") == "gLG9utiVXFsSGWjgeQwT6A=="
+            && authorTag(k, s, a, "Привет") == "zueZYAzrw98jjZrbBUVPdw=="
+            && authorHolds(tag, k, s, a, "hello") && !authorHolds(tag, k, s, a, "hello!") && !authorHolds("", k, s, a, "hello")
+            && fields(signed)[1] == "hello" && fields(signed)[7] == tag && signed.size == head.size + 3 + tag.length + 1
+            && fields(carded)[6] == "{\"u\":1}" && fields(carded)[7] == tag
+            && withAuthor(big, k, s, a, "hello").contentEquals(big)
+            && withAuthor(head, null, s, a, "hello").contentEquals(head)
+    }
 
     /**
      * The iOS vectors (MontanaWakePush.agreesWithCanon, MTPipe body key and walk). The wake and seal vectors stand on the raw
@@ -1076,6 +1139,9 @@ object Post {
         // reference filed so stood as a loading row and was healed into the face's base64 as text (MontanaChatStore.swift:3295-3307;
         // A1 to an iPhone 10.10.2026 22:03-22:28, the author's word: make it never repeat). A long letter rides the box alone.
         if (!text.startsWith(Marks.LONG)) Channels.lay(secret, mid, body)
+        // THE PERSON SIGNS THE LETTER AS ITS AUTHOR (iOS sealLetterEnvelope, MontanaWakePush.swift:1555): after the card, before the
+        // padding, over the words as they ride (a long letter's reference); the live road above rides unsigned, as iOS lays it.
+        body = Wire.withAuthor(body, LetterAuthor.key, secret, mid, text)
         val plain = body + ByteArray(Wire.ENVELOPE - body.size)
         val cw = Wire.convW(secret, Wire.day())
         // a service word asks the node for a silent push (iOS wake: body["silent"]), judged by its words, not by a long letter's reference
@@ -1278,6 +1344,7 @@ object Post {
     private fun fetchOnce() {
         if (!Wire.agreesWithCanon()) { Log.e("Montana", "box: the wire disagrees with the canon — nothing is read"); return }
         val twin = MontanaSeed.twin ?: return
+        LetterAuthor.await()   // the author's key stands before a letter is told mine or theirs (iOS MontanaWakePush.swift:861)
         val secretOf = HashMap<String, ByteArray>()
         val invOf = HashMap<String, String>()
         val chatOf = HashMap<String, String>()
@@ -1430,8 +1497,13 @@ object Post {
         // like a block, both here and at the root a folded pipe speaks for.
         if (PeerSafety.isBlocked(ref) || PeerSafety.isBlocked(SamePair.root(ref)) ||
             PeerSafety.isBarred(ref) || PeerSafety.isBarred(SamePair.root(ref))) return true
-        Meeting.firstDone(ref)   // a word sealed under the pipe by the other side: the introduction is over
-        Channels.heard(ref)   // the pipe lives: the moment to name my own address when no road of mine reaches them (iOS ChatStore 3976-3986)
+        // THE PERSON'S OWN LETTER IS TOLD AT ITS OPENING (iOS MTNodeWire.authorHolds, MontanaWakePush.swift:2768), by the words as
+        // they rode -- a long letter's words change at its landing, its author field does not. The live road carries no tag.
+        val own = f[7].isNotEmpty() && Book.secret(ref)?.let { Wire.authorHolds(f[7], LetterAuthor.key, it, f[0], f[1]) } == true
+        if (!own) {
+            Meeting.firstDone(ref)   // a word sealed under the pipe by the other side: the introduction is over
+            Channels.heard(ref)   // the pipe lives: the moment to name my own address when no road of mine reaches them (iOS ChatStore 3976-3986)
+        }
         var text = f[1]
         if (text.startsWith(Marks.LONG)) {
             // THE LETTER KEEPS ITS OWN HOUR (iOS lbDueNow 2672-2681): a pickup asks only a letter whose hour has come
@@ -1441,8 +1513,35 @@ object Post {
             lbForget(f[0])
             text = words.ifEmpty { text }
         }
+        if (own) { landOwn(SamePair.root(ref), f[0], text, f[4].ifEmpty { null }, f[5].ifEmpty { null }, f[6].ifEmpty { null }); return true }
         place(ref, f[0], text, f[2], f[4].ifEmpty { null }, f[5].ifEmpty { null }, f[6].ifEmpty { null })
         return true
+    }
+
+    /**
+     * A LETTER OF THIS PERSON'S OTHER DEVICE LANDS AS MINE (iOS MontanaDeliveryEngine.landOwn, cd109c31): a row on my side, «sent»
+     * until the correspondent's receipt moves it -- no banner, no receipt, no correspondent's name or face. A word that changes no
+     * row (a name, a face, a receipt, presence, a ring) is that device's word to the correspondent, applied to nobody here. A coin
+     * letter lands nowhere: its coins left the other device's book, and a row here would give them back to this one in a day
+     * (CoinSend.expire) -- coins move only by Anna's word.
+     */
+    private fun landOwn(ref: String, mid: String, text: String, qt: String?, qm: String?, lp: String?) {
+        val row = !Marks.isService(text) || text.startsWith(Marks.MEDIA) || text.startsWith(Marks.VOICE) || text.startsWith(Marks.STICKER)
+        if (!row || CoinLetter.parse(text) != null) {
+            Log.d("Montana", "rx_own m=" + mid.take(8) + " a word of another device of these words -- applied to nobody"); return
+        }
+        val gone = Book.isBuried(ref, mid) || Book.diedBefore(ref, mid)
+        var landed = false
+        Book.edit(ref) { c ->
+            if (!gone && c.msgs.none { it.mid == mid }) {
+                c.msgs.add(Msg(mid, text, true, Marks.birthMs(mid) ?: System.currentTimeMillis(), state = 1, qt = qt, qm = qm,
+                    lp = lp?.takeIf { LinkCard.parse(it) != null }))
+                c.msgs.sortBy { it.at }
+                landed = true
+            }
+        }
+        Log.d("Montana", "rx_own m=" + mid.take(8) + " landed=" + (if (landed) 1 else 0) + (if (gone) " buried here" else ""))
+        if (landed && text.startsWith(Marks.MEDIA)) Media.fetch(Book.ctx, ref, mid, text, manual = true, own = true)
     }
 
     private fun place(ref: String, mid: String, text: String, name: String, qt: String?, qm: String?, lp: String? = null) {

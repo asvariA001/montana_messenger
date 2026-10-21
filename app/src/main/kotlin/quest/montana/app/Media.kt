@@ -445,7 +445,7 @@ object Media {
         fetch(c, ref, m.mid, m.text, manual = true)
     }
 
-    fun fetch(c: Context, ref: String, mid: String, text: String, manual: Boolean = false) {
+    fun fetch(c: Context, ref: String, mid: String, text: String, manual: Boolean = false, own: Boolean = false) {
         if (!manual && !autoAllowed(c)) { Log.d("Montana", "media: automatic download is off -- the attachment waits for a tap"); return }
         synchronized(inFlight) {
             val now = System.currentTimeMillis()
@@ -465,7 +465,7 @@ object Media {
                     // THE ROW STAYS, THE SENDER IS TOLD (iOS MontanaChatStore 4635-4649, atom aeabdc576605): a cargo every store called
                     // gone is knowledge -- the bubble stands without its file and the sender hears it once; a silent store is no verdict
                     val chunks = man.optJSONArray("chunks")
-                    if (!Groups.isKey(ref) && chunks != null && (0 until chunks.length()).any { Wire.isGone(chunks.getJSONObject(it).optString("bid")) }) Post.cargoLost(ref, mid)
+                    if (!own && !Groups.isKey(ref) && chunks != null && (0 until chunks.length()).any { Wire.isGone(chunks.getJSONObject(it).optString("bid")) }) Post.cargoLost(ref, mid)
                     return@Thread
                 }
                 Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.let { it.file = dest.path; it.meta = man.toString() } }
@@ -474,7 +474,8 @@ object Media {
                 // picture, since Stickers.add names a sticker by its own bytes and moves a known one to the front.
                 if (man.optString("n") == Stickers.CARD) runCatching { Stickers.add(c, dest.readBytes(), dest.extension) }
                 // a group's copy was receipted by the group (Groups.handle), and its pieces serve every other member of it
-                if (!Groups.isKey(ref)) { Post.receiptFor(ref, mid); drop(man) }
+                // my other device's letter (Post.landOwn): the correspondent still fetches these pieces, the receipt is theirs to give
+                if (!own && !Groups.isKey(ref)) { Post.receiptFor(ref, mid); drop(man) }
             } catch (e: Exception) { Log.w("Montana", "media fetch: ${e.javaClass.simpleName}") }
             finally { Transfers.set(mid, null); synchronized(inFlight) { inFlight.remove(mid) } }
         }.start()
