@@ -1877,10 +1877,6 @@ struct MTTimeChainsPage: View {
     }
 }
 
-/// EVERY ROAD OF THE COINS, SAID WHERE THE COINS ARE (the author's words 08.10.2026 02:2x MSK: «everything explicit, crystal clear»;
-/// App Review 2.3.1(a)): how coins come and how they go, each rule as the code keeps it -- the Pantheon (MTPantheon), the auto
-/// minting (MTWalletPull), the Money Flow and the ordinary chat (MTChatMint, MTCoinSend.pay, MTCallMint), people, comments, chess --
-/// and what the coins are not. One list for the wallet's page and the Top up sheet.
 /// The wallet reads the one owner of a second's coin (MTCoinBook.price), the same the book mints by.
 /// The player's face changes only with playback state, never with its progress clock.
 struct MTCurrentMintRate: View {
@@ -1891,32 +1887,15 @@ struct MTCurrentMintRate: View {
     }
 }
 
+/// ONE COIN, ONE SECOND -- ALL THE TOP UP SAYS (the author's word 21.10.2026 17:3x MSK: «on the Top up button on the coins page the
+/// information is old -- leave only 1 coin - 1 second, \"Live here and now\"»): only the core mints, by the seconds a person lives
+/// (COIN-TX-V3 section 4, fold-6), so the sheet names the rule and nothing that would mint beside it.
 struct MTCoinRules: View {
     var body: some View {
         Section {
-            MTCurrentMintRate().monospacedDigit()
-            Text("All minting together never exceeds one coin a second. Your level and music do not change it.")
-        } header: { Text("Your minting rate now") }
-        Section {
-            Label("Audio and video calls with recording earn coins. Calls without recording burn coins at the same current rate for every full second after connection.", systemImage: "phone")
-            Text("Each participant is counted separately by the recording on their device. Recording starts counting when audio is captured; switching it off or a recording failure switches the following seconds to burning.")
-            Text("A call shares the same one coin a second with all other minting. The call record shows your total: a plus for coins earned, a minus for coins burned. Ringing and missed calls cost nothing. An empty balance does not stop the call or create debt.")
-        } header: { Text("Calls and recording") }
-        Section {
-            Label("Tap the coin on the Time Coins page to mint. Taps share the same one coin a second. After a minute of tapping, the game rests for a minute.", systemImage: "hand.tap")
-            Label("Hold the coin for 9 seconds or pull down the Time Coins page to start auto minting. It stops when you leave that page or lock the screen.", systemImage: "arrow.down.circle")
-            Label("Messages you send and receive earn coins within the same one coin a second. Transfers and call records do not mint again as messages.", systemImage: "bubble.left.and.bubble.right")
-            Label("In groups and channels, text messages longer than 13 characters earn coins within the same one coin a second.", systemImage: "person.3")
-            Label("An active VPN connection earns coins for the seconds it works.", systemImage: "network")
-        } header: { Text("More ways to mint") }
-        Section {
-            Label("Chess moves add coins to the prize within the same one coin a second. The winner takes the prize; a draw returns each player's share. A stake is optional.", systemImage: "checkerboard.rectangle")
-            Label("In Chess Timer, coins grow while your opponent thinks.", systemImage: "timer")
-            Label("Someone can send you coins in a chat. These coins come from that person.", systemImage: "person.2")
-        } header: { Text("Games and transfers") }
-        Section {
-            Text("Coins cannot be bought, sold or exchanged for money in the app. Your currency estimate is only a calculation based on the earnings you entered.")
-        } header: { Text("About money") }
+            Text("1 coin — 1 second").font(.title3.weight(.semibold))
+            Text("Live here and now")
+        }
     }
 }
 

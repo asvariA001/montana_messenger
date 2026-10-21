@@ -27015,230 +27015,6 @@
         }
       }
     },
-    "Your minting rate now": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ваш курс чеканки сейчас"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "当前铸币速度"
-          }
-        }
-      }
-    },
-    "All minting together never exceeds one coin a second. Your level and music do not change it.": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Вся чеканка вместе не превышает одной монеты в секунду. Уровень и музыка её не меняют."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "所有铸币合计每秒不超过一枚硬币。等级和音乐不会改变这一点。"
-          }
-        }
-      }
-    },
-    "More ways to mint": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Другие способы чеканки"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "更多铸币方式"
-          }
-        }
-      }
-    },
-    "Tap the coin on the Time Coins page to mint. Taps share the same one coin a second. After a minute of tapping, the game rests for a minute.": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Нажимайте на монету на странице «Монеты Времени», чтобы чеканить. Нажатия делят ту же одну монету в секунду. После минуты нажатий игра отдыхает минуту."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在“时间币”页面点击硬币即可铸币。点击共享同一个每秒一枚硬币。连续点击一分钟后，游戏休息一分钟。"
-          }
-        }
-      }
-    },
-    "Hold the coin for 9 seconds or pull down the Time Coins page to start auto minting. It stops when you leave that page or lock the screen.": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Удерживайте монету 9 секунд или потяните страницу «Монеты Времени» вниз — начнётся автоматическая чеканка. Она остановится, когда вы уйдёте со страницы или заблокируете экран."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "按住硬币9秒，或下拉“时间币”页面，即可自动铸币。离开页面或锁屏时停止。"
-          }
-        }
-      }
-    },
-    "Messages you send and receive earn coins within the same one coin a second. Transfers and call records do not mint again as messages.": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Отправленные и полученные сообщения приносят монеты в пределах той же одной монеты в секунду. Переводы и записи звонков не чеканят повторно как сообщения."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "发送和接收消息在同一个每秒一枚硬币之内赚币。转账和通话记录不会作为消息重复铸币。"
-          }
-        }
-      }
-    },
-    "In groups and channels, text messages longer than 13 characters earn coins within the same one coin a second.": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "В группах и каналах текстовые сообщения длиннее 13 символов приносят монеты в пределах той же одной монеты в секунду."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在群组和频道中，超过13个字符的文字消息在同一个每秒一枚硬币之内赚币。"
-          }
-        }
-      }
-    },
-    "An active VPN connection earns coins for the seconds it works.": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Работающее VPN-соединение приносит монеты за время работы."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "有效的 VPN 连接按工作秒数赚币。"
-          }
-        }
-      }
-    },
-    "Games and transfers": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Игры и переводы"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "游戏和转账"
-          }
-        }
-      }
-    },
-    "Chess moves add coins to the prize within the same one coin a second. The winner takes the prize; a draw returns each player's share. A stake is optional.": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "В шахматах ходы пополняют приз в пределах той же одной монеты в секунду. Победитель получает приз; при ничьей каждому возвращается его доля. Ставка необязательна."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "棋步在同一个每秒一枚硬币之内增加奖金。胜者获得奖金；和棋时各自收回自己的份额。下注可选。"
-          }
-        }
-      }
-    },
-    "In Chess Timer, coins grow while your opponent thinks.": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "В «Шахматном таймере» монеты растут, пока думает соперник."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在“棋钟”中，对手思考时您会获得时间币。"
-          }
-        }
-      }
-    },
-    "Someone can send you coins in a chat. These coins come from that person.": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Другой человек может перевести вам монеты в чате — со своего баланса."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "他人可以在聊天中向您转账，时间币从对方余额中扣除。"
-          }
-        }
-      }
-    },
-    "About money": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "О деньгах"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "关于金钱"
-          }
-        }
-      }
-    },
-    "Coins cannot be bought, sold or exchanged for money in the app. Your currency estimate is only a calculation based on the earnings you entered.": {
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "В приложении нельзя купить, продать или обменять монеты на деньги. Сумма в выбранной валюте — лишь ваша оценка по указанному вами заработку."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "应用内不能用现金买卖或兑换时间币。所选货币金额仅根据您填写的收入估算。"
-          }
-        }
-      }
-    },
     "Update Montana": {
       "localizations": {
         "ru": {
@@ -27452,98 +27228,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "通话录制暂时无法保存。返回应用时，Montana 将重试。"
-          }
-        }
-      }
-    },
-    "Audio and video calls with recording earn coins. Calls without recording burn coins at the same current rate for every full second after connection.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Audio and video calls with recording earn coins. Calls without recording burn coins at the same current rate for every full second after connection."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Аудио- и видеозвонки с записью приносят монеты. Без записи монеты сжигаются по тому же текущему курсу за каждую полную секунду после соединения."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "录音或录像的语音和视频通话赚取金币；未录制的通话按相同当前费率销毁金币，从接通后每个完整秒开始计算。"
-          }
-        }
-      }
-    },
-    "Each participant is counted separately by the recording on their device. Recording starts counting when audio is captured; switching it off or a recording failure switches the following seconds to burning.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Each participant is counted separately by the recording on their device. Recording starts counting when audio is captured; switching it off or a recording failure switches the following seconds to burning."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Для каждого участника расчёт отдельный — по записи на его устройстве. Начисление начинается с захватом звука; отключение или сбой записи переводят следующие секунды на сжигание."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "每位参与者按自己设备上的录制情况单独计算。实际采集到声音后开始赚取金币；关闭录制或录制失败后，接下来的秒数改为销毁金币。"
-          }
-        }
-      }
-    },
-    "A call shares the same one coin a second with all other minting. The call record shows your total: a plus for coins earned, a minus for coins burned. Ringing and missed calls cost nothing. An empty balance does not stop the call or create debt.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A call shares the same one coin a second with all other minting. The call record shows your total: a plus for coins earned, a minus for coins burned. Ringing and missed calls cost nothing. An empty balance does not stop the call or create debt."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Звонок делит одну монету в секунду со всей остальной чеканкой. В записи звонка показан итог: плюс — заработанные монеты, минус — сожжённые. Гудки и пропущенные звонки ничего не стоят. Пустой баланс не прерывает звонок и не создаёт долга."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "通话与其他所有铸币共享每秒一枚硬币。通话记录显示您的净额：正数表示赚取，负数表示销毁。等待接听和未接通话不收费。余额为零不会中断通话，也不会产生欠款。"
-          }
-        }
-      }
-    },
-    "Calls and recording": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Calls and recording"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Звонки и запись"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "通话与录制"
           }
         }
       }
@@ -30484,6 +30168,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "未识别到语音"
+          }
+        }
+      }
+    },
+    "1 coin — 1 second": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 монета — 1 секунда"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 枚币 — 1 秒"
+          }
+        }
+      }
+    },
+    "Live here and now": {
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Живи здесь и сейчас"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "活在此时此地"
           }
         }
       }
