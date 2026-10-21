@@ -578,6 +578,7 @@ object Book {
         m[ref] = secret
         val o = JSONObject(); m.forEach { (k, v) -> o.put(k, Base64.encodeToString(v, Base64.NO_WRAP)) }
         if (!DeviceVault.set(SECRETS, o.toString().toByteArray())) { m.remove(ref); return null }
+        markErased(listOf(ref), false)   // the pipe born again (iOS: a scan clears the deletion)
         Archive.head(ref)   // the pipe is born: its folder and its secret's head are sealed now (iOS MTPipe 432)
         ref
     }
@@ -620,7 +621,7 @@ object Book {
 
     fun open(ref: String, name: String, perm: Boolean): Chat = synchronized(lock) {
         ensure()
-        chats[ref] ?: Chat(ref, name, perm).also { chats[ref] = it; save(it); saveIndex() }
+        chats[ref] ?: Chat(ref, name, perm).also { chats[ref] = it; save(it); saveIndex(); markErased(listOf(ref), false) }   // born again: no longer erased
     }.also { changed() }
 
     /**
@@ -744,11 +745,39 @@ object Book {
         mids.forEach { Notify.withdraw(ref, it) }   // a letter deleted for me is a letter gone too: its banner leaves (iOS 5a82f7cb)
     }
 
+    /**
+     * THE CONVERSATIONS ERASED HERE (iOS ChatStore.deletedChats, its keychain mirror deletedCold; 44f44060, the critic B-4): a chat
+     * forgotten on this phone stays named here until a chat of that reference is born again, so a block of its history my other
+     * device laid before it heard of the deletion is not filed back (Archive.absorb). The newest 4096 stand.
+     */
+    private const val ERASED = "erasedChats"
+    private const val ERASED_CAP = 4096
+    private var erased: LinkedHashSet<String>? = null
+    private var erasedHashes: Set<String>? = null
+    private fun erasedSet(): LinkedHashSet<String> = erased ?: LinkedHashSet<String>().also { s ->
+        DeviceVault.get(ERASED)?.let { b -> runCatching { val a = JSONArray(String(b, Charsets.UTF_8)); for (i in 0 until a.length()) s.add(a.getString(i)) } }
+        erased = s
+    }
+    private fun markErased(refs: Collection<String>, on: Boolean) {
+        val s = erasedSet()
+        val changed = if (on) { refs.forEach { s.remove(it); s.add(it) }; refs.isNotEmpty() } else s.removeAll(refs.toSet())
+        if (!changed) return
+        while (s.size > ERASED_CAP) s.remove(s.first())
+        DeviceVault.set(ERASED, JSONArray(s.toList()).toString().toByteArray())
+        erasedHashes = null
+    }
+    /** A block names its conversation by the hash of the reference (Archive.conv): the erased set is asked by that hash. */
+    fun erasedHere(convHex: String): Boolean = synchronized(lock) {
+        val h = erasedHashes ?: erasedSet().mapTo(HashSet()) { Wire.hex(Wire.sha(it.toByteArray())) }.also { erasedHashes = it }
+        convHex in h
+    }
+
     /** A chat deleted here (and its pipe with it — iOS MTPipeBook.forget), with every pipe folded into it. */
     fun forget(ref: String) {
         val dead = listOf(ref) + SamePair.folded(ref)
         synchronized(lock) {
             ensure(); chats.remove(ref); DeviceVault.delete("chat:$ref"); saveIndex()
+            markErased(dead, true)
             val m = sec(); dead.forEach { m.remove(it); Meeting.forget(it) }
             val o = JSONObject(); m.forEach { (k, v) -> o.put(k, Base64.encodeToString(v, Base64.NO_WRAP)) }
             DeviceVault.set(SECRETS, o.toString().toByteArray())
@@ -1526,6 +1555,7 @@ object Post {
      * (CoinSend.expire) -- coins move only by Anna's word.
      */
     private fun landOwn(ref: String, mid: String, text: String, qt: String?, qm: String?, lp: String?) {
+        if (landOwnDeletion(ref, mid, text)) return
         val row = !Marks.isService(text) || text.startsWith(Marks.MEDIA) || text.startsWith(Marks.VOICE) || text.startsWith(Marks.STICKER)
         if (!row || CoinLetter.parse(text) != null) {
             Log.d("Montana", "rx_own m=" + mid.take(8) + " a word of another device of these words -- applied to nobody"); return
@@ -1542,6 +1572,34 @@ object Post {
         }
         Log.d("Montana", "rx_own m=" + mid.take(8) + " landed=" + (if (landed) 1 else 0) + (if (gone) " buried here" else ""))
         if (landed && text.startsWith(Marks.MEDIA)) Media.fetch(Book.ctx, ref, mid, text, manual = true, own = true)
+    }
+
+    /**
+     * A DELETION IS AN EVENT OF THE SEED'S CHAIN (iOS MontanaDeliveryEngine.landOwnDeletion, 44f44060; the critic B-4): my other
+     * device took a letter away for everyone, or the whole conversation, and its word reached here signed by these words. Applied to
+     * nobody, the conversation stood on this phone after the other had erased it. The word walks the hand's own road here -- the
+     * letter's grave and its row, the conversation's funeral -- and nothing is said to the correspondent again: that device said it.
+     */
+    private fun landOwnDeletion(ref: String, mid: String, text: String): Boolean {
+        if (text.startsWith(Marks.DELETE)) {
+            val d = text.removePrefix(Marks.DELETE).removePrefix("mid:")
+            if (d.isEmpty()) return true
+            // a coin letter of mine on its way keeps its row whoever asks (iOS deleteLocally 122-128: every door asks first)
+            if (Book.chat(ref)?.msgs?.find { it.mid == d }?.let { CoinSend.travels(it) } == true) Log.d("Montana", "rx_own m=" + d.take(8) + " a coin letter on its way -- kept")
+            else Book.drop(ref, listOf(d))
+            Log.d("Montana", "rx_own m=" + mid.take(8) + " a deletion of another device of these words, applied here kind=letter")
+            return true
+        }
+        if (text.startsWith(CONVDEL_MARK)) {
+            // its moment first, so a letter born before it stands nothing again (iOS 876ab288); a coin letter of mine not proven
+            // delivered gives its coins back before its row goes (iOS removeConversationLocally 3484)
+            Marks.birthMs(mid)?.let { Book.noteFuneral(ref, it) }
+            Book.chat(ref)?.msgs?.toList()?.forEach { CoinSend.release(it, ref) }
+            buryChat(ref)
+            Log.d("Montana", "rx_own m=" + mid.take(8) + " a deletion of another device of these words, applied here kind=conversation")
+            return true
+        }
+        return false
     }
 
     private fun place(ref: String, mid: String, text: String, name: String, qt: String?, qm: String?, lp: String? = null) {

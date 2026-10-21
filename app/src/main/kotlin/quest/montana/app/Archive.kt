@@ -369,10 +369,18 @@ object Archive {
      * by the core, which drops a block it already holds, into the folder its conversation is filed under, and that folder is read
      * into the feed again. False: the piece belongs to another road and is left untouched.
      */
+    @Volatile private var refusedAt = 0L
     fun absorb(sealed: ByteArray): Boolean {
         val k = keys() ?: return false
         val conv = MtBindings.nativeArchivePeekConv(k.hk, k.owner, sealed) ?: return false
         val c = Wire.hex(conv)
+        // A BLOCK OF A CONVERSATION ERASED HERE IS TAKEN AND NOT FILED (iOS absorb deletedHere, 44f44060; the critic B-4): my other
+        // device's blocks, laid before it heard of the deletion, came back by the twin's road and stood the conversation again
+        if (Book.erasedHere(c)) {
+            val now = System.currentTimeMillis()
+            if (now - refusedAt >= 60_000) { refusedAt = now; Log.d("Montana", "archive_refused a block of a deleted conversation is not filed") }
+            return true
+        }
         val folder = map(FOLDERS).optString(c).ifEmpty { c }
         val base = root()?.path ?: return false
         val rc = MtBindings.nativeArchiveIngest(base, folder, k.hk, k.owner, sealed)
