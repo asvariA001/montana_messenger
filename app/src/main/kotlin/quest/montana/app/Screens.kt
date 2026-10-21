@@ -31,6 +31,9 @@ object SelfFace {
     fun clear(ctx: Context) { file(ctx).delete(); changed() }
     /** The face as it travels (iOS avatarData): the JPEG itself, or null when there is none. */
     fun bytes(ctx: Context): ByteArray? = file(ctx).takeIf { it.exists() }?.readBytes()
+    /** THIS SEED'S OWN FACE IS NO CORRESPONDENT'S, WHATEVER DOOR BROUGHT IT (iOS MontanaSelfFace.isMine, 80a9490f): the one rule
+     * every writer of a correspondent's face asks. */
+    fun isMine(face: ByteArray): Boolean = bytes(Book.ctx)?.contentEquals(face) == true
 
     /** The picked photo, read for the crop: no side past 2048 pixels, so a camera original fits in memory. */
     fun decode(ctx: Context, uri: Uri): Bitmap? = try {

@@ -150,6 +150,13 @@ object PeerLinks {
     /** The last link they handed, whatever its day: the face their card wears on the node outlives the card's day (iOS
      * MTPeerLinks.any, MontanaE2E.swift:61, atom 796a76a34ae0). */
     fun any(ref: String): String? = all().optJSONObject(ref)?.optString("l")?.ifEmpty { null }
+    /** A link whose card wears this seed's own face is mine, noted off the shared pipe (iOS MTPeerLinks.forget, 80a9490f). */
+    @Synchronized fun forget(ref: String) {
+        val o = all()
+        if (o.remove(ref) == null) return
+        DeviceVault.set(KEY, o.toString().toByteArray(Charsets.UTF_8))
+        android.util.Log.d("Montana", "link_forget conv=" + ref.take(10) + " own card")
+    }
     fun wipe() = DeviceVault.delete(KEY)
     /** The links and the moments they were born, for a copy (iOS MTPeerLinks, MontanaE2E.swift 46-57: two sealed maps by conversation, «peerRdvLinks» and «.b»). */
     fun carried(): Pair<Map<String, String>, Map<String, Double>> {

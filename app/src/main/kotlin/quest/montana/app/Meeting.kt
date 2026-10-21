@@ -126,7 +126,7 @@ object Meeting {
      */
     fun healFace(ref: String, link: String) {
         val inv = invite(link) ?: return
-        Thread { face(inv)?.let { Book.face(ref).writeBytes(it); Book.edit(ref) {} } }.start()
+        Thread { wearCardFace(ref, inv) }.start()
     }
     /** A whole card in the link (the old long form montana://c/…): the key and the name themselves. */
     private fun longCard(link: String): ByteArray? {
@@ -171,7 +171,7 @@ object Meeting {
                         val nm = String(p, 1184, p.size - 1184, Charsets.UTF_8).trim()
                         if (nm.isNotEmpty() && Book.admitState(known, "name", 0L)) Book.edit(known) { it.name = stripCrown(nm) }
                     }
-                    face(inv)?.let { Book.face(known).writeBytes(it); Book.edit(known) {} }
+                    wearCardFace(known, inv)
                 }.start()
                 return Outcome.Opened(known)
             }
@@ -188,7 +188,7 @@ object Meeting {
             if (inv != null) synchronized(gate) { jsave(SCANS, jmap(SCANS).put(MontanaCard.b64url(inv), known)) }
             if (name.isNotEmpty() && Book.admitState(known, "name", 0L)) Book.edit(known) { it.name = stripCrown(name) }   // a card is undated: never over the peer's dated word
             // THE FACE RIDES BESIDE THE NAME ON THIS ROOT TOO (iOS fea4e68ea0da refaceFromCard:1174, the «card-book»/«root» branches).
-            if (inv != null) Thread { face(inv)?.let { Book.face(known).writeBytes(it); Book.edit(known) {} } }.start()
+            if (inv != null) Thread { wearCardFace(known, inv) }.start()
             return Outcome.Opened(known)
         }
         // One encapsulation, and the correspondence exists; the ciphertext waits for the first letter (iOS MontanaCard.meet).
@@ -204,7 +204,7 @@ object Meeting {
         }
         val perm = inv != null && isPermanent(inv)
         Book.open(ref, stripCrown(name), perm)
-        if (inv != null) Thread { face(inv)?.let { Book.face(ref).writeBytes(it); Book.edit(ref) {} } }.start()
+        if (inv != null) Thread { wearCardFace(ref, inv) }.start()
         Thread { layPipeFace(secret) }.start()
         // ONE PERSON, ONE CONVERSATION (iOS MTSamePair.ask): whether we already share a pipe is asked at once — the silent
         // first letter, which carries the card's ciphertext to its owner.
@@ -265,6 +265,12 @@ object Meeting {
     private fun face(inv: ByteArray): ByteArray? {
         val sealed = Wire.getBlob(MontanaCard.faceBid(inv)) ?: return null
         return Wire.open(MontanaCard.faceKey(inv), sealed)?.takeIf { it.isNotEmpty() && it.size <= 262_144 }
+    }
+    /** A CARD THAT WEARS MY FACE IS MINE (iOS refaceFromCard, 80a9490f): its link came by the pipe my other device shares with this
+     * correspondent and was noted as theirs; forgotten, it is neither read for a face again nor handed on as theirs. */
+    private fun wearCardFace(ref: String, inv: ByteArray) {
+        val f = face(inv) ?: return
+        if (SelfFace.isMine(f)) PeerLinks.forget(ref) else Book.setFace(ref, f)
     }
     /** Was the link a permanent one? The mark beside the card says so (iOS isPermanent). */
     private fun isPermanent(inv: ByteArray): Boolean {

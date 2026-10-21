@@ -746,6 +746,27 @@ object Book {
     fun myFace(ref: String) = File(File(ctx.filesDir, "faces").apply { mkdirs() }, "$ref.mine.jpg")
     /** The one face of a person, resolved in one place: mine, then theirs (iOS MTNameBook avatar resolution). */
     fun shownFace(ref: String): File = myFace(ref).takeIf { it.exists() } ?: face(ref)
+    /**
+     * THE ONE WRITER OF A CORRESPONDENT'S FACE REFUSES MY OWN (iOS setPeerAvatar, 80a9490f at 2242; No.61 dfd4c5dc): the pipe of a
+     * correspondence is shared by every device of my seed, so the face my other device announced or laid beside its card reached
+     * this one as the correspondent's. Whatever door brought it -- letter, card, pipe face, archive -- it is refused here.
+     * false: nothing was written.
+     */
+    fun setFace(ref: String, bytes: ByteArray): Boolean {
+        if (SelfFace.isMine(bytes)) { Log.d("Montana", "face_echo own face offered for " + ref.take(10) + " -- not theirs"); return false }
+        if (runCatching { face(ref).writeBytes(bytes) }.isFailure) return false
+        edit(ref) {}
+        return true
+    }
+    /** MY FACE LEAVES EVERY CORRESPONDENT THAT WEARS IT (iOS dropOwnFaceEchoes, dfd4c5dc): stored before the writer refused it, it
+     * goes, and each owner is asked for their own face from their card (healFacesFromCards). A group's picture is the group's. */
+    fun dropOwnFaceEchoes() {
+        val mine = SelfFace.bytes(ctx) ?: return
+        val echoes = refs().filter { r -> !Groups.isKey(r) && face(r).length() == mine.size.toLong() && runCatching { face(r).readBytes().contentEquals(mine) }.getOrDefault(false) }
+        if (echoes.isEmpty()) return
+        echoes.forEach { face(it).delete(); edit(it) {} }
+        Log.d("Montana", "face_echo dropped=" + echoes.size + " own faces worn by correspondents")
+    }
 
     /** My hand's name on every row here, null where it set none (iOS MTNameBook.manual — a copy carries it as «manualNames»). */
     fun pins(): Map<String, String?> = synchronized(lock) {
@@ -787,6 +808,7 @@ object Book {
      * their phone to wake and announce it again -- once a life per pipe, not on every redraw.
      */
     fun healFacesFromCards() {
+        dropOwnFaceEchoes()   // iOS loadFromDisk: dropOwnFaceEchoes, then healFacesFromCards
         var asked = 0
         for (ref in refs()) {
             if (Groups.isKey(ref) || face(ref).exists() || myFace(ref).exists()) continue
@@ -1538,7 +1560,7 @@ object Post {
             text.startsWith(Marks.AVATAR) -> {
                 val b64 = text.removePrefix(Marks.AVATAR)
                 val face = if (b64.isEmpty()) null else runCatching { Base64.decode(b64, Base64.DEFAULT) }.getOrNull()
-                if (face == null || face.isEmpty()) Book.face(ref).delete() else if (face.size <= 262_144) Book.face(ref).writeBytes(face)
+                if (face == null || face.isEmpty()) Book.face(ref).delete() else if (face.size <= 262_144) Book.setFace(ref, face)
                 Book.edit(ref) {}
                 receipt(ref, sid)
             }
@@ -1746,8 +1768,7 @@ object Post {
             val sealed = Wire.getBlob(bid) ?: continue
             val face = Wire.open(key, sealed) ?: return
             if (face.isEmpty() || face.size > 262_144) return
-            Book.face(ref).writeBytes(face)
-            Book.edit(ref) {}
+            Book.setFace(ref, face)
             return
         }
     }

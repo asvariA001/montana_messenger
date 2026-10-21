@@ -320,7 +320,7 @@ object Archive {
             val r0 = ref
             if (r0 != null && !Book.face(r0).isFile) {
                 val base = root()?.path
-                if (base != null) MtBindings.nativeArchiveGetMedia(base, folder, FACE, k.mk, k.owner)?.takeIf { it.isNotEmpty() }?.let { Book.face(r0).writeBytes(it); faces++ }
+                if (base != null) MtBindings.nativeArchiveGetMedia(base, folder, FACE, k.mk, k.owner)?.takeIf { it.isNotEmpty() }?.let { if (Book.setFace(r0, it)) faces++ }
             }
             chats++; added += built.size
         }
