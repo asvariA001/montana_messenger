@@ -2,6 +2,16 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
+## 1.0 (2272) - 2026-10-21
+
+Source commit `75e6afd6c837`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2272.md).
+
+- Top up now says only what is true: 1 coin is 1 second. Live here and now.
+
+**Security and anonymity**
+
+- Nothing changes in what is stored or sent: only the text of the Top up sheet is shorter.
+
 ## 1.0 (2271) - 2026-10-21
 
 Source commit `5e38c1985e61`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2271.md).
