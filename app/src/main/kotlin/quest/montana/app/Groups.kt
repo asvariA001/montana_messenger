@@ -337,8 +337,7 @@ object Groups {
             val g = state(key) ?: return
             if (g.left || (g.kind != GROUP && !g.mine) || !isLetterName(mid)) return
             if (Book.chat(key)?.msgs?.any { it.mine && it.mid == mid } != true) return
-            val tx = card.json().takeIf { it.toByteArray().size <= CARD_LIMIT }
-                ?: card.json(withPicture = false).takeIf { it.toByteArray().size <= CARD_LIMIT } ?: return
+            val tx = LinkPreview.fitting(card.json())?.takeIf { it.toByteArray().size <= CARD_LIMIT } ?: return
             val n = spread(word("lp", g).put("id", mid).put("s", g.me).put("tx", tx), g, null, own = false)   // no copy of a card witnesses the row
             Log.i("Montana", "group_tx mid=" + mid.take(14) + " card copies=$n bytes=" + tx.toByteArray().size)
         }

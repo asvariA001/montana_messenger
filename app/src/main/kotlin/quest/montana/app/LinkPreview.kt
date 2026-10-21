@@ -161,6 +161,42 @@ object LinkPreview {
         return null
     }
 
+    /**
+     * THE CARD THAT RIDES IS THE CARD THAT IS SEEN, ITS PICTURE CUT TO THE LEG (iOS MTLinkPreviewBuilder.fitting, 89dfd51d): the
+     * row keeps its picture crisp (720, 70 KB), the leg holds 16 KB -- the picture alone is re-encoded, 480 at 0.6 under 11 KB, then
+     * 320 at 0.5 under 8 KB, and only when no size fits does the card ride with its words alone. A1 → iPhone «Анна» 21.10 10:12 UTC:
+     * the picture caught up at 60 KB and the group's word dropped it whole, the iPhone drew the words with no picture.
+     */
+    fun fitting(lp: String?): String? {
+        if (lp == null || lp.toByteArray().size <= 64) return null
+        if (lp.toByteArray().size <= LEG) return lp
+        val card = LinkCard.parse(lp) ?: return null
+        val raw = card.i?.let { runCatching { Base64.decode(it, Base64.DEFAULT) }.getOrNull() }
+        val b = raw?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
+        if (b != null) {
+            for ((side, q, cap) in listOf(Triple(480, 60, 11 * 1024), Triple(320, 50, 8 * 1024))) {
+                card.i = jpegB64(b, side, q, cap)
+                val j = card.json()
+                if (card.i != null && j.toByteArray().size <= LEG) return j
+            }
+        }
+        card.i = null
+        return card.json().takeIf { it.toByteArray().size in 65..LEG }
+    }
+    private const val LEG = 16_384
+    private fun jpegB64(b: Bitmap, maxSide: Int, quality: Int, capBytes: Int): String? {
+        val side = maxOf(b.width, b.height)
+        val scale = if (side > maxSide) maxSide.toFloat() / side else 1f
+        val small = Bitmap.createScaledBitmap(b, maxOf(1, (b.width * scale).toInt()), maxOf(1, (b.height * scale).toInt()), true)
+        var q = quality
+        repeat(3) {
+            val out = ByteArrayOutputStream(); small.compress(Bitmap.CompressFormat.JPEG, q, out)
+            if (out.size() <= capBytes) return Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+            q = (q * 0.6).toInt()
+        }
+        return null
+    }
+
     /** The video's title and channel from YouTube's own oEmbed, two and a half seconds of its own (iOS youtubeWords,
      * MTLinkPreview.swift:372-382 at 2155, atom 5a84afb1f68f). */
     private fun youtubeWords(url: String): Pair<String?, String?>? {
