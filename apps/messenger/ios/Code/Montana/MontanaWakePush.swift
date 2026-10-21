@@ -812,9 +812,9 @@ enum MontanaWakePush {
             "a279974b24ff1b84299330076b5f5858684d56733458de21b152aa8521c7a230"
         && subId("a", ref: "bc") ==
             "c04b7d58e4c7aaca35800d119fd6fde021f95f7d3c9438e3ca46cd855afe6a8a"
-        && convW(Data(0..<32), window: 29737) ==
+        && MTNodeWire.convTag(daySecret: Data(0..<32), window: 29737) ==
             "43eaf2811da7947166d4e851e52c4ab89e09c8c92247370d3c734ef08ca1e6ea"
-        && convW(Data(0..<32), window: 29738) ==
+        && MTNodeWire.convTag(daySecret: Data(0..<32), window: 29738) ==
             "f5f2941435d76c0a80dd229722ef42382695e88fdd1fabf89d71f317bef05430"
     }
 

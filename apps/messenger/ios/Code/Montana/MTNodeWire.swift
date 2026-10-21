@@ -50,7 +50,14 @@ enum MTNodeWire {
     }
     /// The conversation's daily tag: both sides derive it from the pipe secret of that day.
     static func convW(_ secret: Data, window: UInt64) -> String {
-        var m = Data("mt-wake-conv".utf8); m.append(0); m.append(pipeSecret(secret, day: window))   // LOCAL-HASH-OK: canon owner
+        convTag(daySecret: pipeSecret(secret, day: window), window: window)
+    }
+    /// The canon's daily tag over the day's secret: SHA-256("mt-wake-conv" ‖ 0x00 ‖ day_secret ‖ W_8B_LE) -- held by the canon
+    /// vectors (MontanaWakePush.agreesWithCanon, the node's test_node_wake.py) apart from the walk that feeds it, as sealKey is
+    /// for bodyKey. Their day 29737 lies past walkAnchorDay: read through convW it walked 8983 steps, the wake canon failed and
+    /// every wake road stood (2266-2267, never delivered).
+    static func convTag(daySecret: Data, window: UInt64) -> String {
+        var m = Data("mt-wake-conv".utf8); m.append(0); m.append(daySecret)   // LOCAL-HASH-OK: canon owner
         var w = window.littleEndian; withUnsafeBytes(of: &w) { m.append(contentsOf: $0) }
         return hexHash(m)
     }
