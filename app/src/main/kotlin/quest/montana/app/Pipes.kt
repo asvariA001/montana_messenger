@@ -27,10 +27,39 @@ object Wire {
     fun minute() = System.currentTimeMillis() / 60_000
     fun day() = System.currentTimeMillis() / 86_400_000
 
-    /** The letter body key: SHA-256("mt-pipe-key" ‖ 0 ‖ secret ‖ W_LE). */
-    fun bodyKey(secret: ByteArray, w: Long) = sha(d("mt-pipe-key"), secret, le8(w))
-    /** The conversation's daily label at the node. */
-    fun convW(secret: ByteArray, day: Long) = hex(sha(d("mt-wake-conv"), secret, le8(day)))
+    /** The raw seal key of the set: SHA-256("mt-pipe-key" ‖ 0 ‖ step_secret ‖ W_LE) — held by the canon vectors (iOS MTNodeWire.sealKey). */
+    fun sealKey(stepSecret: ByteArray, w: Long) = sha(d("mt-pipe-key"), stepSecret, le8(w))
+    /** The letter body key of a minute: the seal key under the pipe secret of that minute's day (iOS MTNodeWire.bodyKey). */
+    fun bodyKey(secret: ByteArray, w: Long) = sealKey(pipeSecret(secret, w / MINUTES_PER_DAY), w)
+    /** The conversation's daily label at the node, over the pipe secret of that day. */
+    fun convW(secret: ByteArray, day: Long) = convTag(pipeSecret(secret, day), day)
+    /** The canon's daily label over the day's secret: SHA-256("mt-wake-conv" ‖ 0 ‖ day_secret ‖ W_LE) — held by the wake vectors apart from the walk (iOS MTNodeWire.convTag). */
+    fun convTag(daySecret: ByteArray, day: Long) = hex(sha(d("mt-wake-conv"), daySecret, le8(day)))
+
+    /**
+     * THE PIPE SECRET WALKS WITH THE CLIENT'S DAY (iOS MTNodeWire.pipeSecret, 1d8aa430): pipe_secret(D + 1) =
+     * SHA-256("mt-pipe-ratchet" ‖ 0 ‖ pipe_secret(D)), one step a day, standing still through WALK_ANCHOR_DAY so every key up
+     * to that day is the one the earlier builds derive; a day read off a node's time is clamped to MAX_WALK steps, so a forged
+     * time costs a bounded walk and opens nothing. The last value of each secret is kept: the box walks back minute by minute.
+     */
+    const val WALK_ANCHOR_DAY = 20754L   // 28.10.2026 UTC
+    const val MINUTES_PER_DAY = 1440L
+    const val MAX_WALK = 36_600L
+    private val walked = HashMap<String, Pair<Long, ByteArray>>()
+    fun pipeSecret(secret: ByteArray, day: Long): ByteArray {
+        val steps = (day - WALK_ANCHOR_DAY).coerceIn(0L, MAX_WALK)
+        if (steps == 0L) return secret
+        val id = hex(secret)
+        synchronized(walked) {
+            var at = 0L
+            var value = secret
+            walked[id]?.let { (s, v) -> if (s <= steps) { at = s; value = v } }
+            while (at < steps) { value = sha(d("mt-pipe-ratchet"), value); at++ }
+            if (walked.size >= 256) walked.clear()
+            walked[id] = steps to value
+            return value
+        }
+    }
     /** The daily label of a handed-out invitation (the first letter's box). */
     fun rdvConvW(inv: ByteArray, day: Long) = hex(sha(d("mt-rdv-wake"), inv, le8(day)))
     /** The subscription tag standing in for the device at the node. */
@@ -108,16 +137,29 @@ object Wire {
     /** One size for every envelope — the node cannot tell letter lengths apart (iOS envelopeSize). */
     const val ENVELOPE = 2048
 
-    /** The iOS vectors (MontanaWakePush.agreesWithCanon, MTPipe body key). */
+    /**
+     * The iOS vectors (MontanaWakePush.agreesWithCanon, MTPipe body key and walk). The wake and seal vectors stand on the raw
+     * formulas: their windows lie past the anchor, so read through convW and bodyKey they would walk (8983 steps: 86d838dd…;
+     * 36600 steps: 53a282b6…). The walk's vectors reject one that never steps (a656c407…), one stepping once whatever the
+     * distance (1110b376…), one stepping by the day's number rather than its distance from the anchor, one without the domain
+     * (630dcd29…).
+     */
     fun agreesWithCanon(): Boolean {
         val s32 = ByteArray(32) { it.toByte() }
+        val a = WALK_ANCHOR_DAY
         return subId("mt-conv-Q7", "mtAddrZ93kLmNoPq") == "e5438bfedc8b1fdcdadfb9f4d3995fac7722c0074f3a20ccd3e911ce5beb35de"
             && subId("ab", "c") == "a279974b24ff1b84299330076b5f5858684d56733458de21b152aa8521c7a230"
             && subId("a", "bc") == "c04b7d58e4c7aaca35800d119fd6fde021f95f7d3c9438e3ca46cd855afe6a8a"
-            && convW(s32, 29737) == "43eaf2811da7947166d4e851e52c4ab89e09c8c92247370d3c734ef08ca1e6ea"
-            && convW(s32, 29738) == "f5f2941435d76c0a80dd229722ef42382695e88fdd1fabf89d71f317bef05430"
-            && hex(bodyKey(s32, 0x0102030405060708)) == "e55fbc1e0f95c4fe012b476c4dd1a51c9455e24641248f4f1557ed57f8c14f35"
+            && convTag(s32, 29737) == "43eaf2811da7947166d4e851e52c4ab89e09c8c92247370d3c734ef08ca1e6ea"
+            && convTag(s32, 29738) == "f5f2941435d76c0a80dd229722ef42382695e88fdd1fabf89d71f317bef05430"
+            && hex(sealKey(s32, 0x0102030405060708)) == "e55fbc1e0f95c4fe012b476c4dd1a51c9455e24641248f4f1557ed57f8c14f35"
             && hex(bodyKey(s32, 1000)) == "e25542e65a84d1a5b5c72a13172ecb62319c18f21a59978a53e7dac2c22a966a"
+            && pipeSecret(s32, a).contentEquals(s32)
+            && hex(pipeSecret(s32, a + 1)) == "5dcfd87692fcd444a4344d756dfa37abe670d2eb252aa9b402646be97cf3c50a"
+            && hex(pipeSecret(s32, a + 2)) == "0c31775e80ae463de61fecee68bee8bb4ebbcee8e6b2045f8714e93ef18cb1b0"
+            && hex(bodyKey(s32, (a + 2) * MINUTES_PER_DAY)) == "925378a4bb83e7137cbb1f8cdaba8b79fc37e30d3159e4158da6e0fee8518bb5"
+            && convW(s32, a) == "d29425fcf807a325b74d8bb017420cfe2250cc47e8bdc6351f6006cd4a6bdc9b"
+            && convW(s32, a + 2) == "c665fdca8978b9c6e54b9a4f16a06ccac657ba7da259df0a8f3e2550d7c2d518"
     }
 
     /**
