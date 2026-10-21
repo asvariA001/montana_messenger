@@ -265,7 +265,7 @@ struct MTSecretRow: View {
     let item: MTSecretItem
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: item.kind.glyph).font(.title3).foregroundStyle(.white).frame(width: 30)
+            Image(systemName: item.kind.glyph).font(.title3).foregroundStyle(.primary).frame(width: 30)
             VStack(alignment: .leading, spacing: 2) {
                 // USER-DATA: the secret's title as its owner wrote it
                 Text(verbatim: item.title.isEmpty ? (item.site.isEmpty ? "—" : item.site) : item.title).font(.body).lineLimit(1)

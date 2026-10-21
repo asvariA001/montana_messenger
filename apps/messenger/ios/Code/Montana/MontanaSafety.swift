@@ -87,18 +87,18 @@ struct MontanaTermsView: View {
                 Section {
                     Text("Montana is a messenger between people who chose to talk to each other. Every conversation is encrypted end to end; nobody but the people in it can read it.")
                     Text("By using Montana you agree to these terms.")
-                }.listRowBackground(MTGlassRowPlate()).foregroundColor(.white)
+                }.listRowBackground(MTGlassRowPlate()).foregroundColor(.primary)
                 Section("No tolerance for abuse") {
                     Text("There is no tolerance for objectionable content or abusive users: threats, harassment, hate speech, sexual content involving minors, spam and any content that breaks the law.")
                     Text("You must be 18 or older to use Montana.")
                     Text("A person who sends such content or abuses others is barred from Montana's relays and doors.")
-                }.listRowBackground(MTGlassRowPlate()).foregroundColor(.white)
+                }.listRowBackground(MTGlassRowPlate()).foregroundColor(.primary)
                 Section("Your tools") {
                     Text("Block: a blocked person can no longer reach you — their letters and calls are refused on every road and never shown.")
                     Text("Report: any letter or person can be reported from its menu. Reports are reviewed within 24 hours; offending content is removed and the offender is barred.")
                     Text("Filter: letters carrying objectionable words are folded by default and unfold only by your tap. The filter is yours to keep or turn off in Privacy.")
                     Text("Delete: any letter can be removed from your feed at once — for you, or for everyone.")
-                }.listRowBackground(MTGlassRowPlate()).foregroundColor(.white)
+                }.listRowBackground(MTGlassRowPlate()).foregroundColor(.primary)
                 Section("Reach us") {
                     Link(destination: URL(string: "mailto:\(MontanaSafety.abuseMail)")!) {
                         Label { Text(verbatim: MontanaSafety.abuseMail) } icon: { Image(systemName: "envelope") }   // USER-DATA: an address
@@ -188,7 +188,7 @@ struct MontanaReportSheet: View {
                 }
                 if offersBlock {
                     Section {
-                        Toggle("Block this person too", isOn: $blockToo).foregroundColor(.white)
+                        Toggle("Block this person too", isOn: $blockToo).foregroundColor(.primary)
                     }.listRowBackground(MTGlassRowPlate())
                 }
                 Section {

@@ -346,7 +346,7 @@ struct MTFolderSettingsPage: View {
                 VStack(spacing: 14) {
                     Image(systemName: "folder.fill")
                         .font(.system(size: 64))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(.primary)
                     Text("Create folders for different groups of chats and quickly switch between them.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)

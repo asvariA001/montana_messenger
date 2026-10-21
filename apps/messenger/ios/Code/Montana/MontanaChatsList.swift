@@ -1894,7 +1894,7 @@ struct ChatsListView: View {
                         : (store.presenceWord(chat.convId ?? chat.name)?.text ?? ""))
                     .font(.caption)
                     .lineLimit(1).truncationMode(.tail)
-                    .foregroundColor(.white)
+                    .foregroundColor(.primary)
             }
             Spacer()
         }

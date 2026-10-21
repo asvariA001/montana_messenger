@@ -16,7 +16,7 @@ struct MTChannelIntroStep: View {
             // one sentence, and «Create Channel» at the foot.
             VStack(spacing: 18) {
                 Spacer()
-                Image(systemName: "megaphone.fill").font(.system(size: 64)).foregroundColor(.white)
+                Image(systemName: "megaphone.fill").font(.system(size: 64)).foregroundColor(.primary)
                 Text("What is a Channel?").font(.title2.bold())
                 Text("Channels are a new tool for broadcasting your messages to large audiences.")
                     .font(.body).foregroundColor(.secondary).multilineTextAlignment(.center)

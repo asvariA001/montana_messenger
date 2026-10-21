@@ -372,7 +372,7 @@ struct HomeNodeView: View {
         List {
             Section {
                 HStack(spacing: 12) {
-                    Image(systemName: "server.rack").font(.system(size: 15, weight: .semibold)).foregroundColor(.white)
+                    Image(systemName: "server.rack").font(.system(size: 15, weight: .semibold)).foregroundColor(.primary)
                         .frame(width: 29, height: 29).background(Color.gray).clipShape(RoundedRectangle(cornerRadius: 7))
                     TextField("Address", text: $host)
                         .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
@@ -403,7 +403,7 @@ struct HomeNodeView: View {
                 }
                 HStack(spacing: 12) {
                     settingsToggleLabel("Password", "key.fill", .gray)
-                    SecureField("Password", text: $password).multilineTextAlignment(.trailing).foregroundColor(.white)
+                    SecureField("Password", text: $password).multilineTextAlignment(.trailing).foregroundColor(.primary)
                 }
                 Button { setUp() } label: {
                     HStack { settingsToggleLabel("Set up your node", "wrench.and.screwdriver.fill", .blue); Spacer() }.contentShape(Rectangle())

@@ -318,7 +318,7 @@ struct MTFaceHeader: View {
             if !bio.isEmpty {
                 // USER-DATA: the person's own words about themselves, their links live (MTLinks, 02.10)
                 bubble(Text(MTLinks.linked(bio, color: Color(uiColor: .link)))
-                    .font(.body).foregroundColor(.white)
+                    .font(.body).foregroundColor(.primary)
                     .multilineTextAlignment(lines)
                     .textSelection(.enabled))
                     .frame(maxWidth: .infinity, alignment: side)

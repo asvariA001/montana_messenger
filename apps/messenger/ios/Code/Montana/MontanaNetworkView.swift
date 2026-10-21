@@ -514,7 +514,7 @@ struct NetworkTabView: View {
                     .frame(width: montanaTouchTarget, height: montanaTouchTarget).contentShape(Rectangle())
             }.buttonStyle(.plain)
             VStack(alignment: .leading, spacing: 2) {
-                title.font(.system(size: 19, weight: .bold)).foregroundColor(.white).lineLimit(1)
+                title.font(.system(size: 19, weight: .bold)).foregroundColor(.primary).lineLimit(1)
                 subtitle.font(.caption).foregroundColor(.secondary).lineLimit(1)
             }
             .contentShape(Rectangle()).onTapGesture(perform: onFold)
@@ -573,10 +573,10 @@ struct NetworkTabView: View {
                 HStack(spacing: 10) {
                     // USER-DATA: the bytes the panel counted; "∞" is the panel's own sign of no limit.
                     Text(verbatim: mtBytes((plan.download ?? 0) + (plan.upload ?? 0)) + " / " + ((plan.total ?? 0) > 0 ? mtBytes(plan.total ?? 0) : "∞"))
-                        .font(.caption.weight(.semibold)).foregroundColor(.white)
+                        .font(.caption.weight(.semibold)).foregroundColor(.primary)
                         .padding(.horizontal, 14).padding(.vertical, 5)
-                        .background(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.35), lineWidth: 1))
-                    if let e = plan.expire, e > 0 { Text("expires \(mtDay(e))").font(.caption).foregroundColor(.white.opacity(0.9)) }
+                        .background(RoundedRectangle(cornerRadius: 6).stroke(Color.primary.opacity(0.35), lineWidth: 1))
+                    if let e = plan.expire, e > 0 { Text("expires \(mtDay(e))").font(.caption).foregroundColor(.primary.opacity(0.9)) }
                     Spacer()
                     Button { UIPasteboard.general.string = plan.url; vpnNote = "link copied" } label: {
                         Image(systemName: "link").font(.body).foregroundColor(.secondary)

@@ -208,7 +208,7 @@ struct MontanaStickerSetPage: View {
                 } label: {
                     Image(systemName: "link")
                         .font(.system(size: 17))
-                        .foregroundColor(.white.opacity(0.85))
+                        .foregroundColor(.primary.opacity(0.85))
                         .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }

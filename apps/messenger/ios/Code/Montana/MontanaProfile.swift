@@ -614,7 +614,7 @@ struct ProfileView: View {
     /// call sign white»), its word as it stood.
     private func editRow(_ t: String, _ icon: String) -> some View {
         HStack(spacing: 12) {
-            Image(systemName: icon).foregroundColor(.white).frame(width: 26)
+            Image(systemName: icon).foregroundColor(.primary).frame(width: 26)
             Text(LocalizedStringKey(t)).foregroundColor(.accentColor)
         }
     }
@@ -682,7 +682,7 @@ struct ProfileView: View {
                 Section {
                     // Length limit: first and last name 64 characters each.
                     // Without it the field accepts a string of any length.
-                    TextField("First name", text: $tName).foregroundColor(.white)
+                    TextField("First name", text: $tName).foregroundColor(.primary)
                         .focused($focus, equals: .first)
                         .onChange(of: tName) { _, v in
                             let p = MTCrown.plain(v)   // a crown is given, never typed (03.10)
@@ -695,11 +695,11 @@ struct ProfileView: View {
                 // ── Bio and link (the author's word 24.09): the platform's own fields in the page's own rows ──
                 if !onboarding {
                     Section {
-                        TextField("Bio", text: $tBio, axis: .vertical).foregroundColor(.white)
+                        TextField("Bio", text: $tBio, axis: .vertical).foregroundColor(.primary)
                             .lineLimit(1...4)
                             .focused($focus, equals: .bio)
                             .onChange(of: tBio) { _, v in if v.count > MTPeerAbout.bioLimit { tBio = String(v.prefix(MTPeerAbout.bioLimit)) } }
-                        TextField("Link", text: $tLink).foregroundColor(.white)
+                        TextField("Link", text: $tLink).foregroundColor(.primary)
                             .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
                             .focused($focus, equals: .link)
                             .onChange(of: tLink) { _, v in if v.count > MTPeerAbout.linkLimit { tLink = String(v.prefix(MTPeerAbout.linkLimit)) } }
@@ -738,7 +738,7 @@ struct ProfileView: View {
     private var callsignRow: some View {
         NavigationLink { MontanaCallsignPicker() } label: {
             HStack {
-                Image(systemName: "person.text.rectangle").foregroundColor(.white)   // white, as the editor's other glyphs (26.09)
+                Image(systemName: "person.text.rectangle").foregroundColor(.primary)   // the ground's ink, as the editor's other glyphs (26.09; black on the gold since 21.10)
                 Text("Choose a call sign").foregroundColor(.primary)
                 Spacer()
             }

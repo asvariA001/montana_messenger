@@ -52,12 +52,12 @@ struct MTPanelSwitch: View {
                     } label: {
                         Text(Self.names[t.rawValue] ?? "")
                             .font(.system(size: 15, weight: tab == t.rawValue ? .semibold : .regular))
-                            .foregroundColor(.white.opacity(tab == t.rawValue ? 1 : 0.65))
+                            .foregroundColor(.primary.opacity(tab == t.rawValue ? 1 : 0.65))
                             .padding(.horizontal, 14)
                             .frame(height: 36)
                             .background {
                                 if tab == t.rawValue {
-                                    Capsule().fill(Color.white.opacity(0.16))
+                                    Capsule().fill(Color.primary.opacity(0.16))
                                 }
                             }
                             .contentShape(Capsule())
@@ -71,7 +71,7 @@ struct MTPanelSwitch: View {
             Button(action: onSettings) {
                 Image(systemName: "gearshape")
                     .font(.system(size: 17))
-                    .foregroundColor(.white.opacity(0.85))
+                    .foregroundColor(.primary.opacity(0.85))
                     .frame(width: 44, height: 44)
                     .mtGlassPill(corner: 22)
                     .contentShape(Circle())

@@ -138,7 +138,7 @@ struct MTInfoRowView: View {
                 Label {
                     Text(title).foregroundColor(.primary)
                 } icon: {
-                    Image(systemName: icon).foregroundColor(.white)
+                    Image(systemName: icon).foregroundColor(.primary)
                 }
             }
             .padding(.horizontal, 14).padding(.vertical, 8)

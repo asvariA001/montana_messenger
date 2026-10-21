@@ -356,7 +356,7 @@ struct MTQuestionsPage: View {
             }
             .listRowBackground(MTGlassRowPlate())
         }
-        .foregroundColor(.white)
+        .foregroundColor(.primary)
         .scrollContentBackground(.hidden)
         .montanaPageGround()
         .navigationTitle("Questions")
@@ -379,7 +379,7 @@ struct MTAnswerPage: View {
             }
             .listRowBackground(MTGlassRowPlate())
         }
-        .foregroundColor(.white)
+        .foregroundColor(.primary)
         .scrollContentBackground(.hidden)
         .montanaPageGround()
         .navigationTitle(Text(LocalizedStringKey(topic)))
@@ -402,7 +402,7 @@ struct MTDocumentRow: View {
             .frame(minHeight: 44)
             .contentShape(Rectangle())
         }
-        .foregroundColor(.white)
+        .foregroundColor(.primary)
     }
 }
 
@@ -471,7 +471,7 @@ struct NotificationsView: View {
             .listRowBackground(MTGlassRowPlate())
         }
         .onChange(of: nameOnLock) { _, _ in MontanaNotifyGate.registerCategories() }
-        .foregroundColor(.white)   // the switches wear the system's own green (the author's word 25.09)
+        .foregroundColor(.primary)   // the switches wear the system's own green (the author's word 25.09)
         .scrollContentBackground(.hidden)
         .montanaPageGround()   // my page's ground, as the drawer and my page wear it (25.09)
         .navigationTitle("Notifications")
@@ -1303,7 +1303,7 @@ struct ColorEditorSheet: View {
                     preview(cand).padding(.vertical, 8)
                 }.listRowBackground(MTGlassRowPlate())
                 Section {
-                    ColorPicker("Colour", selection: $cand, supportsOpacity: false).foregroundColor(.white)
+                    ColorPicker("Colour", selection: $cand, supportsOpacity: false).foregroundColor(.primary)
                     // USER-DATA: the colour's hex number.
                     Text(verbatim: "#" + cand.montanaHex()).font(.system(.footnote, design: .monospaced)).foregroundColor(.gray)
                 }.listRowBackground(MTGlassRowPlate())
@@ -2236,7 +2236,7 @@ struct PrivacyView: View {
         .sheet(isPresented: $showSeed) {
             NavigationStack { SeedShowView() }.preferredColorScheme(.dark).montanaMotionMeter()
         }
-        .foregroundColor(.white)
+        .foregroundColor(.primary)
         .scrollContentBackground(.hidden)
         .montanaPageGround()   // my page's ground, as the drawer and my page wear it (25.09)
         .navigationTitle("Privacy")
@@ -2578,11 +2578,11 @@ struct MontanaOnboardingView: View {
             Text("Enter the 24 words separated by spaces, in the correct order.").font(.caption).foregroundColor(.gray).multilineTextAlignment(.center)
             TextEditor(text: $recoverInput).frame(height: 130).padding(8).scrollContentBackground(.hidden)
                 .background(MTGlassCardPlate(cornerRadius: 14))
-                .foregroundColor(.white).autocorrectionDisabled().textInputAutocapitalization(.never)
+                .foregroundColor(.primary).autocorrectionDisabled().textInputAutocapitalization(.never)
             // THE PERSON'S OWN NODE, named beside the words (28.09): the copy it holds comes back before the first screen.
             TextField("Your node (optional)", text: $nodeHost)
                 .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
-                .padding(12).background(MTGlassCardPlate(cornerRadius: 14)).foregroundColor(.white)
+                .padding(12).background(MTGlassCardPlate(cornerRadius: 14)).foregroundColor(.primary)
             if !recoverError.isEmpty { Text(LocalizedStringKey(recoverError)).foregroundColor(.red).font(.caption).multilineTextAlignment(.center) }
             Button {
                 let words = recoverInput.lowercased().split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "," }).map(String.init)
@@ -2828,9 +2828,9 @@ struct MTDoorLabel<Glyph: View>: View {
         HStack(spacing: 12) {
             glyph.frame(width: 26, height: 26)
             Spacer(minLength: 0)
-            word.font(.body.weight(.semibold)).foregroundColor(.white).lineLimit(1).minimumScaleFactor(0.8)
+            word.font(.body.weight(.semibold)).foregroundColor(.primary).lineLimit(1).minimumScaleFactor(0.8)
             Spacer(minLength: 0)
-            Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundColor(Color.white.opacity(0.55))
+            Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundColor(.secondary)
         }
     }
 }
@@ -2848,7 +2848,7 @@ struct MTLoginDoorStyle: ButtonStyle {
     @Environment(\.isEnabled) private var enabled
     func makeBody(configuration: Configuration) -> some View {
         face(configuration.label
-                .font(.body.weight(.semibold)).foregroundColor(.white).lineLimit(1).minimumScaleFactor(0.8)
+                .font(.body.weight(.semibold)).foregroundColor(.primary).lineLimit(1).minimumScaleFactor(0.8)
                 .padding(.horizontal, 18)
                 .frame(maxWidth: .infinity).frame(height: 52)
                 .contentShape(Capsule()))
@@ -3005,7 +3005,7 @@ struct MTLevelAccessPage: View {
             .disabled(!nodeOpen)
             .listRowBackground(MTGlassRowPlate())
         }
-        .foregroundColor(.white)
+        .foregroundColor(.primary)
         .scrollContentBackground(.hidden)
         .montanaPageGround()
         .navigationTitle("Access by level")
