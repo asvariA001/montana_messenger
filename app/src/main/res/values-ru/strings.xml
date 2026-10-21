@@ -735,4 +735,16 @@
     <string name="cf_edit_folders">Изменить папки</string>
     <string name="cf_reorder">Порядок вкладок</string>
     <string name="cf_done">Готово</string>
+    <!-- access by level and the keeper's shield (iOS MTLevelAccessPage, MTKeepShield) -->
+    <string name="lv_access">Доступ по уровню</string>
+    <string name="lv_global">Глобальный уровень %d</string>
+    <string name="lv_fabric">Ткань времени</string>
+    <string name="lv_footer">Ваш уровень — наименьший из трёх: ваше время в Монтане, монеты, которые вы держите, и Ткань времени — люди, с которыми вы регулярно переписываетесь и созваниваетесь последние две недели, взвешенные по уровням, которые дают им их собственное время и кошелёк. Каждый уровень открывает новые функции Монтаны.</string>
+    <string name="lv_keep">Запрет удаления у меня</string>
+    <string name="lv_keep_caption">Сообщение, которое собеседник удаляет у всех, остаётся на этом телефоне, а телефон собеседника получает об этом уведомление.</string>
+    <string name="lv_level">Уровень %d</string>
+    <string name="lv_opens">Открывается на уровне %1$d. Ваш уровень — %2$d.</string>
+    <string name="lv_node_caption">Подключите свою машину к сети Монтаны через это приложение: она настраивается отсюда, и на неё уходят копии всего телефона. Забрать свою копию можно на любом уровне.</string>
+    <string name="lv_shield_title">Удаление на этом телефоне запрещено</string>
+    <string name="lv_shield_rule">В Монтане уровни открывают функции: с уровня %1$d человек может запретить удаление у себя. Ваш уровень — %2$d.</string>
 </resources>

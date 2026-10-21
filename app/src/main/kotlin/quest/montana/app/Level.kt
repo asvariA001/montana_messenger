@@ -1,7 +1,15 @@
 package quest.montana.app
 
+import android.content.Context
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.util.Base64
 import android.util.Log
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
+import android.widget.FrameLayout
+import android.widget.PopupWindow
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -177,4 +185,100 @@ object LevelAccess {
     fun opens(f: Feature): Boolean = f.level <= (level ?: 0)
     /** The person keeps the letters their correspondents delete: the level opens it, and it stands until they untick it. */
     val keepsDeleted: Boolean get() = opens(Feature.KEEP_DELETED) && Prefs.bool(KEEP_KEY, true)
+}
+
+/** A view and all it holds standing still (iOS .disabled): seen, never moved -- below its level a switch shows what works. */
+private fun View.stillAll() { alpha = 0.45f; stillDeep() }
+private fun View.stillDeep() {
+    isEnabled = false; isClickable = false
+    if (this is ViewGroup) for (i in 0 until childCount) getChildAt(i).stillDeep()
+}
+
+/**
+ * ACCESS BY LEVEL, THE PAGE (iOS MTLevelAccessPage, MontanaSettings.swift:2934-3018; the author's words 16.10.2026 18:2x MSK): the
+ * person's Global Level on top, and under each level the functions it opens. DEVIATION: the fabric of time stands as a dash (not read
+ * on Android), and «Record calls» of level 7 is not shown -- Android records no call by itself, a switch for it would say a false word.
+ */
+fun levelAccessPage(act: MainActivity, onBack: () -> Unit): View {
+    val c: Context = act
+    PersonChain.prime(); CoinBook.warm()
+    val level = PersonChain.global(PersonChain.known, CoinBook.balance)
+    val seven = LevelAccess.Feature.KEEP_DELETED.level
+    val open = LevelAccess.opens(LevelAccess.Feature.KEEP_DELETED)
+    val eight = LevelAccess.Feature.OWN_NODE.level
+    val nodeOpen = LevelAccess.opens(LevelAccess.Feature.OWN_NODE)
+    return settingsPage(act, c.getString(R.string.lv_access), onBack) {
+        section(null, c.getString(R.string.lv_footer),
+            c.text(c.getString(R.string.lv_global, level), 16f).apply { setPadding(c.dp(16), c.dp(13), c.dp(14), c.dp(13)) },   // USER-DATA: the level
+            c.hstack {
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(c.dp(16), c.dp(13), c.dp(14), c.dp(13))
+                addView(c.text(c.getString(R.string.lv_fabric), 16f), lp(0, WRAP, 1f))
+                addView(c.text("—", 16f, MT.gray), lp(WRAP, WRAP))   // USER-DATA: the fabric's level, a dash before it is read
+            })
+        // BELOW ITS LEVEL A SWITCH STANDS OFF (iOS 2968-2972; the author's word 16.10.2026 20:34 MSK): nothing works until the level
+        // opens it; the person's own choice is kept for the day it does
+        val keep = c.switchLine(R.drawable.ic_shield, SysColor.green, c.getString(R.string.lv_keep), open && Prefs.bool(LevelAccess.KEEP_KEY, true),
+            c.getString(R.string.lv_keep_caption)) { on -> if (open) Prefs.setBool(LevelAccess.KEEP_KEY, on) }
+        if (!open) keep.stillAll()
+        section(c.getString(R.string.lv_level, seven), if (open) null else c.getString(R.string.lv_opens, seven, level), keep)
+        // LEVEL 8 (iOS 2989-3006; the author's word 17.10.2026 18:1x MSK): the page of one's node
+        val node = c.vstack(Gravity.NO_GRAVITY) {
+            addView(c.settingsRow(R.drawable.ic_set_server, SysColor.gray, c.getString(R.string.your_node)) { act.push { NodePage(act, it).view } }, lp())
+            addView(c.text(c.getString(R.string.lv_node_caption), 12f, MT.gray).apply { setPadding(c.dp(16), 0, c.dp(14), c.dp(10)) }, lp())
+        }
+        if (!nodeOpen) node.stillAll()
+        section(c.getString(R.string.lv_level, eight), if (nodeOpen) null else c.getString(R.string.lv_opens, eight, level), node)
+    }
+}
+
+/**
+ * THE GREEN SHIELD (iOS MTKeepShield, MontanaSettings.swift:3026-3081; the author's words 16.10.2026 20:34 and 17.10.2026 18:4x MSK):
+ * it stands while this phone keeps what others delete (LevelAccess.keepsDeleted) -- the platform's green round of 20 with the white
+ * shield, its target 44; a tap lays the rule over it, whose last row is the way to Access by level.
+ */
+fun keepShield(act: MainActivity): View {
+    val c: Context = act
+    return FrameLayout(c).apply {
+        contentDescription = c.getString(R.string.lv_keep)
+        addView(FrameLayout(c).apply {
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(SysColor.green) }
+            addView(c.icon(R.drawable.ic_checkmark_shield, Color.WHITE), FrameLayout.LayoutParams(c.dp(12), c.dp(12), Gravity.CENTER))
+        }, FrameLayout.LayoutParams(c.dp(20), c.dp(20), Gravity.CENTER))
+        val draw = { visibility = if (LevelAccess.keepsDeleted) View.VISIBLE else View.GONE }
+        draw()
+        addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: View) { draw(); CoinBook.listen(draw) }
+            override fun onViewDetachedFromWindow(v: View) { CoinBook.unlisten(draw) }
+        })
+        pressable { keepRule(act, this) }
+    }
+}
+private fun keepRule(act: MainActivity, anchor: View) {
+    val c: Context = act
+    val level = PersonChain.global(PersonChain.known, CoinBook.balance)
+    var pop: PopupWindow? = null
+    val body = c.vstack(Gravity.NO_GRAVITY) {
+        setPadding(c.dp(16), c.dp(16), c.dp(16), c.dp(4))
+        background = c.rounded(Color.rgb(44, 44, 46), 14)
+        addView(c.hstack {
+            gravity = Gravity.CENTER_VERTICAL
+            addView(c.icon(R.drawable.ic_checkmark_shield, SysColor.green), lp(c.dp(20), c.dp(20)).apply { marginEnd = c.dp(8) })
+            addView(c.text(c.getString(R.string.lv_shield_title), 17f, Color.WHITE, bold = true), lp(0, WRAP, 1f))
+        }, lp())
+        addView(c.text(c.getString(R.string.lv_keep_caption), 15f, MT.gray).apply { setPadding(0, c.dp(10), 0, 0) }, lp())
+        addView(c.text(c.getString(R.string.lv_shield_rule, LevelAccess.Feature.KEEP_DELETED.level, level), 15f, MT.gray)
+            .apply { setPadding(0, c.dp(10), 0, c.dp(10)) }, lp())   // USER-DATA: the levels
+        addView(View(c).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1))
+        addView(c.hstack {
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = c.dp(44)
+            addView(c.icon(R.drawable.ic_stairs, Color.WHITE), lp(c.dp(20), c.dp(20)).apply { marginEnd = c.dp(10) })
+            addView(c.text(c.getString(R.string.lv_access), 16f), lp(0, WRAP, 1f))
+            addView(c.icon(R.drawable.ic_chevron_right, Color.rgb(89, 89, 89), 18), lp(c.dp(18), c.dp(18)))
+            pressable { pop?.dismiss(); act.push { levelAccessPage(act, it) } }
+        }, lp())
+    }
+    pop = PopupWindow(body, c.dp(320), WRAP, true).apply { elevation = c.dp(12).toFloat(); isOutsideTouchable = true }
+    pop.showAsDropDown(anchor)
 }

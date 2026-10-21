@@ -740,4 +740,16 @@
     <string name="cf_edit_folders">Edit Folders</string>
     <string name="cf_reorder">Reorder Tabs</string>
     <string name="cf_done">Done</string>
+    <!-- access by level and the keeper's shield (iOS MTLevelAccessPage, MTKeepShield) -->
+    <string name="lv_access">Access by level</string>
+    <string name="lv_global">Global level %d</string>
+    <string name="lv_fabric">Fabric of Time</string>
+    <string name="lv_footer">Your level is the lowest of three: your time in Montana, the coins you hold and the Fabric of Time, the people you write to and call regularly in the last two weeks, weighed by the levels their own time and wallet give them. Each level opens new functions of Montana.</string>
+    <string name="lv_keep">Forbid deletion on my phone</string>
+    <string name="lv_keep_caption">A message your correspondent deletes for everyone stays on this phone, and their phone is told so.</string>
+    <string name="lv_level">Level %d</string>
+    <string name="lv_opens">Opens at level %1$d. Your level is %2$d.</string>
+    <string name="lv_node_caption">Connect a machine you own to the Montana network through this app: it is set up from here and copies of the whole phone go to it. Taking your copy back is open on every level.</string>
+    <string name="lv_shield_title">Deletion is forbidden on this phone</string>
+    <string name="lv_shield_rule">In Montana levels open functions: from level %1$d a person can forbid deletion on their phone. Your level is %2$d.</string>
 </resources>

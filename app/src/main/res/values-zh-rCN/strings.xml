@@ -735,4 +735,16 @@
     <string name="cf_edit_folders">编辑文件夹</string>
     <string name="cf_reorder">调整标签顺序</string>
     <string name="cf_done">完成</string>
+    <!-- access by level and the keeper's shield (iOS MTLevelAccessPage, MTKeepShield) -->
+    <string name="lv_access">按等级开放</string>
+    <string name="lv_global">全局等级 %d</string>
+    <string name="lv_fabric">时间织网</string>
+    <string name="lv_footer">你的等级是三者中最低的：你在 Montana 的时间、你持有的硬币，以及时间织网——你过去两周经常发消息和通话的人，按其自身时间与钱包给出的等级加权。每个等级都会开放 Montana 的新功能。</string>
+    <string name="lv_keep">禁止在我的手机上删除</string>
+    <string name="lv_keep_caption">对方为所有人删除的消息会保留在这部手机上，对方的手机会收到通知。</string>
+    <string name="lv_level">等级 %d</string>
+    <string name="lv_opens">在第 %1$d 级开放。你的等级是 %2$d。</string>
+    <string name="lv_node_caption">通过本应用将您自己的机器接入 Montana 网络：在这里设置，整部手机的副本会发送到它。在任何等级都可以取回您的副本。</string>
+    <string name="lv_shield_title">这部手机上禁止删除</string>
+    <string name="lv_shield_rule">在 Montana，等级会开放功能：从第 %1$d 级起，可以禁止在自己的手机上删除消息。你的等级是 %2$d。</string>
 </resources>

@@ -1610,8 +1610,17 @@ object Post {
             }
             text.startsWith(Marks.DELETE) -> {
                 val d = text.removePrefix(Marks.DELETE).removePrefix("mid:")
+                // THE PERSON KEEPS WHAT OTHERS DELETE (iOS MontanaChatStore.swift:4673-4693, LevelAccess.keepDeleted): the letter stays and
+                // this phone says so itself, quietly -- the sender's phone never believes a deletion that did not happen here. The level
+                // is read before it is asked; a letter not on this phone is not kept, the word «kept» is said only of what it holds.
+                PersonChain.prime(); CoinBook.warm()
+                val row = Book.chat(ref)?.msgs?.find { it.mid == d }
+                if (row != null && LevelAccess.keepsDeleted) {
+                    Log.i("Montana", "delete_kept mid=" + d.take(12) + " kept by the person's choice -- the sender is told")
+                    Post.send(ref, Marks.mintMid(), Marks.DELETE_KEPT + "mid:" + d, quiet = true)
+                }
                 // a coin letter of mine on its way keeps its row whoever asks (iOS deleteLocally 122-128: every door asks first)
-                if (Book.chat(ref)?.msgs?.find { it.mid == d }?.let { CoinSend.travels(it) } != true) {
+                else if (row?.let { CoinSend.travels(it) } != true) {
                     Book.drop(ref, listOf(d))
                     Notify.withdraw(ref, d)   // its banner leaves with it (iOS b6ab7094 at 2240)
                 }
