@@ -1,0 +1,33 @@
+name: Audit readiness tools
+
+on:
+  pull_request:
+    paths:
+      - 'doc/external-audit/**'
+      - 'core/**'
+      - 'RELEASES.md'
+      - 'Audit/Protocol-13/source/**'
+      - '.github/workflows/audit-readiness.yml'
+  push:
+    branches: ['contrib/issue-2-audit-readiness']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit-tools:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Exercise inventory and correlation failure cases
+        run: python3 -m unittest discover -s doc/external-audit/tests -v
+      - name: Verify committed source inventory
+        run: python3 doc/external-audit/snapshot.py --revision HEAD
+      - name: Install the reviewed Rust compiler
+        run: rustup toolchain install 1.92.0 --profile minimal
+      - name: Reproduce source premises (not privacy acceptance)
+        run: rustup run 1.92.0 cargo test --release --locked --manifest-path doc/external-audit/probes/Cargo.toml

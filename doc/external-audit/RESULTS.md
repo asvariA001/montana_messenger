@@ -52,13 +52,17 @@ socket creation: `Operation not permitted (os error 1)`. That is an execution-en
 restriction, not evidence of a protocol defect. A repeat with loopback sockets permitted
 passed that unit-test target and proceeded to the longer integration proofs.
 
-Full workspace completion is not yet recorded here. Neither a partial baseline nor the four
-focused characterization probes should be presented as a complete workspace pass. The final
-PR report must preserve this boundary if the longer baseline runs are incomplete.
+Both full baseline runs were interrupted before completion. The loopback-enabled
+reference run completed 40 test targets with 369 tests passed and zero failures in those
+completed targets; it was stopped during `a_real_frame_is_proven_verified_and_measured`.
+The client workspace was stopped during compilation, before any completed test target.
+These are partial observations, not full workspace passes. Full baseline runs must be
+repeated in the designated isolated test environment.
 
-GitHub-hosted CI was not installed: the available OAuth authorization lacks the `workflow`
-scope. The proposed workflow was excluded from publication; `check.sh` supplies the local
-check entry point. No hosted CI result is claimed.
+The `Audit readiness tools` GitHub workflow is included after the repository owner's
+OAuth authorization was refreshed with `workflow` scope. It runs the Python checks,
+committed inventory and four Rust probes. Its hosted outcome must be read from the
+workflow run for the exact PR revision; inclusion alone is not a passing result.
 
 Application builds, binary reproduction, actual node services, real capture collection,
 side-channel certification, engagement/funding and independent remediation review were not

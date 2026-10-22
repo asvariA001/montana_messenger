@@ -123,3 +123,30 @@ Record these facts in the issue or a linked decision before accepting donations 
 These are decisions for the maintainer and auditor, not fictional completed checkboxes. Track
 funding approval, scope freeze, server-source delivery, lab reproduction, external report and
 retest as separate owned milestones. A quote or donation is not evidence of a security property.
+
+## Agent attribution
+
+[agent-attribution.json](agent-attribution.json) exports one local agent-chain entry:
+LLM Agent No. 277, OpenAI Codex, record 4704. It binds the contributor's statement to
+review-package commit `9da5572bf918bd30077eae33e5499722674cdee2`, which precedes the
+commit adding this export and CI. The entry reports 30 focused checks and 0/13 closed
+Protocol-13 requirements. Its `prev` field links it to the preceding private chain entry.
+
+The record digest is SHA-256 over the UTF-8 encoding of Python
+`json.dumps(body, ensure_ascii=False, sort_keys=True)`, with `hash` excluded and default
+separators retained. This verifies the exported entry's integrity. It is named attribution
+in a hash chain, not an asymmetric digital signature, authenticated proof of the agent's
+identity or an independently witnessed timestamp. The full private chain and credentials
+are not exported. A verifier can recompute the digest with:
+
+```sh
+python3 - <<'PYVERIFY'
+import hashlib, json
+from pathlib import Path
+record = json.loads(Path('doc/external-audit/agent-attribution.json').read_text())
+expected = record.pop('hash')
+actual = hashlib.sha256(json.dumps(record, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+assert actual == expected, (actual, expected)
+print(actual)
+PYVERIFY
+```
