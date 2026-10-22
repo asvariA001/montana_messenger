@@ -2,6 +2,16 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
+## 1.0 (2285) - 2026-10-22
+
+Source commit `5ebfabdc6868`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2285.md).
+
+- Music on the shared Wall of Thoughts plays again: the author of a post with tracks lays its files on the nodes once more whenever a node has let them go, and the nodes now keep the Wall's files by their free space instead of for one week.
+
+**Security and anonymity**
+
+- Build 2285 changes neither security nor anonymity: the owner of a Wall post asks the nodes which of its own encrypted pieces they hold and lays the missing ones again under the same key; the nodes see the same sealed bytes and names as before.
+
 ## 1.0 (2284) - 2026-10-22
 
 Source commit `93fd8386c1b3`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2284.md).
