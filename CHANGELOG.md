@@ -2,9 +2,21 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
+## 1.0 (2287) - 2026-10-22
+
+Source commit `3679172de4ef`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2287.md).
+
+- Notifications for a conversation no longer read the conversation's secret: each conversation keeps its own local name from the moment it is created, and the notification service finds the chat by that name.
+- When the app cannot check for a newer build, its private diary now says why (no store channel, network error, the site's answer or the document), once per new reason.
+
+**Security and anonymity**
+
+- Build 2287 narrows what the notification service touches: it no longer derives the chat alias from a conversation's established secret on every round, but reads a local name the conversation kept at birth; nothing changes on the wire.
+- The diary line about the release check names the public server it asked and the kind of refusal; it carries no key, account or identity of the user.
+
 ## 1.0 (2286) - 2026-10-22
 
-Source commit `a8ecb6a1eede`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2286.md).
+Source commit `1b8505362514`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2286.md).
 
 - Music on the shared Wall of Thoughts plays again: the author of a post with tracks lays its files on the nodes once more whenever a node has let them go, and the nodes now keep the Wall's files by their free space instead of for one week.
 - Montana Core for Mac now downloads from the site and from GitHub as a disk image: open it and drag Montana Core into Applications. The image itself is signed with the Developer ID and notarized by Apple, as is the app inside it.
