@@ -2,6 +2,18 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
+## 1.0 (2282) - 2026-10-22
+
+Source commit `51a2d7c9b023`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2282.md).
+
+- Every switch in Settings now says under it what it does.
+- With Show sender off, no notification names who wrote or shows their photo -- in private chats, groups and rooms alike.
+
+**Security and anonymity**
+
+- The lasting keys a chat derives from its secret are made once when the chat is born and kept beside it, so the screens that read them no longer touch the chat secret (the first step of the key ratchet).
+- Show sender off now hides the sender in group, room and private notifications in both the app and the notification extension.
+
 ## 1.0 (2281) - 2026-10-22
 
 Source commit `13041e634423`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2281.md).
