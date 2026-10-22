@@ -2,6 +2,16 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
+## 1.0 (2283) - 2026-10-22
+
+Source commit `2e04c4e22987`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2283.md).
+
+- Every choice in Settings now says what it does: Video note quality, Keys, Message style, Keep media and Maximum cache size each carry a line under them.
+
+**Security and anonymity**
+
+- Build 2283 changes neither security nor anonymity: it adds lines of explanation in Settings, and the TestFlight road on the build machine gives its build gate back sooner.
+
 ## 1.0 (2282) - 2026-10-22
 
 Source commit `51a2d7c9b023`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2282.md).
