@@ -3,6 +3,7 @@
 The project's audit reports in English. The publisher writes this folder from the project's own repositories and keeps here only what it lists; a record a later report supersedes leaves the folder and stays in the history of this repository.
 
 - [Protocol-13](Protocol-13/README.md): the 13-item protocol review -- finality, issuance, authenticated joining and node privacy -- with its status table, one report for each item and the source of the core commit they speak of.
+- [GPA](GPA/README.md): the transport read against a global passive adversary -- which mechanisms exist in code and which only in the set (Gate -1), the intersection model with what is open, and the constant-time measurements of the cell and the link.
 - [App](App/README.md): the internal audit of the application in English -- the records of a coin the application signs and the nodes keep, each with what its version does not close.
 
 The repository-wide [audit package](../AUDIT.md) states the scope, the bytes under audit and the open findings of the applications and the client core.
