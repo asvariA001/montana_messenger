@@ -2,6 +2,16 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
+## 1.0 (2289) - 2026-10-22
+
+Source commit `69b79da65a09`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2289.md).
+
+- The gold background now wears the system's dark appearance: black panels and white text on it, as the system draws them on a dark background.
+
+**Security and anonymity**
+
+- The text colour on the gold background is decided on the device from the background stored there; nothing new is sent or stored.
+
 ## 1.0 (2288) - 2026-10-22
 
 Source commit `47080687a05c`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2288.md).
