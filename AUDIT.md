@@ -4,6 +4,10 @@ Current protocol closure is tracked separately in [Audit/Protocol-13](Audit/Prot
 As of 2026-10-14, all 13 acceptance criteria remain open. Those reports distinguish the published
 snapshot from candidate repairs and do not convert the historical findings below into closure.
 
+For the proposed third-party review in issue #2, the [commissioning package](doc/external-audit/README.md)
+adds a source-pinned assessment, executable premise checks and a lab/funding decision record.
+It is preparation, not an independent audit or closure of the findings below.
+
 This file is the entry point for an external audit of this repository. It states what is in scope, which bytes are under
 audit and how to pin them, how to build and test each part, where the vectors are, what can and cannot be verified from
 this repository, and the open findings known to the project, each with its place in the code. It claims no test run: what a
