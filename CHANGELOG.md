@@ -2,11 +2,11 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
-## 1.0 (2279) - 2026-10-22
+## 1.0 (2280) - 2026-10-22
 
-Source commit `703f5d4aa69f`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2279.md).
+Source commit `08d3cf128fe5`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2280.md).
 
-- Montana Core for Mac is published with its install file: the notarized ZIP on GitHub and on the site, with its SHA-256, and a clean clone of montana_core rebuilds it byte for byte.
+- Montana Core for Mac is published with its install file: the notarized ZIP on GitHub and on the site's new Desktop page, with its SHA-256 and the minimum macOS, and a clean clone of montana_core rebuilds it byte for byte.
 
 **Security and anonymity**
 
