@@ -2,9 +2,19 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
+## 1.0 (2291) - 2026-10-22
+
+Source commit `026de4f2ad51`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2291.md).
+
+- Switching the record button between voice, video and coin no longer cuts off music or a voice message that is playing: a tap only switches the mode, and the microphone is taken only when you hold to record.
+
+**Security and anonymity**
+
+- The recording session is taken only by the hold that records; a tap of the switch opens no microphone. Nothing new is sent or stored.
+
 ## 1.0 (2290) - 2026-10-22
 
-Source commit `883bf473a8fc`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2290.md).
+Source commit `33cd784c0819`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2290.md).
 
 - The gold background now wears the system's dark appearance: black panels and white text on it, as the system draws them on a dark background.
 - Chats stand in the list by the time of their newest message, the same time the row shows: letters restored from the archive or a late photo no longer lift an old chat to the top.
