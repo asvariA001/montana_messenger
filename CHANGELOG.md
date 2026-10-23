@@ -2,6 +2,16 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
+## 1.0 (2295) - 2026-10-23
+
+Source commit `fc2dc0ea172f`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2295.md).
+
+- From 26 October, time coins are minted while you are here: every forty seconds the phone records the seconds you spent with Montana open or behind the Montana VPN as a MINT in the time chain. Taps, calls and time away mint nothing separately.
+
+**Security and anonymity**
+
+- The phone now records minted seconds itself as MINT records in the time chain, signed by its own key; the node accepts only seconds inside its freshness window, so a phone cannot mint time it was not present for. Nothing new about the person is sent: a MINT carries the key, the interval and the amount, as before.
+
 ## 1.0 (2294) - 2026-10-23
 
 Source commit `55a032bb8d74`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2294.md).
