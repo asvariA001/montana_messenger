@@ -1184,17 +1184,24 @@ object Post {
         }
         // THE LINK'S CARD IS THE SEVENTH FIELD (iOS wireTail / wireTailAfterQuote): after the quote pair, or after two empty
         // fields where the quote would stand; the envelope carries it without its picture, and only when it fits — decoration
+        val head = body
         lp?.let { LinkCard.parse(it)?.json(withPicture = false) }?.takeIf { it.toByteArray().size > 64 }?.let { card ->
             val tail = (if (quoted) ByteArray(0) else byteArrayOf(0, 0)) + card.toByteArray()
             if (body.size + tail.size <= Wire.ENVELOPE) body += tail
         }
         if (body.size > Wire.ENVELOPE) return false
+        // THE LIVE ROAD CARRIES THE CARD AS IT IS SEEN, ITS PICTURE CUT TO THE LEG (iOS MontanaPhoneNode.sendLetter 893-930 with
+        // wireTail(lp:), fitting 16384): a channel's frame is not the node's envelope of 2048, so the picture rides there and fills
+        // the receiver's card (enrich); Android laid the envelope's bare card on both roads, and an iPhone never saw a picture
+        val live = LinkPreview.fitting(lp)?.let { card ->
+            head + (if (quoted) ByteArray(0) else byteArrayOf(0, 0)) + card.toByteArray()
+        } ?: body
         // the live road beside the box: laid before the nodes under the pipe's tag (iOS sendP2P) -- WORDS, NEVER A LONG LETTER'S
         // REFERENCE: iOS lays the letter's own text there (sendP2P(text:), MontanaDeliveryEngine.swift:1478, 1502) and seals the
         // reference into the envelope alone (sealLetterEnvelope, 1574). An iPhone files what the live road brings as a row: a
         // reference filed so stood as a loading row and was healed into the face's base64 as text (MontanaChatStore.swift:3295-3307;
         // A1 to an iPhone 10.10.2026 22:03-22:28, the author's word: make it never repeat). A long letter rides the box alone.
-        if (!text.startsWith(Marks.LONG)) Channels.lay(secret, mid, body)
+        if (!text.startsWith(Marks.LONG)) Channels.lay(secret, mid, live)
         // THE PERSON SIGNS THE LETTER AS ITS AUTHOR (iOS sealLetterEnvelope, MontanaWakePush.swift:1555): after the card, before the
         // padding, over the words as they ride (a long letter's reference); the live road above rides unsigned, as iOS lays it.
         body = Wire.withAuthor(body, LetterAuthor.key, secret, mid, text)

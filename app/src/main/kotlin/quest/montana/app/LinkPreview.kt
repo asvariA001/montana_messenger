@@ -313,17 +313,20 @@ object LinkPreview {
         }.start()
     }
     /**
-     * The card lands on my row and a same-mid copy of the letter carries it to the correspondent, without its picture; in a group,
-     * to everyone by the group's own word «lp», and its picture once more when it catches up (iOS MTLinkCards.land → carryCard, 89dfd51d).
+     * The card lands on my row and a same-mid copy of the letter carries it to the correspondent -- the envelope without its picture,
+     * the live road with it (Post.knock); in a group, to everyone by the group's own word «lp»; and its picture once more when it
+     * catches up, to the pair as to the group (iOS MTLinkCards.land and picture → attachPreview / carryCard, 89dfd51d).
      */
     private fun land(ref: String, mid: String, text: String, qt: String?, qm: String?, card: LinkCard) {
         val group = Groups.isKey(ref)
         Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.lp = card.json() }
         if (group) Groups.carryCard(ref, mid, card)
-        else Post.send(ref, mid, text, qt, qm, lp = card.json(withPicture = false))   // the envelope leg: the card without its picture
+        else Post.send(ref, mid, text, qt, qm, lp = fitting(card.json()) ?: card.json(withPicture = false))   // the queue keeps the leg's cut
         picture(card)?.let { full ->
             Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.lp = full.json() }
             if (group) Groups.carryCard(ref, mid, full)
+            else Post.send(ref, mid, text, qt, qm, lp = fitting(full.json()) ?: full.json(withPicture = false))
+            android.util.Log.d("Montana", "link card: the picture caught up mid=" + mid.take(8))
         }
     }
     /**
