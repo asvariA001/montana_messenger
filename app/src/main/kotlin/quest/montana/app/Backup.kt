@@ -30,7 +30,7 @@ import javax.crypto.spec.SecretKeySpec
 // record sealed alone, AAD = that 48-byte header and u64 LE index, info "mt-backup-key-v1" -- is still read.
 
 /** What a copy held — COUNTED here, never promised (iOS MontanaBackup.Tally). */
-data class Tally(var chats: Int = 0, var records: Int = 0, var media: Int = 0, var bytes: Int = 0, var skipped: Int = 0)
+data class Tally(var chats: Int = 0, var records: Int = 0, var media: Int = 0, var bytes: Long = 0, var skipped: Int = 0)
 
 /** Why a copy did not come back. Every one is spoken to the person (iOS MontanaBackup.Refusal). */
 sealed class Refusal {
@@ -309,14 +309,14 @@ object MontanaBackup {
                     }
                     File(d, "Media").listFiles { f -> f.isFile && !f.name.startsWith(".") }?.sortedBy { it.name }?.forEach { f ->
                         pieces(f, KIND_MEDIA, d.name + "/" + f.name, w)
-                        tally.media++; tally.bytes += f.length().toInt()
+                        tally.media++; tally.bytes += f.length()
                         any = true
                     }
                     if (any) tally.chats++
                 }
                 // The attachments themselves go LAST after every letter: on the other side a file lands after its letter.
-                for (f in store) { pieces(f, KIND_STORE, f.name, w); tally.media++; tally.bytes += f.length().toInt() }
-                for ((place, f) in placed) { pieces(f, KIND_PLACE, "$place/${f.name}", w); tally.bytes += f.length().toInt() }
+                for (f in store) { pieces(f, KIND_STORE, f.name, w); tally.media++; tally.bytes += f.length() }
+                for ((place, f) in placed) { pieces(f, KIND_PLACE, "$place/${f.name}", w); tally.bytes += f.length() }
                 feed?.let { fd ->
                     val count = maxOf(1, (fd.size + PIECE - 1) / PIECE)
                     for (i in 0 until count) {
