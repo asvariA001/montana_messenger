@@ -2,6 +2,16 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
+## 1.0 (2300) - 2026-10-23
+
+Source commit `f14630209f02`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2300.md).
+
+- The transfer screen speaks of your time chain: a transfer not yet in it reads "Not in your TimeChain yet" -- the word book is gone.
+
+**Security and anonymity**
+
+- This build changes neither security nor anonymity: one visible word on the transfer screen and its translations.
+
 ## 1.0 (2299) - 2026-10-23
 
 Source commit `4d8b7da44672`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2299.md).
