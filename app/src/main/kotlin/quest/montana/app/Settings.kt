@@ -511,8 +511,8 @@ fun dataStoragePage(act: MainActivity, onBack: () -> Unit): View {
                         if (uri == null) { r.file.delete(); return@saveDocument }
                         act.background {
                             try {
+                                // The saved file is its own answer (iOS: the share sheet, no words): «taken by your node» named a node that never saw it
                                 act.contentResolver.openOutputStream(uri)?.use { out -> r.file.inputStream().use { it.copyTo(out, 1 shl 16) } }
-                                say(act.getString(R.string.node_taken_by, r.tally.chats, r.tally.records, r.tally.media))
                             } catch (e: Exception) { say(Refusal.DiskRefused(e.javaClass.simpleName).spoken(act)) }
                             finally { r.file.delete() }
                         }
