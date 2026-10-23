@@ -499,6 +499,43 @@ mod tests {
         assert_eq!(book.lowest_place_open(2, &aggregate), None);
     }
 
+    // The frozen vectors of the place, computed from the formula of Canon ("The round of a chain, in
+    // integers": SHA-256("mt-proposer" || 0x00 || part_nf || A || a_4B_LE)) and held here byte for
+    // byte until Canon carries them. Each rejects one wrong implementation: the first any other
+    // domain, separator or field order; the second one leaving the attempt out of the preimage (the
+    // place would not move with it); the third one swapping the part and the aggregate (the two are
+    // the same width, and only the order tells them apart); the fourth one writing the attempt
+    // big-endian, which at 256 is the byte string 00 00 01 00 in place of 00 01 00 00.
+    #[test]
+    fn the_frozen_vectors_of_the_place_reproduce() {
+        fn hex(bytes: &[u8; 32]) -> String {
+            bytes.iter().map(|b| format!("{b:02x}")).collect()
+        }
+        let part = [0x11u8; 32];
+        let aggregate = [0x33u8; 32];
+        assert_eq!(
+            hex(&place(&part, &aggregate, 1)),
+            "430bafb243a6b07ed4cb9340acd703ca59587af774155eb8687a219addc126bc"
+        );
+        assert_eq!(
+            hex(&place(&part, &aggregate, 2)),
+            "af654e51a968a99462dcb79fbe5d0771dc079138de0cec4429e4140ec89c91a5"
+        );
+        assert_eq!(
+            hex(&place(&aggregate, &part, 1)),
+            "c8aa49a5f8b663c194867bfa0d3e4a800ae40259b1583d2011028a85cc821cbd"
+        );
+        assert_eq!(
+            hex(&place(&part, &aggregate, 256)),
+            "bd8966b1fc6d150404f4fbdf9a80f85734dac9766d658ba5a2bcc970d805addc"
+        );
+        // The big-endian attempt, named so that the vector above is seen to tell it apart.
+        assert_ne!(
+            hex(&place(&part, &aggregate, 256)),
+            "58208cfe10fbac91291e681ac86cd9977912f0b9d5331f69633b64f8a5be694d"
+        );
+    }
+
     // The place reads the part, the aggregate and the attempt, each where the set puts it. The wrong
     // implementations refused: one leaving the attempt out (one order for every attempt) and one
     // swapping the part and the aggregate.
