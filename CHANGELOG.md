@@ -2,6 +2,16 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
+## 1.0 (2297) - 2026-10-23
+
+Source commit `9c4e9919a828`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2297.md).
+
+- Your coin balance now shows what the time chain says; after the time cut calls and taps no longer mint coins on the phone itself, and an unrecorded call burns exactly its price.
+
+**Security and anonymity**
+
+- Past the time cut the phone mints nothing of its own: every number of the person's coins is read from the chain, less the sends still on their way. Until the chain first answers, the phone's own record still shows -- that view is replaced as soon as the chain speaks.
+
 ## 1.0 (2296) - 2026-10-23
 
 Source commit `03de274b7160`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2296.md).
