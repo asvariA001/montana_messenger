@@ -13,9 +13,16 @@
 // quorum; one judging a ticket against an aggregate the proposal two before does not carry; one
 // trusting its anchor beyond the anchor; one taking as the next proposal a proposal the window
 // after it does not attest; one stopped by a runner publishing, under the honest name, bytes the
-// door refuses — it judges every copy under the name and takes the first that stands; and one taking
-// the first proposal under any name the window after attests — a minority attesting a name the
-// agreement never decides stopped it one step on, short of the decided proposal offered beside.
+// door refuses — it judges every copy under the name and takes the first that stands; one holding
+// that a certificate with any name astray decides nothing — the decided proposal offered alone under
+// a split certificate is taken; and one taking the first proposal under any name the window after
+// attests — a minority attesting a name the agreement never decides stopped it one step on, short
+// of the decided proposal offered beside.
+//
+// **The electorate of the split is four at a quorum of three.** The Decree names sixty-seven
+// hundredths: at three machines the quorum is all three (2 × 100 < 3 × 67), so a split of two and
+// one decides nothing and a test of the minority on three machines measures nothing; at four, three
+// reach it (3 × 100 ≥ 4 × 67) and one stands astray — the electorate of the acceptance of item 1.
 
 use montana_node::attest::Standing;
 use montana_node::certificate::{
@@ -115,21 +122,22 @@ fn heavies(
 
 #[test]
 fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
-    let (one, two, three) = ([0x11u8; 32], [0x22u8; 32], [0x33u8; 32]);
+    let (one, two, three, four) = ([0x11u8; 32], [0x22u8; 32], [0x33u8; 32], [0x44u8; 32]);
     let pair = Cohort::of(&[Cohort::half_of(&one), Cohort::half_of(&two)]).expect("a tree of two");
     let all = Cohort::of(&[
         Cohort::half_of(&one),
         Cohort::half_of(&two),
         Cohort::half_of(&three),
+        Cohort::half_of(&four),
     ])
-    .expect("a tree of three");
+    .expect("a tree of four");
     assert_ne!(pair.root(), all.root());
     let draw = mt_pulse::retarget::draw_threshold().expect("the threshold of the draw");
     let major = mt_state::implemented_major();
 
-    // The anchor: the earlier proposal admits the pair and the later one all three, so the
+    // The anchor: the earlier proposal admits the pair and the later one all four, so the
     // electorate of the window two on is the pair and the electorate of the window three on is the
-    // three. The two carry two different cements, which the draws two windows on read.
+    // four. The two carry two different cements, which the draws two windows on read.
     let earlier = handed(ANCHOR, [0x10; 32], &pair, [0x0Au8; 32]);
     let later = handed(
         ANCHOR + 1,
@@ -228,8 +236,8 @@ fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
         .expect("the proposal stands");
     let next_id = next.id().expect("an identifier");
 
-    // The window after that: all three attest the next proposal against the tree the later proposal
-    // of the anchor carries.
+    // The window after that: three of the four attest the next proposal against the tree the later
+    // proposal of the anchor carries — the quorum of four.
     let after = ANCHOR + 3;
     let first_after = opening(after, next_id);
     let (answered_after, closed_after) =
@@ -263,7 +271,7 @@ fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
     let pending = walk(&anchor, &steps[..1], 1, &draw, major).expect("the anchor's certificate");
     assert_eq!(pending, anchor);
 
-    // Refused: a certificate below the quorum — two of the three.
+    // Refused: a certificate below the quorum — two of the four.
     let short = [Round {
         beacon: &first_after,
         heavy: &answered_after[..2],
@@ -477,14 +485,16 @@ fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
     .expect("the honest bytes stand beside a refused copy");
     assert_eq!(past_the_copy.later.signature, next.signature);
 
-    // A minority of the window after attesting another name: the third machine attests `other` and
-    // closes on it, the pair closes on the honest name, so `other` stands under an attested name the
-    // agreement never decides. Offered alone it is judged whole, and the certificate after refuses
-    // it; offered before the honest proposal it stops nothing.
+    // A minority of the window after attesting another name: the fourth machine attests `other` and
+    // closes on it, the three close on the honest name — the quorum of four — so `other` stands under
+    // an attested name the agreement never decides. Offered alone it is judged whole, and the
+    // certificate after refuses it; the honest proposal offered alone under the same split
+    // certificate is taken, since a name astray decides nothing against the quorum; offered before
+    // the honest proposal the minority name stops nothing.
     let other_id = other.id().expect("an identifier");
     let (mut split_after, mut split_closed) =
-        heavies(&[one, two], &all, after, &first_after, next_id);
-    let (astray, astray_closed) = heavies(&[three], &all, after, &first_after, other_id);
+        heavies(&[one, two, three], &all, after, &first_after, next_id);
+    let (astray, astray_closed) = heavies(&[four], &all, after, &first_after, other_id);
     split_after.extend(astray);
     split_closed.extend(astray_closed);
     let split_rounds = [Round {
@@ -492,6 +502,26 @@ fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
         heavy: &split_after,
         ballots: &[],
     }];
+    let past_the_split = walk(
+        &anchor,
+        &[
+            Step {
+                certificate: &rounds,
+                pledges: &closed,
+                next: std::slice::from_ref(&next),
+            },
+            Step {
+                certificate: &split_rounds,
+                pledges: &split_closed,
+                next: &[],
+            },
+        ],
+        1,
+        &draw,
+        major,
+    )
+    .expect("the decided proposal is taken under a certificate with one name astray");
+    assert_eq!(past_the_split.later.id(), next.id());
     assert_eq!(
         walk(
             &anchor,
