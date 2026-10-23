@@ -118,12 +118,27 @@ pub fn piece_bytes() -> Result<usize, WireError> {
 // and another for a body barely reaching it (Welch's t of 34 and 52 over two thousand samples, in
 // `tests/timing_cell.rs`), so the length the one width hides on the wire stood on the clock of the
 // machine that cuts. The bytes written are the same either way; only the time is not.
+//
+// The byte is read at the position clamped to the last byte of the body, so that every position
+// reads one byte and the mask alone decides what is kept. A body of nothing is read as one byte of
+// zero under a mask of zero, by the same loop, so it costs what a body of one byte costs. Indexing
+// the clamped position directly, with the body known to hold a byte, lets the compiler drop the
+// check on every byte; the position is formed by a wrapping add because the release profile checks
+// overflow, and a check that can panic inside the loop is a branch inside the loop. The first form
+// of this function, which looked each byte up with `get` and a fallback and added with a check,
+// cost seven times the copy it replaced (4.3 against 0.6 microseconds for three blocks, on the
+// machine of the check); this form costs four times, the loop still reading one byte at a time
+// through the clamped index, which is the price of a time that follows the width alone. No
+// position of a block overflows: a body is bounded by the count of pieces a link declares and the
+// count of cells a delivery declares, both of them sixteen bits.
 pub(crate) fn lay(body: &[u8], at: usize, block: &mut [u8]) {
-    let last = body.len().saturating_sub(1);
+    let length = body.len();
+    let source: &[u8] = if body.is_empty() { &[0u8] } else { body };
+    let last = source.len() - 1;
     for (offset, slot) in block.iter_mut().enumerate() {
-        let position = at + offset;
-        let mask = u8::from(position < body.len()).wrapping_neg();
-        *slot = body.get(position.min(last)).copied().unwrap_or(0) & mask;
+        let position = at.wrapping_add(offset);
+        let mask = u8::from(position < length).wrapping_neg();
+        *slot = source[position.min(last)] & mask;
     }
 }
 
