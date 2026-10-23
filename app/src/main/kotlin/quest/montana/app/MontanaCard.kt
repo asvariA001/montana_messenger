@@ -305,6 +305,7 @@ object MontanaCard {
         offerShort(c)
         if (hasLivePermanent()) offerPermanent(c)
         faceChanged(c)   // a face laid before this build beside a card stays no longer than the next return; a fresh one is not poured again
+        Thread { twinLiveCards() }.start()   // the seed's other devices hold every live card of this one (iOS keepLiveCardsUp)
     }
 
     /**
