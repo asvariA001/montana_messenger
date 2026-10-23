@@ -52,6 +52,10 @@ fn a_payers_own_frame_applies_as_it_leaves_the_round() {
         wallet.enter(note).expect("the ledger takes it");
     }
     let held = wallet.balance().expect("a balance");
+    // One store, one holder at a time: the wallet is dropped while the machine pays out of it, and
+    // opened again to read what the payment left. The machine opens the wallet for the one act of
+    // paying and releases it before the round applies; the settlement opens it again afterwards.
+    drop(wallet);
     let notes_held = || {
         machine
             .value()
@@ -108,11 +112,13 @@ fn a_payers_own_frame_applies_as_it_leaves_the_round() {
         before,
         "the payer applied its own frame as it published it"
     );
+    let wallet = Wallet::open(&ledger_at.0).expect("a wallet opens again");
     assert_eq!(
         wallet.balance().expect("a balance"),
         held,
         "the wallet spent before the round applied the frame"
     );
+    drop(wallet);
     assert!(
         heard.try_recv().is_err(),
         "the payment was settled before its round left"
@@ -136,6 +142,7 @@ fn a_payers_own_frame_applies_as_it_leaves_the_round() {
         "the payee's note took the first free position"
     );
     assert!(notes_held() > before);
+    let wallet = Wallet::open(&ledger_at.0).expect("a wallet opens again");
     assert_eq!(
         wallet.balance().expect("a balance"),
         held - PAID,
