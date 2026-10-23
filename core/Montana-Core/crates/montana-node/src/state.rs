@@ -310,6 +310,16 @@ impl State {
         })
     }
 
+    // The identifiers of the frames this plane applied in `window`, in the order they applied, and
+    // nothing where the tree of operations holds another window.
+    pub fn operations_of(&self, window: u64) -> Vec<[u8; 32]> {
+        if self.operations.0 == window {
+            self.operations.1.clone()
+        } else {
+            Vec::new()
+        }
+    }
+
     // The roll of `window` as this plane applied it: the frames in the order they applied, then the
     // parts of the cement the window decided, ascending. Canon, "The roll of a proposal".
     pub fn roll(&self, window: u64, parts: &[[u8; 32]]) -> mt_state::layout::Roll {

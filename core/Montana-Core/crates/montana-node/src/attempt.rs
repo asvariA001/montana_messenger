@@ -269,6 +269,56 @@ impl Conduct {
             self.closed_at.get_or_insert(now);
         }
 
+        // Pledging, from attempt one on and once per attempt: attempt zero is pledged by the heavy
+        // attestation, a part pledges one open pledge per attempt, and a machine that closed in this
+        // attempt waits on the decision rather than opens beside its closing pledge. Following is
+        // read before proposing where both are due at one asking: a machine due to follow holds a
+        // pledge at a lower place than its own, and following it is what gathers the quorum.
+        if attempt > 0 && !closed && record.made_in(Kind::Open, attempt).is_none() {
+            // 4. It follows the lowest place, two spans after it entered: the same name on the same
+            // `since`, where it holds the quorum that `since` names or the `since` is none, where the
+            // name is valid to it, and where its lock admits it. Otherwise it pledges nothing.
+            if since_entry >= span.saturating_mul(2) {
+                if let Some((_, name, since)) = book.lowest_place_open(attempt, aggregate) {
+                    let backed = since == STANDS_ON_NONE
+                        || book.open_quorums(electorate).contains(&(since, name));
+                    let admitted = match record.lock {
+                        None => true,
+                        Some((locked, at)) => {
+                            locked == name || (since != STANDS_ON_NONE && since >= at)
+                        }
+                    };
+                    if backed && admitted {
+                        let valid = name == record.taken || book.backs(&name, electorate);
+                        match (valid, replayed.get(&name)) {
+                            (true, _) | (false, Some(Replayed::Valid)) => {
+                                out.push(Action::Open(name, since));
+                                return out;
+                            }
+                            // A roll not yet validated is asked for, and the asking stops nothing
+                            // below: a machine waiting on a roll that never comes still moves on.
+                            (false, None) => out.push(Action::Replay(name)),
+                            (false, Some(Replayed::Invalid)) => {}
+                        }
+                    }
+                }
+            }
+            // 3. It proposes in the order of its place: one span of listening, then the share of a
+            // further span its place stands at, unless an open pledge from a lower place stands by
+            // then — or a roll it is replaying to follow.
+            let mine = crate::agreement::place(part, aggregate, attempt);
+            if out.is_empty()
+                && since_entry >= span.saturating_add(share_of(span, &mine))
+                && !book.holds_open_below(attempt, &mine, aggregate)
+            {
+                out.push(match record.valid {
+                    Some((name, at)) => Action::Open(name, at),
+                    None => Action::Open(record.taken, STANDS_ON_NONE),
+                });
+                return out;
+            }
+        }
+
         // 2. It waits on a spoken quorum: open pledges of the attempt from distinct parts at the
         // quorum share and no name among them at the quorum, or its own closing pledge and no
         // decision — one span, then the attempt after.
@@ -282,8 +332,8 @@ impl Conduct {
             }
         }
 
-        // 5. It moves on, read before it proposes or follows: by pledges of a later attempt from
-        // more than the faulty can fill, or four spans after it entered without a decision.
+        // 5. It moves on: by pledges of a later attempt from more than the faulty can fill, or four
+        // spans after it entered without a decision.
         if let Some(later) = book.drawn_into(attempt, electorate) {
             out.push(Action::Enter(later));
             return out;
@@ -291,50 +341,6 @@ impl Conduct {
         if since_entry >= span.saturating_mul(4) {
             out.push(Action::Enter(attempt.saturating_add(1)));
             return out;
-        }
-
-        // Attempt zero is pledged by the heavy attestation, and no other open pledge of it exists.
-        if attempt == 0 || record.made_in(Kind::Open, attempt).is_some() {
-            return out;
-        }
-
-        // 3. It proposes in the order of its place: one span of listening, then the share of a
-        // further span its place stands at, unless an open pledge from a lower place stands by then.
-        let mine = crate::agreement::place(part, aggregate, attempt);
-        if since_entry >= span.saturating_add(share_of(span, &mine))
-            && !book.holds_open_below(attempt, &mine, aggregate)
-        {
-            out.push(match record.valid {
-                Some((name, at)) => Action::Open(name, at),
-                None => Action::Open(record.taken, STANDS_ON_NONE),
-            });
-            return out;
-        }
-
-        // 4. It follows the lowest place, two spans after it entered: the same name on the same
-        // `since`, where it holds the quorum that `since` names or the `since` is none, where the
-        // name is valid to it, and where its lock admits it. Otherwise it pledges nothing.
-        if since_entry >= span.saturating_mul(2) {
-            if let Some((_, name, since)) = book.lowest_place_open(attempt, aggregate) {
-                let backed = since == STANDS_ON_NONE
-                    || book.open_quorums(electorate).contains(&(since, name));
-                let admitted = match record.lock {
-                    None => true,
-                    Some((locked, at)) => {
-                        locked == name || (since != STANDS_ON_NONE && since >= at)
-                    }
-                };
-                if backed && admitted {
-                    let valid = name == record.taken || book.backs(&name, electorate);
-                    match (valid, replayed.get(&name)) {
-                        (true, _) | (false, Some(Replayed::Valid)) => {
-                            out.push(Action::Open(name, since));
-                        }
-                        (false, None) => out.push(Action::Replay(name)),
-                        (false, Some(Replayed::Invalid)) => {}
-                    }
-                }
-            }
         }
         out
     }

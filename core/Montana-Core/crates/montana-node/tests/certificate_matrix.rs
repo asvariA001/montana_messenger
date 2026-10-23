@@ -103,7 +103,8 @@ impl World {
             window: WINDOW,
             chain: 0,
             round: 0,
-            previous: self.previous_id(),
+            // Round zero stands on the proposal of the window two before: the one `previous` names.
+            previous: self.previous.previous,
             cement_aggregate: mt_derive::aggregate::aggregate(&[], WINDOW).expect("the empty set"),
             cement_count: 0,
             cement_votes: 0,
@@ -223,7 +224,7 @@ impl World {
         )?;
         decided_of(
             &last.id().expect("an identifier"),
-            Predecessor::Proposal(&self.previous),
+            &self.previous.previous,
             &rounds,
             &closure,
             &self.electorate(),

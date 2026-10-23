@@ -404,11 +404,12 @@ impl Decided {
 
 // The final beacon a proposal names, read off a verified certificate by a device that was not there:
 // a beacon among the rounds of the certificate, linked by hash round by round to round zero and from
-// there to the predecessor, whose count reaches the quorum and names no more parts than the
-// certificate verified.
+// there to the proposal of the window two before — the one that fixed the electorate of the window
+// (Canon, "The round of a chain, in integers": "round zero links to the proposal of the window two
+// before") — whose count reaches the quorum and names no more parts than the certificate verified.
 pub fn decided_of(
     final_beacon: &[u8; 32],
-    predecessor: Predecessor<'_>,
+    stands_on: &[u8; 32],
     rounds: &[Round<'_>],
     closure: &Closure,
     electorate: &Electorate,
@@ -440,9 +441,9 @@ pub fn decided_of(
         }
         at = before;
     }
-    if at.previous != predecessor.id()? {
+    if at.previous != *stands_on {
         return Err(NodeError::Refused {
-            what: "a round zero standing on another predecessor",
+            what: "a round zero standing on another proposal than the one two before",
         });
     }
     if held.cement_count > closure.cement_count {
@@ -744,41 +745,46 @@ pub fn walk(
             // name its agreement never decides, so the candidate taken is the one whose certificate
             // verifies in the step after (Consensus, "The join", 3), and that certificate is carried
             // into the step rather than verified twice.
-            let judged = decided_of(
-                &candidate.final_beacon,
-                Predecessor::Proposal(&later),
-                step.certificate,
-                &closure,
-                &electorate,
-            )
-            .and_then(|decided| {
-                verify_successor(
-                    candidate,
-                    &Held {
-                        predecessor: Predecessor::Proposal(&later),
-                        decided: &decided,
-                        electorate: &electorate,
-                        aggregate_two_before: &earlier.cement_aggregate,
-                        draw_threshold,
-                        implemented_major,
-                    },
-                )
-            })
-            .and_then(|()| match after {
-                Some(after) => verify_certificate(
-                    window.checked_add(1).ok_or(NodeError::Refused {
-                        what: "a window past the last one a count carries",
-                    })?,
-                    &Electorate::of(&later)?,
-                    Predecessor::Proposal(candidate),
-                    &later.cement_aggregate,
-                    chains,
-                    after.certificate,
-                    after.pledges,
-                )
-                .map(Some),
-                None => Ok(None),
-            });
+            let judged = earlier
+                .id()
+                .map_err(NodeError::Object)
+                .and_then(|two_before| {
+                    decided_of(
+                        &candidate.final_beacon,
+                        &two_before,
+                        step.certificate,
+                        &closure,
+                        &electorate,
+                    )
+                })
+                .and_then(|decided| {
+                    verify_successor(
+                        candidate,
+                        &Held {
+                            predecessor: Predecessor::Proposal(&later),
+                            decided: &decided,
+                            electorate: &electorate,
+                            aggregate_two_before: &earlier.cement_aggregate,
+                            draw_threshold,
+                            implemented_major,
+                        },
+                    )
+                })
+                .and_then(|()| match after {
+                    Some(after) => verify_certificate(
+                        window.checked_add(1).ok_or(NodeError::Refused {
+                            what: "a window past the last one a count carries",
+                        })?,
+                        &Electorate::of(&later)?,
+                        Predecessor::Proposal(candidate),
+                        &later.cement_aggregate,
+                        chains,
+                        after.certificate,
+                        after.pledges,
+                    )
+                    .map(Some),
+                    None => Ok(None),
+                });
             match judged {
                 Ok(closure_after) => {
                     taken = Some(candidate);

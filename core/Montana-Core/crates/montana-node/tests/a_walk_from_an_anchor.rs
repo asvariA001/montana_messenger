@@ -65,7 +65,7 @@ fn handed(window: u64, previous: [u8; 32], cohort: &Cohort, cement: [u8; 32]) ->
     }
 }
 
-// The opening beacon of a window, standing on the proposal of the window before.
+// The opening beacon of a window, standing on the proposal of the window two before.
 fn opening(window: u64, previous: [u8; 32]) -> Beacon {
     Beacon {
         window,
@@ -150,11 +150,13 @@ fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
         later: later.clone(),
     };
     let later_id = later.id().expect("an identifier");
+    let earlier_id = earlier.id().expect("an identifier");
 
     // The window after the anchor: the pair attests the later proposal against the tree the earlier
-    // proposal carries, and the runner of the window proposes what it decided.
+    // proposal carries, its round zero stands on the earlier proposal, and the runner of the window
+    // proposes what it decided.
     let window = ANCHOR + 2;
-    let first = opening(window, later_id);
+    let first = opening(window, earlier_id);
     let (answered, closed) = heavies(&[one, two], &pair, window, &first, later_id);
     let last = closing(window, &first, &answered);
     let rounds = [
@@ -198,7 +200,7 @@ fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
     );
     let decided = decided_of(
         &last.id().expect("an identifier"),
-        Predecessor::Proposal(&later),
+        &earlier_id,
         &rounds,
         &closure,
         &electorate,
@@ -239,7 +241,7 @@ fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
     // The window after that: three of the four attest the next proposal against the tree the later
     // proposal of the anchor carries — the quorum of four.
     let after = ANCHOR + 3;
-    let first_after = opening(after, next_id);
+    let first_after = opening(after, later_id);
     let (answered_after, closed_after) =
         heavies(&[one, two, three], &all, after, &first_after, next_id);
     let rounds_after = [Round {

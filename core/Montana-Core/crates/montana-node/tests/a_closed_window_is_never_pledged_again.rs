@@ -71,6 +71,7 @@ fn a_window_this_machine_closed_is_refused_running_and_after_a_restart() {
             (window, 0, 0),
             &branch,
             name,
+            [0x41u8; 32],
             &electorate,
             &aggregate,
         )

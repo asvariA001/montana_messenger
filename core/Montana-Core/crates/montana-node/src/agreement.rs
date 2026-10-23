@@ -236,6 +236,12 @@ impl Book {
             .map(|(at, _)| at)
     }
 
+    // How many pledges the book holds, heavy attestations counted as the open pledges of attempt
+    // zero they are: what a machine says of its agreement, and no rule.
+    pub fn held(&self) -> usize {
+        self.first.values().map(|parts| parts.len()).sum()
+    }
+
     // The open pledges of `attempt`, part by part, with the name and the attempt each stands on.
     pub fn open_of(&self, attempt: u32) -> Vec<(Part, Name, u32)> {
         self.first

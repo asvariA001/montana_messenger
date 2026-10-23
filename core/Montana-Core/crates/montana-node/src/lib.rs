@@ -450,10 +450,20 @@ struct Reached {
 // A successful socket write is not evidence that the holder accepted a cell.
 // Only a collection acknowledging the exact bytes suppresses a later retry.
 // Keep hashes only for cells this machine also accepts, under its point bound.
+// **A push the far side does not acknowledge is tried again later, not at once.** A machine that
+// left a window refuses in silence every cell of that window's points, and a neighbour still in it
+// that pushed what it holds at every asking would spend both machines' doors on refusals — hundreds
+// of thousands of them in one run — for as long as it stood there. So the askings between two
+// pushes of the same unacknowledged cells double, and start again from one the moment a collection
+// from that far side brings something new, which says it stands at that point still. Conduct of
+// this machine alone; it changes nothing of what is published or taken.
 struct RemotePoint {
     window: u64,
     read: u16,
     acknowledged: std::collections::BTreeSet<[u8; 32]>,
+    asked: u32,
+    pushes_again_at: u32,
+    backoff: u32,
 }
 
 // A machine that has been born: its store, the key it answers with, the door it stands at, the
@@ -806,7 +816,9 @@ impl Machine {
         }
     }
 
-    pub fn drop_agreement(&self, window: u64) -> Result<(), NodeError> {
+    // The one door that drops a record is `let_go_of`, which writes the number first: a caller that
+    // dropped the record alone would leave a closed window open to a second pledge.
+    fn drop_agreement(&self, window: u64) -> Result<(), NodeError> {
         self.store.drop_agreement(window).map_err(NodeError::Store)
     }
 
@@ -1137,12 +1149,19 @@ impl Machine {
                     window,
                     read: 0,
                     acknowledged: std::collections::BTreeSet::new(),
+                    asked: 0,
+                    pushes_again_at: 0,
+                    backoff: 0,
                 });
                 if known.window != window {
                     known.window = window;
                     known.read = 0;
                     known.acknowledged.clear();
+                    known.asked = 0;
+                    known.pushes_again_at = 0;
+                    known.backoff = 0;
                 }
+                known.asked = known.asked.saturating_add(1);
                 self.counts.raise(&self.counts.collections_asked);
                 let Ok(cells) = pulse::collect_from(&mut one.link, point, known.read) else {
                     continue;
@@ -1151,11 +1170,18 @@ impl Machine {
                     .raise_by(&self.counts.cells_pulled, cells.len() as u64);
                 let read = u16::try_from(cells.len()).unwrap_or(u16::MAX);
                 known.read = known.read.saturating_add(read);
+                if read > 0 {
+                    known.backoff = 0;
+                    known.pushes_again_at = known.asked;
+                }
                 use sha2::{Digest as _, Sha256};
                 for cell in &cells {
                     if self.take_deposit(point, cell)? {
                         known.acknowledged.insert(Sha256::digest(cell).into());
                     }
+                }
+                if known.asked < known.pushes_again_at {
+                    continue;
                 }
                 let mut carried = false;
                 for cell in self.standing_at(point) {
@@ -1170,6 +1196,8 @@ impl Machine {
                 }
                 if carried {
                     self.counts.raise(&self.counts.pushes_carried);
+                    known.backoff = known.backoff.max(1).saturating_mul(2);
+                    known.pushes_again_at = known.asked.saturating_add(known.backoff);
                 }
             }
         }

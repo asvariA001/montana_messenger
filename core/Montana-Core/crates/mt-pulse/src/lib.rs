@@ -46,6 +46,11 @@ mt_codec::constants! {
     /// attempt: how long a machine listens before it proposes, follows or moves on. Consensus names
     /// the span as conduct read by no rule of acceptance, and a machine that waited twice as long
     /// reaches the same decisions later.
+    /// How many askings a machine lets pass before it asks its acquaintances again for a proposal
+    /// of the window before and its roll that did not stand at their points: reading a past window
+    /// asks every acquaintance for every point of every round of it, and a machine that asked at
+    /// every asking would spend its door on the asking.
+    pub const ASKS_FOR_A_ROLL_AGAIN_AFTER: u32 = 8, code "how many askings a machine lets pass before it asks again for a proposal of the window before and its roll that did not stand at the points, which is the conduct of a machine sparing its acquaintances a read of a whole window and no quantity of the protocol: a machine that asked at every asking replays the same rolls later";
     pub const SPAN_OF_ATTEMPT_ZERO: u32 = 40, code "the span of attempt zero of the agreement on what a window decided, in a machine's own askings, doubling from attempt to attempt; it is the conduct of a machine deciding how long to listen before it proposes, follows or moves on, and no quantity of the protocol: a machine that waited twice as long reaches the same decisions later";
 }
 
