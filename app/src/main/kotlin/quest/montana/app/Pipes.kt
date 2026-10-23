@@ -47,6 +47,17 @@ object Wire {
     const val WALK_ANCHOR_DAY = 20754L   // 28.10.2026 UTC
     const val MINUTES_PER_DAY = 1440L
     const val MAX_WALK = 36_600L
+    /**
+     * THE ROOT OF A CONVERSATION (iOS MTNodeWire.convRoot, 43369c12, 21d43fae; the author's word 21.10.2026 15:2x MSK): SHA-256(
+     * «mt-conv-root» ‖ 0 ‖ the established secret). The author field of a letter stands on the root from the day after
+     * WALK_ANCHOR_DAY, never on the established secret, so the walk can erase that secret; the root opens no letter. (The coin
+     * SEND's blind stands on it too on iOS: Android lays no v3 SEND yet.)
+     */
+    fun convRoot(secret: ByteArray): ByteArray = sha(d("mt-conv-root"), secret)
+    /** The key an item laid today stands on: the root past the anchor, the established secret up to it (iOS itemKey). */
+    fun itemKey(secret: ByteArray, day: Long = Wire.day()): ByteArray = if (day > WALK_ANCHOR_DAY) convRoot(secret) else secret
+    /** The keys a received item may stand on, the root first: the sender's day is its own clock (iOS itemKeys). */
+    fun itemKeys(secret: ByteArray): List<ByteArray> = listOf(convRoot(secret), secret)
     private val walked = HashMap<String, Pair<Long, ByteArray>>()
     fun pipeSecret(secret: ByteArray, day: Long): ByteArray {
         val steps = (day - WALK_ANCHOR_DAY).coerceIn(0L, MAX_WALK)
@@ -152,25 +163,28 @@ object Wire {
         val m = d("mt-letter-author") + secret + mid.toByteArray() + byteArrayOf(0) + text.toByteArray()
         return Base64.encodeToString(mac.doFinal(m).copyOf(16), Base64.NO_WRAP)
     }
-    /** Whether a letter's author field is this person's: the tag made again under this person's key, compared in constant time. */
+    /** Whether a letter's author field is this person's: the tag made again under this person's key, compared in constant time,
+     *  over the conversation's root first, then the established secret (iOS authorHolds over itemKeys, 21d43fae). */
     fun authorHolds(tag: String, key: ByteArray?, secret: ByteArray, mid: String, text: String): Boolean {
         if (key == null || key.size != 32 || tag.isEmpty()) return false
         val got = runCatching { Base64.decode(tag, Base64.NO_WRAP) }.getOrNull()?.takeIf { it.size == 16 } ?: return false
-        val want = Base64.decode(authorTag(key, secret, mid, text), Base64.NO_WRAP)
-        var diff = 0
-        for (i in 0 until 16) diff = diff or (got[i].toInt() xor want[i].toInt())
-        return diff == 0
+        return itemKeys(secret).any { k ->
+            val want = Base64.decode(authorTag(key, k, mid, text), Base64.NO_WRAP)
+            var diff = 0
+            for (i in 0 until 16) diff = diff or (got[i].toInt() xor want[i].toInt())
+            diff == 0
+        }
     }
     /** The body with the author's field: every field before it closed and the empty ones written, so the tag stands eighth
      *  whatever the letter carries; a body that would outgrow the envelope rides without it. */
-    fun withAuthor(body: ByteArray, key: ByteArray?, secret: ByteArray, mid: String, text: String): ByteArray {
+    fun withAuthor(body: ByteArray, key: ByteArray?, secret: ByteArray, mid: String, text: String, day: Long = Wire.day()): ByteArray {
         if (key == null || key.size != 32) return body
         var b = body
         if (b.isNotEmpty() && b.last() != 0.toByte()) b += byteArrayOf(0)
         val closed = b.count { it == 0.toByte() }
         if (closed > AUTHOR_FIELDS) return body
         b += ByteArray(AUTHOR_FIELDS - closed)
-        b += authorTag(key, secret, mid, text).toByteArray() + byteArrayOf(0)
+        b += authorTag(key, itemKey(secret, day), mid, text).toByteArray() + byteArrayOf(0)
         return if (b.size <= ENVELOPE) b else body
     }
     /**
@@ -185,10 +199,18 @@ object Wire {
         val a = "t1760000000000-A"
         val tag = authorTag(k, s, a, "hello")
         val head = (a + "\u0000hello\u0000\u0000\u0000").toByteArray()
-        val signed = withAuthor(head, k, s, a, "hello")
-        val carded = withAuthor((a + "\u0000hello\u0000\u0000\u0000\u0000\u0000{\"u\":1}").toByteArray(), k, s, a, "hello")
+        val signed = withAuthor(head, k, s, a, "hello", WALK_ANCHOR_DAY)
+        val carded = withAuthor((a + "\u0000hello\u0000\u0000\u0000\u0000\u0000{\"u\":1}").toByteArray(), k, s, a, "hello", WALK_ANCHOR_DAY)
         val big = head + ByteArray(ENVELOPE - head.size - 10) { 0x41.toByte() }
+        // past the anchor the tag stands on the conversation's root (python hmac over SHA-256(«mt-conv-root» 0 ‖ s), apart from
+        // this code): a signer keeping the secret past the anchor fails it, and a reader trying the root alone fails the anchor day
+        val rootTag = "j6XVy+w+ZQ6QHFKBfIY30g=="
+        val past = withAuthor(head, k, s, a, "hello", WALK_ANCHOR_DAY + 1)
+        val anchor = withAuthor(head, k, s, a, "hello", WALK_ANCHOR_DAY)
         return tag == "BlkjB/780CuSnoy9yO1MCg=="
+            && authorTag(k, convRoot(s), a, "hello") == rootTag
+            && fields(past)[7] == rootTag && fields(anchor)[7] == tag
+            && authorHolds(rootTag, k, s, a, "hello") && !authorHolds(rootTag, k, s, a, "hello!")
             && authorTag(k, s, "hello", a) == "ccFvBbdQCRxil2lLe0NGfw=="
             && authorTag(k, s, "ab", "c") == "AmHB/IBs8lxFI/6uUuKpRg=="
             && authorTag(k, s, "a", "bc") == "gLG9utiVXFsSGWjgeQwT6A=="
@@ -223,6 +245,11 @@ object Wire {
             && hex(bodyKey(s32, (a + 2) * MINUTES_PER_DAY)) == "925378a4bb83e7137cbb1f8cdaba8b79fc37e30d3159e4158da6e0fee8518bb5"
             && convW(s32, a) == "d29425fcf807a325b74d8bb017420cfe2250cc47e8bdc6351f6006cd4a6bdc9b"
             && convW(s32, a + 2) == "c665fdca8978b9c6e54b9a4f16a06ccac657ba7da259df0a8f3e2550d7c2d518"
+            // the root of a conversation (iOS MTPipe.agreesWithCanon, 43369c12): without the zero separator (3be77415…) or in the
+            // walk's domain (5dcfd876…) it fails; the anchor day still stands on the established secret
+            && hex(convRoot(s32)) == "d9c3e7f533da2d0ed10b6729601c478ab29d1b0cafed60443113ee6a63824e11"
+            && itemKey(s32, a).contentEquals(s32) && itemKey(s32, a + 1).contentEquals(convRoot(s32))
+            && itemKeys(s32).let { it.size == 2 && it[0].contentEquals(convRoot(s32)) && it[1].contentEquals(s32) }
     }
 
     /**
