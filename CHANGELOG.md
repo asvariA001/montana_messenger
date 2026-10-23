@@ -2,6 +2,16 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
+## 1.0 (2305) - 2026-10-24
+
+Source commit `1d217f36fc91`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2305.md).
+
+- Coins: the wallet's number rises every second again, as it did before, and each second's coin is shown rising. The count is still kept by the network's core.
+
+**Security and anonymity**
+
+- Security: the screen adds only the seconds the chain itself credits, never past the online cut; nothing is minted on the phone. Anonymity is unchanged.
+
 ## 1.0 (2304) - 2026-10-23
 
 Source commit `33eb64764036`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2304.md).
