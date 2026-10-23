@@ -2,6 +2,16 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
+## 1.0 (2299) - 2026-10-23
+
+Source commit `4d8b7da44672`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2299.md).
+
+- From 26 October a call that is not recorded is paid on the time chain itself: its seconds are burned as one record at the head of your chain, once a window and at the end of the call.
+
+**Security and anonymity**
+
+- The burn of a call waits on disk until the node accepts it, and the debt falls only by an accepted BURN; before the online cut of 26 October 00:00 MSK nothing is laid, since the node refuses a BURN until then.
+
 ## 1.0 (2298) - 2026-10-23
 
 Source commit `e66c53c8fefb`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2298.md).
