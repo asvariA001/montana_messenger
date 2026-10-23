@@ -461,7 +461,6 @@ object MontanaBackup {
         var placed = 0
         private var sink: FileOutputStream? = null
         private var dropping = false
-        private val root = MontanaPaths.archive(c)
 
         companion object {
             /** The history key and the owner branch of the seed, both from the core (iOS MontanaArchive.keys). */
@@ -530,12 +529,12 @@ object MontanaBackup {
             }
         }
 
-        /** A sealed block of history: filed by the core's own ingest if it opens under this person's history key. */
-        private fun absorb(sealed: ByteArray) {
-            val conv = MtBindings.nativeArchivePeekConv(hk, owner, sealed) ?: return
-            // A folder's name comes with the card; before it, the conversation's own id names it, as on iOS.
-            MtBindings.nativeArchiveIngest(root.path, hex(conv), hk, owner, sealed)
-        }
+        /**
+         * A sealed block of history, BY THE TWIN'S OWN ROAD (iOS Taker → MontanaArchive.absorb): filed into the folder its conversation
+         * is already filed under (a copy taken back on the device that made it laid every block a second time in a folder named by the
+         * conversation's hash), a block of a conversation deleted here is not filed, and a filed one is read into the feed.
+         */
+        private fun absorb(sealed: ByteArray) { Archive.absorb(sealed) }
 
         /** The copy has been read to its end: it is whole only if its tail meets the stream it closes. */
         fun finish(): CopyResult {
