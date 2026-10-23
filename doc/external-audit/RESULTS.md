@@ -52,12 +52,24 @@ socket creation: `Operation not permitted (os error 1)`. That is an execution-en
 restriction, not evidence of a protocol defect. A repeat with loopback sockets permitted
 passed that unit-test target and proceeded to the longer integration proofs.
 
-Both full baseline runs were interrupted before completion. The loopback-enabled
-reference run completed 40 test targets with 369 tests passed and zero failures in those
-completed targets; it was stopped during `a_real_frame_is_proven_verified_and_measured`.
-The client workspace was stopped during compilation, before any completed test target.
-These are partial observations, not full workspace passes. Full baseline runs must be
-repeated in the designated isolated test environment.
+The two partial runs above were repeated in full on the project's isolated core test server
+(2026-10-23, Linux x86_64, 4 cores, Rust 1.92.0, OpenSSL 3.5 under `/opt/ossl35`), on the core folder of
+public `main` `f2c2b6fdcce50e4fe27e2a2ebbf22368f627e4a1`, folder tree `4ce3d6705224c8c99db0db1710a70bbde3d04361`
+(the `core` row of `RELEASES.md`). Each workspace ran as
+`cargo test --workspace --release --locked --jobs 4 --no-fail-fast` inside its own network namespace
+(`unshare -n`, loopback up), so no test socket was reachable from outside.
+
+| Workspace | Test targets completed | Passed | Failed | Ignored | Exit |
+|---|---|---|---|---|---|
+| `core/Code` | 117 | 1422 | 0 | 1 | 0 |
+| `core/Montana-Core` | 80 | 601 | 0 | 1 | 101 |
+
+The exit 101 of `core/Montana-Core` comes from two integration targets that did not finish:
+`montana-node --test two_hosts_live_a_window` and `montana-node --test three_machines_live_a_window`.
+Both were stopped by SIGTERM; for `two_hosts_live_a_window` the operator's log records about twenty minutes
+elapsed with its CPU time no longer growing (waiting on a futex). Neither reported a failed assertion. Every other target of both workspaces completed
+with zero failures. These two live-window proofs are therefore **not** passed by this record; their hang is an
+open finding of the reference core, not of this contribution.
 
 The `Audit readiness tools` GitHub workflow is included after the repository owner's
 OAuth authorization was refreshed with `workflow` scope. It runs the Python checks,
