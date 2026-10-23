@@ -1482,6 +1482,54 @@ object Groups {
     }
 
     /**
+     * THE GROUPS THIS DEVICE HELD BEFORE THE MIRROR, ONCE A DEVICE (iOS MTGroup.mirrorHeld, 349cc053): each rides to the seed's other
+     * devices as the words that made it here -- the owner's invitation of every member, a member's invitation from its owner -- and
+     * with it the person's own letters of the box's term, so a group born on one device before the mirror stands on every device of
+     * the seed by the same replay a new one takes (handleOwn). A media letter's cargo is not given.
+     */
+    fun mirrorHeld() {
+        val flag = "mt.group.mirrored.1"
+        if (Prefs.bool(flag, false) || MontanaSeed.twin == null) return
+        val notes = ArrayList<Triple<String, String, Boolean>>()   // pipe, the word, own
+        val heads = ArrayList<Pair<String, JSONObject>>()   // a group's carrier and the head of its letters
+        var letters = 0
+        synchronized(lock) {
+            if (!ready()) return
+            for (id in groups.keys.sorted()) {
+                val g = groups[id] ?: continue
+                if (g.left) continue
+                fun invitation(seat: String): JSONObject {
+                    val w = JSONObject().put("t", "inv").put("g", g.id).put("k", g.kind).put("ti", g.title).put("c", g.count).put("me", seat)
+                    if (g.about.isNotEmpty()) w.put("ds", g.about)
+                    if (!g.mine) g.names[OWNER_SEAT]?.takeIf { it.isNotEmpty() }?.let { w.put("n", it) }
+                    if (g.admins.isNotEmpty()) w.put("ad", JSONArray(g.admins))
+                    if (g.barred.isNotEmpty()) w.put("bn", JSONArray(g.barred))
+                    if (0 < g.slow) w.put("sw", g.slow)
+                    if (g.taken.isNotEmpty()) w.put("ax", JSONObject().apply { g.taken.forEach { (k, v) -> put(k, JSONArray(v)) } })
+                    if (g.ranks.isNotEmpty()) w.put("rk", JSONObject(g.ranks.toMap()))
+                    return w
+                }
+                if (g.mine) g.members.forEach { m -> notes.add(Triple(m.pipe, MARK + invitation(m.seat), true)) }
+                else notes.add(Triple(g.owner, MARK + invitation(g.me), false))
+                // the person's own letters of the box's term, by their names: the other device lands each once (replayLetter)
+                val carrier = if (g.mine) g.members.firstOrNull()?.pipe.orEmpty() else g.owner
+                if (carrier.isNotEmpty()) heads.add(carrier to JSONObject().put("t", "say").put("g", g.id).put("k", g.kind).put("ti", g.title).put("s", g.me))
+            }
+        }
+        val edge = System.currentTimeMillis() - 7 * 86_400_000L
+        for ((carrier, head) in heads) for (r in Book.chat(key(head.getString("g")))?.msgs.orEmpty().takeLast(300)) {
+            if (!r.mine || r.at <= edge || r.file != null || Marks.isService(r.text) || r.text.isBlank() || Marks.birthMs(r.mid) == null) continue
+            val w = JSONObject(head.toString()).put("id", r.mid).put("tx", r.text)
+            r.qt?.takeIf { it.isNotEmpty() }?.let { w.put("qt", it) }
+            notes.add(Triple(carrier, MARK + w, true))
+            letters++
+        }
+        Prefs.setBool(flag, true)
+        for ((pipe, x, own) in notes) if (pipe.isNotEmpty()) Twin.note(pipe, Marks.mintMid(), x, own = own)
+        Log.i("Montana", "group_mirrored words=" + notes.size + " letters=" + letters)
+    }
+
+    /**
      * THE SEED'S OWN GROUP WORD FROM ANOTHER OF ITS DEVICES (iOS MTGroup.handleOwn and replay, 349cc053; the author's words
      * 18.10.2026 10:3x-10:4x MSK: «in my own groups and channels, what I posted from the phone is not seen»): a word my other device
      * said in a group, signed by these words (Wire.authorHolds), stood applied to nobody here. What that device said is what this
