@@ -12,8 +12,10 @@
 // head of a walk handed one step stays at the anchor; a walker counting a certificate below the
 // quorum; one judging a ticket against an aggregate the proposal two before does not carry; one
 // trusting its anchor beyond the anchor; one taking as the next proposal a proposal the window
-// after it does not attest; and one stopped by a runner publishing, under the honest name, bytes the
-// door refuses — it judges every copy under the name and takes the first that stands.
+// after it does not attest; one stopped by a runner publishing, under the honest name, bytes the
+// door refuses — it judges every copy under the name and takes the first that stands; and one taking
+// the first proposal under any name the window after attests — a minority attesting a name the
+// agreement never decides stopped it one step on, short of the decided proposal offered beside.
 
 use montana_node::attest::Standing;
 use montana_node::certificate::{
@@ -474,4 +476,64 @@ fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
     )
     .expect("the honest bytes stand beside a refused copy");
     assert_eq!(past_the_copy.later.signature, next.signature);
+
+    // A minority of the window after attesting another name: the third machine attests `other` and
+    // closes on it, the pair closes on the honest name, so `other` stands under an attested name the
+    // agreement never decides. Offered alone it is judged whole, and the certificate after refuses
+    // it; offered before the honest proposal it stops nothing.
+    let other_id = other.id().expect("an identifier");
+    let (mut split_after, mut split_closed) =
+        heavies(&[one, two], &all, after, &first_after, next_id);
+    let (astray, astray_closed) = heavies(&[three], &all, after, &first_after, other_id);
+    split_after.extend(astray);
+    split_closed.extend(astray_closed);
+    let split_rounds = [Round {
+        beacon: &first_after,
+        heavy: &split_after,
+        ballots: &[],
+    }];
+    assert_eq!(
+        walk(
+            &anchor,
+            &[
+                Step {
+                    certificate: &rounds,
+                    pledges: &closed,
+                    next: std::slice::from_ref(&other),
+                },
+                Step {
+                    certificate: &split_rounds,
+                    pledges: &split_closed,
+                    next: &[],
+                },
+            ],
+            1,
+            &draw,
+            major,
+        ),
+        Err(refused(
+            "a certificate whose agreement does not decide the proposal it finalizes"
+        ))
+    );
+    let minority_first = [other.clone(), next.clone()];
+    let past_the_minority = walk(
+        &anchor,
+        &[
+            Step {
+                certificate: &rounds,
+                pledges: &closed,
+                next: &minority_first,
+            },
+            Step {
+                certificate: &split_rounds,
+                pledges: &split_closed,
+                next: &[],
+            },
+        ],
+        1,
+        &draw,
+        major,
+    )
+    .expect("the decided proposal is taken past a minority name");
+    assert_eq!(past_the_minority.later.id(), next.id());
 }
