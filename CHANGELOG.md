@@ -2,6 +2,16 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
+## 1.0 (2294) - 2026-10-23
+
+Source commit `55a032bb8d74`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2294.md).
+
+- Montana no longer reaches a server that left the network: the old Frankfurt machine now belongs to someone else, and the phone stopped connecting to it.
+
+**Security and anonymity**
+
+- The phone's core node dialed four genesis machines; one address now belongs to a third party and would have learned the phone's network address. It is removed; the phone reaches Lauterbourg, Moscow and Amsterdam only. Nothing new is sent.
+
 ## 1.0 (2293) - 2026-10-23
 
 Source commit `057f2d1ec42d`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2293.md).
