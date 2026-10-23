@@ -79,9 +79,26 @@ type OpenRound = Arc<Mutex<Option<Round>>>;
 
 // What a machine does once a frame of its own has applied in the order of its round: it is told the
 // positions the frame's commitments took, or nothing where the round left without applying it.
-pub type Settlement = Box<dyn FnOnce(Option<&[u64]>) + Send>;
+// What a payer is told of its frame: the positions it took as its round left, the positions a
+// replay of a decided roll moved it to, or that it applies in no window. Consensus, "When the
+// decision is not the name a machine took": "A payer learns what its frame took as the round
+// carrying it leaves ... and where a replay moves it, the replay tells it again".
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Told {
+    Applied(Vec<u64>),
+    Moved(Vec<u64>),
+    Left,
+}
+
+// A settlement is told as the round leaves and again by every replay that moves its frame, so it is
+// a closure called more than once.
+pub type Settlement = Box<dyn FnMut(Told) + Send>;
 
 type Settling = Arc<Mutex<Vec<(Round, [u8; 32], Settlement)>>>;
+
+// The settlements of frames whose rounds left, with the positions they were told, kept until the
+// window of the frame is final: what a replay tells again, and what goes when nothing can move it.
+type Retelling = Arc<Mutex<Vec<(u64, [u8; 32], Settlement, Option<Vec<u64>>)>>>;
 
 fn points_of(store: &Store, open: Option<Round>) -> Vec<[u8; POINT_BYTES]> {
     let mut out = match store.head() {
@@ -503,8 +520,10 @@ pub struct Machine {
     // its standing, which it proves in a ballot and publishes nowhere.
     census: Arc<Mutex<Vec<attest::LivedCensus>>>,
     // The frames of this machine's own standing at the points of a round, each with what the
-    // machine does once the round applies it.
+    // machine does once the round applies it; and those whose rounds left, told once and told again
+    // where a replay moves them, until their window is final.
     settling: Settling,
+    retelling: Retelling,
 }
 
 impl Machine {
@@ -572,6 +591,7 @@ impl Machine {
                 counts: Arc::new(say::Counts::default()),
                 census: Arc::new(Mutex::new(census)),
                 settling: Arc::new(Mutex::new(Vec::new())),
+                retelling: Arc::new(Mutex::new(Vec::new())),
             },
             born,
         ))
@@ -596,7 +616,7 @@ impl Machine {
         let mut held = self.census.lock().map_err(|_| NodeError::Uncountable)?;
         held.retain(|one| one.window != lived.window);
         held.push(lived);
-        held.sort_by(|a, b| b.window.cmp(&a.window));
+        held.sort_by_key(|one| std::cmp::Reverse(one.window));
         held.truncate(censuses);
         self.store
             .put_standing(&attest::LivedCensus::encode(&held))
@@ -628,8 +648,9 @@ impl Machine {
         Ok(())
     }
 
-    // The settlements of the round this machine leaves, each told what its frame took; one of an
-    // earlier window, whose round this machine left without reading it, is told nothing.
+    // The settlements of the round this machine leaves, each told what its frame took — or that the
+    // round passed it over; one of an earlier window, whose round this machine left without reading
+    // it, is told the same. Each is then kept with what it was told, for a replay to tell again.
     fn settle(&self, left: Round, took: &BTreeMap<[u8; 32], Vec<u64>>) -> Result<(), NodeError> {
         let due: Vec<(Round, [u8; 32], Settlement)> = {
             let mut held = self.settling.lock().map_err(|_| NodeError::Uncountable)?;
@@ -639,9 +660,54 @@ impl Machine {
             *held = waiting;
             due
         };
-        for (_, frame, settlement) in due {
-            settlement(took.get(&frame).map(Vec::as_slice));
+        let mut kept = self.retelling.lock().map_err(|_| NodeError::Uncountable)?;
+        for (round, frame, mut settlement) in due {
+            let told = took.get(&frame).cloned();
+            settlement(match &told {
+                Some(positions) => Told::Applied(positions.clone()),
+                None => Told::Left,
+            });
+            kept.push((round.0, frame, settlement, told));
         }
+        Ok(())
+    }
+
+    // **Told again.** The frames of `window` as a replay applied them, by their positions: every
+    // settlement of that window whose positions moved is told where to, and one whose frame the
+    // replay left out is told that it applies in no window. Consensus, "When the decision is not the
+    // name a machine took".
+    pub fn retell(
+        &self,
+        window: u64,
+        positions: &BTreeMap<[u8; 32], Vec<u64>>,
+    ) -> Result<usize, NodeError> {
+        let mut kept = self.retelling.lock().map_err(|_| NodeError::Uncountable)?;
+        let mut retold = 0usize;
+        for (of, frame, settlement, told) in kept.iter_mut() {
+            if *of != window {
+                continue;
+            }
+            let now = positions.get(frame).cloned();
+            if now == *told {
+                continue;
+            }
+            settlement(match &now {
+                Some(moved) => Told::Moved(moved.clone()),
+                None => Told::Left,
+            });
+            *told = now;
+            retold += 1;
+        }
+        Ok(retold)
+    }
+
+    // The settlements of every window at or below `window` go: the window is final and no replay
+    // moves its frames again.
+    pub fn settled_through(&self, window: u64) -> Result<(), NodeError> {
+        self.retelling
+            .lock()
+            .map_err(|_| NodeError::Uncountable)?
+            .retain(|(of, _, _, _)| *of > window);
         Ok(())
     }
 

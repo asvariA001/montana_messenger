@@ -212,6 +212,9 @@ pub struct Adopted {
     pub proposal: Proposal,
     pub roll: Roll,
     pub state: State,
+    // The positions every frame of the roll took as the replay applied it: what a payer of this
+    // machine is told again where they moved.
+    pub positions: Positions,
 }
 
 impl Pulse {
@@ -1682,8 +1685,13 @@ pub fn live_doing(
                 }
                 std::thread::sleep(ASKS_AGAIN_AFTER);
             };
-            let plane = applied_again(machine, window, &adopted.state, patience)?;
+            let (plane, positions) = applied_again(machine, window, &adopted.state, patience)?;
             machine.replace_plane(plane)?;
+            // **The payers of this machine are told again** where the replay moved their frames —
+            // those of the window before, by the decided roll, and those of this window, applied
+            // again — or that a frame of theirs applies in no window.
+            machine.retell(before, &adopted.positions)?;
+            machine.retell(window, &positions)?;
             machine.keep_proposal(&adopted.proposal)?;
             memory.states.insert(before, adopted.state.clone());
             if let Some(facts) = memory.facts.get_mut(&before) {
@@ -1783,6 +1791,9 @@ pub fn live_doing(
         // anything points at it, and is final when the agreement of the next window decides it.
         if let Some(before) = &predecessor_held {
             machine.finalize(before.window)?;
+            // The window is final: no replay moves its frames again, and what its payers were told
+            // stands.
+            machine.settled_through(before.window)?;
             let final_id = before.id().map_err(NodeError::Object)?;
             let link: String = final_id.iter().map(|b| format!("{b:02x}")).collect();
             let right = match memory.facts.get(&before.window) {
@@ -1861,6 +1872,10 @@ pub fn live_doing(
     }
     Ok(out)
 }
+
+// The positions the frames of a window took as a replay applied them, by the frame: what a payer is
+// told again.
+type Positions = BTreeMap<[u8; 32], Vec<u64>>;
 
 // What a replay answers: whether the name is valid to this machine, what it adopted where it is, and
 // the reason in a word for the account of the machine.
@@ -1952,12 +1967,16 @@ fn replay(
     // The frames, in the order of the roll, over the decided state of the window before.
     let frames = frames_of_a_past_window(machine, window, patience)?;
     let mut state = base.clone();
+    let mut positions: Positions = BTreeMap::new();
     for id in &roll.frames {
         let Some(frame) = frames.get(id) else {
             return invalid("a frame of the roll that stands at no round of the window");
         };
-        if state.apply(frame, window).is_err() {
-            return invalid("a frame of the roll the decided state refuses");
+        match state.apply(frame, window) {
+            Ok(took) => {
+                positions.insert(*id, took);
+            }
+            Err(_) => return invalid("a frame of the roll the decided state refuses"),
         }
     }
     let mut roots = state.roots(cohort, window, &roll.parts)?;
@@ -2014,6 +2033,7 @@ fn replay(
             proposal,
             roll,
             state,
+            positions,
         }),
         "the roll replays to the proposal",
     )))
@@ -2027,16 +2047,19 @@ fn applied_again(
     window: u64,
     decided_before: &State,
     patience: u32,
-) -> Result<State, NodeError> {
+) -> Result<(State, Positions), NodeError> {
     let applied = machine.value()?.operations_of(window);
     let frames = frames_of_a_past_window(machine, window, patience)?;
     let mut state = decided_before.clone();
+    let mut positions = BTreeMap::new();
     for id in &applied {
         if let Some(frame) = frames.get(id) {
-            let _ = state.apply(frame, window);
+            if let Ok(took) = state.apply(frame, window) {
+                positions.insert(*id, took);
+            }
         }
     }
-    Ok(state)
+    Ok((state, positions))
 }
 
 // The bodies standing at the points of a window this machine lived and left: what it holds at its

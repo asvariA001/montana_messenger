@@ -366,6 +366,45 @@ impl Wallet {
         Ok(self.ledger()?.held.iter().map(|n| n.value).sum())
     }
 
+    // **Told again.** A replay of a decided roll moves the notes a frame created to other positions,
+    // or leaves the frame out of every window. The nullifier of a note is a function of its position,
+    // so a note kept at the position its round left it at and spent from there would spend from a
+    // position the decided chain never gave it (Consensus, "When the decision is not the name a
+    // machine took": "the positions its commitments hold in the chain are those of the decided
+    // rolls"). The commitment does not move with the position, so the note is found by it.
+    pub fn move_note(&self, commitment: &[u8; 32], position: u64) -> Result<(), WalletError> {
+        let mut ledger = self.ledger()?;
+        let at = ledger
+            .held
+            .iter()
+            .position(|n| n.commitment == *commitment)
+            .ok_or(WalletError::NotHeld)?;
+        ledger.held[at].position = position;
+        self.put(&ledger)
+    }
+
+    // A note a replay left out of every window: it never stood, and this wallet forgets it.
+    pub fn forget(&self, commitment: &[u8; 32]) -> Result<(), WalletError> {
+        let mut ledger = self.ledger()?;
+        ledger.held.retain(|n| n.commitment != *commitment);
+        self.put(&ledger)
+    }
+
+    // The notes a frame spent, where the frame applies in no window: they stand again, and the
+    // nullifiers that were written down for them are struck, since nothing was spent.
+    pub fn take_back(&self, notes: &[Note]) -> Result<(), WalletError> {
+        let mut ledger = self.ledger()?;
+        for note in notes {
+            note.stands()?;
+            let nullifier = note.nullifier()?;
+            ledger.spent.retain(|held| *held != nullifier);
+            if !ledger.held.iter().any(|n| n.commitment == note.commitment) {
+                ledger.held.push(note.clone());
+            }
+        }
+        self.put(&ledger)
+    }
+
     // Spending a note: the nullifier is written down and the note leaves the held list, in one
     // write. **A second spending of one note is refused here** — the note's commitment binds the
     // half of the key that spends it, so one note has one nullifier and the network would refuse

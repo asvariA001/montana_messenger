@@ -10,7 +10,7 @@
 // notes until then, and what the frame took is told only as the round applies it; a frame the round
 // left without applying is told nothing and spends nothing.
 
-use montana_node::{Configuration, Machine};
+use montana_node::{Configuration, Machine, Told};
 use montana_wallet::{Note, Wallet};
 use std::sync::mpsc;
 
@@ -53,8 +53,7 @@ fn a_payers_own_frame_applies_as_it_leaves_the_round() {
     }
     let held = wallet.balance().expect("a balance");
     // One store, one holder at a time: the wallet is dropped while the machine pays out of it, and
-    // opened again to read what the payment left. The machine opens the wallet for the one act of
-    // paying and releases it before the round applies; the settlement opens it again afterwards.
+    // opened again to read what the payment left.
     drop(wallet);
     let notes_held = || {
         machine
@@ -73,8 +72,11 @@ fn a_payers_own_frame_applies_as_it_leaves_the_round() {
         .settle_when_applied(
             (WINDOW, CHAIN, ROUND),
             [0x5Au8; 32],
-            Box::new(move |took| {
-                let _ = told.send(took.map(<[u64]>::to_vec));
+            Box::new(move |what| {
+                let _ = told.send(match what {
+                    Told::Applied(positions) => Some(positions),
+                    _ => None,
+                });
             }),
         )
         .expect("the settlement waits");
