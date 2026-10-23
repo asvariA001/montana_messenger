@@ -644,7 +644,11 @@ fn the_agreement_decides_what_a_certificate_makes_final() {
         Err(refused(UNDECIDED))
     );
 
-    let split = vec![world.heavy_on(0, x), world.heavy_on(1, x), world.heavy_on(2, y)];
+    let split = vec![
+        world.heavy_on(0, x),
+        world.heavy_on(1, x),
+        world.heavy_on(2, y),
+    ];
     assert_eq!(under(&split, &closings), Err(refused(UNDECIDED)));
     let mut later: Vec<Pledge> = (0..3)
         .map(|at| world.pledge(at, 1, x, mt_state::STANDS_ON_NONE))
@@ -657,10 +661,7 @@ fn the_agreement_decides_what_a_certificate_makes_final() {
         .heavy(&world.secrets[0], [0x01u8; 32], x)
         .expect("a heavy attestation stands");
     assert_eq!(
-        under(
-            &[astray, heavies[1].clone(), heavies[2].clone()],
-            &closings
-        ),
+        under(&[astray, heavies[1].clone(), heavies[2].clone()], &closings),
         Err(refused("an attestation outside the beacon of its round"))
     );
 }

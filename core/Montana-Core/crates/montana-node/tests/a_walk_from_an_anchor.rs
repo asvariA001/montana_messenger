@@ -230,7 +230,8 @@ fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
     // of the anchor carries.
     let after = ANCHOR + 3;
     let first_after = opening(after, next_id);
-    let (answered_after, closed_after) = heavies(&[one, two, three], &all, after, &first_after, next_id);
+    let (answered_after, closed_after) =
+        heavies(&[one, two, three], &all, after, &first_after, next_id);
     let rounds_after = [Round {
         beacon: &first_after,
         heavy: &answered_after,

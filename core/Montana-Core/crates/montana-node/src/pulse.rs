@@ -18,9 +18,7 @@ use crate::certificate::{
 use crate::runner::Runner;
 use crate::{round, Machine, NodeError};
 use mt_pulse::cement::Cement;
-use mt_state::layout::{
-    Ballot, Beacon, Census, Confirmation, LightAttestation, Pledge, Proposal,
-};
+use mt_state::layout::{Ballot, Beacon, Census, Confirmation, LightAttestation, Pledge, Proposal};
 use mt_state::Layout;
 use mt_wire::message::{self, Kind, POINT_BYTES};
 use sha2::{Digest, Sha256};
