@@ -248,6 +248,55 @@ impl Book {
             })
             .unwrap_or_default()
     }
+
+    // The name the counted open pledges of `attempt` reach the quorum on: what a closing pledge of
+    // that attempt stands on, and what "It closes on what it sees" reads. Two names reach it only
+    // where more than the fault bound signed both, which "Finality" states; the book answers with
+    // the first in the order of names where it ever holds two, so every holder answers alike.
+    pub fn open_quorum_of(&self, attempt: u32, electorate: &Electorate<'_>) -> Option<Name> {
+        self.open_quorums(electorate)
+            .into_iter()
+            .find(|(at, _)| *at == attempt)
+            .map(|(_, name)| name)
+    }
+
+    // The valid name of a machine holding this book: the name and the attempt of the newest quorum
+    // of open pledges it holds, or none. Consensus, "What a machine holds of the agreement".
+    pub fn valid_name(&self, electorate: &Electorate<'_>) -> Option<(Name, u32)> {
+        self.open_quorums(electorate)
+            .into_iter()
+            .next_back()
+            .map(|(at, name)| (name, at))
+    }
+
+    // Whether `name` is backed by a quorum of open pledges of some attempt: one of the three ways a
+    // name is valid to a machine. Consensus, "valid to a machine".
+    pub fn backs(&self, name: &Name, electorate: &Electorate<'_>) -> bool {
+        self.open_quorums(electorate)
+            .iter()
+            .any(|(_, held)| held == name)
+    }
+
+    // The open pledge of `attempt` from the part at the lowest place, with the name and the attempt
+    // it stands on: what a follower takes two spans after it entered the attempt. The place is
+    // Canon's, over the cemented aggregate of the window two before.
+    pub fn lowest_place_open(
+        &self,
+        attempt: u32,
+        aggregate: &[u8; 32],
+    ) -> Option<(Part, Name, u32)> {
+        self.open_of(attempt)
+            .into_iter()
+            .min_by_key(|(part, _, _)| place(part, aggregate, attempt))
+    }
+
+    // Whether an open pledge of `attempt` stands from a part whose place is below `mine`: what a
+    // proposer checks before it publishes its own.
+    pub fn holds_open_below(&self, attempt: u32, mine: &[u8; 32], aggregate: &[u8; 32]) -> bool {
+        self.open_of(attempt)
+            .iter()
+            .any(|(part, _, _)| place(part, aggregate, attempt) < *mine)
+    }
 }
 
 // The place of a part in an attempt: Canon, "The round of a chain, in integers". The parts propose in
@@ -382,6 +431,72 @@ mod tests {
         book.pledge(pledge(2, 3, Y, STANDS_ON_NONE));
         assert_eq!(book.drawn_into(0, &electorate), Some(3));
         assert_eq!(book.drawn_into(3, &electorate), None);
+    }
+
+    // The valid name is the newest quorum of open pledges, and a name is backed by any quorum. The
+    // wrong implementation refused: one answering the earliest quorum, which would stand a proposer
+    // of a later attempt on a quorum its lock may be past.
+    #[test]
+    fn a_valid_name_is_the_newest_open_quorum() {
+        let votes = BTreeMap::new();
+        let electorate = four(&votes);
+        let mut book = Book::of_the_window(7);
+        assert_eq!(book.valid_name(&electorate), None);
+        for at in 1..=3 {
+            book.pledge(pledge(at, 1, X, STANDS_ON_NONE));
+        }
+        assert_eq!(book.valid_name(&electorate), Some((X, 1)));
+        assert_eq!(book.open_quorum_of(1, &electorate), Some(X));
+        assert_eq!(book.open_quorum_of(2, &electorate), None);
+        for at in 1..=3 {
+            book.pledge(pledge(at, 2, Y, STANDS_ON_NONE));
+        }
+        assert_eq!(book.valid_name(&electorate), Some((Y, 2)));
+        assert!(book.backs(&X, &electorate));
+        assert!(book.backs(&Y, &electorate));
+        assert!(!book.backs(&[0x5A; 32], &electorate));
+    }
+
+    // The lowest place is the least place compared unsigned and big-endian over the full width,
+    // which is the order of the byte arrays. The wrong implementation refused: one comparing the
+    // places little-endian, which the vector below tells apart from the right one by construction.
+    #[test]
+    fn the_lowest_place_is_read_big_endian_over_the_full_width() {
+        let aggregate = [0x33; 32];
+        let parts: Vec<Part> = (1..=6).map(part).collect();
+        let mut book = Book::of_the_window(7);
+        for at in 1..=6 {
+            book.pledge(pledge(at, 1, X, STANDS_ON_NONE));
+        }
+        let big = parts
+            .iter()
+            .min_by_key(|part| place(part, &aggregate, 1))
+            .copied()
+            .expect("six parts");
+        let little = parts
+            .iter()
+            .min_by_key(|part| {
+                let mut reversed = place(part, &aggregate, 1);
+                reversed.reverse();
+                reversed
+            })
+            .copied()
+            .expect("six parts");
+        assert_ne!(big, little, "the vector does not tell the two orders apart");
+        assert_eq!(
+            book.lowest_place_open(1, &aggregate)
+                .map(|(part, _, _)| part),
+            Some(big)
+        );
+        let mine = place(&big, &aggregate, 1);
+        assert!(!book.holds_open_below(1, &mine, &aggregate));
+        let highest = parts
+            .iter()
+            .max_by_key(|part| place(part, &aggregate, 1))
+            .copied()
+            .expect("six parts");
+        assert!(book.holds_open_below(1, &place(&highest, &aggregate, 1), &aggregate));
+        assert_eq!(book.lowest_place_open(2, &aggregate), None);
     }
 
     // The place reads the part, the aggregate and the attempt, each where the set puts it. The wrong

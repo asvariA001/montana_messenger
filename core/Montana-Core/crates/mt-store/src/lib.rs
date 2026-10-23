@@ -70,11 +70,6 @@ pub enum StoreError {
     },
     // A machine that already drew its secret, asked to draw a second.
     SecretStands,
-    ConflictingPredecessor {
-        window: u64,
-        held: [u8; 32],
-        requested: [u8; 32],
-    },
     // A head naming a window whose proposal is not stored. The order of writing makes this the one
     // arrangement a crash cannot produce, so a store holding it was edited by something other than
     // this crate.
@@ -320,39 +315,32 @@ impl Store {
         self.close_the_file_to_others(&at)
     }
 
-    // Every heavy or light answer of this window also endorses its predecessor.
-    // Publish that choice durably before a signing key can be used. Concurrent
-    // processes share the same exclusive publication; a restart cannot clear it.
-    pub fn lock_predecessor(&self, window: u64, proposal: &[u8; 32]) -> Result<(), StoreError> {
-        let at = self.root.join(format!("signed-parent-{window:020}"));
-        if read_digest(&at)?.is_none() {
-            match write_complete(&at, proposal, true) {
-                Ok(()) => return Ok(()),
-                Err(StoreError::SecretStands) => {} // a concurrent choice won
-                Err(error) => return Err(error),
-            }
+    // **What a machine holds of the agreement on one open window**: its attempt, its lock, its
+    // valid name and every pledge it made, written before anything they govern is published, kept
+    // through a restart, and let go when the window closes — so a machine holds one record for each
+    // open window and never a history (Consensus, "What a machine holds of the agreement"). It took
+    // the place of a signing lock kept for each window and never removed: the record carries what
+    // that lock carried — the name this machine pledged — and the rest the agreement needs.
+    fn agreement_at(&self, window: u64) -> PathBuf {
+        self.root.join(format!("agreement-{window:020}"))
+    }
+
+    pub fn agreement(&self, window: u64) -> Result<Option<Vec<u8>>, StoreError> {
+        read_whole(&self.agreement_at(window))
+    }
+
+    pub fn put_agreement(&self, window: u64, bytes: &[u8]) -> Result<(), StoreError> {
+        write_whole(&self.agreement_at(window), bytes)
+    }
+
+    // The record of a window that closed, removed; a record that is not there is already gone.
+    pub fn drop_agreement(&self, window: u64) -> Result<(), StoreError> {
+        let at = self.agreement_at(window);
+        match fs::remove_file(&at) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(said(&at, e)),
         }
-        let held = read_digest(&at)?.ok_or_else(|| {
-            said(
-                &at,
-                std::io::Error::other("a published signing lock disappeared"),
-            )
-        })?;
-        if held != *proposal {
-            return Err(StoreError::ConflictingPredecessor {
-                window,
-                held,
-                requested: *proposal,
-            });
-        }
-        // Retry the durability barrier even for an identical choice: the first
-        // writer may have returned CommitUncertain after publishing the file.
-        fs::File::open(&self.root)
-            .and_then(|directory| directory.sync_all())
-            .map_err(|e| StoreError::CommitUncertain {
-                at: at.display().to_string(),
-                said: e.to_string(),
-            })
     }
 
     #[cfg(unix)]
@@ -488,77 +476,34 @@ mod tests {
 
     // Scratch artifacts are retained for inspection; tests never remove existing files.
 
+    // The record of an open window is read back whole after a reopening, written over by the next
+    // writing, and gone once the window closes; a window never recorded answers with nothing. The
+    // wrong implementations refused: one that kept the record after the close (a history, which
+    // the set refuses), and one that refused a second writing of one window.
     #[test]
-    fn a_signing_lock_survives_reopening_and_does_not_follow_rounds() {
-        let scratch = Scratch::named("signing-lock-restart");
-        let first = [0x31; 32];
-        let other = [0x32; 32];
+    fn an_agreement_record_survives_reopening_and_goes_with_its_window() {
+        let scratch = Scratch::named("agreement-record");
+        let first = vec![0x31; 90];
+        let later = vec![0x32; 180];
         {
             let store = Store::open(scratch.path()).unwrap();
-            store.lock_predecessor(12, &first).unwrap();
+            assert_eq!(store.agreement(12).unwrap(), None);
+            store.put_agreement(12, &first).unwrap();
+            assert_eq!(store.agreement(12).unwrap(), Some(first.clone()));
         }
         let restarted = Store::open(scratch.path()).unwrap();
-        restarted.lock_predecessor(12, &first).unwrap();
-        assert_eq!(
-            restarted.lock_predecessor(12, &other),
-            Err(StoreError::ConflictingPredecessor {
-                window: 12,
-                held: first,
-                requested: other
-            })
-        );
-        restarted.lock_predecessor(13, &other).unwrap();
-        // Refusal neither replaces nor clears the prior choice.
-        restarted.lock_predecessor(12, &first).unwrap();
-        let path = scratch.path().join("signed-parent-00000000000000000012");
-        assert_eq!(fs::read(&path).unwrap(), first);
-        fs::write(&path, [0x31; 31]).unwrap();
-        assert!(matches!(
-            restarted.lock_predecessor(12, &first),
-            Err(StoreError::WrongLength { .. })
-        ));
-    }
-
-    #[test]
-    fn concurrent_conflicting_signing_choices_have_one_winner() {
-        let scratch = Scratch::named("signing-lock-race");
-        Store::open(scratch.path()).unwrap();
-        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
-        let handles: Vec<_> = [0x51, 0x52]
-            .into_iter()
-            .map(|byte| {
-                let path = scratch.0.clone();
-                let barrier = barrier.clone();
-                std::thread::spawn(move || {
-                    let store = Store::open(path).unwrap();
-                    barrier.wait();
-                    ([byte; 32], store.lock_predecessor(12, &[byte; 32]))
-                })
-            })
-            .collect();
-        let results: Vec<_> = handles
-            .into_iter()
-            .map(|thread| thread.join().unwrap())
-            .collect();
-        assert_eq!(
-            results.iter().filter(|(_, result)| result.is_ok()).count(),
-            1
-        );
-        assert_eq!(
-            results
-                .iter()
-                .filter(|(_, result)| matches!(
-                    result,
-                    Err(StoreError::ConflictingPredecessor { .. })
-                ))
-                .count(),
-            1
-        );
-        let winner = results.iter().find(|(_, result)| result.is_ok()).unwrap().0;
-        assert_eq!(
-            read_digest(&scratch.path().join("signed-parent-00000000000000000012")).unwrap(),
-            Some(winner)
-        );
+        assert_eq!(restarted.agreement(12).unwrap(), Some(first));
+        restarted.put_agreement(12, &later).unwrap();
+        assert_eq!(restarted.agreement(12).unwrap(), Some(later));
+        assert_eq!(restarted.agreement(13).unwrap(), None);
+        restarted.drop_agreement(12).unwrap();
+        assert_eq!(restarted.agreement(12).unwrap(), None);
+        assert!(!scratch
+            .path()
+            .join("agreement-00000000000000000012")
+            .exists());
+        // Dropping what is not there is not an error: the window closed once.
+        restarted.drop_agreement(12).unwrap();
     }
 
     #[test]

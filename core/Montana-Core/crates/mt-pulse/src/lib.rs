@@ -42,6 +42,11 @@ mt_codec::constants! {
     /// proposal: a machine waits the share of them its ticket stands at, so the lowest ticket
     /// usually carries the decision first and alone.
     pub const CARRIES_WITHIN: u32 = 2_400, code "the span the runners of one decision are spread over by their tickets before each proves its own proposal, which is the conduct of a machine sparing the network a copy and no quantity of the protocol: a machine that waited for nobody publishes one copy too many and nothing worse";
+    /// How many askings the span of attempt zero of the agreement is, doubling from attempt to
+    /// attempt: how long a machine listens before it proposes, follows or moves on. Consensus names
+    /// the span as conduct read by no rule of acceptance, and a machine that waited twice as long
+    /// reaches the same decisions later.
+    pub const SPAN_OF_ATTEMPT_ZERO: u32 = 40, code "the span of attempt zero of the agreement on what a window decided, in a machine's own askings, doubling from attempt to attempt; it is the conduct of a machine deciding how long to listen before it proposes, follows or moves on, and no quantity of the protocol: a machine that waited twice as long reaches the same decisions later";
 }
 
 #[derive(Debug, PartialEq, Eq)]

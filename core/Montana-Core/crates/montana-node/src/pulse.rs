@@ -11,6 +11,7 @@
 // those sixteen bytes from the window, the chain, the round and the index alone. So a machine
 // deposits without being told where and collects without asking anyone.
 
+use crate::attempt;
 use crate::attest::{self, Standing};
 use crate::certificate::{
     self, verify_proposal, Anchor, Decided, Electorate, Held, Predecessor, Roots,
@@ -161,6 +162,9 @@ pub struct Pulse {
     // This machine's own ballot of the window, and whether it has stood at the points yet.
     ballot: Option<Ballot>,
     ballot_stood: bool,
+    // What this machine holds of the agreement on the proposal of the window before: kept in the
+    // store before anything it governs is published, and let go at the close.
+    pub record: attempt::Record,
 }
 
 impl Pulse {
@@ -176,7 +180,23 @@ impl Pulse {
         aggregate: &[u8; 32],
     ) -> Result<Self, NodeError> {
         let (window, chain, _) = at;
-        machine.lock_predecessor(window, &previous_proposal)?;
+        // **The record of the agreement stands before anything it governs is published.** A machine
+        // that restarts inside a window reads the name it pledged back from its own record, and one
+        // asked to open the window on another name is refused rather than let equivocate; a record
+        // of a window never opened is written here, at attempt zero with nothing made.
+        let record = match machine.agreement_of(window)? {
+            Some(held) if held.taken != previous_proposal => {
+                return Err(NodeError::Refused {
+                    what: "a window this machine already pledged under another name",
+                })
+            }
+            Some(held) => held,
+            None => {
+                let opened = attempt::Record::opened(window, previous_proposal);
+                machine.keep_agreement(&opened)?;
+                opened
+            }
+        };
         // Receive public evidence while constructing the expensive presence
         // proof. This changes no closed head and grants no signing authority.
         machine.enter_round(window, chain, 0)?;
@@ -212,6 +232,7 @@ impl Pulse {
             judged: BTreeSet::new(),
             ballot,
             ballot_stood: false,
+            record,
         })
     }
 

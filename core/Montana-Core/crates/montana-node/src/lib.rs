@@ -16,6 +16,7 @@
 #![deny(clippy::all)]
 
 pub mod agreement;
+pub mod attempt;
 pub mod attest;
 pub mod certificate;
 pub mod pay;
@@ -759,14 +760,33 @@ impl Machine {
         self.store.set_head(window).map_err(NodeError::Store)
     }
 
-    pub(crate) fn lock_predecessor(
-        &self,
-        window: u64,
-        proposal: &[u8; 32],
-    ) -> Result<(), NodeError> {
+    // The record of this machine's agreement on one open window, kept before anything it governs is
+    // published and through a restart, and let go at the close. Consensus, "What a machine holds of
+    // the agreement"; the store holds one file for each open window and never a history.
+    pub fn keep_agreement(&self, record: &attempt::Record) -> Result<(), NodeError> {
         self.store
-            .lock_predecessor(window, proposal)
+            .put_agreement(record.window, &record.encode())
             .map_err(NodeError::Store)
+    }
+
+    pub fn agreement_of(&self, window: u64) -> Result<Option<attempt::Record>, NodeError> {
+        match self.store.agreement(window).map_err(NodeError::Store)? {
+            None => Ok(None),
+            Some(bytes) => attempt::Record::decode(&bytes).map(Some),
+        }
+    }
+
+    pub fn drop_agreement(&self, window: u64) -> Result<(), NodeError> {
+        self.store.drop_agreement(window).map_err(NodeError::Store)
+    }
+
+    // The plane this machine holds, replaced whole: what a machine does once the agreement decided
+    // a name it did not take and it replayed the decided roll and its own window again over the
+    // result. Consensus, "When the decision is not the name a machine took". Written before the
+    // swap, as every change of the plane is.
+    pub fn replace_plane(&self, plane: state::State) -> Result<(), NodeError> {
+        let mut current = self.value()?;
+        commit_value(&mut current, &self.store, plane)
     }
 
     // Reaching an acquaintance. A machine answering with another key is not the machine the
