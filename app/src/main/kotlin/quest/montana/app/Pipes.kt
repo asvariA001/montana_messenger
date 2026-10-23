@@ -1582,6 +1582,9 @@ object Post {
      * (CoinSend.expire) -- coins move only by Anna's word.
      */
     private fun landOwn(ref: String, mid: String, text: String, qt: String?, qm: String?, lp: String?) {
+        // THE SEED'S OWN GROUP WORD (iOS landOwn -> MTGroup.handleOwn, 349cc053): the group stands on every device of these words, so
+        // what that device said there is done here as it was done there -- never a row of the pipe it rode
+        if (text.startsWith(Groups.MARK)) { Groups.handleOwn(text, ref); return }
         if (landOwnDeletion(ref, mid, text)) return
         val row = !Marks.isService(text) || text.startsWith(Marks.MEDIA) || text.startsWith(Marks.VOICE) || text.startsWith(Marks.STICKER)
         if (!row || CoinLetter.parse(text) != null) {

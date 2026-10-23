@@ -1481,6 +1481,109 @@ object Groups {
         if (verdict != Verdict.WAIT && verdict != Verdict.INSTANT) Post.receiptFor(pipe, sid)
     }
 
+    /**
+     * THE SEED'S OWN GROUP WORD FROM ANOTHER OF ITS DEVICES (iOS MTGroup.handleOwn and replay, 349cc053; the author's words
+     * 18.10.2026 10:3x-10:4x MSK: «in my own groups and channels, what I posted from the phone is not seen»): a word my other device
+     * said in a group, signed by these words (Wire.authorHolds), stood applied to nobody here. What that device said is what this
+     * person said, so it is done here as the hand did it there: an invitation stands the group and its member, a letter its row, a
+     * taking out and a leaving their state -- and nothing is said to anyone again: the device that spoke already carried it.
+     */
+    fun handleOwn(text: String, pipe: String) {
+        val w = runCatching { JSONObject(text.removePrefix(MARK)) }.getOrNull() ?: return
+        if (!isLabel(w.optString("g"))) return
+        val t = w.optString("t")
+        val done = synchronized(lock) {
+            if (!ready()) false else when (t) {
+                "inv" -> replayInvitation(w, pipe)
+                "say" -> replayLetter(w)
+                "out" -> {
+                    val gone = SamePair.root(pipe)
+                    val g = groups[w.getString("g")]
+                    val m = g?.takeIf { it.mine }?.members?.firstOrNull { SamePair.root(it.pipe) == gone }
+                    if (g == null || m == null) false else {
+                        g.banned.removeAll { it.seat == m.seat }; g.banned.add(m)
+                        while (g.banned.size > PEOPLE_LIMIT) g.banned.removeAt(0)
+                        g.members.removeAll { it.seat == m.seat }
+                        g.admins.remove(m.seat)
+                        g.count = g.members.size + 1
+                        save()
+                        lay(g, event("removed", OWNER_SEAT, listOf(m.seat)))
+                        true
+                    }
+                }
+                "bye" -> {
+                    val g = groups[w.getString("g")]
+                    if (g == null || g.mine || g.left) false else { g.left = true; save(); true }
+                }
+                else -> { Log.d("Montana", "group_own kind=${t.take(8)} -- the other device's word, applied to nobody"); return }
+            }
+        }
+        if (done && t == "bye") Book.edit(key(w.getString("g"))) {}   // the open chat trades its field for the note at once
+        Log.i("Montana", "group_own kind=$t group=${w.optString("g").take(6)} applied=${if (done) 1 else 0}")
+    }
+
+    /** My other device invited a person into a group of these words -- its birth, an addition, a renewal: the group stands here
+     *  as its owner's, with that person at the seat the word gave them, by the pipe the word rode (iOS replayInvitation). */
+    private fun replayInvitation(w: JSONObject, pipe: String): Boolean {
+        val kind = w.optString("k")
+        val title = clean(w.optString("ti"), TITLE_LIMIT)
+        val seat = w.optString("me")
+        if ((kind != GROUP && kind != CHANNEL) || title.isEmpty() || !isSeat(seat) || seat == OWNER_SEAT) return false
+        val member = SamePair.root(pipe)
+        val id = w.getString("g")
+        val fresh = groups[id] == null
+        val g = groups[id] ?: State(id, kind, title, "", "", OWNER_SEAT, mutableListOf(), 2, mutableMapOf(), System.currentTimeMillis())
+        if (!g.mine) { Log.i("Montana", "group_refused an own invitation of a group this device holds as a member"); return false }
+        val renamed = !fresh && g.title != title
+        g.title = title
+        g.about = clean(w.optString("ds"), ABOUT_LIMIT)
+        g.members.removeAll { it.seat == seat || SamePair.root(it.pipe) == member }
+        g.members.add(Member(seat, member))
+        g.banned.removeAll { SamePair.root(it.pipe) == member }
+        g.count = maxOf(g.members.size + 1, w.optInt("c", 2).coerceAtMost(PEOPLE_LIMIT + 1))
+        g.admins.clear(); g.admins.addAll(admins(w))
+        takeRights(w, g)
+        takeAdmins(w, g)
+        val fc = w.optString("fc").ifEmpty { null }
+        val tag = fc?.let { it.length.toString() + "-" + it.takeLast(16) }
+        val newFace = tag != null && tag != g.faceTag
+        if (newFace) g.faceTag = tag
+        groups[id] = g
+        save()
+        stand(g, if (newFace) face(fc) else null)
+        if (fresh) lay(g, event("made", OWNER_SEAT, t = title))
+        if (renamed) lay(g, event("named", OWNER_SEAT, t = title))
+        return true
+    }
+
+    /** A letter my other device wrote into a group of these words, or carried there for a member: its row stands here under its one
+     *  name, as mine when its seat is this person's, never a second time and never over its grave (iOS replayLetter). */
+    private fun replayLetter(w: JSONObject): Boolean {
+        val g = groups[w.optString("g")] ?: return false
+        val id = w.optString("id")
+        val words = w.optString("tx")
+        val seat = w.optString("s")
+        if (g.left || !isLetterName(id) || !carries(words) || !isSeat(seat)) return false
+        val key = key(g.id)
+        if (id in gone || Book.isBuried(key, id) || Book.chat(key)?.msgs?.any { it.mid == id } == true) return false
+        val mine = seat == g.me
+        stand(g, null)
+        val at = Marks.birthMs(id) ?: System.currentTimeMillis()
+        val quote = w.optString("qt").ifEmpty { null }
+        val quoted = w.optString("qm").removePrefix("mid:").ifEmpty { null }
+        var landed = false
+        Book.edit(key) { c ->
+            if (c.msgs.none { it.mid == id }) {
+                c.msgs.add(Msg(id, words, mine, at, state = if (mine) 1 else 0, qt = quote, qm = quoted, from = if (mine) null else speaker(g.id, seat)))
+                c.msgs.sortBy { it.at }
+                landed = true
+            }
+        }
+        Log.i("Montana", "group_own mid=$id letter landed=${if (landed) 1 else 0} mine=${if (mine) 1 else 0}")
+        if (landed && words.startsWith(Marks.MEDIA)) Media.fetch(Book.ctx, key, id, words, own = mine)
+        return landed
+    }
+
     private fun take(w: JSONObject, pipe: String): Verdict {
         if (!ready()) return Verdict.WAIT   // the copy knocks again once the store opens
         return when (val t = w.optString("t")) {
