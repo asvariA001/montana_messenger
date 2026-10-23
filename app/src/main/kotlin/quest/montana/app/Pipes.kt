@@ -1975,7 +1975,7 @@ object Post {
 object MyAbout {
     const val BIO_LIMIT = 140
     fun bio() = Prefs.str("profileBio", "").trim().take(BIO_LIMIT)
-    fun link() = PeerAbout.url(Prefs.str("profileLink", ""))?.toString() ?: ""
+    fun link() = PeerAbout.spoken(Prefs.str("profileLink", ""))   // every link of the field, one space apart (iOS myLink, 609736de)
     private fun tag(b: String, l: String) = if (b.isEmpty() && l.isEmpty()) "0" else Wire.hex(Wire.sha((b + "\n" + l).toByteArray())).take(16)
     /**
      * THE BIO AND THE LINK ARE RECEIPTED STATE, AS THE NAME AND THE FACE (iOS atom 4c4d49f9dc26, the author's word 24.09: «my profile

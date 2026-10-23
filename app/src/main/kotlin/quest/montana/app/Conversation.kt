@@ -295,11 +295,14 @@ object Notify {
             if (!sound) { setSound(null, null); enableVibration(false) }
         })
         val chat = Book.chat(ref)
-        val title = if (Prefs.bool("notifSender", true)) chat?.shown?.ifBlank { null } ?: c.getString(R.string.peer) else "Montana"
+        // SHOW SENDER OFF NAMES NOBODY (iOS MontanaNotify.showsSender, 245f03f5): the title reads Montana and a group's letter says
+        // no speaker -- the switch reached personal letters only, and «who: words» still named who wrote in a group
+        val sender = Prefs.bool("notifSender", true)
+        val title = if (sender) chat?.shown?.ifBlank { null } ?: c.getString(R.string.peer) else "Montana"
         val shown = if (!Prefs.bool("notifPreview", true)) c.getString(R.string.new_message)
             else if (ContentFilter.hides(false, text)) c.getString(R.string.filter_hidden)   // the banner folds as the feed does (iOS NotificationService 399)
             else letterWords(c, text).ifBlank { c.getString(R.string.new_message) }   // no notification without words (iOS build 2070)
-        val body = if (who.isNullOrEmpty()) shown else "$who: $shown"   // a group's letter says who wrote it (iOS presentGroup)
+        val body = if (who.isNullOrEmpty() || !sender) shown else "$who: $shown"   // a group's letter says who wrote it (iOS presentGroup)
         val open = opening(c, ref)
         val n = Notification.Builder(c, channel)
             .setSmallIcon(R.drawable.ic_launcher_monochrome)

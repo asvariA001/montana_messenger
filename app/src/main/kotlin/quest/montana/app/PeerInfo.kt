@@ -58,8 +58,23 @@ object PeerAbout {
     fun note(ref: String, bio: String, link: String, at: Double) {
         val held = of(ref)
         if (held != null && held.at > at) return
-        Prefs.setStr("about.$ref", JSONObject().put("b", bio.take(BIO_LIMIT)).put("l", url(link)?.toString() ?: "").put("at", at).toString())
+        Prefs.setStr("about.$ref", JSONObject().put("b", bio.take(BIO_LIMIT)).put("l", spoken(link)).put("at", at).toString())
     }
+
+    /**
+     * EVERY LINK OF THE FIELD (iOS MTPeerAbout.links, 609736de; the author's word 21.10 16:37: «on my page on T1 the links are not
+     * seen»): the field held «dreamdepartment.io /// montana.xxx» and read as one address -- no link, or one crooked link. Each word
+     * set apart by spaces or commas is read by the one rule (url), in order, a repeat once; the words that are not the web stand
+     * aside. The one reader of the field: my page, the wire, a correspondent's page.
+     */
+    fun links(s: String): List<Uri> {
+        if (s.length > LINK_LIMIT) return emptyList()
+        val out = ArrayList<Uri>()
+        for (w in s.split(Regex("[\\s,]+"))) url(w)?.let { if (it !in out) out.add(it) }
+        return out
+    }
+    /** The field as it leaves for the wire and as it is kept of a correspondent: its links, one space apart (iOS spoken). */
+    fun spoken(s: String): String = links(s).joinToString(" ") { it.toString() }
 
     /** A link as a person types it: «site.org» wears https; nothing but the web is a link here. */
     fun url(s: String): Uri? {
@@ -466,7 +481,7 @@ fun peerInfoPage(act: MainActivity, ref: String, onClose: () -> Unit,
         val about = PeerAbout.of(ref)
         val f = Book.shownFace(ref)
         face.draw(if (f.exists()) BitmapFactory.decodeFile(f.path) else null, name, PeerSafety.isBlocked(ref),
-            about?.bio.orEmpty(), PeerAbout.url(about?.link ?: ""), Book.chat(ref)?.note.orEmpty())
+            about?.bio.orEmpty(), PeerAbout.links(about?.link ?: ""), Book.chat(ref)?.note.orEmpty())
     }
 
     // ── the four plates (iOS MTPeerAction): message, voice call, video call, more; a blocked person is not called ──

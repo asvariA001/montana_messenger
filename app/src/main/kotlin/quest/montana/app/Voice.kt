@@ -98,6 +98,12 @@ object VoiceTape {
      * the length read after the recorder was gone (371). */
     fun prewarm(act: MainActivity) {
         if (rec != null || prepared != null || preparing || Calls.busy() || !granted(act)) return
+        // A TAP IS NOT A TAPE (iOS b004be39, the author's word 22.10.2026 23:3x MSK): the finger lands before it is known whether
+        // it taps -- the mode switches -- or holds; while anything sounds (another app's or ours) the landing readies no
+        // microphone, the hold's own begin takes it (iOS MontanaAudioSession.sounds)
+        if (act.getSystemService(android.media.AudioManager::class.java)?.isMusicActive == true) {
+            Log.d("Montana", "voice_rec prewarm yields: something sounds"); return
+        }
         val ticket = ++request
         preparing = true
         Thread {
