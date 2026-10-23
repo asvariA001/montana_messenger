@@ -70,6 +70,11 @@ pub enum StoreError {
     },
     // A machine that already drew its secret, asked to draw a second.
     SecretStands,
+    // A store another process holds open. One store, one process: every birth of a second writer is
+    // owned here rather than raced at every door.
+    HeldByAnother {
+        at: String,
+    },
     // A head naming a window whose proposal is not stored. The order of writing makes this the one
     // arrangement a crash cannot produce, so a store holding it was edited by something other than
     // this crate.
@@ -148,12 +153,9 @@ fn publish_once(at: &Path, bytes: &[u8]) -> Result<bool, StoreError> {
     use std::sync::atomic::{AtomicU64, Ordering};
     static SERIAL: AtomicU64 = AtomicU64::new(0);
     let directory = at.parent().unwrap_or(Path::new("."));
-    let tick = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_err(|e| said(at, std::io::Error::other(e)))?
-        .as_nanos();
+    // The process and a serial make the temporary's name its own; the store reads no clock.
     let beside = at.with_extension(format!(
-        "opening-{}-{tick}-{}",
+        "opening-{}-{}",
         std::process::id(),
         SERIAL.fetch_add(1, Ordering::Relaxed)
     ));
@@ -254,16 +256,33 @@ fn of_width(at: &Path, bytes: Vec<u8>, expected: usize) -> Result<Vec<u8>, Store
 
 pub struct Store {
     root: PathBuf,
+    // The handle of the root directory, locked exclusively for the life of the store. **One store,
+    // one process.** Two processes writing one store would race at every door that reads before it
+    // writes — the number of the last window closed, the opening of a window's record after the
+    // check that the window is not closed — and no door can own the birth of the second writer but
+    // this one. The lock goes with the handle, so a store dropped releases it and a process that
+    // died holds nothing.
+    _held: fs::File,
 }
 
 impl Store {
-    // Opening makes the tree of directories if it is not there and answers with a store whose
-    // head, if it names a window, has that window's proposal beside it.
+    // Opening makes the tree of directories if it is not there, takes the lock of the root, and
+    // answers with a store whose head, if it names a window, has that window's proposal beside it.
     pub fn open(root: impl AsRef<Path>) -> Result<Self, StoreError> {
         let root = root.as_ref().to_path_buf();
         let proposals = root.join("proposals");
         fs::create_dir_all(&proposals).map_err(|e| said(&proposals, e))?;
-        let store = Self { root };
+        let held = fs::File::open(&root).map_err(|e| said(&root, e))?;
+        match held.try_lock() {
+            Ok(()) => {}
+            Err(fs::TryLockError::WouldBlock) => {
+                return Err(StoreError::HeldByAnother {
+                    at: root.display().to_string(),
+                })
+            }
+            Err(fs::TryLockError::Error(e)) => return Err(said(&root, e)),
+        }
+        let store = Self { root, _held: held };
         store.check_network()?;
         if let Some(window) = store.head()? {
             if store.proposal(window)?.is_none() {
@@ -568,52 +587,68 @@ mod tests {
 
     // Scratch artifacts are retained for inspection; tests never remove existing files.
 
-    // Two writers of the opening record of one window with two names: exactly one name stands, and
-    // the other writer is answered with it rather than with its own. The wrong implementation
-    // refused: read-then-rename, under which both read nothing, both rename, the last wins and each
-    // believes its own name — the one key of the machine pledging two names for one window.
+    // Two writers of one opening with two names, racing the exclusive write itself: exactly one
+    // lands, the other learns so, the bytes that stand are the winner's, and nothing of either
+    // opening is left beside them. A store is held by one process, so the race is run on the door
+    // the opening goes through and not on two stores of one root. The wrong implementation
+    // refused: read-then-rename, under which both would land and the last would stand.
     #[test]
-    fn two_openings_of_one_window_leave_one_record() {
+    fn two_openings_of_one_record_leave_one_standing() {
         let scratch = Scratch::named("agreement-opening-race");
-        Store::open(scratch.path()).unwrap();
-        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
-        let handles: Vec<_> = [0x51u8, 0x52]
-            .into_iter()
-            .map(|byte| {
-                let path = scratch.0.clone();
-                let barrier = barrier.clone();
-                std::thread::spawn(move || {
-                    let store = Store::open(path).unwrap();
+        // The root is bound to its network once, and the store that bound it is dropped: the race
+        // is on the door of the opening, not on two stores of one root.
+        drop(Store::open(scratch.path()).unwrap());
+        let at = scratch.path().join("agreement-00000000000000000012");
+        let barrier = std::sync::Barrier::new(2);
+        let results = std::thread::scope(|scope| {
+            let race = |byte: u8| {
+                let at = &at;
+                let barrier = &barrier;
+                scope.spawn(move || {
                     barrier.wait();
                     let own = vec![byte; 90];
-                    (own.clone(), store.open_agreement(12, &own).unwrap())
+                    (own.clone(), publish_once(at, &own).unwrap())
                 })
-            })
-            .collect();
-        let results: Vec<(Vec<u8>, Vec<u8>)> = handles
-            .into_iter()
-            .map(|thread| thread.join().unwrap())
-            .collect();
-        let standing = fs::read(scratch.path().join("agreement-00000000000000000012")).unwrap();
-        assert!(results.iter().all(|(_, answered)| *answered == standing));
+            };
+            let a = race(0x51);
+            let b = race(0x52);
+            [a.join().unwrap(), b.join().unwrap()]
+        });
+        let standing = fs::read(&at).unwrap();
+        assert_eq!(results.iter().filter(|(_, landed)| *landed).count(), 1);
+        let winner = results.iter().find(|(_, landed)| *landed).unwrap();
         assert_eq!(
-            results
-                .iter()
-                .filter(|(own, answered)| own == answered)
-                .count(),
-            1,
-            "both writers believe their own name"
+            winner.0, standing,
+            "the bytes that stand are not the winner's"
         );
-        // Nothing of the opening is left beside the record.
         let leftovers: Vec<_> = fs::read_dir(scratch.path())
             .unwrap()
             .map(|entry| entry.unwrap().file_name().to_string_lossy().to_string())
             .filter(|name| name.contains("opening-"))
             .collect();
         assert!(leftovers.is_empty(), "temporaries left: {leftovers:?}");
-        // A third opening finds the record standing and is answered with it.
-        let restarted = Store::open(scratch.path()).unwrap();
-        assert_eq!(restarted.open_agreement(12, &[0x53; 90]).unwrap(), standing);
+        // The store's door answers a later opening with what stands.
+        let store = Store::open(scratch.path()).unwrap();
+        assert_eq!(store.open_agreement(12, &[0x53; 90]).unwrap(), standing);
+    }
+
+    // One store, one process: a root held by a living store is refused to a second opening and
+    // opens again once the first is dropped. The wrong implementation refused: a lock taken in
+    // `open` and released when `open` returns, under which the second opening succeeds.
+    #[test]
+    fn a_store_is_held_by_one_opening_at_a_time() {
+        let scratch = Scratch::named("one-store-one-process");
+        let first = Store::open(scratch.path()).unwrap();
+        assert_eq!(
+            Store::open(scratch.path()).err(),
+            Some(StoreError::HeldByAnother {
+                at: scratch.path().display().to_string()
+            })
+        );
+        first.put_closed(3).unwrap();
+        drop(first);
+        let second = Store::open(scratch.path()).unwrap();
+        assert_eq!(second.closed().unwrap(), Some(3));
     }
 
     // The last window closed is one number that moves forward and never back, and survives a
@@ -698,21 +733,23 @@ mod tests {
         );
     }
 
+    // Two drawings of one secret racing the exclusive write itself: one stands and the other is
+    // refused as a secret that stands. A store is held by one process, so the race is run on the
+    // door the drawing goes through and not on two stores of one root.
     #[test]
     fn concurrent_secret_creation_has_exactly_one_winner() {
         let scratch = Scratch::named("secret-race");
-        let at = &scratch.0;
+        drop(Store::open(scratch.path()).unwrap());
+        let at = scratch.path().join("identity");
         let barrier = std::sync::Barrier::new(2);
         let results = std::thread::scope(|scope| {
             let a = scope.spawn(|| {
-                let s = Store::open(at).unwrap();
                 barrier.wait();
-                s.bear_secret(&[0x11; SECRET_BYTES])
+                write_complete(&at, &[0x11; SECRET_BYTES], true)
             });
             let b = scope.spawn(|| {
-                let s = Store::open(at).unwrap();
                 barrier.wait();
-                s.bear_secret(&[0x22; SECRET_BYTES])
+                write_complete(&at, &[0x22; SECRET_BYTES], true)
             });
             [a.join().unwrap(), b.join().unwrap()]
         });
@@ -724,8 +761,10 @@ mod tests {
                 .count(),
             1
         );
-        let secret = Store::open(at).unwrap().secret().unwrap().unwrap();
-        assert!(*secret == [0x11; SECRET_BYTES] || *secret == [0x22; SECRET_BYTES]);
+        let standing = fs::read(&at).unwrap();
+        assert!(standing == [0x11; SECRET_BYTES] || standing == [0x22; SECRET_BYTES]);
+        let store = Store::open(scratch.path()).unwrap();
+        assert_eq!(store.secret().unwrap().map(|s| s.to_vec()), Some(standing));
     }
 
     #[test]
@@ -857,8 +896,11 @@ mod tests {
     fn a_store_whose_head_lost_its_proposal_refuses_to_open() {
         let scratch = Scratch::named("head-orphaned");
         let store = Store::open(scratch.path()).expect("a store opens");
-        // Construct a crashed/orphaned directory directly, without deleting a proposal.
-        fs::write(store.head_at(), 5u64.to_le_bytes()).expect("an orphaned head fixture");
+        // Construct a crashed/orphaned directory directly, without deleting a proposal, once the
+        // store that bound the root is dropped: one store, one process.
+        let head_at = store.head_at();
+        drop(store);
+        fs::write(head_at, 5u64.to_le_bytes()).expect("an orphaned head fixture");
         assert_eq!(
             Store::open(scratch.path()).err(),
             Some(StoreError::HeadWithoutItsProposal { window: 5 })
