@@ -14,7 +14,9 @@
 // would stand at the last window lived rather than the one before it; two machines taking two
 // proposals of one decision — their identifiers differ; a holder that lets the certificates of a
 // window go with the window — the walk finds nothing to verify and stays at its anchor; and a walk
-// trusting a forged anchor — refused at the first certificate.
+// trusting a forged anchor — refused at the first certificate; and a machine that closes a window
+// without its closing pledge standing at the window's points — the agreement of every certificate
+// the walk reads decides nothing, and the walk refuses the first.
 
 use montana_node::certificate::Anchor;
 use montana_node::pulse::{self, Cohort};
@@ -141,7 +143,9 @@ fn a_device_that_held_nothing_walks_to_the_head_two_machines_left() {
         Some(FROM + WINDOWS - 2)
     );
 
-    // Refused: a forged anchor, linked to itself and to nothing of the chain.
+    // Refused: a forged anchor, linked to itself and to nothing of the chain. Its attestations and its
+    // pledges stand, since the forgery moved no root they answer to, but what they decide is the
+    // chain's own proposal and not the forged one.
     let mut forged_earlier = anchor.earlier.clone();
     forged_earlier.cement_aggregate[0] ^= 1;
     let mut forged_later = anchor.later.clone();
@@ -153,7 +157,7 @@ fn a_device_that_held_nothing_walks_to_the_head_two_machines_left() {
     assert_eq!(
         pulse::join(&joining, &forged, PATIENCE).map(|_| ()),
         Err(montana_node::NodeError::Refused {
-            what: "an attestation outside this beacon and the proposal it finalizes"
+            what: "a certificate whose agreement does not decide the proposal it finalizes"
         })
     );
     drop(far);

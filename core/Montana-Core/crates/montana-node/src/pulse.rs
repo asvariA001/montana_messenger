@@ -18,7 +18,9 @@ use crate::certificate::{
 use crate::runner::Runner;
 use crate::{round, Machine, NodeError};
 use mt_pulse::cement::Cement;
-use mt_state::layout::{Ballot, Beacon, Census, Confirmation, LightAttestation, Proposal};
+use mt_state::layout::{
+    Ballot, Beacon, Census, Confirmation, LightAttestation, Pledge, Proposal,
+};
 use mt_state::Layout;
 use mt_wire::message::{self, Kind, POINT_BYTES};
 use sha2::{Digest, Sha256};
@@ -1197,6 +1199,19 @@ pub fn live_doing(
                     row: "standing_censuses".to_string(),
                 }
             })?;
+        // **The close is the open quorum of attempt zero, and this machine closes on it.** Every heavy
+        // attestation this machine gathered pledged the window before, since an answer naming another
+        // is refused at `check_answer`, and the final beacon carries them at the quorum share of the
+        // electorate and of the committee: the open pledges of attempt zero reach the quorum on that
+        // name, which is what a closing pledge of attempt zero stands on. Consensus, "The agreement
+        // on what a window decided". It stands at the points of the window beside the proposal,
+        // where a walk reads both, and before the proposal is proven, while every machine of the
+        // window still stands in it and takes the deposit.
+        if pulse.answered_heavily {
+            let closing = pulse.standing.pledge(0, pulse.of_the_window_before, 0)?;
+            let bytes = closing.bytes().map_err(NodeError::Object)?;
+            stand_at_the_window(machine, window, &bytes)?;
+        }
         let held = Held {
             predecessor,
             decided: &decided,
@@ -1382,41 +1397,76 @@ fn standing_proposal(
     Ok(None)
 }
 
-// The proposals standing at the points of a window, distinct by their bytes. A machine of the window
-// reads its own points and every acquaintance's; a device walking the past reads the acquaintances'
-// alone and holds nothing.
-fn proposals_at_the_window(
+// The bodies standing at the points of a window. A machine of the window reads its own points and
+// every acquaintance's; a device walking the past reads the acquaintances' alone and holds nothing.
+fn bodies_at_the_window(
     machine: &Machine,
     window: u64,
     walking: bool,
-) -> Result<Vec<Proposal>, NodeError> {
+) -> Result<Vec<Vec<u8>>, NodeError> {
     let points = round::points_of_window(window).map_err(|_| NodeError::Decree {
         row: "consensus_replicas".to_string(),
     })?;
+    let mut out = Vec::new();
+    for point in &points {
+        out.extend(if walking {
+            machine.collect_public(point, window)?
+        } else {
+            machine.objects_at_the_point(point, window)?
+        });
+    }
+    Ok(out)
+}
+
+// The proposals among the bodies of a window, distinct by their bytes.
+fn proposals_of(bodies: &[Vec<u8>], window: u64) -> Result<Vec<Proposal>, NodeError> {
     let width = Proposal::expected_len();
     let of_proposal = mt_wire::message::body_len(width).map_err(|_| NodeError::Decree {
         row: "chunk_bytes".to_string(),
     })?;
     let mut out: Vec<Proposal> = Vec::new();
-    for point in &points {
-        let bodies = if walking {
-            machine.collect_public(point, window)?
-        } else {
-            machine.objects_at_the_point(point, window)?
+    for body in bodies {
+        if body.len() != of_proposal {
+            continue;
+        }
+        let Ok(held) = Proposal::parse(&body[..width]) else {
+            continue;
         };
-        for body in bodies {
-            if body.len() != of_proposal {
-                continue;
-            }
-            let Ok(held) = Proposal::parse(&body[..width]) else {
-                continue;
-            };
-            if held.window == window && !out.iter().any(|one| one.signature == held.signature) {
-                out.push(held);
-            }
+        if held.window == window && !out.iter().any(|one| one.signature == held.signature) {
+            out.push(held);
         }
     }
     Ok(out)
+}
+
+// The pledges among the bodies of a window, distinct by their bytes. They are judged where they are
+// counted, against the keys the certificate of the window proves; here they are only read.
+fn pledges_of(bodies: &[Vec<u8>], window: u64) -> Result<Vec<Pledge>, NodeError> {
+    let width = Pledge::expected_len();
+    let of_pledge = mt_wire::message::body_len(width).map_err(|_| NodeError::Decree {
+        row: "chunk_bytes".to_string(),
+    })?;
+    let mut out: Vec<Pledge> = Vec::new();
+    for body in bodies {
+        if body.len() != of_pledge {
+            continue;
+        }
+        let Ok(held) = Pledge::parse(&body[..width]) else {
+            continue;
+        };
+        if held.window == window && !out.iter().any(|one| one.signature == held.signature) {
+            out.push(held);
+        }
+    }
+    Ok(out)
+}
+
+fn proposals_at_the_window(
+    machine: &Machine,
+    window: u64,
+    walking: bool,
+) -> Result<Vec<Proposal>, NodeError> {
+    proposals_of(&bodies_at_the_window(machine, window, walking)?, window)
 }
 
 // A proposal put at every point of its window.
@@ -1432,8 +1482,8 @@ fn stand_at_the_window(machine: &Machine, window: u64, object: &[u8]) -> Result<
 
 // **A device that holds nothing walks to the head from the anchor its operator handed it.**
 // Consensus, "The join": it asks every acquaintance it reached what stands at the points of every
-// window after the anchor — the beacons and heavy attestations of the rounds, and the proposals of
-// the window — judges every answer at the one door and trusts none, and takes as the head the newest
+// window after the anchor — the beacons and heavy attestations of the rounds, and the pledges and the
+// proposals of the window — judges every answer at the one door and trusts none, and takes as the head the newest
 // proposal whose certificate verified. What it reads it does not hold: a device walking the past
 // deposits nothing and stands at no point. It reads no further than the retention, past which no
 // certificate stands; a device further behind takes a fresh anchor, and the set says that is a
@@ -1443,7 +1493,7 @@ pub fn join(machine: &Machine, anchor: &Anchor, patience: u32) -> Result<Anchor,
         row: "retained_windows".to_string(),
     })?;
     type Rounds = Vec<(Beacon, Vec<Confirmation>, Vec<Ballot>)>;
-    let mut collected: Vec<(Rounds, Vec<Proposal>)> = Vec::new();
+    let mut collected: Vec<(Rounds, Vec<Pledge>, Vec<Proposal>)> = Vec::new();
     let mut window = anchor.later.window;
     for _ in 0..=retained {
         window = window.checked_add(1).ok_or(NodeError::Refused {
@@ -1453,15 +1503,19 @@ pub fn join(machine: &Machine, anchor: &Anchor, patience: u32) -> Result<Anchor,
         if rounds.is_empty() {
             break;
         }
-        let proposals = proposals_at_the_window(machine, window, true)?;
-        collected.push((rounds, proposals));
+        let bodies = bodies_at_the_window(machine, window, true)?;
+        collected.push((
+            rounds,
+            pledges_of(&bodies, window)?,
+            proposals_of(&bodies, window)?,
+        ));
     }
     // Every proposal standing for a window is handed to the walk, which takes the one the window after
     // it attests and whose bytes stand at the door; a window no later window attests holds a proposal
     // awaiting its certificate, and the walk takes nothing against it.
     let rounds: Vec<Vec<certificate::Round<'_>>> = collected
         .iter()
-        .map(|(rounds, _)| {
+        .map(|(rounds, _, _)| {
             rounds
                 .iter()
                 .map(|(beacon, heavy, ballots)| certificate::Round {
@@ -1475,9 +1529,9 @@ pub fn join(machine: &Machine, anchor: &Anchor, patience: u32) -> Result<Anchor,
     let steps: Vec<certificate::Step<'_>> = rounds
         .iter()
         .zip(collected.iter())
-        .map(|(certificate, (_, next))| certificate::Step {
+        .map(|(certificate, (_, pledges, next))| certificate::Step {
             certificate,
-            pledges: &[],
+            pledges,
             next,
         })
         .collect();
