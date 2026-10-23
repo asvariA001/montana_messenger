@@ -778,4 +778,11 @@
     <string name="cache_word">Cache</string>
     <string name="cache_cleared">Cleared from this phone: %1$d files, %2$s. Your node keeps them.</string>
     <string name="cache_silent">Your node did not answer. Nothing was cleared.</string>
+    <string name="keep_media">Keep media</string>
+    <string name="keep_3_days">3 days</string>
+    <string name="keep_1_week">1 week</string>
+    <string name="keep_1_month">1 month</string>
+    <string name="keep_forever">Forever</string>
+    <string name="cache_limit">Maximum cache size</string>
+    <string name="cache_no_limit">No limit</string>
 </resources>

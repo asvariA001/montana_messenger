@@ -20,6 +20,7 @@ import android.widget.CheckBox
 import android.widget.FrameLayout
 import android.widget.GridLayout
 import android.widget.LinearLayout
+import android.widget.PopupMenu
 import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.Switch
@@ -589,8 +590,30 @@ fun dataStoragePage(act: MainActivity, onBack: () -> Unit): View {
                 }
                 .setNegativeButton(R.string.cancel, null).show()
         }.apply { if (!HomeShelf.bringing) alpha = 0.4f }
+        // AS THE REFERENCE KEEPS ITS CACHE (iOS f5803d8c): a term for what nobody opened, a ceiling for the whole -- what leaves is
+        // what the node holds, asked anew. The platform's own menu offers the choices, as iOS's Picker does.
+        fun choice(icon: Int, color: Int, word: Int, key: String, options: List<Pair<Int, String>>): View {
+            val value = c.text("", 15f, MT.gray)
+            fun shown() { value.text = options.firstOrNull { it.first == (Prefs.str(key, "0").toIntOrNull() ?: 0) }?.second ?: options.last().second }
+            shown()
+            lateinit var row: View
+            row = c.settingsRow(icon, color, c.getString(word), value = value, chevron = false) {
+                if (!HomeShelf.bringing) return@settingsRow
+                PopupMenu(act, value).apply {
+                    options.forEachIndexed { i, (n, w) -> menu.add(0, n, i, w) }
+                    setOnMenuItemClickListener { Prefs.setStr(key, it.itemId.toString()); shown(); HomeKeep.trim(act); true }
+                    show()
+                }
+            }.apply { if (!HomeShelf.bringing) alpha = 0.4f }
+            return row
+        }
+        val gb = { g: Int -> android.text.format.Formatter.formatShortFileSize(c, g * 1_073_741_824L) }   // USER-DATA: a size in the platform's own units
+        val keepRow = choice(R.drawable.ic_restore, SysColor.blue, R.string.keep_media, HomeKeep.KEEP_DAYS,
+            listOf(3 to c.getString(R.string.keep_3_days), 7 to c.getString(R.string.keep_1_week), 30 to c.getString(R.string.keep_1_month), 0 to c.getString(R.string.keep_forever)))
+        val limitRow = choice(R.drawable.ic_hub, SysColor.gray, R.string.cache_limit, HomeKeep.LIMIT,
+            listOf(5 to gb(5), 16 to gb(16), 32 to gb(32), 0 to c.getString(R.string.cache_no_limit)))
         section(c.getString(R.string.cache_header), c.getString(if (HomeShelf.bringing) R.string.cache_footer_node else R.string.cache_footer_no_node),
-            keptRow, clearRow)
+            keepRow, limitRow, keptRow, clearRow)
         HomeKeep.onChange = { kept() }
         kept()
         HomeKeep.ask()

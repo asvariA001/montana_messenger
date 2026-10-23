@@ -773,4 +773,11 @@
     <string name="cache_word">Кеш</string>
     <string name="cache_cleared">Стёрто с телефона: файлов — %1$d, %2$s. Узел их хранит.</string>
     <string name="cache_silent">Ваш узел не ответил. Ничего не стёрто.</string>
+    <string name="keep_media">Хранить медиа</string>
+    <string name="keep_3_days">3 дня</string>
+    <string name="keep_1_week">1 неделю</string>
+    <string name="keep_1_month">1 месяц</string>
+    <string name="keep_forever">Всегда</string>
+    <string name="cache_limit">Максимальный размер кеша</string>
+    <string name="cache_no_limit">Без предела</string>
 </resources>

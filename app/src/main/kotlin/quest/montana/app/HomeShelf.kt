@@ -200,6 +200,39 @@ object HomeShelf {
         return gone.size to bytes
     }
 
+    /**
+     * THE CACHE KEEPS ITSELF (iOS MTHomeShelf.trimPass, f5803d8c; the reference's «keep media» and «maximum cache size»): a file the
+     * node holds and nobody opened within the person's term leaves this phone, and past the person's ceiling the files opened
+     * longest ago leave first -- each only on the node's word asked now, as the hand's clearing. The disk keeps no reading moment
+     * here, so a file's moment is its last change (iOS falls back to it too).
+     */
+    fun trimPass(c: Context, days: Int, limitGB: Int): Pair<Int, Long>? {
+        if (days + limitGB <= 0) return 0 to 0L
+        HomeBook.ensure()
+        val all = HomeBook.all()
+        val inHand = Media.inHand()
+        class F(val f: File, val at: Long, val size: Long, val kept: Boolean)
+        val files = storeFiles(c).filter { it.path !in inHand && !newborn(it) }.map { F(it, it.lastModified(), it.length(), all[it.name]?.z == it.length()) }
+        val edge = System.currentTimeMillis() - days * 86_400_000L
+        val going = files.filter { it.kept && 0 < days && it.at < edge }.toMutableSet()
+        if (0 < limitGB) {
+            var total = files.sumOf { it.size } - going.sumOf { it.size }
+            val ceiling = limitGB * 1_073_741_824L
+            for (f in files.sortedBy { it.at }) {
+                if (total <= ceiling) break
+                if (!f.kept || f in going) continue
+                going.add(f); total -= f.size
+            }
+        }
+        if (going.isEmpty()) return 0 to 0L
+        val held = have(going.flatMap { all.getValue(it.f.name).p }) ?: return null
+        val gone = going.filter { all.getValue(it.f.name).p.all(held::contains) }
+        var bytes = 0L
+        for (g in gone) { bytes += g.size; g.f.delete() }
+        Log.i("Montana", "home_trim files=${gone.size} bytes=$bytes days=$days limit_gb=$limitGB")
+        return gone.size to bytes
+    }
+
     /** A file back from the node into the store: every piece asked of the node alone (Media.download → HomeBook.holds). */
     fun bring(c: Context, name: String, e: HomeBook.Entry): Boolean {
         val en = entropy() ?: return false
@@ -319,8 +352,18 @@ object HomeKeep {
         sending = 0.0; said()
         Thread {
             val w = runCatching { HomeShelf.keepPass(c) { f -> sending = f; said() } }.getOrElse { Word.Silent(it.javaClass.simpleName) }
+            runCatching { HomeShelf.trimPass(c, keepDays, limitGB) }   // the cache keeps itself after the pass (iOS f5803d8c)
             running = false; sending = null; word = w; said()
         }.start()
+    }
+    const val KEEP_DAYS = "home.keep.days"     // NOT-UI: the person's term for a file nobody opened; 0 -- for ever
+    const val LIMIT = "home.cache.limit"       // NOT-UI: the person's ceiling of the cache in gigabytes; 0 -- none
+    val keepDays: Int get() = Prefs.str(KEEP_DAYS, "0").toIntOrNull() ?: 0
+    val limitGB: Int get() = Prefs.str(LIMIT, "0").toIntOrNull() ?: 0
+    /** The person moved the term or the ceiling: the cache keeps itself now, not at the next pass. */
+    fun trim(c: Context) {
+        if (!HomeShelf.bringing) return
+        Thread { runCatching { HomeShelf.trimPass(c.applicationContext, keepDays, limitGB) } }.start()
     }
     fun ask() {
         if (!HomeShelf.bringing || HomeBook.count == 0) return

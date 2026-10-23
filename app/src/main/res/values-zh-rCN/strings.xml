@@ -773,4 +773,11 @@
     <string name="cache_word">缓存</string>
     <string name="cache_cleared">已从本机清除 %1$d 个文件，%2$s。您的节点仍保存着它们。</string>
     <string name="cache_silent">您的节点没有回应。未清除任何内容。</string>
+    <string name="keep_media">保留媒体</string>
+    <string name="keep_3_days">3 天</string>
+    <string name="keep_1_week">1 周</string>
+    <string name="keep_1_month">1 个月</string>
+    <string name="keep_forever">永久</string>
+    <string name="cache_limit">最大缓存大小</string>
+    <string name="cache_no_limit">无限制</string>
 </resources>
