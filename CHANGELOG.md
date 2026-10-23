@@ -2,6 +2,17 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
+## 1.0 (2293) - 2026-10-23
+
+Source commit `057f2d1ec42d`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2293.md).
+
+- Coins follow the new rule of the time chain: from 26 October 00:00 Moscow time a mint counts only the seconds you are present in Montana, and a burned coin is a record of the chain like any other spend.
+- The gold page ground is gone; a page that used it now shows Montana's own dark ground with its pattern.
+
+**Security and anonymity**
+
+- The phone folds its coin chains by the same rules as the nodes (fold-7), so the balance it shows is the one the nodes compute; a burn is a signed record the nodes read. Nothing new is sent.
+
 ## 1.0 (2292) - 2026-10-23
 
 Source commit `679efed3dd05`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2292.md).
