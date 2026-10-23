@@ -694,20 +694,24 @@ pub fn walk(
         });
     }
     let mut head = anchor.clone();
+    let mut ahead: Option<Closure> = None;
     for (at, step) in steps.iter().enumerate() {
         let window = later.window.checked_add(1).ok_or(NodeError::Refused {
             what: "a window past the last one a count carries",
         })?;
         let electorate = Electorate::of(&earlier)?;
-        let closure = verify_certificate(
-            window,
-            &electorate,
-            Predecessor::Proposal(&later),
-            &earlier.cement_aggregate,
-            chains,
-            step.certificate,
-            step.pledges,
-        )?;
+        let closure = match ahead.take() {
+            Some(closure) => closure,
+            None => verify_certificate(
+                window,
+                &electorate,
+                Predecessor::Proposal(&later),
+                &earlier.cement_aggregate,
+                chains,
+                step.certificate,
+                step.pledges,
+            )?,
+        };
         head = Anchor {
             earlier: earlier.clone(),
             later: later.clone(),
@@ -715,19 +719,19 @@ pub fn walk(
         // Where the certificate of the window after was handed in, the names its attestations attest:
         // a proposal under another name decided something else, and that certificate would refuse it
         // one step on.
-        let attested: Option<std::collections::BTreeSet<[u8; 32]>> =
-            steps.get(at + 1).map(|after| {
-                after
-                    .certificate
-                    .iter()
-                    .flat_map(|round| {
-                        round
-                            .heavy
-                            .iter()
-                            .flat_map(|held| held.attested.iter().copied())
-                    })
-                    .collect()
-            });
+        let after = steps.get(at + 1);
+        let attested: Option<std::collections::BTreeSet<[u8; 32]>> = after.map(|after| {
+            after
+                .certificate
+                .iter()
+                .flat_map(|round| {
+                    round
+                        .heavy
+                        .iter()
+                        .flat_map(|held| held.attested.iter().copied())
+                })
+                .collect()
+        });
         let mut taken: Option<&Proposal> = None;
         let mut refusal: Option<NodeError> = None;
         for candidate in step.next {
@@ -736,6 +740,10 @@ pub fn walk(
                     continue;
                 }
             }
+            // An attested name is not yet a decided one: a minority of the window after may attest a
+            // name its agreement never decides, so the candidate taken is the one whose certificate
+            // verifies in the step after (Consensus, "The join", 3), and that certificate is carried
+            // into the step rather than verified twice.
             let judged = decided_of(
                 &candidate.final_beacon,
                 Predecessor::Proposal(&later),
@@ -755,10 +763,26 @@ pub fn walk(
                         implemented_major,
                     },
                 )
+            })
+            .and_then(|()| match after {
+                Some(after) => verify_certificate(
+                    window.checked_add(1).ok_or(NodeError::Refused {
+                        what: "a window past the last one a count carries",
+                    })?,
+                    &Electorate::of(&later)?,
+                    Predecessor::Proposal(candidate),
+                    &later.cement_aggregate,
+                    chains,
+                    after.certificate,
+                    after.pledges,
+                )
+                .map(Some),
+                None => Ok(None),
             });
             match judged {
-                Ok(()) => {
+                Ok(closure_after) => {
                     taken = Some(candidate);
+                    ahead = closure_after;
                     break;
                 }
                 Err(why) => {
