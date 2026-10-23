@@ -234,6 +234,25 @@ object Archive {
         return out
     }
 
+    /**
+     * THE FOLDERS A COPY LAID TWICE (the builds before 512 filed a copy's blocks under the conversation's hash, not by the map
+     * absorb walks): a folder named by a hash the map files under another folder gives its blocks to that folder — the core drops
+     * every block it already holds — and leaves only once each block is filed there. A folder holding anything beside its log stays.
+     */
+    private fun twins(k: Keys, chatsDir: File) {
+        val m = map(FOLDERS)
+        var healed = 0
+        for (d in chatsDir.listFiles()?.filter { it.isDirectory && it.name.length == 64 } ?: return) {
+            val to = m.optString(d.name).takeIf { it.isNotEmpty() && it != d.name } ?: continue
+            if (!File(chatsDir, to).isDirectory || d.list()?.all { it == "conversation.mtlog" } != true) continue
+            val base = root()?.path ?: return
+            if (readLog(File(d, "conversation.mtlog")).all { MtBindings.nativeArchiveIngest(base, to, k.hk, k.owner, it) >= 0 }) {
+                d.deleteRecursively(); healed++
+            }
+        }
+        if (healed > 0) Log.i("Montana", "archive_twins healed=$healed")
+    }
+
     /** Read the archive into the feed, off the screen's thread; `only` — the folders a twin's block just reached. */
     fun restoreSoon(only: List<String>? = null) = q.execute { runCatching { restore(only) }.onFailure { Log.w("Montana", "archive_restore " + it.javaClass.simpleName) } }
 
@@ -246,6 +265,7 @@ object Archive {
     private fun restore(only: List<String>?) {
         val k = keys() ?: return
         val chatsDir = File(root() ?: return, "Chats")
+        if (only == null) twins(k, chatsDir)
         val folders = only ?: chatsDir.listFiles()?.filter { it.isDirectory && !it.name.startsWith(".") }?.map { it.name } ?: return
         val book = HashMap<String, String>()
         for (r in Book.refs()) book[label(k, r)] = r
