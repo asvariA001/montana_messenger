@@ -184,6 +184,14 @@ impl Pulse {
         // that restarts inside a window reads the name it pledged back from its own record, and one
         // asked to open the window on another name is refused rather than let equivocate; a record
         // of a window never opened is written here, at attempt zero with nothing made.
+        if machine
+            .closed_window()?
+            .is_some_and(|closed| window <= closed)
+        {
+            return Err(NodeError::Refused {
+                what: "a window this machine already closed",
+            });
+        }
         let record = match machine.agreement_of(window)? {
             Some(held) => held,
             None => machine.open_agreement(&attempt::Record::opened(window, previous_proposal))?,

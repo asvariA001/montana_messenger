@@ -396,6 +396,35 @@ impl Store {
         write_whole(&self.agreement_at(window), bytes)
     }
 
+    // **The last window this machine closed**, one number and never a history: the record of a
+    // closed window is let go, and this is what refuses that window to be opened again — a machine
+    // that opened a closed window afresh could pledge a second name for it (Consensus, "What a
+    // machine holds of the agreement"; "The way back": an honest machine preserves its pledges
+    // across a restart). It is written before the record is dropped.
+    fn closed_at(&self) -> PathBuf {
+        self.root.join("closed")
+    }
+
+    pub fn closed(&self) -> Result<Option<u64>, StoreError> {
+        let at = self.closed_at();
+        let Some(bytes) = read_whole(&at)? else {
+            return Ok(None);
+        };
+        let bytes = of_width(&at, bytes, HEAD_BYTES)?;
+        let mut eight = [0u8; HEAD_BYTES];
+        eight.copy_from_slice(&bytes);
+        Ok(Some(u64::from_le_bytes(eight)))
+    }
+
+    // The number moves forward and never back: a window below the one already closed was closed
+    // before it, and writing it again would say otherwise.
+    pub fn put_closed(&self, window: u64) -> Result<(), StoreError> {
+        if self.closed()?.is_some_and(|held| held > window) {
+            return Ok(());
+        }
+        write_whole(&self.closed_at(), &window.to_le_bytes())
+    }
+
     // The record of a window that closed, removed; a record that is not there is already gone.
     pub fn drop_agreement(&self, window: u64) -> Result<(), StoreError> {
         let at = self.agreement_at(window);
@@ -585,6 +614,30 @@ mod tests {
         // A third opening finds the record standing and is answered with it.
         let restarted = Store::open(scratch.path()).unwrap();
         assert_eq!(restarted.open_agreement(12, &[0x53; 90]).unwrap(), standing);
+    }
+
+    // The last window closed is one number that moves forward and never back, and survives a
+    // reopening. The wrong implementation refused: one keeping a history, or one letting the number
+    // fall back to a window closed earlier.
+    #[test]
+    fn the_last_window_closed_is_one_number_that_only_moves_forward() {
+        let scratch = Scratch::named("closed-window");
+        {
+            let store = Store::open(scratch.path()).unwrap();
+            assert_eq!(store.closed().unwrap(), None);
+            store.put_closed(12).unwrap();
+            assert_eq!(store.closed().unwrap(), Some(12));
+            store.put_closed(14).unwrap();
+            store.put_closed(13).unwrap();
+            assert_eq!(store.closed().unwrap(), Some(14));
+        }
+        let restarted = Store::open(scratch.path()).unwrap();
+        assert_eq!(restarted.closed().unwrap(), Some(14));
+        fs::write(scratch.path().join("closed"), [0u8; 7]).unwrap();
+        assert!(matches!(
+            restarted.closed(),
+            Err(StoreError::WrongLength { .. })
+        ));
     }
 
     // The record of an open window is read back whole after a reopening, written over by the next

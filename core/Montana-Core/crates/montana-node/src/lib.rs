@@ -754,9 +754,16 @@ impl Machine {
         }
     }
 
-    // The head moves onto a proposal the cement of the window after it made final, and onto no
-    // other: the store refuses a head naming a proposal it does not hold.
+    // The head moves onto a proposal the agreement of the window after it decided, and onto no
+    // other: the store refuses a head naming a proposal it does not hold, and this door refuses a
+    // head that leaves a decided window — "A decided window is never abandoned by a machine that
+    // verified its decision" (Consensus, "Finality").
     pub fn finalize(&self, window: u64) -> Result<(), NodeError> {
+        if self.head()?.is_some_and(|held| held > window) {
+            return Err(NodeError::Refused {
+                what: "a head that leaves a decided window",
+            });
+        }
         self.store.set_head(window).map_err(NodeError::Store)
     }
 
@@ -777,6 +784,19 @@ impl Machine {
             .open_agreement(record.window, &record.encode())
             .map_err(NodeError::Store)?;
         attempt::Record::decode(&standing)
+    }
+
+    // The last window this machine closed, or none.
+    pub fn closed_window(&self) -> Result<Option<u64>, NodeError> {
+        self.store.closed().map_err(NodeError::Store)
+    }
+
+    // A window closed: the number that refuses it to be opened again is written first, then its
+    // record is let go — so no restart finds a closed window without a record and pledges a second
+    // name for it (Consensus, "What a machine holds of the agreement"; "The way back").
+    pub fn let_go_of(&self, window: u64) -> Result<(), NodeError> {
+        self.store.put_closed(window).map_err(NodeError::Store)?;
+        self.drop_agreement(window)
     }
 
     pub fn agreement_of(&self, window: u64) -> Result<Option<attempt::Record>, NodeError> {
@@ -833,7 +853,14 @@ impl Machine {
 
     // Entering a round, and leaving it: what a machine stands at moves with the pulse rather than
     // being fixed when it started.
+    // A round of a window this machine already closed is refused: the record of that window is
+    // gone, and a machine standing in it again could pledge what contradicts what it pledged.
     pub fn enter_round(&self, window: u64, chain: u8, round: u32) -> Result<(), NodeError> {
+        if self.closed_window()?.is_some_and(|closed| window <= closed) {
+            return Err(NodeError::Refused {
+                what: "a round of a window this machine already closed",
+            });
+        }
         let mut held = self.open.lock().map_err(|_| NodeError::Uncountable)?;
         *held = Some((window, chain, round));
         Ok(())
