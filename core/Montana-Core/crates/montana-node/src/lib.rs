@@ -769,6 +769,16 @@ impl Machine {
             .map_err(NodeError::Store)
     }
 
+    // The opening of a window's record, exclusive: what stands afterwards is this record or the one
+    // another process of this store opened first, and the caller compares the name taken.
+    pub fn open_agreement(&self, record: &attempt::Record) -> Result<attempt::Record, NodeError> {
+        let standing = self
+            .store
+            .open_agreement(record.window, &record.encode())
+            .map_err(NodeError::Store)?;
+        attempt::Record::decode(&standing)
+    }
+
     pub fn agreement_of(&self, window: u64) -> Result<Option<attempt::Record>, NodeError> {
         match self.store.agreement(window).map_err(NodeError::Store)? {
             None => Ok(None),

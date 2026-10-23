@@ -140,6 +140,48 @@ fn write_complete(at: &Path, bytes: &[u8], only_once: bool) -> Result<(), StoreE
     Ok(())
 }
 
+// A complete file linked into place only where none stands: the writer whose link lands is the one
+// whose bytes stand, and every other learns so. The temporary is removed once the link landed or
+// failed, since what it carried stands under the name or lost to what does; the directory is
+// flushed so the name survives a loss of power.
+fn publish_once(at: &Path, bytes: &[u8]) -> Result<bool, StoreError> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SERIAL: AtomicU64 = AtomicU64::new(0);
+    let directory = at.parent().unwrap_or(Path::new("."));
+    let tick = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| said(at, std::io::Error::other(e)))?
+        .as_nanos();
+    let beside = at.with_extension(format!(
+        "opening-{}-{tick}-{}",
+        std::process::id(),
+        SERIAL.fetch_add(1, Ordering::Relaxed)
+    ));
+    {
+        let mut file = create_closed(&beside)?;
+        file.write_all(bytes).map_err(|e| said(&beside, e))?;
+        file.sync_all().map_err(|e| said(&beside, e))?;
+    }
+    let landed = match fs::hard_link(&beside, at) {
+        Ok(()) => true,
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => false,
+        Err(e) => {
+            let _ = fs::remove_file(&beside);
+            return Err(said(at, e));
+        }
+    };
+    fs::remove_file(&beside).map_err(|e| said(&beside, e))?;
+    let uncertain = |e: std::io::Error| StoreError::CommitUncertain {
+        at: at.display().to_string(),
+        said: e.to_string(),
+    };
+    fs::File::open(directory)
+        .map_err(uncertain)?
+        .sync_all()
+        .map_err(uncertain)?;
+    Ok(landed)
+}
+
 // Exclusive creation refuses stale files and symlinks. Permissions are set on the creation
 // itself, so no earlier file's bytes or permissions can be inherited by this write.
 #[cfg(unix)]
@@ -329,6 +371,27 @@ impl Store {
         read_whole(&self.agreement_at(window))
     }
 
+    // **The first record of a window is written once and exclusively.** Two processes on one store
+    // that both read nothing and both wrote would each believe its own name, and the one key of
+    // this machine would pledge two names for one window — the first of the contradicting pairs.
+    // So the opening links a complete file into place only where none stands, the door the secret
+    // is drawn through, and where one stands already it answers with the bytes that stand, which
+    // the caller compares with its own. The named wrong implementation: read-then-rename, under
+    // which the last writer wins and both believe themselves.
+    pub fn open_agreement(&self, window: u64, bytes: &[u8]) -> Result<Vec<u8>, StoreError> {
+        let at = self.agreement_at(window);
+        if publish_once(&at, bytes)? {
+            return Ok(bytes.to_vec());
+        }
+        read_whole(&at)?.ok_or_else(|| {
+            said(
+                &at,
+                std::io::Error::other("an agreement record that stood disappeared"),
+            )
+        })
+    }
+
+    // A later writing of the record of a window this process opened: whole, over the one before.
     pub fn put_agreement(&self, window: u64, bytes: &[u8]) -> Result<(), StoreError> {
         write_whole(&self.agreement_at(window), bytes)
     }
@@ -476,6 +539,54 @@ mod tests {
 
     // Scratch artifacts are retained for inspection; tests never remove existing files.
 
+    // Two writers of the opening record of one window with two names: exactly one name stands, and
+    // the other writer is answered with it rather than with its own. The wrong implementation
+    // refused: read-then-rename, under which both read nothing, both rename, the last wins and each
+    // believes its own name — the one key of the machine pledging two names for one window.
+    #[test]
+    fn two_openings_of_one_window_leave_one_record() {
+        let scratch = Scratch::named("agreement-opening-race");
+        Store::open(scratch.path()).unwrap();
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let handles: Vec<_> = [0x51u8, 0x52]
+            .into_iter()
+            .map(|byte| {
+                let path = scratch.0.clone();
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    let store = Store::open(path).unwrap();
+                    barrier.wait();
+                    let own = vec![byte; 90];
+                    (own.clone(), store.open_agreement(12, &own).unwrap())
+                })
+            })
+            .collect();
+        let results: Vec<(Vec<u8>, Vec<u8>)> = handles
+            .into_iter()
+            .map(|thread| thread.join().unwrap())
+            .collect();
+        let standing = fs::read(scratch.path().join("agreement-00000000000000000012")).unwrap();
+        assert!(results.iter().all(|(_, answered)| *answered == standing));
+        assert_eq!(
+            results
+                .iter()
+                .filter(|(own, answered)| own == answered)
+                .count(),
+            1,
+            "both writers believe their own name"
+        );
+        // Nothing of the opening is left beside the record.
+        let leftovers: Vec<_> = fs::read_dir(scratch.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().to_string())
+            .filter(|name| name.contains("opening-"))
+            .collect();
+        assert!(leftovers.is_empty(), "temporaries left: {leftovers:?}");
+        // A third opening finds the record standing and is answered with it.
+        let restarted = Store::open(scratch.path()).unwrap();
+        assert_eq!(restarted.open_agreement(12, &[0x53; 90]).unwrap(), standing);
+    }
+
     // The record of an open window is read back whole after a reopening, written over by the next
     // writing, and gone once the window closes; a window never recorded answers with nothing. The
     // wrong implementations refused: one that kept the record after the close (a history, which
@@ -488,7 +599,7 @@ mod tests {
         {
             let store = Store::open(scratch.path()).unwrap();
             assert_eq!(store.agreement(12).unwrap(), None);
-            store.put_agreement(12, &first).unwrap();
+            assert_eq!(store.open_agreement(12, &first).unwrap(), first);
             assert_eq!(store.agreement(12).unwrap(), Some(first.clone()));
         }
         let restarted = Store::open(scratch.path()).unwrap();

@@ -185,18 +185,14 @@ impl Pulse {
         // asked to open the window on another name is refused rather than let equivocate; a record
         // of a window never opened is written here, at attempt zero with nothing made.
         let record = match machine.agreement_of(window)? {
-            Some(held) if held.taken != previous_proposal => {
-                return Err(NodeError::Refused {
-                    what: "a window this machine already pledged under another name",
-                })
-            }
             Some(held) => held,
-            None => {
-                let opened = attempt::Record::opened(window, previous_proposal);
-                machine.keep_agreement(&opened)?;
-                opened
-            }
+            None => machine.open_agreement(&attempt::Record::opened(window, previous_proposal))?,
         };
+        if record.taken != previous_proposal {
+            return Err(NodeError::Refused {
+                what: "a window this machine already pledged under another name",
+            });
+        }
         // Receive public evidence while constructing the expensive presence
         // proof. This changes no closed head and grants no signing authority.
         machine.enter_round(window, chain, 0)?;
