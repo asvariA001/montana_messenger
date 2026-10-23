@@ -86,6 +86,7 @@ object Twin {
     const val READ = "​​TR:"              // iOS twinReadMark: a read mark for this seed's devices alone
     const val ASK = "​​TA:"               // iOS twinAskMark: the asker's keys
     const val CARD = "​​TC:"              // iOS twinCardMark: a card the other device gave birth to
+    const val CARD_PIPE = "twin:card"              // iOS twinCardPipe: the mirror's name for the cards' words, never a conversation
     const val ROW = "​​TW:"               // iOS twinRowMark: one row given back
     // THE PIPE IS THE APP'S, NOT THE PACKAGE'S (iOS twinSecret mixes Bundle.main.bundleIdentifier, quest.montana.app for Montana): two
     // apps of one seed keep two pipes; the iPhone's Montana and this one are one app, whatever this build's package is called
@@ -278,8 +279,8 @@ object Twin {
         when {
             x.startsWith(READ) -> readByTwin(c, x.removePrefix(READ).toLongOrNull())
             x.startsWith(ASK) -> giveRows(c, x.removePrefix(ASK))
-            // a card's introductions (iOS MontanaCard.takeTwin) have no road on this phone yet: applied to nobody
-            x.startsWith(CARD) -> Log.d("Montana", "twin_card applied to nobody")
+            // a card the other device gave birth to: this device opens the introductions it brings (iOS MontanaCard.takeTwin)
+            x.startsWith(CARD) -> MontanaCard.takeTwin(x.removePrefix(CARD))
             x.startsWith(ROW) -> takeRow(c, m, w.optInt("o") == 1, w.optDouble("at", 0.0), x.removePrefix(ROW))
             else -> Post.landMirrored(c, m, x, w.optInt("o") == 1, w.optString("qt").ifEmpty { null }, w.optString("qm").ifEmpty { null },
                 w.optString("lp").ifEmpty { null })
