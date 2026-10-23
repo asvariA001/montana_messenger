@@ -136,6 +136,7 @@ object Media {
         out.toByteArray()
     }.getOrNull()
 
+    private const val SEE_THROUGH_FLOOR = 16   // the last rung of a see-through preview, its side in pixels (iOS seeThroughFloor)
     /**
      * The picture's small face that rides the manifest (iOS thumbBase64): 120 points, at most 16 KB.
      * A SEE-THROUGH PICTURE KEEPS ITS GROUND (iOS MontanaE2E.swift:1094-1106 at 2155, the author's word 22.09:
@@ -143,19 +144,26 @@ object Media {
      * receiver's row while the file is still on its way, and JPEG has no transparency at all -- a picture with
      * an alpha channel is written PNG instead, held down by its own side rather than a quality it does not have.
      */
-    private fun thumb(b: Bitmap): String? {
+    private fun thumb(b0: Bitmap): String? {
+        // THE PREVIEW'S PIXELS ARE OURS (iOS 8150c61c, the iPhone 17 17.10.2026): drawn in the standard range -- a wide-colour or HDR
+        // picture decoded in 16-bit float is brought to 8 bits first -- and see-through only when the SOURCE is
+        val b = if (b0.config == Bitmap.Config.RGBA_F16) b0.copy(Bitmap.Config.ARGB_8888, false) ?: b0 else b0
         val scale = minOf(1f, 120f / maxOf(b.width, b.height))
         val small = Bitmap.createScaledBitmap(b, maxOf(1, (b.width * scale).toInt()), maxOf(1, (b.height * scale).toInt()), true)
         if (small.hasAlpha()) {
-            var side = maxOf(small.width, small.height)
-            while (side >= 32) {
+            fun shot(side: Int): ByteArray {
                 val k = side.toFloat() / maxOf(small.width, small.height)
-                val shot = if (k >= 1f) small else Bitmap.createScaledBitmap(small, maxOf(1, (small.width * k).toInt()), maxOf(1, (small.height * k).toInt()), true)
-                val out = ByteArrayOutputStream(); shot.compress(Bitmap.CompressFormat.PNG, 100, out)
-                if (out.size() <= 16000) return Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
-                side = (side * 0.7f).toInt()
+                val bm = if (k >= 1f) small else Bitmap.createScaledBitmap(small, maxOf(1, (small.width * k).toInt()), maxOf(1, (small.height * k).toInt()), true)
+                return ByteArrayOutputStream().also { bm.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
             }
-            return null   // nothing honest to show: better an empty place than a white square (iOS 1094-1106)
+            var side = maxOf(small.width, small.height)
+            while (side > SEE_THROUGH_FLOOR) {
+                val out = shot(side)
+                if (out.size <= 16000) return Base64.encodeToString(out, Base64.NO_WRAP)
+                side = maxOf(SEE_THROUGH_FLOOR, (side * 0.7f).toInt())
+            }
+            // the last rung (iOS seeThroughFloor): 16 x 16 pixels of 8-bit RGBA are 1 KiB raw, under the budget by arithmetic
+            return Base64.encodeToString(shot(SEE_THROUGH_FLOOR), Base64.NO_WRAP)
         }
         var q = 70
         while (q >= 20) {
