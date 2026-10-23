@@ -76,7 +76,23 @@ object MontanaPaths {
     fun archive(c: Context) = File(c.filesDir, "Montana")                  // iOS Documents/Montana (archive.rs root)
     fun chats(c: Context) = File(archive(c), "Chats")                      // = archive.rs CHATS_DIR
     private fun support(c: Context) = File(c.filesDir, "Support")          // iOS Application Support
-    fun store(c: Context) = File(support(c), "Montana/Media")              // iOS MontanaMediaStore.dir
+    /**
+     * iOS MontanaMediaStore.dir: THE ONE FOLDER A LETTER LOOKS IN FOR ITS FILE (iOS MontanaBackup 686, 1175-1179: «the attachment goes
+     * back where a letter looks for it»). The earlier builds kept a store of the copy's own beside it: a copy made here carried no
+     * attachment, and an attachment a copy brought lay where no letter looked.
+     */
+    fun store(c: Context) = Media.dir(c)
+    fun oldStore(c: Context) = File(support(c), "Montana/Media")
+    /** The store of the earlier builds: what lies there joins the letters' folder once, a file already there stays as it is. */
+    fun heal(c: Context) {
+        val old = oldStore(c)
+        val files = old.listFiles() ?: return
+        val dir = store(c)
+        var moved = 0
+        for (f in files) if (f.isFile && !File(dir, f.name).exists() && f.renameTo(File(dir, f.name))) moved++
+        old.deleteRecursively()
+        Log.i("Montana", "copy_store healed moved=$moved of ${files.size}")
+    }
     /** The person's other places (iOS MontanaBackup.places), each named once. */
     fun places(c: Context): Map<String, File> = mapOf(
         "avatars" to File(support(c), "Avatars"),
@@ -108,7 +124,7 @@ object MontanaBackup {
     fun forget(c: Context) {
         // the sealed log of the chats stays (iOS sealForForget): only the words reopen it; the rest of the archive's root goes
         MontanaPaths.archive(c).listFiles()?.filter { it.name != MontanaPaths.chats(c).name }?.forEach { it.deleteRecursively() }
-        (listOf(MontanaPaths.store(c), MontanaPaths.taken(c)) + MontanaPaths.places(c).values)
+        (listOf(MontanaPaths.store(c), MontanaPaths.oldStore(c), MontanaPaths.taken(c)) + MontanaPaths.places(c).values)
             .forEach { it.deleteRecursively() }
         shelf(c)?.deleteRecursively()
     }
@@ -221,7 +237,7 @@ object MontanaBackup {
      * A file that will not read stops the copy: a copy one attachment short that calls itself whole is the shape a
      * person leans on and loses. Runs on the caller's worker thread.
      */
-    fun create(c: Context, progress: (Double) -> Unit): CopyResult {
+    fun create(c: Context, skip: Set<String> = emptySet(), progress: (Double) -> Unit): CopyResult {
         if (!keyKAT() || !ownerKAT()) return CopyResult.Refused(Refusal.NoVault)
         val mn = MontanaSeed.mnemonic ?: return CopyResult.Refused(Refusal.NoSeed)
         val ent = MtBindings.nativeMnemonicToEntropy(mn)?.takeIf { it.size == 32 } ?: return CopyResult.Refused(Refusal.NoSeed)
@@ -233,7 +249,9 @@ object MontanaBackup {
 
         // What will be taken, counted from the disk: the bar measures bytes sealed against it.
         val chats = MontanaPaths.chats(c).listFiles { f -> f.isDirectory }?.sortedBy { it.name } ?: emptyList()
-        val store = MontanaPaths.store(c).listFiles { f -> f.isFile && !f.name.startsWith(".") }?.sortedBy { it.name } ?: emptyList()
+        // A file still landing is not a file yet; a file the person's node keeps whole stays out (iOS Scope.skipFiles)
+        val store = MontanaPaths.store(c).listFiles { f -> f.isFile && !f.name.startsWith(".") && !f.name.endsWith(".part") && f.name !in skip }
+            ?.sortedBy { it.name } ?: emptyList()
         val placed = MontanaPaths.places(c).flatMap { (place, d) ->
             (d.listFiles { f -> f.isFile && plainName(f.name) }?.sortedBy { it.name } ?: emptyList()).map { place to it }
         }
@@ -590,6 +608,8 @@ object Card {
         // (MontanaHomeNode.swift 23, 39-40)
         "composeOpen" to Form.SWITCH, "composeMediaMode" to Form.WORD, "lastMediaPane" to Form.WORD, "cardKind" to Form.WORD,
         "timePanelOpen" to Form.SWITCH, Mesh.KEY to Form.SWITCH, "mt.home.node.on" to Form.SWITCH,
+        // the person's term and ceiling of the cache their node backs (MontanaChatStore.swift settingKeys 6913, 18.10.2026)
+        HomeKeep.KEEP_DAYS to Form.WHOLE_WORD, HomeKeep.LIMIT to Form.WHOLE_WORD,
         // the wall's rules (MontanaBoard.swift 44-49, 64-77): the rule a word, the people a list
         "boardRule" to Form.WORD, "boardSight" to Form.WORD,
         "boardAllow" to Form.LINES, "boardDeny" to Form.LINES, "boardSightAllow" to Form.LINES, "boardSightDeny" to Form.LINES,

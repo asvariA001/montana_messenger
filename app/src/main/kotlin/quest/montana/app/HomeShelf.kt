@@ -291,6 +291,8 @@ object HomeBook {
     fun holds(bid: String): Boolean { if (tag == null) ensure(); return synchronized(lock) { bid in bids } }
     fun entry(name: String): Entry? { if (tag == null) ensure(); return synchronized(lock) { files[name] } }
     fun all(): Map<String, Entry> = synchronized(lock) { files }
+    /** The names whose every piece the node named: a copy for the node leaves them out (iOS kept, HomeNodeWatch.send). */
+    fun kept(): Set<String> { if (tag == null) ensure(); return synchronized(lock) { files.filter { 0 < it.value.at }.keys } }
     fun set(name: String, e: Entry) = synchronized(lock) { files = files + (name to e); bids = bids + e.p }
     fun json(): String = JSONObject().apply { all().forEach { (n, e) -> put(n, e.json()) } }.toString()
     /** The node's book joins this phone's: what either names stays named. */
