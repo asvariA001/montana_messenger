@@ -4,10 +4,10 @@
 two exist in the reference core as code with vectors, one exists in the set and in code as a
 derivation but is wired into no sending loop, two are forbidden by the set in the form the reviewer
 names, and one is replaced by a different construction. The claim of the set against intersection is
-stated in [INTERSECTION-MODEL.md](INTERSECTION-MODEL.md) with every open point named. Ten
+stated in [INTERSECTION-MODEL.md](INTERSECTION-MODEL.md) with every open point named. Twelve
 constant-time measurements stand over the paths where a padding block and a letter block must cost
 the same; two of them found a leak in the cutters of the reference core, fixed in this pull request,
-and their numbers before and after are below. Nothing else here is closed.
+and their numbers before and after are below, on two machines. Nothing else here is closed.
 
 This report answers issue #5 of this repository. It touches neither the window proof (#4) nor the
 scope of the external audit proposal (#2); where it meets them it says so.
@@ -50,7 +50,10 @@ Three consequences the table forces, stated so they cannot be read wider or narr
 3. **The chair's reading of 21.10 — nothing of a GPA model in the client — is confirmed** for the
    application by a fresh sweep: `apps/messenger/ios` and the client source tree searched for `GPA`,
    `global passive`, `intersection`, `chaff`, `cover traffic`, `poisson`, `onion`, `constant rate`,
-   `cell_bytes` match on none of them. The application's traffic shaping is the media size bucket
+   `cell_bytes` match on none of them in the sense of this model (the word `intersection` stands
+   twice in `MontanaWakePush.swift` 535-536 for the intersection of two sets of doors, and
+   `constant rate` twice in `TOKENOMICS.md` 483 and 764 for the growth of a population; neither is
+   a mechanism of the transport). The application's traffic shaping is the media size bucket
    named above and nothing else that the sweep or the FFI surface (`crates/mt-bindings/src/ffi_e2e.rs`)
    shows.
 
@@ -85,20 +88,31 @@ cargo test -p mt-wire --test timing_cell --test timing -- --test-threads=1 --noc
 | `a_hop_carries_a_padding_block_and_a_letter_block_in_one_time` | `cell::carry` (`src/cell.rs` 284-303) | cell of a padding block | cell of a letter block | a hop whose work depends on what the pipe layer holds |
 | `a_hop_carries_a_cell_from_the_origin_and_one_that_has_travelled_in_one_time` | `cell::carry` | cell fresh from the origin | the same cell after six owners' hops | a hop that searches the seal array or whose cost grows with the slots written |
 | `a_unit_of_padding_and_a_unit_of_a_message_seal_in_one_time` | `link::seal_unit` (`src/link.rs` 94-120) | unit of zeros | unit of a message | a link that seals padding differently |
-| `cutting_a_body_that_fills_its_last_block_and_one_that_barely_does_costs_the_same` | `erasure::cut` (`src/erasure.rs` 229-243) | body of three full blocks | body of two blocks and one byte | a cutter whose time follows the length of the body |
-| `cutting_a_message_that_fills_its_last_piece_and_one_that_barely_does_costs_the_same` | `link::pieces` (`src/link.rs` 31-54) | message of three full pieces | message of two pieces and one byte | a cutter whose time follows the length of the message |
-| `the_measurement_catches_an_origin_that_spares_a_padding_block_the_seal` | the named wrong implementation `seal_pipe_that_leaks` | padding block | letter block | **must fail the threshold**: proves the instrument has power |
+| `cutting_a_body_that_fills_its_last_block_and_one_that_barely_does_costs_the_same` | `erasure::cut` (`src/erasure.rs` 229-243) | body of three full blocks | body of two blocks and one byte | `cut_that_copies`: the cutter of the baseline, whose copy follows the length of the body |
+| `cutting_a_message_that_fills_its_last_piece_and_one_that_barely_does_costs_the_same` | `link::pieces` (`src/link.rs` 31-54) | message of three full pieces | message of two pieces and one byte | `pieces_that_copy`: the link of the baseline, whose copy follows the length of the message |
+| `the_measurement_catches_an_origin_that_spares_a_padding_block_the_seal` | the named wrong implementation `seal_pipe_that_leaks` | padding block | letter block | **must fail the threshold**: proves the instrument has power at the scale of a seal (microseconds) |
+| `the_measurement_catches_a_cutter_whose_copy_follows_the_length_of_the_body` | the named wrong implementation `cut_that_copies` (`src/erasure.rs` 229-243 at the baseline, word for word) | body of three full blocks | body of two blocks and one byte | **must fail the threshold**: proves the instrument has power at the scale of a copy (nanoseconds) |
+| `the_measurement_catches_a_link_whose_copy_follows_the_length_of_the_message` | the named wrong implementation `pieces_that_copy` (`src/link.rs` 31-54 at the baseline) | message of three full pieces | message of two pieces and one byte | the same, for the link |
+
+The four measurements of the cutters take 50 000 samples of four cuts each where the five of the seal
+take 2000 of one call: the copy they look for is some ten nanoseconds in a cut of half a microsecond,
+and on a machine whose noise comes in bursts longer than a sample only the count of samples raises the
+t of a real difference (the constants `CUTTER_SAMPLES` and `CUTS_PER_SAMPLE` in `tests/timing_cell.rs`
+carry the reasoning and the numbers). The two power checks of the cutters assert, before timing
+anything, that the wrong implementation writes the bytes the right one writes, so that the clock is
+the only thing that tells them apart.
 
 `tests/timing.rs` keeps its three measurements of the erasure code (parity, reconstruction, and the
 multiplication that returns early on a zero as its own power check), now on the shared instrument.
 
-### Measured
+### Measured, first machine: the author's
 
 Machine: Apple M1, 8 cores, macOS 26.7; Rust 1.92.0; `cargo` under `taskpolicy -b` with two build
 jobs and one test thread, as the workspace pins (`core/Montana-Core/.cargo/config.toml`). Welch's t
 over 2000 interleaved samples per class (500 for reconstruction, 250 for the leaking multiplication),
-slowest tenth dropped. A t below 10 is "no leak seen at this power"; the two power checks must exceed
-10 or the other numbers mean nothing.
+slowest tenth dropped, with the measurements of the cutters as they first stood: 2000 samples of one
+cut. A t below 10 is "no leak seen at this power"; the power checks must exceed 10 or the other
+numbers mean nothing.
 
 | Measurement | t before the fix (release, baseline cutters) | t after the fix (release) |
 |---|---|---|
@@ -106,8 +120,8 @@ slowest tenth dropped. A t below 10 is "no leak seen at this power"; the two pow
 | hop carries padding vs letter (`carry`) | 0.16 | 0.38 |
 | hop carries fresh vs six-hop cell (`carry`) | 0.01 | 0.23 |
 | unit seals padding vs message (`seal_unit`) | 0.01 | 0.07 |
-| `erasure::cut`, full vs barely-filled last block | **33.64 — fail** | 0.47 |
-| `link::pieces`, full vs barely-filled last piece | **51.93 — fail** | 0.12 |
+| `erasure::cut`, full vs barely-filled last block, 2000 samples of one cut | **33.64 — fail** | 0.47 |
+| `link::pieces`, full vs barely-filled last piece, 2000 samples of one cut | **51.93 — fail** | 0.12 |
 | power: origin sparing a padding block the seal (must exceed 10) | 309.40 | 200.18 |
 | `erasure::parity` zeros vs drawn (`tests/timing.rs`) | 0.21 | 0.32 |
 | `erasure::reconstruct` zeros vs drawn, 500 samples | 0.96 | 0.03 |
@@ -121,11 +135,63 @@ other cell and link measurements 0.01 to 0.59, the two power checks 152.36 and 4
 the debug build passed the cutters too (its own overhead hid the copy), which is why the release
 numbers are the ones this report stands on.
 
-What the numbers say, and do not say: a t below 10 means that at 2000 samples on this machine the two
-classes are not told apart; it is not a proof of constant time, and a GPA with a longer trace or a
-quieter machine could in principle see what this did not. The two power checks show that the
-instrument sees an early return that skips the work of one block. It would not see a difference of a
-few nanoseconds that hides under the noise floor of this machine.
+### Measured, second machine: the council's check, and what it changed
+
+Machine: a KVM guest of four vCPUs (AMD EPYC, 2.0 GHz), Ubuntu, kernel 6.8, with a Montana node
+running beside the tests; Rust of the workspace; `nice -n -20`, one test thread, each test binary in
+its own network namespace; one target directory per tree. The chair's check ran the measurements of
+the cutters as they first stood against the tree *without* the fix, five rounds:
+
+| Round | `erasure::cut`, baseline cutter, 2000 samples of one cut | `link::pieces`, baseline cutter, 2000 samples of one cut |
+|---|---|---|
+| 1 | 7.50 | 12.57 |
+| 2 | 9.11 | 5.94 |
+| 3 | 7.04 | 9.26 |
+| 4 | 0.16 | 5.98 |
+| 5 | 2.60 | 6.02 |
+
+The leaking cutters passed in four rounds of five on that machine: the copy of ten nanoseconds stood
+under its noise, and the one power check of the file (a spared seal, two microseconds) did not show
+that the instrument could see a difference a hundred times smaller. The measurements were changed to
+50 000 samples of four cuts (the noise of that machine comes in bursts longer than a sample, so more
+cuts per sample buy nothing and only more samples do), and the two power checks of the cutters were
+added. The same five rounds, release, with the measurements as they now stand:
+
+| Measurement | tree without the fix (41a8ee0), five rounds | tree with the fix, five rounds |
+|---|---|---|
+| `erasure::cut`, full vs barely-filled last block | **56.28, 21.22, 29.48, 29.78, 37.48 — fail** | 0.98, 0.31, 2.64, 0.23, 0.01 |
+| `link::pieces`, full vs barely-filled last piece | **40.59, 38.66, 37.65, 57.88, 41.44 — fail** | 1.69, 2.18, 1.76, 1.39, 1.76 |
+| power: `cut_that_copies` (must exceed 10) | 27.11, 36.67, 24.71, 29.04, 28.13 | 27.97, 28.18, 22.60, 27.21, 26.35 |
+| power: `pieces_that_copy` (must exceed 10) | 78.96, 90.80, 67.15, 84.32, 74.96 | 67.49, 65.85, 70.04, 75.96, 164.25 |
+| power: origin sparing a padding block the seal | 467.73 to 768.59 | 480.08 to 960.12 |
+| the four measurements of the seal and the hop | 0.01 to 1.57 | 0.04 to 1.08 |
+
+The tree without the fix fails the two measurements of the cutters in every round and the tree with
+the fix passes every measurement in every round; that is the property the rule of this repository
+asks of a test — that it name the wrong implementation it rejects, and reject it. The four
+measurements of the cutters run in the release build and are marked ignored, with the reason, in the
+debug build: a block laid without optimization costs a hundred microseconds where the copy they look
+for costs ten nanoseconds, so the debug build measures itself (on the second machine it took the
+file to 110 seconds and put the copy of the baseline at t = 8.4). The first machine's debug run above
+showed the same, and this report has stood on release numbers from the start.
+
+What the numbers say, and do not say: a t below 10 means that at this count of samples on this
+machine the two classes are not told apart; it is not a proof of constant time, and a GPA with a
+longer trace or a quieter machine could in principle see what this did not. On the second machine
+the cutters with the fix stand at t near one to three at 50 000 samples, consistently of one sign:
+the body that barely reaches its last block reads one byte of the body over and over where the full
+body reads them in sequence, and a trace some hundred times longer would see that. The three power
+checks show that the instrument sees an early return that skips the work of one block and a copy
+that follows the length by one block; it would not see a difference under a nanosecond.
+
+The cost of the fix was measured on the second machine as well: three blocks cut with the copying
+cutter of the baseline took 0.6 microseconds; with `lay` as it was first written (a lookup with
+`get` and a fallback, an addition checked for overflow because the release profile checks it) 4.3
+microseconds, a loop of single bytes with two checks that can panic inside it; with `lay` as it now
+stands (the clamped position indexed directly on a body known to hold a byte, the position formed by
+a wrapping add) 2.5 microseconds. The remaining four times over a copy is the price of reading every
+byte through a clamped index, which no vector step of this target performs; the bytes written are the
+same in all three forms, and the unit test and the two power checks hold them.
 
 ## 4. Findings
 
@@ -140,7 +206,15 @@ after stage 18 only as far as the slot lets it. The fix is one function, `lay` (
 writes every byte of a block by a mask on the position and no branch on the length; both cutters call
 it. The bytes produced are identical, so every frozen vector stands, and a unit test holds the bytes
 (`a_block_is_laid_as_a_copy_and_a_zero_fill_would_lay_it`). After the fix: t = 0.47 (`cut`)
-and t = 0.12 (`pieces`).
+and t = 0.12 (`pieces`) on the first machine.
+
+The council's check found that the two measurements, as they first stood, did not reject the leaking
+cutters on its own machine (four rounds of five passed, t = 0.2 to 9.3), so they stood for nothing
+there; the measurements were raised to 50 000 samples, the two cutters of the baseline were written
+into the test file as the named wrong implementations, and two power checks now assert that the
+instrument sees them. With that, the tree without the fix fails both measurements in every round
+and the tree with the fix passes them (section 3). The check also found the first `lay` seven times
+slower than the copy it replaced and rewrote it to 1.7 times faster, same bytes (section 3).
 
 **F2 — the client line's cover frames would announce themselves.** `crates/mt-net/src/framing.rs`
 places `FLAG_PADDING` in a three-byte plaintext header (lines 1-8, 21, 53-59) and requires one in five
@@ -168,10 +242,13 @@ read as anything but open.
 
 - `core/Montana-Core/crates/mt-wire/tests/dudect/mod.rs` — the instrument, shared.
 - `core/Montana-Core/crates/mt-wire/tests/timing.rs` — the erasure measurements on the shared instrument; no measurement changed.
-- `core/Montana-Core/crates/mt-wire/tests/timing_cell.rs` — the seven measurements of section 3.
+- `core/Montana-Core/crates/mt-wire/tests/timing_cell.rs` — the nine measurements of section 3: seven of the paths, two power checks of the cutters beside the one of the seal.
 - `core/Montana-Core/crates/mt-wire/src/lib.rs`, `src/erasure.rs`, `src/link.rs` — the fix of F1: `lay`, and the two cutters calling it. Bytes unchanged; a unit test holds them.
 - `Audit/GPA/README.md`, `Audit/GPA/INTERSECTION-MODEL.md`, one line in `Audit/README.md`.
 
 No file of the normative set, of the client core or of the application is changed; of the reference
-core's library code, the two cutters named above and nothing else. The report is self-verification by the implementing agent on the project's
-own machine, not an independent audit.
+core's library code, the two cutters named above and nothing else. The first measurements and the
+first form of the fix are self-verification by the implementing agent on the project's own machine;
+the second machine of section 3 is the council's check of this pull request, which changed the
+measurements of the cutters and the form of `lay` as that section states. Neither is an independent
+audit.
