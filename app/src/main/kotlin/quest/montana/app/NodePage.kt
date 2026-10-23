@@ -88,6 +88,8 @@ class NodePage(private val act: MainActivity, private val onClose: () -> Unit) {
                 restoreRow = row(R.drawable.ic_arrow_circle_down, MT.orange, c.getString(R.string.node_restore)) { restore() }
                 addView(restoreRow, lp())
             }, lp())
+            // the switch says what it does (iOS ff6c7b9f «Copies to your node»)
+            addView(c.text(c.getString(R.string.node_copies_sub), 12f, MT.gray).apply { setPadding(dp(16), dp(8), dp(16), 0) })
             addView(capsBox, lp())
         }
         view = c.vstack(Gravity.NO_GRAVITY) {

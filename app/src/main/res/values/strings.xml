@@ -752,4 +752,13 @@
     <string name="lv_node_caption">Connect a machine you own to the Montana network through this app: it is set up from here and copies of the whole phone go to it. Taking your copy back is open on every level.</string>
     <string name="lv_shield_title">Deletion is forbidden on this phone</string>
     <string name="lv_shield_rule">In Montana levels open functions: from level %1$d a person can forbid deletion on their phone. Your level is %2$d.</string>
+    <string name="sound_sub">Notifications of new messages play a sound. Off, they arrive silently.</string>
+    <string name="show_text_sub">A notification shows the words of the message. Off, it shows none of them.</string>
+    <string name="show_sender_sub">A notification of a message names who wrote. Off, it reads Montana instead.</string>
+    <string name="name_lock_sub">When the phone hides previews on the lock screen, the notification still names who wrote.</string>
+    <string name="read_receipts_sub">People see that you have read their messages, and channel owners count your views. Off, nobody is told.</string>
+    <string name="filter_objectionable_sub">Messages, wall posts and comments from others with offensive words stay folded until you tap them.</string>
+    <string name="note_quality_footer">Max takes the camera\'s sharpest picture at the highest bitrate, Min makes the lightest file. A camera that cannot keep up steps down by itself.</string>
+    <string name="message_style_footer">Montana: yours in the system blue, others\' in grey. Classic: yours in your bubble colour, others\' in dark grey. Custom: the colours you set below.</string>
+    <string name="node_copies_sub">Once a day, while Montana is open and on Wi-Fi only, a sealed copy of the whole app goes to your node. Off, nothing is sent and nothing is removed from the node.</string>
 </resources>

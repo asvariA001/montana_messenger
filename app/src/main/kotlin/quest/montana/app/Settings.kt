@@ -163,8 +163,9 @@ fun notificationsPage(act: MainActivity, onBack: () -> Unit): View {
         val on = c.getSystemService(NotificationManager::class.java).areNotificationsEnabled()
         status.text = c.getString(if (on) R.string.st_connected else if (!asked()) R.string.st_not_asked else R.string.st_disconnected)
     }
-    fun sw(res: Int, color: Int, word: Int, key: String) =
-        c.switchLine(res, color, c.getString(word), Prefs.bool(key, true)) { Prefs.setBool(key, it) }
+    // EVERY SWITCH SAYS WHAT IT DOES (iOS 11cc6a64, 245f03f5): a line under each, read against the code that obeys it
+    fun sw(res: Int, color: Int, word: Int, key: String, caption: Int) =
+        c.switchLine(res, color, c.getString(word), Prefs.bool(key, true), c.getString(caption)) { Prefs.setBool(key, it) }
     val page = settingsPage(act, c.getString(R.string.notifications), onBack) {
         section(null, null, c.settingsRow(R.drawable.ic_set_bell, SysColor.red, c.getString(R.string.allow_notifications), status) {
             if (!asked()) {
@@ -173,10 +174,10 @@ fun notificationsPage(act: MainActivity, onBack: () -> Unit): View {
             } else act.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, c.packageName))
         })
         section(null, null,
-            sw(R.drawable.ic_set_speaker, SysColor.pink, R.string.sound, "notifSound"),
-            sw(R.drawable.ic_set_textbubble, SysColor.green, R.string.show_text, "notifPreview"),
-            sw(R.drawable.ic_person, SysColor.orange, R.string.show_sender, "notifSender"),
-            sw(R.drawable.ic_set_lock, SysColor.blue, R.string.name_lock, "notifLockName"))
+            sw(R.drawable.ic_set_speaker, SysColor.pink, R.string.sound, "notifSound", R.string.sound_sub),
+            sw(R.drawable.ic_set_textbubble, SysColor.green, R.string.show_text, "notifPreview", R.string.show_text_sub),
+            sw(R.drawable.ic_person, SysColor.orange, R.string.show_sender, "notifSender", R.string.show_sender_sub),
+            sw(R.drawable.ic_set_lock, SysColor.blue, R.string.name_lock, "notifLockName", R.string.name_lock_sub))
     }
     page.viewTreeObserver.addOnWindowFocusChangeListener { if (it) refresh() }
     refresh()
@@ -303,7 +304,7 @@ fun privacyPage(act: MainActivity, onForget: () -> Unit, onBack: () -> Unit): Vi
         section(null, null,
             // the switch speaks: hidden, one farewell word; shown, «here» at once (iOS MontanaPresencePrivacy.setSharing)
             c.switchLine(R.drawable.ic_set_eye, SysColor.teal, c.getString(R.string.online_status), Presence.sharing, c.getString(R.string.online_status_sub)) { Presence.setSharing(it) },
-            sw(R.drawable.ic_set_check_circle, SysColor.green, R.string.read_receipts, "readReceiptsEnabled"),
+            sw(R.drawable.ic_set_check_circle, SysColor.green, R.string.read_receipts, "readReceiptsEnabled", R.string.read_receipts_sub),
             sw(R.drawable.ic_set_keyboard, SysColor.indigo, R.string.live_chat, "liveTypingEnabled"),
             // «Sync contacts» (iOS ContactsTabView.upsertSystemCard 2463-2476) writes a person's Montana name into the phone's
             // book; Android has no names yet, so the switch would claim what nothing does — it stands again with the names
@@ -317,7 +318,7 @@ fun privacyPage(act: MainActivity, onForget: () -> Unit, onBack: () -> Unit): Vi
         section(null, c.getString(R.string.wall_rule_footer),
             c.settingsRow(R.drawable.ic_compose, SysColor.blue, c.getString(R.string.wall_who_write_mine)) { act.push { wallRulePage(act, WallRule.Act.WRITE, it) } },
             c.settingsRow(R.drawable.ic_set_eye, SysColor.blue, c.getString(R.string.wall_who_see_mine)) { act.push { wallRulePage(act, WallRule.Act.SEE, it) } })
-        section(null, null, sw(R.drawable.ic_set_eye_slash, SysColor.purple, R.string.filter_objectionable, "objectionableFilterOn"),
+        section(null, null, sw(R.drawable.ic_set_eye_slash, SysColor.purple, R.string.filter_objectionable, "objectionableFilterOn", R.string.filter_objectionable_sub),
             c.settingsRow(R.drawable.ic_hand, SysColor.red, c.getString(R.string.blocked_users)) { act.push { blockedPage(act, it) } })
         section(null, null, c.switchLine(R.drawable.ic_key, SysColor.blue, c.getString(R.string.identity_google), MontanaBackupID.on(c),
             c.getString(R.string.identity_google_sub)) { MontanaBackupID.setOn(c, it) })

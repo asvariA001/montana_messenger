@@ -178,6 +178,7 @@ class AppearancePage(private val act: MainActivity, private val onClose: () -> U
                 addView(segmented(c, listOf(R.string.q_min to "low", R.string.q_medium to "medium", R.string.q_max to "high"),
                     Prefs.str("noteQuality", "medium")) { Prefs.setStr("noteQuality", it) }, lp())
             }, lp())
+            addView(footer(c, R.string.note_quality_footer))   // every choice says what it does (iOS d39e5776)
             addView(header(c, R.string.feed_motion))
             val motion = c.vstack(Gravity.NO_GRAVITY)
             fun fillMotion() {
@@ -194,6 +195,7 @@ class AppearancePage(private val act: MainActivity, private val onClose: () -> U
             addView(footer(c, R.string.feed_motion_footer))
             addView(header(c, R.string.message_style))
             addView(c.plate { addView(styleRows, lp()) }, lp())
+            addView(footer(c, R.string.message_style_footer))
             // THE VOICE ORB'S OWN PAGE (iOS «Voice message style», MontanaSettings.swift:1097-1105 at 2155): the peer's orb, still,
             // and the words; the row leads to the colours of both sides and the motion of the ball.
             addView(header(c, R.string.vo_style))

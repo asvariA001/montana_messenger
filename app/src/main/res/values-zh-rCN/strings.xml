@@ -747,4 +747,13 @@
     <string name="lv_node_caption">通过本应用将您自己的机器接入 Montana 网络：在这里设置，整部手机的副本会发送到它。在任何等级都可以取回您的副本。</string>
     <string name="lv_shield_title">这部手机上禁止删除</string>
     <string name="lv_shield_rule">在 Montana，等级会开放功能：从第 %1$d 级起，可以禁止在自己的手机上删除消息。你的等级是 %2$d。</string>
+    <string name="sound_sub">新消息通知会响铃。关闭后，通知静音送达。</string>
+    <string name="show_text_sub">通知会显示消息内容。关闭后，不显示任何文字。</string>
+    <string name="show_sender_sub">消息通知会显示发送者。关闭后，改为显示 Montana。</string>
+    <string name="name_lock_sub">当手机在锁定屏幕上隐藏预览时，通知仍会显示发送者。</string>
+    <string name="read_receipts_sub">对方会看到你已读他们的消息，频道主会统计你的浏览。关闭后，不会告知任何人。</string>
+    <string name="filter_objectionable_sub">他人发送的含冒犯性词语的消息、墙帖和评论会被折叠，点按后才显示。</string>
+    <string name="note_quality_footer">“最高”使用摄像头最清晰的画面和最高码率，“最低”生成最小的文件。摄像头跟不上时会自动降低画质。</string>
+    <string name="message_style_footer">“蒙大拿”：你的消息为系统蓝色，他人的为灰色。“经典”：你的消息为你的气泡颜色，他人的为深灰色。“自定义”：使用你在下方设置的颜色。</string>
+    <string name="node_copies_sub">每天一次，在 Montana 打开且仅通过 Wi-Fi 时，整个应用的密封备份会发送到您的节点。关闭时，不发送任何内容，也不会从节点删除任何内容。</string>
 </resources>
