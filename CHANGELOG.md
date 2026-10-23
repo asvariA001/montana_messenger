@@ -2,6 +2,16 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
+## 1.0 (2303) - 2026-10-23
+
+Source commit `ece5b8669210`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2303.md).
+
+- Chats, groups and channels: pick as many photos, videos and files as you like at once; they are sent in the order you chose them.
+
+**Security and anonymity**
+
+- Security: the pick stays on the device until you send it; each item travels as before, a large pick in groups of ten. Anonymity is unchanged.
+
 ## 1.0 (2302) - 2026-10-23
 
 Source commit `8df01bb54133`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2302.md).
