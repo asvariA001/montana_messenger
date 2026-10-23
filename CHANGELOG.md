@@ -2,6 +2,16 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
+## 1.0 (2302) - 2026-10-23
+
+Source commit `8df01bb54133`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2302.md).
+
+- Montana now finds its update on every iPhone: the update chat and the button on the time panel no longer depend on the iOS version.
+
+**Security and anonymity**
+
+- Security: the update channel is the environment Apple signed for the installed app, so an App Store build still never points at a TestFlight beta. Anonymity is unchanged.
+
 ## 1.0 (2301) - 2026-10-23
 
 Source commit `91a0555a2caf`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2301.md).
