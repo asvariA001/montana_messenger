@@ -110,7 +110,7 @@ object Archive {
         val dir = if (m.mine) 0 else 1
         q.execute {
             val k = keys() ?: return@execute
-            append(k, ref, folder(k, ref), dir, at, text.toByteArray())
+            if (append(k, ref, folder(k, ref), dir, at, text.toByteArray())) Twin.histSoon()   // the block reaches this seed's other devices through the box (iOS twinSoon)
         }
     }
 
@@ -302,6 +302,9 @@ object Archive {
                     val newest = java.text.SimpleDateFormat("HH:mm", java.util.Locale.ROOT).format(java.util.Date(missing.maxOf { it.at } * 1000))
                     Log.d("Montana", "archive_gap chat=" + key.take(10) + " feed=" + feed.size + " archive=" + items.size + " missing=" + missing.size +
                         " media=" + missing.count { it.text.startsWith(Marks.MEDIA) } + " theirs=" + missing.count { !it.mine } + " newest=" + newest)
+                    // THE SEED'S OTHER DEVICE IS ASKED FOR THESE ROWS BY THEIR NAMES (iOS MontanaArchive.askTwin, f376b4ef): it gives back
+                    // what it holds, and each lands by its own birth (Twin.takeRow)
+                    if (ref != null) Twin.ask(key, missing.map { Triple(it.at, it.mine, rowHash(it.text)) })
                 }
                 continue
             }
@@ -329,6 +332,56 @@ object Archive {
     }
 
     // ── HISTORY ACROSS A PERSON'S OWN DEVICES (iOS 595-769) ──
+
+    /** The history key, for the pipe only this seed's devices derive (Twin.secret, iOS twinSecret). */
+    fun historyKey(): ByteArray? = keys()?.hk
+    /** This install's writer tag in hex: a letter of the seed's pipe names the device that laid it (iOS writerTag().montanaHexString). */
+    fun writerHex(): String? = MtBindings.nativeWriterTag(device())?.let { Wire.hex(it) }
+    /** This device's own name among the seed's devices (iOS E2E.deviceTag): local, never a quantity of the protocol. */
+    fun deviceTag(): String = "and-" + Wire.hex(Wire.sha("mt-device-tag".toByteArray(), byteArrayOf(0), device())).take(12)
+    /** The archive's key of a row's words, the same on every device of the seed (iOS MontanaArchive.rowHash). */
+    fun rowHash(archived: String): String = Wire.hex(Wire.sha(archived.toByteArray()).copyOf(8))
+
+    private const val BOXED = "mt.history.boxed"   // folder → the first block not yet laid for the other devices (iOS boxedKey)
+    private const val TWIN_CAP = 8 shl 20           // one letter's file stays small; what is left rides the next round (iOS twinCap)
+    /** What the box road gathers for the seed's other devices (iOS layForTwins): length-framed blocks, each folder's top, more left. */
+    class Gathered(val blob: ByteArray, val tops: Map<String, Long>, val n: Int, val more: Boolean)
+    fun twinBlocks(): Gathered? = q.submit<Gathered?> {
+        keys() ?: return@submit null
+        val wt = MtBindings.nativeWriterTag(device()) ?: return@submit null
+        val base = root()?.path ?: return@submit null
+        val cursor = map(BOXED)
+        val blob = java.io.ByteArrayOutputStream()
+        val tops = HashMap<String, Long>()
+        var n = 0; var more = false
+        for (chat in File(base, "Chats").listFiles()?.filter { it.isDirectory }?.map { it.name }.orEmpty()) {
+            if (TWIN_CAP < blob.size()) { more = true; break }
+            val from = cursor.optLong(chat, 0L)
+            val stream = MtBindings.nativeArchiveExport(base, chat, wt, from) ?: continue
+            var top = from
+            var i = 0
+            while (i + 4 <= stream.size) {
+                val len = u32(stream, i)
+                if (len <= 0 || stream.size < i + 4 + len) break
+                val sealed = stream.copyOfRange(i + 4, i + 4 + len)
+                val id = MtBindings.nativeArchiveBlockId(sealed)?.takeIf { it.size == 12 }
+                i += 4 + len
+                id ?: continue
+                var seq = 0L
+                for (b in 0 until 8) seq = seq or ((id[4 + b].toLong() and 0xff) shl (8 * b))
+                blob.write(stream, i - 4 - len, 4 + len)
+                top = maxOf(top, seq + 1); n++
+            }
+            if (top != from) tops[chat] = top
+        }
+        Gathered(blob.toByteArray(), tops, n, more)
+    }.get()
+    /** The blocks rode: the cursor moves past them (iOS layForTwins, after the knock). */
+    fun twinBoxed(tops: Map<String, Long>) = q.execute {
+        val cursor = map(BOXED)
+        for ((k, v) in tops) cursor.put(k, maxOf(cursor.optLong(k, 0L), v))
+        keep(BOXED, cursor)
+    }
 
     /**
      * Every block this device wrote and the twin has not been handed (iOS replicate 721-745): each folder's blocks of this writer from the

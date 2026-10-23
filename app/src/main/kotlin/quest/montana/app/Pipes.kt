@@ -1061,6 +1061,10 @@ object Post {
             red?.let { CoinSend.hold(it, chat) }
             return
         }
+        // THE TWIN MIRROR (iOS enqueue, MontanaDeliveryEngine.swift:963-972): what the person sends rides to the seed's other devices
+        // under its name; a receipt and a read mark are this device's word to the correspondent
+        if (Twin.mirrors(text) && !text.startsWith(Marks.DELIVERED) && !text.startsWith(Marks.READ))
+            Twin.note(to, mid, text, own = true, at = System.currentTimeMillis() / 1000.0, qt = qt, qm = qm, lp = lp)
         Thread { flush() }.start()
     }
     /**
@@ -1420,11 +1424,17 @@ object Post {
             val s = Book.secret(ref) ?: continue
             for (w in (w0 - 8)..(w0 + 1)) { val cw = Wire.convW(s, w); secretOf[cw] = s; chatOf[cw] = ref }
         }
+        // THE SEED'S OWN PIPE NAMES EACH DEVICE APART (iOS BoxEar, MontanaWakePush.swift:2641-2649): the store yields no letter to the sid
+        // that laid it, so this device asks under its own name there -- its own letters stay for the others
+        val twinSid = HashMap<String, String>()
+        Twin.secret()?.let { s ->
+            for (w in (w0 - 2)..(w0 + 1)) { val cw = Wire.convW(s, w); Twin.sid(cw)?.let { sid -> secretOf[cw] = s; twinSid[cw] = sid } }
+        }
         val subs = secretOf.keys.toList()
         if (subs.isEmpty()) return
         val taken = mutableListOf<String>()
         for (chunk in subs.chunked(128)) {
-            val page = JSONObject().put("subs", JSONArray(chunk)).put("sids", JSONArray(chunk.map { Wire.subId(it, twin) }))
+            val page = JSONObject().put("subs", JSONArray(chunk)).put("sids", JSONArray(chunk.map { twinSid[it] ?: Wire.subId(it, twin) }))
             val seen = HashSet<String>()
             val rows = mutableListOf<JSONObject>()
             // THE READ SWEEPS EVERY STORE of the network's list: a letter lies on the one node the writer elected (iOS 1638)
@@ -1439,6 +1449,8 @@ object Post {
                 val secret = secretOf[cw] ?: continue
                 val sealed = runCatching { Base64.decode(e, Base64.DEFAULT) }.getOrNull() ?: continue
                 val plain = Wire.openBoxed(sealed, secret, l.optLong("at")) ?: continue
+                // the history of this seed's other devices: filed there, never a letter of the feed (iOS restash → twinTakes)
+                if (cw in twinSid) { val f = Wire.fields(plain); Twin.takes(f[1], f[0]); if (m.isNotEmpty()) taken.add(m); continue }
                 val ok = invOf[cw]?.let { inv -> first(plain, inv) } ?: chatOf[cw]?.let { ref -> letter(ref, plain) } ?: false
                 if (ok && m.isNotEmpty()) taken.add(m)
             }
@@ -1577,8 +1589,26 @@ object Post {
             text = words.ifEmpty { text }
         }
         if (own) { landOwn(SamePair.root(ref), f[0], text, f[4].ifEmpty { null }, f[5].ifEmpty { null }, f[6].ifEmpty { null }); return true }
+        // THE TWIN MIRROR (iOS receive, MontanaDeliveryEngine.swift:246-250): a correspondent's word this device took rides to the seed's
+        // other devices -- the box gave it to this one, and this one's confirmation erases it there
+        if (Twin.mirrors(text)) Twin.note(ref, f[0], text, at = Marks.birthMs(f[0])?.let { it / 1000.0 }, qt = f[4], qm = f[5], lp = f[6])
         place(ref, f[0], text, f[2], f[4].ifEmpty { null }, f[5].ifEmpty { null }, f[6].ifEmpty { null })
         return true
+    }
+
+    /**
+     * A WORD THE SEED'S OTHER DEVICE MIRRORED HERE (iOS landMirrored → receive(mirrored: true)): the person's own walks the own road;
+     * a correspondent's lands as if the box had brought it here -- a name already standing is a repeat and is answered by nobody
+     * (the device that took it answered), a buried name stays buried, and it rides no further.
+     */
+    fun landMirrored(ref: String, mid: String, text: String, own: Boolean, qt: String?, qm: String?, lp: String?) {
+        if (Book.secret(ref) == null && !Groups.isKey(ref)) return
+        if (PeerSafety.isBlocked(ref) || PeerSafety.isBlocked(SamePair.root(ref)) ||
+            PeerSafety.isBarred(ref) || PeerSafety.isBarred(SamePair.root(ref))) return
+        if (own) { landOwn(SamePair.root(ref), mid, text, qt, qm, lp); return }
+        if (Book.chat(SamePair.root(ref))?.msgs?.any { it.mid == mid } == true) return
+        if (Book.isBuried(SamePair.root(ref), mid)) return
+        place(ref, mid, text, "", qt, qm, lp)
     }
 
     /**
@@ -1950,6 +1980,8 @@ object Post {
         // the person's eyes; Presence.appShown asks again the moment it is.
         if (!Presence.shown) return
         val c = Book.chat(ref) ?: return
+        // THE SEED'S OTHER DEVICES READ IT TOO (iOS markRead's mirrorNote, 349cc053): what was unread here is read there up to the same letter
+        if (c.unread > 0) c.msgs.filter { !it.mine }.maxOfOrNull { Marks.birthMs(it.mid) ?: it.at }?.takeIf { it > 0 }?.let { Twin.read(ref, it) }
         // A GROUP'S READ MARK RIDES THE GROUP'S OWN ROAD (iOS sendReadMark → MTGroup.tellRead, B.13): a group has no pipe to receipt on
         if (Groups.isKey(ref)) { Book.edit(ref) { it.unread = 0 }; Groups.readSoon(ref); return }
         // a blocked person hears no word of mine (iOS sendReadMark 2842: read_skip why=blocked)
