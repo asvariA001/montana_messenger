@@ -499,27 +499,50 @@ fun dataStoragePage(act: MainActivity, onBack: () -> Unit): View {
         bar.progress = (f * 100).toInt()
     }
     fun say(s: String) = act.onMain { AlertDialog.Builder(act).setTitle(R.string.backup_header).setMessage(s).setPositiveButton(R.string.ok, null).show() }
+    // WHAT THE COPY TAKES (iOS DataStorageView inventory + plan): counted when the page opens, the plan the person left sealed here
+    val plan = CopyPlan.load()
+    val planRows = c.vstack(Gravity.NO_GRAVITY)
+    var desk: CopyDesk? = null
+    fun count() = act.background {
+        val inv = CopyInventory.gather(act)
+        act.onMain {
+            desk?.let { it.inv = inv; it.changed(); return@onMain }
+            desk = CopyDesk(act, inv, plan).also { d ->
+                copySummary(d).forEach { r ->
+                    planRows.addView(View(c).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = c.dp(16) })
+                    planRows.addView(r, lp())
+                }
+            }
+        }
+    }
+    fun handed(r: CopyResult) {
+        when (r) {
+            is CopyResult.Made -> act.onMain {
+                act.saveDocument(r.file.name) { uri ->
+                    if (uri == null) { r.file.delete(); return@saveDocument }
+                    act.background {
+                        try {
+                            // The saved file is its own answer (iOS: the share sheet, no words): «taken by your node» named a node that never saw it
+                            act.contentResolver.openOutputStream(uri)?.use { out -> r.file.inputStream().use { it.copyTo(out, 1 shl 16) } }
+                        } catch (e: Exception) { say(Refusal.DiskRefused(e.javaClass.simpleName).spoken(act)) }
+                        finally { r.file.delete() }
+                    }
+                }
+            }
+            is CopyResult.Refused -> say(r.why.spoken(act))
+            else -> {}
+        }
+    }
+    /** «Create backup» opens the copy BEFORE it is made (iOS make: the count taken fresh first, then the sheet). */
     fun make() {
         if (working) return
         working = true
         act.background {
-            val r = MontanaBackup.create(act) { show(R.string.sealing_copy, it) }
-            show(null, 0.0); working = false
-            when (r) {
-                is CopyResult.Made -> act.onMain {
-                    act.saveDocument(r.file.name) { uri ->
-                        if (uri == null) { r.file.delete(); return@saveDocument }
-                        act.background {
-                            try {
-                                // The saved file is its own answer (iOS: the share sheet, no words): «taken by your node» named a node that never saw it
-                                act.contentResolver.openOutputStream(uri)?.use { out -> r.file.inputStream().use { it.copyTo(out, 1 shl 16) } }
-                            } catch (e: Exception) { say(Refusal.DiskRefused(e.javaClass.simpleName).spoken(act)) }
-                            finally { r.file.delete() }
-                        }
-                    }
-                }
-                is CopyResult.Refused -> say(r.why.spoken(act))
-                else -> {}
+            val inv = CopyInventory.gather(act)
+            act.onMain {
+                working = false
+                val d = desk?.also { it.inv = inv; it.changed() } ?: CopyDesk(act, inv, plan)
+                act.push { close -> copyPreviewPage(d, close) { r -> handed(r); count() } }
             }
         }
     }
@@ -535,7 +558,7 @@ fun dataStoragePage(act: MainActivity, onBack: () -> Unit): View {
                         try {
                             act.contentResolver.openInputStream(uri)?.use { i -> tmp.outputStream().use { i.copyTo(it, 1 shl 16) } }
                             when (val r = MontanaBackup.restore(act, tmp) { show(R.string.restoring_backup, it) }) {
-                                is CopyResult.Taken -> say(act.getString(R.string.node_taken_into, r.tally.chats, r.tally.records, r.tally.media))
+                                is CopyResult.Taken -> { say(act.getString(R.string.node_taken_into, r.tally.chats, r.tally.records, r.tally.media)); count() }
                                 is CopyResult.Refused -> say(r.why.spoken(act))
                                 else -> {}
                             }
@@ -555,7 +578,8 @@ fun dataStoragePage(act: MainActivity, onBack: () -> Unit): View {
         section(c.getString(R.string.backup_header), c.getString(R.string.backup_footer),
             c.settingsRow(R.drawable.ic_arrow_circle_up, SysColor.green, c.getString(R.string.create_backup), chevron = false) { make() },
             c.settingsRow(R.drawable.ic_arrow_circle_down, SysColor.orange, c.getString(R.string.restore_backup), chevron = false) { restore() },
-            progress)
+            progress, planRows)
+        count()
         // THE PICTURE CACHE (iOS MontanaSettings.swift:1225-1242 at 2155, MontanaCaches.dropAll; atom 542558a36f0e): the pictures kept
         // so chats and walls open without waiting are emptied here alone, by the person; the checkmark says it was done
         val cleared = c.icon(R.drawable.ic_check, MT.gray).apply { visibility = View.INVISIBLE }

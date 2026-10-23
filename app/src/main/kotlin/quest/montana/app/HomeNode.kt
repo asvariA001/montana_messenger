@@ -186,8 +186,10 @@ object HomeNodeWatch {
         sealing = 0.0; said()
         var file: File? = null
         try {
-            // THE COPY STAYS LIGHT (iOS HomeNodeWatch.send, 18.10): a file the node already keeps in pieces is not sealed into it again
-            val made = MontanaBackup.create(ctx, HomeBook.kept()) { f -> sealing = f; said() }
+            // WHAT THE PERSON LEFT OUT STAYS OUT (iOS HomeNodeWatch.send: inv.scope(CopyPlan.load())), and THE COPY STAYS LIGHT (18.10):
+            // a file the node already keeps in pieces is not sealed into it again
+            val scope = CopyInventory.gather(ctx).scope(CopyPlan.load()).plus(HomeBook.kept())
+            val made = MontanaBackup.create(ctx, scope) { f -> sealing = f; said() }
             sealing = null; said()
             if (made !is CopyResult.Made) return done(made)
             val f = made.file.also { file = it }

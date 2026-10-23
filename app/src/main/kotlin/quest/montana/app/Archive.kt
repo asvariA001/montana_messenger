@@ -73,6 +73,9 @@ object Archive {
 
     private fun conv(ref: String) = Wire.sha(ref.toByteArray())   // iOS MontanaQueueKeys.sha256(convRef)
 
+    /** The folder a conversation is filed under (iOS labelOnQueue): the map's word for it, else its label; null without the keys. */
+    fun folderOf(ref: String): String? = keys()?.let { k -> map(FOLDERS).optString(Wire.hex(conv(ref))).ifEmpty { label(k, ref) } }
+
     private fun map(name: String): JSONObject = DeviceVault.get(name)?.let { runCatching { JSONObject(String(it, Charsets.UTF_8)) }.getOrNull() } ?: JSONObject()
     private fun keep(name: String, o: JSONObject) = DeviceVault.set(name, o.toString().toByteArray())
 

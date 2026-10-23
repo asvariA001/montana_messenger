@@ -780,4 +780,23 @@
     <string name="keep_forever">永久</string>
     <string name="cache_limit">最大缓存大小</string>
     <string name="cache_no_limit">无限制</string>
+    <string name="cp_conversations">对话</string>
+    <string name="cp_records">记录</string>
+    <string name="cp_attachments">附件</string>
+    <string name="cp_photos">照片</string>
+    <string name="cp_videos">视频</string>
+    <string name="cp_voice">语音消息</string>
+    <string name="cp_files">文件</string>
+    <string name="cp_in_copy">包含在备份中</string>
+    <string name="cp_in_copy_header">备份内容</string>
+    <string name="cp_create">创建备份</string>
+    <string name="cp_left_out_footer">未选中的对话完全不会被读取：其消息、名称、头像和附件均不会进入备份。</string>
+    <string name="cp_missing">本设备从未下载的附件不在设备上，无法进入备份：%d。</string>
+    <string name="cp_all_here">消息中提到的所有附件都在本设备上。</string>
+    <string name="cp_in_copy_of">副本中：%1$d / %2$d · %3$s</string>
+    <string name="cp_no_letter">本设备上没有消息引用它</string>
+    <string name="cp_leave_out">不放入副本</string>
+    <string name="cp_put_back">放回副本</string>
+    <string name="cp_total">合计：附件 %1$s，记录 %2$d 条。备份由您的 24 个助记词所对应的密钥封存；助记词本身不在其中。</string>
+    <string name="cp_letters">%1$d 条消息 · %2$s</string>
 </resources>

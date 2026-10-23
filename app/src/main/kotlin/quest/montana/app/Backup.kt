@@ -237,25 +237,39 @@ object MontanaBackup {
      * A file that will not read stops the copy: a copy one attachment short that calls itself whole is the shape a
      * person leans on and loses. Runs on the caller's worker thread.
      */
-    fun create(c: Context, skip: Set<String> = emptySet(), progress: (Double) -> Unit): CopyResult {
+    fun create(c: Context, scope: CopyScope = CopyScope(), progress: (Double) -> Unit): CopyResult {
         if (!keyKAT() || !ownerKAT()) return CopyResult.Refused(Refusal.NoVault)
         val mn = MontanaSeed.mnemonic ?: return CopyResult.Refused(Refusal.NoSeed)
         val ent = MtBindings.nativeMnemonicToEntropy(mn)?.takeIf { it.size == 32 } ?: return CopyResult.Refused(Refusal.NoSeed)
-        val card = Card.build(c) ?: return CopyResult.Refused(Refusal.NoVault)
+        val card = Card.build(c)?.let { Card.without(it, scope) } ?: return CopyResult.Refused(Refusal.NoVault)
         val salt = MtBindings.nativeRandom(32) ?: return CopyResult.Refused(Refusal.DiskRefused("salt"))
         val dir = shelf(c) ?: return CopyResult.Refused(Refusal.DiskRefused("shelf"))
         dir.listFiles()?.forEach { it.delete() }   // a copy of the copy has no business waiting here
         val part = File(dir, java.util.UUID.randomUUID().toString() + ".part")   // NOT-UI: the unfinished name
 
         // What will be taken, counted from the disk: the bar measures bytes sealed against it.
-        val chats = MontanaPaths.chats(c).listFiles { f -> f.isDirectory }?.sortedBy { it.name } ?: emptyList()
-        // A file still landing is not a file yet; a file the person's node keeps whole stays out (iOS Scope.skipFiles)
-        val store = MontanaPaths.store(c).listFiles { f -> f.isFile && !f.name.startsWith(".") && !f.name.endsWith(".part") && f.name !in skip }
+        // A conversation left out is left out whole (iOS skipFolders): its folder is not read, not a block of it travels.
+        val skipFolders = scope.skipConvs.mapNotNull { Archive.folderOf(it) }.toSet()
+        val chats = MontanaPaths.chats(c).listFiles { f -> f.isDirectory && f.name !in skipFolders }?.sortedBy { it.name } ?: emptyList()
+        // A file still landing is not a file yet; a file the scope leaves out stays out (iOS Scope.takes(file:)): a conversation, a
+        // kind or one file the person left out, a file the person's node keeps whole
+        val store = MontanaPaths.store(c).listFiles { f -> f.isFile && !f.name.startsWith(".") && !f.name.endsWith(".part") && scope.takes(f.name) }
             ?.sortedBy { it.name } ?: emptyList()
+        // The files of the other places, less the faces of a left-out conversation, the picture its grounds stood on, and the pictures
+        // beside attachments left out (iOS placeFiles)
+        val grounds = scope.people.flatMap { listOf(ChatWall.choice(it), ChatWall.choice(PageGround.keyOf(it))) }
+            .mapNotNull { (it as? ChatWall.Choice.Photo)?.file }.toSet()
         val placed = MontanaPaths.places(c).flatMap { (place, d) ->
-            (d.listFiles { f -> f.isFile && plainName(f.name) }?.sortedBy { it.name } ?: emptyList()).map { place to it }
+            (d.listFiles { f -> f.isFile && plainName(f.name) }?.sortedBy { it.name } ?: emptyList()).filter { f ->
+                when (place) {
+                    "avatars" -> f.name !in scope.skipFaces
+                    "wallpapers" -> f.name !in grounds
+                    "pictures" -> scope.takesPicture(f.name)
+                    else -> true
+                }
+            }.map { place to it }
         }
-        val feed = Card.kept(c, "feed")
+        val feed = Card.kept(c, "feed")?.let { Card.without(scope.people, it) }
         var total = 0L
         for (d in chats) {
             total += File(d, "conversation.mtlog").length()
@@ -341,7 +355,8 @@ object MontanaBackup {
             val made = File(dir, nameNow(ent))
             if (!part.renameTo(made)) return CopyResult.Refused(Refusal.DiskRefused("move"))
             progress(1.0)
-            Log.i("Montana", "backup_made chats=${tally.chats} rec=${tally.records} media=${tally.media} places=${placed.size} card=${card.count} bytes=${tally.bytes}")
+            Log.i("Montana", "backup_made chats=${tally.chats} rec=${tally.records} media=${tally.media} places=${placed.size} card=${card.count} bytes=${tally.bytes}" +
+                " left_out convs=${scope.skipConvs.size} kinds=${scope.skipKinds.size} files=${scope.skipFiles.size}")
             return CopyResult.Made(made, tally)
         } catch (e: Exception) {
             return CopyResult.Refused(if (e.message?.contains("ENOSPC") == true) Refusal.NoSpace else Refusal.DiskRefused("write " + e.javaClass.simpleName))
@@ -1001,6 +1016,55 @@ object Card {
     }
     private fun xml(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     private fun unxml(s: String) = s.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
+
+    /**
+     * A LEFT-OUT CONVERSATION LEAVES NO WORD ON THE CARD (iOS seedCard 821-851, without 858-876): its own keys go, and from every
+     * collection its key in a map, its name in a list, a record naming it by one of the fields a record names a person with.
+     */
+    fun without(built: Built, scope: CopyScope): Built {
+        val people = scope.people
+        if (people.isEmpty()) return built
+        val o = runCatching { JSONObject(String(built.data, Charsets.UTF_8)) }.getOrNull() ?: return built
+        val out = JSONObject()
+        for (k in o.keys()) {
+            if (k.length > 2 && !scope.takesKey(k.substring(2))) continue
+            val v = o.optString(k)
+            val tag = k.take(2)
+            out.put(k, if (tag == "d:" || tag == "a:" || tag == "m:" || tag == "k:") unb64(v)?.let { without(people, it) }?.let { b64(it) } ?: v else v)
+        }
+        return Built(out.toString().toByteArray(), out.length())
+    }
+    /** The bytes of one collection without the left-out people; the bytes as they were when they are no collection or name none of them. */
+    fun without(people: Set<String>, raw: ByteArray): ByteArray {
+        if (people.isEmpty()) return raw
+        val fields = listOf("ref", "chat", "convRef", "convId", "name", "address", "to")
+        return when (val v = runCatching { org.json.JSONTokener(String(raw, Charsets.UTF_8)).nextValue() }.getOrNull()) {
+            is JSONObject -> {
+                val gone = v.keys().asSequence().filter { it in people }.toList()
+                if (gone.isEmpty()) raw else { gone.forEach { v.remove(it) }; v.toString().toByteArray() }
+            }
+            is JSONArray -> {
+                val kept = JSONArray()
+                for (i in 0 until v.length()) {
+                    val x = v.opt(i)
+                    val named = when (x) {
+                        is String -> x in people
+                        is JSONObject -> fields.any { f -> x.optString(f, "").let { it.isNotEmpty() && it in people } }
+                        else -> false
+                    }
+                    if (!named) kept.put(x)
+                }
+                if (kept.length() == v.length()) raw else kept.toString().toByteArray()
+            }
+            else -> raw
+        }
+    }
+    /** The files of the faces the card names for these conversations (iOS MTNameBook.manualPhoto: the faces' place in a copy). */
+    fun facesOf(c: Context, refs: Set<String>): Set<String> {
+        if (refs.isEmpty()) return emptySet()
+        val card = kept(c, "card")?.let { runCatching { JSONObject(String(it, Charsets.UTF_8)) }.getOrNull() } ?: return emptySet()
+        return strings(card.optString("d:manualPhotos"))?.filterKeys { it in refs }?.values?.filter { it.isNotEmpty() }?.toSet() ?: emptySet()
+    }
 
     /** What a copy handed back and this phone keeps sealed; null when nothing is kept or the device key refuses. */
     fun kept(c: Context, name: String): ByteArray? =

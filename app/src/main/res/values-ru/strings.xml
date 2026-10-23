@@ -780,4 +780,23 @@
     <string name="keep_forever">Всегда</string>
     <string name="cache_limit">Максимальный размер кеша</string>
     <string name="cache_no_limit">Без предела</string>
+    <string name="cp_conversations">Беседы</string>
+    <string name="cp_records">Записи</string>
+    <string name="cp_attachments">Вложения</string>
+    <string name="cp_photos">Фото</string>
+    <string name="cp_videos">Видео</string>
+    <string name="cp_voice">Голосовые</string>
+    <string name="cp_files">Файлы</string>
+    <string name="cp_in_copy">В копии</string>
+    <string name="cp_in_copy_header">В КОПИИ</string>
+    <string name="cp_create">Создать копию</string>
+    <string name="cp_left_out_footer">Беседа, оставленная вне копии, не читается вовсе: ни её письма, ни имена, ни лица, ни вложения в копию не попадают.</string>
+    <string name="cp_missing">Вложения, которые это устройство ни разу не скачало, на нём отсутствуют и в копию попасть не могут: %d.</string>
+    <string name="cp_all_here">Все вложения, на которые ссылаются письма, есть на этом устройстве.</string>
+    <string name="cp_in_copy_of">В копии: %1$d из %2$d · %3$s</string>
+    <string name="cp_no_letter">Ни одно письмо на устройстве его не называет</string>
+    <string name="cp_leave_out">Убрать из копии</string>
+    <string name="cp_put_back">Вернуть в копию</string>
+    <string name="cp_total">Итого: вложений на %1$s и записей — %2$d. Копия запечатана ключом, который открывают ваши 24 слова; самих слов в ней нет.</string>
+    <string name="cp_letters">писем: %1$d · %2$s</string>
 </resources>

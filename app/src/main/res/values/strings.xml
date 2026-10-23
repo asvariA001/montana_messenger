@@ -785,4 +785,23 @@
     <string name="keep_forever">Forever</string>
     <string name="cache_limit">Maximum cache size</string>
     <string name="cache_no_limit">No limit</string>
+    <string name="cp_conversations">Conversations</string>
+    <string name="cp_records">Records</string>
+    <string name="cp_attachments">Attachments</string>
+    <string name="cp_photos">Photos</string>
+    <string name="cp_videos">Videos</string>
+    <string name="cp_voice">Voice messages</string>
+    <string name="cp_files">Files</string>
+    <string name="cp_in_copy">In the copy</string>
+    <string name="cp_in_copy_header">IN THE COPY</string>
+    <string name="cp_create">Create backup</string>
+    <string name="cp_left_out_footer">A conversation left out is not read at all: none of its letters, names, faces or attachments go into the copy.</string>
+    <string name="cp_missing">Attachments this device never downloaded are not on it and cannot go into the copy: %d.</string>
+    <string name="cp_all_here">Every attachment the letters name is on this device.</string>
+    <string name="cp_in_copy_of">In the copy: %1$d of %2$d · %3$s</string>
+    <string name="cp_no_letter">No letter on this device names it</string>
+    <string name="cp_leave_out">Leave out of the copy</string>
+    <string name="cp_put_back">Put back into the copy</string>
+    <string name="cp_total">Total: %1$s of attachments and %2$d records. The copy is sealed with the key your 24 words open; the words are not in it.</string>
+    <string name="cp_letters">%1$d letters · %2$s</string>
 </resources>
