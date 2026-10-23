@@ -60,6 +60,9 @@ object Archive {
 
     /** The cold start's reading (iOS ChatStore 2361-2368, 2533): once a process, after the feed stands — rows go only where it has none. */
     fun atLaunch() { if (!launched) { launched = true; restoreSoon() } }
+    /** A copy was just taken back (iOS restore → montanaArchiveIngested for every folder): its folders are read into the feed now, not at
+     *  the next launch; before the first launch reads them all, atLaunch does it. */
+    fun afterCopy() { if (launched) restoreSoon() }
 
     /** This install's sixteen bytes (iOS writerTag16 438-442): local by nature, they part the nonces of one seed's devices. */
     private fun device(): ByteArray = DeviceVault.get(DEVICE)?.takeIf { it.size == 16 }

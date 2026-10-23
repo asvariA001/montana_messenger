@@ -550,6 +550,7 @@ object MontanaBackup {
             tally.chats = MontanaPaths.chats(c).listFiles { f -> f.isDirectory }?.size ?: 0
             tally.skipped = t.optJSONObject("tally")?.optInt("skipped") ?: 0
             Log.i("Montana", "backup_taken rec=${tally.records} media=${tally.media} places=$placed chats=${tally.chats} card=${if (card != null) 1 else 0} feed=${feed?.size ?: 0}")
+            Archive.afterCopy()   // the card laid first, then the letters read back (iOS: tombstones stand before the feed is rebuilt)
             return CopyResult.Taken(tally)
         }
     }
