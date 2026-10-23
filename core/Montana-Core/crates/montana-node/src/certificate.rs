@@ -334,7 +334,7 @@ pub fn verify_certificate(
     }
     let agreement = crate::agreement::Electorate {
         count: electorate.count,
-        committee: u64::from(electorate.committee.expected),
+        committee: electorate.committee.expected,
         votes: &votes,
     };
     if book.decided(&agreement).map(|(name, _)| name) != Some(previous_id) {
