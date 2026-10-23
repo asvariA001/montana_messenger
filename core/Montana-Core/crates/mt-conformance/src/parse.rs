@@ -1679,16 +1679,15 @@ pub fn check_genesis_state_hash(md: &str) -> Result<(), String> {
 pub fn check_sizes(md: &str) -> Result<(), String> {
     use mt_codec::size;
     // The rows of the Decree that carry a width, each read by its own name.
-    for (row, held) in [("hash_bytes", size::HASH)] {
-        match mt_genesis::scalar(row) {
-            Some(width) if width as usize == held => verified_note_number(row, width),
-            Some(width) => {
-                return Err(format!(
-                    "size divergence at `{row}`: the Decree states {width} B, the code holds {held} B"
-                ))
-            }
-            None => return Err(format!("the Decree names no `{row}`")),
+    let (row, held) = ("hash_bytes", size::HASH);
+    match mt_genesis::scalar(row) {
+        Some(width) if width as usize == held => verified_note_number(row, width),
+        Some(width) => {
+            return Err(format!(
+                "size divergence at `{row}`: the Decree states {width} B, the code holds {held} B"
+            ))
         }
+        None => return Err(format!("the Decree names no `{row}`")),
     }
     // The widths the row of the form table carries, each read at its own name in that row.
     let body = section(md, "### The form table", &["\n### ", "\n## "])?;

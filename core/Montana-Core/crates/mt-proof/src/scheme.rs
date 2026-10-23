@@ -515,10 +515,8 @@ fn random_elements(count: usize) -> Result<Vec<F>, ProveError> {
     let mut block = vec![0u8; 8 * count.max(1)];
     while out.len() < count {
         getrandom::getrandom(&mut block).map_err(|_| ProveError::Randomness)?;
-        for eight in block.chunks_exact(8) {
-            let mut word = [0u8; 8];
-            word.copy_from_slice(eight);
-            if let Some(value) = F::try_from_u64(u64::from_le_bytes(word)) {
+        for eight in block.as_chunks::<8>().0 {
+            if let Some(value) = F::try_from_u64(u64::from_le_bytes(*eight)) {
                 out.push(value);
                 if out.len() == count {
                     break;
