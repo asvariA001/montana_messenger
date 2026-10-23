@@ -481,13 +481,16 @@ class MainActivity : Activity() {
     }
 
     /**
-     * THE SYSTEM'S OWN WHOLE LIBRARY (iOS MTSystemPhotos: PHPicker, any of images and videos, its own ten): what was picked, in the
-     * order the finger chose it; nothing — an empty list.
+     * THE SYSTEM'S OWN WHOLE LIBRARY (iOS MTSystemPhotos: PHPicker, any of images and videos; 1e46c25e: selectionLimit 0, selection
+     * .ordered): what was picked, in the order the finger chose it — the page numbers the choice; nothing — an empty list. `max` 0 is
+     * no ceiling of ours: the system's own most a pick holds.
      */
     private var manyDone: ((List<Uri>) -> Unit)? = null
-    fun pickVisualMany(max: Int, done: (List<Uri>) -> Unit) {
+    fun pickVisualMany(max: Int = 0, done: (List<Uri>) -> Unit) {
         manyDone = done
-        val intent = if (33 <= Build.VERSION.SDK_INT) Intent(MediaStore.ACTION_PICK_IMAGES).putExtra(MediaStore.EXTRA_PICK_IMAGES_MAX, max)
+        val intent = if (33 <= Build.VERSION.SDK_INT) Intent(MediaStore.ACTION_PICK_IMAGES)
+                         .putExtra(MediaStore.EXTRA_PICK_IMAGES_MAX, if (0 < max) minOf(max, MediaStore.getPickImagesMaxLimit()) else MediaStore.getPickImagesMaxLimit())
+                         .putExtra(MediaStore.EXTRA_PICK_IMAGES_IN_ORDER, true)
                      else Intent(Intent.ACTION_GET_CONTENT).setType("*/*").putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("image/*", "video/*"))
                          .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
         runCatching { @Suppress("DEPRECATION") startActivityForResult(intent, PICK_MANY) }.onFailure { manyDone = null; done(emptyList()) }

@@ -1322,7 +1322,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     // the second time»): the chat warms it at its own opening, off the screen's thread, asking for no permission here.
     Library.warm(c)
     // THE GALLERY OF THE ROW (iOS openGallery → MTGalleryPick): the phone's latest pictures at once, the camera the first tile,
-    // «All photos» the system's own picker with its ten; what is chosen waits above the field
+    // «All photos» the system's own picker, no ceiling of ours; what is chosen waits above the field
     barTop = { IntArray(2).also { bar.getLocationOnScreen(it) }[1] }
     bar.onGallery = { hideKeys(); galleryPick(act, onPick = { stage(it) },
         // THE CAMERA TILE (iOS onCamera → CameraPicker → sendCameraImage / sendCameraVideo): a photo or a film, sent once taken
@@ -1330,7 +1330,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             // the camera's photo leaves in the one shape of a photo on its way out, without the camera's record (iOS photoForSend)
             Thread { val b = f.readBytes(); Media.send(c, ref, Media.Picked(if (film) b else Media.photoForSend(b) ?: b, if (film) "vid" else "img", if (film) "mp4" else "jpg", null), ""); f.delete(); MainThread.post { toBottom() } }.start()
         } },
-        onAll = { act.pickVisualMany(MediaGroup.CEILING) { stage(it) } }) }
+        onAll = { act.pickVisualMany { stage(it) } }) }
     // «SEND LATER» (iOS: the send key's hold): the words leave the field and wait for their moment (Schedule.kt)
     bar.onSendLater = { v -> sendLaterMenu(act, v, ref, { field.text.toString() }) { field.setText(""); Prefs.setStr("draft.$ref", "") } }
     // A CONTACT OF THE PHONE (iOS ContactPicker): its name and number leave as one letter
@@ -1343,7 +1343,16 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         false
     }
     bar.onContact = { hideKeys(); if (groupLets("\uD83D\uDC64", false)) act.pickContact { u -> u?.let { contactLetter(c, it) }?.let { words -> sendWords(ref, words); toBottom() } } }
-    bar.onFile = { hideKeys(); act.openDocument(sendPicked(true)) }
+    // FILES BY THE HANDFUL, IN THE ORDER CHOSEN (iOS 1e46c25e, the author's word 23.10 20:5x): every file the page hands back
+    // leaves as its own letter, one after another as the page lists them
+    bar.onFile = { hideKeys(); act.openDocuments { uris -> if (uris.isNotEmpty()) Thread {
+        for (u in uris) {
+            val p = Media.read(c, u, true)
+            if (p == null) MainThread.post { android.widget.Toast.makeText(c, R.string.media_failed, android.widget.Toast.LENGTH_LONG).show() }
+            else Media.send(c, ref, p, "")
+        }
+        MainThread.post { toBottom() }
+    }.start() } }
     // THE CARD AS A PHOTO (iOS sendCardPhoto): the kept card drawn at the standard size, its words the caption under the card's mark
     bar.onCard = { hideKeys(); if (groupLets("", true)) act.push { close -> businessCardPage(act, close) { card ->
         close()

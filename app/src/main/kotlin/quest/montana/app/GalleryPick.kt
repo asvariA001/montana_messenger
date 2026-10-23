@@ -434,14 +434,15 @@ private class PullSheet(c: Context, private val grid: GridView, private val onGo
 
 /**
  * THE GALLERY OF THE COMPOSE ROW (iOS MTGalleryPick, MontanaMedia 2734-2828; MontanaConversation 2114-2131): the phone's own
- * latest pictures, newest first, three in a row to begin with (the pinch: 1, 2, 3, 5, 8 — TileGrid), the camera the first tile; chosen one at a time, at most ten, the circle in the
- * platform's tint with the number of the choice. At the foot: the way back, and «All photos» — the system's own picker with its
- * albums and its ten — or, once something is chosen, «Add N photos». What is chosen is never sent from here: it waits above the
+ * latest pictures, newest first, three in a row to begin with (the pinch: 1, 2, 3, 5, 8 — TileGrid), the camera the first tile; chosen one at a time, as many as the
+ * person wants (iOS 1e46c25e, the author's word 23.10 20:5x: «mass choice, the order of choosing is the order of sending, without a
+ * limit» — the wire folds a pick into groups of ten by itself, MediaGroup), the circle in the platform's tint with the number of
+ * the choice. At the foot: the way back, and «All photos» — the system's own picker with its albums — or, once something is
+ * chosen, «Add N photos». What is chosen is never sent from here: it waits above the
  * field (the conversation's staging), and the field's send key sends it with the words as one group.
  */
 fun galleryPick(act: MainActivity, onPick: (List<Uri>) -> Unit, onCamera: () -> Unit, onAll: () -> Unit) {
     val c: Context = act
-    val limit = MediaGroup.CEILING
     val chosen = ArrayList<Long>()
     var items: List<LibraryItem> = emptyList()
     lateinit var close: () -> Unit
@@ -472,14 +473,13 @@ fun galleryPick(act: MainActivity, onPick: (List<Uri>) -> Unit, onCamera: () -> 
     grid.setOnItemClickListener { _, _, p, _ ->
         if (p == 0) { close(); onCamera(); return@setOnItemClickListener }
         val id = items[p - 1].id
-        // one at a time, up to the ceiling; a second touch takes the picture back out of the pick (iOS toggle)
-        if (!chosen.remove(id) && chosen.size < limit) chosen.add(id)
+        // one at a time; a second touch takes the picture back out of the pick (iOS toggle)
+        if (!chosen.remove(id)) chosen.add(id)
         adapter.notifyDataSetChanged()
         drawFoot()
     }
     // THE DRAG'S RANGE (iOS MTTileGrid.applyRange): from the circle the drag began on to the tile under the finger, every
-    // tile takes the start tile's new state; a tile that leaves the range goes back to what it was before the drag. The
-    // ceiling is kept here, where the order is made (the critic 22.09: a drag walked past any ten the page thought it held).
+    // tile takes the start tile's new state; a tile that leaves the range goes back to what it was before the drag.
     var dragStart = -1
     var dragMode = true
     var dragBase: List<Long> = emptyList()
@@ -490,7 +490,6 @@ fun galleryPick(act: MainActivity, onPick: (List<Uri>) -> Unit, onCamera: () -> 
         val range = (minOf(a, b)..maxOf(a, b)).map { items[it].id }
         val next = ArrayList(dragBase)
         if (dragMode) { for (x in range) if (x !in next) next.add(x) } else next.removeAll(range.toSet())
-        while (limit < next.size) next.removeAt(next.size - 1)   // the drag stops at the ceiling
         if (next != chosen) { chosen.clear(); chosen.addAll(next); adapter.notifyDataSetChanged(); drawFoot() }
     }
     grid.onDragBegin = { p ->
