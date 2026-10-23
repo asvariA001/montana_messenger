@@ -2,9 +2,19 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
+## 1.0 (2301) - 2026-10-23
+
+Source commit `91a0555a2caf`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2301.md).
+
+- Coins on someone's wall post now leave by a record of your TimeChain: the post's owner receives them from the chain, not from the phone.
+
+**Security and anonymity**
+
+- Security: a coin given on a wall post is a SEND of the chain -- a phone can no longer credit the owner coins the chain does not carry. Anonymity is unchanged.
+
 ## 1.0 (2300) - 2026-10-23
 
-Source commit `f14630209f02`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2300.md).
+Source commit `4b68ce190d6e`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2300.md).
 
 - The transfer screen speaks of your time chain: a transfer not yet in it reads "Not in your TimeChain yet" -- the word book is gone.
 
