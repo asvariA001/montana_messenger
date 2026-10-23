@@ -145,6 +145,20 @@ fn write_complete(at: &Path, bytes: &[u8], only_once: bool) -> Result<(), StoreE
     Ok(())
 }
 
+// The temporaries of exclusive openings left by a process that died between writing and linking,
+// removed under the lock of the root. Nothing else of the root is touched.
+fn sweep_dead_openings(root: &Path) -> Result<(), StoreError> {
+    for entry in fs::read_dir(root).map_err(|e| said(root, e))? {
+        let entry = entry.map_err(|e| said(root, e))?;
+        let name = entry.file_name();
+        if name.to_string_lossy().contains(".opening-") {
+            let at = entry.path();
+            fs::remove_file(&at).map_err(|e| said(&at, e))?;
+        }
+    }
+    Ok(())
+}
+
 // A complete file linked into place only where none stands: the writer whose link lands is the one
 // whose bytes stand, and every other learns so. The temporary is removed once the link landed or
 // failed, since what it carried stands under the name or lost to what does; the directory is
@@ -282,6 +296,13 @@ impl Store {
             }
             Err(fs::TryLockError::Error(e)) => return Err(said(&root, e)),
         }
+        // **What a dead process left of an opening goes before anything is read.** The temporary of
+        // an exclusive opening is named by the process and a serial, not by a clock, so a process
+        // that fell between writing it and linking it leaves a name the next process draws again --
+        // in a container the node is process one at every start -- and the opening of that record
+        // would be refused for ever. The lock is held, so every such file in the root is a dead
+        // process's; this process holds the root alone.
+        sweep_dead_openings(&root)?;
         let store = Self { root, _held: held };
         store.check_network()?;
         if let Some(window) = store.head()? {
@@ -649,6 +670,38 @@ mod tests {
         drop(first);
         let second = Store::open(scratch.path()).unwrap();
         assert_eq!(second.closed().unwrap(), Some(3));
+    }
+
+    // A temporary of an opening left by a dead process, under the very name the next process draws,
+    // is swept when the store opens, and the record opens. The wrong implementation refused: one that
+    // left it standing, under which the next process -- process one of a container, serial nought --
+    // meets AlreadyExists at its own temporary and is refused the record of the window for ever.
+    #[test]
+    fn a_dead_openings_temporary_is_swept_when_the_store_opens() {
+        let scratch = Scratch::named("dead-opening");
+        drop(Store::open(scratch.path()).unwrap());
+        // The name this process draws for its next opening: its own id and the serial it stands at.
+        let planted = scratch.path().join(format!(
+            "agreement-00000000000000000012.opening-{}-0",
+            std::process::id()
+        ));
+        fs::write(&planted, [0x33; 90]).unwrap();
+        // And one of another process, dead too.
+        let foreign = scratch
+            .path()
+            .join("agreement-00000000000000000013.opening-1-0");
+        fs::write(&foreign, [0x34; 90]).unwrap();
+        let store = Store::open(scratch.path()).unwrap();
+        assert!(!planted.exists(), "a dead process's temporary stands");
+        assert!(!foreign.exists(), "a dead process's temporary stands");
+        let mut own = vec![0x51; 90];
+        // Whatever serial this process stands at, the record opens.
+        for _ in 0..3 {
+            own[0] ^= 1;
+            drop(store.open_agreement(12, &own).unwrap());
+            store.drop_agreement(12).unwrap();
+        }
+        assert_eq!(store.open_agreement(12, &own).unwrap(), own);
     }
 
     // The last window closed is one number that moves forward and never back, and survives a
