@@ -6,8 +6,10 @@
 // machine falls on both alike, the slowest tenth dropped because a scheduler interruption is not the
 // code, and Welch's t over what remains. A t of ten is the threshold that work uses to call a leak.
 //
-// A file using this instrument carries, beside its measurements, one named wrong implementation the
-// instrument is shown to catch: a scale that was never seen to move measures nothing.
+// A file using this instrument carries, beside its measurements, a named wrong implementation the
+// instrument is shown to catch, at every scale of cost it measures at: a scale that was never seen
+// to move measures nothing, and one seen to move by a microsecond has not been seen to move by ten
+// nanoseconds.
 
 pub const SAMPLES: usize = 2_000;
 pub const CROP: f64 = 0.9;

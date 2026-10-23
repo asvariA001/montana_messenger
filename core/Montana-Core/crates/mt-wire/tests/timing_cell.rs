@@ -161,27 +161,54 @@ fn a_unit_of_padding_and_a_unit_of_a_message_seal_in_one_time() {
 // zeros, a message into pieces and the last piece likewise. Two bodies of one count of blocks —
 // one filling its last block, one leaving it nearly all padding — must cut in one time, or the
 // length the padding hides is read off the clock of the machine that cuts.
+//
+// A cutter is measured at more samples than a seal is. The copy that followed the length (one
+// block at most, `src/erasure.rs` 237-239 at the baseline) is some ten nanoseconds of a cut of half
+// a microsecond, where sparing a block the seal is two microseconds of two: at two thousand samples
+// the first stood at t = 34 and 52 on an Apple M1 and at t = 0.2 to 9.3 on a four-core Linux
+// server under a hypervisor, where the cutters of the baseline passed four runs in five. The noise
+// of that machine comes in bursts that last longer than a sample, so timing many cuts per sample
+// buys nothing — the bursts grow with the sample — and only the count of samples does: at fifty
+// thousand the copy of the baseline stands at t near forty there and the cutters below at t near
+// one. Four cuts per sample keep the clock's own cost out of the sample. The two power checks of
+// the cutters at the end of this file are the proof that these numbers see the copy.
+//
+// The four stand down in the debug build and say so: a block laid without optimization costs a
+// hundred microseconds where the copy they look for costs ten nanoseconds, so the debug build
+// measures itself and not the code that ships (the baseline cutters passed it too). The release
+// numbers are the ones that count, and the release build is where these four run.
+const CUTTER_SAMPLES: usize = 50_000;
+const CUTS_PER_SAMPLE: usize = 4;
+
+// The two classes of every measurement of a cutter: a body of three full blocks and one of two
+// blocks and a single byte, cutting into one count of blocks.
+fn full_and_short(width: usize, seed: u64) -> (Vec<u8>, Vec<u8>) {
+    let mut full = vec![0u8; 3 * width];
+    fill(seed, &mut full);
+    let short = full[..2 * width + 1].to_vec();
+    (full, short)
+}
+
+#[cfg_attr(
+    debug_assertions,
+    ignore = "a measurement of a copy of ten nanoseconds is of the optimized build: cargo test --release"
+)]
 #[test]
 fn cutting_a_body_that_fills_its_last_block_and_one_that_barely_does_costs_the_same() {
     let width = mt_wire::chunk_bytes().expect("the set fixes the width of a block");
-    let mut full = vec![0u8; 3 * width];
-    fill(0x5EED_CE11_0000_0005, &mut full);
-    let short = full[..2 * width + 1].to_vec();
+    let (full, short) = full_and_short(width, 0x5EED_CE11_0000_0005);
     assert_eq!(
         erasure::cut(&full).expect("cuts").len(),
         erasure::cut(&short).expect("cuts").len(),
         "the two bodies must cut into one count of blocks"
     );
-    let t = t_between(
-        SAMPLES,
-        || {
-            let _ = erasure::cut(&full).expect("cuts");
-        },
-        || {
-            let _ = erasure::cut(&short).expect("cuts");
-        },
-    );
-    dudect::report("erasure::cut full vs short body", SAMPLES, t);
+    let cuts = |body: &[u8]| {
+        for _ in 0..CUTS_PER_SAMPLE {
+            std::hint::black_box(erasure::cut(body).expect("cuts"));
+        }
+    };
+    let t = t_between(CUTTER_SAMPLES, || cuts(&full), || cuts(&short));
+    dudect::report("erasure::cut full vs short body", CUTTER_SAMPLES, t);
     assert!(
         t < THRESHOLD,
         "a body filling its last block and one barely reaching it cut in different times: \
@@ -189,28 +216,27 @@ fn cutting_a_body_that_fills_its_last_block_and_one_that_barely_does_costs_the_s
     );
 }
 
+#[cfg_attr(
+    debug_assertions,
+    ignore = "a measurement of a copy of ten nanoseconds is of the optimized build: cargo test --release"
+)]
 #[test]
 fn cutting_a_message_that_fills_its_last_piece_and_one_that_barely_does_costs_the_same() {
     let width = mt_wire::piece_bytes().expect("the set fixes the width of a piece");
-    let mut full = vec![0u8; 3 * width];
-    fill(0x5EED_CE11_0000_0006, &mut full);
-    let short = full[..2 * width + 1].to_vec();
+    let (full, short) = full_and_short(width, 0x5EED_CE11_0000_0006);
     let kind = 0x01u8;
     assert_eq!(
         link::pieces(kind, &full).expect("cuts").len(),
         link::pieces(kind, &short).expect("cuts").len(),
         "the two messages must cut into one count of pieces"
     );
-    let t = t_between(
-        SAMPLES,
-        || {
-            let _ = link::pieces(kind, &full).expect("cuts");
-        },
-        || {
-            let _ = link::pieces(kind, &short).expect("cuts");
-        },
-    );
-    dudect::report("link::pieces full vs short message", SAMPLES, t);
+    let cuts = |message: &[u8]| {
+        for _ in 0..CUTS_PER_SAMPLE {
+            std::hint::black_box(link::pieces(kind, message).expect("cuts"));
+        }
+    };
+    let t = t_between(CUTTER_SAMPLES, || cuts(&full), || cuts(&short));
+    dudect::report("link::pieces full vs short message", CUTTER_SAMPLES, t);
     assert!(
         t < THRESHOLD,
         "a message filling its last piece and one barely reaching it cut in different times: \
@@ -259,5 +285,118 @@ fn the_measurement_catches_an_origin_that_spares_a_padding_block_the_seal() {
         t > THRESHOLD,
         "the instrument did not see an origin that spares a padding block the seal: t = {t:.2}. \
          Until it does, the measurements above stand for nothing."
+    );
+}
+
+// The named wrong implementations the measurements above stand against, and the proof that the
+// instrument sees them. Each file of this instrument shows the power of its measurements at every
+// scale it measures at: a seal costs microseconds and a copy nanoseconds, and an instrument shown
+// to see the one has not been shown to see the other.
+
+// The cutter of the reference core as it stood at the baseline (`src/erasure.rs` 229-243 at
+// 2c6951f), word for word: the last block copies `end - at` bytes, so one copy of up to one block
+// follows the length of the body. The bytes it writes are the ones `erasure::cut` writes; only the
+// time differs, which is what makes it the right wrong implementation for a clock.
+fn cut_that_copies(body: &[u8]) -> Vec<Vec<u8>> {
+    let width = mt_wire::chunk_bytes().expect("the set fixes the width of a block");
+    let count = body.len().div_ceil(width).max(1);
+    let mut out = Vec::with_capacity(count);
+    for index in 0..count {
+        let at = index * width;
+        let end = body.len().min(at + width);
+        let mut block = vec![0u8; width];
+        if at < body.len() {
+            block[..end - at].copy_from_slice(&body[at..end]);
+        }
+        out.push(block);
+    }
+    out
+}
+
+// The same for the link (`src/link.rs` 31-54 at the baseline).
+fn pieces_that_copy(kind: u8, message: &[u8]) -> Vec<Vec<u8>> {
+    let width = mt_wire::piece_bytes().expect("the set fixes the width of a piece");
+    let count = message.len().div_ceil(width).max(1);
+    let mut out = Vec::with_capacity(count);
+    for index in 0..count {
+        let at = index * width;
+        let end = message.len().min(at + width);
+        let mut piece = vec![0u8; link::FRAMING_BYTES + width];
+        piece[..2].copy_from_slice(&(index as u16).to_le_bytes());
+        piece[2..4].copy_from_slice(&(count as u16).to_le_bytes());
+        piece[4] = kind;
+        if at < message.len() {
+            piece[link::FRAMING_BYTES..link::FRAMING_BYTES + (end - at)]
+                .copy_from_slice(&message[at..end]);
+        }
+        out.push(piece);
+    }
+    out
+}
+
+#[cfg_attr(
+    debug_assertions,
+    ignore = "a measurement of a copy of ten nanoseconds is of the optimized build: cargo test --release"
+)]
+#[test]
+fn the_measurement_catches_a_cutter_whose_copy_follows_the_length_of_the_body() {
+    let width = mt_wire::chunk_bytes().expect("the set fixes the width of a block");
+    let (full, short) = full_and_short(width, 0x5EED_CE11_0000_0008);
+    for body in [&full, &short] {
+        assert_eq!(
+            cut_that_copies(body),
+            erasure::cut(body).expect("cuts"),
+            "the wrong implementation writes the bytes the right one writes, so only the clock tells it"
+        );
+    }
+    let cuts = |body: &[u8]| {
+        for _ in 0..CUTS_PER_SAMPLE {
+            std::hint::black_box(cut_that_copies(body));
+        }
+    };
+    let t = t_between(CUTTER_SAMPLES, || cuts(&full), || cuts(&short));
+    dudect::report(
+        "power: cutter copying what the body reaches",
+        CUTTER_SAMPLES,
+        t,
+    );
+    assert!(
+        t > THRESHOLD,
+        "the instrument did not see a cutter whose copy follows the length of the body: t = {t:.2}. \
+         Until it does, the two measurements of the cutters stand for nothing."
+    );
+}
+
+#[cfg_attr(
+    debug_assertions,
+    ignore = "a measurement of a copy of ten nanoseconds is of the optimized build: cargo test --release"
+)]
+#[test]
+fn the_measurement_catches_a_link_whose_copy_follows_the_length_of_the_message() {
+    let width = mt_wire::piece_bytes().expect("the set fixes the width of a piece");
+    let (full, short) = full_and_short(width, 0x5EED_CE11_0000_0009);
+    let kind = 0x01u8;
+    for message in [&full, &short] {
+        assert_eq!(
+            pieces_that_copy(kind, message),
+            link::pieces(kind, message).expect("cuts"),
+            "the wrong implementation writes the bytes the right one writes, so only the clock tells it"
+        );
+    }
+    let cuts = |message: &[u8]| {
+        for _ in 0..CUTS_PER_SAMPLE {
+            std::hint::black_box(pieces_that_copy(kind, message));
+        }
+    };
+    let t = t_between(CUTTER_SAMPLES, || cuts(&full), || cuts(&short));
+    dudect::report(
+        "power: link copying what the message reaches",
+        CUTTER_SAMPLES,
+        t,
+    );
+    assert!(
+        t > THRESHOLD,
+        "the instrument did not see a link whose copy follows the length of the message: t = {t:.2}. \
+         Until it does, the two measurements of the cutters stand for nothing."
     );
 }
