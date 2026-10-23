@@ -1,7 +1,7 @@
 1.0 (2291) Release Notes
 ========================
 
-Montana for iPhone, iPad and Mac, build 1.0 (2291), from source commit `026de4f2ad51bc797b0367ad445485ddc3471755` of 2026-10-22. The folder `apps/messenger/ios` of this repository holds that tree as it is built.
+Montana for iPhone, iPad and Mac, build 1.0 (2291), from source commit `d5970e7ad63051c41e2307c7683ec4c41164d481` of 2026-10-22. The folder `apps/messenger/ios` of this repository holds that tree as it is built.
 
 Notable changes
 ---------------

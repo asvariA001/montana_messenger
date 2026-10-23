@@ -2,9 +2,21 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
+## 1.0 (2292) - 2026-10-23
+
+Source commit `679efed3dd05`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2292.md).
+
+- A background wake no longer keeps Montana busy: the copy of the coin chains is checked at most once in ten minutes even when a notification starts the app, and a record's signature is verified once, not at every wake.
+- Large stored values (the wall above all) now live in their own files instead of the app's settings, which had grown past the system's limit and were rewritten whole at every change.
+- Saving a value that has not changed no longer rewrites the keychain.
+
+**Security and anonymity**
+
+- Large sealed values stay sealed under the device key in their own files, named by the SHA-256 of their bytes; a copy and a change of person carry them exactly as before. A coin record is still verified before it is first believed. Nothing new is sent.
+
 ## 1.0 (2291) - 2026-10-22
 
-Source commit `026de4f2ad51`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2291.md).
+Source commit `d5970e7ad630`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2291.md).
 
 - Switching the record button between voice, video and coin no longer cuts off music or a voice message that is playing: a tap only switches the mode, and the microphone is taken only when you hold to record.
 
