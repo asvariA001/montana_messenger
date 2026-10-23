@@ -564,5 +564,35 @@ fun dataStoragePage(act: MainActivity, onBack: () -> Unit): View {
                 android.util.Log.d("Montana", "caches cleared=" + n + " by=person")
                 cleared.visibility = View.VISIBLE
             })
+        // THE CACHE, CLEARED AS THE REFERENCE CLEARS IT (iOS MontanaSettings CACHE, 6f24f091; the author's word 18.10.2026 20:1x MSK):
+        // what the person's own node holds leaves this phone, and comes back from the node at a look or a tap -- the node's word
+        // decides, asked anew
+        val keptValue = c.text("", 15f, MT.gray)
+        val keptRow = c.settingsRow(R.drawable.ic_hub, SysColor.gray, c.getString(R.string.cache_kept_on_node), value = keptValue, chevron = false) {}
+            .apply { visibility = View.GONE }
+        fun kept() = act.onMain {
+            val w = HomeKeep.word as? HomeKeep.Word.Held ?: return@onMain
+            keptRow.visibility = View.VISIBLE
+            keptValue.text = "${w.files} · " + android.text.format.Formatter.formatShortFileSize(c, w.bytes)   // USER-DATA: the node's count and size
+        }
+        val clearRow = c.settingsRow(R.drawable.ic_delete, SysColor.red, c.getString(R.string.cache_clear), chevron = false) {
+            if (!HomeShelf.bringing || HomeKeep.clearing) return@settingsRow
+            AlertDialog.Builder(act).setTitle(R.string.cache_clear_q).setMessage(R.string.cache_clear_msg)
+                .setPositiveButton(R.string.cache_clear_go) { _, _ ->
+                    HomeKeep.clear(act) { r ->
+                        act.onMain {
+                            val word = if (r != null) c.getString(R.string.cache_cleared, r.first, android.text.format.Formatter.formatShortFileSize(c, r.second))
+                                else c.getString(R.string.cache_silent)
+                            AlertDialog.Builder(act).setTitle(R.string.cache_word).setMessage(word).setPositiveButton(R.string.ok, null).show()
+                        }
+                    }
+                }
+                .setNegativeButton(R.string.cancel, null).show()
+        }.apply { if (!HomeShelf.bringing) alpha = 0.4f }
+        section(c.getString(R.string.cache_header), c.getString(if (HomeShelf.bringing) R.string.cache_footer_node else R.string.cache_footer_no_node),
+            keptRow, clearRow)
+        HomeKeep.onChange = { kept() }
+        kept()
+        HomeKeep.ask()
     }
 }

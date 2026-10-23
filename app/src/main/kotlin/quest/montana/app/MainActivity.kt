@@ -218,6 +218,7 @@ class MainActivity : Activity() {
         if (hasSeed && termsAccepted && !showWelcome) askWhatIsUnasked()
         // THE DAILY ROAD to the person's own node, a little after the first screen stands (iOS tickSoon).
         if (hasSeed && termsAccepted) HomeNodeWatch.tickSoon(this)
+        if (hasSeed && termsAccepted) HomeKeep.tickSoon(this)   // the files on it: the pass over Wi-Fi, or the book back on a new phone (iOS MTHomeKeep, 18.10)
         if (hasSeed && termsAccepted) Archive.atLaunch()   // the archive read into the feed's empty conversations (iOS cold start 15.10)
         if (hasSeed && termsAccepted) Thread { Groups.mirrorHeld() }.start()   // the groups held before the twin mirror, once a device (iOS standAll → mirrorHeld)
         // The identity is born: the invitation that waited for it opens by itself (iOS replayPendingInvite).

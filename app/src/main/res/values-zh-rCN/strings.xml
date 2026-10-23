@@ -755,4 +755,22 @@
     <string name="note_quality_footer">“最高”使用摄像头最清晰的画面和最高码率，“最低”生成最小的文件。摄像头跟不上时会自动降低画质。</string>
     <string name="message_style_footer">“蒙大拿”：你的消息为系统蓝色，他人的为灰色。“经典”：你的消息为你的气泡颜色，他人的为深灰色。“自定义”：使用你在下方设置的颜色。</string>
     <string name="node_copies_sub">每天一次，在 Montana 打开且仅通过 Wi-Fi 时，整个应用的密封备份会发送到您的节点。关闭时，不发送任何内容，也不会从节点删除任何内容。</string>
+    <string name="cap_home">您的文件</string>
+    <string name="home_files_header">您节点上的文件</string>
+    <string name="home_files_held">您节点上的文件</string>
+    <string name="home_files_silent">您的节点没有回应</string>
+    <string name="home_files_laying">正在将文件存入您的节点</string>
+    <string name="home_files_keep_now">立即将文件存入节点</string>
+    <string name="home_files_footer">您聊天中的每张照片、视频、语音和文件都会在 Montana 打开时通过 Wi-Fi 以加密分块存入您的节点。在「数据与存储」中可从本机清除节点已保存的内容；打开时即取回。</string>
+    <string name="cache_kept_on_node">存于您的节点</string>
+    <string name="cache_clear">清除缓存</string>
+    <string name="cache_header">缓存</string>
+    <string name="cache_footer_node">节点已保存的内容将从本机移除。每张照片、视频和文件在您打开时从节点取回——在本机，或凭您的 24 个词在新手机上。</string>
+    <string name="cache_footer_no_node">请在「设置」中的「您的节点」设置节点：之后可从本机清除节点保存的内容，打开时即取回。</string>
+    <string name="cache_clear_q">清除缓存？</string>
+    <string name="cache_clear_go">清除</string>
+    <string name="cache_clear_msg">只有节点已保存的内容会从本机移除；其余保留。</string>
+    <string name="cache_word">缓存</string>
+    <string name="cache_cleared">已从本机清除 %1$d 个文件，%2$s。您的节点仍保存着它们。</string>
+    <string name="cache_silent">您的节点没有回应。未清除任何内容。</string>
 </resources>

@@ -755,4 +755,22 @@
     <string name="note_quality_footer">«Макс» берёт самую чёткую картинку камеры с самым высоким битрейтом, «Мин» даёт самый лёгкий файл. Камера, которая не успевает, сама снижает качество.</string>
     <string name="message_style_footer">«Монтана»: ваши — системным синим, чужие — серым. «Классический»: ваши — цветом вашего пузыря, чужие — тёмно-серым. «Свой»: цвета, которые вы зададите ниже.</string>
     <string name="node_copies_sub">Раз в сутки, пока Montana открыта и только по Wi-Fi, запечатанная копия всего приложения уходит на ваш узел. Выключено: ничего не отправляется и ничего не удаляется с узла.</string>
+    <string name="cap_home">Ваши файлы</string>
+    <string name="home_files_header">ФАЙЛЫ НА ВАШЕМ УЗЛЕ</string>
+    <string name="home_files_held">Файлы на вашем узле</string>
+    <string name="home_files_silent">Ваш узел не ответил</string>
+    <string name="home_files_laying">Файлы уходят на ваш узел</string>
+    <string name="home_files_keep_now">Отдать файлы узлу сейчас</string>
+    <string name="home_files_footer">Каждое фото, видео, голосовое и файл ваших чатов уходят на ваш узел запечатанными кусками — по Wi-Fi, пока Montana открыта. В «Данных и памяти» с телефона стирается то, что держит узел; каждый файл возвращается, когда вы его открываете.</string>
+    <string name="cache_kept_on_node">Хранится на вашем узле</string>
+    <string name="cache_clear">Очистить кеш</string>
+    <string name="cache_header">КЕШ</string>
+    <string name="cache_footer_node">То, что держит ваш узел, уходит с телефона. Каждое фото, видео и файл возвращаются с узла, когда вы их открываете, — здесь или на новом телефоне по вашим 24 словам.</string>
+    <string name="cache_footer_no_node">Настройте свой узел: Настройки, «Ваш узел». Тогда то, что он держит, можно стирать с телефона, и оно вернётся, когда вы его откроете.</string>
+    <string name="cache_clear_q">Очистить кеш?</string>
+    <string name="cache_clear_go">Очистить</string>
+    <string name="cache_clear_msg">С телефона уходит только то, что держит ваш узел; остальное остаётся.</string>
+    <string name="cache_word">Кеш</string>
+    <string name="cache_cleared">Стёрто с телефона: файлов — %1$d, %2$s. Узел их хранит.</string>
+    <string name="cache_silent">Ваш узел не ответил. Ничего не стёрто.</string>
 </resources>

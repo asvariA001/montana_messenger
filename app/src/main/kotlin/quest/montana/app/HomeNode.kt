@@ -336,7 +336,7 @@ object HomeNodeWatch {
  * THE NODE'S CERTIFICATE, TRUSTED BY ITS DIGEST ALONE (iOS MTNodeTrust): a node put up by address has no name and no
  * authority; the digest the set-up brought back is the whole trust. Without a pin the platform's own judgement stands.
  */
-private object NodeTrust {
+internal object NodeTrust {
     fun apply(c: HttpsURLConnection) {
         val pin = MontanaHomeNode.pin
         if (pin.isEmpty()) return

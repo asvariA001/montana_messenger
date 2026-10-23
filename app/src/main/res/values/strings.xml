@@ -760,4 +760,22 @@
     <string name="note_quality_footer">Max takes the camera\'s sharpest picture at the highest bitrate, Min makes the lightest file. A camera that cannot keep up steps down by itself.</string>
     <string name="message_style_footer">Montana: yours in the system blue, others\' in grey. Classic: yours in your bubble colour, others\' in dark grey. Custom: the colours you set below.</string>
     <string name="node_copies_sub">Once a day, while Montana is open and on Wi-Fi only, a sealed copy of the whole app goes to your node. Off, nothing is sent and nothing is removed from the node.</string>
+    <string name="cap_home">Your files</string>
+    <string name="home_files_header">FILES ON YOUR NODE</string>
+    <string name="home_files_held">Files held by your node</string>
+    <string name="home_files_silent">Your node did not answer</string>
+    <string name="home_files_laying">Laying your files on your node</string>
+    <string name="home_files_keep_now">Keep files on your node now</string>
+    <string name="home_files_footer">Every photo, video, voice and file of your chats goes to your node in sealed pieces, over Wi-Fi while Montana is open. Data and Storage clears from this phone what your node holds; each comes back when you open it.</string>
+    <string name="cache_kept_on_node">Kept on your node</string>
+    <string name="cache_clear">Clear cache</string>
+    <string name="cache_header">CACHE</string>
+    <string name="cache_footer_node">What your node holds leaves this phone. Each photo, video and file comes back from your node when you open it, here or on a new phone with your 24 words.</string>
+    <string name="cache_footer_no_node">Set up your node in Settings, Your node: what it holds can then be cleared from this phone and comes back when you open it.</string>
+    <string name="cache_clear_q">Clear the cache?</string>
+    <string name="cache_clear_go">Clear</string>
+    <string name="cache_clear_msg">Only what your node holds leaves this phone; what it does not hold stays.</string>
+    <string name="cache_word">Cache</string>
+    <string name="cache_cleared">Cleared from this phone: %1$d files, %2$s. Your node keeps them.</string>
+    <string name="cache_silent">Your node did not answer. Nothing was cleared.</string>
 </resources>

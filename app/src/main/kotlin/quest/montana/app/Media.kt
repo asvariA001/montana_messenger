@@ -255,6 +255,8 @@ object Media {
         for (i in 0 until a.length()) a.optJSONObject(i)?.let { if (it.optString("mid") != mid) keep.put(it) }
         DeviceVault.set(INTENTS, keep.toString().toByteArray())
     }
+    /** The files an unsent letter still names (iOS MontanaMediaStore.held): the cache never clears them. */
+    fun inHand(): Set<String> = synchronized(intentLock) { intents().let { a -> (0 until a.length()).mapNotNull { a.optJSONObject(it)?.optString("f") }.toSet() } }
     @Volatile private var draining = false
     /** The intents still waiting go out again, oldest first, one at a time, at every pickup of the box; while the node takes nothing the rest wait too. */
     fun drainIntents(c: Context) {
@@ -446,9 +448,15 @@ object Media {
         return Prefs.bool(if (cellular) "autoDownloadCellular" else "autoDownloadWiFi", true)
     }
     /** A letter of theirs whose file waits for a tap: no file here, and the switch of this connection is off. */
-    fun waiting(c: Context, m: Msg): Boolean = !m.mine && m.file?.let { File(it).exists() } != true && !autoAllowed(c)
+    fun waiting(c: Context, m: Msg): Boolean {
+        // A FILE YOUR NODE KEEPS (iOS MTHomeKeep.want, 6f24f091): the cache cleared it, a look brings it back by the download
+        // setting, else it waits for a tap as a letter's attachment does -- mine as well as theirs
+        if (HomeKeep.kept(m.file)) { HomeKeep.want(c, m); return !autoAllowed(c) }
+        return !m.mine && m.file?.let { File(it).exists() } != true && !autoAllowed(c)
+    }
     /** The tap on a waiting attachment: its file is asked for now, whatever the switch (iOS: a tap starts the queued download). */
     fun tapped(c: Context, m: Msg) {
+        if (HomeKeep.kept(m.file)) return HomeKeep.bring(c, m, force = true)   // iOS retryOneMedia: a file your node keeps comes back from it
         val ref = Book.rooms().firstOrNull { ch -> ch.msgs.any { it.mid == m.mid } }?.ref ?: return
         fetch(c, ref, m.mid, m.text, manual = true)
     }
@@ -498,6 +506,15 @@ object Media {
                 val ch = chunks.getJSONObject(i)
                 val bid = ch.getString("bid"); val cs = ch.getInt("cs")
                 var piece: ByteArray? = null
+                // A PIECE OF ONE'S OWN NODE IS ASKED THERE AND ONLY THERE (iOS bringChunk, 6f24f091): the book names it (HomeBook);
+                // the doors never carried it, and they never hear its name
+                if (HomeBook.holds(bid)) {
+                    val sealed = Blobs.get(bid) ?: HomeShelf.get(bid)?.also { Blobs.put(bid, it) }
+                    if (sealed == null || Wire.hex(Wire.sha(sealed)) != bid) { Log.i("Montana", "home_get FAIL id=" + bid.take(8) + " -- your node did not give it"); return false }
+                    piece = Wire.open(bk, sealed)?.let { if (cs <= it.size) it.copyOf(cs) else it } ?: return false
+                    out.write(piece); came((i + 1f) / chunks.length())
+                    continue
+                }
                 // ONE PIECE WITH THE DOORS' OWN PATIENCE (iOS bringChunk, MontanaWakePush 2458-2487; atom aeabdc576605): a busy door is
                 // waited for on a growing pause (0.7 s doubling, six tries); a silent road gets three quick tries; neither is «gone»
                 var silentTries = 0; var busyTries = 0
