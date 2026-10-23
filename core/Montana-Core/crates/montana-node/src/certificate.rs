@@ -17,7 +17,7 @@
 use crate::NodeError;
 use mt_proof::poseidon::Digest;
 use mt_pulse::standing::Committee;
-use mt_state::layout::{Ballot, Beacon, Census, Confirmation, Proposal};
+use mt_state::layout::{Ballot, Beacon, Census, Confirmation, Pledge, Proposal};
 use mt_state::Layout;
 use std::collections::BTreeMap;
 
@@ -230,12 +230,15 @@ fn reaches_the_committee(votes: u64, electorate: &Electorate) -> Result<(), Node
 }
 
 // The certificate of the proposal of the window before: the heavy attestations of this window, each
-// verified as the living verified it, counted once per part against the count of the electorate.
-// `chains` is the count of chains in force at this height, which the round threshold is read from.
+// verified as the living verified it, counted once per part against the count of the electorate, and
+// the pledges of the agreement run in it, which decide the proposal. `chains` is the count of chains
+// in force at this height, which the round threshold is read from.
 //
 // Every refusal names what was refused and nothing of who sent it. A repeated part adds nothing and is
 // lawful; a second answering key under one part is refused, because one machine attests one window
-// under one key and a second key is a second claim of one place.
+// under one key and a second key is a second claim of one place. A heavy attestation enters the cement
+// whatever name it pledges beside its beacon (Consensus, "Closure, and the canonical cement"); what
+// makes the predecessor final is the agreement deciding its name.
 pub fn verify_certificate(
     window: u64,
     electorate: &Electorate,
@@ -243,6 +246,7 @@ pub fn verify_certificate(
     aggregate_two_before: &[u8; 32],
     chains: u64,
     rounds: &[Round<'_>],
+    pledges: &[Pledge],
 ) -> Result<Closure, NodeError> {
     if !predecessor.is_followed_by(window) {
         return Err(NodeError::Refused {
@@ -258,6 +262,7 @@ pub fn verify_certificate(
         })?;
     let mut cement = mt_pulse::cement::Cement::new();
     let mut keys: BTreeMap<[u8; 32], Vec<u8>> = BTreeMap::new();
+    let mut book = crate::agreement::Book::of_the_window(window);
     for round in rounds {
         if round.beacon.window != window {
             return Err(NodeError::Refused {
@@ -265,19 +270,15 @@ pub fn verify_certificate(
             });
         }
         let beacon_id = round.beacon.id().map_err(NodeError::Object)?;
-        let mut expected = [beacon_id, previous_id];
-        expected.sort_unstable();
         for held in round.heavy {
             if held.window != window {
                 return Err(NodeError::Refused {
                     what: "an attestation of another window inside a certificate",
                 });
             }
-            if held.attested != expected {
-                return Err(NodeError::Refused {
-                    what: "an attestation outside this beacon and the proposal it finalizes",
-                });
-            }
+            let name = pledged_name(&held.attested, &beacon_id).ok_or(NodeError::Refused {
+                what: "an attestation outside the beacon of its round",
+            })?;
             if let Some(key) = keys.get(&held.part_nullifier) {
                 if key != &held.answering_key {
                     return Err(NodeError::Refused {
@@ -296,6 +297,7 @@ pub fn verify_certificate(
             keys.entry(held.part_nullifier)
                 .or_insert_with(|| held.answering_key.clone());
             cement.add(held.part_nullifier);
+            book.heavy(held.part_nullifier, name);
         }
     }
     // The ballots, once the parts stand: a ballot counts for a part of the cement and for no other,
@@ -319,6 +321,27 @@ pub fn verify_certificate(
     }
     reaches_the_quorum(cement.count(), electorate)?;
     reaches_the_committee(sum_of_votes(votes.values())?, electorate)?;
+    // The pledges, once the keys stand: a pledge whose part has no heavy attestation here is in escrow
+    // and one that does not verify under that key says nothing, and neither refuses the certificate —
+    // as with a ballot, whoever answered a walk cannot stop it by handing in a forged one.
+    for pledge in pledges {
+        let Some(key) = keys.get(&pledge.part_nullifier) else {
+            continue;
+        };
+        if crate::attest::verify_pledge(pledge, key).is_ok() {
+            book.pledge(pledge.clone());
+        }
+    }
+    let agreement = crate::agreement::Electorate {
+        count: electorate.count,
+        committee: u64::from(electorate.committee.expected),
+        votes: &votes,
+    };
+    if book.decided(&agreement).map(|(name, _)| name) != Some(previous_id) {
+        return Err(NodeError::Refused {
+            what: "a certificate whose agreement does not decide the proposal it finalizes",
+        });
+    }
     let cement_aggregate = cement.aggregate(window).map_err(|_| NodeError::Refused {
         what: "a cement the aggregation refuses",
     })?;
@@ -329,6 +352,17 @@ pub fn verify_certificate(
         parts: cement.parts(),
         votes,
     })
+}
+
+// The name a heavy attestation pledges: the one of its two identifiers, ascending, that is not the
+// beacon of its round. Consensus, "Invariants of the round".
+fn pledged_name(attested: &[[u8; 32]], beacon: &[u8; 32]) -> Option<[u8; 32]> {
+    match attested {
+        [first, second] if first >= second => None,
+        [first, second] if first == beacon => Some(*second),
+        [first, second] if second == beacon => Some(*first),
+        _ => None,
+    }
 }
 
 // What a window decided of its cement: the beacon it closed on and the pair that beacon carried,
@@ -634,6 +668,7 @@ pub struct Anchor {
 // refused copy of an honest decision stops no device.
 pub struct Step<'a> {
     pub certificate: &'a [Round<'a>],
+    pub pledges: &'a [Pledge],
     pub next: &'a [Proposal],
 }
 
@@ -671,6 +706,7 @@ pub fn walk(
             &earlier.cement_aggregate,
             chains,
             step.certificate,
+            step.pledges,
         )?;
         head = Anchor {
             earlier: earlier.clone(),

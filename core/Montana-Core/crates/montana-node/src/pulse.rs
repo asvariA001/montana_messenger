@@ -1475,7 +1475,11 @@ pub fn join(machine: &Machine, anchor: &Anchor, patience: u32) -> Result<Anchor,
     let steps: Vec<certificate::Step<'_>> = rounds
         .iter()
         .zip(collected.iter())
-        .map(|(certificate, (_, next))| certificate::Step { certificate, next })
+        .map(|(certificate, (_, next))| certificate::Step {
+            certificate,
+            pledges: &[],
+            next,
+        })
         .collect();
     let threshold = mt_pulse::retarget::draw_threshold().map_err(|_| NodeError::Decree {
         row: "hash_bytes".to_string(),

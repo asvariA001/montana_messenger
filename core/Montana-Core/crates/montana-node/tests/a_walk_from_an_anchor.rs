@@ -22,7 +22,7 @@ use montana_node::certificate::{
 };
 use montana_node::pulse::Cohort;
 use montana_node::runner::Runner;
-use mt_state::layout::{Beacon, Confirmation, Proposal};
+use mt_state::layout::{Beacon, Confirmation, Pledge, Proposal};
 
 const ANCHOR: u64 = 2_000;
 
@@ -85,24 +85,30 @@ fn closing(window: u64, first: &Beacon, heavies: &[Confirmation]) -> Beacon {
 }
 
 // The heavy attestations of a window by the named machines of a tree, answering the opening beacon
-// and attesting the proposal of the window before.
+// and attesting the proposal of the window before, beside the closing pledges of attempt zero that
+// decide it.
 fn heavies(
     secrets: &[[u8; 32]],
     cohort: &Cohort,
     window: u64,
     beacon: &Beacon,
     previous: [u8; 32],
-) -> Vec<Confirmation> {
+) -> (Vec<Confirmation>, Vec<Pledge>) {
     secrets
         .iter()
         .map(|secret| {
             let branch = cohort.branch_of(secret).expect("its own leaf");
-            Standing::of_the_window(secret, window, &branch.siblings, branch.position)
-                .expect("a machine of the tree proves its presence")
-                .heavy(secret, beacon.id().expect("an identifier"), previous)
-                .expect("a heavy attestation stands")
+            let standing =
+                Standing::of_the_window(secret, window, &branch.siblings, branch.position)
+                    .expect("a machine of the tree proves its presence");
+            (
+                standing
+                    .heavy(secret, beacon.id().expect("an identifier"), previous)
+                    .expect("a heavy attestation stands"),
+                standing.pledge(0, previous, 0).expect("a pledge stands"),
+            )
         })
-        .collect()
+        .unzip()
 }
 
 #[test]
@@ -139,7 +145,7 @@ fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
     // proposal carries, and the runner of the window proposes what it decided.
     let window = ANCHOR + 2;
     let first = opening(window, later_id);
-    let answered = heavies(&[one, two], &pair, window, &first, later_id);
+    let (answered, closed) = heavies(&[one, two], &pair, window, &first, later_id);
     let last = closing(window, &first, &answered);
     let rounds = [
         Round {
@@ -161,6 +167,7 @@ fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
         &earlier.cement_aggregate,
         1,
         &rounds,
+        &closed,
     )
     .expect("the certificate of the later proposal verifies against the tree two before");
     // The electorate of the window before is another tree, and the attestations of the pair stand
@@ -173,6 +180,7 @@ fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
             &earlier.cement_aggregate,
             1,
             &rounds,
+            &closed,
         ),
         Err(refused(
             "an attestation whose proof of presence does not verify"
@@ -222,7 +230,7 @@ fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
     // of the anchor carries.
     let after = ANCHOR + 3;
     let first_after = opening(after, next_id);
-    let answered_after = heavies(&[one, two, three], &all, after, &first_after, next_id);
+    let (answered_after, closed_after) = heavies(&[one, two, three], &all, after, &first_after, next_id);
     let rounds_after = [Round {
         beacon: &first_after,
         heavy: &answered_after,
@@ -234,10 +242,12 @@ fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
     let steps = [
         Step {
             certificate: &rounds,
+            pledges: &closed,
             next: std::slice::from_ref(&next),
         },
         Step {
             certificate: &rounds_after,
+            pledges: &closed_after,
             next: &[],
         },
     ];
@@ -262,10 +272,12 @@ fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
             &[
                 Step {
                     certificate: &rounds,
+                    pledges: &closed,
                     next: std::slice::from_ref(&next),
                 },
                 Step {
                     certificate: &short,
+                    pledges: &closed_after,
                     next: &[],
                 },
             ],
@@ -301,6 +313,7 @@ fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
             &anchor,
             &[Step {
                 certificate: &rounds,
+                pledges: &closed,
                 next: std::slice::from_ref(&drawn_late),
             }],
             1,
@@ -361,10 +374,12 @@ fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
             &[
                 Step {
                     certificate: &rounds,
+                    pledges: &closed,
                     next: std::slice::from_ref(&other),
                 },
                 Step {
                     certificate: &rounds_after,
+                    pledges: &closed_after,
                     next: &[],
                 },
             ],
@@ -380,10 +395,12 @@ fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
         &[
             Step {
                 certificate: &rounds,
+                pledges: &closed,
                 next: &both,
             },
             Step {
                 certificate: &rounds_after,
+                pledges: &closed_after,
                 next: &[],
             },
         ],
@@ -419,10 +436,12 @@ fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
             &[
                 Step {
                     certificate: &rounds,
+                    pledges: &closed,
                     next: std::slice::from_ref(&misplaced),
                 },
                 Step {
                     certificate: &rounds_after,
+                    pledges: &closed_after,
                     next: &[],
                 },
             ],
@@ -438,10 +457,12 @@ fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
         &[
             Step {
                 certificate: &rounds,
+                pledges: &closed,
                 next: &copies,
             },
             Step {
                 certificate: &rounds_after,
+                pledges: &closed_after,
                 next: &[],
             },
         ],

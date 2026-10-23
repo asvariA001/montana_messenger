@@ -12,7 +12,7 @@ use montana_node::certificate::{
 };
 use montana_node::pulse::Cohort;
 use montana_node::runner::Runner;
-use mt_state::layout::{Ballot, Beacon, Confirmation, Proposal};
+use mt_state::layout::{Ballot, Beacon, Confirmation, Pledge, Proposal};
 use mt_state::Layout;
 
 const WINDOW: u64 = 1_000;
@@ -24,6 +24,7 @@ const VERSION: u32 = 0x0001_0000;
 // point checks is that a proposal carries the ones the verifier holds.
 struct World {
     secrets: Vec<[u8; 32]>,
+    standings: Vec<Standing>,
     cohort: Cohort,
     aggregate: [u8; 32],
     draw: mt_pulse::U256,
@@ -66,8 +67,17 @@ fn a_world(secrets: &[[u8; 32]], aggregate: [u8; 32]) -> World {
         ticket_proof: vec![0x00; mt_state::PRESENCE_PROOF_LEN],
         signature: vec![0x5E; mt_codec::size::SIGNATURE],
     };
+    let standings = secrets
+        .iter()
+        .map(|secret| {
+            let branch = cohort.branch_of(secret).expect("its own leaf");
+            Standing::of_the_window(secret, WINDOW, &branch.siblings, branch.position)
+                .expect("a machine of the cohort proves its presence")
+        })
+        .collect();
     World {
         secrets: secrets.to_vec(),
+        standings,
         cohort,
         aggregate,
         draw: mt_pulse::U256::from_be_bytes(&[0xFFu8; 32]),
@@ -125,12 +135,28 @@ impl World {
     // The heavy attestation of one machine of the electorate, answering the opening beacon and
     // attesting the proposal of the window before.
     fn heavy(&self, at: usize) -> Confirmation {
-        let secret = &self.secrets[at];
-        let branch = self.cohort.branch_of(secret).expect("its own leaf");
-        Standing::of_the_window(secret, WINDOW, &branch.siblings, branch.position)
-            .expect("a machine of the cohort proves its presence")
-            .heavy(secret, self.beacon_id(), self.previous_id())
+        self.heavy_on(at, self.previous_id())
+    }
+
+    // The heavy attestation of one machine pledging `name` beside the opening beacon.
+    fn heavy_on(&self, at: usize, name: [u8; 32]) -> Confirmation {
+        self.standings[at]
+            .heavy(&self.secrets[at], self.beacon_id(), name)
             .expect("a heavy attestation stands")
+    }
+
+    fn pledge(&self, at: usize, attempt: u32, name: [u8; 32], since: u32) -> Pledge {
+        self.standings[at]
+            .pledge(attempt, name, since)
+            .expect("a pledge stands")
+    }
+
+    // The closing pledges of attempt zero on the proposal of the window before, one per machine: the
+    // agreement of a window whose heavy attestations all took one name.
+    fn closings(&self) -> Vec<Pledge> {
+        (0..self.secrets.len())
+            .map(|at| self.pledge(at, 0, self.previous_id(), 0))
+            .collect()
     }
 
     fn runner(&self, at: usize) -> Runner {
@@ -162,6 +188,7 @@ impl World {
             &self.aggregate,
             1,
             &rounds,
+            &self.closings(),
         )
     }
 
@@ -192,6 +219,7 @@ impl World {
             &self.aggregate,
             1,
             &rounds,
+            &self.closings(),
         )?;
         decided_of(
             &last.id().expect("an identifier"),
@@ -289,6 +317,7 @@ fn the_acceptance_matrix_of_the_relation_through_the_one_entry_point() {
                 heavy: &heavies,
                 ballots,
             }],
+            &world.closings(),
         )
     };
     let seats = mt_genesis::scalar("standing_committee").expect("the Decree names it");
@@ -560,5 +589,78 @@ fn a_machine_whose_ticket_does_not_clear_assembles_no_proposal() {
     assert!(
         none.is_none(),
         "a ticket above a threshold of nothing drew the window"
+    );
+}
+
+const UNDECIDED: &str = "a certificate whose agreement does not decide the proposal it finalizes";
+
+// What a certificate makes final is what its agreement decides. Accepted: one name taken by every
+// heavy and closed in attempt zero, and a split of the heavies at attempt zero decided by a later
+// attempt, every heavy in the cement whatever name it pledged. Refused: no pledges, closing pledges
+// below the quorum, a closing pledge under a key no heavy of the certificate proves, and a heavy that
+// does not stand beside the beacon of its round. The wrong implementations refused: one finalizing
+// the predecessor on the heavy attestations alone, one counting a pledge under any key, and one
+// refusing a heavy that pledged another name beside its beacon.
+#[test]
+fn the_agreement_decides_what_a_certificate_makes_final() {
+    let world = a_world(&[[0x11u8; 32], [0x22u8; 32], [0x33u8; 32]], [0x33u8; 32]);
+    let x = world.previous_id();
+    let y = [0x77u8; 32];
+    let beacon = world.beacon();
+    let under = |heavies: &[Confirmation], pledges: &[Pledge]| {
+        verify_certificate(
+            WINDOW,
+            &world.electorate(),
+            Predecessor::Proposal(&world.previous),
+            &world.aggregate,
+            1,
+            &[Round {
+                beacon: &beacon,
+                heavy: heavies,
+                ballots: &[],
+            }],
+            pledges,
+        )
+    };
+    let heavies: Vec<Confirmation> = (0..3).map(|at| world.heavy(at)).collect();
+    let closings = world.closings();
+    assert!(under(&heavies, &closings).is_ok());
+    assert_eq!(under(&heavies, &[]), Err(refused(UNDECIDED)));
+    assert_eq!(under(&heavies, &closings[..2]), Err(refused(UNDECIDED)));
+
+    let (other_key, other_secret) =
+        signing_key(mt_derive::pulse::part_key_seed(&world.secrets[0], WINDOW));
+    let mut lifted = closings[2].clone();
+    lifted.answering_key = other_key.as_bytes().to_vec();
+    lifted.signature = mt_suite::sign::sign(&other_secret, &lifted.signed_scope().expect("scope"))
+        .expect("the other machine owns its key")
+        .as_bytes()
+        .to_vec();
+    assert_eq!(
+        under(
+            &heavies,
+            &[closings[0].clone(), closings[1].clone(), lifted]
+        ),
+        Err(refused(UNDECIDED))
+    );
+
+    let split = vec![world.heavy_on(0, x), world.heavy_on(1, x), world.heavy_on(2, y)];
+    assert_eq!(under(&split, &closings), Err(refused(UNDECIDED)));
+    let mut later: Vec<Pledge> = (0..3)
+        .map(|at| world.pledge(at, 1, x, mt_state::STANDS_ON_NONE))
+        .collect();
+    later.extend((0..3).map(|at| world.pledge(at, 1, x, 1)));
+    let closure = under(&split, &later).expect("a split decided by a later attempt closes");
+    assert_eq!(closure.cement_count, 3);
+
+    let astray = world.standings[0]
+        .heavy(&world.secrets[0], [0x01u8; 32], x)
+        .expect("a heavy attestation stands");
+    assert_eq!(
+        under(
+            &[astray, heavies[1].clone(), heavies[2].clone()],
+            &closings
+        ),
+        Err(refused("an attestation outside the beacon of its round"))
     );
 }
