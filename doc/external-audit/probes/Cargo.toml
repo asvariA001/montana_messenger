@@ -1,0 +1,14 @@
+[package]
+name = "montana-audit-premises"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.92"
+publish = false
+
+# Standalone review harness: do not change the published core trees or their lockfiles.
+[workspace]
+
+[dev-dependencies]
+mt-overlay = { path = "../../../core/Code/crates/mt-overlay" }
+mt-messenger-e2e = { path = "../../../core/Code/crates/mt-messenger-e2e" }
+mt-crypto = { path = "../../../core/Code/crates/mt-crypto" }

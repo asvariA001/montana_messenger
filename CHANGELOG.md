@@ -2,9 +2,19 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
+## 1.0 (2296) - 2026-10-23
+
+Source commit `03de274b7160`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2296.md).
+
+- Coins given on a letter now leave as a SEND record in the time chain under that letter; the reaction only names the record, and the reader's coins arrive from the chain itself.
+
+**Security and anonymity**
+
+- A paid reaction sent by this build moves its coins only by a SEND record laid on the sender's chain and taken by the receiver's key; its chat word carries the record's name and the letter's name and moves no coins. The older reaction word of earlier builds is still credited by the reader for now -- that road is not closed yet.
+
 ## 1.0 (2295) - 2026-10-23
 
-Source commit `fc2dc0ea172f`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2295.md).
+Source commit `7806640bf463`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2295.md).
 
 - From 26 October, time coins are minted while you are here: every forty seconds the phone records the seconds you spent with Montana open or behind the Montana VPN as a MINT in the time chain. Taps, calls and time away mint nothing separately.
 
