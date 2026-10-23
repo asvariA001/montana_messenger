@@ -337,7 +337,8 @@ fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
     );
 
     // Refused: an anchor that is not the chain's own — a forged pair, linked to itself, is refused at
-    // the first certificate, which attests the chain's own proposal and not the forged one.
+    // the first certificate: its heavy attestations enter the cement whatever name they pledge, and
+    // its agreement decides the chain's own proposal and not the forged one.
     let forged_earlier = handed(ANCHOR, [0x10; 32], &pair, [0x0Cu8; 32]);
     let forged = Anchor {
         earlier: forged_earlier.clone(),
@@ -351,7 +352,7 @@ fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
     assert_eq!(
         walk(&forged, &steps, 1, &draw, major),
         Err(refused(
-            "an attestation outside this beacon and the proposal it finalizes"
+            "a certificate whose agreement does not decide the proposal it finalizes"
         ))
     );
 
