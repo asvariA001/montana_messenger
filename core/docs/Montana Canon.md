@@ -1,6 +1,6 @@
 # Montana — Canon
 
-**Version:** 9.2.0
+**Version:** 9.3.0
 
 Canon is the one place where the values and the bytes of Montana live. Every other document
 of the set names a quantity and points here; none of them restates a number, a size, a
@@ -1276,9 +1276,9 @@ sample to land, and a quarter of the standing absent is the margin a committee o
 **Target.** The consensus-and-payment stream of a window stays inside the commodity envelope
 [I-5] fixes, at any population the profile is calibrated for.
 
-**Derivation.** The chains of a window cost `k` × 54.7 MB of frames — `frames_per_window`
-frames of `frame_len` bytes each — while attestation volume stays flat in `k` at ≈ 252 KB per
-machine, so the volume of a window is `k · 56.5 MB + N · 252 KB` and the share of it one machine
+**Derivation.** The chains of a window cost `k` × 105.8 MB of frames — `frames_per_window`
+frames of `frame_len` bytes each — while attestation volume stays flat in `k` at ≈ 220 KB per
+machine, so the volume of a window is `k · 105.8 MB + N · 220 KB` and the share of it one machine
 carries is that total over the population it is carried by. What the envelope is checked against
 is that share and never the total: the frames of a window are divided among whoever carries them,
 so the share falls as the population grows, and eight chains keep one machine's share inside the
@@ -1406,7 +1406,9 @@ Transparent because a trusted setup is a ceremony whose failure nobody can obser
 protocol that refuses standing viewing keys cannot accept a secret that, if kept, forges value
 forever. Hash-based because the hashes are already here: its soundness rests on the collision
 resistance of the proof hash, whose honest cost the primitives section states with the name of
-what is risked, and on nothing else.
+what is risked, and on the proximity gaps of Reed–Solomon codes up to the Johnson bound, which is
+a theorem (Ben-Sasson, Carmon, Ishai, Kopparty and Saraf, "Proximity gaps for Reed–Solomon codes",
+ePrint 2020/654), and on nothing else.
 
 **Why the length is fixed by construction.** The circuit of a frame is fixed: `spends_per_frame`
 spends, `items_per_spend` positions each, a Merkle path of `note_tree_depth` and the seven
@@ -1421,8 +1423,24 @@ The number of bytes follows from the field, the security target and the number o
 | `proof_field` | `2⁶⁴ − 2³² + 1` | one machine word, and the modulus is named rather than the width: two implementations over two sixty-four-bit primes compute two different proofs. Its multiplication reduces by shifts and additions with no division, and `p − 1 = 2³² · (2³² − 1)` carries a subgroup of order `2³²`, nine doublings above the extended domain this scheme uses |
 | `proof_challenge_field` | `proof_field[X] / (X³ − 7)` | every challenge and every out-of-domain value is drawn here and never from the base field, and the degree is derived rather than chosen. The soundness of the mixing and of the deep composition is the degree of the trace over the size of the field the challenge came from, so the requirement is `|F|^e ≥ 2^(proof_security_bits) · 2^rows_log2`: the base field gives `2⁻⁴⁴` and a quadratic extension `2⁻¹⁰⁸`, both short of the target, while the cubic gives `2⁻¹⁷²`. Seven is a non-residue of this prime |
 | `proof_blowup` | 8 | the rate at which the trace is extended; larger blowup buys fewer queries at more proving |
-| `PROOF_LEN` | 213 440 B | derived below from the contents and the parameters |
-| `proof_queries` | 48 | derived: at blowup 8 each query rejects a false proof with probability 7 in 8, and 48 of them leave a forgery chance below the security target |
+| `PROOF_LEN` | 387 200 B | derived below from the contents and the parameters |
+| `proof_queries` | 88 | derived below: at blowup 8 and below the Johnson bound each query passes a false proof with probability at most 2^−1.4556, and 88 of them leave a forgery chance below 2^−128 |
+
+### `proof_queries` = 88
+
+**Value.** 88, at `proof_blowup` 8, `proof_fold` 4 and queries at distinct positions of the extended domain.
+
+**Class.** Security.
+
+**Target.** The query phase of the proof leaves a forgery chance of at most 2^−`proof_security_bits` = 2^−128 per attempt, proved and not conjectured: the bound is taken below the Johnson radius of the code, where the proximity gaps of Reed–Solomon codes are a theorem.
+
+**References.** Ben-Sasson, Bentov, Horesh and Riabzev, "Fast Reed–Solomon Interactive Oracles of Proximity" (ICALP 2018; ePrint 2018/046), for the folding and its query phase; Ben-Sasson, Carmon, Ishai, Kopparty and Saraf, "Proximity gaps for Reed–Solomon codes" (FOCS 2020; ePrint 2020/654), for the proximity gaps up to the Johnson bound; StarkWare, "ethSTARK Documentation" (ePrint 2021/582), for the sampling of positions and the accounting of the query phase.
+
+**Derivation.** The rate of the code is ρ = 1 / `proof_blowup` = 1/8, so √ρ = 2^−1.5. Below the Johnson radius 1 − √ρ(1 + 1/2m) a word at distance more than that from the code survives one query with probability at most √ρ(1 + 1/2m). At m = 16 that is 2^−1.5 × 1.03125 = 2^−1.4556. The queries are at distinct positions, so q of them leave 2^(−1.4556 q): 87 give 2^−126.64, which does not reach the target, and 88 give 2^−128.09, which does. 88 is the least count that does. The terms of the mixing, of the deep composition and of the commit phase of the folding are over the order of `proof_challenge_field`, about 2^192, and enter the sum of the soundness separately from the query term derived here; no proof-of-work term enters the transcript.
+
+**Sensitivity.** One query more or fewer moves the term by 1.4556 bits. The least m for which 88 suffices is 16: at m = 15 the term is 2^−127.84 and at m = 8 it is 2^−124.30; as m grows it tends to 2^−132. `PROOF_LEN` moves by 4 344 B per query and `PRESENCE_PROOF_LEN` by 3 576 B. The free block must stay above what the queries open: 2 × 88 + 2 = 178 values against `proof_free_rows` = 256.
+
+**Defence.** Why not 48 queries on the capacity reading, 7 in 8 per query — it takes the proximity gaps of Reed–Solomon codes up to capacity, which is a conjecture, and a protocol whose target is a proof must not rest a security level on a conjecture; the unique-decoding and Johnson readings are theorems and give 2^−39.8 and at best 2^−72 for 48. Why not blowup 16 with 66 queries, which reaches the same level — it doubles the extended trace a telephone holds whole to prove, and the prover of every machine is a telephone; blowup 8 keeps the memory and the time of the extension as they stand and pays in bytes. Why the cost is acceptable — 173 760 B more on each proof, carried once by each frame, ballot and candidacy and once by each machine's heavy attestation per window.
 
 ### What a proof contains, and therefore how long it is
 
@@ -1448,14 +1466,14 @@ here. A proof is, in this order and nothing else:
 | `proof_trace_width_bound` | 64 |
 | `proof_row_values` | 65 |
 | `proof_composition_parts` | 2 |
-| `proof_free_rows` | 128 |
+| `proof_free_rows` | 256 |
 | `rows_per_permutation` | 128 |
 
 **The tail travels as its coefficients, once, and that is why the last layer opens no path.** A
 degree is bounded either by counting the coefficients of a polynomial or by sampling it, and only
 the first of the two is a bound: the openings of the last layer stand at query positions, and a
 verifier holding some values of a function knows nothing about its degree that the prover did not
-choose. Sixty-four coefficients ride once, one and a half kilobytes of a quarter of a megabyte,
+choose. Sixty-four coefficients ride once, one and a half kilobytes of a proof of nearly four tenths of a megabyte,
 and the last check becomes counting them and evaluating them where the last fold lands — no
 sampling, no interpolation, and no tree below the tail.
 
@@ -1582,7 +1600,7 @@ is indistinguishable from a frame of notes in every field and every length.
 ```
 per query = 32 x 19 + 65 x 8 + 32 x 19 + 2 x 24 + 32 x 65 + 5 x 4 x 24 = 4 344 B
 
-PROOF_LEN = 32 + 32 + 5 x 32 + 132 x 24 + 64 x 24 + 48 x 4 344 = 213 440 B
+PROOF_LEN = 32 + 32 + 5 x 32 + 132 x 24 + 64 x 24 + 88 x 4 344 = 387 200 B
 ```
 
 Every term of that sum comes from a number frozen above, and the sum is the same on every
@@ -2280,7 +2298,7 @@ serialize(collect_answer)
                                                 and never above collect_answer_max
   cells       cell_count x cell_bytes B
 
-collect_answer_max = 336, the cells of the largest object that stands at a point
+collect_answer_max = 608, the cells of the largest object that stands at a point
 ```
 
 **Invariants of the deposit and collection messages:**
@@ -2528,15 +2546,15 @@ The sealing itself is checked against the known answer of RFC 8439, Example and 
 vector of ours: an implementation that reproduces that answer holds the primitive, and one that
 does not holds something else by the same name.
 
-**What a delivery costs in cells.** A proposal is 208 blocks in 18 groups, so 288 cells; a frame is
-244 blocks in 21 groups, so 336 cells; a heavy attestation is 208 blocks in 18 groups, so 288
-cells; a candidacy is 244 blocks in 21 groups, so 336 cells; a publication of a channel is 4 blocks
+**What a delivery costs in cells.** A proposal is 376 blocks in 32 groups, so 512 cells; a frame is
+447 blocks in 38 groups, so 608 cells; a heavy attestation is 375 blocks in 32 groups, so 512
+cells; a candidacy is 447 blocks in 38 groups, so 608 cells; a publication of a channel is 4 blocks
 in one group, so 16 cells; a beacon is 1 block in one group, so 16 cells; a light attestation is 7
 blocks in one group, so 16 cells; a pledge is 7 blocks in one group, so 16 cells; a roll grows with
-what it names, and at 273 frames and 227 parts it is 16 020 bytes in 19 blocks of 2 groups, so 32
+what it names, and at 273 frames and 127 parts it is 12 820 bytes in 15 blocks of 2 groups, so 32
 cells. The largest of them is what `collect_answer_max` stands on: a roll stands no longer than a
-frame while its entries number at most 6 834, and a round point read by a `u16` index holds the heavy
-attestations of no more than 227 parts. Every count follows from `chunk_bytes`,
+frame while its entries number at most 12 368, and a round point read by a `u16` index holds the heavy
+attestations of no more than 127 parts. Every count follows from `chunk_bytes`,
 `erasure_data` and `erasure_group` and from nothing else.
 
 ### The points a round stands at
@@ -3564,9 +3582,9 @@ previous, final_beacon and the six roots = 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0
 roll = 0xBB x 32
 admitted_count = 3; cement_aggregate = 0x99 x 32; cement_count = 2
 census entry i of ten: root = (0xC0 + i) x 32, count = i
-suite_id = 1; runner_pubkey = 0xA1 x 1952; ticket_proof = 0x00 x 176 544; signature = 0x5E x 3309
-proposal_len                     = 182 555
-SHA-256 of the serialized proposal = f9ed00fc8b1e083df4f4eb07af0e433e44363cd5a212f27788132bd2736d2d8f
+suite_id = 1; runner_pubkey = 0xA1 x 1952; ticket_proof = 0x00 x 319 584; signature = 0x5E x 3309
+proposal_len                     = 325 595
+SHA-256 of the serialized proposal = b9589df4f742e3a20008c2e06019ef07ed67039a1023338bab3ab492c7a0a268
 proposal_id over the 718 bytes the window decided
                                  = 63316f7bdf2584df960fa2cf3e648bc3bb5b67e06a2b43ce7bb1ff43585de0f5
 ```
@@ -3583,9 +3601,9 @@ misses both.
 
 ```
 spend s: nullifiers = (0x20 + s) x 32, commitments = (0x30 + s) x 32, rate nullifier = (0x40 + s) x 32
-proof = 0x00 x 213 440
-frame_len                       = 213 920
-SHA-256 of the serialized frame = 51df18cfbb14981fad54bed7840dd1e7f6cfebdb4fad87008e953cb82a4cf744
+proof = 0x00 x 387 200
+frame_len                       = 387 680
+SHA-256 of the serialized frame = 17555b6aaa097f5c83f978f3fa2884c07f49a5d2f5fcba6f433d740667e517d2
 ```
 
 **A notice, and its length.** It carries the nullifier it names and the identifier of the frame
@@ -3598,7 +3616,7 @@ serialized above, so both ends of this line are values this set already holds.
 serialize(notice) = nullifier_32B || frame_id_32B
 notice_len        = 32 + 32 = 64
 nullifier = test_nullifier; frame_id = the identifier of the frame serialized above
-SHA-256 of the serialized notice = 60eeb42008ffae345cb44eba4f434936df5f11327aa524724097d616907e66de
+SHA-256 of the serialized notice = 1e9767ffd9b174e7050e8c660528ee32a42bc43840fee4563ee7d23021487e76
 ```
 
 **The tag of first contact to a claimed name.**
@@ -4134,7 +4152,7 @@ ood_values                  132 x 24 B         evaluations out of the domain, in
                                               and the two parts of the composition at z; those of a
                                               slot above the width and below the randomizer zero
 tail                        64 x 24 B         the coefficients of the last layer, low order first
-queries              48 x 4 344 B             one block per query, laid out below
+queries              88 x 4 344 B             one block per query, laid out below
 
 per query = the block the contents above fix, in that order and of that width: the path of the
             trace and the row it opens — the columns of the bound and the randomizer beside them —
@@ -4230,7 +4248,7 @@ transcript_(3+m) = S(transcript_(2+m) || fri_roots[m-1])
     the folding coefficient of layer m = the first field element drawn from it, m = 1 .. 5
 transcript_9 = S(transcript_8 || leaf of the tail)
 query_seed  = Q(transcript_9)
-    the 48 query positions = eight-byte little-endian draws from the digests of query_seed with a
+    the 88 query positions = eight-byte little-endian draws from the digests of query_seed with a
     counter, as below, each taken modulo the size of the evaluation domain, repeats redrawn
 
 drawing a challenge, which is one rule for every challenge above:
@@ -4486,13 +4504,13 @@ length is the arithmetic of `PROOF_LEN` at that height — the folding stops at 
 ```
 per query = 32 x 17 + 65 x 8 + 32 x 17 + 2 x 24 + 32 x 48 + 4 x 4 x 24 = 3 576 B
 
-PRESENCE_PROOF_LEN = 32 + 32 + 4 x 32 + 132 x 24 + 64 x 24 + 48 x 3 576 = 176 544 B
+PRESENCE_PROOF_LEN = 32 + 32 + 4 x 32 + 132 x 24 + 64 x 24 + 88 x 3 576 = 319 584 B
 ```
 
 | Parameter | Value |
 |---|---|
 | `presence_rows_log2` | 14 |
-| `PRESENCE_PROOF_LEN` | 176 544 B |
+| `PRESENCE_PROOF_LEN` | 319 584 B |
 
 The queries, the blowup, the tail, the slot of the evaluations and the bound on the width are
 the scheme's, unchanged: a second height is not a second scheme, and a verifier reading the
@@ -4636,12 +4654,12 @@ demands the width from this row rather than declaring one of its own.
 
 **The volume the schedule is checked against.** Per machine, per window, across its chains:
 eligibility strikes 1.1094 times in expectation; 0.6710 of machines publish one heavy
-attestation of 181 945 bytes, and the remaining 0.4384 expected strikes publish light attestations
-of 5 401 bytes — ≈ 124 KB per machine per window, flat in the count of chains, because the crowd of
+attestation of 324 985 bytes, and the remaining 0.4384 expected strikes publish light attestations
+of 5 401 bytes — ≈ 220 KB per machine per window, flat in the count of chains, because the crowd of
 a round carries the count of chains and spreads the strikes across them.
-Frames add 54.7 MB per chain per window, payer-borne, and beacons add `target_rounds` objects of
+Frames add 105.8 MB per chain per window, payer-borne, and beacons add `target_rounds` objects of
 `beacon_len` per chain per window — 24 KB, runner-borne — so the payload of a window is
-`k · 54.7 MB + N · 124 KB`. What crosses the wire is that payload times what carriage costs: every
+`k · 105.8 MB + N · 220 KB`. What crosses the wire is that payload times what carriage costs: every
 object of consensus stands at `consensus_replicas` points, and every envelope crosses at least
 `hop_min` distinct machines. The cap of the schedule is the frozen ceiling of that product per machine, with both
 multipliers in it, and neither is left to be discovered by whoever measures the wire. It caps the
@@ -4819,7 +4837,7 @@ serialize(opening)
   record_commit                    32 B         the commitment of the record this opening creates, and its key in the tree of records
   proof                     PROOF_LEN B         the right spent and the commitment opened, disclosing neither
 
-opening_len = 32 + 32 + PROOF_LEN = 213 504 B
+opening_len = 32 + 32 + PROOF_LEN = 387 264 B
 ```
 
 **Invariants of an opening:**
@@ -4846,7 +4864,7 @@ serialize(action)
   act_nullifier                    32 B         the nullifier of the rate of action of this window
   proof                     PROOF_LEN B         the transition lawful, the predecessor a member, the signature verified, disclosing all three
 
-action_len = 32 + 32 + 32 + PROOF_LEN = 213 536 B
+action_len = 32 + 32 + 32 + PROOF_LEN = 387 296 B
 ```
 
 **Invariants of an action:**
@@ -4891,7 +4909,7 @@ serialize(proposal)
   signature                      3309 B         over everything above, by the rules for a signed object
 
 proposal_len = 8 + 4 + 8 x 32 + 8 + 32 + 8 + 10 x (32 + 8) + 2 + 32 + 1952 + PRESENCE_PROOF_LEN + 3309
-             = 182 555 B
+             = 325 595 B
 ```
 
 **The identifier of a proposal is taken over what the window decided** — the bytes from `window`
@@ -4963,8 +4981,8 @@ serialize(frame)
   proof                     PROOF_LEN B
 
 frame_len = spends_per_frame x (spend_inputs + spend_outputs + 1) x 32 + PROOF_LEN
-          = 3 x 5 x 32 + 213 440
-          = 213 920 B
+          = 3 x 5 x 32 + 387 200
+          = 387 680 B
 
 frame_id  = SHA-256("mt-frame" || 0x00 || serialize(frame))
 ```
@@ -5001,7 +5019,7 @@ serialize(confirmation)
   proof           PRESENCE_PROOF_LEN B          under the description of the presence, at its height
   signature                      3309 B         over everything above
 
-confirmation_len = 8 + 2 + 64 + 32 + 32 + 2 + 1 952 + 176 544 + 3 309 = 181 945 B
+confirmation_len = 8 + 2 + 64 + 32 + 32 + 2 + 1 952 + 319 584 + 3 309 = 324 985 B
 ```
 
 **Invariants of a confirmation:**
@@ -5012,7 +5030,7 @@ confirmation_len = 8 + 2 + 64 + 32 + 32 + 2 + 1 952 + 176 544 + 3 309 = 181 945 
 - `attested` holds exactly two identifiers — the beacon of the round and the name its machine took of the proposal of the previous window, which is its pledge of attempt zero — ascending; `round_nullifier` is derived from the machine's secret and the attested beacon, so versions of one round yield distinct values and attesting them all is duty, while a repeat under one beacon is refused in silence.
 - `answering_key` is the one-time key of this window and verifies this object alone; the key a machine answers the wire with is published nowhere, and a confirmation carrying it would name the machine across every window it ever attested.
 - The proof asserts that the bearer is a machine of the electorate of this window and that the nullifier and the key derive from one secret — disclosing neither. It carries no weight: a part counts once in the cement or not at all.
-- The length of this object is one number, 181 945 B: `attested` holds exactly two identifiers and every field above has a fixed width, and its proof is of the presence's height and length. A confirmation of any other length is refused before it is parsed.
+- The length of this object is one number, 324 985 B: `attested` holds exactly two identifiers and every field above has a fixed width, and its proof is of the presence's height and length. A confirmation of any other length is refused before it is parsed.
 
 **The light attestation** is the same object without `proof`:
 
@@ -5051,7 +5069,7 @@ serialize(ballot)
   votes                             8 B   u64   the votes the standing drew, at least one
   proof                     PROOF_LEN B         under the description of the ballot, at the frame's height
 
-ballot_len = 8 + 32 + 8 + 213 440 = 213 488 B
+ballot_len = 8 + 32 + 8 + 387 200 = 387 248 B
 ```
 
 **What its proof asserts.** That the part is the nullifier of the spending half the proof holds and
@@ -5140,7 +5158,7 @@ serialize(candidacy)
   suite_id                          2 B   u16
   proof                     PROOF_LEN B         the continuity met, the commitment opened, and both halves of one reading of the secret
 
-candidacy_len = 8 + 32 + 32 + 32 + 2 + PROOF_LEN = 213 546 B
+candidacy_len = 8 + 32 + 32 + 32 + 2 + PROOF_LEN = 387 306 B
 ```
 
 **Invariants of a candidacy:**

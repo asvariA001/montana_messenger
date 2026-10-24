@@ -11,9 +11,9 @@ mt_codec::constants! {
     pub const SECURITY_BITS: u32 = 128, writes "| `proof_security_bits` | 128 |";
     /// The rate at which the trace is extended.
     pub const BLOWUP: usize = 8, writes "| `proof_blowup` | 8 |";
-    /// At this blowup each query rejects a false proof with probability seven in eight, and this
-    /// many of them leave a forgery below the target.
-    pub const QUERIES: usize = 48, writes "| `proof_queries` | 48 |";
+    /// At this blowup, below the Johnson bound, each query passes a false proof with probability
+    /// at most 2^-1.4556, and this many of them leave a forgery below 2^-128.
+    pub const QUERIES: usize = 88, writes "| `proof_queries` | 88 |";
     /// Folding divides the degree bound by this at every step.
     pub const FOLD: usize = 4, writes "| `proof_fold` | 4 |";
     /// Folding stops when the bound reaches this, and the tail travels nowhere.
@@ -34,8 +34,9 @@ mt_codec::constants! {
     /// The rows at the end of every trace that carry no constraint and no boundary. The prover
     /// fills them with uniform randomness before it commits, so what a proof opens of a column —
     /// the rows of the queries, the two points outside the domain — says nothing of the witness:
-    /// one block of the permutation, and more than twice the queries and the two points together.
-    pub const FREE_ROWS: usize = 128, writes "| `proof_free_rows` | 128 |";
+    /// two blocks of the permutation, and more than twice the queries and the two points together:
+    /// 2 x 88 + 2 = 178 values opened against 256 free.
+    pub const FREE_ROWS: usize = 256, writes "| `proof_free_rows` | 256 |";
     /// The values a query opens of a row: every column of the bound and the randomizer beside
     /// them — a column of uniform values the prover draws, which the deep composition takes under
     /// weights of its own, so that what a folding layer opens is uniform as well.
@@ -203,7 +204,7 @@ mod tests {
         assert_eq!(shape.layers(), 5);
         assert_eq!(shape.levels_of_a_query(), 65);
         assert_eq!(shape.query_bytes(), 4_344);
-        assert_eq!(shape.proof_bytes(), 213_440);
+        assert_eq!(shape.proof_bytes(), 387_200);
         // And the length the state layer carries for a proof is that number, held in one place.
         assert_eq!(shape.proof_bytes(), mt_state::PROOF_LEN);
     }

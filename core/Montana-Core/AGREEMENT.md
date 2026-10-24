@@ -156,10 +156,10 @@ entry is read.
 are the cement of the window, at most the count of its electorate, so a body holds at most
 `20 + 32 × (273 + T)` bytes. One delivery carries up to 65 535 blocks (`block_count` is a u16,
 `mt-wire/src/publish.rs`, `cells_of`), and a point is read by a u16 index (`montana-node/src/pulse.rs`,
-`collect_from`), which already bounds a round point to about 227 heavy attestations of 288 cells each;
-at that electorate a body is about 16 KB, fewer cells than the one heavy attestation of a single
+`collect_from`), which already bounds a round point to about 127 heavy attestations of 512 cells each;
+at that electorate a body is about 12 KB, fewer cells than the one heavy attestation of a single
 machine. Pages answered a bound a body does not meet while points are read as they are; a later wire
-that widens the index grows the body by 32 bytes for each machine, beside the 208 blocks of that
+that widens the index grows the body by 32 bytes for each machine, beside the 375 blocks of that
 machine's heavy attestation in the same window.
 
 **Where it stands, and for how long.** At the window points of the window it closes, beside its
