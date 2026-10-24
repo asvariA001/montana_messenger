@@ -81,7 +81,8 @@ and `L = (W, aggregate(C, W), card(C), C ascending, v)`.
   and the ballot: from any adversary that outputs an accepting proof for a public input, an
   extractor obtains a witness satisfying the description, except with probability `eps_K` per
   proof. The value of `eps_K` is a function of the parameters of the scheme; obligation O-1 of
-  section 10 is its derivation.
+  section 10 is its derivation, which reaches the target of Canon only under the capacity
+  conjecture on the proximity gaps of Reed-Solomon codes.
 - **(A4) Collision resistance of the Poseidon family** of `mt-proof`, for the tree of admitted
   machines and the part-nullifier.
 - **(A5) The description of the presence** enforces that the leaf of the naming half of a secret
@@ -313,7 +314,31 @@ of another width; `links_to` refuses a round past `u32::MAX` (round.rs:107-109);
 ## 10. Obligations
 
 - **O-1.** The derivation of `eps_K` for the three descriptions from the parameters of the scheme,
-  at the security target of Canon.
+  at the security target of Canon. *The parameters* (params.rs:10-20, ext.rs:13-14, field.rs:17
+  at 8d6409d; Canon, the table beside `proof_security_bits`): the base field `p = 2^64 - 2^32 + 1`,
+  every challenge drawn in the cubic extension `K` of order `p^3` (about `2^192`), blowup 8 (rate
+  `rho = 1/8`), 48 queries at distinct positions (transcript.rs:117-120), fold 4, a tail of 64, and no
+  proof-of-work term in the transcript. `eps_K` is the sum of three terms: the mixing and the deep
+  composition, the commit phase of the folding, and the query phase. The first two are terms over
+  the order of `K` (Canon gives `2^-172` for the first) and bind in no regime below; the third binds,
+  and it does not depend on the height, so the presence, the ticket and the ballot share it. Per
+  attempt, by the regime of the proximity parameter `delta` the analysis of the folding reaches:
+  - unique decoding, `delta` below `(1 - rho)/2` (a theorem): `((1 + rho)/2)^48 = (9/16)^48 = 2^-39.8`;
+  - the Johnson bound, `delta` below `1 - sqrt(rho)` (a theorem for Reed-Solomon codes): at best
+    `(sqrt(rho)(1 + 1/(2m)))^48`, which is `2^-69.9` at `m = 16` and tends to `2^-72`;
+  - capacity, `delta` toward `1 - rho` (a conjecture on the proximity gaps of Reed-Solomon codes, not
+    a theorem): `rho^48 = 2^-144`.
+  Canon's "each query rejects a false proof with probability 7 in 8" is the capacity reading, and its
+  "soundness rests on the collision resistance of the proof hash ... and on nothing else" leaves the
+  conjecture unnamed. *What this discharges.* (A3) at the target of Canon holds under the capacity
+  conjecture, which this paper names as a part of (A3); on what is proven the query term per attempt
+  is at best `2^-72`, and a non-interactive adversary multiplies the per-attempt term by the count of
+  its attempts. Which of the two the set rests on is the author's decision (line 4 of the decisions
+  of the constitution): the conjecture named in Canon beside `proof_queries`, with the parameters
+  standing; or parameters that reach the target on the Johnson bound at `m = 16` -- blowup 8 with 88
+  queries (`PROOF_LEN` 387 200 B, `PRESENCE_PROOF_LEN` 319 584 B) or blowup 16 with 66 queries (306 416 B
+  and 253 584 B) -- each of which moves every length that carries a proof. O-1 stands open until that
+  decision.
 - **O-2.** (A5) read off `mt-proof/src/circuit/presence.rs`, constraint by constraint
   (24.10.2026, read at 0fe6134; the Poseidon permutation layer is taken as the permutation, as A4
   takes it). Width 12, rate 8, capacity 4 (poseidon.rs:17-22). Every chain opens under its domain:
