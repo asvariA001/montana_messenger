@@ -192,6 +192,9 @@ impl Machine {
                         })?;
                     Err(not_applied())
                 })()),
+                // The window is final: a redemption spends no note of the wallet, so nothing is kept
+                // whole to release.
+                crate::Told::Final => {}
             }),
         )
     }
@@ -461,6 +464,18 @@ impl Machine {
                     }
                     Err(not_applied())
                 })()),
+                // The window of the frame is final: the notes it spent are past moving and past
+                // taking back, so the wallet lets go of what it kept of them whole; the nullifiers
+                // stay. A wallet that would not is a refusal the operator reads.
+                crate::Told::Final => {
+                    if let Err(why) = wallet_at(&at).and_then(|wallet| {
+                        wallet.release(&payment.spent).map_err(|_| NodeError::Refused {
+                            what: "a ledger that would not release the notes of a final spending",
+                        })
+                    }) {
+                        settled(Err(why));
+                    }
+                }
             }),
         )
     }

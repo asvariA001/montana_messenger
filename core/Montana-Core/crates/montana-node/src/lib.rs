@@ -88,6 +88,8 @@ pub enum Told {
     Applied(Vec<u64>),
     Moved(Vec<u64>),
     Left,
+    // The window of the frame is final: nothing moves it again, and what was kept to move it goes.
+    Final,
 }
 
 // A settlement is told as the round leaves and again by every replay that moves its frame, so it is
@@ -760,12 +762,18 @@ impl Machine {
     }
 
     // The settlements of every window at or below `window` go: the window is final and no replay
-    // moves its frames again.
+    // moves its frames again. Each is told so first, so that what a payer kept to follow a replay --
+    // the spent notes whole -- goes with them.
     pub fn settled_through(&self, window: u64) -> Result<(), NodeError> {
-        self.retelling
-            .lock()
-            .map_err(|_| NodeError::Uncountable)?
-            .retain(|(of, _, _, _)| *of > window);
+        let mut kept = self.retelling.lock().map_err(|_| NodeError::Uncountable)?;
+        let (due, waiting): (Vec<_>, Vec<_>) = std::mem::take(&mut *kept)
+            .into_iter()
+            .partition(|(of, _, _, _)| *of <= window);
+        *kept = waiting;
+        drop(kept);
+        for (_, _, mut settlement, _) in due {
+            settlement(Told::Final);
+        }
         Ok(())
     }
 

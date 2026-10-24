@@ -191,11 +191,37 @@ fn a_payer_is_told_again_where_a_replay_moves_its_frame_and_when_it_applies_nowh
     );
     drop(wallet);
 
-    // The window is final: nothing of it is told again.
+    // Told Applied again -- the decided roll holds the frame after all -- the notes are spent anew
+    // and kept whole for a replay to move or give back.
+    assert_eq!(machine.retell(WINDOW, &positions).expect("told again"), 1);
+    let wallet = Wallet::open(&ledger_at.0).expect("a wallet opens");
+    let spent_again = wallet.ledger().expect("a ledger");
+    assert_eq!(wallet.balance().expect("a balance"), held_before - PAID);
+    assert_eq!(
+        spent_again.gone.len(),
+        seeded.len(),
+        "the spent notes are not kept whole"
+    );
+    assert_eq!(spent_again.spent.len(), seeded.len());
+    drop(wallet);
+
+    // **The window is final**: nothing of it is told again, and what the wallet kept whole of the
+    // spent notes goes while the nullifiers written for them stay, so none of them enters again.
     machine
         .settled_through(WINDOW)
         .expect("the settlements of a final window go");
     assert_eq!(machine.retell(WINDOW, &positions).expect("told again"), 0);
+    let wallet = Wallet::open(&ledger_at.0).expect("a wallet opens");
+    let final_ledger = wallet.ledger().expect("a ledger");
+    assert!(
+        final_ledger.gone.is_empty(),
+        "spent notes kept whole past the finality of their window"
+    );
+    assert_eq!(final_ledger.spent.len(), seeded.len());
+    assert_eq!(
+        wallet.enter(seeded[0].clone()).err(),
+        Some(montana_wallet::WalletError::AlreadySpent)
+    );
 }
 
 // A frame the round passed over that the decided roll holds applies for the first time at the

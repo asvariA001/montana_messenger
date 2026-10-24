@@ -181,13 +181,21 @@ impl CanonicalEncode for Ledger {
     }
 }
 
+// **A ledger written before the spent notes were kept whole still reads.** The form of two vectors
+// ends where the second ends; the form of three carries the spent notes after them. A reader that
+// knew the new form alone would refuse every wallet written before it, and a payer would lose its
+// own ledger at an upgrade; so a ledger whose bytes end after the nullifiers is read with nothing
+// among the spent notes kept whole, which is what the old form knew.
 impl CanonicalDecode for Ledger {
     fn decode_from(input: &mut &[u8]) -> Result<Self, DecodeError> {
-        Ok(Self {
-            held: Vec::<Note>::decode_from(input)?,
-            spent: Vec::<[u8; 32]>::decode_from(input)?,
-            gone: Vec::<Note>::decode_from(input)?,
-        })
+        let held = Vec::<Note>::decode_from(input)?;
+        let spent = Vec::<[u8; 32]>::decode_from(input)?;
+        let gone = if input.is_empty() {
+            Vec::new()
+        } else {
+            Vec::<Note>::decode_from(input)?
+        };
+        Ok(Self { held, spent, gone })
     }
 }
 
@@ -408,6 +416,17 @@ impl Wallet {
     pub fn forget(&self, commitment: &[u8; 32]) -> Result<(), WalletError> {
         let mut ledger = self.ledger()?;
         ledger.held.retain(|n| n.commitment != *commitment);
+        self.put(&ledger)
+    }
+
+    // The notes a frame spent, once the window of the frame is final: no replay moves them again and
+    // none gives them back, so what the wallet keeps of them whole goes, and the nullifier written
+    // for each stays, so that the note is never entered again. The lifecycle bound of what is kept.
+    pub fn release(&self, commitments: &[[u8; 32]]) -> Result<(), WalletError> {
+        let mut ledger = self.ledger()?;
+        ledger
+            .gone
+            .retain(|note| !commitments.contains(&note.commitment));
         self.put(&ledger)
     }
 
@@ -652,6 +671,60 @@ mod tests {
         // A commitment never spent is passed over.
         wallet
             .take_back(&[[0x5A; 32]])
+            .expect("nothing to take back");
+    }
+    // A ledger of the form before the spent notes were kept whole -- two vectors and nothing after
+    // them -- reads back with nothing among the spent notes kept whole, and a ledger of the form
+    // after reads whole. The wrong implementation refused: a reader of the new form alone, which
+    // refuses every wallet written before it.
+    #[test]
+    fn a_ledger_of_the_old_form_reads_back_with_no_spent_note_kept_whole() {
+        let note = a_note(0x21, 700, 3);
+        let nullifier = a_note(0x22, 800, 4).nullifier().expect("a nullifier");
+        let mut old = Vec::new();
+        vec![note.clone()].encode_into(&mut old);
+        vec![nullifier].encode_into(&mut old);
+        let read = Ledger::decode_exact(&old).expect("the old form reads");
+        assert_eq!(read.held.len(), 1);
+        assert_eq!(read.held[0].commitment, note.commitment);
+        assert_eq!(read.spent, vec![nullifier]);
+        assert!(read.gone.is_empty());
+        let whole = Ledger {
+            held: vec![note.clone()],
+            spent: vec![nullifier],
+            gone: vec![a_note(0x23, 900, 5)],
+        };
+        let read = Ledger::decode_exact(&whole.encode()).expect("the new form reads");
+        assert_eq!(read.gone.len(), 1);
+        assert_eq!(read.gone[0].position, 5);
+        // The old form is the new form's bytes cut after the nullifiers.
+        assert_eq!(&whole.encode()[..old.len()], &old[..]);
+    }
+
+    // A spent note is kept whole only until the window of its spending is final: released, it goes
+    // from the wallet, the nullifier written for it stays, and the note is refused if entered again.
+    // The wrong implementation refused: spent notes kept whole for ever, with the spending half of the
+    // key in them.
+    #[test]
+    fn a_spent_note_is_released_when_its_spending_is_final_and_never_enters_again() {
+        let at = Scratch::named("spent-released");
+        let wallet = Wallet::open(&at.0).expect("a wallet opens");
+        let note = a_note(0x31, 500, 9);
+        wallet.enter(note.clone()).expect("entered");
+        let nullifier = wallet.spend(&note.commitment).expect("spent");
+        assert_eq!(wallet.ledger().expect("a ledger").gone.len(), 1);
+        wallet.release(&[note.commitment]).expect("released");
+        let ledger = wallet.ledger().expect("a ledger");
+        assert!(ledger.gone.is_empty());
+        assert_eq!(ledger.spent, vec![nullifier]);
+        assert_eq!(wallet.enter(note).err(), Some(WalletError::AlreadySpent));
+        // Released, it is past moving and past taking back: both pass over it.
+        assert_eq!(
+            wallet.move_note(&[0x31; 32], 1).err(),
+            Some(WalletError::NotHeld)
+        );
+        wallet
+            .take_back(&[[0x31; 32]])
             .expect("nothing to take back");
     }
 }
