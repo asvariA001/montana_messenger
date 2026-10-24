@@ -854,25 +854,33 @@ private class SearchResults(val act: MainActivity) : ScrollView(act) {
         isVerticalScrollBarEnabled = false
         setBackgroundColor(Color.BLACK)
         addView(list)
+        list.setPadding(0, 0, 0, dp(16))
     }
+    private companion object { const val CANVAS = 8 }   // iOS MTPageEdge.canvas: the least margin off the list's sides
     /** A word typed through is scanned once, after the keys settle (iOS: 120 ms). */
     fun show(query: String) { q = query; removeCallbacks(redraw); postDelayed(redraw, if (query.isEmpty()) 0 else 120) }
     fun again() { if (visibility == VISIBLE) show(q) }
 
     private fun keysAway() = act.getSystemService(android.view.inputmethod.InputMethodManager::class.java).hideSoftInputFromWindow(windowToken, 0)
-    private fun header(words: Int) = list.addView(act.text(act.getString(words), 12f, MT.gray).apply { setPadding(dp(16), dp(14), dp(16), dp(6)) }, lp())
-    private fun hairline() = list.addView(View(act).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = dp(82) })
+    /**
+     * EACH KIND OF RESULT ITS OWN ROUNDED SECTION (iOS searchResults .listStyle(.insetGrouped), MTPageEdge.canvas, MTResultBubble;
+     * atom 6d9c3d4f57f7): the words over it, then the rows on one glass card eight off the sides, no separator between them.
+     */
+    private fun section(words: Int, rows: List<View>) {
+        list.addView(act.text(act.getString(words), 12f, MT.gray).apply { setPadding(dp(CANVAS + 12), dp(14), dp(CANVAS + 12), dp(6)) }, lp())
+        list.addView(act.plate { rows.forEach { addView(it, lp()) } }, lp().apply { marginStart = dp(CANVAS); marginEnd = dp(CANVAS) })
+    }
 
     /** A person's row: the face and the name (iOS contactRow). */
     private fun personRow(ch: Chat) = act.hstack {
-        setPadding(dp(16), dp(8), dp(16), dp(8))
+        setPadding(dp(12), dp(8), dp(12), dp(8))
         addView(act.peerFace(ch.ref, ch.shown, 46), lp(dp(46), dp(46)).apply { marginEnd = dp(12) })
         addView(act.text(ch.shown.ifBlank { act.getString(R.string.peer) }, 17f, Color.WHITE, bold = true).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))   // USER-DATA: the name
         pressable { keysAway(); act.push { close -> conversationPage(act, ch.ref, close) } }
     }
     /** A letter found: the face, the name, the hour and the words (iOS messageHitRow); a tap opens the chat on that letter. */
     private fun hitRow(ch: Chat, m: Msg) = act.hstack {
-        setPadding(dp(16), dp(8), dp(16), dp(8))
+        setPadding(dp(12), dp(8), dp(12), dp(8))
         addView(act.peerFace(ch.ref, ch.shown, 46), lp(dp(46), dp(46)).apply { marginEnd = dp(12) })
         addView(act.vstack(Gravity.NO_GRAVITY) {
             addView(act.hstack {
@@ -901,7 +909,7 @@ private class SearchResults(val act: MainActivity) : ScrollView(act) {
     /** The met name's row (iOS the «GLOBAL SEARCH» section): the face, the name and «Message on Montana» in the platform's quiet grey -- no
      *  yellow word (atom 2026b4065ba8); a tap opens the chat. */
     private fun metRow(conv: String) = act.hstack {
-        setPadding(dp(16), dp(8), dp(16), dp(8))
+        setPadding(dp(12), dp(8), dp(12), dp(8))
         val shown = Book.chat(conv)?.shown?.ifBlank { null } ?: act.getString(R.string.peer)
         addView(act.peerFace(conv, shown, 46), lp(dp(46), dp(46)).apply { marginEnd = dp(12) })
         addView(act.vstack(Gravity.NO_GRAVITY) {
@@ -916,8 +924,7 @@ private class SearchResults(val act: MainActivity) : ScrollView(act) {
         val people = Book.all().filter { it.msgs.isNotEmpty() && !Groups.isKey(it.ref) }   // people only: a group is no person
         if (q.isEmpty()) {
             // nothing typed yet — the recent people only (iOS recentContacts: twelve, people only)
-            if (people.isNotEmpty()) header(R.string.search_contacts)
-            people.take(12).forEach { list.addView(personRow(it), lp()); hairline() }
+            if (people.isNotEmpty()) section(R.string.search_contacts, people.take(12).map { personRow(it) })
             return
         }
         val w = fold(q.trim())
@@ -926,10 +933,10 @@ private class SearchResults(val act: MainActivity) : ScrollView(act) {
         // the words of a person only: a word of the wire is never read as theirs, a voice or a file has no words to find
         val found = people.flatMap { ch -> ch.msgs.filter { !Marks.isService(it.text) && fold(it.text).contains(w) }.map { ch to it } }
             .sortedByDescending { it.second.at }.take(60)
-        if (chats.isNotEmpty()) { header(R.string.search_chats); chats.forEach { list.addView(personRow(it), lp()); hairline() } }
-        if (found.isNotEmpty()) { header(R.string.search_messages); found.forEach { (ch, m) -> list.addView(hitRow(ch, m), lp()); hairline() } }
+        if (chats.isNotEmpty()) section(R.string.search_chats, chats.map { personRow(it) })
+        if (found.isNotEmpty()) section(R.string.search_messages, found.map { (ch, m) -> hitRow(ch, m) })
         val met = nameHit(q.trim(), chats)
-        if (met != null) { header(R.string.search_global); list.addView(metRow(met), lp()) }
+        if (met != null) section(R.string.search_global, listOf(metRow(met)))
         if (chats.isEmpty() && found.isEmpty() && met == null)
             list.addView(act.text(act.getString(R.string.nothing_found), 17f, MT.gray, center = true).apply { setPadding(0, dp(40), 0, 0) }, lp())
     }
