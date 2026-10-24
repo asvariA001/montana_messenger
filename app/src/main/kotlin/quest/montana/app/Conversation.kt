@@ -284,6 +284,10 @@ object Notify {
         val c = Book.ctx
         val nm = c.getSystemService(NotificationManager::class.java) ?: return
         if (!Prefs.bool("notifMessages", true)) return
+        // NO BANNER WHILE A PERSON PLAYS (iOS MTPlayQuiet.held, ContentView.swift:3232-3240, the author's words 03.10, atom
+        // 9aa1fe955129): a chess board on the screen of the app in front says no letter of anyone; a phone in the background or
+        // locked rings every letter. The Money Flow half of the rule waits for the flow, which Android has not.
+        if (ChessSend.shownGame != null && CallScreen.front != null) return
         // A MUTED OR ARCHIVED CHAT SAYS NOTHING (iOS MTQuietChats, MontanaNotify 190-193; build 2083): no banner, no sound, no count --
         // but A MENTION RINGS THROUGH THE MUTE (iOS presentGroup mentioned, stage R): the person was named in a group
         if (!mentioned && (ChatMarks.isMuted(ref) || ChatMarks.isArchived(ref))) return

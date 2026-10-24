@@ -45,6 +45,10 @@ object Library {
     }
     /** Whole or a part the person chose (Android 14's «selected photos», iOS limited access): either lets the grid show it. */
     fun allowed(c: Context): Boolean = perms().any { c.checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
+    /** Only a part the person chose (iOS PHAuthorizationStatus .limited): Android 14's «selected photos», the whole library not granted. */
+    fun partial(c: Context): Boolean = 34 <= Build.VERSION.SDK_INT &&
+        c.checkSelfPermission(android.Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) == PackageManager.PERMISSION_GRANTED &&
+        c.checkSelfPermission(android.Manifest.permission.READ_MEDIA_IMAGES) != PackageManager.PERMISSION_GRANTED
 
     /** What a prior warm or read already found, shown at once while a fresh read runs underneath (iOS RecentMedia.assets). */
     @Volatile private var cached: List<LibraryItem>? = null
@@ -443,6 +447,10 @@ private class PullSheet(c: Context, private val grid: GridView, private val onGo
  */
 fun galleryPick(act: MainActivity, onPick: (List<Uri>) -> Unit, onCamera: () -> Unit, onAll: () -> Unit) {
     val c: Context = act
+    // UNDER LIMITED ACCESS THE GALLERY IS THE WHOLE LIBRARY AT ONCE (iOS openGallery, MontanaConversation.swift:3839-3849, the
+    // author's word 24.09, atom ea8f63c10a16): the row's own page would show only the few pictures allowed; the system's picker asks
+    // no permission and opens the whole library clean. Every other state keeps the row's page with its camera tile.
+    if (Library.partial(c)) { android.util.Log.d("Montana", "gallery_open limited: the whole library at once"); onAll(); return }
     val chosen = ArrayList<Long>()
     var items: List<LibraryItem> = emptyList()
     lateinit var close: () -> Unit
