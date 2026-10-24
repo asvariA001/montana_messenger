@@ -503,9 +503,11 @@ fun dataStoragePage(act: MainActivity, onBack: () -> Unit): View {
     val plan = CopyPlan.load()
     val planRows = c.vstack(Gravity.NO_GRAVITY)
     var desk: CopyDesk? = null
+    lateinit var measure: () -> Unit
     fun count() = act.background {
         val inv = CopyInventory.gather(act)
         act.onMain {
+            measure()
             desk?.let { it.inv = inv; it.changed(); return@onMain }
             desk = CopyDesk(act, inv, plan).also { d ->
                 copySummary(d).forEach { r ->
@@ -609,6 +611,7 @@ fun dataStoragePage(act: MainActivity, onBack: () -> Unit): View {
                             val word = if (r != null) c.getString(R.string.cache_cleared, r.first, android.text.format.Formatter.formatShortFileSize(c, r.second))
                                 else c.getString(R.string.cache_silent)
                             AlertDialog.Builder(act).setTitle(R.string.cache_word).setMessage(word).setPositiveButton(R.string.ok, null).show()
+                            count()
                         }
                     }
                 }
@@ -638,6 +641,60 @@ fun dataStoragePage(act: MainActivity, onBack: () -> Unit): View {
             listOf(5 to gb(5), 16 to gb(16), 32 to gb(32), 0 to c.getString(R.string.cache_no_limit)))
         section(c.getString(R.string.cache_header), c.getString(if (HomeShelf.bringing) R.string.cache_footer_node else R.string.cache_footer_no_node),
             keepRow, limitRow, keptRow, clearRow)
+        // WHAT THIS PHONE HOLDS, MEASURED ON ITS DISK (iOS «On this phone», e02595a5 and e9187672; the author's word 18.10.2026 10:2x MSK:
+        // «I cannot see what weighs so much nor how to clean it»): the sum is the phone's own, each file counted once; the attachments
+        // are chosen by kind on their pages, the copies waiting are cleared here
+        val diskRows = c.vstack(Gravity.NO_GRAVITY)
+        fun size(b: Long) = android.text.format.Formatter.formatShortFileSize(c, b)   // USER-DATA: a size measured on this phone
+        fun diskRow(icon: Int, color: Int, word: Int, bytes: Long, act0: View? = null, onTap: (() -> Unit)? = null): View {
+            val value = c.hstack {
+                addView(c.text(size(bytes), 15f, MT.gray))
+                if (act0 != null) { gap(4); addView(act0, lp(dp(36), dp(36))) }
+            }
+            return c.settingsRow(icon, color, c.getString(word), value = value, chevron = onTap != null) { onTap?.invoke() }
+        }
+        fun drawDisk(u: DiskUse) {
+            diskRows.removeAllViews()
+            val kinds = { desk?.let { d -> act.push { close -> copyKindsPage(d) { close(); count() } } }; Unit }
+            val bin = c.icon(R.drawable.ic_delete, SysColor.red).apply {
+                setPadding(dp(6), dp(6), dp(6), dp(6)); contentDescription = c.getString(R.string.cache_clear_go)
+                alpha = if (u.shelf == 0L) 0.4f else 1f
+                pressable {
+                    if (u.shelf == 0L) return@pressable
+                    AlertDialog.Builder(act).setTitle(R.string.ds_shelf_q).setMessage(R.string.ds_shelf_msg)
+                        .setPositiveButton(R.string.cache_clear_go) { _, _ -> act.background { MontanaBackup.sweep(act, "person"); act.onMain { measure() } } }
+                        .setNegativeButton(R.string.cancel, null).show()
+                }
+            }
+            val total = c.hstack {
+                setPadding(dp(16), dp(12), dp(14), dp(12))
+                addView(c.text(c.getString(R.string.ds_total), 16f, bold = true), lp(0, WRAP, 1f))
+                addView(c.text(size(u.total), 16f, bold = true))
+            }
+            val rows = listOf(
+                diskRow(R.drawable.ic_attach, SysColor.indigo, R.string.ds_attachments, u.chats, onTap = kinds),
+                diskRow(R.drawable.ic_set_doc, SysColor.gray, R.string.ds_unnamed, u.unnamed, onTap = kinds),
+                diskRow(R.drawable.ic_grid_2x2, SysColor.teal, R.string.ds_walls, u.walls),
+                diskRow(R.drawable.ic_archive, SysColor.orange, R.string.ds_shelf, u.shelf, act0 = bin),
+                diskRow(R.drawable.ic_restore, SysColor.blue, R.string.ds_history, u.history),
+                diskRow(R.drawable.ic_person, SysColor.pink, R.string.ds_faces, u.faces),
+                diskRow(R.drawable.ic_more_horiz, SysColor.gray, R.string.ds_rest, u.other),
+                total)
+            rows.forEachIndexed { i, r ->
+                if (0 < i) diskRows.addView(View(c).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = c.dp(16) })
+                diskRows.addView(r, lp())
+            }
+        }
+        diskRows.addView(ProgressBar(c).apply { indeterminateTintList = ColorStateList.valueOf(MT.gray) },
+            lp(dp(28), dp(28)).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = dp(10); bottomMargin = dp(10) })
+        section(c.getString(R.string.ds_header), c.getString(R.string.ds_footer), diskRows)
+        measure = {
+            val named = desk?.inv?.owner?.keys?.toSet() ?: emptySet()
+            act.background {
+                val u = runCatching { DiskUse.measure(act, named) }.getOrNull()
+                if (u != null) act.onMain { drawDisk(u) }
+            }
+        }
         HomeKeep.onChange = { kept() }
         kept()
         HomeKeep.ask()

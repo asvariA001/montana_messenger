@@ -220,6 +220,7 @@ class MainActivity : Activity() {
         if (hasSeed && termsAccepted) HomeNodeWatch.tickSoon(this)
         if (hasSeed && termsAccepted) HomeKeep.tickSoon(this)   // the files on it: the pass over Wi-Fi, or the book back on a new phone (iOS MTHomeKeep, 18.10)
         if (hasSeed && termsAccepted) MontanaPaths.heal(this)   // the copy's old store joins the letters' folder before the archive looks there
+        Thread { runCatching { MontanaBackup.sweep(applicationContext, "launch") } }.start()   // what a killed hand left on the shelf
         if (hasSeed && termsAccepted) Archive.atLaunch()   // the archive read into the feed's empty conversations (iOS cold start 15.10)
         if (hasSeed && termsAccepted) Thread { Groups.mirrorHeld() }.start()   // the groups held before the twin mirror, once a device (iOS standAll → mirrorHeld)
         // The identity is born: the invitation that waited for it opens by itself (iOS replayPendingInvite).

@@ -160,6 +160,49 @@ class CopyInventory {
     }
 }
 
+/**
+ * WHAT THIS PHONE HOLDS, MEASURED ON ITS DISK (iOS MTDiskUse, e02595a5 and e9187672; the author's word 18.10.2026 10:2x MSK: «Montana
+ * weighs 20 GB and I cannot see what weighs so much nor how to clean it; Data and Storage shows other numbers, the backup's»). One
+ * walk over the app's own folders off the main thread: every file counted once by its identity (a hard link names the bytes it
+ * links, never a second copy) and by the disk it takes, each under the one place it belongs to; a link to a folder is not walked.
+ * Android has no keepers' shares and hands a viewer the file itself (MediaProvider), so iOS's «Kept for the people who write to
+ * you» and «Opened files» have nothing to count here.
+ */
+class DiskUse {
+    var chats = 0L      // attachments the letters name
+    var unnamed = 0L    // files of the store no letter names: a letter deleted elsewhere, a file laid by a copy
+    var walls = 0L      // the walls' pictures brought to be seen (Board.lookIn)
+    var shelf = 0L      // copies waiting on the shelf (MontanaBackup.shelf)
+    var history = 0L    // the letters, the chats' logs and the chains of time
+    var faces = 0L      // the faces of the people and of the groups
+    var other = 0L      // the caches, the pieces in flight and the rest the system keeps
+    val total get() = chats + unnamed + walls + shelf + history + faces + other
+
+    companion object {
+        fun measure(c: Context, named: Set<String>): DiskUse {
+            val use = DiskUse()
+            val seen = HashSet<Pair<Long, Long>>()
+            fun walk(root: File?, add: (File, Long) -> Unit) {
+                if (root == null) return
+                val st = runCatching { android.system.Os.lstat(root.path) }.getOrNull() ?: return
+                if (android.system.OsConstants.S_ISLNK(st.st_mode)) return
+                if (android.system.OsConstants.S_ISDIR(st.st_mode)) { root.listFiles()?.forEach { walk(it, add) }; return }
+                if (!android.system.OsConstants.S_ISREG(st.st_mode) || !seen.add(st.st_dev to st.st_ino)) return
+                add(root, st.st_blocks * 512)
+            }
+            walk(Media.dir(c)) { f, b -> if (f.name in named) use.chats += b else use.unnamed += b }
+            walk(Board.lookIn(c)) { _, b -> use.walls += b }
+            walk(File(c.noBackupFilesDir, "MontanaBackup")) { _, b -> use.shelf += b }
+            for (f in listOf(File(c.filesDir, "faces"), MontanaPaths.places(c)["avatars"], SelfFace.file(c))) walk(f) { _, b -> use.faces += b }
+            // the pieces in flight, the book of the node and the diary lie under the archive's root but are not its history
+            for (f in listOf("Blobs", "HomeBook", "Diagnostics")) walk(File(MontanaPaths.archive(c), f)) { _, b -> use.other += b }
+            for (f in listOf(MontanaPaths.archive(c), File(c.filesDir, "TimeChain"), File(c.filesDir, "saved_messages.json"))) walk(f) { _, b -> use.history += b }
+            for (f in listOf(c.dataDir, c.externalCacheDir, c.getExternalFilesDir(null))) walk(f) { _, b -> use.other += b }
+            return use
+        }
+    }
+}
+
 /** The count and the plan the copy's pages share (iOS the @State inventory and plan bound into every page); a change saves the plan. */
 class CopyDesk(val act: MainActivity, var inv: CopyInventory, val plan: CopyPlan) {
     private val shown = mutableListOf<() -> Unit>()

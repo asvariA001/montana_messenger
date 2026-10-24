@@ -119,6 +119,8 @@ object HomeNodeWatch {
     @Volatile var fetching: Double? = null; private set
     @Volatile var restoring: Double? = null; private set
     @Volatile private var busy = false
+    /** A copy goes to the node or comes from it now: the shelf is not swept under it. */
+    val working: Boolean get() = busy
     /** Told on every move of a share; the page that shows the bar sets it. */
     @Volatile var onChange: (() -> Unit)? = null
     private fun said() { onChange?.invoke() }

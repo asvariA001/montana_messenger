@@ -131,6 +131,21 @@ object MontanaBackup {
 
     /** Where a copy waits while it is laid: outside every system backup. */
     fun shelf(c: Context): File? = File(c.noBackupFilesDir, "MontanaBackup").takeIf { it.isDirectory || it.mkdirs() }
+    /** THE SHELF SWEPT (iOS MontanaBackup.sweep, e02595a5): what a hand left a minute ago or earlier leaves -- at a launch, where no
+     *  copy is laid, and on the person's word to clear the copies waiting; never the file laid this minute, nor while the node's
+     *  copy goes or comes. The answer is the bytes freed. */
+    fun sweep(c: Context, why: String): Long {
+        if (HomeNodeWatch.working) return 0L
+        val edge = System.currentTimeMillis() - 60_000
+        var freed = 0L; var n = 0
+        File(c.noBackupFilesDir, "MontanaBackup").listFiles()?.forEach { f ->
+            if (edge <= f.lastModified()) return@forEach
+            val size = f.length()
+            if (f.deleteRecursively()) { freed += size; n++ }
+        }
+        if (0 < n) Log.i("Montana", "backup_sweep files=$n bytes=$freed by=$why")
+        return freed
+    }
 
     /** A name a copy may write: one plain file, never a path out of its place. */
     fun plainName(n: String) = n.isNotEmpty() && !n.contains('/') && !n.startsWith(".")
