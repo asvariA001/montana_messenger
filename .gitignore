@@ -8,3 +8,7 @@ native/montana-jni/target/
 .DS_Store
 # the scripts’ own bytecode
 __pycache__/
+
+# worktrees of other branches (timechain, fork-checklist, helpers): their files live in their own branches
+/.worktrees/
+/timechain/
