@@ -31,7 +31,7 @@ use montana_node::certificate::{
 };
 use montana_node::pulse::Cohort;
 use montana_node::runner::Runner;
-use mt_state::layout::{Beacon, Confirmation, Pledge, Proposal};
+use mt_state::layout::{Beacon, Confirmation, Pledge, Proposal, Roll};
 
 const ANCHOR: u64 = 2_000;
 
@@ -159,6 +159,15 @@ fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
     let first = opening(window, earlier_id);
     let (answered, closed) = heavies(&[one, two], &pair, window, &first, later_id);
     let last = closing(window, &first, &answered);
+    // The roll the proposal of this window names: no frames, the parts of the cement ascending.
+    let mut parts: Vec<[u8; 32]> = answered.iter().map(|h| h.part_nullifier).collect();
+    parts.sort_unstable();
+    let roll = Roll {
+        window,
+        frames: Vec::new(),
+        parts: parts.clone(),
+    };
+    let rolls = [roll.clone()];
     let rounds = [
         Round {
             beacon: &first,
@@ -224,7 +233,7 @@ fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
         machine_root: [0x61; 32],
         admitted_root: all.root().bytes(),
         operations_root: [0x81; 32],
-        roll: [0xB1; 32],
+        roll: roll.id().expect("an identifier"),
         admitted_count: all.count(),
         census: later.census.clone(),
     };
@@ -256,11 +265,13 @@ fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
         Step {
             certificate: &rounds,
             pledges: &closed,
+            rolls: &rolls,
             next: std::slice::from_ref(&next),
         },
         Step {
             certificate: &rounds_after,
             pledges: &closed_after,
+            rolls: &[],
             next: &[],
         },
     ];
@@ -286,11 +297,13 @@ fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
                 Step {
                     certificate: &rounds,
                     pledges: &closed,
+                    rolls: &rolls,
                     next: std::slice::from_ref(&next),
                 },
                 Step {
                     certificate: &short,
                     pledges: &closed_after,
+                    rolls: &[],
                     next: &[],
                 },
             ],
@@ -327,6 +340,7 @@ fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
             &[Step {
                 certificate: &rounds,
                 pledges: &closed,
+                rolls: &rolls,
                 next: std::slice::from_ref(&drawn_late),
             }],
             1,
@@ -389,11 +403,13 @@ fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
                 Step {
                     certificate: &rounds,
                     pledges: &closed,
+                    rolls: &rolls,
                     next: std::slice::from_ref(&other),
                 },
                 Step {
                     certificate: &rounds_after,
                     pledges: &closed_after,
+                    rolls: &[],
                     next: &[],
                 },
             ],
@@ -410,11 +426,13 @@ fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
             Step {
                 certificate: &rounds,
                 pledges: &closed,
+                rolls: &rolls,
                 next: &both,
             },
             Step {
                 certificate: &rounds_after,
                 pledges: &closed_after,
+                rolls: &[],
                 next: &[],
             },
         ],
@@ -451,11 +469,13 @@ fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
                 Step {
                     certificate: &rounds,
                     pledges: &closed,
+                    rolls: &rolls,
                     next: std::slice::from_ref(&misplaced),
                 },
                 Step {
                     certificate: &rounds_after,
                     pledges: &closed_after,
+                    rolls: &[],
                     next: &[],
                 },
             ],
@@ -472,11 +492,13 @@ fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
             Step {
                 certificate: &rounds,
                 pledges: &closed,
+                rolls: &rolls,
                 next: &copies,
             },
             Step {
                 certificate: &rounds_after,
                 pledges: &closed_after,
+                rolls: &[],
                 next: &[],
             },
         ],
@@ -510,11 +532,13 @@ fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
             Step {
                 certificate: &rounds,
                 pledges: &closed,
+                rolls: &rolls,
                 next: std::slice::from_ref(&next),
             },
             Step {
                 certificate: &split_rounds,
                 pledges: &split_closed,
+                rolls: &[],
                 next: &[],
             },
         ],
@@ -531,11 +555,13 @@ fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
                 Step {
                     certificate: &rounds,
                     pledges: &closed,
+                    rolls: &rolls,
                     next: std::slice::from_ref(&other),
                 },
                 Step {
                     certificate: &split_rounds,
                     pledges: &split_closed,
+                    rolls: &[],
                     next: &[],
                 },
             ],
@@ -554,11 +580,13 @@ fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
             Step {
                 certificate: &rounds,
                 pledges: &closed,
+                rolls: &rolls,
                 next: &minority_first,
             },
             Step {
                 certificate: &split_rounds,
                 pledges: &split_closed,
+                rolls: &[],
                 next: &[],
             },
         ],
@@ -568,4 +596,136 @@ fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
     )
     .expect("the decided proposal is taken past a minority name");
     assert_eq!(past_the_minority.later.id(), next.id());
+
+    // The pair of the proposal is recomputed from the roll standing beside it (Consensus, "The join",
+    // 3). Refused: a proposal whose roll was not handed in -- a walker taking the pair off the final
+    // beacon alone takes it.
+    assert_eq!(
+        walk(
+            &anchor,
+            &[Step {
+                certificate: &rounds,
+                pledges: &closed,
+                rolls: &[],
+                next: std::slice::from_ref(&next),
+            }],
+            1,
+            &draw,
+            major,
+        ),
+        Err(refused("a proposal whose roll was not handed in"))
+    );
+
+    // Refused: a final beacon whose pair is not the aggregate of the parts the roll names -- the
+    // count is the verified two and the quorum is reached, so the beacon passes the door that reads
+    // its count against the certificate, and only the recomputation shows its aggregate is no cement.
+    let mut forged_last = last.clone();
+    forged_last.cement_aggregate = [0x77; 32];
+    let forged_rounds = [
+        Round {
+            beacon: &first,
+            heavy: &answered,
+            ballots: &[],
+        },
+        Round {
+            beacon: &forged_last,
+            heavy: &[],
+            ballots: &[],
+        },
+    ];
+    let forged_decided = decided_of(
+        &forged_last.id().expect("an identifier"),
+        &earlier_id,
+        &forged_rounds,
+        &closure,
+        &electorate,
+    )
+    .expect("a final beacon whose count the certificate bounds is read as before");
+    let forged_next = runner
+        .propose(
+            mt_state::PROTOCOL_VERSION,
+            Predecessor::Proposal(&later),
+            &roots,
+            &forged_decided,
+        )
+        .expect("the proposal stands");
+    assert_eq!(
+        walk(
+            &anchor,
+            &[Step {
+                certificate: &forged_rounds,
+                pledges: &closed,
+                rolls: &rolls,
+                next: std::slice::from_ref(&forged_next),
+            }],
+            1,
+            &draw,
+            major,
+        ),
+        Err(refused(
+            "a roll whose parts do not aggregate to the cement of the decision"
+        ))
+    );
+
+    // Refused: a final beacon carrying the pair of a set holding a part no verified heavy attestation
+    // of the certificate carries, with the roll that names it -- count and aggregate agree, and only
+    // the match of the parts against the verified ones refuses it. A walker checking the roll's count
+    // and aggregate and not its parts takes it.
+    let mut ghosts = vec![parts[0], [0xEE; 32]];
+    ghosts.sort_unstable();
+    let ghost_roll = Roll {
+        window,
+        frames: Vec::new(),
+        parts: ghosts.clone(),
+    };
+    let mut ghost_last = last.clone();
+    ghost_last.cement_aggregate =
+        mt_derive::aggregate::aggregate(&ghosts, window).expect("distinct parts");
+    let ghost_rounds = [
+        Round {
+            beacon: &first,
+            heavy: &answered,
+            ballots: &[],
+        },
+        Round {
+            beacon: &ghost_last,
+            heavy: &[],
+            ballots: &[],
+        },
+    ];
+    let ghost_decided = decided_of(
+        &ghost_last.id().expect("an identifier"),
+        &earlier_id,
+        &ghost_rounds,
+        &closure,
+        &electorate,
+    )
+    .expect("a final beacon whose count the certificate bounds is read as before");
+    let mut ghost_roots = roots.clone();
+    ghost_roots.roll = ghost_roll.id().expect("an identifier");
+    let ghost_next = runner
+        .propose(
+            mt_state::PROTOCOL_VERSION,
+            Predecessor::Proposal(&later),
+            &ghost_roots,
+            &ghost_decided,
+        )
+        .expect("the proposal stands");
+    assert_eq!(
+        walk(
+            &anchor,
+            &[Step {
+                certificate: &ghost_rounds,
+                pledges: &closed,
+                rolls: std::slice::from_ref(&ghost_roll),
+                next: std::slice::from_ref(&ghost_next),
+            }],
+            1,
+            &draw,
+            major,
+        ),
+        Err(refused(
+            "a roll naming a part no verified heavy attestation of the certificate carries"
+        ))
+    );
 }

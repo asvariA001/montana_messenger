@@ -17,7 +17,7 @@
 use crate::NodeError;
 use mt_proof::poseidon::Digest;
 use mt_pulse::standing::Committee;
-use mt_state::layout::{Ballot, Beacon, Census, Confirmation, Pledge, Proposal};
+use mt_state::layout::{Ballot, Beacon, Census, Confirmation, Pledge, Proposal, Roll};
 use mt_state::Layout;
 use std::collections::BTreeMap;
 
@@ -463,6 +463,51 @@ pub fn decided_of(
     Decided::of_beacon(held, electorate)
 }
 
+// The pair a proposal carries, recomputed by a device that was not there from the roll standing beside
+// the proposal, as a machine of the window replays it: the roll whose identifier the proposal carries,
+// naming parts ascending and without repeat, each the part of a heavy attestation of the certificate
+// verified, in the number the decision carries and aggregating, with the window as context, to its
+// aggregate. Consensus, "The join", 3. The final beacon says where the window closed; the roll is what
+// shows its pair is the cement of verified parts and not a pair a beacon was written to carry.
+pub fn cement_of_roll(
+    proposal: &Proposal,
+    decided: &Decided,
+    rolls: &[Roll],
+    closure: &Closure,
+) -> Result<(), NodeError> {
+    let roll = rolls
+        .iter()
+        .find(|one| one.window == proposal.window && one.id().ok() == Some(proposal.roll))
+        .ok_or(NodeError::Refused {
+            what: "a proposal whose roll was not handed in",
+        })?;
+    if roll.parts.len() as u64 != decided.cement_count {
+        return Err(NodeError::Refused {
+            what: "a roll whose count of parts is not the cement count of the decision",
+        });
+    }
+    if roll
+        .parts
+        .iter()
+        .any(|part| closure.parts.binary_search(part).is_err())
+    {
+        return Err(NodeError::Refused {
+            what: "a roll naming a part no verified heavy attestation of the certificate carries",
+        });
+    }
+    let aggregate = mt_derive::aggregate::aggregate(&roll.parts, decided.window).map_err(|_| {
+        NodeError::Refused {
+            what: "a roll whose parts the aggregation refuses",
+        }
+    })?;
+    if aggregate != decided.cement_aggregate {
+        return Err(NodeError::Refused {
+            what: "a roll whose parts do not aggregate to the cement of the decision",
+        });
+    }
+    Ok(())
+}
+
 // The roots a verifier recomputed from the canonical slots of the window, the count of the tree of
 // admitted machines with them, and the census carried from the proposal before with the cement of
 // this window: what a proposal must carry and is never trusted for.
@@ -674,6 +719,7 @@ pub struct Anchor {
 pub struct Step<'a> {
     pub certificate: &'a [Round<'a>],
     pub pledges: &'a [Pledge],
+    pub rolls: &'a [Roll],
     pub next: &'a [Proposal],
 }
 
@@ -762,6 +808,7 @@ pub fn walk(
                     )
                 })
                 .and_then(|decided| {
+                    cement_of_roll(candidate, &decided, step.rolls, &closure)?;
                     verify_successor(
                         candidate,
                         &Held {

@@ -2432,8 +2432,8 @@ fn stand_at_the_window(machine: &Machine, window: u64, object: &[u8]) -> Result<
 
 // **A device that holds nothing walks to the head from the anchor its operator handed it.**
 // Consensus, "The join": it asks every acquaintance it reached what stands at the points of every
-// window after the anchor — the beacons and heavy attestations of the rounds, and the pledges and the
-// proposals of the window — judges every answer at the one door and trusts none, and takes as the head the newest
+// window after the anchor — the beacons and heavy attestations of the rounds, and the pledges, the
+// proposals and the rolls of the proposals of the window — judges every answer at the one door and trusts none, and takes as the head the newest
 // proposal whose certificate verified. What it reads it does not hold: a device walking the past
 // deposits nothing and stands at no point. It reads no further than the retention, past which no
 // certificate stands; a device further behind takes a fresh anchor, and the set says that is a
@@ -2443,7 +2443,7 @@ pub fn join(machine: &Machine, anchor: &Anchor, patience: u32) -> Result<Anchor,
         row: "retained_windows".to_string(),
     })?;
     type Rounds = Vec<(Beacon, Vec<Confirmation>, Vec<Ballot>)>;
-    let mut collected: Vec<(Rounds, Vec<Pledge>, Vec<Proposal>)> = Vec::new();
+    let mut collected: Vec<(Rounds, Vec<Pledge>, Vec<Proposal>, Vec<Roll>)> = Vec::new();
     let mut window = anchor.later.window;
     for _ in 0..=retained {
         window = window.checked_add(1).ok_or(NodeError::Refused {
@@ -2458,6 +2458,7 @@ pub fn join(machine: &Machine, anchor: &Anchor, patience: u32) -> Result<Anchor,
             rounds,
             pledges_of(&bodies, window)?,
             proposals_of(&bodies, window)?,
+            rolls_of(&bodies, window),
         ));
     }
     // Every proposal standing for a window is handed to the walk, which takes the one the window after
@@ -2465,7 +2466,7 @@ pub fn join(machine: &Machine, anchor: &Anchor, patience: u32) -> Result<Anchor,
     // awaiting its certificate, and the walk takes nothing against it.
     let rounds: Vec<Vec<certificate::Round<'_>>> = collected
         .iter()
-        .map(|(rounds, _, _)| {
+        .map(|(rounds, _, _, _)| {
             rounds
                 .iter()
                 .map(|(beacon, heavy, ballots)| certificate::Round {
@@ -2479,11 +2480,14 @@ pub fn join(machine: &Machine, anchor: &Anchor, patience: u32) -> Result<Anchor,
     let steps: Vec<certificate::Step<'_>> = rounds
         .iter()
         .zip(collected.iter())
-        .map(|(certificate, (_, pledges, next))| certificate::Step {
-            certificate,
-            pledges,
-            next,
-        })
+        .map(
+            |(certificate, (_, pledges, next, rolls))| certificate::Step {
+                certificate,
+                pledges,
+                rolls,
+                next,
+            },
+        )
         .collect();
     let threshold = mt_pulse::retarget::draw_threshold().map_err(|_| NodeError::Decree {
         row: "hash_bytes".to_string(),

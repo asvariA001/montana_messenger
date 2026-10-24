@@ -215,7 +215,8 @@ census of `E`. ∎
   WINDOW-RELATION.md section 5.
 - A final beacon below the quorum, naming more parts than its certificate verified, or not linked to
   round zero and the predecessor — refused: `decided_of`, certificate.rs:410-460; see F-431-2 and
-  F-431-3 for the two clauses of section 3 it does not check.
+  F-431-3 for the two clauses of section 3 it did not check; the pair is now recomputed from the
+  roll by `cement_of_roll` (decision 3), the answer to the beacon is not (F-431-2).
 - Two runners, or two branches of one round, of one decision — one identifier: `decided_identifier`,
   certificate.rs:497-521.
 - The running node's own close — as above: one door, `verify_certificate`.
@@ -251,19 +252,38 @@ of another width; `links_to` refuses a round past `u32::MAX` (round.rs:107-109);
 
 **Weaker than the paper — findings.**
 
-- **F-431-2.** `decided_of` takes the final beacon from any round of the certificate
+- **F-431-2 (partly closed, 24.10, decision 3 of the author; see below).** `decided_of` takes the final beacon from any round of the certificate
   (certificate.rs:417-423), including a round whose beacon no verified attestation answered.
   WINDOW-RELATION.md section 3, "Close", names the final beacon as one "which a verified
   attestation answered". Required: the final beacon is answered by a verified heavy attestation
   of the certificate.
-- **F-431-3.** `decided_of` bounds the final beacon's count by the certificate's
+- **F-431-3 (closed, 24.10, decision 3 of the author).** `decided_of` bounded the final beacon's count by the certificate's
   (certificate.rs:449-453) and does not recompute its `cement_aggregate` from verified parts.
   WINDOW-RELATION.md section 3, "Cement": "Every verifier recomputes both from the attestations it
   holds and refuses a beacon whose state is not that pair." Required: the pair of the final beacon
   is the aggregate and the count of a set of verified parts of the certificate. Theorem 4 does not
   rest on F-431-2 or F-431-3: the head is fixed by the agreement of the window after, which decides
   an identifier carrying the final beacon and the pair. A proposal taken on the last step, which is
-  not the head, does rest on them.
+  not the head, did rest on them.
+  *How decision 3 closes them.* Consensus 7.2.0, "The join", 3, now reads: "The device recomputes
+  that pair rather than reading it off the beacon, by the rule a machine of the window applies when it
+  replays a roll: the roll whose identifier `N` carries, standing beside `N`, names parts ascending
+  and without repeat, each the part-nullifier of a heavy attestation of the certificate just
+  verified, in the number `N` carries as the count of its cement, and aggregates with the window as
+  context to the aggregate `N` carries." The step of the walk carries the rolls (`Step::rolls`,
+  certificate.rs; `join` collects them with `rolls_of`, pulse.rs) and `walk` calls
+  `cement_of_roll` after `decided_of` and before `verify_successor`. F-431-3 is closed: a pair that
+  is not the aggregate of verified parts is refused (tests `walk` in a_walk_from_an_anchor.rs: a
+  final beacon with an aggregate that is no cement; a final beacon over the pair of a set holding a
+  part no verified attestation carries; a proposal whose roll was not handed in). F-431-2 is not
+  closed as the finding stated it: "which a verified attestation answered" cannot be checked from a
+  certificate of heavy attestations alone, since a round may be answered by light attestations only
+  (pulse.rs:546, 826-829) and a certificate carries none, and the author chose the roll and not the
+  lights. What a device now holds of the final beacon is that its pair is the cement of verified
+  parts; the beacon itself stands outside the name of the proposal (Canon, "The proposal that closes
+  a window"), so an unanswered beacon carrying a verified pair decides nothing the pair does not.
+  If the specification is to require the answer, the certificate must carry the light attestations
+  of the final round: a question for the author, not changed here.
 - **F-431-4 (closed, 24.10, decision of the author).** In attempt zero the pledged name of a faulty
   part was that of its first heavy attestation in the order handed in (agreement.rs:112-118).
   Theorem 1 does not rest on it, the part being the adversary's either way; but two verifiers given
@@ -432,7 +452,9 @@ of another width; `links_to` refuses a round past `u32::MAX` (round.rs:107-109);
   with a test at depth one that refuses the named wrong implementation (three leaves taken under a
   tree of two). O-4 is discharged with that closure.
 - **O-5.** F-431-1 to F-431-4 closed in code, each with a test that refuses the named wrong
-  verifier.
+  verifier. State: F-431-1 closed; F-431-4 closed (decision 2); F-431-3 closed (decision 3);
+  F-431-2 open as a question of the specification (the light attestations of the final round are not
+  in the certificate), see section 8.
 
 Item 1 stands closed when O-1 to O-5 are discharged, the Lean file and the Kani harnesses run
 green on the build host, and the ring of the core is green on the commit that carries them.

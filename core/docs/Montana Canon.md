@@ -1,6 +1,6 @@
 # Montana — Canon
 
-**Version:** 9.1.0
+**Version:** 9.2.0
 
 Canon is the one place where the values and the bytes of Montana live. Every other document
 of the set names a quantity and points here; none of them restates a number, a size, a
@@ -4933,7 +4933,7 @@ decision between them.
 
 ### The certificate of a window
 
-The certificate of a window is not an object: it is the proposal that closed the window together with
+The certificate of a window is not an object: it is the proposal that closed the window with its roll, together with
 the heavy attestations of the window after it, the pledges of that window's agreement its decision
 stands on and the ballots of their parts, which stand at their points exactly as they were
 published. A device verifies a certificate as the living
@@ -4941,7 +4941,7 @@ verified its parts, and Consensus states the procedure.
 
 **Invariants of the certificate:**
 
-- A certificate introduces no object, no signature and no key; its parts are a proposal, the heavy attestations of the window after it, the pledges its decision stands on and the ballots of their parts, each of the layout and the length this document already fixes.
+- A certificate introduces no object, no signature and no key; its parts are a proposal with its roll, the heavy attestations of the window after it, the pledges its decision stands on and the ballots of their parts, each of the layout and the length this document already fixes.
 - The heavy attestations, the ballots and the pledges of a window, the frames of its rounds and its proposals with their rolls survive at their points for `retained_windows` windows after the window closes; a deposit at a point of a past round is refused, and what stands there is held until the retention ends, and nothing else of a round outlives its window.
 
 ### The frame of a payment

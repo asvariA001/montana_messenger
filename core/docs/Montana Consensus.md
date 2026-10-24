@@ -1,6 +1,6 @@
 # Montana — Consensus
 
-**Version:** 7.1.0
+**Version:** 7.2.0
 
 Consensus holds the TimeChain and its movement: how a window advances, who runs it, how it is cemented,
 how a machine enters the set that runs windows, and how the right to a window's share is
@@ -815,8 +815,8 @@ open to challenge, and discards it with the window.
 
 ## The certificate of a window
 
-A window leaves behind what convinces a device that was not there: the proposal that closed it, the
-heavy attestations of the window after it, the pledges of that window's agreement its decision
+A window leaves behind what convinces a device that was not there: the proposal that closed it with
+its roll, the heavy attestations of the window after it, the pledges of that window's agreement its decision
 stands on, and the ballots of their parts. Together they are the **certificate** of the window, and
 a device verifies them exactly as the living did — every presence proof against the root of the
 electorate it already holds, every signature under the key the attestation or the pledge carries and
@@ -824,7 +824,8 @@ every pledge's key against the heavy attestation of its part, the distinctness o
 counting of the agreement — every closing pledge against the quorum of open pledges of its attempt,
 every open pledge against the quorum its `since` names — the count of the deciding quorum against
 the count of the electorate, every ballot against the census, the aggregate and the committee of
-that electorate, the votes against the committee, and the proposal's own ticket proof and
+that electorate, the votes against the committee, the pair of the proposal's cement against the
+parts its roll names, each of which is the part of a verified heavy attestation, and the proposal's own ticket proof and
 signature. Nothing in a certificate is a new object: its parts stand at the points of the rounds and
 of the window that produced them, retained for `retained_windows` windows after the window closes,
 and a device collects them from there.
@@ -1143,8 +1144,8 @@ Canon and is recomputed rather than received, and its anchor: a proposal `E` and
 the window after it, both final.
 
 1. It asks any machine it can reach for the beacons and the heavy attestations standing at the round
-   points of the window after `L`, and for the pledges and the proposals standing at the points of
-   that window; it
+   points of the window after `L`, and for the pledges, the proposals and the rolls of the proposals
+   standing at the points of that window; it
    may ask several, and every answer is judged and never trusted.
 2. It verifies the certificate of `L`, which is the heavy attestations of the window after it, the
    pledges of that window's agreement and the ballots of their parts: the electorate is the admitted
@@ -1159,7 +1160,11 @@ the window after it, both final.
    the electorate root and the aggregate `E` carries, and its cement is the pair of its final beacon,
    a beacon of the certificate just verified whose count reaches the quorum and whose votes reach the
    committee within what the verified ballots of the certificate cast, and whose chain stands at round
-   zero on `E`. `N` is final when its own
+   zero on `E`. The device recomputes that pair rather than reading it off the beacon, by the rule a
+   machine of the window applies when it replays a roll: the roll whose identifier `N` carries, standing
+   beside `N`, names parts ascending and without repeat, each the part-nullifier of a heavy
+   attestation of the certificate just verified, in the number `N` carries as the count of its cement,
+   and aggregates with the window as context to the aggregate `N` carries. `N` is final when its own
    certificate verifies in the step after, against the electorate and the aggregate `L` carries; the
    pair `L`, `N` is then the anchor of that step.
 4. It repeats until no newer certificate verifies. The head is the newest proposal whose certificate
@@ -1191,7 +1196,7 @@ resolves by the rule this document already states and never by asking who is mor
 **Invariants of the join:**
 
 - A joining device starts from an anchor of two consecutive final proposals handed to it by its operator, or held from its own past; the trust in the anchor is explicit, and nothing of the protocol stands in for it.
-- Every step of the walk verifies a certificate whole — every presence proof against the electorate root, every signature, every pledge, the counting of the agreement and the deciding quorum, every ballot and the votes — and the next proposal's link, rules, signature, ticket and cement; nothing of a step is taken on the word of whoever answered.
+- Every step of the walk verifies a certificate whole — every presence proof against the electorate root, every signature, every pledge, the counting of the agreement and the deciding quorum, every ballot and the votes — and the next proposal's link, rules, signature, ticket and cement, the pair of which is recomputed from the verified parts its roll names; nothing of a step is taken on the word of whoever answered.
 - The head of a walk is the newest proposal whose certificate verified; a proposal awaiting its certificate is not final.
 - Every leaf of state a joining device takes is checked against a root the verified head carries, by recomputation; a leaf accepted on the word of whoever answered is a defect.
 - A device asks several machines and judges every answer alone; nothing in the join is decided by how many answers agree.
