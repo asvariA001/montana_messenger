@@ -1208,6 +1208,38 @@ pub fn live_doing(
     // window two before fixed the electorate and the aggregate the open window draws from. A machine
     // holds those two and lets the older go, and what it keeps of them beyond is the store's.
     let mut stands_on: BTreeMap<u64, Proposal> = BTreeMap::new();
+    // **A machine that holds a chain enters its next window on it.** The two proposals are what
+    // its store kept when it closed those windows, or walked to them, and a process that stopped
+    // between two windows holds them still. A machine that holds a closed window but not the
+    // proposal of the window before the one it opens stands on no chain it could name — it would
+    // link that window to the Genesis State Hash as if the network began there — and is refused;
+    // so is one holding the window before but not the one two before, where that window is not
+    // the first of its chain. A machine holding nothing opens the network, as it always did.
+    for at in [from.checked_sub(2), from.checked_sub(1)]
+        .into_iter()
+        .flatten()
+    {
+        if let Some(proposal) = machine.proposal_of(at)? {
+            stands_on.insert(at, proposal);
+        }
+    }
+    let held_before = from.checked_sub(1).and_then(|at| stands_on.get(&at));
+    let held_two_before = from.checked_sub(2).and_then(|at| stands_on.get(&at));
+    match held_before {
+        None if machine.closed_window()?.is_some() => {
+            return Err(NodeError::Refused {
+                what: "a window after one this machine holds no proposal of",
+            })
+        }
+        Some(proposal)
+            if held_two_before.is_none() && proposal.previous != Predecessor::Genesis.id()? =>
+        {
+            return Err(NodeError::Refused {
+                what: "a window two after one this machine holds no proposal of",
+            })
+        }
+        _ => {}
+    }
     let mut memory = Memory::default();
     // The plane as this machine holds it entering its first window: the base that window's decided
     // roll replays over.
