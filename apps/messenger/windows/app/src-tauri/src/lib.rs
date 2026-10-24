@@ -3827,6 +3827,7 @@ async fn copy_text(text: String) -> Result<bool, ()> {
 async fn chat_focus(app: AppHandle, chat: Option<String>) -> Result<(), ()> {
     let m = app.state::<Messenger>();
     let was = std::mem::replace(&mut *m.open.lock().unwrap(), chat.clone());
+    trace_line(&format!("focus chat={:?} was={:?}", chat.as_deref().map(|c| &c[..c.len().min(10)]), was.as_deref().map(|c| &c[..c.len().min(10)])));
     if was == chat {
         return Ok(());
     }
@@ -3970,8 +3971,9 @@ fn lane(app: AppHandle, chat: String) {
             if m.open.lock().unwrap().as_deref() != Some(chat.as_str()) {
                 return;
             }
-            let Some(d) = m.desk(&p) else { return };
+            let Some(d) = m.desk(&p) else { trace_line("lane no desk"); return };
             let Some((words, boxed)) = presence::Presence::listen(&m.book, &d.twin, &chat, &dev) else {
+                trace_line(&format!("lane none chat={} secret={} doors={}", &chat[..chat.len().min(10)], m.book.secret(&chat).is_some(), crate::doors::all().len()));
                 std::thread::sleep(std::time::Duration::from_secs(3));
                 continue;
             };
@@ -3982,6 +3984,7 @@ fn lane(app: AppHandle, chat: String) {
                     "chat" => {
                         let text = String::from_utf8_lossy(&body).into_owned();
                         let (mv, echo) = m.presence.hear(&chat, &text, false);
+                        trace_line(&format!("lane_heard chat={} word={} moved={mv} seen={}", &chat[..chat.len().min(10)], text.chars().take(24).collect::<String>().escape_debug(), m.presence.seen(&chat).state));
                         moved |= mv;
                         if echo && p.profile.read().presence_sharing != Some(false) {
                             m.presence.post(&m.book, &d.twin, &chat, &m.presence.word_app(&m.book, &m.faces, &chat, true));

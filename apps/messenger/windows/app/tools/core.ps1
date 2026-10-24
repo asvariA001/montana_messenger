@@ -34,9 +34,11 @@ Says "Машины генезиса на связи: $held / 3" 15
 Snap "190-A-core"
 "A's wallet: the Top 13 (iOS MTCoinTop13) -- the nodes' table when a node keeps it, else A among the pairs who told their balance"
 Click-Named "Назад"
-Click-Named "Топ 13"
-Says ". Алиса Тест:" 20
-"  before a node answers: A among the pairs who told their balance"
+# the Top 13 stands open on the wallet's page (iOS walletPage: the section open by default); a press would fold it
+Start-Sleep -Seconds 1
+if (-not (Get-Texts | Where-Object { $_ -match '^\d+\. ' })) { Click-Named "Топ 13" }
+# the state before a node answers lasts only until the nodes' table comes -- on a quick network it is never seen
+try { Says ". Алиса Тест:" 8; "  before a node answers: A among the pairs who told their balance" } catch { "  the nodes' table came before the pairs' one could be seen" }
 # the wallet standing open reads the one table of the nodes (iOS MTTopNet.read, every three seconds)
 Wrote "A" "top_get rows=" 90
 Says "1. " 20

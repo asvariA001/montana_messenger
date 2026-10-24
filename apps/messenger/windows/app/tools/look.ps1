@@ -8,15 +8,34 @@ $ErrorActionPreference = "Stop"
 . "$PSScriptRoot\ui.ps1"
 function Snap($name) { if ($Shots) { Shot-Montana (Join-Path $Shots "$name.png") } }
 function Says([string]$text, [int]$timeout = 60) { Find-Named $text $timeout | Out-Null; "  sees: $text" }
-# the bubble's fill: a point inside it, six pixels left of its words, at their middle
+# THE BUBBLE'S FILL: the colour most of a strip through the words' middle wears, the words' white and the page's black left out --
+# read once the page stands still. A point beside the words lied twice: a page slides in from the right as iOS pushes one, and the
+# preview is drawn transformed, so the tree's box of the words stands some fifty points off what the eye sees
 function Fill([string]$words) {
     Front-Montana; Start-Sleep -Milliseconds 400
     $r = (Find-Named $words 10).Current.BoundingRectangle
-    $bmp = New-Object System.Drawing.Bitmap 1, 1
+    $end = (Get-Date).AddSeconds(5)
+    do {
+        Start-Sleep -Milliseconds 250
+        $was = $r; $r = (Find-Named $words 10).Current.BoundingRectangle
+    } while (($r.X -ne $was.X -or $r.Y -ne $was.Y) -and (Get-Date) -lt $end)
+    $x0 = [int][Math]::Max(0, $r.X - 120); $w = [int]($r.Width + 240); $y = [int]($r.Y + $r.Height / 2)
+    $bmp = New-Object System.Drawing.Bitmap $w, 1
     $g = [System.Drawing.Graphics]::FromImage($bmp)
-    $g.CopyFromScreen([int]($r.X - 6), [int]($r.Y + $r.Height / 2), 0, 0, (New-Object System.Drawing.Size 1, 1))
-    $c = $bmp.GetPixel(0, 0); $g.Dispose(); $bmp.Dispose()
-    $c
+    $g.CopyFromScreen($x0, $y, 0, 0, (New-Object System.Drawing.Size $w, 1))
+    $count = @{}
+    for ($i = 0; $i -lt $w; $i++) {
+        $c = $bmp.GetPixel($i, 0)
+        $hi = [Math]::Max($c.R, [Math]::Max($c.G, $c.B)); $lo = [Math]::Min($c.R, [Math]::Min($c.G, $c.B))
+        if ($hi -lt 40 -or $lo -gt 200) { continue }   # the page's black, the words' white
+        $k = "$($c.R),$($c.G),$($c.B)"; $count[$k] = 1 + [int]$count[$k]
+    }
+    $top = ($count.GetEnumerator() | Sort-Object Value -Descending | Select-Object -First 1).Key
+    if (-not $top) { $bmp.Save((Join-Path $env:TEMP "montana-look-strip.png")); "  strip at x=$x0 y=$y w=$w (rect $r)" }
+    $g.Dispose(); $bmp.Dispose()
+    if (-not $top) { throw "no fill under '$words'" }
+    $v = $top -split ','
+    [System.Drawing.Color]::FromArgb([int]$v[0], [int]$v[1], [int]$v[2])
 }
 function Open-Look { Open-Drawer; Click-Named "Настройки"; Click-Named "Оформление"; Says "Стиль сообщений" 10 }
 # a slider of the page by its name: its value read, or set as a hand would set it

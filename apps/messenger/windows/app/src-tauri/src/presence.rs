@@ -299,9 +299,13 @@ impl Presence {
         };
         let targets = if chosen.is_empty() { all } else { chosen };
         let mut ok = false;
+        let mut said = vec![];
         for d in targets {
-            ok |= doors::post_at(&d, "/signal", &body, 5_000).0 == 200;
+            let code = doors::post_at(&d, "/signal", &body, 5_000).0;
+            said.push(format!("{}={code}", d.split('/').nth(2).unwrap_or("")));
+            ok |= code == 200;
         }
+        crate::trace_line(&format!("lane_post chat={} word={} doors={}", &r[..r.len().min(10)], word.chars().take(12).collect::<String>().escape_debug(), said.join(",")));
         ok
     }
 
@@ -535,6 +539,8 @@ impl Presence {
         let body = json!({ "conv": cw, "from_id": sub_id(&cw, twin), "wait": 12, "dev": tag });
         let door = doors::all().into_iter().next()?;
         let (code, v) = doors::post_at(&door, "/signal-fetch", &body, 15_000);
+        crate::trace_line(&format!("lane_fetch chat={} door={} code={code} envs={}", &r[..r.len().min(10)], door.split('/').nth(2).unwrap_or(""),
+            v.as_ref().and_then(|v| v["envs"].as_array()).map(|a| a.len()).unwrap_or(0)));
         if code != 200 {
             return None;
         }

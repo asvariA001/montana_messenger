@@ -781,6 +781,11 @@ export default function Conversation({ chat, onBack, narrow, myName, myFace, foc
   // a channel's subscriber only reads (iOS MTChannelSubscriberBar); its administrator with «Post Messages» writes
   const listener = channel && !talk.group.owner && !(talk.group.admin && (talk.group.rights || []).includes("po"));
   const typing = talk.group && !channel && !talk.group.left && !talk.group.removed ? typingLine(typers) : null;
+  // THE LINE UNDER THE NAME IS SAID WITH THE NAME (iOS chatTitleBubble reads as one element: the name, then «in chat», «typing…», the
+  // members): the capsule is one button, whose children a screen reader never reaches, so its label carries the line too
+  const titleLine = talk.group
+    ? typing || (talk.group.removed ? t("you were removed from the group") : talk.group.left ? t("you have left the group") : people(talk.group.kind, talk.group.count))
+    : !saved && seenText(seen, exact) ? seenText(seen, exact)[0] : "";
   const byMid = new Map(talk.msgs.map((m) => [m.mid, m]));
   // THE PAIR'S GAME WHILE IT IS PLAYED (iOS chessPlayed, MTChessSend.playedGame): the newest invitation's game, not finished; an
   // invitation of theirs not yet answered waits for me in the feed (iOS awaitsMe)
@@ -830,7 +835,7 @@ export default function Conversation({ chat, onBack, narrow, myName, myFace, foc
              onClick={() => (talk.group ? setGroupPage(true) : window.dispatchEvent(new CustomEvent("montana-person", { detail: { ref: talk.ref } })))}
              onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.click(); }}
              onContextMenu={(e) => { e.preventDefault(); setNameMenu({ x: e.clientX, y: e.clientY }); }}
-             aria-label={typing ? `${rowTitle(talk.ref, talk.name)}, ${typing}` : rowTitle(talk.ref, talk.name)}>
+             aria-label={[rowTitle(talk.ref, talk.name), titleLine].filter(Boolean).join(", ")}>
           {saved ? <SelfFace name={myName} version={myFace} size={36} />
             : talk.group ? <GroupFace size={36} chat={talk.ref} version={talk.face} /> : <Face chat={talk.ref} version={talk.face} size={36} />}
           <div className="title-words">

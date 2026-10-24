@@ -28,6 +28,8 @@ function Share([double]$x0, [double]$x1, [double]$y0, [double]$y1, [scriptblock]
         [double]$hit / $n
     } finally { $bmp.Dispose(); Remove-Item $f -ErrorAction SilentlyContinue }
 }
+# the chat's ground is read right of the date's plate, under the title's capsule -- the capsule takes the whole top row since
+# d7384c1 (iOS chatTitleBubble: maxWidth .infinity) and is glass of its own, never the ground
 $warm = { param($c) $c.R -gt $c.B + 25 }   # the burgundy of the first screen
 $dark = { param($c) [Math]::Max($c.R, [Math]::Max($c.G, $c.B)) -lt 70 }   # the default: the dark gradient, the Logo at 0.035
 $blue = { param($c) $c.B -gt $c.R + 10 }
@@ -75,14 +77,14 @@ Start-Sleep -Seconds 2
 "the default ground (the dark one) by default"
 Open-Talk
 Expect "the list stands on the dark default" 0.02 0.22 0.45 0.9 $dark
-Expect "the chat with B stands on the dark default" 0.555 0.7 0.065 0.11 $dark
+Expect "the chat with B stands on the dark default" 0.8 0.97 0.17 0.24 $dark
 Snap "99-A-default"
 "B's page: «Фон чата» → «Синий»"
 Peer-Ground
 Pick-Tile "Синий"
 Click-Named "Готово"; Click-Named "Назад"
 Open-Talk
-Expect "the chat with B stands on blue" 0.555 0.7 0.065 0.11 $blue
+Expect "the chat with B stands on blue" 0.8 0.97 0.17 0.24 $blue
 Expect "the list still stands on the dark default" 0.02 0.22 0.45 0.9 $dark
 Snap "100-A-chat-blue"
 "my page: «Изменить фон страницы» → «Индиго»"
@@ -109,21 +111,21 @@ $line = @(Get-Content "$Root\A\trace.log" -Encoding UTF8 -ErrorAction SilentlyCo
 if (-not $line) { throw "no photo ground was kept" }
 "  kept: $($line -replace '^\d+ ', '')"
 Open-Talk
-Expect "the chat with B stands on the photo" 0.555 0.7 0.065 0.11 $green
+Expect "the chat with B stands on the photo" 0.8 0.97 0.17 0.24 $green
 Snap "102-A-chat-photo"
 "closed and opened again: the grounds stay"
 Stop-Montana; Start-Sleep -Seconds 2
 $A = Start-Montana -DataDir "$Root\A"; Front-Montana -X 0 -Y 40 -Width 1500 -Height 950
 Start-Sleep -Seconds 2
 Open-Talk
-Expect "the chat with B still stands on the photo" 0.555 0.7 0.065 0.11 $green
+Expect "the chat with B still stands on the photo" 0.8 0.97 0.17 0.24 $green
 Expect "the list still stands on indigo" 0.02 0.22 0.45 0.9 $blue
 "«Как у моей страницы»: the chat wears my page's ground again"
 Peer-Ground
 Pick-Tile "Как у моей страницы"
 Click-Named "Готово"; Click-Named "Назад"
 Open-Talk
-Expect "the chat with B stands on my page's indigo" 0.555 0.7 0.065 0.11 $blue
+Expect "the chat with B stands on my page's indigo" 0.8 0.97 0.17 0.24 $blue
 "my page back to the default"
 Open-Drawer; Click-Named "Алиса Тест"
 Click-Named "Изменить"; Click-Named "Изменить фон страницы"
@@ -149,7 +151,7 @@ Click-Named "Я понимаю и беру ответственность на �
 Click-Named "Я записал слова в надёжном месте"; Click-Named "Ваша личность в Montana"
 Click-Named "Готово"; Click-Named "Принимаю"
 Find-Named "Поиск" 30 | Out-Null
-Expect "the new person's chats stand on the sky" 0.555 0.7 0.065 0.11 $blue
+Expect "the new person's chats stand on the sky" 0.8 0.97 0.17 0.24 $blue
 "done in $([int]((Get-Date) - $t0).TotalSeconds) s"
 Stop-Montana
 Start-Sleep -Seconds 2

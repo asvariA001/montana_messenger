@@ -121,8 +121,15 @@ function Find-Named([string]$Name, [int]$Timeout = 15) {
 # THE TIME COIN IS A PAGE OVER THE APP (iOS ui.walletPage): before the panel's glyphs are pressed, the wallet's page standing over them
 # is closed by its cross, as a person closes it
 function Leave-Wallet {
-    $over = All-Named | Where-Object { try { $_.Current.Name -eq "Баланс Времени" } catch { $false } } | Select-Object -First 1
-    if ($over) { Click-Named "Закрыть"; Start-Sleep -Milliseconds 500 }
+    # a page of the wallet still sliding out (TimeChain, History) shows neither the wallet nor the panel for a moment: looked at again
+    # for up to three seconds -- the wallet's page closed by its cross, or the panel standing free
+    $end = (Get-Date).AddSeconds(3)
+    do {
+        $names = @(All-Named | ForEach-Object { try { $_.Current.Name } catch {} })
+        if ($names -contains "Баланс Времени") { Click-Named "Закрыть"; Start-Sleep -Milliseconds 500; return }
+        if ($names -contains "Чаты") { return }
+        Start-Sleep -Milliseconds 300
+    } while ((Get-Date) -lt $end)
 }
 
 function Click-Named([string]$Name, [int]$Timeout = 15) {
@@ -226,8 +233,17 @@ function Page-Says([string]$text, [int]$timeout = 15) {
 
 # THE FILES KEY STANDS IN THE OPEN ROW (iOS ChatInputBar: composeOpen): the folded row is opened by «Ещё» first, as a person does
 function Files-Key {
-    try { Find-Named "Файлы" 2 | Out-Null } catch { Click-Named "Ещё" }
-    Click-Named "Файлы"
+    # the key by its exact name: a chat named «Файлы …» (a scene's group) holds the word too, and the folded row shows no key until «Ещё»
+    $exact = { param($n) @(All-Named | Where-Object { try { $_.Current.Name -eq $n } catch { $false } }) | Select-Object -First 1 }
+    # the chat just opened may not have drawn its row yet: the key or the row's «Ещё», whichever stands first (the row keeps its shape)
+    $end = (Get-Date).AddSeconds(15)
+    while (-not (& $exact "Файлы") -and -not (& $exact "Ещё") -and (Get-Date) -lt $end) { Start-Sleep -Milliseconds 300 }
+    if (-not (& $exact "Файлы")) { Click-Named "Ещё"; Start-Sleep -Milliseconds 400 }
+    $k = & $exact "Файлы"
+    if (-not $k) { throw "no files key in the compose row" }
+    $p = $null
+    if ($k.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$p)) { $p.Invoke() } else { Click-Named "Файлы" }
+    Start-Sleep -Milliseconds 300
 }
 
 function Stop-Montana { if ($script:proc -and -not $script:proc.HasExited) { $script:proc.Kill() } }
