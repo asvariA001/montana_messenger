@@ -817,7 +817,11 @@ pub fn walk(
 // the door, and the cryptography stays with the assumptions A1 to A5. The beacon identifier is its
 // `previous` field, the Genesis State Hash a fixed name and the aggregate of the cement a constant:
 // none of them is counted, so (C1) and (C7) are read off the code and not proven here. One round,
-// three heavy attestations of three parts, two ballots and two pledges over two attempts. The wrong
+// three heavy attestations over three parts under an electorate of two, two ballots and two pledges
+// over two attempts: under an electorate of three the quorum takes three distinct parts of the three
+// attestations, and no accepted certificate could hold two attestations of one part, so (C3) would
+// stand by the bound and not by the door -- the second cover asks that such a certificate is reached
+// (F-437-1). The wrong
 // door it refuses: one that lets a second answering key stand under one part (C3), one that counts a
 // ballot outside the cement or below the largest of its part (C5), one that hands the agreement a
 // pledge under a key the part never proved (C6).
@@ -828,7 +832,7 @@ mod proofs {
     use std::collections::BTreeSet;
 
     const WINDOW: u64 = 7;
-    const COUNT: u64 = 3;
+    const COUNT: u64 = 2;
     const BEACON: [u8; 32] = [0x20; 32];
     const LOW: [u8; 32] = [0x05; 32];
     const PREVIOUS: [u8; 32] = [0x30; 32];
@@ -1016,6 +1020,10 @@ mod proofs {
             &pledges,
         );
         kani::cover!(result.is_ok(), "a certificate is accepted");
+        kani::cover!(
+            result.is_ok() && heavy[0].part_nullifier == heavy[1].part_nullifier,
+            "a certificate is accepted with two attestations of one part"
+        );
         let Ok(closure) = result else {
             return;
         };
