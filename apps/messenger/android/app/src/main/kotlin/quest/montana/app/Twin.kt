@@ -5,28 +5,34 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.util.UUID
+import java.util.concurrent.Executors
 
 /**
- * THE PERSON'S OTHER DEVICES IN STEP (iOS MontanaPQ 872-1155, MontanaDeliveryEngine.mirrors / landMirrored / landOwn, ChatStore.readByTwin;
- * the port of Windows twin.rs; docs/identity-sync/07, stages 1-2). Every device of the 24 words is one reference to the pipes of its
- * correspondents, so the node's box hands a letter to whichever device takes it first, that device's confirmation erases it for the
- * rest, and a letter one device sent the box never gives the others. So what this phone sends, takes from a correspondent or reads
- * rides to the other devices as words of a mirror («lt») in the pipe only these words derive (Archive.TWIN_PIPE), on the cargo road
- * beside the archive's blocks («hist»); their words land here by the one landing road, quietly -- nobody answered, nothing paid
- * twice -- and ride no further. The wire is the original's: a word this phone writes is read by an iPhone and by Windows as theirs is.
+ * THE PERSON'S OTHER DEVICES IN STEP (iOS MontanaPQ 872-1155, MontanaDeliveryEngine.mirrors / landMirrored / landOwn, ChatStore.readByTwin,
+ * giveTwinRows / takeTwinRow, MontanaCard.takeTwin; the port of Windows twin.rs; docs/identity-sync/07, stages 1-3). Every device of the 24
+ * words is one reference to the pipes of its correspondents, so the node's box hands a letter to whichever device takes it first, that
+ * device's confirmation erases it for the rest, and a letter one device sent the box never gives the others. So what this phone sends,
+ * takes from a correspondent or reads rides to the other devices as words of a mirror («lt») in the pipe only these words derive
+ * (Archive.TWIN_PIPE), on the cargo road beside the archive's blocks («hist»); their words land here by the one landing road, quietly --
+ * nobody answered, nothing paid twice -- and ride no further. What the blocks show this feed lacks is asked by the archive's key and given
+ * back by name, and a card born on one device opens introductions on all. The wire is the original's: a word this phone writes is read by
+ * an iPhone and by Windows as theirs is.
  */
 object Twin {
     /** A read mark for the person's own devices alone, + the birth millisecond of the newest letter read; never on a pair's wire. */
     const val READ_MARK = "​​TR:"
-    // the twin's past asked and given back, and a card born on another device (iOS twinAskMark, twinRowMark, twinCardMark): stage 3
+    // the twin's past asked and given back, and a card born on another device (iOS twinAskMark, twinRowMark, twinCardMark 1083-1086)
     private const val ASK_MARK = "​​TA:"
     private const val ROW_MARK = "​​TW:"
     private const val CARD_MARK = "​​TC:"
-    private const val CARD_PIPE = "twin:card"
+    private const val CARD_PIPE = "twin:card"   // the mirror's name for the cards' words, never a conversation (iOS twinCardPipe)
 
     private const val QUEUE_FILE = "twin-mirror.sealed"   // the words not laid yet, in order (iOS twin-mirror.json), sealed by the device key
     private const val DUE = "mt.twin.due."                 // + «lt»: the millisecond the next lay is due, 0 when nothing waits
     private const val HELD = "mt.twin.held"                // words for a pipe this phone does not know yet: they land once its head comes
+    private const val ASKED = "mt.twin.asked"              // chat/second/hash of the rows already asked of the other devices (iOS askedKey)
+    private const val ASK_ROUND = 200                      // keys asked in one word, and read from one (iOS askTwin, giveTwinRows)
+    private const val ASK_KEPT = 5000                      // keys remembered as asked (iOS askTwin suffix(5000))
     private const val KEPT = 4000         // [I-14]: a device away for long is given the newest; the history road keeps the rest
     private const val ROUND = 500
     private const val SOON_MS = 30_000L
@@ -36,6 +42,10 @@ object Twin {
     private val qlock = Any()
     private val layLock = Any()   // one lay at a time; held across the road, so never taken by a sender's thread
     private val dueLock = Any()
+    private val askLock = Any()
+    /** A file given back or taken rides the cargo road off the pickup's thread, one at a time (iOS Task.detached in giveTwin, takeTwinRow). */
+    private val roads = Executors.newSingleThreadExecutor { r -> Thread(r, "twin-rows").apply { isDaemon = true } }
+    private val fetching = HashSet<String>()   // chat/name of a given-back file on its way here: one fetch of it at a time
     /** c/m/x[..24] -> the second it was queued: a name is given once within the hour (iOS keeps it in memory too). */
     private val given = HashMap<String, Long>()
 
@@ -93,7 +103,9 @@ object Twin {
             mirrors("привет") && mirrors(Marks.DELIVERED + "t1-A") && mirrors(Marks.DELETE + "mid:t1-A") && mirrors(Marks.MEDIA + "{}") &&
             !mirrors(Marks.EDIT + "{}") && !mirrors(Marks.REACTION + "{}") && !mirrors(Marks.TYPING) && !mirrors(Marks.NAME + "x") &&
             // Windows the_mirror_carries_what_stands_in_a_conversation...: a group's word but its typing, and my missed call
-            mirrors(Groups.MARK + """{"t":"say","g":"x"}""") && !mirrors(Groups.MARK + """{"t":"ty","g":"x"}""") && mirrors(Marks.MISSED + "{}")
+            mirrors(Groups.MARK + """{"t":"say","g":"x"}""") && !mirrors(Groups.MARK + """{"t":"ty","g":"x"}""") && mirrors(Marks.MISSED + "{}") &&
+            // the archive's key of a row's words: eight bytes of SHA-256 in hex (iOS rowHash; SHA-256("abc") = ba7816bf8f01cfea…)
+            rowHash("abc") == "ba7816bf8f01cfea"
     }.getOrDefault(false)
 
     // ───────────────────────────── the queue ─────────────────────────────
@@ -244,14 +256,17 @@ object Twin {
     }
 
     /**
-     * A WORD THE OTHER DEVICE MIRRORED HERE (iOS landMirrored 174-189): a read mark reads the conversation here too; every other word walks
+     * A WORD THE OTHER DEVICE MIRRORED HERE (iOS landMirrored 174-189; Windows land_mirrored 665-703): a read mark reads the conversation
+     * here too; the twin's past is asked and given back by name, and a card born there opens its introductions here; every other word walks
      * the one landing road under the name it was born with -- the person's own as mine (a group's word done as that device did it, my
      * missed call its row), a correspondent's as theirs, quietly -- and rides no further. A word for a pipe this phone does not know waits
      * for the head the blocks bring.
      */
     fun land(w: Word) {
         if (w.x.startsWith(READ_MARK)) { readByTwin(w.c, w.x.removePrefix(READ_MARK).trim().toLongOrNull()); return }
-        if (w.x.startsWith(CARD_MARK) || w.x.startsWith(ASK_MARK) || w.x.startsWith(ROW_MARK)) return   // stage 3
+        if (w.x.startsWith(ASK_MARK)) { give(w.c, w.x.removePrefix(ASK_MARK)); return }
+        if (w.x.startsWith(CARD_MARK)) { MontanaCard.takeTwin(w.x.removePrefix(CARD_MARK)); return }
+        if (w.x.startsWith(ROW_MARK)) { takeRow(w, w.x.removePrefix(ROW_MARK)); return }
         if (w.m.isEmpty() || w.x.isEmpty() || w.m.length > 128 || w.c == CARD_PIPE || Groups.isKey(w.c)) return
         if (Book.secret(w.c) == null && Book.chat(w.c) == null) { hold(w); return }
         var text = w.x
@@ -304,10 +319,192 @@ object Twin {
         for ((w, _) in ready) runCatching { land(w) }
     }
 
-    /** The person leaves: the mirror's queue, its moments and its held words go with them (iOS SeedScope). */
+    // ───────────────────────────── the past the other device missed ─────────────────────────────
+
+    /** The archive's key of a row's words, the same on every device of the seed (iOS rowHash 1089-1091; Windows row_hash 134-136): eight
+     *  bytes of SHA-256 of the words exactly as the archive holds them, in hex. */
+    fun rowHash(archived: String): String = Wire.hex(Wire.sha(archived.toByteArray(Charsets.UTF_8)).copyOf(8))
+
+    /** A row's key as the asker spells it -- its second, its side, the hash of its archived words -- or null for a row the archive holds no
+     *  words of (a file not here yet). */
+    private fun rowKey(m: Msg): String? {
+        if (m.at <= 0) return null
+        val t = Archive.archivedText(m)?.takeIf { it.isNotEmpty() } ?: return null
+        return (m.at / 1000).toString() + "|" + (if (m.mine) 1 else 0) + "|" + rowHash(t)
+    }
+    private fun archiveSig(m: Msg): String? =
+        if (m.at <= 0) null else Archive.archivedText(m)?.takeIf { it.isNotEmpty() }?.let { (m.at / 1000).toString() + "|" + (if (m.mine) 1 else 0) + "|" + it }
+
+    private fun asked(): LinkedHashSet<String> = DeviceVault.get(ASKED)?.let { raw ->
+        runCatching { JSONArray(String(raw, Charsets.UTF_8)).let { a -> (0 until a.length()).mapTo(LinkedHashSet()) { a.optString(it) } } }.getOrNull()
+    } ?: LinkedHashSet()
+    private fun keepAsked(s: Collection<String>) {
+        DeviceVault.set(ASKED, JSONArray(s.toList().takeLast(ASK_KEPT)).toString().toByteArray(Charsets.UTF_8))
+    }
+
+    /**
+     * THE PAST THE OTHER DEVICE HOLDS AND THIS FEED DOES NOT (iOS MontanaArchive.askTwin 1093-1105, from restoreFromArchive's archive_gap
+     * 3510-3521; Windows ask_twin 474-511): the mirror carries what lands from now on, and an archive row bears no letter's name, so the blocks
+     * never lay rows into a conversation held here (Archive.restore). The rows they hold beyond the feed are asked of the other devices by the
+     * archive's own key -- [second, side, hash] -- each key once, two hundred a round; the newest 5000 keys are remembered.
+     */
+    fun ask(chat: String, items: List<Triple<Long, Boolean, String>>) {
+        if (items.isEmpty() || Archive.twinSecret() == null) return   // no pipe yet: no key is marked asked that never rode
+        val fresh = JSONArray()
+        synchronized(askLock) {
+            val asked = asked()
+            for ((s, mine, text) in items) {
+                if (ASK_ROUND <= fresh.length()) break
+                if (s <= 0 || text.isEmpty()) continue
+                val h = rowHash(text)
+                if (!asked.add("$chat/$s/$h")) continue
+                fresh.put(JSONArray().put(s).put(if (mine) 1 else 0).put(h))
+            }
+            if (fresh.length() == 0) return
+            keepAsked(asked)
+        }
+        note(Word(chat, Marks.mintMid(), ASK_MARK + JSONObject().put("i", fresh), o = 1))
+        Log.d("Montana", "twin_ask chat=" + chat.take(10) + " rows=" + fresh.length())
+    }
+
+    /** A row whose file did not come whole is asked again the next time the gap is measured (iOS unaskTwin 1107-1111): its key goes by the
+     *  conversation and the second, whatever form of the file's words the asker hashed (Windows unask_twin 549-553). */
+    private fun unask(chat: String, s: Long) = synchronized(askLock) {
+        val asked = asked()
+        if (asked.removeAll { it.startsWith("$chat/$s/") }) keepAsked(asked)
+    }
+
+    private val KINDS = setOf("img", "vid", "aud", "doc")
+
+    /**
+     * THE OTHER DEVICE ASKS FOR ROWS ITS ARCHIVE HOLDS AND ITS FEED DOES NOT (iOS ChatStore.giveTwinRows 3212-3230, MontanaArchive.giveTwin
+     * 1114-1137; Windows give_twin 558-599): each row held here under an asked key is given back by its name -- its words at once, its file by
+     * the cargo road under a fresh key, inside the pipe only the seed's devices open; a row this phone does not hold is the truth too (deleted
+     * here, or never here) and nothing is said of it.
+     * WHICH ROWS: iOS passes over a row named «mid:…» -- its name for every letter the wire brought it -- so an iPhone gives back only what it
+     * wrote. No row here is named so: every row is given, as Windows gives it, and a correspondent's letter this phone took (a file above all)
+     * still reaches the device whose mirror's word was lost (past the box's day, past its 64 rows a day).
+     * A FILE'S ROW is known by its second and its side as well: its record keeps the first form of my own letter (the manifest before the
+     * pieces rode, the pick's name), which its row no longer spells, so a file is given when its second and side are asked and no row here
+     * answers that key -- as Archive.restore measures the gap.
+     */
+    private fun give(chat: String, body: String) {
+        val items = runCatching { JSONObject(body).optJSONArray("i") }.getOrNull() ?: return
+        val want = HashSet<String>()
+        for (i in 0 until minOf(items.length(), ASK_ROUND)) {
+            val a = items.optJSONArray(i)?.takeIf { it.length() == 3 } ?: continue
+            val h = a.optString(2).takeIf { it.isNotEmpty() } ?: continue
+            want.add(a.optLong(0).toString() + "|" + a.optInt(1) + "|" + h)
+        }
+        if (want.isEmpty()) return
+        val rows = Book.chat(SamePair.root(chat))?.msgs?.takeIf { it.isNotEmpty() } ?: return
+        val keyed = rows.mapNotNull { m -> rowKey(m)?.let { m to it } }
+        val answered = keyed.mapNotNullTo(HashSet()) { (_, k) -> k.takeIf { it in want } }
+        val loose = want.filterNot { it in answered }.mapTo(HashSet()) { it.substringBeforeLast('|') }
+        var given = 0
+        for ((m, k) in keyed) {
+            val media = m.text.startsWith(Marks.MEDIA)
+            if (k !in want && !(media && k.substringBeforeLast('|') in loose)) continue
+            val g = JSONObject()
+            m.from?.takeIf { it.isNotEmpty() }?.let { g.put("sr", it) }
+            val own = if (m.mine) 1 else null
+            val at = m.at / 1000.0
+            if (!media) {
+                note(Word(chat, m.mid, ROW_MARK + g.put("t", m.text), o = own, at = at))
+                given++
+                continue
+            }
+            val file = m.file?.let { File(it) }?.takeIf { it.isFile } ?: continue
+            val man = Media.manifestOf(m) ?: JSONObject()
+            g.put("k", man.optString("k").takeIf { it in KINDS } ?: "doc").put("f", file.name)
+            man.optString("n").takeIf { it.isNotEmpty() }?.let { g.put("n", it) }
+            man.optString("cap").takeIf { it.isNotEmpty() }?.let { g.put("t", it) }
+            man.optDouble("du", 0.0).takeIf { it > 0 }?.let { g.put("d", it) }
+            val mid = m.mid
+            roads.execute {
+                val road = runCatching { Keeping.lay(file) }.getOrNull()
+                if (road == null) { Log.d("Montana", "twin_answer a file did not reach the nodes sid=" + mid.take(16)); return@execute }
+                note(Word(chat, mid, ROW_MARK + g.put("road", road), o = own, at = at))
+            }
+            given++
+        }
+        Log.d("Montana", "twin_answer chat=" + chat.take(10) + " asked=" + want.size + " given=" + given)
+    }
+
+    /**
+     * A ROW THE OTHER DEVICE GAVE BACK (iOS ChatStore.takeTwinRow 3234-3266; Windows take_twin_row 604-658): laid by its own birth, once --
+     * never over a row of the same name or the same archive key standing here, never over its grave; a file comes by the cargo road into the
+     * media store under the name it bears on the device that gave it, and a file that did not come whole leaves its key to be asked again (a
+     * file with no road is not laid: Windows; iOS would stand the row without its file). The archive already holds the row: it is not
+     * written there twice. Nothing is counted unread, rung or receipted: it is history the person already lived.
+     */
+    private fun takeRow(w: Word, body: String) {
+        val o = runCatching { JSONObject(body) }.getOrNull() ?: return
+        val at = w.at ?: 0.0
+        if (at <= 0.0 || w.m.isEmpty() || w.m.length > 128) return
+        val ref = SamePair.root(w.c)
+        val c = Book.chat(ref) ?: return
+        if (c.msgs.any { it.mid == w.m } || Book.buried(ref, w.m)) return
+        val own = w.o == 1
+        val t = o.optString("t")
+        val kind = o.optString("k").ifEmpty { null }
+        var text = t
+        var file: File? = null
+        if (kind != null) {
+            val name = o.optString("f")
+            if (kind !in KINDS || name.isEmpty() || 128 < name.length || name.contains('/') || name.contains('\\') || name.startsWith(".")) return
+            val ext = name.substringAfterLast('.', "").filter { it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' }.take(8).ifEmpty { "bin" }
+            val man = JSONObject().put("k", kind).put("e", ext)
+            if ((kind == "img" || kind == "vid") && t.isNotEmpty()) man.put("cap", t)
+            if (kind == "aud") o.optDouble("d", 0.0).takeIf { it > 0 }?.let { man.put("du", it) }
+            if (kind == "img" || kind == "doc") (o.optString("n").ifEmpty { null } ?: name.takeIf { kind == "doc" })?.let { man.put("n", it.take(255)) }
+            text = Marks.MEDIA + man
+            file = File(Media.dir(Book.ctx), name)
+        }
+        if (text.isEmpty()) return
+        val row = Msg(w.m, text, own, Math.round(at * 1000), state = if (own) 2 else 0, file = file?.path,
+            from = o.optString("sr").takeIf { it.isNotEmpty() && it.length <= 128 })
+        val sig = archiveSig(row) ?: return
+        if (c.msgs.any { archiveSig(it) == sig }) return
+        val f = file
+        if (f == null || f.isFile) { layRow(ref, row); return }
+        val road = o.optJSONObject("road") ?: return unask(w.c, at.toLong())
+        val key = ref + "/" + w.m
+        if (!synchronized(fetching) { fetching.add(key) }) return
+        roads.execute {
+            try {
+                val tmp = File(f.path + ".twin")
+                val came = runCatching { Keeping.fetch(road, tmp) }.getOrDefault(false) && (tmp.renameTo(f) || f.isFile)
+                tmp.delete()
+                if (!came) { unask(w.c, at.toLong()); Log.d("Montana", "twin_row a file did not come whole -- asked again at the next gap"); return@execute }
+                row.text = Marks.MEDIA + JSONObject(row.text.removePrefix(Marks.MEDIA)).put("sz", f.length())
+                layRow(ref, row)
+            } finally { synchronized(fetching) { fetching.remove(key) } }
+        }
+    }
+    private fun layRow(ref: String, row: Msg) {
+        var n = 0
+        var laid = false
+        Book.edit(ref, archive = false) { c ->
+            if (c.msgs.none { it.mid == row.mid } && !Book.buried(ref, row.mid)) { c.msgs.add(row); c.msgs.sortBy { it.at }; laid = true }
+            n = c.msgs.size
+        }
+        if (laid) Log.d("Montana", "twin_row chat=" + ref.take(10) + " sid=" + row.mid.take(16) + " n=" + n)
+    }
+
+    /** THE LIVE CARDS GO TO THE OTHER DEVICES (iOS twinLiveCards 743-758; Windows twin_cards 236-240): the day's and the permanent one with
+     *  their secrets, said at a birth and at every keeping-up; a repeat within the hour rides once (the queue's own rule). Off the caller's
+     *  thread: a birth may be asked from the screen. */
+    fun cards() {
+        if (Archive.twinSecret() == null) return
+        Thread { runCatching { for ((inv, body) in MontanaCard.liveCards()) note(Word(CARD_PIPE, inv, CARD_MARK + body, o = 1)) } }.start()
+    }
+
+    /** The person leaves: the mirror's queue, its moments, its held words and its asked keys go with them (iOS SeedScope). */
     fun wipe() {
         synchronized(qlock) { qfile().delete(); given.clear(); unreadable = false }
         DeviceVault.delete(HELD)
+        synchronized(askLock) { DeviceVault.delete(ASKED) }
         Prefs.remove(DUE + "lt")
     }
 }

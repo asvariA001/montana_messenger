@@ -638,8 +638,9 @@ object Book {
         return true
     }
 
-    /** Any change to a chat: written, and the screens told. */
-    fun edit(ref: String, work: (Chat) -> Unit) {
+    /** Any change to a chat: written, and the screens told. `archive` false: the rows born here are the archive's already -- a row the
+     *  other device gave back by its key (Twin.takeRow; iOS layTwinRow «it is not written there twice»). */
+    fun edit(ref: String, archive: Boolean = true, work: (Chat) -> Unit) {
         val born = ArrayList<Msg>()
         var renamed: String? = null
         var gone: Set<String> = emptySet()
@@ -665,7 +666,7 @@ object Book {
             if (!now.containsAll(before.keys)) gone = before.keys.filterTo(HashSet()) { it !in now }
         }
         if (gone.isNotEmpty()) bury(ref, gone)
-        for (m in born) Archive.row(ref, m)
+        if (archive) for (m in born) Archive.row(ref, m)
         renamed?.let { Archive.nameHead(ref, it) }
         changed()
     }

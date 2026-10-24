@@ -317,6 +317,10 @@ object Archive {
                     val newest = java.text.SimpleDateFormat("HH:mm", java.util.Locale.ROOT).format(java.util.Date(missing.maxOf { it.at } * 1000))
                     Log.d("Montana", "archive_gap chat=" + key.take(10) + " feed=" + feed.size + " archive=" + items.size + " missing=" + missing.size +
                         " media=" + missing.count { it.text.startsWith(Marks.MEDIA) } + " theirs=" + missing.count { !it.mine } + " newest=" + newest)
+                    // THE PERSON'S OTHER DEVICES ARE ASKED FOR THESE ROWS (iOS restoreFromArchive 3510-3521 → askTwin; Windows file_blocks →
+                    // ask_twin): by the archive's own key of each -- its second, its side, the hash of its words exactly as the record holds
+                    // them -- and they give back what they hold by its name (Twin.give/takeRow); a folder nobody names is asked of nobody
+                    if (ref != null) Twin.ask(key, missing.map { Triple(it.at, it.mine, it.text) })
                 }
                 continue
             }

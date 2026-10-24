@@ -133,7 +133,8 @@ try {
     Snap "tg-4-windows"; DSnap "tg-4-android"
     "done in $([int]((Get-Date) - $t0).TotalSeconds) s"
 } finally {
-    try { Use-Droid $A; @(Droid-Adb logcat -d -v time -s Montana:V | Where-Object { $_ -match "twin_|group" } | Select-Object -Last 25) | ForEach-Object { "  log: $_" } } catch {}
+    # the log only from a device that stands (adb waits for an absent one for ever)
+    try { Use-Droid $A; if (((Droid-Adb get-state) -join "") -match "^device") { @(Droid-Adb logcat -d -v time -s Montana:V | Where-Object { $_ -match "twin_|group" } | Select-Object -Last 25) | ForEach-Object { "  log: $_" } } } catch {}
     try { Stop-Montana } catch {}
     foreach ($d in @($A, $C)) { try { Droid-Off $d } catch {} }
 }
