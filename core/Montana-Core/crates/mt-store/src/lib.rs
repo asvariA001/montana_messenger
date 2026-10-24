@@ -573,8 +573,9 @@ impl Store {
     // that lived in memory alone went with the process: every holder of a window restarting inside
     // the retention took the window's certificate out of the network. So every cell a point takes is
     // appended to the file of that point, under the window it belongs to, and read back whole at the
-    // next start; a cell torn by a loss of power is left where it lies, since a cell is read whole
-    // or not at all. Nothing of a cell is a secret: what stands at a point is public.
+    // next start; a cell torn by a loss of power is cut from its file at that start, before the next
+    // cell lands behind it, so every cell is read where it was written. Nothing of a cell is a
+    // secret: what stands at a point is public.
     fn points_at(&self, window: u64) -> PathBuf {
         self.root.join("points").join(format!("{window:020}"))
     }
@@ -598,8 +599,10 @@ impl Store {
     }
 
     // Every cell standing at every point this store keeps, by window and point, in the order the
-    // cells were taken. A file whose length is not a whole count of cells is read up to the last
-    // whole one.
+    // cells were taken. A file whose length is not a whole count of cells ends in a cell torn by a
+    // loss of power, and is cut here to its last whole cell: this is read at the start, before
+    // anything is appended, and a cell appended behind the tear would be read shifted by the length
+    // of the tear, every cell after it with it.
     pub fn cells_standing(&self, cell_width: usize) -> Result<CellsStanding, StoreError> {
         let root = self.root.join("points");
         let mut out = Vec::new();
@@ -634,8 +637,23 @@ impl Store {
                     continue;
                 }
                 let bytes = fs::read(&at).map_err(|e| said(&at, e))?;
-                let cells: Vec<Vec<u8>> = bytes
-                    .chunks_exact(cell_width.max(1))
+                let width = cell_width.max(1);
+                let whole = bytes.len() - bytes.len() % width;
+                if whole != bytes.len() {
+                    let cut = u64::try_from(whole).map_err(|_| StoreError::WrongLength {
+                        at: at.display().to_string(),
+                        expected: whole,
+                        found: bytes.len(),
+                    })?;
+                    let file = fs::OpenOptions::new()
+                        .write(true)
+                        .open(&at)
+                        .map_err(|e| said(&at, e))?;
+                    file.set_len(cut).map_err(|e| said(&at, e))?;
+                    file.sync_all().map_err(|e| said(&at, e))?;
+                }
+                let cells: Vec<Vec<u8>> = bytes[..whole]
+                    .chunks_exact(width)
                     .map(|cell| cell.to_vec())
                     .collect();
                 out.push((number, point, cells));
@@ -810,7 +828,7 @@ mod tests {
     }
 
     // The cells of a point are read back in the order they were taken, by window and point, after a
-    // reopening; a torn tail is left where it lies; the windows below the retention go from the disk
+    // reopening; a torn tail is not read; the windows below the retention go from the disk
     // as they go from memory. The wrong implementation refused: points kept in memory alone, under
     // which a reopened store stands at no point.
     #[test]
@@ -843,6 +861,46 @@ mod tests {
         assert!(standing.iter().all(|(window, _, _)| *window == 12));
         store.drop_points_before(13).unwrap();
         assert!(store.cells_standing(8).unwrap().is_empty());
+    }
+
+    // A cell torn by a loss of power is cut at the next start, and the cell taken after the start is
+    // read back where it was written, after every whole cell before the tear. The wrong
+    // implementation refused: one appending behind the torn bytes, under which the cell taken after
+    // the tear reads shifted by the length of the tear.
+    #[test]
+    fn a_cell_taken_after_a_tear_reads_where_it_was_written() {
+        let scratch = Scratch::named("points-torn");
+        let point = [0x5Cu8; 16];
+        {
+            let store = Store::open(scratch.path()).unwrap();
+            store
+                .append_cell(12, &point, &[1, 2, 3, 4, 5, 6, 7, 8])
+                .unwrap();
+            // Three bytes of a cell that never finished.
+            store.append_cell(12, &point, &[0xEE, 0xEF, 0xF0]).unwrap();
+        }
+        {
+            let store = Store::open(scratch.path()).unwrap();
+            assert_eq!(
+                store.cells_standing(8).unwrap(),
+                vec![(12, point, vec![vec![1, 2, 3, 4, 5, 6, 7, 8]])]
+            );
+            store
+                .append_cell(12, &point, &[9, 10, 11, 12, 13, 14, 15, 16])
+                .unwrap();
+        }
+        let store = Store::open(scratch.path()).unwrap();
+        assert_eq!(
+            store.cells_standing(8).unwrap(),
+            vec![(
+                12,
+                point,
+                vec![
+                    vec![1, 2, 3, 4, 5, 6, 7, 8],
+                    vec![9, 10, 11, 12, 13, 14, 15, 16]
+                ]
+            )]
+        );
     }
 
     // The last window closed is one number that moves forward and never back, and survives a
