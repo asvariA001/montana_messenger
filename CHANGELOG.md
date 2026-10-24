@@ -2,6 +2,18 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
+## 1.0 (2307) - 2026-10-24
+
+Source commit `d2cd1db9a283`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2307.md).
+
+- Calls connect when one of the nodes is down: every call signal also goes through the other node at once.
+- On the Mac, closing the last window quits the app.
+- A conversation you erased no longer comes back to the device's storage at every launch.
+
+**Security and anonymity**
+
+- Security: a call signal sent through a second node is the same end-to-end sealed packet, and the receiver drops repeats by its id; an erased conversation leaves no folder on the device. Anonymity is unchanged.
+
 ## 1.0 (2306) - 2026-10-24
 
 Source commit `221bec73d642`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2306.md).
