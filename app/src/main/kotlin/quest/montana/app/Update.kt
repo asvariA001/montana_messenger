@@ -288,7 +288,7 @@ object Release {
                 addView(c.text(title(c, i), 17f, Color.WHITE, bold = true), LinearLayout.LayoutParams(WRAP, WRAP))   // USER-DATA: the build's version and number
                 addView(c.text(Book.MONTANA_TITLE, 13f, Color.argb(173, 255, 255, 255)), LinearLayout.LayoutParams(WRAP, WRAP).apply { topMargin = c.dp(2) })   // a name, not a word
             }, LinearLayout.LayoutParams(0, WRAP, 1f))
-        }, LinearLayout.LayoutParams(c.dp(250), WRAP))
+        }, LinearLayout.LayoutParams(MATCH, WRAP))
         col.addView(android.view.View(c).apply {
             background = android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT,
                 intArrayOf(Color.TRANSPARENT, Color.argb(153, 255, 255, 255), Color.TRANSPARENT))
@@ -322,6 +322,7 @@ object Release {
             Log.d("Montana", "release tap build=" + i.build)
             (c as? Activity)?.let { Update.take(it) }
         }, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = c.dp(3) })
-        into.addView(col, LinearLayout.LayoutParams(WRAP, WRAP))
+        // the scroll is as wide as its head: a column that wraps would measure each point once at its own width and keep that height
+        into.addView(col, LinearLayout.LayoutParams(c.dp(250), WRAP))
     }
 }
