@@ -47,6 +47,9 @@ class StreamLoader(val dest: File, private val key: ByteArray, private val bids:
         Log.d("Montana", "stream_open name=" + dest.name.take(20) + " bytes=" + size + " pieces=" + count + " laid=" + have.count { it == 1.toByte() })
     }
 
+    /** Its bytes still lie where it reads them: the file when whole, the part while it is laid. */
+    fun stands() = body.exists()
+
     /** Told once the file is whole (at once when it already is). */
     fun whenWhole(f: () -> Unit) {
         val now = synchronized(onWhole) { if (!whole) onWhole.add(f); whole }
@@ -127,7 +130,8 @@ object Streams {
 
     /** The loader of [dest] by its manifest {bk, chunks:[{bid, cs}]}, or null for a manifest without pieces. */
     fun loader(dest: File, man: JSONObject): StreamLoader? {
-        synchronized(loaders) { loaders[dest.path]?.let { return it } }
+        // a loader whose bytes the cache took meanwhile is born again: the file is brought anew
+        synchronized(loaders) { loaders[dest.path]?.let { if (it.stands()) return it else loaders.remove(dest.path) } }
         val bk = runCatching { Base64.decode(man.getString("bk"), Base64.DEFAULT) }.getOrNull() ?: return null
         val a = man.optJSONArray("chunks") ?: return null
         val bids = ArrayList<String>(); val sizes = ArrayList<Int>()
