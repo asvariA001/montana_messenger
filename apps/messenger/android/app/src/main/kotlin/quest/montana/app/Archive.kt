@@ -59,7 +59,13 @@ object Archive {
     @Volatile private var launched = false
 
     /** The cold start's reading (iOS ChatStore 2361-2368, 2533): once a process, after the feed stands — rows go only where it has none. */
-    fun atLaunch() { if (!launched) { launched = true; restoreSoon() } }
+    fun atLaunch() {
+        if (launched) return
+        launched = true
+        SavedMessages.migrate(Book.ctx)
+        Log.d("Montana", "twin_canon " + if (Twin.agreesWithCanon()) "ok" else "DISAGREES")
+        restoreSoon()
+    }
 
     /** This install's sixteen bytes (iOS writerTag16 438-442): local by nature, they part the nonces of one seed's devices. */
     private fun device(): ByteArray = DeviceVault.get(DEVICE)?.takeIf { it.size == 16 }
@@ -253,6 +259,10 @@ object Archive {
         val folders = only ?: chatsDir.listFiles()?.filter { it.isDirectory && !it.name.startsWith(".") }?.map { it.name } ?: return
         val book = HashMap<String, String>()
         for (r in Book.refs()) book[label(k, r)] = r
+        // SAVED MESSAGES HAS NO SECRET (iOS MontanaPQ restore 1408-1411): its folder is its key's own label -- and a block filed before
+        // this build under the conversation's bare SHA-256 is the same room
+        book[label(k, SavedMessages.KEY)] = SavedMessages.KEY
+        book[Wire.hex(conv(SavedMessages.KEY))] = SavedMessages.KEY
         // A GROUP'S FEED NAMES ITS OWN FOLDER (its key «grp:…» has no pipe, so no secret names it): every group this phone holds maps
         // its folder back to itself -- read at every launch, an unnamed group folder came back as «Recovered history» beside the group
         for (c in Book.all()) if (Groups.isKey(c.ref)) book[label(k, c.ref)] = c.ref
@@ -284,6 +294,12 @@ object Archive {
                 ref = if (closedThere) Wire.reference(sec).also { Prefs.setBool("pipeClosed." + it, true) } else Book.establish(sec)
             }
             if (ref == null) ref = book[folder]
+            if (ref == SavedMessages.KEY) {
+                // the room lives in its own store (SavedMessages): the person's letters to themselves from their other devices join it
+                val laid = SavedMessages.takeFromArchive(Book.ctx, items.filter { it.mine }.map { it.at to it.text })
+                if (laid > 0) { Log.d("Montana", "saved_rx laid=" + laid); Book.poke() }
+                continue
+            }
             if (items.isEmpty() && ref == null) continue
             if (ref != null) headed++
             val key = ref ?: ("arc:" + folder)
@@ -368,11 +384,29 @@ object Archive {
         val k = keys() ?: return false
         val conv = MtBindings.nativeArchivePeekConv(k.hk, k.owner, sealed) ?: return false
         val c = Wire.hex(conv)
-        val folder = map(FOLDERS).optString(c).ifEmpty { c }
+        // a block of Saved Messages is filed under its key's own label, never under a bare SHA-256 that names nothing (iOS refBook)
+        val folder = map(FOLDERS).optString(c).ifEmpty { if (c == Wire.hex(conv(SavedMessages.KEY))) label(k, SavedMessages.KEY) else c }
         val base = root()?.path ?: return false
         val rc = MtBindings.nativeArchiveIngest(base, folder, k.hk, k.owner, sealed)
         if (rc == 1) { Log.d("Montana", "history_rx block filed"); restoreSoon(listOf(folder)) }
         return rc >= 0
+    }
+
+    /** THE CARRYING'S COUNT (SavedMessages.migrate): after every letter queued before it, the folder «Saved Messages» is read and each
+     *  letter of the list is looked for by its second and its words among the folder's own rows. `done(ok, rows in the folder)`. */
+    fun savedCheck(letters: List<Pair<Long, String>>, done: (Boolean, Int) -> Unit) = q.execute {
+        val k = keys() ?: return@execute done(false, 0)
+        val dir = File(File(root() ?: return@execute done(false, 0), "Chats"), label(k, SavedMessages.KEY))
+        val sigs = HashSet<String>()
+        var heads = 0
+        for (sealed in readLog(File(dir, "conversation.mtlog"))) {
+            val plain = MtBindings.nativeArchiveOpenBlock(k.hk, k.owner, sealed) ?: continue
+            for (r in opened(plain)) {
+                if (r.dir == HEAD_DIR) { if (String(r.content, Charsets.UTF_8) == "a:" + SavedMessages.KEY) heads++; continue }
+                if (r.dir == 0) sigs.add(r.at.toString() + "|" + String(r.content, Charsets.UTF_8))
+            }
+        }
+        done(heads >= 1 && letters.all { (sec, t) -> (sec.toString() + "|" + t) in sigs }, sigs.size)
     }
 
     /** This device's writer tag in hex (iOS writerTagHex 427-434): the four bytes the core names this install's blocks by. */
@@ -412,7 +446,7 @@ object Archive {
         return tag
     }
     /** This device's name in the pipe (iOS twinDeviceRef 884-885): the node rings every device of the pipe but the one that spoke. */
-    private val twinDeviceRef: String get() = (MontanaSeed.twin ?: "") + "#" + deviceTag()
+    internal val twinDeviceRef: String get() = (MontanaSeed.twin ?: "") + "#" + deviceTag()
     /** The one place a label of the seed's own pipe is signed: by this device, never by the person (iOS twinSid 886-887). */
     fun twinSid(cw: String) = Wire.subId(cw, twinDeviceRef)
     fun twinListening(): Map<String, ByteArray> = twinSecret()?.let { mapOf(TWIN_PIPE to it) } ?: emptyMap()
@@ -477,22 +511,45 @@ object Archive {
             if (got.more) twinSoon()
         } finally { f.delete() }
     }
-    /** A row of the box in the pipe of this seed's devices is this file's own, never a letter of the feed (iOS twinTakes 944-950). */
+    /** The rows of the twin's pipe whose road did not come whole: tried again by the next pickups, let go after five (Windows FAILS). */
+    private val twinFails = HashMap<String, Int>()
+    /**
+     * A ROW OF THE BOX IN THE PIPE OF THIS SEED'S DEVICES is this file's own, never a letter of the feed (iOS twinTakes 944-960; the rule
+     * of Windows twin.rs 366-401, docs/identity-sync/07 2.1): the blocks of the history («hist») and the words of the mirror («lt»), each
+     * taken by its road before the row is confirmed -- a confirmation erases the row for every device of the words, so a row whose road did
+     * not come whole stays in the box for the next pickup, five times, and is let go then. A letter this phone laid itself stays for the
+     * others; a word of the pipe this build does not know is taken unread, as iOS takes it. True: the row may be confirmed to the node.
+     */
     fun twinTakes(row: Map<String, String>): Boolean {
         if (row["c"] != TWIN_PIPE) return false
-        val o = Keeping.word(row["t"] ?: "")?.takeIf { it.optString("w") == "hist" } ?: return true
+        val o = Keeping.word(row["t"] ?: "") ?: return true
         val mid = row["m"]?.takeIf { it.isNotEmpty() } ?: return true
-        Thread { runCatching { takeFromTwin(o, mid) } }.start()
+        if (o.optString("f") == writerTagHex()) return false   // this device's own letter, heard back from the box: it stays for the others
+        val seen = runCatching { org.json.JSONArray(Prefs.str(TWIN_SEEN, "[]")) }.getOrNull()?.let { a -> (0 until a.length()).map { a.optString(it) } } ?: emptyList()
+        if (mid in seen) return true
+        val taken = when (o.optString("w")) {
+            "lt" -> Twin.takeMirror(o)
+            "hist" -> takeFromTwin(o)
+            else -> true
+        }
+        synchronized(twinFails) {
+            if (!taken) {
+                val n = (twinFails[mid] ?: 0) + 1
+                twinFails[mid] = n
+                if (n < 5) return false
+            }
+            twinFails.remove(mid)
+        }
+        Prefs.setStr(TWIN_SEEN, org.json.JSONArray((seen + mid).takeLast(512)).toString())
         return true
     }
-    private fun takeFromTwin(o: JSONObject, mid: String) {
-        if (o.optString("f") == writerTagHex()) return   // this device's own letter, heard back from the box
-        val seen = runCatching { org.json.JSONArray(Prefs.str(TWIN_SEEN, "[]")) }.getOrNull()?.let { a -> (0 until a.length()).map { a.optString(it) } } ?: emptyList()
-        if (mid in seen) return
+    /** THE BLOCKS OF THE OTHER DEVICE (iOS takeFromTwin + absorb): each filed in its correspondence's folder. False when the road did
+     *  not come whole. */
+    private fun takeFromTwin(o: JSONObject): Boolean {
         val dir = File(Book.ctx.noBackupFilesDir, "MontanaKeepWork").apply { mkdirs() }
         val f = File(dir, java.util.UUID.randomUUID().toString() + ".twin")
         try {
-            if (!Keeping.fetch(o, f)) { Log.d("Montana", "twin_hist the blocks did not come whole"); return }
+            if (!Keeping.fetch(o, f)) { Log.d("Montana", "twin_hist the blocks did not come whole"); return false }
             val blob = f.readBytes()
             var i = 0
             var filed = 0
@@ -506,8 +563,8 @@ object Archive {
                 q.execute(t)
                 if (runCatching { t.get() }.getOrDefault(false)) filed++
             }
-            Prefs.setStr(TWIN_SEEN, org.json.JSONArray((seen + mid).takeLast(512)).toString())
             Log.d("Montana", "twin_hist taken blocks=" + filed)
+            return true
         } finally { f.delete() }
     }
 

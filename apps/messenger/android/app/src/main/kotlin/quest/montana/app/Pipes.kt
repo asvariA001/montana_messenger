@@ -572,6 +572,8 @@ object Book {
     fun listen(l: () -> Unit) { synchronized(listeners) { listeners.add(l) } }
     fun unlisten(l: () -> Unit) { synchronized(listeners) { listeners.remove(l) } }
     private fun changed() { val ls = synchronized(listeners) { listeners.toList() }; MainThread.post { ls.forEach { it() } } }
+    /** A store beside the book changed (SavedMessages): the screens that listen draw again. */
+    fun poke() = changed()
 
     private fun sec(): MutableMap<String, ByteArray> {
         secrets?.let { return it }
@@ -682,6 +684,8 @@ object Book {
     }
     /** Whether a letter of this conversation was taken away here: its name is buried (iOS ChatStore.buried). */
     fun buried(ref: String, mid: String) = mid in graves(ref)
+    /** A letter taken away before it stood here -- my other device's deletion, a blocked person's row -- never stands (iOS bury). */
+    fun buryName(ref: String, mid: String) = bury(ref, listOf(mid))
 
     /**
      * THE LETTERS A CORRESPONDENT GAVE BACK (iOS ChatStore.layGivenBack, MTKeeping 1053-1084): rows later than the feed's last join it by
@@ -848,7 +852,7 @@ object Book {
         // Montana/Chats; everything else goes — the chats' files, the letters set for later, the words still waiting to leave, the
         // pins and marks of the chats, the card, the read marks, the walls held, the stickers and the grounds.
         Media.wipe(ctx); Scheduled.wipe(); ChatMarks.wipe(); MsgPins.wipe(); BusinessCard.forget(); Post.PeerRead.wipe()
-        Board.wipe(); Stickers.wipe(ctx); ChatWall.wipe()
+        Board.wipe(); Stickers.wipe(ctx); ChatWall.wipe(); Twin.wipe()
         changed()
     }
 }
@@ -974,6 +978,7 @@ object Post {
             red?.let { CoinSend.hold(it, chat) }
             return
         }
+        Twin.sent(to, mid, text, qt, qm, lp, quiet)   // the person's other devices hear what was sent (iOS enqueue 963-972)
         Thread { flush() }.start()
     }
     /** A letter taken off the road unsent: it leaves the queue (a coin letter whose day is over, CoinSend.expire). */
@@ -1270,7 +1275,7 @@ object Post {
     }
 
     /** The words behind a long letter's reference: the words, null — later (no door answered), "" — gone for good. */
-    private fun fetchLong(text: String): String? = fetchLongV(text).first
+    internal fun fetchLong(text: String): String? = fetchLongV(text).first
 
     /** The words, and whether every store said the cargo is gone (iOS askBlob's verdict) when there are none yet. */
     private fun fetchLongV(text: String): Pair<String?, Boolean> {
@@ -1428,6 +1433,7 @@ object Post {
         SamePair.askUnasked()
         Book.refs().filter { SamePair.merged(it) == null }.forEach { announce(it) }   // a folded pipe only forwards
         Media.fetchPending(Book.ctx)
+        runCatching { Twin.walk() }   // the mirror's words that are due ride to the other devices; words held for an unknown pipe land
         Thread { Media.drainIntents(Book.ctx) }.start()   // a file whose pieces did not land goes out again (iOS 1675), never ahead of the letters
         flush()
     }
@@ -1565,6 +1571,7 @@ object Post {
         val fresh = Book.chat(ref) == null
         Book.open(ref, name, MontanaCard.isPermanentRoot(root))
         if (fresh) Thread { readPipeFace(ref, secret) }.start()
+        Twin.heard(ref, mid, text, null, null, null)   // the first letter of a meeting rides to the other devices too (Windows post.rs 1161)
         place(ref, mid, text, name, null, null)
         announce(ref)
         if (fresh) CodeMet.met()   // the page of the code that brought them closes (iOS onMet)
@@ -1605,6 +1612,8 @@ object Post {
             text = words.ifEmpty { text }
         }
         if (own) { landOwn(SamePair.root(ref), f[0], text, f[4].ifEmpty { null }, f[5].ifEmpty { null }, f[6].ifEmpty { null }); return true }
+        // THE BOX GAVE IT TO THIS PHONE, AND THIS PHONE'S CONFIRMATION ERASES IT FOR THE OTHER DEVICES (iOS receive 246-250): it rides to them
+        Twin.heard(ref, f[0], text, f[4].ifEmpty { null }, f[5].ifEmpty { null }, f[6].ifEmpty { null })
         if (Marks.isControl(text) && ControlSeen.seen(f[0])) return true   // heard before: no second answer, no receipt
         place(ref, f[0], text, f[2], f[4].ifEmpty { null }, f[5].ifEmpty { null }, f[6].ifEmpty { null }, f[7].ifEmpty { null })
         return true
@@ -1645,6 +1654,58 @@ object Post {
             }
         }
         Log.d("Montana", "rx_own mid=" + mid.take(8) + " landed from=" + ref.take(10))
+    }
+
+    // ── THE WORDS OF THE PERSON'S OTHER DEVICES (Twin: iOS landMirrored, landOwn; Windows twin.rs land_theirs, land_own, place_quiet) ──
+    /** A landing of a word another device of these words took: it answers nobody -- that device already did. */
+    private val quietLanding = ThreadLocal<Boolean>()
+    private fun quiet() = quietLanding.get() == true
+
+    /**
+     * A CORRESPONDENT'S WORD ANOTHER DEVICE TOOK (iOS receive(mirrored: true); Windows land_theirs 707-723, place_quiet): it lands as if
+     * this phone had taken it -- the row, the count, the banner -- but no receipt, no «kept», no automatic payment and no pieces taken off
+     * the nodes; a blocked or barred person's row is buried, a ring is stale, a control word heard before is heard once.
+     */
+    internal fun placeQuiet(ref: String, mid: String, text: String, qt: String?, qm: String?, lp: String?) {
+        val person = !Marks.isService(text) || text.startsWith(Marks.MEDIA) || text.startsWith(Marks.VOICE) || text.startsWith(Marks.STICKER)
+        if (PeerSafety.isBlocked(ref) || PeerSafety.isBlocked(SamePair.root(ref)) || PeerSafety.isBarred(ref) || PeerSafety.isBarred(SamePair.root(ref))) {
+            if (person) Book.buryName(SamePair.root(ref), mid)
+            return
+        }
+        if (text.startsWith(Marks.RING)) return
+        Meeting.firstDone(ref)
+        if (Marks.isControl(text) && ControlSeen.seen(mid)) return
+        quietLanding.set(true)
+        try { place(ref, mid, text, "", qt, qm, lp) } finally { quietLanding.remove() }
+        Log.d("Montana", "twin_rx mid=" + mid.take(8) + " a correspondent's word another device took, landed quietly")
+    }
+
+    /**
+     * THE PERSON'S OWN WORD FROM ANOTHER DEVICE BY THE MIRROR (iOS landOwn 105-169; Windows land_own 728-788): as a word off the pipe with the
+     * author field lands (landOwn), and two things more -- a deletion buries the letter's name even before the letter stands here, so its
+     * later copy never stands, and a row the twin's blocks gave back under the archive's own name takes the wire name instead of standing twice.
+     */
+    internal fun landOwnMirrored(ref0: String, mid: String, text: String, qt: String?, qm: String?, lp: String?) {
+        val ref = SamePair.root(ref0)
+        if (text.startsWith(Marks.DELETE)) {
+            val d = text.removePrefix(Marks.DELETE).removePrefix("mid:")
+            if (d.isNotEmpty() && Book.chat(ref)?.msgs?.none { it.mid == d } == true) Book.buryName(ref, d)
+        }
+        val row = !Marks.isService(text) || text.startsWith(Marks.MEDIA) || text.startsWith(Marks.VOICE) || text.startsWith(Marks.STICKER)
+        if (row && Book.chat(ref)?.msgs?.none { it.mid == mid } == true && !Book.buried(ref, mid)) {
+            var renamed = false
+            Book.edit(ref) { c -> renamed = arcRename(c, mid, text, true, Marks.birthMs(mid) ?: System.currentTimeMillis()) }
+            if (renamed) { Log.d("Montana", "rx_own mid=" + mid.take(8) + " the archive's row takes its wire name"); return }
+        }
+        landOwn(ref, mid, text, qt, qm, lp)
+    }
+
+    /** A row the archive gave back («arc:»: the second, the side, the words) that is this letter takes its wire name (Windows arc_rename). */
+    private fun arcRename(c: Chat, mid: String, text: String, mine: Boolean, at: Long): Boolean {
+        val i = c.msgs.indexOfFirst { it.mid.startsWith("arc:") && it.mine == mine && it.text == text && kotlin.math.abs(it.at - at) < 2_000L }
+        if (i < 0) return false
+        c.msgs[i] = Msg.of(c.msgs[i].json().put("m", mid))
+        return true
     }
 
     private fun place(ref: String, mid: String, text: String, name: String, qt: String?, qm: String?, lp: String? = null, au: String? = null) {
@@ -1725,7 +1786,7 @@ object Post {
                 val row = Book.chat(ref)?.msgs?.find { it.mid == d }
                 if (LevelAccess.keepsDeleted && row != null) {
                     Log.d("Montana", "delete_kept mid=" + d.take(14) + " kept by the person's choice (level access) -- the sender is told")
-                    send(ref, Marks.mintMid(), Marks.DELETE_KEPT + text.removePrefix(Marks.DELETE))
+                    if (!quiet()) send(ref, Marks.mintMid(), Marks.DELETE_KEPT + text.removePrefix(Marks.DELETE))   // the device that took it told
                 }
                 // a coin letter of mine on its way keeps its row whoever asks (iOS deleteLocally 122-128: every door asks first)
                 else if (row?.let { CoinSend.travels(it) } != true) Book.edit(ref) { c -> c.msgs.removeAll { it.mid == d } }
@@ -1827,7 +1888,10 @@ object Post {
                         had.text = text; had.meta = null
                         Log.d("Montana", "rx_refill m=" + mid.take(8) + " the row stands without its file — the copy's cargo is taken")
                     }
-                    if (had == null) {
+                    // a row the twin's blocks gave back under the archive's own name is this letter: it takes the wire name (Windows arc_rename)
+                    if (had == null && quiet() && arcRename(c, mid, text, false, minOf(Marks.birthMs(mid) ?: System.currentTimeMillis(), System.currentTimeMillis() + 120_000L))) {
+                        Log.d("Montana", "twin_rx mid=" + mid.take(8) + " the archive's row takes its wire name")
+                    } else if (had == null) {
                         // a correspondent's claimed birth stands two minutes ahead of this clock at most (iOS DeliveryEngine 89-94)
                         val now = System.currentTimeMillis()
                         val at = minOf(Marks.birthMs(mid) ?: now, now + 120_000L)
@@ -1841,13 +1905,13 @@ object Post {
                     }
                 }
                 // A MEDIA LETTER IS ANSWERED ONLY ONCE ITS FILE IS ASSEMBLED (iOS: the receipt waits for the file).
-                if (text.startsWith(Marks.MEDIA)) Media.fetch(Book.ctx, ref, mid, text) else receipt(ref, sid)
+                if (text.startsWith(Marks.MEDIA)) Media.fetch(Book.ctx, ref, mid, text, quiet = quiet()) else receipt(ref, sid)
                 if (isNew && Book.openChat == ref) markRead(ref)
                 if (isNew && Book.openChat != ref) Notify.letter(ref, text)
                 if (isNew) CoinSend.landed(ref, mid, text, qt)   // a coin letter is credited once by its wire name (iOS MTCoinSend)
                 if (isNew) ChatMint.pair(ref)   // every letter of a pair mints its level's coins, once by its name (iOS MTCoinSend.mintLetter)
                 if (isNew) LiveDraft.letterLanded(ref)   // their letter ends their draft, whatever word was lost on the road (iOS 4619-4636)
-                if (isNew) AutoReact.landed(ref, mid, text)   // a chosen person's fresh letter is paid by itself (iOS MTAutoReact.landed)
+                if (isNew && !quiet()) AutoReact.landed(ref, mid, text)   // a chosen person's fresh letter is paid by itself, by one device (iOS MTAutoReact.landed)
                 // A TRANSFER'S TELLING LETTER ASKS THE NODES (iOS ChatStore 4655-4658): the letter credits nothing; the record it names is read from the log
                 if (isNew && text.contains(CoinTx.LINK)) Thread { if (CoinTx.agrees) CoinTx.scan("told", force = true) }.start()
                 if (isNew) takeEdit(ref, mid)?.let { applyEdit(ref, mid, it) }   // the words that outran the letter (iOS takePendingEdit)
@@ -1910,7 +1974,7 @@ object Post {
 
     /** «Delivered» for a letter of theirs — under its own name, so the queue holds one per letter (iOS receiptMid). */
     // THE ONE RECEIPT DOOR also says the letter stands whole here: its name rides every presence word after «K» (iOS HeldLetters.note)
-    private fun receipt(ref: String, mid: String) { HeldLetters.note(ref, mid); send(ref, "rcpt-$mid", Marks.DELIVERED + mid) }
+    private fun receipt(ref: String, mid: String) { if (quiet()) return; HeldLetters.note(ref, mid); send(ref, "rcpt-$mid", Marks.DELIVERED + mid) }
     fun receiptFor(ref: String, mid: String) = receipt(ref, mid)
 
     /** THE ONE DELIVERY DOOR (iOS markDelivered): a receipt, or a presence word naming the letter whole (HeldLetters, «by=word»). */
@@ -1985,9 +2049,12 @@ object Post {
             MainThread.later(800, Runnable { if (Book.openChat == ref && Presence.shown) Thread { Groups.tellRead(ref) }.start() })
             return
         }
+        // THE OTHER DEVICES READ IT TOO (iOS ChatStore.markRead 3151-3157): said once there was something unread, whether or not the
+        // correspondent hears a word of it
+        val upTo = c.msgs.filter { !it.mine }.mapNotNull { Marks.birthMs(it.mid) }.maxOrNull()
+        if (c.unread > 0 || ChatMarks.handMark(ref)) Twin.readHere(ref, upTo)
         // a blocked person hears no word of mine (iOS sendReadMark 2842: read_skip why=blocked)
         if (!Prefs.bool("readReceiptsEnabled", true) || PeerSafety.isBlocked(ref)) { Book.edit(ref) { it.unread = 0 }; return }
-        val upTo = c.msgs.filter { !it.mine }.mapNotNull { Marks.birthMs(it.mid) }.maxOrNull()
         Book.edit(ref) { it.unread = 0 }
         // A BIRTH IN THE DIARY IS WRITTEN AS THE LETTER BORN THEN IS NAMED THERE (iOS MontanaP2PTrace.shortMs,
         // MontanaChatStore.swift 2067 at 2155, 23.09): the watermark's last eight digits, never the whole hidden address.
