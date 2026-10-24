@@ -442,6 +442,8 @@ of another width; `links_to` refuses a round past `u32::MAX` (round.rs:107-109);
   which changes no description (the identifier of a description does not take the free block into
   its bytes) and leaves the frame, the ballot and the presence inside their heights. (A3) now names
   no conjecture.
+  *Accepted by the author, 24.10.2026 21:21 UTC:* the changes of 8e68627 beyond decision 4 --
+  `proof_free_rows` 128 -> 256, a round point of at most 127 heavy attestations, the frames of a window 105.8 MB per chain.
 - **O-2.** (A5) read off `mt-proof/src/circuit/presence.rs`, constraint by constraint
   (24.10.2026, read at 0fe6134; the Poseidon permutation layer is taken as the permutation, as A4
   takes it). Width 12, rate 8, capacity 4 (poseidon.rs:17-22). Every chain opens under its domain:
