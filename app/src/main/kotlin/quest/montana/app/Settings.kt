@@ -507,14 +507,14 @@ fun dataStoragePage(act: MainActivity, onBack: () -> Unit): View {
     fun count() = act.background {
         val inv = CopyInventory.gather(act)
         act.onMain {
-            measure()
-            desk?.let { it.inv = inv; it.changed(); return@onMain }
+            desk?.let { it.inv = inv; it.changed(); measure(); return@onMain }
             desk = CopyDesk(act, inv, plan).also { d ->
                 copySummary(d).forEach { r ->
                     planRows.addView(View(c).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = c.dp(16) })
                     planRows.addView(r, lp())
                 }
             }
+            measure()   // the letters' names are counted now: what they name is the chats' (iOS measureDisk(inv))
         }
     }
     fun handed(r: CopyResult) {
