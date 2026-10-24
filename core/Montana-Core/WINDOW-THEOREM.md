@@ -376,7 +376,33 @@ of another width; `links_to` refuses a round past `u32::MAX` (round.rs:107-109);
   is checked constraint by constraint under O-2: the lane loads at the last row of the absorption,
   the leaf takes the cells the extra block leaves, and the extra block enters with the whole state
   (capacity and rate carried). Discharged with O-2.
-- **O-4.** (A6) as a theorem of the roots of state.
+- **O-4.** (A6) as a theorem of the roots of state (read at 8d6409d). *The construction.* The roots a
+  machine recomputes for a proposal take `admitted_root` as the root of its cohort and `admitted_count`
+  as its count (montana-node state.rs:303, 306), and both are of one list: `Cohort::of` sorts the
+  naming halves and removes repeats (pulse.rs:60-62), the root is `root_of` over that list
+  (pulse.rs:63) and the count is its length (pulse.rs:90-92). `root_of` (mt-proof admitted.rs) places
+  the leaves of the list at the first `n` positions of a tree of depth `D = note_tree_depth = 40`
+  (mt-genesis lib.rs:146) and the empty leaf at every other position, the empty internal of a level
+  standing for a missing right child. The leaf of a half and the empty leaf are one domain over two
+  different blocks -- four words, the one-element and zeros against the one-element and zeros
+  (poseidon.rs:242-253) -- so under (A4) no leaf is the empty leaf and two halves have two leaves; and
+  under (A4) for the node the root fixes the vector of leaves it stands over.
+  **Lemma 5 (the count is the leaves).** For every list of naming halves of length at most `2^D`, the
+  count of its cohort is the number of distinct non-empty leaves under its root, except with the
+  probability of a collision of the family. *Proof.* Equal roots fix equal vectors of leaves; the
+  non-empty positions hold the leaves of the distinct halves of the list, `n` of them, and the count is
+  `n`. QED
+  *(A6) from Lemma 5.* A final proposal carries roots a quorum pledged; by the Corollary of Lemma 4
+  the quorum holds a machine whose secret the adversary does not hold (A7), which pledges only after
+  recomputing the roots (A8) and refuses a proposal whose roots differ from its own
+  (certificate.rs:578-603), so the root and the count of the proposal are of one cohort and Lemma 5
+  applies. *The bound.* Past `2^D` halves `root_of` leaves its loop with more than one node standing
+  and returns the first -- the root of the first `2^D` leaves -- while the count is the length of the
+  whole list, so the count would exceed the leaves of the root. `Cohort::of` names the case in its
+  refusal ("a cohort the tree of admitted machines cannot hold", pulse.rs:63-65) and `root_of` does not
+  refuse it: finding F-436-1, closed in code by a refusal in `root_of` of a list longer than `2^D`,
+  with a test at depth one that refuses the named wrong implementation (three leaves taken under a
+  tree of two). O-4 is discharged with that closure.
 - **O-5.** F-431-1 to F-431-4 closed in code, each with a test that refuses the named wrong
   verifier.
 
