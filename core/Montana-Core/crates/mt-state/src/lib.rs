@@ -26,11 +26,11 @@ use mt_codec::{hash_of_one, Domain};
 // stand in the set, all are frozen, and the gate recomputes the lengths from the parts the set fixes.
 mt_codec::constants! {
     PROOF_AND_COMMITMENT:
-    pub const PROOF_LEN: usize = 387_200, writes "| `PROOF_LEN` | 387 200 B |";
+    pub const PROOF_LEN: usize = 404_576, writes "| `PROOF_LEN` | 404 576 B |";
     /// The length of a proof of the presence, at the presence's own height: the one description a
     /// machine proves every window is priced by its own statement, not by the tallest. The ticket
     /// stands at the same height, so the proof a proposal carries is of this length as well.
-    pub const PRESENCE_PROOF_LEN: usize = 319_584, writes "| `PRESENCE_PROOF_LEN` | 319 584 B |";
+    pub const PRESENCE_PROOF_LEN: usize = 333_888, writes "| `PRESENCE_PROOF_LEN` | 333 888 B |";
     /// The fields of a proposal the window decides: everything from the height through the suite,
     /// the census of the standing among them. The identifier of a proposal is taken over exactly
     /// these bytes, because the name is what an attestation attests — and a name over proof bytes

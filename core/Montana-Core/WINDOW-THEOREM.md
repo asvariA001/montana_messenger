@@ -81,8 +81,8 @@ and `L = (W, aggregate(C, W), card(C), C ascending, v)`.
   and the ballot: from any adversary that outputs an accepting proof for a public input, an
   extractor obtains a witness satisfying the description, except with probability `eps_K` per
   proof. The value of `eps_K` is a function of the parameters of the scheme; obligation O-1 of
-  section 10 is its derivation, whose query term reaches the target of Canon on the Johnson bound,
-  a theorem (Canon, `proof_queries`, decision 4 of the author, 24.10).
+  section 10 is its derivation, whose whole sum reaches the target of Canon on the Johnson bound,
+  a theorem (Canon, `proof_queries`, decision 4 of the author, 24.10, and the author's word of 24.10 21:21 UTC).
 - **(A4) Collision resistance of the Poseidon family** of `mt-proof`, for the tree of admitted
   machines and the part-nullifier.
 - **(A5) The description of the presence** enforces that the leaf of the naming half of a secret
@@ -365,40 +365,66 @@ of another width; `links_to` refuses a round past `u32::MAX` (round.rs:107-109);
   at the security target of Canon. *The parameters* (params.rs:10-20, ext.rs:13-14, field.rs:17
   at 8d6409d; Canon, the table beside `proof_security_bits`): the base field `p = 2^64 - 2^32 + 1`,
   every challenge drawn in the cubic extension `K` of order `p^3` (about `2^192`), blowup 8 (rate
-  `rho = 1/8`), 48 queries at distinct positions at that reading (transcript.rs:117-120; 88 since decision 4, below), fold 4, a tail of 64, and no
+  `rho = 1/8`), 48 queries at distinct positions at that reading (transcript.rs:117-120; 92 since decision 4 and the derivation of the sum, below), fold 4, a tail of 64, and no
   proof-of-work term in the transcript. `eps_K` is the sum of three terms: the mixing and the deep
-  composition, the commit phase of the folding, and the query phase. The first two are terms over
-  the order of `K` (Canon gives `2^-172` for the first) and bind in no regime below; the third binds,
-  and it does not depend on the height, so the presence, the ticket and the ballot share it. Per
+  composition, the commit phase of the folding, and the query phase. The first is a term over the
+  order of `K` (Canon gives `2^-172`) and binds in no regime below; the commit phase is over the order
+  of `K` too, but with the square of the domain and the seventh power of the parameter `m` of the
+  Johnson analysis in it, and it binds `m` (derived below); the query term does not depend on the
+  height, so the presence, the ticket and the ballot share it. Per
   attempt, by the regime of the proximity parameter `delta` the analysis of the folding reaches:
   - unique decoding, `delta` below `(1 - rho)/2` (a theorem): `((1 + rho)/2)^48 = (9/16)^48 = 2^-39.8`;
   - the Johnson bound, `delta` below `1 - sqrt(rho)` (a theorem for Reed-Solomon codes): at best
     `(sqrt(rho)(1 + 1/(2m)))^48`, which is `2^-69.9` at `m = 16` and tends to `2^-72`;
   - capacity, `delta` toward `1 - rho` (a conjecture on the proximity gaps of Reed-Solomon codes, not
     a theorem): `rho^48 = 2^-144`.
-  *Closed by decision 4 (24.10, the author; Canon 9.3.0, `proof_queries`).* The author chose the
-  second of the two ways: parameters that reach the target on the Johnson bound, and not the
-  capacity conjecture. Blowup stays 8, so the extension a prover holds and the time of the low-degree
-  extension do not grow; the queries go from 48 to 88. Recomputed here by the formula above before
-  the change: per query `sqrt(rho)(1 + 1/(2m))` at `m = 16` is `2^-1.5 x 1.03125 = 2^-1.4556`; 87
-  queries give `2^-126.64`, which does not reach 128, and 88 give `2^-128.09`, which does, so 88 is
-  the least count (at `m = 15` it is `2^-127.84`, at `m = 8` `2^-124.30`, in the limit `2^-132`).
-  `PROOF_LEN` is 4 928 + 88 x 4 344 = 387 200 B and `PRESENCE_PROOF_LEN` 4 896 + 88 x 3 576 =
-  319 584 B, each 173 760 B and 143 040 B more than before; every length that carries a proof moved
-  with them (Canon: `opening_len`, `action_len`, `frame_len`, `ballot_len`, `candidacy_len`,
-  `confirmation_len`, `proposal_len`, the frozen vectors of the proposal, the frame and the notice,
-  and the cells of a delivery: `collect_answer_max` 336 -> 608, a round point 227 -> 127 heavy
-  attestations by the `u16` index). One consequence the choice did not name: the free block of the
-  trace must stay above what the queries open, `2 x proof_queries + 2 = 178` values (Canon, "The free
-  block, the randomizer and the two parts of the composition"), and `proof_free_rows` was 128; it is
-  256 now, two blocks of the permutation, which changes no description (the identifier of a
-  description does not take the free block into its bytes) and leaves the frame, the ballot and the
-  presence inside their heights. (A3) now names no conjecture. What this paper has not derived is
-  the sum of the other terms of `eps_K` at the Johnson regime: the commit phase of the folding stands
-  over the order of `K` with the degree of the domain `2^19` in it, and the bound of the proximity
-  gaps of the reference, as this paper reads it, would put that term near `2^-123` at `m = 16`; the
-  paper above took it as not binding and did not derive it, so the claim "128 bits proven" holds
-  for the query term only until that term is derived.
+  *Closed by decision 4 (24.10, the author; Canon 9.3.0, `proof_queries`), and the sum derived on
+  the author's word of 24.10 21:21 UTC (Canon 9.4.0).* The author chose the second of the two ways:
+  parameters that reach the target on the Johnson bound, and not the capacity conjecture. Blowup
+  stays 8, so the extension a prover holds and the time of the low-degree extension do not grow.
+  The first pass (Canon 9.3.0) took 88 queries at `m = 16` from the query term alone; the target is
+  `eps_K` whole, and the commit phase of the folding is what binds `m` from above.
+  *The bound.* Ben-Sasson, Carmon, Ishai, Kopparty and Saraf, "Proximity gaps for Reed-Solomon
+  codes", ePrint 2020/654, read in ECCC TR20-083 revision 3 (3 July 2021), section 8.2, Theorem 8.3
+  (Batched FRI Soundness) with Lemma 8.2, verbatim up to typesetting: for integer `m >= 3`,
+  `alpha = sqrt(rho)(1 + 1/2m)`, `s` invocations of the query step,
+  `eps_FRI := eps_C + alpha^s`, where
+  `eps_C = (m + 1/2)^7 |D0|^2 / (2 rho^(3/2) |F|) + (2m + 1)(|D0| + 1)/sqrt(rho) * sum_{i<r} l(i) / |F|`.
+  The denominator of the first term is `2 rho^(3/2)` in the lemma; `3 rho^(3/2)` is the bound (8.8)
+  on the batching event alone, which the lemma sums with the events of the `r` rounds. The
+  revision of 30 May 2020 states the theorem differently (Theorem 7.2, through a gap `eta`); this
+  paper uses revision 3. The field `F` of the theorem is `K` here: the code is read over `K`, the
+  domain lies in the base field inside it, and every folding and mixing coefficient is drawn from
+  `K`, so `|F| = p^3`.
+  *The parameters.* `rho = 1/8`; `|D0| = 2^19`, the largest extended domain of the three descriptions
+  (the ballot and the frame; the presence is `2^17`); five layers of fold 4, so `sum l(i) = 20`;
+  `|K| = p^3`, about `2^192`; the mixing and the deep composition `2^-172` (Canon, the row of
+  `proof_challenge_field`; independent coefficients, no factor for the count of columns).
+  *The sum.* `m` trades the phases: the query term falls toward `2^-1.5 s` as `m` grows and the
+  first term of `eps_C` grows as `m^7`. At `m = 16` the first term is `2^-122.19`, so no count of
+  queries reaches 128 there; at `m = 9` it is `2^-127.77`, still above. At `m = 7`: `eps_C =
+  2^-130.15 + 2^-163.27 = 2^-130.15`; the query term is `(2^-1.5 x 15/14)^92 = 2^-1.40046 x 92 =
+  2^-128.84`; with the mixing, `eps_K <= 2^-130.15 + 2^-128.84 + 2^-172 = 2^-128.35`. At `m = 8` and
+  92 queries the sum is `2^-128.32`, at `m = 6` it needs 93 (`2^-128.57`), at `m = 5` 94, at `m = 3`
+  101. With 91 queries the sum is `2^-127.24` at `m = 7`, `2^-127.70` at `m = 8`, `2^-127.36` at
+  `m = 9`, and no `m` reaches 128. So 92 is the least count, at `m = 7` or `8`, and `m = 7` gives
+  the larger margin, 0.35 bit. The presence, `|D0| = 2^17` and four layers, has
+  `eps_C = 2^-134.15` and a sum of `2^-128.81`. **128 bits are proved for `eps_K` whole**, for the
+  three descriptions, on the Johnson bound, from the theorem and the parameters above; the knowledge
+  extractor of (A3) beyond the soundness of the folding is the reference's and ethSTARK's (ePrint
+  2021/582), not re-derived here.
+  `PROOF_LEN` is 4 928 + 92 x 4 344 = 404 576 B and `PRESENCE_PROOF_LEN` 4 896 + 92 x 3 576 =
+  333 888 B; every length that carries a proof moved with them (Canon: `opening_len`, `action_len`,
+  `frame_len`, `ballot_len`, `candidacy_len`, `confirmation_len`, `proposal_len`, the frozen vectors
+  of the proposal, the frame and the notice, and the cells of a delivery: `collect_answer_max` 336 ->
+  608 -> 624, a round point 227 -> 127 -> 124 heavy attestations by the `u16` index); the largest
+  message of the wire is 768 770 B, 96 s at 64 kb/s, inside `PATIENCE_SECONDS` = 120. One
+  consequence decision 4 did not name: the free block of the trace must stay above what the queries
+  open, `2 x proof_queries + 2 = 186` values (Canon, "The free block, the randomizer and the two parts
+  of the composition"), and `proof_free_rows` was 128; it is 256 now, two blocks of the permutation,
+  which changes no description (the identifier of a description does not take the free block into
+  its bytes) and leaves the frame, the ballot and the presence inside their heights. (A3) now names
+  no conjecture.
 - **O-2.** (A5) read off `mt-proof/src/circuit/presence.rs`, constraint by constraint
   (24.10.2026, read at 0fe6134; the Poseidon permutation layer is taken as the permutation, as A4
   takes it). Width 12, rate 8, capacity 4 (poseidon.rs:17-22). Every chain opens under its domain:
