@@ -266,10 +266,11 @@ of another width; `links_to` refuses a round past `u32::MAX` (round.rs:107-109);
   part being the adversary's either way; but two verifiers given one certificate in two orders can
   count that part under two names. Required: a part pledging two names in attempt zero is recorded
   as a contradiction and counted under neither.
-- **F-431-1.** The comment at round.rs:71 says round zero links to "the proposal of the window
-  before"; certificate.rs:406-409 and the Canon it quotes say "two before", and `walk` passes the
-  proposal of `W - 2` (:748-758). The comment is corrected once the pulse's own round zero is read
-  against it.
+- **F-431-1 (closed).** The comment at round.rs:71 said round zero links to "the proposal of the
+  window before"; certificate.rs:406-409 and the Canon it quotes say "two before", and `walk` passes
+  the proposal of `W - 2` (:748-758). The pulse agrees with the Canon: `Pulse::open` takes
+  `stands_on`, "the proposal of the window two before, which round zero links to" (pulse.rs:223-225),
+  and its caller hands the identifier of `two_before` (pulse.rs:1253-1262). The comment now says so.
 
 ## 9. Checked by machine
 
