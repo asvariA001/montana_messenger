@@ -12,7 +12,7 @@ use montana_node::certificate::{
 };
 use montana_node::pulse::Cohort;
 use montana_node::runner::Runner;
-use mt_state::layout::{Ballot, Beacon, Confirmation, Pledge, Proposal};
+use mt_state::layout::{Ballot, Beacon, Confirmation, LightAttestation, Pledge, Proposal};
 use mt_state::Layout;
 
 const WINDOW: u64 = 1_000;
@@ -180,6 +180,7 @@ impl World {
         let rounds = [Round {
             beacon: &beacon,
             heavy: heavies,
+            light: &[],
             ballots: &[],
         }];
         verify_certificate(
@@ -193,23 +194,51 @@ impl World {
         )
     }
 
+    // The light attestations of every machine of the electorate answering `beacon` on `name`: what
+    // answers a final round, every machine having answered the window heavily before.
+    fn lights_on(&self, beacon: &Beacon, name: [u8; 32]) -> Vec<LightAttestation> {
+        let id = beacon.id().expect("an identifier");
+        self.standings
+            .iter()
+            .zip(&self.secrets)
+            .map(|(standing, secret)| {
+                standing
+                    .light(secret, id, name)
+                    .expect("a light attestation stands")
+            })
+            .collect()
+    }
+
     // What the window decided, read off the certificate as a device behind reads it: the heavies
-    // answering round zero, and the beacon of round one carrying their cement.
+    // answering round zero, and the beacon of round one carrying their cement, answered by the light
+    // attestations of the machines.
     fn decided_by(
         &self,
         heavies: &[Confirmation],
         last: &Beacon,
+    ) -> Result<Decided, montana_node::NodeError> {
+        self.decided_answered(heavies, last, &self.lights_on(last, self.previous_id()))
+    }
+
+    // The same reading, with the light attestations of the final round handed in by the caller.
+    fn decided_answered(
+        &self,
+        heavies: &[Confirmation],
+        last: &Beacon,
+        light: &[LightAttestation],
     ) -> Result<Decided, montana_node::NodeError> {
         let first = self.beacon();
         let rounds = [
             Round {
                 beacon: &first,
                 heavy: heavies,
+                light: &[],
                 ballots: &[],
             },
             Round {
                 beacon: last,
                 heavy: &[],
+                light,
                 ballots: &[],
             },
         ];
@@ -316,6 +345,7 @@ fn the_acceptance_matrix_of_the_relation_through_the_one_entry_point() {
             &[Round {
                 beacon: &beacon,
                 heavy: &heavies,
+                light: &[],
                 ballots,
             }],
             &world.closings(),
@@ -618,6 +648,7 @@ fn the_agreement_decides_what_a_certificate_makes_final() {
             &[Round {
                 beacon: &beacon,
                 heavy: heavies,
+                light: &[],
                 ballots: &[],
             }],
             pledges,
@@ -664,5 +695,70 @@ fn the_agreement_decides_what_a_certificate_makes_final() {
     assert_eq!(
         under(&[astray, heavies[1].clone(), heavies[2].clone()], &closings),
         Err(refused("an attestation outside the beacon of its round"))
+    );
+}
+
+// The close counts a beacon "which a verified attestation answered" (Consensus, "The beacon a window
+// closes on"), and a device verifies a certificate as the living did, so the final beacon a device
+// reads off a certificate is one a verified attestation of it answered. A final round is answered by
+// light attestations alone in the ordinary close — every machine drawn in it already answered the
+// window heavily — so the certificate carries them. Accepted: the final beacon answered by the light
+// attestations of the machines. Refused, each with the same beacon, at the quorum and linked to its
+// predecessor: no light attestation at all, which a decider reading the pair and not the answer
+// takes; light attestations on another name than their parts' heavies pledged, which one checking
+// the key and the signature and not the name takes; light attestations answering another beacon,
+// which one counting whatever stands in the round takes; and light attestations re-signed under a
+// key no heavy attestation of the certificate proved, which one verifying a light attestation under
+// the key it carries takes.
+#[test]
+fn a_final_beacon_no_verified_attestation_answered_closes_nothing() {
+    const UNANSWERED: &str = "a final beacon no verified attestation of the certificate answered";
+    let world = a_world(&[[0x11u8; 32], [0x22u8; 32], [0x33u8; 32]], [0x33u8; 32]);
+    let heavies: Vec<Confirmation> = (0..3).map(|at| world.heavy(at)).collect();
+    let last = world.final_beacon(&heavies);
+    let x = world.previous_id();
+
+    let answering = world.lights_on(&last, x);
+    let decided = world
+        .decided_answered(&heavies, &last, &answering)
+        .expect("a final beacon the light attestations of its round answered");
+    assert_eq!(decided.final_beacon, last.id().expect("an identifier"));
+    // One light attestation answers a beacon as well as all of them.
+    assert!(world
+        .decided_answered(&heavies, &last, &answering[..1])
+        .is_ok());
+
+    assert_eq!(
+        world.decided_answered(&heavies, &last, &[]),
+        Err(refused(UNANSWERED))
+    );
+    assert_eq!(
+        world.decided_answered(&heavies, &last, &world.lights_on(&last, [0x77u8; 32])),
+        Err(refused(UNANSWERED))
+    );
+    assert_eq!(
+        world.decided_answered(&heavies, &last, &world.lights_on(&world.beacon(), x)),
+        Err(refused(UNANSWERED))
+    );
+    let (other_key, other_secret) = signing_key(mt_derive::pulse::part_key_seed(
+        &world.secrets[0],
+        WINDOW + 1,
+    ));
+    let lifted: Vec<LightAttestation> = answering
+        .iter()
+        .map(|held| {
+            let mut lifted = held.clone();
+            lifted.answering_key = other_key.as_bytes().to_vec();
+            lifted.signature =
+                mt_suite::sign::sign(&other_secret, &lifted.signed_scope().expect("scope"))
+                    .expect("the other key signs")
+                    .as_bytes()
+                    .to_vec();
+            lifted
+        })
+        .collect();
+    assert_eq!(
+        world.decided_answered(&heavies, &last, &lifted),
+        Err(refused(UNANSWERED))
     );
 }

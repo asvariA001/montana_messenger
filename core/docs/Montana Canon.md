@@ -1,6 +1,6 @@
 # Montana — Canon
 
-**Version:** 9.4.0
+**Version:** 9.5.0
 
 Canon is the one place where the values and the bytes of Montana live. Every other document
 of the set names a quantity and points here; none of them restates a number, a size, a
@@ -1170,10 +1170,11 @@ windows it missed, and the material those certificates are made of must stand so
 collect — while retention that grew without bound would be the slow bloat the lifecycle invariant
 refuses.
 
-**Derivation.** The certificate of a window is its heavy attestations and the pledges its decision
-stands on, which already stand at their points; retaining them costs what the window cost — one
-attestation per attesting machine, of the length Canon fixes for a confirmation, and its pledges,
-each about a thirty-fourth of one — for as many windows as the bound names, and the frames and the rolls the
+**Derivation.** The certificate of a window is its heavy attestations, the light attestations
+answering its final beacon and the pledges its decision stands on, which already stand at their
+points; retaining them costs what the window cost — one attestation per attesting machine, of the
+length Canon fixes for a confirmation, and its pledges and the light attestations of one round, each
+under a sixtieth of one — for as many windows as the bound names, and the frames and the rolls the
 same bound keeps for a machine replaying a decided window cost what the window carried. One
 binary order over the open window's own load keeps every device that carries a window in the storage
 class it already stands in, and it is three doublings above the one or two windows an ordinary
@@ -4952,15 +4953,16 @@ decision between them.
 ### The certificate of a window
 
 The certificate of a window is not an object: it is the proposal that closed the window with its roll, together with
-the heavy attestations of the window after it, the pledges of that window's agreement its decision
+the heavy attestations of the window after it, the light attestations of that window answering the
+final beacon its proposal names, the pledges of that window's agreement its decision
 stands on and the ballots of their parts, which stand at their points exactly as they were
 published. A device verifies a certificate as the living
 verified its parts, and Consensus states the procedure.
 
 **Invariants of the certificate:**
 
-- A certificate introduces no object, no signature and no key; its parts are a proposal with its roll, the heavy attestations of the window after it, the pledges its decision stands on and the ballots of their parts, each of the layout and the length this document already fixes.
-- The heavy attestations, the ballots and the pledges of a window, the frames of its rounds and its proposals with their rolls survive at their points for `retained_windows` windows after the window closes; a deposit at a point of a past round is refused, and what stands there is held until the retention ends, and nothing else of a round outlives its window.
+- A certificate introduces no object, no signature and no key; its parts are a proposal with its roll, the heavy attestations of the window after it, the light attestations of that window answering the final beacon its proposal names, the pledges its decision stands on and the ballots of their parts, each of the layout and the length this document already fixes. A final beacon no verified attestation of the certificate answered closes nothing for a device, as it closes nothing for a machine of the window.
+- The heavy attestations, the light attestations answering its final beacon, the ballots and the pledges of a window, the frames of its rounds and its proposals with their rolls survive at their points for `retained_windows` windows after the window closes; a deposit at a point of a past round is refused, and what stands there is held until the retention ends, and nothing else of a round outlives its window.
 
 ### The frame of a payment
 

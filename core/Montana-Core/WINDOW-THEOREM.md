@@ -25,8 +25,8 @@ number of elements of a finite set `S`.
   (certificate.rs:28-36).
 - A **heavy attestation** `a = (W, att, p, k, pi, sigma)`: window, the two identifiers it attests,
   part, one-time answering key, presence proof, signature (attest.rs:102-120).
-- A **round** `r = (b, H_r, B_r)`: a beacon, the heavy attestations that answered it, and the
-  ballots standing beside them (certificate.rs:192-196).
+- A **round** `r = (b, H_r, L_r, B_r)`: a beacon, the heavy and the light attestations that
+  answered it, and the ballots standing beside them (certificate.rs, `Round`).
 - A **pledge** `g = (W, attempt, n, since, p, k, sigma)`; it is *closing* when it stands on its own
   attempt and *open* otherwise (agreement.rs:20-26, 127-131).
 - The **quorum rule** `Q(c, t)`: `t ≠ 0`, `c ≤ t`, and `100 c ≥ 67 t` (close.rs:20-31; the ratio is
@@ -216,7 +216,8 @@ census of `E`. ∎
 - A final beacon below the quorum, naming more parts than its certificate verified, or not linked to
   round zero and the predecessor — refused: `decided_of`, certificate.rs:410-460; see F-431-2 and
   F-431-3 for the two clauses of section 3 it did not check; the pair is now recomputed from the
-  roll by `cement_of_roll` (decision 3), the answer to the beacon is not (F-431-2).
+  roll by `cement_of_roll` (decision 3), and a final beacon no verified attestation of the
+  certificate answered is refused (F-431-2, closed on the author's word of 24.10 21:21 UTC).
 - Two runners, or two branches of one round, of one decision — one identifier: `decided_identifier`,
   certificate.rs:497-521.
 - The running node's own close — as above: one door, `verify_certificate`.
@@ -252,7 +253,7 @@ of another width; `links_to` refuses a round past `u32::MAX` (round.rs:107-109);
 
 **Weaker than the paper — findings.**
 
-- **F-431-2 (partly closed, 24.10, decision 3 of the author; see below).** `decided_of` takes the final beacon from any round of the certificate
+- **F-431-2 (closed, 24.10 21:21 UTC, the author's word "work by the specification"; see below).** `decided_of` takes the final beacon from any round of the certificate
   (certificate.rs:417-423), including a round whose beacon no verified attestation answered.
   WINDOW-RELATION.md section 3, "Close", names the final beacon as one "which a verified
   attestation answered". Required: the final beacon is answered by a verified heavy attestation
@@ -284,6 +285,22 @@ of another width; `links_to` refuses a round past `u32::MAX` (round.rs:107-109);
   a window"), so an unanswered beacon carrying a verified pair decides nothing the pair does not.
   If the specification is to require the answer, the certificate must carry the light attestations
   of the final round: a question for the author, not changed here.
+  *How the author's word closes F-431-2.* Asked whether to put the light attestations of the final
+  round into the certificate, the requirement "which a verified attestation answered" of Consensus,
+  "The beacon a window closes on", standing, or to drop the requirement, the author answered "work by
+  the specification" (24.10 21:21 UTC): the requirement stands. Consensus 7.3.0 and Canon 9.5.0, "The certificate
+  of a window", now name in the certificate the light attestations of the window after answering the
+  final beacon its proposal names, verified under the key their part's heavy attestation proved and
+  on the name it pledged, and the retention keeps them beside the heavy ones; "The join", 1 to 3, asks
+  for them and judges the final beacon "which an attestation of the certificate verified in 2
+  answered". In code `Round` carries `light`, `verify_certificate` collects in `Closure::answered`
+  every beacon a verified heavy or light attestation answered (a light one that does not verify
+  answers nothing and refuses nothing, as a ballot or a pledge), `decided_of` refuses a final beacon
+  outside that set ("a final beacon no verified attestation of the certificate answered"), and `join`
+  reads the light attestations of every round (`rounds_standing`, pulse.rs). Tests:
+  `a_final_beacon_no_verified_attestation_answered_closes_nothing` (certificate_matrix.rs) and the
+  last block of `a_device_walks_from_its_anchor_to_the_head_and_no_further`
+  (a_walk_from_an_anchor.rs).
 - **F-431-4 (closed, 24.10, decision of the author).** In attempt zero the pledged name of a faulty
   part was that of its first heavy attestation in the order handed in (agreement.rs:112-118).
   Theorem 1 does not rest on it, the part being the adversary's either way; but two verifiers given
@@ -491,8 +508,9 @@ of another width; `links_to` refuses a round past `u32::MAX` (round.rs:107-109);
   tree of two). O-4 is discharged with that closure.
 - **O-5.** F-431-1 to F-431-4 closed in code, each with a test that refuses the named wrong
   verifier. State: F-431-1 closed; F-431-4 closed (decision 2); F-431-3 closed (decision 3);
-  F-431-2 open as a question of the specification (the light attestations of the final round are not
-  in the certificate), see section 8.
+  F-431-2 closed on the author's word of 24.10 21:21 UTC (the certificate carries the light
+  attestations answering the final beacon), see section 8. Not compiled yet: O-5 is discharged when
+  the ring runs the tests named there green.
 
 Item 1 stands closed when O-1 to O-5 are discharged, the Lean file and the Kani harnesses run
 green on the build host, and the ring of the core is green on the commit that carries them.

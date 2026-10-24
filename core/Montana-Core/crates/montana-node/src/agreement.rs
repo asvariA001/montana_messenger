@@ -147,6 +147,13 @@ impl Book {
             .insert(part, (first_name, STANDS_ON_NONE));
     }
 
+    // The name a part's heavy attestation pledged, of the first of them by `place`: what a light
+    // attestation of that part must carry (Canon, "The light attestation": "one carrying another name
+    // than its heavy's is refused").
+    pub fn heavy_name(&self, part: &Part) -> Option<Name> {
+        self.heavy_first.get(part).map(|(_, name)| *name)
+    }
+
     // A pledge whose signature and heavy attestation the caller verified. A part counts once per kind
     // and attempt, at its first appearance; a second on another name is a contradiction and adds
     // nothing, and a repetition on the same name adds nothing.

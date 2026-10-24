@@ -2432,7 +2432,7 @@ fn stand_at_the_window(machine: &Machine, window: u64, object: &[u8]) -> Result<
 
 // **A device that holds nothing walks to the head from the anchor its operator handed it.**
 // Consensus, "The join": it asks every acquaintance it reached what stands at the points of every
-// window after the anchor — the beacons and heavy attestations of the rounds, and the pledges, the
+// window after the anchor — the beacons and the heavy and light attestations of the rounds, and the pledges, the
 // proposals and the rolls of the proposals of the window — judges every answer at the one door and trusts none, and takes as the head the newest
 // proposal whose certificate verified. What it reads it does not hold: a device walking the past
 // deposits nothing and stands at no point. It reads no further than the retention, past which no
@@ -2442,7 +2442,7 @@ pub fn join(machine: &Machine, anchor: &Anchor, patience: u32) -> Result<Anchor,
     let retained = mt_genesis::scalar("retained_windows").ok_or(NodeError::Decree {
         row: "retained_windows".to_string(),
     })?;
-    type Rounds = Vec<(Beacon, Vec<Confirmation>, Vec<Ballot>)>;
+    type Rounds = Vec<StandingRound>;
     let mut collected: Vec<(Rounds, Vec<Pledge>, Vec<Proposal>, Vec<Roll>)> = Vec::new();
     let mut window = anchor.later.window;
     for _ in 0..=retained {
@@ -2469,9 +2469,10 @@ pub fn join(machine: &Machine, anchor: &Anchor, patience: u32) -> Result<Anchor,
         .map(|(rounds, _, _, _)| {
             rounds
                 .iter()
-                .map(|(beacon, heavy, ballots)| certificate::Round {
+                .map(|(beacon, heavy, light, ballots)| certificate::Round {
                     beacon,
                     heavy,
+                    light,
                     ballots,
                 })
                 .collect()
@@ -2504,12 +2505,19 @@ pub fn join(machine: &Machine, anchor: &Anchor, patience: u32) -> Result<Anchor,
     Ok(head)
 }
 
-// A beacon of a round as a walk reads it off the points: the beacon, the heavy attestations that
-// answered it, and the ballots standing beside it.
-type StandingRound = (Beacon, Vec<Confirmation>, Vec<Ballot>);
+// A beacon of a round as a walk reads it off the points: the beacon, the heavy and the light
+// attestations that answered it, and the ballots standing beside it.
+type StandingRound = (
+    Beacon,
+    Vec<Confirmation>,
+    Vec<LightAttestation>,
+    Vec<Ballot>,
+);
 
-// The beacons of every round of a window standing at its points, each beside the heavy attestations
-// that answered it, read until a round holds no beacon or the budget of reads runs out. The ballots of
+// The beacons of every round of a window standing at its points, each beside the heavy and the light
+// attestations that answered it — the light ones because a final round answered by them alone is the
+// ordinary close, and a final beacon nobody answered closes nothing (Consensus, "The certificate of a
+// window") — read until a round holds no beacon or the budget of reads runs out. The ballots of
 // a round stand beside the first of its beacons alone: a ballot answers a part and no beacon, and
 // handing it to every version of the round would judge one proof as many times.
 fn rounds_standing(
@@ -2532,7 +2540,13 @@ fn rounds_standing(
                 .filter(|one| one.attested.contains(&id))
                 .cloned()
                 .collect();
-            out.push((beacon, heavy, ballots.take().unwrap_or_default()));
+            let light: Vec<LightAttestation> = objects
+                .light
+                .iter()
+                .filter(|one| one.attested.contains(&id))
+                .cloned()
+                .collect();
+            out.push((beacon, heavy, light, ballots.take().unwrap_or_default()));
         }
     }
     Ok(out)

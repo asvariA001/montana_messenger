@@ -17,9 +17,11 @@
 use crate::NodeError;
 use mt_proof::poseidon::Digest;
 use mt_pulse::standing::Committee;
-use mt_state::layout::{Ballot, Beacon, Census, Confirmation, Pledge, Proposal, Roll};
+use mt_state::layout::{
+    Ballot, Beacon, Census, Confirmation, LightAttestation, Pledge, Proposal, Roll,
+};
 use mt_state::Layout;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 // The electorate of a window: the admitted set the proposal of the window two before carries, root
 // and count, and the census its standing is counted over, with the committee that standing draws.
@@ -161,8 +163,9 @@ impl Predecessor<'_> {
 }
 
 // What a verified certificate establishes: the window, and the distinct parts its heavy attestations
-// named, with their aggregate and count, and the votes the verified ballots of those parts cast —
-// each part once, at the largest count a ballot of it carries.
+// named, with their aggregate and count, the votes the verified ballots of those parts cast — each
+// part once, at the largest count a ballot of it carries — and the beacons a verified attestation of
+// the certificate answered, heavy or light, which are the only beacons a window closes on.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Closure {
     pub window: u64,
@@ -170,6 +173,7 @@ pub struct Closure {
     pub cement_count: u64,
     pub parts: Vec<[u8; 32]>,
     pub votes: BTreeMap<[u8; 32], u64>,
+    pub answered: BTreeSet<[u8; 32]>,
 }
 
 impl Closure {
@@ -187,11 +191,14 @@ pub(crate) fn sum_of_votes<'a>(votes: impl Iterator<Item = &'a u64>) -> Result<u
     })
 }
 
-// A round of the certificate: the beacon a set of heavy attestations answered, those attestations,
-// and the ballots standing beside them, as they stood at the points of the round.
+// A round of the certificate: the beacon a set of attestations answered, the heavy ones and the light
+// ones, and the ballots standing beside them, as they stood at the points of the round. The light
+// attestations are what answers a final round where every machine drawn in it had already answered
+// the window heavily, which is the ordinary close (Consensus, "The certificate of a window").
 pub struct Round<'a> {
     pub beacon: &'a Beacon,
     pub heavy: &'a [Confirmation],
+    pub light: &'a [LightAttestation],
     pub ballots: &'a [Ballot],
 }
 
@@ -262,6 +269,7 @@ pub fn verify_certificate(
         })?;
     let mut cement = mt_pulse::cement::Cement::new();
     let mut keys: BTreeMap<[u8; 32], Vec<u8>> = BTreeMap::new();
+    let mut answered: BTreeSet<[u8; 32]> = BTreeSet::new();
     let mut book = crate::agreement::Book::of_the_window(window);
     for round in rounds {
         if round.beacon.window != window {
@@ -302,6 +310,41 @@ pub fn verify_certificate(
                 held.part_nullifier,
                 name,
             );
+            answered.insert(beacon_id);
+        }
+    }
+    // The light attestations, once every heavy one stands: a light attestation answers its beacon
+    // under the key its part's heavy attestation proved and on the name that heavy pledged, and on
+    // nothing else (Canon, "The light attestation"). One that does not verify answers nothing and
+    // refuses nothing — as with a ballot or a pledge, whoever answered a walk cannot stop it by
+    // handing in a forged one; what it cannot do either is make a beacon answered.
+    for round in rounds {
+        let beacon_id = round.beacon.id().map_err(NodeError::Object)?;
+        for held in round.light {
+            if held.window != window {
+                continue;
+            }
+            let Some(name) = pledged_name(&held.attested, &beacon_id) else {
+                continue;
+            };
+            let Some(key) = keys.get(&held.part_nullifier) else {
+                continue;
+            };
+            if book.heavy_name(&held.part_nullifier) != Some(name) {
+                continue;
+            }
+            if crate::attest::verify_light(
+                held,
+                key,
+                aggregate_two_before,
+                round.beacon.chain,
+                round.beacon.round,
+                &threshold,
+            )
+            .is_ok()
+            {
+                answered.insert(beacon_id);
+            }
         }
     }
     // The ballots, once the parts stand: a ballot counts for a part of the cement and for no other,
@@ -355,6 +398,7 @@ pub fn verify_certificate(
         cement_count: cement.count(),
         parts: cement.parts(),
         votes,
+        answered,
     })
 }
 
@@ -410,7 +454,10 @@ impl Decided {
 // a beacon among the rounds of the certificate, linked by hash round by round to round zero and from
 // there to the proposal of the window two before — the one that fixed the electorate of the window
 // (Canon, "The round of a chain, in integers": "round zero links to the proposal of the window two
-// before") — whose count reaches the quorum and names no more parts than the certificate verified.
+// before") — whose count reaches the quorum and names no more parts than the certificate verified,
+// and which a verified attestation of the certificate answered (Consensus, "The beacon a window
+// closes on": "and which a verified attestation answered"). A beacon nobody answered is one a runner
+// published and no machine of the window followed, and a window closes on it for nobody.
 pub fn decided_of(
     final_beacon: &[u8; 32],
     stands_on: &[u8; 32],
@@ -428,6 +475,11 @@ pub fn decided_of(
     if held.window != closure.window {
         return Err(NodeError::Refused {
             what: "a final beacon of another window than its certificate",
+        });
+    }
+    if !closure.answered.contains(final_beacon) {
+        return Err(NodeError::Refused {
+            what: "a final beacon no verified attestation of the certificate answered",
         });
     }
     // Every step back lowers the round by one, so the walk ends at round zero or refuses.
@@ -711,7 +763,7 @@ pub struct Anchor {
 }
 
 // One step of the walk: the certificate of the later proposal of the pair the walk stands on — the
-// beacons and heavy attestations of the window after it — and the proposals found standing for that
+// beacons and the heavy and light attestations of the window after it — and the proposals found standing for that
 // window. Several runners publish one decision under one name, and any one of them may hand bytes
 // the door refuses under it — a final beacon outside the certificate, a signature that does not
 // verify — so the walk judges each in turn and takes the first that stands: a runner publishing a
@@ -1061,6 +1113,7 @@ mod proofs {
         let rounds = [Round {
             beacon: &beacon,
             heavy: &heavy,
+            light: &[],
             ballots: &ballots,
         }];
         let result = verify_certificate(

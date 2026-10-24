@@ -17,7 +17,9 @@
 // that a certificate with any name astray decides nothing — the decided proposal offered alone under
 // a split certificate is taken; and one taking the first proposal under any name the window after
 // attests — a minority attesting a name the agreement never decides stopped it one step on, short
-// of the decided proposal offered beside.
+// of the decided proposal offered beside; and one taking a final beacon no verified attestation of
+// the certificate answered — the same beacon, its pair recomputed from the roll, stands refused until
+// the light attestations of its round are handed in beside it.
 //
 // **The electorate of the split is four at a quorum of three.** The Decree names sixty-seven
 // hundredths: at three machines the quorum is all three (2 × 100 < 3 × 67), so a split of two and
@@ -31,7 +33,7 @@ use montana_node::certificate::{
 };
 use montana_node::pulse::Cohort;
 use montana_node::runner::Runner;
-use mt_state::layout::{Beacon, Confirmation, Pledge, Proposal, Roll};
+use mt_state::layout::{Beacon, Confirmation, LightAttestation, Pledge, Proposal, Roll};
 
 const ANCHOR: u64 = 2_000;
 
@@ -95,29 +97,50 @@ fn closing(window: u64, first: &Beacon, heavies: &[Confirmation]) -> Beacon {
 
 // The heavy attestations of a window by the named machines of a tree, answering the opening beacon
 // and attesting the proposal of the window before, beside the closing pledges of attempt zero that
-// decide it.
+// decide it, and the standings that made them, which answer the later rounds lightly.
 fn heavies(
     secrets: &[[u8; 32]],
     cohort: &Cohort,
     window: u64,
     beacon: &Beacon,
     previous: [u8; 32],
-) -> (Vec<Confirmation>, Vec<Pledge>) {
-    secrets
+) -> (Vec<Confirmation>, Vec<Pledge>, Vec<Standing>) {
+    let mut heavy = Vec::new();
+    let mut pledges = Vec::new();
+    let mut standings = Vec::new();
+    for secret in secrets {
+        let branch = cohort.branch_of(secret).expect("its own leaf");
+        let standing = Standing::of_the_window(secret, window, &branch.siblings, branch.position)
+            .expect("a machine of the tree proves its presence");
+        heavy.push(
+            standing
+                .heavy(secret, beacon.id().expect("an identifier"), previous)
+                .expect("a heavy attestation stands"),
+        );
+        pledges.push(standing.pledge(0, previous, 0).expect("a pledge stands"));
+        standings.push(standing);
+    }
+    (heavy, pledges, standings)
+}
+
+// The light attestations answering a later beacon of the window, by machines that already answered
+// it heavily: every attestation of a window after a machine's first is light, so a final round is
+// answered by these and by no heavy one.
+fn lights(
+    standings: &[Standing],
+    secrets: &[[u8; 32]],
+    beacon: &Beacon,
+    name: [u8; 32],
+) -> Vec<LightAttestation> {
+    standings
         .iter()
-        .map(|secret| {
-            let branch = cohort.branch_of(secret).expect("its own leaf");
-            let standing =
-                Standing::of_the_window(secret, window, &branch.siblings, branch.position)
-                    .expect("a machine of the tree proves its presence");
-            (
-                standing
-                    .heavy(secret, beacon.id().expect("an identifier"), previous)
-                    .expect("a heavy attestation stands"),
-                standing.pledge(0, previous, 0).expect("a pledge stands"),
-            )
+        .zip(secrets)
+        .map(|(standing, secret)| {
+            standing
+                .light(secret, beacon.id().expect("an identifier"), name)
+                .expect("a light attestation stands")
         })
-        .unzip()
+        .collect()
 }
 
 #[test]
@@ -157,8 +180,9 @@ fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
     // proposes what it decided.
     let window = ANCHOR + 2;
     let first = opening(window, earlier_id);
-    let (answered, closed) = heavies(&[one, two], &pair, window, &first, later_id);
+    let (answered, closed, standing) = heavies(&[one, two], &pair, window, &first, later_id);
     let last = closing(window, &first, &answered);
+    let answering = lights(&standing, &[one, two], &last, later_id);
     // The roll the proposal of this window names: no frames, the parts of the cement ascending.
     let mut parts: Vec<[u8; 32]> = answered.iter().map(|h| h.part_nullifier).collect();
     parts.sort_unstable();
@@ -172,11 +196,13 @@ fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
         Round {
             beacon: &first,
             heavy: &answered,
+            light: &[],
             ballots: &[],
         },
         Round {
             beacon: &last,
             heavy: &[],
+            light: &answering,
             ballots: &[],
         },
     ];
@@ -251,11 +277,12 @@ fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
     // proposal of the anchor carries — the quorum of four.
     let after = ANCHOR + 3;
     let first_after = opening(after, later_id);
-    let (answered_after, closed_after) =
+    let (answered_after, closed_after, _) =
         heavies(&[one, two, three], &all, after, &first_after, next_id);
     let rounds_after = [Round {
         beacon: &first_after,
         heavy: &answered_after,
+        light: &[],
         ballots: &[],
     }];
 
@@ -288,6 +315,7 @@ fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
     let short = [Round {
         beacon: &first_after,
         heavy: &answered_after[..2],
+        light: &[],
         ballots: &[],
     }];
     assert_eq!(
@@ -516,14 +544,15 @@ fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
     // certificate is taken, since a name astray decides nothing against the quorum; offered before
     // the honest proposal the minority name stops nothing.
     let other_id = other.id().expect("an identifier");
-    let (mut split_after, mut split_closed) =
+    let (mut split_after, mut split_closed, _) =
         heavies(&[one, two, three], &all, after, &first_after, next_id);
-    let (astray, astray_closed) = heavies(&[four], &all, after, &first_after, other_id);
+    let (astray, astray_closed, _) = heavies(&[four], &all, after, &first_after, other_id);
     split_after.extend(astray);
     split_closed.extend(astray_closed);
     let split_rounds = [Round {
         beacon: &first_after,
         heavy: &split_after,
+        light: &[],
         ballots: &[],
     }];
     let past_the_split = walk(
@@ -621,23 +650,36 @@ fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
     // its count against the certificate, and only the recomputation shows its aggregate is no cement.
     let mut forged_last = last.clone();
     forged_last.cement_aggregate = [0x77; 32];
+    let forged_answering = lights(&standing, &[one, two], &forged_last, later_id);
     let forged_rounds = [
         Round {
             beacon: &first,
             heavy: &answered,
+            light: &[],
             ballots: &[],
         },
         Round {
             beacon: &forged_last,
             heavy: &[],
+            light: &forged_answering,
             ballots: &[],
         },
     ];
+    let forged_closure = verify_certificate(
+        window,
+        &electorate,
+        Predecessor::Proposal(&later),
+        &earlier.cement_aggregate,
+        1,
+        &forged_rounds,
+        &closed,
+    )
+    .expect("the certificate verifies whatever pair its last beacon carries");
     let forged_decided = decided_of(
         &forged_last.id().expect("an identifier"),
         &earlier_id,
         &forged_rounds,
-        &closure,
+        &forged_closure,
         &electorate,
     )
     .expect("a final beacon whose count the certificate bounds is read as before");
@@ -681,23 +723,36 @@ fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
     let mut ghost_last = last.clone();
     ghost_last.cement_aggregate =
         mt_derive::aggregate::aggregate(&ghosts, window).expect("distinct parts");
+    let ghost_answering = lights(&standing, &[one, two], &ghost_last, later_id);
     let ghost_rounds = [
         Round {
             beacon: &first,
             heavy: &answered,
+            light: &[],
             ballots: &[],
         },
         Round {
             beacon: &ghost_last,
             heavy: &[],
+            light: &ghost_answering,
             ballots: &[],
         },
     ];
+    let ghost_closure = verify_certificate(
+        window,
+        &electorate,
+        Predecessor::Proposal(&later),
+        &earlier.cement_aggregate,
+        1,
+        &ghost_rounds,
+        &closed,
+    )
+    .expect("the certificate verifies whatever pair its last beacon carries");
     let ghost_decided = decided_of(
         &ghost_last.id().expect("an identifier"),
         &earlier_id,
         &ghost_rounds,
-        &closure,
+        &ghost_closure,
         &electorate,
     )
     .expect("a final beacon whose count the certificate bounds is read as before");
@@ -728,4 +783,53 @@ fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
             "a roll naming a part no verified heavy attestation of the certificate carries"
         ))
     );
+
+    // Refused: the honest final beacon with no verified attestation answering it (Consensus, "The
+    // beacon a window closes on": "and which a verified attestation answered"). Its pair is the
+    // cement of the verified parts and the roll recomputes it, so a walker that checks the pair and
+    // not the answer takes the proposal; with the light attestations of the final round handed in
+    // beside it, the same proposal is taken. A light attestation on another name than its part's
+    // heavy pledged, or one answering another beacon, answers nothing.
+    const UNANSWERED: &str = "a final beacon no verified attestation of the certificate answered";
+    let astray_lights = lights(&standing, &[one, two], &last, [0x99; 32]);
+    let elsewhere = lights(&standing, &[one, two], &first, later_id);
+    for unanswering in [&[][..], &astray_lights[..], &elsewhere[..]] {
+        let unanswered = [
+            Round {
+                beacon: &first,
+                heavy: &answered,
+                light: &[],
+                ballots: &[],
+            },
+            Round {
+                beacon: &last,
+                heavy: &[],
+                light: unanswering,
+                ballots: &[],
+            },
+        ];
+        assert_eq!(
+            walk(
+                &anchor,
+                &[
+                    Step {
+                        certificate: &unanswered,
+                        pledges: &closed,
+                        rolls: &rolls,
+                        next: std::slice::from_ref(&next),
+                    },
+                    Step {
+                        certificate: &rounds_after,
+                        pledges: &closed_after,
+                        rolls: &[],
+                        next: &[],
+                    },
+                ],
+                1,
+                &draw,
+                major,
+            ),
+            Err(refused(UNANSWERED))
+        );
+    }
 }

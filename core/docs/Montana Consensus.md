@@ -1,6 +1,6 @@
 # Montana — Consensus
 
-**Version:** 7.2.0
+**Version:** 7.3.0
 
 Consensus holds the TimeChain and its movement: how a window advances, who runs it, how it is cemented,
 how a machine enters the set that runs windows, and how the right to a window's share is
@@ -816,16 +816,21 @@ open to challenge, and discards it with the window.
 ## The certificate of a window
 
 A window leaves behind what convinces a device that was not there: the proposal that closed it with
-its roll, the heavy attestations of the window after it, the pledges of that window's agreement its decision
+its roll, the heavy attestations of the window after it, the light attestations of that window
+answering the final beacon its proposal names, the pledges of that window's agreement its decision
 stands on, and the ballots of their parts. Together they are the **certificate** of the window, and
 a device verifies them exactly as the living did — every presence proof against the root of the
 electorate it already holds, every signature under the key the attestation or the pledge carries and
-every pledge's key against the heavy attestation of its part, the distinctness of the parts, the
+every pledge's and every light attestation's key against the heavy attestation of its part, the
+name a light attestation carries against the name its part's heavy attestation pledged, the distinctness of the parts, the
 counting of the agreement — every closing pledge against the quorum of open pledges of its attempt,
 every open pledge against the quorum its `since` names — the count of the deciding quorum against
 the count of the electorate, every ballot against the census, the aggregate and the committee of
 that electorate, the votes against the committee, the pair of the proposal's cement against the
-parts its roll names, each of which is the part of a verified heavy attestation, and the proposal's own ticket proof and
+parts its roll names, each of which is the part of a verified heavy attestation, the final beacon
+answered by an attestation so verified — the close counts a beacon "which a verified attestation
+answered", and a final round answered by light attestations alone is the ordinary case, since a
+machine's first attestation of a window is heavy and every later one light — and the proposal's own ticket proof and
 signature. Nothing in a certificate is a new object: its parts stand at the points of the rounds and
 of the window that produced them, retained for `retained_windows` windows after the window closes,
 and a device collects them from there.
@@ -864,9 +869,9 @@ beside it.
 
 **Invariants of the certificate of a window:**
 
-- The certificate of a window is its proposal, the heavy attestations of the window after it, the pledges of that window's agreement its decision stands on, and the ballots of their parts; it introduces no object and no signature of its own.
-- A device verifies a certificate as the living verified its parts: every presence proof against the root of the electorate of its window, every signature, every pledge's key against the heavy attestation of its part, the distinctness of the parts, the counting of the agreement and the count of the deciding quorum against the count of the electorate, every ballot against the census, the aggregate and the committee of that electorate, the votes against the committee, and the proposal's ticket proof and signature; nothing of it is taken on trust.
-- The heavy attestations, the ballots and the pledges of a window survive at their points for `retained_windows` windows after the window closes, beside the frames of its rounds and its proposals with their rolls, and nothing else of a round outlives its window.
+- The certificate of a window is its proposal, the heavy attestations of the window after it, the light attestations of that window answering the final beacon its proposal names, the pledges of that window's agreement its decision stands on, and the ballots of their parts; it introduces no object and no signature of its own.
+- A device verifies a certificate as the living verified its parts: every presence proof against the root of the electorate of its window, every signature, every pledge's and every light attestation's key against the heavy attestation of its part and every light attestation's name against the name that heavy attestation pledged, the final beacon answered by an attestation so verified, the distinctness of the parts, the counting of the agreement and the count of the deciding quorum against the count of the electorate, every ballot against the census, the aggregate and the committee of that electorate, the votes against the committee, and the proposal's ticket proof and signature; nothing of it is taken on trust.
+- The heavy attestations, the light attestations answering its final beacon, the ballots and the pledges of a window survive at their points for `retained_windows` windows after the window closes, beside the frames of its rounds and its proposals with their rolls, and nothing else of a round outlives its window.
 - No proof of one length asserts the quorum of a window: the relation that would need one has no prover, and the set names that rather than stating a proof nobody can write.
 - A proposal is final when its certificate verifies — the decision of the window after it stands in it — and the head of the TimeChain is the newest proposal so verified.
 
@@ -1143,15 +1148,16 @@ needs nobody's.
 Canon and is recomputed rather than received, and its anchor: a proposal `E` and the proposal `L` of
 the window after it, both final.
 
-1. It asks any machine it can reach for the beacons and the heavy attestations standing at the round
+1. It asks any machine it can reach for the beacons and the heavy and light attestations standing at the round
    points of the window after `L`, and for the pledges, the proposals and the rolls of the proposals
    standing at the points of that window; it
    may ask several, and every answer is judged and never trusted.
 2. It verifies the certificate of `L`, which is the heavy attestations of the window after it, the
-   pledges of that window's agreement and the ballots of their parts: the electorate is the admitted
+   light attestations of that window answering a final beacon, the pledges of that window's agreement
+   and the ballots of their parts: the electorate is the admitted
    set and the census `E` carries, the aggregate of the draw is the one `E` carries, every
-   attestation is verified as the living verified it, every pledge under the key of its part's
-   attestation, every ballot against that census, that aggregate and the committee of that census,
+   attestation is verified as the living verified it, every pledge and every light attestation under
+   the key of its part's heavy attestation, a light attestation on the name that heavy pledged, every ballot against that census, that aggregate and the committee of that census,
    and the agreement decides `L` — the closing pledges of one attempt on the name of `L` reach the
    quorum, each counted on the quorum of open pledges of its attempt and each open pledge on the
    quorum its `since` names.
@@ -1159,8 +1165,9 @@ the window after it, both final.
    back nor exceed the ones the device implements, its signature verifies, its ticket clears against
    the electorate root and the aggregate `E` carries, and its cement is the pair of its final beacon,
    a beacon of the certificate just verified whose count reaches the quorum and whose votes reach the
-   committee within what the verified ballots of the certificate cast, and whose chain stands at round
-   zero on `E`. The device recomputes that pair rather than reading it off the beacon, by the rule a
+   committee within what the verified ballots of the certificate cast, which an attestation of the
+   certificate verified in 2 answered — a heavy attestation, or a light one whose part's heavy
+   attestation verified — and whose chain stands at round zero on `E`. The device recomputes that pair rather than reading it off the beacon, by the rule a
    machine of the window applies when it replays a roll: the roll whose identifier `N` carries, standing
    beside `N`, names parts ascending and without repeat, each the part-nullifier of a heavy
    attestation of the certificate just verified, in the number `N` carries as the count of its cement,
@@ -1196,7 +1203,7 @@ resolves by the rule this document already states and never by asking who is mor
 **Invariants of the join:**
 
 - A joining device starts from an anchor of two consecutive final proposals handed to it by its operator, or held from its own past; the trust in the anchor is explicit, and nothing of the protocol stands in for it.
-- Every step of the walk verifies a certificate whole — every presence proof against the electorate root, every signature, every pledge, the counting of the agreement and the deciding quorum, every ballot and the votes — and the next proposal's link, rules, signature, ticket and cement, the pair of which is recomputed from the verified parts its roll names; nothing of a step is taken on the word of whoever answered.
+- Every step of the walk verifies a certificate whole — every presence proof against the electorate root, every signature, every pledge, the counting of the agreement and the deciding quorum, every ballot and the votes — and the next proposal's link, rules, signature, ticket and cement, the pair of which is recomputed from the verified parts its roll names, on a final beacon a verified attestation of the certificate answered; nothing of a step is taken on the word of whoever answered.
 - The head of a walk is the newest proposal whose certificate verified; a proposal awaiting its certificate is not final.
 - Every leaf of state a joining device takes is checked against a root the verified head carries, by recomputation; a leaf accepted on the word of whoever answered is a defect.
 - A device asks several machines and judges every answer alone; nothing in the join is decided by how many answers agree.
