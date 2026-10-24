@@ -559,7 +559,7 @@ mod tests {
 // The agreement checked by a model checker rather than by examples: two machines holding two books
 // of one window, the pledges of every honest part the same wherever both hold them and the one
 // faulty part pledging anything in either, never decide two names. WINDOW-THEOREM.md, Theorem 1;
-// run by `cargo kani -p montana-node`. Four parts make the quorum three, so two quorums share an
+// run by `cargo kani -p montana-node -Z stubbing`. Four parts make the quorum three, so two quorums share an
 // honest part, and two attempts reach the third contradicting pair.
 #[cfg(kani)]
 mod proofs {
@@ -669,6 +669,8 @@ mod proofs {
 
     #[kani::proof]
     #[kani::unwind(9)]
+    #[kani::stub(mt_genesis::ratio, crate::kani_decree::ratio)]
+    #[kani::stub(mt_genesis::scalar, crate::kani_decree::scalar)]
     fn two_books_of_one_window_never_decide_two_names() {
         let mut first = [any_script(), any_script(), any_script(), any_script()];
         for (at, script) in first.iter().enumerate().take(FAULTY) {

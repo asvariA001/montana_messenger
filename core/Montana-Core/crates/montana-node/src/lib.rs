@@ -19,6 +19,8 @@ pub mod agreement;
 pub mod attempt;
 pub mod attest;
 pub mod certificate;
+#[cfg(kani)]
+mod kani_decree;
 pub mod pay;
 pub mod pulse;
 pub mod round;

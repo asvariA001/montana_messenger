@@ -980,6 +980,8 @@ mod proofs {
     #[kani::stub(mt_state::tables::genesis_state_hash, genesis_name)]
     #[kani::stub(mt_pulse::retarget::round_threshold, any_threshold)]
     #[kani::stub(mt_pulse::cement::Cement::aggregate, fixed_aggregate)]
+    #[kani::stub(mt_genesis::ratio, crate::kani_decree::ratio)]
+    #[kani::stub(mt_genesis::scalar, crate::kani_decree::scalar)]
     fn an_accepted_certificate_satisfies_the_predicate() {
         let expected: u64 = kani::any();
         kani::assume(expected < 3);
