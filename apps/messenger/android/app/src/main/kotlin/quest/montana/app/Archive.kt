@@ -176,16 +176,42 @@ object Archive {
         ((d[o + 2].toInt() and 0xff) shl 16) or ((d[o + 3].toInt() and 0xff) shl 24)
 
     /** The sealed blocks of one folder in file order: (u32 LE length ‖ sealed)×N, the layout the core writes (iOS readLog 964-976). */
+    /**
+     * A LOG WITH A HOLE (a hard power-off -- a battery gone flat, an emulator switched off: the length of an append reached the disk and
+     * its bytes did not, zeros stand in their place; found on the test emulators 25.10.2026, D27): every reader of the log, this file's
+     * and the core's, stopped at the first zero length and lost every block written after it -- the phone's own rows and the other
+     * devices' blocks alike, so no gap was ever seen and no row asked for. A length of zero is never a block's: the reader steps over
+     * the zeros to the next frame whose length fits, and the log is written again without them, so the core reads it whole too; the
+     * file as it lay is kept beside it (.holed-<ms>). Run on the archive's own thread, as every write of the log is.
+     */
     private fun readLog(f: File): List<ByteArray> {
         val d = runCatching { f.readBytes() }.getOrNull() ?: return emptyList()
         val out = ArrayList<ByteArray>()
         var i = 0
+        var holed = false
+        fun fits(at: Int): Boolean { if (at < 0 || at + 4 > d.size) return false; val n = u32(d, at); return n in 13..(16 shl 20) && at + 4 + n <= d.size }
         while (i + 4 <= d.size) {
             val n = u32(d, i)
-            i += 4
-            if (n <= 0 || d.size < i + n) break
-            out.add(d.copyOfRange(i, i + n))
-            i += n
+            if (n == 0) {
+                var j = i
+                while (j < d.size && d[j] == 0.toByte()) j++
+                if (j >= d.size) { holed = true; i = d.size; break }   // a tail of zeros: nothing after it
+                // the next frame begins at the first byte that is not zero, or up to three before it (a length's low bytes may be zero)
+                val at = (j downTo maxOf(i, j - 3)).firstOrNull { fits(it) } ?: break
+                holed = true; i = at; continue
+            }
+            if (n < 0 || d.size < i + 4 + n) break
+            out.add(d.copyOfRange(i + 4, i + 4 + n))
+            i += 4 + n
+        }
+        if (holed) runCatching {
+            val whole = java.io.ByteArrayOutputStream()
+            for (b in out) { whole.write(byteArrayOf(b.size.toByte(), (b.size ushr 8).toByte(), (b.size ushr 16).toByte(), (b.size ushr 24).toByte())); whole.write(b) }
+            val tmp = File(f.path + ".tmp")
+            tmp.writeBytes(whole.toByteArray())
+            val kept = File(f.path + ".holed-" + System.currentTimeMillis())
+            if (f.renameTo(kept) && tmp.renameTo(f)) Log.w("Montana", "archive_log holed: " + out.size + " blocks read across the zeros, the log written again, the old one kept")
+            else { tmp.delete(); if (!f.exists()) kept.renameTo(f) }
         }
         return out
     }
@@ -304,6 +330,11 @@ object Archive {
             if (ref != null) headed++
             val key = ref ?: ("arc:" + folder)
             val feed = Book.chat(key)?.msgs?.toList().orEmpty()
+            // a folder a twin's block just reached is said by what it names (D27: a row of the other device that never showed a gap)
+            if (only != null) Log.d("Montana", "archive_folder folder=" + folder.take(10) + " ref=" + (ref?.take(10) ?: "-") + " key=" + key.take(10) +
+                " chat=" + (Book.chat(key) != null) + " feed=" + feed.size + " items=" + items.size + " theirs=" + items.count { !it.mine } + " root=" + (ref?.let { SamePair.root(it).take(10) } ?: "-") +
+                " newest=" + (items.maxByOrNull { it.at }?.let { it.at.toString() + (if (it.mine) "/mine/" else "/theirs/") + it.text.take(16) } ?: "-") +
+                " feedNewest=" + (feed.maxByOrNull { it.at }?.let { (it.at / 1000).toString() + "/" + it.text.take(16) } ?: "-"))
             if (feed.isNotEmpty()) {
                 // THE ARCHIVE IS MEASURED AGAINST THE FEED (iOS restoreFromArchive 3008-3035, atom 2b8069c63096): a letter the archive
                 // holds and the feed does not is named with its count and its newest moment -- measured here, never inserted (the
