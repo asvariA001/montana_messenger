@@ -198,6 +198,7 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
         results.visibility = if (on) View.VISIBLE else View.GONE
         if (on) results.show(search.query)
         chats.pin(search.active)   // iOS pinTop: ownSearch ? false : searchActive -- the chats page has no search of its own
+        views.values.distinct().forEach { v -> if (v !== chats) v.findViewWithTag<EdgeSink>(EdgeSink.TAG)?.down = !search.active }   // the contacts' and the calls' too (iOS pinned on every time panel list)
         music.query = if (pane == Pane.MUSIC) search.query else ""   // the music page searches its own tracks (iOS ownSearch)
         if (search.active != searching) {
             searching = search.active
@@ -935,21 +936,26 @@ private class SearchResults(val act: MainActivity) : ScrollView(act) {
         // the history; only the newest query's hits are drawn, and «Nothing found» is said of a settled query alone.
         val asked = q
         val snap = people.map { it to it.msgs.toList() }
+        // PEOPLE OF THE BOOK (iOS contactHits, MontanaChatsList.swift:617-628; atom b3c6a7c255a1): the people kept with no chat's row
+        // yet -- a name and no letter -- found by their name; a tap opens the conversation
+        val kept = Book.all().filter { it.msgs.isEmpty() && it.shown.isNotBlank() && !Groups.isKey(it.ref) }
         Thread {
             val chats = snap.map { it.first }.filter { fold(it.shown + " " + it.name).contains(w) }   // a person is found as they are seen, and by their own word (iOS shownName)
+            val contacts = kept.filter { fold(it.shown + " " + it.name).contains(w) }
             // the words of a person only: a word of the wire is never read as theirs (the marker first), a voice or a file has no words to find
             val found = snap.flatMap { (ch, msgs) -> msgs.filter { !Marks.isService(it.text) && fold(it.text).contains(w) }.map { ch to it } }
                 .sortedByDescending { it.second.at }.take(60)
-            post { if (q == asked) drawHits(chats, found) }
+            post { if (q == asked) drawHits(chats, contacts, found) }
         }.start()
     }
-    private fun drawHits(chats: List<Chat>, found: List<Pair<Chat, Msg>>) {
+    private fun drawHits(chats: List<Chat>, contacts: List<Chat>, found: List<Pair<Chat, Msg>>) {
         list.removeAllViews()
         if (chats.isNotEmpty()) section(R.string.search_chats, chats.map { personRow(it) })
+        if (contacts.isNotEmpty()) section(R.string.search_contacts, contacts.map { personRow(it) })   // after the chats, before the letters (iOS searchResults)
         if (found.isNotEmpty()) section(R.string.search_messages, found.map { (ch, m) -> hitRow(ch, m) })
-        val met = nameHit(q.trim(), chats)
+        val met = nameHit(q.trim(), chats + contacts)
         if (met != null) section(R.string.search_global, listOf(metRow(met)))
-        if (chats.isEmpty() && found.isEmpty() && met == null)
+        if (chats.isEmpty() && contacts.isEmpty() && found.isEmpty() && met == null)
             list.addView(act.text(act.getString(R.string.nothing_found), 17f, MT.gray, center = true).apply { setPadding(0, dp(40), 0, 0) }, lp())
     }
 }

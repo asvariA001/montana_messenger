@@ -66,6 +66,8 @@ class EdgeSink(c: Context, private val top: () -> Int, private val bottom: () ->
     }
 
     companion object {
+        /** A page's own mask, found by the page that holds the search (the pinned bottom on the contacts and the calls). */
+        const val TAG = "edge_sink"
         private const val ALPHA = 0.75f        // iOS MTEdgeWash.alpha
         private const val TOP_FADE = 80f       // iOS MTEdgeWash.topFade, points
         private const val BOTTOM_FADE = 60f    // iOS MTEdgeWash.bottomFade

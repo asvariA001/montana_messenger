@@ -213,13 +213,21 @@ fun callsPane(act: MainActivity, onNewCall: () -> Unit = {}): View {
         override fun onViewDetachedFromWindow(v: View) { Book.unlisten(again) }
     })
     return FrameLayout(c).apply {
-        addView(CoinPull(c, ScrollView(c).apply {
+        val scroll = ScrollView(c).apply {
             isVerticalScrollBarEnabled = false
             addView(c.vstack(Gravity.NO_GRAVITY) {
                 addView(rows, lp())
                 gap(120)
             })
-        }), FrameLayout.LayoutParams(MATCH, MATCH))   // one law for every page under the bar (iOS MontanaTimePanel)
+        }
+        // THE ROWS RUN ON TO THE SCREEN'S EDGES, AS THE CHATS' (iOS CallsTabView, ContentView.swift:3088-3106: «the same effect for
+        // the calls page, no border at the top or the bottom», MTChatListFrame page: "calls"; atoms 247ab9800586, 17a19adc6214): the
+        // chats page's one EdgeSink mask without the folders' tabs; no archive row stands over the calls, so the top always washes.
+        var self: View? = null
+        addView(EdgeSink(c, top = { scroll.paddingTop + c.dp(34) }, bottom = { self?.height ?: 0 }, edgeTop = { scroll.paddingTop }).apply {
+            self = this; page = "calls"; tag = EdgeSink.TAG
+            addView(CoinPull(c, scroll), FrameLayout.LayoutParams(MATCH, MATCH))   // one law for every page under the bar (iOS MontanaTimePanel)
+        }, FrameLayout.LayoutParams(MATCH, MATCH))
         addView(empty, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
         // THE CALLS' ACTION (iOS CallsTabView, ContentView.swift:3001-3009, the author's word 01.10: «on the calls create the button»): a new
         // call is chosen among one's people -- the contacts' page, where a person's row dials; the pages' one corner, away while selecting

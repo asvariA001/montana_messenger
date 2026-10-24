@@ -111,17 +111,23 @@ private fun contactLine(act: MainActivity, ch: Chat): View {
  * pull-down summons the archive row, a pull-up folds it»): it stands while it is summoned and there is an archive, riding in from the
  * top in 0.3 s; `reveal` is the page's hand on it.
  */
-private class ContactRows(val view: android.widget.LinearLayout, val reveal: (Boolean) -> Unit)
+private class ContactRows(val view: android.widget.LinearLayout, val reveal: (Boolean) -> Unit) {
+    /** The archive row stands over the list or leaves it (iOS archiveShown, read by the column and by the list alike). */
+    var onHead: (Boolean) -> Unit = {}
+}
 
 private fun contactRows(act: MainActivity, archived: Boolean): ContactRows {
     val c: Context = act
     val rows = c.vstack(Gravity.NO_GRAVITY)
     var revealed = false
+    var out: ContactRows? = null
     fun fill() {
         rows.removeAllViews()
+        var head = false
         if (!archived) {
             val n = ChatMarks.contactArchiveCount()
             if (revealed && n > 0) {
+                head = true
                 rows.addView(archiveEntry(act, n) { act.push { close -> settingsPage(act, c.getString(R.string.cl_archive), close) { addView(contactRows(act, archived = true).view, lp()) }.pushedMark("archive") } }, lp())
                 rows.addView(View(c).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = c.dp(82) })
             }
@@ -135,6 +141,7 @@ private fun contactRows(act: MainActivity, archived: Boolean): ContactRows {
             rows.addView(contactLine(act, ch), lp())
             rows.addView(View(c).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = c.dp(82) })
         }
+        out?.onHead(head)
     }
     fill()
     val again: () -> Unit = { act.onMain { fill() } }
@@ -142,7 +149,7 @@ private fun contactRows(act: MainActivity, archived: Boolean): ContactRows {
         override fun onViewAttachedToWindow(v: View) { Book.listen(again); ChatMarks.listen(again); Presence.listen(again); fill() }
         override fun onViewDetachedFromWindow(v: View) { Book.unlisten(again); ChatMarks.unlisten(again); Presence.unlisten(again) }
     })
-    return ContactRows(rows) reveal@{ on ->
+    out = ContactRows(rows) reveal@{ on ->
         if (on == revealed || (on && ChatMarks.contactArchiveCount() == 0)) return@reveal
         val head = if (revealed) rows.getChildAt(0) else null
         if (on) {
@@ -154,10 +161,12 @@ private fun contactRows(act: MainActivity, archived: Boolean): ContactRows {
             }
         } else if (head != null) {
             revealed = false
+            out?.onHead(false)   // the rows' top washes again as the row leaves (iOS fade(animated: true) at the fold)
             head.animate().translationY(-c.dp(72).toFloat()).alpha(0f).setDuration(300).setInterpolator(android.view.animation.AccelerateDecelerateInterpolator())
                 .withEndAction { fill() }.start()
         } else { revealed = false; fill() }
     }
+    return out!!
 }
 
 /**
@@ -175,5 +184,14 @@ fun contactsList(act: MainActivity): View {
         })
         setOnScrollChangeListener { _, _, y, _, _ -> if (act.dp(25) < y) rows.reveal(false) }
     }
-    return CoinPull(act, scroll).apply { onPull = { pull -> if (25f < pull) rows.reveal(true) } }
+    // THE ROWS RUN ON TO THE SCREEN'S EDGES, AS THE CHATS' (iOS ContactsTabView: MontanaTimePanelList, MTChatListFrame
+    // page: "contacts", ContentView.swift:2862-2880; atoms 17a19adc6214, 3678e78b9465): the chats page's one EdgeSink mask without
+    // the folders' tabs -- past the bar's room the rows sink into the page's ground, and below into the screen's edge; while the
+    // archive row stands they stop at the list's top (headFloats), while the search holds the list at the page's bottom (pinned).
+    var self: View? = null
+    return EdgeSink(act, top = { scroll.paddingTop + act.dp(34) }, bottom = { self?.height ?: 0 }, edgeTop = { scroll.paddingTop }).apply {
+        self = this; page = "contacts"; tag = EdgeSink.TAG
+        rows.onHead = { up = !it }
+        addView(CoinPull(act, scroll).apply { onPull = { pull -> if (25f < pull) rows.reveal(true) } }, FrameLayout.LayoutParams(MATCH, MATCH))
+    }
 }
