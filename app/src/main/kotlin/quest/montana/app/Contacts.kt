@@ -37,7 +37,7 @@ fun contactRow(act: MainActivity, ch: Chat): View {
         minimumHeight = dp(72)
         addView(FrameLayout(c).apply {
             clipChildren = false
-            addView(c.peerFace(ch.ref, ch.shown, 48), FrameLayout.LayoutParams(dp(48), dp(48)))
+            addView(c.chatFace(ch.ref, ch.shown, 48), FrameLayout.LayoutParams(dp(48), dp(48)))
             if (word?.second == true) addView(presenceBadge(c), FrameLayout.LayoutParams(dp(13), dp(13), Gravity.BOTTOM or Gravity.END))
         }, lp(dp(48), dp(48)).apply { marginEnd = dp(16) })
         addView(c.vstack(Gravity.NO_GRAVITY) {

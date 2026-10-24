@@ -46,25 +46,6 @@ object CallsSeen {
 }
 
 /**
- * THE TIME MARK FOR A FACE NOT CHOSEN (iOS MTTimeMarkAvatar, MontanaShapes.swift:529-540, the calls' AvatarCircle timeMarkWhenMissing):
- * «absence is a complete, stable visual answer of its own» -- the black round with the sign (the iPhone's Logo, the same file) at
- * 28 of the side and a rim of white 0.35; a chosen face stands as it is.
- */
-private fun Context.callFace(ref: String, name: String, sizeDp: Int): View {
-    if (Book.shownFace(ref).exists()) return peerFace(ref, name, sizeDp)
-    return FrameLayout(this).apply {
-        background = android.graphics.drawable.GradientDrawable().apply {
-            shape = android.graphics.drawable.GradientDrawable.OVAL; setColor(Color.BLACK); setStroke(dp(1), Color.argb(89, 255, 255, 255))
-        }
-        val pad = Math.round(dp(sizeDp) * 0.36f)
-        addView(android.widget.ImageView(context).apply {
-            setImageResource(R.drawable.logo); scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
-            setPadding(pad, pad, pad, pad)
-        }, FrameLayout.LayoutParams(MATCH, MATCH))
-    }
-}
-
-/**
  * iOS CallsTabView.cell (ContentView.swift:2901-2943) in the App Library's measure (72, the face 48, the gap 16, the side 18): the
  * face; the name 17 semibold -- red when the call was missed -- and the clock 14, 22 high; 4 under them, 20 high, the arrow of the
  * call's direction 12, the camera of a video call 11, how it went 16 (the length, «Missed», «No answer», «Connection failed») and
@@ -83,7 +64,7 @@ private fun callRow(act: MainActivity, r: CallRecord): View {
         gravity = Gravity.CENTER_VERTICAL
         setPadding(dp(18), 0, dp(18), 0)
         minimumHeight = dp(72)
-        addView(c.callFace(r.ref, name, 48), lp(dp(48), dp(48)).apply { marginEnd = dp(16) })
+        addView(c.chatFace(r.ref, name, 48), lp(dp(48), dp(48)).apply { marginEnd = dp(16) })
         addView(c.vstack(Gravity.NO_GRAVITY) {
             addView(c.hstack {
                 gravity = Gravity.CENTER_VERTICAL

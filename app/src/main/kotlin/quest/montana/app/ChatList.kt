@@ -337,7 +337,7 @@ fun personPlate(c: Context, ref: String): View {
         gravity = Gravity.CENTER_VERTICAL
         background = c.rounded(Color.argb(235, 44, 44, 46), 16, Color.argb(26, 255, 255, 255))
         setPadding(dp(14), dp(8), dp(14), dp(8))
-        addView(c.peerFace(ref, name, 44), lp(dp(44), dp(44)).apply { marginEnd = dp(12) })
+        addView(c.chatFace(ref, name, 44), lp(dp(44), dp(44)).apply { marginEnd = dp(12) })
         addView(c.text(name, 17f, Color.WHITE).apply { singleLineEllipsis() }, lp(WRAP, WRAP))   // USER-DATA: the name
     }
 }

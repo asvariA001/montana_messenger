@@ -876,14 +876,14 @@ private class SearchResults(val act: MainActivity) : ScrollView(act) {
     /** A person's row: the face and the name (iOS contactRow). */
     private fun personRow(ch: Chat) = act.hstack {
         setPadding(dp(12), dp(8), dp(12), dp(8))
-        addView(act.peerFace(ch.ref, ch.shown, 46), lp(dp(46), dp(46)).apply { marginEnd = dp(12) })
+        addView(act.chatFace(ch.ref, ch.shown, 46), lp(dp(46), dp(46)).apply { marginEnd = dp(12) })
         addView(act.text(ch.shown.ifBlank { act.getString(R.string.peer) }, 17f, Color.WHITE, bold = true).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))   // USER-DATA: the name
         pressable { keysAway(); act.push { close -> conversationPage(act, ch.ref, close) } }
     }
     /** A letter found: the face, the name, the hour and the words (iOS messageHitRow); a tap opens the chat on that letter. */
     private fun hitRow(ch: Chat, m: Msg) = act.hstack {
         setPadding(dp(12), dp(8), dp(12), dp(8))
-        addView(act.peerFace(ch.ref, ch.shown, 46), lp(dp(46), dp(46)).apply { marginEnd = dp(12) })
+        addView(act.chatFace(ch.ref, ch.shown, 46), lp(dp(46), dp(46)).apply { marginEnd = dp(12) })
         addView(act.vstack(Gravity.NO_GRAVITY) {
             addView(act.hstack {
                 // the chat's own name, whoever wrote the letter (iOS: the one face and the one title of a chat)

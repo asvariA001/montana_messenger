@@ -468,7 +468,7 @@ class MainActivity : Activity() {
     private var photoDone: ((Uri?) -> Unit)? = null
     fun pickPhoto(done: (Uri?) -> Unit) {
         photoDone = done
-        val intent = if (Build.VERSION.SDK_INT >= 33) Intent(MediaStore.ACTION_PICK_IMAGES)
+        val intent = if (Build.VERSION.SDK_INT >= 33) Intent(MediaStore.ACTION_PICK_IMAGES).wearOurTint()
                      else Intent(Intent.ACTION_GET_CONTENT).setType("image/*")
         @Suppress("DEPRECATION") startActivityForResult(intent, PICK_PHOTO)
     }
@@ -476,10 +476,18 @@ class MainActivity : Activity() {
     /** A picture OR a film from the system's own picker (iOS PhotosPicker .any(of: [.images, .videos])). */
     fun pickVisual(done: (Uri?) -> Unit) {
         photoDone = done
-        val intent = if (Build.VERSION.SDK_INT >= 33) Intent(MediaStore.ACTION_PICK_IMAGES)
+        val intent = if (Build.VERSION.SDK_INT >= 33) Intent(MediaStore.ACTION_PICK_IMAGES).wearOurTint()
                      else Intent(Intent.ACTION_GET_CONTENT).setType("*/*").putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("image/*", "video/*"))
         @Suppress("DEPRECATION") startActivityForResult(intent, PICK_PHOTO)
     }
+
+    /**
+     * The tint the system's page is asked to wear (iOS MTSystemPhotos 5a387b83: p.view.tintColor, now white on the dark page): the
+     * tick, the number and the «Add» of the picker in white. Android carries a host's colour into the picker from 15 on; a colour it
+     * finds too faint for its own theme it is free to put aside and keep its own.
+     */
+    private fun Intent.wearOurTint(): Intent =
+        if (35 <= Build.VERSION.SDK_INT) putExtra(MediaStore.EXTRA_PICK_IMAGES_ACCENT_COLOR, 0xFFFFFFFFL) else this
 
     /**
      * THE SYSTEM'S OWN WHOLE LIBRARY (iOS MTSystemPhotos: PHPicker, any of images and videos; 1e46c25e: selectionLimit 0, selection
@@ -491,7 +499,7 @@ class MainActivity : Activity() {
         manyDone = done
         val intent = if (33 <= Build.VERSION.SDK_INT) Intent(MediaStore.ACTION_PICK_IMAGES)
                          .putExtra(MediaStore.EXTRA_PICK_IMAGES_MAX, if (0 < max) minOf(max, MediaStore.getPickImagesMaxLimit()) else MediaStore.getPickImagesMaxLimit())
-                         .putExtra(MediaStore.EXTRA_PICK_IMAGES_IN_ORDER, true)
+                         .putExtra(MediaStore.EXTRA_PICK_IMAGES_IN_ORDER, true).wearOurTint()
                      else Intent(Intent.ACTION_GET_CONTENT).setType("*/*").putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("image/*", "video/*"))
                          .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
         runCatching { @Suppress("DEPRECATION") startActivityForResult(intent, PICK_MANY) }.onFailure { manyDone = null; done(emptyList()) }

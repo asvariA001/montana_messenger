@@ -173,6 +173,26 @@ fun Context.peerFace(ref: String, name: String, sizeDp: Int): View {
 }
 
 /**
+ * THE ONE FACE OF A CHAT (iOS MTChatFace → AvatarCircle timeMarkWhenMissing, 7e084edda45d; MTTimeMarkAvatar, MontanaShapes.swift:532-540):
+ * the list's row, the contacts, the calls, the search, the chat's head and the hold menu's plate draw a person or a group by it. A
+ * chosen face (the Montana room's icon, one's own in Saved Messages) stands as it is; with none, «absence is a complete, stable visual answer of its own» —
+ * the black round with the sign (the iPhone's Logo) at 28 of the side and a rim of white 0.35, never a letter. The hexagon of iOS is
+ * drawn as a circle under the platform's own look, the only look (MontanaSkin native), so the round is the same figure.
+ */
+fun Context.chatFace(ref: String, name: String, sizeDp: Int): View {
+    if (ref == Book.SAVED) return avatar(SelfFace.load(this), Prefs.userName, sizeDp)   // the room without an address wears one's own (MTSelfFace)
+    if (Book.isMontana(ref) || Book.shownFace(ref).exists()) return peerFace(ref, name, sizeDp)
+    return FrameLayout(this).apply {
+        background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.BLACK); setStroke(dp(1), Color.argb(89, 255, 255, 255)) }
+        val pad = Math.round(dp(sizeDp) * 0.36f)
+        addView(ImageView(context).apply {
+            setImageResource(R.drawable.logo); scaleType = ImageView.ScaleType.FIT_CENTER
+            setPadding(pad, pad, pad, pad)
+        }, FrameLayout.LayoutParams(MATCH, MATCH))
+    }
+}
+
+/**
  * EVERY SMALL PICTURE IN A ROW IS BORN SMALL (iOS MontanaSmallPicture, MontanaMedia 1754-1760, the author's word 16.09): a face of 64
  * or less is drawn from a copy 192 px on its long side, decoded once and kept while its file stands unchanged — never the whole
  * photograph decoded again for every row.
@@ -449,7 +469,7 @@ fun chatRow(act: MainActivity, chat: Chat): View {
         minimumHeight = dp(72)
         addView(FrameLayout(c).apply {
             clipChildren = false
-            addView(c.peerFace(chat.ref, chat.shown, 48), FrameLayout.LayoutParams(dp(48), dp(48)))
+            addView(c.chatFace(chat.ref, chat.shown, 48), FrameLayout.LayoutParams(dp(48), dp(48)))
             if (!Groups.isKey(chat.ref) && Presence.word(c, chat.ref)?.second == true)
                 addView(presenceBadge(c), FrameLayout.LayoutParams(dp(13), dp(13), Gravity.BOTTOM or Gravity.END))
         }, lp(dp(48), dp(48)).apply { marginEnd = dp(16) })
@@ -1704,7 +1724,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         val ch = Book.chat(ref) ?: return
         title.text = if (saved) c.getString(R.string.saved_messages) else ch.shown.ifBlank { c.getString(R.string.peer) }
         // Saved Messages wears one's own face (iOS MTChatAvatar: «one's own for the room without an address»)
-        val face = if (saved) c.avatar(SelfFace.load(c), Prefs.userName, 36) else c.peerFace(ref, ch.shown, 36)
+        val face = if (saved) c.avatar(SelfFace.load(c), Prefs.userName, 36) else c.chatFace(ref, ch.shown, 36)
         faceSlot.removeAllViews(); faceSlot.addView(face, FrameLayout.LayoutParams(c.dp(36), c.dp(36)))
     }
     drawHead()
