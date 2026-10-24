@@ -242,6 +242,7 @@ mod tests {
         out.extend_from_slice(&segment.to_le_bytes()); // last_active_segment
         out.extend_from_slice(&window.to_le_bytes()); // opened_window
         out.extend_from_slice(&0u32.to_le_bytes()); // own_height
+        out.extend_from_slice(&[0x55u8; 32]); // operator_nf
         out.extend_from_slice(&[0x11u8; 32]); // fabric_root
         out.extend_from_slice(&1u16.to_le_bytes()); // suite_id
         out.extend_from_slice(&[0x22u8; mt_codec::size::SIGNING_PUBLIC_KEY]);

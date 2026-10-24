@@ -30,7 +30,7 @@ use mt_codec::domain;
 mt_codec::constants! {
     ADMISSION:
     /// The limbs of a serialized record: its bytes in words of four.
-    pub const RECORD_LIMBS: usize = 511, code "the limbs of a serialized record: two thousand and forty-two bytes in words of four";
+    pub const RECORD_LIMBS: usize = 519, code "the limbs of a serialized record: two thousand and seventy-four bytes in words of four";
     /// What the chains and the walks of this circuit fill, one power of two. The height it is
     /// **built** at is the one every description stands at.
     pub const ROWS_FILLED_LOG2: usize = 16, code "the rows the chains and the walks of an admission fill, one power of two: what the height every description stands at must hold";
@@ -328,7 +328,7 @@ mod tests {
     #[test]
     fn the_blocks_of_the_admission_fit_its_height() {
         let places = Places;
-        assert_eq!(places.record_blocks(), 64);
+        assert_eq!(places.record_blocks(), 65);
         assert_eq!(places.record_depth(), 256);
         assert_eq!(places.admitted_depth(), 40);
         assert!(places.blocks() * permutation::period() <= 1 << ROWS_FILLED_LOG2);
@@ -363,7 +363,7 @@ mod tests {
     fn an_admission_is_proven_and_verified_end_to_end() {
         use crate::poseidon::{self, Digest};
         let places = Places;
-        let record = vec![0xA7u8; 2042];
+        let record = vec![0xA7u8; 2074];
         let mut key = [0u8; 32];
         key[0] = 0b1010_0110;
         key[31] = 0b0100_1001;
@@ -442,7 +442,7 @@ mod tests {
         let admitted = crate::admitted::empty_internals(places.admitted_depth());
         let naming = crate::poseidon::Digest::of_bytes(&[0x5C; 32]).unwrap();
         let (mut trace, mut digests) = trace_of(
-            &vec![0xA7; 2042],
+            &vec![0xA7; 2074],
             &[0; 32],
             &records[..places.record_depth()],
             &naming,

@@ -1961,6 +1961,7 @@ pub const RIGHTS_HEADER: &str = "**The vectors of the two rights.**";
 pub const VERSION_HEADER: &str = "**The vectors of the nullifier of a version.**";
 pub const TAG_HEADER: &str = "**A tag and the labels of its steps.**";
 pub const CLAIM_HEADER: &str = "**The right of a machine, and the moment of extinguishing it.**";
+pub const CANDIDACY_HEADER: &str = "**The vector of a candidacy.**";
 pub const HORIZON_HEADER: &str = "**The horizon fold, at three of its reach.**";
 pub const LOOKUP_HEADER: &str = "**The nullifier of a reach into the space of slots.**";
 pub const NAME_HEADER: &str = "**A name: its slot, its chain and its commitment.**";
@@ -2022,6 +2023,45 @@ fn compare_number(label: &str, stated: u64, computed: u64) -> Result<(), String>
         ));
     }
     Ok(())
+}
+
+// The record of the vector of a candidacy, read field by field out of its line in the order the
+// layout gives: a field the line does not name, or names out of that order, is refused rather than
+// filled, and the right the record carries is the one derived beside it, as the line says.
+fn record_of_the_vector(cell: &str, right: &[u8; 32]) -> Result<mt_state::layout::Record, String> {
+    let mut fields = cell.split(',').map(str::trim);
+    let mut field = |name: &str| -> Result<&str, String> {
+        let part = fields
+            .next()
+            .ok_or_else(|| format!("the record of the vector ends before `{name}`"))?;
+        part.strip_prefix(name)
+            .map(str::trim)
+            .ok_or_else(|| format!("the record of the vector names {part:?} where `{name}` stands"))
+    };
+    let segment_bitmap = number(field("segment_bitmap")?)?;
+    let last_active_segment = number(field("last_active_segment")?)?;
+    let opened_window = number(field("opened_window")?)?;
+    let own_height = number(field("own_height")?)?;
+    if field("operator_nf")? != "of operator_secret" {
+        return Err("the record of the vector carries a right other than its branch's".to_string());
+    }
+    let fabric_root = repeat32(field("fabric_root")?)?;
+    let suite_id = number(field("suite_id")?)?;
+    let current_pubkey = repeat_bytes(field("current_pubkey")?)?;
+    let blind = repeat32(field("blind")?)?;
+    let narrow = |what: &str| format!("the `{what}` of the record of the vector is out of its width");
+    Ok(mt_state::layout::Record {
+        segment_bitmap,
+        last_active_segment: u32::try_from(last_active_segment)
+            .map_err(|_| narrow("last_active_segment"))?,
+        opened_window,
+        own_height: u32::try_from(own_height).map_err(|_| narrow("own_height"))?,
+        operator_nf: *right,
+        fabric_root,
+        suite_id: u16::try_from(suite_id).map_err(|_| narrow("suite_id"))?,
+        current_pubkey,
+        blind,
+    })
 }
 
 // Every derivation the stage of the objects owns: the note and its nullifier, the nullifiers of the
@@ -2102,6 +2142,52 @@ pub fn check_derivations(md: &str) -> Result<(), String> {
             compare_hash(label, expected, &computed)?;
         }
     }
+
+    // The vector of a candidacy: a record carrying the right of a branch, alone in the tree of
+    // records at the key its commitment is, and a machine's secret beside it — each value the
+    // public input holds, and the digest of that input in the order the set gives it.
+    let candidacy_rows = parse_labeled(md, CANDIDACY_HEADER)?;
+    let candidacy_inputs = labeled(&candidacy_rows, "machine_secret")?;
+    let candidacy_secret = repeat32(bare_input(candidacy_inputs))?;
+    let candidacy_right = input32(candidacy_inputs, "operator_secret")?;
+    let candidacy_window = number(input_of(candidacy_inputs, "window")?)?;
+    let right = mt_derive::nullifier::operator(&candidacy_right);
+    let record = record_of_the_vector(labeled(&candidacy_rows, "record")?, &right)?;
+    let serialized = mt_state::Layout::bytes(&record)
+        .map_err(|e| format!("the record of the vector of a candidacy is no record: {e:?}"))?;
+    let commitment = mt_proof::records::leaf(&serialized);
+    let record_root = mt_proof::records::root_of_leaves(&std::iter::once((commitment.bytes(), commitment)).collect());
+    let naming = mt_derive::nullifier::machine_halves(&candidacy_secret).1;
+    compare_hash(
+        "operator_nullifier of the candidacy",
+        labeled(&candidacy_rows, "operator_nullifier of the candidacy")?,
+        &right,
+    )?;
+    compare_hash(
+        "record_commit of the candidacy",
+        labeled(&candidacy_rows, "record_commit of the candidacy")?,
+        &commitment.bytes(),
+    )?;
+    compare_hash(
+        "record_root of the candidacy",
+        labeled(&candidacy_rows, "record_root of the candidacy")?,
+        &record_root.bytes(),
+    )?;
+    compare_hash(
+        "naming_half of the candidacy",
+        labeled(&candidacy_rows, "naming_half of the candidacy")?,
+        &naming,
+    )?;
+    let mut public = Vec::with_capacity(8 + 3 * 32);
+    public.extend_from_slice(&candidacy_window.to_le_bytes());
+    public.extend_from_slice(&record_root.bytes());
+    public.extend_from_slice(&naming);
+    public.extend_from_slice(&right);
+    compare_hash(
+        "SHA-256(public input)",
+        labeled(&candidacy_rows, "SHA-256(public input)")?,
+        &sha256(&public),
+    )?;
 
     // The nullifier that spends one version of a record. The commitment of the vector stands as
     // thirty-two distinct bytes, so a reading from the far end and a swap of the two parts both

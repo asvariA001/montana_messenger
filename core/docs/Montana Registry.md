@@ -64,7 +64,7 @@ The artifact stands published, so no row awaits it; what a row may still await i
 | CNS-12 | the join from an anchor | Consensus, "The join" | — | — | a scenario of a device walking from an anchor to the head by verifying each certificate, run against two machines living four windows | — |
 | CNS-13 | membership for a term | Consensus, "Presence and admission" | — | — | a scenario of a term expiring unobserved | stage 19 |
 | CNS-14 | selection events | Consensus, "Presence and admission"; Canon, "The close of a window, and the slots an event offers" | — | `mt-nodereg`, `mt-nodereg-sort`, `mt-selection` | vectors: "The aggregate, the ticket and the two orders"; a scenario of admission | stage 19 |
-| CNS-15 | the one-time right to raise a machine | Consensus, "Presence and admission" | — | `mt-operator-nf` | a scenario of the right spent once | stage 19 |
+| CNS-15 | the one-time right to raise a machine | Consensus, "Presence and admission"; Canon, "The candidacy of a machine"; Canon, "The committed record of a person" | — | `mt-operator-nf` | vectors: "The vector of a candidacy", compared by the gate; a scenario of the right spent once | stage 19 |
 | CNS-16 | the commitment of a machine | Consensus, "What a machine commits about itself"; Canon, "The commitment standing for a machine" | — | `mt-node-commit`, `mt-node-key` | vectors: "The commitment standing for a machine" | — |
 | CNS-17 | the three points of a round | Canon, "The points a round stands at" | `consensus_replicas` | `mt-round-point`, `mt-window-point` | the derivation and the ring rule | stage 13 |
 | CNS-18 | the right to a window's share | Consensus, "The right to a window's share" | — | — | VAL-08, where the right and what redeems it stand | — |
@@ -103,7 +103,7 @@ The artifact stands published, so no row awaits it; what a row may still await i
 |---|---|---|---|---|---|---|
 | IDN-01 | the birth of a seed | Identity, "The birth of a seed"; Canon, "The birth of a seed" | — | `mt-seed`, `mt-entropy-mix` | vectors: "The birth of a seed, end to end"; "Two chains stand here, and the second is the one that binds" | — |
 | IDN-02 | the branches of a seed | Identity, "A person is a secret"; Canon, "The branches of a seed" | — | `mt-account-key`, `mt-note-key`, `mt-nf-key`, `mt-app-encryption-key` | vectors: "The branches of the two spaces, from a stated master seed" | — |
-| IDN-03 | the record is a commitment | Identity, "The record of a person"; Canon, "The committed record of a person" | — | — | the layout and its invariants; the field set freezes with the artifact | — |
+| IDN-03 | the record is a commitment | Identity, "The record of a person"; Canon, "The committed record of a person" | — | — | the layout and its invariants, the right to raise a machine among its fields; the field set freezes with the artifact | — |
 | IDN-04 | an act is three quantities and the rate beside them | Identity, "Acting"; Canon, "The action of a record" | — | `mt-op` | the layout and its invariants, compared by the gate | stage 17 |
 | IDN-05 | opening a record | Identity, "Opening a record"; Canon, "The opening of a record" | `max_openings_per_window` | `mt-open-nf` | the layout and its invariants, compared by the gate; a scenario of the one-time right | stage 17 |
 | IDN-06 | the nullifier of the rate of action | Canon, "The nullifier of the rate of action" | — | `mt-act-nf` | vectors: "The nullifiers of the two rates" | — |
