@@ -2,6 +2,16 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
+## 1.0 (2309) - 2026-10-25
+
+Source commit `8439bb0f4306`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2309.md).
+
+- The secret of each conversation now lives in one place inside the app and is never handed out: every part of the app, the notification extension and the share sheet ask that one place for what they need. Messages, calls and coins work exactly as before.
+
+**Security and anonymity**
+
+- Security: one owner holds the conversation secret and exposes only derived values; a build check refuses any read of the raw secret elsewhere. The wire is unchanged byte for byte. Erasing the original secret by day is the next step and is not in this build.
+
 ## 1.0 (2308) - 2026-10-24
 
 Source commit `2d8a183d860e`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2308.md).
