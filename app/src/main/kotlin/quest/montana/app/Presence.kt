@@ -488,13 +488,25 @@ object Presence {
     // a person who hides their presence types in silence, and a person this phone blocked hears no typing of it
     fun sayTyping(ref: String) { if (sharing && !PeerSafety.isBlocked(ref)) Signal.post(ref, TYPING + saidTail()) }
     // «K…» — the peer's letters I hold whole (iOS HeldLetters, chatBeacon 700-701, 23.09): before the door, which every build reads to the end
-    fun sayChat(ref: String, open: Boolean) { if (sharing) Signal.post(ref, WATCH + (if (open) "1" else "0") + saidTail() + heldTail(ref) + HeldLetters.tail(ref) + doorTail()) }
+    fun sayChat(ref: String, open: Boolean) { if (sharing) Signal.post(ref, WATCH + (if (open) "1" else "0") + faceTail(ref) + saidTail() + heldTail(ref) + HeldLetters.tail(ref) + doorTail()) }
 
     /** The tag a word names a thing by (iOS Announced.wireTag, MontanaDeliveryEngine 417-422): SHA-256's first four bytes, big-endian, in digits; none — «0». */
     fun wireTag(d: ByteArray?): String {
         if (d == null || d.isEmpty()) return "0"
         val h = java.security.MessageDigest.getInstance("SHA-256").digest(d)
         return (((h[0].toLong() and 0xff) shl 24) or ((h[1].toLong() and 0xff) shl 16) or ((h[2].toLong() and 0xff) shl 8) or (h[3].toLong() and 0xff)).toString()
+    }
+    /**
+     * THE ASK STANDS WHILE THE FACE IS MISSING (iOS faceTail, ec7cd30ce458; the author's word 03.10.2026: «why T1 does not show
+     * every avatar though Mom has one»): «f» — «I hold no face of you» — rides every presence word until the face lands or the
+     * correspondent answers «no face» (faceNone); every build answers it by sending its profile again, once in five minutes.
+     */
+    val faceNone: MutableSet<String> = java.util.Collections.synchronizedSet(HashSet<String>())
+    private val faceAsked = java.util.Collections.synchronizedSet(HashSet<String>())   // named in the diary once a life
+    private fun faceTail(ref: String): String {
+        if (Book.chat(ref) == null || Book.face(ref).exists() || ref in faceNone) return ""
+        if (faceAsked.add(ref)) Log.d("Montana", "face_ask to=" + ref.take(10))
+        return "f"
     }
     private val heldFace = HashMap<String, Pair<Long, String>>()   // ref -> (the face file's moment, its tag): a file is new every update
     /**
@@ -546,7 +558,7 @@ object Presence {
     /** App-level presence for one correspondence (iOS appBeacon 731-738): the word, my moment, what I hold of them, their letters I hold whole. */
     private fun appBeacon(ref: String, open: Boolean) {
         if (!sharing || PeerSafety.isBlocked(ref)) return
-        Signal.post(ref, APP + (if (open) "1" else "0") + saidTail() + heldTail(ref) + HeldLetters.tail(ref))
+        Signal.post(ref, APP + (if (open) "1" else "0") + faceTail(ref) + saidTail() + heldTail(ref) + HeldLetters.tail(ref))
     }
     /** THE SAME PEOPLE HEAR THE GREETING AND THE FAREWELL (iOS presencePeers 850-859): the freshest conversations first, 128 at most. */
     private fun presencePeers(): List<String> = Book.refs().filter { SamePair.merged(it) == null && !PeerSafety.isBlocked(it) && !Groups.isKey(it) }
@@ -722,6 +734,8 @@ object Presence {
                 // THE DOORS THEY ASK (iOS ChatStore 3910-3912, WakePush 3252): my words for them go there
                 payload.indexOf('@').takeIf { it >= 0 }?.let { Signal.notePeerDoor(ref, payload.substring(it + 1)) }
                 hides(ref, payload.drop(1).substringBefore('@').contains('h'), wordAt)
+                // «f»: they hold no face of mine — my profile goes again (iOS ChatStore: payload.dropFirst(1).contains("f"))
+                if (payload.drop(1).substringBefore('@').contains('f')) Thread { Post.resendProfile(ref) }.start()
                 val open = payload.startsWith("1")
                 if (fresh) Board.heardPresence(ref, payload)   // their wall's version (iOS heardHeld, wallHeard)
                 // WHAT A WORD PROVES OF ITS BUILD IS READ FROM EVERY WORD, LATE ONES TOO (iOS heardCapable 615-624): their «G» says they read the ground

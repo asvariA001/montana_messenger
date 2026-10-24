@@ -839,7 +839,8 @@ private class SearchRow(val c: Context, onChange: (String, Boolean) -> Unit) : L
 }
 
 /** Words compared as a person reads them: case and marks aside, the dotted e as the plain one (iOS .caseInsensitive, .diacriticInsensitive). */
-private fun fold(s: String) = java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD).replace(Regex("\\p{Mn}+"), "").lowercase()
+private fun fold(s: String) = java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD).replace(foldMarks, "").lowercase()
+private val foldMarks = Regex("\\p{Mn}+")   // compiled once: the scan folds every letter of every conversation
 
 /**
  * THE SEARCH RESULTS (iOS searchResults, refreshSearchHits): nothing typed — the recent people; a word — the chats whose name
@@ -929,10 +930,21 @@ private class SearchResults(val act: MainActivity) : ScrollView(act) {
         }
         val w = fold(q.trim())
         if (w.isEmpty()) return
-        val chats = people.filter { fold(it.shown + " " + it.name).contains(w) }   // a person is found as they are seen, and by their own word (iOS shownName)
-        // the words of a person only: a word of the wire is never read as theirs, a voice or a file has no words to find
-        val found = people.flatMap { ch -> ch.msgs.filter { !Marks.isService(it.text) && fold(it.text).contains(w) }.map { ch to it } }
-            .sortedByDescending { it.second.at }.take(60)
+        // THE SEARCH IS A COMPUTATION, NOT A BODY (iOS refreshSearchHits, 41650812cd21: three deaths on screen within a minute while the
+        // person typed): every letter of every conversation is scanned once per settled query, off the main thread, over a snapshot of
+        // the history; only the newest query's hits are drawn, and «Nothing found» is said of a settled query alone.
+        val asked = q
+        val snap = people.map { it to it.msgs.toList() }
+        Thread {
+            val chats = snap.map { it.first }.filter { fold(it.shown + " " + it.name).contains(w) }   // a person is found as they are seen, and by their own word (iOS shownName)
+            // the words of a person only: a word of the wire is never read as theirs (the marker first), a voice or a file has no words to find
+            val found = snap.flatMap { (ch, msgs) -> msgs.filter { !Marks.isService(it.text) && fold(it.text).contains(w) }.map { ch to it } }
+                .sortedByDescending { it.second.at }.take(60)
+            post { if (q == asked) drawHits(chats, found) }
+        }.start()
+    }
+    private fun drawHits(chats: List<Chat>, found: List<Pair<Chat, Msg>>) {
+        list.removeAllViews()
         if (chats.isNotEmpty()) section(R.string.search_chats, chats.map { personRow(it) })
         if (found.isNotEmpty()) section(R.string.search_messages, found.map { (ch, m) -> hitRow(ch, m) })
         val met = nameHit(q.trim(), chats)

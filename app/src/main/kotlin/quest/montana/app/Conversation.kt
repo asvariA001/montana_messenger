@@ -2100,7 +2100,19 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 if (group) Groups.refused = sayRefusal
                 ShowLetter.open = showLetter
                 // the banner's road measured (iOS chat_open why=banner ms=…, 4b49d03f071b): from the tap to the chat standing
-                if (Notify.tappedAt != 0L) { android.util.Log.d("Montana", "chat_open why=banner ms=" + (android.os.SystemClock.elapsedRealtime() - Notify.tappedAt)); Notify.tappedAt = 0L }
+                if (Notify.tappedAt != 0L) {
+                    val t0 = Notify.tappedAt
+                    android.util.Log.d("Montana", "chat_open why=banner ms=" + (android.os.SystemClock.elapsedRealtime() - t0)); Notify.tappedAt = 0L
+                    // THE FIRST FRAME OF THE FEED IS THE END OF THE ROAD (iOS MTFeedFrame feed_first, a5622f175804): the chat is
+                    // open for the eye when its letters are laid out — the same clock stops at the feed's first laid-out frame
+                    column.addOnLayoutChangeListener(object : View.OnLayoutChangeListener {
+                        override fun onLayoutChange(v: View, l: Int, t: Int, r: Int, b: Int, ol: Int, ot: Int, or2: Int, ob: Int) {
+                            if (b - t <= 1 || r - l <= 1) return
+                            v.removeOnLayoutChangeListener(this)
+                            android.util.Log.d("Montana", "feed_first why=banner ms=" + (android.os.SystemClock.elapsedRealtime() - t0) + " rows=" + feed.size)
+                        }
+                    })
+                }
                 Presence.listen(presenceListener); lane = true
                 LiveDraft.listen(draftListener); drawDraft()
                 LinkCompose.listen(linkListener); drawLink()

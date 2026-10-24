@@ -1340,6 +1340,7 @@ object Post {
             val mid = Marks.mintMid(); flight("N", ref, name, mid); send(ref, mid, Marks.NAME + name)
         }
         MyAbout.sendIfNeeded(ref)
+        if (!SelfFace.held(Book.ctx)) return   // an unread face is silence, not «no face» (iOS MontanaSelf.holds("avatarData"))
         val face = SelfFace.bytes(Book.ctx) ?: ByteArray(0)
         val tag = Wire.hex(Wire.sha(face)).take(16)
         if (Prefs.str("annFace2." + ref, "") != tag) {
@@ -1387,7 +1388,7 @@ object Post {
         // THE ANSWERS GIVEN WHILE THE CARD'S FACE STOOD OLD ARE GIVEN ONCE MORE (18.10.2026): T1 wore my face, then the card's stale one
         // over it, and named that stale tag again -- the same state, answered, so nothing went for ever. Once, as the card's face is fresh.
         if (!Prefs.bool("annHeldCardFace2", false)) { Prefs.remove(*Prefs.keys("annHeldF.").toTypedArray()); Prefs.setBool("annHeldCardFace2", true) }
-        val f = face && again("F", ref, "annFace2.", Wire.hex(Wire.sha(SelfFace.bytes(Book.ctx) ?: ByteArray(0))).take(16), theirFace)
+        val f = face && SelfFace.held(Book.ctx) && again("F", ref, "annFace2.", Wire.hex(Wire.sha(SelfFace.bytes(Book.ctx) ?: ByteArray(0))).take(16), theirFace)
         val n = name && again("N", ref, "annName2.", stripCrown(Prefs.userName.trim()), theirName)
         if (f) Prefs.remove("annFace2." + ref)
         if (n) Prefs.remove("annName2." + ref)
@@ -1398,6 +1399,22 @@ object Post {
         if (Prefs.str(mark + ref, "") == mine && Prefs.str("annHeld" + kind + "." + ref, "") == said) return false
         Prefs.setStr("annHeld" + kind + "." + ref, said)
         return true
+    }
+    /**
+     * THEY ASK FOR MY PROFILE AGAIN (iOS resendProfileOnReconnect, answering «f» — «I hold no face of you»): the receipted marks of
+     * my name, face, words and ground are forgotten and all go again, at most once in five minutes a person.
+     */
+    private val profilePushedAt = HashMap<String, Long>()
+    fun resendProfile(ref: String) {
+        if (Book.secret(ref) == null || PeerSafety.isBlocked(ref)) return
+        val now = System.currentTimeMillis()
+        synchronized(profilePushedAt) {
+            if (now - (profilePushedAt[ref] ?: 0L) < 300_000L) return
+            profilePushedAt[ref] = now
+        }
+        for (k in listOf("annName2.", "annFace2.", "annAbout2.", "annGround.")) Prefs.remove(k + ref)
+        announce(ref)
+        PageGround.sendIfNeeded(ref)
     }
     /** UNBLOCKED (iOS announceUnblocked 1458-1466): the person is told I am here again — my name, my face, my presence. */
     fun unblocked(ref: String) {
@@ -1831,6 +1848,8 @@ object Post {
                 val b64 = text.removePrefix(Marks.AVATAR)
                 val face = if (b64.isEmpty()) null else runCatching { Base64.decode(b64, Base64.DEFAULT) }.getOrNull()
                 if (face == null || face.isEmpty()) Book.face(ref).delete() else if (face.size <= 262_144) Book.setFace(ref, face)
+                // the answer to an ask: «no face» is asked no more in this life; a face that lands ends it as well (iOS E2E.faceNone)
+                if (face == null || face.isEmpty()) Presence.faceNone.add(ref) else Presence.faceNone.remove(ref)
                 Book.edit(ref) {}
                 receipt(ref, sid)
             }
@@ -2066,6 +2085,7 @@ object MyAbout {
      */
     fun sendIfNeeded(ref: String) {
         if (PeerSafety.isBlocked(ref) || SamePair.merged(ref) != null) return
+        if (!Prefs.has("profileBio") && !Prefs.has("profileLink")) return   // unread words are silence, not «no words» (iOS MontanaSelf.holds)
         val b = bio(); val l = link(); val t = tag(b, l)
         val held = Prefs.str("annAbout2.$ref", "")
         if (held == t || (held.isEmpty() && t == "0") || Post.inFlight("A", ref, t)) return

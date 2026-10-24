@@ -256,6 +256,7 @@ object Prefs {
         set(v) { p.edit().putBoolean("mt.notify.asked", v).apply() }
 
     /** The appearance's own settings, under the iOS UserDefaults keys (bubbleStyle, cbMineFill1, noteQuality…). */
+    fun has(key: String): Boolean = p.contains(key)
     fun str(key: String, def: String): String = p.getString(key, def) ?: def
     fun setStr(key: String, v: String) { p.edit().putString(key, v).apply() }
     fun dbl(key: String, def: Double): Double = if (p.contains(key)) p.getFloat(key, def.toFloat()).toDouble() else def
