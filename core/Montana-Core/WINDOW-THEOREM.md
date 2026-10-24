@@ -266,6 +266,29 @@ of another width; `links_to` refuses a round past `u32::MAX` (round.rs:107-109);
   part being the adversary's either way; but two verifiers given one certificate in two orders can
   count that part under two names. Required: a part pledging two names in attempt zero is recorded
   as a contradiction and counted under neither.
+- **Reading of F-431-2 to F-431-4 against the specification (24.10, Agent 432).**
+  - F-431-2 and F-431-3 quote WINDOW-RELATION.md section 3, which states the conduct of a machine
+    of the window. What a device that was not there verifies is stated in Consensus, "The
+    certificate of a window" (docs/Montana Consensus.md:815-830): presence proofs, signatures,
+    pledge keys, distinct parts, the counting of the agreement, ballots, votes, and the proposal's
+    ticket and signature. It names neither an answer to the final beacon nor a recomputation of its
+    pair, and the certificate carries what neither needs: heavy attestations and ballots, no light
+    attestation (a final beacon answered by lights alone has no heavy beside it, pulse.rs:546,
+    826-829) and no roll (the parts of the pair stand in the roll, pulse.rs:1922-1931, which no
+    `Step` carries). Requiring either in `decided_of` would refuse honest walks. The two stay open as
+    a question of the specification: a step carrying the roll of the proposal would let the device
+    recompute the pair by the rule `replay` already applies. The head does not rest on them
+    (Theorem 4).
+  - F-431-4 is a divergence of code from the specification: Consensus, "The sanction of a double
+    answer" (docs/Montana Consensus.md:812): "The first appearance stands and the second is refused,
+    by the canonical order of the window and never by the order of arrival at a machine."
+    `Book::heavy` keeps the first in the order handed in (agreement.rs:112-118) and records no
+    contradiction. An open pledge of attempt zero other than the heavy cannot arise
+    (layout.rs:759-765 refuses it at parsing), so the case is exactly two verified heavy
+    attestations of one part on two names. The specification does not define the canonical order
+    of the heavy attestations of a window -- the phrase stands at Consensus.md:812, Canon.md:4832 and
+    Identity.md:124 without a definition -- so the fix waits on that definition (C-2: an ambiguity
+    is flagged before code).
 - **F-431-1 (closed).** The comment at round.rs:71 said round zero links to "the proposal of the
   window before"; certificate.rs:406-409 and the Canon it quotes say "two before", and `walk` passes
   the proposal of `W - 2` (:748-758). The pulse agrees with the Canon: `Pulse::open` takes
