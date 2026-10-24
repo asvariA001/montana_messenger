@@ -685,6 +685,8 @@ mod proofs {
         };
         let one = book_of(&first).decided(&electorate);
         let other = book_of(&second).decided(&electorate);
+        // Without it the assertion below could stand only because no two books ever decide.
+        kani::cover!(one.is_some() && other.is_some(), "both books decide");
         if let (Some((one, _)), Some((other, _))) = (one, other) {
             assert_eq!(one, other);
         }
