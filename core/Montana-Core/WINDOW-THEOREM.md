@@ -314,11 +314,43 @@ of another width; `links_to` refuses a round past `u32::MAX` (round.rs:107-109);
 
 - **O-1.** The derivation of `eps_K` for the three descriptions from the parameters of the scheme,
   at the security target of Canon.
-- **O-2.** (A5) read off `mt-proof/src/circuit/presence.rs`, constraint by constraint.
+- **O-2.** (A5) read off `mt-proof/src/circuit/presence.rs`, constraint by constraint
+  (24.10.2026, read at 0fe6134; the Poseidon permutation layer is taken as the permutation, as A4
+  takes it). Width 12, rate 8, capacity 4 (poseidon.rs:17-22). Every chain opens under its domain:
+  at each seam of `opens` (presence.rs:164) the four capacity cells one row on equal the limbs of the
+  domain (capacity.rs:57) -- `MT_KEY_HALVES`, `MT_ADMITTED_LEAF`, `MT_ADMITTED_NODE` at each of the
+  40 levels, `MT_PART_NF`, `MT_PART_KEY_DIGEST`. Every padding cell of every absorption is a literal
+  (sponge.rs:45, presence.rs:147), so no rate cell past the elements is free.
+  *The leaf.* The capacity crosses every seam inside the chain of the halves, the seam into the
+  block of the second squeeze included (`carry_rows`, presence.rs:89; sponge.rs:126, 165), and the
+  rate crosses that seam too (`squeeze_rows`, presence.rs:106; sponge.rs:96): the extra block enters
+  with the whole state the absorption left. The four cells that block leaves enter the leaf block
+  (`digest_carries` at the seam before the leaf, sponge.rs:102), whose remaining rate is padding.
+  At every level the node block enters with the pair the bit orders, the child being the four cells
+  the block before it left (path.rs:99); the four cells the last node leaves are bound to public
+  word 0, the admitted root (presence.rs:117-125).
+  *The part.* The lane loads the four cells the absorption of the secret leaves -- the first squeeze
+  -- at its last row, holds them unchanged wherever no load stands, and wires them into the first
+  four rate cells of the nullifier block (lane.rs:73; presence.rs:156-160); the lane is loaded once,
+  before the wire, so the reading holds whether or not the rules close over the wrap. The fifth
+  rate cell is the public window (presence.rs:137), the rest padding, and the four cells the block
+  leaves are bound to the public part-nullifier (presence.rs:117-125).
+  *The key.* The absorption of 488 limbs of the one-time key ends in the four cells bound to the
+  public key digest (presence.rs:117-125, 62 blocks carried).
+  *What the statement is.* The witness is a vector of field elements in the rate of the blocks of
+  the halves, not a byte string: no rule ranges the limbs. (A5) therefore reads: there is a vector
+  `v` of limbs whose naming half has its leaf in the tree of `root`, with `p` the part-nullifier of
+  its spending half and `W`. Under (A4) the leaf fixes the naming half and the naming half fixes `v`,
+  so `v` is the vector of the admitted machine and `p = part(s, W)` for its secret `s`; the range of
+  the limbs is not needed by the argument. The tests `a_presence_cannot_graft_another_machines_public_membership_path`
+  and `a_part_cannot_choose_extra_nullifiers_through_sponge_padding` refuse the two wrong circuits
+  this reading names.
 - **O-3.** Lemma 3 reads the two halves as two squeezes of one absorption from the shape of the
   description (presence.rs:15-20, 103-108, 152-162); the constraint that the half wired into the
   part-nullifier is the state of the first squeeze, and the half under the leaf that of the second,
-  is checked constraint by constraint under O-2.
+  is checked constraint by constraint under O-2: the lane loads at the last row of the absorption,
+  the leaf takes the cells the extra block leaves, and the extra block enters with the whole state
+  (capacity and rate carried). Discharged with O-2.
 - **O-4.** (A6) as a theorem of the roots of state.
 - **O-5.** F-431-1 to F-431-4 closed in code, each with a test that refuses the named wrong
   verifier.
