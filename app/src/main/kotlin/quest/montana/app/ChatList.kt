@@ -91,6 +91,8 @@ fun buryChat(ref: String) = Thread { Post.flush(); forgetChat(ref) }.start()
 
 /** The chat leaves here with its letters' names buried (iOS removeConversationLocally → bury): a late copy raises no chat again. */
 fun forgetChat(ref: String) {
+    // THE ROOM WITH NO WIRE IS NOT DELETED (iOS deleteChat 6098, isLocalRoom): Saved Messages and the Montana room always stand
+    if (Book.isLocal(ref)) { Log.d("Montana", "delete_refused the local room stays"); return }
     Book.chat(ref)?.let { ch -> Book.bury(ref, ch.msgs.map { it.mid }) }
     ChatMarks.forget(ref); Book.forget(ref); Notify.forget(ref)
     // A CONVERSATION GONE LEAVES NO STATE OF ITS OWN (iOS forgetConversation, f5889c70 at 2240): its draft, its pins, the letters
@@ -250,14 +252,15 @@ class Tile(val glyph: Int, val red: Boolean = false, val deed: () -> Unit)
  * THE ROW'S TILES, right to left as iOS draws them (swipeTrailing): unread / read, pin, mute, archive, delete. In the archive
  * the archive tile takes the row back out (ArchivedChatsView: «unarchive»).
  */
-fun rowTiles(act: MainActivity, chat: Chat, inArchive: Boolean): List<Tile> = listOf(
+fun rowTiles(act: MainActivity, chat: Chat, inArchive: Boolean): List<Tile> = listOfNotNull(
     Tile(if (ChatMarks.hasUnread(chat)) R.drawable.ic_mark_read else R.drawable.ic_dot) { ChatMarks.toggleUnread(chat) },
     Tile(if (ChatMarks.isPinned(chat.ref)) R.drawable.ic_pin_slash else R.drawable.ic_pin) { pin(chat.ref) },   // pin.slash.fill on a pinned chat (iOS 782)
     Tile(if (ChatMarks.isMuted(chat.ref)) R.drawable.ic_set_bell else R.drawable.ic_bell_off) { ChatMarks.toggleMute(chat.ref) },
     Tile(if (inArchive) R.drawable.ic_unarchive else R.drawable.ic_archive) {
         if (inArchive) ChatMarks.unarchive(chat.ref) else ChatMarks.archive(chat.ref)
     },
-    Tile(R.drawable.ic_delete) { askDeleteChat(act, chat.ref) },   // every tile the same glass (iOS swipeTrailing 778-786)
+    // every tile the same glass (iOS swipeTrailing 778-786); the local room has no delete (iOS 804)
+    if (Book.isLocal(chat.ref)) null else Tile(R.drawable.ic_delete) { askDeleteChat(act, chat.ref) },
 )
 
 /**
@@ -277,7 +280,7 @@ fun personMenu(act: MainActivity, chat: Chat, inArchive: Boolean, sel: ChatSelec
     val unread = ChatMarks.hasUnread(chat)
     deeds += Deed(if (unread) R.string.cl_mark_read else R.string.cl_mark_unread, if (unread) R.drawable.ic_mark_read else R.drawable.ic_dot) { ChatMarks.toggleUnread(chat) }
     if (!inArchive) deeds += Deed(R.string.cl_archive, R.drawable.ic_archive) { ChatMarks.archive(chat.ref) }
-    deeds += Deed(R.string.cl_delete, R.drawable.ic_delete, red = true) { askDeleteChat(act, chat.ref) }
+    if (!Book.isLocal(chat.ref)) deeds += Deed(R.string.cl_delete, R.drawable.ic_delete, red = true) { askDeleteChat(act, chat.ref) }   // iOS 1218
     holdMenu(act, held, deeds, personPlate(act, chat.ref))
 }
 
