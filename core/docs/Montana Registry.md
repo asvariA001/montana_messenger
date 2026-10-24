@@ -173,7 +173,7 @@ The artifact stands published, so no row awaits it; what a row may still await i
 | CAN-07 | the observability ledgers | Constitution, "The document set" | — | — | a ledger per layer document, each with a denominator | stage 21 |
 | CAN-08 | the conformance sets | Canon, "Conformance set"; Constitution, "What the set does not yet fix" | — | — | the sets themselves, one per document | — |
 | CAN-09 | the evolution of the protocol | Constitution, "Evolution of the protocol" | — | — | a scenario of a version crossing and a fork resolved by height | stage 16 |
-| CAN-10 | the proof scheme | Canon, "The proof scheme"; Canon, "The verifier of a proof"; Canon, "The height of the presence, and the length of its proof"; Canon, "The arithmetization, and how the set is bound to it" | — | `mt-proof-transcript`, `mt-proof-query`, `mt-proof-air`, `mt-proof-leaf`, `mt-proof-node` | vectors: "The vector of the encoding"; the five domains of a proof | — |
+| CAN-10 | the proof scheme | Canon, "The proof scheme"; Canon, "`proof_queries` = 92"; Canon, "The verifier of a proof"; Canon, "The height of the presence, and the length of its proof"; Canon, "The arithmetization, and how the set is bound to it" | `proof_queries` | `mt-proof-transcript`, `mt-proof-query`, `mt-proof-air`, `mt-proof-leaf`, `mt-proof-node` | the derivation; vectors: "The vector of the encoding"; the five domains of a proof | — |
 
 ## What the Registry does not claim
 
