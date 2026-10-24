@@ -64,13 +64,16 @@ object Calls {
 
     // ── what the iPhone says ──
 
-    /** iOS ChatStore ringMark: a call letter raises the incoming call; its age and the graveyard cut the stale; no row. */
-    fun ringLetter(ref: String, json: String) {
-        val o = runCatching { JSONObject(json) }.getOrNull() ?: return
+    /** iOS ChatStore ringMark: a call letter raises the incoming call; its age and the graveyard cut the stale; no row.
+     *  False when the invitation is dead: its letter is receipted then (iOS 89e12948, Build 2308) — a sender whose queue keeps a
+     *  letter until its receipt resent a dropped ring for the queue's whole term, and every copy woke this phone. */
+    fun ringLetter(ref: String, json: String): Boolean {
+        val o = runCatching { JSONObject(json) }.getOrNull() ?: return true
         val t = (o.optDouble("t", 0.0) * 1000).toLong()
-        if (t > 0 && NodeClock.now() - t > LIFE_MS) return log("ring letter stale")   // the age by the node's clock on both ends (iOS 3996, K-11)
+        if (t > 0 && NodeClock.now() - t > LIFE_MS) { log("ring letter stale age=" + (NodeClock.now() - t) / 1000 + "s"); return false }   // the age by the node's clock on both ends (iOS 3996, K-11)
         if (t > 0) log("ring letter age=" + (NodeClock.now() - t) + " ms")   // how long the call took to reach this phone
         incoming(ref, o.optString("s"), o.optBoolean("v"), o.optString("n"), null, t)
+        return true
     }
 
     /** The words of a call on the node's lane (iOS handleMeshCallSignal, handleSignal): its birth, and the end of a ring here. */

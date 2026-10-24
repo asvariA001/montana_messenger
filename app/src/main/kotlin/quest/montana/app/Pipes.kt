@@ -1811,8 +1811,9 @@ object Post {
             text.startsWith(Groups.MARK) -> Groups.handle(ref, sid, text)
             // A WORD OF A WALL (iOS MTBoard.handle): a page of a person's wall, an ask for mine — receipted, never a row
             text.startsWith(Board.MARK) -> Board.handle(ref, sid, text)
-            // A CALL AS A LETTER (iOS ringMark): it rings here and is never a row; its age and the seeds seen cut the stale (Calls)
-            text.startsWith(Marks.RING) -> Calls.ringLetter(ref, text.removePrefix(Marks.RING))
+            // A CALL AS A LETTER (iOS ringMark): it rings here and is never a row; its age and the seeds seen cut the stale (Calls);
+            // a dead invitation still gets its receipt, as a missed call's repeat does (iOS 89e12948)
+            text.startsWith(Marks.RING) -> { if (!Calls.ringLetter(ref, text.removePrefix(Marks.RING))) receipt(ref, sid) }
             // THE CALLER'S «MISSED» (iOS missedCallMark): the row of a call this phone never saw, receipted either way
             text.startsWith(Marks.MISSED) -> { Calls.missedLetter(ref, text.removePrefix(Marks.MISSED)); receipt(ref, sid) }
             // A DRAFT WORD BY THE QUEUE (iOS ChatStore 3884-3898): the daily link, a checkpoint, an ask — read as the live lane reads
