@@ -420,6 +420,9 @@
     <!-- a newer build from the site (Update.kt) -->
     <string name="update_channel">Обновления</string>
     <string name="update_text">Новая версия %1$s (%2$d)</string>
+    <string name="release_new">Новая версия</string>
+    <string name="release_expand">Развернуть</string>
+    <string name="release_collapse">Свернуть</string>
     <string name="update_now">Обновить</string>
     <string name="update_loading">Загрузка Montana %1$s (%2$d)</string>
     <string name="update_failed">Обновление не загрузилось — попробуйте позже</string>

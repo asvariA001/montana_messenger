@@ -38,6 +38,7 @@ import java.util.Date
 /** The words a letter shows in the list and the banner: its text, or the name of what it carries. */
 fun letterWords(c: Context, t: String, meta: String? = null): String = when {
     t.startsWith(Marks.CALL) -> Calls.info(t)?.let { Calls.words(c, it) } ?: ""
+    t.startsWith(Marks.RELEASE) -> Release.of(t)?.let { Release.words(c, it) } ?: ""   // iOS rowPreview: «New version» and the build
     // a group's event row speaks the group's names (iOS MTRowLetter.eventWords, stage R)
     Groups.isEvent(t) -> Groups.eventWords(c, t) ?: ""
     // a post's card: «Wall post» and the post's words (iOS MTRowLetter.preview, MTRowLetter.swift:143 at 2155)
@@ -156,8 +157,11 @@ fun Context.letterThumb(m: Msg, kind: String, sideDp: Int = 20): View {
     }
 }
 
+private var roomFace: android.graphics.Bitmap? = null
 /** The face of a correspondent: the face laid beside the pipe, else the drawn initial (iOS MontanaAvatar). */
 fun Context.peerFace(ref: String, name: String, sizeDp: Int): View {
+    // THE MONTANA ROOM'S FACE IS THE APP'S ICON (iOS montanaRoomFace «IconGlassPreview»): the glass icon in the list and the chat's head alike
+    if (Book.isMontana(ref)) return avatar(roomFace ?: BitmapFactory.decodeResource(resources, R.drawable.app_icon_glass_art)?.also { roomFace = it }, "M", sizeDp)
     val f = Book.shownFace(ref)
     val bmp = if (sizeDp <= 64) SmallPicture.of(f) else if (f.exists()) BitmapFactory.decodeFile(f.path) else null
     // THE GLYPH IS THEIRS EVEN UNDER MY NAME FOR THEM (iOS MTNameBook.faceGlyph/.face, MontanaNameBook.swift:104-122,
@@ -601,6 +605,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     val group = Groups.isKey(ref)   // a group's feed: no pipe, no presence, no doors (iOS MTGroup.isKey)
     // THE ROOM WITHOUT AN ADDRESS (iOS isLocalRoom): Saved Messages opens here like every chat -- no wire, no presence, no rung, no call
     val local = Book.isLocal(ref)
+    val saved = ref == Book.SAVED   // one's own room wears one's own face and its own word; the Montana room its crowned name (iOS rowModel)
     val column = c.vstack(Gravity.NO_GRAVITY) { setPadding(dp(10), dp(8), dp(10), dp(8)) }
     val draftRow = FrameLayout(c).apply { setPadding(c.dp(10), 0, c.dp(10), c.dp(8)); visibility = View.GONE }
     val feedFrame = FrameLayout(c)
@@ -1643,7 +1648,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     // ── the bar (iOS chatTop in MTChatTopBar, 8 from each edge): the back on the marks' round, the name's bubble on the rest of the
     // room, a pair's handset at its right ──
     val chat0 = Book.chat(ref)
-    val title = c.text((if (local) c.getString(R.string.saved_messages) else chat0?.shown?.ifBlank { null }) ?: c.getString(R.string.peer), 15f, Color.WHITE, bold = true).apply { singleLineEllipsis() }   // USER-DATA
+    val title = c.text((if (saved) c.getString(R.string.saved_messages) else chat0?.shown?.ifBlank { null }) ?: c.getString(R.string.peer), 15f, Color.WHITE, bold = true).apply { singleLineEllipsis() }   // USER-DATA
     val faceSlot = FrameLayout(c)
     // THE PRESENCE UNDER THE NAME (iOS presenceWord in chatTitleBubble): the words in grey after a dot — green while the person is live
     // («typing…» / «in chat» / «online»), red on «last seen…»; a group's line is its people's count, with no dot
@@ -1697,9 +1702,9 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     }
     fun drawHead() {
         val ch = Book.chat(ref) ?: return
-        title.text = if (local) c.getString(R.string.saved_messages) else ch.shown.ifBlank { c.getString(R.string.peer) }
+        title.text = if (saved) c.getString(R.string.saved_messages) else ch.shown.ifBlank { c.getString(R.string.peer) }
         // Saved Messages wears one's own face (iOS MTChatAvatar: «one's own for the room without an address»)
-        val face = if (local) c.avatar(SelfFace.load(c), Prefs.userName, 36) else c.peerFace(ref, ch.shown, 36)
+        val face = if (saved) c.avatar(SelfFace.load(c), Prefs.userName, 36) else c.peerFace(ref, ch.shown, 36)
         faceSlot.removeAllViews(); faceSlot.addView(face, FrameLayout.LayoutParams(c.dp(36), c.dp(36)))
     }
     drawHead()
@@ -1896,7 +1901,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         selTop.removeAllViews()
         selTop.visibility = if (selecting) View.VISIBLE else View.GONE
         top.visibility = if (selecting) View.GONE else View.VISIBLE
-        bar.visibility = if (selecting || (group && !Groups.fieldOpen(ref)) || Post.closed(ref)) View.GONE else View.VISIBLE
+        bar.visibility = if (selecting || (group && !Groups.fieldOpen(ref)) || Post.closed(ref) || Book.isMontana(ref)) View.GONE else View.VISIBLE
         if (selecting) {
             strip.visibility = View.GONE
             fun done() { selecting = false; picked.clear(); redraw(); drawFoot() }
@@ -1942,6 +1947,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     }
 
     hideBar = { bar.visibility = View.GONE }
+    if (Book.isMontana(ref)) hideBar()   // the room speaks; nobody writes into it (iOS composeSlot, MontanaConversation.swift:3636)
     return FrameLayout(c).apply {
         setBackgroundColor(Color.BLACK)
         addView(c.chatGround(ref), FrameLayout.LayoutParams(MATCH, MATCH))   // the chat's own ground, or the pages' crest (iOS MTWallpaper)
@@ -2308,6 +2314,8 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
             if (1 < members.size) albumBody(c, members, this)   // the plate of a media group (Album.kt)
             else if (Stickers.body(c, m, this)) Unit else if (m.text.startsWith(Marks.MEDIA)) mediaBody(c, m, this, chat)
             else if (call) Calls.body(c, m, this)   // a call's row carries its moment inside, as iOS callBubble
+            // A NEW BUILD'S WORD (iOS releaseBubble, MontanaBubble.swift:1006-1010): the Montana room's letter, drawn as its scroll
+            else if (Release.of(m.text) != null) Release.body(c, m, this)
             // A POST ON A WALL OF THE PAIR (iOS wallCardBubble, MontanaBubble.swift:694-695 and 903-920 at 2155): the wall's glyph, «Wall
             // post» and the post's first lines; the touch opens the wall the post stands on (wallCardPlate)
             else if (WallCard.of(m.text) != null) addView(wallCardPlate(c, c as? MainActivity, chat.ref, WallCard.of(m.text)!!, mine), lp(WRAP, WRAP))

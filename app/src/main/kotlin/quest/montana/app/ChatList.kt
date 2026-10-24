@@ -18,7 +18,7 @@ import kotlin.math.abs
 // ─────────────────────────── the chats list's own marks (iOS MontanaChatsList: MTPersonMenu, swipe tiles, selection) ───────────────────────────
 
 /** THE LIST'S ORDER (iOS orderedChats): the pinned ones first, in their own order; then the rest, newest letter first. The archived leave. */
-fun listedChats(): List<Chat> = Book.all()
+fun listedChats(): List<Chat> = Book.listed()
     .filter { stands(it) && !ChatMarks.isArchived(it.ref) }
     .sortedByDescending { it.last?.at ?: Groups.bornAt(it.ref) }
     .sortedBy { ChatMarks.pinPlace(it.ref) ?: Int.MAX_VALUE }   // a stable sort: the newest-first order stays under the pins
@@ -26,7 +26,7 @@ fun listedChats(): List<Chat> = Book.all()
 /** THE CHATS PAGE'S ROWS (iOS bare): the groups and the channels live in their own pages (the author's words 06.10.2026 11:5x). */
 fun chatRows(): List<Chat> = listedChats().filter { !Groups.isKey(it.ref) }
 
-fun archivedChats(): List<Chat> = Book.all().filter { stands(it) && ChatMarks.isArchived(it.ref) }
+fun archivedChats(): List<Chat> = Book.listed().filter { stands(it) && ChatMarks.isArchived(it.ref) }
 
 /** A row stands on letters; a group stands from its invitation, by the moment it stood here (iOS MTGroup.stand: the row at once). */
 private fun stands(c: Chat) = c.msgs.isNotEmpty() || Groups.isKey(c.ref)

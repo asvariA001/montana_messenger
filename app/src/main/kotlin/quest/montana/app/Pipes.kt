@@ -441,6 +441,7 @@ object Marks {
     const val RING = "\u200B\u200BRG:"   // + {v, s, n, t}: a call as a letter (iOS ringMark) — it rings, never a row
     const val MISSED = "\u200B\u200BMC:"   // + {v, s}: the caller's «missed call» (iOS missedCallMark) — it lands as a call row
     const val CALL = "\u200B\u200BCL:"   // + {v, inc, dur, miss}: a call's row, laid by each phone for itself (iOS callMark), never sent
+    const val RELEASE = "\u200B\u200BRL:"   // + {b, v, n, u, l}: a new build's word in the Montana room (iOS releaseMark), local, never sent
     /** A word of the wire, not a row of the feed. */
     fun isService(t: String) = t.startsWith("​") || t.startsWith("⁣")
     /**
@@ -620,13 +621,40 @@ object Book {
     /** The correspondences: the local room stands apart, above them (iOS: its row is inserted first, never sorted with them). */
     fun all(): List<Chat> = synchronized(lock) { ensure(); chats.values.filter { !isLocal(it.ref) }.sortedByDescending { it.last?.at ?: 0 }.map { it.shot() } }
     /** Every feed this phone holds, the local room with them -- for the searches that find a file or a letter wherever it lies. */
-    fun rooms(): List<Chat> = all() + listOfNotNull(chat(SAVED))
+    fun rooms(): List<Chat> = all() + listOfNotNull(chat(SAVED), chat(MONTANA))
+    /** The chat list's feeds: the correspondences and, among them by its moment, the Montana room (iOS: an ordinary row of the list). */
+    fun listed(): List<Chat> = synchronized(lock) { ensure(); chats.values.filter { !isLocal(it.ref) || isMontana(it.ref) }.sortedByDescending { it.last?.at ?: 0 }.map { it.shot() } }
 
     // ── THE ROOM WITHOUT AN ADDRESS (iOS savedMessagesKey, MontanaAvatarKit.swift:6; ChatStore.isLocalRoom, MontanaChatStore.swift:433-437
     // at 2155): Saved Messages is this device writing to itself, a feed like any other opened by the one conversation page; nothing
     // there is sent, waits or fails -- every road that would reach the wire asks isLocal and stops (the author's word 11.09) ──
     const val SAVED = "Saved Messages"   // the storage key is English and never translated, as iOS keeps it
-    fun isLocal(ref: String) = ref == SAVED
+    fun isLocal(ref: String) = ref == SAVED || ref == MONTANA
+    // ── THE MONTANA ROOM (iOS montanaRoomKey, ContentView.swift:3228-3246; the author's word 29.09): the room without an address where
+    // Montana itself speaks -- a new build, what changed, the button to update. Nobody writes into it; it stands among the chats by
+    // its moment, «👑 Montana» under the app's glass icon, and an erased room is born again by the next build's word ──
+    const val MONTANA = "Montana"   // the key is English and never translated
+    const val MONTANA_TITLE = "\uD83D\uDC51 Montana"   // a name, not a word: the crown before it by right (iOS montanaRoomTitle)
+    fun isMontana(ref: String) = ref == MONTANA
+    /**
+     * A NEW BUILD'S WORD IN THE MONTANA ROOM (iOS ChatStore.appendRelease, MontanaChatStore.swift:2958-2984): one row per build,
+     * theirs and unread until the room is opened; a row already standing takes the languages the word brings now, never a second row.
+     */
+    fun appendRelease(build: Long, version: String, notes: JSONArray, l10n: JSONObject?, url: String): Boolean {
+        val o = JSONObject().put("b", build).put("v", version).put("n", notes).put("u", url)
+        if (l10n != null && l10n.length() > 0) o.put("l", l10n)
+        val text = Marks.RELEASE + o
+        chat(MONTANA)?.msgs?.firstOrNull { Release.of(it.text)?.build == build }?.let { row ->
+            if (l10n != null && l10n.length() > 0 && Release.languages(row.text)?.toString() != l10n.toString()) edit(MONTANA) { c -> c.msgs.find { it.mid == row.mid }?.text = text }
+            return false
+        }
+        open(MONTANA, MONTANA_TITLE, true)
+        edit(MONTANA) { c ->
+            c.msgs.add(Msg(Marks.mintMid(), text, false, System.currentTimeMillis(), state = 2))
+            if (openChat != MONTANA || !Presence.shown) c.unread++
+        }
+        return true
+    }
     /**
      * The local room, born at the first ask. THE LETTERS OF THE OLD PAGE COME WITH IT ONCE: Android kept Saved Messages as words in a
      * file of their own (SavedMessages) -- they become the room's letters, in their order and with their moments, and the file goes.
@@ -1990,6 +2018,7 @@ object Post {
         // the person's eyes; Presence.appShown asks again the moment it is.
         if (!Presence.shown) return
         val c = Book.chat(ref) ?: return
+        if (Book.isLocal(ref)) { if (c.unread > 0) Book.edit(ref) { it.unread = 0 }; return }   // a room without an address has nobody to tell
         // THE SEED'S OTHER DEVICES READ IT TOO (iOS markRead's mirrorNote, 349cc053): what was unread here is read there up to the same letter
         if (c.unread > 0) c.msgs.filter { !it.mine }.maxOfOrNull { Marks.birthMs(it.mid) ?: it.at }?.takeIf { it > 0 }?.let { Twin.read(ref, it) }
         // A GROUP'S READ MARK RIDES THE GROUP'S OWN ROAD (iOS sendReadMark → MTGroup.tellRead, B.13): a group has no pipe to receipt on

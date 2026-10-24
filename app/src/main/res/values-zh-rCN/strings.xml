@@ -420,6 +420,9 @@
     <!-- a newer build from the site (Update.kt) -->
     <string name="update_channel">更新</string>
     <string name="update_text">新版本 %1$s (%2$d)</string>
+    <string name="release_new">新版本</string>
+    <string name="release_expand">展开</string>
+    <string name="release_collapse">收起</string>
     <string name="update_now">更新</string>
     <string name="update_loading">正在下载 Montana %1$s (%2$d)</string>
     <string name="update_failed">更新未能下载，请稍后再试</string>

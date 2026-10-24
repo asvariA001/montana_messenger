@@ -96,6 +96,11 @@ def lay_on_site(local, record):
     name = os.path.basename(local)
     shown = dict(build=record["build"], name=record["name"], commit=record["commit"], sha256=record["sha256"],
                  file=name, size=os.path.getsize(local), time=record["time"])
+    # what changed, for the Montana room's scroll (iOS MTClientRelease notes and l10n): the app shows the phone's language, else «notes»
+    if record.get("notes"):
+        shown["notes"] = record["notes"]
+    if record.get("l"):
+        shown["l"] = record["l"]
     for host in SITE["hosts"]:
         made = remote(host, "import os, sys" + chr(10) + "os.makedirs(sys.argv[1], exist_ok=True)" + chr(10), [SITE["dir"]])
         if made.returncode:
@@ -115,13 +120,28 @@ def lay_on_site(local, record):
     say("site: %s%s serves the build (%d bytes, sha256 %s)" % (SITE["url"], name, len(served), record["sha256"][:16]))
 
 
+def subject_note(commit):
+    """The commit's subject up to its first parenthesis or colon: the change in a line (the rest names the iOS sources)."""
+    got = subprocess.run(["git", "-C", ROOT, "log", "-1", "--format=%s", commit], capture_output=True, text=True)
+    line = got.stdout.strip()
+    for cut in (" (", ": "):
+        if cut in line:
+            line = line.split(cut, 1)[0]
+    return [line[:160]] if line else []
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("ref", nargs="?", default="main")
     ap.add_argument("--no-site", action="store_true")
     ap.add_argument("--install", action="store_true")
+    ap.add_argument("--note", action="append", default=[], help="a line of what changed (English); default: the commit's subject")
+    ap.add_argument("--note-ru", action="append", default=[], help="the same line in Russian")
     a = ap.parse_args()
     record = build(a.ref)
+    record["notes"] = a.note or subject_note(record["commit"])
+    if a.note_ru:
+        record["l"] = {"en": record["notes"], "ru": a.note_ru}
     local = bring(record)
     if not a.no_site:
         lay_on_site(local, record)

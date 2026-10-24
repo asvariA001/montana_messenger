@@ -148,7 +148,7 @@ class CopyInventory {
                     files.add(f)
                     named.add(f)
                 }
-                val title = if (Book.isLocal(chat.ref)) c.getString(R.string.saved_messages) else chat.shown.ifBlank { chat.ref.take(8) }
+                val title = if (chat.ref == Book.SAVED) c.getString(R.string.saved_messages) else chat.shown.ifBlank { chat.ref.take(8) }
                 inv.convs.add(Conv(chat.ref, title, chat.msgs.size, files, 0))
             }
             MontanaPaths.store(c).listFiles { f -> f.isFile && !f.name.startsWith(".") && !f.name.endsWith(".part") }?.forEach { inv.sizes[it.name] = it.length() }
