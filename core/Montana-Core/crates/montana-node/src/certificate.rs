@@ -809,3 +809,285 @@ pub fn walk(
     }
     Ok(head)
 }
+
+// Lemma 2 of WINDOW-THEOREM.md: every certificate this door accepts satisfies Pi_cert. The presence
+// proofs, signatures and ballot proofs are replaced by oracles the objects carry -- the first byte of
+// a proof or a signature, one where it verifies -- and each oracle keeps every check its real function
+// makes before the cryptography, so what is proven is the counting, the order and the bookkeeping of
+// the door, and the cryptography stays with the assumptions A1 to A5. The beacon identifier is its
+// `previous` field, the Genesis State Hash a fixed name and the aggregate of the cement a constant:
+// none of them is counted, so (C1) and (C7) are read off the code and not proven here. One round,
+// three heavy attestations of three parts, two ballots and two pledges over two attempts. The wrong
+// door it refuses: one that lets a second answering key stand under one part (C3), one that counts a
+// ballot outside the cement or below the largest of its part (C5), one that hands the agreement a
+// pledge under a key the part never proved (C6).
+#[cfg(kani)]
+mod proofs {
+    use super::*;
+    use mt_state::layout::Confirmation;
+    use std::collections::BTreeSet;
+
+    const WINDOW: u64 = 7;
+    const COUNT: u64 = 3;
+    const BEACON: [u8; 32] = [0x20; 32];
+    const LOW: [u8; 32] = [0x05; 32];
+    const PREVIOUS: [u8; 32] = [0x30; 32];
+    const PARTS: [[u8; 32]; 3] = [[1; 32], [2; 32], [3; 32]];
+
+    fn verifies(bytes: &[u8]) -> bool {
+        bytes.first() == Some(&1)
+    }
+
+    fn refused() -> NodeError {
+        NodeError::Refused { what: "an oracle" }
+    }
+
+    fn heavy_oracle(
+        held: &Confirmation,
+        _: &Digest,
+        _: &[u8; 32],
+        _: u8,
+        _: u32,
+        _: &mt_pulse::U256,
+    ) -> Result<(), NodeError> {
+        if verifies(&held.proof) {
+            Ok(())
+        } else {
+            Err(refused())
+        }
+    }
+
+    fn ballot_oracle(
+        held: &Ballot,
+        window: u64,
+        electorate: &Electorate,
+        _: &[u8; 32],
+    ) -> Result<u64, NodeError> {
+        if held.window == window && electorate.committee.expected != 0 && verifies(&held.proof) {
+            Ok(held.votes)
+        } else {
+            Err(refused())
+        }
+    }
+
+    fn pledge_oracle(held: &Pledge, proven_key: &[u8]) -> Result<(), NodeError> {
+        if held.answering_key == proven_key && verifies(&held.signature) {
+            Ok(())
+        } else {
+            Err(refused())
+        }
+    }
+
+    fn beacon_id(beacon: &Beacon) -> Result<[u8; 32], mt_state::ObjectError> {
+        Ok(beacon.previous)
+    }
+
+    fn genesis_name() -> Option<[u8; 32]> {
+        Some(PREVIOUS)
+    }
+
+    fn any_threshold(_: u64, _: u64) -> Result<mt_pulse::U256, mt_pulse::PulseError> {
+        Ok(mt_pulse::U256::from_u64(0))
+    }
+
+    fn fixed_aggregate(
+        _: &mt_pulse::cement::Cement,
+        _: u64,
+    ) -> Result<[u8; 32], mt_pulse::PulseError> {
+        Ok([0; 32])
+    }
+
+    fn one_of(choices: &[[u8; 32]]) -> [u8; 32] {
+        let at: usize = kani::any();
+        kani::assume(at < choices.len());
+        choices[at]
+    }
+
+    fn this_or_next() -> u64 {
+        if kani::any() {
+            WINDOW
+        } else {
+            WINDOW + 1
+        }
+    }
+
+    fn a_bit() -> Vec<u8> {
+        vec![u8::from(kani::any::<bool>())]
+    }
+
+    fn any_heavy() -> Confirmation {
+        let names = [LOW, BEACON, PREVIOUS];
+        Confirmation {
+            window: this_or_next(),
+            attested: vec![one_of(&names), one_of(&names)],
+            part_nullifier: one_of(&PARTS),
+            round_nullifier: [0; 32],
+            suite_id: 0,
+            answering_key: a_bit(),
+            proof: a_bit(),
+            signature: Vec::new(),
+        }
+    }
+
+    fn any_ballot() -> Ballot {
+        let votes: u64 = kani::any();
+        kani::assume(votes != 0 && votes < 4);
+        Ballot {
+            window: this_or_next(),
+            part_nullifier: one_of(&PARTS),
+            votes,
+            proof: a_bit(),
+        }
+    }
+
+    fn any_pledge() -> Pledge {
+        let attempt = u32::from(kani::any::<bool>());
+        let since = if attempt == 1 && kani::any() {
+            mt_state::STANDS_ON_NONE
+        } else {
+            attempt
+        };
+        Pledge {
+            window: WINDOW,
+            attempt,
+            name: one_of(&[LOW, PREVIOUS]),
+            since,
+            part_nullifier: one_of(&PARTS),
+            suite_id: 0,
+            answering_key: a_bit(),
+            signature: a_bit(),
+        }
+    }
+
+    fn named(held: &Confirmation) -> [u8; 32] {
+        if held.attested[0] == BEACON {
+            held.attested[1]
+        } else {
+            held.attested[0]
+        }
+    }
+
+    #[kani::proof]
+    #[kani::unwind(9)]
+    #[kani::stub(crate::attest::verify_heavy, heavy_oracle)]
+    #[kani::stub(crate::attest::verify_ballot, ballot_oracle)]
+    #[kani::stub(crate::attest::verify_pledge, pledge_oracle)]
+    #[kani::stub(mt_state::layout::Beacon::id, beacon_id)]
+    #[kani::stub(mt_state::tables::genesis_state_hash, genesis_name)]
+    #[kani::stub(mt_pulse::retarget::round_threshold, any_threshold)]
+    #[kani::stub(mt_pulse::cement::Cement::aggregate, fixed_aggregate)]
+    fn an_accepted_certificate_satisfies_the_predicate() {
+        let expected: u64 = kani::any();
+        kani::assume(expected < 3);
+        let electorate = Electorate {
+            root: Digest::ZERO,
+            count: COUNT,
+            census: Vec::new(),
+            windows: Vec::new(),
+            committee: Committee {
+                threshold: mt_pulse::U256::from_u64(0),
+                expected,
+            },
+        };
+        let beacon = Beacon {
+            window: this_or_next(),
+            chain: 0,
+            round: 0,
+            previous: BEACON,
+            cement_aggregate: [0; 32],
+            cement_count: 0,
+            cement_votes: 0,
+        };
+        let heavy = [any_heavy(), any_heavy(), any_heavy()];
+        let ballots = [any_ballot(), any_ballot()];
+        let pledges = [any_pledge(), any_pledge()];
+        let rounds = [Round {
+            beacon: &beacon,
+            heavy: &heavy,
+            ballots: &ballots,
+        }];
+        let result = verify_certificate(
+            WINDOW,
+            &electorate,
+            Predecessor::Genesis,
+            &[0; 32],
+            1,
+            &rounds,
+            &pledges,
+        );
+        kani::cover!(result.is_ok(), "a certificate is accepted");
+        let Ok(closure) = result else {
+            return;
+        };
+        // (C2): every attestation of the round valid in it.
+        assert_eq!(beacon.window, WINDOW);
+        for held in &heavy {
+            assert_eq!(held.window, WINDOW);
+            assert!(verifies(&held.proof));
+            let (first, second) = (held.attested[0], held.attested[1]);
+            assert!(first < second && (first == BEACON || second == BEACON));
+        }
+        // (C3): one key under one part.
+        for one in &heavy {
+            for other in &heavy {
+                if one.part_nullifier == other.part_nullifier {
+                    assert_eq!(one.answering_key, other.answering_key);
+                }
+            }
+        }
+        // The cement, its count and (C4).
+        let cement: BTreeSet<[u8; 32]> = heavy.iter().map(|held| held.part_nullifier).collect();
+        assert_eq!(closure.window, WINDOW);
+        assert_eq!(closure.parts, cement.iter().copied().collect::<Vec<_>>());
+        assert_eq!(closure.cement_count, cement.len() as u64);
+        assert!(matches!(
+            mt_pulse::close::closes(cement.len() as u128, u128::from(COUNT), 0),
+            Ok(true)
+        ));
+        // (C5): each part of the cement at the largest count a verifying ballot of it carries.
+        let mut sum = 0u64;
+        for part in &cement {
+            let cast = ballots
+                .iter()
+                .filter(|ballot| {
+                    &ballot.part_nullifier == part
+                        && ballot.window == WINDOW
+                        && expected != 0
+                        && verifies(&ballot.proof)
+                })
+                .map(|ballot| ballot.votes)
+                .max()
+                .unwrap_or(0);
+            assert_eq!(closure.votes.get(part).copied().unwrap_or(0), cast);
+            sum += cast;
+        }
+        assert!(closure.votes.keys().all(|part| cement.contains(part)));
+        assert!(matches!(
+            mt_pulse::close::votes_reached(u128::from(sum), u128::from(expected)),
+            Ok(true)
+        ));
+        // (C6): the book of the predicate decides the predecessor.
+        let mut book = crate::agreement::Book::of_the_window(WINDOW);
+        for held in &heavy {
+            book.heavy(held.part_nullifier, named(held));
+        }
+        for pledge in &pledges {
+            let proven = heavy
+                .iter()
+                .find(|held| held.part_nullifier == pledge.part_nullifier)
+                .map(|held| held.answering_key.clone());
+            if proven == Some(pledge.answering_key.clone()) && verifies(&pledge.signature) {
+                book.pledge(pledge.clone());
+            }
+        }
+        let agreement = crate::agreement::Electorate {
+            count: COUNT,
+            committee: expected,
+            votes: &closure.votes,
+        };
+        assert_eq!(
+            book.decided(&agreement).map(|(name, _)| name),
+            Some(PREVIOUS)
+        );
+    }
+}
