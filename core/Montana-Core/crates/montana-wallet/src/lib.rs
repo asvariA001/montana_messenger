@@ -161,16 +161,23 @@ impl CanonicalDecode for Note {
 // What a wallet holds: the notes that stand and the nullifiers it has already spent. The spent are
 // kept because a note leaves the held list when it is spent, and a ledger that only removed would
 // let the same note be entered again and spent again.
+// **A spent note is kept whole, beside the nullifier written for it.** A replay of a decided roll
+// may move a note after this wallet spent it, or leave the frame that spent it out of every window:
+// the first moves the nullifier with the position, the second gives the note back at the position
+// it then stands at — and both need the note, not the nullifier alone, which is a function of a
+// position that may no longer be the note's.
 #[derive(Clone, Default, Debug)]
 pub struct Ledger {
     pub held: Vec<Note>,
     pub spent: Vec<[u8; 32]>,
+    pub gone: Vec<Note>,
 }
 
 impl CanonicalEncode for Ledger {
     fn encode_into(&self, out: &mut Vec<u8>) {
         self.held.encode_into(out);
         self.spent.encode_into(out);
+        self.gone.encode_into(out);
     }
 }
 
@@ -179,6 +186,7 @@ impl CanonicalDecode for Ledger {
         Ok(Self {
             held: Vec::<Note>::decode_from(input)?,
             spent: Vec::<[u8; 32]>::decode_from(input)?,
+            gone: Vec::<Note>::decode_from(input)?,
         })
     }
 }
@@ -372,14 +380,27 @@ impl Wallet {
     // position the decided chain never gave it (Consensus, "When the decision is not the name a
     // machine took": "the positions its commitments hold in the chain are those of the decided
     // rolls"). The commitment does not move with the position, so the note is found by it.
+    // A note this wallet spent moves too: the nullifier written for it is struck and the one of the
+    // new position written, so the two move together and the wallet never holds a nullifier of a
+    // position the decided chain never gave the note.
     pub fn move_note(&self, commitment: &[u8; 32], position: u64) -> Result<(), WalletError> {
         let mut ledger = self.ledger()?;
+        if let Some(at) = ledger.held.iter().position(|n| n.commitment == *commitment) {
+            ledger.held[at].position = position;
+            return self.put(&ledger);
+        }
         let at = ledger
-            .held
+            .gone
             .iter()
             .position(|n| n.commitment == *commitment)
             .ok_or(WalletError::NotHeld)?;
-        ledger.held[at].position = position;
+        let was = ledger.gone[at].nullifier()?;
+        ledger.gone[at].position = position;
+        let now = ledger.gone[at].nullifier()?;
+        ledger.spent.retain(|held| *held != was);
+        if !ledger.spent.contains(&now) {
+            ledger.spent.push(now);
+        }
         self.put(&ledger)
     }
 
@@ -390,16 +411,21 @@ impl Wallet {
         self.put(&ledger)
     }
 
-    // The notes a frame spent, where the frame applies in no window: they stand again, and the
-    // nullifiers that were written down for them are struck, since nothing was spent.
-    pub fn take_back(&self, notes: &[Note]) -> Result<(), WalletError> {
+    // The notes a frame spent, where the frame applies in no window: they stand again, at the
+    // position each stands at now — the wallet's own record of the note, moved by every replay that
+    // moved it, and never a snapshot of the payment — and the nullifier written for each is struck,
+    // since nothing was spent. A commitment this wallet never spent is passed over.
+    pub fn take_back(&self, commitments: &[[u8; 32]]) -> Result<(), WalletError> {
         let mut ledger = self.ledger()?;
-        for note in notes {
-            note.stands()?;
+        for commitment in commitments {
+            let Some(at) = ledger.gone.iter().position(|n| n.commitment == *commitment) else {
+                continue;
+            };
+            let note = ledger.gone.remove(at);
             let nullifier = note.nullifier()?;
             ledger.spent.retain(|held| *held != nullifier);
             if !ledger.held.iter().any(|n| n.commitment == note.commitment) {
-                ledger.held.push(note.clone());
+                ledger.held.push(note);
             }
         }
         self.put(&ledger)
@@ -427,8 +453,9 @@ impl Wallet {
         if ledger.spent.contains(&nullifier) {
             return Err(WalletError::AlreadySpent);
         }
-        ledger.held.remove(at);
+        let note = ledger.held.remove(at);
         ledger.spent.push(nullifier);
+        ledger.gone.push(note);
         self.put(&ledger)?;
         Ok(nullifier)
     }
@@ -568,5 +595,63 @@ mod tests {
     fn the_width_of_a_note_is_the_one_the_register_holds() {
         let note = a_note(7, 1, 1);
         assert_eq!(note.encode().len(), NOTE_BYTES);
+    }
+    // A note spent and then moved by a replay: the nullifier written for it moves with the position;
+    // taken back, it stands held at the moved position and no nullifier of it stands written. The
+    // wrong implementation refused: a take-back from a snapshot of the payment, which puts the note
+    // at the position the decided chain never gave it and leaves the nullifier of the new position
+    // written beside the note it holds.
+    #[test]
+    fn a_spent_note_moves_with_its_nullifier_and_comes_back_where_it_stands() {
+        let at = Scratch::named("spent-moved");
+        let wallet = Wallet::open(&at.0).expect("a wallet opens");
+        let note = a_note(0x11, 500, 7);
+        wallet.enter(note.clone()).expect("entered");
+        let was = wallet.spend(&note.commitment).expect("spent");
+        assert_eq!(was, note.nullifier().expect("a nullifier"));
+        // Spent, then moved: the old nullifier goes, the new one stands.
+        wallet
+            .move_note(&note.commitment, 107)
+            .expect("moved while spent");
+        let moved = Note {
+            position: 107,
+            ..note.clone()
+        };
+        let ledger = wallet.ledger().expect("a ledger");
+        assert!(!ledger.spent.contains(&was));
+        assert!(ledger
+            .spent
+            .contains(&moved.nullifier().expect("a nullifier")));
+        assert!(ledger.held.is_empty());
+        // Taken back: held at the moved position, nothing of it written as spent.
+        wallet.take_back(&[note.commitment]).expect("taken back");
+        let ledger = wallet.ledger().expect("a ledger");
+        assert_eq!(ledger.held.len(), 1);
+        assert_eq!(ledger.held[0].position, 107);
+        assert!(ledger.spent.is_empty());
+        assert!(ledger.gone.is_empty());
+        // Moved before it was spent: the spending writes the nullifier of the position it stands at,
+        // and the take-back strikes that very one.
+        wallet
+            .move_note(&note.commitment, 207)
+            .expect("moved while held");
+        let later = wallet.spend(&note.commitment).expect("spent again");
+        assert_eq!(
+            later,
+            Note {
+                position: 207,
+                ..note.clone()
+            }
+            .nullifier()
+            .expect("a nullifier")
+        );
+        wallet.take_back(&[note.commitment]).expect("taken back");
+        let ledger = wallet.ledger().expect("a ledger");
+        assert_eq!(ledger.held[0].position, 207);
+        assert!(ledger.spent.is_empty());
+        // A commitment never spent is passed over.
+        wallet
+            .take_back(&[[0x5A; 32]])
+            .expect("nothing to take back");
     }
 }

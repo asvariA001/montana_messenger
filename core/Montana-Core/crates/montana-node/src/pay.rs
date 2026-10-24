@@ -380,14 +380,6 @@ impl Machine {
         self.stand_the_frame(&payment.frame, window, chain, round)?;
         let at = at.to_path_buf();
         let nf_key = Zeroizing::new(mine.nf_key);
-        // The notes the payment spends, as the wallet held them: what comes back where the frame
-        // applies in no window.
-        let spent: Vec<montana_wallet::Note> = ledger
-            .held
-            .iter()
-            .filter(|note| payment.spent.contains(&note.commitment))
-            .cloned()
-            .collect();
         self.settle_when_applied(
             (window, chain, round),
             frame,
@@ -447,7 +439,9 @@ impl Machine {
                 // stood, and the operator is told so.
                 crate::Told::Left => settled((|| {
                     let wallet = wallet_at(&at)?;
-                    wallet.take_back(&spent).map_err(|_| NodeError::Refused {
+                    wallet
+                        .take_back(&payment.spent)
+                        .map_err(|_| NodeError::Refused {
                         what: "a ledger that would not take back the notes of a frame applied nowhere",
                     })?;
                     for left in payment.created.iter().skip(1) {

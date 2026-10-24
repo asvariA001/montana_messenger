@@ -9,10 +9,14 @@
 // store refuses a head naming a proposal it does not hold; the right of a window is issued at the
 // close of the window after, from the decided roll (pulse.rs, the close), and never from a count.
 //
-// **The wrong implementation it refuses**, named before the assertions: the baseline 6303fa5 of the
-// public audit, where live_doing treated the count (`attempts_the_close`) as the close and carried
-// an identifier into the next window; and any pulse that moved the head or kept a proposal on the
-// count before take_the_proposal returned a verified one.
+// **The wrong implementation it refuses**, named before the assertions and for what this test
+// measures: a primitive of the count — `attempts_the_close`, `can_advance`, the open quorum of the
+// book, `Pulse::open` — that writes the head, a proposal or the last window closed; and a store that
+// lets the head move onto a window whose proposal it does not hold. It does not run live_doing: a
+// live_doing that moved the head on the count would pass it untouched, and the refusal of that is
+// read off the order of the close (pulse.rs, the close: finalize after take_the_proposal returned a
+// verified proposal) — partial evidence, marked partial in REPORT.md. The right is held by the same
+// order (issued after finalize, from the decided roll) and is observed here through the door alone.
 
 use montana_node::certificate::empty_census;
 use montana_node::pulse::{Cohort, Pulse};

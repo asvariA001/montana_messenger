@@ -17,7 +17,7 @@
 // spending; and one leaving the spent notes spent where the frame applies in no window — value the
 // payer holds, lost to a frame nobody applied.
 
-use montana_node::{Configuration, Machine};
+use montana_node::{Configuration, Machine, Told};
 use montana_wallet::{Note, Wallet};
 use std::collections::BTreeMap;
 use std::sync::mpsc;
@@ -196,4 +196,55 @@ fn a_payer_is_told_again_where_a_replay_moves_its_frame_and_when_it_applies_nowh
         .settled_through(WINDOW)
         .expect("the settlements of a final window go");
     assert_eq!(machine.retell(WINDOW, &positions).expect("told again"), 0);
+}
+
+// A frame the round passed over that the decided roll holds applies for the first time at the
+// replay, and its payer is told Applied — not Moved: it never entered anything it could move, and
+// what it is told now is what it would have been told as the round left. The wrong implementation
+// refused: a retelling that turns none-then-some into Moved, under which the payer's wallet would
+// move a note it never held (NotHeld) and keep the spent notes it took back.
+#[test]
+fn a_frame_the_round_passed_over_is_told_applied_when_the_decided_roll_holds_it() {
+    let at = Scratch::named("told-applied-late");
+    let (machine, _) =
+        Machine::start(&Configuration::at(&at.0, "127.0.0.1:0")).expect("the machine starts");
+    machine
+        .enter_round(WINDOW, CHAIN, ROUND)
+        .expect("the machine stands in the round");
+    let frame = [0x7Eu8; 32];
+    let (told, heard) = mpsc::channel();
+    machine
+        .settle_when_applied(
+            (WINDOW, CHAIN, ROUND),
+            frame,
+            Box::new(move |what| {
+                let _ = told.send(what);
+            }),
+        )
+        .expect("the settlement waits");
+    // The round leaves without the frame: told Left.
+    assert_eq!(
+        machine
+            .apply_what_stands()
+            .expect("the machine walks its points"),
+        0
+    );
+    assert_eq!(heard.try_recv(), Ok(Told::Left));
+    // The decided roll holds the frame at positions of its own: told Applied, then Moved where a
+    // later replay moves it, then Left where one leaves it out.
+    let mut positions = BTreeMap::new();
+    positions.insert(frame, vec![40, 41]);
+    assert_eq!(machine.retell(WINDOW, &positions).expect("told again"), 1);
+    assert_eq!(heard.try_recv(), Ok(Told::Applied(vec![40, 41])));
+    positions.insert(frame, vec![50, 51]);
+    assert_eq!(machine.retell(WINDOW, &positions).expect("told again"), 1);
+    assert_eq!(heard.try_recv(), Ok(Told::Moved(vec![50, 51])));
+    assert_eq!(
+        machine
+            .retell(WINDOW, &BTreeMap::new())
+            .expect("told again"),
+        1
+    );
+    assert_eq!(heard.try_recv(), Ok(Told::Left));
+    assert!(heard.try_recv().is_err(), "told what was not due");
 }

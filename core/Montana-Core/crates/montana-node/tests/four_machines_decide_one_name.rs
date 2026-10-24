@@ -8,8 +8,8 @@
 // parts the note roots and so the names of the window. The partition heals once every machine of
 // the two halves has left round zero, so the heavy attestations cross and the cement reaches the
 // quorum on both sides, each side under its own name. The fourth machine's part is held: it enters
-// the window late, after the others closed it, so its heavy attestation is in no final beacon the
-// others reconciled, and its own close carries a cement nobody else's beacon carried — the case of
+// the window once the other three have left it — an event the test waits on, not a timer — so its
+// heavy attestation is in no final beacon the others reconciled, and its own close carries a cement nobody else's beacon carried — the case of
 // a machine holding more cement than the beacon at the quorum, which AGREEMENT.md names.
 //
 // **What is measured.** That the agreement of the window after decides one name of the split window
@@ -40,10 +40,6 @@ const PAID: u128 = 250_000_000;
 // How many askings a machine spends at one round before giving it up: of the operator alone, sized
 // for the far side's proofs on a machine of this size and for the spans of the agreement.
 const PATIENCE: u32 = 24_000;
-
-// How long the fourth machine's part is held before it enters the first window: long enough for
-// the first three to have attested it and healed, so its heavy attestation reaches them late.
-const HELD_FOR: Duration = Duration::from_secs(20);
 
 // A machine that answers the door for as many links as the test dials into it.
 fn answering(machine: &Machine, links: usize) {
@@ -192,8 +188,19 @@ fn four_machines_decide_one_name_under_a_held_part_a_late_frame_and_a_healed_par
             reach(from, to);
         }
 
-        // The held part: the fourth machine enters the first window only now.
-        std::thread::sleep(HELD_FOR);
+        // The held part: the fourth machine enters the first window only once the other three have
+        // left it — an event, not a timer — so its heavy attestation of that window reaches them
+        // after their final beacons and no decided cement of the window names it.
+        loop {
+            let left_the_first = machines[..3].iter().all(|one| {
+                one.round_of_the_machine()
+                    .is_some_and(|(window, _, _)| window > FROM)
+            });
+            if left_the_first {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
         let fourth = {
             let machine = &machines[3];
             let cohort = Cohort::of(&halves).expect("the same cohort");
@@ -294,8 +301,9 @@ fn four_machines_decide_one_name_under_a_held_part_a_late_frame_and_a_healed_par
         for one in &lived {
             assert!(one[(WINDOWS - 1) as usize].right.is_none());
         }
-        // The held part took no share of the first window: its heavy attestation reached the others
-        // after their final beacons, so no decided cement of that window names it.
+        // The held part took no share of the first window: it entered the window once the others had
+        // left it, so its heavy attestation reached them after their final beacons and no decided
+        // cement of that window names it.
         assert!(
             lived[3][0].right.is_none(),
             "the held part took a share of a window whose decided cement cannot name it"

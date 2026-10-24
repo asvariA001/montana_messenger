@@ -691,9 +691,12 @@ impl Machine {
             if now == *told {
                 continue;
             }
-            settlement(match &now {
-                Some(moved) => Told::Moved(moved.clone()),
-                None => Told::Left,
+            // A frame the round passed over that the decided roll holds applies for the first time
+            // here, and is told so as such: the payer spends and enters anew, not moves.
+            settlement(match (&*told, &now) {
+                (None, Some(applied)) => Told::Applied(applied.clone()),
+                (Some(_), Some(moved)) => Told::Moved(moved.clone()),
+                (_, None) => Told::Left,
             });
             *told = now;
             retold += 1;
