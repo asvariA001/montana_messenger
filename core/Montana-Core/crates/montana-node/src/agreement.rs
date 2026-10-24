@@ -11,7 +11,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use mt_state::layout::Pledge;
+use mt_state::layout::{Confirmation, Pledge};
 use mt_state::STANDS_ON_NONE;
 
 pub type Name = [u8; 32];
@@ -88,11 +88,34 @@ fn contradicts(closing: &Pledge, later: &Pledge) -> bool {
             .is_none_or(|since| since < closing.attempt)
 }
 
+// The place of a heavy attestation in the canonical order of its window: the chain of its beacon, the
+// round of its beacon and its round nullifier, each ascending, the nullifier as 32 bytes. Consensus,
+// "The sanction of a double answer": of the heavy attestations of one part the first in this order
+// stands, whichever order they were received or handed in.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Place {
+    pub chain: u8,
+    pub round: u32,
+    pub identifier: [u8; 32],
+}
+
+impl Place {
+    // The place of `held`, answering the beacon of `chain` and `round`.
+    pub fn of(chain: u8, round: u32, held: &Confirmation) -> Self {
+        Self {
+            chain,
+            round,
+            identifier: held.round_nullifier,
+        }
+    }
+}
+
 // What a machine holds of the agreement on one proposal: every part's first pledge of each kind and
 // attempt, the open pledges of attempt zero its heavy attestations made, and the contradictions met.
 #[derive(Default)]
 pub struct Book {
     window: u64,
+    heavy_first: BTreeMap<Part, (Place, Name)>,
     first: BTreeMap<(Kind, u32), BTreeMap<Part, (Name, u32)>>,
     held: BTreeMap<(Kind, u32, Part), Pledge>,
     pub contradictions: Vec<Contradiction>,
@@ -108,13 +131,20 @@ impl Book {
     }
 
     // The heavy attestation of a part is its open pledge of attempt zero, standing on none, on the name
-    // it attests beside the beacon of its round.
-    pub fn heavy(&mut self, part: Part, name: Name) {
+    // it attests beside the beacon of its round. Of several heavy attestations of one part the pledge
+    // is that of the first by `place`, the pledged name closing a tie so the order is total; the order
+    // they are handed in changes nothing.
+    pub fn heavy(&mut self, place: Place, part: Part, name: Name) {
+        let at = (place, name);
+        let first = self.heavy_first.entry(part).or_insert(at);
+        if at < *first {
+            *first = at;
+        }
+        let first_name = first.1;
         self.first
             .entry((Kind::Open, 0))
             .or_default()
-            .entry(part)
-            .or_insert((name, STANDS_ON_NONE));
+            .insert(part, (first_name, STANDS_ON_NONE));
     }
 
     // A pledge whose signature and heavy attestation the caller verified. A part counts once per kind
@@ -348,6 +378,60 @@ mod tests {
         }
     }
 
+    // A faulty part heavy-attested two names. Its pledge of attempt zero is the name of the first
+    // attestation in the canonical order -- chain, then round, then round nullifier, then the name --
+    // whichever order the two are handed in, so two verifiers given one certificate count the part
+    // under one name. The wrong implementation refused: one keeping the first handed in.
+    #[test]
+    fn the_first_heavy_attestation_in_the_canonical_order_stands_whatever_the_order_handed_in() {
+        let places = [
+            Place {
+                chain: 0,
+                round: 3,
+                identifier: [0xFF; 32],
+            },
+            Place {
+                chain: 0,
+                round: 4,
+                identifier: [0x00; 32],
+            },
+            Place {
+                chain: 1,
+                round: 0,
+                identifier: [0x00; 32],
+            },
+            Place {
+                chain: 1,
+                round: 0,
+                identifier: [0x01; 32],
+            },
+        ];
+        let pledged = |book: &Book| book.first[&(Kind::Open, 0)][&part(1)].0;
+        for (low, earlier) in places.iter().enumerate() {
+            for later in &places[low + 1..] {
+                for (name_earlier, name_later) in [(X, Y), (Y, X)] {
+                    let mut ascending = Book::of_the_window(7);
+                    ascending.heavy(*earlier, part(1), name_earlier);
+                    ascending.heavy(*later, part(1), name_later);
+                    let mut descending = Book::of_the_window(7);
+                    descending.heavy(*later, part(1), name_later);
+                    descending.heavy(*earlier, part(1), name_earlier);
+                    assert_eq!(pledged(&ascending), name_earlier);
+                    assert_eq!(pledged(&descending), name_earlier);
+                }
+            }
+        }
+        // One place, two names: the lesser name stands, so the order is total.
+        let mut one = Book::of_the_window(7);
+        one.heavy(places[0], part(1), Y);
+        one.heavy(places[0], part(1), X);
+        let mut other = Book::of_the_window(7);
+        other.heavy(places[0], part(1), X);
+        other.heavy(places[0], part(1), Y);
+        assert_eq!(pledged(&one), X);
+        assert_eq!(pledged(&other), X);
+    }
+
     // A split of two and two at attempt zero decides nothing; three parts opening attempt one on X
     // and closing on it decide X in attempt one. The wrong implementation refused: one counting the
     // heavy attestations of both names together toward one quorum.
@@ -356,10 +440,10 @@ mod tests {
         let votes = BTreeMap::new();
         let electorate = four(&votes);
         let mut book = Book::of_the_window(7);
-        book.heavy(part(1), X);
-        book.heavy(part(2), X);
-        book.heavy(part(3), Y);
-        book.heavy(part(4), Y);
+        book.heavy(Place::default(), part(1), X);
+        book.heavy(Place::default(), part(2), X);
+        book.heavy(Place::default(), part(3), Y);
+        book.heavy(Place::default(), part(4), Y);
         assert!(book.open_quorums(&electorate).is_empty());
         assert!(book.spoken(0, &electorate));
         assert_eq!(book.decided(&electorate), None);
@@ -651,7 +735,7 @@ mod proofs {
         let mut book = Book::of_the_window(WINDOW);
         for (at, script) in scripts.iter().enumerate() {
             if script.heavy != 0 && kani::any() {
-                book.heavy(part(at), [script.heavy; 32]);
+                book.heavy(Place::default(), part(at), [script.heavy; 32]);
             }
             for attempt in 0..ATTEMPTS {
                 let closing = script.closing[attempt as usize];

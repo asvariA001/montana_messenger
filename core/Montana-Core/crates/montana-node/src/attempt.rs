@@ -454,8 +454,8 @@ mod tests {
         let votes = BTreeMap::new();
         let electorate = four(&votes);
         let mut book = Book::of_the_window(7);
-        book.heavy(part(1), X);
-        book.heavy(part(2), X);
+        book.heavy(crate::agreement::Place::default(), part(1), X);
+        book.heavy(crate::agreement::Place::default(), part(2), X);
         let record = Record::opened(7, X);
         let replayed = BTreeMap::new();
         let aggregate = [0x33; 32];
@@ -475,8 +475,8 @@ mod tests {
             )
         };
         assert!(at(&mut conduct, 1, &book).is_empty());
-        book.heavy(part(3), Y);
-        book.heavy(part(4), Y);
+        book.heavy(crate::agreement::Place::default(), part(3), Y);
+        book.heavy(crate::agreement::Place::default(), part(4), Y);
         let spoke = 5;
         assert!(at(&mut conduct, spoke, &book).is_empty());
         assert!(at(&mut conduct, spoke + span_of(0) - 1, &book).is_empty());
@@ -496,10 +496,10 @@ mod tests {
         let electorate = four(&votes);
         let aggregate = [0x33; 32];
         let mut book = Book::of_the_window(7);
-        book.heavy(part(1), X);
-        book.heavy(part(2), X);
-        book.heavy(part(3), Y);
-        book.heavy(part(4), Y);
+        book.heavy(crate::agreement::Place::default(), part(1), X);
+        book.heavy(crate::agreement::Place::default(), part(2), X);
+        book.heavy(crate::agreement::Place::default(), part(3), Y);
+        book.heavy(crate::agreement::Place::default(), part(4), Y);
         let parts: Vec<Part> = (1..=4).map(part).collect();
         let mut by_place = parts.clone();
         by_place.sort_by_key(|part| crate::agreement::place(part, &aggregate, 1));
@@ -552,7 +552,11 @@ mod tests {
         let aggregate = [0x33; 32];
         let mut book = Book::of_the_window(7);
         for at in 1..=4 {
-            book.heavy(part(at), if at <= 2 { X } else { Y });
+            book.heavy(
+                crate::agreement::Place::default(),
+                part(at),
+                if at <= 2 { X } else { Y },
+            );
         }
         let parts: Vec<Part> = (1..=4).map(part).collect();
         let lowest = parts

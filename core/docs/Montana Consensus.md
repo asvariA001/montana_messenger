@@ -1,6 +1,6 @@
 # Montana — Consensus
 
-**Version:** 7.0.0
+**Version:** 7.1.0
 
 Consensus holds the TimeChain and its movement: how a window advances, who runs it, how it is cemented,
 how a machine enters the set that runs windows, and how the right to a window's share is
@@ -810,6 +810,7 @@ open to challenge, and discards it with the window.
   presence or reachability is.
 - The refusal falls on the right and not on a party, so no implementation needs a name to apply it.
 - The first appearance stands and the second is refused, by the canonical order of the window and never by the order of arrival at a machine.
+- The canonical order of the heavy attestations of a window, by which the first appearance is read, is the chain index of the attested beacon ascending, then its round index ascending, then the round nullifier of the attestation ascending as a string of 32 bytes (Canon, "The confirmation of a window"), and where two of them agree in all three the pledged name ascending. Of the heavy attestations of one part-nullifier the first in this order stands: its name is the part's open pledge of attempt zero, whatever the order in which a machine received or was handed them.
 - A pair is admitted no longer than the window's challenge and enters no persistent state; the attestations retained for the join extend no challenge and name nobody, so nothing accumulates about anyone.
 
 ## The certificate of a window

@@ -297,7 +297,11 @@ pub fn verify_certificate(
             keys.entry(held.part_nullifier)
                 .or_insert_with(|| held.answering_key.clone());
             cement.add(held.part_nullifier);
-            book.heavy(held.part_nullifier, name);
+            book.heavy(
+                crate::agreement::Place::of(round.beacon.chain, round.beacon.round, held),
+                held.part_nullifier,
+                name,
+            );
         }
     }
     // The ballots, once the parts stand: a ballot counts for a part of the cement and for no other,
@@ -1079,7 +1083,11 @@ mod proofs {
         // (C6): the book of the predicate decides the predecessor.
         let mut book = crate::agreement::Book::of_the_window(WINDOW);
         for held in &heavy {
-            book.heavy(held.part_nullifier, named(held));
+            book.heavy(
+                crate::agreement::Place::of(beacon.chain, beacon.round, held),
+                held.part_nullifier,
+                named(held),
+            );
         }
         for pledge in &pledges {
             let proven = heavy

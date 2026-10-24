@@ -495,7 +495,11 @@ impl Pulse {
             self.order.push(held.part_nullifier);
         }
         self.names.entry(held.part_nullifier).or_insert(name);
-        self.book.heavy(held.part_nullifier, name);
+        self.book.heavy(
+            crate::agreement::Place::of(self.chain, beacon.round, held),
+            held.part_nullifier,
+            name,
+        );
         self.proven_keys
             .entry(held.part_nullifier)
             .or_insert_with(|| held.answering_key.clone());

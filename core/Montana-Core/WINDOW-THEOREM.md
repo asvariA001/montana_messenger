@@ -109,9 +109,11 @@ the key of every earlier attestation of the part, so the refusal fires iff (C3) 
 fails, the first invalid attestation is refused at :267-281 or :289, or a second key is refused
 before it is reached; in both cases the result is `Err`. The cement is a set; the ballots are read
 after every part stands (:308-321) and the largest count is kept; the book keeps the first
-appearance per kind, attempt and part. The one dependence on order is the pledged name of a part
-in attempt zero, which is that of its first heavy attestation: under (C3) and (A8) an honest part
-pledges one name, and the case of a faulty part is finding F-431-4 of section 8. ∎
+appearance per kind, attempt and part. The one dependence on order was the pledged name of a part
+in attempt zero; it is now that of the first heavy attestation of the part in the canonical order
+(Consensus, "The sanction of a double answer"): `Book::heavy` keeps the least `(place, name)` of the
+part, `place` being chain, round and round nullifier (agreement.rs, `Place`), and a least element of a
+total order does not depend on the order the elements are handed in (finding F-431-4, closed, section 8). ∎
 
 **Lemma 2 (exactness).** `verify_certificate(W, E, P, A, c, R, G)` returns `Ok(L)` iff
 `Pi_cert(W, E, P, A, c, R, G)` holds with closure `L`.
@@ -262,11 +264,20 @@ of another width; `links_to` refuses a round past `u32::MAX` (round.rs:107-109);
   rest on F-431-2 or F-431-3: the head is fixed by the agreement of the window after, which decides
   an identifier carrying the final beacon and the pair. A proposal taken on the last step, which is
   not the head, does rest on them.
-- **F-431-4.** In attempt zero the pledged name of a faulty part is that of its first heavy
-  attestation in the order handed in (agreement.rs:112-118). Theorem 1 does not rest on it, the
-  part being the adversary's either way; but two verifiers given one certificate in two orders can
-  count that part under two names. Required: a part pledging two names in attempt zero is recorded
-  as a contradiction and counted under neither.
+- **F-431-4 (closed, 24.10, decision of the author).** In attempt zero the pledged name of a faulty
+  part was that of its first heavy attestation in the order handed in (agreement.rs:112-118).
+  Theorem 1 does not rest on it, the part being the adversary's either way; but two verifiers given
+  one certificate in two orders could count that part under two names. Closed by the definition the
+  reading below found missing: Consensus, "The sanction of a double answer", now states the canonical
+  order of the heavy attestations of a window (chain, round, round nullifier, and the pledged name
+  for a tie), Canon, "The confirmation of a window", states its bytes, and `Book::heavy` takes the
+  place of the attestation and keeps the first (agreement.rs, `Place`, `Book::heavy`). Test:
+  `the_first_heavy_attestation_in_the_canonical_order_stands_whatever_the_order_handed_in`, which
+  refuses an implementation keeping the first handed in. The earlier wording of the finding asked for
+  a contradiction counted under neither name; the author chose the first of the order, which is the
+  rule the sanction already states. The live pulse still refuses a second heavy attestation of a part
+  naming another name by arrival (pulse.rs, `gather_saying`), so its own book holds what reached it
+  first; the book of a certificate does not depend on it.
 - **Reading of F-431-2 to F-431-4 against the specification (24.10, Agent 432).**
   - F-431-2 and F-431-3 quote WINDOW-RELATION.md section 3, which states the conduct of a machine
     of the window. What a device that was not there verifies is stated in Consensus, "The
@@ -283,13 +294,13 @@ of another width; `links_to` refuses a round past `u32::MAX` (round.rs:107-109);
   - F-431-4 is a divergence of code from the specification: Consensus, "The sanction of a double
     answer" (docs/Montana Consensus.md:812): "The first appearance stands and the second is refused,
     by the canonical order of the window and never by the order of arrival at a machine."
-    `Book::heavy` keeps the first in the order handed in (agreement.rs:112-118) and records no
+    `Book::heavy` kept the first in the order handed in (agreement.rs:112-118) and recorded no
     contradiction. An open pledge of attempt zero other than the heavy cannot arise
     (layout.rs:759-765 refuses it at parsing), so the case is exactly two verified heavy
     attestations of one part on two names. The specification does not define the canonical order
-    of the heavy attestations of a window -- the phrase stands at Consensus.md:812, Canon.md:4832 and
-    Identity.md:124 without a definition -- so the fix waits on that definition (C-2: an ambiguity
-    is flagged before code).
+    of the heavy attestations of a window -- the phrase stood at Consensus.md:812, Canon.md:4832 and
+    Identity.md:124 without a definition -- so the fix waited on that definition (C-2: an ambiguity
+    is flagged before code); the author decided it on 24.10 and Consensus 7.1.0 states it.
 - **F-431-1 (closed).** The comment at round.rs:71 said round zero links to "the proposal of the
   window before"; certificate.rs:406-409 and the Canon it quotes say "two before", and `walk` passes
   the proposal of `W - 2` (:748-758). The pulse agrees with the Canon: `Pulse::open` takes
@@ -322,8 +333,9 @@ of another width; `links_to` refuses a round past `u32::MAX` (round.rs:107-109);
     not proved here. Two covers ask that a certificate is accepted, and that one is accepted with two
     attestations of one part. Bounds: 1 round, 3 heavy attestations over 3 parts, electorate 2,
     2 ballots, 2 pledges over 2 attempts, unwind 9. Result: not yet in.
-  Lemma 1 (the answer independent of the order of the rounds, F-431-4) has no harness: the canonical
-  order of heavy attestations is not yet defined by the specification.
+  Lemma 1 (the answer independent of the order of the rounds) has no harness yet: the canonical order
+  of heavy attestations is defined since Consensus 7.1.0 and the book keeps it, but the harness is not
+  written; the unit test of F-431-4 holds the rule on examples, which is not a proof.
 - **Tests** stand in for neither: they exercise the matrix (`tests/certificate_matrix.rs`,
   `tests/a_walk_from_an_anchor.rs`).
 

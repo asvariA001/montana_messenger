@@ -1,6 +1,6 @@
 # Montana — Canon
 
-**Version:** 9.0.0
+**Version:** 9.1.0
 
 Canon is the one place where the values and the bytes of Montana live. Every other document
 of the set names a quantity and points here; none of them restates a number, a size, a
@@ -5008,6 +5008,7 @@ confirmation_len = 8 + 2 + 64 + 32 + 32 + 2 + 1 952 + 176 544 + 3 309 = 181 945 
 
 - `attested` ascends lexicographically and holds no repeat; an implementation sorting it any other way produces a different identifier for the same attestation.
 - `part_nullifier` is derived from the machine's secret and this window alone, so one machine yields one value per window; its first appearance enters the cement and every later one adds nothing, and what Consensus sanctions is one part-nullifier under one of the three contradicting pairs of pledges, two confirmations of one window attesting two names among them.
+- Two confirmations of one `part_nullifier` are ordered by the chain and the round of the beacon each attests, ascending, then by `round_nullifier` compared as 32 bytes from the first, ascending, then by the name among `attested` that is not the beacon, ascending; the first stands and the second is refused (Consensus, "The sanction of a double answer").
 - `attested` holds exactly two identifiers — the beacon of the round and the name its machine took of the proposal of the previous window, which is its pledge of attempt zero — ascending; `round_nullifier` is derived from the machine's secret and the attested beacon, so versions of one round yield distinct values and attesting them all is duty, while a repeat under one beacon is refused in silence.
 - `answering_key` is the one-time key of this window and verifies this object alone; the key a machine answers the wire with is published nowhere, and a confirmation carrying it would name the machine across every window it ever attested.
 - The proof asserts that the bearer is a machine of the electorate of this window and that the nullifier and the key derive from one secret — disclosing neither. It carries no weight: a part counts once in the cement or not at all.
