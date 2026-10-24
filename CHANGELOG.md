@@ -2,6 +2,16 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
+## 1.0 (2306) - 2026-10-24
+
+Source commit `221bec73d642`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2306.md).
+
+- One person, many devices: a letter, a photo or a video is taken by each of your devices on its own, so the Mac fetching first no longer leaves the phone without it.
+
+**Security and anonymity**
+
+- Security: the node marks a letter as taken per device under a per-label device name, so it links no two labels of one device; the sealed letter stays end-to-end encrypted and leaves the node at the box term. Anonymity is unchanged.
+
 ## 1.0 (2305) - 2026-10-24
 
 Source commit `1d217f36fc91`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2305.md).
@@ -70,7 +80,7 @@ Source commit `4d8b7da44672`. [Release notes](doc/release-notes/messenger/ios/re
 
 **Security and anonymity**
 
-- The burn of a call waits on disk until the node accepts it, and the debt falls only by an accepted BURN; before the online cut of 26 October 00:00 MSK nothing is laid, since the node refuses a BURN until then.
+- The burn of a call waits on disk until the node accepts it, and the debt falls only by an accepted BURN; before the online cut of 25 October 21:00 UTC nothing is laid, since the node refuses a BURN until then.
 
 ## 1.0 (2298) - 2026-10-23
 
@@ -127,7 +137,7 @@ Source commit `55a032bb8d74`. [Release notes](doc/release-notes/messenger/ios/re
 
 Source commit `057f2d1ec42d`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2293.md).
 
-- Coins follow the new rule of the time chain: from 26 October 00:00 Moscow time a mint counts only the seconds you are present in Montana, and a burned coin is a record of the chain like any other spend.
+- Coins follow the new rule of the time chain: from 25 October 21:00 UTC a mint counts only the seconds you are present in Montana, and a burned coin is a record of the chain like any other spend.
 - The gold page ground is gone; a page that used it now shows Montana's own dark ground with its pattern.
 
 **Security and anonymity**
@@ -463,7 +473,7 @@ Source commit `5f4152679331`. [Release notes](doc/release-notes/messenger/ios/re
 - The coins page shows your Time Balance: the time your coins hold, large and white, in days, hours, minutes and seconds, with the coins beneath it. One coin is one second, and one TCM is a billion coins.
 - Transfers, the history, the analytics, the TimeChain and a call's receipt show the time beside every amount of coins.
 - No caption to hold the coin and no tap counter under it: a tap mints at most one coin a second.
-- From 20 October, 00:00 Moscow time, the coin chain itself counts one coin per second of a key's life.
+- From 19 October, 21:00 UTC, the coin chain itself counts one coin per second of a key's life.
 
 ## 1.0 (2249) - 2026-10-19
 
