@@ -544,16 +544,39 @@ fun stripCrown(s: String): String {
  */
 class Chat(val ref: String, var name: String, var perm: Boolean = false, var unread: Int = 0, val msgs: MutableList<Msg> = mutableListOf(),
            var pin: String? = null, var note: String = "") {
+    /**
+     * THE ANSWER IN THE ROW (iOS ChatStore.noteReaction / rowReaction, the author's word 20.09, atom dc65e5022221): the newest event of a
+     * conversation may be an answer to a letter -- its sign, whose it is, the letter answered by its one name, and the answer's birth.
+     */
+    var ans: String? = null; var ansMine = false; var ansMid: String? = null; var ansAt = 0L
     fun json(): JSONObject = JSONObject().put("ref", ref).put("n", name).put("p", perm).put("u", unread)
         .put("pn", pin ?: "").put("nt", note)
+        .put("ae", ans ?: "").put("am", ansMine).put("ar", ansMid ?: "").put("aat", ansAt)
         .put("msgs", JSONArray().apply { msgs.forEach { put(it.json()) } })
     val last: Msg? get() = msgs.lastOrNull { !ChessLetter.isStep(it.text) }   // a game's step is the board's, never the list's record
+    /** Written by the two doors a reaction has, mine and theirs; an answer taken back leaves the row to the feed. */
+    fun noteAnswer(e: String?, mine: Boolean, m: Msg, at: Long = System.currentTimeMillis()) {
+        if (e.isNullOrEmpty()) { if (ansMid == m.mid) { ans = null; ansMid = null; ansAt = 0 }; return }
+        ans = e; ansMine = mine; ansMid = m.mid; ansAt = at
+    }
+    /**
+     * The letter the row's answer stands over, PROVEN (iOS answerStands): the answered letter is still in the feed, was born before the
+     * answer, and no letter was born after the answer -- a newer letter takes the row back.
+     */
+    val answered: Msg? get() {
+        if (ans.isNullOrEmpty()) return null
+        val m = msgs.lastOrNull { it.mid == ansMid } ?: return null
+        val tail = last ?: return null
+        return m.takeIf { it.at <= ansAt && tail.at <= ansAt }
+    }
     /** My word stands over theirs (iOS MTNameBook.display: mine, then declared). */
     val shown: String get() = pin?.ifBlank { null } ?: name
     companion object {
         fun of(o: JSONObject) = Chat(o.getString("ref"), o.optString("n"), o.optBoolean("p"), o.optInt("u"),
             o.optJSONArray("msgs")?.let { a -> MutableList(a.length()) { Msg.of(a.getJSONObject(it)) } } ?: mutableListOf(),
-            o.optString("pn").ifEmpty { null }, o.optString("nt"))
+            o.optString("pn").ifEmpty { null }, o.optString("nt")).apply {
+            ans = o.optString("ae").ifEmpty { null }; ansMine = o.optBoolean("am"); ansMid = o.optString("ar").ifEmpty { null }; ansAt = o.optLong("aat")
+        }
     }
 }
 
@@ -617,7 +640,7 @@ object Book {
      * Pixel 19:23 MSK: ConcurrentModificationException in the conversation's redraw while a letter landed). Every change
      * still goes by edit.
      */
-    private fun Chat.shot() = Chat(ref, name, perm, unread, ArrayList(msgs), pin, note)
+    private fun Chat.shot() = Chat(ref, name, perm, unread, ArrayList(msgs), pin, note).also { it.ans = ans; it.ansMine = ansMine; it.ansMid = ansMid; it.ansAt = ansAt }
     /** The correspondences: the local room stands apart, above them (iOS: its row is inserted first, never sorted with them). */
     fun all(): List<Chat> = synchronized(lock) { ensure(); chats.values.filter { !isLocal(it.ref) }.sortedByDescending { it.last?.at ?: 0 }.map { it.shot() } }
     /** Every feed this phone holds, the local room with them -- for the searches that find a file or a letter wherever it lies. */
@@ -1819,11 +1842,12 @@ object Post {
                 // THE CORRESPONDENT HAS ONE ANSWER ON A LETTER (iOS applyReaction 5858-5866): a new one replaces their old, and taking one
                 // away takes theirs — Android kept one list for both, so their taking away a sign we both gave took away mine
                 else Book.edit(ref) { c -> c.msgs.find { it.mid == d }?.let { m ->
-                    if (o.optString("op") == "del") { m.reactions.remove(e); if (m.peerReact == e) m.peerReact = null }
+                    if (o.optString("op") == "del") { m.reactions.remove(e); if (m.peerReact == e) m.peerReact = null; if (!c.ansMine) c.noteAnswer(null, false, m) }
                     else {
                         m.peerReact?.takeIf { it != e }?.let { old -> m.reactions.remove(old) }
                         if (m.peerReact != e) m.reactions.add(e)
                         m.peerReact = e
+                        c.noteAnswer(e, false, m, Marks.birthMs(sid) ?: System.currentTimeMillis())   // the row wears the answer, at its own birth
                     }
                 } }
             }

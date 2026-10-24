@@ -514,10 +514,19 @@ fun chatRow(act: MainActivity, chat: Chat): View {
                 }, lp(0, WRAP, 1f)) else {
                 // THE THUMBNAIL BEFORE THE WORDS (iOS MTLetterThumb, side 20, spacing 6): the voice's round and the round note's
                 // poster stand in the row as in the player bar; the words then carry no glyph of their own
-                val kind = last?.let { rowKind(it) }
-                if (last != null && kind != null) addView(c.letterThumb(last, kind), lp(dp(20), dp(20)).apply { marginEnd = dp(6); gravity = Gravity.CENTER_VERTICAL })
+                // THE ANSWER TO A LETTER, THE PLATE'S WAY (iOS ChatRow 2184-2192, rowReaction): the face of whoever answered (18), the
+                // answer (15), then the answered letter's thumbnail and words in place of the last letter's
+                val answered = chat.answered
+                if (answered != null) {
+                    addView(if (chat.ansMine) c.avatar(SelfFace.load(c), Prefs.userName, 18) else c.chatFace(chat.ref, chat.shown, 18),
+                        lp(dp(18), dp(18)).apply { marginEnd = dp(6) })
+                    addView(c.text(chat.ans!!, 15f, Color.WHITE), lp(WRAP, WRAP).apply { marginEnd = dp(6) })   // USER-DATA: the answer itself
+                }
+                val shown = answered ?: last
+                val kind = shown?.let { rowKind(it) }
+                if (shown != null && kind != null) addView(c.letterThumb(shown, kind), lp(dp(20), dp(20)).apply { marginEnd = dp(6); gravity = Gravity.CENTER_VERTICAL })
                 // a letter the filter hides is told as hidden in the row, opened or not (iOS ChatStore 159)
-                val words = last?.let { if (ContentFilter.hides(it.mine, it.text)) c.getString(R.string.filter_hidden) else letterWords(c, it) } ?: ""
+                val words = shown?.let { if (ContentFilter.hides(it.mine, it.text)) c.getString(R.string.filter_hidden) else letterWords(c, it) } ?: ""
                 addView(c.text(if (kind != null) bareWords(words) else words, 16f, MT.gray).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))   // USER-DATA: the last letter
                 }
                 // THE ROW'S END (iOS ChatRow 2200-2214): the hand's mark first -- the blue dot 11; else the count, caption2 bold on the
@@ -2503,6 +2512,7 @@ internal fun answerLetter(ref: String, m: Msg, e: String, group: Boolean) {
         ch.msgs.find { it.mid == m.mid }?.let { t ->
             t.myReact?.let { old -> t.reactions.remove(old) }
             if (prev == e) t.myReact = null else { t.reactions.add(e); t.myReact = e; added = true }
+            if (added) ch.noteAnswer(e, true, t) else if (ch.ansMine) ch.noteAnswer(null, true, t)
         }
     }
     fun tell(emoji: String, add: Boolean) {

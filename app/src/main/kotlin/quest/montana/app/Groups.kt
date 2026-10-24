@@ -1908,7 +1908,9 @@ object Groups {
             }
             words.startsWith(Marks.REACTION) -> runCatching {
                 val o = JSONObject(words.removePrefix(Marks.REACTION)); val t = o.getString("sid").removePrefix("mid:"); val e = o.getString("e")
-                Book.edit(key) { c -> c.msgs.find { it.mid == t }?.let { m -> if (o.optString("op") == "del") m.reactions.remove(e) else m.reactions.add(e) } }
+                Book.edit(key) { c -> c.msgs.find { it.mid == t }?.let { m ->
+                    if (o.optString("op") == "del") { m.reactions.remove(e); if (!c.ansMine) c.noteAnswer(null, false, m) } else { m.reactions.add(e); c.noteAnswer(e, false, m) }
+                } }
             }
         }
     }
