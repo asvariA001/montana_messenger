@@ -2442,8 +2442,7 @@ pub fn join(machine: &Machine, anchor: &Anchor, patience: u32) -> Result<Anchor,
     let retained = mt_genesis::scalar("retained_windows").ok_or(NodeError::Decree {
         row: "retained_windows".to_string(),
     })?;
-    type Rounds = Vec<StandingRound>;
-    let mut collected: Vec<(Rounds, Vec<Pledge>, Vec<Proposal>, Vec<Roll>)> = Vec::new();
+    let mut collected: Vec<StandingWindow> = Vec::new();
     let mut window = anchor.later.window;
     for _ in 0..=retained {
         window = window.checked_add(1).ok_or(NodeError::Refused {
@@ -2513,6 +2512,10 @@ type StandingRound = (
     Vec<LightAttestation>,
     Vec<Ballot>,
 );
+
+// A window as a walk reads it off the points: the rounds standing at them, and the pledges, the
+// proposals and the rolls of the proposals of the window.
+type StandingWindow = (Vec<StandingRound>, Vec<Pledge>, Vec<Proposal>, Vec<Roll>);
 
 // The beacons of every round of a window standing at its points, each beside the heavy and the light
 // attestations that answered it — the light ones because a final round answered by them alone is the
