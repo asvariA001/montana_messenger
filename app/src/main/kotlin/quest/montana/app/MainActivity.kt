@@ -483,11 +483,12 @@ class MainActivity : Activity() {
 
     /**
      * The tint the system's page is asked to wear (iOS MTSystemPhotos 5a387b83: p.view.tintColor, now white on the dark page): the
-     * tick, the number and the «Add» of the picker in white. Android carries a host's colour into the picker from 15 on; a colour it
-     * finds too faint for its own theme it is free to put aside and keep its own.
+     * tick, the number and the «Add» of the picker in white. Android carries a host's colour into the picker from 15 on, but refuses
+     * one outside its brightness range and falls back to its own theme: seen on A1 24.10, pure white and F5 are refused, F0 is worn —
+     * the nearest white it lets in.
      */
     private fun Intent.wearOurTint(): Intent =
-        if (35 <= Build.VERSION.SDK_INT) putExtra(MediaStore.EXTRA_PICK_IMAGES_ACCENT_COLOR, 0xFFFFFFFFL) else this
+        if (35 <= Build.VERSION.SDK_INT) putExtra(MediaStore.EXTRA_PICK_IMAGES_ACCENT_COLOR, 0xFFF0F0F0L) else this
 
     /**
      * THE SYSTEM'S OWN WHOLE LIBRARY (iOS MTSystemPhotos: PHPicker, any of images and videos; 1e46c25e: selectionLimit 0, selection
