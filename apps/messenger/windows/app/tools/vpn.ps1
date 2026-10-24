@@ -49,7 +49,7 @@ try {
     $A = Start-Montana -DataDir "$Root\A"; Front-Montana -X 0 -Y 40 -Width 1500 -Height 950
     Start-Sleep -Seconds 2
     "A opens the VPN wall: the power stands closed, and says why"
-    Click-Named "Библиотека приложений"; Click-Named "ВПН стена"
+    Open-Drawer; Click-Named "ВПН стена"
     Says "Подключить"
     Says "На Windows тоннелю нужен движок Xray" 10
     "a server's link by hand"

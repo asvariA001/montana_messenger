@@ -86,7 +86,7 @@ Expect "the chat with B stands on blue" 0.555 0.7 0.065 0.11 $blue
 Expect "the list still stands on the dark default" 0.02 0.22 0.45 0.9 $dark
 Snap "100-A-chat-blue"
 "my page: «Изменить фон страницы» → «Индиго»"
-Click-Named "Библиотека приложений"; Click-Named "Алиса Тест"
+Open-Drawer; Click-Named "Алиса Тест"
 Click-Named "Изменить"; Click-Named "Изменить фон страницы"
 Says "Фон страницы" 10
 if (-not (Chosen "По умолчанию")) { throw "the default ground is not marked as my page's" }
@@ -125,7 +125,7 @@ Click-Named "Готово"; Click-Named "Назад"
 Open-Talk
 Expect "the chat with B stands on my page's indigo" 0.555 0.7 0.065 0.11 $blue
 "my page back to the default"
-Click-Named "Библиотека приложений"; Click-Named "Алиса Тест"
+Open-Drawer; Click-Named "Алиса Тест"
 Click-Named "Изменить"; Click-Named "Изменить фон страницы"
 Pick-Tile "По умолчанию"
 Click-Named "Готово"; Click-Named "Готово"; Click-Named "Назад"

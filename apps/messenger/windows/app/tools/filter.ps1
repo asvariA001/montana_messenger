@@ -7,7 +7,7 @@ $ErrorActionPreference = "Stop"
 . "$PSScriptRoot\ui.ps1"
 function Snap($name) { if ($Shots) { Shot-Montana (Join-Path $Shots "$name.png") } }
 function Says([string]$text, [int]$timeout = 60) { Find-Named $text $timeout | Out-Null; "  sees: $text" }
-function Privacy-Filter { Click-Named "Библиотека приложений"; Click-Named "Настройки"; Click-Named "Приватность"; Click-Named "Фильтр неприемлемого содержимого"; Click-Named "Назад"; Click-Named "Закрыть" }
+function Privacy-Filter { Open-Drawer; Click-Named "Настройки"; Click-Named "Приватность"; Click-Named "Фильтр неприемлемого содержимого"; Click-Named "Назад"; Click-Named "Закрыть" }
 $t0 = Get-Date
 $stamp = Get-Date -Format "HHmmss"
 $first = "Это shit, а не тест $stamp"

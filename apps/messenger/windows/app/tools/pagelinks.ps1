@@ -18,7 +18,7 @@ try {
     Type-First-Field "Анна Тест"; Click-Named "Готово"; Click-Named "Принимаю"
     Find-Named "Поиск" 30 | Out-Null
     "my page: two links in one field"
-    Click-Named "Библиотека приложений"; Click-Named "Анна Тест"
+    Open-Drawer; Click-Named "Анна Тест"
     Click-Named "Изменить"
     Type-Into "Ссылка" "dreamdepartment.io /// montana.xxx"
     Click-Named "Готово"

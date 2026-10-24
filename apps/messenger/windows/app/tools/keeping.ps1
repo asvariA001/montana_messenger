@@ -9,7 +9,7 @@ $ErrorActionPreference = "Stop"
 . "$PSScriptRoot\ui.ps1"
 function Snap($name) { if ($Shots) { Shot-Montana (Join-Path $Shots "$name.png") } }
 function Says([string]$text, [int]$timeout = 60) { Find-Named $text $timeout | Out-Null; "  sees: $text" }
-function Data-Page { Click-Named "Библиотека приложений"; Click-Named "Настройки"; Click-Named "Данные и память"; Says "КОПИЯ У СОБЕСЕДНИКОВ" 10 }
+function Data-Page { Open-Drawer; Click-Named "Настройки"; Click-Named "Данные и память"; Says "КОПИЯ У СОБЕСЕДНИКОВ" 10 }
 $env:MONTANA_KEEP_WAIT = "5"
 $env:MONTANA_TRACE = "1"
 $t0 = Get-Date

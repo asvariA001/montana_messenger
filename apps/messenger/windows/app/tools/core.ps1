@@ -19,7 +19,7 @@ Remove-Item "$Root\A\trace.log" -ErrorAction SilentlyContinue
 $t0 = Get-Date
 $A = Start-Montana -DataDir "$Root\A"; Front-Montana -X 0 -Y 40 -Width 1100 -Height 950
 "A opens the TimeChain page: the node of the core opens and reaches the genesis"
-Click-Named "Библиотека приложений"; Click-Named "Монета Времени"; Says "Баланс Времени" 15; Click-Named "TimeChain"
+Open-Drawer; Click-Named "Монета Времени"; Says "Баланс Времени" 15; Click-Named "TimeChain"
 Says "Машины генезиса на связи" 20
 Says "Ядро ещё не открыло ваш кошелёк." 30
 $open = Get-Content "$Root\A\trace.log" -Encoding UTF8 -ErrorAction SilentlyContinue | Where-Object { $_ -like "*core_node open*" } | Select-Object -Last 1

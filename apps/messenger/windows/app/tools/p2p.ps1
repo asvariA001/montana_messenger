@@ -12,7 +12,7 @@ $t0 = Get-Date
 $A = Start-Montana -DataDir "$Root\A"; Front-Montana -X 0 -Y 40 -Width 1500 -Height 950
 Start-Sleep -Seconds 2
 "A opens the P2P wall"
-Click-Named "Библиотека приложений"; Click-Named "П2П стена"
+Open-Drawer; Click-Named "П2П стена"
 Says "ДОСТИЖИМЫЕ УЗЛЫ" 15   # the section head stands in capitals
 $end = (Get-Date).AddSeconds(30)
 do { $rows = @(Get-Texts | Where-Object { $_ -match "^узел .+: (на связи|потерян)$" }); if ($rows.Count) { break }; Start-Sleep -Milliseconds 500 } while ((Get-Date) -lt $end)

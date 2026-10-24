@@ -22,7 +22,7 @@ Start-Sleep -Seconds 2
 $A = Start-Montana -DataDir "$Root\A"; Front-Montana -X 0 -Y 40 -Width 900 -Height 900
 Start-Sleep -Seconds 2
 "A: the passwords stay locked without Windows Hello"
-Click-Named "Библиотека приложений"; Click-Named "Пароли"
+Open-Drawer; Click-Named "Пароли"
 Says "Пароли не открылись" 15
 if ((Get-Texts) -contains "Паролей пока нет") { throw "the passwords opened without Windows Hello" }
 Snap "97-A-locked"

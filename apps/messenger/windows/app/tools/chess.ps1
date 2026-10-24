@@ -64,7 +64,7 @@ Says "Шахматы · Вы играете белыми" 15
 if ((Get-Texts) | Where-Object { $_ -like "*montana://chess*" }) { throw "a game's letter stands in the chat as words" }
 "the chess page lists the game"
 Click-Named "Назад"   # narrow: the list, and the drawer over it
-Click-Named "Библиотека приложений"; Click-Named "Шахматы"
+Open-Drawer; Click-Named "Шахматы"
 Says "Борис Тест, Чёрные победили" 15
 Snap "57-A-chess-page"
 "done in $([int]((Get-Date) - $t0).TotalSeconds) s"

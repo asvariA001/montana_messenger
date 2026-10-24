@@ -14,7 +14,7 @@ $env:MONTANA_TRACE = "1"
 $t0 = Get-Date
 $A = Start-Montana -DataDir "$Root\A"; Front-Montana -X 0 -Y 40 -Width 600 -Height 1000
 "A opens the wallet: the coin turns, nothing mints over it, the price of a second under it"
-Click-Named "Библиотека приложений"; Click-Named "Монета Времени"
+Open-Drawer; Click-Named "Монета Времени"
 Says "Пантеон в Огне"
 Says "1 секунда = 1 Монета"
 Says "Сколько стоит Ваш час Сейчас?"

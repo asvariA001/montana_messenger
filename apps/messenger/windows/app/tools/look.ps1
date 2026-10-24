@@ -18,7 +18,7 @@ function Fill([string]$words) {
     $c = $bmp.GetPixel(0, 0); $g.Dispose(); $bmp.Dispose()
     $c
 }
-function Open-Look { Click-Named "Библиотека приложений"; Click-Named "Настройки"; Click-Named "Оформление"; Says "Стиль сообщений" 10 }
+function Open-Look { Open-Drawer; Click-Named "Настройки"; Click-Named "Оформление"; Says "Стиль сообщений" 10 }
 # a slider of the page by its name: its value read, or set as a hand would set it
 function Range([string]$name, [double]$set = [double]::NaN) {
     Find-Named $name 10 | Out-Null

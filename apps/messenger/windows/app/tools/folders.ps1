@@ -28,7 +28,7 @@ Gone-Named $title 10
 "  and not the group"
 Snap "51-A-folders"
 "A makes the folder «Работа» of the personal chats"
-Click-Named "Библиотека приложений"; Click-Named "Настройки"; Click-Named "Папки с чатами"
+Open-Drawer; Click-Named "Настройки"; Click-Named "Папки с чатами"
 Says "Рекомендуемые папки" 10
 Click-Named "Создать папку"
 Type-Into "Название папки" "Работа"

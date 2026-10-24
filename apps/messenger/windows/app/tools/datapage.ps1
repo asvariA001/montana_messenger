@@ -26,7 +26,7 @@ Start-Sleep -Seconds 2
 Click-Named "Назад"
 
 "Settings, Data and Storage"
-Click-Named "Библиотека приложений"; Click-Named "Настройки"; Click-Named "Данные и память"
+Open-Drawer; Click-Named "Настройки"; Click-Named "Данные и память"
 Says "АВТОЗАГРУЗКА МЕДИА" 10
 Says "Через мобильную сеть" 10
 Says "Через Wi-Fi" 10

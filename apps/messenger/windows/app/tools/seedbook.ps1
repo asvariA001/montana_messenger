@@ -15,7 +15,7 @@ function Available {
     $e = Find-Named "Доступно " 15
     [int](($e.Current.Name -replace '^Доступно ', '') -replace '[^\d]', '')
 }
-function Wallet { Click-Named "Библиотека приложений"; Click-Named "Монета Времени"; Says "Баланс Времени" 15 }
+function Wallet { Open-Drawer; Click-Named "Монета Времени"; Says "Баланс Времени" 15 }
 # the last line of a person's trace that matches, waited for
 function Traced([string]$who, [string]$pattern, [int]$timeout = 120) {
     $end = (Get-Date).AddSeconds($timeout)

@@ -1626,6 +1626,11 @@ object Post {
      * not such a word (iOS landOwnDeletion 277-303): the letter or the whole conversation goes here too, and nothing is said again.
      */
     private fun landOwn(ref: String, mid: String, text: String, qt: String?, qm: String?, lp: String?) {
+        // THE PERSON'S OWN GROUP WORD (iOS landOwn 105-111 → MTGroup.handleOwn; Windows land_own → group_own): the group stands on every
+        // device of these words, so what that device said there is done here as it was done there -- never a row of the pipe it rode
+        if (text.startsWith(Groups.MARK)) { Groups.handleOwn(ref, text); return }
+        // MY CALL NOBODY ANSWERED, TOLD FROM ANOTHER DEVICE OF MINE (Windows land_own 755-765): its row stands here too, once a call
+        if (text.startsWith(Marks.MISSED)) { Calls.ownMissed(ref, text.removePrefix(Marks.MISSED)); return }
         val row = !Marks.isService(text) || text.startsWith(Marks.MEDIA) || text.startsWith(Marks.VOICE) || text.startsWith(Marks.STICKER)
         if (!row) {
             when {
@@ -1674,6 +1679,8 @@ object Post {
         }
         if (text.startsWith(Marks.RING)) return
         Meeting.firstDone(ref)
+        // a group's word: done here as there, carried on to nobody, answered to nobody (Windows land_theirs → group_heard_by_twin)
+        if (text.startsWith(Groups.MARK)) { Groups.heardByTwin(SamePair.root(ref), mid, text); return }
         if (Marks.isControl(text) && ControlSeen.seen(mid)) return
         quietLanding.set(true)
         try { place(ref, mid, text, "", qt, qm, lp) } finally { quietLanding.remove() }

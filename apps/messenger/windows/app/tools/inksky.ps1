@@ -9,7 +9,7 @@ $ErrorActionPreference = "Stop"
 function Snap($name) { if ($Shots) { Shot-Montana (Join-Path $Shots "$name.png") } }
 function Says([string]$text, [int]$timeout = 30) { Find-Named $text $timeout | Out-Null; "  sees: $text" }
 function Page-Ground([string]$tile) {
-    Click-Named "Библиотека приложений"; Click-Named "Алиса Тест"
+    Open-Drawer; Click-Named "Алиса Тест"
     Click-Named "Изменить"; Click-Named "Изменить фон страницы"
     Click-Named $tile; Find-Named "Предпросмотр" 10 | Out-Null; Click-Named "Готово"; Gone-Named "Предпросмотр" 10
     Click-Named "Готово"; Click-Named "Готово"; Click-Named "Назад"
@@ -25,7 +25,7 @@ try {
     Snap "ink-2-chat-sky"
     Click-Named "Контакты"; Start-Sleep -Milliseconds 800
     Snap "ink-3-contacts-sky"
-    Click-Named "Библиотека приложений"; Click-Named "Настройки"; Start-Sleep -Milliseconds 800
+    Open-Drawer; Click-Named "Настройки"; Start-Sleep -Milliseconds 800
     Snap "ink-5-settings-sky"
     Click-Named "Уведомления"; Start-Sleep -Milliseconds 600
     Snap "ink-6-notifications-sky"

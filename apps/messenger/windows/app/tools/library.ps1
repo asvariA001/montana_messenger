@@ -11,7 +11,7 @@ $ErrorActionPreference = "Stop"
 function Snap($name) { if ($Shots) { Shot-Montana (Join-Path $Shots "$name.png") } }
 function Says([string]$text, [int]$timeout = 60) { Find-Named $text $timeout | Out-Null; "  sees: $text" }
 function Chosen([string]$name) { $p = $null; (Find-Named $name 10).TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$p) -and $p.Current.IsSelected }
-function Open-Look { Click-Named "Библиотека приложений"; Click-Named "Настройки"; Click-Named "Оформление"; Says "Стиль сообщений" 10 }
+function Open-Look { Open-Drawer; Click-Named "Настройки"; Click-Named "Оформление"; Says "Стиль сообщений" 10 }
 function Open-Icons { Open-Look; Click-Named "Иконки приложений"; Says "Вид" 10 }
 function Restart {
     Stop-Montana
@@ -49,7 +49,7 @@ if (-not (Chosen "Золотой стиль")) { throw "the gold style is not ma
 Snap "150-A-library-page"
 Restart
 "after a restart the drawer is the grid, in gold"
-Click-Named "Библиотека приложений"
+Open-Drawer
 Says "Избранные" 10; Says "Медиа" 5; Says "Утилиты" 5
 $gold = Tint "Музыка"
 "  gold: rgb($($gold.R), $($gold.G), $($gold.B))"
@@ -69,7 +69,7 @@ Restart
 Open-Icons
 Click-Named "Montana OS"
 Restart
-Click-Named "Библиотека приложений"
+Open-Drawer
 $native = Tint "Музыка"
 "  Montana OS: rgb($($native.R), $($native.G), $($native.B))"
 if (-not ($native.B -gt $native.R + 10)) { throw "the Montana OS tile is not cool" }
@@ -77,7 +77,7 @@ Restart
 Open-Icons
 Click-Named "Белые иконки"
 Restart
-Click-Named "Библиотека приложений"
+Open-Drawer
 $white = Tint "Музыка"
 "  white: rgb($($white.R), $($white.G), $($white.B))"
 if ([Math]::Abs($white.R - $white.B) -gt 12) { throw "the white icon is not grey" }

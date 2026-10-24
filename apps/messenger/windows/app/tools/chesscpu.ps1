@@ -10,7 +10,7 @@ $t0 = Get-Date
 $A = Start-Montana -DataDir "$Root\A"; Front-Montana -X 0 -Y 40 -Width 950 -Height 1000
 Start-Sleep -Seconds 2
 "A plays the computer"
-Click-Named "Библиотека приложений"; Click-Named "Шахматы"
+Open-Drawer; Click-Named "Шахматы"
 Click-Named "♚ Играть с компьютером"
 Click-Named "Белые фигуры"
 Click-Named "Играть с компьютером"

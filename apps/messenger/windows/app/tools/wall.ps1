@@ -37,7 +37,7 @@ function PostMenu([string]$text) {
     }
     throw "no menu of the post '$text'"
 }
-function MyPage { Click-Named "Библиотека приложений"; Click-Named "Алиса Тест" }
+function MyPage { Open-Drawer; Click-Named "Алиса Тест" }
 function PeerPage([string]$who) { Click-Named "Контакты"; RightClick-Named $who }
 # the share of a region's points whose colour passes a test (this window's own pixels): x and y in parts of the window
 function Share([double]$x0, [double]$x1, [double]$y0, [double]$y1, [scriptblock]$test) {
@@ -184,12 +184,12 @@ Says "Показать полностью" 15
 Snap "108-A-long-post"
 Click-Named "Назад"
 "A's Wall of Thoughts holds both"
-Click-Named "Библиотека приложений"; Click-Named "Стена Мыслей"
+Open-Drawer; Click-Named "Стена Мыслей"
 Says $first 15
 Says $theirs 15
 "B's Wall of Thoughts holds A's posts on A's wall"
 Use-Montana $B; Front-Montana
-Click-Named "Библиотека приложений"; Click-Named "Стена Мыслей"
+Open-Drawer; Click-Named "Стена Мыслей"
 Says $first 30
 Says "На стене: Алиса Тест" 10
 Snap "109-B-thoughts"

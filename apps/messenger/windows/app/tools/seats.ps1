@@ -33,7 +33,7 @@ function Make([string]$name, [switch]$Door) {
     Type-First-Field $name; Click-Named "Готово"; Click-Named "Принимаю"
     $words
 }
-function Drawer { Click-Named "Библиотека приложений"; Start-Sleep -Milliseconds 600 }
+function Drawer { Open-Drawer; Start-Sleep -Milliseconds 600 }
 # a person's face in the drawer, from the calls' pane (no chat row there wears the same name)
 function Seat-Of([string]$name) { Click-Named "Звонки"; Drawer; Click-Named $name; Follow-Montana $dir | Out-Null; Place }
 function Seat-Folders { @(Get-ChildItem (Join-Path $dir "Seats") -Directory -ErrorAction SilentlyContinue).Count }

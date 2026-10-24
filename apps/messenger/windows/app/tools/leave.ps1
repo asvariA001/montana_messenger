@@ -49,7 +49,7 @@ Page-Says $note
 if (-not (Test-Path "$dir\vault\mt_active_mnemonic.sealed")) { throw "A's words are not where the check looks for them" }
 
 "A deletes the account: the program starts again on the first screen"
-Click-Named "Библиотека приложений"; Click-Named "Настройки"; Click-Named "Приватность"
+Open-Drawer; Click-Named "Настройки"; Click-Named "Приватность"
 Click-Named "Удалить аккаунт"; Start-Sleep -Milliseconds 500
 Click-In "Удалить аккаунт?" "Удалить аккаунт"
 Follow-Montana $dir 60 | Out-Null
@@ -81,7 +81,7 @@ if ((Page-Text).Contains($note)) { throw "B sees A's note" }
 Snap "leave-2-B"
 
 "B leaves too; A comes back by the same words on this computer: A's archive, set aside under A's words, comes back -- B's stays aside"
-Click-Named "Библиотека приложений"; Click-Named "Настройки"; Click-Named "Приватность"
+Open-Drawer; Click-Named "Настройки"; Click-Named "Приватность"
 Click-Named "Удалить аккаунт"; Start-Sleep -Milliseconds 500
 Click-In "Удалить аккаунт?" "Удалить аккаунт"
 Follow-Montana $dir 60 | Out-Null

@@ -21,9 +21,9 @@ function Make([string]$name, [switch]$Door) {
     Find-Named "Готово" | Out-Null; Start-Sleep -Milliseconds 500
     Type-First-Field $name; Click-Named "Готово"; Click-Named "Принимаю"
 }
-function Drawer { Click-Named "Библиотека приложений"; Start-Sleep -Milliseconds 600 }
+function Drawer { Open-Drawer; Start-Sleep -Milliseconds 600 }
 function Seat-Of([string]$name) { Click-Named "Звонки"; Drawer; Click-Named $name; Follow-Montana $dir | Out-Null; Place }
-function Wallet { Click-Named "Библиотека приложений"; Click-Named "Монета Времени"; Says "Баланс Времени" 15 }
+function Wallet { Open-Drawer; Click-Named "Монета Времени"; Says "Баланс Времени" 15 }
 function Minted([string]$row) { $e = Find-Named "${row}: " 15; [int](($e.Current.Name -replace "^${row}: ", '') -replace '[^\d]', '') }
 # the last line of a trace that matches, waited for: the folder's own (Anna's is the base, Vera's under Seats)
 function Traced([string]$folder, [string]$pattern, [int]$timeout = 60) {

@@ -8,7 +8,7 @@ import java.util.UUID
 
 /**
  * THE PERSON'S OTHER DEVICES IN STEP (iOS MontanaPQ 872-1155, MontanaDeliveryEngine.mirrors / landMirrored / landOwn, ChatStore.readByTwin;
- * the port of Windows twin.rs; docs/identity-sync/07, stage 1). Every device of the 24 words is one reference to the pipes of its
+ * the port of Windows twin.rs; docs/identity-sync/07, stages 1-2). Every device of the 24 words is one reference to the pipes of its
  * correspondents, so the node's box hands a letter to whichever device takes it first, that device's confirmation erases it for the
  * rest, and a letter one device sent the box never gives the others. So what this phone sends, takes from a correspondent or reads
  * rides to the other devices as words of a mirror («lt») in the pipe only these words derive (Archive.TWIN_PIPE), on the cargo road
@@ -18,7 +18,7 @@ import java.util.UUID
 object Twin {
     /** A read mark for the person's own devices alone, + the birth millisecond of the newest letter read; never on a pair's wire. */
     const val READ_MARK = "​​TR:"
-    // the twin's past asked and given back, and a card born on another device (iOS twinAskMark, twinRowMark, twinCardMark): stages 2-3
+    // the twin's past asked and given back, and a card born on another device (iOS twinAskMark, twinRowMark, twinCardMark): stage 3
     private const val ASK_MARK = "​​TA:"
     private const val ROW_MARK = "​​TW:"
     private const val CARD_MARK = "​​TC:"
@@ -70,12 +70,12 @@ object Twin {
 
     /**
      * THE MIRROR'S CHOICE OF WORDS (iOS MontanaDeliveryEngine.mirrors 193-198): what stands in a conversation or moves a row -- a letter
-     * of every kind, a receipt, a read mark, a deletion -- rides to the other devices; what says only «here, now» (typing, presence, a
-     * name, a face) does not, nor, by the code, an edit, a reaction or a pin. A ring, a call's signal and a live draft are stale before
-     * they would arrive: they stay here. A group's words ride with stage 2.
+     * of every kind, a receipt, a read mark, a deletion, a group's word -- rides to the other devices; what says only «here, now» (typing,
+     * a group's too, presence, a name, a face) does not, nor, by the code, an edit, a reaction or a pin. A ring, a call's signal and a
+     * live draft are stale before they would arrive: they stay here.
      */
     fun mirrors(t: String): Boolean {
-        if (t.startsWith(Groups.MARK)) return false
+        if (t.startsWith(Groups.MARK)) return Groups.mirrors(t)
         if (t.startsWith(Marks.RING) || t.startsWith("⁣mtcall:") || t.startsWith(LiveDraft.MARK)) return false
         if (t.startsWith(Marks.DELIVERED) || t.startsWith(Marks.READ) || t.startsWith(Marks.DELETE)) return true
         return !isControl(t) || t.startsWith(Marks.MEDIA) || t.startsWith(Marks.VOICE) || t.startsWith(Marks.STICKER)
@@ -91,7 +91,9 @@ object Twin {
         val i1 = Word.of(a.getJSONObject(1))!!
         back && i0.o == 1 && i0.at == null && i0.x == READ_MARK + "1760943600123" && i1.lp == "https://a" && i1.o == null &&
             mirrors("привет") && mirrors(Marks.DELIVERED + "t1-A") && mirrors(Marks.DELETE + "mid:t1-A") && mirrors(Marks.MEDIA + "{}") &&
-            !mirrors(Marks.EDIT + "{}") && !mirrors(Marks.REACTION + "{}") && !mirrors(Marks.TYPING) && !mirrors(Marks.NAME + "x")
+            !mirrors(Marks.EDIT + "{}") && !mirrors(Marks.REACTION + "{}") && !mirrors(Marks.TYPING) && !mirrors(Marks.NAME + "x") &&
+            // Windows the_mirror_carries_what_stands_in_a_conversation...: a group's word but its typing, and my missed call
+            mirrors(Groups.MARK + """{"t":"say","g":"x"}""") && !mirrors(Groups.MARK + """{"t":"ty","g":"x"}""") && mirrors(Marks.MISSED + "{}")
     }.getOrDefault(false)
 
     // ───────────────────────────── the queue ─────────────────────────────
@@ -143,7 +145,9 @@ object Twin {
     /**
      * WHAT THIS PERSON SENT rides to the other devices under its name (iOS enqueue 963-972): a pair's letter or word the mirror carries
      * -- never a receipt or a read mark, which are this device's word to the correspondent, never a quiet word that is no control word,
-     * never Saved Messages (its letters ride the archive's blocks alone) and never a group's feed.
+     * never Saved Messages (its letters ride the archive's blocks alone) and never a group's feed. A group's copy on a member's pipe
+     * (Groups.carry) is such a word under its own name (iOS MTGroup.carry → enqueue): a letter and an invitation ride, each copy once; a
+     * silent copy -- an answer, a leaving, a taking out, a silent channel post -- stays here, as iOS leaves it.
      */
     fun sent(to: String, mid: String, text: String, qt: String?, qm: String?, lp: String?, quiet: Boolean) {
         if (Groups.isKey(to) || to == SavedMessages.KEY || to == Archive.TWIN_PIPE || !mirrors(text)) return
@@ -188,10 +192,11 @@ object Twin {
     }
 
     /** THE TWIN'S WALK (Post.fetch, and the half minute after a word): the words that are due are laid; words held for a pipe unknown
-     *  here are tried again. */
+     *  here are tried again, and a group's words that came before their group stood here (Windows group_retry). */
     fun walk() {
         if (due("lt")) layMirror()
         landHeld()
+        Groups.twinRetry()
     }
 
     /**
@@ -240,17 +245,17 @@ object Twin {
 
     /**
      * A WORD THE OTHER DEVICE MIRRORED HERE (iOS landMirrored 174-189): a read mark reads the conversation here too; every other word walks
-     * the one landing road under the name it was born with -- the person's own as mine, a correspondent's as theirs, quietly -- and rides
-     * no further. A word for a pipe this phone does not know waits for the head the blocks bring.
+     * the one landing road under the name it was born with -- the person's own as mine (a group's word done as that device did it, my
+     * missed call its row), a correspondent's as theirs, quietly -- and rides no further. A word for a pipe this phone does not know waits
+     * for the head the blocks bring.
      */
     fun land(w: Word) {
         if (w.x.startsWith(READ_MARK)) { readByTwin(w.c, w.x.removePrefix(READ_MARK).trim().toLongOrNull()); return }
-        if (w.x.startsWith(CARD_MARK) || w.x.startsWith(ASK_MARK) || w.x.startsWith(ROW_MARK)) return   // stages 2-3
+        if (w.x.startsWith(CARD_MARK) || w.x.startsWith(ASK_MARK) || w.x.startsWith(ROW_MARK)) return   // stage 3
         if (w.m.isEmpty() || w.x.isEmpty() || w.m.length > 128 || w.c == CARD_PIPE || Groups.isKey(w.c)) return
         if (Book.secret(w.c) == null && Book.chat(w.c) == null) { hold(w); return }
         var text = w.x
         if (text.startsWith(Marks.LONG)) text = Post.fetchLong(text)?.ifEmpty { null } ?: run { hold(w); return }
-        if (text.startsWith(Groups.MARK)) return   // stage 2
         if (w.o == 1) Post.landOwnMirrored(w.c, w.m, text, w.qt, w.qm, w.lp)
         else Post.placeQuiet(w.c, w.m, text, w.qt, w.qm, w.lp)
     }

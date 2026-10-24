@@ -10,7 +10,7 @@ $t0 = Get-Date
 $stamp = Get-Date -Format "HHmmss"
 $A = Start-Montana -DataDir "$Root\A"; Front-Montana -X 0 -Y 40 -Width 900 -Height 900
 Find-Named "Борис Тест" 20 | Out-Null
-function Privacy-Blocked { Click-Named "Библиотека приложений"; Click-Named "Настройки"; Click-Named "Приватность"; Click-Named "Заблокированные" }
+function Privacy-Blocked { Open-Drawer; Click-Named "Настройки"; Click-Named "Приватность"; Click-Named "Заблокированные" }
 function Close-Settings { Click-Named "Назад"; Click-Named "Назад"; Click-Named "Закрыть" }
 # a clean start: an earlier run may have left B blocked
 Privacy-Blocked; Start-Sleep -Seconds 1

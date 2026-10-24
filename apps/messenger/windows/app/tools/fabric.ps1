@@ -17,7 +17,7 @@ function Wrote([string]$who, [string]$line, [int]$timeout = 60) {
 }
 function Send([string]$words) { Type-Into "Сообщение..." $words; [System.Windows.Forms.SendKeys]::SendWait("{ENTER}"); Says $words 20 | Out-Null }
 function Signatures {
-    Click-Named "Библиотека приложений"; Click-Named "Монета Времени"; Says "Баланс Времени" 15 | Out-Null; Click-Named "TimeChain"
+    Open-Drawer; Click-Named "Монета Времени"; Says "Баланс Времени" 15 | Out-Null; Click-Named "TimeChain"
     Says "Глобальный уровень" 10 | Out-Null
     $row = Get-Texts | Where-Object { $_ -match "^Подписи: \d+$" } | Select-Object -First 1
     $lvl = Get-Texts | Where-Object { $_ -match "^Уровень: " } | Select-Object -Last 1
@@ -63,14 +63,14 @@ if ($told) { "  A's face: $told" }
 elseif (Get-Content "$Root\B\trace.log" -Encoding UTF8 | Where-Object { $_ -like "*coin_board chain read=false*" }) {
     "  A's face wears nothing: A's coin chain is not on its node (a check's folder writes none) -- as iOS, nothing told is shown unproven"
 } else { throw "no badge at A's face, and A's chain was never asked" }
-Click-Named "Библиотека приложений"; Start-Sleep -Seconds 1
+Open-Drawer; Start-Sleep -Seconds 1
 $mine = Get-Texts | Where-Object { $_ -match '^(Баланс \d+, )?Глобальный уровень \d+$' } | Select-Object -Last 1
 if (-not $mine) { throw "no badge at B's own face" }
 "  B's own face: $mine"
 Snap "163-B-badges"
 [System.Windows.Forms.SendKeys]::SendWait("{ESC}")
 "B's Access by level (iOS MTLevelAccessPage): the Global Level, and the functions of levels 7 and 8 standing closed below them"
-Click-Named "Библиотека приложений"; Click-Named "Настройки"; Click-Named "Доступ по уровню"
+Open-Drawer; Click-Named "Настройки"; Click-Named "Доступ по уровню"
 Says "Глобальный уровень" 15 | Out-Null
 $g = Get-Texts | Where-Object { $_ -match "^Глобальный уровень \d+$" } | Select-Object -First 1
 if (-not $g) { throw "no Global Level on the page" }

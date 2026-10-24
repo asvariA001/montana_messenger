@@ -11,7 +11,7 @@ $t0 = Get-Date
 $A = Start-Montana -DataDir "$Root\A"; Front-Montana -X 0 -Y 40 -Width 1500 -Height 950
 
 "A: the drawer"
-Click-Named "Библиотека приложений"; Says "Стена Мыслей"; Says "Настройки"
+Open-Drawer; Says "Стена Мыслей"; Says "Настройки"
 Snap "13-A-drawer"
 "A: Settings (the key to the words stands; Windows Hello is a manual check)"
 Click-Named "Настройки"; Says "Сохранить 24 слова"
@@ -21,9 +21,13 @@ Stop-Montana
 $A = Start-Montana -DataDir "$Root\A"; Front-Montana -X 0 -Y 40 -Width 1500 -Height 950
 
 "A: the language to English and back"
-Click-Named "Библиотека приложений"; Click-Named "Настройки"; Click-Named "Язык"; Click-Named "English"
-Start-Sleep -Seconds 2; Says "Search"
-Click-Named "App Library"; Click-Named "Settings"; Click-Named "Language"; Click-Named "Русский"
+Open-Drawer; Click-Named "Настройки"; Click-Named "Язык"; Click-Named "English"
+try {
+    Start-Sleep -Seconds 2; Says "Search"
+} finally {
+    # Russian comes back whatever happened: A and B are the next scenes' identities, and every scene reads Russian words
+    Open-Drawer; Click-Named "Settings"; Click-Named "Language"; Click-Named "Русский"
+}
 Start-Sleep -Seconds 2; Says "Поиск"
 
 "A: My page -- a photo, a bio, a link"
@@ -31,7 +35,7 @@ $pic = Join-Path $Root "face.png"
 $bmp = New-Object System.Drawing.Bitmap 900, 700
 $g = [System.Drawing.Graphics]::FromImage($bmp); $g.Clear([System.Drawing.Color]::SteelBlue)
 $g.FillEllipse([System.Drawing.Brushes]::Gold, 250, 150, 400, 400); $bmp.Save($pic, [System.Drawing.Imaging.ImageFormat]::Png)
-Click-Named "Библиотека приложений"; Click-Named "Алиса Тест"
+Open-Drawer; Click-Named "Алиса Тест"
 Click-Named "Изменить"
 # a person who already wears a photo (a root used before) takes it off first: the row then offers to choose one
 Start-Sleep -Milliseconds 500

@@ -59,7 +59,7 @@ Exact-Gone "Звонки: 1"
 Use-Montana $A
 Gone-Named "Звонок завершён" 20
 Click-Named "Назад"   # the narrow window stood in the chat the call was made from
-Click-Named "Библиотека приложений"; Click-Named "Стена Мыслей"
+Open-Drawer; Click-Named "Стена Мыслей"
 Start-Sleep -Seconds 3
 if (@(All-Named | Where-Object { $_.Current.Name -ceq "Наверх" }).Count) { throw "the arrow stands at the list's top" }
 Front-Montana

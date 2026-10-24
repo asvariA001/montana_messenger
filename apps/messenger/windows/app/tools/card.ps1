@@ -16,7 +16,7 @@ Start-Sleep -Seconds 2
 $A = Start-Montana -DataDir "$Root\A"; Front-Montana -X 0 -Y 40 -Width 900 -Height 900
 Start-Sleep -Seconds 2
 "A writes its card"
-Click-Named "Библиотека приложений"; Click-Named "Визитка"
+Open-Drawer; Click-Named "Визитка"
 Says "Другие способы связи" 15
 $name = (Find-Named "Имя" 5)
 Type-Into "Телефон" $phone
@@ -37,7 +37,7 @@ Snap "89-B-card"
 Use-Montana $A; Stop-Montana
 $A = Start-Montana -DataDir "$Root\A"; Front-Montana -X 0 -Y 40 -Width 900 -Height 900
 Start-Sleep -Seconds 2
-Click-Named "Библиотека приложений"; Click-Named "Визитка"
+Open-Drawer; Click-Named "Визитка"
 Says "Алиса Тест, $phone, $mail" 15
 "done in $([int]((Get-Date) - $t0).TotalSeconds) s"
 Use-Montana $A; Stop-Montana; Use-Montana $B; Stop-Montana

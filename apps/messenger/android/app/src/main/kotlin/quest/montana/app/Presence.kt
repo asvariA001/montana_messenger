@@ -307,10 +307,11 @@ object Signal {
      * «chat» to the presence, any other to the call it names; «box» hints fetch the box.
      */
     private fun open(ref: String, envs: org.json.JSONArray) {
-        val secret = Book.secret(ref) ?: return
+        val secret = laneSecret(ref) ?: return
         for (k in 0 until envs.length()) {
             val e = envs.optString(k)
             if (e == "box") { Thread { Post.fetch() }.start(); continue }
+            if (ref == Archive.TWIN_PIPE) continue   // the twin's pipe carries only the box's hint on this lane
             val sealed = runCatching { Base64.decode(e, Base64.DEFAULT) }.getOrNull() ?: continue
             val w0 = Wire.minute()
             val plain = listOf(w0, w0 - 1, w0 + 1).firstNotNullOfOrNull { w -> Wire.open(Wire.bodyKey(secret, w), sealed) } ?: continue
@@ -403,7 +404,14 @@ object Signal {
      */
     fun ear(on: Boolean) {
         for (ref in Book.refs()) if (on && !PeerSafety.isBlocked(ref)) hold(ref, "ear") else release(ref, "ear")
+        // THE PERSON'S OTHER DEVICES ARE HEARD AS A CORRESPONDENT IS (iOS: the node's silent push wakes every device of the twin's pipe but
+        // the one that spoke, MontanaPQ twinDeviceRef; this phone's ear is its push): a word another device laid for this one -- its letters,
+        // a correspondent's letter it took, its reading -- fetches the box at once, not at the five-minute round (docs/identity-sync/07 4.5)
+        if (on && Archive.twinSecret() != null) hold(Archive.TWIN_PIPE, "ear") else release(Archive.TWIN_PIPE, "ear")
     }
+    /** A lane's pipe: a conversation's, or the twin's -- whose secret the seed's history key derives and whose name is this device's. */
+    private fun laneSecret(ref: String): ByteArray? = if (ref == Archive.TWIN_PIPE) Archive.twinSecret() else Book.secret(ref)
+    private fun laneFrom(ref: String, cw: String, twin: String): String = if (ref == Archive.TWIN_PIPE) Archive.twinSid(cw) else Wire.subId(cw, twin)
 
     /**
      * THE LONG QUESTION (iOS fetchSignals 3270-3321): the conversation's door asked with a wait of twelve seconds — the doors' gate
@@ -414,7 +422,7 @@ object Signal {
             var fails = 0
             while (true) {
                 val twin = MontanaSeed.twin
-                val secret = Book.secret(ref)
+                val secret = laneSecret(ref)
                 val go = synchronized(holders) {
                     val ok = twin != null && secret != null && !holders[ref].isNullOrEmpty()
                     if (!ok) running[ref] = (running[ref] ?: 1) - 1
@@ -429,7 +437,7 @@ object Signal {
                 // WHILE A CALL IS BUILT THE QUESTIONS ARE SHORT (iOS fetchSignals 3286-3299): a silently dead one costs six seconds, not
                 // thirty — three while it rings or connects, ten in a joined call, twelve at rest (the doors' nginx holds fifteen)
                 val wait = if (Calls.busy() && CallLine.connectedAt == 0L) 3 else if (CallLine.connectedAt > 0L) 10 else 12
-                val fetch = JSONObject().put("conv", cw).put("from_id", Wire.subId(cw, twin)).put("wait", wait)
+                val fetch = JSONObject().put("conv", cw).put("from_id", laneFrom(ref, cw, twin)).put("wait", wait)
                 // EVERY DEVICE OF THE SEED TAKES THE WORD ONCE (iOS fetchSignals, MontanaWakePush.swift:3821-3832; 11.10.2026, No.61): the store
                 // hands each word once to each asking device it can tell apart, where it used to hand it to the first device of the seed
                 // that asked -- a second phone of the same words, its ear holding the same lanes, took every other word of a live draft

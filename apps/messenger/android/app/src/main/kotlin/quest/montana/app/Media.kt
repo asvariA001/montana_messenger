@@ -460,12 +460,15 @@ object Media {
         return tmp.renameTo(dest)
     }
 
-    /** The file is assembled — the node's pieces serve nobody (iOS dropChunks), nor the ones a neighbour brought. */
+    /**
+     * The file is assembled — the pieces a neighbour brought to this phone's own store serve nobody now (iOS dropChunks, MontanaDeliveryEngine
+     * 1805-1812: MontanaBlobStore, the disk alone). The node's pieces live out their own week: iOS 2305 never drops a media letter's pieces
+     * from the nodes (MontanaWakePush.dropChunks has no caller), and the person's other devices take the same file from them by the mirror's
+     * word -- Android used to drop them from every store the moment its own copy stood (D8).
+     */
     private fun drop(man: JSONObject) {
         val a = man.optJSONArray("chunks") ?: return
-        val bids = JSONArray(); for (i in 0 until a.length()) bids.put(a.getJSONObject(i).optString("bid"))
-        Blobs.drop((0 until bids.length()).map { bids.optString(it) })
-        for (door in Doors.ordered("blob")) Wire.post(door, "/blob-drop", JSONObject().put("bids", bids), 8000)   // the drop goes to every store (iOS 1638)
+        Blobs.drop((0 until a.length()).map { a.getJSONObject(it).optString("bid") })
     }
 
     // ── showing ──

@@ -21,7 +21,7 @@ function Wrote-Again([string]$line, [int]$before, [int]$timeout = 20) {
     do { if ((Lines $line) -gt $before) { "  A: $line"; return }; Start-Sleep -Milliseconds 300 } while ((Get-Date) -lt $end)
     throw "A never wrote '$line' again"
 }
-function Wallet { Click-Named "Библиотека приложений"; Click-Named "Монета Времени"; Says "Баланс Времени" 15 }
+function Wallet { Open-Drawer; Click-Named "Монета Времени"; Says "Баланс Времени" 15 }
 # the page opened again while the Pantheon burns: taps light it, the wallet is left and opened at once
 function Reopen-Burning {
     Front-Montana   # the window in front first: a return to it (iOS scenePhase .active) fires the auto minting by itself

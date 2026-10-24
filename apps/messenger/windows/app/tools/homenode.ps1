@@ -19,7 +19,7 @@ $t0 = Get-Date
 $A = Start-Montana -DataDir "$Root\A"; Front-Montana -X 0 -Y 40 -Width 900 -Height 1000
 
 "A opens Settings, «Ваш узел»"
-Click-Named "Библиотека приложений"; Click-Named "Настройки"; Click-Named "Ваш узел"
+Open-Drawer; Click-Named "Настройки"; Click-Named "Ваш узел"
 Says "ВАШ УЗЕЛ" 10
 Says "Копии на ваш узел" 10
 $lvl = Get-Texts | Where-Object { $_ -match '^Открывается на уровне 8\. Ваш уровень — \d+\.$' } | Select-Object -First 1

@@ -615,6 +615,21 @@ object Calls {
         Notify.letter(ref, rowText(video, true, 0, true))
     }
 
+    /**
+     * MY CALL NOBODY ANSWERED, TOLD FROM ANOTHER DEVICE OF MINE (Windows twin.rs land_own 755-765, its «missed» letter to the correspondent
+     * that rode the mirror or was heard on the pipe): the row of my unanswered call stands here too, once a call by its seed -- the seed
+     * noted «dead» here, never engaged, so this phone speaks for no call it never held. Nothing rings: it was my call.
+     */
+    fun ownMissed(ref: String, json: String) {
+        val o = runCatching { JSONObject(json) }.getOrNull() ?: JSONObject()
+        val seed = o.optString("s").takeIf { it.isNotEmpty() && it.length <= 64 } ?: return
+        if (Book.chat(ref) == null) return
+        val fresh = synchronized(gate) { (seedState(seed) == null).also { if (it) noteSeed(seed, "dead") } }
+        if (!fresh) return log("own missed letter of a call seen here")
+        row(ref, o.optBoolean("v"), incoming = false, dur = 0, missed = true)
+        log("own missed letter -- the row of my unanswered call stands here too")
+    }
+
     // ── the call's row (iOS appendCallLog, callMark) ──
 
     class Info(val video: Boolean, val incoming: Boolean, val dur: Int, val missed: Boolean)

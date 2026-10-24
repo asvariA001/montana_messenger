@@ -108,8 +108,9 @@ object ChannelViews {
         if (told) synchronized(lock) { save() }
     }
 
-    /** A subscriber's seat showed these posts of mine (their «vw», iOS saw): each seat counted once; the numbers leave a few seconds later. */
-    fun saw(letters: List<String>, seat: String, key: String) {
+    /** A subscriber's seat showed these posts of mine (their «vw», iOS saw): each seat counted once; the numbers leave a few seconds later.
+     *  `tell` false: a word the twin mirror brought -- counted here, the numbers told by the device that took it (Windows channel_saw). */
+    fun saw(letters: List<String>, seat: String, key: String, tell: Boolean = true) {
         synchronized(lock) {
             load()
             val page = seen.getOrPut(key) { mutableMapOf() }
@@ -118,13 +119,13 @@ object ChannelViews {
                 val seats = page.getOrPut(l) { mutableListOf() }
                 if (seat in seats || seats.size >= PEOPLE_LIMIT) continue
                 seats.add(seat)
-                moved.getOrPut(key) { mutableSetOf() }.add(l)
+                if (tell) moved.getOrPut(key) { mutableSetOf() }.add(l)
                 grew = true
             }
             if (!grew) return
             trim(page)
             save()
-            if (counting) { changed(); return }
+            if (counting || !tell) { changed(); return }
             counting = true
         }
         changed()

@@ -19,7 +19,7 @@ function Minted([string]$row) {
     $e = Find-Named "${row}: " 15
     [int](($e.Current.Name -replace "^${row}: ", '') -replace '[^\d]', '')
 }
-function Wallet { Click-Named "Библиотека приложений"; Click-Named "Монета Времени"; Says "Баланс Времени" 15 }
+function Wallet { Open-Drawer; Click-Named "Монета Времени"; Says "Баланс Времени" 15 }
 $stamp = Get-Date -Format "HHmmss"
 $t0 = Get-Date
 $B = Start-Montana -DataDir "$Root\B"; Front-Montana -X 300 -Y 40 -Width 1500 -Height 950

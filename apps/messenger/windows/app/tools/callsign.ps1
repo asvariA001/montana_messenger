@@ -34,7 +34,7 @@ Start-Sleep -Milliseconds 800
 Snap "96-L-name-step"
 Click-Named "Готово"; Click-Named "Принимаю"
 "the person is that call sign"
-Click-Named "Библиотека приложений"
+Open-Drawer
 Says "Леопард" 15
 "done in $([int]((Get-Date) - $t0).TotalSeconds) s"
 Stop-Montana

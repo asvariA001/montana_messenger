@@ -380,6 +380,15 @@ function Media-Mode([string]$Want) {
     if (-not (& $key $Want)) { throw "the media key never turned to '$Want'" }
 }
 
+# THE DRAWER, WHATEVER THE FIRST SLOT SAYS (TopBar: «App Library», or what stands in the way -- «Keep my copy with my contacts»,
+# «Notifications are off» -- whose right click still opens the drawer, iOS MontanaDrawerHost): a scene never depends on the hint
+function Open-Drawer {
+    foreach ($n in @("Библиотека приложений", "App Library")) { try { Click-Named $n 2; return } catch {} }
+    foreach ($n in @("Хранить мою копию у собеседников", "Keep my copy with my contacts", "Уведомления выключены", "Notifications are off")) {
+        try { RightClick-Named $n 2; return } catch {}
+    }
+    throw "nothing on screen opens the drawer"
+}
 function RightClick-Named([string]$Name, [int]$Timeout = 15) {
     $e = Find-Named $Name $Timeout
     Front-Montana

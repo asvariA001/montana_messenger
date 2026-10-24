@@ -30,6 +30,8 @@ object Groups {
     private const val CHANNEL = "c"
     private const val STORE = "groups.held"
     private const val COPIES = "groups.copies"
+    /** The other device's copies of words whose group has not stood here yet (Windows groups.rs TWIN_WAITING): tried again by the twin's walk. */
+    private const val TWIN_WAIT = "groups.twinWait"
     /** A copy outlives the queue's own term by a day and is let go with it (iOS copyLife). */
     private const val COPY_LIFE_MS = 8L * 24 * 3600 * 1000
     private const val TITLE_LIMIT = 64
@@ -259,7 +261,7 @@ object Groups {
     /** The person leaves: their groups leave with them (iOS montanaSeedForgotten). */
     fun wipe() = synchronized(lock) {
         groups.clear(); gone.clear(); heard.clear(); copies.clear(); loaded = false; unread = false
-        DeviceVault.delete(STORE); DeviceVault.delete(COPIES)
+        DeviceVault.delete(STORE); DeviceVault.delete(COPIES); DeviceVault.delete(TWIN_WAIT)
     }
 
     // ── names ──
@@ -326,7 +328,8 @@ object Groups {
         val name = Marks.mintMid()
         copies[name] = Copy(w.getString("g"), letter, pipe, own, 1)
         saveCopies()
-        // ONLY A LETTER AND AN INVITATION RING (iOS carry): every other word of a group rides silent -- a silent channel post too
+        // ONLY A LETTER AND AN INVITATION RING (iOS carry): every other word of a group rides silent -- a silent channel post too. A
+        // ringing copy rides to the person's other devices too, as the word it is (Post.send → Twin.sent, iOS enqueue 963-972)
         val t = w.optString("t")
         Post.send(pipe, name, MARK + w.toString(), quiet = !(t == "say" || t == "inv") || w.optInt("sl") == 1)
         Log.i("Montana", "group_tx mid=" + name.take(14) + " t=" + w.optString("t") + " to=" + pipe.take(10))
@@ -522,9 +525,10 @@ object Groups {
     /**
      * THE OWNER ADDS PEOPLE (iOS add): each new one is invited with a seat of their own and the group's face; everyone learns the
      * count, the group reads who came, and a subscriber added to a channel later reads its newest posts. `viaLink` — one who opened
-     * the group's link joined by their own hand (iOS «%@ joined the group via invite link»).
+     * the group's link joined by their own hand (iOS «%@ joined the group via invite link»). `quiet` — one the other device of these
+     * words let in by the link stands here too, and nobody is told from here: that device told them (Windows admit).
      */
-    fun add(key: String, people: List<String>, viaLink: Boolean = false) {
+    fun add(key: String, people: List<String>, viaLink: Boolean = false, quiet: Boolean = false) {
         synchronized(lock) {
             val g = state(key) ?: return
             if (!g.mine || g.left) return
@@ -545,15 +549,14 @@ object Groups {
             g.banned.removeAll { b -> fresh.any { it.pipe == SamePair.root(b.pipe) } }
             act(g, if (viaLink) "joined" else "invited", p = fresh.map { seatName(g, it.seat) })
             save()
-            val face = Book.face(key).takeIf { it.exists() }?.readBytes()?.let { thumb(it) }
-            tellAll(g, face, fresh.map { it.seat }.toSet())
+            if (!quiet) tellAll(g, Book.face(key).takeIf { it.exists() }?.readBytes()?.let { thumb(it) }, fresh.map { it.seat }.toSet())
             val came = if (viaLink) event("joined", g.id, fresh[0].seat) else event("added", g.id, OWNER_SEAT, fresh.map { it.seat })
             lay(came)
-            tellEvent(came, g)
+            if (!quiet) tellEvent(came, g)
             // A SUBSCRIBER ADDED LATER READS THE CHANNEL'S NEWEST POSTS (iOS add, the author's words 17.10.2026 18:4x MSK): the newest
             // ten posts of words, each under its own one name and so at its own moment; a post with a file stays -- its sealed pieces
             // were laid for the receivers of its day
-            if (g.kind == CHANNEL) {
+            if (g.kind == CHANNEL && !quiet) {
                 val posts = Book.chat(key)?.msgs.orEmpty().filter { it.mine && it.file == null && !it.text.startsWith(Marks.MEDIA) && !isEvent(it.text) && carries(it.text) }
                 for (p in posts.takeLast(10)) {
                     if (!isLetterName(p.mid)) continue
@@ -949,15 +952,16 @@ object Groups {
         }
         Log.i("Montana", "read_rx group upto=" + Diary.shortMs(ms) + " raised=" + raised)
     }
-    /** A READER'S WORD (iOS readWord): at the owner the reader's seat is the pipe's own; at a member, the owner's word for a reader of mine. */
-    private fun readWord(w: JSONObject, pipe: String): Verdict {
+    /** A READER'S WORD (iOS readWord): at the owner the reader's seat is the pipe's own; at a member, the owner's word for a reader of mine.
+     *  `quiet` (Windows group_handle «rd»): the copy reads my letters here; the carrying was the other device's. */
+    private fun readWord(w: JSONObject, pipe: String, quiet: Boolean = false): Verdict {
         val g = groups[w.optString("g")] ?: return Verdict.WAIT
         val ms = w.optString("tx").toLongOrNull()
         if (g.left || g.kind != GROUP || ms == null || ms <= 0) return Verdict.REFUSED
         val from = SamePair.root(pipe)
         if (g.mine) {
             val m = g.members.firstOrNull { SamePair.root(it.pipe) == from } ?: return Verdict.REFUSED
-            spreadRead(g, m.seat, ms)
+            if (quiet) readMine(g.id, m.seat, ms) else spreadRead(g, m.seat, ms)
         } else {
             val s = w.optString("s")
             val ts = w.optJSONArray("ts")
@@ -1001,7 +1005,7 @@ object Groups {
         }
     }
     /** A subscriber's posts shown, at the owner's phone (iOS seen): the seat is the pipe's, and only posts of this channel's feed count. */
-    private fun seen(w: JSONObject, pipe: String): Verdict {
+    private fun seen(w: JSONObject, pipe: String, quiet: Boolean = false): Verdict {
         val g = groups[w.optString("g")] ?: return Verdict.WAIT
         val tx = w.optString("tx")
         val from = SamePair.root(pipe)
@@ -1010,7 +1014,7 @@ object Groups {
         val key = key(g.id)
         val posts = Book.chat(key)?.msgs.orEmpty().filter { !isEvent(it.text) }.map { it.mid }.toSet()
         val letters = tx.split(",").take(VIEWS_BATCH).filter { isLetterName(it) && it in posts }
-        ChannelViews.saw(letters, m.seat, key)
+        ChannelViews.saw(letters, m.seat, key, tell = !quiet)
         return Verdict.HELD
     }
     /** The owner's numbers, at a subscriber's phone (iOS counted): from the owner's pipe alone. */
@@ -1030,28 +1034,29 @@ object Groups {
     // ── the owner's side of the other words: an administrator's «take out», a join by the link, a keeper's word ──
 
     /** An administrator's «take out» at the owner's phone (iOS kicked): the asker must be an administrator, the person a member who is none. */
-    private fun kicked(w: JSONObject, pipe: String): Verdict {
+    private fun kicked(w: JSONObject, pipe: String, quiet: Boolean = false): Verdict {
         val g = groups[w.optString("g")] ?: return Verdict.REFUSED
         if (!g.mine || g.left) return Verdict.REFUSED
         val from = SamePair.root(pipe)
         val asker = g.members.firstOrNull { SamePair.root(it.pipe) == from } ?: return Verdict.REFUSED
         val target = w.optString("s")
         if (asker.seat !in g.admins || target.isEmpty() || target == asker.seat || target in g.admins || g.members.none { it.seat == target }) return Verdict.REFUSED
-        remove(key(g.id), target, by = asker.seat)
+        // the device that took the word takes the person out and tells everyone (Windows group_handle «kk»: quiet holds it)
+        if (!quiet) remove(key(g.id), target, by = asker.seat)
         return Verdict.HELD
     }
     /**
      * ONE WHO OPENED THE GROUP'S LINK ASKS AT THE OWNER'S PHONE (iOS joined): the mark must be the group's standing one; one the owner
      * took out does not come back by it; then the person is added by the owner's own road, and everyone reads that they joined.
      */
-    private fun joined(w: JSONObject, pipe: String): Verdict {
+    private fun joined(w: JSONObject, pipe: String, quiet: Boolean = false): Verdict {
         val g = groups[w.optString("g")] ?: return Verdict.REFUSED
         val held = g.invite
         if (!g.mine || g.left || held == null || w.optString("tx") != held) return Verdict.REFUSED
         val from = SamePair.root(pipe)
         if (g.members.any { SamePair.root(it.pipe) == from }) return Verdict.HELD   // already in: nothing more
         if (g.banned.any { SamePair.root(it.pipe) == from }) { Log.i("Montana", "group_link a removed person asked by the link -- refused"); return Verdict.REFUSED }
-        add(key(g.id), listOf(from), viaLink = true)
+        add(key(g.id), listOf(from), viaLink = true, quiet = quiet)
         Log.i("Montana", "group_link joined by the link")
         return Verdict.HELD
     }
@@ -1072,14 +1077,14 @@ object Groups {
      * A KEEPER'S WORD (iOS keptHeard, «kp»): a letter taken away for everyone stays on the keeper's phone; the owner carries the word on
      * to the speaker's seat, and the speaker is told.
      */
-    private fun keptHeard(w: JSONObject, pipe: String): Verdict {
+    private fun keptHeard(w: JSONObject, pipe: String, quiet: Boolean = false): Verdict {
         val g = groups[w.optString("g")] ?: return Verdict.REFUSED
         val to = w.optJSONArray("ts")?.optString(0).orEmpty()
         if (g.left || to.isEmpty() || !w.optString("tx").startsWith(Marks.DELETE_KEPT)) return Verdict.REFUSED
         val from = SamePair.root(pipe)
         if (g.mine) {
             if (g.members.none { SamePair.root(it.pipe) == from }) return Verdict.REFUSED   // a member's word alone
-            if (to != g.me) { g.members.firstOrNull { it.seat == to }?.let { carry(w, it.pipe, "", own = false) }; return Verdict.HELD }
+            if (to != g.me) { if (!quiet) g.members.firstOrNull { it.seat == to }?.let { carry(w, it.pipe, "", own = false) }; return Verdict.HELD }
         } else if (SamePair.root(g.owner) != from || to != g.me) return Verdict.REFUSED
         Notify.kept(key(g.id))
         return Verdict.HELD
@@ -1225,24 +1230,191 @@ object Groups {
         if (verdict != Verdict.WAIT && verdict != Verdict.INSTANT) Post.receiptFor(pipe, sid)
     }
 
-    private fun take(w: JSONObject, pipe: String): Verdict {
-        if (w.optString("t") == "ty") return typed(w, pipe)   // a live word: no store needed, never a receipt
+    /** `quiet`: a copy the twin mirror brought (Windows group_handle's quiet) -- applied, never carried on, never answered. */
+    private fun take(w: JSONObject, pipe: String, quiet: Boolean = false): Verdict {
+        if (w.optString("t") == "ty") return if (quiet) Verdict.INSTANT else typed(w, pipe)   // a live word: no store needed, never a receipt
         if (!ready()) return Verdict.WAIT   // the copy knocks again once the store opens
         return when (val t = w.optString("t")) {
             "inv" -> invited(w, pipe)
-            "say" -> said(w, pipe)
-            "sig" -> answered(w, pipe)
+            "say" -> said(w, pipe, quiet)
+            "sig" -> answered(w, pipe, quiet)
             "out" -> dropped(w, pipe)
-            "bye" -> parted(w, pipe)
+            "bye" -> parted(w, pipe, quiet)
             "ev" -> evented(w, pipe)
-            "kk" -> kicked(w, pipe)   // an administrator's «take out», to the owner
-            "jn" -> joined(w, pipe)   // a person who opened the group's invite link
-            "kp" -> keptHeard(w, pipe)   // a keeper's word to a deleted letter's speaker
-            "rd" -> readWord(w, pipe)   // a reader's mark (iOS B.13)
-            "vw" -> seen(w, pipe)   // a subscriber's posts shown, to a channel's owner
+            "kk" -> kicked(w, pipe, quiet)   // an administrator's «take out», to the owner
+            "jn" -> joined(w, pipe, quiet)   // a person who opened the group's invite link
+            "kp" -> keptHeard(w, pipe, quiet)   // a keeper's word to a deleted letter's speaker
+            "rd" -> readWord(w, pipe, quiet)   // a reader's mark (iOS B.13)
+            "vw" -> seen(w, pipe, quiet)   // a subscriber's posts shown, to a channel's owner
             "vc" -> counted(w, pipe)   // a channel owner's view counts, to its subscribers
             else -> Verdict.REFUSED.also { Log.i("Montana", "group_refused kind=${t.take(8)}") }   // a newer build's word (a room's, a wall's): its road ends here
         }
+    }
+
+    // ── the person's other devices (the twin mirror: iOS MTGroup.mirrors, handleOwn, replay; Windows groups.rs mirrors, group_own,
+    //    group_heard_by_twin) ──
+
+    /** A group's word rides to the person's other devices unless it lived an instant (iOS MTGroup.mirrors 2098-2102): a typing word
+     *  would be stale where it landed; a word that does not read as a group's word does not ride. */
+    fun mirrors(text: String): Boolean {
+        val w = runCatching { JSONObject(text.removePrefix(MARK)) }.getOrNull() ?: return false
+        return w.opt("t") is String && w.opt("g") is String && w.getString("t") != "ty"
+    }
+
+    /**
+     * A CORRESPONDENT'S GROUP WORD ANOTHER DEVICE OF THESE WORDS TOOK (Windows groups.rs group_heard_by_twin): done here as there, but
+     * carried on to nobody and answered to nobody -- the device that took it did both. No copy of it knocks here again, so a word
+     * whose group has not stood here yet is kept and tried again by the twin's walk (twinRetry).
+     */
+    fun heardByTwin(pipe: String, mid: String, text: String) {
+        val w = runCatching { JSONObject(text.removePrefix(MARK)) }.getOrNull()
+        if (w == null || !isLabel(w.optString("g"))) { Log.i("Montana", "group_refused unreadable twin word from=${pipe.take(10)}"); return }
+        synchronized(lock) {
+            if (take(w, pipe, quiet = true) != Verdict.WAIT) return
+            val a = twinWaiting()
+            if ((0 until a.length()).any { a.optJSONObject(it)?.optString("m") == mid }) return
+            a.put(JSONObject().put("p", pipe).put("m", mid).put("x", text))
+            keepTwinWaiting(a)
+            Log.i("Montana", "group_twin_wait mid=" + mid.take(14) + " the group has not stood here yet")
+        }
+    }
+    /** The other device's words whose group had not stood here are tried again (Windows group_retry): what still waits stays. */
+    fun twinRetry() {
+        if (!DeviceVault.has(TWIN_WAIT)) return
+        synchronized(lock) {
+            val a = twinWaiting()
+            val left = JSONArray()
+            for (i in 0 until a.length()) {
+                val o = a.optJSONObject(i) ?: continue
+                val w = runCatching { JSONObject(o.optString("x").removePrefix(MARK)) }.getOrNull() ?: continue
+                if (runCatching { take(w, o.optString("p"), quiet = true) }.getOrDefault(Verdict.REFUSED) == Verdict.WAIT) left.put(o)
+            }
+            if (left.length() != a.length()) Log.i("Montana", "group_twin_retry landed=" + (a.length() - left.length()) + " waiting=" + left.length())
+            keepTwinWaiting(left)
+        }
+    }
+    private fun twinWaiting(): JSONArray =
+        DeviceVault.get(TWIN_WAIT)?.let { runCatching { JSONArray(String(it, Charsets.UTF_8)) }.getOrNull() } ?: JSONArray()
+    /** The newest 512 are kept (Windows: the oldest drained past 512). */
+    private fun keepTwinWaiting(a: JSONArray) {
+        if (a.length() == 0) { DeviceVault.delete(TWIN_WAIT); return }
+        val kept = JSONArray()
+        for (i in maxOf(0, a.length() - HEARD_LIMIT) until a.length()) kept.put(a.get(i))
+        DeviceVault.set(TWIN_WAIT, kept.toString().toByteArray(Charsets.UTF_8))
+    }
+
+    /**
+     * THE PERSON'S OWN GROUP WORD FROM ANOTHER OF THEIR DEVICES (iOS MTGroup.handleOwn 2112-2116 and replay 2135-2161; Windows groups.rs
+     * group_own): the group stands on every device of these words, so what that device said is what this person said, done here as
+     * the hand did it there -- an invitation stands the group as mine with that person at the seat the word gave, a letter its row
+     * (mine when the seat is mine, a member's when that device carried it on), a taking out and a leaving their state -- and nothing
+     * is said to anyone again: the device that spoke already carried it. Never a row of the pipe it rode.
+     */
+    fun handleOwn(pipe: String, text: String) {
+        val w = runCatching { JSONObject(text.removePrefix(MARK)) }.getOrNull() ?: return
+        val id = w.optString("g")
+        if (!isLabel(id) || w.opt("t") !is String) return
+        synchronized(lock) {
+            if (!ready()) return
+            when (val t = w.getString("t")) {
+                "inv" -> replayInvitation(w, pipe)
+                "say" -> replayLetter(w)
+                "out" -> {
+                    // the other device took a person out of a group of mine: by the pipe the word rode (iOS replay «out»)
+                    val who = SamePair.root(pipe)
+                    val g = groups[id]?.takeIf { it.mine } ?: return
+                    val m = g.members.firstOrNull { SamePair.root(it.pipe) == who } ?: return
+                    g.banned.removeAll { it.seat == m.seat }; g.banned.add(m)
+                    while (g.banned.size > PEOPLE_LIMIT) g.banned.removeAt(0)
+                    g.members.removeAll { it.seat == m.seat }
+                    g.admins.remove(m.seat)
+                    g.count = g.members.size + 1
+                    save()
+                    lay(event("removed", g.id, OWNER_SEAT, listOf(m.seat)))
+                }
+                "bye" -> {
+                    // the other device left a group this person was invited to (iOS replay «bye»): out here too, the rows readable
+                    val g = groups[id]?.takeIf { !it.mine && !it.left } ?: return
+                    g.left = true
+                    save()
+                    Book.edit(key(g.id)) {}   // the open chat trades its field for the note at once
+                }
+                else -> { Log.i("Montana", "group_own kind=${t.take(8)} -- the other device's word, applied to nobody"); return }
+            }
+            Log.i("Montana", "group_own kind=" + w.getString("t") + " group=" + id.take(6))
+        }
+    }
+
+    /**
+     * THE OTHER DEVICE INVITED A PERSON INTO A GROUP OF MINE -- its birth, an addition, a renewal (iOS replayInvitation 2166-2198): the group
+     * stands here as its owner's, with that person at the seat the word gave, by the pipe the word rode (the pipes of one person are one
+     * book). A group this phone holds as a member is not taken over.
+     */
+    private fun replayInvitation(w: JSONObject, pipe: String) {
+        val kind = w.optString("k")
+        val title = clean(w.optString("ti"), TITLE_LIMIT)
+        val seat = w.optString("me")
+        if ((kind != GROUP && kind != CHANNEL) || title.isEmpty() || !isSeat(seat) || seat == OWNER_SEAT) return
+        val member = SamePair.root(pipe)
+        val id = w.getString("g")
+        val had = groups[id]
+        if (had != null && !had.mine) { Log.i("Montana", "group_refused an own invitation of a group this phone holds as a member"); return }
+        val g = had ?: State(id, kind, title, "", "", OWNER_SEAT, mutableListOf(), 2, mutableMapOf(), System.currentTimeMillis())
+        val renamed = had != null && had.title != title
+        g.title = title
+        g.about = clean(w.optString("ds"), ABOUT_LIMIT)
+        g.members.removeAll { it.seat == seat || SamePair.root(it.pipe) == member }
+        g.members.add(Member(seat, member))
+        g.banned.removeAll { SamePair.root(it.pipe) == member }
+        g.count = maxOf(g.members.size + 1, minOf(w.optInt("c", 2), PEOPLE_LIMIT + 1))
+        g.admins.clear()
+        w.optJSONArray("ad")?.let { a -> (0 until a.length()).map { a.optString(it) }.filter { isSeat(it) }.take(PEOPLE_LIMIT).forEach { g.admins.add(it) } }
+        g.signs = w.optInt("sg") == 1
+        g.reacts = if (w.has("rx") && w.optInt("rx", 1) == 0) false else null
+        val fc = w.optString("fc").ifEmpty { null }
+        val tag = fc?.let { it.length.toString() + "-" + it.takeLast(16) }
+        val newFace = tag != null && tag != g.faceTag
+        if (newFace) g.faceTag = tag
+        groups[id] = g
+        save()
+        stand(g, if (newFace) face(fc) else null)
+        if (had == null) lay(event("made", id, OWNER_SEAT, t = title))   // «You created the group»
+        if (renamed) lay(event("named", id, OWNER_SEAT, t = title))
+    }
+
+    /**
+     * A LETTER THE OTHER DEVICE WROTE INTO A GROUP OF THESE WORDS, OR CARRIED THERE FOR A MEMBER (iOS replayLetter 2203-2218): its row
+     * stands here under its one name, the person's own when its seat is this person's, never a second time and never over its tombstone.
+     */
+    private fun replayLetter(w: JSONObject) {
+        val g = groups[w.optString("g")] ?: return
+        if (g.left) return
+        val id = w.optString("id")
+        val words = w.optString("tx")
+        val seat = w.optString("s")
+        if (!isLetterName(id) || !carries(words) || !isSeat(seat)) return
+        val key = key(g.id)
+        if (id in gone || Book.buried(key, id) || Book.chat(key)?.msgs?.any { it.mid == id } == true) return
+        val mine = seat == g.me
+        stand(g, null)
+        // the speaker's name rides the carried letter (Windows group_own «say»)
+        val name = clean(w.optString("n"), NAME_LIMIT)
+        if (!mine && name.isNotEmpty() && g.names[seat] != name) { g.names[seat] = name; save() }
+        val at = Marks.birthMs(id) ?: System.currentTimeMillis()
+        val quote = w.optString("qt").ifEmpty { null }
+        val quoted = w.optString("qm").removePrefix("mid:").ifEmpty { null }
+        var landed = false
+        Book.edit(key) { c ->
+            if (c.msgs.none { it.mid == id }) {
+                c.msgs.add(Msg(id, words, mine, at, state = if (mine) 1 else 0, qt = quote, qm = quoted, from = if (mine) null else speaker(g.id, seat)))
+                c.msgs.sortBy { it.at }
+                if (!mine && Book.openChat != key) c.unread++
+                landed = true
+            }
+        }
+        Log.i("Montana", "group_own mid=$id letter landed=${if (landed) 1 else 0} mine=${if (mine) 1 else 0}")
+        // a media letter's file is gathered from the pieces every member reads, quietly: nobody here is answered for it
+        if (landed && words.startsWith(Marks.MEDIA)) Media.fetch(Book.ctx, key, id, words, quiet = true)
     }
 
     /**
@@ -1373,9 +1545,10 @@ object Groups {
     /**
      * A LETTER (iOS heard): it lands in the group's feed under its one name, worn by its speaker's seat. The owner takes a letter
      * only from a member it carries to — in a group, never in a channel — and carries it on to every other member; a member takes
-     * letters from the owner's pipe alone.
+     * letters from the owner's pipe alone. `quiet`: a copy the twin mirror brought -- the row, the count and the banner, carried on to
+     * nobody (Windows group_handle «say»).
      */
-    private fun said(w: JSONObject, pipe: String): Verdict {
+    private fun said(w: JSONObject, pipe: String, quiet: Boolean = false): Verdict {
         val g = groups[w.getString("g")] ?: return Verdict.WAIT
         if (g.left) return Verdict.REFUSED   // out of the group: the word's road ends here
         val id = w.optString("id")
@@ -1423,8 +1596,9 @@ object Groups {
             mentioned = g.kind == GROUP && mentionsMe(words))
         // a letter that lands in the open chat is read there (iOS sendReadMark on every letter that lands while the chat is open)
         if (landed && Book.openChat == key && g.kind == GROUP) Post.markRead(key)
-        // THE OWNER CARRIES IT ON (iOS heard, g.mine): to every other member, under the speaker's seat and the name they gave
-        if (landed && g.mine) {
+        // THE OWNER CARRIES IT ON (iOS heard, g.mine): to every other member, under the speaker's seat and the name they gave -- the
+        // device that took the word did, when it came by the mirror
+        if (landed && g.mine && !quiet) {
             val on = JSONObject().put("t", "say").put("g", g.id).put("k", g.kind).put("ti", g.title).put("id", id).put("s", seat).put("tx", words)
             if (silent) on.put("sl", 1)
             if (name.isNotEmpty()) on.put("n", name)
@@ -1438,9 +1612,9 @@ object Groups {
     /**
      * AN ANSWER (iOS answered): a reaction, an edit of one's own words, a deletion of one's own letter — applied in the group's
      * feed once by its name. Only a letter's own speaker changes it or takes it away; a deletion of a letter not landed yet
-     * buries it before it comes.
+     * buries it before it comes. `quiet`: a copy the twin mirror brought, applied and carried on to nobody (Windows group_handle «sig»).
      */
-    private fun answered(w: JSONObject, pipe: String): Verdict {
+    private fun answered(w: JSONObject, pipe: String, quiet: Boolean = false): Verdict {
         val g = groups[w.getString("g")] ?: return Verdict.WAIT
         if (g.left) return Verdict.REFUSED
         val id = w.optString("id")
@@ -1469,7 +1643,7 @@ object Groups {
             else if (words.startsWith(Marks.DELETE)) { bury(t); remember(id); return Verdict.HELD }
         }
         remember(id)
-        apply(key, words, seat)
+        apply(key, words, seat, quiet)
         // the reference's service row of a pin (iOS answered): «X pinned "..."», laid under the pinned letter's own words
         if (words.startsWith(PIN_MARK)) runCatching {
             val o = JSONObject(words.removePrefix(PIN_MARK))
@@ -1478,13 +1652,14 @@ object Groups {
             if (o.optString("op") == "pin" && row != null) lay(event("pinned", g.id, seat, t = pinWords(row)))
         }
         // the owner carries the answer on to every other member (iOS answered, g.mine)
-        if (g.mine) spread(JSONObject().put("t", "sig").put("g", g.id).put("id", id).put("s", seat).put("tx", words)
+        if (g.mine && !quiet) spread(JSONObject().put("t", "sig").put("g", g.id).put("id", id).put("s", seat).put("tx", words)
             .apply { w.optString("n").ifEmpty { null }?.let { put("n", it) } }, g, seat, own = false)
         return Verdict.HELD
     }
 
-    /** A MEMBER LEFT (iOS parted, their «bye»): the owner carries nothing more to them, and everyone left learns the new count. */
-    private fun parted(w: JSONObject, pipe: String): Verdict {
+    /** A MEMBER LEFT (iOS parted, their «bye»): the owner carries nothing more to them, and everyone left learns the new count -- from
+     *  the device that took the word, when it came by the mirror (Windows group_handle «bye», quiet). */
+    private fun parted(w: JSONObject, pipe: String, quiet: Boolean = false): Verdict {
         val g = groups[w.getString("g")] ?: return Verdict.REFUSED
         val from = SamePair.root(pipe)
         val m = (if (g.mine) g.members.firstOrNull { SamePair.root(it.pipe) == from } else null) ?: return Verdict.REFUSED
@@ -1493,22 +1668,25 @@ object Groups {
         g.admins.remove(m.seat)
         g.count = g.members.size + 1
         save()
-        tellAll(g, null)
+        if (!quiet) tellAll(g, null)
         val gone = event("left", g.id, m.seat)
         lay(gone)
-        tellEvent(gone, g)
+        if (!quiet) tellEvent(gone, g)
         Log.i("Montana", "group_rx a member left count=" + g.count)
         return Verdict.HELD
     }
 
-    private fun apply(key: String, words: String, seat: String) {
+    private fun apply(key: String, words: String, seat: String, quiet: Boolean = false) {
         when {
-            words.startsWith(Marks.DELETE) -> target(words)?.let { t ->
+            words.startsWith(Marks.DELETE) -> {
+                val t = target(words) ?: return
                 // THE PERSON KEEPS WHAT OTHERS DELETE (iOS ChatStore 4523-4547 for a group's feed): the letter stays, and the one who took it
-                // away alone is told by the group's own word (tellKept) -- the deletion's own speaker, an administrator too
+                // away alone is told by the group's own word (tellKept) -- the deletion's own speaker, an administrator too; by the device
+                // that took the deletion, when it came by the mirror
                 PersonChain.prime(); CoinBook.warm()
-                if (LevelAccess.keepsDeleted && Book.chat(key)?.msgs?.any { it.mid == t } == true) tellKept("mid:$t", seat, key)
-                else Book.edit(key) { c -> c.msgs.removeAll { it.mid == t } }
+                val kept = LevelAccess.keepsDeleted && Book.chat(key)?.msgs?.any { it.mid == t } == true
+                if (kept && !quiet) tellKept("mid:$t", seat, key)
+                if (!kept) Book.edit(key) { c -> c.msgs.removeAll { it.mid == t } }
             }
             words.startsWith(Marks.EDIT) -> {
                 val tx = runCatching { JSONObject(words.removePrefix(Marks.EDIT)).getString("tx") }.getOrNull()

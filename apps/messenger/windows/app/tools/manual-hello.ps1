@@ -10,7 +10,7 @@ if (-not $Owner) { throw "a manual check: run it with -Owner, beside the compute
 $env:MONTANA_MANUAL_HELLO = "1"
 try {
     $A = Start-Montana -DataDir "$Root\A" -Person; Front-Montana -X 0 -Y 40 -Width 1500 -Height 950
-    Click-Named "Библиотека приложений"; Click-Named "Настройки"; Click-Named "Сохранить 24 слова"
+    Open-Drawer; Click-Named "Настройки"; Click-Named "Сохранить 24 слова"
     # Windows Hello shows its own window over the app's
     $hello = $null
     for ($i = 0; $i -lt 40 -and -not $hello; $i++) {
