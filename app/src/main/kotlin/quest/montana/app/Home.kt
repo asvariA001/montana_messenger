@@ -1011,6 +1011,8 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
             addView(View(c), lp(MATCH, dp(48)))   // the folders' tabs stand here, over the rows (FolderTabs)
             // The local room: stands in the list from the first moment; a tap opens it (iOS: the row opens its conversation).
             val preview = c.text("", 16f, MT.gray).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
+            // my answer to a letter here, the plate's way (iOS rowModel: the local room's row wears one's own face and the sign)
+            val answer = c.hstack { gravity = Gravity.CENTER_VERTICAL }
             val thumb = FrameLayout(c)   // the last letter's small picture before its words, as every chat's row (iOS MTLetterThumb, side 20)
             val time = c.text("", 14f, MT.gray)
             val face = FrameLayout(c)
@@ -1018,7 +1020,14 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
                 // Saved Messages wears one's own face (iOS MTSelfFace, the author's word 11.09): read again on every return
                 face.removeAllViews()
                 face.addView(c.avatar(SelfFace.load(c), Prefs.userName, 48))
-                val last = Book.saved(c).last
+                val room = Book.saved(c)
+                val answered = room.answered
+                answer.removeAllViews()
+                if (answered != null) {
+                    answer.addView(c.avatar(SelfFace.load(c), Prefs.userName, 18), lp(dp(18), dp(18)).apply { marginEnd = dp(6) })
+                    answer.addView(c.text(room.ans!!, 15f, Color.WHITE), lp(WRAP, WRAP).apply { marginEnd = dp(6) })   // USER-DATA: the answer itself
+                }
+                val last = answered ?: room.last
                 val kind = last?.let { rowKind(it) }
                 thumb.removeAllViews()
                 if (last != null && kind != null) thumb.addView(c.letterThumb(last, kind), FrameLayout.LayoutParams(c.dp(20), c.dp(20)))
@@ -1031,8 +1040,9 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
                     append(" ").append(draft)   // USER-DATA: the draft text
                 } else words   // USER-DATA: one's own last letter
                 if (draft.isNotEmpty()) thumb.visibility = View.GONE
+                answer.visibility = if (draft.isEmpty() && answered != null) View.VISIBLE else View.GONE
                 preview.visibility = if (last == null && draft.isEmpty()) View.GONE else View.VISIBLE
-                time.text = last?.let { rowTime(c, it.at) } ?: ""
+                time.text = room.last?.let { rowTime(c, it.at) } ?: ""   // the last letter's moment, the answer or not (iOS rowTime)
             }
             refresh()
             // the local room's line in the chats page's measure (iOS ChatRow with library: 72, the face 48, the gap 16, the side 18; 22 and 20)
@@ -1049,6 +1059,7 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
                     }, lp(MATCH, dp(22)))
                     addView(c.hstack {
                         gravity = Gravity.CENTER_VERTICAL
+                        addView(answer, lp(WRAP, WRAP))
                         addView(thumb, lp(dp(20), dp(20)).apply { marginEnd = dp(6) })
                         addView(preview, lp(0, WRAP, 1f))
                     }, lp(MATCH, dp(20)).apply { topMargin = dp(4) })
