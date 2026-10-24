@@ -8,12 +8,22 @@ const USAGE: &str = "\
 montana-node — a machine of Montana
 
   montana-node --data <directory> --listen <address> [--acquaintance <line>]...
+               [--anchor <earlier> --anchor <later>]
                [--admitted <half>]... [--from <window>] [--windows <n>]
 
   --data <directory>     where this machine keeps what it holds between starts
   --listen <address>     where it answers, as an address and a port
   --acquaintance <line>  a machine to reach, as its operator handed it over:
                          an address, an at-sign and the key it answers with
+  --anchor <file>        given twice, the earlier first: the proposals of two consecutive
+                         final windows, as their operator handed them over. A machine
+                         keeps every proposal it took as one file of <data>/proposals,
+                         named by its window in twenty digits; its last final window
+                         is <data>/head, eight bytes, least significant first. That
+                         file and the one before it are an anchor. This machine walks
+                         from it to the head over the machines it reached, verifying
+                         every certificate, before it does anything else; the trust
+                         in the anchor is the trust placed in whoever handed it over.
   --admitted <half>      the naming half of a machine admitted to the window, in
                          hexadecimal, as its operator handed it over. Given once for
                          every machine of the cohort — this one included — it is what
@@ -70,7 +80,14 @@ fn run() -> Result<(), String> {
         print!("{USAGE}");
         return Ok(());
     }
-    let (configuration, payment) = read_configuration(&held)?;
+    let (configuration, payment, anchor) = read_configuration(&held)?;
+    // The anchor is read before the machine starts, so an anchor that is no anchor stops an
+    // operator before anything of this machine is drawn or kept.
+    let anchor = match anchor.as_slice() {
+        [] => None,
+        [earlier, later] => Some(read_anchor(earlier, later)?),
+        _ => return Err("--anchor is given twice, the earlier proposal first".to_string()),
+    };
 
     let (machine, born) = Machine::start(&configuration).map_err(said)?;
     if born {
@@ -115,6 +132,20 @@ fn run() -> Result<(), String> {
                 unreached.push(line.clone());
             }
         }
+    }
+
+    // **A machine handed an anchor walks to the head before it does anything else.** Consensus, "The
+    // join": it asks the machines it reached for what stands at the points of every window after the
+    // anchor, judges every answer and trusts none, and takes as its head the newest proposal whose
+    // certificate verified. A walk that refuses stops the machine: a machine that went on to live
+    // a window would be living it on a chain it could not verify.
+    if let Some(anchor) = anchor {
+        let head = montana_node::pulse::join(&machine, &anchor, montana_node::pulse::WAITS_UP_TO)
+            .map_err(said)?;
+        println!(
+            "walked from window {} to the head at window {}",
+            anchor.later.window, head.later.window
+        );
     }
 
     if let Some(asked) = payment {
@@ -401,6 +432,20 @@ fn read32(said: &str) -> Result<[u8; 32], String> {
     Ok(out)
 }
 
+// The two proposals of an anchor, each read whole off the file it was handed in and through the one
+// door of its layout. Whether they are consecutive, and everything after them, is the walk's.
+fn read_anchor(earlier: &str, later: &str) -> Result<montana_node::certificate::Anchor, String> {
+    let proposal = |at: &str| -> Result<mt_state::layout::Proposal, String> {
+        let bytes = std::fs::read(at).map_err(|e| format!("--anchor {at}: {e}"))?;
+        <mt_state::layout::Proposal as mt_state::Layout>::parse(&bytes)
+            .map_err(|e| format!("--anchor {at} is no proposal: {e:?}"))
+    };
+    Ok(montana_node::certificate::Anchor {
+        earlier: proposal(earlier)?,
+        later: proposal(later)?,
+    })
+}
+
 fn said(e: NodeError) -> String {
     match e {
         NodeError::Store(e) => format!("what this machine keeps: {e:?}"),
@@ -430,8 +475,11 @@ fn said(e: NodeError) -> String {
 // What an operator typed. A flag naming no value, or a flag this machine does not know, is an
 // error rather than a default: a machine started with a misspelt flag and a default beside it is a
 // machine doing something its operator did not ask for.
-fn read_configuration(held: &[String]) -> Result<(Configuration, Option<Asked>), String> {
+type Typed = (Configuration, Option<Asked>, Vec<String>);
+
+fn read_configuration(held: &[String]) -> Result<Typed, String> {
     let mut data: Option<String> = None;
+    let mut anchor: Vec<String> = Vec::new();
     let mut listen: Option<String> = None;
     let mut acquaintances: Vec<String> = Vec::new();
     let mut pay: Option<String> = None;
@@ -465,6 +513,10 @@ fn read_configuration(held: &[String]) -> Result<(Configuration, Option<Asked>),
             }
             "--acquaintance" => {
                 acquaintances.push(value()?);
+                at += 2;
+            }
+            "--anchor" => {
+                anchor.push(value()?);
                 at += 2;
             }
             "--admitted" => {
@@ -596,5 +648,5 @@ fn read_configuration(held: &[String]) -> Result<(Configuration, Option<Asked>),
             })
         }
     };
-    Ok((configuration, asked))
+    Ok((configuration, asked, anchor))
 }
