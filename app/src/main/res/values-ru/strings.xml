@@ -795,6 +795,16 @@
     <string name="cp_all_here">Все вложения, на которые ссылаются письма, есть на этом устройстве.</string>
     <string name="cp_in_copy_of">В копии: %1$d из %2$d · %3$s</string>
     <string name="cp_no_letter">Ни одно письмо на устройстве его не называет</string>
+    <string name="cp_remove_phone">Убрать с телефона</string>
+    <string name="cp_remove_q">Убрать с телефона?</string>
+    <string name="cp_remove_note">Его хранит ваш узел, и он вернётся, когда вы его откроете. Письмо остаётся.</string>
+    <string name="cp_remove_many_q">Убрать с телефона файлов: %1$d?</string>
+    <string name="cp_remove_many_note">Их хранит ваш узел, и каждый вернётся, когда вы его откроете. Письма остаются. Файл, которого на узле ещё нет, остаётся на телефоне.</string>
+    <string name="cp_stayed">Ваш узел ещё не хранит выбранных файлов: %1$d — они остаются на телефоне.</string>
+    <string name="cp_select">Выбрать</string>
+    <string name="cp_select_all">Выбрать все</string>
+    <string name="cp_done">Готово</string>
+    <string name="cp_files_hint">Удерживайте файл, чтобы убрать его из копии или с телефона.</string>
     <string name="cp_leave_out">Убрать из копии</string>
     <string name="cp_put_back">Вернуть в копию</string>
     <string name="cp_total">Итого: вложений на %1$s и записей — %2$d. Копия запечатана ключом, который открывают ваши 24 слова; самих слов в ней нет.</string>

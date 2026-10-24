@@ -184,20 +184,25 @@ object HomeShelf {
     }
 
     /** THE CACHE CLEARED: a file leaves this phone only when the node has just named every one of its pieces. */
-    fun clearPass(c: Context): Pair<Int, Long>? {
+    fun clearPass(c: Context): Pair<Int, Long>? = removeHeld(c, null)?.let { it.first.size to it.second }
+
+    /** A FILE LEAVES THIS PHONE ONLY ON THE NODE'S WORD ASKED NOW, whoever asks (iOS MTHomeShelf.removeHeld): the hand's clearing,
+     *  and the files the person chose on a kind's page of the copy -- `only` names them, null takes every file. A file the node
+     *  does not hold whole stays; no letter is touched. */
+    fun removeHeld(c: Context, only: Set<String>?): Pair<Set<String>, Long>? {
         HomeBook.ensure()
         val all = HomeBook.all()
         val inHand = Media.inHand()
         val candidates = storeFiles(c).filter { f ->
             val e = all[f.name]
-            e != null && f.path !in inHand && !newborn(f) && f.length() == e.z
+            e != null && (only?.contains(f.name) ?: true) && f.path !in inHand && !newborn(f) && f.length() == e.z
         }
         val held = have(candidates.flatMap { all.getValue(it.name).p }) ?: return null
         val gone = candidates.filter { f -> all.getValue(f.name).p.all(held::contains) }
         var bytes = 0L
         for (f in gone) { bytes += f.length(); f.delete() }
-        Log.i("Montana", "home_clear files=${gone.size} bytes=$bytes of=${candidates.size} kept=${all.size}")
-        return gone.size to bytes
+        Log.i("Montana", "home_clear files=${gone.size} bytes=$bytes of=${candidates.size} kept=${all.size} chosen=${only?.size ?: -1}")
+        return gone.map { it.name }.toSet() to bytes
     }
 
     /**

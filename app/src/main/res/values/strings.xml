@@ -800,6 +800,16 @@
     <string name="cp_all_here">Every attachment the letters name is on this device.</string>
     <string name="cp_in_copy_of">In the copy: %1$d of %2$d · %3$s</string>
     <string name="cp_no_letter">No letter on this device names it</string>
+    <string name="cp_remove_phone">Remove from this phone</string>
+    <string name="cp_remove_q">Remove from this phone?</string>
+    <string name="cp_remove_note">Your node keeps it, and it comes back when you open it. The letter stays.</string>
+    <string name="cp_remove_many_q">Remove %1$d files from this phone?</string>
+    <string name="cp_remove_many_note">Your node keeps them, and each comes back when you open it. The letters stay. A file your node does not hold yet stays on this phone.</string>
+    <string name="cp_stayed">Your node does not hold %1$d of the chosen files yet: they stay on this phone.</string>
+    <string name="cp_select">Select</string>
+    <string name="cp_select_all">Select All</string>
+    <string name="cp_done">Done</string>
+    <string name="cp_files_hint">Hold a file to leave it out of the copy or to remove it from this phone.</string>
     <string name="cp_leave_out">Leave out of the copy</string>
     <string name="cp_put_back">Put back into the copy</string>
     <string name="cp_total">Total: %1$s of attachments and %2$d records. The copy is sealed with the key your 24 words open; the words are not in it.</string>

@@ -1,5 +1,6 @@
 package quest.montana.app
 
+import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.content.res.ColorStateList
@@ -126,6 +127,11 @@ class CopyInventory {
         return Taken(conv.size, conv.sumOf { it.letters }, files.size, files.values.sum())
     }
     fun kindTotals(k: CopyKind): Pair<Int, Long> = sizes.filter { kindOf(it.key) == k }.let { it.size to it.values.sum() }
+    /** A file gone from this phone leaves the count (iOS CopyInventory.forget); its letters stay, so they are counted still. */
+    fun forget(file: String) {
+        val size = sizes.remove(file) ?: 0L
+        for (v in convs) if (file in v.files) v.bytes = maxOf(0L, v.bytes - size)
+    }
 
     companion object {
         /** Counted on the caller's worker thread from a reader's copy of the feed, and sized from the disk. */
@@ -269,15 +275,84 @@ fun copyKindsPage(desk: CopyDesk, close: () -> Unit): View {
  * ONE KIND'S FILES (iOS CopyFilesPage; the author, 23.09 01:50 and 02:40): every file of the kind this device holds, heaviest
  * first, each with its own picture. Each file is chosen on its own: the round mark says whether the copy takes it. The row opens
  * the file in the platform's viewer and the back returns here. The switch at the top is the whole kind's place in the copy.
+ *
+ * THE PHONE'S COPY ONLY (iOS 18.10.2026, Agent 93, the author's word «everything I delete is only the local cache, and my node
+ * holds all of it»): a hold on a row offers what iOS's two swipes do -- out of the copy and back, and «Remove from this phone»;
+ * the bar's list mark chooses many at once. A chosen file leaves this phone only on the node's word asked at that moment
+ * (HomeShelf.removeHeld); every letter stays, and the file comes back from the node when it is opened. A file the node does not
+ * hold whole stays, and the page says so.
  */
 fun copyFilesPage(desk: CopyDesk, kind: CopyKind, close: () -> Unit): View {
     val act = desk.act
     val c: Context = act
     val inv = desk.inv
     val files = inv.sizes.filter { inv.kindOf(it.key) == kind }.toList().sortedWith(compareByDescending<Pair<String, Long>> { it.second }.thenBy { it.first })
+    fun here() = files.filter { it.first in inv.sizes }
     /** A file is chosen on its own while neither its kind nor its conversation is left out whole. */
     fun free(f: String): Boolean = desk.plan.takes(kind) && (inv.owner[f]?.first?.let { desk.plan.takes(it) } ?: true)
-    return settingsPage(act, c.getString(kind.face().first), close) {
+    fun flip(f: String) {
+        if (!free(f)) return
+        if (!desk.plan.skipFiles.remove(f)) desk.plan.skipFiles.add(f)
+        desk.changed()
+    }
+    var choosing = false
+    val chosen = HashSet<String>()
+    val rowOf = HashMap<String, View>()
+    fun removeMany(many: Set<String>) {
+        if (many.isEmpty()) return
+        act.background {
+            val r = runCatching { HomeShelf.removeHeld(c, many) }.getOrNull()
+            val gone = r?.first ?: emptySet()
+            act.onMain {
+                for (f in gone) { inv.forget(f); rowOf[f]?.visibility = View.GONE }
+                desk.plan.skipFiles.removeAll { it in gone }
+                desk.changed()
+                android.util.Log.i("Montana", "backup_plan removed files=${gone.size} of=${many.size} node=${if (r == null) 0 else 1} kind=${kind.raw}")
+                val stayed = many.size - gone.size
+                if (0 < stayed) AlertDialog.Builder(act).setTitle(R.string.cache_word).setMessage(c.getString(R.string.cp_stayed, stayed))
+                    .setPositiveButton(R.string.ok, null).show()
+            }
+        }
+    }
+    fun askRemove(f: String) {
+        AlertDialog.Builder(act).setTitle(R.string.cp_remove_q).setMessage(R.string.cp_remove_note)
+            .setPositiveButton(R.string.cp_remove_phone) { _, _ -> removeMany(setOf(f)) }
+            .setNegativeButton(R.string.cancel, null).show()
+    }
+    // the bar's marks (iOS the toolbar: «Select»; while choosing «Select All», the bin, «Done»)
+    fun mark(glyph: Int, words: Int, onTap: () -> Unit) = c.icon(glyph, Color.WHITE).apply {
+        setPadding(dp(10), dp(10), dp(10), dp(10)); contentDescription = c.getString(words); pressable(onTap)
+    }
+    val select = mark(R.drawable.ic_checklist, R.string.cp_select) { choosing = true; desk.changed() }
+    val all = mark(R.drawable.ic_check_circle_outline, R.string.cp_select_all) {
+        val names = here().map { it.first }.toSet()
+        if (chosen == names) chosen.clear() else { chosen.clear(); chosen.addAll(names) }
+        desk.changed()
+    }
+    val bin = mark(R.drawable.ic_delete, R.string.delete) {
+        if (chosen.isEmpty()) return@mark
+        AlertDialog.Builder(act).setTitle(c.getString(R.string.cp_remove_many_q, chosen.size)).setMessage(R.string.cp_remove_many_note)
+            .setPositiveButton(R.string.cp_remove_phone) { _, _ ->
+                val many = chosen.toSet()
+                chosen.clear(); choosing = false; desk.changed()
+                removeMany(many)
+            }
+            .setNegativeButton(R.string.cancel, null).show()
+    }
+    val done = mark(R.drawable.ic_close, R.string.cp_done) { choosing = false; chosen.clear(); desk.changed() }
+    val bar = c.hstack {
+        for (m in listOf(all, bin, done, select)) addView(m, lp(dp(44), dp(44)))
+    }
+    fun drawBar() {
+        val list = here()
+        select.visibility = if (choosing) View.GONE else View.VISIBLE
+        select.alpha = if (list.isEmpty()) 0.4f else 1f
+        select.isEnabled = list.isNotEmpty()
+        for (m in listOf(all, bin, done)) m.visibility = if (choosing) View.VISIBLE else View.GONE
+        all.setImageResource(if (list.isNotEmpty() && chosen.size == list.size) R.drawable.ic_set_check_circle else R.drawable.ic_check_circle_outline)
+        bin.alpha = if (chosen.isEmpty()) 0.4f else 1f
+    }
+    val page = settingsPage(act, c.getString(kind.face().first), close, trailing = bar) {
         val sw = c.switchLine(kind.face().second, kind.face().third, c.getString(R.string.cp_in_copy), desk.plan.takes(kind)) { on ->
             desk.plan.skipKinds.remove(kind.raw)
             if (!on) desk.plan.skipKinds.add(kind.raw)
@@ -287,8 +362,9 @@ fun copyFilesPage(desk: CopyDesk, kind: CopyKind, close: () -> Unit): View {
         val sum = footerLine()
         desk.on {
             val s = inv.scope(desk.plan)
-            val kept = files.filter { s.takes(it.first) }
-            sum.text = c.getString(R.string.cp_in_copy_of, kept.size, files.size, c.copySize(kept.sumOf { it.second }))
+            val list = here()
+            val kept = list.filter { s.takes(it.first) }
+            sum.text = c.getString(R.string.cp_in_copy_of, kept.size, list.size, c.copySize(kept.sumOf { it.second }))
         }
         val rows = files.map { (name, bytes) ->
             val f = File(MontanaPaths.store(c), name)
@@ -304,15 +380,20 @@ fun copyFilesPage(desk: CopyDesk, kind: CopyKind, close: () -> Unit): View {
                     else runCatching { @Suppress("DEPRECATION") android.media.ThumbnailUtils.createVideoThumbnail(f.path, android.provider.MediaStore.Video.Thumbnails.MINI_KIND) }.getOrNull()
                 if (b != null) act.onMain { thumb.imageTintList = null; thumb.setImageBitmap(b) }
             }
+            fun pick() { if (!chosen.remove(name)) chosen.add(name); desk.changed() }
             c.hstack {
                 setPadding(dp(8), dp(6), dp(14), dp(6))
                 addView(circle, lp(dp(40), dp(40)))
-                circle.pressable {
-                    if (!free(name)) return@pressable
-                    if (!desk.plan.skipFiles.remove(name)) desk.plan.skipFiles.add(name)
-                    desk.changed()
-                }
+                circle.pressable { if (choosing) pick() else flip(name) }
                 desk.on {
+                    if (choosing) {
+                        val on = name in chosen
+                        circle.setImageResource(if (on) R.drawable.ic_set_check_circle else R.drawable.ic_circle)
+                        circle.imageTintList = ColorStateList.valueOf(if (on) SysColor.red else MT.gray)
+                        circle.alpha = 1f
+                        circle.contentDescription = c.getString(R.string.cp_select)
+                        return@on
+                    }
                     val takes = inv.scope(desk.plan).takes(name)
                     circle.setImageResource(if (takes) R.drawable.ic_set_check_circle else R.drawable.ic_circle)
                     circle.imageTintList = ColorStateList.valueOf(if (takes) Color.WHITE else MT.gray)
@@ -329,11 +410,24 @@ fun copyFilesPage(desk: CopyDesk, kind: CopyKind, close: () -> Unit): View {
                         .apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }, lp())
                     addView(c.text(c.copySize(bytes), 13f, MT.gray), lp())   // USER-DATA: a size
                 }, lp(0, WRAP, 1f))
-                pressable { openCopyFile(act, f, kind) }
-            }
+                pressable { if (choosing) pick() else openCopyFile(act, f, kind) }
+                // a hold: what iOS's swipes offer -- out of the copy (or back) from the left, off this phone from the right
+                setOnLongClickListener { v ->
+                    if (choosing) return@setOnLongClickListener false
+                    val menu = android.widget.PopupMenu(act, v, Gravity.END)
+                    if (free(name)) menu.menu.add(0, 1, 0, if (inv.scope(desk.plan).takes(name)) R.string.cp_leave_out else R.string.cp_put_back)
+                    menu.menu.add(0, 2, 1, R.string.cp_remove_phone)
+                    menu.setOnMenuItemClickListener { item -> if (item.itemId == 1) flip(name) else askRemove(name); true }
+                    menu.show()
+                    true
+                }
+            }.also { rowOf[name] = it }
         }
-        if (rows.isNotEmpty()) section(null, null, *rows.toTypedArray())
+        if (rows.isNotEmpty()) section(null, c.getString(R.string.cp_files_hint), *rows.toTypedArray())
+        desk.on { drawBar() }
     }
+    (bar.layoutParams as? android.widget.FrameLayout.LayoutParams)?.let { it.width = WRAP; bar.layoutParams = it }
+    return page
 }
 
 /** One file, opened by the platform's own viewer (iOS CopyFileView: Quick Look pushed into the page); the back returns to the list. */
