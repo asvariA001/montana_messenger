@@ -268,6 +268,10 @@ fn of_width(at: &Path, bytes: Vec<u8>, expected: usize) -> Result<Vec<u8>, Store
     Ok(bytes)
 }
 
+// What a store keeps of a machine's points: for each window and point, the cells standing there in
+// the order they were taken.
+pub type CellsStanding = Vec<(u64, [u8; 16], Vec<Vec<u8>>)>;
+
 pub struct Store {
     root: PathBuf,
     // The handle of the root directory, locked exclusively for the life of the store. **One store,
@@ -562,6 +566,107 @@ impl Store {
         Ok(Some(u64::from_le_bytes(eight)))
     }
 
+    // **What stands at a machine's points stands across a stop.** The heavy attestations, the
+    // pledges, the beacons, the frames and the proposals with their rolls of a window are the
+    // certificate a device behind walks, and the set keeps them at their points for
+    // `retained_windows` after the window closes (Canon, "The points a round stands at"). Points
+    // that lived in memory alone went with the process: every holder of a window restarting inside
+    // the retention took the window's certificate out of the network. So every cell a point takes is
+    // appended to the file of that point, under the window it belongs to, and read back whole at the
+    // next start; a cell torn by a loss of power is left where it lies, since a cell is read whole
+    // or not at all. Nothing of a cell is a secret: what stands at a point is public.
+    fn points_at(&self, window: u64) -> PathBuf {
+        self.root.join("points").join(format!("{window:020}"))
+    }
+
+    pub fn append_cell(
+        &self,
+        window: u64,
+        point: &[u8; 16],
+        cell: &[u8],
+    ) -> Result<(), StoreError> {
+        let directory = self.points_at(window);
+        fs::create_dir_all(&directory).map_err(|e| said(&directory, e))?;
+        let name: String = point.iter().map(|b| format!("{b:02x}")).collect();
+        let at = directory.join(name);
+        let mut file = fs::OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(&at)
+            .map_err(|e| said(&at, e))?;
+        file.write_all(cell).map_err(|e| said(&at, e))
+    }
+
+    // Every cell standing at every point this store keeps, by window and point, in the order the
+    // cells were taken. A file whose length is not a whole count of cells is read up to the last
+    // whole one.
+    pub fn cells_standing(&self, cell_width: usize) -> Result<CellsStanding, StoreError> {
+        let root = self.root.join("points");
+        let mut out = Vec::new();
+        let Ok(windows) = fs::read_dir(&root) else {
+            return Ok(out);
+        };
+        for window in windows {
+            let window = window.map_err(|e| said(&root, e))?.path();
+            let Some(number) = window
+                .file_name()
+                .and_then(|n| n.to_str())
+                .and_then(|n| n.parse::<u64>().ok())
+            else {
+                continue;
+            };
+            for file in fs::read_dir(&window).map_err(|e| said(&window, e))? {
+                let at = file.map_err(|e| said(&window, e))?.path();
+                let Some(name) = at.file_name().and_then(|n| n.to_str()) else {
+                    continue;
+                };
+                let mut point = [0u8; 16];
+                if name.len() != 32
+                    || (0..16).any(|i| {
+                        u8::from_str_radix(&name[2 * i..2 * i + 2], 16)
+                            .map(|b| {
+                                point[i] = b;
+                                false
+                            })
+                            .unwrap_or(true)
+                    })
+                {
+                    continue;
+                }
+                let bytes = fs::read(&at).map_err(|e| said(&at, e))?;
+                let cells: Vec<Vec<u8>> = bytes
+                    .chunks_exact(cell_width.max(1))
+                    .map(|cell| cell.to_vec())
+                    .collect();
+                out.push((number, point, cells));
+            }
+        }
+        out.sort_by_key(|(window, point, _)| (*window, *point));
+        Ok(out)
+    }
+
+    // The points of every window below `window` go, as they go from memory when the retention ends.
+    pub fn drop_points_before(&self, window: u64) -> Result<(), StoreError> {
+        let root = self.root.join("points");
+        let Ok(windows) = fs::read_dir(&root) else {
+            return Ok(());
+        };
+        for held in windows {
+            let at = held.map_err(|e| said(&root, e))?.path();
+            let Some(number) = at
+                .file_name()
+                .and_then(|n| n.to_str())
+                .and_then(|n| n.parse::<u64>().ok())
+            else {
+                continue;
+            };
+            if number < window {
+                fs::remove_dir_all(&at).map_err(|e| said(&at, e))?;
+            }
+        }
+        Ok(())
+    }
+
     pub fn put_proposal(&self, window: u64, bytes: &[u8]) -> Result<(), StoreError> {
         write_whole(&self.proposal_at(window), bytes)
     }
@@ -702,6 +807,42 @@ mod tests {
             store.drop_agreement(12).unwrap();
         }
         assert_eq!(store.open_agreement(12, &own).unwrap(), own);
+    }
+
+    // The cells of a point are read back in the order they were taken, by window and point, after a
+    // reopening; a torn tail is left where it lies; the windows below the retention go from the disk
+    // as they go from memory. The wrong implementation refused: points kept in memory alone, under
+    // which a reopened store stands at no point.
+    #[test]
+    fn the_cells_of_a_point_stand_across_a_reopening_and_go_with_the_retention() {
+        let scratch = Scratch::named("points-kept");
+        let point = [0x5Au8; 16];
+        let other = [0x5Bu8; 16];
+        {
+            let store = Store::open(scratch.path()).unwrap();
+            store.append_cell(12, &point, &[0x01; 8]).unwrap();
+            store.append_cell(12, &point, &[0x02; 8]).unwrap();
+            store.append_cell(12, &other, &[0x03; 8]).unwrap();
+            store.append_cell(9, &point, &[0x04; 8]).unwrap();
+            // A torn tail: three bytes of a cell that never finished.
+            store.append_cell(12, &other, &[0x05; 3]).unwrap();
+        }
+        let store = Store::open(scratch.path()).unwrap();
+        let standing = store.cells_standing(8).unwrap();
+        assert_eq!(
+            standing,
+            vec![
+                (9, point, vec![vec![0x04; 8]]),
+                (12, point, vec![vec![0x01; 8], vec![0x02; 8]]),
+                (12, other, vec![vec![0x03; 8]]),
+            ]
+        );
+        store.drop_points_before(12).unwrap();
+        let standing = store.cells_standing(8).unwrap();
+        assert_eq!(standing.len(), 2);
+        assert!(standing.iter().all(|(window, _, _)| *window == 12));
+        store.drop_points_before(13).unwrap();
+        assert!(store.cells_standing(8).unwrap().is_empty());
     }
 
     // The last window closed is one number that moves forward and never back, and survives a

@@ -333,6 +333,9 @@ type ReadBack = (u64, usize, Vec<Vec<u8>>);
 struct Standing {
     at: Mutex<BTreeMap<[u8; POINT_BYTES], AtAPoint>>,
     retained: u64,
+    // The window whose points, and those of every window before it, were dropped from the disk
+    // last: the disk follows the memory's retention, once per window turning.
+    pruned_through: Mutex<u64>,
 }
 
 impl Standing {
@@ -340,7 +343,57 @@ impl Standing {
         Self {
             at: Mutex::new(BTreeMap::new()),
             retained,
+            pruned_through: Mutex::new(0),
         }
+    }
+
+    // **What the machine held at its points stands again.** The cells the store kept, by window and
+    // point, in the order they were taken: the deliveries begun and the digests are read off the
+    // cells themselves, under the keys every machine computes for the point. A cell that does not
+    // read as a cell of its point is not of this point and is left out.
+    fn loaded(retained: u64, store: &Store, cell_width: usize) -> Result<Self, NodeError> {
+        let standing = Self::empty(retained);
+        let kept = store.cells_standing(cell_width).map_err(NodeError::Store)?;
+        {
+            let mut at = standing.at.lock().map_err(|_| NodeError::Uncountable)?;
+            for (window, point, cells) in kept {
+                let held = at.entry(point).or_insert(AtAPoint {
+                    window,
+                    cells: Vec::new(),
+                    begun: Vec::new(),
+                    digests: std::collections::BTreeSet::new(),
+                });
+                for cell in cells {
+                    let Some((delivery, _)) = mt_wire::publish::delivery_of(&point, window, &cell)
+                    else {
+                        continue;
+                    };
+                    use sha2::{Digest as _, Sha256};
+                    let digest: [u8; 32] = Sha256::digest(&cell).into();
+                    if !held.digests.insert(digest) {
+                        continue;
+                    }
+                    if !held.begun.contains(&delivery) {
+                        held.begun.push(delivery);
+                    }
+                    held.cells.push(cell);
+                }
+            }
+        }
+        Ok(standing)
+    }
+
+    // Whether the disk is due to let go of the windows the memory let go of: once per window.
+    fn prune_due(&self, window: u64) -> bool {
+        let Ok(mut through) = self.pruned_through.lock() else {
+            return false;
+        };
+        let below = window.saturating_sub(self.retained);
+        if below > *through {
+            *through = below;
+            return true;
+        }
+        false
     }
 
     // `of_a_delivery` is which delivery this cell belongs to and how many blocks that delivery
@@ -567,6 +620,8 @@ impl Machine {
         // memory alone made every note die with the run that created it, and a person paid held a
         // note their own machine could no longer prove a path for. What is read here is what this
         // machine wrote, and a file that does not read back whole is refused rather than half-read.
+        let cell_width = mt_wire::cell_bytes().map_err(|_| of_the_decree("cell_bytes"))?;
+        let standing = Standing::loaded(retained, &store, cell_width)?;
         let kept = store.value().map_err(NodeError::Store)?;
         let held_value = if kept.is_empty() {
             state::State::new()
@@ -583,7 +638,7 @@ impl Machine {
                 answering,
                 door,
                 held: Arc::new(Held::to_the_ceiling(ceiling)),
-                standing: Arc::new(Standing::empty(retained)),
+                standing: Arc::new(standing),
                 value: Arc::new(Mutex::new(held_value)),
                 reached: Arc::new(Mutex::new(Vec::new())),
                 admitted: Arc::new(Mutex::new(0)),
@@ -992,6 +1047,9 @@ impl Machine {
         let took = self
             .standing
             .hold(*point, window, cell.to_vec(), ceiling, of_a_delivery);
+        if took == say::Took::Held {
+            keep_the_cell(&self.store, &self.standing, point, window, cell)?;
+        }
         match took {
             say::Took::Held => self.counts.raise(&self.counts.deposits_taken),
             say::Took::Repeated => self.counts.raise(&self.counts.deposits_repeated),
@@ -1452,7 +1510,13 @@ fn take_the_deposit(
         {
             let window = deposit_window(store, held);
             let of_a_delivery = mt_wire::publish::delivery_of(&point, window, &cell);
-            match standing.hold(point, window, cell, ceiling, of_a_delivery) {
+            let took = standing.hold(point, window, cell.clone(), ceiling, of_a_delivery);
+            if took == say::Took::Held
+                && keep_the_cell(store, standing, &point, window, &cell).is_err()
+            {
+                counts.raise(&counts.pushes_lost);
+            }
+            match took {
                 say::Took::Held => counts.raise(&counts.deposits_taken),
                 say::Took::Repeated => counts.raise(&counts.deposits_repeated),
                 say::Took::PastTheCeiling => counts.raise(&counts.deposits_past_the_ceiling),
@@ -1575,6 +1639,26 @@ fn answer_the_head(link: &mut Link, store: &Store, message: &[u8]) -> Result<(),
         return Ok(());
     };
     link.send(Kind::HeadAnswer, &answer)
+}
+
+// A cell a point took, kept on the disk beside the window it belongs to, and the windows the memory
+// let go of let go of on the disk too, once per window turning.
+fn keep_the_cell(
+    store: &Store,
+    standing: &Standing,
+    point: &[u8; POINT_BYTES],
+    window: u64,
+    cell: &[u8],
+) -> Result<(), NodeError> {
+    store
+        .append_cell(window, point, cell)
+        .map_err(NodeError::Store)?;
+    if standing.prune_due(window) {
+        store
+            .drop_points_before(window.saturating_sub(standing.retained))
+            .map_err(NodeError::Store)?;
+    }
+    Ok(())
 }
 
 // Validate on a candidate. A failed write cannot consume a note or move the live admitted root.
