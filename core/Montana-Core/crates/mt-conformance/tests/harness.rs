@@ -1113,6 +1113,33 @@ fn a_heading_that_disagrees_with_its_row_breaks_the_build_with_both_values() {
     assert!(err.contains(&held.to_string()), "{err}");
 }
 
+// A parameter of the proof scheme stands in the table of the scheme and not in the Decree, and its
+// heading is held against the code that proves. The wrong implementation this refuses: one that
+// lets a heading the Decree does not hold pass unread, under which the count of queries a section
+// derives moves away from the count every proof is drawn with and the build stays green.
+#[test]
+fn a_heading_of_the_proof_scheme_that_disagrees_with_the_prover_breaks_the_build() {
+    let md = canon();
+    let heading = md
+        .lines()
+        .find(|line| line.starts_with("### `proof_queries`"))
+        .expect("the set derives the count of queries under its own heading")
+        .to_string();
+    let held = mt_proof::params::QUERIES as u64;
+    assert_eq!(
+        mt_genesis::scalar("proof_queries"),
+        None,
+        "the Decree does not name it"
+    );
+    let doctored = heading.replace(&format_number(held), &format_number(held + 1));
+    assert_ne!(doctored, heading, "the heading states the value of its row");
+    let err = check_derivation_headings(&md.replace(&heading, &doctored))
+        .expect_err("the gate must refuse a heading that disagrees with the prover");
+    assert!(err.contains("proof_queries"), "{err}");
+    assert!(err.contains(&(held + 1).to_string()), "{err}");
+    assert!(err.contains(&held.to_string()), "{err}");
+}
+
 // The spelling the set writes large numbers in: groups of three, separated by a space.
 fn format_number(value: u64) -> String {
     let digits = value.to_string();

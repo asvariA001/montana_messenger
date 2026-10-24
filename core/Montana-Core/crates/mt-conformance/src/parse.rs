@@ -3619,12 +3619,13 @@ pub fn check_device_answers(md: &str) -> Result<(), String> {
     Ok(())
 }
 
-// Every heading of a derivation that restates a value of the Decree, held against the row it
-// names. A section writes its own value in its heading — ``### `cell_bytes` = 1 232`` — and that
-// is a second statement of a number whose one place is the Decree: the two agree today and
-// nothing holds them there. A heading that states a value and names no row of the Decree fails
-// here too, since a value restated outside the block that holds it is the defect this stage is
-// drawn against.
+// Every heading of a derivation that restates a value, held against the row it names. A section
+// writes its own value in its heading — ``### `cell_bytes` = 1 232`` — and that is a second
+// statement of a number whose one place is the Decree or, for a parameter of the proof scheme
+// (``### `proof_queries` = 92``), the table the scheme states and the code that proves holds: the
+// two agree today and nothing holds them there. A heading that states a value and names no
+// row of either fails here too, since a value restated outside the block that holds it is the
+// defect this stage is drawn against.
 pub fn check_derivation_headings(md: &str) -> Result<usize, String> {
     let tau2 = mt_genesis::scalar("tau2");
     let mut compared = 0usize;
@@ -3661,7 +3662,7 @@ pub fn check_derivation_headings(md: &str) -> Result<usize, String> {
         }
         for (name, half) in names.iter().zip(halves.iter()) {
             let value = scalar_value(half, tau2)?;
-            let held = match mt_genesis::scalar(name) {
+            let held = match mt_genesis::scalar(name).or_else(|| proof_parameter(name)) {
                 Some(held) => held,
                 None => match name.rsplit_once('_') {
                     // A ratio stands in the Decree under one name and in a heading under two.
@@ -3673,14 +3674,15 @@ pub fn check_derivation_headings(md: &str) -> Result<usize, String> {
                     )?,
                     _ => {
                         return Err(format!(
-                            "a heading states a value under `{name}`, which the Decree does not hold"
+                            "a heading states a value under `{name}`, which neither the Decree \
+                             nor the proof scheme holds"
                         ))
                     }
                 },
             };
             if value != held {
                 return Err(format!(
-                    "heading divergence at `{name}`: the heading states {value}, the Decree holds {held}"
+                    "heading divergence at `{name}`: the heading states {value}, the row it names holds {held}"
                 ));
             }
             verified_note_number(name, value);
@@ -4571,10 +4573,12 @@ pub fn check_proof_vectors(md: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn check_proof_parameters(md: &str) -> Result<(), String> {
-    use mt_proof::ext::ELEMENT_BYTES;
+// The rows of the tables of the proof scheme, each with the value the code that proves holds for
+// it. They stand in the set beside the scheme and not in the Decree, so the two stages that read
+// them — the tables here, and a heading that restates one — read them from this one list.
+fn proof_parameter_rows() -> [(&'static str, u64); 13] {
     use mt_proof::params as p;
-    let rows: [(&str, u64); 13] = [
+    [
         ("proof_security_bits", u64::from(p::SECURITY_BITS)),
         ("proof_trace_width_bound", p::TRACE_WIDTH_BOUND as u64),
         ("proof_row_values", p::ROW_VALUES as u64),
@@ -4588,8 +4592,20 @@ pub fn check_proof_parameters(md: &str) -> Result<(), String> {
         ("rows_per_permutation", p::ROWS_PER_PERMUTATION as u64),
         ("the commitment to the execution trace", p::ROOT_BYTES as u64),
         ("the commitment to the quotient", p::ROOT_BYTES as u64),
-    ];
-    for (label, held) in rows {
+    ]
+}
+
+fn proof_parameter(name: &str) -> Option<u64> {
+    proof_parameter_rows()
+        .into_iter()
+        .find(|(label, _)| *label == name)
+        .map(|(_, held)| held)
+}
+
+pub fn check_proof_parameters(md: &str) -> Result<(), String> {
+    use mt_proof::ext::ELEMENT_BYTES;
+    use mt_proof::params as p;
+    for (label, held) in proof_parameter_rows() {
         compare_number(label, table_value(md, label)?, held)?;
     }
     // And the length of a proof is derived from those rows rather than restated: the shape of a
