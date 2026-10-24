@@ -555,3 +555,138 @@ mod tests {
         assert_ne!(first, place(&part(2), &aggregate, 0));
     }
 }
+
+// The agreement checked by a model checker rather than by examples: two machines holding two books
+// of one window, the pledges of every honest part the same wherever both hold them and the one
+// faulty part pledging anything in either, never decide two names. WINDOW-THEOREM.md, Theorem 1;
+// run by `cargo kani -p montana-node`. Four parts make the quorum three, so two quorums share an
+// honest part, and two attempts reach the third contradicting pair.
+#[cfg(kani)]
+mod proofs {
+    use super::*;
+
+    const WINDOW: u64 = 7;
+    const PARTS: usize = 4;
+    const FAULTY: usize = 3;
+    const ATTEMPTS: u32 = 2;
+
+    #[derive(Clone, Copy)]
+    struct Said {
+        name: u8,
+        since: u32,
+    }
+
+    // What one part says in one window: its heavy attestation's name and, per attempt, its closing
+    // pledge and its open one. A name of nought is a pledge not made.
+    #[derive(Clone, Copy)]
+    struct Script {
+        heavy: u8,
+        closing: [u8; ATTEMPTS as usize],
+        open: [Said; ATTEMPTS as usize],
+    }
+
+    fn any_name() -> u8 {
+        let name: u8 = kani::any();
+        kani::assume(name <= 2);
+        name
+    }
+
+    fn any_script() -> Script {
+        let mut open = [Said {
+            name: 0,
+            since: STANDS_ON_NONE,
+        }; ATTEMPTS as usize];
+        // Attempt zero has no open pledge but the heavy attestation (layout.rs, since_of_a_pledge).
+        for (attempt, said) in open.iter_mut().enumerate().skip(1) {
+            let since: u32 = kani::any();
+            kani::assume(since == STANDS_ON_NONE || (since as usize) < attempt);
+            *said = Said {
+                name: any_name(),
+                since,
+            };
+        }
+        Script {
+            heavy: any_name(),
+            closing: [any_name(), any_name()],
+            open,
+        }
+    }
+
+    fn part(at: usize) -> Part {
+        [at as u8 + 1; 32]
+    }
+
+    fn pledge(at: usize, attempt: u32, name: u8, since: u32) -> Pledge {
+        Pledge {
+            window: WINDOW,
+            attempt,
+            name: [name; 32],
+            since,
+            part_nullifier: part(at),
+            suite_id: 0,
+            answering_key: Vec::new(),
+            signature: Vec::new(),
+        }
+    }
+
+    // The honest predicate of Theorem 1: none of the three contradicting pairs. One pledge per kind
+    // and attempt rules out the first two by construction; the third is the agreement's own rule.
+    fn honest(at: usize, script: &Script) -> bool {
+        (0..ATTEMPTS).all(|closed| {
+            let name = script.closing[closed as usize];
+            (0..ATTEMPTS).all(|later| {
+                let open = script.open[later as usize];
+                name == 0
+                    || open.name == 0
+                    || !contradicts(
+                        &pledge(at, closed, name, closed),
+                        &pledge(at, later, open.name, open.since),
+                    )
+            })
+        })
+    }
+
+    // A book holding any part of each script: what reached one machine of the window.
+    fn book_of(scripts: &[Script; PARTS]) -> Book {
+        let mut book = Book::of_the_window(WINDOW);
+        for (at, script) in scripts.iter().enumerate() {
+            if script.heavy != 0 && kani::any() {
+                book.heavy(part(at), [script.heavy; 32]);
+            }
+            for attempt in 0..ATTEMPTS {
+                let closing = script.closing[attempt as usize];
+                if closing != 0 && kani::any() {
+                    book.pledge(pledge(at, attempt, closing, attempt));
+                }
+                let open = script.open[attempt as usize];
+                if open.name != 0 && kani::any() {
+                    book.pledge(pledge(at, attempt, open.name, open.since));
+                }
+            }
+        }
+        book
+    }
+
+    #[kani::proof]
+    #[kani::unwind(9)]
+    fn two_books_of_one_window_never_decide_two_names() {
+        let mut first = [any_script(), any_script(), any_script(), any_script()];
+        for (at, script) in first.iter().enumerate().take(FAULTY) {
+            kani::assume(honest(at, script));
+        }
+        let mut second = first;
+        second[FAULTY] = any_script();
+        first[FAULTY] = any_script();
+        let votes = BTreeMap::new();
+        let electorate = Electorate {
+            count: PARTS as u64,
+            committee: 0,
+            votes: &votes,
+        };
+        let one = book_of(&first).decided(&electorate);
+        let other = book_of(&second).decided(&electorate);
+        if let (Some((one, _)), Some((other, _))) = (one, other) {
+            assert_eq!(one, other);
+        }
+    }
+}

@@ -31,3 +31,7 @@ zeroize = { workspace = true }
 
 [dev-dependencies]
 mt-conformance = { path = "../mt-conformance" }
+
+# The harnesses of the model checker stand under cfg(kani), which `cargo kani` sets and no build does.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(kani)"] }
