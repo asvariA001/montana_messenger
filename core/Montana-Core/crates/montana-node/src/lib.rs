@@ -98,6 +98,8 @@ pub type Settlement = Box<dyn FnMut(Told) + Send>;
 
 type Settling = Arc<Mutex<Vec<(Round, [u8; 32], Settlement)>>>;
 
+type Carriers = Mutex<Vec<(mt_net::Closer, std::thread::JoinHandle<()>)>>;
+
 // The settlements of frames whose rounds left, with the positions they were told, kept until the
 // window of the frame is final: what a replay tells again, and what goes when nothing can move it.
 type Retelling = Arc<Mutex<Vec<(u64, [u8; 32], Settlement, Option<Vec<u64>>)>>>;
@@ -579,6 +581,28 @@ pub struct Machine {
     // where a replay moves them, until their window is final.
     settling: Settling,
     retelling: Retelling,
+    // The threads carrying the links this machine answered or was handed, each with the end of its
+    // link. **A machine stopped lets its store go.** Every such thread holds the store, and one
+    // still reading a link the far side kept open held the lock of the root after the machine was
+    // dropped, so a start on that store in the same process was refused as held by another.
+    carriers: Carriers,
+}
+
+// Every link the machine carries is ended and every thread carrying one is waited for, so the store
+// goes with the machine: the threads drop what they hold of it before the fields of the machine do.
+impl Drop for Machine {
+    fn drop(&mut self) {
+        let carriers = match self.carriers.get_mut() {
+            Ok(carriers) => std::mem::take(carriers),
+            Err(poisoned) => std::mem::take(poisoned.into_inner()),
+        };
+        for (closer, _) in &carriers {
+            closer.close();
+        }
+        for (_, carrier) in carriers {
+            let _ = carrier.join();
+        }
+    }
 }
 
 impl Machine {
@@ -649,6 +673,7 @@ impl Machine {
                 census: Arc::new(Mutex::new(census)),
                 settling: Arc::new(Mutex::new(Vec::new())),
                 retelling: Arc::new(Mutex::new(Vec::new())),
+                carriers: Mutex::new(Vec::new()),
             },
             born,
         ))
@@ -1094,6 +1119,7 @@ impl Machine {
     pub fn answer_one(&self) -> Result<usize, NodeError> {
         self.held.wait_for_room()?;
         let link = self.door.answer(&self.answering).map_err(NodeError::Net)?;
+        let closer = link.closer().map_err(NodeError::Net)?;
         let standing = self.held.took()?;
         let held = Arc::clone(&self.held);
         let open = Arc::clone(&self.open);
@@ -1103,7 +1129,7 @@ impl Machine {
         let width = mt_wire::cell_bytes().map_err(|_| of_the_decree("cell_bytes"))?;
         let admitted = Arc::clone(&self.admitted);
         let counts = Arc::clone(&self.counts);
-        std::thread::spawn(move || {
+        let carrier = std::thread::spawn(move || {
             let mut link = link;
             let _carried = carry_until_it_ends(
                 &mut link,
@@ -1117,6 +1143,7 @@ impl Machine {
             );
             held.release();
         });
+        self.keep_carrier(closer, carrier)?;
         Ok(standing)
     }
 
@@ -1130,6 +1157,7 @@ impl Machine {
     // the two carry nothing for each other. What a link is for is what crosses it afterwards, so
     // reaching and carrying are one call rather than two a caller must remember to make in order.
     pub fn carry(&self, link: Link) -> Result<(), NodeError> {
+        let closer = link.closer().map_err(NodeError::Net)?;
         let open = Arc::clone(&self.open);
         let standing_at_the_points = Arc::clone(&self.standing);
         let value = Arc::clone(&self.value);
@@ -1137,7 +1165,7 @@ impl Machine {
         let width = mt_wire::cell_bytes().map_err(|_| of_the_decree("cell_bytes"))?;
         let admitted = Arc::clone(&self.admitted);
         let counts = Arc::clone(&self.counts);
-        std::thread::spawn(move || {
+        let carrier = std::thread::spawn(move || {
             let mut link = link;
             let _carried = carry_until_it_ends(
                 &mut link,
@@ -1150,6 +1178,19 @@ impl Machine {
                 width,
             );
         });
+        self.keep_carrier(closer, carrier)
+    }
+
+    // A carrier is kept until the machine stops. Those whose links already ended go as the next one
+    // comes, so a machine answering for months holds the threads that stand and no more.
+    fn keep_carrier(
+        &self,
+        closer: mt_net::Closer,
+        carrier: std::thread::JoinHandle<()>,
+    ) -> Result<(), NodeError> {
+        let mut carriers = self.carriers.lock().map_err(|_| NodeError::Uncountable)?;
+        carriers.retain(|(_, carrier)| !carrier.is_finished());
+        carriers.push((closer, carrier));
         Ok(())
     }
 
