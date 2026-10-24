@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { t, locale } from "./strings.js";
 import { Glyph } from "./TopBar.jsx";
-import { Face, chatName, useChanged } from "./Chats.jsx";
+import { Face, SAVED, chatName, useChanged } from "./Chats.jsx";
 import { Page, Section, Toggle } from "./Settings.jsx";
 import { Crop } from "./Profile.jsx";
 import { EMOJI, REACTIONS } from "./Conversation.jsx";
@@ -205,7 +205,7 @@ function Pick({ title, except = [], onDone, onClose, foot = t("A group's letter 
   const [rows, setRows] = useState([]);
   const [q, setQ] = useState("");
   const [chosen, setChosen] = useState([]);
-  useEffect(() => { invoke("chats").then((r) => setRows(r.filter((x) => !x.group && !x.blocked && !except.includes(x.ref)))); }, []);
+  useEffect(() => { invoke("chats").then((r) => setRows(r.filter((x) => !x.group && !x.blocked && x.ref !== SAVED && !except.includes(x.ref)))); }, []);
   const shown = rows.filter((r) => !q.trim() || chatName(r.name).toLowerCase().includes(q.trim().toLowerCase()));
   const flip = (r) => setChosen(chosen.includes(r) ? chosen.filter((x) => x !== r) : [...chosen, r]);
   return (

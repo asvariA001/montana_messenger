@@ -276,6 +276,7 @@ pub fn listen(book: &Book, twin: &str, r: &str, epoch: &str, wait: u32) -> Optio
 
 /// THE VOIP KNOCK (iOS MontanaWakePush.wakeVoip): «ring» ‖ 0 ‖ twin ‖ 0 ‖ raw DEFLATE of the call's card, sealed under the pipe
 /// key; the first door that woke a phone ends the walk. 1 rung, 0 nobody (no phone of theirs takes VoIP wakes), -1 no door.
+#[allow(clippy::too_many_arguments)]
 pub fn wake_voip(book: &Book, twin: &str, r: &str, seed: &str, video: bool, name: &str, offer: &str, born: i64) -> i32 {
     let Some(secret) = book.secret(r) else { return -1 };
     let card = |o: &str| json!({ "o": o, "v": video, "s": seed, "n": name, "g": "", "av": false, "rj": false, "born": born }).to_string();

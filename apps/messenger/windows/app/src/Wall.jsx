@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { t, locale, mtSize } from "./strings.js";
 import { Glyph } from "./TopBar.jsx";
 import { Page, Section, Row, SHEET_GROUND } from "./Settings.jsx";
-import { chatName, rowTime } from "./Chats.jsx";
+import { SAVED, chatName, rowTime } from "./Chats.jsx";
 import { drawableUrl, sizeText } from "./Media.jsx";
 import { CORE_SAID } from "./Wallet.jsx";
 import { MintCoin } from "./Coin.jsx";
@@ -746,7 +746,7 @@ export function WallRules({ onClose }) {
   const [people, setPeople] = useState([]);
   const [act, setAct] = useState(null);
   const read = () => invoke("wall_rules").then(setR).catch(() => {});
-  useEffect(() => { read(); invoke("chats").then((rows) => setPeople((rows || []).filter((x) => !x.group && !x.blocked))).catch(() => {}); }, []);
+  useEffect(() => { read(); invoke("chats").then((rows) => setPeople((rows || []).filter((x) => !x.group && !x.blocked && x.ref !== SAVED))).catch(() => {}); }, []);
   if (!r) return null;
   const put = async (a, next) => { await invoke("wall_rule_set", { act: a, rule: next }); read(); };
   if (act) {

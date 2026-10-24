@@ -571,7 +571,7 @@ impl Desk<'_> {
                 // a file rides the cargo road under a fresh key, the road inside the pipe only the seed's devices open
                 let f: Value = serde_json::from_str(j).unwrap_or_default();
                 let road = match self.media.big(&m.mid) {
-                    Some(size) => history::lay_road_from(&crate::media::Source::Parts(&self.media, &m.mid, size)),
+                    Some(size) => history::lay_road_from(&crate::media::Source::Parts(self.media, &m.mid, size)),
                     None => self.media.get(&m.mid).and_then(|b| history::lay_road(&b)),
                 };
                 let Some(road) = road else { continue };
@@ -605,7 +605,7 @@ impl Desk<'_> {
         let o: Value = serde_json::from_str(body).unwrap_or_default();
         let at = w.at.unwrap_or(0.0);
         let Some(c) = self.book.chat(&w.c) else { return };
-        if at <= 0.0 || w.m.is_empty() || w.m.len() > 128 || c.msgs.iter().any(|m| m.mid == w.m) || c.graves.iter().any(|g| *g == w.m) {
+        if at <= 0.0 || w.m.is_empty() || w.m.len() > 128 || c.msgs.iter().any(|m| m.mid == w.m) || c.graves.contains(&w.m) {
             return;
         }
         let (own, t) = (w.o == Some(1), o["t"].as_str().unwrap_or(""));
@@ -640,7 +640,7 @@ impl Desk<'_> {
             return;
         }
         if kind.is_some() && !self.media.has(&row.mid) {
-            match o.get("road").and_then(|r| history::fetch_road_into(r, &self.media, &row.mid)) {
+            match o.get("road").and_then(|r| history::fetch_road_into(r, self.media, &row.mid)) {
                 Some(size) => {
                     let mut m: Value = serde_json::from_str(&row.text[crate::media::MARK.len()..]).unwrap_or_default();
                     m["sz"] = json!(size);
@@ -650,7 +650,7 @@ impl Desk<'_> {
             }
         }
         self.book.edit(&w.c, |c| {
-            if !c.msgs.iter().any(|m| m.mid == row.mid) && !c.graves.iter().any(|g| *g == row.mid) {
+            if !c.msgs.iter().any(|m| m.mid == row.mid) && !c.graves.contains(&row.mid) {
                 c.msgs.push(row);
                 c.msgs.sort_by_key(|m| m.at);
             }
@@ -869,7 +869,7 @@ mod tests {
         let j = serde_json::to_string(&w).unwrap();
         assert_eq!(j, r#"{"c":"ab","m":"t1-X","x":"привет","o":1,"at":1760943600.5,"q":3}"#, "empty fields are left out");
         // as iOS JSONEncoder writes [TwinWord]: every optional absent, a field this build does not know
-        let ios: Vec<Word> = serde_json::from_str(r#"[{"c":"cd","m":"M","x":"​​TR:1760943600123","o":1,"zz":2},{"m":"n","c":"c","x":"y","lp":"https:\/\/a"}]"#).unwrap();
+        let ios: Vec<Word> = serde_json::from_str(r#"[{"c":"cd","m":"M","x":"\u200b\u200bTR:1760943600123","o":1,"zz":2},{"m":"n","c":"c","x":"y","lp":"https:\/\/a"}]"#).unwrap();
         assert_eq!((ios[0].o, ios[0].at, ios[1].lp.as_deref()), (Some(1), None, Some("https://a")));
     }
 

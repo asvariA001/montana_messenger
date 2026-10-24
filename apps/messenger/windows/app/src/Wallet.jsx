@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { t, locale } from "./strings.js";
 import { Page, Section } from "./Settings.jsx";
-import { chatName, Face, hourOf, SelfFace } from "./Chats.jsx";
+import { chatName, Face, hourOf, SAVED, SelfFace } from "./Chats.jsx";
 import { Glyph } from "./TopBar.jsx";
 import { CoinSpinner, MintCoin, PULL, pullAngle } from "./Coin.jsx";
 import { AppIcon, TITLES } from "./Library.jsx";
@@ -124,7 +124,7 @@ function SendSheet({ available, onClose, onOpenChat }) {
   const fields = useRef({});
   useEffect(() => {
     invoke("seats_state").then((s) => setSeats(s?.parked || [])).catch(() => {});
-    invoke("chats").then((r) => setChats((r || []).filter((x) => !x.group && !x.blocked))).catch(() => {});
+    invoke("chats").then((r) => setChats((r || []).filter((x) => !x.group && !x.blocked && x.ref !== SAVED))).catch(() => {});
     invoke("coin_badges").then((b) => setTold(Object.fromEntries(Object.entries(b?.told || {}).filter(([, x]) => x.coins != null).map(([c, x]) => [c, x.coins])))).catch(() => {});
   }, []);
   const coins = (r) => Number(amounts[r] || 0);
@@ -363,7 +363,7 @@ function Top13({ st, person }) {
   useEffect(() => { invoke("coins_shown", {}).then(setShown).catch(() => {}); }, []);
   useEffect(() => {
     if (!open) return;
-    invoke("chats").then((rows) => setChats((rows || []).filter((r) => !r.group))).catch(() => {});
+    invoke("chats").then((rows) => setChats((rows || []).filter((r) => !r.group && r.ref !== SAVED))).catch(() => {});
     invoke("coin_badges").then(setBadges).catch(() => {});
   }, [open, st.top?.answered]);
   const top = st.top || {};
@@ -577,7 +577,7 @@ export function AutoReacts({ onClose }) {
   const [rows, setRows] = useState([]);
   const [amounts, setAmounts] = useState({});
   useEffect(() => {
-    invoke("chats").then((all) => setRows(all.filter((r) => !r.group && !r.blocked))).catch(() => {});
+    invoke("chats").then((all) => setRows(all.filter((r) => !r.group && !r.blocked && r.ref !== SAVED))).catch(() => {});
     invoke("auto_react", {}).then((rules) => setAmounts(Object.fromEntries(Object.entries(rules || {}).map(([k, v]) => [k, String(v.c)])))).catch(() => {});
   }, []);
   const type = (chat, typed) => {

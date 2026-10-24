@@ -91,11 +91,13 @@ pub fn get(url: &str, timeout_ms: u32, limit: usize, head: bool) -> Option<(i32,
     get_with(url, "Mozilla/5.0 (Windows NT 10.0) MontanaPreview/1", &[], timeout_ms, limit, head).map(|(c, d, _)| (c, d))
 }
 
+type Headers = Vec<(String, String)>;
+
 /// A GET with the request's own headers, answering the code, the bytes and the answer's headers (lower-case names) -- a VPN plan's
 /// panel reads a device by `x-hwid` and names the plan in `profile-title` (iOS MontanaVPNSubscription.request).
 #[cfg(windows)]
 pub fn get_with(url: &str, agent: &str, extra: &[(&str, &str)], timeout_ms: u32, limit: usize, head: bool)
-    -> Option<(i32, Vec<u8>, Vec<(String, String)>)> {
+    -> Option<(i32, Vec<u8>, Headers)> {
     use std::ptr::{null, null_mut};
     use windows_sys::Win32::Networking::WinHttp::*;
 
@@ -190,7 +192,7 @@ pub fn get(_: &str, _: u32, _: usize, _: bool) -> Option<(i32, Vec<u8>)> {
     None
 }
 #[cfg(not(windows))]
-pub fn get_with(_: &str, _: &str, _: &[(&str, &str)], _: u32, _: usize, _: bool) -> Option<(i32, Vec<u8>, Vec<(String, String)>)> {
+pub fn get_with(_: &str, _: &str, _: &[(&str, &str)], _: u32, _: usize, _: bool) -> Option<(i32, Vec<u8>, Headers)> {
     None
 }
 
@@ -230,6 +232,7 @@ pub enum Silence {
 /// set aside, and it is checked when the handshake is done and before a byte of the request leaves (WinHTTP's SENDING_REQUEST)
 /// -- the token rides only to the machine the person named. `progress` hears the share of the bytes sent, then of those come.
 #[cfg(windows)]
+#[allow(clippy::too_many_arguments)]
 pub fn exchange(method: &str, url: &str, headers: &[(&str, &str)], body: Body, sink: Sink, pin: Option<&str>, timeout_ms: u32,
                 progress: &dyn Fn(f64)) -> Result<Answer, Silence> {
     use std::io::{Read, Write};
@@ -436,6 +439,7 @@ pub fn exchange(method: &str, url: &str, headers: &[(&str, &str)], body: Body, s
     }
 }
 #[cfg(not(windows))]
+#[allow(clippy::too_many_arguments)]
 pub fn exchange(_: &str, _: &str, _: &[(&str, &str)], _: Body, _: Sink, _: Option<&str>, _: u32, _: &dyn Fn(f64)) -> Result<Answer, Silence> {
     Err(Silence::NoAnswer(0))
 }

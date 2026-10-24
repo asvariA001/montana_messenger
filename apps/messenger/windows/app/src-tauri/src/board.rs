@@ -395,7 +395,6 @@ struct Live {
     push: bool,
     seen_due: HashMap<String, Vec<String>>,
     blocked: HashSet<String>,
-    hi_said: HashSet<String>,
 }
 
 /// One wall per folder of a person (a test runs several at once).
@@ -438,6 +437,7 @@ fn save(vault: &Vault, s: &Store) {
 }
 
 /// Whether the wall was read this run (the presence word names its version only then).
+#[cfg(test)]
 pub fn loaded(vault: &Vault) -> bool {
     LIVE.lock().unwrap().as_ref().and_then(|m| m.get(vault.dir().to_string_lossy().as_ref())).is_some_and(|l| l.store.is_some())
 }
@@ -508,6 +508,7 @@ pub fn tail_at(dir: &str, conv: &str) -> String {
 }
 
 /// The version of my wall a presence word names to them; None while the wall is unread this run.
+#[cfg(test)]
 pub fn spoken(vault: &Vault, conv: &str) -> Option<String> {
     if !loaded(vault) {
         return None;
@@ -1219,6 +1220,7 @@ pub fn post_mine(vault: &Vault, id: &str, name: &str, text: &str, media: Vec<Med
 
 /// My post on another's wall (iOS publish → send «post»): the word to the owner, and the post on their page here until their
 /// page says it.
+#[allow(clippy::too_many_arguments)]
 pub fn post_on(vault: &Vault, wall: &str, id: &str, name: &str, text: &str, media: Vec<Media>, lp: Option<String>, face: Option<String>) -> Word {
     let at = now_s();
     let text: String = text.chars().take(TEXT_LIMIT).collect();
@@ -1606,12 +1608,6 @@ pub fn set_rule(vault: &Vault, act: &str, r: Rule) {
         l.push = true;
         save(vault, s);
     });
-}
-
-/// THE WALL SAYS ITSELF BEHIND A LETTER OF THE PERSON'S OWN (iOS introduce): one who hides their presence speaks no «W»; right
-/// after their own letter one «hi» says the build reads the wall, once a run per correspondent.
-pub fn introduce(vault: &Vault, conv: &str) -> Option<Word> {
-    with(vault, |l, _| (!conv.starts_with("grp:") && l.hi_said.insert(conv.to_string())).then(|| Word::of("hi")))
 }
 
 /// A word of the wall off the wire, parsed; None -- not ours or not readable (buried in silence).

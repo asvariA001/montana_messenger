@@ -2,7 +2,7 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { t, locale, dayWord } from "./strings.js";
 import { Glyph } from "./TopBar.jsx";
-import { Face, SelfFace, chatName, seenText, useChanged } from "./Chats.jsx";
+import { Face, SAVED, SelfFace, chatName, seenText, useChanged } from "./Chats.jsx";
 import { BIG, useFile } from "./Media.jsx";
 import * as player from "./player.js";
 import { TrackRow } from "./PlayerBar.jsx";
@@ -86,7 +86,8 @@ export function Contacts({ query, head = null, onWrite, onProfile }) {
   const [seen, setSeen] = useState({});   // each person's presence line (iOS: «online», «last seen …» under the name)
   const [exact, setExact] = useState(true);
   const look = () => invoke("chats").then((all) => {
-    const pairs = all.filter((r) => !r.group);   // people alone: a group is no contact (iOS ContactsTabView)
+    // people alone (iOS ContactsTabView, mtContacts): a group is no contact, nor Saved Messages, the room of writing to oneself
+    const pairs = all.filter((r) => !r.group && r.ref !== SAVED);
     setRows(pairs);
     Promise.all(pairs.map((r) => invoke("presence", { chat: r.ref }).then((s) => [r.ref, s]).catch(() => [r.ref, null])))
       .then((l) => setSeen(Object.fromEntries(l)));

@@ -1055,13 +1055,13 @@ fn seats_walk(app: AppHandle) {
         std::thread::sleep(std::time::Duration::from_secs(3));
         let mut tick: u64 = 0;
         loop {
-            if tick % 5 == 0 {
+            if tick.is_multiple_of(5) {
                 seats::sweep(h);
             }
             if std::fs::remove_file(h.base.join(seats::SHOW)).is_ok() {
                 show(&app);
             }
-            if tick % 30 == 0 {
+            if tick.is_multiple_of(30) {
                 seats::wake_shelf(h);
                 if app.state::<Person>().seed.has_seed() {
                     seats::note_face(h, &app.state::<Person>().profile.read().user_name);
@@ -1180,14 +1180,14 @@ fn coin_walk(app: AppHandle) {
                 tip::ask("start");
             }
             // the pipes another person of this computer met this one by stand in this person's book (iOS landShelf)
-            if tick % 2 == 0 && seats::take_met(&m.vault, &m.book) > 0 {
+            if tick.is_multiple_of(2) && seats::take_met(&m.vault, &m.book) > 0 {
                 changed(&app);
             }
             if WALLET_OPEN.load(std::sync::atomic::Ordering::SeqCst) {
-                if tick % 15 == 0 {
+                if tick.is_multiple_of(15) {
                     coinvault::soon("live", 0.0);
                 }
-                if tick % 3 == 0 {
+                if tick.is_multiple_of(3) {
                     tip::ask("live");   // a tip every three seconds: a coin of another device within that (iOS MTWalletScreen)
                 }
             }
@@ -1484,7 +1484,7 @@ fn send_coins(p: &Person, m: &Messenger, chat: &str, coins: i64) -> Result<Strin
         }
     }
     Ok(match sent {
-        wallet::Sent::Sent(id) => {
+        wallet::Sent::Taken(id) => {
             let text = format!("🪙 {} · {}\n{}{id}", group3(coins), coin_time(coins, p.lang.starts_with("ru")), coins::TX_LINK);
             d.draft(chat, &text, "", "");
             format!("sent:{id}")
@@ -1545,7 +1545,7 @@ fn group3(n: i64) -> String {
     let d = n.unsigned_abs().to_string();
     let mut out = String::new();
     for (i, ch) in d.chars().enumerate() {
-        if i > 0 && (d.len() - i) % 3 == 0 {
+        if i > 0 && (d.len() - i).is_multiple_of(3) {
             out.push(',');
         }
         out.push(ch);
@@ -1879,7 +1879,7 @@ async fn wall_do(app: AppHandle, act: String, wall: Option<String>, id: String, 
                             return Ok(false);
                         }
                         match wallet::send3(&m.vault, &h, w, &secret, coins, Some(&format!("post:{id}"))) {
-                            wallet::Sent::Sent(tx) => vec![(w.to_string(), board::coin_sent(&id, &tx))],
+                            wallet::Sent::Taken(tx) => vec![(w.to_string(), board::coin_sent(&id, &tx))],
                             wallet::Sent::Pending => return Ok(true),
                             _ => return Ok(false),
                         }
@@ -2307,9 +2307,11 @@ async fn keep_do(app: AppHandle, act: String, on: Option<bool>, chat: Option<Str
     Ok(())
 }
 
+type PeerPage = (String, String, String, String, String);
+
 /// A correspondent's page: the name, their words about themselves and their link (iOS PeerInfo).
 #[tauri::command]
-async fn peer_about(m: State<'_, Messenger>, chat: String) -> Result<Option<(String, String, String, String, String)>, ()> {
+async fn peer_about(m: State<'_, Messenger>, chat: String) -> Result<Option<PeerPage>, ()> {
     Ok(m.peer(&chat))
 }
 
@@ -4304,7 +4306,7 @@ fn walk(app: AppHandle) {
                             m.presence.post(&m.book, &d.twin, &c, &m.presence.word_watch(&m.book, &m.faces, &c, true));
                         }
                     }
-                    if tick % 15 == 0 && m.presence.sweep(&m.book, &d.twin) {
+                    if tick.is_multiple_of(15) && m.presence.sweep(&m.book, &d.twin) {
                         changed(&app);
                     }
                 }
@@ -4360,7 +4362,7 @@ fn walk(app: AppHandle) {
                         }
                         changed(&app);
                     }
-                    if tick % 60 == 0 && !(card::Card { vault: &m.vault }).outstanding_invites().is_empty() {
+                    if tick.is_multiple_of(60) && !(card::Card { vault: &m.vault }).outstanding_invites().is_empty() {
                         let kind = p.profile.read().card_kind;
                         m.card_link(&p, &kind);
                     }
@@ -4475,7 +4477,7 @@ pub fn run() {
                         std::thread::sleep(std::time::Duration::from_millis(800));
                         let (p, m) = (app.state::<Person>(), app.state::<Messenger>());
                         let Some(chat) = m.open.lock().unwrap().clone() else { return };
-                        if !m.front.lock().unwrap().0 || !m.book.chat(&chat).is_some_and(|c| c.unread > 0) {
+                        if !m.front.lock().unwrap().0 || m.book.chat(&chat).is_none_or(|c| c.unread == 0) {
                             return;
                         }
                         if let Some(d) = m.desk(&p) {

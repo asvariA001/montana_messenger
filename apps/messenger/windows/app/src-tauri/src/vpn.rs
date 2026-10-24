@@ -145,7 +145,7 @@ fn percent(s: &str) -> String {
 /// Base64 as the links write it: either alphabet, with or without its padding (iOS pad).
 fn unb64(s: &str) -> Option<Vec<u8>> {
     let mut t: String = s.chars().map(|c| match c { '-' => '+', '_' => '/', c => c }).collect();
-    while t.len() % 4 != 0 {
+    while !t.len().is_multiple_of(4) {
         t.push('=');
     }
     crate::wire::unb64(&t)
@@ -279,6 +279,7 @@ pub fn report(raw: &str) -> Report {
     }
     r
 }
+#[cfg(test)]
 pub fn parse_many(raw: &str) -> Vec<Config> {
     report(raw).servers
 }
@@ -696,6 +697,7 @@ pub fn share_json(c: &Config) -> Option<String> {
 }
 
 /// The probe's config (iOS MontanaVPNDelay.probeConfig): the outbound and nothing else -- no inbound, no routing, no dns.
+#[cfg(test)]
 pub fn probe_config(c: &Config) -> Option<String> {
     if c.proto == Proto::Unsupported {
         return None;

@@ -92,7 +92,7 @@ impl<'a> Card<'a> {
     }
 
     fn due(&self, stamp: &str) -> bool {
-        self.text(stamp).and_then(|s| s.parse::<f64>().ok()).map_or(true, |at| now_s() - at > 7200.0)
+        self.text(stamp).and_then(|s| s.parse::<f64>().ok()).is_none_or(|at| now_s() - at > 7200.0)
     }
 
     /// The card onto the node (and its stamp only on the node's ok), off the caller's thread.

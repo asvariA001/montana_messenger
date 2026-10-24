@@ -111,6 +111,7 @@ impl Ident {
 }
 
 const IDENT_KEY: &str = "mt.node.identity";
+#[cfg(test)]
 const KEM_KEY: &str = "mt.node.kem";
 
 /// The seed of a device key: the vault's, or drawn by the core and kept there first (a seed not kept is never used).
@@ -134,6 +135,7 @@ pub fn identity(vault: &Vault) -> Option<Ident> {
 
 /// THIS MACHINE'S SEALING KEY (iOS MontanaNodeKem.device, MontanaNetFrames 282-321): what a neighbour encapsulates to when it
 /// dials this computer -- device-local and drawn at random, as the identity is.
+#[cfg(test)]
 pub fn node_kem(vault: &Vault) -> Option<(Vec<u8>, Vec<u8>)> {
     crate::crypto::mlkem_keypair(&device_seed(vault, KEM_KEY, MT_MLKEM_SEED_LEN)?)
 }
@@ -239,13 +241,6 @@ fn responder3(mut st: Resp, msg3: &[u8]) -> Option<Session> {
     (rc == MT_OK).then_some(Session { send: r2i, recv: i2r, hash: h })
 }
 
-/// A first letter's point for a window (the core's mt_name_first_tag; iOS MTPipeBook.outgoingTag, Android nativeFirstTag).
-pub fn first_tag(root: &[u8], w: i64) -> Option<[u8; 16]> {
-    let mut out = [0u8; 16];
-    // SAFETY: the root with its length and a 16-byte output
-    (unsafe { mt_name_first_tag(root.as_ptr(), root.len(), w as u64, out.as_mut_ptr()) } == MT_OK).then_some(out)
-}
-
 /// A door of the network's list, or a neighbour's address (iOS MontanaNodes.Node 38-52): bare, or behind a delivery network
 /// with the web socket's path.
 #[derive(Debug, Clone, PartialEq)]
@@ -317,8 +312,12 @@ impl Writer {
 /// ONE CHANNEL: greeted as the one dialling or as the one dialled, then read until it dies. Its state is read by the holder
 /// while the channel's own thread reads the road.
 pub struct Channel {
+    // the door's name, its host and the moment it was dialled, for a reader of the channel; only a test reads one yet
+    #[allow(dead_code)]
     pub label: String,
+    #[allow(dead_code)]
     pub host: String,
+    #[allow(dead_code)]
     pub dial_at: i64,
     ready: AtomicBool,
     closed: AtomicBool,
@@ -344,7 +343,8 @@ enum Shut {
 pub enum Heard {
     /// Both registrations confirmed: the channel stands.
     Ready,
-    /// The peer named its owner (16 bytes, iOS MontanaNetMsg.ownerRef).
+    /// The peer named its owner (16 bytes, iOS MontanaNetMsg.ownerRef); the holder marks it, nothing reads the bytes yet.
+    #[allow(dead_code)]
     OwnerRef(Vec<u8>),
     /// A cell of the overlay.
     Frame(OverlayFrame),
@@ -505,9 +505,11 @@ fn watch(c: Arc<Channel>) {
     });
 }
 
+type Accepted = (TcpStream, (Vec<u8>, Vec<u8>));
+
 /// Greets and reads until the channel dies, on the caller's thread; `hear` is told what the channel says. `accepted` -- a
 /// neighbour that dialled this computer (its stream and this machine's KEM pair), else the door is dialled.
-pub fn run(c: Arc<Channel>, door: Option<&Door>, accepted: Option<(TcpStream, (Vec<u8>, Vec<u8>))>, ident: &Ident,
+pub fn run(c: Arc<Channel>, door: Option<&Door>, accepted: Option<Accepted>, ident: &Ident,
            hear: &mut dyn FnMut(&Channel, Heard)) {
     watch(c.clone());
     let reader = match (door, &accepted) {
@@ -653,6 +655,7 @@ pub fn dialling(d: &Door) -> Arc<Channel> {
 }
 
 /// A channel of a neighbour that dialled this computer.
+#[cfg(test)]
 pub fn answering(peer: &SocketAddr) -> Arc<Channel> {
     let host = peer.ip().to_string();
     let label = format!("in:{}", if host.contains(':') { format!("[{host}]:{}", peer.port()) } else { format!("{host}:{}", peer.port()) });

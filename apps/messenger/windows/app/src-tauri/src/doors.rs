@@ -23,8 +23,9 @@ const SHIPPED_CHANNEL: &str = "api.montana.quest:443\nmontana.xxx:443\nwss://doo
 static LEARNED: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
 static LAST_GOOD: Mutex<Option<String>> = Mutex::new(None);
+type Machine = (String, Vec<String>);
 /// The machines as the network named them, each with its HTTP doors, and when it was asked (s); empty -- the shipped list.
-static MACHINES: Mutex<(Vec<(String, Vec<String>)>, i64)> = Mutex::new((Vec::new(), 0));
+static MACHINES: Mutex<(Vec<Machine>, i64)> = Mutex::new((Vec::new(), 0));
 /// THE BARRED (iOS MontanaSafety.setBarred, Guideline 1.2): the addresses the network's operators barred after a report ride
 /// the same answer; every install refuses their letters and calls on every road, as a blocked one's.
 static BARRED: Mutex<Vec<String>> = Mutex::new(Vec::new());

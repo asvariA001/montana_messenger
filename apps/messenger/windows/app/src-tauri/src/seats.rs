@@ -264,7 +264,7 @@ pub fn pair_with_shelf(h: &Here, id: &str, mine: &crate::book::Book, my_name: &s
 fn pair_with(v: &crate::vault::Vault, name: &str, mine: &crate::book::Book, my_name: &str) -> Option<String> {
     let theirs = crate::book::Book::new(v.clone());
     let mut held: Vec<Vec<u8>> = theirs.refs().iter().filter_map(|r| theirs.secret(r)).collect();
-    held.extend(met(&v).into_iter().map(|(_, s, _)| s));
+    held.extend(met(v).into_iter().map(|(_, s, _)| s));
     if let Some(r) = mine.refs().into_iter().find(|r| mine.secret(r).is_some_and(|s| held.contains(&s))) {
         return Some(r);
     }

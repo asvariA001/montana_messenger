@@ -68,6 +68,7 @@ pub fn heard() -> bool {
     STATE.lock().unwrap().as_ref().is_some_and(|s| s.heard)
 }
 /// The run's memory of the rows let go (iOS forget; a check's second device in the same process).
+#[cfg(test)]
 pub fn forget() {
     *STATE.lock().unwrap() = None;
 }

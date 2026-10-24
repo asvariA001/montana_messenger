@@ -89,9 +89,10 @@ pub fn forget_told_key(vault: &Vault, conv: &str) {
     }
 }
 
+type Split = (i64, i64, i64, i64, f64);
 /// The chain's last word this run (iOS MTCoinSplit): proven, declared, height, the node's second it was told at and this computer's
 /// moment then (iOS 2305 Split.second, at).
-static SPLIT: Mutex<Option<(i64, i64, i64, i64, f64)>> = Mutex::new(None);
+static SPLIT: Mutex<Option<Split>> = Mutex::new(None);
 fn local_s() -> f64 {
     crate::wire::now_ms() as f64 / 1000.0
 }
@@ -421,7 +422,7 @@ pub fn note_peer_from(vault: &Vault, conv: &str, from: &str) {
 }
 
 pub enum Sent {
-    Sent(String),
+    Taken(String),
     Pending,
     NotApplicable(String),
     Failed,
@@ -464,14 +465,14 @@ pub fn send3(vault: &Vault, h: &Hands, conv: &str, secret: &[u8], coins_: i64, o
         mark(&format!("send code={code} coins={coins_} dec={dec} id={} attempt={attempt}", &id[..12]));
         if code == 200 && o.as_ref().and_then(|o| o["id"].as_str()) == Some(id.as_str()) {
             let mut s = state(vault);
-            s["open"].as_array_mut().map(|a| a.push(json!({ "id": id, "conv": conv, "coins": coins_, "at": st.now })));
+            if let Some(a) = s["open"].as_array_mut() { a.push(json!({ "id": id, "conv": conv, "coins": coins_, "at": st.now })); }
             save(vault, &s);
             laid(&id, coins_, st.height);
-            return Sent::Sent(id);
+            return Sent::Taken(id);
         }
         if code == -1 && ask(&door, "/tx-get", &json!({ "id": id })).0 == 200 {
             laid(&id, coins_, st.height);
-            return Sent::Sent(id);
+            return Sent::Taken(id);
         }
         // not taken: the coins come back under the record's name, and a head that moved is tried once more
         coins::moved(vault, "receive", coins_, &format!("{}{id}", coins::TX_BACK), Some(conv), on);
@@ -787,7 +788,7 @@ mod tests {
         let secret = crate::crypto::random(32).unwrap();
         note_peer_from(&va, "B", &hb.from());
         let id = match send3(&va, &ha, "B", &secret, 10, None) {
-            Sent::Sent(id) => id,
+            Sent::Taken(id) => id,
             _ => panic!("the SEND was not taken"),
         };
         let door = cointx::chain_door(&ha.from()).unwrap();

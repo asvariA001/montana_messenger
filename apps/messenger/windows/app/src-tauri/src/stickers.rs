@@ -316,6 +316,7 @@ pub fn heard(d: &Desk, store: &Store, chat: &str, text: &str) -> bool {
 }
 
 /// The picture of a sticker of the book, by its name here.
+#[cfg(test)]
 pub fn picture(store: &Store, name: &str) -> Option<Vec<u8>> {
     if !name.starts_with("stk_") || name.len() > 64 {
         return None;
@@ -324,6 +325,7 @@ pub fn picture(store: &Store, name: &str) -> Option<Vec<u8>> {
 }
 
 /// The kind of a sticker's picture, for the window's address of it.
+#[cfg(test)]
 pub fn kind_of(name: &str) -> &'static str {
     match name.rsplit('.').next() {
         Some("gif") => "image/gif",

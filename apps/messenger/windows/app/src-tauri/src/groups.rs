@@ -485,10 +485,6 @@ impl Desk<'_> {
         self.held().remove(id)
     }
 
-    pub fn groups(&self) -> Vec<Group> {
-        self.held().into_values().collect()
-    }
-
     fn edit_group(&self, id: &str, f: impl FnOnce(&mut Group)) -> Option<Group> {
         let mut all = self.held();
         let g = all.get_mut(id)?;
@@ -1199,7 +1195,7 @@ impl Desk<'_> {
         let Some(g) = self.group(id) else { return false };
         // a channel's administrator with «Post Messages» posts through the owner (iOS MTChannelRight.post)
         let subscriber = g.kind == "c" && !g.owner.is_empty() && !(g.admins.contains(&g.me) && admin_can(&g, &g.me, "po"));
-        if g.left || subscriber && !(text.starts_with(marks::REACT) && !g.reacts_off) {
+        if g.left || subscriber && (!text.starts_with(marks::REACT) || g.reacts_off) {
             return false; // a channel's subscriber only reads, and answers a post where the channel takes reactions
         }
         let name = self.my_name.trim().to_string();
@@ -1239,7 +1235,7 @@ impl Desk<'_> {
     /// A LETTER'S CARD INTO A GROUP (iOS carryCard): after the letter, as the group's own word «lp» under the letter's name, to
     /// everyone this machine carries to.
     pub fn group_card(&self, id: &str, letter: &str, lp: &str) {
-        let Some(g) = self.group(id).filter(|g| !g.left && !(g.kind == "c" && !g.owner.is_empty())) else { return };
+        let Some(g) = self.group(id).filter(|g| !g.left && (g.kind != "c" || g.owner.is_empty())) else { return };
         let Some(card) = crate::linkcard::fitted(lp) else { return };   // the group's word is a long road: the picture rides while it fits
         self.spread(&g, "", None, json!({ "t": "lp", "g": id, "id": letter, "s": g.me, "tx": card }));
     }
@@ -1594,7 +1590,7 @@ impl Desk<'_> {
                         if o["dl"] == json!(1) {
                             self.book.edit(&chat_of(gid), |c| c.msgs.clear());
                         }
-                        self.event(gid, "removed", "0", &[g.me.clone()], "");
+                        self.event(gid, "removed", "0", std::slice::from_ref(&g.me), "");
                         Verdict::Held
                     }
                     "bye" => {

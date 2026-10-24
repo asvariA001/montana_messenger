@@ -120,7 +120,7 @@ pub fn meet(v: &Vault, book: &Book, link: &str) -> Outcome {
         return Outcome::Opened(known.to_string());
     }
     // the card's own invitations are not a meeting with oneself
-    if (Card { vault: v }).outstanding_invites().iter().any(|i| *i == inv) {
+    if (Card { vault: v }).outstanding_invites().contains(&inv) {
         return Outcome::Own;
     }
     let Some(payload) = expand(&inv) else { return Outcome::Refused };

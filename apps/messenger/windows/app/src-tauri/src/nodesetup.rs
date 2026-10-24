@@ -53,7 +53,7 @@ pub async fn run(host: &str, user: &str, password: &str, command: &str, stdin: &
         while let Some(msg) = ch.wait().await {
             match msg {
                 ChannelMsg::Data { ref data } => out.extend_from_slice(data),
-                ChannelMsg::ExtendedData { ref data, ext } if ext == 1 => err.extend_from_slice(data),
+                ChannelMsg::ExtendedData { ref data, ext: 1 } => err.extend_from_slice(data),
                 ChannelMsg::ExitStatus { exit_status } => status = Some(exit_status),
                 _ => {}
             }

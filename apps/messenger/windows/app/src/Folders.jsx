@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { t } from "./strings.js";
 import { Glyph } from "./TopBar.jsx";
-import { Face, chatName } from "./Chats.jsx";
+import { Face, SAVED, SelfFace, rowTitle } from "./Chats.jsx";
 import { Page, Section } from "./Settings.jsx";
 
 /** THE FOLDERS OVER THE CHATS (iOS MTChatFolders): All and the person's folders, each the kinds of chats and the chats it takes,
@@ -294,7 +294,7 @@ function FolderEdit({ folder, rows, isNew, adding, onClose, onKeep }) {
     else { f.title = typed; delete f.preset; }
     onKeep(f);
   };
-  const nameOf = (ref) => chatName((rows.find((r) => r.ref === ref) || {}).name || ref.slice(0, 10));
+  const nameOf = (ref) => rowTitle(ref, (rows.find((r) => r.ref === ref) || {}).name || ref.slice(0, 10));
   if (picking) return <FolderPicker taking={picking === "in"} folder={draft} rows={rows} onDone={(f) => { setDraft(f); setPicking(null); }} />;
   const typeLine = (k) => {
     const [, word, glyph] = [...TYPES, ...STATES].find((x) => x[0] === k) || [k, k, "circle"];
@@ -359,7 +359,7 @@ function FolderPicker({ taking, folder, rows, onDone }) {
     if (taking) setF({ ...f, excluded: f.excluded.filter((x) => x !== ref), chats: f.chats.includes(ref) ? f.chats.filter((x) => x !== ref) : [...f.chats, ref] });
     else setF({ ...f, chats: f.chats.filter((x) => x !== ref), excluded: f.excluded.includes(ref) ? f.excluded.filter((x) => x !== ref) : [...f.excluded, ref] });
   };
-  const shown = rows.filter((r) => !r.blocked && (!q.trim() || chatName(r.name).toLowerCase().includes(q.trim().toLowerCase())));
+  const shown = rows.filter((r) => !r.blocked && (!q.trim() || rowTitle(r.ref, r.name).toLowerCase().includes(q.trim().toLowerCase())));
   const tick = (on) => <span className={"pick-tick" + (on ? " on" : "")}>{on ? "✓" : ""}</span>;
   return (
     <Page title={taking ? t("Include Chats") : t("Exclude Chats")} onClose={() => onDone(folder)} back
@@ -381,8 +381,8 @@ function FolderPicker({ taking, folder, rows, onDone }) {
         {shown.map((r) => {
           const on = taking ? f.chats.includes(r.ref) : f.excluded.includes(r.ref);
           return (
-            <button key={r.ref} className="set-row" aria-pressed={on} aria-label={chatName(r.name)} onClick={() => flipChat(r.ref)}>
-              <Face chat={r.ref} version={r.face} size={32} /><span className="row-title">{chatName(r.name)}</span>{tick(on)}
+            <button key={r.ref} className="set-row" aria-pressed={on} aria-label={rowTitle(r.ref, r.name)} onClick={() => flipChat(r.ref)}>
+              {r.ref === SAVED ? <SelfFace size={32} /> : <Face chat={r.ref} version={r.face} size={32} />}<span className="row-title">{rowTitle(r.ref, r.name)}</span>{tick(on)}
             </button>
           );
         })}

@@ -38,7 +38,7 @@ pub fn hex(b: &[u8]) -> String {
 }
 
 pub fn unhex(h: &str) -> Option<Vec<u8>> {
-    (h.len() % 2 == 0).then(|| (0..h.len()).step_by(2).map(|i| u8::from_str_radix(&h[i..i + 2], 16).ok()).collect()).flatten()
+    h.len().is_multiple_of(2).then(|| (0..h.len()).step_by(2).map(|i| u8::from_str_radix(&h[i..i + 2], 16).ok()).collect()).flatten()
 }
 
 pub fn le8(w: i64) -> [u8; 8] {
@@ -94,8 +94,9 @@ pub fn day() -> i64 {
 pub const WALK_ANCHOR_DAY: i64 = 20754; // 28.10.2026 UTC
 pub const MINUTES_PER_DAY: i64 = 1440;
 const MAX_WALK: i64 = 36_600;
+type Walks = std::collections::HashMap<Vec<u8>, (i64, Vec<u8>)>;
 /// secret -> (the steps walked, the value there): a walk goes on from where it stood
-static WALKED: std::sync::Mutex<Option<std::collections::HashMap<Vec<u8>, (i64, Vec<u8>)>>> = std::sync::Mutex::new(None);
+static WALKED: std::sync::Mutex<Option<Walks>> = std::sync::Mutex::new(None);
 pub fn pipe_secret(secret: &[u8], day: i64) -> Vec<u8> {
     let steps = (day - WALK_ANCHOR_DAY).clamp(0, MAX_WALK);
     if steps == 0 {
@@ -179,10 +180,12 @@ pub fn pipe_tag(secret: &[u8], w: i64) -> Vec<u8> {
     domained("mt-tag", &[secret, &le8(w)])[..16].to_vec()
 }
 
+#[cfg(test)]
 pub fn step_label(secret: &[u8], w: i64) -> Vec<u8> {
     domained("mt-step", &[secret, &le8(w)])[..16].to_vec()
 }
 
+#[cfg(test)]
 pub fn relay_seal(owner: &[u8], label: &[u8]) -> Vec<u8> {
     domained("mt-relay-seal", &[owner, label])[..16].to_vec()
 }
@@ -200,12 +203,14 @@ pub fn window_pos(overlay: &[u8], w: i64) -> [u8; 32] {
 }
 
 /// The order of Swift's lexicographicallyPrecedes over the first sixteen bytes: unsigned, a shorter prefix first.
+#[cfg(test)]
 fn order16(a: &[u8], b: &[u8]) -> std::cmp::Ordering {
     let n = 16.min(a.len()).min(b.len());
     a[..n].cmp(&b[..n]).then(16.min(a.len()).cmp(&16.min(b.len())))
 }
 
 /// THE HOLDER OF A TAG (iOS MTPipe.holder): the least commitment standing above the tag, the lowest of all when none does.
+#[cfg(test)]
 pub fn holder<'a>(tag: &[u8], commitments: &'a [Vec<u8>]) -> Option<&'a Vec<u8>> {
     let mut sorted: Vec<&Vec<u8>> = commitments.iter().collect();
     sorted.sort_by(|a, b| order16(a, b));

@@ -167,7 +167,7 @@ pub enum Refusal {
 /// THE COPY, READ (iOS Taker): every frame opened under the words, the stream read record by record, the pieces joined, the
 /// tail's digest checked against everything before it.
 pub fn read_copy(entropy: &[u8], file: &[u8]) -> Result<Vec<Record>, Refusal> {
-    if file.len() < 32 + FRAME || (file.len() - 32) % FRAME != 0 {
+    if file.len() < 32 + FRAME || !(file.len() - 32).is_multiple_of(FRAME) {
         return Err(Refusal::Unopened);
     }
     let salt = &file[..32];
@@ -484,7 +484,8 @@ pub fn restore(archive: &Archive, book: &Book, store: &media::Store, faces: Opti
     let files: std::collections::HashMap<&str, &[u8]> = records.iter().filter(|r| r.kind == KIND_STORE).map(|r| (r.name.as_str(), r.data.as_slice())).collect();
     let blocks: Vec<(&Record, Vec<Item>)> = records.iter().filter(|r| r.kind == KIND_BLOCK).map(|r| (r, archive.open_block(&r.data))).collect();
     // the heads first: which correspondence each SHA-256 of a reference is, and its name
-    let mut heads: std::collections::HashMap<[u8; 32], (Option<Vec<u8>>, bool, Option<String>)> = Default::default();
+    type Head = (Option<Vec<u8>>, bool, Option<String>);
+    let mut heads: std::collections::HashMap<[u8; 32], Head> = Default::default();
     let mut ordered: Vec<&Item> = blocks.iter().flat_map(|(_, it)| it.iter()).filter(|i| i.dir == HEAD_DIR).collect();
     ordered.sort_by_key(|i| i.at);
     for i in ordered {
@@ -634,14 +635,9 @@ pub fn kind_of(text: &str) -> &'static str {
 
 /// THE COPY OF THIS MACHINE (iOS MontanaBackup.create): every sealed block, then every file of a letter under the name its
 /// archive row gives it; the tail signs them.
+#[cfg(test)]
 pub fn make_copy(archive: &Archive, book: &Book, store: &media::Store, card: Option<Record>) -> Option<Vec<u8>> {
     make_copy_planned(archive, book, store, card, &Plan::default(), &std::collections::HashSet::new())
-}
-/// A copy that leaves out the files named in `skip` (iOS: the copy for one's own node stays light -- a file the node already keeps
-/// in pieces is not sealed into it a second time; the node's book brings it back).
-pub fn make_copy_without(archive: &Archive, book: &Book, store: &media::Store, card: Option<Record>, skip: &std::collections::HashSet<String>)
-    -> Option<Vec<u8>> {
-    make_copy_planned(archive, book, store, card, &Plan::default(), skip)
 }
 /// THE COPY AS THE PERSON PLANNED IT (iOS CopyInventory.scope): a conversation left out is not read at all -- none of its blocks,
 /// none of its files; a kind or a file left out stays out; `skip` adds the files a copy for the node leaves to the node's book.

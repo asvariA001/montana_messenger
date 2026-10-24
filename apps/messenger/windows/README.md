@@ -84,7 +84,7 @@ In `app/src-tauri`:
 |---|---|---|
 | `cargo test --lib` (debug) | 0 | 144 passed, 0 failed, 19 ignored |
 | `cargo test --release --lib` | 0 | 144 passed, 0 failed, 19 ignored |
-| `cargo clippy --all-targets -- -D warnings` | 101 | **fails**: about 100 lints (unused functions, complex types, `transmute` without annotations, manual implementations, too many arguments); no compile errors. Cleaning them is open work. |
+| `cargo clippy --all-targets -- -D warnings` | 0 | clean since the second commit of this port (24.10.2026): lints fixed, dead code removed or gated to tests, the core's ABI mirror kept with an `allow`; tests unchanged (144/144 in both profiles) |
 
 The ignored tests need the live network or a second window and are run by the scenes in `app/tools/` instead.
 In `core/Code`, before this branch's Windows commit: `cargo test --release --workspace` — 1 421 passed, 0 failed, 1 ignored

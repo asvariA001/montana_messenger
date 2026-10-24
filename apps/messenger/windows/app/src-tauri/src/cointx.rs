@@ -215,6 +215,7 @@ pub fn fields_hold(kind: u8, amount: u64, pair: &[u8], to: &[u8], refr: &[u8], a
 
 /// A record read back (versions 2 and 3), believed only when its shape holds and the core verifies its signature.
 #[derive(Clone, Debug)]
+#[allow(dead_code)] // every field of the record as it is laid, read here or not
 pub struct Rec {
     pub id: String,
     pub version: u8,
@@ -236,7 +237,7 @@ fn u64_at(b: &[u8], at: usize) -> u64 {
     u64::from_le_bytes(b[at..at + 8].try_into().unwrap())
 }
 fn unhex(s: &str) -> Option<Vec<u8>> {
-    if s.len() % 2 != 0 {
+    if !s.len().is_multiple_of(2) {
         return None;
     }
     (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).ok()).collect()

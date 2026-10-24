@@ -113,13 +113,13 @@ mod tests {
         std::fs::write(&opened, vec![1u8; 60]).unwrap();
         let letters: HashSet<String> = ["aaaa".to_string(), "bbbb".to_string()].into();
         let walls: HashSet<String> = ["cccc".to_string()].into();
-        let u = measure(&d, &letters, &walls, &[opened.clone()], &[]);
+        let u = measure(&d, &letters, &walls, std::slice::from_ref(&opened), &[]);
         assert_eq!((u.chats, u.walls, u.unnamed, u.kept, u.faces, u.history), (1708, 300, 50, 40, 20, 100));
         assert_eq!(u.opened, 60);
         // the opened file lies inside this test's folder; in the program it lies in the person's Downloads, outside it
         assert_eq!(u.other, 5000 + 2 + 60);
         assert_eq!(u.total, size(&d) + 60);
-        assert_eq!(clear(&[opened.clone()]), 60);
+        assert_eq!(clear(std::slice::from_ref(&opened)), 60);
         assert!(!opened.exists());
         let _ = std::fs::remove_dir_all(&d);
     }

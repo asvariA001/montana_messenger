@@ -188,7 +188,7 @@ fn entry(l: &Link) -> Entry {
 /// chess and its Timer, the pull, spending, sending, burning.
 fn bore(e: &Entry) -> bool {
     let s = coins::source(e, false);
-    !(e.k == "earn" && matches!(s, "chats" | "groups" | "channels")) && !(e.k == "receive" && s != "chess")
+    !((e.k == "earn" && matches!(s, "chats" | "groups" | "channels")) || (e.k == "receive" && s != "chess"))
 }
 
 /// What this run knows (one person a process -- a seat's move starts it anew): this device's lane, the last link of every other
@@ -288,6 +288,7 @@ pub fn seen() -> Option<i64> {
     with(|st| st.seen)
 }
 /// The run's memory of the tips let go (a check's second device in the same process).
+#[cfg(test)]
 pub fn forget() {
     *STATE.lock().unwrap() = None;
 }

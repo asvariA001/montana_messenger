@@ -345,9 +345,11 @@ pub fn seal_piece(piece: &[u8], key: &[u8; 32], index: usize) -> Option<(Vec<u8>
     Some((sealed, bid))
 }
 
+type SealedName = (Option<Vec<u8>>, String, usize);
+
 /// Every piece sealed, for its name and size: a file in hand keeps its seals for the laying; a big one lets each go, and
 /// the laying seals it again -- the nonce is derived, so the seal is the same.
-fn sealed_names(src: &Source, key: &[u8; 32]) -> Option<Vec<(Option<Vec<u8>>, String, usize)>> {
+fn sealed_names(src: &Source, key: &[u8; 32]) -> Option<Vec<SealedName>> {
     let keep = matches!(src, Source::Bytes(_));
     (0..src.count()).map(|i| {
         let piece = src.piece(i)?;

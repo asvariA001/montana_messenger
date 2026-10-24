@@ -19,8 +19,6 @@ pub const PRICE: i64 = 1;
 /// A minting window of τ1: a game's coins of a minute ride one move.
 const WINDOW_S: f64 = 60.0;
 pub const TICKER: &str = "$TCM";
-/// One coin is one billionth of a Montana.
-pub const PER_MONTANA: i64 = 1_000_000_000;
 /// The prefixes of the book's own names (iOS refPrefix of each door).
 pub const TAP: &str = "tap:";
 pub const PULL: &str = "tap:pull-";
@@ -596,7 +594,7 @@ pub fn letter_of(text: &str) -> Option<(i64, String)> {
     if !text.starts_with("🪙 ") || text.len() > 512 {
         return None;
     }
-    let line = text.split('\n').last()?.strip_prefix(LETTER_LINK)?;
+    let line = text.split('\n').next_back()?.strip_prefix(LETTER_LINK)?;
     let code: String = line.chars().map(|c| match c { '-' => '+', '_' => '/', x => x }).collect();
     let o: serde_json::Value = serde_json::from_slice(&crate::wire::unb64(&code)?).ok()?;
     let (c, id) = (o["c"].as_i64()?, o["id"].as_str()?.to_string());
@@ -630,10 +628,6 @@ pub fn vault_keys(entropy: &[u8]) -> VaultKeys {
     VaultKeys { seal: hkdf(entropy, b"mt-coins-vault-key-v1"), token: hmac(&owner, b"mt-coins-vault-token"), tip: hmac(&owner, b"mt-timechain-tip-token"), owner }
 }
 impl VaultKeys {
-    /// The tag only the same words make of one conversation (iOS MTCoinVault.ownTag): a pair of my own words pays nothing.
-    pub fn own_tag(&self, conv: &str) -> [u8; 32] {
-        hmac(&self.owner, &[b"mt-own-words-v1".as_slice(), conv.as_bytes()].concat())
-    }
     /// A node's own row of the book (iOS nodeToken) and the person's chain's row (personRow).
     pub fn node_token(&self, host: &str) -> [u8; 32] {
         hmac(&self.owner, &[b"mt-coins-vault-node-v1".as_slice(), host.as_bytes()].concat())

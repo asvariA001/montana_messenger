@@ -146,7 +146,7 @@ fn moment(text: &str) -> Option<i64> {
     let (rest, secs) = text.match_indices('T').find_map(|(i, _)| {
         let rest = &text[i + 1..];
         let secs: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
-        (9..=11).contains(&secs.len()).then(|| (rest, secs))
+        (9..=11).contains(&secs.len()).then_some((rest, secs))
     })?;
     let s: i64 = secs.parse().ok()?;
     let after = &rest[secs.len()..];
@@ -528,7 +528,7 @@ impl Presence {
 
     /// One long poll of the lane of a correspondence (iOS /signal-fetch): the words the others said since; «box» says a letter
     /// waits in the box. The words, opened: (epoch, bytes); and whether the box called.
-    pub fn listen(book: &Book, twin: &str, r: &str, dev: &str) -> Option<(Vec<(String, Vec<u8>)>, bool)> {
+    pub fn listen(book: &Book, twin: &str, r: &str, dev: &str) -> Option<(Vec<Opened>, bool)> {
         let secret = book.secret(r)?;
         let cw = conv_w(&secret, wire::day());
         let tag = crate::wire::hex(&sha(&[b"mt-lane-dev\0", dev.as_bytes(), b"\0", cw.as_bytes()])[..8]);
@@ -553,6 +553,8 @@ impl Presence {
         Some((out, boxed))
     }
 }
+
+type Opened = (String, Vec<u8>);
 
 /// The words of the wire a lane carries never land as letters of the feed.
 pub fn is_lane_word(t: &str) -> bool {

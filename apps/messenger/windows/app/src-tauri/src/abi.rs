@@ -4,6 +4,7 @@
 use std::ffi::c_void;
 use std::os::raw::{c_char, c_int};
 
+#[cfg(test)]
 pub const ABI_VERSION: u32 = 1;
 pub const MT_OK: c_int = 0;
 pub const MT_MAX_MNEMONIC_BYTES: usize = 512;
@@ -69,5 +70,7 @@ extern "C" {
     pub fn mt_noise_state_free_initiator1(state: *mut c_void);
     pub fn mt_noise_state_free_initiator2(state: *mut c_void);
     pub fn mt_noise_state_free_responder(state: *mut c_void);
+    // a first letter's tag (iOS MTPipeBook.outgoingTag): the header's door, not called here
+    #[allow(dead_code)]
     pub fn mt_name_first_tag(contact_root: *const u8, root_len: usize, window: u64, out16: *mut u8) -> c_int;
 }

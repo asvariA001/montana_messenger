@@ -26,6 +26,8 @@ const FRAME_MEMORY: usize = 8192;
 /// iOS repairUnnamedOwners: a machine that never named its owner is given ours again, ten times at most.
 const OWNER_ASKS: u32 = 10;
 
+type Land = dyn Fn(&str, &[u8]) + Send + Sync;
+
 /// What the holder asks of the person seated, and where a letter off a channel lands.
 pub struct Hooks {
     /// the person's pipes: (reference, secret)
@@ -33,10 +35,12 @@ pub struct Hooks {
     /// the person's owner branch (the seed's «mt-owner-key»)
     pub owner: Box<dyn Fn() -> Option<Vec<u8>> + Send + Sync>,
     /// a letter of a pipe opened off a channel: (reference, the letter's plain)
-    pub land: Box<dyn Fn(&str, &[u8]) + Send + Sync>,
+    pub land: Box<Land>,
     /// a wake or a point of rendezvous: something waits in the box
     pub wake: Box<dyn Fn() + Send + Sync>,
 }
+
+type FrameIds = HashSet<[u8; 16]>;
 
 struct Holder {
     hooks: Hooks,
@@ -49,7 +53,7 @@ struct Holder {
     book: Mutex<HashMap<String, ([u8; 32], i64)>>,
     /// a door's label -> the times its machine was given our owner
     asks: Mutex<HashMap<String, u32>>,
-    frames: Mutex<(HashSet<[u8; 16]>, HashSet<[u8; 16]>)>,
+    frames: Mutex<(FrameIds, FrameIds)>,
     knocked: AtomicBool,
 }
 
@@ -244,7 +248,7 @@ fn received(h: &Arc<Holder>, c: &Channel, f: OverlayFrame) {
     }
     let w = wire::minute();
     let under_tag = f.dst[16..].iter().all(|b| *b == 0);
-    let pipe = if under_tag { my_pipes(h, w).remove(&f.dst[..16].to_vec()) } else { None };
+    let pipe = if under_tag { my_pipes(h, w).remove(&f.dst[..16]) } else { None };
     let at_me = !under_tag && [w - 1, w, w + 1].iter().any(|k| wire::window_pos(&h.ident.tag, *k) == f.dst);
     if pipe.is_none() && !at_me {
         carry(h, c, &f, under_tag, w);

@@ -61,23 +61,23 @@ fn load(dll: &Path) -> Option<Doors> {
         return None;
     }
     macro_rules! door {
-        ($name:literal) => {{
+        ($name:literal, $ty:ty) => {{
             let f = unsafe { GetProcAddress(module, concat!($name, "\0").as_ptr()) }?;
-            unsafe { std::mem::transmute::<unsafe extern "system" fn() -> isize, _>(f) }
+            unsafe { std::mem::transmute::<unsafe extern "system" fn() -> isize, $ty>(f) }
         }};
     }
     Some(Doors {
-        device_open: door!("mtc_device_open"),
-        device_standing: door!("mtc_device_standing"),
-        person_stands: door!("mtc_person_stands"),
-        wallet_balance: door!("mtc_wallet_balance"),
-        wallet_notes: door!("mtc_wallet_notes"),
-        machine_head: door!("mtc_machine_head"),
-        machine_reach: door!("mtc_machine_reach"),
-        pulse_running: door!("mtc_pulse_running"),
-        pulse_lived: door!("mtc_pulse_lived"),
-        pulse_lived_at: door!("mtc_pulse_lived_at"),
-        last_said: door!("mtc_last_said"),
+        device_open: door!("mtc_device_open", Open),
+        device_standing: door!("mtc_device_standing", Out32),
+        person_stands: door!("mtc_person_stands", Out32),
+        wallet_balance: door!("mtc_wallet_balance", Bytes),
+        wallet_notes: door!("mtc_wallet_notes", OutUsize),
+        machine_head: door!("mtc_machine_head", Head),
+        machine_reach: door!("mtc_machine_reach", Reach),
+        pulse_running: door!("mtc_pulse_running", Out32),
+        pulse_lived: door!("mtc_pulse_lived", OutUsize),
+        pulse_lived_at: door!("mtc_pulse_lived_at", LivedAt),
+        last_said: door!("mtc_last_said", Said),
     })
 }
 #[cfg(not(windows))]

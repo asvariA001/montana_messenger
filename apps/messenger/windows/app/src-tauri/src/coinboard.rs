@@ -56,10 +56,6 @@ fn with<R>(vault: &Vault, f: impl FnOnce(&mut State) -> R) -> R {
 fn keep(vault: &Vault, st: &State) {
     vault.set(KEY, serde_json::to_vec(&st.kept).unwrap_or_default().as_slice());
 }
-/// The person seated anew: the board of the person who left goes with their folder.
-pub fn reread() {
-    *STATE.lock().unwrap() = None;
-}
 
 /// Whether the owner shows their coins (on by default, as iOS).
 pub fn shown(vault: &Vault) -> bool {

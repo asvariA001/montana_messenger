@@ -445,7 +445,7 @@ impl<'a> Desk<'a> {
         }
         let held;
         let src = match self.media.big(mid) {
-            Some(size) => media::Source::Parts(&self.media, mid, size),
+            Some(size) => media::Source::Parts(self.media, mid, size),
             None => {
                 held = self.media.get(mid)?;
                 media::Source::Bytes(&held)
@@ -522,6 +522,7 @@ impl<'a> Desk<'a> {
         ok
     }
 
+    #[cfg(test)]
     pub fn send(&self, r: &str, text: &str) -> String {
         let mid = self.draft(r, text, "", "");
         self.post(r, &mid);
@@ -811,7 +812,7 @@ impl<'a> Desk<'a> {
         // credits it.
         if let (Some(h), Some(secret)) = (hands, self.book.secret(r)) {
             return match crate::wallet::send3(self.vault, h, r, &secret, coins, Some(&sid)) {
-                crate::wallet::Sent::Sent(id) => {
+                crate::wallet::Sent::Taken(id) => {
                     let w = json!({ "sid": sid, "txt": m.text, "e": "🪙", "op": "coin3", "c": coins, "tx": id });
                     self.word(r, &mint_mid(), &format!("{}{}", marks::REACT, w));
                     crate::trace_line(&format!("coin_reaction v3 coins={coins}"));
@@ -895,11 +896,6 @@ impl<'a> Desk<'a> {
 
     // ───────────────────────────── receiving ─────────────────────────────
 
-    /// Whether a file of theirs is gone from every store.
-    pub fn media_gone(&self, mid: &str) -> bool {
-        jmap(self.vault, MEDIA_GONE).contains_key(mid)
-    }
-
     /// THE FILES OF THEIR LETTERS (iOS receive): a named manifest unfolded into the row, the pieces fetched, checked and kept;
     /// «delivered» only once the file is whole; a file gone from every store is said once (CG:) and stays «not received».
     /// One file per call; `want` names a file the person asked for whatever its size. True when something changed. A file of
@@ -939,7 +935,7 @@ impl<'a> Desk<'a> {
                 }
                 // a big file comes piece by piece into the store, never whole in memory (iOS downloadToFile)
                 let got = if media::is_big(&manifest) {
-                    media::download_into(&manifest, &self.media, &m.mid).map(|_| true)
+                    media::download_into(&manifest, self.media, &m.mid).map(|_| true)
                 } else {
                     media::download(&manifest).map(|bytes| self.media.put(&m.mid, &bytes))
                 };
@@ -1330,7 +1326,7 @@ impl<'a> Desk<'a> {
                 if let Some(u) = upto {
                     c.peer_read = c.peer_read.max(u);
                 }
-                for m in c.msgs.iter_mut().filter(|m| m.mine && upto.map_or(true, |u| birth_ms(&m.mid).unwrap_or(0) <= u)) {
+                for m in c.msgs.iter_mut().filter(|m| m.mine && upto.is_none_or(|u| birth_ms(&m.mid).unwrap_or(0) <= u)) {
                     m.advance(3);
                 }
             });
@@ -1708,7 +1704,7 @@ mod tests {
         assert!(wait(&alice, &|| ba.chat(&ra).unwrap().msgs.iter().any(|m| m.peer_react == "🔥")), "the reaction never came");
         alice.pin(&ra, &mid, true, true);
         assert!(wait(&bob, &|| bb.chat(&rb).unwrap().pins.contains(&mid)), "the pin never came");
-        alice.delete(&ra, &[lm.clone()], true);
+        alice.delete(&ra, std::slice::from_ref(&lm), true);
         assert!(wait(&bob, &|| !bb.chat(&rb).unwrap().msgs.iter().any(|m| m.mid == lm)), "the deletion never came");
 
         // a file of 1.2 MB in three pieces: Bob's goes up, Alice's comes whole, Bob's letter turns «delivered»

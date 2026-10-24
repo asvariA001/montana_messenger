@@ -9,7 +9,7 @@
 
 use crate::http::{self, Body, Sink, Silence};
 use crate::vault::Vault;
-use crate::wire::{hex, hmac, sha};
+use crate::wire::{hex, hmac};
 use serde::Serialize;
 
 const HOST: &str = "homeNodeHost";
@@ -33,8 +33,9 @@ pub fn vault_key(entropy: &[u8]) -> [u8; 32] {
 pub fn token(k: &[u8; 32]) -> [u8; 32] {
     hmac(k, b"mt-vault-token")
 }
+#[cfg(test)]
 pub fn shelf(t: &[u8]) -> String {
-    hex(&sha(&[t]))
+    hex(&crate::wire::sha(&[t]))
 }
 pub fn token_hex(entropy: &[u8]) -> String {
     hex(&token(&vault_key(entropy)))

@@ -89,8 +89,10 @@ export function ForwardSheet({ from, onPick, onClose, title }) {
   const word = title || t("Forward");
   const [rows, setRows] = useState([]);
   const [q, setQ] = useState("");
-  useEffect(() => { invoke("chats").then((r) => setRows(r.filter((x) => !x.blocked))); }, []);
-  const shown = rows.filter((r) => !q.trim() || chatName(r.name).toLowerCase().includes(q.trim().toLowerCase()));
+  const [me, setMe] = useState(null);
+  useEffect(() => { invoke("chats").then((r) => setRows(r.filter((x) => !x.blocked))); invoke("identity_state").then(setMe).catch(() => {}); }, []);
+  // the chats tab's list one to one, Saved Messages included under its own word and one's own face (iOS ForwardPickerView)
+  const shown = rows.filter((r) => !q.trim() || rowTitle(r.ref, r.name).toLowerCase().includes(q.trim().toLowerCase()));
   return (
     <div className="sheet-shade" onClick={onClose}>
       <div className="meet forward" onClick={(e) => e.stopPropagation()} role="dialog" aria-label={word}>
@@ -101,8 +103,8 @@ export function ForwardSheet({ from, onPick, onClose, title }) {
         <input className="meet-field" placeholder={t("Search")} value={q} onChange={(e) => setQ(e.target.value)} aria-label={t("Search")} autoFocus />
         <div className="forward-rows">
           {shown.map((r) => (
-            <button key={r.ref} className="forward-row" onClick={() => onPick(r.ref)} aria-label={`${word}: ${chatName(r.name)}`}>
-              <Face chat={r.ref} version={r.face} size={36} /><span>{chatName(r.name)}</span>
+            <button key={r.ref} className="forward-row" onClick={() => onPick(r.ref)} aria-label={`${word}: ${rowTitle(r.ref, r.name)}`}>
+              {r.ref === SAVED ? <SelfFace name={me?.name} version={me?.face} size={36} /> : <Face chat={r.ref} version={r.face} size={36} />}<span>{rowTitle(r.ref, r.name)}</span>
             </button>
           ))}
         </div>

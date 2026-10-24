@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { t } from "./strings.js";
 import { Glyph } from "./TopBar.jsx";
-import { Face, chatName, useChanged } from "./Chats.jsx";
+import { Face, SAVED, chatName, useChanged } from "./Chats.jsx";
 import { Page, Section } from "./Settings.jsx";
 import { TIME_CONTROLS, action, canClaimDraw, finished, games, invitation, letterText, mySide, parseLetter, remaining, replay, running, score, share, square, uci } from "./chess-core.js";
 import { LEVELS } from "./chess-engine.js";
@@ -293,7 +293,7 @@ export function ChessPane({ query }) {
   const [choosing, setChoosing] = useState(false);
   const [people, setPeople] = useState([]);
   const look = async () => {
-    const rows = (await invoke("chats").catch(() => [])).filter((r) => !r.group && !r.blocked);
+    const rows = (await invoke("chats").catch(() => [])).filter((r) => !r.group && !r.blocked && r.ref !== SAVED);
     setPeople(rows);
     const out = [];
     for (const r of rows) {

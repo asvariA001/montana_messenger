@@ -351,7 +351,7 @@ impl Messenger {
     pub fn talk(&self, r: &str, me: &str) -> Option<Talk> {
         let c = self.book.chat(r)?;
         let group = r.strip_prefix("grp:").and_then(|id| crate::groups::held_of(&self.vault).remove(id));
-        let ru = !self.vault.get("lang").is_some_and(|l| l == b"en");
+        let ru = self.vault.get("lang").is_none_or(|l| l != b"en");
         let gone: Vec<String> = self.vault.get("mediaGone").and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
             .and_then(|v| v.as_object().map(|o| o.keys().cloned().collect())).unwrap_or_default();
         let channel = group.as_ref().filter(|g| g.kind == "c");
@@ -622,7 +622,7 @@ mod tests {
 
     #[test]
     fn the_list_stands_as_ios_orders_it() {
-        let mut rows = vec![(false, 50, "Вера"), (true, 10, "Анна"), (true, 30, "Борис"), (false, 50, "Глеб"), (false, 90, "Дина")];
+        let mut rows = [(false, 50, "Вера"), (true, 10, "Анна"), (true, 30, "Борис"), (false, 50, "Глеб"), (false, 90, "Дина")];
         rows.sort_by(|a, b| list_order(*a, *b));
         let names: Vec<&str> = rows.iter().map(|r| r.2).collect();
         assert_eq!(names, ["Борис", "Анна", "Дина", "Вера", "Глеб"], "the one pinned last on top, then the freshest, then the name");
