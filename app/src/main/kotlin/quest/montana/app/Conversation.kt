@@ -2941,6 +2941,8 @@ private fun mediaBody(c: Context, m: Msg, into: LinearLayout, chat: Chat? = null
             addView(TransferMark(c, m.mid, null, spinner), FrameLayout.LayoutParams(MATCH, MATCH))
             // a tap on a riding letter is harmless (iOS primaryTap: «the letter keeps riding»)
             if (f != null) setOnClickListener { if (!Transfers.riding(m.mid)) (c as? MainActivity)?.let { a -> openMedia(a, f, kind) } }
+            // A FILM PLAYS FROM ITS FIRST PIECES (iOS onTapVideo, 25.09): the player opens on its loader at once; no manifest -- the download
+            else if (kind == "vid") setOnClickListener { if ((c as? MainActivity)?.let { a -> Streams.play(a, m) } != true && Media.waiting(c, m)) Media.tapped(c, m) }
             else if (Media.waiting(c, m)) setOnClickListener { Media.tapped(c, m) }
         }, LinearLayout.LayoutParams(boxW, fit.second).apply { bottomMargin = c.dp(4) })
     } else {

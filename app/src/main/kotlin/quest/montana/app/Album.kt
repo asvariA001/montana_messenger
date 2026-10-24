@@ -274,6 +274,8 @@ internal fun albumBody(c: Context, members: List<Msg>, into: LinearLayout) {
         if (m.mine && m.state == -1) tile.addView(c.failedMark(), FrameLayout.LayoutParams(c.dp(16), c.dp(16), Gravity.TOP or Gravity.END).apply { setMargins(0, c.dp(6), c.dp(6), 0) })
         // a tap on a tile still riding is harmless (iOS primaryTap: «the tile keeps riding»)
         if (f != null) tile.setOnClickListener { if (!Transfers.riding(m.mid)) (c as? MainActivity)?.let { a -> openMedia(a, f, kind) } }
+        // a tile's film plays from its first pieces as a single film does (iOS tileTap → store.stream(forFile:))
+        else if (kind == "vid") tile.setOnClickListener { if ((c as? MainActivity)?.let { a -> Streams.play(a, m) } != true && Media.waiting(c, m)) Media.tapped(c, m) }
         else if (Media.waiting(c, m)) tile.setOnClickListener { Media.tapped(c, m) }
         plate.addView(tile, FrameLayout.LayoutParams(ceil(t.rect.width() * d).toInt(), ceil(t.rect.height() * d).toInt()).apply {
             leftMargin = (t.rect.left * d).toInt(); topMargin = (t.rect.top * d).toInt()

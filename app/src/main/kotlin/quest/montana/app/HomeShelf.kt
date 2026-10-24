@@ -148,7 +148,7 @@ object HomeShelf {
     private fun newborn(f: File) = System.currentTimeMillis() - f.lastModified() < 60_000
     /** The store's files a pass may take: whole ones, not the unfinished «.part». */
     private fun storeFiles(c: Context): List<File> =
-        Media.dir(c).listFiles { f -> f.isFile && !f.name.startsWith(".") && !f.name.endsWith(".part") }?.sortedBy { it.name } ?: emptyList()
+        Media.dir(c).listFiles { f -> f.isFile && !f.name.startsWith(".") && !f.name.endsWith(".part") && !f.name.endsWith(StreamLoader.LEDGER) }?.sortedBy { it.name } ?: emptyList()
 
     /** THE PASS: every file of the store the book does not name at its size goes to the node; the book follows every
      *  twenty-five files and at the end. The answer is the node's word on the whole book. */

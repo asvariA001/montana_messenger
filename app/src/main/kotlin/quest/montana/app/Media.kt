@@ -484,63 +484,77 @@ object Media {
                     if (!own && !Groups.isKey(ref) && chunks != null && (0 until chunks.length()).any { Wire.isGone(chunks.getJSONObject(it).optString("bid")) }) Post.cargoLost(ref, mid)
                     return@Thread
                 }
-                Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.let { it.file = dest.path; it.meta = man.toString() } }
-                // A STICKER THAT ARRIVED IS KEPT (iOS MontanaChatStore.swift:3608-3620 at 2155, atom 0d501f110022): the
-                // receiver's panel holds what was used in the conversation, exactly as the sender's does -- one copy per
-                // picture, since Stickers.add names a sticker by its own bytes and moves a known one to the front.
-                if (man.optString("n") == Stickers.CARD) runCatching { Stickers.add(c, dest.readBytes(), dest.extension) }
-                // a group's copy was receipted by the group (Groups.handle), and its pieces serve every other member of it
-                // my other device's letter (Post.landOwn): the correspondent still fetches these pieces, the receipt is theirs to give
-                if (!own && !Groups.isKey(ref)) { Post.receiptFor(ref, mid); drop(man) }
+                landed(c, ref, mid, man, dest, own)
             } catch (e: Exception) { Log.w("Montana", "media fetch: ${e.javaClass.simpleName}") }
             finally { Transfers.set(mid, null); synchronized(inFlight) { inFlight.remove(mid) } }
         }.start()
     }
 
-    fun download(man: JSONObject, dest: File, came: (Float) -> Unit = {}): Boolean {
-        val bk = runCatching { Base64.decode(man.getString("bk"), Base64.DEFAULT) }.getOrNull() ?: return false
-        val chunks = man.optJSONArray("chunks") ?: return false
-        val tmp = File(dest.path + ".part")
-        tmp.outputStream().use { out ->
-            for (i in 0 until chunks.length()) {
-                val ch = chunks.getJSONObject(i)
-                val bid = ch.getString("bid"); val cs = ch.getInt("cs")
-                var piece: ByteArray? = null
-                // A PIECE OF ONE'S OWN NODE IS ASKED THERE AND ONLY THERE (iOS bringChunk, 6f24f091): the book names it (HomeBook);
-                // the doors never carried it, and they never hear its name
-                if (HomeBook.holds(bid)) {
-                    val sealed = Blobs.get(bid) ?: HomeShelf.get(bid)?.also { Blobs.put(bid, it) }
-                    if (sealed == null || Wire.hex(Wire.sha(sealed)) != bid) { Log.i("Montana", "home_get FAIL id=" + bid.take(8) + " -- your node did not give it"); return false }
-                    piece = Wire.open(bk, sealed)?.let { if (cs <= it.size) it.copyOf(cs) else it } ?: return false
-                    out.write(piece); came((i + 1f) / chunks.length())
-                    continue
-                }
-                // ONE PIECE WITH THE DOORS' OWN PATIENCE (iOS bringChunk, MontanaWakePush 2458-2487; atom aeabdc576605): a busy door is
-                // waited for on a growing pause (0.7 s doubling, six tries); a silent road gets three quick tries; neither is «gone»
-                var silentTries = 0; var busyTries = 0
-                while (silentTries < 3 && busyTries < 6) {
-                    // a piece a neighbour brought ahead of its manifest is assembled from this phone's own store (iOS MontanaBlobStore)
-                    val near = Blobs.get(bid)
-                    if (near == null && Wire.isGone(bid)) break   // every door called it gone: asked once, not every opening of the chat (iOS 2438)
-                    val busy = BooleanArray(1)
-                    val sealed = near ?: Wire.getChunk(bid, busy)
-                    if (sealed != null && Wire.hex(Wire.sha(sealed)) == bid) {   // the name is the bytes: integrity
-                        piece = Wire.open(bk, sealed)?.let { if (cs <= it.size) it.copyOf(cs) else it }
-                        if (piece != null) break
-                    }
-                    if (Wire.isGone(bid)) break
-                    if (busy[0]) {
-                        val pause = 700L shl busyTries
-                        busyTries++
-                        Log.d("Montana", "blob_dl BUSY id=" + bid.take(8) + " — the node refuses this moment, pause=" + pause / 1000 + "s")
-                        Thread.sleep(pause)
-                    } else if (++silentTries < 3) Thread.sleep(700L)
-                }
-                out.write(piece ?: return false)
-                came((i + 1f) / chunks.length())
-            }
+    /**
+     * THE ONE «FILE IS WHOLE» POINT OF A LETTER (iOS mediaLanded): the download's end and a player's last piece (Streams) land here,
+     * once -- the row takes its file, a sticker is kept, the receipt and the drop follow.
+     */
+    fun landed(c: Context, ref: String, mid: String, man: JSONObject, dest: File, own: Boolean) {
+        var fresh = false
+        synchronized(landing) {
+            Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.let { fresh = it.file != dest.path; it.file = dest.path; it.meta = man.toString() } }
         }
-        return tmp.renameTo(dest)
+        if (!fresh) return   // the other road landed it already
+        // A STICKER THAT ARRIVED IS KEPT (iOS MontanaChatStore.swift:3608-3620 at 2155, atom 0d501f110022): the
+        // receiver's panel holds what was used in the conversation, exactly as the sender's does -- one copy per
+        // picture, since Stickers.add names a sticker by its own bytes and moves a known one to the front.
+        if (man.optString("n") == Stickers.CARD) runCatching { Stickers.add(c, dest.readBytes(), dest.extension) }
+        // a group's copy was receipted by the group (Groups.handle), and its pieces serve every other member of it
+        // my other device's letter (Post.landOwn): the correspondent still fetches these pieces, the receipt is theirs to give
+        if (!own && !Groups.isKey(ref)) { Post.receiptFor(ref, mid); drop(man) }
+    }
+    private val landing = Any()
+
+    /**
+     * THE FILE PIECE BY PIECE THROUGH ITS ONE LOADER (iOS MTStreamLoader, MontanaStream.swift): the pieces are laid where they
+     * belong in «name.part» and counted in «name.have», so a download and a player reading the same file from its first pieces
+     * (Streams) share every piece, and a download that stopped half-way goes on from what it already laid.
+     */
+    fun download(man: JSONObject, dest: File, came: (Float) -> Unit = {}): Boolean {
+        val l = Streams.loader(dest, man) ?: return false
+        for (i in 0 until l.count) {
+            l.piece(i) ?: return false
+            came((i + 1f) / l.count)
+        }
+        return dest.exists()
+    }
+
+    /** One piece of a file, opened with its key, or null -- every road tried with its own patience. */
+    fun bring(bid: String, bk: ByteArray, cs: Int): ByteArray? {
+        // A PIECE OF ONE'S OWN NODE IS ASKED THERE AND ONLY THERE (iOS bringChunk, 6f24f091): the book names it (HomeBook);
+        // the doors never carried it, and they never hear its name
+        if (HomeBook.holds(bid)) {
+            val sealed = Blobs.get(bid) ?: HomeShelf.get(bid)?.also { Blobs.put(bid, it) }
+            if (sealed == null || Wire.hex(Wire.sha(sealed)) != bid) { Log.i("Montana", "home_get FAIL id=" + bid.take(8) + " -- your node did not give it"); return null }
+            return Wire.open(bk, sealed)?.let { if (cs <= it.size) it.copyOf(cs) else it }
+        }
+        // ONE PIECE WITH THE DOORS' OWN PATIENCE (iOS bringChunk, MontanaWakePush 2458-2487; atom aeabdc576605): a busy door is
+        // waited for on a growing pause (0.7 s doubling, six tries); a silent road gets three quick tries; neither is «gone»
+        var silentTries = 0; var busyTries = 0
+        while (silentTries < 3 && busyTries < 6) {
+            // a piece a neighbour brought ahead of its manifest is assembled from this phone's own store (iOS MontanaBlobStore)
+            val near = Blobs.get(bid)
+            if (near == null && Wire.isGone(bid)) break   // every door called it gone: asked once, not every opening of the chat (iOS 2438)
+            val busy = BooleanArray(1)
+            val sealed = near ?: Wire.getChunk(bid, busy)
+            if (sealed != null && Wire.hex(Wire.sha(sealed)) == bid) {   // the name is the bytes: integrity
+                val piece = Wire.open(bk, sealed)?.let { if (cs <= it.size) it.copyOf(cs) else it }
+                if (piece != null) return piece
+            }
+            if (Wire.isGone(bid)) break
+            if (busy[0]) {
+                val pause = 700L shl busyTries
+                busyTries++
+                Log.d("Montana", "blob_dl BUSY id=" + bid.take(8) + " — the node refuses this moment, pause=" + pause / 1000 + "s")
+                Thread.sleep(pause)
+            } else if (++silentTries < 3) Thread.sleep(700L)
+        }
+        return null
     }
 
     /** The file is assembled — the node's pieces serve nobody (iOS dropChunks), nor the ones a neighbour brought. */
@@ -643,8 +657,16 @@ class MediaProvider : ContentProvider() {
         if (name.startsWith("wall_")) return listOf(MyWall.storeDir(c), Board.lookIn(c)).map { File(it, name) }.firstOrNull { it.exists() }
         return File(Media.dir(c), name).takeIf { it.exists() }
     }
-    override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor? =
-        fileOf(uri)?.let { ParcelFileDescriptor.open(it, ParcelFileDescriptor.MODE_READ_ONLY) }
+    override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor? {
+        // A FILM NOT YET WHOLE (iOS MTStreamLoader's «montana-stream://» address): «stream/NAME» reads through the file's loader
+        val seg = uri.pathSegments
+        if (seg.size == 2 && seg[0] == "stream") {
+            val c = context ?: return null
+            File(Media.dir(c), seg[1]).takeIf { it.exists() }?.let { return ParcelFileDescriptor.open(it, ParcelFileDescriptor.MODE_READ_ONLY) }
+            return Streams.descriptor(c, seg[1])
+        }
+        return fileOf(uri)?.let { ParcelFileDescriptor.open(it, ParcelFileDescriptor.MODE_READ_ONLY) }
+    }
     override fun getType(uri: Uri): String? =
         uri.lastPathSegment?.substringAfterLast('.', "")?.let { MimeTypeMap.getSingleton().getMimeTypeFromExtension(it.lowercase()) }
     override fun query(uri: Uri, p: Array<out String>?, s: String?, a: Array<out String>?, o: String?): Cursor? {

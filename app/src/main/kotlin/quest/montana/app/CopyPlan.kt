@@ -151,7 +151,7 @@ class CopyInventory {
                 val title = if (chat.ref == Book.SAVED) c.getString(R.string.saved_messages) else chat.shown.ifBlank { chat.ref.take(8) }
                 inv.convs.add(Conv(chat.ref, title, chat.msgs.size, files, 0))
             }
-            MontanaPaths.store(c).listFiles { f -> f.isFile && !f.name.startsWith(".") && !f.name.endsWith(".part") }?.forEach { inv.sizes[it.name] = it.length() }
+            MontanaPaths.store(c).listFiles { f -> f.isFile && !f.name.startsWith(".") && !f.name.endsWith(".part") && !f.name.endsWith(StreamLoader.LEDGER) }?.forEach { inv.sizes[it.name] = it.length() }
             inv.missing = named.count { it !in inv.sizes }
             for (v in inv.convs) v.bytes = v.files.distinct().sumOf { inv.sizes[it] ?: 0L }
             inv.convs.sortWith(compareByDescending<Conv> { it.bytes }.thenByDescending { it.letters })

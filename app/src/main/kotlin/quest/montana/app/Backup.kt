@@ -268,7 +268,7 @@ object MontanaBackup {
         val chats = MontanaPaths.chats(c).listFiles { f -> f.isDirectory && f.name !in skipFolders }?.sortedBy { it.name } ?: emptyList()
         // A file still landing is not a file yet; a file the scope leaves out stays out (iOS Scope.takes(file:)): a conversation, a
         // kind or one file the person left out, a file the person's node keeps whole
-        val store = MontanaPaths.store(c).listFiles { f -> f.isFile && !f.name.startsWith(".") && !f.name.endsWith(".part") && scope.takes(f.name) }
+        val store = MontanaPaths.store(c).listFiles { f -> f.isFile && !f.name.startsWith(".") && !f.name.endsWith(".part") && !f.name.endsWith(StreamLoader.LEDGER) && scope.takes(f.name) }
             ?.sortedBy { it.name } ?: emptyList()
         // The files of the other places, less the faces of a left-out conversation, the picture its grounds stood on, and the pictures
         // beside attachments left out (iOS placeFiles)
