@@ -64,9 +64,12 @@ private class Ring(c: Context) : View(c) {
  *   tile -- the picture dims a quarter; the ring in the middle, 16..26 by the tile's width; the percent under it only when
  *           the tile has room (wider than 96, taller than 68): never past the tile's edges, no word and no cross in a tile.
  *   plate -- a single picture dims a fifth; top-left, a dark pill: the ring of 18, the megabytes or the percent, the cross.
+ *   line -- (`line`, iOS 404698df under the voice's capsule and the round note) the same pill alone, in the line under them where the
+ *           voice's length stands: the capsule and the circle are never dimmed.
  * `idle` -- what stands while nothing rides (the spinner of a picture not yet here): it leaves when the ring comes.
  */
-internal class TransferMark(c: Context, private val mid: String, private val tile: Pair<Float, Float>?, private val idle: View? = null) : FrameLayout(c) {
+internal class TransferMark(c: Context, private val mid: String, private val tile: Pair<Float, Float>?, private val idle: View? = null,
+                            line: Boolean = false) : FrameLayout(c) {
     private val ring = Ring(c)
     private val percent = c.text("", 11f, Color.WHITE, bold = true).apply { maxLines = 1 }
     private val ear: () -> Unit = { show() }
@@ -81,7 +84,7 @@ internal class TransferMark(c: Context, private val mid: String, private val til
                 if (roomy) addView(percent, LinearLayout.LayoutParams(WRAP, WRAP).apply { topMargin = c.dp(3) })
             }, LayoutParams(WRAP, WRAP, Gravity.CENTER))
         } else {
-            setBackgroundColor(Color.argb(51, 0, 0, 0))   // iOS black 0.2
+            if (!line) setBackgroundColor(Color.argb(51, 0, 0, 0))   // iOS black 0.2
             val pill = c.hstack {
                 gravity = Gravity.CENTER_VERTICAL
                 background = GradientDrawable().apply { cornerRadius = c.dp(14).toFloat(); setColor(Color.argb(153, 0, 0, 0)) }
@@ -93,7 +96,7 @@ internal class TransferMark(c: Context, private val mid: String, private val til
                     setPadding(c.dp(5), c.dp(5), c.dp(5), c.dp(5))
                 }, LinearLayout.LayoutParams(c.dp(20), c.dp(20)))
             }
-            addView(pill, LayoutParams(WRAP, WRAP, Gravity.TOP or Gravity.START).apply { setMargins(c.dp(8), c.dp(8), c.dp(8), 0) })
+            addView(pill, LayoutParams(WRAP, WRAP, Gravity.TOP or Gravity.START).apply { if (!line) setMargins(c.dp(8), c.dp(8), c.dp(8), 0) })
         }
         show()
     }

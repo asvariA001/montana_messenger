@@ -896,7 +896,17 @@ private fun settings(act: MainActivity, ref: String?) {
 class FieldPanel(private val act: MainActivity, private val ref: String?, private val bar: ChatInputBar, private val field: EditText,
                  private val hideKeys: () -> Unit, private val showKeys: () -> Unit, private val toBottom: () -> Unit) {
     private val c: Context = act
-    val host = FrameLayout(c).apply { visibility = View.GONE }
+    /** THE PAGE TURNS (iOS 3121f6a6 MTKeyboard.turning, viewWillTransition): the activity outlives a turn, so the panel standing
+     *  in the keys' place is laid again at the keys' height of the orientation the page turned to. */
+    val host = object : FrameLayout(c) {
+        override fun onConfigurationChanged(cfg: android.content.res.Configuration) {
+            super.onConfigurationChanged(cfg)
+            if (!up) return
+            val h = keysHeight()
+            Log.d("Montana", "rotate sideways=" + sideways() + " keys=" + h)
+            if (layoutParams.height != h) layoutParams = layoutParams.apply { height = h }
+        }
+    }.apply { visibility = View.GONE }
     private var picker: Picker? = null
     private var keysWere = false
     val up: Boolean get() = host.visibility == View.VISIBLE
@@ -915,7 +925,7 @@ class FieldPanel(private val act: MainActivity, private val ref: String?, privat
             onLift = { t, search -> pickerPage(act, ref, t, search, onEmoji = { insert(it) }, onSent = { away(); toBottom() }) },
             onSettings = { settings(act, ref) }).also { picker = it; host.addView(it.view, FrameLayout.LayoutParams(MATCH, MATCH)) }
         if (tab != null && p.tab != tab) p.show(tab)
-        host.layoutParams = host.layoutParams.apply { height = Prefs.dbl(KEYS_HEIGHT, c.dp(300).toDouble()).toInt() }
+        host.layoutParams = host.layoutParams.apply { height = keysHeight() }
         host.visibility = View.VISIBLE
         bar.panelShown(true)
         toBottom()
@@ -927,7 +937,7 @@ class FieldPanel(private val act: MainActivity, private val ref: String?, privat
         val keys = insets.isVisible(WindowInsets.Type.ime())
         if (keys) {
             val h = insets.getInsets(WindowInsets.Type.ime()).bottom - insets.getInsets(WindowInsets.Type.systemBars()).bottom
-            if (h > c.dp(120)) Prefs.setDbl(KEYS_HEIGHT, h.toDouble())
+            if (h > c.dp(120)) Prefs.setDbl(key(), h.toDouble())
             if (!keysWere) away()
         }
         keysWere = keys
@@ -938,5 +948,11 @@ class FieldPanel(private val act: MainActivity, private val ref: String?, privat
         bar.onStickers = { show(Picker.STICKERS) }
     }
 
-    private companion object { const val KEYS_HEIGHT = "keys.height" }
+    /** THE KEYS' HEIGHT PER ORIENTATION (iOS MTKeyboard heights[sideways], fallback 336 upright, 200 sideways): one number for both
+     *  put a sideways-sized panel under upright keys after every turn. Each orientation keeps the height its keys last stood at. */
+    private fun sideways() = c.resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    private fun key() = if (sideways()) KEYS_HEIGHT_SIDE else KEYS_HEIGHT
+    private fun keysHeight() = Prefs.dbl(key(), c.dp(if (sideways()) 200 else 300).toDouble()).toInt()
+
+    private companion object { const val KEYS_HEIGHT = "keys.height"; const val KEYS_HEIGHT_SIDE = "keys.height.side" }
 }

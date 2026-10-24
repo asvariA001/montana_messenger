@@ -2413,6 +2413,7 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
             // each on its quiet pill (MTVoicePill: black 0.38, a white 0.18 rim), white, on the feed under the capsule
             val voiceMan = if (m.text.startsWith(Marks.MEDIA)) (m.meta?.let { runCatching { JSONObject(it) }.getOrNull() } ?: Media.inline(m.text)) else null
             val voice = 1 == members.size && voiceMan?.optString("k") == "aud"
+            val note = 1 == members.size && voiceMan?.optString("k") == "vid" && voiceMan.optBoolean("r")
             val metaInk = if (voice || darkMeta) Color.WHITE else BubbleStyle.time(mine)
             fun pill(v: View) = v.apply {
                 background = GradientDrawable().apply { cornerRadius = dp(100).toFloat(); setColor(Color.argb(97, 0, 0, 0)); setStroke(1, Color.argb(46, 255, 255, 255)) }
@@ -2424,11 +2425,21 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                     background = c.rounded(Color.argb(115, 0, 0, 0), 10)   // iOS black 0.45 under the time on the picture
                     setPadding(dp(7), dp(3), dp(7), dp(3))
                 }
-                if (voice) addView(pill(c.hstack {
-                    gravity = Gravity.CENTER_VERTICAL
-                    addView(c.icon(R.drawable.ic_mic, Color.WHITE, 10), lp(dp(10), dp(10)).apply { marginEnd = dp(4) })
-                    addView(c.text(fmtDuration(voiceMan?.optDouble("du", 0.0) ?: 0.0), 11f, Color.WHITE).apply { fontFeatureSettings = "tnum" })   // USER-DATA: a duration
-                }), lp(WRAP, WRAP).apply { marginEnd = dp(4) })
+                // THE TAPE ON ITS WAY (iOS 404698df progressPill): its ring and percent stand where its length will stand, and the
+                // length comes back when the board lets the letter go; under the round note the pill stands at the left, the stamp right
+                if (voice) {
+                    val length = pill(c.hstack {
+                        gravity = Gravity.CENTER_VERTICAL
+                        addView(c.icon(R.drawable.ic_mic, Color.WHITE, 10), lp(dp(10), dp(10)).apply { marginEnd = dp(4) })
+                        addView(c.text(fmtDuration(voiceMan?.optDouble("du", 0.0) ?: 0.0), 11f, Color.WHITE).apply { fontFeatureSettings = "tnum" })   // USER-DATA: a duration
+                    })
+                    addView(TransferMark(c, m.mid, null, length, line = true), lp(WRAP, WRAP).apply { marginEnd = dp(4) })
+                    addView(length, lp(WRAP, WRAP).apply { marginEnd = dp(4) })
+                }
+                if (note) {
+                    addView(TransferMark(c, m.mid, null, line = true), lp(WRAP, WRAP))
+                    addView(android.widget.Space(c), lp(0, 0, 1f).apply { width = dp(4) })
+                }
                 val meta = c.hstack {
                     gravity = Gravity.CENTER_VERTICAL
                     if (m.edited) addView(c.text(c.getString(R.string.edited) + " ", 11f, metaInk))
@@ -2442,7 +2453,7 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                 }
                 addView(if (voice) pill(meta) else meta, lp(WRAP, WRAP))
             // iOS 966: the voice's stack leans to its own side -- their pills stand at the capsule's left edge, mine at its right
-            }, lp(WRAP, WRAP).apply { if (voice) { topMargin = dp(8); if (!mine) gravity = Gravity.START } })
+            }, lp(if (note) MATCH else WRAP, WRAP).apply { if (voice) { topMargin = dp(8); if (!mine) gravity = Gravity.START } })
             if (edge) edgeLay(this, onPlate)
         }, lp(WRAP, WRAP))
         // ONE PLATE PER ANSWER, THE FACES ON IT (iOS MontanaBubble.swift 505-555 at 2155): the same emoji from both sides is one
