@@ -4304,8 +4304,9 @@ fn crates_dir() -> std::path::PathBuf {
 
 // Every declaration of a constant whose value opens with a digit, read out of the library sources.
 // What is passed over is stated rather than implied: the harness itself, whose numbers are the
-// comparisons; the tests, which are not the library; and the Decree, whose numbers are compared
-// row by row against the set in both directions and would otherwise be compared twice.
+// comparisons; the tests and the proofs of the model checker, which are not the library; and the
+// Decree, whose numbers are compared row by row against the set in both directions and would
+// otherwise be compared twice.
 fn numerals_of_the_sources() -> Result<Vec<(String, String)>, String> {
     let mut out = Vec::new();
     let root = crates_dir();
@@ -4367,10 +4368,9 @@ fn sources_under(dir: &std::path::Path) -> Result<Vec<std::path::PathBuf>, Strin
 }
 
 // The names of the constants a source declares with a value opening with a digit. What is read is
-// the library and never the tests: the text is cut at the first block of tests, which by the shape
-// of this tree stands last in a file.
+// the library and never the tests or the proofs: the text is cut where the library ends.
 fn numerals_of(text: &str) -> Vec<String> {
-    let library = text.split("#[cfg(test)]").next().unwrap_or(text);
+    let library = &text[..library_end(text)];
     let mut out = Vec::new();
     for line in library.lines() {
         let trimmed = line.trim_start();
@@ -4402,6 +4402,27 @@ fn numerals_of(text: &str) -> Vec<String> {
         }
     }
     out
+}
+
+// Where the library of a source ends: at the first block of tests, or at the first block of proofs
+// the model checker alone compiles, whichever stands first. A block of proofs is no more the
+// library than a block of tests — its numbers are the instance a harness checks, and no build of
+// the tree carries them — and by the shape of this tree it too stands last in a file. A module of
+// proofs declared in a file of its own (`#[cfg(kani)] mod kani_decree;`) is a declaration and not
+// a block: nothing is cut there, and its file is read as any other.
+fn library_end(text: &str) -> usize {
+    const PROOFS: &str = "#[cfg(kani)]";
+    let tests = text.find("#[cfg(test)]").unwrap_or(text.len());
+    let proofs = text
+        .match_indices(PROOFS)
+        .map(|(at, _)| at)
+        .find(|at| {
+            let next = text[at + PROOFS.len()..].trim_start();
+            let next = next.lines().next().unwrap_or_default().trim_end();
+            next.starts_with("mod ") && next.ends_with('{')
+        })
+        .unwrap_or(text.len());
+    tests.min(proofs)
 }
 
 // The canonical description of a constraint set: the artifact itself awaits its author, and its
