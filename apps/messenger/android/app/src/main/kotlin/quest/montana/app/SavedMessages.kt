@@ -92,7 +92,7 @@ fun rowTime(c: Context, at: Long): String {
  */
 fun savedMessagesPage(act: MainActivity, onClose: () -> Unit): View {
     val c: Context = act
-    val column = c.vstack(Gravity.NO_GRAVITY) { setPadding(dp(10), dp(8), dp(10), dp(8)) }
+    val column = c.vstack(Gravity.NO_GRAVITY) { setPadding(dp(12), dp(12), dp(12), dp(12)) }   // the feed's edges (iOS MontanaMessageFeed.swift:673)
     val scroll = ScrollView(c).apply {
         isVerticalScrollBarEnabled = false
         isFillViewport = true

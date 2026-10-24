@@ -84,7 +84,8 @@ object Archive {
 
     private fun append(k: Keys, ref: String, folder: String, dir: Int, atSec: Long, content: ByteArray): Boolean {
         val base = root()?.path ?: return false
-        return MtBindings.nativeArchiveAppend(base, folder, k.hk, k.owner, device(), conv(ref), dir, atSec, content) == 0
+        return (MtBindings.nativeArchiveAppend(base, folder, k.hk, k.owner, device(), conv(ref), dir, atSec, content) == 0)
+            .also { if (it) twinSoon() }   // a block was written: the person's other devices get it within half a minute (iOS twinSoon)
     }
 
     /**
@@ -233,6 +234,12 @@ object Archive {
 
     /** Read the archive into the feed, off the screen's thread; `only` — the folders a twin's block just reached. */
     fun restoreSoon(only: List<String>? = null) = q.execute { runCatching { restore(only) }.onFailure { Log.w("Montana", "archive_restore " + it.javaClass.simpleName) } }
+    /** A copy was just laid: its conversations stand in the feed before the caller asks them anything (Keeping.askBack). */
+    fun restoreAndWait() {
+        val t = java.util.concurrent.FutureTask { runCatching { restore(null) }.onFailure { Log.w("Montana", "archive_restore " + it.javaClass.simpleName) }; Unit }
+        q.execute(t)
+        runCatching { t.get(120, java.util.concurrent.TimeUnit.SECONDS) }
+    }
 
     /**
      * EVERY FOLDER OPENED UNDER THE SEED (iOS restore 1015-1077): the head gives the conversation back — «s:» re-establishes the pipe,
@@ -246,6 +253,9 @@ object Archive {
         val folders = only ?: chatsDir.listFiles()?.filter { it.isDirectory && !it.name.startsWith(".") }?.map { it.name } ?: return
         val book = HashMap<String, String>()
         for (r in Book.refs()) book[label(k, r)] = r
+        // A GROUP'S FEED NAMES ITS OWN FOLDER (its key «grp:…» has no pipe, so no secret names it): every group this phone holds maps
+        // its folder back to itself -- read at every launch, an unnamed group folder came back as «Recovered history» beside the group
+        for (c in Book.all()) if (Groups.isKey(c.ref)) book[label(k, c.ref)] = c.ref
         var chats = 0; var added = 0; var headed = 0; var hs = 0; var ha = 0; var hn = 0; var faces = 0; var gapChats = 0; var gapRows = 0
         for (folder in folders) {
             var ref: String? = null
@@ -363,6 +373,142 @@ object Archive {
         val rc = MtBindings.nativeArchiveIngest(base, folder, k.hk, k.owner, sealed)
         if (rc == 1) { Log.d("Montana", "history_rx block filed"); restoreSoon(listOf(folder)) }
         return rc >= 0
+    }
+
+    /** This device's writer tag in hex (iOS writerTagHex 427-434): the four bytes the core names this install's blocks by. */
+    fun writerTagHex(): String = MtBindings.nativeWriterTag(device())?.let { Wire.hex(it) } ?: ""
+
+    // ── THE PERSON'S OTHER DEVICES THROUGH THE BOX (iOS MontanaPQ 866-973; the author's word 11.10.2026 12:1x MSK, No.60: «do it») ──
+    // A phone behind a carrier's NAT has no public address, and the road above reached the twin only at one. A sleeping phone cannot
+    // hold a letter for another, so the node holds it: the blocks, already sealed under the history key, ride the cargo road of a part
+    // (Keeping.lay) and a silent letter in a pipe only this seed's devices derive wakes the others; they file the blocks by the road a
+    // restore takes (absorb), so every device holds the person's whole history -- the incoming and the own, whatever road it came by.
+    const val TWIN_PIPE = "twin:history"   // NOT-UI: the box name of the pipe of this seed's devices
+    private const val BOXED = "mt.history.boxed"      // per conversation: the first block not yet laid for the other devices
+    private const val TWIN_SEEN = "mt.history.twinSeen"   // the letters of the other devices already filed here
+    private const val TWIN_CAP = 8 shl 20   // one letter's file stays small; what is left rides the next round
+    /**
+     * The pipe's secret (iOS twinSecret 877-883): the history key under its own label and the app's name -- only a device holding this
+     * seed's words derives it, and the app is named as the network names it (Keeping.APP), so an iPhone and this phone of the same words
+     * keep one pipe. Read only from keys already warm: the box's walk never waits for the seed to stretch.
+     */
+    fun twinSecret(): ByteArray? {
+        val k = keys ?: run { q.execute { keys() }; null } ?: return null
+        return Wire.sha("mt-twin-box".toByteArray(), byteArrayOf(0), Keeping.APP.toByteArray(), byteArrayOf(0), k.hk)
+    }
+    /**
+     * THE TAG OF THIS DEVICE UNDER THIS IDENTITY (iOS E2E.deviceTag, MontanaE2E 362-391): computed, never stored and never issued --
+     * SHA-256 of «mt-device-tag», the phrase's entropy and this install's own sixteen bytes; it dies with the identity.
+     */
+    @Volatile private var deviceTagHeld: Pair<String, String>? = null
+    fun deviceTag(): String {
+        val words = MontanaSeed.mnemonic ?: return "android-pending"
+        val of = Wire.hex(Wire.sha(words.toByteArray()))
+        deviceTagHeld?.let { if (it.first == of) return it.second }
+        val ent = MtBindings.nativeMnemonicToEntropy(words) ?: return "android-pending"
+        val tag = "android-" + Wire.hex(Wire.sha("mt-device-tag".toByteArray(), byteArrayOf(0), ent, Wire.hex(device()).toByteArray()).copyOf(6))
+        ent.fill(0)
+        deviceTagHeld = of to tag
+        return tag
+    }
+    /** This device's name in the pipe (iOS twinDeviceRef 884-885): the node rings every device of the pipe but the one that spoke. */
+    private val twinDeviceRef: String get() = (MontanaSeed.twin ?: "") + "#" + deviceTag()
+    /** The one place a label of the seed's own pipe is signed: by this device, never by the person (iOS twinSid 886-887). */
+    fun twinSid(cw: String) = Wire.subId(cw, twinDeviceRef)
+    fun twinListening(): Map<String, ByteArray> = twinSecret()?.let { mapOf(TWIN_PIPE to it) } ?: emptyMap()
+    @Volatile private var twinDue = false
+    /** A block was written: the other devices get it within half a minute, in one letter with whatever came beside it. */
+    private fun twinSoon() {
+        if (twinDue) return
+        twinDue = true
+        MainThread.later(30_000L, Runnable { twinDue = false; Thread { runCatching { layForTwins() } }.start() })
+    }
+    /** The blocks this device wrote and the other devices were not handed, one letter of them (iOS layForTwins 904-943). */
+    private fun layForTwins() {
+        class Gathered(val blob: ByteArray, val tops: Map<String, Long>, val n: Int, val more: Boolean)
+        val g = java.util.concurrent.FutureTask<Gathered?> {
+            keys() ?: return@FutureTask null
+            val wt = MtBindings.nativeWriterTag(device()) ?: return@FutureTask null
+            val base = root()?.path ?: return@FutureTask null
+            val cursor = map(BOXED)
+            val out = java.io.ByteArrayOutputStream()
+            val tops = HashMap<String, Long>()
+            var n = 0
+            var more = false
+            for (chat in File(base, "Chats").listFiles()?.filter { it.isDirectory }?.map { it.name }.orEmpty()) {
+                if (TWIN_CAP < out.size()) { more = true; break }
+                val from = cursor.optLong(chat, 0L)
+                val stream = MtBindings.nativeArchiveExport(base, chat, wt, from) ?: continue
+                var top = from
+                var i = 0
+                while (i + 4 <= stream.size) {
+                    val len = u32(stream, i)
+                    if (len <= 0 || stream.size < i + 4 + len) break
+                    val sealed = stream.copyOfRange(i + 4, i + 4 + len)
+                    i += 4 + len
+                    val id = MtBindings.nativeArchiveBlockId(sealed)?.takeIf { it.size == 12 } ?: continue
+                    var seq = 0L
+                    for (b in 0 until 8) seq = seq or ((id[4 + b].toLong() and 0xff) shl (8 * b))
+                    out.write(byteArrayOf(len.toByte(), (len ushr 8).toByte(), (len ushr 16).toByte(), (len ushr 24).toByte()))
+                    out.write(sealed)
+                    top = maxOf(top, seq + 1); n++
+                }
+                if (top != from) tops[chat] = top
+            }
+            Gathered(out.toByteArray(), tops, n, more)
+        }
+        q.execute(g)
+        val got = runCatching { g.get() }.getOrNull() ?: return
+        if (got.n <= 0) return
+        val secret = twinSecret() ?: return
+        val dir = File(Book.ctx.noBackupFilesDir, "MontanaKeepWork").apply { mkdirs() }
+        val f = File(dir, java.util.UUID.randomUUID().toString() + ".twin")
+        try {
+            f.writeBytes(got.blob)
+            val road = Keeping.lay(f) ?: return Unit.also { Log.d("Montana", "twin_hist the blocks did not reach the nodes n=" + got.n) }
+            road.put("w", "hist").put("n", got.n).put("f", writerTagHex())
+            if (!Keeping.knock(secret, road, silent = true, sender = twinDeviceRef)) { Log.d("Montana", "twin_hist no door boxed the letter n=" + got.n); return }
+            q.execute {
+                val cursor = map(BOXED)
+                for ((k, v) in got.tops) cursor.put(k, maxOf(cursor.optLong(k, 0L), v))
+                keep(BOXED, cursor)
+            }
+            Log.d("Montana", "twin_hist laid blocks=" + got.n + " bytes=" + got.blob.size + " more=" + (if (got.more) 1 else 0))
+            if (got.more) twinSoon()
+        } finally { f.delete() }
+    }
+    /** A row of the box in the pipe of this seed's devices is this file's own, never a letter of the feed (iOS twinTakes 944-950). */
+    fun twinTakes(row: Map<String, String>): Boolean {
+        if (row["c"] != TWIN_PIPE) return false
+        val o = Keeping.word(row["t"] ?: "")?.takeIf { it.optString("w") == "hist" } ?: return true
+        val mid = row["m"]?.takeIf { it.isNotEmpty() } ?: return true
+        Thread { runCatching { takeFromTwin(o, mid) } }.start()
+        return true
+    }
+    private fun takeFromTwin(o: JSONObject, mid: String) {
+        if (o.optString("f") == writerTagHex()) return   // this device's own letter, heard back from the box
+        val seen = runCatching { org.json.JSONArray(Prefs.str(TWIN_SEEN, "[]")) }.getOrNull()?.let { a -> (0 until a.length()).map { a.optString(it) } } ?: emptyList()
+        if (mid in seen) return
+        val dir = File(Book.ctx.noBackupFilesDir, "MontanaKeepWork").apply { mkdirs() }
+        val f = File(dir, java.util.UUID.randomUUID().toString() + ".twin")
+        try {
+            if (!Keeping.fetch(o, f)) { Log.d("Montana", "twin_hist the blocks did not come whole"); return }
+            val blob = f.readBytes()
+            var i = 0
+            var filed = 0
+            while (i + 4 <= blob.size) {
+                val len = u32(blob, i)
+                i += 4
+                if (len <= 0 || blob.size < i + len) break
+                val sealed = blob.copyOfRange(i, i + len)
+                i += len
+                val t = java.util.concurrent.FutureTask { absorb(sealed) }
+                q.execute(t)
+                if (runCatching { t.get() }.getOrDefault(false)) filed++
+            }
+            Prefs.setStr(TWIN_SEEN, org.json.JSONArray((seen + mid).takeLast(512)).toString())
+            Log.d("Montana", "twin_hist taken blocks=" + filed)
+        } finally { f.delete() }
     }
 
     /** No conversation, no trace of it on disk (iOS deleteChatFolder 706-712). */
