@@ -1432,9 +1432,15 @@ object Post {
         }
         val subs = secretOf.keys.toList()
         if (subs.isEmpty()) return
-        val taken = mutableListOf<String>()
+        // ONE PERSON, MANY DEVICES (iOS 49bb3a95 OZ1, the author's word 24.10: the Mac took the photos, T1 got none): a letter is
+        // marked taken by THIS device under its own name for the label (iOS deviceSid = twinSid, one per label, so the node links
+        // no two labels), and stays in the box for the person's other devices until the box's term
+        val me = Twin.deviceRef() ?: return
+        val dev = { cw: String -> twinSid[cw] ?: Wire.subId(cw, me) }
+        val taken = mutableListOf<JSONArray>()
         for (chunk in subs.chunked(128)) {
             val page = JSONObject().put("subs", JSONArray(chunk)).put("sids", JSONArray(chunk.map { twinSid[it] ?: Wire.subId(it, twin) }))
+                .put("devs", JSONArray(chunk.map(dev)))
             val seen = HashSet<String>()
             val rows = mutableListOf<JSONObject>()
             // THE READ SWEEPS EVERY STORE of the network's list: a letter lies on the one node the writer elected (iOS 1638)
@@ -1450,20 +1456,23 @@ object Post {
                 val sealed = runCatching { Base64.decode(e, Base64.DEFAULT) }.getOrNull() ?: continue
                 val plain = Wire.openBoxed(sealed, secret, l.optLong("at")) ?: continue
                 // the history of this seed's other devices: filed there, never a letter of the feed (iOS restash → twinTakes)
-                if (cw in twinSid) { val f = Wire.fields(plain); Twin.takes(f[1], f[0]); if (m.isNotEmpty()) taken.add(m); continue }
+                if (cw in twinSid) { val f = Wire.fields(plain); Twin.takes(f[1], f[0]); if (m.isNotEmpty()) taken.add(JSONArray(listOf(m, dev(cw)))); continue }
                 val ok = invOf[cw]?.let { inv -> first(plain, inv) } ?: chatOf[cw]?.let { ref -> letter(ref, plain) } ?: false
-                if (ok && m.isNotEmpty()) taken.add(m)
+                if (ok && m.isNotEmpty()) taken.add(JSONArray(listOf(m, dev(cw))))
             }
         }
         if (taken.isNotEmpty()) {
-            val body = JSONObject().put("mids", JSONArray(taken))
+            // «taken», not «mids»: the node stops yielding these to this device and stops their ring; «mids» stays the funeral
+            // (the node refuses more than 256 at once: the marks go by the page)
+            val bodies = taken.chunked(128).map { JSONObject().put("taken", JSONArray(it)) }
             // THE STORES ARE ASKED AT ONCE, AND ONLY THE LIVING ONES (iOS MontanaWakePush.swift:2381-2399, 2155, atom fea4e68ea0da,
             // 21.09 measured 13:50:13→13:50:23 on the tablet: a walk door by door cost every burial ten seconds to two doors dead
             // on that network, and the drain stood behind it). One deadline for all; a burial is a cleanup, never delivery, so it
             // never waits in line behind a door that rests.
             val doors = Doors.ordered("box")
             val awake = doors.filter { Signal.doorAlive(it) }   // the one door book (Presence.kt, object Signal)
-            for (door in (awake.ifEmpty { doors })) Thread { Wire.post(door, "/box-del", body, 5000) }.start()
+            for (door in (awake.ifEmpty { doors })) Thread { bodies.forEach { Wire.post(door, "/box-del", it, 5000) } }.start()
+            Log.i("Montana", "box_taken n=${taken.size} doors=${awake.ifEmpty { doors }.size}")
         }
     }
 
