@@ -298,16 +298,32 @@ of another width; `links_to` refuses a round past `u32::MAX` (round.rs:107-109);
 
 ## 9. Checked by machine
 
-- **Lean 4** (`formal/Window.lean`): `quorum_intersection` (Lemma 4 over the naturals, with
-  inclusion-exclusion as a hypothesis, by `omega`); `quorum_exact` (the integer rule of close.rs
-  against its rational reading); `one_decision` (Theorem 1) over an abstract book of parts,
-  attempts and names under the counting rules of agreement.rs:165-210, with the three contradicting
-  pairs as the honest predicate and the cryptographic assumptions as hypotheses.
-- **Kani** (harnesses in `crates/montana-node/src/certificate.rs` under `cfg(kani)`): with the
-  verification of signatures and proofs replaced by nondeterministic oracles, every `Ok` of
-  `verify_certificate` satisfies `Pi_cert` (Lemma 2); the answer is independent of the order of the
-  rounds where no part pledges two names in attempt zero (Lemma 1, F-431-4); and no arithmetic
-  panics or wraps for counts up to the bound the harness fixes.
+- **Lean 4** (`formal/Window.lean`, Lean 4.35.0, core library only, no `sorry`, no axiom of its
+  own; `#print axioms` names only `propext`, `Quot.sound` and `Classical.choice`):
+  `quorum_intersection` (Lemma 4 over the naturals under the integer rule of close.rs,
+  `100 c ≥ 67 T`, with inclusion-exclusion as a hypothesis, by `omega`); `more_than_the_faulty`
+  (its corollary under `100 f < 34 T`); `the_vectors_of_the_close` (the frozen vectors of
+  close.rs:116-119 under the same rule, the third being the one a rule dividing first gets wrong,
+  by `decide`); `no_other_open_quorum` and `one_decision` (Theorem 1) over an abstract book of
+  parts, attempts and names under the counting rules of agreement.rs:165-210, with the three
+  contradicting pairs of agreement.rs:70-89 as the honest predicate and the cryptographic
+  assumptions as hypotheses. The rational reading of the quorum rule is not stated in Lean; the
+  integer rule is the only one the file reasons about.
+- **Kani** (bounded model checking of the code itself, under `cfg(kani)`):
+  - Theorem 1: `two_books_of_one_window_never_decide_two_names` (`crates/montana-node/src/agreement.rs`)
+    runs the book of agreement.rs itself on two books of one window: the three honest parts say the
+    same in both under the honest predicate, the fourth part is free in each, a decision in both is
+    covered (`kani::cover`), and the two names are equal. Bounds: 4 parts, 3 honest, 2 attempts,
+    names 1 and 2 (0 is a pledge not made), committee 0, unwind 9. Result: not yet in.
+  - Lemma 2: `an_accepted_certificate_satisfies_the_predicate` (`crates/montana-node/src/certificate.rs`)
+    runs `verify_certificate` itself, with presence proofs, signatures and ballot proofs as oracles the
+    objects carry and with stubs for `Beacon::id`, `genesis_state_hash`, `round_threshold` and
+    `Cement::aggregate`: every `Ok` satisfies (C2) to (C6); (C1) and (C7) rest on the stubs and are
+    not proved here. Two covers ask that a certificate is accepted, and that one is accepted with two
+    attestations of one part. Bounds: 1 round, 3 heavy attestations over 3 parts, electorate 2,
+    2 ballots, 2 pledges over 2 attempts, unwind 9. Result: not yet in.
+  Lemma 1 (the answer independent of the order of the rounds, F-431-4) has no harness: the canonical
+  order of heavy attestations is not yet defined by the specification.
 - **Tests** stand in for neither: they exercise the matrix (`tests/certificate_matrix.rs`,
   `tests/a_walk_from_an_anchor.rs`).
 
