@@ -2389,6 +2389,10 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                     gravity = Gravity.CENTER_VERTICAL
                     if (m.edited) addView(c.text(c.getString(R.string.edited) + " ", 11f, metaInk))
                     addView(c.text(android.text.format.DateFormat.getTimeFormat(c).format(Date(m.at)), 11f, metaInk))
+                    // the letter's gematria right of the time, the same number on both phones (iOS metaLine's seal, MTLetterSeal.mark)
+                    LetterSeal.gematria(m.mid)?.let { g ->
+                        addView(c.text(" · $g", 11f, metaInk).apply { fontFeatureSettings = "tnum" })   // USER-DATA: the letter's gematria
+                    }
                     // no ticks in the bubble (iOS 15.47): the words stand under the last own letter; only «not sent» marks the corner
                     if (mine && m.state == -1) addView(c.failedMark(), lp(dp(12), dp(12)).apply { marginStart = dp(4) })
                 }
