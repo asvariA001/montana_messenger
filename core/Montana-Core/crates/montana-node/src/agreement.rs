@@ -651,7 +651,11 @@ mod tests {
 // of one window, the pledges of every honest part the same wherever both hold them and the one
 // faulty part pledging anything in either, never decide two names. WINDOW-THEOREM.md, Theorem 1;
 // run by `cargo kani -p montana-node -Z stubbing`. Four parts make the quorum three, so two quorums share an
-// honest part, and two attempts reach the third contradicting pair.
+// honest part, and two attempts reach the third contradicting pair. The bound of a loop is the book
+// at its fullest: three pledges of each of four parts stand in `held`, its dropping runs twelve
+// times and the search of its node of eleven keys before the twelfth eleven, so the harness is
+// unwound to thirteen; a comparison of 32 bytes is a loop of `memcmp` the command line unwinds to
+// thirty-three.
 #[cfg(kani)]
 mod proofs {
     use super::*;
@@ -759,7 +763,7 @@ mod proofs {
     }
 
     #[kani::proof]
-    #[kani::unwind(9)]
+    #[kani::unwind(13)]
     #[kani::stub(mt_genesis::ratio, crate::kani_decree::ratio)]
     #[kani::stub(mt_genesis::scalar, crate::kani_decree::scalar)]
     fn two_books_of_one_window_never_decide_two_names() {
