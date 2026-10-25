@@ -37,7 +37,7 @@ it.
 app or its tools. This folder is that commit's `android/` and `tools/`, copied as files: the local history is not part
 of this repository.
 
-**Changes made for this folder.** Apart from this README, 16 files differ from that commit.
+**Changes made for this folder.** Apart from this README, 26 files differ from that commit.
 
 - 11 for the build here:
   - the paths to the core;
@@ -47,6 +47,9 @@ of this repository.
   - `.gitignore` and `.gitattributes`.
 - 5 comments reworded in English, so that none cites a file that is not published: `CoinChain.kt`, `CoinLocalTest.kt`,
   `Archive.kt`, `Presence.kt` and `Twin.kt`.
+- 10 that keep the 24 words out of the system backup (see [The words and the system backup](#the-words-and-the-system-backup)):
+  `BackupSeed.kt` is removed, `BackupWithdraw.kt` is new, and `AndroidManifest.xml`, `BoxJob.kt`, `MainActivity.kt`,
+  `Onboarding.kt`, `Settings.kt` and the three `strings.xml` follow. The local repository carries the same change.
 
 Every other file is byte for byte the same.
 
@@ -96,7 +99,7 @@ was run for it is under [Tests](#tests).
 | The 24 words and their keys (PBKDF2 2^20, HKDF roles, ML-DSA-65, ML-KEM-768, all in the core) | works | 2026-10-17: the core's crates passed 455 tests, and JNI matched the iOS C ABI in 20 of 20. On the emulator, 24 words of the Montana wordlist came out with `seed write: words=24 stored=true` |
 | Restore from the 24 words | works | 2026-10-17: the words of A on a second emulator gave the same identity. Its call sign matched the one the core predicts from the words (`tools/identity-ref`, `tools/callsign_of.py`). 2026-10-20: Windows, opened with an Android test identity's words, took that identity's name and conversations from the light copy Android had laid |
 | The words at rest | works | 2026-10-17: Android Keystore AES-256-GCM (`Identity.kt`). The words screen is under FLAG_SECURE, so a screenshot of it is empty |
-| The words in the system (Google account) backup | works, off by default | 2026-10-17: Settings, Privacy shows it off. This departs from the specification; see the deviations |
+| The words kept out of the system backup (`core/docs/Montana Identity.md:343`) | prototype | Built for this publication, not run. No record of the words is written to the system backup or read from it, and a record an earlier build wrote is withdrawn at the next backup; see [The words and the system backup](#the-words-and-the-system-backup) |
 | Several identities on one phone (iOS MontanaSeats) | missing | |
 | Safety number (`mt-safety`) | prototype | |
 
@@ -348,17 +351,31 @@ The APK was not installed or started for this publication.
 
 ### From the specification (`core/docs`)
 
-1. **The words in a backup.** `Montana Identity.md:343` (conformance item 17) keeps the words out of backups and out of
-   every path that leaves the device. This app can put the 24 words into the system backup, which on most phones is the
-   Google account (`BackupSeed.kt`, `SeedBackupAgent`), sealed end to end by the system. The copy is off by default and
-   is made only when the person turns it on in Privacy. iOS 2229 withdrew its Apple ID copy (`MontanaAppleID` is a stub
-   there). For the project to decide: keep the opt-in, or remove it as iOS did.
-2. **No release, no published hash.** `Montana App.md:133` (conformance item 7) asks for a reproducible build and the
+1. **No release, no published hash.** `Montana App.md:133` (conformance item 7) asks for a reproducible build and the
    hash of every release. No release of this app is published. The APK's content is fixed per commit (`scripts/build.py`
    fixes the zip times and modes), but the signature is the builder's own debug key, so APKs from two builders differ in
    their signature.
-3. **Where the messenger's wire is defined.** The boxes, pipes, twin mirror and Coins v3 are defined by the iOS source and
+2. **Where the messenger's wire is defined.** The boxes, pipes, twin mirror and Coins v3 are defined by the iOS source and
    `Audit/App/COIN-TX-V3.md`, not by `core/docs`. The deviations below are therefore named against iOS.
+
+### The words and the system backup
+
+`Montana Identity.md:343` (conformance item 17) keeps the words out of backups and out of every path that leaves the
+device, and iOS carries no seed in the Apple account (`MontanaAppleID.swift:4-8`). This app follows both since
+2026-10-25; until then this was the first deviation from the specification.
+
+- No file of the app is copied: `fullBackupContent="false"`, and `res/xml/data_extraction_rules.xml` excludes every
+  domain, as before.
+- The backup agent, `WithdrawBackupAgent` in `BackupWithdraw.kt`, writes no record, and at install it reads none. There is
+  no switch, and the page of opening offers no seed from a backup.
+- Earlier builds of this folder could write the words into the system backup when the person turned that on in Privacy
+  (`BackupSeed.kt`, off by default). On such an installation, every start of the app asks the system for a backup while
+  that build's switch or record name is still held. That backup withdraws every record the last backup held, so the copy
+  no longer holds the words.
+- The words on the device are not touched: the active seed in the vault, and a seed an earlier build brought from a
+  backup, both stay where they are.
+
+Not run: no backup or restore was made on an emulator with this build (`adb shell bmgr`).
 
 ### From iOS
 

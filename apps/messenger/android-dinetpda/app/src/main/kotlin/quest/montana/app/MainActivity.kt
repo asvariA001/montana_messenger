@@ -209,7 +209,6 @@ class MainActivity : Activity() {
                         Archive.sealForForget {
                             MontanaSeed.clear(); Archive.forgetKeys(); Prefs.forgetPerson(); SelfFace.clear(this); SavedMessages.forget(this)
                             MontanaHomeNode.forget(this); MontanaBackup.forget(this); MontanaCard.forget(); Book.wipe()
-                            MontanaBackupID.withdrawOwn(this)   // this installation's record leaves the account; a twin's stands
                             hasSeed = false; termsAccepted = false
                             render()
                         }
@@ -218,7 +217,6 @@ class MainActivity : Activity() {
             }
         }
         show(page)
-        if (hasSeed) MontanaBackupID.publish(this)   // the account carries this device's words (iOS publish)
         if (hasSeed && termsAccepted && !showWelcome) askWhatIsUnasked()
         // THE DAILY ROAD to the person's own node, a little after the first screen stands (iOS tickSoon).
         if (hasSeed && termsAccepted) HomeNodeWatch.tickSoon(this)

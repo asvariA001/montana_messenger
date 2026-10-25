@@ -63,5 +63,6 @@ class MontanaApp : Application() {
     override fun onCreate() {
         super.onCreate()
         BoxJob.schedule(this)
+        BackupWithdraw.atLaunch(this)   // a record of the words a build before left in the system backup leaves at the next backup
     }
 }

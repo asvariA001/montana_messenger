@@ -108,7 +108,7 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
         })
         spacer()
         // EVERY ACT OF THE PATH IS A DOOR (iOS intro 2281-2291): the main act rimmed in the platform's blue, the second clear;
-        // the account's door left this page for the page of opening (the author's word 29.09, 23:25)
+        // the account's door left this page (the author's word 29.09, 23:25), and the account carries no seed (BackupWithdraw.kt)
         lateinit var create: PathDoor
         // THE GROUND COMES BEFORE THE PERSON (iOS 2167-2172, the author's word 30.09): the first «Create» opens my page's ground;
         // its checkmark makes the person
@@ -118,27 +118,6 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
         addView(PathDoor(c, c.getString(R.string.open_identity)) { go(4) }, lp())
         gap(18)
         addView(c.text(versionFooter(c), 11f, MT.withAlpha(MT.gray, 0.7f), center = true))
-    }
-
-    private fun chooseCarried(all: List<MontanaBackupID.Carried>) {
-        // USER-DATA: the moment a record was written, and how many devices wrote it
-        val fmt = java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM, java.text.DateFormat.SHORT)
-        val lines = all.map { fmt.format(java.util.Date(it.at)) + if (it.devices > 1) " · ×${it.devices}" else "" }
-        android.app.AlertDialog.Builder(act)
-            .setTitle(R.string.which_identity)
-            .setItems(lines.toTypedArray()) { _, i -> openCarried(all[i].words) }
-            .show()
-    }
-
-    /** The seed the account carries opens this phone (iOS openCarried); the copy of the history comes with the network. */
-    private fun openCarried(words: String) {
-        if (creating) return
-        creating = true
-        act.background {
-            val keys = SeedKeys.from(words)
-            val stored = keys != null && MontanaSeed.enter(keys)
-            act.onMain { creating = false; if (stored) onDone() else go(0) }
-        }
     }
 
     // ── 0: the door (the author's design, iOS 29.09; iOS keeps the Montana door alone) ──
@@ -329,21 +308,6 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
             }
         }
         addView(restore, lp())
-        // THE ACCOUNT ALREADY HOLDS A SEED (iOS recover 2357-2387): beside the words, a clear door; more than one — the person
-        // chooses. The account is asked while the page stands, every three seconds: its record comes after the sign-in.
-        val carried = PathDoor(c, c.getString(R.string.continue_backup)) {
-            val all = MontanaBackupID.held()
-            if (all.size == 1) openCarried(all[0].words) else if (all.isNotEmpty()) chooseCarried(all)
-        }.apply { visibility = View.GONE }
-        addView(carried, lp().apply { topMargin = dp(16) })
-        val ask = object : Runnable {
-            override fun run() {
-                if (!carried.isAttachedToWindow) return
-                carried.visibility = if (MontanaBackupID.held().isEmpty()) View.GONE else View.VISIBLE
-                carried.postDelayed(this, 3000)
-            }
-        }
-        carried.post(ask)
         spacer()
     }
 
