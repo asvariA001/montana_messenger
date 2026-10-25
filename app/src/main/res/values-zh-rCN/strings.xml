@@ -324,6 +324,7 @@
     <string name="search_messages">消息</string>
     <string name="search_global">全局搜索</string>
     <string name="search_message_on_montana">在 Montana 上发消息</string>
+    <string name="chat_search_hint">在聊天中搜索…</string>
     <string name="nothing_found">未找到内容</string>
     <string name="back_to_top">回到顶部</string>
     <!-- the correspondent's edit page (iOS MontanaPeerInfoScreen editor) -->

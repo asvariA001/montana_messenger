@@ -55,6 +55,13 @@ fun letterWords(c: Context, t: String, meta: String? = null): String = when {
     SecretLetter.isOne(t) -> "\uD83D\uDD11 " + c.getString(R.string.pw_shared)
     else -> t
 }
+/** A query and a letter's words folded alike (iOS .caseInsensitive, .diacriticInsensitive): the accents off, one case. */
+internal fun searchFold(s: String): String =
+    java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD).replace(Regex("\\p{Mn}+"), "").lowercase(java.util.Locale.ROOT)
+/** What a letter is searched by (iOS message.text, message.docName): its own words; a media letter's caption and its file's name. */
+internal fun searchWords(c: Context, m: Msg): String =
+    if (m.text.startsWith(Marks.MEDIA)) Media.manifestOf(m)?.let { it.optString("cap") + "\n" + it.optString("n") } ?: ""
+    else letterWords(c, m).takeIf { it == m.text } ?: ""
 /** The same words for a letter of the book: its manifest, once read, names what it carries. */
 fun letterWords(c: Context, m: Msg): String = letterWords(c, m.text, m.meta)
 
@@ -655,7 +662,7 @@ object ShowLetter {
 }
 
 /** `jump` — a letter found by the search: the chat opens on it, and it glows once (iOS openChat(jump:)). */
-fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: String? = null): View {
+fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: String? = null, search: Boolean = false): View {
     val c: Context = act
     val group = Groups.isKey(ref)   // a group's feed: no pipe, no presence, no doors (iOS MTGroup.isKey)
     // THE ROOM WITHOUT AN ADDRESS (iOS isLocalRoom): Saved Messages opens here like every chat -- no wire, no presence, no rung, no call
@@ -722,6 +729,12 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     // THE CHAT'S SELECTION (iOS selectingMsgs, selectedMsgs): «Select» in a letter's menu begins it
     var selecting = false
     val picked = linkedSetOf<String>()
+    // THE CHAT'S OWN SEARCH (iOS searching / searchText, MontanaConversation.swift:1410-1412, 2495-2537 at 2312): open and asked
+    // something, the feed shows only the letters whose words or file name hold the query, in any case and with any accent; a tap on
+    // one carries the eye to its own place in the whole conversation (iOS searchJump, 2975-2990)
+    var searching = false
+    var searchQuery = ""
+    var searchLeave: (String) -> Unit = {}
     lateinit var drawFoot: () -> Unit
     var toQuoted: (String) -> Unit = {}
 
@@ -757,8 +770,17 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         setPadding(dp(24), dp(12), dp(24), dp(14)); visibility = if (Post.closed(ref)) View.VISIBLE else View.GONE
         background = c.glassPlate().apply { cornerRadius = dp(18).toFloat() }
     }
-    fun drawEmpty(empty: Boolean) {
+    fun drawEmpty(empty: Boolean, asked: Boolean = false) {
         if (!empty) { emptyView.visibility = View.GONE; return }
+        emptyNote.visibility = View.VISIBLE
+        // a search with a query is about the query (iOS feedEmptyKind .noResults, MTFeedEmpty: the magnifier and «Nothing found»)
+        if (asked) {
+            emptyGlyph.setImageResource(R.drawable.ic_search); emptyGlyph.visibility = View.VISIBLE
+            emptyTitle.setText(R.string.nothing_found); emptyNote.visibility = View.GONE
+            emptyView.isClickable = false; emptyView.visibility = View.VISIBLE
+            return
+        }
+        emptyGlyph.setImageResource(R.drawable.ic_antenna_slash)
         val cm = c.getSystemService(android.net.ConnectivityManager::class.java)
         val net = cm?.getNetworkCapabilities(cm.activeNetwork)?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
         val offline = !net || Signal.aliveHosts().isEmpty()
@@ -1090,7 +1112,15 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         }
         var lastDay = -1L
         // A MEDIA GROUP IS ONE ROW (iOS buildRows): its letters stand as one plate, chosen, forwarded and deleted together
+        val asked = if (searching) searchFold(searchQuery.trim()) else ""
         val rows = feedRows(chat.msgs.filter { !ChessLetter.isStep(it.text) }).toList()
+            .let { all -> if (asked.isEmpty()) all else all.filter { r -> r.any { searchFold(searchWords(c, it)).contains(asked) } } }
+        // A FOUND LETTER IS A WAY TO ITS PLACE (iOS searchJump: the row takes no tap of its own, the tap goes to the letter's place)
+        fun searchHit(v: View, mid: String): View = FrameLayout(c).apply {
+            layoutParams = v.layoutParams
+            addView(v, FrameLayout.LayoutParams(MATCH, WRAP))
+            addView(View(c).apply { contentDescription = c.getString(R.string.search); pressable { searchLeave(mid) } }, FrameLayout.LayoutParams(MATCH, MATCH))
+        }
         // A GROUP'S RUN IS ONE PERSON'S (iOS buildRows): another speaker, a gap of ten minutes, a new day or an event begins another
         fun dayOf(at: Long) = java.util.Calendar.getInstance().apply { timeInMillis = at }.let { it.get(java.util.Calendar.YEAR) * 1000L + it.get(java.util.Calendar.DAY_OF_YEAR) }
         fun sameRun(a: List<Msg>, b: List<Msg>): Boolean {
@@ -1116,7 +1146,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 }
             }
             // «unread messages» (iOS unreadDivider 3014-3022): the caption in grey across the feed on its quiet band
-            if (firstUnread != null && row.any { it.mid == firstUnread }) lay("unread:" + m.mid, emptyList(), false) {
+            if (asked.isEmpty() && firstUnread != null && row.any { it.mid == firstUnread }) lay("unread:" + m.mid, emptyList(), false) {
                 c.text(c.getString(R.string.unread_messages), 11f, MT.gray, center = true).apply {
                     setBackgroundColor(Color.rgb(31, 31, 31)); setPadding(0, dp(5), 0, dp(5))
                     layoutParams = lp().apply { topMargin = c.dp(2); bottomMargin = c.dp(2) }
@@ -1132,7 +1162,9 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                     layoutParams = lp().apply { topMargin = c.dp(4); bottomMargin = c.dp(4) }
                 }
             }
-            else lay(m.mid, signOf(row) + listOf(head, tail), true) { letterRow(m, row, head, tail) }
+            else lay(m.mid, signOf(row) + listOf(head, tail, asked.isNotEmpty()), true) {
+                letterRow(m, row, head, tail).let { if (asked.isEmpty()) it else searchHit(it, m.mid) }
+            }
         }
         if (want.size != feed.size || want.indices.any { want[it].key != feed[it].key || want[it].sig != feed[it].sig }) {
             val began = System.nanoTime()
@@ -1189,7 +1221,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             android.util.Log.d("Montana", "feed_pass rows=" + want.size + " built=" + built + " born=" + born + " gone=" + gone + " ms=" + (System.nanoTime() - began) / 1_000_000)
         }
         laid = true
-        drawEmpty(column.childCount == 0)
+        drawEmpty(column.childCount == 0, asked.isNotEmpty())
         // the other side closed it: read, not answered (iOS closedChats) — the note where the field stood
         if (Post.closed(ref)) { hideBar(); closedNote.visibility = View.VISIBLE }
     }
@@ -1803,7 +1835,67 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     val pageLanding: (String, String?) -> Unit = { to, mid ->
         if (to != ref) { onClose(); act.push { c2 -> conversationPage(act, to, c2) } } else if (mid != null) jumpHere(mid)
     }
-    val openPage = { hideKeys(); act.push { close -> if (group) groupPage(act, ref, close, pageLanding) else peerInfoPage(act, ref, close, pageLanding) } }
+    // THE SEARCH BAR UNDER THE HEADER (iOS searchBar, MontanaConversation.swift:2640-2660 at 2312): the platform's own search field,
+    // «Search in chat…», the round cross beside it closes the search; the keys are asked for once it stands
+    val searchField = EditText(c).apply {
+        hint = c.getString(R.string.chat_search_hint)
+        setHintTextColor(MT.gray); setTextColor(Color.WHITE)
+        textSize = 17f
+        background = null
+        isSingleLine = true
+        inputType = InputType.TYPE_CLASS_TEXT
+        imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH
+        setPadding(0, 0, 0, 0)
+    }
+    lateinit var closeSearch: () -> Unit
+    val searchBar = c.hstack {
+        gravity = Gravity.CENTER_VERTICAL
+        visibility = View.GONE
+        setPadding(dp(12), dp(4), dp(12), dp(4))
+        addView(c.hstack {
+            gravity = Gravity.CENTER_VERTICAL
+            background = c.glassPlate()
+            setPadding(dp(12), 0, dp(12), 0)
+            addView(c.icon(R.drawable.ic_search, Color.rgb(230, 230, 230)), lp(dp(22), dp(22)).apply { marginEnd = dp(8) })
+            addView(searchField, lp(0, WRAP, 1f))
+        }, lp(0, dp(40), 1f))
+        addView(FrameLayout(c).apply {
+            background = c.glassPlate(oval = true)
+            contentDescription = c.getString(R.string.cancel)
+            addView(c.icon(R.drawable.ic_close, Color.rgb(204, 204, 204)), FrameLayout.LayoutParams(dp(18), dp(18), Gravity.CENTER))   // iOS MontanaOctagon.barGlyph
+            pressable { closeSearch() }
+        }, lp(dp(44), dp(44)).apply { marginStart = dp(8) })
+    }
+    // the feed answers the words a moment after the last key (iOS refreshMessageSearch: 120 ms), not at every letter
+    val searchPass = Runnable { redraw() }
+    searchField.addTextChangedListener(object : TextWatcher {
+        override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
+        override fun onTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
+        override fun afterTextChanged(s: android.text.Editable?) {
+            if (!searching) return
+            searchQuery = s?.toString() ?: ""
+            searchField.removeCallbacks(searchPass); searchField.postDelayed(searchPass, 120)
+        }
+    })
+    searchField.setOnEditorActionListener { v, _, _ -> c.getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(v.windowToken, 0); true }
+    fun openSearch() {
+        hideKeys()
+        searching = true
+        searchBar.visibility = View.VISIBLE
+        searchField.requestFocus()
+        searchField.post { c.getSystemService(InputMethodManager::class.java).showSoftInput(searchField, 0) }
+        android.util.Log.i("Montana", "chat_search open")
+    }
+    closeSearch = {
+        c.getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(searchField.windowToken, 0)
+        searching = false; searchQuery = ""
+        searchField.removeCallbacks(searchPass)
+        searchField.setText(""); searchField.clearFocus()
+        searchBar.visibility = View.GONE
+        redraw()
+    }
+    // «SEARCH» OF THE GROUP'S PAGE (iOS perform(.search), MontanaPeerInfoScreen.swift:634-639): the page goes down to its chat and asks it
+    val openPage = { hideKeys(); act.push { close -> if (group) groupPage(act, ref, close, pageLanding, onSearch = { close(); openSearch() }) else peerInfoPage(act, ref, close, pageLanding) } }
     // THE CHESS MARK'S TAP (iOS chessMark 1975-1986): an invitation waiting for my answer is answered in the feed, a played game opens
     // its board; with none the platform's question asks for a new game and takes the stake under the balance (iOS 2054-2067)
     fun chessTap() {
@@ -1971,6 +2063,8 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         }
     }
     jumpHere = { jumpTo(it) }
+    searchLeave = { mid -> closeSearch(); column.post { jumpTo(mid) } }
+    if (search) searchBar.post { openSearch() }
     // THE BAR'S WAY BACK TO ITS BUBBLE (iOS goToLetter, MontanaConversation.swift:1315-1323 at 2155; atom 83753ae0754a): this
     // chat's letter is scrolled to and lit as a reply jump lights; another chat's opens in this one's place
     val showLetter: (String, String) -> Unit = { to, mid ->
@@ -2046,6 +2140,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         // at its end when the panel grows (a reply line, a recording, the keyboard).
         val head = c.vstack(Gravity.NO_GRAVITY) {
             addView(top)
+            addView(searchBar, lp(MATCH, WRAP))
             addView(selTop, lp(MATCH, WRAP))
             // THE PINNED PLATE under the header (iOS the pinned bar): shown while a letter of this chat is pinned
             addView(pinnedPlate(act, ref) { mid -> jumpTo(mid) }, lp().apply { marginStart = dp(10); marginEnd = dp(10); bottomMargin = dp(4) })
