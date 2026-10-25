@@ -1,6 +1,6 @@
 {
  "what": "The status of the thirteen protocol requirements as this tree holds them. A session that closes or moves an item edits its row and its report (protocol-13/, beside this file) in the same commit as the work, and publish_protocol13.py writes the public folder Audit/Protocol-13 from that commit: the reports, the table from this file and the source; an item is closed only with an implementation revision, the exact test command and its result in the report of that item.",
- "recorded": "2026-10-16",
+ "recorded": "2026-10-25",
  "items": [
   {
    "item": 1,
