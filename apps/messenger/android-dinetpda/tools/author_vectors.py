@@ -41,3 +41,12 @@ print("withAuthor(head) sha256 =", hashlib.sha256(with_author(head, key, secret,
 print("withAuthor(head) len    =", len(with_author(head, key, secret, mid, text)))
 card = head + b"\x00\x00" + b'{"u":"https://montana.quest","t":"Montana"}'   # the card as field 7, without its close
 print("withAuthor(card) sha256 =", hashlib.sha256(with_author(card, key, secret, mid, text)).hexdigest())
+# FROM 29.10.2026 (day 20755, past iOS MTPipeKey.walkAnchorDay 20754) A LETTER IS SIGNED OVER THE CONVERSATION'S ROOT (iOS 2311
+# MTPipeKey.itemKey): root = SHA-256("mt-conv-root" || 0 || secret); the same field and framing over it. A self-check keeps each vector
+# on its own day: the rows above on the anchor day, these from the day after.
+root = hashlib.sha256(b"mt-conv-root\x00" + secret).digest()
+print("root                   =", root.hex())
+print("authorTag(root)        =", author_tag(key, root, mid, text))
+print("withAuthor(head, root) sha256 =", hashlib.sha256(with_author(head, key, root, mid, text)).hexdigest())
+print("withAuthor(head, root) len    =", len(with_author(head, key, root, mid, text)))
+print("withAuthor(card, root) sha256 =", hashlib.sha256(with_author(card, key, root, mid, text)).hexdigest())

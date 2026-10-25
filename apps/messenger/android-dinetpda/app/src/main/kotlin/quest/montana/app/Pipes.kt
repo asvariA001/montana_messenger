@@ -175,20 +175,10 @@ object Wire {
         // the root first, then the established secret while it is held: the sender's day is its own clock (iOS authorHolds)
         return itemKeys(secret).any { k -> MessageDigest.isEqual(got, Base64.decode(authorTag(key, k, mid, text), Base64.DEFAULT)) }
     }
-    /** The author field's vectors, made outside this code from the iOS formula (tools/author_vectors.py); a drift leaves letters unsigned. */
+    /** The author field's vectors, made outside this code from the iOS formula (tools/author_vectors.py), each on its own day, over the
+     *  code a letter is signed with here (withAuthor / authorHolds above); a drift leaves letters unsigned (AuthorCanon). */
     val authorAgreesWithCanon: Boolean by lazy {
-        val key = ByteArray(32) { 0x61 }
-        val secret = ByteArray(32) { 0x44 }
-        val mid = "t1792249000000-ABCD"
-        val text = "Привет, Montana 🌍"
-        val head = mid.toByteArray() + byteArrayOf(0) + text.toByteArray() + byteArrayOf(0) + "Alice".toByteArray() + byteArrayOf(0, 0)
-        val card = head + byteArrayOf(0, 0) + "{\"u\":\"https://montana.quest\",\"t\":\"Montana\"}".toByteArray()
-        val ok = authorTag(key, secret, mid, text) == "WcOqZdlxhSpBEZYKgbjSSg=="
-            && authorTag(key, secret, mid, "") == "AZIK29ezKo70HRREQwXbzA=="
-            && withAuthor(head, key, secret, mid, text).let { it.size == 82 && hex(sha(it)) == "5fe43b371f456a08e30ffe5d736c866719e26f5702fcf4da3ca7145ca39b358d" }
-            && hex(sha(withAuthor(card, key, secret, mid, text))) == "bd472907cb6fb8d2d13a4291f80f976fdb836658b4ecd1f3d9d53ad1ea112d9c"
-            && authorHolds("WcOqZdlxhSpBEZYKgbjSSg==", key, secret, mid, text) && !authorHolds("WcOqZdlxhSpBEZYKgbjSSg==", key, secret, mid, "x")
-            && walkAgreesWithCanon
+        val ok = AuthorCanon.agrees(day(), ::authorTag, ::withAuthor, ::authorHolds) { sha(it) } && walkAgreesWithCanon
         Log.d("Montana", "author_canon " + if (ok) "ok" else "DISAGREES — letters ride unsigned")
         ok
     }
