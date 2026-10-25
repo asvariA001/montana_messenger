@@ -24,6 +24,11 @@ clock — Consensus. Records of people and keys — Identity. How a payment trav
 A note is three fields: an amount, the payment key of its owner, and a blinding factor. None
 of them is ever published. What is published is a commitment to all three.
 
+**An amount is a count of coins.** The coin is the one unit of value: the amount of a note, the
+worth of a right and the supply are whole numbers of coins, and nothing smaller than a coin
+exists for the protocol. Canon holds the width an amount is written in; how coins are issued is
+Consensus's.
+
 **The blinding factor is not optional.** Without it a commitment is enumerable: the set of
 meaningful amounts is small and the payment key of a recipient is known to whoever paid them,
 so an observer would test "this note is such an amount to so-and-so" by direct hashing. The

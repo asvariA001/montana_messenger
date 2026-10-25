@@ -3043,7 +3043,8 @@ what the state became.
 `sponge`, `limbs` and `cells` are the doors and the readings of the proof hash: the circuit of a frame proves the three
 derivations below the payment key, so they are of that family, while the payment key — which
 nothing proves and anyone may compare — stays SHA-256. `value` is an unsigned sixteen-byte
-little-endian amount, `rcm` a thirty-two-byte blinding factor drawn from a cryptographic source,
+little-endian amount, a count of coins — the coin is the unit of value Value names, and one
+coin is the amount one — `rcm` a thirty-two-byte blinding factor drawn from a cryptographic source,
 `position` the unsigned eight-byte little-endian index of the leaf the commitment occupies.
 
 **Invariants of the derivations:**
