@@ -179,7 +179,7 @@ object Media {
      * then the letter with the manifest leaves by the ordinary post (the pieces first — the receiver must find them).
      */
     fun send(c: Context, ref: String, picked: Picked, caption: String, qt: String? = null, group: MediaGroup.Slot? = null,
-             swap: (() -> ByteArray?)? = null, gate: Boolean = true) {
+             swap: (() -> ByteArray?)? = null, gate: Boolean = true, turn: String? = null) {
         // A MEDIA LETTER OF A GROUP IS ASKED OF THE GROUP FIRST (iOS sendGatedMedia, G.5): a right the group took from its members, or
         // slow mode's wait, is said and no row is laid; every other letter goes on by the one road
         if (gate && Groups.isKey(ref)) refusal(c, ref, picked, caption)?.let { Groups.tellRefusal(it); return }
@@ -196,7 +196,12 @@ object Media {
         }
         Book.edit(ref) { it.msgs.add(Msg(mid, provisional, true, Marks.birthMs(mid) ?: System.currentTimeMillis(), qt = qt, file = local.path)) }
         if (!Book.isLocal(ref)) Transfers.set(mid, 0.01f)   // the ring stands at the tap (iOS setUploadProgress(fileName, 0.01), MontanaConversation.swift:4609)
-        Thread {
+        val work: () -> Unit = work@{
+            // A ROW TAKEN OFF THE FEED BEFORE ITS TURN (its cross, a deletion) is not sent after all (iOS MTSendLine's guard, 2312)
+            if (turn != null && Book.chat(ref)?.msgs?.toList()?.none { it.mid == mid } == true) {
+                Transfers.set(mid, null); Log.i("Montana", "send_line turn=$turn kind=${p.kind} skipped -- the row left before its turn"); return@work
+            }
+            if (turn != null) Log.i("Montana", "send_line turn=$turn kind=${p.kind} waiting=${SendLine.pending(ref)}")
             // THE ROW STANDS AT THE TAP, THE FULL FILE TAKES ITS PLACE BEFORE A BYTE LEAVES (iOS sendGifFound, MontanaConversation.swift
             // 3822-3846 at 2155): `swap` brings the full bytes behind the standing row; the file's name never changes, only what lies
             // under it, and the picture plays its three cycles again in its full shape (iOS MTGifPlay.renew)
@@ -218,12 +223,14 @@ object Media {
                 Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid && it.file == local.path }?.let { it.text = told } }
             }
             // THE LOCAL ROOM KEEPS ITS FILE (iOS isLocalRoom): nothing is sealed or laid -- the letter is settled with the file beside it
-            if (Book.isLocal(ref)) { Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.advance(2) }; return@Thread }
-            if (deliver(c, ref, mid, pw, caption, local, qt, group)) return@Thread
+            if (Book.isLocal(ref)) { Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.advance(2) }; return@work }
+            if (deliver(c, ref, mid, pw, caption, local, qt, group)) return@work
             // THE INTENT SURVIVES ITS BROKEN UPLOAD (iOS 1675, 1677): the bubble stands at the clock and the upload waits for the drain
             keepIntent(ref, mid, local, told, caption, qt)
             Log.w("Montana", "media: the pieces did not reach the node — the intent waits for the drain mid=" + mid.take(8))
-        }.start()
+        }
+        // a tray's file waits in its conversation's one line (SendLine): its network work starts when the one before it is over
+        if (turn != null) SendLine.enqueue(ref, work) else Thread(work).start()
     }
 
     /** The pieces laid, the row given its letter, the letter posted; false — the node took nothing, the intent stands. */
@@ -289,8 +296,13 @@ object Media {
         // an album is asked of the group whole, before its first row (G.5): its own rows are not the slow mode's last letter
         if (Groups.isKey(ref)) picks.firstNotNullOfOrNull { p -> refusal(c, ref, p, if (p === picks.firstOrNull()) caption else "") }
             ?.let { Groups.tellRefusal(it); return }
-        val slots = MediaGroup.slots(picks.size)
-        picks.forEachIndexed { i, p -> send(c, ref, p, if (i == 0) caption else "", group = slots[i], gate = false) }
+        // A FILE BETWEEN PICTURES ENDS THEIR PLATE (iOS MTStagedOrder.plates, 2312): pictures side by side fold, a file stands alone
+        val slots = arrayOfNulls<MediaGroup.Slot>(picks.size)
+        for (run in StagedOrder.plates(picks.map { it.kind == "doc" })) MediaGroup.slots(run.count()).forEachIndexed { j, s -> slots[run.first + j] = s }
+        // THE TRAY LEAVES IN ITS ORDER, ONE AFTER ANOTHER (iOS MTSendLine, 2312, the author's word 25.10.2026 17:40 UTC): every row is
+        // laid now, in the tray's order; the network work of each waits in the conversation's one line, so no file overtakes an earlier one
+        picks.forEachIndexed { i, p -> send(c, ref, p, if (i == 0) caption else "", group = slots[i], gate = false, turn = "${i + 1}/${picks.size}") }
+        Log.i("Montana", "tray_send n=${picks.size} files=${picks.count { it.kind == "doc" }} plates=${slots.filterNotNull().map { it.key }.toSet().size}")
     }
     /** What the group says to this media letter (Groups.mediaRefusal): by its kind, roundness, file name -- its extension at least -- and caption. */
     private fun refusal(c: Context, ref: String, p: Picked, caption: String): String? =
@@ -676,6 +688,56 @@ class MediaProvider : ContentProvider() {
     override fun insert(uri: Uri, values: ContentValues?): Uri? = null
     override fun delete(uri: Uri, s: String?, a: Array<out String>?) = 0
     override fun update(uri: Uri, v: ContentValues?, s: String?, a: Array<out String>?) = 0
+}
+
+/**
+ * THE ORDER CHOSEN IS THE ORDER SENT (iOS MTStagedOrder, 2312; the author's word 25.10.2026 17:40 UTC, council link 8089): what waits
+ * above the field wears its place, 1, 2, 3; a cross takes one out and the numbers close up, because the number IS the place.
+ */
+object StagedOrder {
+    /** The number a place wears: one more than its index. */
+    fun number(index: Int) = index + 1
+    /** The plates of a tray: a run of two or more pictures folds into one; a file (`true`) ends the run and stands alone. */
+    fun plates(files: List<Boolean>): List<IntRange> {
+        val out = ArrayList<IntRange>()
+        var start = -1
+        for ((i, file) in files.withIndex()) {
+            if (!file) { if (start < 0) start = i }
+            else if (0 <= start) { if (1 < i - start) out.add(start until i); start = -1 }
+        }
+        if (0 <= start && 1 < files.size - start) out.add(start until files.size)
+        return out
+    }
+}
+
+/**
+ * ONE LINE OUT PER CONVERSATION (iOS MTSendLine, 2312): a file never overtakes an earlier one, whatever their sizes. Every send of a
+ * tray stands in its conversation's line and starts when the one before it is over -- uploaded, refused, or left to the drain. The
+ * rows are laid at once; only the network work waits its turn. Every other road keeps its own thread, as before.
+ */
+object SendLine {
+    private val lines = HashMap<String, ArrayDeque<() -> Unit>>()
+    fun enqueue(line: String, turn: () -> Unit) {
+        val start = synchronized(lines) {
+            val q = lines[line]
+            if (q == null) { lines[line] = ArrayDeque(listOf(turn)); true } else { q.add(turn); false }
+        }
+        // one runner per line: it takes the turns from the head and leaves when the line is empty -- the next turn starts a new one
+        if (start) Thread {
+            var next: (() -> Unit)? = turn
+            while (next != null) {
+                val now = next
+                runCatching { now() }.onFailure { Log.w("Montana", "send_line: a turn failed", it) }
+                next = synchronized(lines) {
+                    val q = lines.getValue(line)
+                    q.removeFirst()
+                    if (q.isEmpty()) { lines.remove(line); null } else q.first()
+                }
+            }
+        }.start()
+    }
+    /** How many sends of the line are not over yet, the running one with them (the trace's word). */
+    fun pending(line: String): Int = synchronized(lines) { lines[line]?.size ?: 0 }
 }
 
 /**
