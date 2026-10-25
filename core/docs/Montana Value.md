@@ -4,7 +4,7 @@
 
 Value holds what money is in Montana and how it moves: the note, its commitment, its
 nullifier, the trees they live in, the fixed shape of a spend, what the proof asserts, how a
-right to a window's share is extinguished, and the single mechanism by which an owner may disclose
+right to a window's coin is extinguished, and the single mechanism by which an owner may disclose
 one payment. It holds no number — Canon holds those — and it names no party, because none
 exists.
 
@@ -98,7 +98,7 @@ A frame holds a fixed number of **spends**, each of a fixed number of positions 
 object Canon counts by `spends_per_frame` and `items_per_spend`. Within a spend the
 positions are, in order: redemptions of what is consumed, commitments of the notes created,
 and one rate nullifier. **A redemption position consumes a note or a right to a window's
-share, and the two are one kind** — the positions are typeless, their count does not vary with
+coin, and the two are one kind** — the positions are typeless, their count does not vary with
 what fills them, and a verifier that handled only the note branch would refuse every redemption
 of a right while believing itself correct. A spend carrying no transfer holds filler in every position, drawn by
 its emitter from its own randomness and by no public formula.
@@ -151,9 +151,11 @@ accompanies it. Two entities where one suffices would restore distinguishability
 
 For every redemption, one of two branches holds and the proof does not say which: either a note
 exists whose commitment lies in a tree whose root the horizon of proving holds and the bearer
-knows its ownership secret, or the bearer holds an unextinguished right to the share of a window and the
+knows its ownership secret, or the bearer holds an unextinguished right to the coin of a window and the
 machine secret that proves it. In both branches the nullifier published is derived from what was
-consumed by the canonical formula of that branch. What is created equals what is consumed. The rate nullifier
+consumed by the canonical formula of that branch. What is created equals what is consumed, and a
+right consumed is worth one coin — a constant of the protocol and never a witness, so a frame prices
+a right alone and no quantity of its window enters the proof to do it. The rate nullifier
 belongs to a window of the standing stride — every window of which stands before the one the
 frame applies in — and its index is within the bound, neither the window nor the index being
 published, so a first payment of a window is indistinguishable from a fourth, and a frame
@@ -179,7 +181,7 @@ The proof is of fixed length. Its branch is never disclosed.
 
 ## Extinguishing a right
 
-A right to a window's share creates no note. It is extinguished inside an ordinary payment: the
+A right to a window's coin creates no note. It is extinguished inside an ordinary payment: the
 bearer proves entitlement and consumes the right **in a nullifier position like any other**, so
 nothing about the payment says that a right was what it consumed. The moment of extinguishing is
 computed from the machine's secret and the window rather than chosen, and the landing stands
@@ -195,8 +197,8 @@ where no observer can tell which entries are rights and which are notes.
 ## Conservation of issuance
 
 - **Per payment:** what is created equals what is consumed, asserted by the proof and never by adding open numbers.
-- **Per window:** the change of supply equals the mint of that window — one right per living machine, each extinguished by exactly one nullifier — with the indivisible remainder carried forward.
-- **Globally:** the sum of unspent notes, unredeemed rights and the carried remainder equals the supply, held by proof and induction and **unverifiable by addition** — amounts are hidden and rights are private.
+- **Per window:** the change of supply equals the count of the cement of that window, in coins — one right of one coin per living machine, each extinguished by exactly one nullifier; nothing is divided and nothing is carried forward. A right the sanction of Consensus extinguishes without issue is a coin that window does not add.
+- **Globally:** the supply is the sum over the windows of what each added, and it equals the sum of unspent notes and unredeemed rights, held by proof and induction and **unverifiable by addition** — amounts are hidden and rights are private. The supply itself is public, as the counts of the cements are; what no addition verifies is that the hidden notes and the private rights sum to it.
 
 **The honest price.** The ability to detect a breach of issuance by simple summation is lost
 together with open amounts, and no reconciliation of balances replaces it. The integrity of
@@ -311,7 +313,7 @@ everything forever is a hazard, not a feature.
 | the choice of the root a proof stands on | closed: the roots a proof may stand under are the canonical horizon of its window, a frame carries none, and which leaf a proof stands under is inside the proof |
 | the speed of the device that proved a frame, or when its proving began | closed: every window-bound input ranges over one standing stride, whose fold enters the transcript as one value for the whole standing period, hidden inside a proof of one length — a frame proven over many windows is byte-indistinguishable from one proven in its own |
 | the origin of a coin | closed: a coin from emission is sent by nobody, and an edge of funding does not exist |
-| that a right was extinguished at all | closed: a redemption position is typeless and the proof never says which branch it took, so nothing distinguishes the extinguishing of a right from the spending of a note. The bound of one share per machine per window holds by **uniqueness**, not by observation: the nullifier of a right is derived from the machine's secret and the window, so a second attempt yields the same value and collides in the set — and nobody needs to know which entries were rights for the collision to happen |
+| that a right was extinguished at all | closed: a redemption position is typeless and the proof never says which branch it took, so nothing distinguishes the extinguishing of a right from the spending of a note. The bound of one coin per machine per window holds by **uniqueness**, not by observation: the nullifier of a right is derived from the machine's secret and the window, so a second attempt yields the same value and collides in the set — and nobody needs to know which entries were rights for the collision to happen |
 | the roots of the two structures | **deliberately observable**: they are quantities about the whole, and no participant is derivable from them |
 
 ## Conformance set
