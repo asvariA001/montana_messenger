@@ -2156,7 +2156,8 @@ pub fn check_derivations(md: &str) -> Result<(), String> {
     let serialized = mt_state::Layout::bytes(&record)
         .map_err(|e| format!("the record of the vector of a candidacy is no record: {e:?}"))?;
     let commitment = mt_proof::records::leaf(&serialized);
-    let record_root = mt_proof::records::root_of_leaves(&std::iter::once((commitment.bytes(), commitment)).collect());
+    let alone = std::iter::once((commitment.bytes(), commitment)).collect();
+    let record_root = mt_proof::records::root_of_leaves(&alone);
     let naming = mt_derive::nullifier::machine_halves(&candidacy_secret).1;
     compare_hash(
         "operator_nullifier of the candidacy",
@@ -2178,11 +2179,18 @@ pub fn check_derivations(md: &str) -> Result<(), String> {
         labeled(&candidacy_rows, "naming_half of the candidacy")?,
         &naming,
     )?;
-    let mut public = Vec::with_capacity(8 + 3 * 32);
-    public.extend_from_slice(&candidacy_window.to_le_bytes());
-    public.extend_from_slice(&record_root.bytes());
-    public.extend_from_slice(&naming);
-    public.extend_from_slice(&right);
+    // The input the circuit of an admission is verified over, laid by the door every verifier lays
+    // it with: a public input ordered otherwise is a proof of another statement.
+    let as_digest = |bytes: &[u8; 32]| {
+        mt_proof::poseidon::Digest::of_bytes(bytes)
+            .ok_or_else(|| "a value of the vector of a candidacy is no digest of the family".to_string())
+    };
+    let public = mt_proof::circuit::admission::public_of(
+        candidacy_window,
+        &record_root,
+        &as_digest(&naming)?,
+        &as_digest(&right)?,
+    );
     compare_hash(
         "SHA-256(public input)",
         labeled(&candidacy_rows, "SHA-256(public input)")?,
