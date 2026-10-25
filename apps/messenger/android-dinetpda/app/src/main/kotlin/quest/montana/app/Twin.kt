@@ -9,7 +9,7 @@ import java.util.concurrent.Executors
 
 /**
  * THE PERSON'S OTHER DEVICES IN STEP (iOS MontanaPQ 872-1155, MontanaDeliveryEngine.mirrors / landMirrored / landOwn, ChatStore.readByTwin,
- * giveTwinRows / takeTwinRow, MontanaCard.takeTwin; the port of Windows twin.rs; docs/identity-sync/07, stages 1-3). Every device of the 24
+ * giveTwinRows / takeTwinRow, MontanaCard.takeTwin; the port of Windows twin.rs: letters, groups, rows asked back, cards). Every device of the 24
  * words is one reference to the pipes of its correspondents, so the node's box hands a letter to whichever device takes it first, that
  * device's confirmation erases it for the rest, and a letter one device sent the box never gives the others. So what this phone sends,
  * takes from a correspondent or reads rides to the other devices as words of a mirror («lt») in the pipe only these words derive

@@ -1,6 +1,8 @@
 # Montana for Android: DinetPDA's counterpart build
 
-**Work in Progress. Not a release. Not the project's Android app.**
+**A development port: work in progress, not a release, and not the project's Android app.** Its package is
+`quest.montana.app.dev`, and it is signed with a debug key. **Never install it on a phone that holds a real identity:**
+use an emulator or a test device, with test identities only.
 
 This folder holds DinetPDA's Android app for Montana. It is the phone side of the checks of Montana for Windows
 (`apps/messenger/windows`). Those checks need one identity, one set of 24 words, on several devices, and the wire as the
@@ -35,13 +37,16 @@ it.
 app or its tools. This folder is that commit's `android/` and `tools/`, copied as files: the local history is not part
 of this repository.
 
-**Changes made for this folder.** Apart from this README, 11 files differ from that commit:
+**Changes made for this folder.** Apart from this README, 16 files differ from that commit.
 
-- the paths to the core;
-- the build copy of `tools/wsl-build.sh`;
-- two tool paths;
-- comments that named files of the local repository;
-- `.gitignore` and `.gitattributes`.
+- 11 for the build here:
+  - the paths to the core;
+  - the build copy of `tools/wsl-build.sh`;
+  - two tool paths;
+  - comments that named files of the local repository;
+  - `.gitignore` and `.gitattributes`.
+- 5 comments reworded in English, so that none cites a file that is not published: `CoinChain.kt`, `CoinLocalTest.kt`,
+  `Archive.kt`, `Presence.kt` and `Twin.kt`.
 
 Every other file is byte for byte the same.
 
@@ -420,8 +425,7 @@ The backup frames are sealed with ChaCha20-Poly1305, as on iOS (`.mtbak` v2).
 - **A licence to settle.** `native/montana-xray/montanaxray.go:164-165` says that its delay measure was ported from
   2dust/AndroidLibXrayLite under MPL-2.0. That repository's LICENSE read LGPL-3.0 on 2026-10-18. The file is iOS's byte
   for byte, so the question concerns iOS too.
-- **Comments that cite other files.** Comments citing `docs/identity-sync/07` refer to DinetPDA's internal analysis
-  notes, which are not published. Comments citing `docs/BUILD.md`, `docs/calls.md` or
+- **Comments that cite other files.** Comments citing `docs/BUILD.md`, `docs/calls.md` or
   `docs/core-note-entropy-to-mnemonic.md` come from upstream's Android tree, which does not publish those files either.
 
 ## Third-party components and licences

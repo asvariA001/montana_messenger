@@ -406,7 +406,7 @@ object Signal {
         for (ref in Book.refs()) if (on && !PeerSafety.isBlocked(ref)) hold(ref, "ear") else release(ref, "ear")
         // THE PERSON'S OTHER DEVICES ARE HEARD AS A CORRESPONDENT IS (iOS: the node's silent push wakes every device of the twin's pipe but
         // the one that spoke, MontanaPQ twinDeviceRef; this phone's ear is its push): a word another device laid for this one -- its letters,
-        // a correspondent's letter it took, its reading -- fetches the box at once, not at the five-minute round (docs/identity-sync/07 4.5)
+        // a correspondent's letter it took, its reading -- fetches the box at once, not at EarService's five-minute round
         if (on && Archive.twinSecret() != null) hold(Archive.TWIN_PIPE, "ear") else release(Archive.TWIN_PIPE, "ear")
     }
     /** A lane's pipe: a conversation's, or the twin's -- whose secret the seed's history key derives and whose name is this device's. */

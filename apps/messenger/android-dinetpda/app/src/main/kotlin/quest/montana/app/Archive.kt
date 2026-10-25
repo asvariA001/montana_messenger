@@ -550,7 +550,7 @@ object Archive {
     private val twinFails = HashMap<String, Int>()
     /**
      * A ROW OF THE BOX IN THE PIPE OF THIS SEED'S DEVICES is this file's own, never a letter of the feed (iOS twinTakes 944-960; the rule
-     * of Windows twin.rs 366-401, docs/identity-sync/07 2.1): the blocks of the history («hist») and the words of the mirror («lt»), each
+     * of Windows twin.rs 366-401, which takes, confirms or leaves each row): the blocks of the history («hist») and the words of the mirror («lt»), each
      * taken by its road before the row is confirmed -- a confirmation erases the row for every device of the words, so a row whose road did
      * not come whole stays in the box for the next pickup, five times, and is let go then. A letter this phone laid itself stays for the
      * others; a word of the pipe this build does not know is taken unread, as iOS takes it. True: the row may be confirmed to the node.
