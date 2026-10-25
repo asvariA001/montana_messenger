@@ -65,6 +65,7 @@ mt_codec::constants! {
 #[derive(Debug, PartialEq, Eq)]
 pub enum ShapeError {
     RowsDoNotReachTheTail { rows_log2: u32 },
+    RowsDoNotExceedTheFreeBlock { rows_log2: u32 },
 }
 
 // The shape of a proof over a trace of a stated height. Everything below follows from the
@@ -80,12 +81,21 @@ impl Shape {
     // that stands **at** the tail is refused with them and for a reason of the same kind: it folds
     // no layer at all, and every check of a proof past the first reads the layer the folding did
     // not make. A shape of no layers would carry a proof whose deep composition answers against
-    // nothing, so it is refused where a shape becomes a shape.
+    // nothing, so it is refused where a shape becomes a shape. A height the free block fills is
+    // refused there too: the constraints and the boundaries reach every row but the free block,
+    // and a trace of no row beyond it has no row for them to reach — the live rows of a shape are
+    // never zero, and never fewer.
     pub fn of_rows_log2(rows_log2: u32) -> Result<Shape, ShapeError> {
         let tail_log2 = TAIL_DEGREE.trailing_zeros();
         let fold_log2 = FOLD.trailing_zeros();
         if rows_log2 <= tail_log2 || !(rows_log2 - tail_log2).is_multiple_of(fold_log2) {
             return Err(ShapeError::RowsDoNotReachTheTail { rows_log2 });
+        }
+        if 1usize
+            .checked_shl(rows_log2)
+            .is_some_and(|rows| rows <= FREE_ROWS)
+        {
+            return Err(ShapeError::RowsDoNotExceedTheFreeBlock { rows_log2 });
         }
         Ok(Shape { rows_log2 })
     }
@@ -272,12 +282,37 @@ mod tests {
                 rows_log2: TAIL_DEGREE.trailing_zeros()
             })
         );
-        assert!(Shape::of_rows_log2(8).is_ok());
+        assert!(Shape::of_rows_log2(10).is_ok());
         assert_eq!(
-            Shape::of_rows_log2(8).map(|shape| shape.layers()),
-            Ok(1),
-            "the least height this scheme folds at folds once"
+            Shape::of_rows_log2(10).map(|shape| shape.layers()),
+            Ok(2),
+            "the least height this scheme proves at folds twice"
         );
         assert!(Shape::of_rows_log2(12).is_ok());
+    }
+
+    // A height the folding reaches the tail from is refused all the same when the free block fills
+    // it: the constraints and the boundaries would reach no row, and the last live row would stand
+    // before the first. The named wrong implementation is a shape admitted at the height of the
+    // free block, whose live rows are zero and whose arithmetic over them runs below zero.
+    #[test]
+    fn a_height_the_free_block_fills_is_refused() {
+        let free_log2 = FREE_ROWS.trailing_zeros();
+        assert_eq!(1usize << free_log2, FREE_ROWS);
+        assert_eq!(
+            Shape::of_rows_log2(free_log2),
+            Err(ShapeError::RowsDoNotExceedTheFreeBlock {
+                rows_log2: free_log2
+            })
+        );
+        // The least lawful height is the next one the folding reaches the tail from, and below it
+        // no height is a shape at all.
+        let least = free_log2 + FOLD.trailing_zeros();
+        for rows_log2 in 0..least {
+            assert!(Shape::of_rows_log2(rows_log2).is_err(), "{rows_log2}");
+        }
+        let shape = Shape::of_rows_log2(least).expect("the least lawful height");
+        assert!(shape.live_rows() > 0);
+        assert_eq!(shape.live_rows() + FREE_ROWS, shape.rows());
     }
 }
