@@ -187,7 +187,8 @@ fun groupPage(act: MainActivity, key: String, onClose: () -> Unit,
                 }
             }
             // a swipe to the left takes them out, where this phone may (iOS MTGroupMemberRow .swipeActions «Delete»)
-            rows += if (remove == null) row else SwipeRow(act, row, listOf(Tile(R.drawable.ic_delete, red = true) { remove() }))
+            rows += if (remove == null) row else SwipeRow(act, row, listOf(Tile(R.drawable.ic_delete, red = true) { remove() }),
+                ground = GLASS_TONE or (0xFF shl 24))   // the section's card, not the list's black (iOS insetGrouped row)
         }
         body.section(null, null, *rows.toTypedArray())
     }
