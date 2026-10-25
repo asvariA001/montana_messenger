@@ -407,9 +407,8 @@ fn a_word_written_in_bytes_above_the_modulus_does_not_clear() {
 
     // The spelling above the modulus clears the subtraction and rebuilds the word the lane holds,
     // and is refused by the canonical check at the last byte of that word alone.
-    let forged = trace_of_a_comparison(
-        &held, &digest, &compared, start, &words, &above, &threshold,
-    );
+    let forged =
+        trace_of_a_comparison(&held, &digest, &compared, start, &words, &above, &threshold);
     assert_eq!(forged[compared.borrow()][compare::after_of(start)], F::ZERO);
     assert!(!held.satisfied_by(&forged, &public));
     let canonical_rules = held.constraints.len() - (4 + CAPACITY)..held.constraints.len();
