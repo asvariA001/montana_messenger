@@ -830,7 +830,7 @@ signature of another width; `links_to` refuses a round past `u32::MAX` (round.rs
   unit whose coin clears can be left out, and the ballot publishes fewer votes than the standing
   drew. The statement is an upper bound, not the equality this obligation asked for. Test:
   `f_539_1_a_lived_unit_whose_coin_clears_cannot_be_left_uncounted`
-  (tests/ballot_and_ticket.rs:144, ignored as a finding), which lowers the bit of a lived clearing
+  (tests/ballot_and_ticket.rs:153, ignored as a finding), which lowers the bit of a lived clearing
   unit, rewrites the carried bit, the product and the count, and finds the witness satisfying the
   description and proven and verified (build host, 25.10.2026, e64036e, run with `--ignored`: "a
   ballot of 6 votes where the standing drew 7: satisfied true, proven and verified true", exit 101,
@@ -845,13 +845,13 @@ signature of another width; `links_to` refuses a round past `u32::MAX` (round.rs
   lived, refused by the rule of the root alone (`a_census_not_lived_casts_nothing`, :1049); a coin
   at the threshold (`a_coin_votes_below_the_threshold_and_never_at_it`, :1004). In
   tests/ballot_and_ticket.rs, each refused by the one rule named and no other: a bit of two at a
-  lived seam, the bit rule (`a_lived_unit_cannot_cast_two_votes_by_a_bit_of_two`, :194); a borrow
+  lived seam, the bit rule (`a_lived_unit_cannot_cast_two_votes_by_a_bit_of_two`, :203); a borrow
   out written as nought, the subtraction of the last byte
-  (`a_borrow_out_written_as_nought_does_not_make_a_coin_clear`, :237); a coin, its lane and its
+  (`a_borrow_out_written_as_nought_does_not_make_a_coin_clear`, :246); a coin, its lane and its
   comparison grafted from another spending half, the spending wire of the coin
-  (`a_coin_drawn_from_another_spending_half_is_refused`, :272); the word 0xFF written as the bytes
+  (`a_coin_drawn_from_another_spending_half_is_refused`, :281); the word 0xFF written as the bytes
   of 0xFF + p, which would clear a threshold of 0x80 where the canonical bytes do not, the
-  canonical check (`a_word_written_in_bytes_above_the_modulus_does_not_clear`, :379, the gadget
+  canonical check (`a_word_written_in_bytes_above_the_modulus_does_not_clear`, :388, the gadget
   alone). The five new tests that refuse, the ticket's below among them, ran ok on the build host
   (25.10.2026, e64036e, `test -p mt-proof --release --test ballot_and_ticket`, exit 0).
   *The ticket: the chains.* Block 0 is idle; the halves (blocks 1 to 3), the admitted leaf, 40
@@ -887,7 +887,7 @@ signature of another width; `links_to` refuses a round past `u32::MAX` (round.rs
   (`a_ticket_cannot_graft_another_machines_membership`, :666); in tests/ballot_and_ticket.rs an
   admitted machine whose ticket does not clear carrying a stranger's that does, refused at the
   spending wire of the ticket alone (`a_ticket_drawn_from_another_spending_half_is_refused`,
-  :453), and the canonical check above, the comparison being one gadget for both.
+  :462), and the canonical check above, the comparison being one gadget for both.
   *Where it stands.* The ticket is sound as read, and its half of O-6 is discharged. **O-6 stands
   open on F-539-1** and on nothing else: the ballot binds its count from above -- no verified ballot
   casts more than its part drew over the census of `E`, which is what `ballotSound` and Theorem 3

@@ -101,17 +101,26 @@ fn a_lived_unit_that_does_not_clear(aggregate: &[u8; 32]) -> (Digest, Vec<ballot
 // the honest writer of the ballot writes them.
 fn rewrite_votes(trace: &mut [Vec<F>], places: &ballot::Places, columns: &ballot::Columns) {
     let afters: Vec<usize> = (0..places.censuses).map(|at| places.after(at)).collect();
-    let rows = trace[columns.votes.count()].len();
+    let products: Vec<F> = trace[columns.votes.carried()]
+        .iter()
+        .zip(&trace[columns.compared.borrow()])
+        .map(|(carried, borrow)| carried.times(*borrow))
+        .collect();
     let mut count = F::ZERO;
-    for row in 0..rows {
-        let carried = trace[columns.votes.carried()][row];
-        let product = carried.times(trace[columns.compared.borrow()][row]);
-        trace[columns.votes.product()][row] = product;
-        trace[columns.votes.count()][row] = count;
-        if afters.contains(&row) {
-            count = count.plus(carried).minus(product);
-        }
-    }
+    let counts: Vec<F> = products
+        .iter()
+        .zip(&trace[columns.votes.carried()])
+        .enumerate()
+        .map(|(row, (product, carried))| {
+            let here = count;
+            if afters.contains(&row) {
+                count = count.plus(*carried).minus(*product);
+            }
+            here
+        })
+        .collect();
+    trace[columns.votes.product()] = products;
+    trace[columns.votes.count()] = counts;
 }
 
 // Every rule a trace breaks and every row it breaks it at, over the rows the scheme holds it at.
