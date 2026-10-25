@@ -656,6 +656,10 @@ mod tests {
 // times and the search of its node of eleven keys before the twelfth eleven, so the harness is
 // unwound to thirteen; a comparison of 32 bytes is a loop of `memcmp` the command line unwinds to
 // thirty-three.
+#[cfg(test)]
+#[path = "agreement_every_book.rs"]
+mod every_book;
+
 #[cfg(kani)]
 mod proofs {
     use super::*;
