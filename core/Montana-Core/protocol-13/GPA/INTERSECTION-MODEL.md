@@ -3,7 +3,10 @@
 **Status: open. No proof exists for the specification, and the shipped code implements only part of
 the construction the claim stands on.** This file states the claim precisely so that the gap can be
 measured rather than argued. This is a source reading with conditional mathematical lemmas in
-section 5, not a traffic measurement or an implementation anonymity proof.
+section 5, not a traffic measurement or a general implementation anonymity proof.
+The third-session [C-NONEMPTY/MAP follow-up](C-NONEMPTY-MAP.md) retains implementation
+pin M and supplies a restricted deferred-receipt API witness and a scoped source map.
+Its transport-map boundaries and the broader proof obligations remain open.
 
 Baseline: commit `2c6951f8b887b7e42bfe745f5bb42cdb207508f7` of this repository (the normative set in
 `core/docs/`, the reference core in `core/Montana-Core/`). Line numbers refer to that commit.
@@ -319,7 +322,10 @@ metadata visible to the selected endpoints; a pair valid for G need not be valid
 Section 4.2 gives the source witnesses, for example at M
 [apps/messenger/ios/Code/Montana/MontanaWakePush.swift:1762-1770](https://github.com/efir369999/montana_messenger/blob/2c7eb0df782da1679d20fc220499e9e3ab72c6b6/apps/messenger/ios/Code/Montana/MontanaWakePush.swift#L1762-L1770).
 
-**Nontriviality obligation C-NONEMPTY — open for M.** A useful candidate is the two-pair
+**Nontriviality obligation C-NONEMPTY.** A restricted pre-established MUQ API witness is
+supplied in [C-NONEMPTY-MAP.md, section 1](C-NONEMPTY-MAP.md#1-c-nonempty-first-deferred-receipt-with-hidden-capability-ownership);
+it covers a fixed horizon with both recipients offline, not observed setup or online delivery.
+Those broader instances remain open. The following original candidate remains conditional: the two-pair
 switch `R_0={(a,c),(b,d)}`, `R_1={(a,d),(b,c)}` with four fixed honest participants,
 one equal-length offered message per sender and one per recipient. In an abstract system
 under **assumption EX-SCHEDULE** (both uploads and both downloads have a common,
@@ -535,7 +541,10 @@ nor declared complete here; external audit remains [issue #2](https://github.com
 
 **Session-two status:** Definition C, conditional Lemma V and conditional Theorem W are
 written out above. C-NONEMPTY, SIM and its named reduction obligations, SEQ/W-M and the WIN
-integration remain **open** for M. Packet sizes/timestamps on every link, retry/receipt totals,
+integration remain **open** for M at that session. The third-session follow-up supplies the
+restricted witness linked above and a source map of P-MUQ-DEFERRED with named open boundaries;
+SIM, PQ-KEY, PQ-SEAL, JOINT, SEQ and W-M retain their statements and open status.
+Packet sizes/timestamps on every link, retry/receipt totals,
 oldest-reader compatibility and field behavior remain the chair's work in section 4.5 and
 [FINDINGS-F2-F3.md:97-114 at the session-one commit](https://github.com/efir369999/montana_messenger/blob/6b700175afc04b8fa3f802de1ad50268216a09f1/core/Montana-Core/protocol-13/GPA/FINDINGS-F2-F3.md#L97-L114).
 No runtime evidence or implementation anonymity theorem is claimed.
