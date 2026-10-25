@@ -67,7 +67,7 @@ The artifact stands published, so no row awaits it; what a row may still await i
 | CNS-15 | the one-time right to raise a machine | Consensus, "Presence and admission" | — | `mt-operator-nf` | a scenario of the right spent once | stage 19 |
 | CNS-16 | the commitment of a machine | Consensus, "What a machine commits about itself"; Canon, "The commitment standing for a machine" | — | `mt-node-commit`, `mt-node-key` | vectors: "The commitment standing for a machine" | — |
 | CNS-17 | the three points of a round | Canon, "The points a round stands at" | `consensus_replicas` | `mt-round-point`, `mt-window-point` | the derivation and the ring rule | stage 13 |
-| CNS-18 | the right to a window's share | Consensus, "The right to a window's share" | — | — | VAL-08, where the right and what redeems it stand | — |
+| CNS-18 | the right to a window's share | Consensus, "The right to a window's coin" | — | — | VAL-08, where the right and what redeems it stand | — |
 | CNS-19 | the cold start | Consensus, "The cold start" | — | — | a scenario of the first window closing itself | stage 14 |
 | CNS-20 | the way back | Consensus, "The way back"; Canon, "The close of a window, and the slots an event offers" | `finality_rule` | — | the derivation; vectors: "Vectors of the way back"; a scenario of overlapping Byzantine signers, halted partitions and rejoining under the fixed parent quorum | — |
 | CNS-21 | the attestation of presence | Consensus, "The attestation of presence"; Canon, "The arithmetization, and how the set is bound to it" | — | `mt-part-key-digest` | the description written, proven and verified end to end at the height of its own duty, its length derived beside it, and `air_hash` recomputed over the six | stage 13 |
