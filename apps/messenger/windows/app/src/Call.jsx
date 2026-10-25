@@ -143,7 +143,27 @@ function config(pass) {
 }
 
 /** THE CALL (iOS MontanaCall): one at a time; the window rings, talks and ends it; Rust carries its words. */
-export default function CallLayer({ person }) {
+// THE FOLDED CALL, TOLD TO THE ROWS (iOS CallUIModel.foldedLive and its peer, CallInlineHandset): the row of the person the folded
+// call is with wears the handsets -- the green to return to it, the red to end it -- and the layer's own deeds answer them
+let foldedNow = null;
+const foldedEars = new Set();
+let callDeeds = null;
+function tellFolded(v) {
+  if ((foldedNow?.chat ?? null) === (v?.chat ?? null) && (foldedNow?.video ?? null) === (v?.video ?? null)) return;
+  foldedNow = v;
+  foldedEars.forEach((f) => f(v));
+}
+/** The call folded into the app, or null: {chat, video}. */
+export function useFoldedCall() {
+  const [v, setV] = useState(foldedNow);
+  useEffect(() => { foldedEars.add(setV); setV(foldedNow); return () => { foldedEars.delete(setV); }; }, []);
+  return v;
+}
+/** The folded call comes back (the green handset) or ends (the red, once asked). */
+export const unfoldCall = () => callDeeds?.unfold();
+export const endFoldedCall = () => callDeeds?.end();
+
+export default function CallLayer({ person, pillHidden = false }) {
   const [call, setCall] = useState(null);   // {phase: out|in|talk|end, chat, name, seed, epoch, video, incoming, status, at}
   const [muted, setMuted] = useState(false);
   const [cameras, setCameras] = useState(0);   // the cameras of this computer, asked when a video call stands
@@ -161,6 +181,9 @@ export default function CallLayer({ person }) {
   // pill at the window's foot brings it back or ends it
   const [folded, setFolded] = useState(false);
   const fold = (v, why) => { setFolded(v); mark(`fold ${v ? "folded" : "unfolded"} by=${why}`); };
+  useEffect(() => {
+    tellFolded(call && folded && call.phase !== "in" && call.phase !== "end" ? { chat: call.chat, video: !!call.video } : null);
+  }, [call, folded]);
   const stroke = useRef(null);
   // a call that ended leaves nothing folded behind; Esc folds the call standing open (iOS: the back mark's road)
   useEffect(() => { if (!call) setFolded(false); }, [call]);
@@ -1180,6 +1203,7 @@ export default function CallLayer({ person }) {
     if (localVideo.current && s.stream && localVideo.current.srcObject !== s.stream) localVideo.current.srcObject = s.stream;
   });
 
+  callDeeds = { unfold: () => fold(false, "handset"), end: () => finish("hangup", true) };
   if (!call) return null;
   const s = st.current;
   const foldable = call.phase !== "in" && call.phase !== "end";
@@ -1216,7 +1240,9 @@ export default function CallLayer({ person }) {
   return (<>
     {/* THE FOLDED CALL (iOS CallOverlayView.pillBody): the green capsule -- the call's glyph and its clock -- takes the person back to
         it; the red round ends it; above the window's foot, never over a name */}
-    {isFolded && (
+    {/* the pill floats only where no name lives (iOS MTMinimizedCallLayer): not over the chats' list, whose row of that person wears
+        the handsets; over an open chat it stays until the chat's head wears them too */}
+    {isFolded && !pillHidden && (
       <div className="call-pill-row" role="group" aria-label={kind}>
         <button className="call-pill" onClick={() => fold(false, "pill")} aria-label={`${kind} ${clockNow}`}>
           <Glyph name={call.video ? "video" : "phone"} size={16} color="#fff" /><b className="digits">{clockNow}</b>

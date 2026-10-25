@@ -29,7 +29,7 @@ export function timeOf(coins, signed = true) {
   let rest = Math.abs(Math.trunc(coins || 0));
   const take = (s) => { const n = Math.floor(rest / s); rest %= s; return n; };
   const epochs = take(31536000000), centuries = take(3153600000);
-  const c = { years: take(31536000), months: take(2628000), weeks: take(604800), days: take(86400), hours: take(3600), minutes: take(60), seconds: rest };
+  const c = calendarSpan(rest);
   const parts = [];
   if (epochs > 0) parts.push(t("%lld ep.").replace("%lld", epochs));
   if (centuries > 0) parts.push(t("%lld cent.").replace("%lld", centuries));
@@ -37,18 +37,35 @@ export function timeOf(coins, signed = true) {
   const told = parts.join(" ");
   return signed && coins < 0 ? "−" + told : told;
 }
-/** Year to second as the system writes a span, narrow (CLDR's own words, as the platform's formatter): «5 д 1 ч», «5d 1h». */
+/** A span cut as the system's calendar cuts it (iOS DateComponentsFormatter.string(from:): the components from now to now + the
+ *  span, years and months by the calendar -- 40 days are «1 month 1 week 2 days», never a month of 30.4 days and its hours). */
+export function calendarSpan(seconds) {
+  const from = new Date(), to = new Date(from.getTime() + seconds * 1000);
+  const step = (d, unit, n) => { const x = new Date(d); if (unit === "y") x.setFullYear(x.getFullYear() + n); else x.setMonth(x.getMonth() + n); return x; };
+  let cur = from;
+  const count = (unit) => { let n = 0; while (step(cur, unit, n + 1) <= to) n++; cur = step(cur, unit, n); return n; };
+  const years = count("y"), months = count("m");
+  let rest = Math.max(0, Math.round((to - cur) / 1000));
+  const take = (s) => { const n = Math.floor(rest / s); rest %= s; return n; };
+  return { years, months, weeks: take(604800), days: take(86400), hours: take(3600), minutes: take(60), seconds: rest };
+}
+const UNIT = { years: "year", months: "month", weeks: "week", days: "day", hours: "hour", minutes: "minute", seconds: "second" };
+/** Year to second as the system writes a span (iOS .abbreviated, .dropAll; matched to its strings, PR #13 25.10.2026, level B): each
+ *  unit in the language's narrow form -- «5 д. 3 ч 15 мин», «1 н. 1 д.», «5d 3h 15m» -- but the month in English is «mo», as iOS
+ *  writes it, where the narrow form would say «m» for the month and the minute alike. */
 function span(c) {
-  const kept = Object.fromEntries(Object.entries(c).filter(([, v]) => v > 0));
-  const none = !Object.keys(kept).length;
-  if (none) kept.seconds = 0;   // nothing at all is said as no seconds (iOS «0 с»): the zero said, never an empty line
-  try {
-    return new Intl.DurationFormat(locale, none ? { style: "narrow", secondsDisplay: "always" } : { style: "narrow" }).format(kept);
-  } catch {
-    const ru = locale.startsWith("ru");
-    const w = { years: ["y", "г."], months: ["mo", "м."], weeks: ["w", "н."], days: ["d", "д"], hours: ["h", "ч"], minutes: ["m", "мин"], seconds: ["s", "с"] };
-    return Object.entries(kept).map(([k, v]) => (ru ? `${v} ${w[k][1]}` : `${v}${w[k][0]}`)).join(" ");
-  }
+  const kept = Object.entries(c).filter(([, v]) => v > 0);
+  if (!kept.length) kept.push(["seconds", 0]);   // nothing at all is said as no seconds (iOS «0 с»): the zero said, never an empty line
+  const ru = locale.startsWith("ru");
+  return kept.map(([k, v]) => {
+    if (k === "months" && !ru) return `${v}mo`;
+    try {
+      return new Intl.NumberFormat(locale, { style: "unit", unit: UNIT[k], unitDisplay: "narrow" }).format(v);
+    } catch {
+      const w = { years: ["y", "г."], months: ["mo", "м."], weeks: ["w", "н."], days: ["d", "д."], hours: ["h", "ч"], minutes: ["m", "мин"], seconds: ["s", "с"] };
+      return ru ? `${v} ${w[k][1]}` : `${v}${w[k][0]}`;
+    }
+  }).join(" ");
 }
 /** The coins as the catalogue writes them (iOS «%@ coins»: «N монет», «N coins», one word for every count). */
 function coinsOf(n) {

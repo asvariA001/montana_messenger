@@ -3763,6 +3763,29 @@ async fn chat_erase(app: AppHandle, chat: String, both: bool) -> Result<(), ()> 
     Ok(())
 }
 
+/// THE COIN'S REFRESH (iOS ChatsListView.pullRefresh: the box asked at once, whatever waits there landed): the list drawn past the
+/// coin's trigger asks the node's box now instead of at the walk's next beat -- off the window's thread.
+#[tauri::command]
+async fn pull_refresh(app: AppHandle) -> Result<(), ()> {
+    std::thread::spawn(move || {
+        let (p, m) = (app.state::<Person>(), app.state::<Messenger>());
+        if let Some(d) = m.desk(&p) {
+            if d.fetch_once() > 0 {
+                changed(&app);
+                ring(&app, &p, &m, std::mem::take(&mut *d.news.lock().unwrap()));
+            }
+        }
+    });
+    Ok(())
+}
+
+/// THE DELETION'S TERMS (iOS MontanaDeleteChatSheet): whether «Delete for me and them» stands, and whether a coin letter travels.
+#[tauri::command]
+async fn chat_erase_terms(m: State<'_, Messenger>, chat: String) -> Result<serde_json::Value, ()> {
+    let (both, coins) = m.erase_terms(&chat);
+    Ok(serde_json::json!({ "both": both, "coins": coins }))
+}
+
 /// BLOCK OR UNBLOCK a correspondent (iOS «Заблокировать» / «Разблокировать»).
 #[tauri::command]
 async fn chat_block(app: AppHandle, chat: String, on: bool) -> Result<(), ()> {
@@ -4668,6 +4691,8 @@ pub fn run() {
             chat_edit,
             chat_react,
             chat_erase,
+            chat_erase_terms,
+            pull_refresh,
             copy_text,
             chat_flag,
             chat_kept_draft,

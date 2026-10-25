@@ -1,13 +1,19 @@
 /* THE DRAWER (iOS MontanaSideDrawer): under the page; the page slides right by its width with corners 34 and a dim */
-:root { --drawer: min(78vw, 360px); }
+:root { --drawer: min(78vw, 480px); }   /* MontanaSideDrawer.width: round(container * 0.78); at most 480 on a wide window (turn.js drawerWidth) */
 /* clipped, never scrolled: a focus or a scroll-into-view deep inside never moves the window's own frame (overflow: clip) */
 .shell { position: relative; height: 100%; overflow: clip; background: #000; }
-.shell > .split { position: relative; z-index: 1; background: var(--page); transition: transform 0.35s cubic-bezier(0.3, 1.1, 0.5, 1), border-radius 0.35s; }
+/* the page moves by the strokes' spring alone (turn.js: damping 0.9 in 0.35 s, the finger's speed carried in), never by a CSS curve */
+.shell > .split { position: relative; z-index: 1; background: var(--page); }
 .shell.drawer-open > .split { transform: translateX(var(--drawer)); border-radius: 34px; overflow: hidden; }
-.drawer-dim { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.45); z-index: 30; cursor: pointer; }
+/* the dim at 0.45 × the way gone (MontanaDrawerController.apply: dim.alpha = 0.45 * t / w); its stroke drags the drawer back */
+.drawer-dim { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.45); opacity: var(--dim, 1); z-index: 30; cursor: pointer; touch-action: none; }
 .drawer { position: absolute; left: 0; top: 0; bottom: 0; width: var(--drawer); z-index: 0; display: flex; flex-direction: column;
           background: #000; overflow: auto; visibility: hidden; scrollbar-width: none; }   /* iOS: showsIndicators false */
 .drawer.open { visibility: visible; }
+/* THE COLUMN ALWAYS GIVES UNDER THE FINGER (iOS .scrollBounceBehavior(.always); turn.js useBounce): the touch and the pen scroll it by hand, past
+   either end it is moved by --bounce and springs home */
+.drawer { touch-action: none; }
+.drawer > * { transform: translateY(var(--bounce, 0px)); }
 .drawer-faces { display: flex; gap: 18px; padding: 20px 24px 12px; }
 .drawer-face { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 88px; border: 0; background: none; color: #fff;
                font: inherit; cursor: pointer; padding: 0; }
@@ -779,3 +785,6 @@ button.history-row { border: 0; width: 100%; color: inherit; font: inherit; text
 .album-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .album-close { position: absolute; top: 16px; right: 16px; transition: opacity 0.22s ease-in-out; }
 .album-strip.away, .album-close.away { opacity: 0; pointer-events: none; }
+/* the VPN wall's globe on its stand (iOS MontanaVPNGlyph, a template image): the asset's shape in white */
+.vpn-globe { display: block; background: #fff; -webkit-mask-size: contain; mask-size: contain; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+             -webkit-mask-position: center; mask-position: center; }

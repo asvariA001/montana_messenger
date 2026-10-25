@@ -515,6 +515,19 @@ export function RoomBar({ chat }) {
   );
 }
 
+/** A GROUP'S LIVING ROOM IN THE CHATS' LIST (iOS MTRoomRowMark, MTGroupRoom.swift 2658-2672): a small green mark beside the group's name --
+ *  dot.radiowaves for a live stream, video.fill for a video chat, phone.fill for a voice chat, 12 semibold; the row stays one button. */
+export function RoomRowMark({ chat }) {
+  const r = useRoom();
+  const b = r.rooms[chat];
+  if (!b) return null;
+  return (
+    <span className="room-row-mark" role="img" aria-label={kindName(b.kind, b.video)}>
+      <Glyph name={b.kind === "live" ? "antenna" : b.video ? "video" : "phone"} size={13} color="var(--green)" />
+    </span>
+  );
+}
+
 /** THE PHONE MARK OF A GROUP (iOS MTRoomMark): a living room is joined at once; else the kind, then whom to invite. */
 export function RoomMark({ chat, kinds, onAsk }) {
   const r = useRoom();

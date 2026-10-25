@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useLeave } from "./leave.js";
+import { speed, spring } from "./turn.js";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { mtSize, t } from "./strings.js";
@@ -27,18 +28,63 @@ const still = () => { try { return window.matchMedia("(prefers-reduced-motion: r
  *  THE WAY IN AND OUT (iOS UINavigationController and the page sheet): a page with the back chevron is pushed -- it slides in from
  *  the right edge and back out to it; a page with the cross is a sheet -- it rises from the bottom and goes down. While it leaves
  *  it takes no touch and no reader sees it (inert). */
-export function Page({ title, subtitle, onClose, back, right, children, ground, foot }) {
+export function Page({ title, subtitle, onClose, back, right, children, ground, foot, guard }) {
   const g = ground || <PageGround />;
   const [leaving, setLeaving] = useState(false);
   const leave = () => {
     if (leaving) return;
+    if (guard && !guard()) return;   // the page asks first (a change not kept): it stays until the answer
     if (still()) { onClose(); return; }
     setLeaving(true);
     setTimeout(onClose, LEAVE_MS);
   };
   useLeave(leave);   // Esc, the mouse's back button, Alt+← -- as its own back mark (iOS: the edge's stroke)
+  // THE EDGE'S STROKE TAKES THE PAGE AWAY (iOS MontanaSlideController.pan): pressed within the page's first 16 points and drawn right,
+  // the page follows the finger; let go, a moving finger says the way (300 a second), a still one the distance (a third of the
+  // width), and the platform's spring (damping 1, 0.3 s) carries it off or home with the finger's speed
+  const el = useRef(null), drag = useRef(null), anim = useRef(null);
+  useEffect(() => () => anim.current?.(), []);
+  const place = (x) => { if (el.current) el.current.style.transform = x > 0.5 ? `translateX(${x}px)` : ""; };
+  const edgeDown = (e) => {
+    if (leaving || drag.current || (e.pointerType === "mouse" && e.button !== 0)) return;
+    const r = el.current.getBoundingClientRect();
+    if (e.clientX - r.left > 16) return;
+    drag.current = { id: e.pointerId, x0: e.clientX, y0: e.clientY, live: false, t: [], w: r.width };
+  };
+  const edgeMove = (e) => {
+    const d = drag.current;
+    if (!d || e.pointerId !== d.id) return;
+    const dx = e.clientX - d.x0, dy = e.clientY - d.y0;
+    if (!d.live) {
+      const ax = Math.abs(dx), ay = Math.abs(dy);
+      if (dx < -2 || (ay > 2 && ay > ax * 2) || (Math.hypot(ax, ay) > 10 && ax < ay)) { drag.current = null; return; }
+      if (!(ax > 2 && ay * 2 < ax) && Math.hypot(ax, ay) <= 10) return;
+      d.live = true;
+      anim.current?.();
+      el.current.style.animation = "none";
+      try { el.current.setPointerCapture(e.pointerId); } catch { /* the page still follows */ }
+    }
+    e.preventDefault();
+    d.t.push({ t: performance.now(), x: dx });
+    if (d.t.length > 12) d.t.shift();
+    place(Math.max(0, dx));
+  };
+  const edgeUp = (e) => {
+    const d = drag.current;
+    if (!d || e.pointerId !== d.id) return;
+    drag.current = null;
+    if (!d.live) return;
+    const x = Math.max(0, e.clientX - d.x0), v = speed(d.t);
+    let out = Math.abs(v) > 300 ? v > 0 : x > d.w / 3;
+    if (out && guard && !guard()) out = false;   // a page that asks first stays for the answer
+    anim.current = spring(x, out ? d.w : 0, { response: 0.3, damping: 1, velocity: v }, place, () => {
+      anim.current = null;
+      if (out) { setLeaving(true); onClose(); }
+    });
+  };
   return (
-    <div className={"page-over " + (back ? "slides" : "rises") + (leaving ? " leaving" : "")} inert={leaving || undefined} role="dialog" aria-label={title}>
+    <div className={"page-over " + (back ? "slides" : "rises") + (leaving ? " leaving" : "")} inert={leaving || undefined} role="dialog" aria-label={title}
+         ref={el} onPointerDown={edgeDown} onPointerMove={edgeMove} onPointerUp={edgeUp} onPointerCancel={edgeUp}>
       {g}
       <div className="page-wash" aria-hidden="true">{g}</div>
       <header className="page-bar">
@@ -115,7 +161,7 @@ export default function Settings({ onClose, onGone, start }) {
   const back = () => setPage(null);
 
   if (page === "seed") return <SeedShow onClose={back} />;
-  if (page === "folders") return <FoldersPage onClose={back} />;
+  if (page === "folders") return <FoldersPage onClose={back} pushed />;
   if (page === "look") return <LookPage onClose={back} />;
   if (page === "levels") return <LevelsPage onClose={back} />;
   if (page === "node") return <HomeNodePage onClose={back} />;
@@ -257,20 +303,24 @@ function Keeping() {
 
 const KEEP_FOOT = "Your copy is sealed with your 24 words and cut into parts. The people you write to keep the parts around a ring, each part with two of them: they see only its size and when it changes, and cannot open it. With your words on a new device, the parts come back from them, and each of them gives back the conversation you share.";
 
-/** THE QUESTION AT THE OPENING (iOS keepAsk; the author's word 08.10.2026 23:2x MSK: «on by default, and a question at the
- *  opening»): asked once, on the list's own plate rather than over the window; nothing leaves before the person is told. */
+/** THE QUESTION AT THE OPENING (iOS MainTabView keepAsk, ContentView.swift 2441-2451; the author's word 08.10.2026 23:2x MSK: «on by
+ *  default, and a question at the opening»): asked once, in the platform's own alert over the window -- «Keep your copy with your
+ *  contacts?», what it means, «Not now» (the cancel, bold) and «Keep»; nothing leaves before the person is told. iOS asks it after the
+ *  system's question of the banners is settled; Windows has no such question of its own, so it stands at the opening. */
 export function KeepAsk() {
   const [k, setK] = useState(null);
   useEffect(() => { invoke("keep_state").then(setK).catch(() => {}); }, []);
   if (!k || k.told || !k.agrees) return null;
   const answer = (keep) => { invoke("keep_do", { act: "told", on: keep }).catch(() => {}); setK({ ...k, told: true }); };
   return (
-    <div className="keep-ask" role="group" aria-label={t("Keep your copy with your contacts?")}>
-      <b>{t("Keep your copy with your contacts?")}</b>
-      <span>{t(KEEP_FOOT)}</span>
-      <div className="keep-ask-keys">
-        <button onClick={() => answer(false)}>{t("Not now")}</button>
-        <button className="yes" onClick={() => answer(true)}>{t("Keep")}</button>
+    <div className="alert-shade">
+      <div className="alert" role="alertdialog" aria-label={t("Keep your copy with your contacts?")}>
+        <div className="alert-title">{t("Keep your copy with your contacts?")}</div>
+        <div className="alert-text">{t(KEEP_FOOT)}</div>
+        <div className="alert-keys">
+          <button className="bold" onClick={() => answer(false)}>{t("Not now")}</button>
+          <button onClick={() => answer(true)}>{t("Keep")}</button>
+        </div>
       </div>
     </div>
   );

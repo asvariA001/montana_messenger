@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { t } from "./strings.js";
 import { Glyph } from "./TopBar.jsx";
-import { Face, SelfFace, chatName } from "./Chats.jsx";
+import { Face, SAVED, SelfFace, chatName } from "./Chats.jsx";
 import { Page, Section, Row } from "./Settings.jsx";
 import { BlockSheet, ReportPage } from "./Safety.jsx";
 import { GroundPicker, PAGE, TheirGround } from "./Ground.jsx";
@@ -203,6 +203,16 @@ export function PeerPage({ chat, face, myName, onClose, onWrite, onShowLetter, o
     invoke("chat_open", { chat }).then((c) => setBlocked(!!c?.blocked));
   };
   useEffect(() => { look(); }, [chat]);
+  // SAVED MESSAGES IS ITS PANES (iOS MontanaPeerInfoScreen 58-64, the author's word 18.09): the room without an address has no face,
+  // no name and no actions to show -- its page opens straight on the strip of what it holds, with no title over it
+  if (chat === SAVED) {
+    return (
+      <Page title="" onClose={onClose} back>
+        <PeerPanes chat={chat} name="" myName={myName} onShowLetter={onShowLetter} onForward={onForward} />
+        <div className="player-foot"><PlayerBar /></div>
+      </Page>
+    );
+  }
   if (!p) return null;
   const [name, bio, link, alias, theirs] = p;
   if (reporting) return <ReportPage chat={chat} name={name} onClose={() => { setReporting(false); look(); }} />;

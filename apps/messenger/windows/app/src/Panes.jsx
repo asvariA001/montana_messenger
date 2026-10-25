@@ -8,6 +8,7 @@ import * as player from "./player.js";
 import { TrackRow } from "./PlayerBar.jsx";
 import { AppIcon, LibraryGrid, useLibrary } from "./Library.jsx";
 import { callTo } from "./Call.jsx";
+import { useBounce } from "./turn.js";
 
 /** THE DRAWER (iOS MontanaSideDrawer, ContentView.swift 1560-1742): under the page; my face at the head opens my page; the
  *  applications in the iOS order; Settings at the foot with the version. A desktop window is wide: the drawer keeps to 360. */
@@ -20,10 +21,13 @@ export const APPS = [
 
 /** THE FACES AT THE HEAD OF THE DRAWER (iOS the second identity checklist): the person seated, every person of this computer
  *  waiting on the shelf -- a touch seats them -- and the plus that makes one more person beside those that stand. */
-export function Drawer({ open, person, unread, onClose, onApp, onMe, onSettings, version, parked = [], onSeat, onAdd }) {
+export function Drawer({ open, shown = open, person, counts = {}, onClose, onApp, onMe, onSettings, version, parked = [], onSeat, onAdd }) {
   const { style, grid } = useLibrary();   // the icons' style and the drawer's view (Appearance → Application icons)
+  const column = useRef(null);
+  useBounce(column, open);   // the column always gives under the finger (iOS .scrollBounceBehavior(.always))
+  // drawn while it moves (shown), read and touched only while it stands open: a drawer on its way home answers nothing
   return (
-    <aside className={"drawer" + (open ? " open" : "")} aria-hidden={!open}>
+    <aside className={"drawer" + (shown ? " open" : "")} aria-hidden={!open} inert={!open || undefined} ref={column}>
       <div className="drawer-faces">
         <button className="drawer-face me" onClick={onMe} aria-label={person.name}>
           <SelfFace name={person.name} version={person.face} size={48} />
@@ -44,7 +48,7 @@ export function Drawer({ open, person, unread, onClose, onApp, onMe, onSettings,
       </div>
       {grid ? (
         <div className="drawer-rows grid">
-          <LibraryGrid counts={{ chats: unread }} onOpen={(k) => (k === "settings" ? onSettings() : onApp(k))} />
+          <LibraryGrid counts={counts} onOpen={(k) => (k === "settings" ? onSettings() : onApp(k))} />
           <div className="drawer-version center">{version}</div>
         </div>
       ) : (
@@ -53,7 +57,7 @@ export function Drawer({ open, person, unread, onClose, onApp, onMe, onSettings,
             <button key={k} className="drawer-row" onClick={() => onApp(k)}>
               <span className="drawer-icon"><AppIcon app={k} side={30} style={style} /></span>
               <span className="drawer-title">{t(title)}</span>
-              {k === "chats" && unread > 0 && <span className="count-badge static">{unread > 99 ? "99+" : unread}</span>}
+              {counts[k] > 0 && <span className="count-badge static">{counts[k] > 99 ? "99+" : counts[k]}</span>}
             </button>
           ))}
           <div className="grow" />
@@ -81,7 +85,7 @@ export function NotYet({ title }) {
 
 /** CONTACTS (iOS ContactsTabView): the people of my conversations, by name; a tap writes to them, the menu shows their page.
  *  (Presence, pins, archive and the book's own cards are not on Windows yet.) */
-export function Contacts({ query, head = null, onWrite, onProfile }) {
+export function Contacts({ query, head = null, over = null, onWrite, onProfile }) {
   const [rows, setRows] = useState([]);
   const [seen, setSeen] = useState({});   // each person's presence line (iOS: «online», «last seen …» under the name)
   const [exact, setExact] = useState(true);
@@ -103,6 +107,8 @@ export function Contacts({ query, head = null, onWrite, onProfile }) {
   const people = rows.map((r) => ({ ...r, shown: chatName(r.name) }))
     .filter((r) => !q || r.shown.toLowerCase().includes(q))
     .sort((a, b) => a.shown.localeCompare(b.shown, locale));
+  // THE SEARCH'S RESULTS OVER THE ROWS (iOS: the same field and the same results on the chats, the contacts and the calls pages)
+  if (over) return <div className="rows searching">{head}{over}</div>;
   if (!rows.length) return <>{head}<div className="empty-pane"><div className="empty-text">{t("No contacts yet")}</div></div></>;
   return (
     <div className="rows">

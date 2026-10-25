@@ -8,9 +8,10 @@ the existing licences and every earlier notice stand as they are — among them 
 
 Porting and adaptation from Montana iOS to Windows: **DinetPDA — Linkora**.
 
-## Montana for Android (the changes on branch `dinetpda/android-windows-counterpart`)
+## Montana for Android (`apps/messenger/android-dinetpda/`, branch `dinetpda/android`)
 
-Porting work towards iOS parity on top of the project's own Android client: **DinetPDA — Linkora**.
+Porting work towards iOS parity on top of the project's own Android client, and the counterpart of the Windows checks:
+**DinetPDA — Linkora**. Until 25.10.2026 these changes stood on branch `dinetpda/android-windows-counterpart`.
 
 These credits cover the ports alone; they do not claim the authorship of Montana itself.
 

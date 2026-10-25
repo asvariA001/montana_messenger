@@ -853,7 +853,15 @@ impl<'a> Desk<'a> {
             self.word(r, &mint_mid(), &format!("{}{}", marks::REACT, w));
         };
         let next = if m.my_react == emoji { String::new() } else { emoji.to_string() };
-        self.book.edit(r, |c| { if let Some(x) = c.msgs.iter_mut().find(|x| x.mid == mid) { x.my_react = next.clone(); } });
+        self.book.edit(r, |c| {
+            if let Some(x) = c.msgs.iter_mut().find(|x| x.mid == mid) { x.my_react = next.clone(); }
+            // the row wears my answer (iOS noteReaction, mine), or lets it go when I take it back
+            if !next.is_empty() {
+                c.row_react = Some(crate::book::RowReact { mid: mid.to_string(), emoji: next.clone(), mine: true, at: wire::now_ms() });
+            } else if c.row_react.as_ref().is_some_and(|w| w.mid == mid && w.mine) {
+                c.row_react = None;
+            }
+        });
         if !m.my_react.is_empty() {
             say(&m.my_react, "del");
         }
@@ -1506,9 +1514,19 @@ impl<'a> Desk<'a> {
             self.book.edit(r, |c| {
                 let at = if sid.is_empty() { c.msgs.iter().rposition(|m| m.text == txt) } else { c.msgs.iter().position(|m| m.mid == sid) };
                 if let Some(m) = at.map(|i| &mut c.msgs[i]) {
+                    let answered = m.mid.clone();
                     match op {
-                        "add" => m.peer_react = e,
-                        "del" if m.peer_react == e => m.peer_react.clear(),
+                        "add" => {
+                            m.peer_react = e.clone();
+                            // the row wears their answer at its own birth (iOS noteReaction: the word's birth, the sender's clock)
+                            c.row_react = Some(crate::book::RowReact { mid: answered, emoji: e, mine: false, at: birth_ms(mid).unwrap_or_else(wire::now_ms) });
+                        }
+                        "del" if m.peer_react == e => {
+                            m.peer_react.clear();
+                            if c.row_react.as_ref().is_some_and(|w| w.mid == answered && !w.mine) {
+                                c.row_react = None;
+                            }
+                        }
                         _ => {}
                     }
                 }

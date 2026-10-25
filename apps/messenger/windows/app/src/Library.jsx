@@ -2,10 +2,12 @@ import { useEffect, useState } from "react";
 import { t } from "./strings.js";
 import { Glyph } from "./TopBar.jsx";
 import { Page, Section } from "./Settings.jsx";
+import { drawerWidth } from "./turn.js";
 import logo from "./assets/logo.png";
 import knight from "./assets/ios/Chesswn.png";
 import goldAtlas from "./assets/library_gold.png";
 import nativeAtlas from "./assets/library_native.png";
+import vpnGlobe from "./assets/vpn_globe.png";
 
 /** THE APPLICATIONS' ICONS (iOS MTApplicationLibrary: MTLibraryIconStyle, MTApplicationIcon, MTLibraryIconStyleView): three
  *  styles -- the white glyphs of the 1990 drawer (the default), «Montana OS» and «Gold style», each a tile of the author's own
@@ -60,6 +62,8 @@ export function AppIcon({ app, side = 30, style }) {
         {app === "feed" ? <span className="feed-mark" style={{ width: 26 * unit, height: 26 * unit }}><img src={logo} alt="" style={{ width: 16 * unit, height: 16 * unit }} /></span>
           // the chess's mark is its own white knight (iOS MTChessIcon: the asset Chesswn), never a die
           : app === "chess" ? <img src={knight} alt="" style={{ width: 26 * unit, height: 26 * unit, objectFit: "contain" }} />
+          // the VPN wall's own globe on its stand (iOS MontanaVPNGlyph: the template image MontanaVPNGlobe, white)
+          : app === "vpn" ? <span className="vpn-globe" style={{ width: 26 * unit, height: 26 * unit, WebkitMaskImage: `url(${vpnGlobe})`, maskImage: `url(${vpnGlobe})` }} />
           : <Glyph name={GLYPH[app]} size={26 * unit} color="#fff" />}
       </span>
     );
@@ -88,6 +92,13 @@ const GROUPS = [["communication", "Communication", ["contacts", "calls", "chats"
 export function LibraryGrid({ counts, onOpen, titles = TITLES }) {
   const { style, pins } = useLibrary();
   const [menu, setMenu] = useState(null);
+  // the columns the drawer holds (iOS MontanaSideDrawer: max(1, Int((width − 16) / 104)), the drawer round(0.78 × the window), at most 480 -- turn.js drawerWidth)
+  const [cols, setCols] = useState(() => Math.max(1, Math.floor((drawerWidth() - 16) / 104)));
+  useEffect(() => {
+    const on = () => setCols(Math.max(1, Math.floor((drawerWidth() - 16) / 104)));
+    window.addEventListener("resize", on);
+    return () => window.removeEventListener("resize", on);
+  }, []);
   const sorted = (apps) => [...apps].sort((a, b) => t(titles[a]).localeCompare(t(titles[b])));
   const all = GROUPS.flatMap(([, , apps]) => apps);
   const sections = [["favorites", "Favorites", sorted(all.filter((a) => pins.has(a)))],
@@ -97,7 +108,7 @@ export function LibraryGrid({ counts, onOpen, titles = TITLES }) {
       {sections.map(([id, title, apps]) => (
         <div key={id} className="library-section">
           <div className="library-head">{title === "Montana" ? title : t(title)}</div>
-          <div className="library-tiles">
+          <div className="library-tiles" style={{ gridTemplateColumns: `repeat(${cols}, 1fr)` }}>
             {apps.map((a) => (
               <button key={a} className="library-tile" aria-label={t(titles[a])} onClick={() => onOpen(a)}
                       onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setMenu({ app: a, x: e.clientX, y: e.clientY }); }}>
@@ -108,15 +119,29 @@ export function LibraryGrid({ counts, onOpen, titles = TITLES }) {
           </div>
         </div>
       ))}
+      {/* THE TILE'S MENU (iOS MTLibraryCommand): «Open» with arrow.up.forward.app, «Pin» / «Unpin» with pin / pin.slash */}
       {menu && (
-        <div className="menu library-menu" style={{ left: Math.min(menu.x, window.innerWidth - 200), top: menu.y }} role="menu">
-          <button role="menuitem" onClick={() => { setMenu(null); onOpen(menu.app); }}>{t("Open")}</button>
-          <button role="menuitem" onClick={() => { setMenu(null); pin(menu.app, pins); }}>{t(pins.has(menu.app) ? "Unpin" : "Pin")}</button>
+        <div className="letter-menu library-menu" style={{ left: Math.min(menu.x, window.innerWidth - 250), top: Math.min(menu.y, window.innerHeight - 110) }}
+             role="menu" onClick={(e) => e.stopPropagation()}>
+          <div className="menu-rows">
+            <button className="menu-row" role="menuitem" onClick={() => { setMenu(null); onOpen(menu.app); }}><span>{t("Open")}</span><OpenGlyph /></button>
+            <button className="menu-row" role="menuitem" onClick={() => { setMenu(null); pin(menu.app, pins); }}>
+              <span>{t(pins.has(menu.app) ? "Unpin" : "Pin")}</span><Glyph name={pins.has(menu.app) ? "pinSlash" : "pin"} size={18} />
+            </button>
+          </div>
         </div>
       )}
     </div>
   );
 }
+
+/** SF arrow.up.forward.app: the rounded square with the arrow leaving its corner. */
+const OpenGlyph = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M13 4H7.5A3.5 3.5 0 0 0 4 7.5v9A3.5 3.5 0 0 0 7.5 20h9a3.5 3.5 0 0 0 3.5-3.5V11" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    <path d="M11 13l9-9M14.5 4H20v5.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
 
 /** «APPLICATION ICONS» (iOS MTLibraryIconStyleView): the drawer's view, then each style as a card of its own icons. */
 const PREVIEW = ["contacts", "calls", "chats", "feed", "wallet", "card", "music", "gallery", "chess", "vpn", "mesh", "p2p", "settings"];

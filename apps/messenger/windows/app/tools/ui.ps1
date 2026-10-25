@@ -105,10 +105,30 @@ function All-Named {
     @()
 }
 
+# THE COPY'S QUESTION AT THE OPENING IS AN ALERT OVER THE WINDOW (263ed54, as iOS asks it): while it stands, everything beneath is
+# inert and no scene can press past it; a scene that is not about the question answers «Не сейчас» -- exactly that button of exactly
+# that alert -- as a person would. A scene that waits for the question itself (its title or its buttons) is left to answer it.
+$script:KeepAsk = @("Хранить вашу копию у собеседников?", "Keep your copy with your contacts?")
+function Answer-KeepAsk($all, [string]$Wanted) {
+    if (@($script:KeepAsk + @("Не сейчас", "Not now", "Хранить", "Keep")) -contains $Wanted) { return $false }
+    $ask = $null
+    try { foreach ($e in $all) { if ($script:KeepAsk -contains $e.Current.Name) { $ask = $e; break } } } catch { return $false }
+    if (-not $ask) { return $false }
+    foreach ($e in $all) {
+        try {
+            if (@("Не сейчас", "Not now") -contains $e.Current.Name) {
+                $p = $null
+                if ($e.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$p)) { $p.Invoke(); Start-Sleep -Milliseconds 600; return $true }
+            }
+        } catch {}
+    }
+    $false
+}
 function Find-Named([string]$Name, [int]$Timeout = 15) {
     $end = (Get-Date).AddSeconds($Timeout)
     do {
         $all = All-Named
+        if (Answer-KeepAsk $all $Name) { $all = All-Named }
         try {
             foreach ($e in $all) { if ($e.Current.Name -eq $Name) { return $e } }   # the exact name first
             foreach ($e in $all) { if ($e.Current.Name -and $e.Current.Name.Contains($Name)) { return $e } }
@@ -285,8 +305,10 @@ function Front-Montana([int]$X = -1, [int]$Y = 0, [int]$Width = 0, [int]$Height 
         [MontanaWin]::BringWindowToTop($h) | Out-Null
         [MontanaWin]::AttachThreadInput($me, $fg, $false) | Out-Null
     }
-    # the web view takes the keyboard as a click would give it: the first field, else the window
-    $c = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Edit)
+    # the web view takes the keyboard as a click on the page would give it: the document, else the window -- never the first field,
+    # which is the list's search: a focused search is an active search (iOS searchActive, 78ed5ba), and it hides «Написать» and
+    # turns the list into results
+    $c = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Document)
     try { $r = Root; $e = $r.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $c); if ($e) { $e.SetFocus() } else { $r.SetFocus() } } catch {}
     Start-Sleep -Milliseconds 400
 }

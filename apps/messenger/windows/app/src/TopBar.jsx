@@ -62,7 +62,7 @@ function SpeakerSlash({ size = 26, color }) {
   );
 }
 
-export default function TopBar({ pane, onPane, unread = 0, missed = 0, mediaIsMusic = true }) {
+export default function TopBar({ pane, onPane, unread = 0, missed = 0, mediaIsMusic = true, stroke = null }) {
   const open = usePanelOpen();
   const slots = useRef([]);
   const plate = useRef(null);
@@ -85,13 +85,18 @@ export default function TopBar({ pane, onPane, unread = 0, missed = 0, mediaIsMu
   const network = lamp.up ? "up" : lamp.known ? "down" : "unknown";
 
   // the puck stands under the pane's slot, measured as drawn (iOS MTBarSlotKey): folded, only the logo has a place
+  // THE PUCK RIDES WITH THE FINGER (iOS MTPuckSlide): while a stroke turns the pages it is on its way to the neighbour's glyph by
+  // the pane's own progress -- the offset over the page's width (--turn-p, set by the stroke) -- the distance in slots
+  const next = stroke ? PANE_SLOT[stroke.pane] : null;
   useLayoutEffect(() => {
     const el = slots.current[home];
     if (home == null || !el || !plate.current || (!open && home !== 3)) { setPuck(null); return; }
     const a = plate.current.getBoundingClientRect();
-    const b = el.getBoundingClientRect();
-    setPuck({ left: b.left - a.left - plate.current.clientLeft + 3, width: b.width - 6 });   // MTBarPuck().padding(.horizontal, 3)
-  }, [home, open]);
+    const place = (x) => { const b = x.getBoundingClientRect(); return { left: b.left - a.left - plate.current.clientLeft + 3, width: b.width - 6 }; };   // MTBarPuck().padding(.horizontal, 3)
+    const h = place(el);
+    const to = next != null && (open || next === 3) && slots.current[next] ? place(slots.current[next]) : h;
+    setPuck({ ...h, dl: to.left - h.left, dw: to.width - h.width });
+  }, [home, open, next]);
 
   // THE DRAWER STAYS ONE STROKE AWAY (iOS MontanaDrawerHost: the screen's left edge): while the first slot says what stands in the way,
   // its right button -- or a stroke from the window's left edge (App) -- still opens the drawer
@@ -108,7 +113,8 @@ export default function TopBar({ pane, onPane, unread = 0, missed = 0, mediaIsMu
   return (
     <div className="time-panel">
       <div ref={plate} className={`bar-plate${open ? "" : " folded"}`}>
-        {puck && <span className="bar-puck" style={{ transform: `translateX(${puck.left}px)`, width: puck.width }} />}
+        {puck && <span className="bar-puck" style={{ transform: `translateX(calc(${puck.left}px + var(--turn-p, 0) * ${puck.dl}px))`,
+                                                     width: `calc(${puck.width}px + var(--turn-p, 0) * ${puck.dw}px)` }} />}
         {slot(0, first === "notifications" ? t("Notifications are off") : first === "keeping" ? t("Keep my copy with my contacts") : t("App Library"),
           () => onPane(first || "drawer"),
           first === "notifications" ? <SpeakerSlash size={26} color={ink} /> : <Glyph name={first === "keeping" ? "peopleSlash" : "drawer"} size={26} color={ink} />)}
