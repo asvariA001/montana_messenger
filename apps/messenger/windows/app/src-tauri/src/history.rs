@@ -563,7 +563,8 @@ pub fn restore(archive: &Archive, book: &Book, store: &media::Store, faces: Opti
                 }
                 if let Some(bytes) = files.get(f) {
                     m["sz"] = json!(bytes.len());
-                    if store.put(&mid, bytes) {
+                    // a file this machine already holds is not written again, nor counted as come back
+                    if !store.has(&mid) && store.put(&mid, bytes) {
                         done.media += 1;
                     }
                 }
@@ -906,6 +907,51 @@ mod tests {
         swapped[32 + FRAME..32 + 2 * FRAME].copy_from_slice(&file[32 + 2 * FRAME..32 + 3 * FRAME]);
         swapped[32 + 2 * FRAME..32 + 3 * FRAME].copy_from_slice(&file[32 + FRAME..32 + 2 * FRAME]);
         assert_eq!(read_copy(&e, &swapped), Err(Refusal::Torn), "frames out of their places");
+    }
+
+    #[test]
+    fn a_copy_brings_the_files_back_to_a_new_machine() {
+        let root = std::env::temp_dir().join(format!("montana-history-files-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let words = seed::generate().unwrap();
+        let a = Archive::new(&root.join("a"), keys(&words).unwrap(), [1; 16]);
+        let book = Book::new(crate::vault::Vault::at(&root.join("v")).unwrap());
+        let store = media::Store::at(&root.join("m")).unwrap();
+        let secret = vec![7u8; 32];
+        let r = book.establish(&secret).unwrap();
+        book.open(&r, "Боб", false);
+        assert!(a.append(&r, HEAD_DIR, 100, format!("s:{}", b64(&secret)).as_bytes()));
+        assert!(a.append(&r, HEAD_DIR, 101, "n:Боб".as_bytes()));
+        // my photo with its caption, their document with its name: each a row of the feed, its file in the store, its archive form
+        let files = [
+            ("t1792900000000-photo", true, json!({ "k": "img", "e": "jpg", "cap": "у реки" }), &b"a photo of mine"[..]),
+            ("t1792900001000-doc", false, json!({ "k": "doc", "e": "pdf", "n": "report.pdf" }), &b"their document"[..]),
+        ];
+        for (i, (mid, mine, m, bytes)) in files.iter().enumerate() {
+            let text = format!("{}{}", media::MARK, m);
+            assert!(store.put(mid, bytes));
+            book.edit(&r, |c| c.msgs.push(Msg { mid: mid.to_string(), text: text.clone(), mine: *mine, ..Default::default() }));
+            assert!(a.append(&r, if *mine { 0 } else { 1 }, 102 + i as u64, archive_media(mid, &text).as_bytes()));
+        }
+        let file = make_copy(&a, &book, &store, None).unwrap();
+        // a new machine opened by the same words: the conversation, its two rows and both files come back
+        let b = Archive::new(&root.join("b"), keys(&words).unwrap(), [2; 16]);
+        let (book2, store2) = (Book::new(crate::vault::Vault::at(&root.join("v2")).unwrap()), media::Store::at(&root.join("m2")).unwrap());
+        let recs = read_copy(&keys(&words).unwrap().entropy, &file).unwrap();
+        let done = restore(&b, &book2, &store2, None, &recs);
+        assert_eq!((done.chats, done.records, done.media), (1, 2, 2));
+        let c = book2.chat(&r).unwrap();
+        assert_eq!(c.msgs.len(), 2);
+        for (row, (_, mine, m, bytes)) in c.msgs.iter().zip(files.iter()) {
+            let j: Value = serde_json::from_str(row.text.strip_prefix(media::MARK).unwrap()).unwrap();
+            assert_eq!((row.mine, j["k"].as_str(), j["e"].as_str()), (*mine, m["k"].as_str(), m["e"].as_str()));
+            assert_eq!((j["cap"].as_str(), j["n"].as_str(), j["sz"].as_u64()), (m["cap"].as_str(), m["n"].as_str(), Some(bytes.len() as u64)));
+            assert_eq!(store2.get(&row.mid).as_deref(), Some(*bytes), "the file stands under the restored row's own name");
+        }
+        // the same copy again: nothing twice
+        assert_eq!(restore(&b, &book2, &store2, None, &recs), Restored::default());
+        assert_eq!(book2.chat(&r).unwrap().msgs.len(), 2);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

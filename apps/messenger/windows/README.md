@@ -105,15 +105,17 @@ In `app/src-tauri`:
 
 | Command | Exit code | Result |
 |---|---|---|
-| `cargo test --lib` (debug) | 0 | 145 passed, 0 failed, 19 ignored |
-| `cargo test --release --lib` | 0 | 145 passed, 0 failed, 19 ignored |
+| `cargo test --lib` (debug) | 0 | 146 passed, 0 failed, 19 ignored |
+| `cargo test --release --lib` | 0 | 146 passed, 0 failed, 19 ignored |
 | `cargo clippy --all-targets -- -D warnings` | 0 | clean since the second commit of this port (24.10.2026): lints fixed, dead code removed or gated to tests, the core's ABI mirror kept with an `allow`; run again 25.10.2026 with the new negative tests |
 
 The ignored tests need the live network or a second window and are run by the scenes in `app/tools/` instead.
 The negative cases of one identity's devices are unit tests: a twin's archive block changed by one bit stands nothing, another
 identity's blocks stand nothing, and a `.mtbak` copy with one bit changed in its salt or any frame, or with two frames swapped, is
 refused rather than read in part (`twin::a_forged_block_or_another_persons_stands_nothing`,
-`history::a_copy_reads_back_whole_and_a_cut_or_strange_one_is_refused`).
+`history::a_copy_reads_back_whole_and_a_cut_or_strange_one_is_refused`). A copy brings a conversation's files back to a new
+machine once (`history::a_copy_brings_the_files_back_to_a_new_machine`); restoring the same copy again neither rewrites nor
+counts a file already there, as iOS `MontanaBackup` ("a copy adds, it does not erase").
 In `core/Code`, before this branch's Windows commit: `cargo test --release --workspace` — 1 421 passed, 0 failed, 1 ignored
 upstream (DEV-012).
 
