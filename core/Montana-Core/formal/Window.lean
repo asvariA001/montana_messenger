@@ -1,7 +1,8 @@
 -- The closure of a window, by machine (WINDOW-THEOREM.md, issue #4, stage 5). Core Lean 4 only:
 -- no Mathlib and no axiom of its own. Proved here: Lemma 4 and its corollary and Theorem 1 (one
 -- decision), section Agreement; Lemma 1 (order), section Order; Lemma 2 (exactness), sections
--- Exact and Certificate. The cryptographic assumptions (A1)-(A6) enter as hypotheses -- `meet`,
+-- Exact and Certificate; Theorem 2 (completeness) and Theorem 3 (i)-(iii) (soundness), section
+-- Certificate; Theorem 4 (the head), section Walk. The cryptographic assumptions (A1)-(A6) enter as hypotheses -- `meet`,
 -- `Faithful`, and the opaque checks of `Cert` -- and the conduct of honest machines (A8) as
 -- `Honest`. Line numbers are those of certificate.rs, agreement.rs and close.rs in this tree.
 
@@ -936,6 +937,286 @@ theorem lemma2 (c : Cert A P K N Rd G Bl D S) (rs : List Rd) (gs : List G) (L : 
       exact hd
     · exact congrArg some (Closure.eq_of L _ _ _ _ _ h1 h2 h3 hv (by rw [hlk]; exact h4))
 
+
+-- Theorem 2 (completeness): honest attestations (one key per part, each valid), honest pledges and
+-- ballots reaching (C4)-(C6) make verify_certificate accept, with the closure it names.
+theorem completeness (c : Cert A P K N Rd G Bl D S) (rs : List Rd) (gs : List G)
+    (hT : c.count + 1 <= W64) (hK : c.expected + 1 <= W64)
+    (keyOf : P → K) (honestKey : ∀ a, a ∈ attsOf c rs → c.att.key a = keyOf (c.att.part a))
+    (honestValid : ∀ a, a ∈ attsOf c rs → c.att.valid a = true)
+    (hf : c.follows = true) (ht : c.threshold = true) (hb : ∀ r, r ∈ rs → c.beacon r = true)
+    (hq : quorumQ (cementOf c rs).length c.count)
+    (hs : total ((cementOf c rs).map (tallyOf c rs)) + 1 <= W64)
+    (hv : 67 * c.expected <= 100 * total ((cementOf c rs).map (tallyOf c rs)))
+    (prev : N) (hp : c.previous = some prev)
+    (hd : c.decides rs (gs.filter (counted c (kappa c.att (attsOf c rs)))) (tallyOf c rs) = some prev)
+    (d : D) (ha : c.aggregate (cementOf c rs) = some d) :
+    verify c rs gs = some ⟨d, (cementOf c rs).length, cementOf c rs, tallyOf c rs,
+      c.answered rs (kappa c.att (attsOf c rs))⟩ :=
+  (lemma2 c rs gs _ hT hK).mpr ⟨prev, d, hf, ht, hb, honestValid,
+    fun a ha' b hb' e ↦ by rw [honestKey a ha', honestKey b hb', e],
+    hq, fun p ↦ tally_spec c rs p, hs, hv, hp, hd, ha, rfl, rfl, rfl, rfl⟩
+
+-- A list without repetition mapped injectively into F is no longer than F.
+theorem inj_length {α β : Type} [DecidableEq β] (g : α → β) : ∀ (l : List α) (F : List β),
+    l.Nodup → (∀ x, x ∈ l → ∀ y, y ∈ l → g x = g y → x = y) → (∀ x, x ∈ l → g x ∈ F) →
+    l.length <= F.length
+  | [], _, _, _, _ => Nat.zero_le _
+  | x :: l, F, nd, inj, sub => by
+    have hx : g x ∈ F := sub x (List.mem_cons_self ..)
+    have nx : x ∉ l := (List.nodup_cons.mp nd).1
+    have ih := inj_length g l (F.erase (g x)) (List.nodup_cons.mp nd).2
+      (fun a ha b hb e ↦ inj a (List.mem_cons_of_mem _ ha) b (List.mem_cons_of_mem _ hb) e)
+      (fun y hy ↦ by
+        have ne : g y ≠ g x := fun e ↦ nx (by
+          have := inj y (List.mem_cons_of_mem _ hy) x (List.mem_cons_self ..) e
+          rw [← this]; exact hy)
+        exact (List.mem_erase_of_ne ne).mpr (sub y (List.mem_cons_of_mem _ hy)))
+    have hl := List.length_erase_of_mem hx
+    have hpos : 0 < F.length := List.length_pos_of_mem hx
+    simp only [List.length_cons]
+    omega
+
+-- Theorem 3 (i): an accepted certificate holds valid attestations of a cement reaching Q(card, T);
+-- with Lemma 3 (distinct parts, distinct machines) at most f of its parts are the adversary's.
+theorem soundness_parts (c : Cert A P K N Rd G Bl D S) (rs : List Rd) (gs : List G) (L : Closure P D S)
+    (hT : c.count + 1 <= W64) (hK : c.expected + 1 <= W64) (h : verify c rs gs = some L)
+    {M : Type} [DecidableEq M] (leaf : P → M) (bad : List M) (f : Nat) (hbad : bad.length <= f)
+    (once : (cementOf c rs).Nodup)
+    (lemma3 : ∀ p, p ∈ cementOf c rs → ∀ q, q ∈ cementOf c rs → leaf p = leaf q → p = q) :
+    (∀ a, a ∈ attsOf c rs → c.att.valid a = true) ∧ L.parts = cementOf c rs ∧
+      quorumQ L.count c.count ∧ ((cementOf c rs).filter (fun p ↦ decide (leaf p ∈ bad))).length <= f := by
+  obtain ⟨_, _, _, _, _, hval, _, hq, _, _, _, _, _, _, _, h2, h3, _⟩ := (lemma2 c rs gs L hT hK).mp h
+  refine ⟨hval, h3, by rw [h2]; exact hq, ?_⟩
+  have := inj_length leaf ((cementOf c rs).filter (fun p ↦ decide (leaf p ∈ bad))) bad
+    (once.filter _)
+    (fun x hx y hy e ↦ lemma3 x (List.mem_filter.mp hx).1 y (List.mem_filter.mp hy).1 e)
+    (fun x hx ↦ by simpa using (List.mem_filter.mp hx).2)
+  omega
+
+-- Theorem 3 (ii): two accepted certificates of one window, their books faithful to the honest
+-- pledges, decide one predecessor (Theorem 1).
+theorem soundness_one_name {Part : Type} {quorum : (Part → Prop) → Prop} {honest : Part → Prop}
+    {σ : Signed Part N} (good : Honest honest σ)
+    (meet : ∀ S1 S2, quorum S1 → quorum S2 → ∃ p, honest p ∧ S1 p ∧ S2 p)
+    (c1 c2 : Cert A P K N Rd G Bl D S) (rs1 rs2 : List Rd) (gs1 gs2 : List G) (L1 L2 : Closure P D S)
+    (hT1 : c1.count + 1 <= W64) (hK1 : c1.expected + 1 <= W64)
+    (hT2 : c2.count + 1 <= W64) (hK2 : c2.expected + 1 <= W64)
+    (h1 : verify c1 rs1 gs1 = some L1) (h2 : verify c2 rs2 gs2 = some L2)
+    (book1 : ∀ n, c1.decides rs1 (gs1.filter (counted c1 (kappa c1.att (attsOf c1 rs1)))) L1.votes = some n →
+      ∃ (B : Book Part N) (a : Nat), Counts quorum B ∧ Faithful honest σ B ∧ B.decided a n)
+    (book2 : ∀ n, c2.decides rs2 (gs2.filter (counted c2 (kappa c2.att (attsOf c2 rs2)))) L2.votes = some n →
+      ∃ (B : Book Part N) (a : Nat), Counts quorum B ∧ Faithful honest σ B ∧ B.decided a n) :
+    c1.previous = c2.previous := by
+  obtain ⟨p1, _, _, _, _, _, _, _, _, _, _, hp1, hd1, _⟩ := (lemma2 c1 rs1 gs1 L1 hT1 hK1).mp h1
+  obtain ⟨p2, _, _, _, _, _, _, _, _, _, _, hp2, hd2, _⟩ := (lemma2 c2 rs2 gs2 L2 hT2 hK2).mp h2
+  obtain ⟨B1, a1, k1, f1, d1⟩ := book1 p1 hd1
+  obtain ⟨B2, a2, k2, f2, d2⟩ := book2 p2 hd2
+  rw [hp1, hp2, one_decision good meet B1 B2 k1 k2 f1 f2 a1 a2 p1 p2 d1 d2]
+
+-- Theorem 3 (iii): where every verified ballot casts at most what its part drew (A3), so does the
+-- tally of every part.
+theorem soundness_votes (c : Cert A P K N Rd G Bl D S) (rs : List Rd) (gs : List G) (L : Closure P D S)
+    (hT : c.count + 1 <= W64) (hK : c.expected + 1 <= W64) (h : verify c rs gs = some L)
+    (drew : P → Nat) (ballotSound : ∀ b x, c.cast b = some x → x <= drew (c.ballotPart b)) :
+    ∀ p, L.votes p <= drew p := by
+  obtain ⟨_, _, _, _, _, _, _, _, hvotes, _⟩ := (lemma2 c rs gs L hT hK).mp h
+  intro p
+  rcases (hvotes p).2 with e | ⟨b, _, hb⟩
+  · rw [e]; exact Nat.zero_le _
+  · unfold castOf at hb
+    split at hb
+    · rename_i hc
+      have := ballotSound b _ hb
+      rw [hc.1] at this
+      exact this
+    · exact nomatch hb
+
+
 end Certificate
+
+section Walk
+
+structure Walk (Pr Cl : Type) where
+  n : Nat                                -- steps.len()
+  verify : Nat → Pr → Pr → Option Cl     -- certificate of step i, Electorate::of(earlier), Predecessor later (:808-820, :880-890)
+  attested : Nat → Pr → Bool             -- the certificate of step i attests the candidate's id (:829-848)
+  judge : Nat → Pr → Pr → Cl → Pr → Bool -- decided_of, cement_of_roll, verify_successor (:853-878)
+  next : Nat → List Pr                   -- Step::next
+  window : Pr → Nat
+
+variable {Pr Cl : Type}
+
+inductive Pick (Pr Cl : Type) where
+  | taken : Pr → Option Cl → Pick Pr Cl
+  | refused : Pick Pr Cl
+  | quiet : Pick Pr Cl
+
+def pick (w : Walk Pr Cl) (i : Nat) (e l : Pr) (cl : Cl) : Bool → List Pr → Pick Pr Cl
+  | r, [] => if r then .refused else .quiet
+  | r, c :: cs =>
+    if i + 1 < w.n then
+      if w.attested (i + 1) c then
+        if w.judge i e l cl c then
+          match w.verify (i + 1) l c with
+          | some x => .taken c (some x)
+          | none => pick w i e l cl true cs
+        else pick w i e l cl true cs
+      else pick w i e l cl r cs
+    else if w.judge i e l cl c then .taken c none else pick w i e l cl true cs
+
+def closureOf (w : Walk Pr Cl) (i : Nat) (e l : Pr) : Option Cl → Option Cl
+  | some x => some x
+  | none => w.verify i e l
+
+-- seen: the pairs whose certificate verified, newest first; the code's head is its first (ghost).
+def go (w : Walk Pr Cl) : Nat → Nat → Pr → Pr → Option Cl → List (Pr × Pr) → Option (List (Pr × Pr))
+  | 0, _, _, _, _, seen => some seen
+  | k + 1, i, e, l, ahead, seen =>
+    match closureOf w i e l ahead with
+    | none => none
+    | some cl =>
+      match pick w i e l cl false (w.next i) with
+      | .taken c a => go w k (i + 1) l c a ((e, l) :: seen)
+      | .refused => none
+      | .quiet => some ((e, l) :: seen)
+
+def walk (w : Walk Pr Cl) (consecutive : Bool) (X0 X1 : Pr) : Option (Pr × Pr) :=
+  need (consecutive = true) (seq (go w w.n 0 X0 X1 none []) fun seen ↦ some (seen.headD (X0, X1)))
+
+
+-- What the walk carries, newest first: every pair (earlier, later) whose certificate verified,
+-- and the chain from the anchor (X0, X1), each pair standing on the one before it.
+def Verified (w : Walk Pr Cl) (s : List (Pr × Pr)) : Prop :=
+  ∀ p, p ∈ s → ∃ j cl, w.verify j p.1 p.2 = some cl
+
+def Chain (X0 X1 : Pr) : List (Pr × Pr) → Prop
+  | [] => True
+  | [p] => p = (X0, X1)
+  | p :: q :: s => p.1 = q.2 ∧ Chain X0 X1 (q :: s)
+
+theorem chain_tail (X0 X1 : Pr) (p : Pr × Pr) : ∀ s, Chain X0 X1 (p :: s) → Chain X0 X1 s
+  | [], _ => True.intro
+  | _ :: _, h => And.right h
+
+-- A candidate is taken only where the judge accepts it, and, where a step follows, only where the
+-- certificate of that step verifies with it as the later proposal (:773-786); that closure is
+-- carried (:704-705). Where no step follows it is taken with nothing carried.
+theorem pick_taken (w : Walk Pr Cl) (i : Nat) (e l : Pr) (cl : Cl) :
+    ∀ (r : Bool) (cs : List Pr) (c : Pr) (a : Option Cl), pick w i e l cl r cs = .taken c a →
+      c ∈ cs ∧ w.judge i e l cl c = true ∧
+        ((i + 1 < w.n ∧ w.attested (i + 1) c = true ∧ ∃ x, a = some x ∧ w.verify (i + 1) l c = some x) ∨
+          (¬ i + 1 < w.n ∧ a = none))
+  | r, [], _, _, h => by
+    cases r
+    · simp [pick] at h
+    · simp [pick] at h
+  | r, c' :: cs, c, a, h => by
+    have back : ∀ r', pick w i e l cl r' cs = .taken c a →
+        c ∈ c' :: cs ∧ w.judge i e l cl c = true ∧
+          ((i + 1 < w.n ∧ w.attested (i + 1) c = true ∧ ∃ x, a = some x ∧ w.verify (i + 1) l c = some x) ∨
+            (¬ i + 1 < w.n ∧ a = none)) := fun r' h' ↦ by
+      obtain ⟨m, j, o⟩ := pick_taken w i e l cl r' cs c a h'
+      exact ⟨List.mem_cons_of_mem _ m, j, o⟩
+    simp only [pick] at h
+    split at h
+    next hn =>
+      split at h
+      next ha =>
+        split at h
+        next hj =>
+          split at h
+          next x hv =>
+            cases h
+            exact ⟨List.mem_cons_self .., hj, Or.inl ⟨hn, ha, x, rfl, hv⟩⟩
+          next => exact back true h
+        next => exact back true h
+      next => exact back r h
+    next hn =>
+      split at h
+      next hj =>
+        cases h
+        exact ⟨List.mem_cons_self .., hj, Or.inr ⟨hn, rfl⟩⟩
+      next => exact back true h
+
+-- The closure a step reads is the verification of its own certificate, carried or computed.
+theorem closureOf_verify (w : Walk Pr Cl) (i : Nat) (e l : Pr) (ahead : Option Cl)
+    (h : ahead = none ∨ ahead = w.verify i e l) : closureOf w i e l ahead = w.verify i e l := by
+  rcases h with h | h
+  · subst h
+    rfl
+  · subst h
+    cases hv : w.verify i e l with
+    | none => exact hv
+    | some x => rfl
+
+-- The invariant of the walk: every pair it keeps verified, the pairs chain back to the anchor,
+-- and the walk keeps nothing only where it started with nothing.
+theorem go_inv (w : Walk Pr Cl) (X0 X1 : Pr) : ∀ (k i : Nat) (e l : Pr) (ahead : Option Cl)
+    (seen out : List (Pr × Pr)), Chain X0 X1 ((e, l) :: seen) → Verified w seen →
+    (ahead = none ∨ ahead = w.verify i e l) → go w k i e l ahead seen = some out →
+    Verified w out ∧ Chain X0 X1 out ∧ (out = [] → seen = [])
+  | 0, _, e, l, _, seen, out, hc, hv, _, h => by
+    have e' : seen = out := Option.some.inj h
+    subst e'
+    exact ⟨hv, chain_tail X0 X1 (e, l) seen hc, fun x ↦ x⟩
+  | k + 1, i, e, l, ahead, seen, out, hc, hv, ha, h => by
+    simp only [go] at h
+    split at h
+    next => cases h
+    next cl hcl =>
+      have hver : w.verify i e l = some cl := by
+        rw [← closureOf_verify w i e l ahead ha]
+        exact hcl
+      have hv' : Verified w ((e, l) :: seen) := fun p hp ↦ by
+        rcases List.mem_cons.mp hp with hp | hp
+        · rw [hp]
+          exact ⟨i, cl, hver⟩
+        · exact hv p hp
+      split at h
+      next c a hp =>
+        obtain ⟨_, _, ho⟩ := pick_taken w i e l cl false (w.next i) c a hp
+        have ha' : a = none ∨ a = w.verify (i + 1) l c := by
+          rcases ho with ⟨_, _, x, hx, hvx⟩ | ⟨_, hx⟩
+          · exact Or.inr (by rw [hx, hvx])
+          · exact Or.inl hx
+        obtain ⟨r1, r2, r3⟩ :=
+          go_inv w X0 X1 k (i + 1) l c a ((e, l) :: seen) out (And.intro rfl hc) hv' ha' h
+        exact ⟨r1, r2, fun ho ↦ by cases r3 ho⟩
+      next => cases h
+      next =>
+        cases h
+        exact ⟨hv', hc, fun ho ↦ by cases ho⟩
+
+-- Theorem 4 (the head), as the walk computes it. If the walk returns (Y, Z): the pairs it kept
+-- chain back to the anchor (X0, X1), the later proposal of each is decided where a verified
+-- certificate makes it so (`sound`: Theorem 3 (ii) with (A1)), and (Y, Z) is the newest of them,
+-- or the anchor itself where the walk kept none. A candidate taken where no step follows is never
+-- kept, so it never becomes the head.
+theorem walk_head (w : Walk Pr Cl) (consecutive : Bool) (X0 X1 Y Z : Pr)
+    (Decided : Pr → Prop) (sound : ∀ j e l cl, w.verify j e l = some cl → Decided l)
+    (h : walk w consecutive X0 X1 = some (Y, Z)) :
+    consecutive = true ∧ ∃ out, go w w.n 0 X0 X1 none [] = some out ∧ Chain X0 X1 out ∧
+      (∀ p, p ∈ out → Decided p.2) ∧
+      ((out = [] ∧ Y = X0 ∧ Z = X1) ∨ (∃ rest, out = (Y, Z) :: rest ∧ Decided Z)) := by
+  simp only [walk, need_some, seq_some, Option.some.injEq] at h
+  obtain ⟨hc, out, hg, hh⟩ := h
+  obtain ⟨hv, hch, _⟩ := go_inv w X0 X1 w.n 0 X0 X1 none [] out (by simp [Chain])
+    (fun _ hp ↦ by cases hp) (Or.inl rfl) hg
+  have dec : ∀ p, p ∈ out → Decided p.2 := fun p hp ↦ by
+    obtain ⟨j, cl, hj⟩ := hv p hp
+    exact sound j p.1 p.2 cl hj
+  refine ⟨hc, out, hg, hch, dec, ?_⟩
+  cases out with
+  | nil =>
+    have e : (X0, X1) = (Y, Z) := hh
+    cases e
+    exact Or.inl ⟨rfl, rfl, rfl⟩
+  | cons p rest =>
+    have e : p = (Y, Z) := hh
+    subst e
+    exact Or.inr ⟨rest, rfl, dec (Y, Z) (List.mem_cons_self ..)⟩
+
+end Walk
 
 end Window
