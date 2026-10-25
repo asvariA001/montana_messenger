@@ -6,7 +6,10 @@ is the one of [WINDOW-RELATION.md](WINDOW-RELATION.md), section 3; its acceptanc
 note's section 4. The code it is a statement about is `crates/montana-node/src/certificate.rs`
 (`verify_certificate`, `decided_of`, `judge`, `walk`), `crates/montana-node/src/agreement.rs`
 (`Book`), `crates/montana-node/src/attest.rs` (`verify_heavy`, `verify_pledge`) and
-`crates/mt-pulse/src/close.rs`. Line numbers refer to the tree of commit `aabc3d5`.
+`crates/mt-pulse/src/close.rs`. Line numbers of the Rust code refer to the tree of commit `835a361`
+of this clone, which the commits after it on this branch leave unchanged; line numbers of
+`formal/Window.lean` refer to the file named in section 9. Commits cited below that do not resolve
+in this clone are marked as of another clone.
 
 The standard is the author's: a complete mathematical closure, a formal proof on paper, and code
 held stricter than the paper. Section 8 states, clause by clause, where the code meets the paper,
@@ -22,13 +25,13 @@ number of elements of a finite set `S`.
 - A **part** `p` is a 32-byte part-nullifier; a **name** `n` is a 32-byte proposal identifier.
 - An **electorate** `E = (root, T, census, committee)`: `root` a digest of the tree of admitted
   machines, `T = admitted_count`, and `K = committee.expected` the expected votes
-  (certificate.rs:28-36).
+  (certificate.rs:31-38).
 - A **heavy attestation** `a = (W, att, p, k, pi, sigma)`: window, the two identifiers it attests,
   part, one-time answering key, presence proof, signature (attest.rs:102-120).
 - A **round** `r = (b, H_r, L_r, B_r)`: a beacon, the heavy and the light attestations that
   answered it, and the ballots standing beside them (certificate.rs, `Round`).
 - A **pledge** `g = (W, attempt, n, since, p, k, sigma)`; it is *closing* when it stands on its own
-  attempt and *open* otherwise (agreement.rs:20-26, 127-131).
+  attempt and *open* otherwise (agreement.rs:20-26; mt-state layout.rs:773-781).
 - The **quorum rule** `Q(c, t)`: `t ≠ 0`, `c ≤ t`, and `100 c ≥ 67 t` (close.rs:20-31; the ratio is
   `Entry::Ratio("confirmation_quorum", 67, 100)`, mt-genesis/src/lib.rs:99). The **committee rule**
   `V(v, K)`: `100 v ≥ 67 K` (close.rs:36-46). The rule of the agreement is
@@ -44,7 +47,7 @@ An attestation `a` of round `r` is **valid in r** when all of the following hold
 
 1. `a.W = W` and `r.b.window = W`;
 2. `a.att` is two identifiers strictly ascending, one of which is `id(r.b)`; the other is its
-   **pledged name** `name(a)` (certificate.rs:359-366);
+   **pledged name** `name(a)` (certificate.rs:408-417);
 3. `eligible(a.p, A, r.b.chain, r.b.round, theta)` (round.rs:60-69);
 4. `a.sigma` verifies under `a.k` over the signed scope of `a`, under the one suite
    (attest.rs:289-314);
@@ -54,7 +57,7 @@ An attestation `a` of round `r` is **valid in r** when all of the following hold
 Define the **cement** `C` as the set of parts of the heavy attestations of all rounds of `R`; the
 **key** `kappa(p)` as the key of the attestations of part `p`; and the **votes** `v(p)`, for `p` in
 `C`, as the largest count among the ballots of `p` that verify against `(W, E, A)`, and `0` where
-none does (certificate.rs:307-321).
+none does (certificate.rs:353-371).
 
 **Definition (Pi_cert).** `Pi_cert(W, E, P, A, c, R, G)` holds, with closure `L`, exactly when:
 
@@ -67,12 +70,20 @@ none does (certificate.rs:307-321).
 - (C5) the sum of `v(p)` over `C` is below `2^64` and satisfies `V(sum, K)`;
 - (C6) `id(P)` is defined (:266) and the book of the window decides it: its heavy attestations counted as open pledges of
   attempt zero on their pledged names, and the pledges of `G` whose part is in `C` and whose
-  signature verifies under `kappa(part)` (agreement.rs:189-210);
+  signature verifies under `kappa(part)` (agreement.rs:133-148, :157-200; certificate.rs:377-384);
 - (C7) the aggregate of `C` under `W` exists;
 
 and `L = (W, aggregate(C, W), card(C), C ascending, v, S)`, where `S` is what the light attestations
 answer under `kappa` (:324-352, :404); they refuse nothing, so they enter the closure and no clause.
-`formal/Window.lean` states this predicate as `PiCert`, clause by clause.
+`formal/Window.lean` states this predicate as `PiCert`, clause by clause. The
+cement is defined, not opaque: `cementOf` builds it from the parts of the heavy attestations as
+`Cement::add` fills its set (cement.rs:16-51, certificate.rs:310), so it holds each part once
+(`cementOf_nodup`), a part stands in it iff an attestation of the certificate is of that part
+(`cementOf_mem`), and it is ascending where the order of parts is a strict total order
+(`cementOf_ascending`); (C4) and (C5) read it. Its limit: the clauses (C2.1)-(C2.5) are one opaque validity of
+an attestation in its round, and the book of (C6), the ballot of (C5) and the aggregate of (C7) are
+opaque functions too: the Lean proves that the code takes exactly these clauses, not the strength
+of each check, which is the subject of section 3.
 
 ## 3. Assumptions
 
@@ -100,7 +111,10 @@ answer under `kappa` (:324-352, :404); they refuse nothing, so they enter the cl
   admitted machines, with `100 f` below `34 T`.
 - **(A8) Honest conduct.** A machine whose secret the adversary does not hold signs no contradicting
   pair of pledges in the sense of agreement.rs:70-89, answers under one key per window
-  (attest.rs:49-53), and pledges a name only after recomputing the roots it carries.
+  (attest.rs:49-53), and pledges a name only after recomputing the roots it carries. Its heavy
+  attestations count as its open pledges of attempt zero (agreement.rs:133-148), so among them too it
+  makes no contradicting pair: all heavy attestations of an honest part in one window pledge one name,
+  whichever two certificates hold which of them.
 
 ## 4. Lemmas
 
@@ -161,7 +175,7 @@ and `eps_sig`, no two books of one window over one electorate decide two differe
 
 *Proof.* Let book `B1` decide `X` at attempt `a` and book `B2` decide `Y ≠ X` at attempt `b`; the two
 books may hold different pledges. Every pledge either counts stands under a key proven by a heavy
-attestation of its part (certificate.rs:327-334), so under (A2) a counted pledge of an honest part
+attestation of its part (certificate.rs:377-384), so under (A2) a counted pledge of an honest part
 is one that honest machine signed. All parts lie in one universe of at most `T` leaves (Lemma 3).
 
 Case `a = b`. The closing pledges of attempt `a` on `X` in `B1` and on `Y` in `B2` each reach the
@@ -169,10 +183,10 @@ quorum; by the corollary an honest part signed two closing pledges of one attemp
 contradicting pair (agreement.rs:70-73), which (A8) excludes.
 
 Case `a` before `b` (the other is symmetric). `B2` counts a closing pledge on `Y` at `b` only where
-`(b, Y)` is an open quorum of `B2` (agreement.rs:198-201). Claim: for every attempt `e` not before
+`(b, Y)` is an open quorum of `B2` (agreement.rs:235-238). Claim: for every attempt `e` not before
 `a`, no book holds an open quorum `(e, Z)` with `Z ≠ X`. Induct on `e`. The counted open pledges of
 such a quorum stand on none or on an open quorum `(e', Z)` with `e'` before `e`
-(agreement.rs:175-178). By the corollary an honest part `h` closed `X` at `a` in `B1` and opened `Z`
+(agreement.rs:212-216). By the corollary an honest part `h` closed `X` at `a` in `B1` and opened `Z`
 at `e` in the open quorum. If `e = a`: a closing pledge on `X` counts at `a` only where `(a, X)` is
 an open quorum of `B1`, so an honest part opened two names in one attempt, which (A8) excludes. If
 `e` is after `a` and the open pledge of `h` stands on none or on an attempt before `a`, the pair is
@@ -197,9 +211,12 @@ completeness of ML-DSA and of the proof scheme; (C3) from one key per window; th
 agreement of a quorum decided `id(P)`, and by Theorem 1 no certificate of `W` decides another name;
 (iii) the votes counted for each part are at most the votes its standing drew in `W`.
 
-*Proof.* (i) Lemma 2, clauses (C2) and (C4), and Lemma 3. (ii) Clause (C6) and Theorem 1. (iii)
-Clause (C5) and the knowledge soundness of the ballot (A3), the ballot being verified against the
-census of `E`. ∎
+*Proof.* (i) Lemma 2, clauses (C2) and (C4), and Lemma 3; the parts of the closure are the cement,
+each once and each the part of a verified attestation (cement.rs:33-51, certificate.rs:300-310).
+(ii) Clause (C6) and Theorem 1. (iii) Clause (C5) and the knowledge soundness of the ballot (A3), the
+ballot being verified against the census of `E`, with (A5) read for the ballot description: that the
+description enforces the count it publishes to be the votes the part's standing drew in `W` over the
+census of `E` (obligation O-6, open). ∎
 
 **The matrix of WINDOW-RELATION.md section 4, row by row.**
 
@@ -207,42 +224,59 @@ census of `E`. ∎
   Theorem 2.
 - Count strictly below the quorum — refused: (C4), close.rs:21-30.
 - A presence proof against another electorate root — refused: (C2.5) and (A3).
-- A repeated part-nullifier — counted once: the cement is a set; (C3) for its key.
+- A repeated part-nullifier — counted once: the cement is a set (by machine: `cementOf_nodup`, and
+  `soundness_parts`, whose closure counts a list of parts without repeat); (C3) for its key.
 - An attestation signed by a key the presence proof does not name — refused: (C2.5), the key digest
   being a public input.
 - A proposal whose roots differ from the recomputed ones — refused: `judge` with roots,
-  certificate.rs:578-604.
-- A proposal signed by a key another machine's ticket names — refused: certificate.rs:636-652, the
+  certificate.rs:682-708.
+- A proposal signed by a key another machine's ticket names — refused: certificate.rs:737-756, the
   runner digest being a public input.
-- A predecessor that is not the final proposal of `W - 1` — refused: certificate.rs:555-559 and (C1).
+- A predecessor that is not the final proposal of `W - 1` — refused: certificate.rs:659-663 and (C1).
 - An observer given the serialized proofs alone — recovers no spending half: the hiding argument of
   WINDOW-RELATION.md section 5.
 - A final beacon below the quorum, naming more parts than its certificate verified, or not linked to
-  round zero and the predecessor — refused: `decided_of`, certificate.rs:410-460; see F-431-2 and
+  round zero and the predecessor — refused: `decided_of`, certificate.rs:464-519; see F-431-2 and
   F-431-3 for the two clauses of section 3 it did not check; the pair is now recomputed from the
   roll by `cement_of_roll` (decision 3), and a final beacon no verified attestation of the
   certificate answered is refused (F-431-2, closed on the author's word of 24.10 21:21 UTC).
 - Two runners, or two branches of one round, of one decision — one identifier: `decided_identifier`,
-  certificate.rs:497-521.
+  certificate.rs:601-625.
 - The running node's own close — as above: one door, `verify_certificate`.
-- A device walking from an anchor — the head is the newest proposal whose certificate verified:
-  Theorem 4.
+- A device walking from an anchor — the head is the pair of the latest step whose certificate
+  verified, both its proposals final: Theorem 4.
 
 ## 7. The walk
 
 **Theorem 4 (the head).** Let the anchor `(X0, X1)` be the final proposals of windows `w` and
-`w + 1`. Under (A1)-(A8), if `walk` returns `(Y, Z)` then `Z` is the unique name decided by the
-certificates of window `Z.window + 1`, every proposal the walk passed after `X1` is the unique decided
-proposal of its window, and `Z` is the newest proposal whose certificate the walk verified.
+`w + 1`, a proposal `X` of window `v` being *final* when the agreement of window `v + 1`, under
+the electorate the final proposal of window `v - 1` fixes, decided `id(X)`. Under (A1)-(A8),
+except with the probabilities of Theorem 3 over the certificates the walk verifies, if `walk` returns
+`(Y, Z)` then: both proposals of every pair the walk kept are final; the kept pairs chain back to
+the anchor, the earlier proposal of each being the later one of the pair kept before it; and `(Y, Z)`
+is the anchor where the walk kept no pair, and otherwise the pair kept at the latest step, `Y` and
+`Z` final, every other kept pair having verified at an earlier step.
 
-*Proof.* Induct on the steps, with the invariant: `later` is a decided proposal, `earlier` is its
-predecessor, and the electorate and the aggregate the step reads are `Electorate::of(earlier)` and
-`earlier.cement_aggregate`, those of the proposal of `W - 2` for the certificate of window `W`
-(certificate.rs:699-715). The step verifies the certificate of `later`, or carries the one verified
-in the step before (:704-705); by Theorem 3 its agreement decided `id(later)`, uniquely. A
-candidate is taken only when the certificate of the step after verifies with it as predecessor
-(:773-786), so by Theorem 3 it is the unique decided name of its window. Where no step after
-exists, the candidate is taken after `head` was fixed at :716-719 and never becomes the head. ∎
+*Proof.* Induction from the anchor. Let `G(X)` say that `X` is final; `G(X0)` holds. *The step.*
+At step `j` the walk verifies the certificate of `later`, of window `W = later.window + 1`, under
+`Electorate::of(earlier)` and `earlier.cement_aggregate` (certificate.rs:804-820), or carries the
+certificate verified one step before (:809-810). If `G(earlier)`, that electorate is the genuine
+electorate of `W`, the one the proposal of `W - 2` fixes, and (A6) and (A7) hold for it; by
+Theorem 3 (ii) the agreement of a quorum of it decided `id(later)`, and by Theorem 1 no certificate
+of `W` decides another name, so `G(later)`. This is Theorem 3 (ii) for one certificate under a
+genuine electorate, and it is asked only of a genuine `earlier`: a forged `earlier` fixes an
+electorate of the adversary's own machines, under which a certificate of any `later` verifies.
+*The induction.* The walk keeps a pair only after its certificate verified (:821-824), and the pair
+kept next has as its earlier proposal the later one of this pair: a candidate is taken only where
+the judge accepts it and, where a step follows, the certificate of that step verifies with it as
+predecessor (:849-893), and that certificate is carried into the step (:894-898). From `G(X0)` the
+step gives `G` of both proposals of every kept pair. The pair kept at step `j` verified at step `j`,
+so the head, the first of the kept pairs, is that of the latest step. Where no step follows, the
+candidate is taken after `head` was fixed at :821-824 and never becomes the head. ∎
+
+`formal/Window.lean` proves this as `walk_head` with `G` a free property of proposals and the step
+as a hypothesis (section 9); it states no window and no uniqueness: "final" and "the one name of its
+window" are the reading of `G`, which the step brings from Theorem 3 (ii) on paper.
 
 The roots of a proposal a device behind takes are those the quorum that decided it recomputed:
 (A8) makes an honest part pledge a name only after recomputing the roots, and by Lemma 4 and (A7)
@@ -251,19 +285,19 @@ every deciding quorum holds an honest part.
 ## 8. Code against paper
 
 **Stricter than the paper.** `judge` refuses a proposal under rules above `implemented_major`
-(:560-564) or rolling the version back (:565-569), any suite but the one, and any key or signature
-of another width; `links_to` refuses a round past `u32::MAX` (round.rs:107-109); every count past
+(certificate.rs:664-668) or rolling the version back (:669-673), any suite but the one, and any key or
+signature of another width; `links_to` refuses a round past `u32::MAX` (round.rs:108-110); every count past
 `u64` is refused and never wrapped.
 
 **Weaker than the paper — findings.**
 
 - **F-431-2 (closed, 24.10 21:21 UTC, the author's word "work by the specification"; see below).** `decided_of` takes the final beacon from any round of the certificate
-  (certificate.rs:417-423), including a round whose beacon no verified attestation answered.
+  (certificate.rs:471-477), including a round whose beacon no verified attestation answered.
   WINDOW-RELATION.md section 3, "Close", names the final beacon as one "which a verified
   attestation answered". Required: the final beacon is answered by a verified heavy attestation
   of the certificate.
 - **F-431-3 (closed, 24.10, decision 3 of the author).** `decided_of` bounded the final beacon's count by the certificate's
-  (certificate.rs:449-453) and does not recompute its `cement_aggregate` from verified parts.
+  (certificate.rs:508-512) and does not recompute its `cement_aggregate` from verified parts.
   WINDOW-RELATION.md section 3, "Cement": "Every verifier recomputes both from the attestations it
   holds and refuses a beacon whose state is not that pair." Required: the pair of the final beacon
   is the aggregate and the count of a set of verified parts of the certificate. Theorem 4 does not
@@ -283,7 +317,7 @@ of another width; `links_to` refuses a round past `u32::MAX` (round.rs:107-109);
   part no verified attestation carries; a proposal whose roll was not handed in). F-431-2 is not
   closed as the finding stated it: "which a verified attestation answered" cannot be checked from a
   certificate of heavy attestations alone, since a round may be answered by light attestations only
-  (pulse.rs:546, 826-829) and a certificate carries none, and the author chose the roll and not the
+  (pulse.rs:548-550, 828-833) and a certificate carries none, and the author chose the roll and not the
   lights. What a device now holds of the final beacon is that its pair is the cement of verified
   parts; the beacon itself stands outside the name of the proposal (Canon, "The proposal that closes
   a window"), so an unanswered beacon carrying a verified pair decides nothing the pair does not.
@@ -306,7 +340,8 @@ of another width; `links_to` refuses a round past `u32::MAX` (round.rs:107-109);
   last block of `a_device_walks_from_its_anchor_to_the_head_and_no_further`
   (a_walk_from_an_anchor.rs).
 - **F-431-4 (closed, 24.10, decision of the author).** In attempt zero the pledged name of a faulty
-  part was that of its first heavy attestation in the order handed in (agreement.rs:112-118).
+  part was that of its first heavy attestation in the order handed in (agreement.rs:112-118 of the
+  tree the finding was read in, a commit of another clone; `Book::heavy` now stands at :137-148).
   Theorem 1 does not rest on it, the part being the adversary's either way; but two verifiers given
   one certificate in two orders could count that part under two names. Closed by the definition the
   reading below found missing: Consensus, "The sanction of a double answer", now states the canonical
@@ -326,16 +361,17 @@ of another width; `links_to` refuses a round past `u32::MAX` (round.rs:107-109);
     pledge keys, distinct parts, the counting of the agreement, ballots, votes, and the proposal's
     ticket and signature. It names neither an answer to the final beacon nor a recomputation of its
     pair, and the certificate carries what neither needs: heavy attestations and ballots, no light
-    attestation (a final beacon answered by lights alone has no heavy beside it, pulse.rs:546,
-    826-829) and no roll (the parts of the pair stand in the roll, pulse.rs:1922-1931, which no
-    `Step` carries). Requiring either in `decided_of` would refuse honest walks. The two stay open as
+    attestation (a final beacon answered by lights alone has no heavy beside it, pulse.rs:548-550,
+    828-833) and no roll (the parts of the pair stand in the roll, pulse.rs:1939-1954, which no
+    `Step` carried then; `Step::rolls` came with decision 3). Requiring either in `decided_of` would refuse honest walks. The two stay open as
     a question of the specification: a step carrying the roll of the proposal would let the device
     recompute the pair by the rule `replay` already applies. The head does not rest on them
     (Theorem 4).
   - F-431-4 is a divergence of code from the specification: Consensus, "The sanction of a double
     answer" (docs/Montana Consensus.md:812): "The first appearance stands and the second is refused,
     by the canonical order of the window and never by the order of arrival at a machine."
-    `Book::heavy` kept the first in the order handed in (agreement.rs:112-118) and recorded no
+    `Book::heavy` kept the first in the order handed in (agreement.rs:112-118 of the tree read then,
+    another clone; now :137-148) and recorded no
     contradiction. An open pledge of attempt zero other than the heavy cannot arise
     (layout.rs:759-765 refuses it at parsing), so the case is exactly two verified heavy
     attestations of one part on two names. The specification does not define the canonical order
@@ -343,10 +379,10 @@ of another width; `links_to` refuses a round past `u32::MAX` (round.rs:107-109);
     Identity.md:124 without a definition -- so the fix waited on that definition (C-2: an ambiguity
     is flagged before code); the author decided it on 24.10 and Consensus 7.1.0 states it.
 - **F-431-1 (closed).** The comment at round.rs:71 said round zero links to "the proposal of the
-  window before"; certificate.rs:406-409 and the Canon it quotes say "two before", and `walk` passes
-  the proposal of `W - 2` (:748-758). The pulse agrees with the Canon: `Pulse::open` takes
+  window before"; certificate.rs:456-460 and the Canon it quotes say "two before", and `walk` passes
+  the proposal of `W - 2` (:853-864). The pulse agrees with the Canon: `Pulse::open` takes
   `stands_on`, "the proposal of the window two before, which round zero links to" (pulse.rs:223-225),
-  and its caller hands the identifier of `two_before` (pulse.rs:1253-1262). The comment now says so.
+  and its caller hands the identifier of `two_before` (pulse.rs:1270-1285). The comment now says so.
 
 ## 9. Checked by machine
 
@@ -354,34 +390,88 @@ of another width; `links_to` refuses a round past `u32::MAX` (round.rs:107-109);
   own; `#print axioms` names only `propext`, `Quot.sound` and `Classical.choice`):
   `quorum_intersection` (Lemma 4 over the naturals under the integer rule of close.rs,
   `100 c ≥ 67 T`, with inclusion-exclusion as a hypothesis, by `omega`); `more_than_the_faulty`
-  (its corollary under `100 f < 34 T`); `the_vectors_of_the_close` (the frozen vectors of
-  close.rs:116-119 under the same rule, the third being the one a rule dividing first gets wrong,
-  by `decide`); `no_other_open_quorum` and `one_decision` (Theorem 1) over an abstract book of
-  parts, attempts and names under the counting rules of agreement.rs:165-210, with the three
-  contradicting pairs of agreement.rs:70-89 as the honest predicate and the cryptographic
-  assumptions as hypotheses. The rational reading of the quorum rule is not stated in Lean; the
-  integer rule is the only one the file reasons about.
+  (its corollary under `100 f < 34 T`); `meet_of_rule` (the Corollary on sets: two quorums of parts
+  within a universe of at most `T`, each a list without repeat reaching `Q(card, T)`, share a part
+  outside a list of at most `f` bad parts, `100 f < 34 T`; inclusion-exclusion proved, not assumed);
+  `the_vectors_of_the_close` (the frozen vectors of close.rs:116-119 under the same rule, the third
+  being the one a rule dividing first gets wrong, by `decide`); `no_other_open_quorum` and
+  `one_decision` (Theorem 1) over an abstract book of parts, attempts and names under the counting
+  rules of agreement.rs:202-247, with the three contradicting pairs of agreement.rs:70-89 as the
+  honest predicate. The rational reading of the quorum rule is not stated in Lean; the integer rule
+  is the only one the file reasons about.
   Lemma 1, section Order: `run_ok`, `lemma1`, `second_key_iff`, `order_free` over the loop of
   certificate.rs:277-318 as it is written, and `least_spec`, `least_order_free` for `Book::heavy`.
+  The cement, section Cement: `setOf` fills a set as `Cement::add` does (BTreeSet::insert,
+  cement.rs:33-35); `setOf_mem`, `setOf_nodup`, `setOf_ascending`.
   Lemma 2, sections Exact and Certificate: `reachesShare_exact`, `votesReached_exact`,
-  `checkedSum_exact` and `lemma2` -- `verify` (certificate.rs:252-406, check by check in the order of
-  the code) returns `some L` iff `PiCert` holds with closure `L`, for T and K below 2^64.
-  Theorem 2: `completeness` -- Lemma 2 from right to left under honest keys and valid attestations.
-  Theorem 3: (i) `soundness_parts` -- valid attestations and a cement reaching `Q(card, T)`, and at
-  most `f` parts whose leaves the adversary holds, with Lemma 3 (distinct parts carry distinct
-  leaves) as a hypothesis; (ii) `soundness_one_name` -- two accepted certificates of one window
-  decide one predecessor, by Theorem 1, the books faithful to the honest pledges (A2) as a
-  hypothesis; (iii) `soundness_votes` -- no tally exceeds what its part drew, the knowledge
-  soundness of the ballot (A3) entering as the hypothesis `ballotSound`.
-  Theorem 4, section Walk: `pick`, `go` and `walk` model certificate.rs:699-890; `pick_taken`,
-  `closureOf_verify`, `go_inv` and `walk_head` -- the walk returns the anchor where it kept no pair,
-  else the newest pair whose certificate verified, every kept pair chained back to the anchor; that
-  each kept proposal is the unique decided one of its window enters as the hypothesis `sound`
-  (Theorem 3 (ii) with (A1)), and a candidate taken where no step follows is never the head.
-  Hypotheses, not theorems: Lemma 3, (A1)-(A8), `ballotSound`, and the uniqueness `sound`.
-  Result: green on the build host (25.10.2026, Lean 4.35.0, file blob adaea245): `lean
-  formal/Window.lean` exit 0, no warning; `#print axioms` names only `propext`, `Quot.sound` and
-  `Classical.choice` (`closureOf_verify` none, `pick_taken` and `go_inv` `propext` alone).
+  `checkedSum_exact`, `cementOf_nodup`, `cementOf_mem`, `cementOf_ascending` and `lemma2` -- `verify`
+  (certificate.rs:252-406, check by check in the order of the code) returns `some L` iff `PiCert`
+  holds with closure `L`, for T and K below 2^64.
+  Theorem 2: `completeness` -- Lemma 2 from right to left under `honestKey` and `honestValid`.
+  Theorem 3: (i) `soundness_parts` -- valid attestations; the parts of the closure are the cement,
+  without repeat, and a part stands in them iff a valid attestation of the certificate is of it;
+  their count is the length of that list and reaches `Q(card, T)`; and at most `f` of them have
+  leaves the adversary holds, with Lemma 3 (distinct parts carry distinct leaves) as the hypothesis
+  `lemma3`; (ii) `soundness_one_name` -- two accepted certificates of one window decide one
+  predecessor, by Theorem 1, and `soundness_one_name_by_rule` -- the same with `meet` discharged by
+  `meet_of_rule`; (iii) `soundness_votes` -- no tally exceeds what its part drew, the hypothesis
+  `ballotSound` carrying the ballot.
+  Theorem 4, section Walk: `pick`, `go` and `walk` model certificate.rs:786-917; `pick_taken`,
+  `closureOf_verify`, `go_inv`, `go_indexed`, `indexed_before`, `chain_good` and `walk_head` -- for a
+  property `G` of proposals with `anchor : G X0` and the conditional step `step : ∀ j e l cl, G e →
+  verify j e l = some cl → G l`, if the walk returns `(Y, Z)` then the anchor was consecutive, the
+  kept pairs chain back to `(X0, X1)`, the pair kept at step `j` verified at step `j`, both
+  proposals of every kept pair satisfy `G`, and `(Y, Z)` is the anchor where the walk kept no pair,
+  else the pair of the latest step, with `G Y` and `G Z`, every other kept pair having verified at
+  an earlier step. A candidate taken where no step follows is never the head. `G` is read as
+  "final" (section 7); the Lean states no window and no uniqueness.
+  **Hypotheses and readings, not theorems.** The theorems above are proved for every instance of
+  what follows; what they give the protocol rests on these, named one by one.
+  - (A1)-(A5) through the opaque functions of `Cert`: the validity of an attestation in its round
+    (`att.shaped`, `att.verifies`: (C2.1)-(C2.5), the signature (A2) and the presence proof (A3),
+    (A5)), the verification of a ballot (`cast`, A3), of a pledge (`pledgeOk`, A2), the book
+    (`decides`), the aggregate (`aggregate`, A1), the beacon (`beacon`), the predecessor's
+    identifier (`previous`, A1), the light answers (`answered`).
+  - (A2) as `Faithful` and (A8) as `Honest`, inside `book1`/`book2` and `good` of
+    `soundness_one_name`; (A8) including the heavy attestations of an honest part, one name per
+    window (section 3), which `Faithful` and `Honest.one_open` at attempt zero need.
+  - Lemma 3 (with (A3)-(A6)) as `lemma3` of `soundness_parts`; and, with (A6) and (A7), as the
+    hypotheses `within` (the parts lie in a universe of at most `T`), `hbad` (at most `f` of them
+    are the adversary's) and `bound` (`100 f < 34 T`) of `meet_of_rule`. The Lean does not tie
+    `leaf` or `U` to the tree of `E.root`: "distinct admitted machines" is Lemma 3, on paper.
+  - `meet` of `one_decision` and `soundness_one_name`: the Corollary of Lemma 4 with Lemma 3, a
+    hypothesis there; `meet_of_rule` proves it from the integer rule under the hypotheses of the
+    item above, and `soundness_one_name_by_rule` uses it.
+  - `Counts` inside `book1`/`book2`: that the book of agreement.rs, `Book::open_quorums` and
+    `Book::decided` (:202-247), satisfies the counting rules of the model. This is fidelity of the
+    model, not cryptography, and no theorem checks it. Its evidence is the walk `every_book` (below:
+    4 parts, 2 attempts, names 1 and 2) and the Kani harness of Theorem 1, which has not reported.
+  - `ballotSound` of `soundness_votes`: no verified ballot casts more than its part drew. It
+    stands for (A3) for the ballot and (A5) for the ballot description (obligation O-6, open);
+    `drew` is a free function in the Lean, not tied to the census of `E` or to `W`.
+  - `honestKey` and `honestValid` of `completeness`: one key per part and every attestation valid,
+    standing for honest production and the completeness of ML-DSA and of the proof scheme
+    (Theorem 2).
+  - `anchor` and `step` of `walk_head`: `step` is Theorem 3 (ii) for one certificate under a genuine
+    electorate (section 7), on paper.
+  - The readings of the model (Window.lean:808-823, :1320-1322): the map of votes is a total
+    function, nought where it holds nothing (agreement.rs:41), summed over the cement, which equals
+    the code's sum over `votes.values()` (certificate.rs:373) because the cement holds each part
+    once (proved) and the map holds parts of the cement alone (:360); the two rows of the Decree the
+    close reads are the constants `confirmation_quorum = 67/100` and `finality_rule = 1`, so the
+    refusals of an incomplete Decree (close.rs:13-15, :37-38, :77-83; certificate.rs:209-213,
+    :225-232) are not in the model and `lemma2` from right to left holds for a complete Decree; the
+    order `below` of the cement is the byte order of the parts, a strict total order, which only
+    `cementOf_ascending` reads; `Closure.window` and the arithmetic of the walk on windows
+    (certificate.rs:795, :805-807, :881-883) are not modelled.
+  - **Result.** Green on the build host (25.10.2026, Lean 4.35.0, file blob 76ab7068, 1586 lines,
+    61 theorems): `lean formal/Window.lean` exit 0, no error, no warning, no `sorry`; `#print
+    axioms` of all 61 names only `propext`, `Quot.sound` and `Classical.choice` (none for
+    `the_vectors_of_the_close`, `lookup_cons`, `run_append`, `Closure.eq_of`, `chain_tail`,
+    `closureOf_verify`; `propext` alone for `go_inv`, `go_indexed`, `indexed_before`,
+    `chain_good`, `pick_taken` and the section Cement; `walk_head` `propext` and `Quot.sound`;
+    `soundness_parts`, `meet_of_rule`, `soundness_one_name` and `soundness_one_name_by_rule`
+    all three).
 - **Kani** (bounded model checking of the code itself, under `cfg(kani)`). Both harnesses read the two
   rows of the Decree the close reads -- the quorum and the finality rule -- through `kani_decree.rs`,
   which finds them in a constant from the table itself: a search of the table under the bound was cut
@@ -426,8 +516,9 @@ of another width; `links_to` refuses a round past `u32::MAX` (round.rs:107-109);
 ## 10. Obligations
 
 - **O-1.** The derivation of `eps_K` for the three descriptions from the parameters of the scheme,
-  at the security target of Canon. *The parameters* (params.rs:10-20, ext.rs:13-14, field.rs:17
-  at 8d6409d; Canon, the table beside `proof_security_bits`): the base field `p = 2^64 - 2^32 + 1`,
+  at the security target of Canon. *The parameters* (params.rs:10-21, ext.rs:13-14, field.rs:17
+  of mt-proof, read at 8d6409d, a commit of another clone; the line numbers re-pinned to 835a361,
+  where `QUERIES` is 92; Canon, the table beside `proof_security_bits`): the base field `p = 2^64 - 2^32 + 1`,
   every challenge drawn in the cubic extension `K` of order `p^3` (about `2^192`), blowup 8 (rate
   `rho = 1/8`), 48 queries at distinct positions at that reading (transcript.rs:117-120; 92 since decision 4 and the derivation of the sum, below), fold 4, a tail of 64, and no
   proof-of-work term in the transcript. `eps_K` is the sum of three terms: the mixing and the deep
@@ -489,10 +580,12 @@ of another width; `links_to` refuses a round past `u32::MAX` (round.rs:107-109);
   which changes no description (the identifier of a description does not take the free block into
   its bytes) and leaves the frame, the ballot and the presence inside their heights. (A3) now names
   no conjecture.
-  *Accepted by the author, 24.10.2026 21:21 UTC:* the changes of 8e68627 beyond decision 4 --
+  *Accepted by the author, 24.10.2026 21:21 UTC:* the changes of 8e68627 (a commit of another clone;
+  its changes stand in this tree, params.rs:40 `FREE_ROWS` = 256) beyond decision 4 --
   `proof_free_rows` 128 -> 256, a round point of at most 127 heavy attestations, the frames of a window 105.8 MB per chain.
 - **O-2.** (A5) read off `mt-proof/src/circuit/presence.rs`, constraint by constraint
-  (24.10.2026, read at 0fe6134; the Poseidon permutation layer is taken as the permutation, as A4
+  (24.10.2026, read at 0fe6134, a commit of another clone; every line number below checked again
+  against 835a361 and unchanged; the Poseidon permutation layer is taken as the permutation, as A4
   takes it). Width 12, rate 8, capacity 4 (poseidon.rs:17-22). Every chain opens under its domain:
   at each seam of `opens` (presence.rs:164) the four capacity cells one row on equal the limbs of the
   domain (capacity.rs:57) -- `MT_KEY_HALVES`, `MT_ADMITTED_LEAF`, `MT_ADMITTED_NODE` at each of the
@@ -528,7 +621,8 @@ of another width; `links_to` refuses a round past `u32::MAX` (round.rs:107-109);
   is checked constraint by constraint under O-2: the lane loads at the last row of the absorption,
   the leaf takes the cells the extra block leaves, and the extra block enters with the whole state
   (capacity and rate carried). Discharged with O-2.
-- **O-4.** (A6) as a theorem of the roots of state (read at 8d6409d). *The construction.* The roots a
+- **O-4.** (A6) as a theorem of the roots of state (read at 8d6409d, a commit of another clone; the
+  line numbers below re-pinned to 835a361). *The construction.* The roots a
   machine recomputes for a proposal take `admitted_root` as the root of its cohort and `admitted_count`
   as its count (montana-node state.rs:303, 306), and both are of one list: `Cohort::of` sorts the
   naming halves and removes repeats (pulse.rs:60-62), the root is `root_of` over that list
@@ -547,7 +641,7 @@ of another width; `links_to` refuses a round past `u32::MAX` (round.rs:107-109);
   *(A6) from Lemma 5.* A final proposal carries roots a quorum pledged; by the Corollary of Lemma 4
   the quorum holds a machine whose secret the adversary does not hold (A7), which pledges only after
   recomputing the roots (A8) and refuses a proposal whose roots differ from its own
-  (certificate.rs:578-603), so the root and the count of the proposal are of one cohort and Lemma 5
+  (certificate.rs:682-708), so the root and the count of the proposal are of one cohort and Lemma 5
   applies. *The bound.* Past `2^D` halves `root_of` leaves its loop with more than one node standing
   and returns the first -- the root of the first `2^D` leaves -- while the count is the length of the
   whole list, so the count would exceed the leaves of the root. `Cohort::of` names the case in its
@@ -559,13 +653,23 @@ of another width; `links_to` refuses a round past `u32::MAX` (round.rs:107-109);
   verifier. State: F-431-1 closed; F-431-4 closed (decision 2); F-431-3 closed (decision 3);
   F-431-2 closed on the author's word of 24.10 21:21 UTC (the certificate carries the light
   attestations answering the final beacon), see section 8. Discharged: the ring of the core on
-  fc35ff0 (the build host, 25.10.2026, done 08:04:32 UTC, every step exit 0) ran
+  fc35ff0 (branch formal/window-479 of the clone on the build host, a commit not in this clone;
+  recorded in 5889950; the build host, 25.10.2026, done 08:04:32 UTC, every step exit 0) ran
   `a_final_beacon_no_verified_attestation_answered_closes_nothing`,
   `a_device_walks_from_its_anchor_to_the_head_and_no_further` and
   `agreement::tests::the_first_heavy_attestation_in_the_canonical_order_stands_whatever_the_order_handed_in`
   ok. The tree of fc35ff0 differs from e6cfb3ee in AUDIT.md and three files of mt-proof alone
   (permutation.rs, params.rs, scheme.rs), so montana-node and mt-pulse, where the verifier and these
   tests stand, are the same.
+- **O-6.** (A5) for the ballot description, read off `mt-proof/src/circuit/ballot.rs` constraint by
+  constraint, as O-2 reads `presence.rs`: that a ballot proof accepting for the public input of
+  `(W, E, A)` and a part-nullifier `p` binds its published count to the votes the standing of the
+  machine of `p` drew below the committee threshold over the census cements of `E`, for that part
+  and that window, and binds nothing else the prover chooses. Theorem 3 (iii) rests on it through
+  `ballotSound` (section 9); (A3) alone gives a witness of the description, not this relation. The
+  same reading is owed for the ticket description. *Not done*: stated here as an obligation,
+  open. Whether the closing of item 1 below waits on it is for the chairman to decide; the sentence
+  below is left as decided.
 
 Item 1 stands closed when O-1 to O-5 are discharged, the Lean file runs green on the build host, and
 the ring of the core is green on the commit that carries them. Model checking of the code with Kani
