@@ -87,6 +87,22 @@ object Wire {
     fun domained(domain: String, vararg parts: ByteArray): ByteArray = sha(d(domain), *parts)
     /** The tag of a pipe: where a letter is laid in this window, and nowhere else (iOS MTPipe.tag). */
     fun pipeTag(secret: ByteArray, w: Long) = domained("mt-tag", secret, le8(w)).copyOf(16)
+    /**
+     * THE TAG WALKS FROM 01.11 (iOS MTPipeKey.tag/tags, a8173d52, OZ1 decision 126): from TAG_WALK_DAY (Y = 20758) the tag of a
+     * window stands on the walked secret of the window's day, before it on the established secret as every build laid it; on Y
+     * and Y + 1 a receiver still hears the tag laid over the established secret, so an earlier build's letter is not lost.
+     */
+    const val TAG_WALK_DAY = WALK_ANCHOR_DAY + 4   // 20758, 01.11.2026 UTC
+    const val ERASE_DAY = TAG_WALK_DAY + 2         // 20760, 03.11.2026 UTC
+    fun windowTag(secret: ByteArray, w: Long): ByteArray {
+        val day = w / MINUTES_PER_DAY
+        return pipeTag(if (day >= TAG_WALK_DAY) pipeSecret(secret, day) else secret, w)
+    }
+    fun windowTags(secret: ByteArray, w: Long): List<ByteArray> {
+        val day = w / MINUTES_PER_DAY
+        val now = windowTag(secret, w)
+        return if (day >= TAG_WALK_DAY && day < ERASE_DAY) listOf(now, pipeTag(secret, w)) else listOf(now)
+    }
     /** The label of one step, from the secret two neighbouring machines share (iOS MTPipe.stepLabel). */
     fun stepLabel(secret: ByteArray, w: Long) = domained("mt-step", secret, le8(w)).copyOf(16)
     /** The seal a hop lays so the owners inside one delivery are counted distinct (iOS MTPipe.relaySeal). */
@@ -266,6 +282,11 @@ object Wire {
         return hex(pipeTag(r(0x44, 32), 1000)) == "1d99467017fe1d0cc7c7ba29df6fd1b6"
             && hex(pipeTag(r(0x44, 32), 1001)) == "c146445f67c990e25256dd88dfb39a49"
             && hex(pipeTag(r(0x55, 32), 1000)) == "783b2b17dffaab016d1aca852f60ea3e"
+            // the passage by the day (iOS mt-pipe-owner-check.py oracle, chain 969-972): s = bytes 0..31, window D*1440+5
+            && hex(windowTag(s32, (TAG_WALK_DAY - 1) * MINUTES_PER_DAY + 5)) == "ec0c1a23e2450dd465356cd0b8175c4f"
+            && windowTags(s32, TAG_WALK_DAY * MINUTES_PER_DAY + 5).map { hex(it) } == listOf("96d8937ada4908bcba9fd12c78b9c11c", "cc6997487bfa3ed9c4a7542be4fc2bbb")
+            && windowTags(s32, (ERASE_DAY + 1) * MINUTES_PER_DAY + 5).map { hex(it) } == listOf("9e0c92b8f91b94880bf15eee1ca672c7")
+            && hex(domained("mt-same-ask", convRoot(r(0x41, 32)), convRoot(r(0x42, 32))).copyOf(16)) == "652cacf2b156b3a11e0b19fa4e15752d"
             && hex(stepLabel(r(0x51, 32), 1000)) == "4b8cb5c6442a52d0750bfb4fac0ba39d"
             && hex(stepLabel(r(0x52, 32), 1000)) == "401d8ab71a2e2554ab30c11aab1ae97d"
             && hex(stepLabel(r(0x51, 32), 1001)) == "1cc3ac539a8b1d2701e489455a8b04d5"
