@@ -1174,6 +1174,55 @@ impl Memory {
     }
 }
 
+// **What a machine stands on is what it kept, and nothing it is handed.** The proposals of the last
+// two windows it closed, read back from its own store: the one of the last window closed is the name
+// the next window pledges, and the one before it is final and fixed the electorate of the next
+// window. "A device that lived the network holds its own anchor — the last two proposals it verified
+// — and needs nobody's" (Consensus, "The join"); "Reconnection resumes the same open window against
+// the same electorate and the same required share" (Consensus, "The way back"). A machine that
+// closed a window opens the one after it and no other: a window further on stands on proposals it
+// does not hold, and one at or below it stands closed. What it reads back is judged before anything
+// stands on it — each proposal of its window, the later naming the earlier (the first window of a
+// network, the Genesis State Hash), each under the signature of its runner — so a store a byte of
+// which turned opens no window, where it would have opened a chain of its own. A machine that closed
+// nothing stands on nothing, and the opening cohort and the Genesis State Hash are for the first
+// windows of a network alone.
+fn held_of_the_store(machine: &Machine, from: u64) -> Result<BTreeMap<u64, Proposal>, NodeError> {
+    let mut held = BTreeMap::new();
+    let Some(closed) = machine.closed_window()? else {
+        return Ok(held);
+    };
+    if closed.checked_add(1) != Some(from) {
+        return Err(NodeError::Refused {
+            what: "a window other than the one after the last this machine closed",
+        });
+    }
+    let kept = |window: u64| {
+        machine.proposal_of(window)?.ok_or(NodeError::Refused {
+            what: "a closed window whose proposal this machine does not hold",
+        })
+    };
+    let later = kept(closed)?;
+    let earlier = closed.checked_sub(1).map(kept).transpose()?;
+    let before = match &earlier {
+        Some(proposal) => Predecessor::Proposal(proposal),
+        None => Predecessor::Genesis,
+    };
+    if later.window != closed || !before.is_followed_by(closed) || later.previous != before.id()? {
+        return Err(NodeError::Refused {
+            what: "a kept proposal that does not stand on the one kept before it",
+        });
+    }
+    for proposal in earlier.iter().chain([&later]) {
+        certificate::signed_by_its_runner(proposal)?;
+    }
+    if let Some(proposal) = earlier {
+        held.insert(proposal.window, proposal);
+    }
+    held.insert(closed, later);
+    Ok(held)
+}
+
 pub fn live_doing(
     machine: &Machine,
     cohort: &Cohort,
@@ -1206,8 +1255,9 @@ pub fn live_doing(
     // **What a window stands on is two proposals and nothing else.** The proposal of the window
     // before is what the open window cements and what its round zero links to; the proposal of the
     // window two before fixed the electorate and the aggregate the open window draws from. A machine
-    // holds those two and lets the older go, and what it keeps of them beyond is the store's.
-    let mut stands_on: BTreeMap<u64, Proposal> = BTreeMap::new();
+    // holds those two and lets the older go, and what it keeps of them beyond is the store's — which
+    // is where a machine started again reads them back from.
+    let mut stands_on = held_of_the_store(machine, from)?;
     let mut memory = Memory::default();
     // The plane as this machine holds it entering its first window: the base that window's decided
     // roll replays over.
@@ -1817,17 +1867,29 @@ pub fn live_doing(
             machine.settled_through(before.window)?;
             let final_id = before.id().map_err(NodeError::Object)?;
             let link: String = final_id.iter().map(|b| format!("{b:02x}")).collect();
-            let right = match memory.facts.get(&before.window) {
-                Some(facts) => {
+            // The decided roll: the one this run held of a window it lived, and of the window an
+            // earlier run of this machine closed before it stopped, the roll standing at the points
+            // of that window under the identifier its final proposal carries.
+            let decided_roll = match memory.facts.get(&before.window) {
+                Some(facts) => Some(facts.roll.clone()),
+                None => rolls_of(
+                    &bodies_at_a_past_window(machine, before.window)?,
+                    before.window,
+                )
+                .into_iter()
+                .find(|one| one.id().ok() == Some(before.roll)),
+            };
+            let right = match decided_roll {
+                Some(roll) => {
                     let part_before = mt_derive::nullifier::part(&of_the_machine, before.window)
                         .ok_or(NodeError::Unprovable {
                             what: "the halves of this machine's secret",
                         })?;
-                    if facts.roll.parts.binary_search(&part_before).is_ok() {
+                    if roll.parts.binary_search(&part_before).is_ok() {
                         Some(attest::right_of(
                             &of_the_machine,
                             before.window,
-                            facts.roll.parts.len(),
+                            roll.parts.len(),
                         )?)
                     } else {
                         None

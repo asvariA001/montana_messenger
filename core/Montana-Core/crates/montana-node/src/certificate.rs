@@ -711,6 +711,37 @@ fn judge(proposal: &Proposal, held: &Held<'_>, roots: Option<&Roots>) -> Result<
             what: "a proposal under an unsupported suite",
         });
     }
+    let key = signed_by_its_runner(proposal)?;
+    // The ticket: the electorate root, the digest of the key this proposal answers under, the
+    // aggregate of the window two before and the threshold of the draw, in the order Canon states;
+    // a proof lifted from another runner's proposal fails at the digest.
+    let digest =
+        Digest::of_bytes(&mt_derive::pulse::runner_digest(key)).ok_or(NodeError::Refused {
+            what: "a digest that is no digest of the family",
+        })?;
+    let public = mt_proof::circuit::ticket::public_of(
+        &[electorate.root, digest],
+        aggregate_two_before,
+        &draw_threshold.to_be_bytes(),
+    );
+    let description = mt_proof::circuit::ticket::description().ok_or(NodeError::Unprovable {
+        what: "the description of a ticket",
+    })?;
+    mt_proof::scheme::verify(&description, &public, &proposal.ticket_proof).map_err(|_| {
+        NodeError::Refused {
+            what: "a proposal whose ticket proof does not verify",
+        }
+    })?;
+    Ok(())
+}
+
+// Whether the runner whose key a proposal carries signed every byte of it but the signature, and the
+// key it signed under. The door judges it of every proposal it is handed, and a machine judges it of
+// the proposals it reads back from its own store: a byte that turned since it was kept is a proposal
+// nobody signed.
+pub(crate) fn signed_by_its_runner(
+    proposal: &Proposal,
+) -> Result<&[u8; mt_codec::size::SIGNING_PUBLIC_KEY], NodeError> {
     let key: &[u8; mt_codec::size::SIGNING_PUBLIC_KEY] = proposal
         .runner_pubkey
         .as_slice()
@@ -734,27 +765,7 @@ fn judge(proposal: &Proposal, held: &Held<'_>, roots: Option<&Roots>) -> Result<
     .map_err(|_| NodeError::Refused {
         what: "a proposal under a signature that does not verify",
     })?;
-    // The ticket: the electorate root, the digest of the key this proposal answers under, the
-    // aggregate of the window two before and the threshold of the draw, in the order Canon states;
-    // a proof lifted from another runner's proposal fails at the digest.
-    let digest =
-        Digest::of_bytes(&mt_derive::pulse::runner_digest(key)).ok_or(NodeError::Refused {
-            what: "a digest that is no digest of the family",
-        })?;
-    let public = mt_proof::circuit::ticket::public_of(
-        &[electorate.root, digest],
-        aggregate_two_before,
-        &draw_threshold.to_be_bytes(),
-    );
-    let description = mt_proof::circuit::ticket::description().ok_or(NodeError::Unprovable {
-        what: "the description of a ticket",
-    })?;
-    mt_proof::scheme::verify(&description, &public, &proposal.ticket_proof).map_err(|_| {
-        NodeError::Refused {
-            what: "a proposal whose ticket proof does not verify",
-        }
-    })?;
-    Ok(())
+    Ok(key)
 }
 
 // Two consecutive final proposals: what an operator hands a joining device, and what a device that
