@@ -69,6 +69,7 @@ identities and the live nodes — **not on a real phone and not against an iPhon
 | 9c: the pipe secret's step at 29.10.2026 00:00 UTC | `walk.ps1`, `twin3.ps1` | **not yet run** on the real date |
 | 10: three devices of one identity | `twinthree.ps1` | **measured limit of the original**: the first device to take a mirror row erases it for the others (2 of 3 letters reached one of two Androids only) |
 | groups; rows asked back (`TA:`/`TW:`); cards (`TC:`); a row the mirror never carried | `twingroup.ps1`, `twinask.ps1`, `twincard.ps1`, `twingap.ps1` | passed |
+| two Windows computers of one identity: own letters, the reading, deletion for all | `twinwin.ps1` | passed: reading on one took the other's unread off in about 13 s; each letter once on both; a letter deleted for all left the other computer and the correspondent's phone |
 
 Scenario 10 is a limit of the iOS design itself, kept as it is: it is the case for Dinet Device Sync (below).
 

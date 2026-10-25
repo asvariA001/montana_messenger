@@ -693,6 +693,7 @@ impl<'a> Desk<'a> {
         let Some(c) = self.book.chat(r) else { return };
         let newest = c.msgs.iter().filter(|m| !m.mine).filter_map(|m| birth_ms(&m.mid)).max();
         // THE OTHER DEVICES READ IT TOO (iOS markRead, the twin mirror): what was unread here is read there up to the same letter
+        crate::trace_line(&format!("twin_note read chat={} unread={} marked={}", r.chars().take(10).collect::<String>(), c.unread, c.marked as u8));
         if c.unread > 0 || c.marked {
             if let Some(ms) = c.msgs.iter().filter(|m| !m.mine).map(|m| birth_ms(&m.mid).unwrap_or(m.at)).max().filter(|ms| *ms > 0) {
                 self.mirror_note(crate::twin::Word { c: r.into(), m: crate::book::mint_mid(), x: format!("{}{ms}", crate::twin::READ_MARK), o: Some(1), ..Default::default() });

@@ -292,9 +292,11 @@ impl Desk<'_> {
             history::knock(&me.secret, &me.name, &format!("{KEEP_MARK}{road}"))
         });
         if !laid {
+            crate::trace_line(&format!("twin_lt the words did not reach the nodes n={}", batch.len()));
             self.twin_soon("lt", AGAIN_MS);
             return false;
         }
+        crate::trace_line(&format!("twin_lt laid words={} reads={}", batch.len(), batch.iter().filter(|w| w.x.starts_with(READ_MARK)).count()));
         let top = batch.iter().filter_map(|w| w.q).max().unwrap_or(-1);
         let left = {
             let _g = QLOCK.lock().unwrap();
@@ -375,6 +377,7 @@ impl Desk<'_> {
         let mid = f[0].clone();
         let seen: Vec<String> = jlist(self.vault, SEEN);
         if seen.contains(&mid) {
+            crate::trace_line(&format!("twin_take mid={} seen before", mid.chars().take(8).collect::<String>()));
             return true;
         }
         let taken = match o["w"].as_str() {
@@ -387,6 +390,7 @@ impl Desk<'_> {
         if !taken {
             let n = fails.entry(mid.clone()).or_insert(0);
             *n += 1;
+            crate::trace_line(&format!("twin_take mid={} the road did not come whole fails={n}", mid.chars().take(8).collect::<String>()));
             if *n < 5 {
                 return false;
             }
@@ -408,6 +412,7 @@ impl Desk<'_> {
         for w in &words {
             self.land_mirrored(w);
         }
+        crate::trace_line(&format!("twin_lt taken words={}", words.len()));
         true
     }
 
@@ -797,6 +802,7 @@ impl Desk<'_> {
         let edge = ms + 1;
         self.book.edit(r, |c| {
             let left = c.msgs.iter().filter(|m| !m.mine && m.at > edge && marks::is_row(&m.text)).count() as u32;
+            crate::trace_line(&format!("twin_read chat={} upto={ms} unread={} left={left}", r.chars().take(10).collect::<String>(), c.unread));
             c.unread = c.unread.min(left);
             if c.unread == 0 {
                 c.marked = false;
