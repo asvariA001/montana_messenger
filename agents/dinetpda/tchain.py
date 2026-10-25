@@ -6,6 +6,7 @@ B. 13 links make a window tau1; a full window is sealed by the chairman's next s
 C. The constitution is a second chain of the same envelope; only a link that carries the Author's word changes it.
 D. At most 13 open tasks, each with a deadline from its birth, a percentage and one GitHub issue; every move on a task
    is a link tagged [task k], and a task closes only by proof.
+F. The context of a Claude Code session, from its own transcript; below 150k a handover is refused.
 
 The definitions are written out in README.md beside this file. Standard library only, Python 3.8 or newer.
 """
@@ -315,6 +316,8 @@ def write_link(args, text: Optional[str], compose: Optional[Callable[[list], str
     under the lock from the chain so far (a new task's number). A link tagged [task k] must keep the checklist's rules."""
     signature = check_signature(args.signature)
     words = accept_words(args)
+    if text is not None and begins_with(text, handover_words(args)):
+        check_handover()
 
     def rule(records):
         task = check_text((compose(records) if compose else text).strip(), "the link's text", TEXT_LIMIT)
@@ -968,6 +971,143 @@ def _task_commands(commands, common) -> None:
 
 
 # ---------------------------------------------------------------------------------------------------------------------
+# F. Measuring the context
+
+USAGE_FIELDS = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
+PREPARE_AT = 150_000  # from here the handover is prepared; below it a handover is refused
+STOP_ABOVE = 200_000  # past this the session stops at once
+HANDOVER = "Handover"  # the handover words by default; --handover or $TCHAIN_HANDOVER names others
+SESSION_RE = re.compile(r"[A-Za-z0-9_-]{1,128}")
+
+
+class Context(NamedTuple):
+    tokens: int  # the sum of the three usage fields
+    parts: dict  # each of them
+    path: Path  # the session's file
+    timestamp: str  # when that message was written
+
+
+def handover_words(args) -> str:
+    return getattr(args, "handover", None) or os.environ.get("TCHAIN_HANDOVER") or HANDOVER
+
+
+def projects_folder(given: Optional[str] = None) -> Path:
+    """Where Claude Code keeps its sessions: --projects, else $CLAUDE_CONFIG_DIR/projects, else ~/.claude/projects."""
+    if given:
+        return Path(given)
+    base = os.environ.get("CLAUDE_CONFIG_DIR")
+    return (Path(base) if base else Path.home() / ".claude") / "projects"
+
+
+def session_file(session: str, projects: Path) -> Path:
+    """The file of a session: PROJECT/SESSION_ID.jsonl under the projects folder, in whichever project it is."""
+    if not SESSION_RE.fullmatch(session):
+        raise Refused(f"{session!r} is not a Claude Code session id")
+    found = sorted(projects.glob(f"*/{session}.jsonl"), key=lambda path: path.stat().st_mtime)
+    if not found:
+        raise Refused(f"no {session}.jsonl under {projects}")
+    return found[-1]
+
+
+def lines_backwards(path: Path, block: int = 1 << 20):
+    """The lines of a file from the last to the first, read a block at a time: the end of a long session costs one
+    block, not the whole file."""
+    with open(path, "rb") as handle:
+        position, tail = handle.seek(0, os.SEEK_END), b""
+        while position > 0:
+            step = min(block, position)
+            position -= step
+            handle.seek(position)
+            lines = (handle.read(step) + tail).split(b"\n")
+            tail = lines.pop(0)  # it may begin in the block before
+            yield from reversed(lines)
+        yield tail
+
+
+def measure(path: Path) -> Context:
+    """The context of a session: the usage of its last assistant message, input_tokens + cache_creation_input_tokens
+    + cache_read_input_tokens. A subagent's line (isSidechain), a message Claude Code makes itself (model
+    "<synthetic>") and a line still being written are passed over."""
+    for line in lines_backwards(path):
+        if b'"assistant"' not in line or b'"usage"' not in line:
+            continue
+        try:
+            record = json.loads(line)
+        except ValueError:
+            continue
+        message = record.get("message") if isinstance(record, dict) else None
+        if not isinstance(message, dict) or record.get("type") != "assistant" or record.get("isSidechain"):
+            continue
+        usage = message.get("usage")
+        if not isinstance(usage, dict) or message.get("model") == "<synthetic>":
+            continue
+        parts = {field: usage[field] if type(usage.get(field)) is int else 0 for field in USAGE_FIELDS}
+        return Context(sum(parts.values()), parts, path, str(record.get("timestamp") or ""))
+    raise Refused(f"{path} holds no assistant message with usage")
+
+
+def context_rule(tokens: int) -> str:
+    """The rule of the turn for a context: below 150k work on, from 150k prepare the handover, past 200k stop."""
+    if tokens < PREPARE_AT:
+        return f"work on: below {PREPARE_AT // 1000}k a handover is refused"
+    if tokens <= STOP_ABOVE:
+        return f"prepare the handover: the context is {PREPARE_AT // 1000}k or more"
+    return f"stop at once: the context is past {STOP_ABOVE // 1000}k"
+
+
+def own_context() -> Optional[Context]:
+    """The context of the session this tool runs in, found by $CLAUDE_CODE_SESSION_ID; None when it cannot be read."""
+    session = os.environ.get("CLAUDE_CODE_SESSION_ID")
+    if not session:
+        return None
+    try:
+        return measure(session_file(session, projects_folder()))
+    except (Refused, OSError):
+        return None
+
+
+def check_handover() -> None:
+    """Below 150k a handover is refused, and the session works on. Where the session's context cannot be read, the
+    handover is let through with a warning, since the rule cannot be applied."""
+    context = own_context()
+    if context is None:
+        print("warning: this session's context cannot be read (CLAUDE_CODE_SESSION_ID and its file), so the handover "
+              "rule is not applied", file=sys.stderr)
+    elif context.tokens < PREPARE_AT:
+        raise Refused(f"a handover is refused below {PREPARE_AT:,} tokens, and this session's context is "
+                      f"{context.tokens:,}: work on")
+
+
+def cmd_context(args) -> int:
+    if args.file:
+        path = Path(args.file)
+    else:
+        session = args.session or os.environ.get("CLAUDE_CODE_SESSION_ID")
+        if not session:
+            raise Refused("CLAUDE_CODE_SESSION_ID is not set: give --session ID or --file PATH")
+        path = session_file(session, projects_folder(args.projects))
+    if not path.is_file():
+        raise Refused(f"{path} does not exist")
+    context = measure(path)
+    parts = context.parts
+    print(f"context: {context.tokens:,} tokens = input {parts['input_tokens']:,} + cache creation "
+          f"{parts['cache_creation_input_tokens']:,} + cache read {parts['cache_read_input_tokens']:,}")
+    print(f"from the last assistant message ({context.timestamp or 'no time'}) of {path}")
+    print(f"rule: {context_rule(context.tokens)}")
+    return 0
+
+
+def _context_commands(commands, common) -> None:
+    command = commands.add_parser("context", parents=[common], help="this session's context in tokens, and its rule")
+    source = command.add_mutually_exclusive_group()
+    source.add_argument("--session", metavar="ID", help="a session id (default: $CLAUDE_CODE_SESSION_ID)")
+    source.add_argument("--file", metavar="PATH", help="a session's .jsonl file itself")
+    command.add_argument("--projects", metavar="DIR", help="Claude Code's projects folder "
+                                                           "(default: $CLAUDE_CONFIG_DIR/projects, else ~/.claude/projects)")
+    command.set_defaults(run=cmd_context)
+
+
+# ---------------------------------------------------------------------------------------------------------------------
 # The command line
 
 
@@ -976,9 +1116,11 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--home", metavar="DIR", help="the data folder (default: $TCHAIN_HOME, else ./.tchain)")
     common.add_argument("--accept", metavar="WORDS",
                         help=f'the acceptance words that make a chairman (default: $TCHAIN_ACCEPT, else "{ACCEPT}")')
+    common.add_argument("--handover", metavar="WORDS",
+                        help=f'the words a handover link begins with (default: $TCHAIN_HANDOVER, else "{HANDOVER}")')
     parser = argparse.ArgumentParser(prog="tchain.py", description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
-    for install in (_link_commands, _window_commands, _constitution_commands, _task_commands):
+    for install in (_link_commands, _window_commands, _constitution_commands, _task_commands, _context_commands):
         install(commands, common)
     return parser
 

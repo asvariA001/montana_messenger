@@ -555,6 +555,94 @@ class OpenTasks(ChainCase):
         self.assertIn("link 3 changes no task: task 9 was never born", listing)
 
 
+def assistant(read=0, creation=0, input_=0, **fields):
+    """An assistant line of a Claude Code session file, with the three usage fields the context sums."""
+    usage = {"input_tokens": input_, "cache_creation_input_tokens": creation, "cache_read_input_tokens": read,
+             "output_tokens": 999}
+    return dict({"type": "assistant", "isSidechain": False, "timestamp": "2026-10-25T12:00:00.000Z",
+                 "message": {"role": "assistant", "model": "claude-test", "content": [], "usage": usage}}, **fields)
+
+
+class ContextMeter(ChainCase):
+    """F: the context is the usage of the session's last assistant message; 150k and 200k set the rule."""
+
+    SESSION = "0f0e0d0c-1111-2222-3333-444455556666"
+
+    def session(self, *entries, project="c--project-example"):
+        """A synthetic session file, PROJECT/SESSION_ID.jsonl under a projects folder of the test's own."""
+        folder = Path(self.tmp.name) / "claude" / "projects" / project
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / f"{self.SESSION}.jsonl"
+        path.write_bytes(b"".join(entry if isinstance(entry, bytes) else json.dumps(entry).encode() + b"\n"
+                                  for entry in entries))
+        return path
+
+    def test_the_last_assistant_message_wins_and_sums_three_fields(self):
+        path = self.session(
+            {"type": "user", "message": {"role": "user", "content": "hello"}},
+            assistant(read=3, creation=2, input_=1),
+            assistant(read=147_900, creation=2_000, input_=100),
+            {"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "content": "x"}]}},
+            assistant(read=900_000, isSidechain=True),  # a subagent's line
+            dict(assistant(), message={"role": "assistant", "model": "<synthetic>", "content": [],
+                                       "usage": {"input_tokens": 0}}),  # Claude Code's own message
+            b'{"type":"assistant","message":{"usage":{"input_tokens":5',  # still being written
+        )
+        context = tchain.measure(path)
+        self.assertEqual(context.tokens, 150_000)
+        self.assertEqual(context.parts, {"input_tokens": 100, "cache_creation_input_tokens": 2_000,
+                                         "cache_read_input_tokens": 147_900})
+        out = self.ok("context", "--file", str(path))
+        self.assertIn("context: 150,000 tokens = input 100 + cache creation 2,000 + cache read 147,900", out)
+        self.assertIn("rule: prepare the handover", out)
+
+    def test_the_thresholds(self):
+        for tokens, rule in ((0, "work on"), (149_999, "work on"), (150_000, "prepare the handover"),
+                             (200_000, "prepare the handover"), (200_001, "stop at once")):
+            with self.subTest(tokens=tokens):
+                path = self.session(assistant(read=tokens))
+                self.assertIn(f"rule: {rule}", self.ok("context", "--file", str(path)))
+
+    def test_the_session_is_found_by_its_id(self):
+        self.session(assistant(read=12_345))
+        projects = str(Path(self.tmp.name) / "claude" / "projects")
+        self.assertIn("12,345 tokens", self.ok("context", "--session", self.SESSION, "--projects", projects))
+        os.environ["CLAUDE_CODE_SESSION_ID"] = self.SESSION
+        os.environ["CLAUDE_CONFIG_DIR"] = str(Path(self.tmp.name) / "claude")
+        self.assertIn("12,345 tokens", self.ok("context"))
+        self.refused("context", "--session", "../../etc/passwd")
+        self.refused("context", "--session", "ffffffff-0000-0000-0000-000000000000", "--projects", projects)
+        del os.environ["CLAUDE_CODE_SESSION_ID"]
+        self.assertIn("CLAUDE_CODE_SESSION_ID is not set", self.refused("context"))
+
+    def test_a_session_without_usage_is_refused(self):
+        path = self.session({"type": "user", "message": {"role": "user", "content": "hello"}})
+        self.assertIn("no assistant message with usage", self.refused("context", "--file", str(path)))
+
+    def test_lines_are_read_backwards_across_blocks(self):
+        path = Path(self.tmp.name) / "lines.txt"
+        data = b"first\n" + b"x" * 50 + b"\n\nlast line\n"
+        path.write_bytes(data)
+        for block in (1, 3, 7, 64, 1 << 20):
+            with self.subTest(block=block):
+                self.assertEqual(list(tchain.lines_backwards(path, block)), list(reversed(data.split(b"\n"))))
+
+    def test_a_handover_is_refused_below_150k(self):
+        os.environ["CLAUDE_CODE_SESSION_ID"] = self.SESSION
+        os.environ["CLAUDE_CONFIG_DIR"] = str(Path(self.tmp.name) / "claude")
+        handover = "Handover #2: done A to F; open nothing; next the draft PR"
+        self.session(assistant(read=149_999))
+        self.assertIn("refused below 150,000 tokens", self.refused("add", handover, "--from", CHAIR))
+        self.add("Handing the review to a helper is no handover")  # the words must begin the link, whole
+        self.session(assistant(read=150_000))
+        self.add(handover)
+        del os.environ["CLAUDE_CODE_SESSION_ID"]
+        code, out, err = self.cli("add", handover, "--from", CHAIR)
+        self.assertEqual(code, 0)
+        self.assertIn("handover rule is not applied", err)
+        self.assertEqual([record["task"] for record in self.records()].count(handover), 2)
+
+
 class DataFolder(ChainCase):
     """The data folder: --home, else $TCHAIN_HOME, else ./.tchain, never inside the tool's repository by default."""
 
