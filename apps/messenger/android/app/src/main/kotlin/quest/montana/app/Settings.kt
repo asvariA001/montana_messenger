@@ -321,8 +321,6 @@ fun privacyPage(act: MainActivity, onForget: () -> Unit, onBack: () -> Unit): Vi
             c.settingsRow(R.drawable.ic_set_eye, SysColor.blue, c.getString(R.string.wall_who_see_mine)) { act.push { wallRulePage(act, WallRule.Act.SEE, it) } })
         section(null, null, sw(R.drawable.ic_set_eye_slash, SysColor.purple, R.string.filter_objectionable, "objectionableFilterOn", R.string.filter_objectionable_sub),
             c.settingsRow(R.drawable.ic_hand, SysColor.red, c.getString(R.string.blocked_users)) { act.push { blockedPage(act, it) } })
-        section(null, null, c.switchLine(R.drawable.ic_key, SysColor.blue, c.getString(R.string.identity_google), MontanaBackupID.on(c),
-            c.getString(R.string.identity_google_sub)) { MontanaBackupID.setOn(c, it) })
         section(null, null, c.settingsRow(R.drawable.ic_key, SysColor.gray, c.getString(R.string.seed_phrase)) { act.push { seedPage(act, it) } })
         section(null, null, c.text(c.getString(R.string.forget_device), 16f, MT.red, center = true).apply {
             setPadding(dp(16), dp(14), dp(16), dp(14))
