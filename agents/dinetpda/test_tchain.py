@@ -267,6 +267,62 @@ class Tampering(ChainCase):
         self.assertEqual((self.home / tchain.CHAIN_FILE).read_bytes(), before)
 
 
+class Windows(ChainCase):
+    """B: 13 links make a window; a full window is sealed by the chairman's next signed link and by no other."""
+
+    def fill(self, count, signature=CHAIR):
+        for i in range(count):
+            self.add(f"move {i}", signature)
+
+    def test_a_full_window_is_sealed_by_the_chairmans_next_link_only(self):
+        self.add("Accepted: start read; taking the first task")  # link 0 makes CHAIR the chairman
+        self.fill(11)
+        self.assertIn("window 0: links 0 to 11, 12 of 13: open", self.ok("windows"))
+        self.assertIn("window 0 is full", self.add("the thirteenth link"))  # link 12 fills window 0
+        self.assertIn("window 0: links 0 to 12, full, not sealed", self.ok("windows"))
+        self.assertNotIn("seals", self.add("a helper's move", HELPER))  # link 13 is not the chairman's
+        self.assertIn("window 0: links 0 to 12, full, not sealed", self.ok("windows"))
+        self.assertIn("seals window 0 (links 0 to 12)", self.add("the chairman's move"))  # link 14
+        out = self.ok("windows")
+        self.assertIn(f"window 0: links 0 to 12, full, sealed by link 14 ({CHAIR})", out)
+        self.assertIn("window 1: links 13 to 14, 2 of 13: open", out)
+        self.assertIn(f"chairman: {CHAIR}, accepted at link 0", out)
+
+    def test_without_the_acceptance_words_no_window_closes(self):
+        self.fill(30)
+        out = self.ok("windows")
+        self.assertIn("window 0: links 0 to 12, full, not sealed", out)
+        self.assertIn("window 1: links 13 to 25, full, not sealed", out)
+        self.assertIn("window 2: links 26 to 29, 4 of 13: open", out)
+        self.assertIn('chairman: none -- no link begins with "Accepted"', out)
+
+    def test_the_chairman_is_whoever_last_wrote_the_acceptance_words(self):
+        self.add("Accepted: the first session", CHAIR)  # link 0
+        self.fill(12, HELPER)  # links 1 to 12 fill window 0
+        self.add("Accepted: handover of agent 1", NEXT_CHAIR)  # link 13: the new chairman's first link seals it
+        self.fill(12, CHAIR)  # links 14 to 25, by the chairman before, seal nothing
+        out = self.ok("windows")
+        self.assertIn(f"window 0: links 0 to 12, full, sealed by link 13 ({NEXT_CHAIR})", out)
+        self.assertIn("window 1: links 13 to 25, full, not sealed", out)
+        self.assertIn(f"chairman: {NEXT_CHAIR}, accepted at link 13", out)
+        self.add("the chairman's move", NEXT_CHAIR)  # link 26
+        self.assertIn(f"window 1: links 13 to 25, full, sealed by link 26 ({NEXT_CHAIR})", self.ok("windows"))
+
+    def test_the_words_begin_the_link_whole_and_in_their_case(self):
+        for text in ("Accepted: x", "Accepted", "Accepted, taking item 12"):
+            self.assertTrue(tchain.begins_with(text, "Accepted"), text)
+        for text in ("Acceptedly", "accepted: x", "Not Accepted", "Accepted_x", " Accepted"):
+            self.assertFalse(tchain.begins_with(text, "Accepted"), text)
+
+    def test_other_acceptance_words(self):
+        self.add("Принял: start read")
+        self.fill(13)
+        self.assertIn("full, not sealed", self.ok("windows"))
+        self.assertIn("full, sealed by link 13", self.ok("windows", "--accept", "Принял"))
+        os.environ["TCHAIN_ACCEPT"] = "Принял"
+        self.assertIn("full, sealed by link 13", self.ok("windows"))
+
+
 class DataFolder(ChainCase):
     """The data folder: --home, else $TCHAIN_HOME, else ./.tchain, never inside the tool's repository by default."""
 

@@ -2,6 +2,7 @@
 """tchain: DinetPDA's own minimum of the council's time-chain architecture, parts A to F of issue #30.
 
 A. One move is one link of an append-only JSONL chain, sealed by SHA-256: one hash seals everything before it.
+B. 13 links make a window tau1; a full window is sealed by the chairman's next signed link.
 
 The definitions are written out in README.md beside this file. Standard library only, Python 3.8 or newer.
 """
@@ -309,6 +310,7 @@ def cmd_add(args) -> int:
     text = check_text(args.text.strip(), "the link's text", TEXT_LIMIT)
     records = links(args).append({"task": text, "from": check_signature(args.signature)})
     print(link_line(records[-1]))
+    print_window_news(records, accept_words(args))
     return 0
 
 
@@ -346,15 +348,116 @@ def _link_commands(commands, common) -> None:
 
 
 # ---------------------------------------------------------------------------------------------------------------------
+# B. The window tau1
+
+WINDOW = 13  # links in one window tau1
+ACCEPT = "Accepted"  # the acceptance words by default; --accept or $TCHAIN_ACCEPT names others
+
+
+class Window(NamedTuple):
+    number: int  # window w holds links 13w to 13w + 12
+    first: int
+    last: int  # the last link it holds so far
+    full: bool
+    sealed_by: Optional[int]  # the link that sealed it, or None
+
+
+def accept_words(args) -> str:
+    return getattr(args, "accept", None) or os.environ.get("TCHAIN_ACCEPT") or ACCEPT
+
+
+def begins_with(text: str, words: str) -> bool:
+    """Whether a link's text begins with the words, whole and in their case: "Accepted: ..." and "Accepted" begin with
+    "Accepted"; "Acceptedly", "accepted: ..." and "Not accepted" do not."""
+    after = text[len(words):len(words) + 1]
+    return text.startswith(words) and not (after.isalnum() or after == "_")
+
+
+def chairmen(records: list, words: str) -> list:
+    """The chairman at each link: the signature of the last link, at it or before it, that begins with the acceptance
+    words; None while no link does."""
+    chairman, result = None, []
+    for record in records:
+        if begins_with(record["task"], words):
+            chairman = record["from"]
+        result.append(chairman)
+    return result
+
+
+def last_acceptance(records: list, words: str) -> Optional[dict]:
+    return next((record for record in reversed(records) if begins_with(record["task"], words)), None)
+
+
+def windows(records: list, words: str) -> list:
+    """The windows tau1 of a chain. Window w holds links 13w to 13w + 12 and is full once link 13w + 12 is written. A
+    full window is sealed by the first later link signed by the chairman of that link's moment; while no link begins
+    with the acceptance words there is no chairman, and no window closes."""
+    chair = chairmen(records, words)
+    sealer = [None] * (len(records) + 1)  # sealer[m]: the first link at m or after it signed by its chairman
+    for m in range(len(records) - 1, -1, -1):
+        sealer[m] = m if chair[m] is not None and records[m]["from"] == chair[m] else sealer[m + 1]
+    result = []
+    for first in range(0, len(records), WINDOW):
+        last = first + WINDOW - 1
+        full = last < len(records)
+        result.append(Window(first // WINDOW, first, min(last, len(records) - 1), full, sealer[last + 1] if full else None))
+    return result
+
+
+def window_line(window: Window, records: list) -> str:
+    span = f"window {window.number}: links {window.first} to {window.last}"
+    if not window.full:
+        return f"{span}, {window.last - window.first + 1} of {WINDOW}: open"
+    if window.sealed_by is None:
+        return f"{span}, full, not sealed: it waits for the chairman's next link"
+    return f"{span}, full, sealed by link {window.sealed_by} ({records[window.sealed_by]['from']})"
+
+
+def chairman_line(records: list, words: str) -> str:
+    accepted = last_acceptance(records, words)
+    if accepted is None:
+        return f'chairman: none -- no link begins with "{words}", so no window closes'
+    return f"chairman: {accepted['from']}, accepted at link {accepted['n']}"
+
+
+def print_window_news(records: list, words: str) -> None:
+    """After a link is written: the windows it sealed, or that it filled one."""
+    newest = records[-1]["n"]
+    for window in windows(records, words):
+        if window.sealed_by == newest:
+            print(f"seals window {window.number} (links {window.first} to {window.last})")
+        elif window.full and window.last == newest:
+            print(f"window {window.number} is full: the chairman's next link seals it")
+
+
+def cmd_windows(args) -> int:
+    chain = links(args)
+    records, broken = chain.read()
+    words = accept_words(args)
+    for window in windows(records, words):
+        print(window_line(window, records))
+    print(chairman_line(records, words) if records else "no link yet, so no window")
+    warn_broken(broken, chain.path)
+    return 0
+
+
+def _window_commands(commands, common) -> None:
+    command = commands.add_parser("windows", parents=[common], help="the windows tau1: full, sealed, and by whom")
+    command.set_defaults(run=cmd_windows)
+
+
+# ---------------------------------------------------------------------------------------------------------------------
 # The command line
 
 
 def build_parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--home", metavar="DIR", help="the data folder (default: $TCHAIN_HOME, else ./.tchain)")
+    common.add_argument("--accept", metavar="WORDS",
+                        help=f'the acceptance words that make a chairman (default: $TCHAIN_ACCEPT, else "{ACCEPT}")')
     parser = argparse.ArgumentParser(prog="tchain.py", description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
-    for install in (_link_commands,):
+    for install in (_link_commands, _window_commands):
         install(commands, common)
     return parser
 
