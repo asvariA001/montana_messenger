@@ -207,14 +207,14 @@ class MainActivity : Activity() {
                 Archive.sealForForget {
                     MontanaSeed.clear(); Archive.forgetKeys(); Prefs.forgetPerson(); SelfFace.clear(this); SavedMessages.forget(this)
                     MontanaHomeNode.forget(this); MontanaBackup.forget(this); MontanaCard.forget(); Book.wipe()
-                    MontanaBackupID.withdrawOwn(this)   // this installation's record leaves the account; a twin's stands
+                    MontanaBackupID.withdraw(this)   // a record a build before wrote leaves the account
                     hasSeed = false; termsAccepted = false
                     render()
                 }
             }
         }
         show(page)
-        if (hasSeed) MontanaBackupID.publish(this)   // the account carries this device's words (iOS publish)
+        MontanaBackupID.retire(this)   // the words no longer ride the Google Account; a record a build before wrote leaves it (iOS e69c9b6d)
         if (hasSeed && termsAccepted && !showWelcome) askWhatIsUnasked()
         // THE DAILY ROAD to the person's own node, a little after the first screen stands (iOS tickSoon).
         if (hasSeed && termsAccepted) HomeNodeWatch.tickSoon(this)

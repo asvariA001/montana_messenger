@@ -2,6 +2,16 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
+## 1.0 (2313) - 2026-10-25
+
+Source commit `7c3624af1f00`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2313.md).
+
+- Conversations keep their keys in step with the day more reliably: when the phone's clock runs ahead of the network, the first daily step of a conversation's keys waits up to four days for the network to confirm the day, and a conversation met again after a pause stays the same conversation. Messages, calls and coins work as before.
+
+**Security and anonymity**
+
+- This build strengthens security: the daily step that erases a conversation's earlier key is taken by the day the nodes confirm, not by the phone's clock alone, and waits at most four days for that confirmation; a restore from the 24 words takes the later of the two days; erased keys are written to the device's storage again if the first write was refused. Anonymity is unchanged: nothing new leaves the phone.
+
 ## 1.0 (2312) - 2026-10-25
 
 Source commit `4c768afb86eb`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2312.md).

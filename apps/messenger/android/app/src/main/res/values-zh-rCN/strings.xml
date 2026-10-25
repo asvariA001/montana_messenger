@@ -68,9 +68,6 @@
     <string name="continue_montana">使用 Montana 继续</string>
     <string name="sign_in_footer">继续即表示您同意[使用条款](montana://terms)和[隐私政策](montana://privacy)。</string>
 
-    <string name="continue_backup">从备份继续</string>
-    <string name="which_identity">打开哪个身份？</string>
-    <string name="backup_many">您的备份中保存了多个 Montana 身份。请选择要在此手机上打开的身份。</string>
     <string name="opening_identity">正在打开您的身份…</string>
     <!-- the copy back from the person's own node (iOS step 5, MontanaHomeNode) -->
     <string name="taking_back">正在取回您的历史记录</string>
@@ -207,8 +204,6 @@
     <string name="link_previews">链接预览</string>
     <string name="link_previews_sub">你发送链接时，本机会读取该网页，因此该网站会看到这台手机。</string>
     <string name="filter_objectionable">过滤不当内容</string>
-    <string name="identity_google">Google 账户中的身份</string>
-    <string name="identity_google_sub">二十四个词经端到端封存，随本机备份进入您的 Google 账户，并可在使用同一账户设置的新手机上打开您的身份。系统设置中必须开启备份；应用无法看到是否已开启。</string>
     <string name="seed_phrase">助记词</string>
     <string name="forget_q">忘记此设备？</string>
     <string name="show_seed">显示助记词</string>
