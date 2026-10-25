@@ -2,9 +2,19 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
+## 1.0 (2312) - 2026-10-25
+
+Source commit `4c768afb86eb`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2312.md).
+
+- Several files can now be chosen at once: they wait above the message field numbered 1, 2, 3 in the order you chose them, a cross takes one out and the numbers close up, and they are sent one after another in that order to a chat, a channel or a group, so a small file never overtakes a larger one. Messages, calls and coins work as before.
+
+**Security and anonymity**
+
+- This build changes neither security nor anonymity: the chosen files are sent by the same encrypted road as before, only one after another in the chosen order; in a group with slow mode, a set of files sent together now counts as one message.
+
 ## 1.0 (2311) - 2026-10-25
 
-Source commit `648c3225b9ae`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2311.md).
+Source commit `a8986f934307`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2311.md).
 
 - A long message split into several bubbles now reads top to bottom in the order it was written: the first part on top, and scrolling down shows the continuation. Messages, calls and coins work as before.
 
