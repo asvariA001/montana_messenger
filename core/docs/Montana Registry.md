@@ -39,9 +39,9 @@ code that computes it.
 
 | Count | Value |
 |---|---|
-| rows | 99 |
+| rows | 100 |
 | closed — nothing awaited | 38 |
-| awaiting a stage of the plan | 61 |
+| awaiting a stage of the plan | 62 |
 | awaiting the artifact `air_hash` | 0 |
 
 The artifact stands published, so no row awaits it; what a row may still await is its stage.
@@ -67,15 +67,16 @@ The artifact stands published, so no row awaits it; what a row may still await i
 | CNS-15 | the one-time right to raise a machine | Consensus, "Presence and admission" | — | `mt-operator-nf` | a scenario of the right spent once | stage 19 |
 | CNS-16 | the commitment of a machine | Consensus, "What a machine commits about itself"; Canon, "The commitment standing for a machine" | — | `mt-node-commit`, `mt-node-key` | vectors: "The commitment standing for a machine" | — |
 | CNS-17 | the three points of a round | Canon, "The points a round stands at" | `consensus_replicas` | `mt-round-point`, `mt-window-point` | the derivation and the ring rule | stage 13 |
-| CNS-18 | the right to a window's share | Consensus, "The right to a window's coin" | — | — | VAL-08, where the right and what redeems it stand | — |
+| CNS-18 | the right to a window's coin | Consensus, "The right to a window's coin" | — | — | VAL-08, where the right and what redeems it stand; CNS-28, where what it is worth stands | — |
 | CNS-19 | the cold start | Consensus, "The cold start" | — | — | a scenario of the first window closing itself | stage 14 |
 | CNS-20 | the way back | Consensus, "The way back"; Canon, "The close of a window, and the slots an event offers" | `finality_rule` | — | the derivation; vectors: "Vectors of the way back"; a scenario of overlapping Byzantine signers, halted partitions and rejoining under the fixed parent quorum | — |
 | CNS-21 | the attestation of presence | Consensus, "The attestation of presence"; Canon, "The arithmetization, and how the set is bound to it" | — | `mt-part-key-digest` | the description written, proven and verified end to end at the height of its own duty, its length derived beside it, and `air_hash` recomputed over the six | stage 13 |
-| CNS-22 | presence witnessed and never self-declared | Consensus, "Presence is witnessed and never self-declared" | — | — | a scenario of a machine outside the cement taking no share | stage 13 |
+| CNS-22 | presence witnessed and never self-declared | Consensus, "Presence is witnessed and never self-declared" | — | — | a scenario of a machine outside the cement taking no coin | stage 13 |
 | CNS-24 | the canonical order | Consensus, "The canonical order" | — | — | a scenario of one coordinate carrying one meaning for every participant and recomputed from the chain alone, and of a machine that has not seen the network holding no current window | stage 13 |
 | CNS-25 | the secret of a machine | Consensus, "The secret of a machine" | — | — | a scenario of every published value derived from it in one direction under a domain of its own, of the owner branch kept apart from it, and of a device that is not a machine placing itself in a window by the same kind of secret | stage 13 |
 | CNS-26 | the standing of a machine and the votes it draws | Consensus, "The standing of a machine, and the ballot"; Canon, "The standing of an electorate, and the votes it draws"; Canon, "The ballot of a part"; Canon, "`standing_censuses` = 10"; Canon, "`standing_committee` = 6 499" | `standing_censuses`, `standing_committee` | `mt-vote`, `mt-cement-leaf`, `mt-cement-node` | the derivations; vectors: "The standing of an electorate, and the votes it draws", and the votes of the close; the description of the ballot proven and verified end to end at the frame's height, a vote of a census not lived and a count overstated refused, its identifier among the six of `air_hash`; a scenario of a population wide enough to sample closing on votes | stage 19 |
 | CNS-27 | the agreement on what a window decided | Consensus, "The agreement on what a window decided"; Consensus, "Finality"; Canon, "The pledge of a part"; Canon, "The roll of a proposal"; Canon, "The round of a chain, in integers" | — | `mt-proposer`, `mt-roll` | the counting of the agreement in unit tests; the vectors of the place of a part and of a roll; a scenario of four machines at a quorum of three under a held part, a late frame and a partition that heals | stage 13 |
+| CNS-28 | the credit of one coin to every living machine for every window | Consensus, "The right to a window's coin"; Value, "Conservation of issuance"; Constitution, "Constitutional limits on the scope of a change" | — | — | a scenario of windows of one, two and four living machines, each crediting one coin to every part of its cement, the supply growing by the count of the cement and by nothing else, no clock read | stage 13 |
 
 ## Value
 
@@ -89,7 +90,7 @@ The artifact stands published, so no row awaits it; what a row may still await i
 | VAL-05 | the frame of fixed shape | Value, "The shape of a frame"; Canon, "The frame of a payment" | — | `mt-frame` | vectors: "A frame, and its length"; the circuit of a frame | — |
 | VAL-06 | typeless positions | Value, "What the proof asserts" | — | — | the disjunction inside the circuit of a frame | — |
 | VAL-07 | the horizon of proving | Value, "The shape of a frame"; Canon, "The horizon of proving"; Canon, "`proving_horizon` = 128 windows" | `proving_lag`, `proving_horizon` | `mt-horizon-leaf`, `mt-horizon-node` | the derivations; vectors: "The horizon fold, at three of its reach"; a scenario of a frame refused a root of a stride the horizon has left | stage 15 |
-| VAL-08 | the right of a machine and the moment of extinguishing it | Value, "Extinguishing a right"; Canon, "The right of a machine to its coin of a window, and what redeems it" | `claim_spread` | `mt-admitted-leaf`, `mt-admitted-node`, `mt-credit-nf` | vectors: "The right of a machine, and the moment of extinguishing it"; the landing ranged over the standing stride inside the circuit | stage 15 |
+| VAL-08 | the right of a machine to its coin of a window and the moment of extinguishing it | Value, "Extinguishing a right"; Canon, "The right of a machine to its coin of a window, and what redeems it" | `claim_spread` | `mt-admitted-leaf`, `mt-admitted-node`, `mt-credit-nf` | vectors: "The right of a machine, and the moment of extinguishing it"; the landing ranged over the standing stride inside the circuit; the worth of a right, one coin, held constant in the balance of a frame inside the circuit | stage 15 |
 | VAL-09 | the nullifier of the rate of payment | Canon, "The nullifier of the rate of payment" | `spends_per_window` | `mt-rate-nf` | vectors: "The nullifiers of the two rates"; the window ranged over the standing stride inside the circuit | stage 15 |
 | VAL-10 | conservation by induction | Value, "Conservation of issuance" | — | — | the chained circuits of the windows | — |
 | VAL-11 | disclosure of one payment | Value, "Disclosure" | — | — | a scenario of one payment opened and nothing else | stage 13 |
