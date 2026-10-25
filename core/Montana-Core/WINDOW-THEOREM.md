@@ -393,7 +393,13 @@ of another width; `links_to` refuses a round past `u32::MAX` (round.rs:107-109);
     names 1 and 2 (0 is a pledge not made), committee 0, unwind 13: the book holds three pledges of
     each of four parts, twelve past the eleven of a node, so its dropping runs twelve times, and
     unwind 9 failed its unwinding assertions whatever the memory. Result: not yet in (running on the
-    build host since 25.10.2026 11:28 UTC).
+    build host since 25.10.2026 11:28 UTC). Beside it, as a fact and not the proof of record (the
+    author's decision 176): `agreement::every_book` walks the same bound whole on the book itself,
+    `cargo test --release -p montana-node every_book -- --ignored --nocapture` on the build host
+    (25.10.2026, agreement.rs blob 1e69d908, commit 8f38237): 332 150 625 books, 11 267 424 deciding;
+    117 honest scripts per honest part, 1 601 613 honest triples, 276 962 deciding under them, none
+    deciding two names; 8 918 triples of any scripts decide both names, so the honest predicate is what
+    the result stands on; `ok`, 1 passed, 220.28 s.
   - Lemma 2: `an_accepted_certificate_satisfies_the_predicate` (`crates/montana-node/src/certificate.rs`)
     runs `verify_certificate` itself, with presence proofs, signatures and ballot proofs as oracles the
     objects carry and with stubs for `Beacon::id`, `genesis_state_hash`, `round_threshold` and
@@ -560,5 +566,7 @@ of another width; `links_to` refuses a round past `u32::MAX` (round.rs:107-109);
   (permutation.rs, params.rs, scheme.rs), so montana-node and mt-pulse, where the verifier and these
   tests stand, are the same.
 
-Item 1 stands closed when O-1 to O-5 are discharged, the Lean file and the Kani harnesses run
-green on the build host, and the ring of the core is green on the commit that carries them.
+Item 1 stands closed when O-1 to O-5 are discharged, the Lean file runs green on the build host, and
+the ring of the core is green on the commit that carries them. Model checking of the code with Kani
+is the work of item 2 (#10), not a condition of item 1 (the chairman's decision of 25.10.2026 15:55
+UTC on the author's word); its verdicts enter section 9 when they are in.
