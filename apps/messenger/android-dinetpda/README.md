@@ -38,7 +38,7 @@ it.
 app or its tools. This folder is that commit's `android/` and `tools/`, copied as files: the local history is not part
 of this repository.
 
-**Changes made for this folder.** Apart from this README, 26 files differ from that commit.
+**Changes made for this folder.** Apart from this README, 31 files differ from that commit.
 
 - 11 for the build here:
   - the paths to the core;
@@ -51,6 +51,9 @@ of this repository.
 - 10 that keep the 24 words out of the system backup (see [The words and the system backup](#the-words-and-the-system-backup)):
   `BackupSeed.kt` is removed, `BackupWithdraw.kt` is new, and `AndroidManifest.xml`, `BoxJob.kt`, `MainActivity.kt`,
   `Onboarding.kt`, `Settings.kt` and the three `strings.xml` follow. The local repository carries the same change.
+- 5 for the author field's self-check, which now reads each vector on its own day (see [Tests](#tests)): `AuthorCanon.kt`,
+  `tools/author_canon_check.kt` and `tools/author_canon_check.sh` are new, and `Pipes.kt` and `tools/author_vectors.py`
+  follow. The local repository carries the same change; here the check script reads `app/`.
 
 Every other file is byte for byte the same.
 
@@ -60,12 +63,12 @@ Every other file is byte for byte the same.
 git diff --stat origin/main:apps/messenger/android HEAD:apps/messenger/android-dinetpda
 ```
 
-On 2026-10-25, for this folder as of commit `70e26cc`, the result was:
+On 2026-10-25, for this folder as of folder tree `4a40ba2312bc`, the result was:
 
 | `main`'s Android folder | Equal | Changed | New here | Only in `main` |
 |---|---|---|---|---|
-| build 411 (tree `674ab0c96f69`, `main` up to `2c7eb0d`), where this app began | 247 | 53 | 131 | 1: `BackupSeed.kt`, removed here |
-| build 547 (tree `ce66d6909efe`, `main` at `c7270dd`) | 213 | 91 | 127 | 19: `BackupSeed.kt`, and 18 files that build 543 added |
+| build 411 (tree `674ab0c96f69`, `main` up to `2c7eb0d`), where this app began | 247 | 53 | 134 | 1: `BackupSeed.kt`, removed here |
+| build 547 (tree `ce66d6909efe`, `main` since `c7270dd`) | 213 | 91 | 130 | 19: `BackupSeed.kt`, and 18 files that build 543 added |
 
 The new files are those of `app/`, `native/` and `tools/`, plus `.gitattributes` and this README. Builds 543 to 547 have
 not been compared with this app feature by feature.
@@ -74,7 +77,7 @@ not been compared with this app feature by feature.
 
 | Path | What it is |
 |---|---|
-| `app/src/main/kotlin/quest/montana/app` | The app: 115 Kotlin files (about 55 000 lines). The package is `quest.montana.app` and the application id is `quest.montana.app.dev` |
+| `app/src/main/kotlin/quest/montana/app` | The app: 116 Kotlin files (about 55 000 lines). The package is `quest.montana.app` and the application id is `quest.montana.app.dev` |
 | `app/src/main/res` | Resources: en, ru and zh-rCN strings, drawables, the network security config, the coin-writes flag |
 | `native/montana-jni` | The Rust JNI library `libmontana.so`, linking the core's own crates. Its tests compare every JNI function with the C function iOS calls |
 | `native/montana-xray` | The VPN wall's engine wrapper. iOS's `montanaxray.go`, `go.mod` and `go.sum` byte for byte, plus `protect_android.go` |
@@ -121,7 +124,7 @@ was run for it is under [Tests](#tests).
 
 | Feature | State | Evidence |
 |---|---|---|
-| The envelope of 2048 bytes (fields 1 to 7), the author field (eighth field, HMAC `mt-letter-author`), receipts, presence, the delivery queue | works | 2026-10-17/18, Android to Android: Cyrillic and emoji arrived character for character. 2026-10-20, Windows and Android both ways: letters in 2 s and 5 s, delivered and read, presence, reactions, edits, deletion for everyone, replies with a quote |
+| The envelope of 2048 bytes (fields 1 to 7), the author field (eighth field, HMAC `mt-letter-author`), receipts, presence, the delivery queue | works | 2026-10-17/18, Android to Android: Cyrillic and emoji arrived character for character. 2026-10-20, Windows and Android both ways: letters in 2 s and 5 s, delivered and read, presence, reactions, edits, deletion for everyone, replies with a quote. 2026-10-25: the self-check that lets a letter carry the author field reads each vector on its own day (`AuthorCanon.kt`), so the field stays from 29.10.2026; `tools/author_canon_check.sh` passed 13 of 13 |
 | The pipe key's daily step (iOS 2305 `MTNodeWire.pipeSecret`). The secret walks from 2026-10-29 00:00 UTC, anchor day 20754 | partial | `walk_canon` checks iOS's own walk vectors at every launch. Letters past the step on the real date are not checked yet: the Windows scene `walk.ps1` is due after 2026-10-29 00:00 UTC. Without the step, Android would stop reading Windows and iOS on that day |
 | Long letters `LB:` | prototype | |
 
@@ -311,7 +314,8 @@ test device or an emulator, never a phone that holds a real identity.**
 | `python3 -I tools/vectors_check.py` | Android's own wire vectors recomputed from the formula, with three of the iOS frozen ones |
 | `python3 -I tools/coin_vectors.py` | Coins v3 vectors V1 to V4 and V6, from `Audit/App/COIN-TX-V3.md` alone |
 | `python3 -I tools/keep_vectors.py` | MTKeeping: RS(16,12), the slot secrets, the keeping key, the light secret, the head and its seal, the ring |
-| `python3 -I -X utf8 tools/author_vectors.py` | The author field. The values must equal the frozen ones in `Pipes.kt` (lines 186 to 189) |
+| `python3 -I -X utf8 tools/author_vectors.py` | The author field, over the established secret and, from the day after the anchor day, over the conversation's root. The values must equal the frozen ones in `AuthorCanon.kt` |
+| `bash tools/author_canon_check.sh` | `author_vectors.py`, then the author field's self-check (`AuthorCanon.agrees`) over a mirror of the code a letter is signed with, run on the days 20700, 20754, 20755, 20757, 20758, 20760, 20761, 20800 and 20754 + 36605; and letters signed on 28.10, 29.10, 01.11 and 03.11.2026 read back as the person's own |
 | `bash tools/lzfse_check.sh` | The Kotlin LZFSE against the `lzfse` reference command, in both directions, with damaged streams |
 | `python3 -I tools/groups_copy_check.py <file>` | A groups copy written by the test door below, decoded the way iOS decodes `[String: MTGroupState]` |
 | `bash tools/verify-apk.sh <apk>` | The signature, the package, its processors, 16 KiB alignment, and the JNI functions |
@@ -335,9 +339,26 @@ with `tools/ui.ps1`. The checks with Windows are the Windows app's scenes in `ap
 
 ### Run for this publication (2026-10-25, UTC)
 
-**On folder tree `441322aca813`**, after the words left the system backup: commit `e3bc335`, which the rebase onto
-`main` `c7270dd` made `70e26cc` with the same folder tree and the same `core/`. The checks ran from a plain clone in WSL,
-with a build copy of its own. This README's update came afterwards and changes nothing that is built.
+Commit hashes change each time this branch is rebased onto `main`; folder trees do not, so the runs are named by the
+folder tree (`git rev-parse HEAD:apps/messenger/android-dinetpda`) and by the commit they ran on.
+
+**On folder tree `4a40ba2312bc`**, after the author field's self-check was fixed, on commit `8244d8e`. The checks ran
+from a plain clone in WSL, with a build copy of its own. This README's update came afterwards and changes nothing that is
+built.
+
+| Command | Result |
+|---|---|
+| `bash tools/author_canon_check.sh` | exit 0, 7 s. `author_vectors.py` gives the frozen values over the secret and over the root (`authorTag(root)` `7guflqG5E43OLPFovkhhWg==`, `withAuthor(head, root)` `fcfc401b…`, `withAuthor(card, root)` `544da6e5…`); `author_canon: ok=13 bad=0` |
+| `bash tools/wsl-build.sh check` | exit 0, 97 s. `Montana 1.0 (348 → 1277)`; the code compiles: 1008 classes |
+| `bash tools/wsl-build.sh apk` | exit 0, 117 s. Output `Montana-8244d8e-arm64-v8a.apk`, 39 528 089 bytes, SHA-256 `95b5a74eac4001f4f5e788b55b2fd90f936f340089613668681f266db36b9087` |
+| `bash tools/verify-apk.sh out/Montana-8244d8e-arm64-v8a.apk` | exit 0. Signature v2 + v3 (debug certificate), `quest.montana.app.dev`, versionCode 348, minSdk 26, targetSdk 35, arm64-v8a. `zipalign -c -P 16 4` OK, every library LOAD-aligned to 16 KiB, 41 JNI functions |
+
+Not run on this tree: `test-jni`, `test-core`, `lzfse_check.sh`, the identity reference and the other vector tools; the
+change touches none of the files they check. The APK was not installed or started, so the launch log's `author_canon ok`
+has not been read on a device, before or after 29.10.2026.
+
+**On folder tree `441322aca813`**, after the words left the system backup, on commit `e3bc335`. The checks ran from a
+plain clone in WSL, with a build copy of its own.
 
 | Command | Result |
 |---|---|
@@ -349,8 +370,8 @@ Not run again on this tree: `test-jni`, `test-core`, `lzfse_check.sh`, the ident
 change touches none of the files they check. The APK was not installed or started, and no backup or restore was made.
 
 **Earlier, on commit `739f8bdc004c`** (folder tree `7b11aebe861f`), the same way. That commit is not in this branch's
-history: the branch's first commit, `585a3f7`, differs from it only by two comments reworded in English (`CoinChain.kt`
-lines 19-20, `CoinLocalTest.kt` lines 8-9). No code changed from it up to `e869db3`.
+history: the branch's first commit (folder tree `dd856e6460c9`) differs from it only by two comments reworded in English
+(`CoinChain.kt` lines 19-20, `CoinLocalTest.kt` lines 8-9). No code changed from there up to folder tree `372e43755838`.
 
 | Command | Result |
 |---|---|
@@ -361,7 +382,7 @@ lines 19-20, `CoinLocalTest.kt` lines 8-9). No code changed from it up to `e869d
 | `cargo +1.92.0 build --release` in `tools/identity-ref` (build copy) | exit 0 |
 | `bash tools/lzfse_check.sh` | exit 0. 895 ok, 0 bad, 465 damaged streams refused; the reference opened all 87 Kotlin streams |
 | `bash tools/wsl-build.sh test-core` | exit 0, 455 s. 455 passed, 0 failed, 0 ignored |
-| `python -I tools/vectors_check.py`, `tools/coin_vectors.py`, `tools/keep_vectors.py`, `tools/author_vectors.py` | exit 0 each: «all agree», «all hold», «all hold», and the author values equal to `Pipes.kt` |
+| `python -I tools/vectors_check.py`, `tools/coin_vectors.py`, `tools/keep_vectors.py`, `tools/author_vectors.py` | exit 0 each: «all agree», «all hold», «all hold», and the author values equal to those then in `Pipes.kt` |
 
 The APK was not installed or started for this publication.
 
@@ -392,7 +413,7 @@ device, and iOS carries no seed in the Apple account (`MontanaAppleID.swift:4-8`
   no longer holds the words.
 - The words on the device are not touched: the active seed in the vault, and a seed an earlier build brought from a
   backup, both stay where they are.
-- `main`'s `apps/messenger/android` made the same change in build 547 (`c7270dd`). It keeps the names `BackupSeed.kt` and
+- `main`'s `apps/messenger/android` made the same change in build 547 (`c7270dd`, `main`'s commit). It keeps the names `BackupSeed.kt` and
   `SeedBackupAgent`, asks for the withdrawing backup once, and deletes from the vault a seed an earlier build brought from
   a backup (`BackupSeed.kt:38` there); this app keeps that seed.
 
