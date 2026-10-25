@@ -145,12 +145,15 @@ fun groupPage(act: MainActivity, key: String, onClose: () -> Unit,
                     deeds += c.getString(R.string.gp_dismiss) to { Groups.setAdmin(key, p.seat, false); redraw() }
                 } else deeds += c.getString(R.string.gp_promote) to { act.push { back -> groupAdminRightsPage(act, key, p.seat, p.name, isNew = true) { back(); redraw() } } }
             }
-            if (!p.me && (owns || (iBan && r == 2))) deeds += c.getString(R.string.gp_remove_from) to {
+            // the person taken out, asked first: the hold's last deed and the swipe's «Delete» (iOS MTGroupMemberLine.remove)
+            val remove = if (!p.me && (owns || (iBan && r == 2))) ({
                 AlertDialog.Builder(c).setTitle(R.string.gp_remove_q)
                     .setPositiveButton(R.string.gp_remove) { _, _ -> Groups.kick(key, p.seat); redraw() }
                     .setNegativeButton(R.string.cancel, null).show()
-            }
-            rows += c.hstack {
+                Unit
+            }) else null
+            if (remove != null) deeds += c.getString(R.string.gp_remove_from) to remove
+            val row = c.hstack {
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(dp(16), dp(8), dp(16), dp(8))
                 minimumHeight = dp(56)
@@ -183,6 +186,8 @@ fun groupPage(act: MainActivity, key: String, onClose: () -> Unit,
                     true
                 }
             }
+            // a swipe to the left takes them out, where this phone may (iOS MTGroupMemberRow .swipeActions «Delete»)
+            rows += if (remove == null) row else SwipeRow(act, row, listOf(Tile(R.drawable.ic_delete, red = true) { remove() }))
         }
         body.section(null, null, *rows.toTypedArray())
     }
