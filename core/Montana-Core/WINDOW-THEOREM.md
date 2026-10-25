@@ -109,7 +109,8 @@ of each check, which is the subject of section 3.
   public part `p`, window `W`, census windows and roots of `E`, aggregate `A` and committee
   threshold, that the published count is at most the number of census windows of `E` whose cement
   holds the part the spending half of `p` derives for that census and whose coin clears the
-  threshold, each counted at most once; not that it equals that number (O-6, F-539-1). **The
+  threshold, each counted at most once: the bound from above (O-6). A lower count can be written
+  only by the holder of that spending half, as an abstention (F-539-1, a recorded property). **The
   description of the ticket** enforces that the leaf of the naming half of a secret stands in the
   tree of `root`, that the ticket of its spending half under `A` clears the draw threshold, and that
   the runner's key digest is a public input bound to the proof (O-6).
@@ -235,8 +236,8 @@ each once and each the part of a verified attestation (cement.rs:33-51, certific
 (ii) Clause (C6) and Theorem 1. (iii) Clause (C5) and the knowledge soundness of the ballot (A3), the
 ballot being verified against the census of `E`, with (A5) read for the ballot description: that the
 description enforces the count it publishes to be at most the votes the part's standing drew in `W`
-over the census of `E` (obligation O-6: read off ballot.rs, the bound from above holds; O-6 stands
-open on F-539-1, the equality, which (iii) does not need). ∎
+over the census of `E` (obligation O-6, discharged: read off ballot.rs, the bound from above holds,
+and a count below it is the abstention of the holder of the spending half, which (iii) allows). ∎
 
 **The matrix of WINDOW-RELATION.md section 4, row by row.**
 
@@ -513,8 +514,9 @@ signature of another width; `links_to` refuses a round past `u32::MAX` (round.rs
     stands for (A3) for the ballot and (A5) for the ballot description, which O-6 reads off
     ballot.rs constraint by constraint: an accepting ballot publishes at most the census units of
     `E` whose cement holds the part its spending half derives and whose coin clears, the spending
-    half being that of the published part under (A4) -- an upper bound, which is what `ballotSound`
-    states, and not an equality (F-539-1, which the hypothesis does not need). `drew` is a free
+    half being that of the published part under (A4) -- the bound from above, which is the
+    statement of O-6 and what `ballotSound` states; a count below it is the holder's abstention
+    (F-539-1, a recorded property of section 10). `drew` is a free
     function in the Lean, not tied to the census of `E` or to `W`: the tie is the reading of O-6,
     on paper. The ticket description, read under O-6 likewise, enters no theorem of the file.
   - `honestKey` and `honestValid` of `completeness`: one key per part and every attestation valid,
@@ -753,8 +755,9 @@ signature of another width; `links_to` refuses a round past `u32::MAX` (round.rs
   `presence.rs` (25.10.2026 UTC, Agent 539 helper; read at a60ccf0, whose `crates` are those of
   `19834ae` the head of this note names, and which this branch leaves unchanged but for the test
   file `mt-proof/tests/ballot_and_ticket.rs` it adds; every line number below checked against the
-  HEAD of this branch), with the gadgets they share: `sponge.rs`, `capacity.rs`, `lane.rs`,
-  `path.rs`, `compare.rs`; the Poseidon permutation layer is taken as the permutation, as (A4)
+  HEAD of this branch; reviewed independently and restated as the bound from above, 25.10.2026 UTC,
+  Agent 541 helper, on the chairman's decision, council link 8383), with the gadgets they share:
+  `sponge.rs`, `capacity.rs`, `lane.rs`, `path.rs`, `compare.rs`; the Poseidon permutation layer is taken as the permutation, as (A4)
   takes it, its answer standing at the last row of a block of 128 (permutation.rs:57-58, :99,
   :105-107). A rule holds at every live row but
   the last (air.rs:416-439; scheme.rs:144-200): the rules do not close over the wrap, and no reading
@@ -823,35 +826,42 @@ signature of another width; `links_to` refuses a round past `u32::MAX` (round.rs
   `sigma` is the spending half of the machine whose presence put `p` in the cement, and each unit
   of `S` is a census window of `E` whose cement holds the part that half derives for it and whose
   coin clears: `n` is at most what the standing of `p` drew in `W`, each unit once, which is
-  `ballotSound`. A census window that repeats (`census_windows` reads nought for a census before
-  window nought, standing.rs:39-49) carries the root of the empty cement there, which no part walks
-  to under (A4).
-  *F-539-1 (ballot.rs:389-422).* The bit may be nought where the walk does reach the root: a lived
-  unit whose coin clears can be left out, and the ballot publishes fewer votes than the standing
-  drew. The statement is an upper bound, not the equality this obligation asked for. Test:
-  `f_539_1_a_lived_unit_whose_coin_clears_cannot_be_left_uncounted`
-  (tests/ballot_and_ticket.rs:153, ignored as a finding), which lowers the bit of a lived clearing
-  unit, rewrites the carried bit, the product and the count, and finds the witness satisfying the
-  description and proven and verified (build host, 25.10.2026, 4ff22ed, run with `--ignored`: "a
-  ballot of 6 votes where the standing drew 7: satisfied true, proven and verified true", exit 101,
-  the failure a finding test is to give). It does not reach Theorem 3 (iii), which bounds from above;
-  the certificate keeps the largest count among the verified ballots of a part
-  (certificate.rs:368-369), so a lower ballot beside the honest one changes nothing, and a relayer
-  may withhold a ballot whatever the circuit says. An equality would need the ballot to prove that a
-  part is not in a cement, which the description does not carry.
+  `ballotSound`. This bound from above is the statement of O-6 for the ballot. A census window
+  that repeats (`census_windows` reads nought for a census before window nought,
+  standing.rs:39-49) carries the root of the empty cement there, which no part walks to under (A4).
+  *The holder's abstention (F-539-1, a recorded property; ballot.rs:389-422).* The bit may be nought
+  where the walk does reach the root: the holder of the spending half may leave out a lived unit
+  whose coin clears and publish fewer votes than its standing drew, which is the same as declining
+  a vote it could cast -- a machine may always abstain. No one else can lower the count: a ballot
+  of `p` needs the spending half behind `p` (the statement above), and the certificate keeps the
+  largest count among the verified ballots of a part (certificate.rs:368-369), so a lower ballot
+  beside the holder's changes nothing; a relayer may withhold a ballot whatever the circuit says.
+  O-6 is stated as the bound from above (the chairman's decision, council link 8383), so this is a
+  property of the statement and not a finding against it; an equality would need the ballot to
+  prove that a part is not in a cement, which the description does not carry. Test:
+  `a_ballot_counts_at_most_what_its_part_drew_and_its_holder_may_abstain`
+  (tests/ballot_and_ticket.rs:154, not ignored; it replaces the ignored finding test
+  `f_539_1_a_lived_unit_whose_coin_clears_cannot_be_left_uncounted` of 4ff22ed). It lowers the bit
+  of a lived clearing unit and rewrites the carried bit, the product and the count: the trace
+  satisfies the description with one vote fewer and is proven and verified, and is refused with the
+  honest count. The same standing counted one more than it drew is refused twice: published over
+  the honest trace, by the boundary of the count (ballot.rs:370-374); and written as the bit of a
+  unit not lived whose coin clears, by the rules of the root at its seam and by no other rule
+  (:403-422). It ran ok on the build host (25.10.2026, 822e431,
+  `test -p mt-proof --release --test ballot_and_ticket`, 6 passed, 0 ignored, exit 0).
   *Refused, by test.* In ballot.rs: the public values the trace did not count -- the count one more
   and one less, a root moved, a census window moved, another aggregate, another window
   (`a_ballot_refuses_every_public_value_it_did_not_count`, :946); a vote forged for a census not
   lived, refused by the rule of the root alone (`a_census_not_lived_casts_nothing`, :1049); a coin
   at the threshold (`a_coin_votes_below_the_threshold_and_never_at_it`, :1004). In
   tests/ballot_and_ticket.rs, each refused by the one rule named and no other: a bit of two at a
-  lived seam, the bit rule (`a_lived_unit_cannot_cast_two_votes_by_a_bit_of_two`, :203); a borrow
+  lived seam, the bit rule (`a_lived_unit_cannot_cast_two_votes_by_a_bit_of_two`, :246); a borrow
   out written as nought, the subtraction of the last byte
-  (`a_borrow_out_written_as_nought_does_not_make_a_coin_clear`, :246); a coin, its lane and its
+  (`a_borrow_out_written_as_nought_does_not_make_a_coin_clear`, :289); a coin, its lane and its
   comparison grafted from another spending half, the spending wire of the coin
-  (`a_coin_drawn_from_another_spending_half_is_refused`, :281); the word 0xFF written as the bytes
+  (`a_coin_drawn_from_another_spending_half_is_refused`, :324); the word 0xFF written as the bytes
   of 0xFF + p, which would clear a threshold of 0x80 where the canonical bytes do not, the
-  canonical check (`a_word_written_in_bytes_above_the_modulus_does_not_clear`, :388, the gadget
+  canonical check (`a_word_written_in_bytes_above_the_modulus_does_not_clear`, :431, the gadget
   alone). The five new tests that refuse, the ticket's below among them, ran ok on the build host
   (25.10.2026, 4ff22ed, `test -p mt-proof --release`, the whole crate with its gate, exit 0).
   *The ticket: the chains.* Block 0 is idle; the halves (blocks 1 to 3), the admitted leaf, 40
@@ -887,15 +897,12 @@ signature of another width; `links_to` refuses a round past `u32::MAX` (round.rs
   (`a_ticket_cannot_graft_another_machines_membership`, :666); in tests/ballot_and_ticket.rs an
   admitted machine whose ticket does not clear carrying a stranger's that does, refused at the
   spending wire of the ticket alone (`a_ticket_drawn_from_another_spending_half_is_refused`,
-  :462), and the canonical check above, the comparison being one gadget for both.
-  *Where it stands.* The ticket is sound as read, and its half of O-6 is discharged. **O-6 stands
-  open on F-539-1** and on nothing else: the ballot binds its count from above -- no verified ballot
-  casts more than its part drew over the census of `E`, which is what `ballotSound` and Theorem 3
-  (iii) rest on, and that reading is done -- but not exactly, the prover choosing which of its
-  lived clearing units it counts. Whether O-6 is restated as the bound from above, which closes
-  F-539-1 on paper, or the circuit is made to prove the equality, is the chairman's decision; no
-  circuit, AIR, parameter or verifying key is changed here. Whether the closing of item 1 below
-  waits on it is for the chairman to decide; the sentence below is left as decided.
+  :505), and the canonical check above, the comparison being one gadget for both.
+  *Where it stands.* **O-6 is discharged**, with the ticket. The ticket is sound as read. The ballot
+  is sound for the statement of O-6, the bound from above: no verified ballot casts more than its
+  part drew over the census of `E`, which is what `ballotSound` and Theorem 3 (iii) rest on; a count
+  below it is the abstention of the holder of the spending half, recorded above. No circuit, AIR,
+  parameter or verifying key is changed. The sentence below is left as decided.
 
 Item 1 stands closed when O-1 to O-5 are discharged, the Lean file runs green on the build host, and
 the ring of the core is green on the commit that carries them. Model checking of the code with Kani
