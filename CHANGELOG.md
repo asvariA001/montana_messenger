@@ -2,6 +2,16 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
+## 1.0 (2310) - 2026-10-25
+
+Source commit `f83cf7350b4b`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2310.md).
+
+- Each conversation's secret now moves forward one day at a time. From 3 November the phone keeps only the step from two days back and erases the original secret, so a secret taken from the phone later cannot open earlier days. From 1 November messages carry the day's tag: update both ends to this build before then. Messages, calls and coins work as before.
+
+**Security and anonymity**
+
+- Security: the pipe secret walks by UTC day; from 03.11 every stored form keeps a 249-byte floor (the walk's value at D-2 and the quantities kept for good) with no byte of the original secret. Limits: an archive head already sent to twins and keepers stays until a newer head is written over it; a device clock set forward moves the floor for good. Builds 2309 and earlier do not hear the new tag from 01.11.
+
 ## 1.0 (2309) - 2026-10-25
 
 Source commit `8439bb0f4306`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2309.md).
