@@ -1,7 +1,7 @@
 // Obligation O-6 of WINDOW-THEOREM.md: the descriptions of the ballot and of the ticket read
 // constraint by constraint, and the wrong witnesses that reading names, each built here and held
-// against the description. A test standing under `ignore` is a finding: it asserts what the
-// description ought to refuse and fails for as long as the description accepts the witness.
+// against the description. The ballot is held to the bound from above: a count its holder lowers is
+// an abstention and stands, and a count above what the standing drew is refused.
 
 use mt_codec::domain;
 use mt_proof::air::{Boundary, BoundaryValue, Description};
@@ -142,25 +142,40 @@ fn vote_rules() -> usize {
     2 + CAPACITY + 4
 }
 
-// F-539-1. A lived unit whose coin clears, with its bit lowered at the seam its walk ends at and
-// the carried bit, the product and the count rewritten to agree: the ballot publishes one vote
-// fewer than the standing drew. The rules of the root bind the walk only where the bit stands, and
-// nothing raises the bit where the walk reaches the root, so the description accepts it and the
-// scheme proves it. The statement the ballot gives is an upper bound — what Theorem 3 (iii) needs —
-// and not the exact count O-6 asks for.
+// The bound of O-6, both ways from one standing. Down: a lived unit whose coin clears, with its bit
+// lowered at the seam its walk ends at and the carried bit, the product and the count rewritten to
+// agree, is a ballot of one vote fewer, and the description accepts it and the scheme proves it — an
+// abstention, which only the holder of the spending half can write and which the certificate never
+// prefers, since it keeps the largest count among a part's verified ballots (F-539-1, closed by the
+// statement of the bound from above). Up: the same standing rewritten to count one more than it
+// drew is refused — published over the honest trace, by the boundary of the count; written as the
+// bit of a unit not lived whose coin clears, by the rules of the root at that seam and by no other.
 #[test]
-#[ignore = "F-539-1 (WINDOW-THEOREM.md section 10, O-6): a ballot may leave a lived unit whose coin clears uncounted; this asserts the exact count and fails while the description accepts the lower one"]
-fn f_539_1_a_lived_unit_whose_coin_clears_cannot_be_left_uncounted() {
+fn a_ballot_counts_at_most_what_its_part_drew_and_its_holder_may_abstain() {
     let spending = spending_of(&[0x5Au8; 32]);
     let censuses = a_standing(&spending);
     let aggregate = [0x33u8; 32];
     let threshold = [0xFFu8; 32];
     let held = ballot::description().expect("the description stands");
-    let (mut trace, part, votes) =
+    let (honest, part, votes) =
         ballot::trace_of(&spending, WINDOW, &censuses, &aggregate, &threshold)
             .expect("an honest ballot");
     let places = ballot::Places::of(censuses.len());
     let columns = ballot::Columns::of();
+    let public_of = |count: u64| {
+        ballot::public_of(
+            &part,
+            WINDOW,
+            &pairs(&censuses),
+            &aggregate,
+            &threshold,
+            count,
+        )
+    };
+    let limbs_of = |count: u64| poseidon::limbs_of(&public_of(count));
+    assert!(held.satisfied_by(&honest, &limbs_of(votes)));
+
+    // Down: the holder leaves a lived clearing unit uncounted.
     let lived = censuses
         .iter()
         .position(|c| c.branch.is_some())
@@ -172,27 +187,55 @@ fn f_539_1_a_lived_unit_whose_coin_clears_cannot_be_left_uncounted() {
         &aggregate,
         &threshold
     ));
+    let mut fewer = honest.clone();
     let seam = places.root_seam(lived);
-    trace[columns.votes.spike()][seam] = F::ZERO;
-    trace[columns.votes.carried()][seam + 1..=places.root_seam(lived + 1)].fill(F::ZERO);
-    rewrite_votes(&mut trace, &places, &columns);
-    let fewer = votes - 1;
-    let public = ballot::public_of(
-        &part,
-        WINDOW,
-        &pairs(&censuses),
-        &aggregate,
-        &threshold,
-        fewer,
-    );
-    let satisfied = held.satisfied_by(&trace, &poseidon::limbs_of(&public));
-    let verified = satisfied
-        && mt_proof::scheme::prove(&held, &public, &trace)
-            .map(|bytes| mt_proof::scheme::verify(&held, &public, &bytes).is_ok())
-            .unwrap_or(false);
+    fewer[columns.votes.spike()][seam] = F::ZERO;
+    fewer[columns.votes.carried()][seam + 1..=places.root_seam(lived + 1)].fill(F::ZERO);
+    rewrite_votes(&mut fewer, &places, &columns);
     assert!(
-        !satisfied && !verified,
-        "F-539-1: a ballot of {fewer} votes where the standing drew {votes}: satisfied {satisfied}, proven and verified {verified}"
+        !held.satisfied_by(&fewer, &limbs_of(votes)),
+        "the lowered trace counts one fewer and publishes nothing else"
+    );
+    assert!(held.satisfied_by(&fewer, &limbs_of(votes - 1)));
+    let public = public_of(votes - 1);
+    let bytes = mt_proof::scheme::prove(&held, &public, &fewer).expect("an abstention proves");
+    assert_eq!(mt_proof::scheme::verify(&held, &public, &bytes), Ok(()));
+
+    // Up: one more than the standing drew, published over the honest trace.
+    assert!(broken(&held, &honest).is_empty());
+    assert!(!held.satisfied_by(&honest, &limbs_of(votes + 1)));
+
+    // Up: one more than the standing drew, written as the bit of a unit not lived whose coin clears.
+    let unlived = censuses
+        .iter()
+        .position(|c| c.branch.is_none())
+        .expect("a census not lived");
+    assert!(unlived + 1 < censuses.len());
+    assert!(clears(
+        &spending,
+        censuses[unlived].window,
+        &aggregate,
+        &threshold
+    ));
+    let mut more = honest.clone();
+    let seam = places.root_seam(unlived);
+    more[columns.votes.spike()][seam] = F::ONE;
+    more[columns.votes.carried()][seam + 1..=places.root_seam(unlived + 1)].fill(F::ONE);
+    rewrite_votes(&mut more, &places, &columns);
+    assert_eq!(
+        more[columns.votes.count()][places.counted()],
+        F::from_u64_reduced(votes + 1)
+    );
+    assert!(!held.satisfied_by(&more, &limbs_of(votes + 1)));
+    let bit = held.constraints.len() - vote_rules();
+    let root_rules = bit + 2..bit + 2 + CAPACITY;
+    let rules = broken(&held, &more);
+    assert!(!rules.is_empty(), "a unit not lived votes");
+    assert!(
+        rules
+            .iter()
+            .all(|(rule, row)| root_rules.contains(rule) && *row == seam as u64),
+        "the vote of a unit not lived breaks another rule than the root at its seam: {rules:?}"
     );
 }
 
