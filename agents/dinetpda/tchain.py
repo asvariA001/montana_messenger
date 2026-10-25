@@ -4,6 +4,8 @@
 A. One move is one link of an append-only JSONL chain, sealed by SHA-256: one hash seals everything before it.
 B. 13 links make a window tau1; a full window is sealed by the chairman's next signed link.
 C. The constitution is a second chain of the same envelope; only a link that carries the Author's word changes it.
+D. At most 13 open tasks, each with a deadline from its birth, a percentage and one GitHub issue; every move on a task
+   is a link tagged [task k], and a task closes only by proof.
 
 The definitions are written out in README.md beside this file. Standard library only, Python 3.8 or newer.
 """
@@ -227,9 +229,9 @@ class Chain:
             if broken:
                 raise Refused(f"{self.path.name} is broken at n={broken.n} ({broken.reason}); "
                               "nothing is written to a broken chain")
+            now = utc_now()  # taken before the rule, so what the rule allows by its own clock holds at the link's time
             extra = (rule(records) if rule else None) or {}
-            record = dict(body, **extra, n=len(records), time=utc_now(),
-                          prev=records[-1]["hash"] if records else GENESIS_PREV)
+            record = dict(body, **extra, n=len(records), time=now, prev=records[-1]["hash"] if records else GENESIS_PREV)
             record["hash"] = seal(record)
             line = canonical(record)
             reason = check_line(line, record["n"], record["prev"], self.check_body)
@@ -308,11 +310,28 @@ def report_verify(chain: Chain, anchor: Optional[str]) -> int:
     return 0
 
 
-def cmd_add(args) -> int:
-    text = check_text(args.text.strip(), "the link's text", TEXT_LIMIT)
-    records = links(args).append({"task": text, "from": check_signature(args.signature)})
+def write_link(args, text: Optional[str], compose: Optional[Callable[[list], str]] = None) -> list:
+    """Write one link of the main chain, by `add` or by a task command, and print it. The text is given, or composed
+    under the lock from the chain so far (a new task's number). A link tagged [task k] must keep the checklist's rules."""
+    signature = check_signature(args.signature)
+    words = accept_words(args)
+
+    def rule(records):
+        task = check_text((compose(records) if compose else text).strip(), "the link's text", TEXT_LIMIT)
+        reason = task_rule(checklist(records, words), chairmen(records, words)[-1] if records else None,
+                           {"n": len(records), "time": utc_now(), "from": signature, "task": task}, written=True)
+        if reason:
+            raise Refused(reason)
+        return {"task": task}
+
+    records = links(args).append({"from": signature}, rule)
     print(link_line(records[-1]))
-    print_window_news(records, accept_words(args))
+    print_window_news(records, words)
+    return records
+
+
+def cmd_add(args) -> int:
+    write_link(args, check_text(args.text.strip(), "the link's text", TEXT_LIMIT))
     return 0
 
 
@@ -694,6 +713,261 @@ def _constitution_commands(commands, common) -> None:
 
 
 # ---------------------------------------------------------------------------------------------------------------------
+# D. The open tasks
+
+PLACES = 13  # open tasks at most
+PROOFS = ("build", "test", "file")
+TIME_PATTERN = r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z"
+ISSUE_PATTERN = r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*"
+TAG_RE = re.compile(r"\[task (?P<k>[1-9][0-9]*)\] (?P<move>.+)")
+MOVES = (  # what follows the tag; a text that is none of these is a plain move
+    ("born", re.compile(rf"born: (?P<title>.+); issue (?P<issue>{ISSUE_PATTERN}); due (?P<due>{TIME_PATTERN}); "
+                        r"(?P<pct>[0-9]{1,3})%")),
+    ("deadline", re.compile(rf"deadline (?P<due>{TIME_PATTERN})(?:: (?P<why>.+))?")),
+    ("progress", re.compile(r"(?P<pct>[0-9]{1,3})%(?:: (?P<note>.+))?")),
+    ("blocker", re.compile(r"blocker: (?P<what>.+)")),
+    ("closed", re.compile(r"closed by (?P<proof>build|test|file): (?P<ref>.+)")),
+)
+FILE_REF_RE = re.compile(r"(?P<path>.+):(?P<line>[1-9][0-9]*)")
+
+
+class Checklist(NamedTuple):
+    tasks: dict  # task number -> its state (see checklist)
+    rejected: list  # (n, reason) for each tagged link that changes no task
+    next_k: int  # the number the next task is born with
+
+
+def task_move(text: str):
+    """A tagged link read by its grammar: (k, kind, fields), or None for a link not tagged [task k]."""
+    tag = TAG_RE.fullmatch(text)
+    if not tag:
+        return None
+    for kind, grammar in MOVES:
+        match = grammar.fullmatch(tag["move"])
+        if match:
+            return int(tag["k"]), kind, match.groupdict()
+    return int(tag["k"]), "move", {"text": tag["move"]}
+
+
+def open_tasks(state: Checklist) -> list:
+    return [task for task in state.tasks.values() if task["closed"] is None]
+
+
+def task_rule(state: Checklist, chairman: Optional[str], record: dict, written: bool = False) -> Optional[str]:
+    """Why a link tagged [task k] would change no task, or None; a link not tagged is no move on a task. The chairman
+    gives a task its birth and moves its deadline, and closes it on a proof he checked; every deadline is in the
+    future when set. `written` adds what only the writer can check: that a file and line given as proof exist."""
+    move = task_move(record["task"])
+    if move is None:
+        return None
+    k, kind, fields = move
+    task = state.tasks.get(k)
+    if kind in ("born", "deadline", "closed") and record["from"] != chairman:
+        return f"only the chairman ({chairman or 'none yet'}) may write a task's {kind} link"
+    if kind == "born":
+        if task is not None:
+            return f"task {k} was born at link {task['born']}"
+        if k != state.next_k:
+            return f"a new task is task {state.next_k}, not task {k}"
+        if len(open_tasks(state)) >= PLACES:
+            return f"all {PLACES} places are taken: a task must close first"
+    elif task is None:
+        return f"task {k} was never born"
+    elif task["closed"] is not None:
+        return f"task {k} was closed at link {task['closed']}"
+    if "due" in fields and parse_time(fields["due"]) <= parse_time(record["time"]):
+        return f"the deadline {fields['due']} is not in the future"
+    if "pct" in fields and fields["pct"] is not None and not 0 <= int(fields["pct"]) <= 100:
+        return f"{fields['pct']}% is not a percentage from 0 to 100"
+    if kind == "closed" and fields["proof"] == "file":
+        place = FILE_REF_RE.fullmatch(fields["ref"])
+        if not place:
+            return "a file proof is PATH:LINE"
+        if written:
+            return file_proof_problem(Path(place["path"]), int(place["line"]))
+    return None
+
+
+def file_proof_problem(path: Path, line: int) -> Optional[str]:
+    """Why a file and line cannot be a proof here, or None: the file must exist and hold that line."""
+    if not path.is_file():
+        return f"the proof's file {path} does not exist (paths are read from the current folder)"
+    data = path.read_bytes()
+    lines = data.count(b"\n") + (1 if data and not data.endswith(b"\n") else 0)
+    return f"{path} has {lines} lines, so no line {line}" if line > lines else None
+
+
+def checklist(records: list, words: str) -> Checklist:
+    """The open tasks: the links tagged [task k] replayed from the genesis. A tagged link that breaks a rule stays in
+    the chain, as every link does, and changes no task."""
+    state = Checklist({}, [], 1)
+    for record, chairman in zip(records, chairmen(records, words)):
+        move = task_move(record["task"])
+        if move is None:
+            continue
+        reason = task_rule(state, chairman, record)
+        if reason:
+            state.rejected.append((record["n"], reason))
+            continue
+        k, kind, fields = move
+        n = record["n"]
+        if kind == "born":
+            state.tasks[k] = {"k": k, "title": fields["title"], "issue": fields["issue"], "due": fields["due"],
+                              "pct": int(fields["pct"]), "born": n, "last": n, "blocker": None, "closed": None,
+                              "proof": None}
+            state = state._replace(next_k=k + 1)
+            continue
+        task = state.tasks[k]
+        task["last"] = n
+        if kind == "deadline":
+            task["due"] = fields["due"]
+        elif kind == "blocker":
+            task["blocker"] = (n, fields["what"])
+        elif kind == "closed":
+            task.update(closed=n, proof=(fields["proof"], fields["ref"]), pct=100, blocker=None)
+        else:  # progress or a plain move: the work goes on
+            task["blocker"] = None
+            if kind == "progress":
+                task["pct"] = int(fields["pct"])
+    return state
+
+
+def next_task(state: Checklist, besides: int = 0) -> Optional[dict]:
+    """The open task to work on next: the unblocked one with the earliest deadline, then the lowest number."""
+    ready = [task for task in open_tasks(state) if task["blocker"] is None and task["k"] != besides]
+    return min(ready, key=lambda task: (task["due"], task["k"]), default=None)
+
+
+def task_line(task: dict, now: str, width: Optional[int] = None) -> str:
+    """A task in one line: number, percentage, deadline, issue and title, and its blocker or its proof."""
+    if task["closed"] is not None:
+        proof, ref = task["proof"]
+        line = f"[task {task['k']}] closed at link {task['closed']} by {proof}: {ref}, issue {task['issue']}: " \
+               f"{task['title']}"
+    else:
+        overdue = " OVERDUE" if task["due"] < now else ""
+        line = f"[task {task['k']}] {task['pct']}% due {task['due']}{overdue}, issue {task['issue']}: {task['title']}"
+        if task["blocker"]:
+            line += f" -- blocker (link {task['blocker'][0]}): {task['blocker'][1]}"
+    return flat(line, width)
+
+
+def parse_issue(text: str) -> str:
+    """A GitHub issue as OWNER/REPO#N, from that form or from its https://github.com/OWNER/REPO/issues/N address."""
+    address = re.fullmatch(r"https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/issues/([1-9][0-9]*)/?", text)
+    issue = f"{address[1]}#{address[2]}" if address else text
+    if not re.fullmatch(ISSUE_PATTERN, issue):
+        raise Refused(f"issue {text!r} is not OWNER/REPO#N or https://github.com/OWNER/REPO/issues/N")
+    return issue
+
+
+def cmd_task_add(args) -> int:
+    title = check_text(args.title.strip(), "the task's title", TEXT_LIMIT)
+    issue, due = parse_issue(args.issue), args.deadline
+    parse_time(due)
+    records = write_link(args, None, lambda records: f"[task {checklist(records, accept_words(args)).next_k}] born: "
+                                                     f"{title}; issue {issue}; due {due}; {args.pct}%")
+    print(f"{plural(len(open_tasks(checklist(records, accept_words(args)))), 'open task')} of {PLACES} places")
+    return 0
+
+
+def cmd_task_move(args) -> int:
+    text = f"[task {args.k}] {args.text.strip()}"
+    kind = task_move(text)[1]
+    if kind != "move":
+        command = {"born": "add", "closed": "close"}.get(kind, kind)
+        raise Refused(f"this text reads as a {kind} link of the grammar; write it with task {command}")
+    write_link(args, text)
+    return 0
+
+
+def cmd_task_progress(args) -> int:
+    write_link(args, f"[task {args.k}] {args.pct}%" + (f": {args.text.strip()}" if args.text else ""))
+    return 0
+
+
+def cmd_task_blocker(args) -> int:
+    records = write_link(args, f"[task {args.k}] blocker: {args.text.strip()}")
+    after = next_task(checklist(records, accept_words(args)), besides=args.k)
+    print(f"the work goes on: next {task_line(after, utc_now())}" if after else
+          "no other open task stands unblocked")
+    return 0
+
+
+def cmd_task_deadline(args) -> int:
+    parse_time(args.deadline)
+    write_link(args, f"[task {args.k}] deadline {args.deadline}" + (f": {args.text.strip()}" if args.text else ""))
+    return 0
+
+
+def cmd_task_close(args) -> int:
+    reference = check_text(args.ref.strip(), "the proof's reference", TEXT_LIMIT)
+    write_link(args, f"[task {args.k}] closed by {args.proof}: {reference}")
+    return 0
+
+
+def cmd_task_list(args) -> int:
+    chain = links(args)
+    records, broken = chain.read()
+    state, now = checklist(records, accept_words(args)), utc_now()
+    shown = sorted(state.tasks.values(), key=lambda task: task["k"]) if args.all else open_tasks(state)
+    print(f"open tasks: {len(open_tasks(state))} of {PLACES} places")
+    for task in shown:
+        print(task_line(task, now))
+    for n, reason in state.rejected:
+        print(f"link {n} changes no task: {reason}")
+    warn_broken(broken, chain.path)
+    return 0
+
+
+def _percent(text: str) -> int:
+    value = _count(text)
+    if value > 100:
+        raise argparse.ArgumentTypeError(f"{value} is not a percentage from 0 to 100")
+    return value
+
+
+def _task_commands(commands, common) -> None:
+    task = commands.add_parser("task", help=f"the open tasks: at most {PLACES}, each move a link tagged [task k]")
+    operations = task.add_subparsers(dest="operation", required=True, metavar="OPERATION")
+    signed = argparse.ArgumentParser(add_help=False)
+    signed.add_argument("--from", dest="signature", required=True, metavar="SIGNATURE", help="NAME #N [label]")
+    add = operations.add_parser("add", parents=[common, signed], help="a new task: the chairman's link of its birth")
+    add.add_argument("title")
+    add.add_argument("--issue", required=True, help="the GitHub issue: OWNER/REPO#N or its address")
+    add.add_argument("--deadline", required=True, metavar="TIME", help="ISO 8601 UTC, such as 2026-11-01T15:00:00Z")
+    add.add_argument("--pct", type=_percent, default=0, help="the percentage done at birth (default 0)")
+    add.set_defaults(run=cmd_task_add)
+    move = operations.add_parser("move", parents=[common, signed], help="one move on task K")
+    move.add_argument("k", type=int, metavar="K")
+    move.add_argument("text")
+    move.set_defaults(run=cmd_task_move)
+    progress = operations.add_parser("progress", parents=[common, signed], help="task K is PCT percent done")
+    progress.add_argument("k", type=int, metavar="K")
+    progress.add_argument("pct", type=_percent, metavar="PCT")
+    progress.add_argument("text", nargs="?", help="what moved it")
+    progress.set_defaults(run=cmd_task_progress)
+    blocker = operations.add_parser("blocker", parents=[common, signed],
+                                    help="task K waits on a build or on the Author; the work goes on to the next")
+    blocker.add_argument("k", type=int, metavar="K")
+    blocker.add_argument("text", help="what it waits on")
+    blocker.set_defaults(run=cmd_task_blocker)
+    deadline = operations.add_parser("deadline", parents=[common, signed], help="the chairman moves task K's deadline")
+    deadline.add_argument("k", type=int, metavar="K")
+    deadline.add_argument("deadline", metavar="TIME")
+    deadline.add_argument("text", nargs="?", help="why the plan changed")
+    deadline.set_defaults(run=cmd_task_deadline)
+    close = operations.add_parser("close", parents=[common, signed], help="the chairman closes task K by a proof")
+    close.add_argument("k", type=int, metavar="K")
+    close.add_argument("--proof", required=True, choices=PROOFS, help="a build, a test, or a file and line")
+    close.add_argument("--ref", required=True, help="the build or the test run and its exit code, or PATH:LINE")
+    close.set_defaults(run=cmd_task_close)
+    listing = operations.add_parser("list", parents=[common], help="the open tasks, one line each")
+    listing.add_argument("--all", action="store_true", help="the closed tasks too")
+    listing.set_defaults(run=cmd_task_list)
+
+
+# ---------------------------------------------------------------------------------------------------------------------
 # The command line
 
 
@@ -704,7 +978,7 @@ def build_parser() -> argparse.ArgumentParser:
                         help=f'the acceptance words that make a chairman (default: $TCHAIN_ACCEPT, else "{ACCEPT}")')
     parser = argparse.ArgumentParser(prog="tchain.py", description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
-    for install in (_link_commands, _window_commands, _constitution_commands):
+    for install in (_link_commands, _window_commands, _constitution_commands, _task_commands):
         install(commands, common)
     return parser
 

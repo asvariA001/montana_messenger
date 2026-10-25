@@ -434,6 +434,127 @@ class TheConstitution(ChainCase):
         self.assertIn("link 2 changes nothing: place 4 is out of turn", show)
 
 
+class OpenTasks(ChainCase):
+    """D: at most 13 open tasks; each move a tagged link; a blocker sends the work on; a task closes only by proof."""
+
+    DUE = "2099-01-01T15:00:00Z"
+    ISSUE = "efir369999/montana_messenger#30"
+
+    def setUp(self):
+        super().setUp()
+        self.add("Accepted: start read; taking the tasks")  # link 0: CHAIR is the chairman
+
+    def task(self, *argv, signature=CHAIR):
+        return self.ok("task", *argv, "--from", signature)
+
+    def born(self, title="a task", due=DUE, issue=ISSUE):
+        return self.task("add", title, "--issue", issue, "--deadline", due)
+
+    def state(self):
+        records, broken = tchain.Chain(self.home / tchain.CHAIN_FILE, tchain.check_link).read()
+        self.assertIsNone(broken)
+        return tchain.checklist(records, tchain.ACCEPT)
+
+    def test_every_move_on_a_task_is_a_link_tagged_with_its_number(self):
+        self.born("the window proof", issue="https://github.com/efir369999/montana_messenger/issues/4")
+        self.task("move", "1", "re-ran the proofs")
+        self.task("progress", "1", "40", "two stages of five checked", signature=HELPER)
+        self.task("blocker", "1", "waits for the Author's Gate 0", signature=HELPER)
+        self.assertEqual([record["task"] for record in self.records()[1:]], [
+            f"[task 1] born: the window proof; issue efir369999/montana_messenger#4; due {self.DUE}; 0%",
+            "[task 1] re-ran the proofs",
+            "[task 1] 40%: two stages of five checked",
+            "[task 1] blocker: waits for the Author's Gate 0"])
+        task = self.state().tasks[1]
+        self.assertEqual((task["pct"], task["issue"], task["due"], task["blocker"]),
+                         (40, "efir369999/montana_messenger#4", self.DUE, (4, "waits for the Author's Gate 0")))
+        self.assertIn(f"[task 1] 40% due {self.DUE}, issue efir369999/montana_messenger#4: the window proof -- "
+                      "blocker (link 4): waits for the Author's Gate 0", self.ok("task", "list"))
+        self.assertIn("reads as a progress link", self.refused("task", "move", "1", "50%: more", "--from", CHAIR))
+        self.assertIn("[task 1] 50% of the tests pass", self.task("move", "1", "50% of the tests pass"))
+
+    def test_at_most_13_open_tasks(self):
+        for i in range(13):
+            self.born(f"task {i + 1}")
+        self.assertIn("all 13 places are taken", self.refused("task", "add", "one more", "--issue", self.ISSUE,
+                                                              "--deadline", self.DUE, "--from", CHAIR))
+        self.task("close", "5", "--proof", "test", "--ref", "python -m unittest: exit 0")
+        self.assertIn("[task 14] born: one more", self.born("one more"))
+        self.assertEqual(len(tchain.open_tasks(self.state())), 13)
+
+    def test_a_blocker_sends_the_work_on_to_the_next_task(self):
+        self.born("later", due="2099-03-01T00:00:00Z")
+        self.born("sooner", due="2099-02-01T00:00:00Z")
+        self.born("soonest", due="2099-01-01T00:00:00Z")
+        self.assertIn("the work goes on: next [task 2]", self.task("blocker", "3", "waits for the build"))
+        self.assertIn("the work goes on: next [task 1]", self.task("blocker", "2", "waits for the Author"))
+        self.assertIn("no other open task stands unblocked", self.task("blocker", "1", "waits for the Author"))
+        self.task("move", "3", "the build is green")
+        self.assertEqual([task["blocker"] is None for task in tchain.open_tasks(self.state())], [False, False, True])
+
+    def test_a_task_closes_only_by_a_proof_the_chairman_signs(self):
+        self.born()
+        self.refused("task", "close", "1", "--from", CHAIR)
+        self.refused("task", "close", "1", "--proof", "opinion", "--ref", "it works", "--from", CHAIR)
+        self.refused("task", "close", "1", "--proof", "test", "--ref", "  ", "--from", CHAIR)
+        self.assertIn("only the chairman", self.refused("task", "close", "1", "--proof", "test", "--ref", "exit 0",
+                                                        "--from", HELPER))
+        self.assertIn("only the chairman", self.refused("add", "[task 1] closed by test: exit 0", "--from", HELPER))
+        self.task("progress", "1", "100", "everything is done but the proof")
+        self.assertIsNone(self.state().tasks[1]["closed"])
+        self.task("close", "1", "--proof", "test", "--ref", "python -m unittest discover -s agents/dinetpda: exit 0")
+        self.assertEqual((self.state().tasks[1]["closed"], self.state().tasks[1]["proof"][0]), (3, "test"))
+        self.assertIn("was closed at link 3", self.refused("task", "move", "1", "one more", "--from", CHAIR))
+        self.assertIn("open tasks: 0 of 13", self.ok("task", "list"))
+        self.assertIn("[task 1] closed at link 3 by test", self.ok("task", "list", "--all"))
+
+    def test_a_file_proof_names_a_file_and_line_that_exist(self):
+        self.born()
+        proof = Path(self.tmp.name) / "proof.py"
+        proof.write_text("a\nb\nc\n")
+        self.assertIn("no line 4", self.refused("task", "close", "1", "--proof", "file", "--ref", f"{proof}:4",
+                                                "--from", CHAIR))
+        self.assertIn("does not exist", self.refused("task", "close", "1", "--proof", "file", "--ref",
+                                                     f"{proof}.gone:1", "--from", CHAIR))
+        self.assertIn("PATH:LINE", self.refused("task", "close", "1", "--proof", "file", "--ref", str(proof),
+                                                "--from", CHAIR))
+        self.task("close", "1", "--proof", "file", "--ref", f"{proof}:3")
+        self.assertEqual(self.state().tasks[1]["proof"], ("file", f"{proof}:3"))
+
+    def test_the_chairman_sets_a_deadline_at_birth_and_moves_it_by_a_link(self):
+        self.assertIn("only the chairman", self.refused("task", "add", "x", "--issue", self.ISSUE, "--deadline",
+                                                        self.DUE, "--from", HELPER))
+        self.assertIn("not in the future", self.refused("task", "add", "x", "--issue", self.ISSUE, "--deadline",
+                                                        "2001-01-01T00:00:00Z", "--from", CHAIR))
+        self.refused("task", "add", "x", "--issue", self.ISSUE, "--deadline", "tomorrow", "--from", CHAIR)
+        self.refused("task", "add", "x", "--issue", "issue 30", "--deadline", self.DUE, "--from", CHAIR)
+        self.refused("task", "add", "x" * 260, "--issue", self.ISSUE, "--deadline", self.DUE, "--from", CHAIR)
+        self.born()
+        self.assertIn("only the chairman", self.refused("task", "deadline", "1", "2099-06-01T00:00:00Z",
+                                                        "--from", HELPER))
+        self.task("deadline", "1", "2099-06-01T00:00:00Z", "the plan changed: the build waits")
+        self.assertEqual(self.state().tasks[1]["due"], "2099-06-01T00:00:00Z")
+        self.assertIn("never born", self.refused("task", "progress", "7", "10", "--from", CHAIR))
+
+    def test_a_tagged_link_written_past_the_rules_changes_no_task(self):
+        self.born()  # link 1
+        lines = self.lines()
+        for text in ("[task 1] closed by test: exit 0", "[task 9] 50%",
+                     f"[task 3] born: y; issue {self.ISSUE}; due {self.DUE}; 0%"):
+            record = {"n": len(lines), "time": tchain.utc_now(), "task": text, "from": HELPER,
+                      "prev": json.loads(lines[-1])["hash"]}
+            record["hash"] = tchain.seal(record)
+            lines.append(tchain.canonical(record))
+        self.write_lines(lines)
+        state = self.state()
+        self.assertEqual([n for n, _ in state.rejected], [2, 3, 4])
+        self.assertIsNone(state.tasks[1]["closed"])
+        self.assertEqual(sorted(state.tasks), [1])
+        listing = self.ok("task", "list")
+        self.assertIn("link 2 changes no task: only the chairman", listing)
+        self.assertIn("link 3 changes no task: task 9 was never born", listing)
+
+
 class DataFolder(ChainCase):
     """The data folder: --home, else $TCHAIN_HOME, else ./.tchain, never inside the tool's repository by default."""
 
