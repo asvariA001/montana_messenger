@@ -29,7 +29,8 @@ its assets — is the work of its own authors; this port follows it and claims n
 
 This tree is the developer's local work at its commit `da7c109` (25.10.2026 14:10 UTC), copied in as files; that history is not
 published. Two edits were made for this repository, as for PR #13: the path of the core in `app/protocol-core/Cargo.toml`
-(`../../../../../core/...`), and LF line endings in `app/src/glyphs.js` and `app/tools/shot.ps1`. The program code — Rust and
+(`../../../../../core/...`), and LF line endings in `app/src/glyphs.js` and `app/tools/shot.ps1`. A third came later:
+`app/.gitignore` also keeps out `*.words` and `*.mtbak`, the files of an identity's 24 words and of its copy (#40). The program code — Rust and
 the interface — is that of local commit `6aad43e`; the four commits after it add three unit tests (`wire.rs`, module
 `canon_walk`) and change the scenes' helper (`tools/ui.ps1`) and the internal notes. Work in progress elsewhere and not in this
 tree: the fix of the Settings freeze (Known defects).

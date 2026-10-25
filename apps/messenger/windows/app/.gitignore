@@ -40,3 +40,7 @@ bundle/
 *.pfx
 *.jks
 *.keystore
+
+# the 24 words of an identity and its copies (.mtbak), as a check may leave them
+*.words
+*.mtbak
