@@ -356,7 +356,10 @@ of another width; `links_to` refuses a round past `u32::MAX` (round.rs:107-109);
   parts, attempts and names under the counting rules of agreement.rs:165-210, with the three
   contradicting pairs of agreement.rs:70-89 as the honest predicate and the cryptographic
   assumptions as hypotheses. The rational reading of the quorum rule is not stated in Lean; the
-  integer rule is the only one the file reasons about.
+  integer rule is the only one the file reasons about. Result: green on the build host
+  (25.10.2026, Lean 4.35.0, file blob ddd30660): `lean formal/Window.lean` exit 0 with
+  `#print axioms` of the five theorems appended, `the_vectors_of_the_close` on no axiom and the
+  others on `propext` and `Quot.sound`, `one_decision` with `Classical.choice` besides.
 - **Kani** (bounded model checking of the code itself, under `cfg(kani)`):
   - Theorem 1: `two_books_of_one_window_never_decide_two_names` (`crates/montana-node/src/agreement.rs`)
     runs the book of agreement.rs itself on two books of one window: the three honest parts say the
@@ -511,8 +514,14 @@ of another width; `links_to` refuses a round past `u32::MAX` (round.rs:107-109);
 - **O-5.** F-431-1 to F-431-4 closed in code, each with a test that refuses the named wrong
   verifier. State: F-431-1 closed; F-431-4 closed (decision 2); F-431-3 closed (decision 3);
   F-431-2 closed on the author's word of 24.10 21:21 UTC (the certificate carries the light
-  attestations answering the final beacon), see section 8. Not compiled yet: O-5 is discharged when
-  the ring runs the tests named there green.
+  attestations answering the final beacon), see section 8. Discharged: the ring of the core on
+  fc35ff0 (the build host, 25.10.2026, done 08:04:32 UTC, every step exit 0) ran
+  `a_final_beacon_no_verified_attestation_answered_closes_nothing`,
+  `a_device_walks_from_its_anchor_to_the_head_and_no_further` and
+  `agreement::tests::the_first_heavy_attestation_in_the_canonical_order_stands_whatever_the_order_handed_in`
+  ok. The tree of fc35ff0 differs from e6cfb3ee in AUDIT.md and three files of mt-proof alone
+  (permutation.rs, params.rs, scheme.rs), so montana-node and mt-pulse, where the verifier and these
+  tests stand, are the same.
 
 Item 1 stands closed when O-1 to O-5 are discharged, the Lean file and the Kani harnesses run
 green on the build host, and the ring of the core is green on the commit that carries them.
