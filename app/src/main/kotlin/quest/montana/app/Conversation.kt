@@ -336,6 +336,7 @@ object Notify {
             .setSmallIcon(R.drawable.ic_launcher_monochrome)
             .setContentTitle(title)   // USER-DATA: the correspondent's name
             .setContentText(body)     // USER-DATA: the letter
+            .apply { if (sender) faceOf(ref)?.let { setLargeIcon(it) } }   // USER-DATA: the correspondent's or the group's face
             .setAutoCancel(true)
             .setContentIntent(open)
             // THE NAME STANDS ON THE LOCKED SCREEN (iOS 1715, hiddenPreviewsShowTitle, MontanaP2PNode 1268-1290): with the system
@@ -351,6 +352,29 @@ object Notify {
         if (mid != null) Prefs.setStr(NOTICE + ref, mid) else Prefs.remove(NOTICE + ref)
     }
     private const val NOTICE = "noticeMid."
+    /**
+     * A BANNER WEARS ITS CHAT'S OWN FACE (iOS 8cd39e19 at 2229, the author's words 17.10: «the notifications' thumbnails for groups
+     * and channels»): a group's letter shows the group's face, never the face of the one who carried its word; a person's letter the
+     * person's. The face is the chat's own file (Book.shownFace -- a group's lives under its key), drawn round; none -- no picture,
+     * and no letter in a circle (iOS left the gold letter for the bare banner).
+     */
+    private fun faceOf(ref: String): android.graphics.Bitmap? = runCatching {
+        val f = Book.shownFace(ref).takeIf { it.exists() } ?: return null
+        val o = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        android.graphics.BitmapFactory.decodeFile(f.path, o)
+        var step = 1
+        while (minOf(o.outWidth, o.outHeight) / (step * 2) >= 192) step *= 2
+        val src = android.graphics.BitmapFactory.decodeFile(f.path, android.graphics.BitmapFactory.Options().apply { inSampleSize = step }) ?: return null
+        val side = minOf(src.width, src.height)
+        val out = android.graphics.Bitmap.createBitmap(side, side, android.graphics.Bitmap.Config.ARGB_8888)
+        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            shader = android.graphics.BitmapShader(src, android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP).apply {
+                setLocalMatrix(android.graphics.Matrix().apply { setTranslate(-(src.width - side) / 2f, -(src.height - side) / 2f) })
+            }
+        }
+        android.graphics.Canvas(out).drawCircle(side / 2f, side / 2f, side / 2f, paint)
+        out
+    }.getOrNull()
     /**
      * A DELETION TAKES ITS LETTER'S BANNER OFF (iOS b6ab7094 at 2240, the author's words 16.10.2026 18:19-18:59 MSK: «let deletion
      * reach me by a silent push»; the extension takes off every notice named by the deleted letter's mid): the row left the feed, and
@@ -375,13 +399,15 @@ object Notify {
         nm.createNotificationChannel(NotificationChannel(channel, c.getString(if (sound) R.string.channel_letters else R.string.channel_letters_quiet), NotificationManager.IMPORTANCE_HIGH).apply {
             if (!sound) { setSound(null, null); enableVibration(false) }
         })
-        val title = if (Prefs.bool("notifSender", true)) Book.chat(ref)?.shown?.ifBlank { null } ?: c.getString(R.string.peer) else "Montana"
+        val sender = Prefs.bool("notifSender", true)
+        val title = if (sender) Book.chat(ref)?.shown?.ifBlank { null } ?: c.getString(R.string.peer) else "Montana"
         val body = "📌 " + if (Prefs.bool("notifPreview", true)) letterWords(c, m).ifBlank { c.getString(R.string.ld_pinned_banner) } else c.getString(R.string.ld_pinned_banner)
         val open = opening(c, ref)
         val n = Notification.Builder(c, channel)
             .setSmallIcon(R.drawable.ic_launcher_monochrome)
             .setContentTitle(title)   // USER-DATA: the correspondent's name
             .setContentText(body)     // USER-DATA: the letter
+            .apply { if (sender) faceOf(ref)?.let { setLargeIcon(it) } }   // USER-DATA: the chat's face
             .setAutoCancel(true)
             .setContentIntent(open)
             .setPublicVersion(Notification.Builder(c, channel)
