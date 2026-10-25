@@ -59,16 +59,20 @@ none does (certificate.rs:307-321).
 **Definition (Pi_cert).** `Pi_cert(W, E, P, A, c, R, G)` holds, with closure `L`, exactly when:
 
 - (C1) `P` is Genesis, or `P.window + 1 = W` without overflow;
-- (C2) every attestation of every round is valid in its round;
+- (C2) `theta` is defined (certificate.rs:267-272); the beacon of every round of `R` is of window
+  `W` and has an identifier (:278-283), which the code demands of a round even where it carries no
+  heavy attestation; and every attestation of every round is valid in its round;
 - (C3) any two attestations of one part carry one key;
 - (C4) `Q(card(C), T)`;
 - (C5) the sum of `v(p)` over `C` is below `2^64` and satisfies `V(sum, K)`;
-- (C6) the book of the window decides `id(P)`: its heavy attestations counted as open pledges of
+- (C6) `id(P)` is defined (:266) and the book of the window decides it: its heavy attestations counted as open pledges of
   attempt zero on their pledged names, and the pledges of `G` whose part is in `C` and whose
   signature verifies under `kappa(part)` (agreement.rs:189-210);
 - (C7) the aggregate of `C` under `W` exists;
 
-and `L = (W, aggregate(C, W), card(C), C ascending, v)`.
+and `L = (W, aggregate(C, W), card(C), C ascending, v, S)`, where `S` is what the light attestations
+answer under `kappa` (:324-352, :404); they refuse nothing, so they enter the closure and no clause.
+`formal/Window.lean` states this predicate as `PiCert`, clause by clause.
 
 ## 3. Assumptions
 
@@ -103,12 +107,12 @@ and `L = (W, aggregate(C, W), card(C), C ascending, v)`.
 **Lemma 1 (order).** `verify_certificate` returns `Ok` iff (C2) and (C3) hold together with the
 remaining clauses, whatever the order of the rounds and of the attestations within them.
 
-*Proof.* The key map is extended only after an attestation verifies (certificate.rs:289-298), and
-the second-key refusal at :282-288 reads only that map. If (C2) holds, the map at any point holds
+*Proof.* The key map is extended only after an attestation verifies (certificate.rs:300-309), and
+the second-key refusal at :293-299 reads only that map. If (C2) holds, the map at any point holds
 the key of every earlier attestation of the part, so the refusal fires iff (C3) fails. If (C2)
-fails, the first invalid attestation is refused at :267-281 or :289, or a second key is refused
+fails, the first invalid attestation is refused at :284-292 or :300-307, or a second key is refused
 before it is reached; in both cases the result is `Err`. The cement is a set; the ballots are read
-after every part stands (:308-321) and the largest count is kept; the book keeps the first
+after every part stands (:353-371) and the largest count is kept; the book keeps the first
 appearance per kind, attempt and part. The one dependence on order was the pledged name of a part
 in attempt zero; it is now that of the first heavy attestation of the part in the canonical order
 (Consensus, "The sanction of a double answer"): `Book::heavy` keeps the least `(place, name)` of the
@@ -118,10 +122,10 @@ total order does not depend on the order the elements are handed in (finding F-4
 **Lemma 2 (exactness).** `verify_certificate(W, E, P, A, c, R, G)` returns `Ok(L)` iff
 `Pi_cert(W, E, P, A, c, R, G)` holds with closure `L`.
 
-*Proof.* Clause by clause against the code: (C1) :251-255; (C2) :266-296 with attest.rs:205-249;
-(C3) Lemma 1; (C4) :322 with close.rs:87-90 and 12-31, the refusal of `t = 0` and of `c` above `t`
-standing at close.rs:21; (C5) :323 with :182-188; (C6) :327-344, a pledge whose part is outside `C`
-or which fails `verify_pledge` adding nothing; (C7) :345-347. Every multiplication is taken in
+*Proof.* Clause by clause against the code: (C1) :261-265; (C2) :267-272, :278-292 and :300-307
+with attest.rs:205-249; (C3) Lemma 1, :293-299; (C4) :372 and :209-221 with close.rs:87-90 and 12-31, the refusal of `t = 0` and of `c` above `t`
+standing at close.rs:21; (C5) :373 with :183-195 and :225-240; (C6) :266 and :377-394, a pledge whose
+part is outside `C` or which fails `verify_pledge` adding nothing; (C7) :395-397; the closure :398-405. Every multiplication is taken in
 `u128` over operands below `2^64` and factors of at most 100, so none overflows; the checked forms
 refuse rather than wrap. ∎
 
@@ -356,10 +360,28 @@ of another width; `links_to` refuses a round past `u32::MAX` (round.rs:107-109);
   parts, attempts and names under the counting rules of agreement.rs:165-210, with the three
   contradicting pairs of agreement.rs:70-89 as the honest predicate and the cryptographic
   assumptions as hypotheses. The rational reading of the quorum rule is not stated in Lean; the
-  integer rule is the only one the file reasons about. Result: green on the build host
-  (25.10.2026, Lean 4.35.0, file blob ddd30660): `lean formal/Window.lean` exit 0 with
-  `#print axioms` of the five theorems appended, `the_vectors_of_the_close` on no axiom and the
-  others on `propext` and `Quot.sound`, `one_decision` with `Classical.choice` besides.
+  integer rule is the only one the file reasons about.
+  Lemma 1, section Order: `run_ok`, `lemma1`, `second_key_iff`, `order_free` over the loop of
+  certificate.rs:277-318 as it is written, and `least_spec`, `least_order_free` for `Book::heavy`.
+  Lemma 2, sections Exact and Certificate: `reachesShare_exact`, `votesReached_exact`,
+  `checkedSum_exact` and `lemma2` -- `verify` (certificate.rs:252-406, check by check in the order of
+  the code) returns `some L` iff `PiCert` holds with closure `L`, for T and K below 2^64.
+  Theorem 2: `completeness` -- Lemma 2 from right to left under honest keys and valid attestations.
+  Theorem 3: (i) `soundness_parts` -- valid attestations and a cement reaching `Q(card, T)`, and at
+  most `f` parts whose leaves the adversary holds, with Lemma 3 (distinct parts carry distinct
+  leaves) as a hypothesis; (ii) `soundness_one_name` -- two accepted certificates of one window
+  decide one predecessor, by Theorem 1, the books faithful to the honest pledges (A2) as a
+  hypothesis; (iii) `soundness_votes` -- no tally exceeds what its part drew, the knowledge
+  soundness of the ballot (A3) entering as the hypothesis `ballotSound`.
+  Theorem 4, section Walk: `pick`, `go` and `walk` model certificate.rs:699-890; `pick_taken`,
+  `closureOf_verify`, `go_inv` and `walk_head` -- the walk returns the anchor where it kept no pair,
+  else the newest pair whose certificate verified, every kept pair chained back to the anchor; that
+  each kept proposal is the unique decided one of its window enters as the hypothesis `sound`
+  (Theorem 3 (ii) with (A1)), and a candidate taken where no step follows is never the head.
+  Hypotheses, not theorems: Lemma 3, (A1)-(A8), `ballotSound`, and the uniqueness `sound`.
+  Result: green on the build host (25.10.2026, Lean 4.35.0, file blob adaea245): `lean
+  formal/Window.lean` exit 0, no warning; `#print axioms` names only `propext`, `Quot.sound` and
+  `Classical.choice` (`closureOf_verify` none, `pick_taken` and `go_inv` `propext` alone).
 - **Kani** (bounded model checking of the code itself, under `cfg(kani)`). Both harnesses read the two
   rows of the Decree the close reads -- the quorum and the finality rule -- through `kani_decree.rs`,
   which finds them in a constant from the table itself: a search of the table under the bound was cut
