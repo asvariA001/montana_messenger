@@ -245,6 +245,7 @@ object Twin {
     fun takeMirror(o: JSONObject): Boolean {
         val f = File(File(Book.ctx.noBackupFilesDir, "MontanaKeepWork").apply { mkdirs() }, UUID.randomUUID().toString() + ".lt")
         try {
+            Log.d("Montana", "twin_lt fetching n=" + o.optInt("n"))
             if (!Keeping.fetch(o, f)) { Log.d("Montana", "twin_lt the words did not come whole"); return false }
             val a = runCatching { JSONArray(String(f.readBytes(), Charsets.UTF_8)) }.getOrNull()
                 ?: return true.also { Log.d("Montana", "twin_lt the words do not read") }

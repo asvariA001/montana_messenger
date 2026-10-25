@@ -571,6 +571,7 @@ object Archive {
             if (!taken) {
                 val n = (twinFails[mid] ?: 0) + 1
                 twinFails[mid] = n
+                Log.d("Montana", "twin_take mid=" + mid.take(8) + " the road did not come whole fails=" + n + (if (n < 5) " -- left in the box" else " -- let go"))
                 if (n < 5) return false
             }
             twinFails.remove(mid)

@@ -47,8 +47,30 @@ between Windows and the Android port on an emulator, with the clocks moved past 
 against iOS; the VPN wall end to end; coin transfers other than between test identities; installation on a clean machine other than
 the developer's.
 
-Known gaps, among others: Live Text, Apple-only system features (Wallet passes, iCloud), and history from another device of the
-same identity on Android (the Android port lacks iOS's twin mirror; planned).
+Known gaps, among others: Live Text, Apple-only system features (Wallet passes, iCloud).
+
+## One identity on Windows and Android (iOS's twin mirror) — Experimental
+
+The Android port now carries iOS's twin mirror (`MontanaPQ` 872-1155: the mirror's words, the archive's blocks, the ask and
+answer of rows, cards born on another device) in three stages, Work in Progress (`apps/messenger/android`, commits of this
+branch). The owner's scenarios were run as scenes in `app/tools/`, each with Windows and the Android port on **emulators**, test
+identities and the live nodes — **not on a real phone and not against an iPhone**:
+
+| Scenario | Scene | Result (25.10.2026) |
+|---|---|---|
+| 1–4: own letters both ways; a correspondent's letter taken by one device | `twin3.ps1` | passed, 4 of 4, each once |
+| 5: a device away for an hour | `twinhour.ps1` | passed, 40 of 40 once |
+| 6, 8a: both on line take the same letters | `twinrace.ps1` | passed, 10 of 10 once on each; a mirror word heard twice (crossing) laid once; reading on Windows left nothing unread on Android |
+| 7: both write at once | `twinboth.ps1` | passed, 11 of 11 once on each, 10 of 10 at the correspondent |
+| 8b: written offline, app killed, network back | `twinoffline.ps1` | passed, 3 of 3 once everywhere |
+| 8c: the mirror's road cut the instant it is fetched | `twincut.ps1` | passed: the row stayed in the box (`fails=1`) and was taken 15 s after the network came back, once |
+| 9a: both apps restarted | `twinrestart.ps1` | passed, list and conversation the same word for word |
+| 9b: a wiped phone opened by the same words | `twinrestore.ps1` | passed: 6 conversations and 47 rows from the copy, the day's mirror word laid once, no letter twice |
+| 9c: the pipe secret's step at 29.10.2026 00:00 UTC | `walk.ps1`, `twin3.ps1` | **not yet run** on the real date |
+| 10: three devices of one identity | `twinthree.ps1` | **measured limit of the original**: the first device to take a mirror row erases it for the others (2 of 3 letters reached one of two Androids only) |
+| groups; rows asked back (`TA:`/`TW:`); cards (`TC:`); a row the mirror never carried | `twingroup.ps1`, `twinask.ps1`, `twincard.ps1`, `twingap.ps1` | passed |
+
+Scenario 10 is a limit of the iOS design itself, kept as it is: it is the case for Dinet Device Sync (below).
 
 ## Build
 
