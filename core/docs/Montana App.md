@@ -59,7 +59,7 @@ rent, no subscription exists as a protocol notion. What an application charges, 
 ordinary transfers of value between people — which name no party and enter no chain of anyone.
 
 Storage, delivery and computation are the work of the devices that do them, and the network
-already pays for carriage out of the share of a window. An application that needed a
+already pays for carriage out of the coin of a window. An application that needed a
 protocol-level fee would be asking the protocol to name who paid.
 
 ## The boundary

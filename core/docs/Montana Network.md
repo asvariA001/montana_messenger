@@ -149,7 +149,7 @@ no separate expiry is introduced — the window already sets the horizon of fres
 **Invariants of a right of carriage:**
 
 - A right is extinguished exactly once; a second presentation is refused in silence.
-- Its nullifier is recorded at the holder for the window and never enters consensus state. This is what separates it from the right to a window's share, whose nullifier is consumed inside a payment and does enter the set of the chain: one buys carriage and dies with its window, the other buys value and is spent once for good.
+- Its nullifier is recorded at the holder for the window and never enters consensus state. This is what separates it from the right to a window's coin, whose nullifier is consumed inside a payment and does enter the set of the chain: one buys carriage and dies with its window, the other buys value and is spent once for good.
 - A false route costs a wait and never a disclosure: a deposit under a tag the holder does not hold is refused, and the sender's queue keeps the letter.
 - No hop can spend a right it forwarded, because no hop ever holds one.
 
@@ -564,7 +564,7 @@ links that stand: a ranking is a second mechanism, and whatever it ranks by is w
 optimises for.
 
 **A link that carried nothing across a window is released.** Occupation therefore costs carriage —
-the very work the network pays a share of a window for — and a flood that holds slots without
+the very work the network pays the coin of a window for — and a flood that holds slots without
 carrying gives them back within one window. Nothing here observes idleness of a person or of a
 machine: what is observed is that this link carried nothing, which the device holding it knows
 without asking anyone.
