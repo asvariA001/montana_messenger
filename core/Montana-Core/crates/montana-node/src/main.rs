@@ -139,9 +139,18 @@ fn run() -> Result<(), String> {
             hex(&half)
         ));
     }
+    // **A machine that was away walks back before it lives.** Asked to open a window further on than
+    // the one after the last it closed, it walks from the two final proposals it kept to the head the
+    // network made final since, over the links it reached, and opens the window after that head.
+    let from = montana_node::pulse::come_back(
+        &machine,
+        configuration.from,
+        montana_node::pulse::WAITS_UP_TO,
+    )
+    .map_err(said)?;
     println!(
         "living from window {} in a cohort of {}",
-        configuration.from,
+        from,
         cohort.count()
     );
 
@@ -153,7 +162,7 @@ fn run() -> Result<(), String> {
     // a round it had not yet begun — and a neighbour that published in that moment publishes into
     // nothing and never learns. The window is entered first, and the door answers after.
     machine
-        .enter_round(configuration.from, montana_node::pulse::opening_chain(), 0)
+        .enter_round(from, montana_node::pulse::opening_chain(), 0)
         .map_err(said)?;
     let machine = std::sync::Arc::new(machine);
     let answering = std::sync::Arc::clone(&machine);
@@ -280,7 +289,7 @@ fn run() -> Result<(), String> {
     let lived = montana_node::pulse::live_doing(
         &machine,
         &cohort,
-        configuration.from,
+        from,
         windows,
         montana_node::pulse::WAITS_UP_TO,
         Some(&errand),

@@ -2573,7 +2573,25 @@ pub fn join(machine: &Machine, anchor: &Anchor, patience: u32) -> Result<Anchor,
     let threshold = mt_pulse::retarget::draw_threshold().map_err(|_| NodeError::Decree {
         row: "hash_bytes".to_string(),
     })?;
-    let head = certificate::walk(anchor, &steps, 1, &threshold, mt_state::implemented_major())?;
+    // **No certificate standing is no walk**, and the device is told so rather than left at its anchor
+    // as though it were the head: "a device away longer than that finds no certificate to walk and
+    // takes a fresh anchor from its operator, which is a change of trust and not a verification, and
+    // the set says so" (Consensus, "The join").
+    let Some((_, before_the_newest)) = steps.split_last() else {
+        return Err(NodeError::Refused {
+            what: NO_CERTIFICATE_TO_WALK,
+        });
+    };
+    let major = mt_state::implemented_major();
+    // The newest window standing may be the open window of a running network, whose certificate is
+    // not whole yet: the proposal before it awaits its certificate, and a walk refused at it is taken
+    // again without it, so the head is the newest proposal a whole certificate made final. What the
+    // second walk takes it verified whole; what it cannot take is refused as the first was.
+    let head = match certificate::walk(anchor, &steps, 1, &threshold, major) {
+        Ok(head) => head,
+        Err(refused) if before_the_newest.is_empty() => return Err(refused),
+        Err(_) => certificate::walk(anchor, before_the_newest, 1, &threshold, major)?,
+    };
     machine.keep_proposal(&head.earlier)?;
     machine.keep_proposal(&head.later)?;
     machine.finalize(head.later.window)?;
@@ -2583,6 +2601,54 @@ pub fn join(machine: &Machine, anchor: &Anchor, patience: u32) -> Result<Anchor,
     // at the close, where its head would have to leave the decision.
     machine.let_go_of(head.later.window)?;
     Ok(head)
+}
+
+// What a walk that finds nothing to verify answers, whether the device holds nothing or lived the
+// network: past the retention no certificate stands, and the anchor it would need is a trust only an
+// operator can hand it.
+const NO_CERTIFICATE_TO_WALK: &str = "no certificate to walk; a fresh anchor is a change of trust";
+
+// **A machine that was away walks back from its own anchor.** "A device that lived the network holds
+// its own anchor — the last two proposals it verified — and needs nobody's" (Consensus, "The join"),
+// and "the machines that closed nothing verify the decisions they missed and are of the chain again"
+// (Consensus, "The TimeChain"). A machine asked to live a window further on than the one after the
+// last it closed walks from the two final proposals it kept — its head and the proposal before it —
+// to the head the certificates standing since make final, as a joining device walks, and lives on
+// from the window after that head: the window it answers. A walk that moves the head nowhere is no
+// way back — the certificates of the windows it missed stand nowhere, or the chain stands where the
+// machine left it — and is refused as a walk with nothing to verify; a machine holding no two final
+// proposals of its own has no anchor to walk from. A machine asked to live the window after the last
+// it closed, or holding nothing, is answered that window, and the opening of it judges the rest.
+pub fn come_back(machine: &Machine, to: u64, patience: u32) -> Result<u64, NodeError> {
+    let Some(closed) = machine.closed_window()? else {
+        return Ok(to);
+    };
+    if to <= closed.saturating_add(1) {
+        return Ok(to);
+    }
+    let held = |window: u64| machine.proposal_of(window);
+    let anchor = match machine.head()? {
+        Some(head) => match (head.checked_sub(1).map(held).transpose()?, held(head)?) {
+            (Some(Some(earlier)), Some(later)) => Some(Anchor { earlier, later }),
+            _ => None,
+        },
+        None => None,
+    }
+    .ok_or(NodeError::Refused {
+        what: "a machine away from the chain holding no two final proposals of its own",
+    })?;
+    let head = join(machine, &anchor, patience)?;
+    if head.later.window <= anchor.later.window {
+        return Err(NodeError::Refused {
+            what: NO_CERTIFICATE_TO_WALK,
+        });
+    }
+    machine
+        .closed_window()?
+        .and_then(|closed| closed.checked_add(1))
+        .ok_or(NodeError::Refused {
+            what: "a window past the last one a count carries",
+        })
 }
 
 // A beacon of a round as a walk reads it off the points: the beacon, the heavy and the light
