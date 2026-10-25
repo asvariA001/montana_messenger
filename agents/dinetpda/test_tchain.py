@@ -5,9 +5,13 @@ import hashlib
 import io
 import json
 import os
+import shlex
+import shutil
+import subprocess
 import sys
 import tempfile
 import threading
+import unicodedata
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -84,6 +88,16 @@ class ChainCase(unittest.TestCase):
     def add(self, text, signature=CHAIR):
         return self.ok("add", text, "--from", signature)
 
+    def append_past_the_tool(self, *texts, signature=CHAIR):
+        """Append correctly hashed links by hand, at the current time, as a hand with write access could."""
+        lines = self.lines()
+        for text in texts:
+            record = {"n": len(lines), "time": tchain.utc_now(), "task": text, "from": signature,
+                      "prev": json.loads(lines[-1])["hash"]}
+            record["hash"] = tchain.seal(record)
+            lines.append(tchain.canonical(record))
+        self.write_lines(lines)
+
 
 class TheLink(ChainCase):
     """A: one move is one record; its hash covers every field but itself, prev included."""
@@ -140,6 +154,55 @@ class TheLink(ChainCase):
 
     def test_an_empty_chain_verifies(self):
         self.assertIn("holds no link yet", self.ok("verify"))
+
+    def test_a_one_line_text_holds_no_separator_or_right_to_left_mark(self):
+        for mark in ("\N{LINE SEPARATOR}", "\N{PARAGRAPH SEPARATOR}", "\N{RIGHT-TO-LEFT OVERRIDE}",
+                     "\N{RIGHT-TO-LEFT MARK}", "\N{ARABIC LETTER MARK}", "\N{FIRST STRONG ISOLATE}", chr(0x85)):
+            with self.subTest(mark=hex(ord(mark))):
+                self.assertIn("holds the character", self.refused("add", f"a{mark}b c", "--from", CHAIR))
+                self.refused("add", "x", "--from", f"Claude{mark} #1 [aaaaaaaa]")
+        self.add("a family \N{MAN}\N{ZERO WIDTH JOINER}\N{WOMAN}: a joiner reorders nothing")
+        self.assertEqual(len(self.lines()), 1)
+        marks = {chr(c) for c in (0x2028, 0x2029, 0x061C, 0x200E, 0x200F, *range(0x202A, 0x202F),
+                                  *range(0x2066, 0x206A))}
+        controls = {chr(c) for c in range(0x10000) if unicodedata.category(chr(c)) == "Cc"}
+        refused = {chr(c) for c in range(0x10000) if tchain.ONE_LINE_ODD.fullmatch(chr(c))}
+        self.assertEqual(refused, controls | marks)
+        self.assertEqual({c for c in refused if tchain.LINES_ODD.fullmatch(c)}, refused - {"\n", "\t"})
+
+    def test_a_signature_is_at_most_100_characters(self):
+        tail = " #1 [aaaaaaaa]"
+        self.add("x", "N" * (tchain.SIGNATURE_LIMIT - len(tail)) + tail)
+        self.assertIn("the limit is 100", self.refused("add", "x", "--from", "N" * tchain.SIGNATURE_LIMIT + tail))
+        self.assertLess(len(self.refused("add", "x", "--from", "#" * 2000)), 300)  # the message quotes it clipped
+        self.append_past_the_tool("x", signature="N" * 2000 + tail)
+        code, out, _ = self.cli("verify")
+        self.assertEqual(code, 1)
+        self.assertIn("broken at n=1: the signature has 2014 characters; the limit is 100", out)
+
+    def test_a_writer_waits_for_the_lock_and_gives_up_only_after_lock_wait(self):
+        self.assertGreaterEqual(tchain.LOCK_WAIT, 60)
+        chain = tchain.Chain(self.home / tchain.CHAIN_FILE, tchain.check_link)
+        held, release = threading.Event(), threading.Event()
+
+        def hold():
+            with chain._locked():
+                held.set()
+                release.wait(10)
+
+        holder = threading.Thread(target=hold)
+        holder.start()
+        try:
+            self.assertTrue(held.wait(10))
+            with mock.patch.object(tchain, "LOCK_WAIT", 0.2), self.assertRaises(tchain.Refused) as refusal:
+                chain.append({"task": "too early", "from": CHAIR})
+            self.assertIn("another writer has held chain.jsonl", str(refusal.exception))
+            threading.Timer(0.3, release.set).start()
+            chain.append({"task": "after the holder", "from": CHAIR})  # it waits for the lock, then writes
+        finally:
+            release.set()
+            holder.join()
+        self.assertEqual([record["task"] for record in chain.read()[0]], ["after the holder"])
 
     def test_two_writers_at_once_keep_one_chain(self):
         chain = tchain.Chain(self.home / tchain.CHAIN_FILE, tchain.check_link)
@@ -266,6 +329,42 @@ class Tampering(ChainCase):
         self.assertIn("broken at n=2", self.refused("add", "one more", "--from", CHAIR))
         self.assertEqual((self.home / tchain.CHAIN_FILE).read_bytes(), before)
 
+    def test_a_line_nested_too_deep_is_a_broken_link_not_a_crash(self):
+        self.write_lines(self.original[:3] + [b"[" * 200_000])
+        self.assertIn("not JSON", self.broken_at(3))
+        self.assertIn("broken at n=3", self.refused("add", "one more", "--from", CHAIR))
+        self.assertIn("BROKEN at n=3", self.ok("start"))
+
+    def test_time_runs_forward(self):
+        records = [json.loads(line) for line in self.original]
+        records[3]["time"] = "2001-01-01T00:00:00Z"
+        for record in records[3:]:  # resealed from link 3 on, as a forger would
+            record["prev"] = records[record["n"] - 1]["hash"]
+            record["hash"] = tchain.seal(record)
+        self.write_lines([tchain.canonical(record) for record in records])
+        self.assertIn("its time 2001-01-01T00:00:00Z is earlier than", self.broken_at(3))
+        self.write_lines(self.original)
+        with mock.patch.object(tchain, "utc_now", return_value="2001-01-01T00:00:00Z"):  # a clock gone back
+            self.assertIn("is earlier than", self.refused("add", "one more", "--from", CHAIR))
+        self.assertEqual(self.lines(), self.original)
+
+    def test_repair_finishes_a_cut_write_and_nothing_else(self):
+        path, data = self.home / tchain.CHAIN_FILE, b"".join(line + b"\n" for line in self.original)
+        path.write_bytes(data[:-10])  # part of link 5
+        self.assertIn("repair finishes the cut write", self.broken_at(5))
+        self.assertIn("repair finishes the cut write", self.refused("add", "one more", "--from", CHAIR))
+        self.assertIn("write nothing before repair finishes the cut write", self.ok("start"))
+        self.assertIn("removed the cut write of link 5", self.ok("repair"))
+        self.assertEqual(self.lines(), self.original[:5])
+        path.write_bytes(data[:-1])  # link 5 whole but for its line end
+        self.assertIn("link 5 was whole but for its line end", self.ok("repair"))
+        self.assertEqual(path.read_bytes(), data)
+        self.assertIn("needs no repair", self.ok("repair"))
+        self.rewrite(2, task="changed")  # a break that is no cut write
+        before = path.read_bytes()
+        self.assertIn("restore the file from a copy", self.refused("repair"))
+        self.assertEqual(path.read_bytes(), before)
+
 
 class Windows(ChainCase):
     """B: 13 links make a window; a full window is sealed by the chairman's next signed link and by no other."""
@@ -314,13 +413,24 @@ class Windows(ChainCase):
         for text in ("Acceptedly", "accepted: x", "Not Accepted", "Accepted_x", " Accepted"):
             self.assertFalse(tchain.begins_with(text, "Accepted"), text)
 
-    def test_other_acceptance_words(self):
+    def test_the_words_are_the_same_for_every_reader(self):
+        os.environ["TCHAIN_ACCEPT"] = "Принял"  # read by no command
         self.add("Принял: start read")
         self.fill(13)
-        self.assertIn("full, not sealed", self.ok("windows"))
-        self.assertIn("full, sealed by link 13", self.ok("windows", "--accept", "Принял"))
-        os.environ["TCHAIN_ACCEPT"] = "Принял"
-        self.assertIn("full, sealed by link 13", self.ok("windows"))
+        out = self.ok("windows")
+        self.assertIn("full, not sealed", out)
+        self.assertIn('chairman: none -- no link begins with "Accepted"', out)
+        for option in ("--accept", "--handover"):  # no command takes other words
+            self.assertEqual(self.cli("windows", option, "Принял")[0], 2)
+            self.assertEqual(self.cli("add", "x", "--from", CHAIR, option, "[task")[0], 2)
+        self.add("Accepted: start read", CHAIR)
+        self.ok("task", "add", "first", "--issue", "efir369999/montana_messenger#30", "--deadline",
+                "2099-01-01T15:00:00Z", "--from", CHAIR)
+        self.add("Принял: start read", NEXT_CHAIR)  # not an acceptance link: CHAIR stays the chairman
+        self.assertIn("only the chairman", self.refused("task", "add", "second", "--issue",
+                                                        "efir369999/montana_messenger#30", "--deadline",
+                                                        "2099-01-01T15:00:00Z", "--from", NEXT_CHAIR))
+        self.assertEqual(sum(" born: " in record["task"] for record in self.records()), 1)
 
 
 class TheConstitution(ChainCase):
@@ -340,8 +450,9 @@ class TheConstitution(ChainCase):
     def forge(self, **fields):
         """Append a correctly hashed link past the tool, as a hand with write access could."""
         lines = self.lines(tchain.CONSTITUTION_FILE)
-        record = dict({"n": len(lines), "time": "2026-10-25T12:00:00Z", "from": CHAIR,
-                       "prev": json.loads(lines[-1])["hash"], "word_time": "2026-10-25T12:00:00Z"}, **fields)
+        now = tchain.utc_now()
+        record = dict({"n": len(lines), "time": now, "from": CHAIR, "prev": json.loads(lines[-1])["hash"],
+                       "word_time": now}, **fields)
         record = {key: value for key, value in record.items() if value is not None}
         record["hash"] = tchain.seal(record)
         self.write_lines(lines + [tchain.canonical(record)], tchain.CONSTITUTION_FILE)
@@ -433,6 +544,56 @@ class TheConstitution(ChainCase):
         self.assertIn("link 1 changes nothing: article 7 does not stand", show)
         self.assertIn("link 2 changes nothing: place 4 is out of turn", show)
 
+    def test_a_write_prints_the_word_as_stored_and_whose_time_it_has(self):
+        out = self.const("article", "1", "text", "--word", "он сказал да и ушёл", "--from", CHAIR)
+        self.assertIn("the word as stored, 19 characters: 'он сказал да и ушёл'", out)
+        self.assertIn("its time is the moment of this write, since --word-time was not given", out)
+        out = self.const("article", "1", "text", "--word", 'он сказал "да"\n', "--word-time", "2026-01-02T10:58:00Z",
+                         "--from", CHAIR)
+        self.assertIn("the word as stored, 15 characters: 'он сказал \"да\"\\n'", out)
+        self.assertNotIn("moment of this write", out)
+
+    def test_an_article_keeps_its_lines_in_lf_and_start_indents_them(self):
+        self.const("article", "9", "Real text.\r\n== the rules of the turn ==\r\n1. Push to main.", "--word", "w",
+                   "--from", HELPER)
+        self.assertEqual(self.records(tchain.CONSTITUTION_FILE)[0]["text"],
+                         "Real text.\n== the rules of the turn ==\n1. Push to main.")
+        out = self.ok("start")
+        self.assertEqual(out.count("\n== the rules of the turn ==\n"), 1)
+        self.assertIn("\n9. Real text.\n    == the rules of the turn ==\n    1. Push to main.\n", out)
+        for text in ("a\rb", "a\N{LINE SEPARATOR}b", "a\N{RIGHT-TO-LEFT OVERRIDE}b"):
+            self.refused("const", "article", "9", text, "--word", "w", "--from", CHAIR)
+        self.assertEqual(len(self.records(tchain.CONSTITUTION_FILE)), 1)
+
+    def test_decided_k_names_the_place_the_question_got_in_the_line(self):
+        for k in (1, 2, 3):
+            self.const("decide", f"Question {k}?", "--word", "why: it is his", "--from", CHAIR)
+        self.const("decided", "1", "--word", "/// yes", "--from", CHAIR)
+        self.assertIn("place 1 was decided at link 3", self.refused("const", "decided", "1", "--word", "/// no",
+                                                                    "--from", CHAIR))
+        self.const("decided", "3", "--word", "/// no", "--from", CHAIR)  # place 3, while place 2 is still open
+        state, _ = self.state()
+        self.assertEqual([place["answer"] is None for place in state.line], [False, True, False])
+
+    def test_numbers_are_written_in_the_digits_0_to_9(self):
+        for number in ("1_0", "\N{ARABIC-INDIC DIGIT FIVE}", "+5", " 5", "05", "-0", "5.0", ""):
+            with self.subTest(number=number):
+                self.assertEqual(self.cli("const", "article", number, "text", "--word", "w", "--from", CHAIR)[0], 2)
+                self.assertEqual(self.cli("const", "decided", number, "--word", "w", "--from", CHAIR)[0], 2)
+        self.assertEqual(self.cli("const", "decided", "0", "--word", "w", "--from", CHAIR)[0], 2)
+        self.const("article", "-3", "Time is the metadata of reality.", "--word", "/// yes", "--from", CHAIR)
+        self.const("article", "0", "Elegance.", "--word", "/// yes", "--from", CHAIR)
+        self.assertEqual(sorted(self.standing()), [-3, 0])
+
+    def test_const_repair_finishes_a_cut_write(self):
+        self.const("article", "0", "Elegance.", "--word", "/// yes", "--from", CHAIR)
+        path = self.home / tchain.CONSTITUTION_FILE
+        whole = path.read_bytes()
+        path.write_bytes(whole + whole[:20])  # a second write cut short
+        self.assertIn("before const repair finishes the cut write", self.ok("start"))
+        self.assertIn("removed the cut write of link 1", self.const("repair"))
+        self.assertEqual(path.read_bytes(), whole)
+
 
 class OpenTasks(ChainCase):
     """D: at most 13 open tasks; each move a tagged link; a blocker sends the work on; a task closes only by proof."""
@@ -453,7 +614,7 @@ class OpenTasks(ChainCase):
     def state(self):
         records, broken = tchain.Chain(self.home / tchain.CHAIN_FILE, tchain.check_link).read()
         self.assertIsNone(broken)
-        return tchain.checklist(records, tchain.ACCEPT)
+        return tchain.checklist(records)
 
     def test_every_move_on_a_task_is_a_link_tagged_with_its_number(self):
         self.born("the window proof", issue="https://github.com/efir369999/montana_messenger/issues/4")
@@ -518,6 +679,8 @@ class OpenTasks(ChainCase):
                                                      f"{proof}.gone:1", "--from", CHAIR))
         self.assertIn("PATH:LINE", self.refused("task", "close", "1", "--proof", "file", "--ref", str(proof),
                                                 "--from", CHAIR))
+        self.assertIn("is a folder, not a file", self.refused("task", "close", "1", "--proof", "file", "--ref",
+                                                              f"{self.tmp.name}:1", "--from", CHAIR))
         self.task("close", "1", "--proof", "file", "--ref", f"{proof}:3")
         self.assertEqual(self.state().tasks[1]["proof"], ("file", f"{proof}:3"))
 
@@ -536,16 +699,41 @@ class OpenTasks(ChainCase):
         self.assertEqual(self.state().tasks[1]["due"], "2099-06-01T00:00:00Z")
         self.assertIn("never born", self.refused("task", "progress", "7", "10", "--from", CHAIR))
 
+    def test_a_task_command_writes_its_own_kind_of_link_or_nothing(self):
+        self.born()  # link 1: task 1
+        before = self.lines()
+        for argv in (("move", "1", ""), ("move", "1", "   "), ("move", "0", "x"), ("move", "-1", "x"),
+                     ("move", "1_0", "x"), ("blocker", "1", ""), ("blocker", "1", "  "), ("progress", "1", "50", "  "),
+                     ("progress", "0", "10"), ("deadline", "1", "2099-06-01T00:00:00Z", "  "),
+                     ("close", "1", "--proof", "test", "--ref", " ")):
+            for signature in (CHAIR, HELPER):
+                with self.subTest(argv=argv, signature=signature):
+                    self.assertEqual(self.cli("task", *argv, "--from", signature)[0], 2)  # refused, no traceback
+        self.assertEqual(self.lines(), before)
+        self.assertIn("reads as a blocker link, not as a move link; write it with task blocker",
+                      self.refused("task", "move", "1", "blocker: the build", "--from", CHAIR))
+        self.assertIn("write it with task close", self.refused("task", "move", "1", "closed by test: exit 0",
+                                                               "--from", CHAIR))
+        self.assertEqual(self.lines(), before)
+
+    def test_a_date_the_calendar_lacks_changes_no_task_and_stops_no_command(self):
+        self.born()  # link 1: task 1
+        self.append_past_the_tool("[task 1] deadline 2099-02-30T00:00:00Z",
+                                  f"[task 2] born: y; issue {self.ISSUE}; due 2099-13-01T00:00:00Z; 0%")
+        self.assertIn("ok: 4 links", self.ok("verify"))
+        listing = self.ok("task", "list")
+        self.assertIn("link 2 changes no task: the deadline: time '2099-02-30T00:00:00Z' is not ISO 8601 UTC", listing)
+        self.assertIn("link 3 changes no task: the deadline: time '2099-13-01T00:00:00Z'", listing)
+        self.assertEqual((sorted(self.state().tasks), self.state().tasks[1]["due"]), ([1], self.DUE))
+        self.assertIn("2 tagged links changing no task", self.ok("start"))
+        self.task("progress", "1", "10", "the work goes on")
+        self.assertIn("is not ISO 8601", self.refused("add", "[task 1] deadline 2099-02-30T00:00:00Z", "--from", CHAIR))
+        self.assertIn("is not ISO 8601", self.refused("task", "deadline", "1", "2099-02-30T00:00:00Z", "--from", CHAIR))
+
     def test_a_tagged_link_written_past_the_rules_changes_no_task(self):
         self.born()  # link 1
-        lines = self.lines()
-        for text in ("[task 1] closed by test: exit 0", "[task 9] 50%",
-                     f"[task 3] born: y; issue {self.ISSUE}; due {self.DUE}; 0%"):
-            record = {"n": len(lines), "time": tchain.utc_now(), "task": text, "from": HELPER,
-                      "prev": json.loads(lines[-1])["hash"]}
-            record["hash"] = tchain.seal(record)
-            lines.append(tchain.canonical(record))
-        self.write_lines(lines)
+        self.append_past_the_tool("[task 1] closed by test: exit 0", "[task 9] 50%",
+                                  f"[task 3] born: y; issue {self.ISSUE}; due {self.DUE}; 0%", signature=HELPER)
         state = self.state()
         self.assertEqual([n for n, _ in state.rejected], [2, 3, 4])
         self.assertIsNone(state.tasks[1]["closed"])
@@ -619,6 +807,13 @@ class ContextMeter(ChainCase):
         path = self.session({"type": "user", "message": {"role": "user", "content": "hello"}})
         self.assertIn("no assistant message with usage", self.refused("context", "--file", str(path)))
 
+    def test_a_subagents_own_file_is_measured_by_its_last_message(self):
+        path = self.session(assistant(read=40_000, isSidechain=True), assistant(read=41_000, isSidechain=True),
+                            b"[" * 100_000 + b'"assistant" "usage"\n')  # a line nested too deep is passed over
+        self.assertIn("context: 41,000 tokens", self.ok("context", "--file", str(path)))
+        path = self.session(assistant(read=10), assistant(read=900_000, isSidechain=True))
+        self.assertEqual(tchain.measure(path).tokens, 10)  # in a session's own file, a subagent's line is passed over
+
     def test_lines_are_read_backwards_across_blocks(self):
         path = Path(self.tmp.name) / "lines.txt"
         data = b"first\n" + b"x" * 50 + b"\n\nlast line\n"
@@ -633,6 +828,9 @@ class ContextMeter(ChainCase):
         handover = "Handover #2: done A to F; open nothing; next the draft PR"
         self.session(assistant(read=149_999))
         self.assertIn("refused below 150,000 tokens", self.refused("add", handover, "--from", CHAIR))
+        os.environ["TCHAIN_HANDOVER"] = "Передача"  # read by no command: the words stay Handover
+        self.assertIn("refused below 150,000 tokens", self.refused("add", handover, "--from", CHAIR))
+        self.assertEqual(self.cli("add", handover, "--from", CHAIR, "--handover", "Передача")[0], 2)
         self.add("Handing the review to a helper is no handover")  # the words must begin the link, whole
         self.session(assistant(read=150_000))
         self.add(handover)
@@ -716,6 +914,27 @@ class Start(ChainCase):
         out = self.ok("start")
         self.assertIn('--from "NAME #1 [5ca1ab1e]"', out)
         self.assertIn("session context  160,000 tokens: prepare the handover", out)
+
+    def test_the_next_agent_number_is_never_given_out_twice(self):
+        self.add("Accepted: no handover yet. Taking: the start", CHAIR)  # agent 1
+        self.add("a move of agent 2, who never wrote his acceptance link", NEXT_CHAIR)
+        out = self.ok("start")
+        self.assertIn("next agent       number 3", out)
+        self.assertIn('--from "Claude of DinetPDA #3 [LABEL]"', out)
+
+    def test_the_printed_command_runs_from_a_folder_with_spaces(self):
+        folder = Path(self.tmp.name) / "tool dir with spaces"
+        folder.mkdir()
+        shutil.copy(tchain.__file__, folder / "tchain.py")
+        environment = {name: value for name, value in os.environ.items() if name not in VARIABLES}
+        start = subprocess.run([sys.executable, "-B", str(folder / "tchain.py"), "start", "--home", str(self.home)],
+                               capture_output=True, env=environment, check=True)
+        line = next(line for line in start.stdout.decode("utf-8").splitlines() if ' add "Accepted: ' in line)
+        argv = shlex.split(line.replace("<one concrete step>", "the review").replace("[LABEL]", "[5ca1ab1e]"))
+        self.assertEqual(argv[1], (folder / "tchain.py").resolve().as_posix())
+        done = subprocess.run([sys.executable, "-B"] + argv[1:], capture_output=True, env=environment)
+        self.assertEqual(done.returncode, 0, done.stderr.decode("utf-8", "replace"))
+        self.assertEqual(self.records()[0]["task"], "Accepted: no handover yet. Taking: the review")
 
 
 class DataFolder(ChainCase):

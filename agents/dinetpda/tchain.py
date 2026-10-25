@@ -24,15 +24,15 @@ import os
 import re
 import sys
 import time
-import unicodedata
 from pathlib import Path
-from typing import Callable, NamedTuple, Optional
+from typing import Callable, NamedTuple, Optional, Tuple
 
 # ---------------------------------------------------------------------------------------------------------------------
 # A. The link
 
 GENESIS_PREV = "0" * 64  # the prev of link 0, the genesis
 TEXT_LIMIT = 280  # characters (Unicode code points) of a link's task
+SIGNATURE_LIMIT = 100  # characters of a signature, so that every line which shows one stays bounded
 TIME_FORMAT = "%Y-%m-%dT%H:%M:%SZ"  # ISO 8601 in UTC to the second, the zone written as Z
 TIME_PATTERN = r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z"
 TIME_RE = re.compile(TIME_PATTERN)
@@ -41,6 +41,14 @@ HASH_RE = re.compile(r"[0-9a-f]{64}")
 SIGNATURE_RE = re.compile(r"(?P<name>[^#\[\]]+) #(?P<number>[1-9][0-9]*) \[(?P<label>[0-9a-f]{8})\]")
 LINK_KEYS = frozenset({"n", "time", "task", "from", "prev", "hash"})
 CHAIN_FILE = "chain.jsonl"
+LOCK_WAIT = 60.0  # seconds a reader or a writer waits for the chain's lock before it gives up
+# What a text never holds: the control characters (Unicode category Cc, U+0000 to U+001F and U+007F to U+009F), the
+# line and paragraph separators U+2028 and U+2029, and the marks that make text run right to left (U+061C, U+200E,
+# U+200F, U+202A to U+202E, U+2066 to U+2069), by which a line would read otherwise than it is written. A text of
+# several lines may hold LF, its only line end, and the tab.
+_MARKS = r"\u2028\u2029\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069"
+ONE_LINE_ODD = re.compile(rf"[\x00-\x1f\x7f-\x9f{_MARKS}]")
+LINES_ODD = re.compile(rf"[\x00-\x08\x0b-\x1f\x7f-\x9f{_MARKS}]")
 
 
 class Refused(Exception):
@@ -48,10 +56,12 @@ class Refused(Exception):
 
 
 class Broken(NamedTuple):
-    """The first link of a chain file that does not hold, and why."""
+    """The first link of a chain file that does not hold, and why. `cut` says the break is the file's last line, which
+    has no line end: a write cut short, which repair can finish."""
 
     n: int
     reason: str
+    cut: bool = False
 
 
 def canonical(record: dict) -> bytes:
@@ -71,24 +81,35 @@ def utc_now() -> str:
     return datetime.datetime.now(datetime.timezone.utc).strftime(TIME_FORMAT)
 
 
+def shown(value, width: int = 60) -> str:
+    """A value as Python writes it, clipped to `width` characters, so that a message quoting it stays one short line."""
+    text = repr(value)
+    return text if len(text) <= width else text[:width - 1] + "\u2026"
+
+
 def parse_time(value) -> datetime.datetime:
-    """A time written as a link writes it, read back; anything else is refused."""
+    """A time written as a link writes it, read back; anything else is refused, a date the calendar lacks (February
+    30, month 13) as well."""
     if isinstance(value, str) and TIME_RE.fullmatch(value):
         with contextlib.suppress(ValueError):
-            return datetime.datetime.strptime(value, TIME_FORMAT).replace(tzinfo=datetime.timezone.utc)
-    raise Refused(f"time {value!r} is not ISO 8601 UTC such as 2026-10-25T15:00:00Z")
+            return datetime.datetime(int(value[0:4]), int(value[5:7]), int(value[8:10]), int(value[11:13]),
+                                     int(value[14:16]), int(value[17:19]), tzinfo=datetime.timezone.utc)
+    raise Refused(f"time {shown(value)} is not ISO 8601 UTC such as 2026-10-25T15:00:00Z")
 
 
 def check_text(value, what: str, limit: int, one_line: bool = True) -> str:
     """A text a link carries: a non-empty string of valid Unicode, at most `limit` characters (code points). A one-line
-    text has no control character at all; another may hold line ends and tabs."""
+    text holds no control character, no line or paragraph separator and no mark that makes text run right to left;
+    a text of several lines may also hold LF and tabs."""
     if not isinstance(value, str) or not value.strip():
         raise Refused(f"{what} is empty")
     if len(value) > limit:
         raise Refused(f"{what} has {len(value)} characters; the limit is {limit}")
-    control = [c for c in value if unicodedata.category(c) == "Cc" and (one_line or c not in "\n\t")]
-    if control:
-        raise Refused(f"{what} holds the control character {control[0]!r}" + ("; a link is one line" if one_line else ""))
+    odd = (ONE_LINE_ODD if one_line else LINES_ODD).search(value)
+    if odd:
+        raise Refused(f"{what} holds the character {odd.group()!r}: " + (
+            "a link is one line, without control characters, line separators or right-to-left marks" if one_line else
+            "its lines end with LF, and it holds no other control character, line separator or right-to-left mark"))
     try:
         value.encode("utf-8")
     except UnicodeEncodeError:
@@ -97,44 +118,51 @@ def check_text(value, what: str, limit: int, one_line: bool = True) -> str:
 
 
 def check_signature(value) -> str:
-    """A signature: name, number and 8-hex session label, written NAME #N [label]."""
+    """A signature: name, number and 8-hex session label, written NAME #N [label], in at most SIGNATURE_LIMIT
+    characters of one line."""
     match = SIGNATURE_RE.fullmatch(value) if isinstance(value, str) else None
-    if not match or match["name"] != match["name"].strip() or any(unicodedata.category(c) == "Cc" for c in value):
-        raise Refused(f"signature {value!r} is not NAME #N [label] with a lowercase 8-hex session label, such as "
+    if not match or match["name"] != match["name"].strip() or ONE_LINE_ODD.search(value):
+        raise Refused(f"signature {shown(value)} is not NAME #N [label] with a lowercase 8-hex session label, such as "
                       "'Claude of DinetPDA #6 [5ca1ab1e]'")
+    if len(value) > SIGNATURE_LIMIT:
+        raise Refused(f"the signature has {len(value)} characters; the limit is {SIGNATURE_LIMIT}")
     return value
 
 
-def check_line(line: bytes, n: int, prev: str, check_body: Callable[[dict], None]) -> Optional[str]:
-    """Why line n of a chain file is not the link that follows `prev`, or None when it is."""
+def check_line(line: bytes, n: int, prev: str, check_body: Callable[[dict], None],
+               after: Optional[str] = None) -> Tuple[Optional[dict], Optional[str]]:
+    """(the link, None) when line n of a chain file is the link that follows `prev`, not dated before `after` (the
+    time of the link before it); else (None, why not)."""
     if line.endswith(b"\r"):
         line = line[:-1]  # an editor that rewrote the line end as CRLF changed no field
     try:
         record = json.loads(line.decode("utf-8"))
-    except ValueError:  # UnicodeDecodeError is a ValueError
-        return "the line is not JSON in UTF-8"
+    except (ValueError, RecursionError):  # UnicodeDecodeError is a ValueError; a line nested too deep for Python
+        return None, "the line is not JSON in UTF-8"
     if not isinstance(record, dict):
-        return "the line is not a JSON object"
+        return None, "the line is not a JSON object"
     if type(record.get("n")) is not int:
-        return "n is missing or not an integer"
+        return None, "n is missing or not an integer"
     if record["n"] != n:
-        return f"n is {record['n']} where {n} stands: a link was deleted, inserted or moved"
+        return None, f"n is {record['n']} where {n} stands: a link was deleted, inserted or moved"
     if record.get("prev") != prev:
-        return "prev is not the 64 zeros of the genesis" if n == 0 else f"prev is not the hash of link {n - 1}"
+        return None, "prev is not the 64 zeros of the genesis" if n == 0 else f"prev is not the hash of link {n - 1}"
     try:
         if record.get("hash") != seal(record):
-            return "hash does not match the link: a field was changed"
+            return None, "hash does not match the link: a field was changed"
         if canonical(record) != line:
-            return "the line is not the canonical JSON of its link"
+            return None, "the line is not the canonical JSON of its link"
     except (TypeError, ValueError):  # UnicodeEncodeError is a ValueError
-        return "the link holds a value canonical JSON cannot write"
+        return None, "the link holds a value canonical JSON cannot write"
     try:
         parse_time(record.get("time"))
         check_signature(record.get("from"))
         check_body(record)
     except Refused as refusal:
-        return str(refusal)
-    return None
+        return None, str(refusal)
+    if after is not None and record["time"] < after:  # the fixed form orders as the times do
+        return None, f"its time {record['time']} is earlier than {after}, the time of link {n - 1}: time runs forward"
+    return record, None
 
 
 def check_link(record: dict) -> None:
@@ -182,9 +210,10 @@ class Chain:
         self.check_body = check_body
 
     @contextlib.contextmanager
-    def _locked(self, timeout: float = 10.0):
+    def _locked(self, timeout: Optional[float] = None):
         """The lock of the chain's readers and writers: an OS lock on <file>.lock, released by the system if its holder
-        dies, so a writer never sees half of another's line."""
+        dies, so a writer never sees half of another's line. It waits up to LOCK_WAIT seconds."""
+        timeout = LOCK_WAIT if timeout is None else timeout
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with open(self.path.with_name(self.path.name + ".lock"), "a+b") as handle:
             give_up = time.monotonic() + timeout
@@ -203,15 +232,16 @@ class Chain:
         terminated = lines[-1] == b""
         if terminated:
             lines.pop()
-        records, prev = [], GENESIS_PREV
+        records, prev, after = [], GENESIS_PREV, None
         for n, line in enumerate(lines):
-            reason = check_line(line, n, prev, self.check_body)
-            if reason is None and n == len(lines) - 1 and not terminated:
-                reason = "the last line has no line end: its write was cut short"
+            record, reason = check_line(line, n, prev, self.check_body, after)
+            if n == len(lines) - 1 and not terminated:  # whatever it holds, its write was cut short
+                return records, Broken(n, "the last line has no line end: its write was cut short"
+                                          + (f" ({reason})" if reason else ""), cut=True)
             if reason:
                 return records, Broken(n, reason)
-            records.append(json.loads(line))
-            prev = records[-1]["hash"]
+            records.append(record)
+            prev, after = record["hash"], record["time"]
         return records, None
 
     def read(self):
@@ -231,14 +261,16 @@ class Chain:
         with self._locked():
             records, broken = self._verify()
             if broken:
-                raise Refused(f"{self.path.name} is broken at n={broken.n} ({broken.reason}); "
-                              "nothing is written to a broken chain")
+                raise Refused(f"{self.path.name} is broken at n={broken.n} ({broken.reason}); nothing is written to a "
+                              "broken chain" + (f"; {repair_command(self.path)} finishes the cut write"
+                                                if broken.cut else ""))
             now = utc_now()  # taken before the rule, so what the rule allows by its own clock holds at the link's time
             extra = (rule(records) if rule else None) or {}
             record = dict(body, **extra, n=len(records), time=now, prev=records[-1]["hash"] if records else GENESIS_PREV)
             record["hash"] = seal(record)
             line = canonical(record)
-            reason = check_line(line, record["n"], record["prev"], self.check_body)
+            _, reason = check_line(line, record["n"], record["prev"], self.check_body,
+                                   records[-1]["time"] if records else None)
             if reason:
                 raise Refused(reason)
             with open(self.path, "ab", buffering=0) as handle:
@@ -247,6 +279,34 @@ class Chain:
                     data = data[handle.write(data):]
                 os.fsync(handle.fileno())
             return records + [record]
+
+    def repair(self) -> Optional[str]:
+        """Finish a write that was cut short, the file's last line without a line end, once every link before it
+        verifies: a whole link that lacks only its line end gets it, and part of a link is removed. Return what was
+        done, or None when the chain needs no repair; any other break is refused, since only a copy restores it."""
+        with self._locked():
+            records, broken = self._verify()
+            if broken is None:
+                return None
+            if not broken.cut:
+                raise Refused(f"{self.path.name} is broken at n={broken.n} ({broken.reason}): that is no write cut "
+                              "short, so repair leaves it; restore the file from a copy")
+            data = self.path.read_bytes()
+            keep = data.rfind(b"\n") + 1  # the cut line begins here
+            whole, _ = check_line(data[keep:], broken.n, records[-1]["hash"] if records else GENESIS_PREV,
+                                  self.check_body, records[-1]["time"] if records else None)
+            with open(self.path, "r+b") as handle:
+                if whole:
+                    handle.seek(0, os.SEEK_END)
+                    handle.write(b"\n")
+                else:
+                    handle.truncate(keep)
+                os.fsync(handle.fileno())
+            if self._verify()[1] is not None:
+                raise Refused(f"{self.path.name} still does not verify after the repair")
+            if whole:
+                return f"link {broken.n} was whole but for its line end, which is now written"
+            return f"removed the cut write of link {broken.n}, {plural(len(data) - keep, 'byte')}: {shown(data[keep:])}"
 
 
 def _within(path: Path, folder: Path) -> bool:
@@ -294,6 +354,8 @@ def report_verify(chain: Chain, anchor: Optional[str]) -> int:
     if broken:
         print(f"broken at n={broken.n}: {broken.reason}")
         print(f"links 0 to {broken.n - 1} hold" if broken.n else "no link holds")
+        if broken.cut:
+            print(f"{repair_command(chain.path)} finishes the cut write")
         return 1
     if anchor:
         number, _, expected = anchor.partition(":")
@@ -315,17 +377,28 @@ def report_verify(chain: Chain, anchor: Optional[str]) -> int:
     return 0
 
 
+def repair_command(path: Path) -> str:
+    """The command that repairs the chain file at `path`."""
+    return "repair" if path.name == CHAIN_FILE else "const repair"
+
+
+def report_repair(chain: Chain) -> int:
+    """repair: finish a write cut short (Chain.repair), then say what was done."""
+    done = chain.repair()
+    print(f"repaired: {done}" if done else f"ok: {chain.path.name} needs no repair")
+    return 0
+
+
 def write_link(args, text: Optional[str], compose: Optional[Callable[[list], str]] = None) -> list:
     """Write one link of the main chain, by `add` or by a task command, and print it. The text is given, or composed
     under the lock from the chain so far (a new task's number). A link tagged [task k] must keep the checklist's rules."""
     signature = check_signature(args.signature)
-    words = accept_words(args)
-    if text is not None and begins_with(text, handover_words(args)):
+    if text is not None and begins_with(text, HANDOVER):
         check_handover()
 
     def rule(records):
         task = check_text((compose(records) if compose else text).strip(), "the link's text", TEXT_LIMIT)
-        reason = task_rule(checklist(records, words), chairmen(records, words)[-1] if records else None,
+        reason = task_rule(checklist(records), chairmen(records)[-1] if records else None,
                            {"n": len(records), "time": utc_now(), "from": signature, "task": task}, written=True)
         if reason:
             raise Refused(reason)
@@ -333,7 +406,7 @@ def write_link(args, text: Optional[str], compose: Optional[Callable[[list], str
 
     records = links(args).append({"from": signature}, rule)
     print(link_line(records[-1]))
-    print_window_news(records, words)
+    print_window_news(records)
     return records
 
 
@@ -346,6 +419,10 @@ def cmd_verify(args) -> int:
     return report_verify(links(args), args.anchor)
 
 
+def cmd_repair(args) -> int:
+    return report_repair(links(args))
+
+
 def cmd_recent(args) -> int:
     chain = links(args)
     records, broken = chain.read()
@@ -355,10 +432,21 @@ def cmd_recent(args) -> int:
     return 0
 
 
-def _count(text: str) -> int:
-    if not re.fullmatch(r"[0-9]+", text):
-        raise argparse.ArgumentTypeError(f"{text!r} is not a count")
-    return int(text)
+def _number(pattern: str, what: str) -> Callable[[str], int]:
+    """An argument type: a number written in the ASCII digits 0-9 by `pattern`, where int() would also take "1_0",
+    " 5", "+5" or the digits of other scripts."""
+
+    def parse(text: str) -> int:
+        if not re.fullmatch(pattern, text):
+            raise argparse.ArgumentTypeError(f"{text!r} is not {what}")
+        return int(text)
+
+    return parse
+
+
+_count = _number(r"[0-9]+", "a count written in the digits 0-9")
+_place = _number(r"[1-9][0-9]*", "a whole number from 1, written in the digits 0-9 without a leading zero")
+_integer = _number(r"0|-?[1-9][0-9]*", "a whole number written in the digits 0-9, with - before a negative one")
 
 
 def _link_commands(commands, common) -> None:
@@ -370,6 +458,8 @@ def _link_commands(commands, common) -> None:
     verify = commands.add_parser("verify", parents=[common], help="recompute the chain from its genesis")
     verify.add_argument("--anchor", metavar="N:HASH", help="a link's hash kept elsewhere, to check against")
     verify.set_defaults(run=cmd_verify)
+    repair = commands.add_parser("repair", parents=[common], help="finish a write that was cut short, and nothing else")
+    repair.set_defaults(run=cmd_repair)
     recent = commands.add_parser("recent", parents=[common], help="the last N links, one line each")
     recent.add_argument("count", nargs="?", type=_count, default=13, help="how many (default 13)")
     recent.set_defaults(run=cmd_recent)
@@ -379,7 +469,9 @@ def _link_commands(commands, common) -> None:
 # B. The window tau1
 
 WINDOW = 13  # links in one window tau1
-ACCEPT = "Accepted"  # the acceptance words by default; --accept or $TCHAIN_ACCEPT names others
+# The acceptance words, by which a link makes its writer the chairman. They are no option: the chairman, the windows
+# and the open tasks follow from them, so every reader of a chain must read it with the same words.
+ACCEPT = "Accepted"
 
 
 class Window(NamedTuple):
@@ -390,10 +482,6 @@ class Window(NamedTuple):
     sealed_by: Optional[int]  # the link that sealed it, or None
 
 
-def accept_words(args) -> str:
-    return getattr(args, "accept", None) or os.environ.get("TCHAIN_ACCEPT") or ACCEPT
-
-
 def begins_with(text: str, words: str) -> bool:
     """Whether a link's text begins with the words, whole and in their case: "Accepted: ..." and "Accepted" begin with
     "Accepted"; "Acceptedly", "accepted: ..." and "Not accepted" do not."""
@@ -401,26 +489,26 @@ def begins_with(text: str, words: str) -> bool:
     return text.startswith(words) and not (after.isalnum() or after == "_")
 
 
-def chairmen(records: list, words: str) -> list:
+def chairmen(records: list) -> list:
     """The chairman at each link: the signature of the last link, at it or before it, that begins with the acceptance
     words; None while no link does."""
     chairman, result = None, []
     for record in records:
-        if begins_with(record["task"], words):
+        if begins_with(record["task"], ACCEPT):
             chairman = record["from"]
         result.append(chairman)
     return result
 
 
-def last_acceptance(records: list, words: str) -> Optional[dict]:
-    return next((record for record in reversed(records) if begins_with(record["task"], words)), None)
+def last_acceptance(records: list) -> Optional[dict]:
+    return next((record for record in reversed(records) if begins_with(record["task"], ACCEPT)), None)
 
 
-def windows(records: list, words: str) -> list:
+def windows(records: list) -> list:
     """The windows tau1 of a chain. Window w holds links 13w to 13w + 12 and is full once link 13w + 12 is written. A
     full window is sealed by the first later link signed by the chairman of that link's moment; while no link begins
     with the acceptance words there is no chairman, and no window closes."""
-    chair = chairmen(records, words)
+    chair = chairmen(records)
     sealer = [None] * (len(records) + 1)  # sealer[m]: the first link at m or after it signed by its chairman
     for m in range(len(records) - 1, -1, -1):
         sealer[m] = m if chair[m] is not None and records[m]["from"] == chair[m] else sealer[m + 1]
@@ -441,17 +529,17 @@ def window_line(window: Window, records: list) -> str:
     return f"{span}, full, sealed by link {window.sealed_by} ({records[window.sealed_by]['from']})"
 
 
-def chairman_line(records: list, words: str) -> str:
-    accepted = last_acceptance(records, words)
+def chairman_line(records: list) -> str:
+    accepted = last_acceptance(records)
     if accepted is None:
-        return f'chairman: none -- no link begins with "{words}", so no window closes'
+        return f'chairman: none -- no link begins with "{ACCEPT}", so no window closes'
     return f"chairman: {accepted['from']}, accepted at link {accepted['n']}"
 
 
-def print_window_news(records: list, words: str) -> None:
+def print_window_news(records: list) -> None:
     """After a link is written: the windows it sealed, or that it filled one."""
     newest = records[-1]["n"]
-    for window in windows(records, words):
+    for window in windows(records):
         if window.sealed_by == newest:
             print(f"seals window {window.number} (links {window.first} to {window.last})")
         elif window.full and window.last == newest:
@@ -461,10 +549,9 @@ def print_window_news(records: list, words: str) -> None:
 def cmd_windows(args) -> int:
     chain = links(args)
     records, broken = chain.read()
-    words = accept_words(args)
-    for window in windows(records, words):
+    for window in windows(records):
         print(window_line(window, records))
-    print(chairman_line(records, words) if records else "no link yet, so no window")
+    print(chairman_line(records) if records else "no link yet, so no window")
     warn_broken(broken, chain.path)
     return 0
 
@@ -570,7 +657,9 @@ def flat(text: str, width: Optional[int] = None) -> str:
 
 
 def article_line(record: dict) -> str:
-    return f"{record['no']}. {record['text']}"
+    """An article in full, its number first; each further line indented, so that no line of an article can pass for
+    a heading or a line of what the tool prints around it."""
+    return f"{record['no']}. " + record["text"].replace("\n", "\n    ")
 
 
 def decision_line(k: int, place: dict, width: Optional[int] = None) -> str:
@@ -609,8 +698,11 @@ def read_word(args) -> str:
     return check_word(text)
 
 
-def write_constitution(args, body: dict, assign: Optional[Callable[[Constitution], dict]] = None) -> dict:
-    """Write one constitution link: the operation, the Author's word verbatim and its time (by default, now)."""
+def write_constitution(args, body: dict, describe: Callable[[dict], str],
+                       assign: Optional[Callable[[Constitution], dict]] = None) -> dict:
+    """Write one constitution link: the operation, the Author's word verbatim and its time (by default, the moment of
+    the write). Then print what it did, and the word as it was stored, so that a word a shell changed on its way is
+    seen at once: Windows PowerShell 5.1 drops the quotes inside an argument, and a pipe may turn letters into "?"."""
     body = dict(body, word=read_word(args), word_time=args.word_time or utc_now())
     body["from"] = check_signature(args.signature)
     parse_time(body["word_time"])
@@ -623,34 +715,45 @@ def write_constitution(args, body: dict, assign: Optional[Callable[[Constitution
             raise Refused(reason)
         return extra
 
-    return constitution_chain(args).append(body, rule)[-1]
+    record = constitution_chain(args).append(body, rule)[-1]
+    print(describe(record))
+    print(f"the word as stored, {plural(len(record['word']), 'character')}: {record['word']!r}")
+    if not args.word_time:
+        print("its time is the moment of this write, since --word-time was not given")
+    return record
+
+
+def several_lines(text: str) -> str:
+    """A text of several lines as a chain keeps it: the CRLF line ends Windows writes made LF, the blanks at its two
+    ends removed."""
+    return text.replace("\r\n", "\n").strip()
 
 
 def cmd_article(args) -> int:
-    text = check_text(args.text.strip(), "the article's text", ARTICLE_LIMIT, one_line=False)
-    record = write_constitution(args, {"op": "article", "no": args.no, "text": text})
-    print(f"{record['n']} {record['time']}: article {record['no']} stands, by the Author's word of {record['word_time']}")
+    text = check_text(several_lines(args.text), "the article's text", ARTICLE_LIMIT, one_line=False)
+    write_constitution(args, {"op": "article", "no": args.no, "text": text}, lambda record: (
+        f"{record['n']} {record['time']}: article {record['no']} stands, by the Author's word of {record['word_time']}"))
     return 0
 
 
 def cmd_remove(args) -> int:
-    record = write_constitution(args, {"op": "remove", "no": args.no})
-    print(f"{record['n']} {record['time']}: article {record['no']} no longer stands, by the Author's word of "
-          f"{record['word_time']}")
+    write_constitution(args, {"op": "remove", "no": args.no}, lambda record: (
+        f"{record['n']} {record['time']}: article {record['no']} no longer stands, by the Author's word of "
+        f"{record['word_time']}"))
     return 0
 
 
 def cmd_decide(args) -> int:
-    question = check_text(args.question.strip(), "the question", ARTICLE_LIMIT, one_line=False)
-    record = write_constitution(args, {"op": "decide", "text": question}, lambda state: {"k": len(state.line) + 1})
-    print(f"{record['n']} {record['time']}: place {record['k']} of the line of decisions waits for the Author: "
-          f"{flat(question, 160)}")
+    question = check_text(several_lines(args.question), "the question", ARTICLE_LIMIT, one_line=False)
+    write_constitution(args, {"op": "decide", "text": question}, lambda record: (
+        f"{record['n']} {record['time']}: place {record['k']} of the line of decisions waits for the Author: "
+        f"{flat(question, 160)}"), lambda state: {"k": len(state.line) + 1})
     return 0
 
 
 def cmd_decided(args) -> int:
-    record = write_constitution(args, {"op": "decided", "k": args.k})
-    print(f"{record['n']} {record['time']}: place {record['k']} decided by the Author's word of {record['word_time']}")
+    write_constitution(args, {"op": "decided", "k": args.k}, lambda record: (
+        f"{record['n']} {record['time']}: place {record['k']} decided by the Author's word of {record['word_time']}"))
     return 0
 
 
@@ -685,6 +788,10 @@ def cmd_const_verify(args) -> int:
     return report_verify(constitution_chain(args), args.anchor)
 
 
+def cmd_const_repair(args) -> int:
+    return report_repair(constitution_chain(args))
+
+
 def _constitution_commands(commands, common) -> None:
     const = commands.add_parser("const", help="the constitution: a second chain, changed only by the Author's word")
     operations = const.add_subparsers(dest="operation", required=True, metavar="OPERATION")
@@ -696,18 +803,19 @@ def _constitution_commands(commands, common) -> None:
     author.add_argument("--from", dest="signature", required=True, metavar="SIGNATURE",
                         help="NAME #N [label] of the agent who writes the link")
     article = operations.add_parser("article", parents=[common, author], help="article NO now reads TEXT")
-    article.add_argument("no", type=int, metavar="NO")
+    article.add_argument("no", type=_integer, metavar="NO")
     article.add_argument("text")
     article.set_defaults(run=cmd_article)
     remove = operations.add_parser("remove", parents=[common, author], help="article NO no longer stands")
-    remove.add_argument("no", type=int, metavar="NO")
+    remove.add_argument("no", type=_integer, metavar="NO")
     remove.set_defaults(run=cmd_remove)
     decide = operations.add_parser("decide", parents=[common, author],
                                    help="a question for the Author, into the line of decisions")
     decide.add_argument("question")
     decide.set_defaults(run=cmd_decide)
-    decided = operations.add_parser("decided", parents=[common, author], help="the Author's answer to place K")
-    decided.add_argument("k", type=int, metavar="K")
+    decided = operations.add_parser("decided", parents=[common, author],
+                                    help="the Author's answer to place K, the number the question got in the line")
+    decided.add_argument("k", type=_place, metavar="K")
     decided.set_defaults(run=cmd_decided)
     show = operations.add_parser("show", parents=[common], help="the standing articles and the line of decisions")
     show.set_defaults(run=cmd_const_show)
@@ -717,6 +825,8 @@ def _constitution_commands(commands, common) -> None:
     verify = operations.add_parser("verify", parents=[common], help="recompute the constitution chain from its genesis")
     verify.add_argument("--anchor", metavar="N:HASH", help="a link's hash kept elsewhere, to check against")
     verify.set_defaults(run=cmd_const_verify)
+    repair = operations.add_parser("repair", parents=[common], help="finish a write that was cut short, and nothing else")
+    repair.set_defaults(run=cmd_const_repair)
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -781,8 +891,13 @@ def task_rule(state: Checklist, chairman: Optional[str], record: dict, written: 
         return f"task {k} was never born"
     elif task["closed"] is not None:
         return f"task {k} was closed at link {task['closed']}"
-    if "due" in fields and parse_time(fields["due"]) <= parse_time(record["time"]):
-        return f"the deadline {fields['due']} is not in the future"
+    if "due" in fields:
+        try:
+            due = parse_time(fields["due"])  # the grammar takes 2099-02-30T00:00:00Z, the calendar does not
+        except Refused as refusal:
+            return f"the deadline: {refusal}"
+        if due <= parse_time(record["time"]):
+            return f"the deadline {fields['due']} is not in the future"
     if "pct" in fields and fields["pct"] is not None and not 0 <= int(fields["pct"]) <= 100:
         return f"{fields['pct']}% is not a percentage from 0 to 100"
     if kind == "closed" and fields["proof"] == "file":
@@ -796,18 +911,23 @@ def task_rule(state: Checklist, chairman: Optional[str], record: dict, written: 
 
 def file_proof_problem(path: Path, line: int) -> Optional[str]:
     """Why a file and line cannot be a proof here, or None: the file must exist and hold that line."""
+    if path.is_dir():
+        return f"the proof's {path} is a folder, not a file"
     if not path.is_file():
         return f"the proof's file {path} does not exist (paths are read from the current folder)"
-    data = path.read_bytes()
+    try:
+        data = path.read_bytes()
+    except OSError as error:
+        return f"the proof's file {path} cannot be read: {error.strerror or error}"
     lines = data.count(b"\n") + (1 if data and not data.endswith(b"\n") else 0)
     return f"{path} has {lines} lines, so no line {line}" if line > lines else None
 
 
-def checklist(records: list, words: str) -> Checklist:
+def checklist(records: list) -> Checklist:
     """The open tasks: the links tagged [task k] replayed from the genesis. A tagged link that breaks a rule stays in
     the chain, as every link does, and changes no task."""
     state = Checklist({}, [], 1)
-    for record, chairman in zip(records, chairmen(records, words)):
+    for record, chairman in zip(records, chairmen(records)):
         move = task_move(record["task"])
         if move is None:
             continue
@@ -867,34 +987,48 @@ def parse_issue(text: str) -> str:
     return issue
 
 
+def tagged(k: int, kind: str, move: str) -> str:
+    """The text of a task command's link, `[task k] move`, which must read back as the command's own kind of move: a
+    text that the grammar would read as another kind, or as no move on a task, is refused, never written."""
+    text = f"[task {k}] {move}"
+    read = task_move(text)
+    if read is None or read[0] != k or read[1] != kind:
+        found = "no move on a task" if read is None else f"a {read[1]} link"
+        command = {"born": "add", "closed": "close"}.get(read[1], read[1]) if read else None
+        raise Refused(f"{shown(text)} reads as {found}, not as a {kind} link"
+                      + (f"; write it with task {command}" if command else ""))
+    return text
+
+
+def given_text(text: Optional[str], what: str) -> Optional[str]:
+    """An optional text of a task command: None when it is not given; given, one line that is not blank."""
+    return None if text is None else check_text(text.strip(), what, TEXT_LIMIT)
+
+
 def cmd_task_add(args) -> int:
     title = check_text(args.title.strip(), "the task's title", TEXT_LIMIT)
     issue, due = parse_issue(args.issue), args.deadline
     parse_time(due)
-    records = write_link(args, None, lambda records: f"[task {checklist(records, accept_words(args)).next_k}] born: "
-                                                     f"{title}; issue {issue}; due {due}; {args.pct}%")
-    print(f"{plural(len(open_tasks(checklist(records, accept_words(args)))), 'open task')} of {PLACES} places")
+    records = write_link(args, None, lambda records: tagged(checklist(records).next_k, "born",
+                                                            f"born: {title}; issue {issue}; due {due}; {args.pct}%"))
+    print(f"{plural(len(open_tasks(checklist(records))), 'open task')} of {PLACES} places")
     return 0
 
 
 def cmd_task_move(args) -> int:
-    text = f"[task {args.k}] {args.text.strip()}"
-    kind = task_move(text)[1]
-    if kind != "move":
-        command = {"born": "add", "closed": "close"}.get(kind, kind)
-        raise Refused(f"this text reads as a {kind} link of the grammar; write it with task {command}")
-    write_link(args, text)
+    write_link(args, tagged(args.k, "move", given_text(args.text, "the move")))
     return 0
 
 
 def cmd_task_progress(args) -> int:
-    write_link(args, f"[task {args.k}] {args.pct}%" + (f": {args.text.strip()}" if args.text else ""))
+    note = given_text(args.text, "the note")
+    write_link(args, tagged(args.k, "progress", f"{args.pct}%" + (f": {note}" if note is not None else "")))
     return 0
 
 
 def cmd_task_blocker(args) -> int:
-    records = write_link(args, f"[task {args.k}] blocker: {args.text.strip()}")
-    after = next_task(checklist(records, accept_words(args)), besides=args.k)
+    records = write_link(args, tagged(args.k, "blocker", f"blocker: {given_text(args.text, 'the blocker')}"))
+    after = next_task(checklist(records), besides=args.k)
     print(f"the work goes on: next {task_line(after, utc_now())}" if after else
           "no other open task stands unblocked")
     return 0
@@ -902,23 +1036,24 @@ def cmd_task_blocker(args) -> int:
 
 def cmd_task_deadline(args) -> int:
     parse_time(args.deadline)
-    write_link(args, f"[task {args.k}] deadline {args.deadline}" + (f": {args.text.strip()}" if args.text else ""))
+    why = given_text(args.text, "the reason")
+    write_link(args, tagged(args.k, "deadline", f"deadline {args.deadline}" + (f": {why}" if why is not None else "")))
     return 0
 
 
 def cmd_task_close(args) -> int:
-    reference = check_text(args.ref.strip(), "the proof's reference", TEXT_LIMIT)
-    write_link(args, f"[task {args.k}] closed by {args.proof}: {reference}")
+    reference = given_text(args.ref, "the proof's reference")
+    write_link(args, tagged(args.k, "closed", f"closed by {args.proof}: {reference}"))
     return 0
 
 
 def cmd_task_list(args) -> int:
     chain = links(args)
     records, broken = chain.read()
-    state, now = checklist(records, accept_words(args)), utc_now()
-    shown = sorted(state.tasks.values(), key=lambda task: task["k"]) if args.all else open_tasks(state)
+    state, now = checklist(records), utc_now()
+    listed = sorted(state.tasks.values(), key=lambda task: task["k"]) if args.all else open_tasks(state)
     print(f"open tasks: {len(open_tasks(state))} of {PLACES} places")
-    for task in shown:
+    for task in listed:
         print(task_line(task, now))
     for n, reason in state.rejected:
         print(f"link {n} changes no task: {reason}")
@@ -945,26 +1080,26 @@ def _task_commands(commands, common) -> None:
     add.add_argument("--pct", type=_percent, default=0, help="the percentage done at birth (default 0)")
     add.set_defaults(run=cmd_task_add)
     move = operations.add_parser("move", parents=[common, signed], help="one move on task K")
-    move.add_argument("k", type=int, metavar="K")
+    move.add_argument("k", type=_place, metavar="K")
     move.add_argument("text")
     move.set_defaults(run=cmd_task_move)
     progress = operations.add_parser("progress", parents=[common, signed], help="task K is PCT percent done")
-    progress.add_argument("k", type=int, metavar="K")
+    progress.add_argument("k", type=_place, metavar="K")
     progress.add_argument("pct", type=_percent, metavar="PCT")
     progress.add_argument("text", nargs="?", help="what moved it")
     progress.set_defaults(run=cmd_task_progress)
     blocker = operations.add_parser("blocker", parents=[common, signed],
                                     help="task K waits on a build or on the Author; the work goes on to the next")
-    blocker.add_argument("k", type=int, metavar="K")
+    blocker.add_argument("k", type=_place, metavar="K")
     blocker.add_argument("text", help="what it waits on")
     blocker.set_defaults(run=cmd_task_blocker)
     deadline = operations.add_parser("deadline", parents=[common, signed], help="the chairman moves task K's deadline")
-    deadline.add_argument("k", type=int, metavar="K")
+    deadline.add_argument("k", type=_place, metavar="K")
     deadline.add_argument("deadline", metavar="TIME")
     deadline.add_argument("text", nargs="?", help="why the plan changed")
     deadline.set_defaults(run=cmd_task_deadline)
     close = operations.add_parser("close", parents=[common, signed], help="the chairman closes task K by a proof")
-    close.add_argument("k", type=int, metavar="K")
+    close.add_argument("k", type=_place, metavar="K")
     close.add_argument("--proof", required=True, choices=PROOFS, help="a build, a test, or a file and line")
     close.add_argument("--ref", required=True, help="the build or the test run and its exit code, or PATH:LINE")
     close.set_defaults(run=cmd_task_close)
@@ -979,7 +1114,7 @@ def _task_commands(commands, common) -> None:
 USAGE_FIELDS = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
 PREPARE_AT = 150_000  # from here the handover is prepared; below it a handover is refused
 STOP_ABOVE = 200_000  # past this the session stops at once
-HANDOVER = "Handover"  # the handover words by default; --handover or $TCHAIN_HANDOVER names others
+HANDOVER = "Handover"  # the words a handover link begins with: like the acceptance words, the same for every reader
 SESSION_RE = re.compile(r"[A-Za-z0-9_-]{1,128}")
 
 
@@ -988,10 +1123,6 @@ class Context(NamedTuple):
     parts: dict  # each of them
     path: Path  # the session's file
     timestamp: str  # when that message was written
-
-
-def handover_words(args) -> str:
-    return getattr(args, "handover", None) or os.environ.get("TCHAIN_HANDOVER") or HANDOVER
 
 
 def projects_folder(given: Optional[str] = None) -> Path:
@@ -1029,23 +1160,31 @@ def lines_backwards(path: Path, block: int = 1 << 20):
 
 def measure(path: Path) -> Context:
     """The context of a session: the usage of its last assistant message, input_tokens + cache_creation_input_tokens
-    + cache_read_input_tokens. A subagent's line (isSidechain), a message Claude Code makes itself (model
-    "<synthetic>") and a line still being written are passed over."""
+    + cache_read_input_tokens. A message Claude Code makes itself (model "<synthetic>") and a line still being written
+    are passed over, and so is a subagent's line (isSidechain) in a session's file. A subagent's own file, in which
+    every line is a subagent's, is measured by its last assistant message."""
+    subagent = None  # the last subagent's message, for a file that holds no other
     for line in lines_backwards(path):
         if b'"assistant"' not in line or b'"usage"' not in line:
             continue
         try:
             record = json.loads(line)
-        except ValueError:
+        except (ValueError, RecursionError):
             continue
         message = record.get("message") if isinstance(record, dict) else None
-        if not isinstance(message, dict) or record.get("type") != "assistant" or record.get("isSidechain"):
+        if not isinstance(message, dict) or record.get("type") != "assistant":
             continue
         usage = message.get("usage")
         if not isinstance(usage, dict) or message.get("model") == "<synthetic>":
             continue
         parts = {field: usage[field] if type(usage.get(field)) is int else 0 for field in USAGE_FIELDS}
-        return Context(sum(parts.values()), parts, path, str(record.get("timestamp") or ""))
+        context = Context(sum(parts.values()), parts, path, str(record.get("timestamp") or ""))
+        if not record.get("isSidechain"):
+            return context
+        if subagent is None:
+            subagent = context
+    if subagent is not None:
+        return subagent
     raise Refused(f"{path} holds no assistant message with usage")
 
 
@@ -1124,56 +1263,70 @@ def estimated_tokens(text: str) -> int:
     return -(-len(text.encode("utf-8")) // 4)
 
 
-def next_agent_number(records: list, words: str) -> int:
-    """The next agent's number: one more than the number in the signature of the last acceptance link, or 1."""
-    accepted = last_acceptance(records, words)
-    return int(SIGNATURE_RE.fullmatch(accepted["from"])["number"]) + 1 if accepted else 1
+def next_agent_number(records: list) -> int:
+    """The next agent's number: one more than the highest number that any signature of the chain carries, or 1. A
+    session that wrote links but never its acceptance link used its number too, so no number is given out twice."""
+    return max((int(SIGNATURE_RE.fullmatch(record["from"])["number"]) for record in records), default=0) + 1
 
 
-def rules_of_the_turn(args, records: list, words: str, handover: Optional[dict]) -> list:
-    tool = ("python" if os.name == "nt" else "python3") + f" {Path(__file__).resolve().as_posix()}"
-    home = f' --home "{args.home}"' if args.home else ""
-    accepted = last_acceptance(records, words)
+def quoted(text: str) -> str:
+    """A word of a printed command in double quotes, which bash, PowerShell and cmd all read as one word, spaces and
+    all."""
+    return f'"{text}"'
+
+
+def rules_of_the_turn(args, records: list, handover: Optional[dict]) -> list:
+    tool = ("python" if os.name == "nt" else "python3") + " " + quoted(Path(__file__).resolve().as_posix())
+    home = f" --home {quoted(args.home)}" if args.home else ""
+    accepted = last_acceptance(records)
     name = SIGNATURE_RE.fullmatch(accepted["from"])["name"] if accepted else "NAME"
     session = os.environ.get("CLAUDE_CODE_SESSION_ID", "")[:8].lower()
     label = session if re.fullmatch(r"[0-9a-f]{8}", session) else "LABEL"
-    number = next_agent_number(records, words)
+    number = next_agent_number(records)
     taken = f"handover link {handover['n']}" if handover else "no handover yet"
     return [
         "1. Read the handover and the last link above: they carry the essence. Do not read the whole chain.",
         "2. Write your acceptance link now, and start the work in this same turn:",
-        f'   {tool} add "{words}: {taken}. Taking: <one concrete step>" --from "{name} #{number} [{label}]"{home}',
+        f'   {tool} add "{ACCEPT}: {taken}. Taking: <one concrete step>" --from "{name} #{number} [{label}]"{home}',
         f"   The signature is the name, the number {number} and the first 8 hex digits of the session id"
-        f' (CLAUDE_CODE_SESSION_ID). Begin no other link with "{words}": whoever writes them is the chairman.',
+        f' (CLAUDE_CODE_SESSION_ID). Begin no other link with "{ACCEPT}": whoever writes it is the chairman.',
         f"3. Every move is one link of at most {TEXT_LIMIT} characters: what was done and how it was checked "
         "(file:line, commit, command and exit code).",
         f"4. A move on a task is tagged: task move|progress|blocker K ... Waiting on a build or on the Author is "
         "task blocker K, and the work goes on to the next task. A task closes only by a proof the chairman checked: "
         "task close K --proof build|test|file --ref ...",
-        '5. A question for the Author goes into the line of decisions (const decide "..." --word "..."), never as '
-        "plain text, and the work does not stop. Only a link carrying the Author's word changes the constitution.",
+        '5. A question for the Author goes into the line of decisions (const decide "..." --word "why it is his"), '
+        "never as plain text, and the work does not stop. A constitution link carries the Author's own word, "
+        "verbatim, and the time he said it (--word-time): the tool checks that a word is there, not whose it is.",
         f"6. Measure the context with {tool} context: below {PREPARE_AT // 1000}k a handover is refused, work on; "
         f"from {PREPARE_AT // 1000}k prepare the handover; past {STOP_ABOVE // 1000}k stop at once.",
-        f'7. The last link of the session is its handover: "{handover_words(args)} #{number + 1}: done (verified) '
+        f'7. The last link of the session is its handover: "{HANDOVER} #{number + 1}: done (verified) '
         '...; open ...; next step ...".',
-        "8. The chains are append-only: never edit their files. verify names the first broken link.",
+        "8. The chains are append-only: never edit their files. verify names the first broken link; repair finishes "
+        "a write cut short, and nothing else.",
     ]
 
 
 def chain_health(path: Path, records: list, broken: Optional[Broken]) -> str:
     head = f", head {records[-1]['hash'][:12]}" if records else ""
-    status = f"BROKEN at n={broken.n} ({broken.reason}): write nothing, restore it" if broken else "verify ok"
+    if broken is None:
+        status = "verify ok"
+    elif broken.cut:
+        status = (f"BROKEN at n={broken.n} ({broken.reason}): write nothing before {repair_command(path)} finishes "
+                  "the cut write")
+    else:
+        status = f"BROKEN at n={broken.n} ({broken.reason}): write nothing, restore it from a copy"
     return f"{path.name}: {plural(len(records), 'link')}{head}, {status}"
 
 
 def start_text(args) -> str:
     """The whole start of a session: the context table, then the parts it measures, each in one line per item."""
-    words, now = accept_words(args), utc_now()
+    now = utc_now()
     chain, charter = links(args), constitution_chain(args)
     records, broken = chain.read()
     charter_records, charter_broken = charter.read()
-    state, tasks = constitution(charter_records), checklist(records, words)
-    handover = next((record for record in reversed(records) if begins_with(record["task"], handover_words(args))), None)
+    state, tasks = constitution(charter_records), checklist(records)
+    handover = next((record for record in reversed(records) if begins_with(record["task"], HANDOVER)), None)
     questions = [(k, place) for k, place in enumerate(state.line, 1) if place["answer"] is None]
     more = len(questions) - SHOWN_QUESTIONS
     open_now = open_tasks(tasks)
@@ -1189,21 +1342,21 @@ def start_text(args) -> str:
         ("handover", "the last handover", [link_line(handover)] if handover else ["(no handover link yet)"]),
         ("last 13 links", "the last 13 links; the last is the last entry of the journal",
          [link_line(record) for record in records[-13:]] or ["(no link yet)"]),
-        ("rules", "the rules of the turn", rules_of_the_turn(args, records, words, handover)),
+        ("rules", "the rules of the turn", rules_of_the_turn(args, records, handover)),
     ]
     sections = [f"== {heading} ==\n" + "\n".join(lines) + "\n" for _, heading, lines in parts]
-    spans = windows(records, words)
+    spans = windows(records)
     waiting = [window.number for window in spans if window.full and window.sealed_by is None]
     context = own_context()
     rows = [
         ("now (UTC)", now),
-        ("next agent", f"number {next_agent_number(records, words)}"),
+        ("next agent", f"number {next_agent_number(records)}"),
         ("data folder", str(home_folder(args.home))),
         ("chain", chain_health(chain.path, records, broken)),
         ("windows", f"{sum(window.full for window in spans)} full, "
                     f"{sum(window.sealed_by is not None for window in spans)} sealed"
                     + (f"; window {waiting[0]} waits for the chairman's next link" if waiting else "")),
-        ("chairman", chairman_line(records, words).split(": ", 1)[1] if records else "none: no link yet"),
+        ("chairman", chairman_line(records).split(": ", 1)[1] if records else "none: no link yet"),
         ("constitution", f"{plural(len(state.articles), 'article')} standing, {len(questions)} of "
                          f"{plural(len(state.line), 'question')} open; "
                          + chain_health(charter.path, charter_records, charter_broken)),
@@ -1252,10 +1405,6 @@ def _start_commands(commands, common) -> None:
 def build_parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--home", metavar="DIR", help="the data folder (default: $TCHAIN_HOME, else ./.tchain)")
-    common.add_argument("--accept", metavar="WORDS",
-                        help=f'the acceptance words that make a chairman (default: $TCHAIN_ACCEPT, else "{ACCEPT}")')
-    common.add_argument("--handover", metavar="WORDS",
-                        help=f'the words a handover link begins with (default: $TCHAIN_HANDOVER, else "{HANDOVER}")')
     parser = argparse.ArgumentParser(prog="tchain.py", description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
     for install in (_start_commands, _link_commands, _window_commands, _constitution_commands, _task_commands,
@@ -1265,7 +1414,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[list] = None) -> int:
-    """Run one command. Exit codes: 0 done, 1 a chain does not verify, 2 refused or misused."""
+    """Run one command. Exit codes: 0 done, 1 a chain does not verify (or Python stopped on an error it did not
+    expect, with a traceback), 2 refused or misused."""
     args = build_parser().parse_args(argv)
     try:
         return args.run(args)
