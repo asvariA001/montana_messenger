@@ -318,7 +318,8 @@ object Groups {
                 val w = word("say", g).put("id", mid).put("s", g.me).put("tx", piece)
                 if (first && !qt.isNullOrEmpty()) w.put("qt", qt)
                 if (first && !qm.isNullOrEmpty()) w.put("qm", qm)
-                if (spread(w, g, null, own = true) == 0) Book.edit(key) { c -> c.msgs.find { it.mid == mid }?.advance(-1) }
+                // a group of its owner alone holds the letter here (iOS MTGroup.alone, b4cf7d10); else nobody to carry to: honest red
+                if (spread(w, g, null, own = true) == 0) Book.edit(key) { c -> c.msgs.find { it.mid == mid }?.advance(if (alone(g)) 2 else -1) }
                 if (first && lead == null) lead = mid to piece
             }
         }
@@ -386,9 +387,14 @@ object Groups {
                 Log.i("Montana", "group_refused media -- group=" + (if (g == null) 0 else 1))
                 return false
             }
-            return spread(word("say", g).put("id", mid).put("s", g.me).put("tx", letter), g, null, own = true) > 0
+            val n = spread(word("say", g).put("id", mid).put("s", g.me).put("tx", letter), g, null, own = true)
+            if (n == 0 && alone(g)) { Book.edit(key) { c -> c.msgs.find { it.mid == mid }?.advance(2) }; return true }   // held here (A.2)
+            return n > 0
         }
     }
+
+    /** A group of its owner alone (iOS MTGroup.alone, the checklist's A.2): nobody to carry to, so a letter is held where it was written, never red. */
+    private fun alone(g: State): Boolean = g.mine && g.kind == GROUP && g.members.isEmpty()
 
     /**
      * A REACTION, AN EDIT OR A DELETION OF MINE (iOS MTGroup.signal): carried to every phone of the group like a letter and applied
@@ -653,14 +659,15 @@ object Groups {
     /**
      * A GROUP OR A CHANNEL IS BORN ON THIS PHONE (iOS MTGroup.create): its owner's phone. The people are the correspondents chosen,
      * each by the pipe this phone holds with them; each is told by an invitation of their own, with a seat of their own. The row
-     * stands at once; the invitations ride the queue until each is receipted. The key of the group's feed, or null when nobody
-     * chosen can be carried to.
+     * stands at once; the invitations ride the queue until each is receipted. The key of the group's feed, or null when it has no
+     * name or the store is not ready -- a group may begin with nobody (A.2).
      */
     fun create(channel: Boolean, title: String, about: String, face: ByteArray?, people: List<String>): String? {
         synchronized(lock) {
             val name = clean(title, TITLE_LIMIT)
             val pipes = people.map { SamePair.root(it) }.filter { !isKey(it) && Book.secret(it) != null }.distinct().take(PEOPLE_LIMIT)
-            if (!ready() || name.isEmpty() || pipes.isEmpty()) {
+            // A GROUP MAY BEGIN WITH NOBODY YET (iOS b4cf7d10, the checklist's A.2): its owner adds people from its page
+            if (!ready() || name.isEmpty()) {
                 Log.i("Montana", "group_refused birth -- title=" + (if (name.isEmpty()) 0 else 1) + " people=" + pipes.size)
                 return null
             }

@@ -110,11 +110,11 @@
     <string name="gp_about_hint">Описание</string>
     <string name="gp_about_note">Можно добавить описание группы.</string>
     <string name="gr_out_note">Вы больше не участник: сообщения остаются здесь для чтения.</string>
-    <string name="gr_choose">Выберите участников</string>
+    <string name="gr_add_members">Добавить участников</string>
+    <string name="gr_add_subscribers">Добавить подписчиков</string>
     <string name="gr_pick_note">Письмо группы идёт по каналу каждого человека, поэтому в списке только те, с кем вы переписываетесь.</string>
     <string name="gr_new">Новая группа</string>
     <string name="gr_name">Название группы</string>
-    <string name="gr_people">Участники</string>
     <string name="gp_members">УЧАСТНИКИ</string>
     <string name="gp_you">Вы</string>
     <string name="gp_creator">создатель</string>

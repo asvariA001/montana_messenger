@@ -110,11 +110,11 @@
     <string name="gp_about_hint">Description</string>
     <string name="gp_about_note">You can provide an optional description for your group.</string>
     <string name="gr_out_note">You are no longer a member: the messages stay here to read.</string>
-    <string name="gr_choose">Choose members</string>
+    <string name="gr_add_members">Add Members</string>
+    <string name="gr_add_subscribers">Add Subscribers</string>
     <string name="gr_pick_note">A group letter rides the pipe of each person, so only the people you write with are listed.</string>
     <string name="gr_new">New Group</string>
-    <string name="gr_name">Group name</string>
-    <string name="gr_people">Members</string>
+    <string name="gr_name">Group Name</string>
     <string name="gp_members">MEMBERS</string>
     <string name="gp_you">You</string>
     <string name="gp_creator">creator</string>
