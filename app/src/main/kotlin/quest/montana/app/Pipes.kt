@@ -943,6 +943,8 @@ object Book {
         DeviceVault.set(ERASED, JSONArray(s.toList()).toString().toByteArray())
         erasedHashes = null
     }
+    /** Whether the person deleted this conversation here (iOS deletedChats): a row stood back by its owner stays deleted. */
+    fun erased(ref: String): Boolean = synchronized(lock) { ref in erasedSet() }
     /** A block names its conversation by the hash of the reference (Archive.conv): the erased set is asked by that hash. */
     fun erasedHere(convHex: String): Boolean = synchronized(lock) {
         val h = erasedHashes ?: erasedSet().mapTo(HashSet()) { Wire.hex(Wire.sha(it.toByteArray())) }.also { erasedHashes = it }

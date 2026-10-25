@@ -780,6 +780,15 @@ object Card {
         val store = MontanaPaths.store(c)
         val stickers = Stickers.names(c).filter { keepMirror(Stickers.file(c, it), store) }
         if (stickers.isEmpty()) out.remove("a:montana.stickers.mine") else out.put("a:montana.stickers.mine", b64(JSONArray(stickers).toString()))
+        // The groups and channels held here (iOS SeedScope.dataKeys → MTGroup.stateKey; 8cd39e19), each face laid in the copy's faces,
+        // a face changed since written over the one laid before
+        val avatars = MontanaPaths.places(c).getValue("avatars")
+        Groups.carried(json(out.optString("d:" + Groups.STORE))) { name, src ->
+            val dst = File(avatars, name)
+            val same = dst.isFile && dst.length() == src.length() && runCatching { dst.readBytes().contentEquals(src.readBytes()) }.getOrDefault(false)
+            val laidNow = same || ((avatars.isDirectory || avatars.mkdirs()) && runCatching { src.copyTo(dst, overwrite = true) }.isSuccess)
+            if (laidNow) { laid.add(dst.path); name } else null
+        }?.let { out.put("d:" + Groups.STORE, b64(it)) }
         // The answers counted (iOS MTReactions, MontanaMessageMenu.swift 94-100: a map of answer to count, a property list on the card)
         QuickReactions.counts().takeIf { it.isNotEmpty() }?.let { out.put("p:reactionUse", b64(plist(it))) } ?: out.remove("p:reactionUse")
         // The moment the calls page was last seen (iOS ChatStore.loadCallsSeenAt 593-603: a sealed word of seconds)
@@ -822,6 +831,7 @@ object Card {
         var stickers: List<String>? = null
         var reactions: Map<String, Int>? = null
         var callsSeen: Long? = null
+        var groups: ByteArray? = null
         var laid = 0
         fun one(tagged: String) {
             val tag = tagged.take(2)
@@ -866,6 +876,7 @@ object Card {
                 tag == "a:" && k == "montana.stickers.mine" -> stickers = words(v)
                 tag == "p:" && k == "reactionUse" -> reactions = unb64(v)?.let { counts(it) }
                 tag == "d:" && k == "callsSeenAt" -> callsSeen = unb64(v)?.let { ms(String(it, Charsets.UTF_8)) }
+                tag == "d:" && k == Groups.STORE -> groups = unb64(v)
             }
         }
         for (tagged in map.keys()) runCatching { one(tagged) }
@@ -896,7 +907,8 @@ object Card {
             { pins?.let { MsgPins.lay(it) } },
             { stickers?.let { Stickers.lay(c, it, MontanaPaths.store(c)) } },
             { reactions?.let { QuickReactions.lay(it) } },
-            { callsSeen?.let { CallsSeen.lay(it) } }
+            { callsSeen?.let { CallsSeen.lay(it) } },
+            { groups?.let { Groups.lay(it, avatars) } }
         ).forEach { runCatching(it) }
         Log.i("Montana", "card laid values=$laid marks=${marks.size} grounds=${grounds.size} of ${map.length()}")
         return keep(c, "card", raw)
@@ -1045,6 +1057,8 @@ object Card {
             if (k.length > 2 && !scope.takesKey(k.substring(2))) continue
             val v = o.optString(k)
             val tag = k.take(2)
+            // a left-out group leaves the groups held with its conversation: the map names it by its id, the conversation by its key
+            if (k == "d:" + Groups.STORE) { out.put(k, json(v)?.let { g -> g.keys().asSequence().toList().filter { Groups.key(it) in people }.forEach { g.remove(it) }; b64(g.toString()) } ?: v); continue }
             out.put(k, if (tag == "d:" || tag == "a:" || tag == "m:" || tag == "k:") unb64(v)?.let { without(people, it) }?.let { b64(it) } ?: v else v)
         }
         return Built(out.toString().toByteArray(), out.length())
