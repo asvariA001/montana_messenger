@@ -9,6 +9,7 @@
 // and a test holds each rule without a wire. The conduct of a machine — when it pledges, how long it
 // waits — stands in the pulse, where waiting is.
 
+use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet};
 
 use mt_state::layout::{Confirmation, Pledge};
@@ -88,6 +89,40 @@ fn contradicts(closing: &Pledge, later: &Pledge) -> bool {
             .is_none_or(|since| since < closing.attempt)
 }
 
+// The kind a pledge is counted under.
+fn kind_of(pledge: &Pledge) -> Kind {
+    if pledge.is_closing() {
+        Kind::Closing
+    } else {
+        Kind::Open
+    }
+}
+
+// The contradiction two pledges of one part make, where the set calls them one: of one kind and
+// attempt on two names, the lesser name first, or a closing pledge and an open one it contradicts,
+// the closing one first.
+fn contradiction(held: &Pledge, later: &Pledge) -> Option<Contradiction> {
+    let (first, second) = match (kind_of(held), kind_of(later)) {
+        (one, other) if one == other => {
+            if held.attempt != later.attempt || held.name == later.name {
+                return None;
+            }
+            if held.name < later.name {
+                (held, later)
+            } else {
+                (later, held)
+            }
+        }
+        (Kind::Closing, Kind::Open) if contradicts(held, later) => (held, later),
+        (Kind::Open, Kind::Closing) if contradicts(later, held) => (later, held),
+        _ => return None,
+    };
+    Some(Contradiction {
+        first: first.clone(),
+        second: second.clone(),
+    })
+}
+
 // The place of a heavy attestation in the canonical order of its window: the chain of its beacon, the
 // round of its beacon and its round nullifier, each ascending, the nullifier as 32 bytes. Consensus,
 // "The sanction of a double answer": of the heavy attestations of one part the first in this order
@@ -110,14 +145,23 @@ impl Place {
     }
 }
 
-// What a machine holds of the agreement on one proposal: every part's first pledge of each kind and
-// attempt, the open pledges of attempt zero its heavy attestations made, and the contradictions met.
+// The canonical order of the pledges of one part, kind and attempt: the name ascending as 32 bytes,
+// then `since` descending. `STANDS_ON_NONE` is the greatest `u32`, so of two pledges on one name the
+// one standing on none, which counts wherever it stands, comes before one that counts only on the
+// quorum it names. Consensus, "The sanction of a double answer".
+fn rank((name, since): (Name, u32)) -> (Name, Reverse<u32>) {
+    (name, Reverse(since))
+}
+
+// What a machine holds of the agreement on one proposal: every part's pledge of each kind and attempt,
+// the first of its pledges there by `rank`, the open pledges of attempt zero its heavy attestations
+// made, every pledge each part made, and the contradictions met.
 #[derive(Default)]
 pub struct Book {
     window: u64,
     heavy_first: BTreeMap<Part, (Place, Name)>,
     first: BTreeMap<(Kind, u32), BTreeMap<Part, (Name, u32)>>,
-    held: BTreeMap<(Kind, u32, Part), Pledge>,
+    said: BTreeMap<Part, Vec<Pledge>>,
     pub contradictions: Vec<Contradiction>,
 }
 
@@ -155,48 +199,32 @@ impl Book {
     }
 
     // A pledge whose signature and heavy attestation the caller verified. A part counts once per kind
-    // and attempt, at its first appearance; a second on another name is a contradiction and adds
-    // nothing, and a repetition on the same name adds nothing.
+    // and attempt, under the first of its pledges there by `rank`, the way `heavy` keeps the first by
+    // `place`: the order they are handed in changes nothing. Every pair of its pledges the set calls
+    // a contradiction is evidence, whichever of the two counts, the lesser name first in a pair of
+    // one kind and attempt; a repetition of an attempt, a name and a since adds nothing.
     pub fn pledge(&mut self, pledge: Pledge) {
         if pledge.window != self.window {
             return;
         }
-        let kind = if pledge.is_closing() {
-            Kind::Closing
-        } else {
-            Kind::Open
-        };
-        let met: Vec<Contradiction> = self
-            .held
-            .iter()
-            .filter_map(|((held_kind, _, _), held)| match (kind, held_kind) {
-                (Kind::Open, Kind::Closing) if contradicts(held, &pledge) => Some(Contradiction {
-                    first: held.clone(),
-                    second: pledge.clone(),
-                }),
-                (Kind::Closing, Kind::Open) if contradicts(&pledge, held) => Some(Contradiction {
-                    first: pledge.clone(),
-                    second: held.clone(),
-                }),
-                _ => None,
-            })
-            .collect();
-        self.contradictions.extend(met);
-        let at = (kind, pledge.attempt, pledge.part_nullifier);
-        if let Some(first) = self.held.get(&at) {
-            if first.name != pledge.name {
-                self.contradictions.push(Contradiction {
-                    first: first.clone(),
-                    second: pledge,
-                });
-            }
+        let kind = kind_of(&pledge);
+        let said = self.said.entry(pledge.part_nullifier).or_default();
+        let content = |held: &Pledge| (held.attempt, held.name, held.since);
+        if said.iter().any(|held| content(held) == content(&pledge)) {
             return;
         }
-        self.first
-            .entry((kind, pledge.attempt))
-            .or_default()
-            .insert(pledge.part_nullifier, (pledge.name, pledge.since));
-        self.held.insert(at, pledge);
+        for held in said.iter() {
+            self.contradictions.extend(contradiction(held, &pledge));
+        }
+        let stands = (pledge.name, pledge.since);
+        let parts = self.first.entry((kind, pledge.attempt)).or_default();
+        if parts
+            .get(&pledge.part_nullifier)
+            .is_none_or(|held| rank(stands) < rank(*held))
+        {
+            parts.insert(pledge.part_nullifier, stands);
+        }
+        said.push(pledge);
     }
 
     // Every attempt and name the counted open pledges reach the quorum on, attempt by attempt from
@@ -439,6 +467,94 @@ mod tests {
         assert_eq!(pledged(&other), X);
     }
 
+    // Every order of `items`.
+    fn every_order(items: &[Pledge]) -> Vec<Vec<Pledge>> {
+        if items.is_empty() {
+            return vec![Vec::new()];
+        }
+        let mut orders = Vec::new();
+        for at in 0..items.len() {
+            let mut rest = items.to_vec();
+            let item = rest.remove(at);
+            for mut order in every_order(&rest) {
+                order.insert(0, item.clone());
+                orders.push(order);
+            }
+        }
+        orders
+    }
+
+    // Four heavies on X; parts 1 and 2 close attempt zero on X, and part 4, faulty, closes it on X
+    // and on another name. The part counts under the lesser of its two names whatever the order the
+    // four are handed in: with the other name above X its pledge on X stands and X is decided in all
+    // 24 orders, with it below X the other stands and nothing is decided in any, and the pair is the
+    // same evidence in each. The wrong implementation refused: one keeping the first handed in, which
+    // decides X in the order bX, bY, h1, h2 and nothing in bY, bX, h1, h2.
+    #[test]
+    fn a_part_closing_on_two_names_counts_under_the_lesser_in_every_order() {
+        const W: Name = [0x57; 32];
+        let votes = BTreeMap::new();
+        let electorate = four(&votes);
+        for (other, decided) in [(Y, Some((X, 0))), (W, None)] {
+            let pledges = [
+                pledge(4, 0, X, 0),
+                pledge(4, 0, other, 0),
+                pledge(1, 0, X, 0),
+                pledge(2, 0, X, 0),
+            ];
+            let orders = every_order(&pledges);
+            assert_eq!(orders.len(), 24);
+            for order in orders {
+                let mut book = Book::of_the_window(7);
+                for at in 1..=4 {
+                    book.heavy(Place::default(), part(at), X);
+                }
+                for held in order {
+                    book.pledge(held);
+                }
+                assert_eq!(book.decided(&electorate), decided);
+                assert_eq!(book.contradictions.len(), 1);
+                let pair = &book.contradictions[0];
+                assert_eq!(
+                    (pair.first.name, pair.second.name),
+                    (X.min(other), X.max(other))
+                );
+            }
+        }
+    }
+
+    // Part 4, faulty, opens attempt one on X twice: standing on none, and on attempt zero, where X
+    // has no quorum. The pledge standing on none stands in every order, so the part counts and X
+    // reaches the quorum of attempt one; two pledges of one name are no contradiction. The wrong
+    // implementations refused: one keeping the first handed in, and one ordering `since` ascending,
+    // under which the pledge on attempt zero stands and counts nothing.
+    #[test]
+    fn of_two_open_pledges_on_one_name_the_one_standing_on_none_stands() {
+        let votes = BTreeMap::new();
+        let electorate = four(&votes);
+        let pledges = [
+            pledge(4, 1, X, STANDS_ON_NONE),
+            pledge(4, 1, X, 0),
+            pledge(1, 1, X, STANDS_ON_NONE),
+            pledge(2, 1, X, STANDS_ON_NONE),
+        ];
+        for order in every_order(&pledges) {
+            let mut book = Book::of_the_window(7);
+            book.heavy(Place::default(), part(1), X);
+            book.heavy(Place::default(), part(2), X);
+            book.heavy(Place::default(), part(3), Y);
+            book.heavy(Place::default(), part(4), Y);
+            for held in order {
+                book.pledge(held);
+            }
+            let quorums = book.open_quorums(&electorate);
+            assert!(!quorums.contains(&(0, X)));
+            assert!(quorums.contains(&(1, X)));
+            assert!(book.open_of(1).contains(&(part(4), X, STANDS_ON_NONE)));
+            assert!(book.contradictions.is_empty());
+        }
+    }
+
     // A split of two and two at attempt zero decides nothing; three parts opening attempt one on X
     // and closing on it decide X in attempt one. The wrong implementation refused: one counting the
     // heavy attestations of both names together toward one quorum.
@@ -652,9 +768,9 @@ mod tests {
 // faulty part pledging anything in either, never decide two names. WINDOW-THEOREM.md, Theorem 1;
 // run by `cargo kani -p montana-node -Z stubbing`. Four parts make the quorum three, so two quorums share an
 // honest part, and two attempts reach the third contradicting pair. The bound of a loop is the book
-// at its fullest: three pledges of each of four parts stand in `held`, its dropping runs twelve
-// times and the search of its node of eleven keys before the twelfth eleven, so the harness is
-// unwound to thirteen; a comparison of 32 bytes is a loop of `memcmp` the command line unwinds to
+// at its fullest: three pledges of each of four parts stand in `said`, four lists of three under
+// four keys, so no loop over what it holds runs more than twelve times and the harness is unwound
+// to thirteen; a comparison of 32 bytes is a loop of `memcmp` the command line unwinds to
 // thirty-three.
 // Theorem 1 by enumeration (the author's decision 176, "both", 25.10.2026): the bound of the Kani
 // harness `two_books_of_one_window_never_decide_two_names` walked whole, every case run on the book
