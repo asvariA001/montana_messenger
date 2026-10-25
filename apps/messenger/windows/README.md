@@ -112,7 +112,8 @@ Windows 11, MSVC Build Tools, Rust 1.92.0 (`x86_64-pc-windows-msvc`), Node 22, P
 $env:CARGO_TARGET_DIR = "<repo>/apps/messenger/windows/target"
 $env:RUSTUP_TOOLCHAIN = "1.92.0-x86_64-pc-windows-msvc"
 
-# 1. the core's C ABI, in core/Code (needs the core/Code Windows commit of this branch)
+# 1. the core's C ABI, in core/Code -- with the Windows portability commit of branch dinetpda/core-windows-portability
+#    (git cherry-pick 291869b): core/ is the private history's tree, kept out of this pull request
 cd <repo>/core/Code
 $env:OPENSSL_SRC_PERL = "<path to perl.exe>"
 cargo build --release -p mt-bindings
@@ -146,8 +147,8 @@ refused rather than read in part (`twin::a_forged_block_or_another_persons_stand
 `history::a_copy_reads_back_whole_and_a_cut_or_strange_one_is_refused`). A copy brings a conversation's files back to a new
 machine once (`history::a_copy_brings_the_files_back_to_a_new_machine`); restoring the same copy again neither rewrites nor
 counts a file already there, as iOS `MontanaBackup` ("a copy adds, it does not erase").
-In `core/Code`, before this branch's Windows commit: `cargo test --release --workspace` — 1 421 passed, 0 failed, 1 ignored
-upstream (DEV-012).
+In `core/Code`, with the portability commit of `dinetpda/core-windows-portability` (19.10.2026): `cargo test --release
+--workspace` — 1 421 passed, 0 failed, 1 ignored upstream (DEV-012).
 
 No constant-time measurements (dudect or otherwise) have been made for this port; none are claimed. The Windows side adds no
 secret-dependent cryptographic code of its own beyond what is named below.
