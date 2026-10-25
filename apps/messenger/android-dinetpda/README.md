@@ -29,7 +29,8 @@ phone, and no iPhone.
 ## Where it comes from
 
 **The start.** The app began as upstream's `apps/messenger/android` build 411. That is folder tree `674ab0c96f69…`
-from source commit `07e5f3cde2e0`, the same tree `main` holds today (see `RELEASES.md`). It was imported on
+from source commit `07e5f3cde2e0`, which `main` held until 2026-10-25. Since `86d5b28`, `main` holds the project's newer
+builds: 543, and at `c7270dd` build 547, tree `ce66d6909efe…`. It was imported on
 2026-10-17 at 14:22 UTC from upstream commit `97433815677a` into a local repository. The core `4ce3d6705224…` sat beside
 it.
 
@@ -59,11 +60,15 @@ Every other file is byte for byte the same.
 git diff --stat origin/main:apps/messenger/android HEAD:apps/messenger/android-dinetpda
 ```
 
-On 2026-10-25 the result was:
+On 2026-10-25, for this folder as of commit `70e26cc`, the result was:
 
-- 248 files equal;
-- 53 changed;
-- 130 new: 113 in `app/`, `native/` and `scripts/`, 15 in `tools/`, plus `.gitattributes` and this README.
+| `main`'s Android folder | Equal | Changed | New here | Only in `main` |
+|---|---|---|---|---|
+| build 411 (tree `674ab0c96f69`, `main` up to `2c7eb0d`), where this app began | 247 | 53 | 131 | 1: `BackupSeed.kt`, removed here |
+| build 547 (tree `ce66d6909efe`, `main` at `c7270dd`) | 213 | 91 | 127 | 19: `BackupSeed.kt`, and 18 files that build 543 added |
+
+The new files are those of `app/`, `native/` and `tools/`, plus `.gitattributes` and this README. Builds 543 to 547 have
+not been compared with this app feature by feature.
 
 ## Layout
 
@@ -330,9 +335,22 @@ with `tools/ui.ps1`. The checks with Windows are the Windows app's scenes in `ap
 
 ### Run for this publication (2026-10-25, UTC)
 
-The checks ran on commit `739f8bdc004c` of this branch (folder tree `7b11aebe861f`), from a plain clone in WSL, with a
-build copy of its own. This README was added afterwards and changes nothing that is built. Afterwards too, two comments
-(`CoinChain.kt` lines 19-20, `CoinLocalTest.kt` lines 8-9) were reworded in English; no code changed.
+**On folder tree `441322aca813`**, after the words left the system backup: commit `e3bc335`, which the rebase onto
+`main` `c7270dd` made `70e26cc` with the same folder tree and the same `core/`. The checks ran from a plain clone in WSL,
+with a build copy of its own. This README's update came afterwards and changes nothing that is built.
+
+| Command | Result |
+|---|---|
+| `bash tools/wsl-build.sh check` | exit 0, 119 s. `Montana 1.0 (336 → 1277)`; the code compiles: 1004 classes |
+| `bash tools/wsl-build.sh apk` | exit 0, 171 s. Output `Montana-e3bc335-arm64-v8a.apk`, 39 528 089 bytes, SHA-256 `5e53284835ede8dd99836288adfc19d73c447470fc79dbb4c6629e0a12ee7c8b`. The same compiler warning as below |
+| `bash tools/verify-apk.sh out/Montana-e3bc335-arm64-v8a.apk` | exit 0. Signature v2 + v3 (debug certificate), `quest.montana.app.dev`, versionCode 336, minSdk 26, targetSdk 35, arm64-v8a. `zipalign -c -P 16 4` OK, every library LOAD-aligned to 16 KiB, 41 JNI functions. The manifest names `WithdrawBackupAgent`; `classes.dex` holds it, and neither `SeedBackupAgent` nor `MontanaBackupID` |
+
+Not run again on this tree: `test-jni`, `test-core`, `lzfse_check.sh`, the identity reference and the vector tools. The
+change touches none of the files they check. The APK was not installed or started, and no backup or restore was made.
+
+**Earlier, on commit `739f8bdc004c`** (folder tree `7b11aebe861f`), the same way. That commit is not in this branch's
+history: the branch's first commit, `585a3f7`, differs from it only by two comments reworded in English (`CoinChain.kt`
+lines 19-20, `CoinLocalTest.kt` lines 8-9). No code changed from it up to `e869db3`.
 
 | Command | Result |
 |---|---|
@@ -374,6 +392,9 @@ device, and iOS carries no seed in the Apple account (`MontanaAppleID.swift:4-8`
   no longer holds the words.
 - The words on the device are not touched: the active seed in the vault, and a seed an earlier build brought from a
   backup, both stay where they are.
+- `main`'s `apps/messenger/android` made the same change in build 547 (`c7270dd`). It keeps the names `BackupSeed.kt` and
+  `SeedBackupAgent`, asks for the withdrawing backup once, and deletes from the vault a seed an earlier build brought from
+  a backup (`BackupSeed.kt:38` there); this app keeps that seed.
 
 Not run: no backup or restore was made on an emulator with this build (`adb shell bmgr`).
 
@@ -414,7 +435,7 @@ Not run: no backup or restore was made on an emulator with this build (`adb shel
     build 411. Its tests compare every JNI function with the C function iOS calls.
 11. **The application id.** Package `quest.montana.app.dev` with a debug key: see [Installing](#installing).
 12. **The version.** `scripts/version` makes the build number the repository's commit count, so in this repository the
-    app shows `1.0 (323 → 1277)`.
+    app shows `1.0 (<commits> → 1277)`, for example `1.0 (336 → 1277)` in the build of `e3bc335`.
 
 ## Cryptography that is not Montana's own
 
