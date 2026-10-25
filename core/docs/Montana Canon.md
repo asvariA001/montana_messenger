@@ -626,7 +626,7 @@ tree of admitted machines holds the naming halves ascending.
 
 **What enters the two sets.** A nullifier enters the set of nullifiers when the object spending it
 applies and never leaves it: the nullifiers a frame publishes in its redemption positions — of a note
-or of a right to a share, which no reader tells apart — and the nullifier of an opening. A rate
+or of a right to a coin, which no reader tells apart — and the nullifier of an opening. A rate
 nullifier stands in the rate set of the horizon, which Value states is not a tree, and is no entry of
 this one. A machine enters the table of machines by the commitment a selection event admits; a
 machine of an opening cohort enters the tree of admitted machines by its naming half and writes no
@@ -802,12 +802,12 @@ every transfer slot of every window, and the scarcity that guards records would 
 
 ### `claim_spread` = 1 440 windows
 
-**Target.** The moment a share is taken must say nothing about who took it, and a machine must
+**Target.** The moment a coin is taken must say nothing about who took it, and a machine must
 not wait unreasonably to be paid.
 
 **Derivation.** The spread is one continuity segment — the same unit lived time is measured in.
 Over that span the claims of all living machines overlap thoroughly, so the moment carries no
-signal; and no machine waits more than one segment for a share it has already earned. Reusing
+signal; and no machine waits more than one segment for a coin it has already earned. Reusing
 the segment introduces no new period into the protocol, which is the whole point of choosing it
 over a number of its own.
 
@@ -2886,7 +2886,7 @@ may differ.
 
 - It takes the spending half of the machine's secret and the window and nothing else, so one machine yields one value per window and two machines never collide.
 - The window enters as one element, for the reason the window of a right and the amount of a frame do: two limbs of one number are two witnesses inside a proof.
-- Its domain is distinct from the one that spends a right to a share, so answering a window and taking its share are two acts that do not join.
+- Its domain is distinct from the one that spends a right to a coin, so answering a window and taking its coin are two acts that do not join.
 - What a second appearance of one part-nullifier means is a rule and not a value, and Consensus holds it whole: a repetition within one window adds nothing to the cement and is lawful, and what a sanction rests on is one part-nullifier under one of the three contradicting pairs of pledges Consensus names. This document holds the derivation and nothing about the rule.
 
 ### The identifier of an application
@@ -2945,7 +2945,7 @@ domain would let the public kind collide with the private kind.
 - The tag of first contact takes its own domain, so it never collides with a tag standing on a secret two parties hold.
 - The tag of first contact carries a request and never a letter; the letters of that correspondence stand on the derived secret alone, so the public value of a name is an entrance and never a channel.
 
-### The right of a machine to a share, and what redeems it
+### The right of a machine to its coin of a window, and what redeems it
 
 A machine is admitted once and stands in the tree of admitted machines from then on; the leaf it
 occupies is the half of its secret that names it, and nothing else:
@@ -2965,20 +2965,25 @@ window is inside the derivation because the right is issued per window, which is
 opposite of the one-time rights above, where a window would break the construction.
 
 **What a redemption of a right proves.** There is a leaf of the tree of admitted machines whose
-half its writer holds, the nullifier of this window's right under that half is this value, and the
+half its writer holds, the nullifier of this window's right under that half is this value, the
+amount the right brings into the balance of the frame is one coin, and the
 computed moment of taking falls within the standing stride of the window the frame applies in —
 every window of a stride stands before its standing period, so nothing lands before its moment,
 and a moment of a stride the horizon has left is unprovable. It proves membership exactly as the
 redemption of a note does, and against a root of its own — the root of admitted machines the
 proposal of the standing stride's last window carries; the two branches occupy the same blocks,
 so nothing of which was taken is readable from the length of a frame or the shape of its trace.
+The amount is a constant of the construction and not a witness: a right is worth one coin whatever
+the count of the living of its window, so a frame prices a right alone and no count of a cement
+enters its proof to do it.
 
 **Invariants of the right of a machine:**
 
 - A redemption of a right walks to a leaf of the tree of admitted machines. Without that walk the nullifier binds nothing a network can check: the network holds no secret of any machine and can pre-register no value, so a fresh secret would yield a value it has not seen and it would pay for it. That is a mint, and the walk is what closes it.
 - The leaf is the naming half and the nullifier takes the spending half, both of one absorption of the machine's secret. Two absorptions would be two readings of one secret, and a circuit reading a secret twice is a circuit where the two readings may differ — the same closure the key of a note takes, for the same reason.
 - The nullifier takes the spending half and the window and nothing else, so two machines never collide and one machine cannot spend one window twice.
-- Nothing published by a machine carries either half's preimage, so a share says nothing about who runs the machine.
+- Nothing published by a machine carries either half's preimage, so a coin taken says nothing about who runs the machine.
+- A redemption of a right brings exactly one coin into the balance of its spend; a right standing for any other amount is not a right of this construction.
 - A nullifier already present in its window is refused in silence.
 - The moment of taking is the second squeeze of that same absorption, so no third reading of the secret exists anywhere in this construction.
 - All of it is of the proof hash family, for the reason the envelope of a note is: a right is redeemed by a frame and by nothing else, so the one judge of these derivations is a verifier of a proof, and a function the circuit cannot carry would put the redemption of a right beyond proving.
@@ -3372,7 +3377,7 @@ identity key = 0x66 x 32, iterations = 5 200
 fingerprint  = 00534 22536 46923 62969 86064 85215
 ```
 
-**The nullifiers of the two rates.** The nullifier of a share stands with the right it
+**The nullifiers of the two rates.** The nullifier of a right to a coin stands with the right it
 extinguishes, where its two halves are derived.
 
 ```
@@ -3848,7 +3853,7 @@ them.
 
 **Why nobody is excluded.** A runner carries what the window decided and nothing of its own. The name
 of a proposal is taken over the decision, so every runner of one decision writes one name, and the
-share of a window falls to every living machine alike, runner or not. Excluding a machine from
+coin of a window falls to every living machine alike, runner or not. Excluding a machine from
 running therefore buys nothing but the bandwidth of its copy, and it costs a window: a threshold
 below the width leaves windows no ticket clears, and such a window closes on nothing. Neither way of
 setting a lower threshold escapes that. A threshold walked by the windows that cleared it is held at
@@ -4434,7 +4439,8 @@ For a frame — that every redemption takes one of the two branches without
 saying which; where the branch is a note, that its root stands at a leaf of the horizon of
 proving — the fold of the standing stride of the window the frame applies in — and where it is
 a right, that its walk answers against the root of admitted machines the proposal of that
-stride's last window carries; that what is created equals what is consumed; that
+stride's last window carries; that what is created equals what is consumed, a right counting
+as one coin; that
 every nullifier derives from what was consumed by the canonical formula of its branch; that the
 rate nullifier belongs to a window of the standing stride and its index is within the bound;
 that the computed moment of a right falls within the standing stride, which is what stands
@@ -4674,9 +4680,10 @@ verifies as they arrive; the envelope and the gate of entry bound that count, an
 majority costs a signature check alone. **The young
 network pays itself while it is everyone who exists:** the length of a window in rounds falls with
 the population below the floor of the crowd and stands at the target above it, so windows pass
-quickly in lived time while the geography is one room, and a flat schedule mints quickly in those
-early days — bounded by the one-equal-share
-rule, and shaped, if its founder wishes, by an early-height row of the schedule.
+quickly in lived time while the geography is one room, and the credit of one coin to every living
+machine for every window pays a machine quickly in those early days — its coin of a window lasts
+the lived length of that window, which is short while the network is small, and what a window adds
+to the supply is the count of its living, which is small with it.
 
 **Every parameter of the table is published.** The last to land was the hash binding the constraint
 sets — the identifiers of the six descriptions the network accepts proofs under. These bind
@@ -4947,7 +4954,7 @@ decision between them.
 - `previous` is the identifier of the proposal of the window before, so the chain of proposals is a chain by construction and round zero of every window stands on bytes that are fixed. The first window of a network has no proposal before it, and its `previous` is the Genesis State Hash, so the chain of every network begins at the parameters it opened on.
 - The roots are recomputed by every verifier and never taken from the proposal on trust; `admitted_count` is the count of leaves of the tree `admitted_root` stands over, recomputed with it.
 - `roll` is the identifier of the roll of this proposal, laid out below: the identifiers of the frames the window applied, in the order they applied, then the parts of its cement, ascending. A machine replaying the roll recomputes `operations_root` from its frames and the cement from its parts, and a proposal whose roll does not replay to it is followed by no machine that did not take it.
-- `cement_aggregate` and `cement_count` are the aggregate and the count of the cement of this window, its living machines whatever names they pledged: the state the beacon `final_beacon` carried, a count reaching the quorum of the electorate, which a machine of the window recomputed from the heavy attestations it held when it answered that beacon, and which a device walking a certificate reads off that beacon among the beacons of the certificate; a proposal whose pair differs is refused. They are what the electorate of the window two on and the draw of that window read.
+- `cement_aggregate` and `cement_count` are the aggregate and the count of the cement of this window, its living machines whatever names they pledged: the state the beacon `final_beacon` carried, a count reaching the quorum of the electorate, which a machine of the window recomputed from the heavy attestations it held when it answered that beacon, and which a device walking a certificate reads off that beacon among the beacons of the certificate; a proposal whose pair differs is refused. They are what the electorate of the window two on and the draw of that window read, and `cement_count` is the coins the window credits, one to each of its living machines.
 - `ticket_proof` asserts that the ticket drawn from the runner's secret and the cemented aggregate of the window two before clears the threshold of the draw, that the half the secret names stands in the tree of admitted machines of the electorate, and that the digest of the key this proposal answers under is the one the proof names — without disclosing the ticket, the secret or the machine. It stands at the height of the presence and is of its length.
 - The signature covers every byte above it, and the rules for a signed object fix what is signed and how.
 
@@ -5317,7 +5324,7 @@ An implementation conforms to this document when all of the following hold.
    and claims no conformance over them until the value lands.
 7. It reproduces **every frozen vector of this document byte for byte**, from the domain-separated
    primitive and the empty values and the pinned walks of both trees through the note, the nullifiers of both rates and
-   of a share, the tag and its step labels, the walk of the secret of a pipe, the seal of a step, the placement of a sender, the slot
+   of a right to a coin, the tag and its step labels, the walk of the secret of a pipe, the seal of a step, the placement of a sender, the slot
    of a name and the slot of a channel, the tag of first contact, the handshake and the words of a
    seed. This item is the first an implementation
    should run and the cheapest to run: an implementation that reproduces the vectors has the hash
