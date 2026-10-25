@@ -88,7 +88,8 @@ Upstream `main` carries the iOS source up to 2308; 2309 and 2310 are in the chan
 | 2310 | the pipe tag on `pipe_secret(day)` from 01.11.2026, both tags 01–02.11, only the new from 03.11, the floor F = D-2 and erasure of the established secret | **not yet**: waiting for the spec text and byte vectors (PR #13, 24.10 23:34 UTC) and the 2310 source | not yet |
 
 The transition is tested on an isolated node, never on the network or a real wallet: `app/tools/clocknode.py` runs the
-original's `apps/messenger/ios/Code/Node/montana-home-node.py` on a clock of its own (moved while it runs) on the loopback;
+original's `apps/messenger/ios/Code/Node/montana-home-node.py` on a clock of its own (moved while it runs) on the loopback, with the
+live box's 2306 behaviour added as the chairman described it (the live nodes run `montana-node-store.py`, which is not published);
 a check's run of Windows is pointed at it by `MONTANA_TEST_DOOR` (only with `MONTANA_DATA_DIR` set), an emulator by a file only its
 root can lay (`Doors.testDoor`, cleartext to 10.0.2.2 only).
 
