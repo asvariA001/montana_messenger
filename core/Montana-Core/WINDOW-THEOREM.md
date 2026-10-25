@@ -399,7 +399,8 @@ of another width; `links_to` refuses a round past `u32::MAX` (round.rs:107-109);
     (25.10.2026, agreement.rs blob 1e69d908, commit 8f38237): 332 150 625 books, 11 267 424 deciding;
     117 honest scripts per honest part, 1 601 613 honest triples, 276 962 deciding under them, none
     deciding two names; 8 918 triples of any scripts decide both names, so the honest predicate is what
-    the result stands on; `ok`, 1 passed, 220.28 s.
+    the result stands on; `ok`, 1 passed, 220.28 s. The rustfmt of `every_book` that followed (blob
+    098b2380) breaks four lines and adds one trailing comma to an array; the walk is otherwise unchanged.
   - Lemma 2: `an_accepted_certificate_satisfies_the_predicate` (`crates/montana-node/src/certificate.rs`)
     runs `verify_certificate` itself, with presence proofs, signatures and ballot proofs as oracles the
     objects carry and with stubs for `Beacon::id`, `genesis_state_hash`, `round_threshold` and

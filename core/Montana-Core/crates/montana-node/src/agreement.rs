@@ -773,7 +773,10 @@ mod every_book {
         match book.decided(electorate) {
             None => 0,
             Some((name, _)) => {
-                assert!(name == [name[0]; 32] && (1..=2).contains(&name[0]), "a name no part pledged");
+                assert!(
+                    name == [name[0]; 32] && (1..=2).contains(&name[0]),
+                    "a name no part pledged"
+                );
                 1 << (name[0] - 1)
             }
         }
@@ -829,7 +832,11 @@ mod every_book {
         let fold = |table: &[u8], axis: usize| -> Vec<u8> {
             let mut out = vec![0u8; table.len()];
             for (i, slot) in out.iter_mut().enumerate() {
-                let mut at = [i / (CONTENTS * CONTENTS), i / CONTENTS % CONTENTS, i % CONTENTS];
+                let mut at = [
+                    i / (CONTENTS * CONTENTS),
+                    i / CONTENTS % CONTENTS,
+                    i % CONTENTS,
+                ];
                 let script = scripts[at[axis]];
                 for (c, &taken) in scripts.iter().enumerate() {
                     if below(taken, script) {
@@ -852,7 +859,10 @@ mod every_book {
                     let bits = held[index(x, y, z)];
                     triples += 1;
                     decided_under_honest += u64::from(bits != 0);
-                    assert!(bits != 3, "two names decided under honest scripts {x}, {y}, {z}");
+                    assert!(
+                        bits != 3,
+                        "two names decided under honest scripts {x}, {y}, {z}"
+                    );
                 }
             }
         }
@@ -867,8 +877,14 @@ mod every_book {
             honest_of[1].len(),
             honest_of[2].len(),
         );
-        assert!(decided_under_honest != 0, "no book decides: the walk proves nothing");
-        assert!(dishonest_split != 0, "two names never arise even without honesty: the walk is too weak");
+        assert!(
+            decided_under_honest != 0,
+            "no book decides: the walk proves nothing"
+        );
+        assert!(
+            dishonest_split != 0,
+            "two names never arise even without honesty: the walk is too weak"
+        );
     }
 }
 
