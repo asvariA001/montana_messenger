@@ -52,8 +52,9 @@ Known gaps, among others: Live Text, Apple-only system features (Wallet passes, 
 ## One identity on Windows and Android (iOS's twin mirror) — Experimental
 
 The Android port now carries iOS's twin mirror (`MontanaPQ` 872-1155: the mirror's words, the archive's blocks, the ask and
-answer of rows, cards born on another device) in three stages, Work in Progress (`apps/messenger/android`, commits of this
-branch). The owner's scenarios were run as scenes in `app/tools/`, each with Windows and the Android port on **emulators**, test
+answer of rows, cards born on another device) in three stages, Work in Progress. Those Android changes are the Windows checks'
+counterpart, not a release of the Android client: they live on branch `dinetpda/android-windows-counterpart` of this repository
+(moved out of this pull request on 25.10.2026, so that `apps/messenger/android` stays the Android client's own line). The owner's scenarios were run as scenes in `app/tools/`, each with Windows and the Android port on **emulators**, test
 identities and the live nodes — **not on a real phone and not against an iPhone**:
 
 | Scenario | Scene | Result (25.10.2026) |
