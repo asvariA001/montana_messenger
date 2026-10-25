@@ -2,15 +2,16 @@
 
 **Status: open. This directory records current limits explicitly.**
 
-The root repository links this audit separately and reports zero closed criteria.
+The root repository links this audit separately; the closed criteria are the
+rows marked closed in the table of `README.md`, written from `PROTOCOL-13.json`.
 Its application releases remain separately identified in `RELEASES.md`. Candidate
 native fixes are not described as present in the pinned public core snapshot.
 Historical closure prose is not current end-to-end proof; unresolved findings
 override it. The old and native core generations are evaluated separately.
 
 Candidate proof changes update Canon/Core versions, AIR identifiers, parameter
-digest, serialized widths and Genesis. The current candidate Genesis is
-`ee515d902ae16ad88497ff97cb0579ddcfe19af1b60a46d4598eda68c0760ec7`.
+digest, serialized widths and Genesis. The current candidate Genesis is the
+`genesis_state_hash` that `Montana Canon.md` states; this report does not restate it.
 It is not a production trust anchor or an authorization to migrate balances.
 No fallback accepting retired vulnerable proof descriptions was added.
 
