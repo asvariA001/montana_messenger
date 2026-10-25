@@ -126,7 +126,10 @@ object Archive {
      */
     private fun headIn(k: Keys, ref: String, folder: String) {
         val sec = Book.secret(ref)?.takeIf { Wire.reference(it) == ref }
-        val (content, form) = if (sec != null) ("s:" + Base64.encodeToString(sec, Base64.NO_WRAP)) to "s" else ("a:" + ref) to "a"
+        // from ERASE_DAY the head carries the floor, never the secret (iOS archiveHead): a form of its own, so it is written once
+        // more; a restore walks forward from that floor, so it need not follow the floor's later days
+        val form = if (sec == null) "a" else if (Wire.isFloor(sec)) "f" else "s"
+        val content = if (sec != null) "s:" + Base64.encodeToString(sec, Base64.NO_WRAP) else "a:" + ref
         val heads = map(HEADS)
         if (heads.optString(folder) == form) return
         keep(HEADS, heads.put(folder, form))
@@ -286,7 +289,7 @@ object Archive {
                     val s = String(r.content, Charsets.UTF_8)
                     if (r.dir == HEAD_DIR) {
                         when {
-                            s.startsWith("s:") -> runCatching { Base64.decode(s.drop(2), Base64.DEFAULT) }.getOrNull()?.takeIf { it.size == 32 }?.let { secret = it; hs++ }
+                            s.startsWith("s:") -> runCatching { Base64.decode(s.drop(2), Base64.DEFAULT) }.getOrNull()?.takeIf { Wire.isWhole(it) }?.let { secret = it; hs++ }
                             s.startsWith("x:") -> closedThere = true
                             s.startsWith("a:") -> { ha++; val n = s.drop(2); if (ref == null && (Book.secret(n) != null || Book.isLocal(n) || Groups.isKey(n))) ref = n }
                             s.startsWith("n:") -> { hn++; name = s.drop(2) }

@@ -29,7 +29,6 @@ import android.widget.TextView
 import android.widget.Toast
 import org.json.JSONObject
 import java.io.File
-import java.security.MessageDigest
 import java.util.Date
 import kotlin.math.abs
 
@@ -154,10 +153,7 @@ object PeerSafety {
      * exactly that secret, and the number changes the moment they do.
      */
     fun fingerprint(ref: String): String? {
-        val secret = Book.secret(ref)?.takeIf { it.size == 32 } ?: return null
-        val domain = "mt-safety".toByteArray() + byteArrayOf(0)
-        var h = secret
-        repeat(5200) { h = MessageDigest.getInstance("SHA-256").digest(domain + h) }
+        val h = Book.secret(ref)?.takeIf { Wire.isWhole(it) }?.let { Wire.fingerprintMaterial(it) } ?: return null
         return (0 until 6).joinToString("") { i ->
             var v = 0L
             for (k in 0 until 5) v = (v shl 8) or (h[i * 5 + k].toLong() and 0xFF)

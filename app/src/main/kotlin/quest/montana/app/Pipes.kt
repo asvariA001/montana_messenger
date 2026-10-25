@@ -53,23 +53,29 @@ object Wire {
      * WALK_ANCHOR_DAY, never on the established secret, so the walk can erase that secret; the root opens no letter. (The coin
      * SEND's blind stands on it too on iOS: Android lays no v3 SEND yet.)
      */
-    fun convRoot(secret: ByteArray): ByteArray = sha(d("mt-conv-root"), secret)
-    /** The key an item laid today stands on: the root past the anchor, the established secret up to it (iOS itemKey). */
-    fun itemKey(secret: ByteArray, day: Long = Wire.day()): ByteArray = if (day > WALK_ANCHOR_DAY) convRoot(secret) else secret
+    fun convRoot(secret: ByteArray): ByteArray = if (isFloor(secret)) part(secret, 1) else sha(d("mt-conv-root"), secret)
+    /** The key an item laid today stands on: the root past the anchor, the established secret up to it (iOS itemKey); a floor has only the root. */
+    fun itemKey(secret: ByteArray, day: Long = Wire.day()): ByteArray = if (day > WALK_ANCHOR_DAY || !holdsOrigin(secret)) convRoot(secret) else secret
     /** The keys a received item may stand on, the root first: the sender's day is its own clock (iOS itemKeys). */
-    fun itemKeys(secret: ByteArray): List<ByteArray> = listOf(convRoot(secret), secret)
+    fun itemKeys(secret: ByteArray): List<ByteArray> = if (holdsOrigin(secret)) listOf(convRoot(secret), secret) else listOf(convRoot(secret))
     private val walked = HashMap<String, Pair<Long, ByteArray>>()
+    private fun steps(day: Long) = (day - WALK_ANCHOR_DAY).coerceIn(0L, MAX_WALK)
+    /** The value of the walk on a day: from the established secret, or from the floor forward; a day before the floor gets the
+     *  floor's own value -- the walk never goes back (iOS MTPipeKey.walked). */
     fun pipeSecret(secret: ByteArray, day: Long): ByteArray {
-        val steps = (day - WALK_ANCHOR_DAY).coerceIn(0L, MAX_WALK)
-        if (steps == 0L) return secret
-        val id = hex(secret)
+        val floor = isFloor(secret)
+        val base = if (floor) steps(floorDay(secret)) else 0L
+        val start = if (floor) part(secret, 0) else secret
+        val target = steps(day)
+        if (target <= base) return start
+        val id = hex(start)
         synchronized(walked) {
-            var at = 0L
-            var value = secret
-            walked[id]?.let { (s, v) -> if (s <= steps) { at = s; value = v } }
-            while (at < steps) { value = sha(d("mt-pipe-ratchet"), value); at++ }
+            var at = base
+            var value = start
+            walked[id]?.let { (s, v) -> if (s in at..target) { at = s; value = v } }
+            while (at < target) { value = sha(d("mt-pipe-ratchet"), value); at++ }
             if (walked.size >= 256) walked.clear()
-            walked[id] = steps to value
+            walked[id] = target to value
             return value
         }
     }
@@ -80,7 +86,7 @@ object Wire {
     /** The first-meeting letter's key, derived from the invitation (iOS rdvLetterSecret). */
     fun rdvLetterSecret(inv: ByteArray) = sha(d("mt-rdv-letter"), inv)
     /** The local name of a correspondence: SHA-256(secret)[0..16] in hex (iOS MTPipeBook.reference). */
-    fun reference(secret: ByteArray) = hex(sha(secret).copyOf(16))
+    fun reference(secret: ByteArray) = hex(if (isFloor(secret)) secret.copyOfRange(FLOOR_SIZE - 16, FLOOR_SIZE) else sha(secret).copyOf(16))
 
     // ── the pipe's quantities and the overlay's (iOS MTPipe 15-112, MontanaOverlayKey.tag, MontanaWindowPos) ──
     /** The one composition of the set (iOS MTPipe.domained): SHA-256(domain ‖ 0 ‖ parts…). */
@@ -96,12 +102,55 @@ object Wire {
     const val ERASE_DAY = TAG_WALK_DAY + 2         // 20760, 03.11.2026 UTC
     fun windowTag(secret: ByteArray, w: Long): ByteArray {
         val day = w / MINUTES_PER_DAY
-        return pipeTag(if (day >= TAG_WALK_DAY) pipeSecret(secret, day) else secret, w)
+        return pipeTag(if (day >= TAG_WALK_DAY || !holdsOrigin(secret)) pipeSecret(secret, day) else secret, w)
     }
     fun windowTags(secret: ByteArray, w: Long): List<ByteArray> {
         val day = w / MINUTES_PER_DAY
         val now = windowTag(secret, w)
-        return if (day >= TAG_WALK_DAY && day < ERASE_DAY) listOf(now, pipeTag(secret, w)) else listOf(now)
+        return if (holdsOrigin(secret) && day >= TAG_WALK_DAY && day < ERASE_DAY) listOf(now, pipeTag(secret, w)) else listOf(now)
+    }
+
+    /**
+     * THE FLOOR (iOS MTPipeKey.floored/sealedForm, a8173d52, OZ1 decision 126): from ERASE_DAY the established secret is erased and a
+     * pipe holds the walk's value at F = D - 2 (the earliest day a box read listens at) and the quantities it keeps for good, in the
+     * form iOS seals: 0x01 ‖ F (8 LE) ‖ ps(F) ‖ root ‖ rank ‖ fingerprint material ‖ face name ‖ face key ‖ pair tag (32 each) ‖
+     * reference (16) -- 249 bytes. A pipe's bytes are its thirty-two established bytes or this floor, and every derivation of this
+     * object reads either; nothing outside it looks inside.
+     */
+    const val FLOOR_FORM: Byte = 0x01
+    const val FLOOR_SIZE = 1 + 8 + 32 * 7 + 16
+    const val FLOOR_LAG = 2L
+    fun isFloor(p: ByteArray) = p.size == FLOOR_SIZE && p[0] == FLOOR_FORM
+    /** Whether this device still holds the established secret: up to ERASE_DAY, never again once the walk erased it. */
+    fun holdsOrigin(p: ByteArray) = p.size == 32
+    /** A pipe: thirty-two bytes or the floor the walk left of them; a record of another size is no pipe. */
+    fun isWhole(p: ByteArray) = p.size == 32 || isFloor(p)
+    private fun part(p: ByteArray, n: Int) = p.copyOfRange(9 + 32 * n, 41 + 32 * n)
+    private fun floorDay(p: ByteArray) = (0 until 8).fold(0L) { a, i -> a or ((p[1 + i].toLong() and 0xff) shl (8 * i)) }
+    /** This pipe's place in the one order both ends compute alike, the same bytes before the erasure and after (iOS sameRank). */
+    fun sameRank(p: ByteArray): ByteArray = if (isFloor(p)) part(p, 2) else sha(d("mt-same-rank"), p)
+    /** The safety number's material: 5200 rounds of SHA-256("mt-safety" ‖ 0 ‖ h) (iOS MTNodeWire.fingerprintMaterial). */
+    fun fingerprintMaterial(p: ByteArray): ByteArray {
+        if (isFloor(p)) return part(p, 3)
+        var h = p
+        repeat(5200) { h = sha(d("mt-safety"), h) }
+        return h
+    }
+    /** The name of the pipe face's blob and its key (iOS MTPipeKept.faceBid/faceKey). */
+    fun faceBid(p: ByteArray): String = hex(if (isFloor(p)) part(p, 4) else sha(d("mt-pipe-f"), p))
+    fun faceKey(p: ByteArray): ByteArray = if (isFloor(p)) part(p, 5) else sha(d("mt-pipe-fk"), p)
+    /** The coin pair's tag: HMAC-SHA-256(secret, «mt-coin-pair-v1») (iOS MTCoinTx.pairTag), kept in the floor. */
+    fun pairTag(p: ByteArray): ByteArray = if (isFloor(p)) part(p, 6)
+        else Mac.getInstance("HmacSHA256").apply { init(SecretKeySpec(p, "HmacSHA256")) }.doFinal("mt-coin-pair-v1".toByteArray())
+    /** The pipe as this device may hold it on a day: up to ERASE_DAY as it is; from it the floor at F = D - 2, walked forward from
+     *  the floor already held, never back. The established secret leaves the value here (iOS MTPipeKey.floored). */
+    fun floored(p: ByteArray, day: Long = day()): ByteArray {
+        if (day < ERASE_DAY || !isWhole(p)) return p
+        val f = day - FLOOR_LAG
+        if (isFloor(p) && floorDay(p) >= f) return p
+        val ref = if (isFloor(p)) p.copyOfRange(FLOOR_SIZE - 16, FLOOR_SIZE) else sha(p).copyOf(16)
+        return byteArrayOf(FLOOR_FORM) + le8(f) + pipeSecret(p, f) + convRoot(p) + sameRank(p) + fingerprintMaterial(p) +
+            (if (isFloor(p)) part(p, 4) else sha(d("mt-pipe-f"), p)) + faceKey(p) + pairTag(p) + ref
     }
     /** The label of one step, from the secret two neighbouring machines share (iOS MTPipe.stepLabel). */
     fun stepLabel(secret: ByteArray, w: Long) = domained("mt-step", secret, le8(w)).copyOf(16)
@@ -287,6 +336,20 @@ object Wire {
             && windowTags(s32, TAG_WALK_DAY * MINUTES_PER_DAY + 5).map { hex(it) } == listOf("96d8937ada4908bcba9fd12c78b9c11c", "cc6997487bfa3ed9c4a7542be4fc2bbb")
             && windowTags(s32, (ERASE_DAY + 1) * MINUTES_PER_DAY + 5).map { hex(it) } == listOf("9e0c92b8f91b94880bf15eee1ca672c7")
             && hex(domained("mt-same-ask", convRoot(r(0x41, 32)), convRoot(r(0x42, 32))).copyOf(16)) == "652cacf2b156b3a11e0b19fa4e15752d"
+            // the floor (iOS MTPipeKey.agreesWithCanon, chain 973-974): F = 20759 on the day after ERASE_DAY, its form byte for byte, and a
+            // floored pipe deriving what the pipe derived
+            && floored(s32, ERASE_DAY - 1).contentEquals(s32)
+            && floored(s32, ERASE_DAY + 1).let { f ->
+                isFloor(f) && !holdsOrigin(f) && isWhole(f) && floored(f, ERASE_DAY + 1).contentEquals(f)
+                    && hex(pipeSecret(f, 20759)) == "047f100cb7db75364efcefe4b58cf0038b1e1bc441884b06b5674eaf7b857523"
+                    && pipeSecret(f, 0).contentEquals(pipeSecret(f, 20759))
+                    && hex(sha(f)) == "da6e42f21c5935263ba7339fdc38adfd36db060a69d335f97e21f0dfbf1ae119"
+                    && hex(windowTag(f, (ERASE_DAY + 1) * MINUTES_PER_DAY + 5)) == "9e0c92b8f91b94880bf15eee1ca672c7"
+                    && bodyKey(f, (ERASE_DAY + 3) * MINUTES_PER_DAY).contentEquals(bodyKey(s32, (ERASE_DAY + 3) * MINUTES_PER_DAY))
+                    && convW(f, ERASE_DAY + 1) == convW(s32, ERASE_DAY + 1) && reference(f) == reference(s32)
+                    && convRoot(f).contentEquals(convRoot(s32)) && sameRank(f).contentEquals(sameRank(s32))
+                    && faceBid(f) == faceBid(s32) && faceKey(f).contentEquals(faceKey(s32)) && itemKeys(f).size == 1
+            }
             && hex(stepLabel(r(0x51, 32), 1000)) == "4b8cb5c6442a52d0750bfb4fac0ba39d"
             && hex(stepLabel(r(0x52, 32), 1000)) == "401d8ab71a2e2554ab30c11aab1ae97d"
             && hex(stepLabel(r(0x51, 32), 1001)) == "1cc3ac539a8b1d2701e489455a8b04d5"
@@ -639,17 +702,32 @@ object Book {
     private fun saveIndex() { DeviceVault.set(INDEX, JSONArray(chats.keys.toList()).toString().toByteArray()) }
     private fun save(c: Chat) { DeviceVault.set("chat:${c.ref}", c.json().toString().toByteArray()) }
 
-    fun secret(ref: String): ByteArray? = synchronized(lock) { sec()[ref] }
+    /** A pipe's bytes as the day allows them: from ERASE_DAY the floor, sealed again the moment the walk moves it, the head too (iOS
+     *  MTPipeKey.held/lags: a form read with more than the walk allows writes itself again). */
+    fun secret(ref: String): ByteArray? = synchronized(lock) {
+        val m = sec()
+        val p = m[ref] ?: return null
+        val f = Wire.floored(p)
+        if (f !== p) {
+            m[ref] = f
+            if (saveSecrets(m)) { Log.d("Montana", "pipe_floor ref=" + ref.take(8)); Archive.head(ref) } else m[ref] = p
+        }
+        m[ref]
+    }
+    private fun saveSecrets(m: Map<String, ByteArray>): Boolean {
+        val o = JSONObject(); m.forEach { (k, v) -> o.put(k, Base64.encodeToString(v, Base64.NO_WRAP)) }
+        return DeviceVault.set(SECRETS, o.toString().toByteArray())
+    }
     fun refs(): List<String> = synchronized(lock) { sec().keys.toList() }
 
     /** A correspondence is born from the secret its first letter produced (iOS MTPipeBook.establish). */
     fun establish(secret: ByteArray): String? = synchronized(lock) {
         val ref = Wire.reference(secret)
         val m = sec()
-        m[ref]?.let { return if (it.contentEquals(secret)) ref else null }
-        m[ref] = secret
-        val o = JSONObject(); m.forEach { (k, v) -> o.put(k, Base64.encodeToString(v, Base64.NO_WRAP)) }
-        if (!DeviceVault.set(SECRETS, o.toString().toByteArray())) { m.remove(ref); return null }
+        // a floor no longer holds the bytes to compare: the name, a hash of them, answers for them
+        m[ref]?.let { return if (it.contentEquals(secret) || !Wire.holdsOrigin(it) || !Wire.holdsOrigin(secret)) ref else null }
+        m[ref] = Wire.floored(secret)
+        if (!saveSecrets(m)) { m.remove(ref); return null }
         markErased(listOf(ref), false)   // the pipe born again (iOS: a scan clears the deletion)
         Archive.head(ref)   // the pipe is born: its folder and its secret's head are sealed now (iOS MTPipe 432)
         ref
@@ -2099,8 +2177,8 @@ object Post {
 
     /** THE FACE BESIDE THE PIPE (iOS readPipeFace): asked at once and twice more across eight seconds. */
     private fun readPipeFace(ref: String, secret: ByteArray) {
-        val bid = Wire.hex(Wire.sha("mt-pipe-f".toByteArray() + 0, secret))
-        val key = Wire.sha("mt-pipe-fk".toByteArray() + 0, secret)
+        val bid = Wire.faceBid(secret)
+        val key = Wire.faceKey(secret)
         for (pause in longArrayOf(0, 2000, 6000)) {
             if (pause > 0) Thread.sleep(pause)
             val sealed = Wire.getBlob(bid) ?: continue

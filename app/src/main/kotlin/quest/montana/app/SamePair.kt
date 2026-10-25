@@ -31,14 +31,16 @@ object SamePair {
      * from TAG_WALK_DAY, over the two established secrets before it; on Y and Y + 1 the receiver still hears the earlier one.
      */
     private fun sameTag(domain: String, older: ByteArray, newer: ByteArray, day: Long = Wire.day()) =
-        if (day < Wire.TAG_WALK_DAY) tag(domain, older, newer) else tag(domain, Wire.convRoot(older), Wire.convRoot(newer))
+        if (day < Wire.TAG_WALK_DAY && Wire.holdsOrigin(older) && Wire.holdsOrigin(newer)) tag(domain, older, newer)
+        else tag(domain, Wire.convRoot(older), Wire.convRoot(newer))
     private fun sameTags(domain: String, older: ByteArray, newer: ByteArray, day: Long = Wire.day()): List<String> {
         val now = sameTag(domain, older, newer, day)
-        return if (day >= Wire.TAG_WALK_DAY && day < Wire.ERASE_DAY) listOf(now, tag(domain, older, newer)) else listOf(now)
+        val origin = Wire.holdsOrigin(older) && Wire.holdsOrigin(newer)
+        return if (origin && day >= Wire.TAG_WALK_DAY && day < Wire.ERASE_DAY) listOf(now, tag(domain, older, newer)) else listOf(now)
     }
     private fun noise() = Wire.hex(MtBindings.nativeRandom(16) ?: ByteArray(16))
-    /** A pipe's place in the one order both ends compute alike — the tie between two pipes born at one meeting. */
-    private fun rank(secret: ByteArray) = Wire.sha(d("mt-same-rank"), secret)
+    /** A pipe's place in the one order both ends compute alike — the tie between two pipes born at one meeting; kept in the floor. */
+    private fun rank(secret: ByteArray) = Wire.sameRank(secret)
     private fun precedes(a: ByteArray, b: ByteArray): Boolean {
         for (i in 0 until minOf(a.size, b.size)) {
             val x = a[i].toInt() and 0xff; val y = b[i].toInt() and 0xff

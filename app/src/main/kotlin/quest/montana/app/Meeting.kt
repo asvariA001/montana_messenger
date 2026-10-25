@@ -280,8 +280,8 @@ object Meeting {
     /** THE FACE BESIDE THE PIPE (iOS layPipeFace): under a name and a seal only the two of them derive; empty says «no face». */
     private fun layPipeFace(secret: ByteArray) {
         val face = SelfFace.bytes(Book.ctx) ?: ByteArray(0)
-        val bid = Wire.hex(Wire.sha("mt-pipe-f".toByteArray() + byteArrayOf(0), secret))
-        val key = Wire.sha("mt-pipe-fk".toByteArray() + byteArrayOf(0), secret)
+        val bid = Wire.faceBid(secret)
+        val key = Wire.faceKey(secret)
         Wire.seal(key, face)?.let { sealed -> Signal.writeOrder("blob").any { d ->
             Wire.post(d, "/blob-put", JSONObject().put("bid", bid).put("data", Base64.encodeToString(sealed, Base64.NO_WRAP)).put("over", true), 30_000).first == 200
         } }
