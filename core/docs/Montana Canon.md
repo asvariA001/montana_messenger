@@ -4615,7 +4615,7 @@ demands the width from this row rather than declaring one of its own.
 |---|---|
 | `hash_bytes` — the width of a hash output, and therefore of every identifier, commitment, nullifier and root | 32 |
 | `τ₂` — the period of adaptation, in windows | 20 160 |
-| `emission_schedule` — rows of `(height, mint)`, the mint of a window read by height, ascending | (0, 13 000 000 000) |
+| `window_credit` — the coins credited to every machine living in a window, for that window; the constitutional layer fixes it | 1 |
 | `slot_modulus` | 64 |
 | `retarget_period`, in windows | τ₂ |
 | `retarget_damping` | 4 |
@@ -4695,9 +4695,7 @@ over this table, computed by the gate on every build rather than remembered by a
 **The Genesis State Hash** binds the parameters to the state they open. Every parameter of the
 table enters as an unsigned eight-byte little-endian integer, resolved to its numeric value and in
 the order the table stands; a parameter written as a ratio enters as two such integers, numerator
-first; the emission schedule enters as its count of rows, an unsigned two-byte little-endian
-integer, followed by each row as two such eight-byte integers, height then mint, ascending by
-height; a parameter written as a hash enters as its thirty-two bytes. After them stand the six roots of the genesis state in the order a proposal carries them,
+first; a parameter written as a hash enters as its thirty-two bytes. After them stand the six roots of the genesis state in the order a proposal carries them,
 each the empty root of its own structure — the notes, the admitted machines and the operations
 under the append-only construction, the nullifiers, the records and the machine state under the
 sparse one:
@@ -4706,11 +4704,11 @@ sparse one:
 genesis_state_hash = SHA-256("mt-genesis-state" || 0x00 || parameters
                              || note_root || nullifier_root || record_root || machine_root || admitted_root || operations_root)
 
-                   = 7bc9e7ef84bffeb0972273d9be68f6ede276fa7d38c0a3792b51a284c359aefd
+                   = 8a1f7e0182d32a2539ad85428f6da7afd27eafe289cee6164a5ab5ca033e0b3b
 
 published_parameters = SHA-256("mt-genesis-state" || 0x00 || the parameters that are published,
                                in the order and the encoding above)
-                     = e5e25faaad145470332106b37a11313541cde39f04b5484beaf306e987ed9499
+                     = e9118266d4ba19f75db5d567e1d36f1eb7bd1b3b28a82b82c30a361f1c7f23cb
 ```
 
 A chain whose value differs is not a fork of Montana but a different protocol, and honest

@@ -3,9 +3,9 @@
 // and every other crate reads them from `decree()` rather than writing one of its own.
 //
 // The encoding is the Decree's own rule: every parameter as an unsigned eight-byte little-endian
-// integer in the order the table stands; a ratio as two such integers, numerator first; the
-// emission schedule as its count of rows in two bytes followed by each row as two such integers,
-// height then mint, ascending; a parameter written as a hash as its thirty-two bytes.
+// integer in the order the table stands; a ratio as two such integers, numerator first; a
+// parameter written as a hash as its thirty-two bytes. The credit of a window is a scalar like any
+// other: one coin to every machine living in it, eight bytes by the general rule.
 
 #![forbid(unsafe_code)]
 #![deny(clippy::all)]
@@ -85,7 +85,7 @@ impl Entry {
 pub const PARAMETERS: &[Entry] = &[
     Entry::Scalar("hash_bytes", 32),
     Entry::Scalar("tau2", TAU2),
-    Entry::Schedule("emission_schedule", &[(0, 13_000_000_000)]),
+    Entry::Scalar("window_credit", 1),
     Entry::Scalar("slot_modulus", 64),
     Entry::Scalar("retarget_period", TAU2),
     Entry::Scalar("retarget_damping", 4),
