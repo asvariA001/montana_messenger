@@ -374,7 +374,7 @@ class TheConstitution(ChainCase):
 
     def test_the_word_from_a_file_or_standard_input(self):
         path = Path(self.tmp.name) / "word.txt"
-        path.write_bytes("﻿/// да\r\nsecond line\r\n".encode("utf-8"))
+        path.write_bytes("\ufeff/// да\r\nsecond line\r\n".encode("utf-8"))
         self.const("article", "4", "text", "--word-file", str(path), "--from", CHAIR)
         stdin = io.TextIOWrapper(io.BytesIO("/// нет\n".encode("utf-8")), encoding="utf-8")
         with mock.patch.object(sys, "stdin", stdin):
@@ -641,6 +641,81 @@ class ContextMeter(ChainCase):
         self.assertEqual(code, 0)
         self.assertIn("handover rule is not applied", err)
         self.assertEqual([record["task"] for record in self.records()].count(handover), 2)
+
+
+class Start(ChainCase):
+    """E: start prints all a new session needs, one line per item, within its budget, and writes nothing."""
+
+    def test_an_empty_data_folder(self):
+        out = self.ok("start")
+        for piece in ("== the context table ==", "next agent       number 1", "(no link yet)", "(no article stands yet)",
+                      "(no open task)", "(no handover link yet)", "== the rules of the turn ==",
+                      'add "Accepted: no handover yet. Taking: <one concrete step>" --from "NAME #1 [LABEL]"'):
+            self.assertIn(piece, out)
+        self.assertFalse(self.home.exists())
+
+    def fill_a_heavy_home(self):
+        """The most a start shows but for the constitution: 13 open tasks and 13 open questions with long texts, more
+        links than a window, a handover, and a constitution the size of the council's (17 articles, one of 2,600
+        characters). Links and tasks are in Cyrillic, which takes about twice the tokens of English."""
+        links = tchain.Chain(self.home / tchain.CHAIN_FILE, tchain.check_link)
+        links.append({"task": "Accepted: handover link 0. Taking: the start", "from": NEXT_CHAIR})
+        for i in range(13):
+            self.ok("task", "add", f"{i + 1} " + "з" * 140, "--issue", "efir369999/montana_messenger#30",
+                    "--deadline", "2099-01-01T15:00:00Z", "--from", NEXT_CHAIR)
+        for i in range(85):
+            links.append({"task": f"{i} " + "ж" * 270, "from": HELPER})
+        links.append({"task": "Handover #3: done (verified) " + "д" * 240, "from": NEXT_CHAIR})
+        links.append({"task": "the last move " + "л" * 260, "from": NEXT_CHAIR})
+        charter = tchain.Chain(self.home / tchain.CONSTITUTION_FILE, tchain.check_constitution_link)
+        said = {"word_time": "2026-01-02T00:00:00Z", "from": NEXT_CHAIR}
+        for number in range(-3, 14):
+            text = (("The Author is the Meta-master of the game. " * 70)[:2600] if number == -2 else
+                    f"Article {number}. " + "e" * 180)
+            charter.append(dict(said, op="article", no=number, text=text, word="/// yes"))
+        for k in range(1, 14):
+            charter.append(dict(said, op="decide", k=k, text=f"Question {k}? " + "q" * 270, word="w" * 280))
+        return links, charter
+
+    def test_every_part_in_one_line_per_item_within_the_budget(self):
+        self.fill_a_heavy_home()
+        before = {name: (self.home / name).read_bytes() for name in (tchain.CHAIN_FILE, tchain.CONSTITUTION_FILE)}
+        out = self.ok("start")
+        self.assertLessEqual(tchain.estimated_tokens(out), tchain.START_BUDGET)
+        self.assertNotIn("above its budget", out)
+        sections = {part.split(" ==\n", 1)[0]: part.split(" ==\n", 1)[1] for part in out.split("== ")[1:]}
+        links = sections["the last 13 links; the last is the last entry of the journal"].strip().splitlines()
+        self.assertEqual([int(line.split(" ", 1)[0]) for line in links], list(range(88, 101)))
+        tasks = sections["the open tasks: 13 of 13 places"].strip().splitlines()
+        self.assertEqual([line.split("]")[0] for line in tasks], [f"[task {k}" for k in range(1, 14)])
+        self.assertTrue(all("due 2099-01-01T15:00:00Z" in line and len(line) <= tchain.LINE_WIDTH for line in tasks))
+        self.assertEqual(len(sections["the constitution: its standing articles"].strip().splitlines()), 17)
+        self.assertEqual(len(sections["the line of decisions: questions waiting for the Author (why: const show)"]
+                             .strip().splitlines()), 13)
+        self.assertIn("Handover #3: done (verified)", sections["the last handover"])
+        table = sections["the context table"]
+        self.assertRegex(table, r"now \(UTC\) {8}[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
+        self.assertIn("next agent       number 3", table)
+        self.assertIn(f"this start       {len(out):>8,}{tchain.estimated_tokens(out):>9,}", table)
+        self.assertIn('--from "Claude of DinetPDA #3 [LABEL]"', sections["the rules of the turn"])
+        self.assertEqual(before, {name: (self.home / name).read_bytes() for name in before})
+
+    def test_a_start_over_its_budget_says_so(self):
+        charter = tchain.Chain(self.home / tchain.CONSTITUTION_FILE, tchain.check_constitution_link)
+        for number in range(12):
+            charter.append({"op": "article", "no": number, "text": "ж" * 4000, "word": "/// yes",
+                            "word_time": "2026-01-02T00:00:00Z", "from": CHAIR})
+        self.assertIn("above its budget of 10,000", self.ok("start"))
+
+    def test_the_session_label_and_context_come_from_claude_code(self):
+        os.environ["CLAUDE_CODE_SESSION_ID"] = "70662DF9-67e0-4cf4-b9ff-f3e6b6e9474d"
+        os.environ["CLAUDE_CONFIG_DIR"] = str(Path(self.tmp.name) / "claude")
+        folder = Path(self.tmp.name) / "claude" / "projects" / "p"
+        folder.mkdir(parents=True)
+        (folder / "70662DF9-67e0-4cf4-b9ff-f3e6b6e9474d.jsonl").write_text(json.dumps(assistant(read=160_000)) + "\n")
+        out = self.ok("start")
+        self.assertIn('--from "NAME #1 [70662df9]"', out)
+        self.assertIn("session context  160,000 tokens: prepare the handover", out)
 
 
 class DataFolder(ChainCase):

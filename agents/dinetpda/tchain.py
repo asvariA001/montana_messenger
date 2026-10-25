@@ -6,6 +6,8 @@ B. 13 links make a window tau1; a full window is sealed by the chairman's next s
 C. The constitution is a second chain of the same envelope; only a link that carries the Author's word changes it.
 D. At most 13 open tasks, each with a deadline from its birth, a percentage and one GitHub issue; every move on a task
    is a link tagged [task k], and a task closes only by proof.
+E. `start` prints all a new session needs, in about 5-10k tokens: the context table, the constitution, the open tasks,
+   the handover, the last 13 links, the UTC time, the next agent number and the rules of the turn.
 F. The context of a Claude Code session, from its own transcript; below 150k a handover is refused.
 
 The definitions are written out in README.md beside this file. Standard library only, Python 3.8 or newer.
@@ -562,7 +564,7 @@ def constitution_chain(args) -> Chain:
 def flat(text: str, width: Optional[int] = None) -> str:
     """A text on one line, its line ends shown as " / ", clipped to `width` characters with a final ellipsis."""
     text = " / ".join(part.strip() for part in text.splitlines() if part.strip())
-    return text if width is None or len(text) <= width else text[:width - 1] + "…"
+    return text if width is None or len(text) <= width else text[:width - 1] + "\u2026"
 
 
 def article_line(record: dict) -> str:
@@ -597,7 +599,7 @@ def read_word(args) -> str:
         text = data.decode("utf-8")
     except UnicodeDecodeError:
         raise Refused(f"{args.word_file} is not UTF-8") from None
-    text = text[1:] if text.startswith("﻿") else text
+    text = text[1:] if text.startswith("\ufeff") else text
     for end in ("\r\n", "\n"):
         if text.endswith(end):
             text = text[:-len(end)]
@@ -1108,6 +1110,141 @@ def _context_commands(commands, common) -> None:
 
 
 # ---------------------------------------------------------------------------------------------------------------------
+# E. The start of a session
+
+START_BUDGET = 10_000  # estimated tokens a start may take
+SHOWN_QUESTIONS = 13  # open questions of the line of decisions shown in full lines; the rest are counted
+LINE_WIDTH = 240  # characters of a question's or a task's line in the start
+
+
+def estimated_tokens(text: str) -> int:
+    """An estimate of a text's tokens: a quarter of its UTF-8 bytes, so about 4 characters of English or 2 of Cyrillic
+    to a token. It is an estimate, not a tokenizer's count."""
+    return -(-len(text.encode("utf-8")) // 4)
+
+
+def next_agent_number(records: list, words: str) -> int:
+    """The next agent's number: one more than the number in the signature of the last acceptance link, or 1."""
+    accepted = last_acceptance(records, words)
+    return int(SIGNATURE_RE.fullmatch(accepted["from"])["number"]) + 1 if accepted else 1
+
+
+def rules_of_the_turn(args, records: list, words: str, handover: Optional[dict]) -> list:
+    tool = ("python" if os.name == "nt" else "python3") + f" {Path(__file__).resolve().as_posix()}"
+    home = f' --home "{args.home}"' if args.home else ""
+    accepted = last_acceptance(records, words)
+    name = SIGNATURE_RE.fullmatch(accepted["from"])["name"] if accepted else "NAME"
+    session = os.environ.get("CLAUDE_CODE_SESSION_ID", "")[:8].lower()
+    label = session if re.fullmatch(r"[0-9a-f]{8}", session) else "LABEL"
+    number = next_agent_number(records, words)
+    taken = f"handover link {handover['n']}" if handover else "no handover yet"
+    return [
+        "1. Read the handover and the last link above: they carry the essence. Do not read the whole chain.",
+        "2. Write your acceptance link now, and start the work in this same turn:",
+        f'   {tool} add "{words}: {taken}. Taking: <one concrete step>" --from "{name} #{number} [{label}]"{home}',
+        f"   The signature is the name, the number {number} and the first 8 hex digits of the session id"
+        " (CLAUDE_CODE_SESSION_ID).",
+        f"3. Every move is one link of at most {TEXT_LIMIT} characters: what was done and how it was checked "
+        "(file:line, commit, command and exit code).",
+        f"4. A move on a task is tagged: task move|progress|blocker K ... Waiting on a build or on the Author is "
+        "task blocker K, and the work goes on to the next task. A task closes only by a proof the chairman checked: "
+        "task close K --proof build|test|file --ref ...",
+        '5. A question for the Author goes into the line of decisions (const decide "..." --word "..."), never as '
+        "plain text, and the work does not stop. Only a link carrying the Author's word changes the constitution.",
+        f"6. Measure the context with {tool} context: below {PREPARE_AT // 1000}k a handover is refused, work on; "
+        f"from {PREPARE_AT // 1000}k prepare the handover; past {STOP_ABOVE // 1000}k stop at once.",
+        f'7. The last link of the session is its handover: "{handover_words(args)} #{number + 1}: done (verified) '
+        '...; open ...; next step ...".',
+        "8. The chains are append-only: never edit their files. verify names the first broken link.",
+    ]
+
+
+def chain_health(path: Path, records: list, broken: Optional[Broken]) -> str:
+    head = f", head {records[-1]['hash'][:12]}" if records else ""
+    status = f"BROKEN at n={broken.n} ({broken.reason}): write nothing, restore it" if broken else "verify ok"
+    return f"{path.name}: {plural(len(records), 'link')}{head}, {status}"
+
+
+def start_text(args) -> str:
+    """The whole start of a session: the context table, then the parts it measures, each in one line per item."""
+    words, now = accept_words(args), utc_now()
+    chain, charter = links(args), constitution_chain(args)
+    records, broken = chain.read()
+    charter_records, charter_broken = charter.read()
+    state, tasks = constitution(charter_records), checklist(records, words)
+    handover = next((record for record in reversed(records) if begins_with(record["task"], handover_words(args))), None)
+    questions = [(k, place) for k, place in enumerate(state.line, 1) if place["answer"] is None]
+    more = len(questions) - SHOWN_QUESTIONS
+    open_now = open_tasks(tasks)
+    parts = [  # (its name in the table, its heading, its lines)
+        ("constitution", "the constitution: its standing articles",
+         [article_line(state.articles[number]) for number in sorted(state.articles)] or ["(no article stands yet)"]),
+        ("questions", "the line of decisions: questions waiting for the Author (why: const show)",
+         [f"{k}. open since link {place['ask']['n']}: {flat(place['ask']['text'], LINE_WIDTH - 40)}"
+          for k, place in questions[:SHOWN_QUESTIONS]]
+         + ([f"... and {more} more: const show"] if more > 0 else []) or ["(no question waits)"]),
+        ("open tasks", f"the open tasks: {len(open_now)} of {PLACES} places",
+         [task_line(task, now, LINE_WIDTH) for task in open_now] or ["(no open task)"]),
+        ("handover", "the last handover", [link_line(handover)] if handover else ["(no handover link yet)"]),
+        ("last 13 links", "the last 13 links; the last is the last entry of the journal",
+         [link_line(record) for record in records[-13:]] or ["(no link yet)"]),
+        ("rules", "the rules of the turn", rules_of_the_turn(args, records, words, handover)),
+    ]
+    sections = [f"== {heading} ==\n" + "\n".join(lines) + "\n" for _, heading, lines in parts]
+    spans = windows(records, words)
+    waiting = [window.number for window in spans if window.full and window.sealed_by is None]
+    context = own_context()
+    rows = [
+        ("now (UTC)", now),
+        ("next agent", f"number {next_agent_number(records, words)}"),
+        ("data folder", str(home_folder(args.home))),
+        ("chain", chain_health(chain.path, records, broken)),
+        ("windows", f"{sum(window.full for window in spans)} full, "
+                    f"{sum(window.sealed_by is not None for window in spans)} sealed"
+                    + (f"; window {waiting[0]} waits for the chairman's next link" if waiting else "")),
+        ("chairman", chairman_line(records, words).split(": ", 1)[1] if records else "none: no link yet"),
+        ("constitution", f"{plural(len(state.articles), 'article')} standing, {len(questions)} of "
+                         f"{plural(len(state.line), 'question')} open; "
+                         + chain_health(charter.path, charter_records, charter_broken)),
+        ("tasks", f"{len(open_now)} open of {PLACES} places, {sum(t['blocker'] is not None for t in open_now)} blocked, "
+                  f"{sum(t['due'] < now for t in open_now)} overdue"
+                  + (f"; {plural(len(tasks.rejected), 'tagged link')} changing no task" if tasks.rejected else "")),
+        ("session context", f"{context.tokens:,} tokens: {context_rule(context.tokens)}" if context else
+                            "not measured: CLAUDE_CODE_SESSION_ID or its file is missing"),
+    ]
+
+    def render(total: str) -> str:
+        table = [f"{name:<17}{value}" for name, value in rows]
+        table.append(f"{'part':<17}{'chars':>8}{'~tokens':>9}")
+        table += [f"{name:<17}{len(section):>8,}{estimated_tokens(section):>9,}"
+                  for (name, _, _), section in zip(parts, sections)]
+        table.append(f"{'this start':<17}{total}")
+        return (f"tchain start: read it, write your acceptance link, and work in this same turn\n\n"
+                "== the context table ==\n" + "\n".join(table) + "\n\n" + "\n".join(sections))
+
+    text = render("")
+    for _ in range(8):  # the total counts itself, digits and all: render until it is exact
+        settled = render(f"{len(text):>8,}{estimated_tokens(text):>9,}")
+        if settled == text:
+            break
+        text = settled
+    if estimated_tokens(text) > START_BUDGET:
+        text += (f"\nwarning: this start is about {estimated_tokens(text):,} tokens, above its budget of "
+                 f"{START_BUDGET:,}: shorten the constitution or close tasks\n")
+    return text
+
+
+def cmd_start(args) -> int:
+    sys.stdout.write(start_text(args))
+    return 0
+
+
+def _start_commands(commands, common) -> None:
+    command = commands.add_parser("start", parents=[common], help="all a new session needs, in about 5-10k tokens")
+    command.set_defaults(run=cmd_start)
+
+
+# ---------------------------------------------------------------------------------------------------------------------
 # The command line
 
 
@@ -1120,7 +1257,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help=f'the words a handover link begins with (default: $TCHAIN_HANDOVER, else "{HANDOVER}")')
     parser = argparse.ArgumentParser(prog="tchain.py", description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
-    for install in (_link_commands, _window_commands, _constitution_commands, _task_commands, _context_commands):
+    for install in (_start_commands, _link_commands, _window_commands, _constitution_commands, _task_commands,
+                    _context_commands):
         install(commands, common)
     return parser
 
