@@ -42,6 +42,42 @@ pub fn of(seed: u8, at: u8) -> [u8; 32] {
     out
 }
 
+// A proposal of `window` carrying the roots `plane` gives for it against `cohort`: what a close of a
+// window keeps, and nothing a vector verifies a signature or a proof of. Two runners give two names
+// to one decision.
+pub fn proposal_over(
+    window: u64,
+    previous: [u8; 32],
+    plane: &montana_node::state::State,
+    cohort: &montana_node::pulse::Cohort,
+    runner: u8,
+) -> mt_state::layout::Proposal {
+    let roots = plane
+        .roots(cohort, window, &[])
+        .expect("the roots of a plane");
+    mt_state::layout::Proposal {
+        window,
+        protocol_version: mt_state::PROTOCOL_VERSION,
+        previous,
+        final_beacon: [0x22; 32],
+        note_root: roots.note_root,
+        nullifier_root: roots.nullifier_root,
+        record_root: roots.record_root,
+        machine_root: roots.machine_root,
+        admitted_root: roots.admitted_root,
+        operations_root: roots.operations_root,
+        roll: roots.roll,
+        admitted_count: roots.admitted_count,
+        cement_aggregate: [0x99; 32],
+        cement_count: 1,
+        census: montana_node::certificate::empty_census().expect("the Decree names the census"),
+        suite_id: mt_net::SUITE,
+        runner_pubkey: vec![runner; mt_codec::size::SIGNING_PUBLIC_KEY],
+        ticket_proof: vec![0x00; mt_state::PRESENCE_PROOF_LEN],
+        signature: vec![0x5E; mt_codec::size::SIGNATURE],
+    }
+}
+
 // The two public values a payer is handed: the naming half of the payee and the key its notes are
 // paid to. Nothing else about a payee is arranged with them.
 pub fn payee_of(seed: u8) -> (Payee, [u8; 32]) {
