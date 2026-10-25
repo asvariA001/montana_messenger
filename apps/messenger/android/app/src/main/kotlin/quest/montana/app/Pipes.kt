@@ -1222,10 +1222,12 @@ object Post {
         for ((name, s) in pipes) for (w in (w0 - 8)..(w0 + 1)) { val cw = Wire.convW(s, w); secretOf[cw] = s; nameOf[cw] = name }
         val subs = secretOf.keys.toList()
         var kept = 0
-        val taken = ArrayList<String>()
+        val taken = ArrayList<Pair<String, String>>()
         for (chunk in subs.chunked(128)) {
+            // this device's name under every label rides the page (iOS 2306 «devs», MontanaArchive.deviceSid = twinSid)
             val page = JSONObject().put("subs", JSONArray(chunk))
                 .put("sids", JSONArray(chunk.map { if (nameOf[it] == Archive.TWIN_PIPE) Archive.twinSid(it) else Wire.subId(it, twin) }))
+                .put("devs", JSONArray(chunk.map { Archive.twinSid(it) }))
             val seen = HashSet<String>()
             val rows = mutableListOf<JSONObject>()
             for (door in Doors.ordered("box")) {
@@ -1242,7 +1244,7 @@ object Post {
                 val plain = Wire.openBoxed(sealed, secret, l.optLong("at")) ?: continue
                 val f = Wire.fields(plain)
                 if (f[0].isEmpty() || f[1].isEmpty()) continue
-                if (keep(mapOf("c" to name, "m" to f[0], "t" to f[1]))) { kept++; l.optString("m").takeIf { it.isNotEmpty() }?.let { taken.add(it) } }
+                if (keep(mapOf("c" to name, "m" to f[0], "t" to f[1]))) { kept++; l.optString("m").takeIf { it.isNotEmpty() }?.let { taken.add(it to Archive.twinSid(cw)) } }
             }
         }
         confirm(taken)
@@ -1255,12 +1257,16 @@ object Post {
      * that network, and the drain stood behind it). One deadline for all; a burial is a cleanup, never delivery, so it never waits in line
      * behind a door that rests.
      */
-    private fun confirm(mids: List<String>) {
-        if (mids.isEmpty()) return
-        val body = JSONObject().put("mids", JSONArray(mids))
+    private fun confirm(took: List<Pair<String, String>>) {
+        if (took.isEmpty() || MontanaSeed.twin.isNullOrEmpty()) return
+        // ONE PERSON, MANY DEVICES (iOS 2306 MontanaWakePush.boxTaken): what this device took is marked taken by its own name, a page of
+        // 128 at a time; the letter stays for the person's other devices until the box's term, never removed for everyone
         val doors = Doors.ordered("box")
         val awake = doors.filter { Signal.doorAlive(it) }   // the one door book (Presence.kt, object Signal)
-        for (door in (awake.ifEmpty { doors })) Thread { Wire.post(door, "/box-del", body, 5000) }.start()
+        for (page in took.chunked(128)) {
+            val body = JSONObject().put("taken", JSONArray(page.map { JSONArray().put(it.first).put(it.second) }))
+            for (door in (awake.ifEmpty { doors })) Thread { Wire.post(door, "/box-del", body, 5000) }.start()
+        }
     }
 
     /** mid‖0‖text sealed under a fresh key, laid on the node under SHA-256 of the seal (iOS blobIdHex); the reference once per letter. */
@@ -1462,11 +1468,13 @@ object Post {
         }
         val subs = secretOf.keys.toList()
         if (subs.isEmpty()) return
-        val taken = mutableListOf<String>()
+        val taken = mutableListOf<Pair<String, String>>()
         for (chunk in subs.chunked(128)) {
-            // the seed's own pipe names each device apart: the store yields no letter to the sid that laid it (iOS BoxEar 2553-2560)
+            // the seed's own pipe names each device apart: the store yields no letter to the sid that laid it (iOS BoxEar 2553-2560);
+            // and this device's name under every label rides the page, what it took marked by it alone (iOS 2306 «devs»)
             val page = JSONObject().put("subs", JSONArray(chunk))
                 .put("sids", JSONArray(chunk.map { if (ownOf[it] == Archive.TWIN_PIPE) Archive.twinSid(it) else Wire.subId(it, twin) }))
+                .put("devs", JSONArray(chunk.map { Archive.twinSid(it) }))
             val seen = HashSet<String>()
             val rows = mutableListOf<JSONObject>()
             // THE READ SWEEPS EVERY STORE of the network's list: a letter lies on the one node the writer elected (iOS 1638)
@@ -1485,7 +1493,7 @@ object Post {
                 val ok = if (own != null) Wire.fields(plain).let { f ->
                     f[0].isNotEmpty() && f[1].isNotEmpty() && mapOf("c" to own, "m" to f[0], "t" to f[1]).let { row -> Keeping.takes(row) || Archive.twinTakes(row) }
                 } else invOf[cw]?.let { inv -> first(plain, inv) } ?: chatOf[cw]?.let { ref -> letter(ref, plain, secret) } ?: false
-                if (ok && m.isNotEmpty()) taken.add(m)
+                if (ok && m.isNotEmpty()) taken.add(m to Archive.twinSid(cw))
             }
         }
         confirm(taken)

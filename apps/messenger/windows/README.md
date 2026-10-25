@@ -67,11 +67,39 @@ identities and the live nodes — **not on a real phone and not against an iPhon
 | 9a: both apps restarted | `twinrestart.ps1` | passed, list and conversation the same word for word |
 | 9b: a wiped phone opened by the same words | `twinrestore.ps1` | passed: 6 conversations and 47 rows from the copy, the day's mirror word laid once, no letter twice |
 | 9c: the pipe secret's step at 29.10.2026 00:00 UTC | `walk.ps1`, `twin3.ps1` | **not yet run** on the real date |
-| 10: three devices of one identity | `twinthree.ps1` | **measured limit of the original**: the first device to take a mirror row erases it for the others (2 of 3 letters reached one of two Androids only) |
+| 10: three devices of one identity | `twinthree.ps1 -Strict` | **passed since the port of iOS 2306** (25.10.2026 11:2x): every letter on both Androids. Before it, the first device to take a row erased it for the others (2 of 3 letters reached one Android only) |
 | groups; rows asked back (`TA:`/`TW:`); cards (`TC:`); a row the mirror never carried | `twingroup.ps1`, `twinask.ps1`, `twincard.ps1`, `twingap.ps1` | passed |
 | two Windows computers of one identity: own letters, the reading, deletion for all | `twinwin.ps1` | passed: reading on one took the other's unread off in about 13 s; each letter once on both; a letter deleted for all left the other computer and the correspondent's phone |
 
-Scenario 10 is a limit of the iOS design itself, kept as it is: it is the case for Dinet Device Sync (below).
+Scenario 10 was a limit of the iOS design until iOS 2306 marked a letter taken per device; with that ported, it passes.
+
+## Following iOS 2306–2310 (the protocol reference) — Partial Implementation
+
+The interface is compared with iOS 2305 screen by screen; the protocol and security follow the current agreed original apart.
+Upstream `main` carries the iOS source up to 2308; 2309 and 2310 are in the changelog only so far.
+
+| iOS build | Change | Windows | Android (the Windows checks' counterpart) |
+|---|---|---|---|
+| 2306 | each device takes a letter on its own: `/fetch` names the device per label (`devs`), `/box-del {"taken": [[mid, device]]}`; `{"mids"}` only for a withdrawal | **ported**; the live nodes answer `taken` (a probe with a letter that does not exist: 200); scenario 10 passes | **ported** |
+| 2307 | a call packet goes to every door at once | **ported** | left to the Android client's own line (it already knocks every door) |
+| 2308 | a ring of a call that ended is answered «delivered» | **ported** | left to the Android client's own line |
+| 2309 | one owner of the conversation secret (wire unchanged) | not yet (refactor, carries 2310) | not yet |
+| 2310 | the pipe tag on `pipe_secret(day)` from 01.11.2026, both tags 01–02.11, only the new from 03.11, the floor F = D-2 and erasure of the established secret | **not yet**: waiting for the spec text and byte vectors (PR #13, 24.10 23:34 UTC) and the 2310 source | not yet |
+
+The transition is tested on an isolated node, never on the network or a real wallet: `app/tools/clocknode.py` runs the
+original's `apps/messenger/ios/Code/Node/montana-home-node.py` on a clock of its own (moved while it runs) on the loopback;
+a check's run of Windows is pointed at it by `MONTANA_TEST_DOOR` (only with `MONTANA_DATA_DIR` set), an emulator by a file only its
+root can lay (`Doors.testDoor`, cleartext to 10.0.2.2 only).
+
+## Deleting an identity from this computer vs switching
+
+Switching identity keeps every person's folder whole and closed to the others. Deleting an identity from this computer (Settings,
+with a confirmation that says what is erased for good) erases its passwords, its VPN book with keys and subscription links, the
+seed of its files' keys and the window's browser data (storage, cookies, cache); its coin book, TimeChain and archive go aside
+first and come back to the same words; the network identity, the coins on the chain and the person's backups are never touched;
+another identity's folder is never touched. The files of letters are served with `no-store`, never laid in the web view's disk
+cache. This departs from iOS on purpose (iOS keeps its keychain for whoever comes next): the owner's decision of 25.10.2026.
+Checked by unit tests with two identities and by `leave.ps1` (25.10.2026).
 
 ## Build
 
@@ -105,8 +133,8 @@ In `app/src-tauri`:
 
 | Command | Exit code | Result |
 |---|---|---|
-| `cargo test --lib` (debug) | 0 | 146 passed, 0 failed, 19 ignored |
-| `cargo test --release --lib` | 0 | 146 passed, 0 failed, 19 ignored |
+| `cargo test --lib` (debug) | 0 | 147 passed, 0 failed, 19 ignored |
+| `cargo test --release --lib` | 0 | 147 passed, 0 failed, 19 ignored |
 | `cargo clippy --all-targets -- -D warnings` | 0 | clean since the second commit of this port (24.10.2026): lints fixed, dead code removed or gated to tests, the core's ABI mirror kept with an `allow`; run again 25.10.2026 with the new negative tests |
 
 The ignored tests need the live network or a second window and are run by the scenes in `app/tools/` instead.

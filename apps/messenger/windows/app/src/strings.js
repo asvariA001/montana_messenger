@@ -565,7 +565,7 @@ const RU = {
   "This part of Montana is not on Windows yet.": "Этой части Montana на Windows пока нет.",
   "Guide": "Справка",
   "Download attachments automatically": "Загружать вложения автоматически",
-  "DELETE_ACCOUNT_MESSAGE": "Ваш аккаунт удаляется: этот компьютер стирает вашу личность из 24 слов, переписки, файлы и карточку. Никто не хранит слова за вас: сначала запишите их: Настройки → Приватность → Сид-фраза. С ними личность откроется снова на любом устройстве; история на Windows запечатана этим компьютером и уходит вместе с аккаунтом.",
+  "DELETE_ACCOUNT_MESSAGE": "Личность удаляется с этого компьютера, и это не отменить: стираются её пароли, токены, ключи этого устройства, файлы переписок и данные окна. Сеть её не забывает: монеты в TimeChain, ваши резервные копии и сама личность остаются — те же 24 слова откроют её снова здесь или на любом устройстве, переписка и монеты вернутся. Никто не хранит слова за вас: сначала запишите их (Настройки → Приватность → Сид-фраза). Чтобы просто сменить личность, ничего не удаляя, выберите другую вверху меню.",
   "Live stream": "Трансляция",
   "Video chat": "Видеочат",
   "Voice chat": "Голосовой чат",
@@ -1183,7 +1183,7 @@ export function dayWord(ms) {
 const EN = {
   // the catalogue's plural «one» (iOS «1 second = %lld coins»): the price of a second is one coin
   "1 second = %lld coins": "1 second = %lld coin",
-  "DELETE_ACCOUNT_MESSAGE": "Your account is being deleted: this computer erases your identity of 24 words, the conversations, the files and the card. Nobody keeps the words for you: write them down first: Settings → Privacy → Seed phrase. With them the identity opens again on any device; the history on Windows is sealed by this computer and leaves with the account.",
+  "DELETE_ACCOUNT_MESSAGE": "The identity is being deleted from this computer, and this cannot be undone: its passwords, tokens, this device's keys, the conversations' files and the window's data are erased. The network does not forget it: the coins in the TimeChain, your backups and the identity itself stay — the same 24 words open it again here or on any device, and the conversations and coins come back. Nobody keeps the words for you: write them down first (Settings → Privacy → Seed phrase). To just switch identity without deleting anything, choose another one at the top of the menu.",
 };
 
 export function t(key, args) {

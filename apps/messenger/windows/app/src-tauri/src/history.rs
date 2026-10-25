@@ -709,11 +709,13 @@ pub fn archive_media(mid: &str, text: &str) -> String {
 /// THE LIGHT COPY ANOTHER DEVICE LAID (iOS MTKeeping.takeLight): the pipe of light, derived from the words, read across the
 /// box's term and never confirmed (it stays for the others); the newest copy of each writer fetched by its road, checked
 /// against its digest, read. The copies' records, newest writer first.
-pub fn take_light(words: &str, twin: &str, entropy: &[u8]) -> Vec<Vec<Record>> {
+pub fn take_light(words: &str, twin: &str, dev: &str, entropy: &[u8]) -> Vec<Vec<Record>> {
     let Some(light) = seed::role_seed(words, b"mt-keep-light") else { return vec![] };
     let w0 = wire::day();
     let subs: Vec<String> = ((w0 - 8)..=(w0 + 1)).map(|d| wire::conv_w(&light, d)).collect();
-    let page = json!({ "subs": subs, "sids": subs.iter().map(|c| wire::sub_id(c, twin)).collect::<Vec<_>>() });
+    // this machine's name under each label rides the page as iOS 2306 sends it; the light pipe is never confirmed
+    let page = json!({ "subs": subs, "sids": subs.iter().map(|c| wire::sub_id(c, twin)).collect::<Vec<_>>(),
+                       "devs": subs.iter().map(|c| wire::sub_id(c, dev)).collect::<Vec<_>>() });
     let mut best: std::collections::HashMap<String, Value> = Default::default();
     for (code, v) in doors::read_each("/fetch", &page, 8_000) {
         if code != 200 {

@@ -3,8 +3,10 @@
 # words ride one row of the twin's pipe each round, and the first device to take a row confirms it -- the node erases it for every
 # device (iOS MontanaPQ, node.py /box-del). The scene says on which of the two Androids each letter stands: by the original, one only,
 # the other by the box's own road or not at all -- the case Dinet Device Sync is for. A measurement, not a pass.
-# usage: tools\twinthree.ps1 -Root DIR [-Apk PATH]   (-Root\P: Alice's Windows folder, made by tools\twin3.ps1)
-param([Parameter(Mandatory = $true)][string]$Root, [string]$Apk = "")
+# Since iOS 2306 each device marks a row taken by its own name (/box-del «taken»), so the row stays for the others: -Strict then
+# fails the scene unless every letter stands on both Androids.
+# usage: tools\twinthree.ps1 -Root DIR [-Apk PATH] [-Strict]   (-Root\P: Alice's Windows folder, made by tools\twin3.ps1)
+param([Parameter(Mandatory = $true)][string]$Root, [string]$Apk = "", [switch]$Strict)
 $ErrorActionPreference = "Stop"
 . "$PSScriptRoot\ui.ps1"
 . "$PSScriptRoot\android.ps1" -Device emulator-5554
@@ -71,6 +73,11 @@ try {
     foreach ($t in $wl) {
         $on = @(@($A, $B) | Where-Object { $where[$_] -contains $t })
         "  '$t' -> $(if ($on.Count -eq 2) { 'both' } elseif ($on.Count -eq 1) { 'one only (' + $on[0] + ')' } else { 'neither' })"
+    }
+    if ($Strict) {
+        $short = @($wl | Where-Object { $t = $_; @(@($A, $B) | Where-Object { $where[$_] -contains $t }).Count -lt 2 })
+        if ($short.Count) { throw "not on both Androids: $($short -join ', ')" }
+        "  every letter on both Androids (each device took it on its own)"
     }
     "done in $([int]((Get-Date) - $t0).TotalSeconds) s"
 } finally {

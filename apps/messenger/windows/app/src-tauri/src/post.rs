@@ -150,6 +150,18 @@ fn bare(sid: &str) -> &str {
     sid.strip_prefix("mid:").unwrap_or(sid)
 }
 
+/// WHAT THIS MACHINE TOOK, MARKED TAKEN BY ITS OWN NAME (iOS 2306 MontanaWakePush.boxTaken): `{"taken": [[mid, device's name]]}` to
+/// the box doors, a page of 128 pairs at a time; the letter stays for the person's other devices until the box's term. The
+/// removal for everyone (`{"mids"}`) is kept for a sender's withdrawal alone (a ring withdrawn, a letter deleted for both).
+pub(crate) fn box_taken(took: &[(String, String)]) {
+    for page in took.chunks(128) {
+        let body = json!({ "taken": page.iter().map(|(m, d)| json!([m, d])).collect::<Vec<_>>() });
+        for door in doors::all() {
+            doors::post_at(&door, "/box-del", &body, 5000);
+        }
+    }
+}
+
 impl<'a> Desk<'a> {
     // ───────────────────────────── sending ─────────────────────────────
 
@@ -1016,12 +1028,20 @@ impl<'a> Desk<'a> {
             }
         }
         let mut landed = 0;
-        let mut taken: Vec<String> = vec![];
+        // ONE PERSON, MANY DEVICES (iOS 2306, MontanaArchive.deviceSid + MontanaWakePush.boxTaken): this machine's own name under
+        // every label of the page -- the name the pipe of the person's devices knows it by, one per label, so the node links no two
+        // labels of one machine -- and what it took is marked taken by that name, never by the person: the letter stays for the
+        // person's other devices until the box's term. Before the archive stands this machine has no name, and confirms nothing.
+        let dev = me.as_ref().map(|m| m.name.clone());
+        let mut taken: Vec<(String, String)> = vec![];
         for chunk in subs.chunks(128) {
-            let page = json!({
+            let mut page = json!({
                 "subs": chunk.iter().map(|x| x.0.clone()).collect::<Vec<_>>(),
                 "sids": chunk.iter().map(|x| x.3.clone()).collect::<Vec<_>>(),
             });
+            if let Some(dev) = &dev {
+                page["devs"] = json!(chunk.iter().map(|x| sub_id(&x.0, dev)).collect::<Vec<_>>());
+            }
             let mut seen = std::collections::HashSet::new();
             let mut rows: Vec<Value> = vec![];
             for (code, v) in doors::read_each("/fetch", &page, 6000) {
@@ -1049,18 +1069,13 @@ impl<'a> Desk<'a> {
                 drop(one);
                 if ok {
                     landed += 1;
-                    if let Some(m) = l["m"].as_str().filter(|m| !m.is_empty()) {
-                        taken.push(m.to_string());
+                    if let (Some(m), Some(dev)) = (l["m"].as_str().filter(|m| !m.is_empty()), &dev) {
+                        taken.push((m.to_string(), sub_id(cw, dev)));
                     }
                 }
             }
         }
-        if !taken.is_empty() {
-            let body = json!({ "mids": taken });
-            for door in doors::all() {
-                doors::post_at(&door, "/box-del", &body, 5000);
-            }
-        }
+        box_taken(&taken);
         landed
     }
 
@@ -1522,7 +1537,12 @@ impl<'a> Desk<'a> {
             return;
         }
         if text.starts_with(crate::calls::RING) {
-            self.heard_ring(r, text); // a call rings by the box: no row, no receipt (iOS)
+            // a call rings by the box: no row, and no receipt while it lives (iOS); a ring of a call that ended already is answered
+            // «delivered» by the machine that took it from the box (iOS 2308): an older sender's queue resent the dead ring for its
+            // whole term, and every copy woke the device again
+            if self.heard_ring(r, text) {
+                receipt(r, mid);
+            }
             return;
         }
         if text.starts_with(crate::calls::MISSED) {
@@ -1802,7 +1822,7 @@ mod tests {
 
         // the light copy: Alice's machine lays it on the nodes; a third machine of her words takes it back by the words alone
         assert!(crate::history::lay_light(&wa, &arc, 1, crate::history::card_record(&[("userName", "Alice".into())])), "the light copy did not reach the nodes");
-        let copies = crate::history::take_light(&wa, &alice.twin, &crate::history::keys(&wa).unwrap().entropy);
+        let copies = crate::history::take_light(&wa, &alice.twin, &crate::twin::device_name(&alice.twin, &arc), &crate::history::keys(&wa).unwrap().entropy);
         assert!(!copies.is_empty(), "no light copy came back");
         let (v3, s3) = (Vault::at(&root.join("alice-third")).unwrap(), media::Store::at(&root.join("alice-third-media")).unwrap());
         let b3 = Book::new(v3);

@@ -9,6 +9,10 @@
 //! chain on the nodes is the coins' truth and is never touched), the archive sealed under the words. Leaving this computer is not
 //! destroying the identity: the same words open the network's history again. The settings and this machine's own stay. No promise
 //! is made of bytes wiped from a disk: what goes is unlinked, what stays aside is sealed.
+//! THE PASSWORDS, THE TOKENS AND THE SECRETS GO, NEVER TO THE NEXT PERSON (the owner's word 25.10.2026 10:1x, final -- where iOS
+//! keeps its keychain for whoever comes next): the password book, the VPN book with its keys and subscription links, the device's
+//! seed of the files' keys and the window's own browser data (its storage, cookies and cache) leave with the person; a switch of
+//! identity keeps every one of them, closed in the person's own folder.
 
 use std::fs;
 use std::path::Path;
@@ -18,15 +22,16 @@ const MARK: &str = "forget.pending";
 /// The settings and this machine's own (iOS settingKeys, markKeys, deviceKeys, keychainStays): they stay for the next person.
 const KEEP: &[&str] = &[
     "chatFolders", "copyPlan", "coinsShown", "coinRate.personal", "levelKeepDeleted", "levelRecordCalls", "keepMine", "keepOthers",
-    "keepTold", "homeNodeHost", "homeNodePin", "homeNodeOn", "homeKeepDays", "homeCacheLimit", "vpnBook", "vpnHwid", "keepHeld",
-    "keepBackAsked", "musicFolders", "musicVolume", "roomsSeen", "blobKeySeed", "lang",
+    "keepTold", "homeNodeHost", "homeNodePin", "homeNodeOn", "homeKeepDays", "homeCacheLimit", "vpnHwid", "keepHeld",
+    "keepBackAsked", "musicFolders", "musicVolume", "roomsSeen", "lang",
 ];
 /// The identity's value, set aside and read by nothing again (iOS MTCoinPlace.setAside for the coin book): the coins' own records
 /// and the archive the words alone open
 const ASIDE_KEYS: &[&str] = &["coinLedger", "timechainTip", "coin3", "personSeconds", "fabricV2"];
 const ASIDE_DIRS: &[&str] = &["TimeChain", "archive"];
-/// What this Windows account alone seals, deleted with the person: another identity of the same account could open it
-const GONE_DIRS: &[&str] = &["media", "faces", "recordings", "HomeNode"];
+/// What this Windows account alone seals, deleted with the person: another identity of the same account could open it -- and the
+/// window's own browser data (WEBVIEW2_USER_DATA_FOLDER): its storage, cookies and cache are the person's
+const GONE_DIRS: &[&str] = &["media", "faces", "recordings", "HomeNode", "EBWebView"];
 /// The person's own words in the settings file: they leave, the settings stay
 const PROFILE_GONE: &[&str] = &["userName", "profileBio", "profileLink"];
 /// The list of the files this person opened in the clear (lib.rs OPENED): their copies outside the folder leave too
@@ -34,6 +39,16 @@ const OPENED: &str = "openedFiles";
 
 fn now_ms() -> u128 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0)
+}
+
+/// A folder deleted; the web view's processes of the program that just ended may hold their files a few seconds longer.
+fn gone(dir: &Path) {
+    for _ in 0..25 {
+        if fs::remove_dir_all(dir).is_ok() || !dir.exists() {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
 }
 
 /// The folder is marked: the person leaves at the next start. False when the mark could not be laid.
@@ -94,7 +109,7 @@ pub fn carry_out(base: &Path, folder: &Path) -> bool {
         }
     }
     for d in GONE_DIRS {
-        let _ = fs::remove_dir_all(folder.join(d));
+        gone(&folder.join(d));
     }
     let _ = fs::remove_dir_all(std::env::temp_dir().join("Montana-share"));   // the tracks handed to «Share» in passing (music.rs)
     let settings = folder.join("settings.json");
@@ -146,13 +161,16 @@ mod tests {
         let base = std::env::temp_dir().join(format!("mt-forgotten-{}", crate::wire::hex(&crate::crypto::random(6).unwrap())));
         let v = Vault::at(&base.join("vault")).unwrap();
         for (k, x) in [("mt_active_mnemonic", "words"), ("pipeSecrets", "{}"), ("chats", "[]"), ("coinLedger", "book"), ("passwords", "p"),
-                       ("chatFolders", "[]"), ("keepHeld", "{}"), ("groups.held", "{}")] {
+                       ("chatFolders", "[]"), ("keepHeld", "{}"), ("groups.held", "{}"), ("vpnBook", "{\"servers\":[]}"), ("blobKeySeed", "s"),
+                       ("vpnHwid", "id")] {
             assert!(v.set(k, x.as_bytes()));
         }
         fs::create_dir_all(base.join("archive").join("Chats")).unwrap();
         fs::write(base.join("archive").join("Chats").join("x.mtlog"), b"sealed").unwrap();
         fs::create_dir_all(base.join("TimeChain")).unwrap();
         fs::create_dir_all(base.join("media")).unwrap();
+        fs::create_dir_all(base.join("EBWebView").join("Default").join("Local Storage")).unwrap();
+        fs::write(base.join("EBWebView").join("Default").join("Local Storage").join("000003.log"), b"chess.computer.game").unwrap();
         fs::write(base.join("media").join("x.sealed"), b"a file").unwrap();
         let opened = base.join("opened-copy.txt");
         fs::write(&opened, b"in the clear").unwrap();
@@ -162,10 +180,11 @@ mod tests {
         assert!(mark(&base));
         assert!(carry_out(&base, &base));
         // the person's values are gone, the settings and the machine's own stay
-        for k in ["mt_active_mnemonic", "pipeSecrets", "chats", "groups.held", OPENED] {
+        for k in ["mt_active_mnemonic", "pipeSecrets", "chats", "groups.held", OPENED, "passwords", "vpnBook", "blobKeySeed"] {
             assert!(!v.has(k), "{k} stayed");
         }
-        assert!(v.has("chatFolders") && v.has("keepHeld"));
+        assert!(v.has("chatFolders") && v.has("keepHeld") && v.has("vpnHwid"), "the settings and the machine's own number stay");
+        assert!(!base.join("EBWebView").exists(), "the window's browser data stayed for the next person");
         assert!(!opened.exists(), "the copy opened in the clear stayed");
         let s: serde_json::Value = serde_json::from_slice(&fs::read(base.join("settings.json")).unwrap()).unwrap();
         assert!(s.get("userName").is_none() && s.get("profileBio").is_none());
@@ -179,6 +198,41 @@ mod tests {
         assert!(aside.join("archive").join("Chats").join("x.mtlog").exists() && !base.join("archive").exists());
         assert!(aside.join("TimeChain").exists() && !base.join("TimeChain").exists());
         assert!(!base.join(MARK).exists(), "the mark is let go once the leaving is done");
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn two_persons_of_one_computer_one_leaves_and_the_other_keeps_every_secret_of_theirs() {
+        // two seats under one base, as seats.rs lays them: A leaves, B stays seated elsewhere and is never touched
+        let base = std::env::temp_dir().join(format!("mt-forgotten-two-{}", crate::wire::hex(&crate::crypto::random(6).unwrap())));
+        let (fa, fb) = (base.join("Seats").join("a"), base.join("Seats").join("b"));
+        let (w1, w2) = (crate::seed::generate().unwrap(), crate::seed::generate().unwrap());
+        for (f, w) in [(&fa, &w1), (&fb, &w2)] {
+            let v = Vault::at(&f.join("vault")).unwrap();
+            for (k, x) in [("passwords", "p"), ("vpnBook", "{}"), ("blobKeySeed", "s"), ("coinLedger", "book"), ("pipeSecrets", "{}")] {
+                assert!(v.set(k, x.as_bytes()));
+            }
+            let a = crate::history::Archive::new(&f.join("archive"), crate::history::keys(w).unwrap(), [1; 16]);
+            assert!(a.append(crate::book::SAVED, 0, 100, "своя заметка".as_bytes()));
+            fs::create_dir_all(f.join("EBWebView")).unwrap();
+            fs::create_dir_all(f.join("media")).unwrap();
+        }
+        assert!(mark(&fa) && carry_out(&base, &fa));
+        let (va, vb) = (Vault::at(&fa.join("vault")).unwrap(), Vault::at(&fb.join("vault")).unwrap());
+        for k in ["passwords", "vpnBook", "blobKeySeed", "pipeSecrets", "coinLedger"] {
+            assert!(!va.has(k), "A's {k} stayed in A's seat");
+            assert!(vb.has(k), "B's {k} went with A");
+        }
+        assert!(!fa.join("EBWebView").exists() && !fa.join("media").exists() && !fa.join("archive").exists());
+        assert!(fb.join("EBWebView").exists() && fb.join("media").exists() && fb.join("archive").exists(), "B's folders were touched");
+        // A's coins and archive wait aside; B's words take none of it, A's words take it back
+        let b_now = crate::history::Archive::new(&fb.join("archive"), crate::history::keys(&w2).unwrap(), [2; 16]);
+        assert!(bring_back(&base, &fb, &b_now).is_empty(), "B's words opened A's archive");
+        assert_eq!(vb.get("coinLedger").as_deref(), Some(&b"book"[..]));
+        let a_now = crate::history::Archive::new(&fa.join("archive"), crate::history::keys(&w1).unwrap(), [3; 16]);
+        assert!(!bring_back(&base, &fa, &a_now).is_empty());
+        assert_eq!(va.get("coinLedger").as_deref(), Some(&b"book"[..]), "A's coin book came back to A's own words");
+        assert!(!va.has("passwords") && !va.has("vpnBook"), "a secret came back with the words: it must stay gone");
         let _ = fs::remove_dir_all(&base);
     }
 

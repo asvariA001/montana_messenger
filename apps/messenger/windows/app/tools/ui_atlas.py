@@ -17,6 +17,16 @@ PROGRESS = os.path.join(DOCS, "UI-PROGRESS.md")
 ID = re.compile(r"^[A-Z]+-\d{3}$")
 CELL = re.compile(r"(?<!\\)\|")
 REF = "3926188"
+# TWO REFERENCES, NEVER MIXED (the owner's word 25.10.2026 10:5x, chain №910–920): the interface of each section is compared with
+# one fixed iOS build, named here; security and the protocol follow the current agreed original apart (PROTO); a newer build's
+# change of a screen is written in «Изменения эталона» of the atlas first, and only then moves the section's build
+UI_REF = {p: ("2305", REF) for p in ("LAUNCH", "MAIN", "CONV", "MEDIA", "CALL", "CONTACTS", "WALL", "WALLET", "DSYNC")}
+PROTO = ("2310", "d5c6448", "f83cf7350b4b")
+# THE LEVELS OF A VISUAL CHECK (the same word): A -- matched to the SwiftUI source; B -- to an iOS Simulator shot or another
+# trustworthy picture; C -- confirmed on a real iPhone. A and B are never written as C
+LEVELS = ("A", "B", "C")
+OLD_SIGHT = {"код": "A", "да": "C"}
+OLD_FINAL = {"по исходникам": "уровень A", "визуально": "уровень C"}
 
 def read(p):
     with open(p, encoding="utf-8") as f:
@@ -173,7 +183,7 @@ COLS = ["ID", "Название", "Вид", "1 iOS", "2 Win", "3 Функция"
         "8 Регрессия", "Личность", "9 Итог", "Доказательства / причина"]
 HAND = COLS[5:]
 WIN = {"yes": "да", "partial": "частично", "missing": "нет", "n-a": "н/п", "unclear": "?"}
-FINAL = ["не начато", "исследовано", "частично", "по исходникам", "визуально", "заблокировано"]
+FINAL = ["не начато", "исследовано", "частично", "уровень A", "уровень B", "уровень C", "заблокировано"]
 
 LEGEND = """# Контрольная таблица атласа
 
@@ -181,13 +191,19 @@ LEGEND = """# Контрольная таблица атласа
 вручную по проверке и сохраняются скриптом по ID. Отмечать пункт можно только по проверке, не по наличию кода или сборке.
 
 - **1 iOS** — найдено в iOS (источник в атласе): да / нет. **2 Win** — код в Windows: да / частично / нет / н/п / ?.
-- **3 Функция, 4 Визуал, 5 Анимация, 6 Смежные, 8 Регрессия:** `—` не проверено · `да` подтверждено (ссылка в «Доказательства») ·
-  `код` сверено по исходникам iOS, сравнение с iPhone не выполнено · `iPhone` нужен настоящий iPhone · `нет` проверка не прошла.
+- **Эталоны** (слово владельца 25.10.2026 10:5x): под заголовком раздела — сборка iOS, с которой сравнивается его интерфейс, и
+  отдельно эталон протокола и безопасности (текущий согласованный оригинал). Новая сборка iOS сначала записывается в «Изменения
+  эталона» атласа и только потом сдвигает эталон раздела.
+- **3 Функция, 6 Смежные, 8 Регрессия:** `—` не проверено · `да` подтверждено (ссылка в «Доказательства») · `нет` не прошла.
+- **4 Визуал, 5 Анимация — уровни:** `—` не сверено · `A` сверено по исходникам SwiftUI · `B` сверено со снимком iOS Simulator или
+  другим достоверным эталоном · `C` подтверждено на настоящем iPhone · `нужен эталон` без снимка не установить · `нет` не прошла.
+  A и B никогда не пишутся как C.
 - **7 Различия:** `—` не сверено · `нет` не осталось · `есть` осталось (что — в «Доказательства»).
 - **Личность** (данные, созданные этим элементом, на других устройствах той же личности; `docs/IDENTITY-SYNC.md`): `·` не
   исследовано · `—` элемент данных не создаёт · `лок` по iOS данные остаются на устройстве · `да` проверено на двух устройствах ·
   `частично` · `нет` iOS переносит, Windows нет.
-- **9 Итог:** не начато · исследовано · частично · по исходникам · визуально (подтверждено визуально) · заблокировано.
+- **9 Итог:** не начато · исследовано · частично · уровень A · уровень B · уровень C · заблокировано.
+- **н/п** в «2 Win» — всегда с причиной и Windows-аналогом действия человека, если он есть (заметки атласа или «Доказательства»).
 - **Доказательства / причина:** тест (`tools/*.ps1`), снимок (`docs/ui-evidence/…`), коммит, причина блокировки.
 
 """
@@ -201,13 +217,20 @@ def check():
         for line in read(CHECK).splitlines():
             c = cells(line)
             if len(c) == len(COLS) and ID.match(c[0]):
-                kept[c[0]] = c[5:]
+                h = c[5:]
+                for i in (1, 2):   # 4 Визуал, 5 Анимация: the words before the levels
+                    h[i] = OLD_SIGHT.get(h[i], "нужен эталон" if h[i] == "iPhone" else h[i])
+                h[7] = OLD_FINAL.get(h[7], h[7])
+                kept[c[0]] = h
     out = [LEGEND]
     section = None
     for sec, c in rows:
         if sec != section:
             section = sec
-            out += ["", f"## {sec}", "", "| " + " | ".join(COLS) + " |", "|" + "---|" * len(COLS)]
+            build, commit = UI_REF.get(prefix_of(sec), ("?", "?"))
+            out += ["", f"## {sec}", "",
+                    f"Эталон интерфейса: iOS {build} (`{commit}`) · эталон протокола и безопасности: iOS {PROTO[0]} (`main {PROTO[1]}`, "
+                    f"исходник `{PROTO[2]}`)", "", "| " + " | ".join(COLS) + " |", "|" + "---|" * len(COLS)]
         ios = "да" if c[5] and c[5] not in ("—", "-") and not c[5].startswith("нет в iOS") else "нет"
         hand = kept.get(c[0], ["—", "—", "—", "—", "—", "—", "·", "исследовано", ""])
         out.append("| " + " | ".join([c[0], short(c[2]).replace("|", "\\|"), c[1], ios, WIN.get(c[7], c[7] or "?")] + hand) + " |")
@@ -218,6 +241,10 @@ def check():
         write(ATLAS, a + registry(rows) + rest.split("<!-- /registry -->", 1)[1])
     progress(rows)
     print(f"checklist: {len(rows)} rows, {len(kept)} kept by hand")
+
+def prefix_of(sec):
+    m = re.search(r"префиксы?:? ([A-Z]+)", sec)
+    return m.group(1) if m else ""
 
 def progress(rows):
     table = {}
@@ -241,7 +268,8 @@ def progress(rows):
     done = lambda col: (lambda c, t: t[COLS.index(col)] == "да")
     lines = [
         "# Ход проверки по атласу", "",
-        f"Все числа — подсчёт строк `docs/UI-CHECKLIST.md` (эталон iOS `{REF}`); пересчёт — `python3 -B app/tools/ui_atlas.py`.", "",
+        f"Все числа — подсчёт строк `docs/UI-CHECKLIST.md`; эталон интерфейса — по разделам (таблица ниже), эталон протокола и "
+        f"безопасности — iOS {PROTO[0]} (`main {PROTO[1]}`); пересчёт — `python3 -B app/tools/ui_atlas.py`.", "",
         "| Что | Строк |", "|---|---|",
         f"| Экраны (screen) / страницы (page) / листы (sheet) / алерты (alert) / меню (menu) | "
         f"{count(kinds('screen'))} / {count(kinds('page'))} / {count(kinds('sheet'))} / {count(kinds('alert'))} / {count(kinds('menu'))} |",
@@ -253,20 +281,24 @@ def progress(rows):
         f"{' / '.join(str(n) for n in wins)} |",
         "| | н/п — у Windows нет такой возможности платформы или в iOS это мёртвый код; неясно — по коду не установить |",
         f"| Функционально проверено | {count(done('3 Функция'))} |",
-        f"| Визуально сверено | {count(done('4 Визуал'))} (по исходникам: {count(lambda c, t: t[6] == 'код')}) |",
-        f"| Анимации проверены | {count(done('5 Анимация'))} |",
+        "| Визуально сверено: A по исходникам / B по снимку Simulator / C на iPhone | "
+        + " / ".join(str(count(lambda c, t, l=l: t[6] == l)) for l in LEVELS) + " |",
+        "| Анимации: A / B / C | " + " / ".join(str(count(lambda c, t, l=l: t[7] == l)) for l in LEVELS) + " |",
         f"| Данные доступны другим устройствам личности (проверено) | {count(lambda c, t: t[11] == 'да')} |",
-        f"| Полностью подтверждено (итог «визуально») | {count(lambda c, t: t[12] == 'визуально')} |",
+        "| Итог: уровень A / B / C | " + " / ".join(str(count(lambda c, t, l=l: t[12] == "уровень " + l)) for l in LEVELS) + " |",
+        f"| н/п без причины (дописать причину и аналог Windows) | {count(lambda c, t: t[4] == 'н/п' and not (c[8].strip() or t[13].strip()))} |",
         f"| Заблокировано | {count(lambda c, t: t[12] == 'заблокировано')} |",
         "", "## По разделам", "",
-        "| Раздел | Строк | Win да | частично | нет | Функция | Визуал | Анимация | Итог: визуально | Заблокировано |",
-        "|---|---|---|---|---|---|---|---|---|---|"]
+        "| Раздел | Эталон интерфейса | Строк | Win да | частично | нет | Функция | Визуал A/B/C | Анимация A/B/C | Итог C | Заблокировано |",
+        "|---|---|---|---|---|---|---|---|---|---|---|"]
     for part in dict.fromkeys(s for s, _ in rows):
         name = part.split(" (префиксы")[0]
-        lines.append(f"| {name} | {count(lambda c, t: True, part)} | {count(lambda c, t: t[4] == 'да', part)} | "
+        lvl = lambda i: "/".join(str(count(lambda c, t, l=l: t[i] == l, part)) for l in LEVELS)
+        build = UI_REF.get(prefix_of(part), ("?", "?"))[0]
+        lines.append(f"| {name} | {build} | {count(lambda c, t: True, part)} | {count(lambda c, t: t[4] == 'да', part)} | "
                      f"{count(lambda c, t: t[4] == 'частично', part)} | {count(lambda c, t: t[4] == 'нет', part)} | "
-                     f"{count(done('3 Функция'), part)} | {count(done('4 Визуал'), part)} | {count(done('5 Анимация'), part)} | "
-                     f"{count(lambda c, t: t[12] == 'визуально', part)} | {count(lambda c, t: t[12] == 'заблокировано', part)} |")
+                     f"{count(done('3 Функция'), part)} | {lvl(6)} | {lvl(7)} | "
+                     f"{count(lambda c, t: t[12] == 'уровень C', part)} | {count(lambda c, t: t[12] == 'заблокировано', part)} |")
     write(PROGRESS, "\n".join(lines) + "\n\n" + hand + "\n")
 
 def set_row(rid, pairs):

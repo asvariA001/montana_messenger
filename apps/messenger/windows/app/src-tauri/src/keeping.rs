@@ -926,11 +926,13 @@ pub fn is_taking() -> bool {
 }
 
 /// The rows of a derived pipe's box across the term (iOS BoxEar for one pipe): (node mid, the letter's words) of every letter
-/// that opens under the secret; `take` -- the rows read are confirmed to the node.
-pub fn read_pipe(secret: &[u8], twin: &str, take: bool) -> Vec<String> {
+/// that opens under the secret; `take` -- the rows read are marked taken by this machine's name `dev` (iOS 2306 boxTaken), and
+/// stay for the person's other devices.
+pub fn read_pipe(secret: &[u8], twin: &str, dev: &str, take: bool) -> Vec<String> {
     let w0 = wire::day();
     let subs: Vec<String> = ((w0 - 8)..=(w0 + 1)).map(|d| wire::conv_w(secret, d)).collect();
-    let page = json!({ "subs": subs, "sids": subs.iter().map(|c| wire::sub_id(c, twin)).collect::<Vec<_>>() });
+    let page = json!({ "subs": subs, "sids": subs.iter().map(|c| wire::sub_id(c, twin)).collect::<Vec<_>>(),
+                       "devs": subs.iter().map(|c| wire::sub_id(c, dev)).collect::<Vec<_>>() });
     let mut seen = std::collections::HashSet::new();
     let (mut out, mut taken) = (vec![], vec![]);
     for (code, v) in doors::read_each("/fetch", &page, 8_000) {
@@ -945,16 +947,13 @@ pub fn read_pipe(secret: &[u8], twin: &str, take: bool) -> Vec<String> {
             let Some(sealed) = l["e"].as_str().and_then(unb64) else { continue };
             let Some(plain) = wire::open_boxed(&sealed, secret, l["at"].as_i64().unwrap_or(now_s())) else { continue };
             out.push(wire::fields(&plain, 0, 2)[1].clone());
-            if !m.is_empty() {
-                taken.push(m);
+            if let Some(cw) = l["c"].as_str().filter(|_| !m.is_empty()) {
+                taken.push((m, wire::sub_id(cw, dev)));
             }
         }
     }
-    if take && !taken.is_empty() {
-        let body = json!({ "mids": taken });
-        for door in doors::all() {
-            doors::post_at(&door, "/box-del", &body, 5000);
-        }
+    if take {
+        crate::post::box_taken(&taken);
     }
     out
 }
@@ -974,7 +973,7 @@ struct Answer {
 /// words, and the copy of the highest generation whose every group stands built, checked against its digest and laid by
 /// `lay` (true -- laid). The calls repeat every two minutes, loud after six minutes for the slots still silent; the walk
 /// ends with the copy laid, after `hours` without one, or by stop_taking.
-pub fn take_back(words: &str, twin: &str, entropy: &[u8], hours: f64, mut lay: impl FnMut(Vec<Record>) -> bool) -> bool {
+pub fn take_back(words: &str, twin: &str, dev: &str, entropy: &[u8], hours: f64, mut lay: impl FnMut(Vec<Record>) -> bool) -> bool {
     if !agrees() || TAKING_NOW.swap(true, Ordering::SeqCst) {
         return false;
     }
@@ -1007,7 +1006,7 @@ pub fn take_back(words: &str, twin: &str, entropy: &[u8], hours: f64, mut lay: i
                 trace(&format!("call loud rung={rung} heard={}", heard.len()));
             }
             for (k, s) in secrets.iter().enumerate() {
-                for text in read_pipe(s, twin, true) {
+                for text in read_pipe(s, twin, dev, true) {
                     let Some(o) = word(&text) else { continue };
                     if o.get("w").and_then(|v| v.as_str()) != Some("answer") {
                         continue;
@@ -1346,7 +1345,8 @@ mod tests {
         let done = std::sync::atomic::AtomicBool::new(false);
         std::thread::scope(|sc| {
             let t = sc.spawn(|| {
-                let laid = take_back(&wa, &a2.twin, &entropy, 0.1, |records| {
+                let dev = crate::twin::device_name(&a2.twin, a2.archive.as_ref().unwrap());
+                let laid = take_back(&wa, &a2.twin, &dev, &entropy, 0.1, |records| {
                     history::restore(a2.archive.as_ref().unwrap(), &b2, &s2, None, &records);
                     true
                 });

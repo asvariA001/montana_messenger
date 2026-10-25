@@ -9,11 +9,18 @@ pub fn post(url: &str, body: &str, timeout_ms: u32) -> (i32, Option<String>) {
     fn wide(s: &str) -> Vec<u16> {
         s.encode_utf16().chain(std::iter::once(0)).collect()
     }
-    let Some(rest) = url.strip_prefix("https://") else { return (-1, None) };
+    // a check's own node on this computer speaks plain HTTP to the loopback (doors::test_door); every other door is TLS
+    let (secure, rest) = match url.strip_prefix("https://") {
+        Some(r) => (true, r),
+        None => match url.strip_prefix("http://").filter(|_| crate::doors::test_door().is_some_and(|d| url.starts_with(d))) {
+            Some(r) => (false, r),
+            None => return (-1, None),
+        },
+    };
     let (host, path) = rest.split_once('/').map(|(h, p)| (h, format!("/{p}"))).unwrap_or((rest, "/".into()));
     let (host, port) = match host.split_once(':') {
-        Some((h, p)) => (h, p.parse::<u16>().unwrap_or(443)),
-        None => (host, 443u16),
+        Some((h, p)) => (h, p.parse::<u16>().unwrap_or(if secure { 443 } else { 80 })),
+        None => (host, if secure { 443u16 } else { 80 }),
     };
 
     // SAFETY: every handle is opened, checked and closed on every path; the buffers outlive the calls that read them
@@ -27,7 +34,8 @@ pub fn post(url: &str, body: &str, timeout_ms: u32) -> (i32, Option<String>) {
         let connect = WinHttpConnect(session, wide(host).as_ptr(), port, 0);
         let mut result = (-1, None);
         if !connect.is_null() {
-            let request = WinHttpOpenRequest(connect, wide("POST").as_ptr(), wide(&path).as_ptr(), null(), null(), null(), WINHTTP_FLAG_SECURE);
+            let request = WinHttpOpenRequest(connect, wide("POST").as_ptr(), wide(&path).as_ptr(), null(), null(), null(),
+                                             if secure { WINHTTP_FLAG_SECURE } else { 0 });
             if !request.is_null() {
                 let headers = wide("Content-Type: application/json\r\n");
                 let bytes = body.as_bytes();

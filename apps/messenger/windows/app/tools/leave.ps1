@@ -49,6 +49,9 @@ Page-Says $note
 if (-not (Test-Path "$dir\vault\mt_active_mnemonic.sealed")) { throw "A's words are not where the check looks for them" }
 
 "A deletes the account: the program starts again on the first screen"
+# the window's browser data is A's (storage, cookies, cache: the owner's word 25.10.2026): a mark laid in it must not outlive A
+$mark = "$dir\EBWebView\leave-mark-of-A.txt"
+if (Test-Path "$dir\EBWebView") { Set-Content -Path $mark -Value "A" } else { $mark = $null }
 Open-Drawer; Click-Named "Настройки"; Click-Named "Приватность"
 Click-Named "Удалить аккаунт"; Start-Sleep -Milliseconds 500
 Click-In "Удалить аккаунт?" "Удалить аккаунт"
@@ -57,9 +60,12 @@ Says "Продолжить с Montana" 30
 Snap "leave-1-first-screen"
 
 "the folder: A's words, book and secrets gone; the coin book, the archive and the files aside; the settings stay"
-foreach ($k in @("mt_active_mnemonic", "pipeSecrets", "chats", "draftsMap", "mt.twin.ref", "passwords")) {
+foreach ($k in @("mt_active_mnemonic", "pipeSecrets", "chats", "draftsMap", "mt.twin.ref", "passwords", "vpnBook", "blobKeySeed")) {
     if (Test-Path "$dir\vault\$k.sealed") { throw "$k stayed in the folder" }
 }
+if (-not $mark) { throw "A's window kept no browser data where the check looks ($dir\EBWebView)" }
+if (Test-Path $mark) { throw "A's browser data stayed for the next person" }
+"  A's browser data gone (the window's folder is the next person's, fresh)"
 $aside = Get-ChildItem "$dir\Forgotten" -Directory | Select-Object -First 1
 if (-not $aside) { throw "nothing was set aside" }
 "  aside: Forgotten\$($aside.Name) -- " + ((Get-ChildItem $aside.FullName -Recurse -File | Measure-Object).Count) + " files"

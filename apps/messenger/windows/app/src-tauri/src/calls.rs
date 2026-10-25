@@ -95,6 +95,15 @@ fn post_to(book: &Book, twin: &str, r: &str, epoch: &str, words: &str, door: Opt
     let cw = conv_w(&secret, wire::day());
     let body = json!({ "conv": cw, "from_id": sub_id(&cw, twin), "env": b64(&env) });
     if let Some(d) = door {
+        // A CALL CONNECTS WHEN ONE NODE IS DOWN (iOS 2307 MTCallRoute.echoDoors): beside the door the peer reads, every other door
+        // gets the same sealed packet at once, off this thread; the far side drops the repeats by the packet's «q», and a receipt
+        // from any door settles it
+        for echo in doors::all().into_iter().filter(|e| *e != d) {
+            let body = body.clone();
+            std::thread::spawn(move || {
+                doors::post_at(&echo, "/signal", &body, 5_000);
+            });
+        }
         if doors::post_at(&d, "/signal", &body, 5_000).0 == 200 {
             return true;
         }
@@ -351,18 +360,24 @@ impl Desk<'_> {
     }
 
     /// A ring by the box (iOS ChatStore 4370-4392): too old or buried -- nothing; else the window rings.
-    pub fn heard_ring(&self, r: &str, text: &str) {
-        let Some(o) = text.strip_prefix(RING).and_then(|j| serde_json::from_str::<Value>(j).ok()) else { return };
-        let Some(seed) = o["s"].as_str().filter(|s| unb64(s).is_some_and(|b| b.len() == 32)) else { return };
+    /// True when the ring is a call that ended already (older than its life): the letter is answered «delivered» by the caller of
+    /// this (iOS 2308), so the sender's queue stops resending it; a live ring is never answered.
+    pub fn heard_ring(&self, r: &str, text: &str) -> bool {
+        let Some(o) = text.strip_prefix(RING).and_then(|j| serde_json::from_str::<Value>(j).ok()) else { return false };
+        let Some(seed) = o["s"].as_str().filter(|s| unb64(s).is_some_and(|b| b.len() == 32)) else { return false };
         let t = o["t"].as_f64().unwrap_or(0.0);
-        if wire::now_ms() as f64 / 1000.0 - t > LIFE_S as f64 || buried(self.vault, seed) || self.book.chat(r).is_some_and(|c| c.blocked) || crate::doors::barred(r) {
-            return;
+        if wire::now_ms() as f64 / 1000.0 - t > LIFE_S as f64 {
+            return true;
+        }
+        if buried(self.vault, seed) || self.book.chat(r).is_some_and(|c| c.blocked) || crate::doors::barred(r) {
+            return false;
         }
         let ring = Ring { chat: r.to_string(), seed: seed.to_string(), video: o["v"].as_bool().unwrap_or(false), name: o["n"].as_str().unwrap_or("").to_string() };
         let mut rings = RINGS.lock().unwrap();
         if !rings.iter().any(|x| x.seed == ring.seed) {
             rings.push(ring);
         }
+        false
     }
 
     /// A missed call told by the caller (iOS DeliveryEngine 284-306): a row and a banner, unless the seed is known here; the

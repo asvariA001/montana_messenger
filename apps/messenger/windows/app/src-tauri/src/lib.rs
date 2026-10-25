@@ -414,6 +414,8 @@ fn file_range(app: &AppHandle, request: &tauri::http::Request<Vec<u8>>) -> tauri
         .header(header::ACCEPT_RANGES, "bytes")
         .header(header::CONTENT_RANGE, format!("bytes {start}-{}/{size}", start + bytes.len() as u64 - 1))
         .header(header::CONTENT_LENGTH, bytes.len())
+        // the bytes are a letter's file in the clear: never laid in the web view's disk cache, where the next person would find them
+        .header(header::CACHE_CONTROL, "no-store")
         .body(bytes).unwrap()
 }
 
@@ -957,7 +959,7 @@ fn take_light_then(app: AppHandle, keepers: bool) {
         let (p, m) = (app.state::<Person>(), app.state::<Messenger>());
         let (Some(words), Some(twin), Some(a)) = (p.seed.mnemonic(), p.seed.twin(), m.archive(&p)) else { return };
         let mut sum = history::Restored::default();
-        for records in history::take_light(&words, &twin, &a.keys().entropy) {
+        for records in history::take_light(&words, &twin, &twin::device_name(&twin, &a), &a.keys().entropy) {
             lay_card(&p, &records);
             let r = history::restore(&a, &m.book, &m.media, Some(&m.faces), &records);
             sum.chats += r.chats;
@@ -980,7 +982,7 @@ fn take_light_then(app: AppHandle, keepers: bool) {
 /// THE COPY TAKEN BACK FROM THE PEOPLE ONE WRITES TO (iOS MTKeeping.takeBack), on the calling thread: six hours at most.
 fn take_from_keepers(app: &AppHandle, words: &str, twin: &str, a: &history::Archive) {
     let entropy = a.keys().entropy;
-    let laid = keeping::take_back(words, twin, &entropy, 6.0, |records| {
+    let laid = keeping::take_back(words, twin, &twin::device_name(twin, a), &entropy, 6.0, |records| {
         let (p, m) = (app.state::<Person>(), app.state::<Messenger>());
         lay_card(&p, &records);
         let r = history::restore(a, &m.book, &m.media, Some(&m.faces), &records);

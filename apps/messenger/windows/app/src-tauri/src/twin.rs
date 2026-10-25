@@ -88,6 +88,12 @@ pub fn device_tag(entropy: &[u8], device: &[u8]) -> String {
     format!("windows-{}", hex(&sha(&[b"mt-device-tag\0", entropy, device])[..6]))
 }
 
+/// THIS MACHINE'S NAME AMONG THE PERSON'S DEVICES (iOS twinDeviceRef): the pipe of the devices knows it by it, and since 2306 every
+/// box marks what this machine took by it under each label (MontanaArchive.deviceSid = the label's sid of this name).
+pub fn device_name(twin: &str, a: &crate::history::Archive) -> String {
+    format!("{twin}#{}", device_tag(&a.keys().entropy, &a.device()))
+}
+
 /// The pipe, this machine's name in it (iOS twinDeviceRef: the node rings every device of the pipe but the one that spoke),
 /// and its writer tag in hex (the «f» of a letter it lays).
 pub struct Me {
@@ -168,7 +174,7 @@ impl Desk<'_> {
         let a = self.archive.as_ref()?;
         let k = a.keys();
         let tag = a.writer_tag()?;
-        Some(Me { secret: secret(&k.hk), name: format!("{}#{}", self.twin, device_tag(&k.entropy, &a.device())), tag: hex(&tag) })
+        Some(Me { secret: secret(&k.hk), name: device_name(&self.twin, a), tag: hex(&tag) })
     }
 
     // ───────────────────────────── laying ─────────────────────────────

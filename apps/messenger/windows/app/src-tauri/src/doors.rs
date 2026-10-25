@@ -34,6 +34,18 @@ const ASK_AGAIN_S: i64 = 300;
 /// door -> (failures in a row, resting until (s), the rest it was given (s))
 static HEALTH: Mutex<Vec<(String, u32, i64, i64)>> = Mutex::new(Vec::new());
 
+/// A CHECK'S OWN NODE (MONTANA_TEST_DOOR, read only in a check's run -- MONTANA_DATA_DIR set, as the clock's shift in wire.rs): a node
+/// put up on this computer for a check (tools/clocknode.py: the original's montana-home-node.py on a clock of the check's own),
+/// the only door the client knows -- the network is never asked. Loopback only; never in the person's program.
+pub fn test_door() -> Option<&'static str> {
+    static DOOR: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    DOOR.get_or_init(|| {
+        std::env::var_os("MONTANA_DATA_DIR")?;
+        std::env::var("MONTANA_TEST_DOOR").ok().map(|d| d.trim().trim_end_matches('/').to_string())
+            .filter(|d| d.starts_with("http://127.0.0.1:") || d.starts_with("https://127.0.0.1:"))
+    }).as_deref()
+}
+
 fn now_s() -> i64 {
     crate::wire::now_ms() / 1000
 }
@@ -98,6 +110,9 @@ fn parse_doors(raw: &str) -> Vec<crate::channel::Door> {
 
 /// THE CHANNELS' DOORS (iOS MontanaNodes.list 225-235): the network's list once learned, else the shipped one.
 pub fn channel_doors() -> Vec<crate::channel::Door> {
+    if test_door().is_some() {
+        return vec![]; // a check's own node carries the boxes, the blobs and the signals; no channel of the network
+    }
     learn();
     let net = parse_doors(&LEARNED.lock().unwrap().join("\n"));
     if net.is_empty() { parse_doors(SHIPPED_CHANNEL) } else { net }
@@ -153,6 +168,9 @@ fn learn() {
 
 /// The machines and their doors: the network's, or the shipped list, one door a machine.
 fn machines() -> Vec<(String, Vec<String>)> {
+    if let Some(d) = test_door() {
+        return vec![("test".into(), vec![d.to_string()])];
+    }
     learn();
     let m = MACHINES.lock().unwrap().0.clone();
     if m.is_empty() {
