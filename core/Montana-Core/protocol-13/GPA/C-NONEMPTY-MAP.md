@@ -7,7 +7,10 @@ Every code citation and quote below is at M. Source arithmetic is not a measurem
 
 **Result and boundary.** Section 1 supplies a nonempty, nontrivial instance of Definition C
 for a pre-established MUQ API workload with offline recipients and a fixed finite horizon.
-The proof couples complete active state and bytes, not just source lengths. Section 2 maps
+The proof couples complete active state and bytes, not just source lengths. The chair
+[accepted this result for intake][chair-review] with the qualification **non-empty but
+uninformative**: it shows that Definition C is satisfiable, not that Montana provides
+unlinkability. It must not be cited as evidence of anonymity. Section 2 maps
 one named API path, including its failure prefixes, to section 4 of
 [INTERSECTION-MODEL.md](INTERSECTION-MODEL.md). Its physical transport subrows remain open;
 this is not a completed MAP proof or a ciphertext simulator. No implementation is changed.
@@ -187,10 +190,13 @@ phone or physical-transport rows. All nonzero rows share the single coupling abo
 | 4.5 all-link/open boundaries | Same complete physical trace under the coupling, including handshakes, connection shutdown, ACK packets, retransmissions and timing. No notification service is invoked by the chosen APIs. Actual packet/record sizes are still unspecified, not zero. |
 
 Thus this pair satisfies Definition C's four clauses for the stated pre-established API
-experiment. **C-NONEMPTY has a witness at this scope, submitted for review.** This does not
-establish an online-delivery witness or any numerical anonymity claim. The construction gains
-nothing from mixing or padding: the changed secret ownership has no causal path to an observed
-event yet. Extending the horizon through collection, or observing provisioning, can expose that
+experiment. The chair [checked the coupling and accepted it for intake][chair-review].
+**The witness is non-empty but uninformative.** Equality holds because the changed secret
+ownership has no causal path to any observed event in this horizon. It shows that Definition C
+is satisfiable; it does not show that Montana provides any unlinkability. No mixing, padding
+or cover contributes, and **this witness must not be cited as evidence of anonymity**. It does
+not establish an online-delivery witness or a numerical anonymity claim. Extending the horizon
+through collection, or observing provisioning, can expose that
 ownership. That limitation is why SEQ/W-M and the broader implementation obligations stay open.
 No code change is required for this restricted witness; no claim of nonexistence elsewhere in M
 is made, so there is no justified "smallest code fix" to report as necessary.
@@ -293,9 +299,16 @@ MAP-TLS/TCP, MAP-CLOSE and MAP-OPAQUE even for this path; MAP for every other pa
 MAP-ACK as an implementation obligation; SIM, PQ-KEY, PQ-SEAL, JOINT, SEQ and W-M exactly as
 written in INTERSECTION-MODEL.md. WIN remains issue #4's separate integration dependency.
 
-**NEXT:** chair review of the capability-ownership witness against Definition C clauses 1–4,
-then the named transport-map boundaries. A broader witness must keep the actual provisioning
-and collection traffic and its correlations. No runtime work, alternate primitive, code fix,
+**Review boundary:** the chair checked the coupling at `ac4f436` lines 129–160 and confirmed
+MAP-ACK. The section 4 accounting table (lines 166–187) and MAP ledger (lines 198–229) were
+read, **not checked row by row**, and taken as written pending that check. Acceptance is for
+intake through the core line; it is not a completed MAP proof or permission to merge PR #33
+as it stands. These review claims refer to the [third-session verdict][chair-review].
+
+**NEXT:** row-by-row review of the accounting table and MAP ledger, and the named transport
+boundaries. A broader witness must keep the actual provisioning and collection traffic and
+its correlations; no such extension is supplied by this review correction.
+No runtime work, alternate primitive, code fix,
 RELEASES.md edit or issue #4 proof edit is proposed as completed here.
 
 -- Codex, model id not visible to the agent, agent on issue #5
@@ -319,3 +332,5 @@ Co-Authored-By: Codex (model id not visible to the agent) <noreply@openai.com>
 [wire]: https://github.com/efir369999/montana_messenger/blob/2c7eb0df782da1679d20fc220499e9e3ab72c6b6/core/Code/crates/mt-postman/src/wire.rs
 [prune]: https://github.com/efir369999/montana_messenger/blob/2c7eb0df782da1679d20fc220499e9e3ab72c6b6/core/Code/crates/mt-overlay/src/queue_host.rs#L220-L225
 [config]: https://github.com/efir369999/montana_messenger/blob/2c7eb0df782da1679d20fc220499e9e3ab72c6b6/core/Code/crates/mt-postman/src/config.rs
+
+[chair-review]: https://github.com/efir369999/montana_messenger/issues/5#issuecomment-6401464305

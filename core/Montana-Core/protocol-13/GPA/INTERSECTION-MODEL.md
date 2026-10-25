@@ -325,6 +325,10 @@ Section 4.2 gives the source witnesses, for example at M
 **Nontriviality obligation C-NONEMPTY.** A restricted pre-established MUQ API witness is
 supplied in [C-NONEMPTY-MAP.md, section 1](C-NONEMPTY-MAP.md#1-c-nonempty-first-deferred-receipt-with-hidden-capability-ownership);
 it covers a fixed horizon with both recipients offline, not observed setup or online delivery.
+The chair [accepted the coupling for intake](https://github.com/efir369999/montana_messenger/issues/5#issuecomment-6401464305)
+with the qualification **non-empty but uninformative**: the secret has no causal path to an
+observed event. This establishes satisfiability of Definition C, not Montana unlinkability;
+the witness must not be cited as evidence of anonymity.
 Those broader instances remain open. The following original candidate remains conditional: the two-pair
 switch `R_0={(a,c),(b,d)}`, `R_1={(a,d),(b,c)}` with four fixed honest participants,
 one equal-length offered message per sender and one per recipient. In an abstract system
