@@ -1155,17 +1155,22 @@ struct Facts {
 
 // The decided states and the facts of the last two windows this machine closed: what a replay of a
 // decided roll starts from (the decided state of the window two before) and what it is checked
-// against. Two windows deep and never a history.
+// against. Two windows deep and never a history. A state is held by the window it is the base of,
+// so the base of window zero — the plane a machine opens the network on, of no window before it —
+// is held as every other.
 #[derive(Default)]
 struct Memory {
-    states: BTreeMap<u64, State>,
+    bases: BTreeMap<u64, State>,
     facts: BTreeMap<u64, Facts>,
 }
 
 impl Memory {
-    fn let_go_before(&mut self, window: u64) {
-        self.states.retain(|at, _| *at >= window);
-        self.facts.retain(|at, _| *at >= window);
+    // What a machine that closed `window` keeps: the base of the window after it and its own, which
+    // a replay of this window in the next one starts from, and the facts of this window and the one
+    // before.
+    fn let_go_on_closing(&mut self, window: u64) {
+        self.bases.retain(|at, _| *at >= window);
+        self.facts.retain(|at, _| at.saturating_add(1) >= window);
     }
 }
 
@@ -1204,11 +1209,9 @@ pub fn live_doing(
     // holds those two and lets the older go, and what it keeps of them beyond is the store's.
     let mut stands_on: BTreeMap<u64, Proposal> = BTreeMap::new();
     let mut memory = Memory::default();
-    // The plane as this machine holds it entering its first window: the decided state of the window
-    // before it, which a replay of that window's decided roll starts from.
-    if let Some(before) = from.checked_sub(1) {
-        memory.states.insert(before, machine.value()?.clone());
-    }
+    // The plane as this machine holds it entering its first window: the base that window's decided
+    // roll replays over.
+    memory.bases.insert(from, machine.value()?.clone());
     let mut out: Vec<Lived> = Vec::new();
     for step in 0..windows {
         let window = from.checked_add(step).ok_or(NodeError::Refused {
@@ -1216,11 +1219,18 @@ pub fn live_doing(
         })?;
         // The electorate of a window is the admitted set of the proposal two before it, and the
         // aggregate it draws from is that proposal's cement. An opening cohort stands for the first
-        // two windows a machine lives, and the aggregate of no signers is what the set freezes for a
-        // window with nothing cemented two before it.
+        // two windows of a network and for no other: "For the first two windows of a network it is
+        // the opening cohort an operator handed the machine, which the proposal of window zero must
+        // carry" (Consensus, "The pulse and the close of a window"), and the aggregate of no signers
+        // is what the set freezes for a window with nothing cemented two before it. A later window
+        // this machine holds no proposal two before of is one it does not open: the cohort it was
+        // handed is no electorate of it.
         let two_before = window.checked_sub(2).and_then(|at| stands_on.get(&at));
         let (electorate, aggregate) = match two_before {
             Some(proposal) => (Electorate::of(proposal)?, proposal.cement_aggregate),
+            None if window >= 2 => return Err(NodeError::Refused {
+                what: "a window past the first two of a network standing on no proposal two before",
+            }),
             None => (
                 Electorate::opening(cohort.root(), cohort.count(), window)?,
                 mt_derive::aggregate::aggregate(&[], window).map_err(|_| NodeError::Refused {
@@ -1246,9 +1256,16 @@ pub fn live_doing(
             .checked_sub(1)
             .and_then(|at| stands_on.get(&at))
             .cloned();
+        // The Genesis State Hash is that name for window zero alone (Consensus, "Invariants of the
+        // TimeChain").
         let taken = match &predecessor_held {
             Some(proposal) => Predecessor::Proposal(proposal).id()?,
-            None => Predecessor::Genesis.id()?,
+            None if window == 0 => Predecessor::Genesis.id()?,
+            None => {
+                return Err(NodeError::Refused {
+                    what: "a window past the first of a network standing on no proposal before it",
+                })
+            }
         };
         // Round zero stands on the proposal two before, final when this window opens; for the
         // first two windows of a network, on the Genesis State Hash.
@@ -1697,7 +1714,7 @@ pub fn live_doing(
             machine.retell(before, &adopted.positions)?;
             machine.retell(window, &positions)?;
             machine.keep_proposal(&adopted.proposal)?;
-            memory.states.insert(before, adopted.state.clone());
+            memory.bases.insert(window, adopted.state.clone());
             if let Some(facts) = memory.facts.get_mut(&before) {
                 facts.roll = adopted.roll.clone();
             }
@@ -1866,8 +1883,10 @@ pub fn live_doing(
                 roll,
             },
         );
-        memory.states.insert(window, machine.value()?.clone());
-        memory.let_go_before(window.saturating_sub(1));
+        if let Some(next) = window.checked_add(1) {
+            memory.bases.insert(next, machine.value()?.clone());
+        }
+        memory.let_go_on_closing(window);
         // The record of the agreement goes with the window it governed, after the number that refuses
         // this window to be opened again stands.
         machine.let_go_of(window)?;
@@ -1907,7 +1926,7 @@ fn replay(
     let Some(facts) = memory.facts.get(&window) else {
         return invalid("a window this machine did not live");
     };
-    let Some(base) = window.checked_sub(1).and_then(|at| memory.states.get(&at)) else {
+    let Some(base) = memory.bases.get(&window) else {
         return invalid("no decided state of the window before to replay over");
     };
     let bodies = bodies_at_a_past_window(machine, window)?;

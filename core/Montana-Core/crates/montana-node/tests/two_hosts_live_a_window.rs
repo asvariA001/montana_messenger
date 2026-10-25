@@ -20,7 +20,9 @@ use montana_node::{Configuration, Machine};
 mod common;
 use common::Scratch;
 
-const WINDOW: u64 = 1_000;
+// The window the network opens at: zero, the one window the Genesis State Hash stands under
+// (Consensus, "Invariants of the TimeChain").
+const WINDOW: u64 = 0;
 
 // How many askings a machine spends at one round before giving it up. It is of the operator and of
 // nothing else: what a machine waits for here is the far side's proof of presence, which is minutes

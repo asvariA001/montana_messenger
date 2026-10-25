@@ -144,11 +144,14 @@ impl Predecessor<'_> {
         }
     }
 
-    // Whether `window` is the one this predecessor is followed by. The window a cohort opens at is
-    // of the world outside, as the cohort itself is, so the Genesis State Hash stands under it.
-    fn is_followed_by(&self, window: u64) -> bool {
+    // Whether `window` is the one this predecessor is followed by. The Genesis State Hash stands
+    // under window zero and under no other: "Every window but the first names its predecessor by the
+    // identifier of that predecessor's proposal, and the first names the Genesis State Hash"
+    // (Consensus, "Invariants of the TimeChain"), so a proposal of a later window naming it belongs to
+    // another chain, however honestly it was signed and decided.
+    pub(crate) fn is_followed_by(&self, window: u64) -> bool {
         match self {
-            Predecessor::Genesis => true,
+            Predecessor::Genesis => window == 0,
             Predecessor::Proposal(held) => held.window.checked_add(1) == Some(window),
         }
     }
@@ -928,13 +931,24 @@ pub fn walk(
 // door it refuses: one that lets a second answering key stand under one part (C3), one that counts a
 // ballot outside the cement or below the largest of its part (C5), one that hands the agreement a
 // pledge under a key the part never proved (C6).
+//
+// The lemma is checked class by class, the class being the parts the three heavy attestations name:
+// each was drawn by `one_of(&PARTS)`, an index below three, so the twenty-seven triples of indices
+// part the input and their union is the whole of it. Within a class the parts are constants, so the
+// cement, the answering keys and the book of the door hold their attestations at places the model
+// checker reads off rather than searches. Two functions the harness never reaches are stubbed so the
+// cryptography behind them is not compiled into it: `verify_light`, as the round carries no light
+// attestation, and `Proposal::id`, as the window stands on the Genesis State Hash; each stub fails
+// the harness were it reached. What the first would verify reaches `Closure::answered` alone and no
+// assertion reads it.
 #[cfg(kani)]
 mod proofs {
     use super::*;
     use mt_state::layout::Confirmation;
     use std::collections::BTreeSet;
 
-    const WINDOW: u64 = 7;
+    // Window zero, the one window the Genesis State Hash stands under.
+    const WINDOW: u64 = 0;
     const COUNT: u64 = 2;
     const BEACON: [u8; 32] = [0x20; 32];
     const LOW: [u8; 32] = [0x05; 32];
@@ -985,6 +999,26 @@ mod proofs {
         }
     }
 
+    fn no_light(
+        _: &LightAttestation,
+        _: &[u8],
+        _: &[u8; 32],
+        _: u8,
+        _: u32,
+        _: &mt_pulse::U256,
+    ) -> Result<(), NodeError> {
+        kani::assert(
+            false,
+            "the round of the harness carries no light attestation",
+        );
+        Err(refused())
+    }
+
+    fn no_proposal(_: &Proposal) -> Result<[u8; 32], mt_state::ObjectError> {
+        kani::assert(false, "the harness stands on the Genesis State Hash");
+        Ok([0; 32])
+    }
+
     fn beacon_id(beacon: &Beacon) -> Result<[u8; 32], mt_state::ObjectError> {
         Ok(beacon.previous)
     }
@@ -1022,12 +1056,12 @@ mod proofs {
         vec![u8::from(kani::any::<bool>())]
     }
 
-    fn any_heavy() -> Confirmation {
+    fn any_heavy(part: usize) -> Confirmation {
         let names = [LOW, BEACON, PREVIOUS];
         Confirmation {
             window: this_or_next(),
             attested: vec![one_of(&names), one_of(&names)],
-            part_nullifier: one_of(&PARTS),
+            part_nullifier: PARTS[part],
             round_nullifier: [0; 32],
             suite_id: 0,
             answering_key: a_bit(),
@@ -1074,18 +1108,9 @@ mod proofs {
         }
     }
 
-    #[kani::proof]
-    #[kani::unwind(9)]
-    #[kani::stub(crate::attest::verify_heavy, heavy_oracle)]
-    #[kani::stub(crate::attest::verify_ballot, ballot_oracle)]
-    #[kani::stub(crate::attest::verify_pledge, pledge_oracle)]
-    #[kani::stub(mt_state::layout::Beacon::id, beacon_id)]
-    #[kani::stub(mt_state::tables::genesis_state_hash, genesis_name)]
-    #[kani::stub(mt_pulse::retarget::round_threshold, any_threshold)]
-    #[kani::stub(mt_pulse::cement::Cement::aggregate, fixed_aggregate)]
-    #[kani::stub(mt_genesis::ratio, crate::kani_decree::ratio)]
-    #[kani::stub(mt_genesis::scalar, crate::kani_decree::scalar)]
-    fn an_accepted_certificate_satisfies_the_predicate() {
+    // The lemma on the class `parts`: the heavy attestations name PARTS[parts[0]], PARTS[parts[1]]
+    // and PARTS[parts[2]], everything else drawn as before.
+    fn an_accepted_certificate_satisfies_the_predicate(parts: [usize; 3]) {
         let expected: u64 = kani::any();
         kani::assume(expected < 3);
         let electorate = Electorate {
@@ -1107,7 +1132,11 @@ mod proofs {
             cement_count: 0,
             cement_votes: 0,
         };
-        let heavy = [any_heavy(), any_heavy(), any_heavy()];
+        let heavy = [
+            any_heavy(parts[0]),
+            any_heavy(parts[1]),
+            any_heavy(parts[2]),
+        ];
         let ballots = [any_ballot(), any_ballot()];
         let pledges = [any_pledge(), any_pledge()];
         let rounds = [Round {
@@ -1207,5 +1236,69 @@ mod proofs {
             book.decided(&agreement).map(|(name, _)| name),
             Some(PREVIOUS)
         );
+    }
+
+    // One harness per class. No loop of a class runs more than three times -- three attestations, two
+    // ballots, two pledges, and no map or set of the door or of the book above three keys -- so each
+    // is unwound to four; a comparison of 32 bytes is a loop of `memcmp` the command line unwinds to
+    // thirty-three.
+    macro_rules! classes {
+        ($($name:ident: $parts:expr;)*) => {$(
+            #[kani::proof]
+            #[kani::unwind(4)]
+            #[kani::stub(crate::attest::verify_heavy, heavy_oracle)]
+            #[kani::stub(crate::attest::verify_light, no_light)]
+            #[kani::stub(crate::attest::verify_ballot, ballot_oracle)]
+            #[kani::stub(crate::attest::verify_pledge, pledge_oracle)]
+            #[kani::stub(mt_state::layout::Beacon::id, beacon_id)]
+            #[kani::stub(mt_state::layout::Proposal::id, no_proposal)]
+            #[kani::stub(mt_state::tables::genesis_state_hash, genesis_name)]
+            #[kani::stub(mt_pulse::retarget::round_threshold, any_threshold)]
+            #[kani::stub(mt_pulse::cement::Cement::aggregate, fixed_aggregate)]
+            #[kani::stub(mt_genesis::ratio, crate::kani_decree::ratio)]
+            #[kani::stub(mt_genesis::scalar, crate::kani_decree::scalar)]
+            fn $name() {
+                an_accepted_certificate_satisfies_the_predicate($parts);
+            }
+        )*};
+    }
+
+    classes! {
+        // One part: a cement below the quorum of an electorate of two, which no door accepts unless
+        // its agreement too counts a quorum of one; these classes complete the input.
+        an_accepted_certificate_satisfies_the_predicate_on_1_1_1: [0, 0, 0];
+        an_accepted_certificate_satisfies_the_predicate_on_2_2_2: [1, 1, 1];
+        an_accepted_certificate_satisfies_the_predicate_on_3_3_3: [2, 2, 2];
+        // Two parts, the first two attestations of one part (the second cover stands here): the door
+        // that lets a second key stand under a part, counts a ballot of the part outside the cement or
+        // one below the largest of its part, or hands the agreement a pledge under a key never proved.
+        an_accepted_certificate_satisfies_the_predicate_on_1_1_2: [0, 0, 1];
+        an_accepted_certificate_satisfies_the_predicate_on_1_1_3: [0, 0, 2];
+        an_accepted_certificate_satisfies_the_predicate_on_2_2_1: [1, 1, 0];
+        an_accepted_certificate_satisfies_the_predicate_on_2_2_3: [1, 1, 2];
+        an_accepted_certificate_satisfies_the_predicate_on_3_3_1: [2, 2, 0];
+        an_accepted_certificate_satisfies_the_predicate_on_3_3_2: [2, 2, 1];
+        // Two parts, the repeated part in the third attestation: the same doors, the second key met
+        // after another part entered the cement.
+        an_accepted_certificate_satisfies_the_predicate_on_1_2_1: [0, 1, 0];
+        an_accepted_certificate_satisfies_the_predicate_on_1_2_2: [0, 1, 1];
+        an_accepted_certificate_satisfies_the_predicate_on_1_3_1: [0, 2, 0];
+        an_accepted_certificate_satisfies_the_predicate_on_1_3_3: [0, 2, 2];
+        an_accepted_certificate_satisfies_the_predicate_on_2_1_1: [1, 0, 0];
+        an_accepted_certificate_satisfies_the_predicate_on_2_1_2: [1, 0, 1];
+        an_accepted_certificate_satisfies_the_predicate_on_2_3_2: [1, 2, 1];
+        an_accepted_certificate_satisfies_the_predicate_on_2_3_3: [1, 2, 2];
+        an_accepted_certificate_satisfies_the_predicate_on_3_1_1: [2, 0, 0];
+        an_accepted_certificate_satisfies_the_predicate_on_3_1_3: [2, 0, 2];
+        an_accepted_certificate_satisfies_the_predicate_on_3_2_2: [2, 1, 1];
+        an_accepted_certificate_satisfies_the_predicate_on_3_2_3: [2, 1, 2];
+        // Three parts: the door that does not count its cement against the electorate, and closes on
+        // a cement larger than it.
+        an_accepted_certificate_satisfies_the_predicate_on_1_2_3: [0, 1, 2];
+        an_accepted_certificate_satisfies_the_predicate_on_1_3_2: [0, 2, 1];
+        an_accepted_certificate_satisfies_the_predicate_on_2_1_3: [1, 0, 2];
+        an_accepted_certificate_satisfies_the_predicate_on_2_3_1: [1, 2, 0];
+        an_accepted_certificate_satisfies_the_predicate_on_3_1_2: [2, 0, 1];
+        an_accepted_certificate_satisfies_the_predicate_on_3_2_1: [2, 1, 0];
     }
 }
