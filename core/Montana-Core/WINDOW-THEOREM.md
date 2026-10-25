@@ -102,10 +102,18 @@ of each check, which is the subject of section 3.
   section 10 is its derivation, whose whole sum reaches the target of Canon on the Johnson bound,
   a theorem (Canon, `proof_queries`, decision 4 of the author, 24.10, and the author's word of 24.10 21:21 UTC).
 - **(A4) Collision resistance of the Poseidon family** of `mt-proof`, for the tree of admitted
-  machines and the part-nullifier.
+  machines and the part-nullifier, and, for the ballot, the tree of a cement (O-6).
 - **(A5) The description of the presence** enforces that the leaf of the naming half of a secret
   `s` stands in the tree of `root`, that `p = part(s, W)`, and that the key digest is a public
-  input bound to the proof (obligation O-2).
+  input bound to the proof (obligation O-2). **The description of the ballot** enforces, for the
+  public part `p`, window `W`, census windows and roots of `E`, aggregate `A` and committee
+  threshold, that the published count is at most the number of census windows of `E` whose cement
+  holds the part the spending half of `p` derives for that census and whose coin clears the
+  threshold, each counted at most once: the bound from above (O-6). A lower count can be written
+  only by the holder of that spending half, as an abstention (F-539-1, a recorded property). **The
+  description of the ticket** enforces that the leaf of the naming half of a secret stands in the
+  tree of `root`, that the ticket of its spending half under `A` clears the draw threshold, and that
+  the runner's key digest is a public input bound to the proof (O-6).
 - **(A6) The admitted count is the count of leaves.** For every final proposal, `admitted_count`
   equals the number of distinct leaves of `admitted_root`: a state invariant carried by the roots
   of state, which every member of the deciding quorum recomputes (WINDOW-RELATION.md section 3,
@@ -227,8 +235,9 @@ agreement of a quorum decided `id(P)`, and by Theorem 1 no certificate of `W` de
 each once and each the part of a verified attestation (cement.rs:33-51, certificate.rs:300-310).
 (ii) Clause (C6) and Theorem 1. (iii) Clause (C5) and the knowledge soundness of the ballot (A3), the
 ballot being verified against the census of `E`, with (A5) read for the ballot description: that the
-description enforces the count it publishes to be the votes the part's standing drew in `W` over the
-census of `E` (obligation O-6, open). ∎
+description enforces the count it publishes to be at most the votes the part's standing drew in `W`
+over the census of `E` (obligation O-6, discharged: read off ballot.rs, the bound from above holds,
+and a count below it is the abstention of the holder of the spending half, which (iii) allows). ∎
 
 **The matrix of WINDOW-RELATION.md section 4, row by row.**
 
@@ -502,8 +511,14 @@ signature of another width; `links_to` refuses a round past `u32::MAX` (round.rs
     model, not cryptography, and no theorem checks it. Its evidence is the walk `every_book` (below:
     4 parts, 2 attempts, names 1 and 2) and the Kani harness of Theorem 1, which has not reported.
   - `ballotSound` of `soundness_votes`: no verified ballot casts more than its part drew. It
-    stands for (A3) for the ballot and (A5) for the ballot description (obligation O-6, open);
-    `drew` is a free function in the Lean, not tied to the census of `E` or to `W`.
+    stands for (A3) for the ballot and (A5) for the ballot description, which O-6 reads off
+    ballot.rs constraint by constraint: an accepting ballot publishes at most the census units of
+    `E` whose cement holds the part its spending half derives and whose coin clears, the spending
+    half being that of the published part under (A4) -- the bound from above, which is the
+    statement of O-6 and what `ballotSound` states; a count below it is the holder's abstention
+    (F-539-1, a recorded property of section 10). `drew` is a free
+    function in the Lean, not tied to the census of `E` or to `W`: the tie is the reading of O-6,
+    on paper. The ticket description, read under O-6 likewise, enters no theorem of the file.
   - `honestKey` and `honestValid` of `completeness`: one key per part and every attestation valid,
     standing for honest production and the completeness of ML-DSA and of the proof scheme
     (Theorem 2).
@@ -735,15 +750,159 @@ signature of another width; `links_to` refuses a round past `u32::MAX` (round.rs
   ok. The tree of fc35ff0 differs from e6cfb3ee in AUDIT.md and three files of mt-proof alone
   (permutation.rs, params.rs, scheme.rs), so montana-node and mt-pulse, where the verifier and these
   tests stand, are the same.
-- **O-6.** (A5) for the ballot description, read off `mt-proof/src/circuit/ballot.rs` constraint by
-  constraint, as O-2 reads `presence.rs`: that a ballot proof accepting for the public input of
-  `(W, E, A)` and a part-nullifier `p` binds its published count to the votes the standing of the
-  machine of `p` drew below the committee threshold over the census cements of `E`, for that part
-  and that window, and binds nothing else the prover chooses. Theorem 3 (iii) rests on it through
-  `ballotSound` (section 9); (A3) alone gives a witness of the description, not this relation. The
-  same reading is owed for the ticket description. *Not done*: stated here as an obligation,
-  open. Whether the closing of item 1 below waits on it is for the chairman to decide; the sentence
-  below is left as decided.
+- **O-6.** (A5) for the ballot and the ticket descriptions, read off
+  `mt-proof/src/circuit/ballot.rs` and `ticket.rs` constraint by constraint, as O-2 reads
+  `presence.rs` (25.10.2026 UTC, Agent 539 helper; read at a60ccf0, whose `crates` are those of
+  `19834ae` the head of this note names, and which this branch leaves unchanged but for the test
+  file `mt-proof/tests/ballot_and_ticket.rs` it adds; every line number below checked against the
+  HEAD of this branch; reviewed independently and restated as the bound from above, 25.10.2026 UTC,
+  Agent 541 helper, on the chairman's decision, council link 8383), with the gadgets they share:
+  `sponge.rs`, `capacity.rs`, `lane.rs`, `path.rs`, `compare.rs`; the Poseidon permutation layer is taken as the permutation, as (A4)
+  takes it, its answer standing at the last row of a block of 128 (permutation.rs:57-58, :99,
+  :105-107). A rule holds at every live row but
+  the last (air.rs:416-439; scheme.rs:144-200): the rules do not close over the wrap, and no reading
+  below needs them to.
+  *The ballot: the chains and their domains.* Block 0 is idle; the part of the window is block 1;
+  then, per census `i`, the part of that census, its cement leaf, 40 nodes and the coin of two
+  blocks (ballot.rs:139-178). Every chain opens under its domain at its seam (:238-252;
+  capacity.rs:57-75): `MT_PART_NF` for the part of the window and for each census part,
+  `MT_CEMENT_LEAF`, `MT_CEMENT_NODE` at each level, `MT_VOTE`. The spending half is a lane with no
+  load (:511-515): the hold rule (lane.rs:80-89) makes it one constant over the live rows, the
+  witness, wired into the first four rate cells of the part block, of each census part block and
+  of the first block of each coin (:225-232; lane.rs:101-111). The fifth rate cell of the part
+  block is the public window (:318-322), of each census part and each coin the public census window
+  (:325-332), and every other rate cell of the single-block absorptions is padding by literals
+  (:323, :333-334; sponge.rs:45-53). The coin takes the eight limbs of the public aggregate in the
+  last three rate cells of its first block and the first five of its second (:344-353), padding
+  after them (:354), and the capacity crosses its one inner seam (:212-216; sponge.rs:165-181), the
+  only seam inside a chain of the ballot. So the state every block of the ballot enters with is
+  fixed whole by the spending lane, the public input, the literals and the walk. The four cells the
+  part block leaves are bound to the public part-nullifier (:309-317).
+  *The walk of each census.* The four cells the census part leaves enter the leaf block
+  (`digest_carries` at :219-223; sponge.rs:102-104), whose remaining rate is padding (:334). At
+  each level the node block enters with the pair the bit orders, the child being the four cells the
+  block before it left, the bit a bit (path.rs:99-157). The walk of census `i` ends at the last row
+  of its last node, `root_seam(i)` (:189-191), which no level reads; there the sibling columns are
+  bound to the public root of census `i` (:337-343). The accumulator of the position is bound to
+  nothing public, and nothing needs it.
+  *The bit of a unit.* `spike` is a bit at every row (:389-395) and nought off the seams a walk ends
+  at (:396-402); where it is one, the four cells the walk reached equal the sibling cells there,
+  the public root (:405-422). The carried bit takes `spike` at that seam and holds it elsewhere
+  (:424-448), so at the row after the comparison of census `i` it is the bit of census `i`: the
+  next seam stands 42 blocks on.
+  *The comparison.* The coin lane loads the four cells the coin leaves at its last row (:234-236;
+  lane.rs:90-100) and holds them through the 32 rows of the comparison, laid in the columns of the
+  comparison at the rows after the coin (:195-201). Each row writes a byte of the coin and a byte
+  of the difference by eight bits each (compare.rs:190-224), so both lie in [0, 255], and the
+  borrow is a bit at every row (:194). The threshold byte of each row is a public limb
+  (ballot.rs:355-360; compare.rs:443-460), which the verifier writes from a byte (ballot.rs:791-797,
+  attest.rs:501-509). The subtraction `t - s - b - d + 256 b' = 0` of a row (compare.rs:228-252)
+  takes, over the integers, a value within 511 of nought, so it holds over the integers; with the borrow in at one
+  (ballot.rs:361) the 32 rows give `T - 1 - S = D - 2^256 b_out` with `0 <= D < 2^256`, so the
+  borrow out at the row after is nought exactly when `S < T`. The bytes are those of the coin: the
+  rows run the words from the last to the first and the bytes of a word from its most significant
+  (compare.rs:112-114), so significance rises with the row in the big-endian order of
+  `Digest::bytes` (poseidon.rs:51-57); each word is rebuilt from its eight bytes and equals the
+  lane cell at its last byte (compare.rs:258-289, :328-346), and the canonical check (:352-437,
+  `HIGH_CEILING` :33) holds the high half below `2^32 - 1`, or at it with a low half of nought, so
+  the rebuilt integer is below `p` and is the cell itself and not the cell plus `p`.
+  *The vote and the count.* The product is the carried bit times the borrow at every row
+  (ballot.rs:450-459); the count opens at nought at row 0 (:365-369), holds, and at the row after
+  each comparison takes the carried bit less the product (:462-476), `bit x (1 - b_out)`, in
+  {0, 1}; it is bound to the public count one row after the last comparison (:370-374), inside the
+  live rows (`the_runs_of_a_ballot_fit_its_height_and_its_bounds`, :884). The count is at most the
+  number of censuses and does not wrap.
+  *What the statement is, for the ballot.* `verify_ballot` builds the public input from `W`, the
+  census windows and census roots of `E`, its committee threshold, `A` and the ballot's part and
+  count (attest.rs:481-519; certificate.rs:73-110, the census of the length the Decree names), and
+  the certificate counts a ballot for a part of the cement alone (certificate.rs:357-370). An
+  accepting witness for `(p, W, (c_i, R_i)_i, A, theta, n)` gives four field elements `sigma` with
+  `p = H_PN(sigma, W)` and `n = card(S)` for a set `S` of indices `i`, each with: the cement leaf of
+  `H_PN(sigma, c_i)` stands at some position of the depth-40 tree under `MT_CEMENT_NODE` with root
+  `R_i`, and `H_VOTE(sigma, c_i, limbs(A))` is below `theta` as 32 bytes big-endian. The prover
+  chooses `sigma`, the walks, and `S` among the indices that satisfy both, and nothing else. Under
+  (A4) -- the part-nullifier, as O-2 and Lemma 3 take it, and the tree of a cement, where the leaf
+  of a part and the empty leaf are one domain over two different blocks (cement.rs:16-22) --
+  `sigma` is the spending half of the machine whose presence put `p` in the cement, and each unit
+  of `S` is a census window of `E` whose cement holds the part that half derives for it and whose
+  coin clears: `n` is at most what the standing of `p` drew in `W`, each unit once, which is
+  `ballotSound`. This bound from above is the statement of O-6 for the ballot. A census window
+  that repeats (`census_windows` reads nought for a census before window nought,
+  standing.rs:39-49) carries the root of the empty cement there, which no part walks to under (A4).
+  *The holder's abstention (F-539-1, a recorded property; ballot.rs:389-422).* The bit may be nought
+  where the walk does reach the root: the holder of the spending half may leave out a lived unit
+  whose coin clears and publish fewer votes than its standing drew, which is the same as declining
+  a vote it could cast -- a machine may always abstain. No one else can lower the count: a ballot
+  of `p` needs the spending half behind `p` (the statement above), and the certificate keeps the
+  largest count among the verified ballots of a part (certificate.rs:368-369), so a lower ballot
+  beside the holder's changes nothing; a relayer may withhold a ballot whatever the circuit says.
+  O-6 is stated as the bound from above (the chairman's decision, council link 8383), so this is a
+  property of the statement and not a finding against it; an equality would need the ballot to
+  prove that a part is not in a cement, which the description does not carry. Test:
+  `a_ballot_counts_at_most_what_its_part_drew_and_its_holder_may_abstain`
+  (tests/ballot_and_ticket.rs:154, not ignored; it replaces the ignored finding test
+  `f_539_1_a_lived_unit_whose_coin_clears_cannot_be_left_uncounted` of 4ff22ed). It lowers the bit
+  of a lived clearing unit and rewrites the carried bit, the product and the count: the trace
+  satisfies the description with one vote fewer and is proven and verified, and is refused with the
+  honest count. The same standing counted one more than it drew is refused twice: published over
+  the honest trace, by the boundary of the count (ballot.rs:370-374); and written as the bit of a
+  unit not lived whose coin clears, by the rules of the root at its seam and by no other rule
+  (:403-422). It ran ok on the build host (25.10.2026, 822e431,
+  `test -p mt-proof --release --test ballot_and_ticket`, 6 passed, 0 ignored, exit 0).
+  *Refused, by test.* In ballot.rs: the public values the trace did not count -- the count one more
+  and one less, a root moved, a census window moved, another aggregate, another window
+  (`a_ballot_refuses_every_public_value_it_did_not_count`, :946); a vote forged for a census not
+  lived, refused by the rule of the root alone (`a_census_not_lived_casts_nothing`, :1049); a coin
+  at the threshold (`a_coin_votes_below_the_threshold_and_never_at_it`, :1004). In
+  tests/ballot_and_ticket.rs, each refused by the one rule named and no other: a bit of two at a
+  lived seam, the bit rule (`a_lived_unit_cannot_cast_two_votes_by_a_bit_of_two`, :246); a borrow
+  out written as nought, the subtraction of the last byte
+  (`a_borrow_out_written_as_nought_does_not_make_a_coin_clear`, :289); a coin, its lane and its
+  comparison grafted from another spending half, the spending wire of the coin
+  (`a_coin_drawn_from_another_spending_half_is_refused`, :324); the word 0xFF written as the bytes
+  of 0xFF + p, which would clear a threshold of 0x80 where the canonical bytes do not, the
+  canonical check (`a_word_written_in_bytes_above_the_modulus_does_not_clear`, :431, the gadget
+  alone). The five new tests that refuse, the ticket's below among them, ran ok on the build host
+  (25.10.2026, 4ff22ed, `test -p mt-proof --release`, the whole crate with its gate, exit 0).
+  *The ticket: the chains.* Block 0 is idle; the halves (blocks 1 to 3), the admitted leaf, 40
+  nodes, the ticket of two blocks, the key of 62, then the comparison (ticket.rs:41-89); they open
+  under `MT_KEY_HALVES`, `MT_ADMITTED_LEAF`, `MT_ADMITTED_NODE` at each level, `MT_TICKET` and
+  `MT_RUNNER_KEY_DIGEST` (:201-218). The halves are one absorption of eight limbs squeezed twice,
+  as in the presence: the capacity crosses both seams inside it, the seam into the squeeze block
+  included (:95-100), and the rate crosses that seam (:102-104, :272; sponge.rs:96-98), so the extra
+  block enters with the whole state the absorption left; the rate of the first block is the witness
+  and that of the second padding (:176). The spending lane loads the four cells the absorption
+  leaves, the first squeeze, at its last row (:189-191) and wires them into the ticket's first block
+  (:193-195); the naming half, the four cells the squeeze block leaves, enters the leaf block
+  (:247-250, :273), padding after (:177). The walk ends at the seam before the ticket, where the
+  four cells are bound to public word 0, the admitted root (:129-142). The ticket absorbs the lane
+  and the eight limbs of the public aggregate (:146-159), padding after (:178), the capacity across
+  its seam (:97); the four cells it leaves are loaded into the digest lane at its last row
+  (:197-199) and never wired into a block. The key absorbs 488 free limbs and its last block leaves
+  the four cells bound to the public key digest (:131), padding after (:179).
+  *The comparison* is the gadget read above over the digest lane (:280-281), the threshold one
+  public limb per row (:160-164), the borrow in at one (:168) and the borrow out bound to nought
+  (:169-173): the ticket is below the threshold as 32 bytes big-endian.
+  *What the statement is, for the ticket.* For the public input `(E.root, runner_digest(key), A,
+  theta_draw)` that certificate.rs:740-748 builds, an accepting witness gives a vector `v` of eight
+  field elements whose halves `(sigma, nu)`, one absorption squeezed twice, have the leaf of `nu` in
+  the tree of `E.root` and `H_TICKET(sigma, limbs(A))` below `theta_draw`, and a vector `w` of 488
+  elements with `H_RKD(w)` the public digest. Under (A4), as in O-2, the leaf fixes `nu` and `nu`
+  fixes `v`, so `sigma` is the spending half of an admitted machine and that machine's ticket
+  clears; `w` is the limbs of the key. The prover chooses which admitted secret it holds, and
+  nothing else. Refused, by test: in ticket.rs another key, another aggregate and a threshold at
+  the ticket (`a_ticket_is_proven_and_verified_end_to_end`, :550), a threshold at the ticket itself
+  (`a_ticket_clears_a_threshold_one_above_it_and_never_the_threshold_itself`, :594), a stranger's
+  ticket over an admitted machine's membership
+  (`a_ticket_cannot_graft_another_machines_membership`, :666); in tests/ballot_and_ticket.rs an
+  admitted machine whose ticket does not clear carrying a stranger's that does, refused at the
+  spending wire of the ticket alone (`a_ticket_drawn_from_another_spending_half_is_refused`,
+  :505), and the canonical check above, the comparison being one gadget for both.
+  *Where it stands.* **O-6 is discharged**, with the ticket. The ticket is sound as read. The ballot
+  is sound for the statement of O-6, the bound from above: no verified ballot casts more than its
+  part drew over the census of `E`, which is what `ballotSound` and Theorem 3 (iii) rest on; a count
+  below it is the abstention of the holder of the spending half, recorded above. No circuit, AIR,
+  parameter or verifying key is changed. The sentence below is left as decided.
 
 Item 1 stands closed when O-1 to O-5 are discharged, the Lean file runs green on the build host, and
 the ring of the core is green on the commit that carries them. Model checking of the code with Kani
