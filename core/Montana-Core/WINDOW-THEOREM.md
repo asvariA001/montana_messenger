@@ -360,19 +360,34 @@ of another width; `links_to` refuses a round past `u32::MAX` (round.rs:107-109);
   (25.10.2026, Lean 4.35.0, file blob ddd30660): `lean formal/Window.lean` exit 0 with
   `#print axioms` of the five theorems appended, `the_vectors_of_the_close` on no axiom and the
   others on `propext` and `Quot.sound`, `one_decision` with `Classical.choice` besides.
-- **Kani** (bounded model checking of the code itself, under `cfg(kani)`):
+- **Kani** (bounded model checking of the code itself, under `cfg(kani)`). Both harnesses read the two
+  rows of the Decree the close reads -- the quorum and the finality rule -- through `kani_decree.rs`,
+  which finds them in a constant from the table itself: a search of the table under the bound was cut
+  rather than checked (F-438-1), and a name the stubs do not know fails the harness.
   - Theorem 1: `two_books_of_one_window_never_decide_two_names` (`crates/montana-node/src/agreement.rs`)
     runs the book of agreement.rs itself on two books of one window: the three honest parts say the
     same in both under the honest predicate, the fourth part is free in each, a decision in both is
     covered (`kani::cover`), and the two names are equal. Bounds: 4 parts, 3 honest, 2 attempts,
-    names 1 and 2 (0 is a pledge not made), committee 0, unwind 9. Result: not yet in.
+    names 1 and 2 (0 is a pledge not made), committee 0, unwind 13: the book holds three pledges of
+    each of four parts, twelve past the eleven of a node, so its dropping runs twelve times, and
+    unwind 9 failed its unwinding assertions whatever the memory. Result: not yet in (running on the
+    build host since 25.10.2026 11:28 UTC).
   - Lemma 2: `an_accepted_certificate_satisfies_the_predicate` (`crates/montana-node/src/certificate.rs`)
     runs `verify_certificate` itself, with presence proofs, signatures and ballot proofs as oracles the
     objects carry and with stubs for `Beacon::id`, `genesis_state_hash`, `round_threshold` and
     `Cement::aggregate`: every `Ok` satisfies (C2) to (C6); (C1) and (C7) rest on the stubs and are
-    not proved here. Two covers ask that a certificate is accepted, and that one is accepted with two
-    attestations of one part. Bounds: 1 round, 3 heavy attestations over 3 parts, electorate 2,
-    2 ballots, 2 pledges over 2 attempts, unwind 9. Result: not yet in.
+    not proved here. `verify_light` and `Proposal::id`, which the harness never reaches (the round
+    carries no light attestation, the window stands on the Genesis State Hash), are stubbed by
+    functions that fail the harness were they reached. Two covers ask that a certificate is accepted,
+    and that one is accepted with two attestations of one part. The lemma is checked in 27 classes,
+    one harness each (`an_accepted_certificate_satisfies_the_predicate_on_1_1_1` to `..._on_3_3_3`):
+    a class fixes the parts the three heavy attestations name, each drawn by `one_of(&PARTS)` below
+    three, so the 27 triples part the input and their union is the whole of it; the first cover is
+    reachable in the 18 classes of two parts, the second in the 6 whose first two attestations share
+    a part. Bounds: 1 round, 3 heavy attestations over 3 parts, electorate 2, 2 ballots, 2 pledges
+    over 2 attempts, unwind 4 (no loop of a class runs past three), `memcmp` unwound to 33 on the
+    command line. Result: not yet in (0 of 27 classes; the first running on the build host since
+    25.10.2026 10:37 UTC).
   Lemma 1 (the answer independent of the order of the rounds) has no harness yet: the canonical order
   of heavy attestations is defined since Consensus 7.1.0 and the book keeps it, but the harness is not
   written; the unit test of F-431-4 holds the rule on examples, which is not a proof.
