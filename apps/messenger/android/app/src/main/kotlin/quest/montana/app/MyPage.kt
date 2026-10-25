@@ -22,7 +22,7 @@ fun myPage(act: MainActivity, onClose: () -> Unit): View {
     val c: Context = act
     val body = c.vstack(Gravity.NO_GRAVITY) { setPadding(0, dp(56), 0, dp(40)) }
     val face = FaceHead(act, body)
-    fun draw() = face.draw(SelfFace.load(act), Prefs.userName, false, MyAbout.bio(), PeerAbout.url(MyAbout.link()), "")
+    fun draw() = face.draw(SelfFace.load(act), Prefs.userName, false, MyAbout.bio(), PeerAbout.links(MyAbout.link()), "")
     draw()
     body.addView(face.view, lp())
     // MY OWN WALL UNDER THE HEAD (iOS MTBoardPane(owner: nil)): the row that writes a post, then my posts, the pinned first
