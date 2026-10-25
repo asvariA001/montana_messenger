@@ -69,9 +69,6 @@
     <string name="continue_montana">Continue with Montana</string>
     <string name="sign_in_footer">By continuing, you agree to the [Terms of Use](montana://terms) and [Privacy Policy](montana://privacy).</string>
 
-    <string name="continue_backup">Continue from your backup</string>
-    <string name="which_identity">Which identity?</string>
-    <string name="backup_many">Your backup carries more than one identity of Montana. Choose the one to open on this phone.</string>
     <string name="opening_identity">Opening your identity…</string>
     <!-- the copy back from the person's own node (iOS step 5, MontanaHomeNode) -->
     <string name="taking_back">Taking your history back</string>
@@ -208,8 +205,6 @@
     <string name="link_previews">Link previews</string>
     <string name="link_previews_sub">Your phone reads the page of a link you send, so that site sees this phone.</string>
     <string name="filter_objectionable">Filter objectionable content</string>
-    <string name="identity_google">Identity in Google Account</string>
-    <string name="identity_google_sub">The 24 words, sealed end to end, ride this phone\'s backup to your Google Account and open your identity on a new phone set up with the same account. Backup must be on in the system settings; the app cannot see whether it is.</string>
     <string name="seed_phrase">Seed phrase</string>
     <string name="forget_q">Forget this device?</string>
     <string name="show_seed">Show seed phrase</string>

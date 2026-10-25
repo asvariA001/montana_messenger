@@ -672,20 +672,26 @@ fun peerInfoPage(act: MainActivity, ref: String, onClose: () -> Unit,
  */
 internal class PanesScroll(c: Context, private val skip: (Float) -> Boolean, private val turn: (Int) -> Unit) : ScrollView(c) {
     private var turned = false
+    // a row that took the stroke for itself (a swipe row's edge) keeps it: the panes do not turn under it
+    private var claimed = false
     private val stroke = GestureDetector(c, object : GestureDetector.SimpleOnGestureListener() {
         override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean {
             val from = e1 ?: return false
-            if (skip(from.y + scrollY) || abs(vx) < 2 * abs(vy) || abs(e2.x - from.x) < dp(48)) return false
+            if (claimed || skip(from.y + scrollY) || abs(vx) < 2 * abs(vy) || abs(e2.x - from.x) < dp(48)) return false
             turned = true
             turn(if (vx < 0) 1 else -1)
             return true
         }
     })
     override fun dispatchTouchEvent(e: MotionEvent): Boolean {
-        if (e.actionMasked == MotionEvent.ACTION_DOWN) turned = false
+        if (e.actionMasked == MotionEvent.ACTION_DOWN) { turned = false; claimed = false }
         stroke.onTouchEvent(e)
         if (turned && e.actionMasked == MotionEvent.ACTION_UP) e.action = MotionEvent.ACTION_CANCEL
         return super.dispatchTouchEvent(e)
+    }
+    override fun requestDisallowInterceptTouchEvent(disallow: Boolean) {
+        claimed = disallow
+        super.requestDisallowInterceptTouchEvent(disallow)
     }
 }
 

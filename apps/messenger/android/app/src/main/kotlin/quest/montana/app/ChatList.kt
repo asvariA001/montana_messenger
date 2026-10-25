@@ -465,7 +465,9 @@ fun archivePage(act: MainActivity, onBack: () -> Unit): View {
  * (iOS MTTabPan's edge zones): from the centre the stroke turns the pages, as it did before. Released past half the tiles,
  * the row stays open; a tap on the open row closes it, and so does the list's move.
  */
-class SwipeRow(private val act: MainActivity, private val content: View, tiles: List<Tile>, leading: List<Tile> = emptyList()) : FrameLayout(act) {
+// ground: what the row wears while it is pulled aside -- the list's black, or a card's own tone on a settings' plate
+class SwipeRow(private val act: MainActivity, private val content: View, tiles: List<Tile>, leading: List<Tile> = emptyList(),
+               private val ground: Int = Color.BLACK) : FrameLayout(act) {
     private val tray = act.hstack { gravity = Gravity.CENTER_VERTICAL or Gravity.END; setPadding(0, 0, dp(10), 0) }
     private val lead = act.hstack { gravity = Gravity.CENTER_VERTICAL or Gravity.START; setPadding(dp(10), 0, 0, 0) }
     private val tileSize = dp(44)
@@ -513,7 +515,7 @@ class SwipeRow(private val act: MainActivity, private val content: View, tiles: 
                 if (abs(dy) > slop && abs(dy) > abs(dx)) { edge = false; parent?.requestDisallowInterceptTouchEvent(false); return false }   // a scroll: the list's
                 if (abs(dx) > slop) {
                     // the row covers its tiles while it moves; closed, it is clear again over the page's ground
-                    dragging = true; tray.visibility = VISIBLE; lead.visibility = VISIBLE; content.setBackgroundColor(Color.BLACK); return true
+                    dragging = true; tray.visibility = VISIBLE; lead.visibility = VISIBLE; content.setBackgroundColor(ground); return true
                 }
             }
             // a tap on the open row closes it; a tap on a tile is the tile's
