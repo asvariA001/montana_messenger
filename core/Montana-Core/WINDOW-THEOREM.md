@@ -6,9 +6,10 @@ is the one of [WINDOW-RELATION.md](WINDOW-RELATION.md), section 3; its acceptanc
 note's section 4. The code it is a statement about is `crates/montana-node/src/certificate.rs`
 (`verify_certificate`, `decided_of`, `judge`, `walk`), `crates/montana-node/src/agreement.rs`
 (`Book`), `crates/montana-node/src/attest.rs` (`verify_heavy`, `verify_pledge`) and
-`crates/mt-pulse/src/close.rs`. Line numbers of the Rust code refer to the tree of commit `835a361`
-of this clone, which the commits after it on this branch leave unchanged; line numbers of
-`formal/Window.lean` refer to the file named in section 9. Commits cited below that do not resolve
+`crates/mt-pulse/src/close.rs`. Line numbers of the Rust code refer to the tree of commit `19834ae`
+of this clone, which differs from `835a361` among the Rust files in `agreement.rs` and
+`tests/certificate_matrix.rs` alone, and which the commits after it on this branch leave unchanged;
+line numbers of `formal/Window.lean` refer to the file named in section 9. Commits cited below that do not resolve
 in this clone are marked as of another clone.
 
 The standard is the author's: a complete mathematical closure, a formal proof on paper, and code
@@ -31,11 +32,11 @@ number of elements of a finite set `S`.
 - A **round** `r = (b, H_r, L_r, B_r)`: a beacon, the heavy and the light attestations that
   answered it, and the ballots standing beside them (certificate.rs, `Round`).
 - A **pledge** `g = (W, attempt, n, since, p, k, sigma)`; it is *closing* when it stands on its own
-  attempt and *open* otherwise (agreement.rs:20-26; mt-state layout.rs:773-781).
+  attempt and *open* otherwise (agreement.rs:21-27; mt-state layout.rs:773-781).
 - The **quorum rule** `Q(c, t)`: `t ≠ 0`, `c ≤ t`, and `100 c ≥ 67 t` (close.rs:20-31; the ratio is
   `Entry::Ratio("confirmation_quorum", 67, 100)`, mt-genesis/src/lib.rs:99). The **committee rule**
   `V(v, K)`: `100 v ≥ 67 K` (close.rs:36-46). The rule of the agreement is
-  `Q*(c, t, v, K) = Q(c, t) and V(v, K)` (close.rs:50-57, agreement.rs:38-50).
+  `Q*(c, t, v, K) = Q(c, t) and V(v, K)` (close.rs:50-57, agreement.rs:39-51).
 
 ## 2. The predicate of a certificate
 
@@ -70,7 +71,9 @@ none does (certificate.rs:353-371).
 - (C5) the sum of `v(p)` over `C` is below `2^64` and satisfies `V(sum, K)`;
 - (C6) `id(P)` is defined (:266) and the book of the window decides it: its heavy attestations counted as open pledges of
   attempt zero on their pledged names, and the pledges of `G` whose part is in `C` and whose
-  signature verifies under `kappa(part)` (agreement.rs:133-148, :157-200; certificate.rs:377-384);
+  signature verifies under `kappa(part)`, each part counted once per kind and attempt under the
+  least of its pledges there by `rank` (agreement.rs:148-154, :177-192, :201-228;
+  certificate.rs:377-384);
 - (C7) the aggregate of `C` under `W` exists;
 
 and `L = (W, aggregate(C, W), card(C), C ascending, v, S)`, where `S` is what the light attestations
@@ -110,28 +113,37 @@ of each check, which is the subject of section 3.
 - **(A7) The fault bound.** In every electorate the adversary holds the secrets of at most `f`
   admitted machines, with `100 f` below `34 T`.
 - **(A8) Honest conduct.** A machine whose secret the adversary does not hold signs no contradicting
-  pair of pledges in the sense of agreement.rs:70-89, answers under one key per window
+  pair of pledges in the sense of agreement.rs:71-90, answers under one key per window
   (attest.rs:49-53), and pledges a name only after recomputing the roots it carries. Its heavy
-  attestations count as its open pledges of attempt zero (agreement.rs:133-148), so among them too it
+  attestations count as its open pledges of attempt zero (agreement.rs:177-192), so among them too it
   makes no contradicting pair: all heavy attestations of an honest part in one window pledge one name,
   whichever two certificates hold which of them.
 
 ## 4. Lemmas
 
 **Lemma 1 (order).** `verify_certificate` returns `Ok` iff (C2) and (C3) hold together with the
-remaining clauses, whatever the order of the rounds and of the attestations within them.
+remaining clauses, whatever the order of the rounds, of the attestations within them and of the
+pledges.
 
 *Proof.* The key map is extended only after an attestation verifies (certificate.rs:300-309), and
 the second-key refusal at :293-299 reads only that map. If (C2) holds, the map at any point holds
 the key of every earlier attestation of the part, so the refusal fires iff (C3) fails. If (C2)
 fails, the first invalid attestation is refused at :284-292 or :300-307, or a second key is refused
 before it is reached; in both cases the result is `Err`. The cement is a set; the ballots are read
-after every part stands (:353-371) and the largest count is kept; the book keeps the first
-appearance per kind, attempt and part. The one dependence on order was the pledged name of a part
-in attempt zero; it is now that of the first heavy attestation of the part in the canonical order
-(Consensus, "The sanction of a double answer"): `Book::heavy` keeps the least `(place, name)` of the
-part, `place` being chain, round and round nullifier (agreement.rs, `Place`), and a least element of a
-total order does not depend on the order the elements are handed in (finding F-431-4, closed, section 8). ∎
+after every part stands (:353-371) and the largest count is kept; the book counts a part, per
+kind and attempt, under the least of its verified pledges there by the name ascending as 32 bytes
+and then `since` descending, `STANDS_ON_NONE` being the greatest `u32` and so first
+(agreement.rs:148-154, `rank`; :201-228, `Book::pledge`), and its evidence is the contradicting
+pairs among the part's verified pledges, whose order in `Book::contradictions` no verdict reads
+(:101-124, :216-218). The two dependences on order were the pledged name of a part in attempt zero
+and the counted pledge of a part of one kind and attempt. The first is now that of the first heavy
+attestation of the part in the canonical order (Consensus, "The sanction of a double answer"):
+`Book::heavy` keeps the least `(place, name)` of the part, `place` being chain, round and round
+nullifier (agreement.rs, `Place`). The second is the least pledge by `rank`, the canonical order of
+the pledges of one part, kind and attempt that Consensus states beside that of the heavy
+attestations (docs/Montana Consensus.md:613-616, :816). A least element of a total order, and a set
+of pairs, do not depend on the order the elements are handed in (findings F-431-4 and F5 of review
+526, closed, section 8). ∎
 
 **Lemma 2 (exactness).** `verify_certificate(W, E, P, A, c, R, G)` returns `Ok(L)` iff
 `Pi_cert(W, E, P, A, c, R, G)` holds with closure `L`.
@@ -180,17 +192,17 @@ is one that honest machine signed. All parts lie in one universe of at most `T` 
 
 Case `a = b`. The closing pledges of attempt `a` on `X` in `B1` and on `Y` in `B2` each reach the
 quorum; by the corollary an honest part signed two closing pledges of one attempt on two names, a
-contradicting pair (agreement.rs:70-73), which (A8) excludes.
+contradicting pair (agreement.rs:71-74), which (A8) excludes.
 
 Case `a` before `b` (the other is symmetric). `B2` counts a closing pledge on `Y` at `b` only where
-`(b, Y)` is an open quorum of `B2` (agreement.rs:235-238). Claim: for every attempt `e` not before
+`(b, Y)` is an open quorum of `B2` (agreement.rs:263-266). Claim: for every attempt `e` not before
 `a`, no book holds an open quorum `(e, Z)` with `Z ≠ X`. Induct on `e`. The counted open pledges of
 such a quorum stand on none or on an open quorum `(e', Z)` with `e'` before `e`
-(agreement.rs:212-216). By the corollary an honest part `h` closed `X` at `a` in `B1` and opened `Z`
+(agreement.rs:240-244). By the corollary an honest part `h` closed `X` at `a` in `B1` and opened `Z`
 at `e` in the open quorum. If `e = a`: a closing pledge on `X` counts at `a` only where `(a, X)` is
 an open quorum of `B1`, so an honest part opened two names in one attempt, which (A8) excludes. If
 `e` is after `a` and the open pledge of `h` stands on none or on an attempt before `a`, the pair is
-the third contradiction (agreement.rs:80-89), which (A8) excludes. Otherwise it stands on
+the third contradiction (agreement.rs:81-90), which (A8) excludes. Otherwise it stands on
 `(e', Z)` with `e'` not before `a` and before `e`: an open quorum on `Z ≠ X`, excluded by the
 hypothesis of induction. Taking `e = b` and `Z = Y` gives the contradiction. ∎
 
@@ -341,7 +353,7 @@ signature of another width; `links_to` refuses a round past `u32::MAX` (round.rs
   (a_walk_from_an_anchor.rs).
 - **F-431-4 (closed, 24.10, decision of the author).** In attempt zero the pledged name of a faulty
   part was that of its first heavy attestation in the order handed in (agreement.rs:112-118 of the
-  tree the finding was read in, a commit of another clone; `Book::heavy` now stands at :137-148).
+  tree the finding was read in, a commit of another clone; `Book::heavy` now stands at :181-192).
   Theorem 1 does not rest on it, the part being the adversary's either way; but two verifiers given
   one certificate in two orders could count that part under two names. Closed by the definition the
   reading below found missing: Consensus, "The sanction of a double answer", now states the canonical
@@ -353,7 +365,42 @@ signature of another width; `links_to` refuses a round past `u32::MAX` (round.rs
   a contradiction counted under neither name; the author chose the first of the order, which is the
   rule the sanction already states. The live pulse still refuses a second heavy attestation of a part
   naming another name by arrival (pulse.rs, `gather_saying`), so its own book holds what reached it
-  first; the book of a certificate does not depend on it.
+  first; the book of a certificate does not depend on it. Of the pledges, neither the pulse nor a
+  certificate keeps one by arrival: `gather_pledge` (pulse.rs:652-667) and `verify_certificate`
+  (certificate.rs:377-384) hand every verified pledge to `Book::pledge`, which counts the least by
+  `rank`, so the book of a machine, like that of a certificate, is a function of the set of pledges
+  it verified (F5, below).
+- **F5 of review 526 (closed in code, 25.10, `19834ae`).** `Book::pledge` kept the first pledge of a
+  part, kind and attempt in the order handed in (agreement.rs:185-199 of `835a361`), and
+  `verify_certificate` hands the pledges in the order of the certificate (certificate.rs:377-384).
+  With `T = 4`, all four heavy attestations on `X`, two honest parts closing attempt zero on `X` and
+  a faulty part closing it on `X` and on `Y`, the order `bX, bY, h1, h2` decided `X` and the order
+  `bY, bX, h1, h2` decided nothing: a relayer could reorder a valid certificate into a refusal,
+  against Consensus, "The sanction of a double answer" ("never by the order of arrival at a
+  machine", docs/Montana Consensus.md:814), which then stated a canonical order of the heavy
+  attestations alone. The book now counts, of the verified pledges of a part of one kind and
+  attempt, the least by `rank`: the name ascending as 32 bytes, then `since` descending
+  (agreement.rs:148-154, :219-226), and Consensus states this order (:613-616, :816). It is not the
+  order first proposed, `(name, since)` ascending: `STANDS_ON_NONE` is the greatest `u32`, and an
+  open pledge standing on none counts wherever one on the same name standing on an attempt counts
+  (agreement.rs:241), so `since` ascending would count a part's pledge on an attempt in place of
+  its pledge on none and could lose a quorum the part fills; descending puts none first. Every pair
+  of a part's verified pledges the set calls a contradiction is evidence, whichever of the two
+  counts, the lesser name first in a pair of one kind and attempt (:101-124, :216-218); a
+  repetition of attempt, name and `since` adds nothing (:212-215). Theorem 1 is untouched: the
+  pledges a book counts are one per part, kind and attempt, the book it quantifies over, and an
+  honest part signs one pledge per kind and attempt (A8). The choice moves only what a faulty part
+  adds by a second pledge in one slot: with the other name below `X` the part counts on it and `X`
+  is not decided, the mirror of the case above under any rule that counts one name; what the honest
+  parts reach alone it never takes away. Tests:
+  `a_part_closing_on_two_names_counts_under_the_lesser_in_every_order` (agreement.rs, the scenario
+  in all 24 orders: with the other name above `X`, `X` decided in each, with it below, nothing
+  decided in any, and one pair of evidence in each) and
+  `the_order_the_pledges_are_handed_in_changes_no_verdict` (certificate_matrix.rs, one certificate's
+  pledges in two orders through `verify_certificate`: one verdict, accepted where the lesser name is
+  the predecessor and refused where it is not), each of which refuses an implementation keeping the
+  first pledge handed in; `of_two_open_pledges_on_one_name_the_one_standing_on_none_stands`
+  (agreement.rs, all 24 orders) refuses one ordering `since` ascending.
 - **Reading of F-431-2 to F-431-4 against the specification (24.10, Agent 432).**
   - F-431-2 and F-431-3 quote WINDOW-RELATION.md section 3, which states the conduct of a machine
     of the window. What a device that was not there verifies is stated in Consensus, "The
@@ -368,10 +415,10 @@ signature of another width; `links_to` refuses a round past `u32::MAX` (round.rs
     recompute the pair by the rule `replay` already applies. The head does not rest on them
     (Theorem 4).
   - F-431-4 is a divergence of code from the specification: Consensus, "The sanction of a double
-    answer" (docs/Montana Consensus.md:812): "The first appearance stands and the second is refused,
+    answer" (docs/Montana Consensus.md:814): "The first appearance stands and the second is refused,
     by the canonical order of the window and never by the order of arrival at a machine."
     `Book::heavy` kept the first in the order handed in (agreement.rs:112-118 of the tree read then,
-    another clone; now :137-148) and recorded no
+    another clone; now :181-192) and recorded no
     contradiction. An open pledge of attempt zero other than the heavy cannot arise
     (layout.rs:759-765 refuses it at parsing), so the case is exactly two verified heavy
     attestations of one part on two names. The specification does not define the canonical order
@@ -396,7 +443,7 @@ signature of another width; `links_to` refuses a round past `u32::MAX` (round.rs
   `the_vectors_of_the_close` (the frozen vectors of close.rs:116-119 under the same rule, the third
   being the one a rule dividing first gets wrong, by `decide`); `no_other_open_quorum` and
   `one_decision` (Theorem 1) over an abstract book of parts, attempts and names under the counting
-  rules of agreement.rs:202-247, with the three contradicting pairs of agreement.rs:70-89 as the
+  rules of agreement.rs:230-275, with the three contradicting pairs of agreement.rs:71-90 as the
   honest predicate. The rational reading of the quorum rule is not stated in Lean; the integer rule
   is the only one the file reasons about.
   Lemma 1, section Order: `run_ok`, `lemma1`, `second_key_iff`, `order_free` over the loop of
@@ -432,6 +479,14 @@ signature of another width; `links_to` refuses a round past `u32::MAX` (round.rs
     (A5)), the verification of a ballot (`cast`, A3), of a pledge (`pledgeOk`, A2), the book
     (`decides`), the aggregate (`aggregate`, A1), the beacon (`beacon`), the predecessor's
     identifier (`previous`, A1), the light answers (`answered`).
+  - The order of the pledges: `decides` takes the pledges of a certificate as a list, and
+    `order_free` of Lemma 1 speaks of the attestations alone. That the verdict on a certificate is
+    a function of the set of its pledges is the rule of the code -- of the verified pledges of a
+    part of one kind and attempt the least by `rank`, the name ascending and then `since`
+    descending, is counted (agreement.rs:148-154, :201-228; F5, section 8) -- held by the tests
+    `a_part_closing_on_two_names_counts_under_the_lesser_in_every_order`,
+    `of_two_open_pledges_on_one_name_the_one_standing_on_none_stands` and
+    `the_order_the_pledges_are_handed_in_changes_no_verdict`; it is no theorem of the file.
   - (A2) as `Faithful` and (A8) as `Honest`, inside `book1`/`book2` and `good` of
     `soundness_one_name`; (A8) including the heavy attestations of an honest part, one name per
     window (section 3), which `Faithful` and `Honest.one_open` at attempt zero need.
@@ -443,7 +498,7 @@ signature of another width; `links_to` refuses a round past `u32::MAX` (round.rs
     hypothesis there; `meet_of_rule` proves it from the integer rule under the hypotheses of the
     item above, and `soundness_one_name_by_rule` uses it.
   - `Counts` inside `book1`/`book2`: that the book of agreement.rs, `Book::open_quorums` and
-    `Book::decided` (:202-247), satisfies the counting rules of the model. This is fidelity of the
+    `Book::decided` (:230-275), satisfies the counting rules of the model. This is fidelity of the
     model, not cryptography, and no theorem checks it. Its evidence is the walk `every_book` (below:
     4 parts, 2 attempts, names 1 and 2) and the Kani harness of Theorem 1, which has not reported.
   - `ballotSound` of `soundness_votes`: no verified ballot casts more than its part drew. It
@@ -455,7 +510,7 @@ signature of another width; `links_to` refuses a round past `u32::MAX` (round.rs
   - `anchor` and `step` of `walk_head`: `step` is Theorem 3 (ii) for one certificate under a genuine
     electorate (section 7), on paper.
   - The readings of the model (Window.lean:808-823, :1320-1322): the map of votes is a total
-    function, nought where it holds nothing (agreement.rs:41), summed over the cement, which equals
+    function, nought where it holds nothing (agreement.rs:42), summed over the cement, which equals
     the code's sum over `votes.values()` (certificate.rs:373) because the cement holds each part
     once (proved) and the map holds parts of the cement alone (:360); the two rows of the Decree the
     close reads are the constants `confirmation_quorum = 67/100` and `finality_rule = 1`, so the
@@ -464,8 +519,9 @@ signature of another width; `links_to` refuses a round past `u32::MAX` (round.rs
     order `below` of the cement is the byte order of the parts, a strict total order, which only
     `cementOf_ascending` reads; `Closure.window` and the arithmetic of the walk on windows
     (certificate.rs:795, :805-807, :881-883) are not modelled.
-  - **Result.** Green on the build host (25.10.2026, Lean 4.35.0, file blob 76ab7068, 1586 lines,
-    61 theorems): `lean formal/Window.lean` exit 0, no error, no warning, no `sorry`; `#print
+  - **Result.** Green on the build host (25.10.2026, Lean 4.35.0, file blob a9fd7faa, 1586 lines,
+    61 theorems; it differs from blob 76ab7068 in four line numbers of agreement.rs in comments):
+    `lean formal/Window.lean` exit 0, no error, no warning, no `sorry`; `#print
     axioms` of all 61 names only `propext`, `Quot.sound` and `Classical.choice` (none for
     `the_vectors_of_the_close`, `lookup_cons`, `run_append`, `Closure.eq_of`, `chain_tail`,
     `closureOf_verify`; `propext` alone for `go_inv`, `go_indexed`, `indexed_before`,
@@ -480,10 +536,14 @@ signature of another width; `links_to` refuses a round past `u32::MAX` (round.rs
     runs the book of agreement.rs itself on two books of one window: the three honest parts say the
     same in both under the honest predicate, the fourth part is free in each, a decision in both is
     covered (`kani::cover`), and the two names are equal. Bounds: 4 parts, 3 honest, 2 attempts,
-    names 1 and 2 (0 is a pledge not made), committee 0, unwind 13: the book holds three pledges of
-    each of four parts, twelve past the eleven of a node, so its dropping runs twelve times, and
-    unwind 9 failed its unwinding assertions whatever the memory. Result: not yet in (running on the
-    build host since 25.10.2026 11:28 UTC). Beside it, as a fact and not the proof of record (the
+    names 1 and 2 (0 is a pledge not made), committee 0, unwind 13. The unwind was set for the book
+    of `835a361`, which held three pledges of each of four parts in one map, twelve past the eleven
+    of a node, so its dropping ran twelve times, and unwind 9 failed its unwinding assertions there
+    whatever the memory; in the book of `19834ae` the same pledges stand in `said`, four lists of
+    three under four keys, so no loop over what it holds runs more than twelve times
+    (agreement.rs:770-774), a reading and not a run. Result: not yet in for the book of `835a361`
+    (running on the build host since 25.10.2026 11:28 UTC); not run on the book of `19834ae`.
+    Beside it, as a fact and not the proof of record (the
     author's decision 176): `agreement::every_book` walks the same bound whole on the book itself,
     `cargo test --release -p montana-node every_book -- --ignored --nocapture` on the build host
     (25.10.2026, agreement.rs blob 1e69d908, commit 8f38237): 332 150 625 books, 11 267 424 deciding;
@@ -491,6 +551,10 @@ signature of another width; `links_to` refuses a round past `u32::MAX` (round.rs
     deciding two names; 8 918 triples of any scripts decide both names, so the honest predicate is what
     the result stands on; `ok`, 1 passed, 220.28 s. The rustfmt of `every_book` that followed (blob
     098b2380) breaks four lines and adds one trailing comma to an array; the walk is otherwise unchanged.
+    On the book of `19834ae` (blob 26f18e9c), which counts the least pledge of a part, kind and
+    attempt (F5, section 8), the same command gave the same counts number for number, `ok`, 1
+    passed, 148.15 s (build host, 25.10.2026, Agent 527 helper); the walk puts at most one pledge
+    per part, kind and attempt, so the change does not reach what it decides.
   - Lemma 2: `an_accepted_certificate_satisfies_the_predicate` (`crates/montana-node/src/certificate.rs`)
     runs `verify_certificate` itself, with presence proofs, signatures and ballot proofs as oracles the
     objects carry and with stubs for `Beacon::id`, `genesis_state_hash`, `round_threshold` and
@@ -509,7 +573,11 @@ signature of another width; `links_to` refuses a round past `u32::MAX` (round.rs
     25.10.2026 10:37 UTC).
   Lemma 1 (the answer independent of the order of the rounds) has no harness yet: the canonical order
   of heavy attestations is defined since Consensus 7.1.0 and the book keeps it, but the harness is not
-  written; the unit test of F-431-4 holds the rule on examples, which is not a proof.
+  written; the unit test of F-431-4 holds the rule on examples, which is not a proof. Of the
+  pledges likewise: the verdict on a certificate is a function of the set of its pledges by the rule
+  of agreement.rs:148-154 and :201-228 (F5, section 8), held on examples by the three tests named
+  there, every order of four pledges in the unit tests and two orders through `verify_certificate`,
+  which is not a proof either.
 - **Tests** stand in for neither: they exercise the matrix (`tests/certificate_matrix.rs`,
   `tests/a_walk_from_an_anchor.rs`).
 
@@ -652,7 +720,13 @@ signature of another width; `links_to` refuses a round past `u32::MAX` (round.rs
 - **O-5.** F-431-1 to F-431-4 closed in code, each with a test that refuses the named wrong
   verifier. State: F-431-1 closed; F-431-4 closed (decision 2); F-431-3 closed (decision 3);
   F-431-2 closed on the author's word of 24.10 21:21 UTC (the certificate carries the light
-  attestations answering the final beacon), see section 8. Discharged: the ring of the core on
+  attestations answering the final beacon), see section 8. F5 of review 526 (the order of the
+  pledges) closed in code at `19834ae`, see section 8: the verdict on a certificate is a function of
+  the set of its pledges, each part counted per kind and attempt under the least of its verified
+  pledges there by the name ascending as 32 bytes and then `since` descending (agreement.rs:148-154,
+  :201-228; docs/Montana Consensus.md:613-616, :816); its three tests ran ok on `19834ae` on the
+  build host (25.10.2026, Agent 527 helper: `test -p montana-node --lib agreement` and
+  `test -p montana-node --test certificate_matrix`, exit 0). Discharged: the ring of the core on
   fc35ff0 (branch formal/window-479 of the clone on the build host, a commit not in this clone;
   recorded in 5889950; the build host, 25.10.2026, done 08:04:32 UTC, every step exit 0) ran
   `a_final_beacon_no_verified_attestation_answered_closes_nothing`,

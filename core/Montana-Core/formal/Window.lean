@@ -36,21 +36,21 @@ structure Signed (Part Name : Type) where
   opened : Nat → Part → Name → Option Nat → Prop
   closed : Nat → Part → Name → Prop
 
--- (A8): the contradicting pairs of agreement.rs:70-89, which no honest part signs.
+-- (A8): the contradicting pairs of agreement.rs:71-90, which no honest part signs.
 structure Honest {Part Name : Type} (honest : Part → Prop) (σ : Signed Part Name) : Prop where
   one_open : ∀ e p n n' s s', honest p → σ.opened e p n s → σ.opened e p n' s' → n = n'
   one_close : ∀ e p n n', honest p → σ.closed e p n → σ.closed e p n' → n = n'
   no_unlock : ∀ a e p n m s, honest p → σ.closed a p n → σ.opened e p m s → a < e → m ≠ n →
     (s = none ∨ ∃ e', s = some e' ∧ e' < a) → False
 
--- A book: what one verifier counted (agreement.rs:113-122), with its open quorums and decisions.
+-- A book: what one verifier counted (agreement.rs:156-166), with its open quorums and decisions.
 structure Book (Part Name : Type) where
   opened : Nat → Part → Name → Option Nat → Prop
   closed : Nat → Part → Name → Prop
   openQuorum : Nat → Name → Prop
   decided : Nat → Name → Prop
 
--- The counting of agreement.rs:202-247: an open quorum is a quorum of open pledges each standing
+-- The counting of agreement.rs:230-275: an open quorum is a quorum of open pledges each standing
 -- on none or on an earlier open quorum of its name; a decision is a quorum of closing pledges of
 -- an attempt whose open pledges reached the quorum on the same name.
 structure Counts {Part Name : Type} (quorum : (Part → Prop) → Prop) (B : Book Part Name) : Prop where
@@ -814,7 +814,7 @@ end Cement
 -- more and none less. An attestation of `A` carries its round, so `Reads` reads it as valid in its
 -- round (C2.1-C2.5). The cement is not opaque: `cementOf` builds it from the parts of the
 -- attestations as `Cement::add` does (section Cement). Two readings of the code are taken as the
--- model. The map of votes is read as a function, nought where it holds nothing (agreement.rs:41),
+-- model. The map of votes is read as a function, nought where it holds nothing (agreement.rs:42),
 -- and summed over the cement, where its absent parts add nought; the cement holding each part once
 -- (cementOf_nodup) and the map holding parts of the cement alone (:360), that sum is the code's sum
 -- over votes.values() (:373). And the two rows of the Decree the close reads are the constants
