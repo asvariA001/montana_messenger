@@ -34,9 +34,10 @@ from typing import Callable, NamedTuple, Optional
 GENESIS_PREV = "0" * 64  # the prev of link 0, the genesis
 TEXT_LIMIT = 280  # characters (Unicode code points) of a link's task
 TIME_FORMAT = "%Y-%m-%dT%H:%M:%SZ"  # ISO 8601 in UTC to the second, the zone written as Z
-TIME_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
+TIME_PATTERN = r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z"
+TIME_RE = re.compile(TIME_PATTERN)
 HASH_RE = re.compile(r"[0-9a-f]{64}")
-# a signature is name, number and 8-hex session label: "Claude of DinetPDA #6 [70662df9]"
+# a signature is name, number and 8-hex session label: "Claude of DinetPDA #6 [5ca1ab1e]"
 SIGNATURE_RE = re.compile(r"(?P<name>[^#\[\]]+) #(?P<number>[1-9][0-9]*) \[(?P<label>[0-9a-f]{8})\]")
 LINK_KEYS = frozenset({"n", "time", "task", "from", "prev", "hash"})
 CHAIN_FILE = "chain.jsonl"
@@ -100,7 +101,7 @@ def check_signature(value) -> str:
     match = SIGNATURE_RE.fullmatch(value) if isinstance(value, str) else None
     if not match or match["name"] != match["name"].strip() or any(unicodedata.category(c) == "Cc" for c in value):
         raise Refused(f"signature {value!r} is not NAME #N [label] with a lowercase 8-hex session label, such as "
-                      "'Claude of DinetPDA #6 [70662df9]'")
+                      "'Claude of DinetPDA #6 [5ca1ab1e]'")
     return value
 
 
@@ -299,7 +300,8 @@ def report_verify(chain: Chain, anchor: Optional[str]) -> int:
         if not re.fullmatch(r"[0-9]+", number) or not HASH_RE.fullmatch(expected):
             raise Refused("--anchor is N:HASH, the link number and its 64 lowercase hex digits")
         if int(number) >= len(records):
-            print(f"broken: the anchor names link {number}, but the chain ends at n={len(records) - 1}: links were cut off")
+            end = f"ends at n={len(records) - 1}" if records else "is empty"
+            print(f"broken: the anchor names link {number}, but the chain {end}: links were cut off")
             return 1
         if records[int(number)]["hash"] != expected:
             print(f"broken at n={number}: its hash is not the anchor's: the chain was rewritten up to it")
@@ -722,7 +724,6 @@ def _constitution_commands(commands, common) -> None:
 
 PLACES = 13  # open tasks at most
 PROOFS = ("build", "test", "file")
-TIME_PATTERN = r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z"
 ISSUE_PATTERN = r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*"
 TAG_RE = re.compile(r"\[task (?P<k>[1-9][0-9]*)\] (?P<move>.+)")
 MOVES = (  # what follows the tag; a text that is none of these is a plain move
@@ -847,8 +848,8 @@ def task_line(task: dict, now: str, width: Optional[int] = None) -> str:
     """A task in one line: number, percentage, deadline, issue and title, and its blocker or its proof."""
     if task["closed"] is not None:
         proof, ref = task["proof"]
-        line = f"[task {task['k']}] closed at link {task['closed']} by {proof}: {ref}, issue {task['issue']}: " \
-               f"{task['title']}"
+        line = (f"[task {task['k']}] closed at link {task['closed']} by {proof}: {ref}, issue {task['issue']}: "
+                f"{task['title']}")
     else:
         overdue = " OVERDUE" if task["due"] < now else ""
         line = f"[task {task['k']}] {task['pct']}% due {task['due']}{overdue}, issue {task['issue']}: {task['title']}"
@@ -1143,7 +1144,7 @@ def rules_of_the_turn(args, records: list, words: str, handover: Optional[dict])
         "2. Write your acceptance link now, and start the work in this same turn:",
         f'   {tool} add "{words}: {taken}. Taking: <one concrete step>" --from "{name} #{number} [{label}]"{home}',
         f"   The signature is the name, the number {number} and the first 8 hex digits of the session id"
-        " (CLAUDE_CODE_SESSION_ID).",
+        f' (CLAUDE_CODE_SESSION_ID). Begin no other link with "{words}": whoever writes them is the chairman.',
         f"3. Every move is one link of at most {TEXT_LIMIT} characters: what was done and how it was checked "
         "(file:line, commit, command and exit code).",
         f"4. A move on a task is tagged: task move|progress|blocker K ... Waiting on a build or on the Author is "

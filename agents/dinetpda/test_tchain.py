@@ -108,8 +108,8 @@ class TheLink(ChainCase):
 
     def test_the_hash_is_pinned_by_a_vector(self):
         genesis = {"n": 0, "time": "2026-10-25T15:00:00Z", "task": "Принято: the genesis",
-                   "from": "Claude of DinetPDA #1 [70662df9]", "prev": "0" * 64}
-        vector = "0bf1068d5f82be6aa3455c3125c627ab82c914d01627b5af5e7cb08afd9dccba"
+                   "from": "Claude of DinetPDA #1 [5ca1ab1e]", "prev": "0" * 64}
+        vector = "19b4f08b059ce47c34477df1d68f1b43b15a8d7ca4b8c65c2feb4255bedfcf0a"
         self.assertEqual(definition_hash(genesis), vector)
         self.assertEqual(tchain.seal(genesis), vector)
         self.assertEqual(tchain.seal(dict(genesis, hash="anything")), vector)
@@ -708,13 +708,13 @@ class Start(ChainCase):
         self.assertIn("above its budget of 10,000", self.ok("start"))
 
     def test_the_session_label_and_context_come_from_claude_code(self):
-        os.environ["CLAUDE_CODE_SESSION_ID"] = "70662DF9-67e0-4cf4-b9ff-f3e6b6e9474d"
+        os.environ["CLAUDE_CODE_SESSION_ID"] = "5CA1AB1E-0000-4000-8000-000000000001"
         os.environ["CLAUDE_CONFIG_DIR"] = str(Path(self.tmp.name) / "claude")
         folder = Path(self.tmp.name) / "claude" / "projects" / "p"
         folder.mkdir(parents=True)
-        (folder / "70662DF9-67e0-4cf4-b9ff-f3e6b6e9474d.jsonl").write_text(json.dumps(assistant(read=160_000)) + "\n")
+        (folder / "5CA1AB1E-0000-4000-8000-000000000001.jsonl").write_text(json.dumps(assistant(read=160_000)) + "\n")
         out = self.ok("start")
-        self.assertIn('--from "NAME #1 [70662df9]"', out)
+        self.assertIn('--from "NAME #1 [5ca1ab1e]"', out)
         self.assertIn("session context  160,000 tokens: prepare the handover", out)
 
 
