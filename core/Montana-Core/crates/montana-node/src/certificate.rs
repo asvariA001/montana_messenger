@@ -144,11 +144,14 @@ impl Predecessor<'_> {
         }
     }
 
-    // Whether `window` is the one this predecessor is followed by. The window a cohort opens at is
-    // of the world outside, as the cohort itself is, so the Genesis State Hash stands under it.
-    fn is_followed_by(&self, window: u64) -> bool {
+    // Whether `window` is the one this predecessor is followed by. The Genesis State Hash stands
+    // under window zero and under no other: "Every window but the first names its predecessor by the
+    // identifier of that predecessor's proposal, and the first names the Genesis State Hash"
+    // (Consensus, "Invariants of the TimeChain"), so a proposal of a later window naming it belongs to
+    // another chain, however honestly it was signed and decided.
+    pub(crate) fn is_followed_by(&self, window: u64) -> bool {
         match self {
-            Predecessor::Genesis => true,
+            Predecessor::Genesis => window == 0,
             Predecessor::Proposal(held) => held.window.checked_add(1) == Some(window),
         }
     }
@@ -934,7 +937,8 @@ mod proofs {
     use mt_state::layout::Confirmation;
     use std::collections::BTreeSet;
 
-    const WINDOW: u64 = 7;
+    // Window zero, the one window the Genesis State Hash stands under.
+    const WINDOW: u64 = 0;
     const COUNT: u64 = 2;
     const BEACON: [u8; 32] = [0x20; 32];
     const LOW: [u8; 32] = [0x05; 32];
