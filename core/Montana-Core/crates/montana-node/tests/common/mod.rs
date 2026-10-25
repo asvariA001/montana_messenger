@@ -13,6 +13,8 @@
 use montana_wallet::pay::Payee;
 use std::path::PathBuf;
 
+pub mod walk;
+
 // Each run creates a fresh directory and retains it for failure inspection.
 // A predictable name must never erase files left by another run or operator.
 pub struct Scratch(pub PathBuf);
