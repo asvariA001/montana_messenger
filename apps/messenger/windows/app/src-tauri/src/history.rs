@@ -893,6 +893,19 @@ mod tests {
         assert_eq!(read_copy(&e, &file).unwrap(), recs);
         assert_eq!(read_copy(&[8u8; 32], &file), Err(Refusal::Unopened), "other words open nothing");
         assert!(read_copy(&e, &file[..file.len() - FRAME]).is_err(), "a copy cut at a frame's edge is told from a whole one");
+        // a copy damaged by one bit -- its salt, its first frame, a middle one, its last -- is refused, never read in part
+        let frames = (file.len() - 32) / FRAME;
+        assert!(frames >= 3);
+        for (at, want) in [(5, Refusal::Unopened), (32 + 40, Refusal::Unopened), (32 + FRAME + 40, Refusal::Torn), (file.len() - 1, Refusal::Torn)] {
+            let mut bad = file.clone();
+            bad[at] ^= 1;
+            assert_eq!(read_copy(&e, &bad), Err(want), "a bit changed at {at}");
+        }
+        // two frames swapped: each is sealed to its place
+        let mut swapped = file.clone();
+        swapped[32 + FRAME..32 + 2 * FRAME].copy_from_slice(&file[32 + 2 * FRAME..32 + 3 * FRAME]);
+        swapped[32 + 2 * FRAME..32 + 3 * FRAME].copy_from_slice(&file[32 + FRAME..32 + 2 * FRAME]);
+        assert_eq!(read_copy(&e, &swapped), Err(Refusal::Torn), "frames out of their places");
     }
 
     #[test]

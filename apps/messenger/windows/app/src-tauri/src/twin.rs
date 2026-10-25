@@ -1237,6 +1237,50 @@ mod tests {
     }
 
     #[test]
+    fn a_forged_block_or_another_persons_stands_nothing() {
+        let root = std::env::temp_dir().join(format!("montana-twin-f-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let (words, other) = (seed::generate().unwrap(), seed::generate().unwrap());
+        let (v1, s1, p) = (Vault::at(&root.join("v1")).unwrap(), media::Store::at(&root.join("m1")).unwrap(), crate::presence::Presence::default());
+        let (v2, s2) = (Vault::at(&root.join("v2")).unwrap(), media::Store::at(&root.join("m2")).unwrap());
+        let (v3, s3) = (Vault::at(&root.join("v3")).unwrap(), media::Store::at(&root.join("m3")).unwrap());
+        let (b1, b2, b3) = (Book::new(v1.clone()), Book::new(v2.clone()), Book::new(v3.clone()));
+        let (d1, d2, d3) = (desk(&v1, &b1, &s1, &p, &words, 1, &root), desk(&v2, &b2, &s2, &p, &words, 2, &root), desk(&v3, &b3, &s3, &p, &other, 3, &root));
+        let r = b1.establish(&[6u8; 32]).unwrap();
+        b1.open(&r, "Боб", false);
+        let m = mint_mid();
+        d1.archive_row(&r, false, birth_ms(&m).unwrap(), &m, "первое от Боба");
+        let a1 = d1.archive.as_ref().unwrap();
+        let wt = a1.writer_tag().unwrap();
+        let sealed: Vec<Vec<u8>> = a1.folders().iter().flat_map(|f| a1.export(f, &wt, 0)).map(|(_, s)| s).collect();
+        assert!(!sealed.is_empty());
+        let file = |blocks: &[Vec<u8>]| blocks.iter().flat_map(|s| [(s.len() as u32).to_le_bytes().to_vec(), s.clone()].concat()).collect::<Vec<u8>>();
+        // another person's machine: these blocks are sealed under words it does not hold
+        assert_eq!(d3.file_blocks(&file(&sealed)), 0, "another person's blocks stand nothing");
+        assert!(b3.chat(&r).is_none() && b3.secret(&r).is_none());
+        // the same words, every block changed by one bit -- at its head, in its middle, at its tail
+        for at in [0usize, 1, 2] {
+            let forged: Vec<Vec<u8>> = sealed.iter().map(|s| { let mut f = s.clone(); let i = [0, f.len() / 2, f.len() - 1][at]; f[i] ^= 1; f }).collect();
+            assert_eq!(d2.file_blocks(&file(&forged)), 0, "a forged block stands nothing ({at})");
+            assert!(b2.chat(&r).is_none() && b2.secret(&r).is_none(), "nor its pipe ({at})");
+        }
+        // a file whose last length runs past its end is read up to there; a length of zero ends it
+        let mut cut = file(&sealed);
+        cut.truncate(cut.len() - 1);
+        let mut zero = 0u32.to_le_bytes().to_vec();
+        zero.extend(file(&sealed));
+        assert_eq!((d2.file_blocks(&zero), b2.chat(&r).is_none()), (0, true), "nothing past a zero length");
+        // a file cut inside its last block: the blocks before the cut stand what they hold (here the head: the pipe, no row yet)
+        assert_eq!(d2.file_blocks(&cut), 1);
+        assert_eq!(b2.chat(&r).map(|c| c.msgs.len()), Some(0), "the cut block's row is not laid in part");
+        // the whole blocks then: the conversation stands once, and a row its feed lacks is asked of the other device, never laid
+        // into a held feed (iOS restoreFromArchive: the feed is the truth)
+        assert_eq!(d2.file_blocks(&file(&sealed)), 0, "no second conversation");
+        assert_eq!(b2.all().iter().filter(|c| c.reference == r).count(), 1);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn saved_messages_rides_the_blocks_alone_and_a_held_feed_is_asked_not_overwritten() {
         use crate::book::SAVED;
         let root = std::env::temp_dir().join(format!("montana-twin-s-{}", std::process::id()));
