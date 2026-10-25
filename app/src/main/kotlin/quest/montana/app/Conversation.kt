@@ -1224,6 +1224,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         isHorizontalScrollBarEnabled = false; visibility = View.GONE; setPadding(0, c.dp(6), 0, c.dp(6)); addView(stagedRow)
     }
     lateinit var drawStaged: () -> Unit
+    lateinit var pickFiles: () -> Unit
     // THE PICTURES LEAVE WITH THE FIELD'S WORDS AS ONE GROUP (iOS sendPasted 3160-3206): the words ride with the first of them
     fun sendStaged() {
         val words = field.text.toString().trim()
@@ -1309,7 +1310,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     // THE CAMERA BESIDE THE PHOTOS (iOS MTGalleryPick: the camera's tile, «All photos»): a shot goes the picked picture's road
     drawStaged = {
         stagedRow.removeAllViews()
-        for (s in staged.toList()) stagedRow.addView(FrameLayout(c).apply {
+        for ((place, s) in staged.toList().withIndex()) stagedRow.addView(FrameLayout(c).apply {
             addView(ImageView(c).apply {
                 scaleType = ImageView.ScaleType.CENTER_CROP
                 if (s.second != null) setImageBitmap(s.second) else setBackgroundColor(Color.rgb(51, 51, 51))
@@ -1319,6 +1320,24 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 clipToOutline = true
             }, FrameLayout.LayoutParams(MATCH, MATCH))
             if (s.first.kind == "vid") addView(c.icon(R.drawable.ic_play_fill, Color.WHITE), FrameLayout.LayoutParams(c.dp(22), c.dp(22), Gravity.CENTER))
+            // A FILE IN THE TRAY (iOS 2312) wears its kind, its own name and its size, at the plate's size
+            if (s.first.kind == "doc") addView(c.vstack(Gravity.CENTER) {
+                setPadding(c.dp(8), 0, c.dp(8), 0)
+                addView(c.icon(R.drawable.ic_compose_doc, Color.argb(230, 255, 255, 255), 20), lp(c.dp(20), c.dp(20)))
+                addView(c.text(s.first.name ?: "", 11f, Color.WHITE).apply {   // USER-DATA: the person's file name
+                    maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END; gravity = Gravity.CENTER
+                }, lp().apply { topMargin = c.dp(3) })
+                addView(c.text(c.copySize(s.first.bytes.size.toLong()), 10f, Color.argb(153, 255, 255, 255)), lp().apply { topMargin = c.dp(3) })
+            }, FrameLayout.LayoutParams(MATCH, MATCH))
+            // THE PLACE IT HOLDS (iOS stagedNumber, 2312): 1, 2, 3 in the order chosen, the order the arrow sends them in; read off
+            // the place in the tray, so a cross closes the numbers up
+            addView(c.text(StagedOrder.number(place).toString(), 12f, Color.BLACK, bold = true).apply {   // USER-DATA: the place of the person's own pick, digits only
+                gravity = Gravity.CENTER
+                minWidth = c.dp(20); minHeight = c.dp(20)
+                setPadding(c.dp(5), 0, c.dp(5), 0)
+                fontFeatureSettings = "tnum"
+                background = GradientDrawable().apply { cornerRadius = c.dp(10).toFloat(); setColor(Color.WHITE) }
+            }, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.TOP or Gravity.START).apply { setMargins(c.dp(5), c.dp(5), 0, 0) })
             // the cross drawn small and taken on the platform's least target: 22 drawn, 44 to the finger, grown inward from the corner
             addView(FrameLayout(c).apply {
                 contentDescription = c.getString(R.string.cancel)
@@ -1329,9 +1348,28 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 pressable { staged.remove(s); drawStaged() }
             }, FrameLayout.LayoutParams(c.dp(44), c.dp(44), Gravity.TOP or Gravity.END))
         }, lp(c.dp(116), c.dp(78)).apply { marginEnd = c.dp(8) })
+        // ONE MORE FILE (iOS 2312): a tray that holds files opens the files page again from here; what it hands back stands after
+        // the last number
+        if (staged.any { it.first.kind == "doc" }) stagedRow.addView(FrameLayout(c).apply {
+            contentDescription = c.getString(R.string.file)
+            background = GradientDrawable().apply { cornerRadius = c.dp(12).toFloat(); setColor(Color.rgb(51, 51, 51)) }
+            addView(c.icon(R.drawable.ic_plus, Color.WHITE, 20), FrameLayout.LayoutParams(c.dp(20), c.dp(20), Gravity.CENTER))
+            pressable { pickFiles() }
+        }, lp(c.dp(78), c.dp(78)))
         stagedStrip.visibility = if (staged.isEmpty()) View.GONE else View.VISIBLE
         bar.attached = staged.isNotEmpty()
     }
+    pickFiles = { act.openDocuments { uris -> if (uris.isNotEmpty()) {
+        val t0 = System.currentTimeMillis()
+        Thread {
+            val made = uris.mapNotNull { u -> Media.read(c, u, true)?.let { p -> p to null } }
+            MainThread.post {
+                if (made.size < uris.size) android.widget.Toast.makeText(c, R.string.media_failed, android.widget.Toast.LENGTH_LONG).show()
+                staged.addAll(made); drawStaged(); toBottom()
+                android.util.Log.i("Montana", "files_pick picked=${uris.size} staged=${made.size} tray=${staged.size} ms=${System.currentTimeMillis() - t0}")
+            }
+        }.start()
+    } } }
     /** The chosen pictures read whole off the frame and staged above the field, in the order the finger chose them (iOS stagePicks). */
     fun stage(uris: List<android.net.Uri>) {
         if (uris.isEmpty()) return
@@ -1407,16 +1445,11 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         false
     }
     bar.onContact = { hideKeys(); if (groupLets("\uD83D\uDC64", false)) act.pickContact { u -> u?.let { contactLetter(c, it) }?.let { words -> sendWords(ref, words); toBottom() } } }
-    // FILES BY THE HANDFUL, IN THE ORDER CHOSEN (iOS 1e46c25e, the author's word 23.10 20:5x): every file the page hands back
-    // leaves as its own letter, one after another as the page lists them
-    bar.onFile = { hideKeys(); act.openDocuments { uris -> if (uris.isNotEmpty()) Thread {
-        for (u in uris) {
-            val p = Media.read(c, u, true)
-            if (p == null) MainThread.post { android.widget.Toast.makeText(c, R.string.media_failed, android.widget.Toast.LENGTH_LONG).show() }
-            else Media.send(c, ref, p, "")
-        }
-        MainThread.post { toBottom() }
-    }.start() } }
+    // FILES BY THE HANDFUL, IN THE ORDER CHOSEN (iOS 1e46c25e, the author's word 23.10 20:5x), AND THEY WAIT ABOVE THE FIELD WITH
+    // THEIR NUMBERS (iOS stageChosen, 2312; the author's word 25.10.2026 17:40 UTC, council link 8089): read one after another in the
+    // page's order, off the screen's thread, into the one tray the pictures stand in -- numbered, taken out and sent as a picture is;
+    // the tray's «+» opens the page again, the arrow sends the tray in its order. The diary names the count.
+    bar.onFile = { hideKeys(); pickFiles() }
     // THE CARD AS A PHOTO (iOS sendCardPhoto): the kept card drawn at the standard size, its words the caption under the card's mark
     bar.onCard = { hideKeys(); if (groupLets("", true)) act.push { close -> businessCardPage(act, close) { card ->
         close()
