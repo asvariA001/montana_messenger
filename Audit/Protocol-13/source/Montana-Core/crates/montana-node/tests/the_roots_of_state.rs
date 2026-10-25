@@ -29,7 +29,7 @@ fn the_roots_of_state_are_the_tables_the_window_left() {
 
     // The empty plane: every root is the root of its empty table, and the count is the cohort's.
     let empty = state
-        .roots(&cohort, WINDOW)
+        .roots(&cohort, WINDOW, &[])
         .expect("the roots of an empty plane");
     assert_eq!(empty.note_root, Table::Notes.empty_root());
     assert_eq!(empty.nullifier_root, Table::Nullifiers.empty_root());
@@ -40,7 +40,7 @@ fn the_roots_of_state_are_the_tables_the_window_left() {
     assert_eq!(empty.admitted_count, 2);
     let elsewhere = Cohort::of(&[Cohort::half_of(&[0x33u8; 32])]).expect("a tree of one");
     assert!(
-        state.roots(&elsewhere, WINDOW).is_err(),
+        state.roots(&elsewhere, WINDOW, &[]).is_err(),
         "a plane answered for a tree it does not stand against"
     );
 
@@ -86,7 +86,7 @@ fn the_roots_of_state_are_the_tables_the_window_left() {
     state.apply(&frame, WINDOW).expect("a true frame applies");
 
     let roots = state
-        .roots(&cohort, WINDOW)
+        .roots(&cohort, WINDOW, &[])
         .expect("the roots after the frame");
     assert_eq!(roots.note_root, state.notes_root().bytes());
     assert_ne!(roots.note_root, empty.note_root);
@@ -122,7 +122,7 @@ fn the_roots_of_state_are_the_tables_the_window_left() {
     // The tree of operations holds one window: the window after holds nothing yet.
     assert_eq!(
         state
-            .roots(&cohort, WINDOW + 1)
+            .roots(&cohort, WINDOW + 1, &[])
             .expect("the roots of the next window")
             .operations_root,
         Table::Operations.empty_root()
@@ -132,7 +132,8 @@ fn the_roots_of_state_are_the_tables_the_window_left() {
     // still refuses the rate it already holds.
     let back = State::decode(&state.encode().expect("the plane encodes")).expect("it reads back");
     assert_eq!(
-        back.roots(&cohort, WINDOW).expect("the roots read back"),
+        back.roots(&cohort, WINDOW, &[])
+            .expect("the roots read back"),
         roots
     );
     assert!(rates.iter().all(|rate| back.is_spent(rate)));

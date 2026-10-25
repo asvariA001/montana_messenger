@@ -1,6 +1,6 @@
 # Montana — Constitution
 
-**Version:** 3.14.0
+**Version:** 3.15.0
 
 The Constitution holds the properties the protocol preserves across every one of its
 components, and the rules by which the normative document set is read.
@@ -678,7 +678,7 @@ enforces it here rather than being covered by implication:
 | Transport | [I-16] — no address, nothing constant along a path, origin not distinguishable from transit |
 | Identity | closed by the same construction as value: no identifier of a person exists, a record is a commitment, an action spends a nullifier, and lived time is carried inside and proven — there is no name for an observer to join two actions by |
 | Application | closed the same way: an application acts through the same commitment and nullifier and names no one, so no label sorts people into kinds and no application learns who its users are |
-| Consensus | closed the same way: distinctness without identity — a part in a window is a nullifier, quorum counts nullifiers, presence is carried inside a commitment and proven, and one nullifier under two closings of one height is proof of an equivocation, so a sanction keeps its evidence |
+| Consensus | closed the same way: distinctness without identity — a part in a window is a nullifier, quorum counts nullifiers, presence is carried inside a commitment and proven, and one nullifier under two contradicting pledges of one window is proof of an equivocation, so a sanction keeps its evidence |
 
 A violation is an automatic mainnet blocker in any of them.
 
@@ -707,7 +707,7 @@ cannot use it have already been excluded.
 
 ## What the set does not yet fix
 
-Six things are open. They are named here, at the front, so that a reader learns them from the
+Five things are open. They are named here, at the front, so that a reader learns them from the
 first document rather than by exhausting the last, and each carries what closing it requires
 rather than a promise that it will be closed.
 
@@ -717,7 +717,6 @@ rather than a promise that it will be closed.
 | **the Library as a document of its own** — the plane that keeps a body alive is stated inside Network today, and it graduates into a document of the set only when the quantities it stands on are frozen: the domain of the points of a root and their count, the domain the key of an offer is derived under, the domain of the nullifier of an offer, and the layout of a deposit | Network, in the plane that keeps a body; Canon, in the registry and the layouts | those four quantities entered in Canon and the period their points rotate by named among the ones Canon already holds — the shape of the ask is not among them, since the ask of a slot stands already and is taken as it is |
 | **what carries the history across the retirement of a proof scheme** — a device anchored before a retirement cannot verify the certificates of windows proven under the retired scheme, so a scheme that fails lets a forged past stand behind an old anchor | Consensus, in the certificate of a window and the join | a rule that an anchor stands at or after the window a retirement takes effect in, with the retention bound making an older anchor stale by construction, or a stated argument that the walk alone suffices, with the assumption it rests on named |
 | **the constraint set of the two circuits** — every value it consumes is frozen, the statements it must assert are stated, the format of its description is fixed and the verifier that consumes it is frozen check by check; the artifact itself is machine-checkable and not writable in prose | Canon, in its own section, with the circuits that need it in Consensus and in Value | the artifact published, its hash entered as `air_hash` in the Genesis Decree, and the Genesis State Hash recomputed by the procedure Canon states — one line and one recomputation |
-| **one decision for a window whose machines left its rounds holding different things** — a machine closes a window on the final beacon it reconciled and applies the frames standing at the points of each round as it leaves that round, so two honest machines may close one window on two final beacons carrying two pairs, or apply two sets of frames, and take two names for one window; the window after parts its cement between the names, and where neither reaches the quorum of that window both halves wait on a name the other half never attests. The set orders the rounds and the versions of a round, and never votes a second time on the predecessor of a window | Consensus, "The pulse and the close of a window", "Two tickets clearing one window" and "The way back"; Canon, "The roots of state" | an agreement on the predecessor of a window that every honest machine reaches from what it holds — a second vote with a lock in the manner of Tendermint, or an agreement over a common coin in the manner of Algorand — stated with its safety under the quorum and its liveness once delivery is bounded, and the partition and rejoin test that shows it at a population the quorum asks less than all of |
 | **which of two frames spending one note stands first, before the window carrying them closes** — the race is visible in one echo, since the notice of a spend stands at a point derived from the nullifier it names and two frames spending one note meet there; what the point does not do is decide, because the identifier of a frame is drawn by its own author and a second frame is brought below a first in a couple of drawings, so a reader that sees a race waits for the canonical order of the window | Value, in settlement and in the notice of a spend | a rule separating two notices at the point itself by a quantity neither author chooses after seeing the other, or a stated argument that the wait is what the protocol offers and the claim is the whole of the fast path |
 
 Two things follow from the entry of the constraint set and are named here rather than discovered
