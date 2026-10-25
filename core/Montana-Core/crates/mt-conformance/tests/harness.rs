@@ -1254,6 +1254,34 @@ fn every_numeral_of_the_sources_stands_in_a_register() {
     check_every_numeral_is_registered().expect("no numeral of this tree stands outside a register");
 }
 
+// No module of the verdict reads a clock, and the gate that holds it reads a clock wherever one is
+// named. The named wrong implementations: a door that waits on `Instant` or `std::thread::sleep`
+// before it judges — its name and its line come back; and a gate that read the comments, the tests
+// or the proofs of a source, or a longer identifier holding the name — it would refuse a tree whose
+// library reads no clock.
+#[test]
+fn a_clock_read_by_a_module_of_the_verdict_breaks_the_build() {
+    check_no_clock_in_the_verdict().expect("no module of the verdict reads a clock");
+    let reading = "use std::time::Instant;\nfn judge() {\n    let at = Instant::now();\n    std::thread::sleep(at.elapsed());\n    let _ = std::time::SystemTime::now();\n}\n";
+    assert_eq!(
+        clocks_read_by(reading),
+        vec![
+            (1, "std::time"),
+            (1, "Instant"),
+            (3, "Instant"),
+            (4, "sleep"),
+            (5, "std::time"),
+            (5, "SystemTime"),
+        ]
+    );
+    let silent = "// an Instant of the protocol is a round\nfn asleep_count(instantly: u64) -> u64 { instantly }\n#[cfg(test)]\nmod tests {\n    use std::time::Instant;\n}\n";
+    assert!(
+        clocks_read_by(silent).is_empty(),
+        "{:?}",
+        clocks_read_by(silent)
+    );
+}
+
 // And the rows of the tables are read as the lines of the blocks are.
 #[test]
 fn a_row_of_a_table_nobody_reads_breaks_the_build() {

@@ -4519,6 +4519,90 @@ fn library_end(text: &str) -> usize {
     tests.min(proofs)
 }
 
+// The modules of the verdict, and the clocks none of them reads. Constitution, I-15: "reading the
+// system clock of the operating system, reading a monotonic clock inside protocol logic" are
+// forbidden in protocol code; Consensus, "Invariants of the TimeChain": "No quantity from outside the
+// protocol — a clock, a date, a duration — enters any object of the chain, and none of its rules
+// reads one". Whether a certificate, a proposal, a frame or a decision of the agreement stands is
+// answered in these sources, so a source of them naming a clock fails the build with the name, the
+// file and the line. What is read is the library of each, cut where its tests or its proofs begin,
+// and its code without its comments; the waiting of a machine stands in the pulse, which is conduct
+// and is read here by no rule.
+pub const VERDICT_SOURCES: &[&str] = &[
+    "montana-node/src/certificate.rs",
+    "montana-node/src/state.rs",
+    "montana-node/src/agreement.rs",
+    "mt-pulse/src",
+    "mt-proof/src",
+];
+
+// The names a reading of a clock goes by in Rust: the module of time, its two clocks, and the wait
+// a thread is put to sleep by.
+pub const CLOCK_READINGS: &[&str] = &["std::time", "Instant", "SystemTime", "sleep"];
+
+pub fn check_no_clock_in_the_verdict() -> Result<(), String> {
+    let root = crates_dir();
+    let mut read = 0usize;
+    let mut found: Vec<String> = Vec::new();
+    for source in VERDICT_SOURCES {
+        let path = root.join(source);
+        let files = if path.is_dir() {
+            sources_under(&path)?
+        } else {
+            vec![path]
+        };
+        for file in files {
+            let text = std::fs::read_to_string(&file)
+                .map_err(|e| format!("a source of the verdict is unreadable at {file:?}: {e}"))?;
+            read += 1;
+            let shown = file
+                .strip_prefix(&root)
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|_| file.display().to_string());
+            for (line, name) in clocks_read_by(&text) {
+                found.push(format!("`{name}` at {shown}:{line}"));
+            }
+        }
+    }
+    if read == 0 {
+        return Err(format!("no source of the verdict was read at {root:?}"));
+    }
+    if found.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "a module of the verdict reads a clock: {}; whether a window stands is a count of what the \
+         chain carries and of nothing a machine measures alone (Constitution, I-15)",
+        found.join(", ")
+    ))
+}
+
+// The readings of a clock a source makes in its library, by line: each name of `CLOCK_READINGS`
+// standing as a word of its own in the code of a line, its comment cut away.
+pub fn clocks_read_by(text: &str) -> Vec<(usize, &'static str)> {
+    let library = &text[..library_end(text)];
+    let mut out = Vec::new();
+    for (at, line) in library.lines().enumerate() {
+        let code = line.split("//").next().unwrap_or_default();
+        for name in CLOCK_READINGS {
+            if names_the_word(code, name) {
+                out.push((at + 1, *name));
+            }
+        }
+    }
+    out
+}
+
+// Whether `code` names `word` as a word of its own and not as a part of a longer identifier.
+fn names_the_word(code: &str, word: &str) -> bool {
+    let of_an_identifier = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    code.match_indices(word).any(|(at, _)| {
+        let before = code[..at].chars().next_back();
+        let after = code[at + word.len()..].chars().next();
+        !before.is_some_and(of_an_identifier) && !after.is_some_and(of_an_identifier)
+    })
+}
+
 // The canonical description of a constraint set: the artifact itself awaits its author, and its
 // encoding does not. What the set freezes is a description small enough to read and real enough to
 // exercise every part of the format, and what this compares is the bytes this tree writes for it
@@ -4805,6 +4889,7 @@ pub fn check_all(md: &str) -> Result<(), String> {
     check_proof_parameters(md)?;
     check_awaiting_is_earned()?;
     check_coverage(md)?;
+    check_no_clock_in_the_verdict()?;
     Ok(())
 }
 

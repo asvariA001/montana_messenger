@@ -611,8 +611,10 @@ counts by two rules, so that no pledge stands on what is not there:
 - a closing pledge counts only where the open pledges of its own attempt reach the quorum on its
   name.
 
-A part counts once per kind and attempt, at its first appearance; a second pledge of the same kind
-and attempt under it on another name is evidence, and a repetition on the same name adds nothing.
+A part counts once per kind and attempt, under the first of its pledges of that kind and attempt in
+their canonical order ("The sanction of a double answer"), whatever the order in which a machine
+received or was handed them; every other pledge of the same kind and attempt under it on another
+name is evidence, and a repetition on the same name adds nothing.
 
 **The decision.** A name is **decided** when the closing pledges of one attempt reach the quorum on
 it. The decision makes the proposal of the window before final, and it is the event the pulse names
@@ -812,6 +814,7 @@ open to challenge, and discards it with the window.
 - The refusal falls on the right and not on a party, so no implementation needs a name to apply it.
 - The first appearance stands and the second is refused, by the canonical order of the window and never by the order of arrival at a machine.
 - The canonical order of the heavy attestations of a window, by which the first appearance is read, is the chain index of the attested beacon ascending, then its round index ascending, then the round nullifier of the attestation ascending as a string of 32 bytes (Canon, "The confirmation of a window"), and where two of them agree in all three the pledged name ascending. Of the heavy attestations of one part-nullifier the first in this order stands: its name is the part's open pledge of attempt zero, whatever the order in which a machine received or was handed them.
+- The canonical order of the pledges of one part-nullifier, of one kind and of one attempt, by which the first appearance is read, is the name ascending as a string of 32 bytes, then `since` descending, none (0xFFFFFFFF) standing above every attempt, so that of two pledges on one name the one standing on none, which counts wherever it stands, comes before one that counts only on the quorum it names. The first in this order is the part's pledge of that kind and attempt and is the one counted; every other on another name is evidence beside it, whatever the order in which a machine received or was handed them.
 - A pair is admitted no longer than the window's challenge and enters no persistent state; the attestations retained for the join extend no challenge and name nobody, so nothing accumulates about anyone.
 
 ## The certificate of a window

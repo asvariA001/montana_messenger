@@ -17,7 +17,7 @@ use crate::certificate::Electorate;
 use crate::NodeError;
 use mt_proof::circuit::ballot;
 use mt_proof::poseidon::Digest;
-use mt_state::layout::{Ballot, Confirmation, LightAttestation};
+use mt_state::layout::{Ballot, Confirmation, LightAttestation, Pledge};
 use mt_state::Layout;
 use zeroize::Zeroizing;
 
@@ -140,6 +140,30 @@ impl Standing {
         self.signed_light(held)
     }
 
+    // A pledge of the agreement on the proposal of the window before, under the key this window's
+    // heavy attestation proves.
+    pub fn pledge(&self, attempt: u32, name: [u8; 32], since: u32) -> Result<Pledge, NodeError> {
+        let mut held = Pledge {
+            window: self.window,
+            attempt,
+            name,
+            since,
+            part_nullifier: self.part_nullifier,
+            suite_id: mt_net::SUITE,
+            answering_key: self.key.as_bytes().to_vec(),
+            signature: vec![0u8; mt_codec::size::SIGNATURE],
+        };
+        let scope = held.signed_scope().map_err(NodeError::Object)?;
+        let signature = mt_suite::sign::sign(&self.secret_of_the_key, &scope).map_err(|_| {
+            NodeError::Unprovable {
+                what: "the signature of a pledge",
+            }
+        })?;
+        held.signature = signature.as_bytes().to_vec();
+        held.bytes().map_err(NodeError::Object)?;
+        Ok(held)
+    }
+
     fn signed(&self, mut held: Confirmation) -> Result<Confirmation, NodeError> {
         let scope = held.signed_scope().map_err(NodeError::Object)?;
         let signature = mt_suite::sign::sign(&self.secret_of_the_key, &scope).map_err(|_| {
@@ -243,6 +267,19 @@ pub fn verify_light(
     if !crate::round::eligible(&held.part_nullifier, aggregate, chain, round, threshold) {
         return Err(NodeError::Refused {
             what: "an attestation of a round this machine is not drawn for",
+        });
+    }
+    let scope = held.signed_scope().map_err(NodeError::Object)?;
+    verify_signature(held.suite_id, &held.answering_key, &held.signature, &scope)
+}
+
+// A pledge of the agreement counts only under the key its part's heavy attestation proved in this
+// window. Consensus, "The agreement on what a window decided": until that heavy is seen the pledge
+// stands in escrow, so the caller holds the proven key and this door judges the rest.
+pub fn verify_pledge(held: &Pledge, proven_key: &[u8]) -> Result<(), NodeError> {
+    if held.answering_key != proven_key {
+        return Err(NodeError::Refused {
+            what: "a pledge without the same proven answering key",
         });
     }
     let scope = held.signed_scope().map_err(NodeError::Object)?;

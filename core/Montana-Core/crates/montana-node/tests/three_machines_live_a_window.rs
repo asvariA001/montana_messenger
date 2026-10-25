@@ -21,7 +21,9 @@ use montana_node::{Configuration, Machine};
 mod common;
 use common::Scratch;
 
-const WINDOW: u64 = 2_000;
+// The window the network opens at: zero, the one window the Genesis State Hash stands under
+// (Consensus, "Invariants of the TimeChain").
+const WINDOW: u64 = 0;
 const PATIENCE: u32 = 40_000;
 
 #[test]
