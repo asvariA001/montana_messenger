@@ -2,7 +2,8 @@
 
 **Status: open. No proof exists for the specification, and the shipped code implements only part of
 the construction the claim stands on.** This file states the claim precisely so that the gap can be
-measured rather than argued. This is a source reading, not a traffic measurement or a proof.
+measured rather than argued. This is a source reading with conditional mathematical lemmas in
+section 5, not a traffic measurement or an implementation anonymity proof.
 
 Baseline: commit `2c6951f8b887b7e42bfe745f5bb42cdb207508f7` of this repository (the normative set in
 `core/docs/`, the reference core in `core/Montana-Core/`). Line numbers refer to that commit.
@@ -202,6 +203,8 @@ O_G(T) = [(link, direction, connection, event_kind, time, length, bytes)]
 ```
 
 including connection open/close, requests, replies, notification/control traffic and retries.
+`event_kind` names only a classification observable at the chosen boundary; it does not
+reveal a sealed application opcode to G by definition.
 The intended structural leakage projection is
 
 ```
@@ -244,59 +247,300 @@ and environment-dependent send events**. The first attempt is triggered from enq
 link writes after sealing ([core/Montana-Core/crates/mt-net/src/lib.rs:242-251](https://github.com/efir369999/montana_messenger/blob/2c7eb0df782da1679d20fc220499e9e3ab72c6b6/core/Montana-Core/crates/mt-net/src/lib.rs#L242)). Neither
 source states equality between an input-event time and a physical packet timestamp.
 
-### 2. Notion that can be stated from this function
+### 2. Challenge class: relationship worlds modulo declared leakage
 
-A candidate is **relationship indistinguishability modulo declared leakage**, for one
-interval and then `n` intervals. Two workload worlds change who corresponds with whom,
-while fixing the public machine set and public connection/handshake identities, public
-metadata and background workload. Under the *same declared environment distribution*,
-they must induce the same joint distribution of `L_G` (or explicitly `L_G+P`) over all
-links and all `n` intervals. Conditioning away unequal counts, lengths, link participation
-or timing after seeing the secret bit is not allowed. For each quantum polynomial-time
-passive distinguisher `A`, the proposed goal is
+**Definition C (the experiment and admissible pairs).** Fix the observer `o`, either G
+or G+P with an explicitly named set of read-only endpoint observations; the published
+implementation M; a finite horizon of `n` intervals; a resource bound; and a public
+experiment description `x`. The description fixes the machine names and public setup,
+connection/handshake identities, observation boundaries, background workload, interval
+assignment rule, and environment policy E. E may react to execution history but has the
+same rule and initial randomness distribution in both worlds. It is not a scheduler
+chosen separately after learning the challenge bit. An interval may be an observation
+interval; identifying it with an authenticated protocol window needs assumption WIN below.
+
+A relationship world `Q_b` is an efficiently specified workload and initial-state sampler:
+message contents and lengths, a sender-to-recipient assignment `R_b`, contact/queue/cache/
+connection state, and honest secret-state generation consistent with that assignment.
+The two worlds share public setup; secret state may differ where the relationship requires
+it. Correct correspondence means that the designated recipient is the intended decrypting
+recipient, not merely a renamed annotation on an unchanged execution. This is a privacy
+experiment, not a liveness claim: losses and unfinished deliveries remain in its trace.
+
+Before a fresh uniform bit `b` is drawn, a challenge generator commits to `(x,z,Q_0,Q_1)`.
+Here `z` is the declared classical auxiliary information, including the chosen workloads
+and any previously observed traffic. It contains no challenged honest participant's secret
+key. A quantum polynomial-time (QPT) observer may process that information and the subsequent
+classical traffic quantumly; it has no injection, delay, drop or corruption oracle. Endpoint
+observations in G+P are confined to the named read-only projection, not arbitrary secret-state
+access. This definition does not cover quantum auxiliary input correlated with honest secrets,
+adaptive corruption, or the separate fraction-of-machines adversary of section 2.
+
+Draw `T_b <- Exec_M(Q_b,x,E)` without rejection or conditioning on a favorable trace, and set
 
 ```
-Adv_A = |Pr[A(O_G(T_0)) = 1] - Pr[A(O_G(T_1)) = 1]| <= epsilon(n, security_parameter).
+V_b = (x,z,O_o(T_b))
+Lambda_b = (x,z,L_o(T_b))              // the JOINT leakage over all n intervals
+Adv_A(Q_0,Q_1) = |Pr[A(V_0)=1] - Pr[A(V_1)=1]|.
 ```
 
-This defines a goal, **not a proved property of this implementation**. The leakage must be
-fixed independently of the challenge relationship and computable from the allowed public
-inputs/state; its unresolved transport rows cannot be defined after the fact to make the
-goal true. Explicitly demonstrate that the admissibility rules allow different relationships
-before claiming anonymity: equality of the complete physical-link trace may leave no such
-pair in sparse traffic. A first/continuing wake pair with different payload lengths, or a
-live-letter pair with different `B`, is not a length-hiding challenge under the cited rows.
-Nor does this conditional notion hide `S_r`, `R_r`, timestamps or volume across windows.
-A stronger notion that hides those requires a different leakage specification and proof.
+The probabilities include setup, workload, environment, protocol and observer randomness.
+Advantage here is the output-probability gap in [0,1], not success probability minus 1/2.
+All cryptographic security claims below quantify over QPT observers. Bounds may depend on
+primitive parameters, numbers of keys/operations and the resource bound; writing a symbolic
+security parameter does not assert an asymptotic protocol family or a numerical security level
+for the fixed constants at M.
 
-**open:** complete transport projection, admissible nontrivial challenge class, simulation/
-hybrid argument for the ciphertext view, composition of all paths, and a bound on
-`epsilon`. Cryptographic hypotheses remain ML-KEM, ML-DSA and SHA-256; no external TLS
-standard is promoted into Montana's anonymity argument. Historical timing measurements
-in [LEMMA.md](LEMMA.md) cannot discharge these obligations.
+The class `C_o,n(x,z)` consists of pairs satisfying **all** of the following:
 
-### 3. In-window theorem
+1. Both are valid workloads of the fixed implementation and setup, with `R_0 != R_1` on
+   at least one challenged honest sender/recipient pair. Every public identity retains its
+   meaning. The change cannot be solely a renaming of the entire public machine set.
+2. Only the correspondence assignment and its necessary hidden state differ: per-sender
+   offered messages and input times, per-recipient offered counts/length classes, and unrelated
+   workload are fixed. Which offered message a recipient is to receive may change. First-use
+   state, routes and responses must be generated consistently, not overwritten to force a match.
+3. `Lambda_0` and `Lambda_1` have exactly the same joint distribution. The **projection rule**
+   `L_o` is fixed before choosing the pair, not a rule that is independent of the relationship's
+   effects. It retains the events/fields/equalities in section 5.1, including correlations with
+   `z`. Equal per-window marginals, equal total byte counts, or equal source-write lengths alone
+   do not satisfy this condition. For a relaxed comparison write
+   `delta_n = TV(Lambda_0,Lambda_1)`; such a pair is outside the exact class if `delta_n > 0`.
+   Here `TV(P,Q)=sup_B |P(B)-Q(B)|`, over observable events B, lies in [0,1].
+4. All branches, failed attempts, background events and delayed receives within the horizon
+   enter the projection at their actual observation time. Stopping at `n` is fixed in advance;
+   no dropping inconvenient windows, selected-trace conditioning, or reclassification of a
+   public field as secret is permitted. A longer horizon is a new joint experiment.
 
-**open.** Establish the declared property for an integrated schedule, forwarding and
-collection implementation, including public fields and all send events. Fixed unit width
-and local timing measurements alone do not imply that property (4.4 distinguishes
-unsealed handshake units, sealed link units and encapsulated delivery cells).
+These are semantic admissibility conditions, not a claimed algorithm for deciding distribution
+equality. With the incomplete `F_env` in section 5.1, membership of a concrete all-link pair is
+**open**. For G+P, equality also covers `conv`, `from_id`, blob identifiers and other decoded
+metadata visible to the selected endpoints; a pair valid for G need not be valid for G+P.
+Section 4.2 gives the source witnesses, for example at M
+[apps/messenger/ios/Code/Montana/MontanaWakePush.swift:1762-1770](https://github.com/efir369999/montana_messenger/blob/2c7eb0df782da1679d20fc220499e9e3ab72c6b6/apps/messenger/ios/Code/Montana/MontanaWakePush.swift#L1762-L1770).
 
-### 4. Across-window bound
+**Nontriviality obligation C-NONEMPTY — open for M.** A useful candidate is the two-pair
+switch `R_0={(a,c),(b,d)}`, `R_1={(a,d),(b,c)}` with four fixed honest participants,
+one equal-length offered message per sender and one per recipient. In an abstract system
+under **assumption EX-SCHEDULE** (both uploads and both downloads have a common,
+relationship-independent joint schedule) and **assumption EX-FIELDS** (all visible
+metadata/equality relations have the same joint law with that schedule), the switch satisfies
+the structural conditions while changing two relationships. These are assumptions of the example,
+not facts about Montana or a proposal to add a relay or filler. Section 4's different first-use
+shapes and reactive paths can invalidate it; endpoint metadata can invalidate it for G+P.
+To settle C-NONEMPTY, supply one complete valid pair, its consistent secret/contact states and
+the derivation of the equality of **joint** leakage under the fixed E and transport map. If
+no such pair exists for a sparse workload, the definition is vacuous there and supplies no
+anonymity claim. This restricted notion also does not establish section 3's stronger claims
+about hiding times, activity sets or correspondence in arbitrary workloads.
 
-**open.** Bound the distinguisher's advantage over the joint trace of `n` intervals as a
-function of activity, route overlap and reachable-carrier composition. No numerical bound
-or minimum traffic floor follows from the source rows here. In particular a deferred
-collection is not assumed to remain in the deposit window.
+### 3. Ciphertext view: exact dependency and conditional lemma
 
-### 5. Implementation and authenticated windows
+The source rows yield an exact dependency statement, not leakage sufficiency. Once the world,
+initial state, all random draws and the environment are fixed, the program's write trace and
+transport trace are fixed (unresolved platform choices belong to the environment). Thus
 
-**open.** Reconcile the intended construction in sections 1–3 with each actual transport
-path in section 4. The published register's pending mechanisms are at
-[core/docs/Montana Registry.md:127-144](https://github.com/efir369999/montana_messenger/blob/2c7eb0df782da1679d20fc220499e9e3ab72c6b6/core/docs/Montana%20Registry.md#L127). Authentication of the window and its history is
-[issue #4](https://github.com/efir369999/montana_messenger/issues/4); no part of that scope
-is reimplemented or claimed complete here. The broader audit remains
-[issue #2](https://github.com/efir369999/montana_messenger/issues/2).
+```
+V_b = (x,z,Observe_o(F_env(W_M(Q_b,state,coins,E),state,E))) .
+```
+
+This is a statement of execution semantics. It does **not** factor `V_b` through `Lambda_b`:
+`W_M` still contains plaintext-dependent sealed bytes, and transport encoding may depend on
+those bytes. Section 4 specifies projections of some writes, not the law of their complete
+contents. The following source facts identify the missing dependencies; all quotes are at M:
+
+- The link seals a piece with `aead::seal(&key, &nonce, step_label, plaintext)` and emits
+  label, nonce, sealed bytes in that order:
+  [core/Montana-Core/crates/mt-wire/src/link.rs:94-119](https://github.com/efir369999/montana_messenger/blob/2c7eb0df782da1679d20fc220499e9e3ab72c6b6/core/Montana-Core/crates/mt-wire/src/link.rs#L94-L119).
+  Its caller draws a label per piece and calls `write_whole` after sealing:
+  [core/Montana-Core/crates/mt-net/src/lib.rs:242-251](https://github.com/efir369999/montana_messenger/blob/2c7eb0df782da1679d20fc220499e9e3ab72c6b6/core/Montana-Core/crates/mt-net/src/lib.rs#L242-L251).
+  Hence equal width leaves key, nonce, plaintext, public-label and timing dependencies to prove.
+- `Hello::encode` appends suite, KEM key and answering key, and `write_flight` writes the
+  flight pieces without a seal:
+  [core/Montana-Core/crates/mt-wire/src/handshake.rs:57-63](https://github.com/efir369999/montana_messenger/blob/2c7eb0df782da1679d20fc220499e9e3ab72c6b6/core/Montana-Core/crates/mt-wire/src/handshake.rs#L57-L63),
+  [core/Montana-Core/crates/mt-net/src/lib.rs:123-145](https://github.com/efir369999/montana_messenger/blob/2c7eb0df782da1679d20fc220499e9e3ab72c6b6/core/Montana-Core/crates/mt-net/src/lib.rs#L123-L145).
+  These public bytes belong to leakage; a hybrid cannot replace them by anonymous data units.
+- The media nonce is `Data(nb.prefix(12))` after hashing key, index and padded content;
+  the result carries `blobIdHex(sealed)`:
+  [apps/messenger/ios/Code/Montana/MontanaMediaKit.swift:161-191](https://github.com/efir369999/montana_messenger/blob/2c7eb0df782da1679d20fc220499e9e3ab72c6b6/apps/messenger/ios/Code/Montana/MontanaMediaKit.swift#L161-L191).
+  The FFI maps `mt_e2e_blob_id` to `media_blob_id`:
+  [core/Code/crates/mt-bindings/src/ffi_e2e.rs:287-289,333-350](https://github.com/efir369999/montana_messenger/blob/2c7eb0df782da1679d20fc220499e9e3ab72c6b6/core/Code/crates/mt-bindings/src/ffi_e2e.rs#L333-L350).
+  `blob_id` is `Sha256::digest(sealed_blob)`:
+  [core/Code/crates/mt-messenger-e2e/src/media.rs:40-53](https://github.com/efir369999/montana_messenger/blob/2c7eb0df782da1679d20fc220499e9e3ab72c6b6/core/Code/crates/mt-messenger-e2e/src/media.rs#L40-L53).
+  Repeats and publicly checkable hash relations must survive simulation wherever visible.
+  Replacing each occurrence by an independent random string does not do that.
+
+**Assumption SIM_o(n,eta_0,eta_1) — unproved for M.** There is one efficient probabilistic
+simulator `S_o`, fixed for the class and independent of `b` and the hidden relationship, with
+input exactly `Lambda_b` and its own coins, such that for both `b` and every allowed QPT D,
+
+```
+|Pr[D(V_b)=1] - Pr[D(S_o(Lambda_b))=1]| <= eta_b .
+```
+
+Its output includes `x,z` and the complete observer trace, with the supplied leakage projection
+and its public consistency relations. In this precise computational sense, and only under SIM,
+the observer's view is a function of the declared leakage and simulator randomness. SIM is an
+obligation, not an assumption being used to declare the implementation secure.
+
+**Lemma V (conditional leakage reduction).** Under SIM, for every such A,
+
+```
+Adv_A(Q_0,Q_1) <= min(1, eta_0 + delta_n + eta_1).
+```
+
+*Proof.* Insert the distributions `S_o(Lambda_0)` and `S_o(Lambda_1)` between `V_0` and
+`V_1` and apply the triangle inequality to A's output probabilities. The two outside gaps
+are bounded by SIM. For the middle gap, the function
+`g(l)=Pr[A(S_o(l))=1]` takes values in [0,1]; expectations of any such function under two
+classical distributions differ by at most their total variation distance `delta_n`. This
+remains true for a QPT A. The gap of two probabilities is at most 1. QED. In Definition C,
+`delta_n=0`, giving `eta_0+eta_1`, **not** a proof that either error is small.
+
+**What would discharge SIM — open, with separately named obligations.**
+
+1. **MAP:** complete the observation/serialization and transport map for every selected path,
+   including successful and failed operations. Its random choices and side effects must depend
+   only on the declared inputs/state or be accounted for in the reduction. Source-write length
+   equality cannot replace this map. The unfilled runtime rows of 4.5 remain with the chair.
+2. **PQ-KEY:** give a QPT reduction for the actual key-establishment and derivation graph,
+   using ML-KEM security and the required quantum-security properties of the SHA-256-based
+   derivations, with multi-user/key-reuse accounting. State each hash assumption explicitly;
+   collision resistance alone is not a pseudorandom-function or key-independence proof.
+   ML-DSA authentication, if used, needs its own assumption and exposure accounting; it does
+   not hide public handshake identities or messages signed in clear.
+3. **PQ-SEAL:** prove the actual symmetric sealing and nonce/key lifecycle secure against
+   QPT observers in the needed multi-message game. The relevant code delegates to the
+   symmetric seal at M
+   [core/Montana-Core/crates/mt-suite/src/aead.rs:48-63](https://github.com/efir369999/montana_messenger/blob/2c7eb0df782da1679d20fc220499e9e3ab72c6b6/core/Montana-Core/crates/mt-suite/src/aead.rs#L48-L63) and
+   [core/Code/crates/mt-messenger-e2e/src/ratchet.rs:49-55](https://github.com/efir369999/montana_messenger/blob/2c7eb0df782da1679d20fc220499e9e3ab72c6b6/core/Code/crates/mt-messenger-e2e/src/ratchet.rs#L49-L55).
+   Merely invoking ML-KEM/ML-DSA/SHA-256 does not establish this step. Random nonces and the
+   content-derived media nonces above require distinct analyses; repeated identical media
+   bytes must retain their visible equality. Specify collision/key-compromise bad events and
+   their bounds, rather than treating draws as collision-free. No classical-only security
+   assumption or external TLS guarantee discharges this obligation.
+4. **JOINT:** construct the single simulator, or an alternative complete two-world hybrid
+   proof, preserving public fields, derived identifiers, equality across links/windows,
+   forwarding, retries and state-dependent subsequent activity. In particular, for G+P a
+   simulator handed an actual public `bid=SHA-256(ciphertext)` cannot just choose a fresh
+   ciphertext: the endpoint can hash it and compare. Conditioning a sampler on an arbitrary
+   supplied digest is not known to be efficient. A proof must resolve this dependency, or
+   explicitly propose and justify a different leakage abstraction before applying it; none
+   is silently substituted here. This is a gap in this simulation approach, not a proof of
+   a relationship attack. Ordinary content confidentiality also does not imply recipient/key
+   anonymity where the challenge changes keys.
+
+An ideal hybrid would replace hidden keys under PQ-KEY, replace equal-length sealed inputs
+under PQ-SEAL, and carry the resulting joint view through MAP while JOINT preserves its
+correlations. The source citations above supply syntax, not these reductions. Therefore the
+**ciphertext-view theorem for M remains open**; Lemma V is the proved conditional statement.
+Historical timing tests and equal 1232-byte widths settle none of its missing steps.
+
+### 4. Across-window composition: conditional bound and its limit
+
+Partition observations by the fixed rule of Definition C, retaining empty intervals and the
+state at boundaries. Let `Lambda_b` still mean the **whole** joint leakage and auxiliary input,
+not `n` independent samples. SIM over this entire input already gives Lemma V for any `n`.
+To derive a bound from smaller steps needs the following additional assumption.
+
+**Assumption SEQ — unproved for M.** For each world there are well-defined full-transcript
+hybrids `H_b^0,...,H_b^n`, with `H_b^0=V_b` and
+`H_b^n=S_o(Lambda_b)` for the **same** simulator in both worlds. Adjacent hybrids replace
+one interval's opaque view together with its required simulation state. For every allowed
+QPT distinguisher of the complete transcript, their output gap is at most `e_b,r` at step r.
+Each step's reduction must remain valid with the actual prefix and all later observations,
+including later leakage and carried state. It may not reset keys, erase queues, forget
+previously seen blobs or assume independent routes. These are continuation guarantees,
+stronger than indistinguishability of isolated interval marginals.
+
+A sufficient *statistical* version can be proved directly under **assumption STAT** below.
+Write the conditional distribution of interval views given the **entire** leakage `l` as
+successive kernels `K_b,r(v_r | l,v_<r)`. Suppose one efficiently sampleable simulator has
+kernels `S_r(v_r | l,v_<r)` independent of b, and their total variation distance is at most
+`e_b,r` at every shared prefix in the relevant support. Then couple real and simulated
+views sequentially, using a maximal coupling while their prefixes agree. At step r the
+conditional chance of the first disagreement is at most `e_b,r`, so a union bound gives
+`TV(V_b,S_o(Lambda_b)) <= sum_r e_b,r`. After the first disagreement no claim is needed.
+This proves the sufficient statistical condition without independence. It is **not** a
+statistical-security claim for encryption. A computational proof instead needs the QPT,
+full-continuation hybrids of SEQ; inefficient conditional sampling is not a reduction.
+
+**Theorem W (conditional composition).** Under SEQ, for the probability-gap convention above,
+
+```
+Adv_A(Q_0,Q_1) <= min(1, delta_n + sum_{r=1}^n (e_0,r + e_1,r)).
+```
+
+*Proof.* Telescope A's output probabilities along `H_0^0,...,H_0^n`. The triangle inequality
+bounds the real-to-simulated gap by `sum_r e_0,r`. Do the same in world 1 for `sum_r e_1,r`.
+The two endpoints are outputs of the same simulator on `Lambda_0` and `Lambda_1`; their gap
+is at most `delta_n` by the middle step of Lemma V. Sum the three gaps and cap at 1. QED.
+For exact admissibility and a uniform bound `e_b,r <= e`, the result is `min(1,2 n e)`.
+There is no independence assumption and no exponential anonymity gain from carrying traffic.
+
+**Assumption BAD (optional):** a construction has a modified game that aborts on a named
+bad event, and each original world is coupled identically to its modified game until that
+event, whose probability is at most `beta_b`. Under BAD, add `beta_0+beta_1` to the bound. Apply the theorem to the modified games and
+their joint leakage distance; changing leakage may change delta. The extra terms follow
+because each output probability changes by at most its bad-event probability. Do not
+condition the real experiment on good windows or count a bad event twice if it is already
+inside `e_b,r`. No beta, e, or delta value is estimated here.
+
+**Why isolated windows do not suffice (mathematical counterexample).** Let U be a fair bit.
+A two-window leakage `(U,U)` in world 0 and `(U,1-U)` in world 1 has equal single-window
+marginals, yet checking equality distinguishes the joint traces with advantage 1. Here
+`delta_2=1` although each marginal distance is zero; this pair is correctly excluded by
+Definition C. This is a probability counterexample, not a new cryptographic construction
+or a measured Montana attack. Persistent tags, queues and collection history
+must therefore be addressed in the actual joint proof, not removed by a window boundary.
+
+**Instantiation W-M — open.** No useful `delta_n`, `e_b,r`, `beta_b`, minimum traffic floor,
+or bound in terms of activity/route overlap/carrier fractions follows from the source rows.
+For example, collection loops over actual answers at M
+[core/Montana-Core/crates/montana-node/src/pulse.rs:789-837](https://github.com/efir369999/montana_messenger/blob/2c7eb0df782da1679d20fc220499e9e3ab72c6b6/core/Montana-Core/crates/montana-node/src/pulse.rs#L789-L837);
+this is not an independence or same-window-delivery premise. To settle W-M, first settle
+C-NONEMPTY and MAP/PQ-KEY/PQ-SEAL/JOINT for a specified path set, then supply the persistent-state
+interface and continuation reductions of SEQ, with explicit resource and bad-event budgets.
+To bound intersection leakage beyond the exact class, also derive `delta_n` from a named
+joint workload/environment model. Observed activity sets `S_r,R_r` remain leakage. A
+cryptographic hybrid cannot remove an intersection already readable from that leakage.
+
+### 5. Authenticated windows: dependency, not anonymity evidence
+
+**Assumption WIN (external to this proof).** When an interval is claimed to be a protocol
+window, the execution uses the authenticated height/history and state to which its slot,
+route and key derivations refer. Any failure budget and model-to-implementation bridge must
+come from issue #4 and the integration using that result, not from Theorem W.
+
+The dependency read for this session is [PR #39](https://github.com/efir369999/montana_messenger/pull/39),
+commit **`a64bc2acc6517448c58b3b2fd4fae083d2b568b5`** (call it J). Its
+[core/Montana-Core/WINDOW-THEOREM.md:77-103](https://github.com/efir369999/montana_messenger/blob/a64bc2acc6517448c58b3b2fd4fae083d2b568b5/core/Montana-Core/WINDOW-THEOREM.md#L77-L103)
+names (A1)-(A8); its soundness and head statements are at
+[:194-202](https://github.com/efir369999/montana_messenger/blob/a64bc2acc6517448c58b3b2fd4fae083d2b568b5/core/Montana-Core/WINDOW-THEOREM.md#L194-L202) and
+[:233-240](https://github.com/efir369999/montana_messenger/blob/a64bc2acc6517448c58b3b2fd4fae083d2b568b5/core/Montana-Core/WINDOW-THEOREM.md#L233-L240).
+The corresponding [core/Montana-Core/formal/Window.lean:982-1022](https://github.com/efir369999/montana_messenger/blob/a64bc2acc6517448c58b3b2fd4fae083d2b568b5/core/Montana-Core/formal/Window.lean#L982-L1022)
+explicitly takes `lemma3`, `good`, `meet`, faithful-book witnesses and `ballotSound` as
+hypotheses; `walk_head` takes `sound` at
+[:1191-1201](https://github.com/efir369999/montana_messenger/blob/a64bc2acc6517448c58b3b2fd4fae083d2b568b5/core/Montana-Core/formal/Window.lean#L1191-L1201).
+This is a source reading of the dependency, not a rerun or a verdict on issue #4. None of
+these theorem conclusions supplies C-NONEMPTY, SIM or SEQ, or a traffic schedule.
+
+The integration obligation remains **open**: the historical construction of sections 1–3
+must be connected to every selected path in section 4. The pending mechanisms are recorded
+at M [core/docs/Montana Registry.md:127-144](https://github.com/efir369999/montana_messenger/blob/2c7eb0df782da1679d20fc220499e9e3ab72c6b6/core/docs/Montana%20Registry.md#L127-L144).
+In particular the phone's `MTPipe.window` uses Unix time divided by 60 at M
+[apps/messenger/ios/Code/Montana/MTPipe.swift:27-30](https://github.com/efir369999/montana_messenger/blob/2c7eb0df782da1679d20fc220499e9e3ab72c6b6/apps/messenger/ios/Code/Montana/MTPipe.swift#L27-L30);
+calling that value a window does not discharge WIN. Issue #4's proof is neither duplicated
+nor declared complete here; external audit remains [issue #2](https://github.com/efir369999/montana_messenger/issues/2).
+
+**Session-two status:** Definition C, conditional Lemma V and conditional Theorem W are
+written out above. C-NONEMPTY, SIM and its named reduction obligations, SEQ/W-M and the WIN
+integration remain **open** for M. Packet sizes/timestamps on every link, retry/receipt totals,
+oldest-reader compatibility and field behavior remain the chair's work in section 4.5 and
+[FINDINGS-F2-F3.md:97-114 at the session-one commit](https://github.com/efir369999/montana_messenger/blob/6b700175afc04b8fa3f802de1ad50268216a09f1/core/Montana-Core/protocol-13/GPA/FINDINGS-F2-F3.md#L97-L114).
+No runtime evidence or implementation anonymity theorem is claimed.
+
+-- Codex, model id not visible to the agent, agent on issue #5
 
 ## 6. Relation to the other open items
 
