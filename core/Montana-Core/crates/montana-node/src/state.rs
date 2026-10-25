@@ -420,6 +420,67 @@ impl State {
         Ok(())
     }
 
+    // The window whose proposal carries the root of records a candidacy of `window` is verified
+    // against: the last window of the stride standing for it, by the integer form of the horizon of
+    // proving — the rule a frame walks a right by. Before the first stride stands there is none, and
+    // no candidacy applies. `docs/Montana Canon.md`, "The candidacy of a machine".
+    pub fn window_of_the_root_of_a_candidacy(window: u64) -> Option<u64> {
+        let stride = mt_proof::horizon::standing_stride(window)?;
+        mt_proof::horizon::stride_span(stride)?.1.checked_sub(1)
+    }
+
+    // A candidacy applied: the window its own, the right refused if already spent, the proof
+    // verified against the root of records the verifier holds of the one proposal the set names
+    // for the window, and only then the right spent.
+    //
+    // **The root comes from the machine and never from the object.** A candidacy states no root,
+    // and a verifier that took one from it would let a claimant walk a record in a tree no proposal
+    // carries — a foreign record in a tree of its own making. What the caller hands here is the
+    // `record_root` of the proposal of `window_of_the_root_of_a_candidacy(window)`.
+    //
+    // What it writes is the right alone. The naming half is what a selection event writes into the
+    // tree of admitted machines, and the event is not of this plane; a candidacy that is never
+    // admitted has spent its right all the same.
+    pub fn apply_candidacy(
+        &mut self,
+        candidacy: &mt_state::layout::Candidacy,
+        window: u64,
+        record_root: &Digest,
+    ) -> Result<(), NodeError> {
+        candidacy.bytes().map_err(|_| NodeError::Refused {
+            what: "a candidacy outside its canonical shape",
+        })?;
+        if candidacy.window != window {
+            return Err(NodeError::Refused {
+                what: "a candidacy of another window than the one being applied",
+            });
+        }
+        if self.is_spent_right(&candidacy.operator_nullifier) {
+            return Err(NodeError::Refused {
+                what: "a candidacy under a right already spent",
+            });
+        }
+        let naming = Digest::of_bytes(&candidacy.naming_half).ok_or(NodeError::Refused {
+            what: "a naming half that is not a digest of the family",
+        })?;
+        let right = Digest::of_bytes(&candidacy.operator_nullifier).ok_or(NodeError::Refused {
+            what: "a right that is not a digest of the family",
+        })?;
+        let public = mt_proof::circuit::admission::public_of(window, record_root, &naming, &right);
+        let description =
+            mt_proof::circuit::admission::description().ok_or(NodeError::Refused {
+                what: "a description of an admission this Decree does not give",
+            })?;
+        mt_proof::scheme::verify(&description, &public, &candidacy.proof).map_err(|_| {
+            NodeError::Unprovable {
+                what:
+                    "a candidacy whose proof does not stand against the record root of its window",
+            }
+        })?;
+        self.nullifiers.push(candidacy.operator_nullifier);
+        Ok(())
+    }
+
     // A frame applied. The root the proof stands against is the root before this frame, since a
     // spender proved its notes are in the tree as it stood when it built the frame; the
     // commitments this frame creates enter after, and the positions they took come back so a
