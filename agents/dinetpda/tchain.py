@@ -3,6 +3,7 @@
 
 A. One move is one link of an append-only JSONL chain, sealed by SHA-256: one hash seals everything before it.
 B. 13 links make a window tau1; a full window is sealed by the chairman's next signed link.
+C. The constitution is a second chain of the same envelope; only a link that carries the Author's word changes it.
 
 The definitions are written out in README.md beside this file. Standard library only, Python 3.8 or newer.
 """
@@ -217,17 +218,18 @@ class Chain:
         except PermissionError:  # a read-only copy: nobody writes there
             return self._verify()
 
-    def append(self, body: dict, rule: Optional[Callable[[list], None]] = None) -> list:
-        """Write one link after the last and return the chain with it. The link gets its n, time, prev and hash here;
-        `rule` sees the verified chain first and may refuse the link."""
+    def append(self, body: dict, rule: Optional[Callable[[list], Optional[dict]]] = None) -> list:
+        """Write one link after the last and return the chain with it. The link gets its n, time, prev and hash here.
+        `rule` sees the verified chain first, under the lock: it may refuse the link, or return the fields that depend
+        on the chain so far, such as the place of a new question."""
         with self._locked():
             records, broken = self._verify()
             if broken:
                 raise Refused(f"{self.path.name} is broken at n={broken.n} ({broken.reason}); "
                               "nothing is written to a broken chain")
-            if rule:
-                rule(records)
-            record = dict(body, n=len(records), time=utc_now(), prev=records[-1]["hash"] if records else GENESIS_PREV)
+            extra = (rule(records) if rule else None) or {}
+            record = dict(body, **extra, n=len(records), time=utc_now(),
+                          prev=records[-1]["hash"] if records else GENESIS_PREV)
             record["hash"] = seal(record)
             line = canonical(record)
             reason = check_line(line, record["n"], record["prev"], self.check_body)
@@ -447,6 +449,251 @@ def _window_commands(commands, common) -> None:
 
 
 # ---------------------------------------------------------------------------------------------------------------------
+# C. The constitution
+
+CONSTITUTION_FILE = "constitution.jsonl"
+ARTICLE_LIMIT = 4000  # characters of an article's text or of a question for the Author
+OPERATIONS = {  # each operation's own fields, beside n, time, from, prev, hash, op, word and word_time
+    "article": frozenset({"no", "text"}),  # article no now reads text
+    "remove": frozenset({"no"}),  # article no no longer stands
+    "decide": frozenset({"k", "text"}),  # place k of the line of decisions: a question for the Author
+    "decided": frozenset({"k"}),  # the Author's answer to place k
+}
+CONSTITUTION_ENVELOPE = frozenset({"n", "time", "from", "prev", "hash", "op", "word", "word_time"})
+
+
+class Constitution(NamedTuple):
+    articles: dict  # article number -> the link that set its standing text
+    line: list  # the line of decisions: place k at index k - 1, {"ask": link, "answer": link or None}
+    rejected: list  # (n, reason) for each link that changes nothing
+
+
+def check_word(value) -> str:
+    """The Author's word: verbatim, so of any length and with any line ends, but never empty."""
+    if not isinstance(value, str) or not value.strip():
+        raise Refused("the Author's word is empty: only his link changes the constitution")
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        raise Refused("the Author's word is not valid Unicode") from None
+    return value
+
+
+def check_constitution_link(record: dict) -> None:
+    """A link of the constitution chain: the envelope of every link, one operation with its fields, and the word, the
+    Author's words verbatim with their time (for decide, why the question is his). A link without a word is none."""
+    fields = OPERATIONS.get(record.get("op"))
+    if fields is None:
+        raise Refused(f"op is not one of {', '.join(OPERATIONS)}")
+    if set(record) != CONSTITUTION_ENVELOPE | fields:
+        raise Refused(f"a {record['op']} link has exactly the fields {', '.join(sorted(CONSTITUTION_ENVELOPE | fields))}")
+    if "no" in fields and type(record["no"]) is not int:
+        raise Refused("an article's number is an integer")
+    if "k" in fields and (type(record["k"]) is not int or record["k"] < 1):
+        raise Refused("a place in the line of decisions is a whole number from 1")
+    if "text" in fields:
+        check_text(record["text"], "the text", ARTICLE_LIMIT, one_line=False)
+    check_word(record["word"])
+    if parse_time(record["word_time"]) > parse_time(record["time"]):
+        raise Refused("the word's time is later than the link's")
+
+
+def constitution_rule(state: Constitution, record: dict) -> Optional[str]:
+    """Why a link would change nothing in the constitution as it stands, or None."""
+    if record["op"] == "remove" and record["no"] not in state.articles:
+        return f"article {record['no']} does not stand"
+    if record["op"] == "decide" and record["k"] != len(state.line) + 1:
+        return f"place {record['k']} is out of turn: the next place is {len(state.line) + 1}"
+    if record["op"] == "decided":
+        if not 1 <= record["k"] <= len(state.line):
+            return f"the line of decisions has no place {record['k']}"
+        answer = state.line[record["k"] - 1]["answer"]
+        if answer is not None:
+            return f"place {record['k']} was decided at link {answer['n']}"
+    return None
+
+
+def constitution(records: list) -> Constitution:
+    """The standing text and the line of decisions: the verified chain replayed from its genesis. A link that breaks
+    the line's order (removing what does not stand, a place out of turn, a second answer) stays in the chain, as every
+    link does, and changes nothing."""
+    state = Constitution({}, [], [])
+    for record in records:
+        reason = constitution_rule(state, record)
+        if reason:
+            state.rejected.append((record["n"], reason))
+        elif record["op"] == "article":
+            state.articles[record["no"]] = record
+        elif record["op"] == "remove":
+            del state.articles[record["no"]]
+        elif record["op"] == "decide":
+            state.line.append({"ask": record, "answer": None})
+        else:
+            state.line[record["k"] - 1]["answer"] = record
+    return state
+
+
+def constitution_chain(args) -> Chain:
+    return Chain(home_folder(args.home) / CONSTITUTION_FILE, check_constitution_link)
+
+
+def flat(text: str, width: Optional[int] = None) -> str:
+    """A text on one line, its line ends shown as " / ", clipped to `width` characters with a final ellipsis."""
+    text = " / ".join(part.strip() for part in text.splitlines() if part.strip())
+    return text if width is None or len(text) <= width else text[:width - 1] + "…"
+
+
+def article_line(record: dict) -> str:
+    return f"{record['no']}. {record['text']}"
+
+
+def decision_line(k: int, place: dict, width: Optional[int] = None) -> str:
+    ask, answer = place["ask"], place["answer"]
+    if answer is None:
+        return (f"{k}. open since link {ask['n']}: {flat(ask['text'], width)} -- why it is the Author's: "
+                f"{flat(ask['word'], width)}")
+    return (f"{k}. decided at link {answer['n']} by the Author's word of {answer['word_time']}: "
+            f"{flat(answer['word'], width)} -- the question: {flat(ask['text'], width)}")
+
+
+def constitution_link_line(record: dict, width: int = 160) -> str:
+    what = f"{record['op']} {record['no'] if 'no' in record else record['k']}"
+    if "text" in record:
+        what += ": " + flat(record["text"], width)
+    return (f"{record['n']} {record['time']} {record['from']}: {what} -- word of {record['word_time']}: "
+            f"{flat(record['word'], width)}")
+
+
+def read_word(args) -> str:
+    """The Author's word from --word, or verbatim from --word-file: a UTF-8 file, or - for standard input, without a
+    leading byte order mark or the one line end an editor puts last. A file is the safe road for a word that begins
+    with "/", which Git Bash on Windows rewrites in an argument unless MSYS_NO_PATHCONV=1."""
+    if args.word is not None:
+        return check_word(args.word)
+    data = sys.stdin.buffer.read() if args.word_file == "-" else Path(args.word_file).read_bytes()
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        raise Refused(f"{args.word_file} is not UTF-8") from None
+    text = text[1:] if text.startswith("﻿") else text
+    for end in ("\r\n", "\n"):
+        if text.endswith(end):
+            text = text[:-len(end)]
+            break
+    return check_word(text)
+
+
+def write_constitution(args, body: dict, assign: Optional[Callable[[Constitution], dict]] = None) -> dict:
+    """Write one constitution link: the operation, the Author's word verbatim and its time (by default, now)."""
+    body = dict(body, word=read_word(args), word_time=args.word_time or utc_now())
+    body["from"] = check_signature(args.signature)
+    parse_time(body["word_time"])
+
+    def rule(records):
+        state = constitution(records)
+        extra = assign(state) if assign else {}
+        reason = constitution_rule(state, dict(body, **extra))
+        if reason:
+            raise Refused(reason)
+        return extra
+
+    return constitution_chain(args).append(body, rule)[-1]
+
+
+def cmd_article(args) -> int:
+    text = check_text(args.text.strip(), "the article's text", ARTICLE_LIMIT, one_line=False)
+    record = write_constitution(args, {"op": "article", "no": args.no, "text": text})
+    print(f"{record['n']} {record['time']}: article {record['no']} stands, by the Author's word of {record['word_time']}")
+    return 0
+
+
+def cmd_remove(args) -> int:
+    record = write_constitution(args, {"op": "remove", "no": args.no})
+    print(f"{record['n']} {record['time']}: article {record['no']} no longer stands, by the Author's word of "
+          f"{record['word_time']}")
+    return 0
+
+
+def cmd_decide(args) -> int:
+    question = check_text(args.question.strip(), "the question", ARTICLE_LIMIT, one_line=False)
+    record = write_constitution(args, {"op": "decide", "text": question}, lambda state: {"k": len(state.line) + 1})
+    print(f"{record['n']} {record['time']}: place {record['k']} of the line of decisions waits for the Author: "
+          f"{flat(question, 160)}")
+    return 0
+
+
+def cmd_decided(args) -> int:
+    record = write_constitution(args, {"op": "decided", "k": args.k})
+    print(f"{record['n']} {record['time']}: place {record['k']} decided by the Author's word of {record['word_time']}")
+    return 0
+
+
+def cmd_const_show(args) -> int:
+    chain = constitution_chain(args)
+    records, broken = chain.read()
+    state = constitution(records)
+    print(f"constitution: {plural(len(state.articles), 'article')} standing, from {plural(len(records), 'link')} "
+          f"of {chain.path.name}")
+    for number in sorted(state.articles):
+        print(article_line(state.articles[number]))
+    waiting = sum(place["answer"] is None for place in state.line)
+    print(f"line of decisions: {plural(len(state.line), 'place')}, {waiting} open")
+    for k, place in enumerate(state.line, 1):
+        print(decision_line(k, place))
+    for n, reason in state.rejected:
+        print(f"link {n} changes nothing: {reason}")
+    warn_broken(broken, chain.path)
+    return 0
+
+
+def cmd_const_log(args) -> int:
+    chain = constitution_chain(args)
+    records, broken = chain.read()
+    for record in records[len(records) - min(args.count, len(records)):]:
+        print(constitution_link_line(record))
+    warn_broken(broken, chain.path)
+    return 0
+
+
+def cmd_const_verify(args) -> int:
+    return report_verify(constitution_chain(args), args.anchor)
+
+
+def _constitution_commands(commands, common) -> None:
+    const = commands.add_parser("const", help="the constitution: a second chain, changed only by the Author's word")
+    operations = const.add_subparsers(dest="operation", required=True, metavar="OPERATION")
+    author = argparse.ArgumentParser(add_help=False)
+    word = author.add_mutually_exclusive_group(required=True)
+    word.add_argument("--word", help="the Author's words, verbatim (for decide: why the question is his to decide)")
+    word.add_argument("--word-file", metavar="PATH", help="the same words from a UTF-8 file, or - for standard input")
+    author.add_argument("--word-time", metavar="TIME", help="when he said them, ISO 8601 UTC (default: now)")
+    author.add_argument("--from", dest="signature", required=True, metavar="SIGNATURE",
+                        help="NAME #N [label] of the agent who writes the link")
+    article = operations.add_parser("article", parents=[common, author], help="article NO now reads TEXT")
+    article.add_argument("no", type=int, metavar="NO")
+    article.add_argument("text")
+    article.set_defaults(run=cmd_article)
+    remove = operations.add_parser("remove", parents=[common, author], help="article NO no longer stands")
+    remove.add_argument("no", type=int, metavar="NO")
+    remove.set_defaults(run=cmd_remove)
+    decide = operations.add_parser("decide", parents=[common, author],
+                                   help="a question for the Author, into the line of decisions")
+    decide.add_argument("question")
+    decide.set_defaults(run=cmd_decide)
+    decided = operations.add_parser("decided", parents=[common, author], help="the Author's answer to place K")
+    decided.add_argument("k", type=int, metavar="K")
+    decided.set_defaults(run=cmd_decided)
+    show = operations.add_parser("show", parents=[common], help="the standing articles and the line of decisions")
+    show.set_defaults(run=cmd_const_show)
+    log = operations.add_parser("log", parents=[common], help="the last N constitution links, one line each")
+    log.add_argument("count", nargs="?", type=_count, default=13, help="how many (default 13)")
+    log.set_defaults(run=cmd_const_log)
+    verify = operations.add_parser("verify", parents=[common], help="recompute the constitution chain from its genesis")
+    verify.add_argument("--anchor", metavar="N:HASH", help="a link's hash kept elsewhere, to check against")
+    verify.set_defaults(run=cmd_const_verify)
+
+
+# ---------------------------------------------------------------------------------------------------------------------
 # The command line
 
 
@@ -457,7 +704,7 @@ def build_parser() -> argparse.ArgumentParser:
                         help=f'the acceptance words that make a chairman (default: $TCHAIN_ACCEPT, else "{ACCEPT}")')
     parser = argparse.ArgumentParser(prog="tchain.py", description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
-    for install in (_link_commands, _window_commands):
+    for install in (_link_commands, _window_commands, _constitution_commands):
         install(commands, common)
     return parser
 

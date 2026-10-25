@@ -323,6 +323,117 @@ class Windows(ChainCase):
         self.assertIn("full, sealed by link 13", self.ok("windows"))
 
 
+class TheConstitution(ChainCase):
+    """C: a second chain of the same envelope; only a link carrying the Author's word changes the standing text."""
+
+    def const(self, *argv):
+        return self.ok("const", *argv)
+
+    def state(self):
+        chain = tchain.Chain(self.home / tchain.CONSTITUTION_FILE, tchain.check_constitution_link)
+        records, broken = chain.read()
+        return tchain.constitution(records), broken
+
+    def standing(self):
+        return {number: record["text"] for number, record in self.state()[0].articles.items()}
+
+    def forge(self, **fields):
+        """Append a correctly hashed link past the tool, as a hand with write access could."""
+        lines = self.lines(tchain.CONSTITUTION_FILE)
+        record = dict({"n": len(lines), "time": "2026-10-25T12:00:00Z", "from": CHAIR,
+                       "prev": json.loads(lines[-1])["hash"], "word_time": "2026-10-25T12:00:00Z"}, **fields)
+        record = {key: value for key, value in record.items() if value is not None}
+        record["hash"] = tchain.seal(record)
+        self.write_lines(lines + [tchain.canonical(record)], tchain.CONSTITUTION_FILE)
+
+    def test_articles_are_set_replaced_and_removed_by_the_authors_word(self):
+        self.const("article", "0", "Elegance. Aesthetics. Security.", "--word", "/// put it first", "--from", CHAIR)
+        self.const("article", "-3", "Time is the metadata of reality.", "--word", "/// yes", "--from", CHAIR)
+        self.const("article", "1", "The agent wins time.", "--word", "/// yes", "--from", CHAIR)
+        self.const("article", "1", "The agent wins time for the Author.", "--word", "/// for me", "--from", CHAIR)
+        self.const("remove", "0", "--word", "/// drop it", "--from", CHAIR)
+        self.assertEqual(self.standing(), {-3: "Time is the metadata of reality.", 1: "The agent wins time for the Author."})
+        out = self.const("show")
+        self.assertIn("2 articles standing", out)
+        self.assertLess(out.index("-3. Time is"), out.index("1. The agent wins time for the Author."))
+        self.assertIn("ok: 5 links", self.const("verify"))
+        records = self.records(tchain.CONSTITUTION_FILE)
+        self.assertEqual([record["op"] for record in records], ["article"] * 4 + ["remove"])
+        self.assertEqual(set(records[4]), {"n", "time", "from", "prev", "hash", "op", "no", "word", "word_time"})
+        self.assertEqual(records[0]["prev"], "0" * 64)
+        self.assertEqual(len(self.const("log").splitlines()), 5)
+
+    def test_the_word_is_kept_verbatim_with_its_time(self):
+        word = "/// да\n  to both questions  "
+        self.const("article", "2", "text", "--word", word, "--word-time", "2026-01-02T10:58:00Z", "--from", CHAIR)
+        record = self.records(tchain.CONSTITUTION_FILE)[0]
+        self.assertEqual((record["word"], record["word_time"]), (word, "2026-01-02T10:58:00Z"))
+        self.refused("const", "article", "2", "text", "--word", "w", "--word-time", "2099-01-01T00:00:00Z",
+                     "--from", CHAIR)
+        self.refused("const", "article", "2", "text", "--word", "w", "--word-time", "25.10.2026 10:58", "--from", CHAIR)
+
+    def test_the_word_from_a_file_or_standard_input(self):
+        path = Path(self.tmp.name) / "word.txt"
+        path.write_bytes("﻿/// да\r\nsecond line\r\n".encode("utf-8"))
+        self.const("article", "4", "text", "--word-file", str(path), "--from", CHAIR)
+        stdin = io.TextIOWrapper(io.BytesIO("/// нет\n".encode("utf-8")), encoding="utf-8")
+        with mock.patch.object(sys, "stdin", stdin):
+            self.const("article", "4", "text two", "--word-file", "-", "--from", CHAIR)
+        words = [record["word"] for record in self.records(tchain.CONSTITUTION_FILE)]
+        self.assertEqual(words, ["/// да\r\nsecond line", "/// нет"])
+        self.refused("const", "article", "4", "text", "--word", "w", "--word-file", str(path), "--from", CHAIR)
+
+    def test_without_the_authors_word_nothing_changes(self):
+        self.const("article", "0", "Elegance.", "--word", "/// yes", "--from", CHAIR)
+        self.refused("const", "article", "0", "Changed.", "--from", CHAIR)
+        self.refused("const", "article", "0", "Changed.", "--word", "  ", "--from", CHAIR)
+        self.refused("const", "remove", "0", "--from", CHAIR)
+        self.assertEqual(self.standing(), {0: "Elegance."})
+        before = self.lines(tchain.CONSTITUTION_FILE)
+        for word in ("", None):  # an empty word, and no word at all, written past the tool with a correct hash
+            with self.subTest(word=word):
+                self.write_lines(before, tchain.CONSTITUTION_FILE)
+                self.forge(op="article", no=0, text="Changed.", word=word)
+                state, broken = self.state()
+                self.assertEqual(broken.n, 1)
+                self.assertEqual({n: r["text"] for n, r in state.articles.items()}, {0: "Elegance."})
+                self.assertIn("broken at n=1", self.cli("const", "verify")[1])
+                self.assertIn("broken at n=1", self.refused("const", "article", "0", "Again.", "--word", "/// yes",
+                                                            "--from", CHAIR))
+
+    def test_the_line_of_decisions(self):
+        out = self.const("decide", "Shall a window close by a quorum of the living?", "--word",
+                         "Gate 0: the consensus is his to choose", "--from", CHAIR)
+        self.assertIn("place 1 of the line of decisions", out)
+        self.assertIn("place 2", self.const("decide", "Shall the ports walk by day?", "--word",
+                                            "the exception names the iOS client only", "--from", CHAIR))
+        self.const("decided", "1", "--word", "/// да", "--word-time", "2026-01-02T10:58:00Z", "--from", CHAIR)
+        self.assertIn("decided at link 2", self.refused("const", "decided", "1", "--word", "/// again", "--from", CHAIR))
+        self.assertIn("no place 3", self.refused("const", "decided", "3", "--word", "/// ?", "--from", CHAIR))
+        state, broken = self.state()
+        self.assertIsNone(broken)
+        self.assertEqual([place["answer"] is None for place in state.line], [False, True])
+        self.assertEqual(state.line[0]["answer"]["word"], "/// да")
+        self.assertEqual(state.articles, {})  # an answer is not an article: the Author's article link changes the text
+        show = self.const("show")
+        self.assertIn("line of decisions: 2 places, 1 open", show)
+        self.assertIn("1. decided at link 2 by the Author's word of 2026-01-02T10:58:00Z", show)
+        self.assertIn("2. open since link 1: Shall the ports walk by day?", show)
+
+    def test_a_link_out_of_order_changes_nothing(self):
+        self.const("article", "5", "Build the Economy of Time.", "--word", "/// yes", "--from", CHAIR)
+        self.refused("const", "remove", "7", "--word", "/// remove 7", "--from", CHAIR)
+        self.forge(op="remove", no=7, word="/// remove 7")
+        self.forge(op="decide", k=4, text="A question out of turn", word="why")
+        state, broken = self.state()
+        self.assertIsNone(broken)  # each link is whole; the replay of the constitution rejects them
+        self.assertEqual([n for n, _ in state.rejected], [1, 2])
+        self.assertEqual((self.standing(), state.line), ({5: "Build the Economy of Time."}, []))
+        show = self.const("show")
+        self.assertIn("link 1 changes nothing: article 7 does not stand", show)
+        self.assertIn("link 2 changes nothing: place 4 is out of turn", show)
+
+
 class DataFolder(ChainCase):
     """The data folder: --home, else $TCHAIN_HOME, else ./.tchain, never inside the tool's repository by default."""
 
