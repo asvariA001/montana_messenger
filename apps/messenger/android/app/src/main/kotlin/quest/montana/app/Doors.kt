@@ -22,6 +22,18 @@ object Doors {
     private var verifiedAt = 0L
     private val verifying = java.util.concurrent.atomic.AtomicBoolean(false)
 
+    /**
+     * A CHECK'S OWN NODE (the owner's word 25.10.2026 10:5x: time is moved in isolated rooms, never on the network or a real wallet):
+     * a file only the emulator's root can lay in this app's own folder names the node a check put up on the computer
+     * (tools/clocknode.py, reached at 10.0.2.2) -- then it is the only door, and only for the box, the blobs and the signals; the
+     * coins' vault, the levels and the names are asked of nobody. A phone holds no such file.
+     */
+    private val TEST_CAPS = setOf("box", "blob", "signal")
+    val testDoor: String? by lazy {
+        runCatching { java.io.File(Book.ctx.noBackupFilesDir, "test_door").takeIf { it.isFile }?.readText()?.trim() }.getOrNull()
+            ?.takeIf { it.startsWith("http://10.0.2.2:") && it.length < 40 }
+    }
+
     /** The hosts of a list, in its order: «host», «host:port», «[v6]:port», «wss://host/path»; commas and spaces part them, a comment goes by the line (iOS parse 185-228). */
     fun parse(raw: String): List<String> {
         val out = ArrayList<String>()
@@ -55,6 +67,7 @@ object Doors {
      * answered, every door not known silent.
      */
     fun ordered(cap: String): List<String> {
+        testDoor?.let { return if (cap in TEST_CAPS) listOf(it) else emptyList() }
         if (System.currentTimeMillis() - verifiedAt > 600_000L) verifyLater()
         val all = hosts().map { base(it) }
         val (known, mute) = synchronized(caps) { HashMap(caps) to HashSet(silent) }
@@ -62,6 +75,23 @@ object Doors {
         if (good.isNotEmpty()) return good
         if (known.isNotEmpty()) return emptyList()
         return all.filter { it !in mute }.ifEmpty { all }
+    }
+
+    /**
+     * ONE DOOR PER MACHINE (iOS oneDoorPerNode, MontanaWakePush.swift:203-216): two doors lead to one node, and asking both spends the same
+     * budget twice and buys nothing. The door book says which door led to which machine; a door whose machine is unknown keeps its place.
+     */
+    fun onePerNode(bases: List<String>): List<String> {
+        val book = book()
+        val known = list()
+        val seen = HashSet<String>()
+        val out = ArrayList<String>()
+        for (d in bases) {
+            val h = android.net.Uri.parse(d).host ?: continue
+            val id = known.firstOrNull { it.host == h }?.let { book[it.label]?.first }
+            if (id == null || seen.add(id)) out.add(d)
+        }
+        return out
     }
 
     /** A door of the list (iOS MontanaNodes.Node 38-52): a bare one, or one behind a delivery network with the web socket's path. */
@@ -116,7 +146,7 @@ object Doors {
     // THE MACHINES BEHIND THE DOORS (iOS MontanaNodes 162-183, the network's word 15.22): which doors are one machine — the page
     // groups by that word always, the handshake only colours the state. Absent in an older node's answer.
     private const val MACHINES = "mt.nodes.machines"
-    fun machines(): List<Pair<String, Set<String>>> = runCatching {
+    fun machines(): List<Pair<String, Set<String>>> = testDoor?.let { listOf("test" to setOf(host(it))) } ?: runCatching {
         val arr = org.json.JSONArray(Prefs.str(MACHINES, "[]"))
         (0 until arr.length()).mapNotNull { i ->
             val m = arr.optJSONObject(i) ?: return@mapNotNull null

@@ -59,7 +59,13 @@ object Archive {
     @Volatile private var launched = false
 
     /** The cold start's reading (iOS ChatStore 2361-2368, 2533): once a process, after the feed stands — rows go only where it has none. */
-    fun atLaunch() { if (!launched) { launched = true; restoreSoon() } }
+    fun atLaunch() {
+        if (launched) return
+        launched = true
+        SavedMessages.migrate(Book.ctx)
+        Log.d("Montana", "twin_canon " + if (Twin.agreesWithCanon()) "ok" else "DISAGREES")
+        restoreSoon()
+    }
 
     /** This install's sixteen bytes (iOS writerTag16 438-442): local by nature, they part the nonces of one seed's devices. */
     private fun device(): ByteArray = DeviceVault.get(DEVICE)?.takeIf { it.size == 16 }
@@ -84,7 +90,8 @@ object Archive {
 
     private fun append(k: Keys, ref: String, folder: String, dir: Int, atSec: Long, content: ByteArray): Boolean {
         val base = root()?.path ?: return false
-        return MtBindings.nativeArchiveAppend(base, folder, k.hk, k.owner, device(), conv(ref), dir, atSec, content) == 0
+        return (MtBindings.nativeArchiveAppend(base, folder, k.hk, k.owner, device(), conv(ref), dir, atSec, content) == 0)
+            .also { if (it) twinSoon() }   // a block was written: the person's other devices get it within half a minute (iOS twinSoon)
     }
 
     /**
@@ -169,16 +176,42 @@ object Archive {
         ((d[o + 2].toInt() and 0xff) shl 16) or ((d[o + 3].toInt() and 0xff) shl 24)
 
     /** The sealed blocks of one folder in file order: (u32 LE length ‖ sealed)×N, the layout the core writes (iOS readLog 964-976). */
+    /**
+     * A LOG WITH A HOLE (a hard power-off -- a battery gone flat, an emulator switched off: the length of an append reached the disk and
+     * its bytes did not, zeros stand in their place; found on the test emulators 25.10.2026, D27): every reader of the log, this file's
+     * and the core's, stopped at the first zero length and lost every block written after it -- the phone's own rows and the other
+     * devices' blocks alike, so no gap was ever seen and no row asked for. A length of zero is never a block's: the reader steps over
+     * the zeros to the next frame whose length fits, and the log is written again without them, so the core reads it whole too; the
+     * file as it lay is kept beside it (.holed-<ms>). Run on the archive's own thread, as every write of the log is.
+     */
     private fun readLog(f: File): List<ByteArray> {
         val d = runCatching { f.readBytes() }.getOrNull() ?: return emptyList()
         val out = ArrayList<ByteArray>()
         var i = 0
+        var holed = false
+        fun fits(at: Int): Boolean { if (at < 0 || at + 4 > d.size) return false; val n = u32(d, at); return n in 13..(16 shl 20) && at + 4 + n <= d.size }
         while (i + 4 <= d.size) {
             val n = u32(d, i)
-            i += 4
-            if (n <= 0 || d.size < i + n) break
-            out.add(d.copyOfRange(i, i + n))
-            i += n
+            if (n == 0) {
+                var j = i
+                while (j < d.size && d[j] == 0.toByte()) j++
+                if (j >= d.size) { holed = true; i = d.size; break }   // a tail of zeros: nothing after it
+                // the next frame begins at the first byte that is not zero, or up to three before it (a length's low bytes may be zero)
+                val at = (j downTo maxOf(i, j - 3)).firstOrNull { fits(it) } ?: break
+                holed = true; i = at; continue
+            }
+            if (n < 0 || d.size < i + 4 + n) break
+            out.add(d.copyOfRange(i + 4, i + 4 + n))
+            i += 4 + n
+        }
+        if (holed) runCatching {
+            val whole = java.io.ByteArrayOutputStream()
+            for (b in out) { whole.write(byteArrayOf(b.size.toByte(), (b.size ushr 8).toByte(), (b.size ushr 16).toByte(), (b.size ushr 24).toByte())); whole.write(b) }
+            val tmp = File(f.path + ".tmp")
+            tmp.writeBytes(whole.toByteArray())
+            val kept = File(f.path + ".holed-" + System.currentTimeMillis())
+            if (f.renameTo(kept) && tmp.renameTo(f)) Log.w("Montana", "archive_log holed: " + out.size + " blocks read across the zeros, the log written again, the old one kept")
+            else { tmp.delete(); if (!f.exists()) kept.renameTo(f) }
         }
         return out
     }
@@ -233,6 +266,12 @@ object Archive {
 
     /** Read the archive into the feed, off the screen's thread; `only` — the folders a twin's block just reached. */
     fun restoreSoon(only: List<String>? = null) = q.execute { runCatching { restore(only) }.onFailure { Log.w("Montana", "archive_restore " + it.javaClass.simpleName) } }
+    /** A copy was just laid: its conversations stand in the feed before the caller asks them anything (Keeping.askBack). */
+    fun restoreAndWait() {
+        val t = java.util.concurrent.FutureTask { runCatching { restore(null) }.onFailure { Log.w("Montana", "archive_restore " + it.javaClass.simpleName) }; Unit }
+        q.execute(t)
+        runCatching { t.get(120, java.util.concurrent.TimeUnit.SECONDS) }
+    }
 
     /**
      * EVERY FOLDER OPENED UNDER THE SEED (iOS restore 1015-1077): the head gives the conversation back — «s:» re-establishes the pipe,
@@ -246,6 +285,13 @@ object Archive {
         val folders = only ?: chatsDir.listFiles()?.filter { it.isDirectory && !it.name.startsWith(".") }?.map { it.name } ?: return
         val book = HashMap<String, String>()
         for (r in Book.refs()) book[label(k, r)] = r
+        // SAVED MESSAGES HAS NO SECRET (iOS MontanaPQ restore 1408-1411): its folder is its key's own label -- and a block filed before
+        // this build under the conversation's bare SHA-256 is the same room
+        book[label(k, SavedMessages.KEY)] = SavedMessages.KEY
+        book[Wire.hex(conv(SavedMessages.KEY))] = SavedMessages.KEY
+        // A GROUP'S FEED NAMES ITS OWN FOLDER (its key «grp:…» has no pipe, so no secret names it): every group this phone holds maps
+        // its folder back to itself -- read at every launch, an unnamed group folder came back as «Recovered history» beside the group
+        for (c in Book.all()) if (Groups.isKey(c.ref)) book[label(k, c.ref)] = c.ref
         var chats = 0; var added = 0; var headed = 0; var hs = 0; var ha = 0; var hn = 0; var faces = 0; var gapChats = 0; var gapRows = 0
         for (folder in folders) {
             var ref: String? = null
@@ -274,10 +320,21 @@ object Archive {
                 ref = if (closedThere) Wire.reference(sec).also { Prefs.setBool("pipeClosed." + it, true) } else Book.establish(sec)
             }
             if (ref == null) ref = book[folder]
+            if (ref == SavedMessages.KEY) {
+                // the room lives in its own store (SavedMessages): the person's letters to themselves from their other devices join it
+                val laid = SavedMessages.takeFromArchive(Book.ctx, items.filter { it.mine }.map { it.at to it.text })
+                if (laid > 0) { Log.d("Montana", "saved_rx laid=" + laid); Book.poke() }
+                continue
+            }
             if (items.isEmpty() && ref == null) continue
             if (ref != null) headed++
             val key = ref ?: ("arc:" + folder)
             val feed = Book.chat(key)?.msgs?.toList().orEmpty()
+            // a folder a twin's block just reached is said by what it names (D27: a row of the other device that never showed a gap)
+            if (only != null) Log.d("Montana", "archive_folder folder=" + folder.take(10) + " ref=" + (ref?.take(10) ?: "-") + " key=" + key.take(10) +
+                " chat=" + (Book.chat(key) != null) + " feed=" + feed.size + " items=" + items.size + " theirs=" + items.count { !it.mine } + " root=" + (ref?.let { SamePair.root(it).take(10) } ?: "-") +
+                " newest=" + (items.maxByOrNull { it.at }?.let { it.at.toString() + (if (it.mine) "/mine/" else "/theirs/") + it.text.take(16) } ?: "-") +
+                " feedNewest=" + (feed.maxByOrNull { it.at }?.let { (it.at / 1000).toString() + "/" + it.text.take(16) } ?: "-"))
             if (feed.isNotEmpty()) {
                 // THE ARCHIVE IS MEASURED AGAINST THE FEED (iOS restoreFromArchive 3008-3035, atom 2b8069c63096): a letter the archive
                 // holds and the feed does not is named with its count and its newest moment -- measured here, never inserted (the
@@ -291,6 +348,10 @@ object Archive {
                     val newest = java.text.SimpleDateFormat("HH:mm", java.util.Locale.ROOT).format(java.util.Date(missing.maxOf { it.at } * 1000))
                     Log.d("Montana", "archive_gap chat=" + key.take(10) + " feed=" + feed.size + " archive=" + items.size + " missing=" + missing.size +
                         " media=" + missing.count { it.text.startsWith(Marks.MEDIA) } + " theirs=" + missing.count { !it.mine } + " newest=" + newest)
+                    // THE PERSON'S OTHER DEVICES ARE ASKED FOR THESE ROWS (iOS restoreFromArchive 3510-3521 → askTwin; Windows file_blocks →
+                    // ask_twin): by the archive's own key of each -- its second, its side, the hash of its words exactly as the record holds
+                    // them -- and they give back what they hold by its name (Twin.give/takeRow); a folder nobody names is asked of nobody
+                    if (ref != null) Twin.ask(key, missing.map { Triple(it.at, it.mine, it.text) })
                 }
                 continue
             }
@@ -358,11 +419,189 @@ object Archive {
         val k = keys() ?: return false
         val conv = MtBindings.nativeArchivePeekConv(k.hk, k.owner, sealed) ?: return false
         val c = Wire.hex(conv)
-        val folder = map(FOLDERS).optString(c).ifEmpty { c }
+        // a block of Saved Messages is filed under its key's own label, never under a bare SHA-256 that names nothing (iOS refBook)
+        val folder = map(FOLDERS).optString(c).ifEmpty { if (c == Wire.hex(conv(SavedMessages.KEY))) label(k, SavedMessages.KEY) else c }
         val base = root()?.path ?: return false
         val rc = MtBindings.nativeArchiveIngest(base, folder, k.hk, k.owner, sealed)
         if (rc == 1) { Log.d("Montana", "history_rx block filed"); restoreSoon(listOf(folder)) }
         return rc >= 0
+    }
+
+    /** THE CARRYING'S COUNT (SavedMessages.migrate): after every letter queued before it, the folder «Saved Messages» is read and each
+     *  letter of the list is looked for by its second and its words among the folder's own rows. `done(ok, rows in the folder)`. */
+    fun savedCheck(letters: List<Pair<Long, String>>, done: (Boolean, Int) -> Unit) = q.execute {
+        val k = keys() ?: return@execute done(false, 0)
+        val dir = File(File(root() ?: return@execute done(false, 0), "Chats"), label(k, SavedMessages.KEY))
+        val sigs = HashSet<String>()
+        var heads = 0
+        for (sealed in readLog(File(dir, "conversation.mtlog"))) {
+            val plain = MtBindings.nativeArchiveOpenBlock(k.hk, k.owner, sealed) ?: continue
+            for (r in opened(plain)) {
+                if (r.dir == HEAD_DIR) { if (String(r.content, Charsets.UTF_8) == "a:" + SavedMessages.KEY) heads++; continue }
+                if (r.dir == 0) sigs.add(r.at.toString() + "|" + String(r.content, Charsets.UTF_8))
+            }
+        }
+        done(heads >= 1 && letters.all { (sec, t) -> (sec.toString() + "|" + t) in sigs }, sigs.size)
+    }
+
+    /** This device's writer tag in hex (iOS writerTagHex 427-434): the four bytes the core names this install's blocks by. */
+    fun writerTagHex(): String = MtBindings.nativeWriterTag(device())?.let { Wire.hex(it) } ?: ""
+
+    // ── THE PERSON'S OTHER DEVICES THROUGH THE BOX (iOS MontanaPQ 866-973; the author's word 11.10.2026 12:1x MSK, No.60: «do it») ──
+    // A phone behind a carrier's NAT has no public address, and the road above reached the twin only at one. A sleeping phone cannot
+    // hold a letter for another, so the node holds it: the blocks, already sealed under the history key, ride the cargo road of a part
+    // (Keeping.lay) and a silent letter in a pipe only this seed's devices derive wakes the others; they file the blocks by the road a
+    // restore takes (absorb), so every device holds the person's whole history -- the incoming and the own, whatever road it came by.
+    const val TWIN_PIPE = "twin:history"   // NOT-UI: the box name of the pipe of this seed's devices
+    private const val BOXED = "mt.history.boxed"      // per conversation: the first block not yet laid for the other devices
+    private const val TWIN_SEEN = "mt.history.twinSeen"   // the letters of the other devices already filed here
+    private const val TWIN_CAP = 8 shl 20   // one letter's file stays small; what is left rides the next round
+    /**
+     * The pipe's secret (iOS twinSecret 877-883): the history key under its own label and the app's name -- only a device holding this
+     * seed's words derives it, and the app is named as the network names it (Keeping.APP), so an iPhone and this phone of the same words
+     * keep one pipe. Read only from keys already warm: the box's walk never waits for the seed to stretch.
+     */
+    fun twinSecret(): ByteArray? {
+        val k = keys ?: run { q.execute { keys() }; null } ?: return null
+        return Wire.sha("mt-twin-box".toByteArray(), byteArrayOf(0), Keeping.APP.toByteArray(), byteArrayOf(0), k.hk)
+    }
+    /**
+     * THE TAG OF THIS DEVICE UNDER THIS IDENTITY (iOS E2E.deviceTag, MontanaE2E 362-391): computed, never stored and never issued --
+     * SHA-256 of «mt-device-tag», the phrase's entropy and this install's own sixteen bytes; it dies with the identity.
+     */
+    @Volatile private var deviceTagHeld: Pair<String, String>? = null
+    fun deviceTag(): String {
+        val words = MontanaSeed.mnemonic ?: return "android-pending"
+        val of = Wire.hex(Wire.sha(words.toByteArray()))
+        deviceTagHeld?.let { if (it.first == of) return it.second }
+        val ent = MtBindings.nativeMnemonicToEntropy(words) ?: return "android-pending"
+        val tag = "android-" + Wire.hex(Wire.sha("mt-device-tag".toByteArray(), byteArrayOf(0), ent, Wire.hex(device()).toByteArray()).copyOf(6))
+        ent.fill(0)
+        deviceTagHeld = of to tag
+        return tag
+    }
+    /** This device's name in the pipe (iOS twinDeviceRef 884-885): the node rings every device of the pipe but the one that spoke. */
+    internal val twinDeviceRef: String get() = (MontanaSeed.twin ?: "") + "#" + deviceTag()
+    /** The one place a label of the seed's own pipe is signed: by this device, never by the person (iOS twinSid 886-887). */
+    fun twinSid(cw: String) = Wire.subId(cw, twinDeviceRef)
+    fun twinListening(): Map<String, ByteArray> = twinSecret()?.let { mapOf(TWIN_PIPE to it) } ?: emptyMap()
+    @Volatile private var twinDue = false
+    /** A block was written: the other devices get it within half a minute, in one letter with whatever came beside it. */
+    private fun twinSoon() {
+        if (twinDue) return
+        twinDue = true
+        MainThread.later(30_000L, Runnable { twinDue = false; Thread { runCatching { layForTwins() } }.start() })
+    }
+    /** The blocks this device wrote and the other devices were not handed, one letter of them (iOS layForTwins 904-943). */
+    private fun layForTwins() {
+        class Gathered(val blob: ByteArray, val tops: Map<String, Long>, val n: Int, val more: Boolean)
+        val g = java.util.concurrent.FutureTask<Gathered?> {
+            keys() ?: return@FutureTask null
+            val wt = MtBindings.nativeWriterTag(device()) ?: return@FutureTask null
+            val base = root()?.path ?: return@FutureTask null
+            val cursor = map(BOXED)
+            val out = java.io.ByteArrayOutputStream()
+            val tops = HashMap<String, Long>()
+            var n = 0
+            var more = false
+            for (chat in File(base, "Chats").listFiles()?.filter { it.isDirectory }?.map { it.name }.orEmpty()) {
+                if (TWIN_CAP < out.size()) { more = true; break }
+                val from = cursor.optLong(chat, 0L)
+                val stream = MtBindings.nativeArchiveExport(base, chat, wt, from) ?: continue
+                var top = from
+                var i = 0
+                while (i + 4 <= stream.size) {
+                    val len = u32(stream, i)
+                    if (len <= 0 || stream.size < i + 4 + len) break
+                    val sealed = stream.copyOfRange(i + 4, i + 4 + len)
+                    i += 4 + len
+                    val id = MtBindings.nativeArchiveBlockId(sealed)?.takeIf { it.size == 12 } ?: continue
+                    var seq = 0L
+                    for (b in 0 until 8) seq = seq or ((id[4 + b].toLong() and 0xff) shl (8 * b))
+                    out.write(byteArrayOf(len.toByte(), (len ushr 8).toByte(), (len ushr 16).toByte(), (len ushr 24).toByte()))
+                    out.write(sealed)
+                    top = maxOf(top, seq + 1); n++
+                }
+                if (top != from) tops[chat] = top
+            }
+            Gathered(out.toByteArray(), tops, n, more)
+        }
+        q.execute(g)
+        val got = runCatching { g.get() }.getOrNull() ?: return
+        if (got.n <= 0) return
+        val secret = twinSecret() ?: return
+        val dir = File(Book.ctx.noBackupFilesDir, "MontanaKeepWork").apply { mkdirs() }
+        val f = File(dir, java.util.UUID.randomUUID().toString() + ".twin")
+        try {
+            f.writeBytes(got.blob)
+            val road = Keeping.lay(f) ?: return Unit.also { Log.d("Montana", "twin_hist the blocks did not reach the nodes n=" + got.n) }
+            road.put("w", "hist").put("n", got.n).put("f", writerTagHex())
+            if (!Keeping.knock(secret, road, silent = true, sender = twinDeviceRef)) { Log.d("Montana", "twin_hist no door boxed the letter n=" + got.n); return }
+            q.execute {
+                val cursor = map(BOXED)
+                for ((k, v) in got.tops) cursor.put(k, maxOf(cursor.optLong(k, 0L), v))
+                keep(BOXED, cursor)
+            }
+            Log.d("Montana", "twin_hist laid blocks=" + got.n + " bytes=" + got.blob.size + " more=" + (if (got.more) 1 else 0))
+            if (got.more) twinSoon()
+        } finally { f.delete() }
+    }
+    /** The rows of the twin's pipe whose road did not come whole: tried again by the next pickups, let go after five (Windows FAILS). */
+    private val twinFails = HashMap<String, Int>()
+    /**
+     * A ROW OF THE BOX IN THE PIPE OF THIS SEED'S DEVICES is this file's own, never a letter of the feed (iOS twinTakes 944-960; the rule
+     * of Windows twin.rs 366-401, docs/identity-sync/07 2.1): the blocks of the history («hist») and the words of the mirror («lt»), each
+     * taken by its road before the row is confirmed -- a confirmation erases the row for every device of the words, so a row whose road did
+     * not come whole stays in the box for the next pickup, five times, and is let go then. A letter this phone laid itself stays for the
+     * others; a word of the pipe this build does not know is taken unread, as iOS takes it. True: the row may be confirmed to the node.
+     */
+    fun twinTakes(row: Map<String, String>): Boolean {
+        if (row["c"] != TWIN_PIPE) return false
+        val o = Keeping.word(row["t"] ?: "") ?: return true
+        val mid = row["m"]?.takeIf { it.isNotEmpty() } ?: return true
+        if (o.optString("f") == writerTagHex()) return false   // this device's own letter, heard back from the box: it stays for the others
+        val seen = runCatching { org.json.JSONArray(Prefs.str(TWIN_SEEN, "[]")) }.getOrNull()?.let { a -> (0 until a.length()).map { a.optString(it) } } ?: emptyList()
+        if (mid in seen) return true
+        val taken = when (o.optString("w")) {
+            "lt" -> Twin.takeMirror(o)
+            "hist" -> takeFromTwin(o)
+            else -> true
+        }
+        synchronized(twinFails) {
+            if (!taken) {
+                val n = (twinFails[mid] ?: 0) + 1
+                twinFails[mid] = n
+                Log.d("Montana", "twin_take mid=" + mid.take(8) + " the road did not come whole fails=" + n + (if (n < 5) " -- left in the box" else " -- let go"))
+                if (n < 5) return false
+            }
+            twinFails.remove(mid)
+        }
+        Prefs.setStr(TWIN_SEEN, org.json.JSONArray((seen + mid).takeLast(512)).toString())
+        return true
+    }
+    /** THE BLOCKS OF THE OTHER DEVICE (iOS takeFromTwin + absorb): each filed in its correspondence's folder. False when the road did
+     *  not come whole. */
+    private fun takeFromTwin(o: JSONObject): Boolean {
+        val dir = File(Book.ctx.noBackupFilesDir, "MontanaKeepWork").apply { mkdirs() }
+        val f = File(dir, java.util.UUID.randomUUID().toString() + ".twin")
+        try {
+            if (!Keeping.fetch(o, f)) { Log.d("Montana", "twin_hist the blocks did not come whole"); return false }
+            val blob = f.readBytes()
+            var i = 0
+            var filed = 0
+            while (i + 4 <= blob.size) {
+                val len = u32(blob, i)
+                i += 4
+                if (len <= 0 || blob.size < i + len) break
+                val sealed = blob.copyOfRange(i, i + len)
+                i += len
+                val t = java.util.concurrent.FutureTask { absorb(sealed) }
+                q.execute(t)
+                if (runCatching { t.get() }.getOrDefault(false)) filed++
+            }
+            Log.d("Montana", "twin_hist taken blocks=" + filed)
+            return true
+        } finally { f.delete() }
     }
 
     /** No conversation, no trace of it on disk (iOS deleteChatFolder 706-712). */
