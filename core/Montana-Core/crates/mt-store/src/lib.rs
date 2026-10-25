@@ -91,9 +91,9 @@ pub enum StoreError {
     ClosedWithoutItsProposal {
         window: u64,
     },
-    // A root holding a file of the layout before the record of a window — the head and the number
-    // each in a file of its own. Read as empty, it would be a machine that forgot the windows it
-    // closed and could pledge in them again; it is refused instead.
+    // A root holding a file of the layout before the record of a window — the head, the number,
+    // the plane and the standing each in a file of its own. Read as empty, it would be a machine
+    // that forgot the windows it closed and could pledge in them again; it is refused instead.
     EarlierLayout {
         at: String,
     },
@@ -389,7 +389,7 @@ impl Store {
         sweep_dead_openings(&root)?;
         let store = Self { root, _held: held };
         store.check_network()?;
-        for earlier in ["head", "closed"] {
+        for earlier in ["head", "closed", "value", "standing"] {
             let at = store.root.join(earlier);
             if at.exists() {
                 return Err(StoreError::EarlierLayout {
@@ -662,42 +662,6 @@ impl Store {
     pub fn put_handed_note(&self, at: &Path, bytes: &[u8]) -> Result<(), StoreError> {
         write_whole(at, bytes)?;
         self.close_the_file_to_others(at)
-    }
-
-    fn value_at(&self) -> PathBuf {
-        self.root.join("value")
-    }
-
-    fn standing_at(&self) -> PathBuf {
-        self.root.join("standing")
-    }
-
-    // **What a machine holds of its own standing**: the census windows it lived and the branch its
-    // part walks in each of their cements. It is a secret of the machine exactly as its notes are a
-    // secret of a person — the set publishes no standing, and a file readable to others would be
-    // the one place a machine's weight stood in the open — so it goes through the same door and is
-    // closed to everyone but its owner.
-    pub fn standing(&self) -> Result<Zeroizing<Vec<u8>>, StoreError> {
-        Ok(read_secret(&self.standing_at())?.unwrap_or_else(|| Zeroizing::new(Vec::new())))
-    }
-
-    pub fn put_standing(&self, bytes: &[u8]) -> Result<(), StoreError> {
-        let at = self.standing_at();
-        write_whole(&at, bytes)?;
-        self.close_the_file_to_others(&at)
-    }
-
-    // **What a machine holds of the value plane, kept across a stop.** A note taken in one run is
-    // spendable in the next only where the tree that gave it a position still stands, and a plane
-    // that lived in memory alone made every note die with the run that created it — so a person
-    // paid could hold a note their own machine could no longer prove a path for. It carries no
-    // secret of anybody: commitments, nullifiers and roots are what the network publishes.
-    pub fn value(&self) -> Result<Vec<u8>, StoreError> {
-        Ok(read_whole(&self.value_at())?.unwrap_or_default())
-    }
-
-    pub fn put_value(&self, bytes: &[u8]) -> Result<(), StoreError> {
-        write_whole(&self.value_at(), bytes)
     }
 
     pub fn head(&self) -> Result<Option<u64>, StoreError> {

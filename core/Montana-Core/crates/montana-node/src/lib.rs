@@ -542,6 +542,89 @@ struct RemotePoint {
     backoff: u32,
 }
 
+// **What a close hands the store.** The proposal of the window before that the agreement decided,
+// onto which the head moves — none where the window before is the Genesis or a window this machine
+// did not live; the proposal of the window closing as this machine took it; the plane the window
+// left; the decided state of the window before, which a replay of the decided roll of this window
+// starts from; and the census window this machine lived, where this window is one and its part is in
+// the cement.
+#[derive(Clone)]
+pub struct Closing {
+    pub head: Option<mt_state::layout::Proposal>,
+    pub taken: mt_state::layout::Proposal,
+    pub plane: state::State,
+    pub before: Option<state::State>,
+    pub census: Option<attest::LivedCensus>,
+}
+
+// **What a machine keeps of the last window it closed**, in the record of that window, beside the
+// head and the number the store reads: the proposal of that window as this machine took it, the
+// plane it closed the window on, the decided state of the window before, and its standing.
+//
+// The proposal stands here and not only among the proposals of the store because the close of the
+// next window rewrites the proposal of this one under the decided name before the record of that
+// close stands: a machine stopped between the two would otherwise hold its plane beside a proposal
+// whose roots are not its own. Each part is written as its length, eight bytes little-endian, and
+// its bytes; a decided state of no window is a length of nought, which no plane encodes to.
+#[derive(Clone)]
+pub struct Kept {
+    pub taken: mt_state::layout::Proposal,
+    pub plane: state::State,
+    pub before: Option<state::State>,
+    pub census: Vec<attest::LivedCensus>,
+}
+
+impl Kept {
+    pub fn encode(&self) -> Result<Zeroizing<Vec<u8>>, NodeError> {
+        let taken = mt_state::Layout::bytes(&self.taken).map_err(NodeError::Object)?;
+        let plane = self.plane.encode()?;
+        let before = match &self.before {
+            Some(state) => state.encode()?,
+            None => Vec::new(),
+        };
+        let census = Zeroizing::new(attest::LivedCensus::encode(&self.census));
+        let mut out = Zeroizing::new(Vec::new());
+        for part in [&taken[..], &plane[..], &before[..], &census[..]] {
+            out.extend_from_slice(&(part.len() as u64).to_le_bytes());
+            out.extend_from_slice(part);
+        }
+        Ok(out)
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, NodeError> {
+        let short = || NodeError::Refused {
+            what: "a record of a window shorter than what it declares",
+        };
+        let mut rest = bytes;
+        let mut parts: Vec<&[u8]> = Vec::new();
+        for _ in 0..4 {
+            let eight = rest.get(..8).ok_or_else(short)?;
+            let mut width = [0u8; 8];
+            width.copy_from_slice(eight);
+            let width = usize::try_from(u64::from_le_bytes(width)).map_err(|_| short())?;
+            let end = width.checked_add(8).ok_or_else(short)?;
+            parts.push(rest.get(8..end).ok_or_else(short)?);
+            rest = &rest[end..];
+        }
+        if !rest.is_empty() {
+            return Err(NodeError::Refused {
+                what: "a record of a window longer than what it declares",
+            });
+        }
+        Ok(Self {
+            taken: <mt_state::layout::Proposal as mt_state::Layout>::parse(parts[0])
+                .map_err(NodeError::Object)?,
+            plane: state::State::decode(parts[1])?,
+            before: if parts[2].is_empty() {
+                None
+            } else {
+                Some(state::State::decode(parts[2])?)
+            },
+            census: attest::LivedCensus::decode(parts[3])?,
+        })
+    }
+}
+
 // A machine that has been born: its store, the key it answers with, the door it stands at, the
 // count of the links it did not open, and what stands at its points.
 pub struct Machine {
@@ -643,22 +726,23 @@ impl Machine {
         let retained = mt_genesis::scalar("retained_windows").ok_or(NodeError::Decree {
             row: "retained_windows".to_string(),
         })?;
-        // **What the machine held of the value plane stands again.** A note takes its position in
-        // the tree of notes, and a path is proven against that tree — so a plane that lived in
-        // memory alone made every note die with the run that created it, and a person paid held a
-        // note their own machine could no longer prove a path for. What is read here is what this
-        // machine wrote, and a file that does not read back whole is refused rather than half-read.
+        // **What the machine held of the value plane stands again**: the plane of the last window it
+        // closed, kept in the record of that close. A note takes its position in the tree of notes,
+        // and a path is proven against that tree — so a plane that lived in memory alone made every
+        // note die with the run that created it, and a person paid held a note their own machine
+        // could no longer prove a path for. What is read here is what this machine wrote, and a
+        // record that does not read back whole is refused rather than half-read. **And the standing
+        // it earned stands again**, from the same record: a machine that forgot the census windows it
+        // lived would vote as a stranger until it had lived them all a second time.
         let cell_width = mt_wire::cell_bytes().map_err(|_| of_the_decree("cell_bytes"))?;
         let standing = Standing::loaded(retained, &store, cell_width)?;
-        let kept = store.value().map_err(NodeError::Store)?;
-        let held_value = if kept.is_empty() {
-            state::State::new()
+        let record = store.window().map_err(NodeError::Store)?;
+        let (held_value, census) = if record.kept.is_empty() {
+            (state::State::new(), Vec::new())
         } else {
-            state::State::decode(&kept)?
+            let kept = Kept::decode(&record.kept)?;
+            (kept.plane, kept.census)
         };
-        // **And the standing it earned stands again**: a machine that forgot the census windows it
-        // lived would vote as a stranger until it had lived them all a second time.
-        let census = attest::LivedCensus::decode(&store.standing().map_err(NodeError::Store)?)?;
         Ok((
             Self {
                 open: Arc::new(Mutex::new(None)),
@@ -688,23 +772,6 @@ impl Machine {
             .lock()
             .map_err(|_| NodeError::Uncountable)?
             .clone())
-    }
-
-    // A census window this machine lived, kept: it replaces what stood for that window, the newest
-    // `standing_censuses` of them are what a standing counts and nothing older is kept, and the
-    // whole is written before the call returns.
-    pub fn record_census(&self, lived: attest::LivedCensus) -> Result<(), NodeError> {
-        let censuses = mt_pulse::standing::censuses().map_err(|_| NodeError::Decree {
-            row: "standing_censuses".to_string(),
-        })?;
-        let mut held = self.census.lock().map_err(|_| NodeError::Uncountable)?;
-        held.retain(|one| one.window != lived.window);
-        held.push(lived);
-        held.sort_by_key(|one| std::cmp::Reverse(one.window));
-        held.truncate(censuses);
-        self.store
-            .put_standing(&attest::LivedCensus::encode(&held))
-            .map_err(NodeError::Store)
     }
 
     // What this machine holds of the value plane, for as long as the caller holds the guard. A
@@ -804,13 +871,11 @@ impl Machine {
         Ok(())
     }
 
-    // The tree of admitted machines this plane stands against, told and kept.
+    // The tree of admitted machines this plane stands against, told. It is kept with the plane at
+    // the close of the window, as everything the plane of an open window holds is.
     pub fn admits_the_tree(&self, admitted: mt_proof::poseidon::Digest) -> Result<(), NodeError> {
-        let mut state = self.value()?;
-        update_value(&mut state, &self.store, |candidate| {
-            candidate.admits(admitted);
-            Ok(())
-        })
+        self.value()?.admits(admitted);
+        Ok(())
     }
 
     // The frames standing at the points of the round this machine is in, verified and applied in
@@ -857,13 +922,13 @@ impl Machine {
                 took.insert(*id, positions);
             }
         }
-        // What the round put into the plane is kept once, at the end of the round rather than at
-        // every frame of it: the writing is of the whole plane, so writing it per frame would write
-        // the same bytes as many times as the round carried frames — and the moment of the writing
-        // would then say how many frames a round carried.
-        if !took.is_empty() {
-            commit_value(&mut current, &self.store, state)?;
-        }
+        // **What the round put into the plane is held in memory, and kept at the close of the
+        // window**, in the one record of that close (`Machine::close`). Canon, "The roots of state":
+        // the frames of a round apply as a machine leaves it, and what a verifier recomputes the
+        // roots from is the state once the frames of the window have applied. A plane written at
+        // every round stood on the disk ahead of the head by a part of a window, a mixture no
+        // restart could tell from a close.
+        *current = state;
         drop(current);
         self.settle((window, chain, at), &took)?;
         Ok(took.len())
@@ -975,19 +1040,86 @@ impl Machine {
         }
     }
 
-    // The one door that drops a record is `let_go_of`, which writes the number first: a caller that
-    // dropped the record alone would leave a closed window open to a second pledge.
+    // The doors that drop a record are `let_go_of` and `close`, which write the number first: a
+    // caller that dropped the record alone would leave a closed window open to a second pledge.
     fn drop_agreement(&self, window: u64) -> Result<(), NodeError> {
         self.store.drop_agreement(window).map_err(NodeError::Store)
     }
 
-    // The plane this machine holds, replaced whole: what a machine does once the agreement decided
-    // a name it did not take and it replayed the decided roll and its own window again over the
-    // result. Consensus, "When the decision is not the name a machine took". Written before the
-    // swap, as every change of the plane is.
-    pub fn replace_plane(&self, plane: state::State) -> Result<(), NodeError> {
-        let mut current = self.value()?;
-        commit_value(&mut current, &self.store, plane)
+    // **A window closes in one writing.** The proposal of the window before that the agreement
+    // decided and the proposal of this window are kept first, since nothing may name a proposal the
+    // store does not hold; then one record carries the head, the number of the window closed, the
+    // plane the window left, the decided state of the window before and the standing; then the record
+    // of the agreement of the window goes. Issue #19: the tables, the proposal, the state and the
+    // record of a window survive a crash together. Consensus, "The agreement": the decision "makes
+    // the proposal of the window before final, and it is the event the pulse names as the close of
+    // the window"; a machine whose name was not decided "holds what results as the decided state of
+    // the window before"; the record of the agreement goes "when the window they govern closes".
+    //
+    // **What this machine holds moves only once the record stands.** A close refused before or at
+    // the writing leaves the plane and the standing in memory as they were, beside the record of
+    // the close before; a failed flush of the directory is not a rollback, since every reader
+    // already reads the new record, and the memory follows it.
+    pub fn close(&self, closing: Closing) -> Result<(), NodeError> {
+        let Closing {
+            head: decided,
+            taken,
+            plane,
+            before,
+            census: lived,
+        } = closing;
+        let window = taken.window;
+        let standing = self.store.window().map_err(NodeError::Store)?;
+        if standing.closed.is_some_and(|closed| window <= closed) {
+            return Err(NodeError::Refused {
+                what: "a close of a window this machine already closed",
+            });
+        }
+        // "A decided window is never abandoned by a machine that verified its decision"
+        // (Consensus, "Finality").
+        let head = match &decided {
+            Some(decided) if standing.head.is_some_and(|held| held > decided.window) => {
+                return Err(NodeError::Refused {
+                    what: "a head that leaves a decided window",
+                })
+            }
+            Some(decided) => Some(decided.window),
+            None => standing.head,
+        };
+        // The census windows this machine lived, with the one this close lived replacing what stood
+        // for that window: the newest `standing_censuses` of them are what a standing counts.
+        let mut census = self.lived_census()?;
+        if let Some(lived) = lived {
+            let censuses = mt_pulse::standing::censuses().map_err(|_| NodeError::Decree {
+                row: "standing_censuses".to_string(),
+            })?;
+            census.retain(|one| one.window != lived.window);
+            census.push(lived);
+            census.sort_by_key(|one| std::cmp::Reverse(one.window));
+            census.truncate(censuses);
+        }
+        let kept = Kept {
+            taken,
+            plane,
+            before,
+            census,
+        };
+        let record = mt_store::WindowRecord {
+            head,
+            closed: Some(window),
+            kept: kept.encode()?,
+        };
+        if let Some(decided) = &decided {
+            self.keep_proposal(decided)?;
+        }
+        self.keep_proposal(&kept.taken)?;
+        let written = self.store.commit_window(&record);
+        if written.is_ok() || matches!(&written, Err(StoreError::CommitUncertain { .. })) {
+            *self.value()? = kept.plane;
+            *self.census.lock().map_err(|_| NodeError::Uncountable)? = kept.census;
+        }
+        written.map_err(NodeError::Store)?;
+        self.drop_agreement(window)
     }
 
     // Reaching an acquaintance. A machine answering with another key is not the machine the
@@ -1712,32 +1844,6 @@ fn keep_the_cell(
     Ok(())
 }
 
-// Validate on a candidate. A failed write cannot consume a note or move the live admitted root.
-// The disk write is atomic, so the successful commit and the in-memory swap publish the same state.
-fn update_value<T>(
-    current: &mut state::State,
-    store: &Store,
-    edit: impl FnOnce(&mut state::State) -> Result<T, NodeError>,
-) -> Result<T, NodeError> {
-    let mut candidate = current.clone();
-    let result = edit(&mut candidate)?;
-    commit_value(current, store, candidate)?;
-    Ok(result)
-}
-
-fn commit_value(
-    current: &mut state::State,
-    store: &Store,
-    candidate: state::State,
-) -> Result<(), NodeError> {
-    let result = store.put_value(&candidate.encode()?);
-    if result.is_ok() || matches!(&result, Err(StoreError::CommitUncertain { .. })) {
-        // A failed durability barrier is not a rollback: the complete new file is already visible.
-        *current = candidate;
-    }
-    result.map_err(NodeError::Store)
-}
-
 // The one condition that releases a link, and no other: it carried nothing across a whole window.
 // Idleness of a person is never observed and never releases anything, a ranking of links is a
 // second mechanism the set refuses, and what is read here is the one fact the device holding the
@@ -1769,35 +1875,6 @@ mod tests {
     }
 
     // Scratch artifacts are retained for inspection; tests never remove existing files.
-
-    #[test]
-    fn a_failed_disk_write_does_not_publish_the_candidate_in_memory() {
-        let scratch = Scratch::named("failed-state-write");
-        let store = Store::open(&scratch.0).unwrap();
-        fs::create_dir(scratch.0.join("value")).unwrap();
-        let mut state = state::State::new();
-        let before = state.encode().unwrap();
-        let other = mt_proof::poseidon::Digest::of_bytes(&[0x11; 32]).unwrap();
-        let result = update_value(&mut state, &store, |next| {
-            next.admits(other);
-            Ok(())
-        });
-        assert!(matches!(result, Err(NodeError::Store(_))));
-        assert_eq!(
-            state.encode().unwrap(),
-            before,
-            "failed persistence changed the live plane"
-        );
-        let good = Scratch::named("state-write-retry");
-        let store = Store::open(&good.0).unwrap();
-        update_value(&mut state, &store, |next| {
-            next.admits(other);
-            Ok(())
-        })
-        .unwrap();
-        assert_eq!(state.encode().unwrap(), store.value().unwrap());
-        assert_ne!(state.encode().unwrap(), before);
-    }
 
     #[test]
     fn an_acquaintance_is_written_and_read_back_and_a_malformed_one_is_refused() {

@@ -1629,7 +1629,7 @@ pub fn live_doing(
             // would carry two roots for one window. What arrived in the same breath as the close is
             // applied before the machine leaves for the same reason: a frame published inside a
             // window stands at the very points the attestation completing the cement stands at.
-            let _ = machine.apply_what_stands();
+            machine.apply_what_stands()?;
             match step {
                 Step::Close(decision) => break decision,
                 Step::Advance => {}
@@ -1662,8 +1662,11 @@ pub fn live_doing(
         // what results as the decided state of the window before, and applies again, over that
         // state and in their order, the frames of this window it had applied. Consensus, "When the
         // decision is not the name a machine took". The roll usually replayed while the agreement
-        // ran; a machine that never followed that name replays it here.
+        // ran; a machine that never followed that name replays it here. Nothing of it is held until
+        // the close stands: the plane it applies again is the plane the window closes on, written in
+        // the one record of the close below, and the payers are told once that record stands.
         let (decided_name, decided_in) = decided;
+        let mut replayed: Option<(Adopted, State, Positions)> = None;
         if decided_name != taken {
             let before = window.checked_sub(1).ok_or(NodeError::Refused {
                 what: "a decision on a window before the first",
@@ -1707,25 +1710,21 @@ pub fn live_doing(
                 std::thread::sleep(ASKS_AGAIN_AFTER);
             };
             let (plane, positions) = applied_again(machine, window, &adopted.state, patience)?;
-            machine.replace_plane(plane)?;
-            // **The payers of this machine are told again** where the replay moved their frames —
-            // those of the window before, by the decided roll, and those of this window, applied
-            // again — or that a frame of theirs applies in no window.
-            machine.retell(before, &adopted.positions)?;
-            machine.retell(window, &positions)?;
-            machine.keep_proposal(&adopted.proposal)?;
-            memory.bases.insert(window, adopted.state.clone());
-            if let Some(facts) = memory.facts.get_mut(&before) {
-                facts.roll = adopted.roll.clone();
-            }
             let link: String = decided_name.iter().map(|b| format!("{b:02x}")).collect();
             println!(
                 "window {} decided the proposal {} of the window before in attempt {}, not the one this machine took; its roll replayed and this window applied again",
                 window, link, decided_in
             );
             stands_on.insert(before, adopted.proposal.clone());
-            predecessor_held = Some(adopted.proposal);
+            predecessor_held = Some(adopted.proposal.clone());
+            replayed = Some((adopted, plane, positions));
         }
+        // The plane the window closes on: the one applied again over the decided state, or the one
+        // this machine applied round by round.
+        let plane = match &replayed {
+            Some((_, plane, _)) => plane.clone(),
+            None => machine.value()?.clone(),
+        };
         let predecessor = match &predecessor_held {
             Some(proposal) => Predecessor::Proposal(proposal),
             None => Predecessor::Genesis,
@@ -1749,6 +1748,8 @@ pub fn live_doing(
         let censused = mt_pulse::standing::is_census(window).map_err(|_| NodeError::Decree {
             row: "census_interval".to_string(),
         })?;
+        // The census window this machine lived, kept by the close.
+        let mut lived_census: Option<attest::LivedCensus> = None;
         if censused {
             let root =
                 mt_proof::cement::root_of(&decided_parts, depth).ok_or(NodeError::Refused {
@@ -1759,12 +1760,12 @@ pub fn live_doing(
                 if let Some((siblings, position)) =
                     mt_proof::cement::branch_of(&decided_parts, &own_part, depth)
                 {
-                    machine.record_census(attest::LivedCensus {
+                    lived_census = Some(attest::LivedCensus {
                         window,
                         root: root.bytes(),
                         siblings,
                         position,
-                    })?;
+                    });
                 }
             }
         }
@@ -1774,13 +1775,8 @@ pub fn live_doing(
             Predecessor::Proposal(before) => before.census.clone(),
             Predecessor::Genesis => certificate::empty_census()?,
         };
-        let (mut roots, roll) = {
-            let plane = machine.value()?;
-            (
-                plane.roots(cohort, window, &decided_parts)?,
-                plane.roll(window, &decided_parts),
-            )
-        };
+        let mut roots = plane.roots(cohort, window, &decided_parts)?;
+        let roll = plane.roll(window, &decided_parts);
         roots.census =
             mt_pulse::standing::carried(&previous_census, window, own_census).map_err(|_| {
                 NodeError::Decree {
@@ -1805,13 +1801,38 @@ pub fn live_doing(
             &roll,
             patience,
         )?;
-        // **The decision of this window made the proposal before it final**, and the head moves
-        // onto it now, after the proposal it names stands kept and verified. The right of that
-        // window is issued from its decided roll: one equal share to every part the roll names, and
-        // none to a machine whose part it does not name. The proposal of this window is kept before
-        // anything points at it, and is final when the agreement of the next window decides it.
+        // **The window closes in one writing.** The decision of this window made the proposal before
+        // it final, and the head moves onto it in the record of this close, which carries the number
+        // of the window closed, the plane it closed on, the decided state of the window before and
+        // the standing; the proposal of this window is kept before it, and is final when the
+        // agreement of the next window decides it. Nothing of the close is held, told or let go
+        // before that record stands: a refusal before it leaves this machine on the close before.
+        let decided_before = match &replayed {
+            Some((adopted, _, _)) => Some(adopted.state.clone()),
+            None => memory.bases.get(&window).cloned(),
+        };
+        machine.close(crate::Closing {
+            head: predecessor_held.clone(),
+            taken: proposal.clone(),
+            plane: plane.clone(),
+            before: decided_before,
+            census: lived_census,
+        })?;
+        // **The payers of this machine are told again** where the replay moved their frames —
+        // those of the window before, by the decided roll, and those of this window, applied
+        // again — or that a frame of theirs applies in no window.
+        if let Some((adopted, _, positions)) = replayed {
+            let before = adopted.proposal.window;
+            machine.retell(before, &adopted.positions)?;
+            machine.retell(window, &positions)?;
+            memory.bases.insert(window, adopted.state);
+            if let Some(facts) = memory.facts.get_mut(&before) {
+                facts.roll = adopted.roll;
+            }
+        }
+        // The right of the window made final is issued from its decided roll: one equal share to
+        // every part the roll names, and none to a machine whose part it does not name.
         if let Some(before) = &predecessor_held {
-            machine.finalize(before.window)?;
             // The window is final: no replay moves its frames again, and what its payers were told
             // stands.
             machine.settled_through(before.window)?;
@@ -1850,7 +1871,6 @@ pub fn live_doing(
                 lived.proposal = final_id;
             }
         }
-        machine.keep_proposal(&proposal)?;
         let id = proposal.id().map_err(NodeError::Object)?;
         let living = usize::try_from(decided.cement_count).map_err(|_| NodeError::Refused {
             what: "a count of the living past what a number carries",
@@ -1884,12 +1904,9 @@ pub fn live_doing(
             },
         );
         if let Some(next) = window.checked_add(1) {
-            memory.bases.insert(next, machine.value()?.clone());
+            memory.bases.insert(next, plane);
         }
         memory.let_go_on_closing(window);
-        // The record of the agreement goes with the window it governed, after the number that refuses
-        // this window to be opened again stands.
-        machine.let_go_of(window)?;
         stands_on.insert(window, proposal);
         stands_on.retain(|at, _| at.saturating_add(1) >= window);
     }
