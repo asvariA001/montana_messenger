@@ -32,7 +32,9 @@ use std::time::Duration;
 mod common;
 use common::{of, payee_of, Scratch};
 
-const FROM: u64 = 4_000;
+// The window the network opens at: zero, the one window the Genesis State Hash stands under
+// (Consensus, "Invariants of the TimeChain").
+const FROM: u64 = 0;
 const WINDOWS: u64 = 3;
 const CHAIN: u8 = 0;
 const PAID: u128 = 250_000_000;
