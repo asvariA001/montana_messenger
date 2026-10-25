@@ -832,7 +832,7 @@ signature of another width; `links_to` refuses a round past `u32::MAX` (round.rs
   `f_539_1_a_lived_unit_whose_coin_clears_cannot_be_left_uncounted`
   (tests/ballot_and_ticket.rs:153, ignored as a finding), which lowers the bit of a lived clearing
   unit, rewrites the carried bit, the product and the count, and finds the witness satisfying the
-  description and proven and verified (build host, 25.10.2026, e64036e, run with `--ignored`: "a
+  description and proven and verified (build host, 25.10.2026, 4ff22ed, run with `--ignored`: "a
   ballot of 6 votes where the standing drew 7: satisfied true, proven and verified true", exit 101,
   the failure a finding test is to give). It does not reach Theorem 3 (iii), which bounds from above;
   the certificate keeps the largest count among the verified ballots of a part
@@ -853,7 +853,7 @@ signature of another width; `links_to` refuses a round past `u32::MAX` (round.rs
   of 0xFF + p, which would clear a threshold of 0x80 where the canonical bytes do not, the
   canonical check (`a_word_written_in_bytes_above_the_modulus_does_not_clear`, :388, the gadget
   alone). The five new tests that refuse, the ticket's below among them, ran ok on the build host
-  (25.10.2026, e64036e, `test -p mt-proof --release --test ballot_and_ticket`, exit 0).
+  (25.10.2026, 4ff22ed, `test -p mt-proof --release`, the whole crate with its gate, exit 0).
   *The ticket: the chains.* Block 0 is idle; the halves (blocks 1 to 3), the admitted leaf, 40
   nodes, the ticket of two blocks, the key of 62, then the comparison (ticket.rs:41-89); they open
   under `MT_KEY_HALVES`, `MT_ADMITTED_LEAF`, `MT_ADMITTED_NODE` at each level, `MT_TICKET` and
