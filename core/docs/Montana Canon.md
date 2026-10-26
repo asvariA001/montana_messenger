@@ -595,8 +595,9 @@ AppendProof
 
 ### The roots of state
 
-A proposal carries six roots and the count of one tree, and every verifier recomputes all seven from
-the state it holds once the frames of the window have applied; none of them is read off a proposal.
+A proposal carries seven roots and the count of one tree, and every verifier recomputes all eight
+from the state it holds once the frames of the window have applied; none of them is read off a
+proposal.
 Each root stands over one table of the state, under the construction and the pair of domains named
 beside it, and an entry of each table is the one the last column names.
 
@@ -607,6 +608,7 @@ beside it, and an entry of each table is the one the last column names.
 | `record_root` | sparse, under the record domains | the commitment of a record, at the key that commitment is |
 | `machine_root` | sparse, under the Merkle domains | the commitment standing for a machine a selection event admitted, as its key |
 | `admitted_root` | append-only, under the admitted domains | the naming half of an admitted machine |
+| `credited_root` | append-only, under the credited domains | the part-nullifier of a machine a window credited, appended by the proposal of the window after it |
 | `operations_root` | append-only, under the Merkle domains | the identifier of a frame the window applied |
 
 A table holding a set is a sparse tree whose every present key carries the one-byte record `0x01`:
@@ -622,7 +624,10 @@ again, in the order they applied, over what results — Consensus states when. A
 the lowest free position as its frame applies. The tree of operations holds one window — it stands
 empty when a window opens — and its leaves are the identifiers of the frames that window applied, in
 the order they applied, so the two append-only roots that move with a frame move in one order. The
-tree of admitted machines holds the naming halves ascending.
+tree of admitted machines holds the naming halves ascending. The tree of credited rights moves with
+no frame: the proposal of window `W + 1` appends the parts of the cement of `W`, ascending, less the
+parts the challenge of `W` convicted, after every leaf an earlier proposal appended, so its leaves
+stand in the order of the windows they credit and, within one window, in the order of the cement.
 
 **What enters the two sets.** A nullifier enters the set of nullifiers when the object spending it
 applies and never leaves it: the nullifiers a frame publishes in its redemption positions — of a note
@@ -2948,11 +2953,19 @@ domain would let the public kind collide with the private kind.
 ### The right of a machine to its coin of a window, and what redeems it
 
 A machine is admitted once and stands in the tree of admitted machines from then on; the leaf it
-occupies is the half of its secret that names it, and nothing else:
+occupies is the half of its secret that names it, and nothing else. A window it lived credits it
+one coin, and what the network holds of that credit is a leaf of a second tree, the **tree of
+credited rights**, taken over the part its secret derives for that window:
 
 ```
 machine_sk ‖ machine_pk  = squeeze("mt-key-halves", limbs(machine_secret), 2)
 admitted_leaf            = sponge("mt-admitted-leaf", cells(machine_pk))
+part_nf(W)               = sponge("mt-part-nf", cells(machine_sk) || element(W))
+credited_leaf            = sponge("mt-credit-leaf", cells(part_nf(W)))
+credited_node(l, r)      = node("mt-credit-node", l, r)
+credited_root            = the fold of the append-only construction over the credited leaves in
+                           the order they entered, at depth note_tree_depth, under those two doors;
+                           the empty leaf is sponge("mt-credit-leaf", nothing)
 credit_nf ‖ claim_delay  = squeeze("mt-credit-nf", cells(machine_sk) || element(W), 2)
 ```
 
@@ -2963,24 +2976,64 @@ a window are two witnesses inside a proof, and a pair of non-canonical limbs sum
 window would yield a second lawful nullifier of one right. One element admits one encoding. The
 window is inside the derivation because the right is issued per window, which is exactly the
 opposite of the one-time rights above, where a window would break the construction.
+`part_nf(W)` is the nullifier of the machine's part in `W`, derived as the section on that
+nullifier derives it — the value the cement of `W` holds for the machine, if it lived `W`.
 
-**What a redemption of a right proves.** There is a leaf of the tree of admitted machines whose
-half its writer holds, the nullifier of this window's right under that half is this value, the
-amount the right brings into the balance of the frame is one coin, and the
-computed moment of taking falls within the standing stride of the window the frame applies in —
-every window of a stride stands before its standing period, so nothing lands before its moment,
-and a moment of a stride the horizon has left is unprovable. It proves membership exactly as the
-redemption of a note does, and against a root of its own — the root of admitted machines the
-proposal of the standing stride's last window carries; the two branches occupy the same blocks,
-so nothing of which was taken is readable from the length of a frame or the shape of its trace.
-The amount is a constant of the construction and not a witness: a right is worth one coin whatever
-the count of the living of its window, so a frame prices a right alone and no count of a cement
-enters its proof to do it.
+**When a window's credit is written.** The challenge of `W` closes when the window after it closes
+(Consensus, "Finality"), and from then on no pair can convict a part of `W`. The proposal of
+`W + 1` therefore appends to the tree one credited leaf for every part of the cement of `W`,
+ascending, less every part a contradicting pair presented within the challenge of `W` convicts, and
+carries `credited_root`, the root of the whole tree after that append, which every verifier
+recomputes from the state it holds and never takes from the proposal. Nothing else of the credit
+persists: the tree holds parts, a part names nobody, and the pairs that convicted stand in the roll
+of `W + 1` so that a machine replaying that roll leaves out the same parts — the layout they take
+there is owed with the sanction itself (Registry, CNS-10), and until it lands a roll carries none
+and the proposal of `W + 1` credits the whole cement of `W`.
+
+**Why the window does not enter the leaf beside the part.** The part takes the spending half and
+the window and nothing else, the window as one element, so one machine yields one part per window
+and the parts of two windows are two unrelated values (the invariants of the nullifier of a part).
+A leaf over the part of `W` is therefore a leaf of `W` and of no other window: a redemption that
+derives the part from the window its nullifier takes reaches that leaf only by naming the window
+whose cement held the part, and a second window reaching it is a collision of the proof hash. A
+window written beside the part would bind again what the part already binds.
+
+**What a redemption of a right proves.** In the one absorption of the machine's secret under
+`mt-key-halves`, whose spending half yields `credit_nf`, it derives the part of `W` from that same
+half and that same element of the window, and walks the credited leaf of that part to the
+credited root the proposal of the standing stride's last window carries; the nullifier of this
+window's right under that half is the published value, the amount the right brings into the
+balance of the frame is one coin, and the computed moment of taking falls within the standing
+stride of the window the frame applies in — every window of a stride stands before its standing
+period, so nothing lands before its moment, and a moment of a stride the horizon has left is
+unprovable. It proves membership exactly as the redemption of a note does, and against a root of its
+own; the two branches occupy the same blocks, so nothing of which was taken is readable from the
+length of a frame or the shape of its trace. Neither the part, nor `W`, nor the position of the
+leaf is published: `credit_nf` is the one public value of the position, and the part — public in
+the attestations of `W` — does not join to it, since the two take distinct domains. The amount is
+a constant of the construction and not a witness: a right is worth one coin whatever the count of
+the living of its window, so a frame prices a right alone and no count of a cement enters its proof
+to do it. The credited root of a stride holds the parts of every window before the stride's last;
+a right whose computed moment is its own window, where that window is the last of its stride, finds
+its leaf under no root its stride stands under, and `AUDIT.md` carries that case open.
+
+**Why the redemption walks no tree of admitted machines.** A part enters a cement only beside a proof
+of presence deriving it from the secret of a machine whose naming half stands in the tree of
+admitted machines: every heavy attestation is verified natively against the root of the electorate
+before its part enters, and a part the electorate does not hold enters no cement (Consensus, "The
+pulse and the close of a window", and "The attestation of presence"). The tree of credited rights
+takes the parts of a cement and nothing else, so a credited leaf is the part of a machine that stood
+admitted in its window, and a second secret yielding the same part is a collision of the proof hash —
+the ballot stands on the same argument and walks no tree of admitted machines either (Consensus, "The
+standing of a machine, and the ballot"). The walk of the credited tree therefore stands where the
+walk of the admitted tree stood, and a position still costs one walk; what it adds is the one block
+deriving the part.
 
 **Invariants of the right of a machine:**
 
-- A redemption of a right walks to a leaf of the tree of admitted machines. Without that walk the nullifier binds nothing a network can check: the network holds no secret of any machine and can pre-register no value, so a fresh secret would yield a value it has not seen and it would pay for it. That is a mint, and the walk is what closes it.
-- The leaf is the naming half and the nullifier takes the spending half, both of one absorption of the machine's secret. Two absorptions would be two readings of one secret, and a circuit reading a secret twice is a circuit where the two readings may differ — the same closure the key of a note takes, for the same reason.
+- A redemption of a right walks to a leaf of the tree of credited rights. Without a walk the nullifier binds nothing a network can check: the network holds no secret of any machine and can pre-register no value, so a fresh secret would yield a value it has not seen and it would pay for it. A walk to the tree of admitted machines closes that and no more: a machine admitted and absent from the cement of a window would take that window's coin. The walk to the credited leaf of the part closes both, because the tree holds a part only where a cement held it.
+- The part the leaf is taken over and the nullifier both take the spending half and the one element of the window, of one absorption of the machine's secret. Two absorptions would be two readings of one secret, and a circuit reading a secret twice is a circuit where the two readings may differ — the same closure the key of a note takes, for the same reason; two elements of the window would be two windows.
+- The proposal of `W + 1` appends the parts of the cement of `W` and no other value, ascending, after the challenge of `W` has closed, and the root it carries is recomputed by every verifier; a part a contradicting pair of that challenge convicts enters no leaf.
 - The nullifier takes the spending half and the window and nothing else, so two machines never collide and one machine cannot spend one window twice.
 - Nothing published by a machine carries either half's preimage, so a coin taken says nothing about who runs the machine.
 - A redemption of a right brings exactly one coin into the balance of its spend; a right standing for any other amount is not a right of this construction.
@@ -3307,7 +3360,20 @@ credit_nf(1000)               = 5b2123e556ede6e1fdf0c2f99baa381a11df3d96b8f19285
 credit_nf(1001)               = e4bc0bc3b4642713f3980387443d704e7e917e9d1953223333ca30b9f4990a24
 claim_window(1000) = 1000 + 1284 = 2284
 claim_window(1001) = 1001 + 368 = 1369
+part_nf(1000)                 = 90e8ec8b288c98ade06b92a0160ab271ab82032e45a283d8ce15f971c711531d
+credited_leaf(1000)           = 2f1c2ed85f87c48fae91c1df82d27dd1ea04b4f1051193750b4be3edc2f4a472
+credited_root (empty)         = 1655d5c14345e38d6e109f95b56ac3f5c817c573899cca32ab14d821b6a35f73
+credited_root (one leaf at 0) = 55be983245eb2d47c1df90a20085beaa755bc30e3c8d00ee4b6e4d9c8689986f
+credited_root (two leaves)    = 35c3cc5f188c1af3791caa2aab5f8f641fc388c53c89f76efbeab33d2b459897
 ```
+
+The tree of credited rights stands on the parts of this machine: `credited_leaf(1000)` is the leaf
+over its part of window 1000 alone, which is what an implementation writing the window beside the
+part parts from, and the root over two leaves holds its parts of windows 1000 and 1001 at positions
+0 and 1, in the order they were credited — two windows of one machine are two leaves, and the root
+pins the pairing of a level as the root of admitted machines over two halves does. An
+implementation taking the naming half where the part stands reproduces the roots of admitted
+machines above and none of these.
 
 The last of them holds the naming half above at position 0 and the second at position 1, each
 through the leaf door, and **it is what pins the pairing of a level**: a root over one half folds
@@ -3735,6 +3801,8 @@ line, which of the two it is writing.
 | `mt-credit-nf` | the nullifier extinguishing a right to a window's share |
 | `mt-admitted-leaf` | a leaf of the tree of admitted machines: the naming half of the machine at that position |
 | `mt-admitted-node` | an internal node of the tree of admitted machines |
+| `mt-credit-leaf` | a leaf of the tree of credited rights: the part-nullifier of a machine a window credited, at the position it entered |
+| `mt-credit-node` | an internal node of the tree of credited rights |
 | `mt-cement-leaf` | a leaf of the tree of a census cement: the part-nullifier at that position |
 | `mt-cement-node` | an internal node of the tree of a census cement |
 | `mt-operator-nf` | the one-time right to raise a machine |
@@ -3797,7 +3865,7 @@ line, which of the two it is writing.
 | `mt-horizon-leaf` | a leaf of the horizon of proving: the note root at that position of its stride |
 | `mt-horizon-node` | an internal node of the horizon of proving |
 
-**The domains of the `proof_hash` family, and there are twenty-nine.** They are computed by the
+**The domains of the `proof_hash` family, and there are thirty-one.** They are computed by the
 doors of the proof hash; every other domain of the registry is computed by SHA-256, and either
 function under a domain of the other family is a defect. The list is exact by the boundary the
 primitives section draws — what a verifier of a proof judges, and the nullifiers and digests a
@@ -3834,6 +3902,8 @@ capacity("mt-record-nf")        = the first four limbs of SHA-256("mt-record-nf"
 capacity("mt-vote")             = the first four limbs of SHA-256("mt-vote" || 0x00)
 capacity("mt-cement-leaf")      = the first four limbs of SHA-256("mt-cement-leaf" || 0x00)
 capacity("mt-cement-node")      = the first four limbs of SHA-256("mt-cement-node" || 0x00)
+capacity("mt-credit-leaf")      = the first four limbs of SHA-256("mt-credit-leaf" || 0x00)
+capacity("mt-credit-node")      = the first four limbs of SHA-256("mt-credit-node" || 0x00)
 ```
 
 ### No domain awaits a document

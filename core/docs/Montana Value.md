@@ -152,7 +152,9 @@ accompanies it. Two entities where one suffices would restore distinguishability
 For every redemption, one of two branches holds and the proof does not say which: either a note
 exists whose commitment lies in a tree whose root the horizon of proving holds and the bearer
 knows its ownership secret, or the bearer holds an unextinguished right to the coin of a window and the
-machine secret that proves it. In both branches the nullifier published is derived from what was
+machine secret that proves it — the secret whose part of that window is a leaf of the tree of
+credited rights under the root the proposal of the standing stride's last window carries, so the
+window witnessed the machine that redeems its coin. In both branches the nullifier published is derived from what was
 consumed by the canonical formula of that branch. What is created equals what is consumed, and a
 right consumed is worth one coin — a constant of the protocol and never a witness, so a frame prices
 a right alone and no quantity of its window enters the proof to do it. The rate nullifier
@@ -172,7 +174,7 @@ The proof is of fixed length. Its branch is never disclosed.
 **Invariants of a frame:**
 
 - The number of positions is exactly what Canon holds, and the length of the proof is what Canon derives from the height a frame's description is built at and from the parameters of the scheme; any other length is a refusal before anything is parsed. The length is one value for the scheme in force — a proof whose length varied with what it proves would carry the count in its size. Canon fixes the scheme and the parameters that yield that length; an implementation computes it from them rather than choosing it.
-- The roots a proof may stand under are those the horizon of proving of the window the frame applies in holds — the fold of its standing stride; a frame carries none, and no observable choice exists — which leaf a proof stands under is inside the proof. The stride is one reach for every window-bound input: the root, the window of a rate and the computed moment of a right range over the same stride, and the public inputs of a proof stand for the whole standing period, which is what lets a proof begun early land late.
+- The roots a proof may stand under are those the horizon of proving of the window the frame applies in holds — the fold of its standing stride — and, for a right, the root of the tree of credited rights the proposal of that stride's last window carries; a frame carries none, and no observable choice exists — which leaf a proof stands under is inside the proof. The stride is one reach for every window-bound input: the root, the window of a rate and the computed moment of a right range over the same stride, and the public inputs of a proof stand for the whole standing period, which is what lets a proof begun early land late.
 - Every nullifier is absent from the set, and within one frame the nullifiers are pairwise distinct.
 - Every rate nullifier is absent from the rate set of the horizon.
 - Length and bound checks run before allocation and before the verification of the proof, which is expensive.
@@ -194,10 +196,16 @@ anyone seeing it: the nullifier of a right is derived from the machine's secret 
 so a machine that tried twice would present the same value and collide with itself, in a set
 where no observer can tell which entries are rights and which are notes.
 
+**Only a window that witnessed a machine pays it.** The redemption walks the part the machine's
+secret derives for the window to the tree of credited rights, which the proposal of the window
+after it grows by the parts of that window's cement and by nothing else; neither the part nor the
+window is published. A machine admitted and absent from a cement holds no leaf of that window, so
+its right to that window's coin is a right nobody issued, and the proof refuses it.
+
 ## Conservation of issuance
 
 - **Per payment:** what is created equals what is consumed, asserted by the proof and never by adding open numbers.
-- **Per window:** the change of supply equals the count of the cement of that window, in coins — one right of one coin per living machine, each extinguished by exactly one nullifier; nothing is divided and nothing is carried forward. A right the sanction of Consensus extinguishes without issue is a coin that window does not add.
+- **Per window:** the change of supply equals the count of the cement of that window, in coins — one right of one coin per living machine, each extinguished by exactly one nullifier; nothing is divided and nothing is carried forward. A right the sanction of Consensus extinguishes without issue is a coin that window does not add: its part is the one the proposal of the window after it leaves out of the tree of credited rights, so the coins a window adds are the leaves that proposal appends.
 - **Globally:** the supply is the sum over the windows of what each added, and it equals the sum of unspent notes and unredeemed rights, held by proof and induction and **unverifiable by addition** — amounts are hidden and rights are private. The supply itself is public, as the counts of the cements are; what no addition verifies is that the hidden notes and the private rights sum to it.
 
 **The honest price.** The ability to detect a breach of issuance by simple summation is lost

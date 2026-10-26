@@ -679,7 +679,12 @@ because both of its counts are bounded before it is read: the frames by the fram
 the parts by the count of the electorate. A machine checks a roll by replaying it: the frames in
 their order over the decided state of the window before, the parts against the heavy attestations of
 the window; the roots, the cement and the census it recomputes are the proposal's, or the roll is not
-that proposal's. Canon holds its layout and its length.
+that proposal's. The roots include the tree of credited rights, which the proposal of a window grows
+by the parts of the cement of the window before it, less the parts the challenge of that window
+convicted; the pairs that convicted stand in the roll of the proposal that leaves them out, so a
+replay leaves out the same parts — the place they take in a roll is owed with the sanction itself,
+and until it lands a roll carries none and the whole cement of the window before is credited. Canon
+holds its layout and its length.
 
 **When the decision is not the name a machine took.** A machine whose name is not the decided one
 takes the decided proposal and its roll, replays the roll over the decided state of the window two
@@ -770,7 +775,10 @@ guarantee it does not give.
 A machine that verified a decision never leaves it. Within one set of rules length decides
 nothing; the length rule of the Constitution survives for the divergence of rules alone, and
 it counts decided windows. The challenge of a window opens at its proposal and closes when the
-window after it closes, and a pair presented after that close is refused. The attestations and the
+window after it closes, and a pair presented after that close is refused. That is also the moment the
+window's credit is written: the proposal of the window after it credits the parts of its cement the
+challenge did not convict, and from then on nothing about that window's coins can move. The
+attestations and the
 pledges themselves outlive the challenge as the certificate of the window — retained for the windows Canon names — and their
 longer life extends no challenge and names nobody.
 
@@ -778,7 +786,7 @@ longer life extends no challenge and names nobody.
 
 - A decided window is never abandoned by a machine that verified its decision, and no longer chain within one set of rules overrides it.
 - Two decisions of one height imply at least `Q + Q - T` machines of the electorate, each under one part-nullifier, signing one of the three contradicting pairs of the agreement, and those pairs are the whole evidence.
-- The challenge of a window runs from its proposal to the close of the window after it; a pair presented after that close is refused, the attestations and the pledges retained as the certificate extend no challenge, and nothing of it enters persistent state.
+- The challenge of a window runs from its proposal to the close of the window after it; a pair presented after that close is refused, the attestations and the pledges retained as the certificate extend no challenge, and nothing of it enters persistent state but the absence of a convicted part from the tree of credited rights, which names nobody.
 
 ## The sanction of a double answer
 
@@ -792,14 +800,18 @@ pledge on another name standing on none or on an attempt before the closing one.
 
 **The sanction names nobody, because nothing here can.** The second appearance is refused in
 silence and the right it would have spent is extinguished without issue: the coin of that window
-is not paid, and nothing beyond that right is touched. There is no confiscation, no exclusion by
-name and no list of offenders, because a machine is accountable through its rights and not
-through an identity — the construction that hides it is the one that catches it.
+is not paid, and nothing beyond that right is touched. What extinguishes it is an absence: the
+proposal of the window after it credits the parts of the cement less the convicted one, so the right
+of that window has no leaf of the tree of credited rights to walk to. There is no confiscation, no
+exclusion by name and no list of offenders, because a machine is accountable through its rights and
+not through an identity — the construction that hides it is the one that catches it.
 
 **Who applies it.** Everyone, and identically: the pair of objects carrying one nullifier is
 self-evident to any machine holding both, so the refusal is a local rule with a global result and
 needs neither a court nor a report. Whoever holds the evidence keeps it while the window remains
-open to challenge, and discards it with the window.
+open to challenge, and discards it with the window; the pairs that convicted travel once more, in
+the roll of the proposal that leaves their parts uncredited, so that a machine replaying that roll
+leaves out the same parts, and they stand there as long as that roll stands at its points.
 
 **Invariants of the sanction:**
 
@@ -814,7 +826,7 @@ open to challenge, and discards it with the window.
 - The first appearance stands and the second is refused, by the canonical order of the window and never by the order of arrival at a machine.
 - The canonical order of the heavy attestations of a window, by which the first appearance is read, is the chain index of the attested beacon ascending, then its round index ascending, then the round nullifier of the attestation ascending as a string of 32 bytes (Canon, "The confirmation of a window"), and where two of them agree in all three the pledged name ascending. Of the heavy attestations of one part-nullifier the first in this order stands: its name is the part's open pledge of attempt zero, whatever the order in which a machine received or was handed them.
 - The canonical order of the pledges of one part-nullifier, of one kind and of one attempt, by which the first appearance is read, is the name ascending as a string of 32 bytes, then `since` descending, none (0xFFFFFFFF) standing above every attempt, so that of two pledges on one name the one standing on none, which counts wherever it stands, comes before one that counts only on the quorum it names. The first in this order is the part's pledge of that kind and attempt and is the one counted; every other on another name is evidence beside it, whatever the order in which a machine received or was handed them.
-- A pair is admitted no longer than the window's challenge and enters no persistent state; the attestations retained for the join extend no challenge and name nobody, so nothing accumulates about anyone.
+- A pair is admitted no longer than the window's challenge and enters no persistent state; what persists is that the convicted part is absent from the tree of credited rights, which holds parts and names nobody. The pairs that convicted stand in the roll of the window after it while that roll stands, and the attestations retained for the join extend no challenge and name nobody, so nothing accumulates about anyone.
 
 ## The certificate of a window
 
@@ -1138,6 +1150,15 @@ extinguished by exactly one nullifier — so no machine takes its coin twice, an
 another's. The right is bound to its window by its nullifier, to its amount by this rule, to one
 use by the set of nullifiers, and to its recipient by the payment that redeems it, whose notes
 are the recipient's.
+
+**A right is bound to the living of its window, and an invented right is refused.** The proposal
+of the window after a window credits it: it appends to the tree of credited rights the parts of
+that window's cement, less any part its challenge convicted, and every verifier recomputes the
+root it carries. A right of a window is redeemed by walking the part its machine's secret derives
+for that window to that tree, so a machine whose part the cement of the window did not hold —
+admitted or not, present in other windows or not — holds nothing to walk to and takes no coin of
+it. Admission is not presence: the tree of admitted machines says who may answer, and only a cement
+says who did.
 
 Consensus issues the right and states what it is worth: one coin to every living machine, the
 same for each of them whatever the count of the living. How a right is proven and consumed is

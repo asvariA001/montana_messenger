@@ -1190,6 +1190,35 @@ coin (Registry, VAL-08, stage 15). Until it stands, a frame's proof alone does n
 `montana-node/tests/issuance_audit.rs` reproduces a right redeemed at two coins — and this line is
 here so the next stage inherits a named obligation instead of discovering a hole.
 
+**A right of a window is taken by a machine the window never witnessed** (issue #14, Gate -1,
+2026-10-24 22:43 UTC). The walk to the tree of admitted machines closed the invented secret and
+nothing more: it says a machine was admitted, and a right names its window only through its
+nullifier, which any admitted secret derives for any window. So a machine standing admitted and
+absent from the cement of `W` derived the nullifier of `W`, walked its own naming half, and the
+verifier credited it the coin of a window that never witnessed it — a mint bounded by the count of
+the admitted rather than by the count of the living, reproduced as a test that the verifier accepted
+on 02276e0. Closed by a tree of credited rights (Canon, "The right of a machine to its coin of a
+window, and what redeems it"): the proposal of `W + 1`, when the challenge of `W` has closed, appends
+one leaf over every part of the cement of `W`, ascending, and carries the root every verifier
+recomputes; the right's branch derives the part of `W` from the spending half and the window it
+already absorbs for the nullifier, and walks that leaf to the credited root in place of the walk to
+the tree of admitted machines. That walk is not kept beside the new one because a credited leaf
+already implies admission — a part enters a cement only beside a proof of presence against the root
+of the electorate (Consensus, "The pulse and the close of a window"), and the ballot rests on the same
+argument — so a position still costs one walk, and one block more for the part. What stays open,
+named so the next stage inherits it: **the exclusion of a convicted part** — the set says the
+proposal of `W + 1` leaves out every part a contradicting pair of the challenge of `W` convicts and
+carries the pairs in its roll, and the code credits the whole cement, because the sanction itself is
+not built; it is owed by CNS-10 at stage 19. **A right whose moment is its own window, where that
+window closes its stride** — the credited root of a stride holds the parts of every window before the
+stride's last, so a right whose computed moment is `W` itself with `W` the last window of a stride,
+one right in `claim_spread × proving_horizon`, finds no root to walk to and its coin cannot be
+taken; the moment rule and the root a right walks to are the chairman's to reconcile, and the
+proposal standing for it is to draw the moment from the window after: `claim_window(W) = W + 1 +
+(u32_le(claim_delay) mod claim_spread)`. **The reference node walks the roots it holds** rather than
+those of the standing stride, as it already did for the tree of notes and the tree of admitted
+machines.
+
 **A root over one leaf says nothing about the pairing of a level, and three trees stood on one.**
 The class the set already names — a vector over an input that is its own mirror never stands alone
 — was closed for the trees that fold under SHA-256, where the walk is pinned away from position
@@ -2049,23 +2078,23 @@ numbers, which says the method and not the tree is what is missing.
 | rows of the Decree the library reads | 28 of 54 |
 | of those, rows that decide a width | 9, and one relation tying a tenth to a parameter |
 | implementations of `Layout` | 17, each one declaration, and the register is held against the source |
-| domains of the registry | 99, each one declaration, counted by the harness rather than by a grep |
+| domains of the registry | 101, each one declaration, counted by the harness rather than by a grep |
 | values of the set awaiting a stage | 0 — every one is read by a checker on every build |
-| domains of the registry a run takes a preimage under | 75 of 99 — the gate refuses a domain that is neither taken nor named, so this number is ninety-nine less the twenty-four named and is not a count anybody keeps |
+| domains of the registry a run takes a preimage under | 77 of 101 — the gate refuses a domain that is neither taken nor named, so this number is a hundred and one less the twenty-four named and is not a count anybody keeps |
 | of the rest, named with what owes them a vector | 24, and a silent one that is unnamed fails the build |
 | prefix pairs among them, closed by the zero and the alphabet | 5 |
-| frozen lines of the set of the shape the coverage pass reads | 268, counted by the pass itself |
+| frozen lines of the set of the shape the coverage pass reads | 273, counted by the pass itself |
 | numerals of the library, every one of them in a register | 163, the free rows of a proof among them — counted by the pass that enforces it rather than by a reading of its author, and held by the measurements on every run |
 | of those, compared against a place of the set | 69 |
 | of those, named as of this tree with the reason each is | the rest, each with the reason it is of this tree and of no document |
 | rows a wrong value would pass | 0 of 69 |
 | headings of a derivation restating a value of the Decree | 19, all compared |
 | rows of the Registry of mechanisms | 100: 38 closed, 62 awaiting a stage, 0 awaiting the artifact — the Registry recounts its own table on every build, and this row is held against that recount rather than counted a second time |
-| domains of the separator registry owned by exactly one row | 99 of 99 |
+| domains of the separator registry owned by exactly one row | 101 of 101 |
 | places reaching a preimage through the door of one body | 11 in library code under SHA-256, none of them assembling |
 | the same under the proof hash, where the set writes the preimage as a concatenation | 5, of which 3 assemble fields of fixed width, which cannot erase one |
 | kinds a field of a layout may stand under | 5, and a sixth does not compile |
-| tests of the workspace | 695 written, counted where they are declared. Whether they pass is what a run says and never a row of a table: the four checks are the place that answers it, and a number here claiming a run would be the ledger remembering one |
+| tests of the workspace | 698 written, counted where they are declared. Whether they pass is what a run says and never a row of a table: the four checks are the place that answers it, and a number here claiming a run would be the ledger remembering one |
 | crates carrying the gate in their own tests | 15 of 15, by one macro of the harness rather than fifteen readings of one invocation |
 | columns the width of a proof admits, and columns each written circuit **declares** | 64, and 64 / 59 / 30 / 30 / 30 / 63 for the frame, the ticket, the admission, the presence, the opening and the ballot; the width check reads all six registered descriptions |
 | the circuit of the ticket, written and green | the chains of the presence with the ticket's absorption in place of the nullifier's, the digest of the runner's key, and the comparison of thirty-two rows; the window, fold, discharge and reduce circuits left the tree with the relation they served |

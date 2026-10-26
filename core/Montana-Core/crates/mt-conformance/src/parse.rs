@@ -2170,6 +2170,42 @@ pub fn check_derivations(md: &str) -> Result<(), String> {
             .ok_or("a half of the vector is no digest of the family")?
             .bytes(),
     )?;
+    // The tree of credited rights: the part of one window, its leaf, and the roots over nothing,
+    // over that part alone and over the parts of two windows of one machine in the order they were
+    // credited — the last pins the pairing of a level, and that two windows of one machine are two
+    // leaves.
+    let credited_part = |window: u64| {
+        mt_derive::nullifier::part(&claim_secret, window)
+            .ok_or("the spending half of the vector is no digest of the family")
+    };
+    let (of_one, of_two) = (credited_part(1000)?, credited_part(1001)?);
+    compare_hash("part_nf(1000)", labeled(&claim_rows, "part_nf(1000)")?, &of_one)?;
+    compare_hash(
+        "credited_leaf(1000)",
+        labeled(&claim_rows, "credited_leaf(1000)")?,
+        &mt_proof::credited::leaf(&of_one)
+            .ok_or("a part of the vector is no digest of the family")?
+            .bytes(),
+    )?;
+    compare_hash(
+        "credited_root (empty)",
+        labeled(&claim_rows, "credited_root (empty)")?,
+        &mt_proof::credited::empty_root().bytes(),
+    )?;
+    compare_hash(
+        "credited_root (one leaf at 0)",
+        labeled(&claim_rows, "credited_root (one leaf at 0)")?,
+        &mt_proof::credited::root_of(&[of_one], depth)
+            .ok_or("a part of the vector is no digest of the family")?
+            .bytes(),
+    )?;
+    compare_hash(
+        "credited_root (two leaves)",
+        labeled(&claim_rows, "credited_root (two leaves)")?,
+        &mt_proof::credited::root_of(&[of_one, of_two], depth)
+            .ok_or("a part of the vector is no digest of the family")?
+            .bytes(),
+    )?;
     for (label, expected) in &claim_rows {
         if let Some(rest) = label.strip_prefix("credit_nf(") {
             let window = number(rest.trim_end_matches(')'))?;
