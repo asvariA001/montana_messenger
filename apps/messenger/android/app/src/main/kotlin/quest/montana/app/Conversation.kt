@@ -55,6 +55,13 @@ fun letterWords(c: Context, t: String, meta: String? = null): String = when {
     SecretLetter.isOne(t) -> "\uD83D\uDD11 " + c.getString(R.string.pw_shared)
     else -> t
 }
+/** A query and a letter's words folded alike (iOS .caseInsensitive, .diacriticInsensitive): the accents off, one case. */
+internal fun searchFold(s: String): String =
+    java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD).replace(Regex("\\p{Mn}+"), "").lowercase(java.util.Locale.ROOT)
+/** What a letter is searched by (iOS message.text, message.docName): its own words; a media letter's caption and its file's name. */
+internal fun searchWords(c: Context, m: Msg): String =
+    if (m.text.startsWith(Marks.MEDIA)) Media.manifestOf(m)?.let { it.optString("cap") + "\n" + it.optString("n") } ?: ""
+    else letterWords(c, m).takeIf { it == m.text } ?: ""
 /** The same words for a letter of the book: its manifest, once read, names what it carries. */
 fun letterWords(c: Context, m: Msg): String = letterWords(c, m.text, m.meta)
 
@@ -655,7 +662,7 @@ object ShowLetter {
 }
 
 /** `jump` — a letter found by the search: the chat opens on it, and it glows once (iOS openChat(jump:)). */
-fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: String? = null): View {
+fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: String? = null, search: Boolean = false): View {
     val c: Context = act
     val group = Groups.isKey(ref)   // a group's feed: no pipe, no presence, no doors (iOS MTGroup.isKey)
     // THE ROOM WITHOUT AN ADDRESS (iOS isLocalRoom): Saved Messages opens here like every chat -- no wire, no presence, no rung, no call
@@ -722,6 +729,12 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     // THE CHAT'S SELECTION (iOS selectingMsgs, selectedMsgs): «Select» in a letter's menu begins it
     var selecting = false
     val picked = linkedSetOf<String>()
+    // THE CHAT'S OWN SEARCH (iOS searching / searchText, MontanaConversation.swift:1410-1412, 2495-2537 at 2312): open and asked
+    // something, the feed shows only the letters whose words or file name hold the query, in any case and with any accent; a tap on
+    // one carries the eye to its own place in the whole conversation (iOS searchJump, 2975-2990)
+    var searching = false
+    var searchQuery = ""
+    var searchLeave: (String) -> Unit = {}
     lateinit var drawFoot: () -> Unit
     var toQuoted: (String) -> Unit = {}
 
@@ -757,8 +770,17 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         setPadding(dp(24), dp(12), dp(24), dp(14)); visibility = if (Post.closed(ref)) View.VISIBLE else View.GONE
         background = c.glassPlate().apply { cornerRadius = dp(18).toFloat() }
     }
-    fun drawEmpty(empty: Boolean) {
+    fun drawEmpty(empty: Boolean, asked: Boolean = false) {
         if (!empty) { emptyView.visibility = View.GONE; return }
+        emptyNote.visibility = View.VISIBLE
+        // a search with a query is about the query (iOS feedEmptyKind .noResults, MTFeedEmpty: the magnifier and «Nothing found»)
+        if (asked) {
+            emptyGlyph.setImageResource(R.drawable.ic_search); emptyGlyph.visibility = View.VISIBLE
+            emptyTitle.setText(R.string.nothing_found); emptyNote.visibility = View.GONE
+            emptyView.isClickable = false; emptyView.visibility = View.VISIBLE
+            return
+        }
+        emptyGlyph.setImageResource(R.drawable.ic_antenna_slash)
         val cm = c.getSystemService(android.net.ConnectivityManager::class.java)
         val net = cm?.getNetworkCapabilities(cm.activeNetwork)?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
         val offline = !net || Signal.aliveHosts().isEmpty()
@@ -1090,7 +1112,15 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         }
         var lastDay = -1L
         // A MEDIA GROUP IS ONE ROW (iOS buildRows): its letters stand as one plate, chosen, forwarded and deleted together
+        val asked = if (searching) searchFold(searchQuery.trim()) else ""
         val rows = feedRows(chat.msgs.filter { !ChessLetter.isStep(it.text) }).toList()
+            .let { all -> if (asked.isEmpty()) all else all.filter { r -> r.any { searchFold(searchWords(c, it)).contains(asked) } } }
+        // A FOUND LETTER IS A WAY TO ITS PLACE (iOS searchJump: the row takes no tap of its own, the tap goes to the letter's place)
+        fun searchHit(v: View, mid: String): View = FrameLayout(c).apply {
+            layoutParams = v.layoutParams
+            addView(v, FrameLayout.LayoutParams(MATCH, WRAP))
+            addView(View(c).apply { contentDescription = c.getString(R.string.search); pressable { searchLeave(mid) } }, FrameLayout.LayoutParams(MATCH, MATCH))
+        }
         // A GROUP'S RUN IS ONE PERSON'S (iOS buildRows): another speaker, a gap of ten minutes, a new day or an event begins another
         fun dayOf(at: Long) = java.util.Calendar.getInstance().apply { timeInMillis = at }.let { it.get(java.util.Calendar.YEAR) * 1000L + it.get(java.util.Calendar.DAY_OF_YEAR) }
         fun sameRun(a: List<Msg>, b: List<Msg>): Boolean {
@@ -1116,7 +1146,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 }
             }
             // «unread messages» (iOS unreadDivider 3014-3022): the caption in grey across the feed on its quiet band
-            if (firstUnread != null && row.any { it.mid == firstUnread }) lay("unread:" + m.mid, emptyList(), false) {
+            if (asked.isEmpty() && firstUnread != null && row.any { it.mid == firstUnread }) lay("unread:" + m.mid, emptyList(), false) {
                 c.text(c.getString(R.string.unread_messages), 11f, MT.gray, center = true).apply {
                     setBackgroundColor(Color.rgb(31, 31, 31)); setPadding(0, dp(5), 0, dp(5))
                     layoutParams = lp().apply { topMargin = c.dp(2); bottomMargin = c.dp(2) }
@@ -1132,7 +1162,9 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                     layoutParams = lp().apply { topMargin = c.dp(4); bottomMargin = c.dp(4) }
                 }
             }
-            else lay(m.mid, signOf(row) + listOf(head, tail), true) { letterRow(m, row, head, tail) }
+            else lay(m.mid, signOf(row) + listOf(head, tail, asked.isNotEmpty()), true) {
+                letterRow(m, row, head, tail).let { if (asked.isEmpty()) it else searchHit(it, m.mid) }
+            }
         }
         if (want.size != feed.size || want.indices.any { want[it].key != feed[it].key || want[it].sig != feed[it].sig }) {
             val began = System.nanoTime()
@@ -1189,7 +1221,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             android.util.Log.d("Montana", "feed_pass rows=" + want.size + " built=" + built + " born=" + born + " gone=" + gone + " ms=" + (System.nanoTime() - began) / 1_000_000)
         }
         laid = true
-        drawEmpty(column.childCount == 0)
+        drawEmpty(column.childCount == 0, asked.isNotEmpty())
         // the other side closed it: read, not answered (iOS closedChats) — the note where the field stood
         if (Post.closed(ref)) { hideBar(); closedNote.visibility = View.VISIBLE }
     }
@@ -1224,6 +1256,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         isHorizontalScrollBarEnabled = false; visibility = View.GONE; setPadding(0, c.dp(6), 0, c.dp(6)); addView(stagedRow)
     }
     lateinit var drawStaged: () -> Unit
+    lateinit var pickFiles: () -> Unit
     // THE PICTURES LEAVE WITH THE FIELD'S WORDS AS ONE GROUP (iOS sendPasted 3160-3206): the words ride with the first of them
     fun sendStaged() {
         val words = field.text.toString().trim()
@@ -1309,7 +1342,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     // THE CAMERA BESIDE THE PHOTOS (iOS MTGalleryPick: the camera's tile, «All photos»): a shot goes the picked picture's road
     drawStaged = {
         stagedRow.removeAllViews()
-        for (s in staged.toList()) stagedRow.addView(FrameLayout(c).apply {
+        for ((place, s) in staged.toList().withIndex()) stagedRow.addView(FrameLayout(c).apply {
             addView(ImageView(c).apply {
                 scaleType = ImageView.ScaleType.CENTER_CROP
                 if (s.second != null) setImageBitmap(s.second) else setBackgroundColor(Color.rgb(51, 51, 51))
@@ -1319,6 +1352,24 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 clipToOutline = true
             }, FrameLayout.LayoutParams(MATCH, MATCH))
             if (s.first.kind == "vid") addView(c.icon(R.drawable.ic_play_fill, Color.WHITE), FrameLayout.LayoutParams(c.dp(22), c.dp(22), Gravity.CENTER))
+            // A FILE IN THE TRAY (iOS 2312) wears its kind, its own name and its size, at the plate's size
+            if (s.first.kind == "doc") addView(c.vstack(Gravity.CENTER) {
+                setPadding(c.dp(8), 0, c.dp(8), 0)
+                addView(c.icon(R.drawable.ic_compose_doc, Color.argb(230, 255, 255, 255), 20), lp(c.dp(20), c.dp(20)))
+                addView(c.text(s.first.name ?: "", 11f, Color.WHITE).apply {   // USER-DATA: the person's file name
+                    maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END; gravity = Gravity.CENTER
+                }, lp().apply { topMargin = c.dp(3) })
+                addView(c.text(c.copySize(s.first.bytes.size.toLong()), 10f, Color.argb(153, 255, 255, 255)), lp().apply { topMargin = c.dp(3) })
+            }, FrameLayout.LayoutParams(MATCH, MATCH))
+            // THE PLACE IT HOLDS (iOS stagedNumber, 2312): 1, 2, 3 in the order chosen, the order the arrow sends them in; read off
+            // the place in the tray, so a cross closes the numbers up
+            addView(c.text(StagedOrder.number(place).toString(), 12f, Color.BLACK, bold = true).apply {   // USER-DATA: the place of the person's own pick, digits only
+                gravity = Gravity.CENTER
+                minWidth = c.dp(20); minHeight = c.dp(20)
+                setPadding(c.dp(5), 0, c.dp(5), 0)
+                fontFeatureSettings = "tnum"
+                background = GradientDrawable().apply { cornerRadius = c.dp(10).toFloat(); setColor(Color.WHITE) }
+            }, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.TOP or Gravity.START).apply { setMargins(c.dp(5), c.dp(5), 0, 0) })
             // the cross drawn small and taken on the platform's least target: 22 drawn, 44 to the finger, grown inward from the corner
             addView(FrameLayout(c).apply {
                 contentDescription = c.getString(R.string.cancel)
@@ -1329,9 +1380,28 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 pressable { staged.remove(s); drawStaged() }
             }, FrameLayout.LayoutParams(c.dp(44), c.dp(44), Gravity.TOP or Gravity.END))
         }, lp(c.dp(116), c.dp(78)).apply { marginEnd = c.dp(8) })
+        // ONE MORE FILE (iOS 2312): a tray that holds files opens the files page again from here; what it hands back stands after
+        // the last number
+        if (staged.any { it.first.kind == "doc" }) stagedRow.addView(FrameLayout(c).apply {
+            contentDescription = c.getString(R.string.file)
+            background = GradientDrawable().apply { cornerRadius = c.dp(12).toFloat(); setColor(Color.rgb(51, 51, 51)) }
+            addView(c.icon(R.drawable.ic_plus, Color.WHITE, 20), FrameLayout.LayoutParams(c.dp(20), c.dp(20), Gravity.CENTER))
+            pressable { pickFiles() }
+        }, lp(c.dp(78), c.dp(78)))
         stagedStrip.visibility = if (staged.isEmpty()) View.GONE else View.VISIBLE
         bar.attached = staged.isNotEmpty()
     }
+    pickFiles = { act.openDocuments { uris -> if (uris.isNotEmpty()) {
+        val t0 = System.currentTimeMillis()
+        Thread {
+            val made = uris.mapNotNull { u -> Media.read(c, u, true)?.let { p -> p to null } }
+            MainThread.post {
+                if (made.size < uris.size) android.widget.Toast.makeText(c, R.string.media_failed, android.widget.Toast.LENGTH_LONG).show()
+                staged.addAll(made); drawStaged(); toBottom()
+                android.util.Log.i("Montana", "files_pick picked=${uris.size} staged=${made.size} tray=${staged.size} ms=${System.currentTimeMillis() - t0}")
+            }
+        }.start()
+    } } }
     /** The chosen pictures read whole off the frame and staged above the field, in the order the finger chose them (iOS stagePicks). */
     fun stage(uris: List<android.net.Uri>) {
         if (uris.isEmpty()) return
@@ -1407,16 +1477,11 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         false
     }
     bar.onContact = { hideKeys(); if (groupLets("\uD83D\uDC64", false)) act.pickContact { u -> u?.let { contactLetter(c, it) }?.let { words -> sendWords(ref, words); toBottom() } } }
-    // FILES BY THE HANDFUL, IN THE ORDER CHOSEN (iOS 1e46c25e, the author's word 23.10 20:5x): every file the page hands back
-    // leaves as its own letter, one after another as the page lists them
-    bar.onFile = { hideKeys(); act.openDocuments { uris -> if (uris.isNotEmpty()) Thread {
-        for (u in uris) {
-            val p = Media.read(c, u, true)
-            if (p == null) MainThread.post { android.widget.Toast.makeText(c, R.string.media_failed, android.widget.Toast.LENGTH_LONG).show() }
-            else Media.send(c, ref, p, "")
-        }
-        MainThread.post { toBottom() }
-    }.start() } }
+    // FILES BY THE HANDFUL, IN THE ORDER CHOSEN (iOS 1e46c25e, the author's word 23.10 20:5x), AND THEY WAIT ABOVE THE FIELD WITH
+    // THEIR NUMBERS (iOS stageChosen, 2312; the author's word 25.10.2026 17:40 UTC, council link 8089): read one after another in the
+    // page's order, off the screen's thread, into the one tray the pictures stand in -- numbered, taken out and sent as a picture is;
+    // the tray's «+» opens the page again, the arrow sends the tray in its order. The diary names the count.
+    bar.onFile = { hideKeys(); pickFiles() }
     // THE CARD AS A PHOTO (iOS sendCardPhoto): the kept card drawn at the standard size, its words the caption under the card's mark
     bar.onCard = { hideKeys(); if (groupLets("", true)) act.push { close -> businessCardPage(act, close) { card ->
         close()
@@ -1770,7 +1835,67 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     val pageLanding: (String, String?) -> Unit = { to, mid ->
         if (to != ref) { onClose(); act.push { c2 -> conversationPage(act, to, c2) } } else if (mid != null) jumpHere(mid)
     }
-    val openPage = { hideKeys(); act.push { close -> if (group) groupPage(act, ref, close, pageLanding) else peerInfoPage(act, ref, close, pageLanding) } }
+    // THE SEARCH BAR UNDER THE HEADER (iOS searchBar, MontanaConversation.swift:2640-2660 at 2312): the platform's own search field,
+    // «Search in chat…», the round cross beside it closes the search; the keys are asked for once it stands
+    val searchField = EditText(c).apply {
+        hint = c.getString(R.string.chat_search_hint)
+        setHintTextColor(MT.gray); setTextColor(Color.WHITE)
+        textSize = 17f
+        background = null
+        isSingleLine = true
+        inputType = InputType.TYPE_CLASS_TEXT
+        imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH
+        setPadding(0, 0, 0, 0)
+    }
+    lateinit var closeSearch: () -> Unit
+    val searchBar = c.hstack {
+        gravity = Gravity.CENTER_VERTICAL
+        visibility = View.GONE
+        setPadding(dp(12), dp(4), dp(12), dp(4))
+        addView(c.hstack {
+            gravity = Gravity.CENTER_VERTICAL
+            background = c.glassPlate()
+            setPadding(dp(12), 0, dp(12), 0)
+            addView(c.icon(R.drawable.ic_search, Color.rgb(230, 230, 230)), lp(dp(22), dp(22)).apply { marginEnd = dp(8) })
+            addView(searchField, lp(0, WRAP, 1f))
+        }, lp(0, dp(40), 1f))
+        addView(FrameLayout(c).apply {
+            background = c.glassPlate(oval = true)
+            contentDescription = c.getString(R.string.cancel)
+            addView(c.icon(R.drawable.ic_close, Color.rgb(204, 204, 204)), FrameLayout.LayoutParams(dp(18), dp(18), Gravity.CENTER))   // iOS MontanaOctagon.barGlyph
+            pressable { closeSearch() }
+        }, lp(dp(44), dp(44)).apply { marginStart = dp(8) })
+    }
+    // the feed answers the words a moment after the last key (iOS refreshMessageSearch: 120 ms), not at every letter
+    val searchPass = Runnable { redraw() }
+    searchField.addTextChangedListener(object : TextWatcher {
+        override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
+        override fun onTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
+        override fun afterTextChanged(s: android.text.Editable?) {
+            if (!searching) return
+            searchQuery = s?.toString() ?: ""
+            searchField.removeCallbacks(searchPass); searchField.postDelayed(searchPass, 120)
+        }
+    })
+    searchField.setOnEditorActionListener { v, _, _ -> c.getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(v.windowToken, 0); true }
+    fun openSearch() {
+        hideKeys()
+        searching = true
+        searchBar.visibility = View.VISIBLE
+        searchField.requestFocus()
+        searchField.post { c.getSystemService(InputMethodManager::class.java).showSoftInput(searchField, 0) }
+        android.util.Log.i("Montana", "chat_search open")
+    }
+    closeSearch = {
+        c.getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(searchField.windowToken, 0)
+        searching = false; searchQuery = ""
+        searchField.removeCallbacks(searchPass)
+        searchField.setText(""); searchField.clearFocus()
+        searchBar.visibility = View.GONE
+        redraw()
+    }
+    // «SEARCH» OF THE GROUP'S PAGE (iOS perform(.search), MontanaPeerInfoScreen.swift:634-639): the page goes down to its chat and asks it
+    val openPage = { hideKeys(); act.push { close -> if (group) groupPage(act, ref, close, pageLanding, onSearch = { close(); openSearch() }) else peerInfoPage(act, ref, close, pageLanding) } }
     // THE CHESS MARK'S TAP (iOS chessMark 1975-1986): an invitation waiting for my answer is answered in the feed, a played game opens
     // its board; with none the platform's question asks for a new game and takes the stake under the balance (iOS 2054-2067)
     fun chessTap() {
@@ -1938,6 +2063,8 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         }
     }
     jumpHere = { jumpTo(it) }
+    searchLeave = { mid -> closeSearch(); column.post { jumpTo(mid) } }
+    if (search) searchBar.post { openSearch() }
     // THE BAR'S WAY BACK TO ITS BUBBLE (iOS goToLetter, MontanaConversation.swift:1315-1323 at 2155; atom 83753ae0754a): this
     // chat's letter is scrolled to and lit as a reply jump lights; another chat's opens in this one's place
     val showLetter: (String, String) -> Unit = { to, mid ->
@@ -2013,6 +2140,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         // at its end when the panel grows (a reply line, a recording, the keyboard).
         val head = c.vstack(Gravity.NO_GRAVITY) {
             addView(top)
+            addView(searchBar, lp(MATCH, WRAP))
             addView(selTop, lp(MATCH, WRAP))
             // THE PINNED PLATE under the header (iOS the pinned bar): shown while a letter of this chat is pinned
             addView(pinnedPlate(act, ref) { mid -> jumpTo(mid) }, lp().apply { marginStart = dp(10); marginEnd = dp(10); bottomMargin = dp(4) })
