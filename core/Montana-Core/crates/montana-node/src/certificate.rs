@@ -205,6 +205,21 @@ pub struct Round<'a> {
     pub ballots: &'a [Ballot],
 }
 
+// What a certificate not whole yet is refused with: a cement or votes short of their share, or an
+// agreement that has not decided. The certificate of the open window of a running network is such
+// a one while its attestations and pledges still arrive, and so is one whose forged pledges or
+// ballots were dropped, since a forged one says nothing; a forged attestation, beacon or proposal is
+// refused by its own name and is none of these.
+const BELOW_THE_QUORUM: &str = "a cement below the quorum share of the electorate";
+const BELOW_THE_COMMITTEE: &str = "votes below the quorum share of the committee";
+const UNDECIDED: &str =
+    "a certificate whose agreement does not decide the proposal it finalizes";
+
+fn not_whole_yet(refused: &NodeError) -> bool {
+    matches!(refused, NodeError::Refused { what }
+        if [BELOW_THE_QUORUM, BELOW_THE_COMMITTEE, UNDECIDED].contains(what))
+}
+
 // The count of a cement against the quorum share of the electorate, by the integer rule of Canon.
 fn reaches_the_quorum(count: u64, electorate: &Electorate) -> Result<(), NodeError> {
     let reached = mt_pulse::close::closes(u128::from(count), u128::from(electorate.count), 0)
@@ -215,7 +230,7 @@ fn reaches_the_quorum(count: u64, electorate: &Electorate) -> Result<(), NodeErr
         Ok(())
     } else {
         Err(NodeError::Refused {
-            what: "a cement below the quorum share of the electorate",
+            what: BELOW_THE_QUORUM,
         })
     }
 }
@@ -234,7 +249,7 @@ fn reaches_the_committee(votes: u64, electorate: &Electorate) -> Result<(), Node
         Ok(())
     } else {
         Err(NodeError::Refused {
-            what: "votes below the quorum share of the committee",
+            what: BELOW_THE_COMMITTEE,
         })
     }
 }
@@ -388,9 +403,7 @@ pub fn verify_certificate(
         votes: &votes,
     };
     if book.decided(&agreement).map(|(name, _)| name) != Some(previous_id) {
-        return Err(NodeError::Refused {
-            what: "a certificate whose agreement does not decide the proposal it finalizes",
-        });
+        return Err(NodeError::Refused { what: UNDECIDED });
     }
     let cement_aggregate = cement.aggregate(window).map_err(|_| NodeError::Refused {
         what: "a cement the aggregation refuses",
@@ -943,6 +956,37 @@ pub(crate) fn walk_to_the_pending(
     // `later` is the head itself.
     let pending = (later.window != head.later.window).then_some(later);
     Ok((head, pending))
+}
+
+// The walk of a join (Consensus, "The join"). The newest window standing may be the open window of a
+// running network, whose certificate is not whole yet: the proposal before it awaits its certificate,
+// and a walk refused only for that -- a cement, votes or an agreement short -- is taken again without
+// the newest step, so the head is the newest proposal a whole certificate made final. Any other
+// refusal is the refusal of the join: a forged attestation is not dropped in silence for the device to
+// live on from the window before. What the second walk takes it verified whole; what it cannot take
+// is refused as the first was.
+pub fn walk_to_the_open(
+    anchor: &Anchor,
+    steps: &[Step<'_>],
+    chains: u64,
+    draw_threshold: &mt_pulse::U256,
+    implemented_major: u16,
+) -> Result<(Anchor, Option<Proposal>), NodeError> {
+    let walked = walk_to_the_pending(anchor, steps, chains, draw_threshold, implemented_major);
+    match (walked, steps.split_last()) {
+        (Err(refused), Some((_, before_the_newest)))
+            if !before_the_newest.is_empty() && not_whole_yet(&refused) =>
+        {
+            walk_to_the_pending(
+                anchor,
+                before_the_newest,
+                chains,
+                draw_threshold,
+                implemented_major,
+            )
+        }
+        (walked, _) => walked,
+    }
 }
 
 // Lemma 2 of WINDOW-THEOREM.md: every certificate this door accepts satisfies Pi_cert. The presence

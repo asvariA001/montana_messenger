@@ -2589,21 +2589,12 @@ fn walked(
     // as though it were the head: "a device away longer than that finds no certificate to walk and
     // takes a fresh anchor from its operator, which is a change of trust and not a verification, and
     // the set says so" (Consensus, "The join").
-    let Some((_, before_the_newest)) = steps.split_last() else {
+    if steps.is_empty() {
         return Err(NodeError::Refused {
             what: NO_CERTIFICATE_TO_WALK,
         });
-    };
-    let major = mt_state::implemented_major();
-    // The newest window standing may be the open window of a running network, whose certificate is
-    // not whole yet: the proposal before it awaits its certificate, and a walk refused at it is taken
-    // again without it, so the head is the newest proposal a whole certificate made final. What the
-    // second walk takes it verified whole; what it cannot take is refused as the first was.
-    match certificate::walk_to_the_pending(anchor, &steps, 1, &threshold, major) {
-        Ok(walked) => Ok(walked),
-        Err(refused) if before_the_newest.is_empty() => Err(refused),
-        Err(_) => certificate::walk_to_the_pending(anchor, before_the_newest, 1, &threshold, major),
     }
+    certificate::walk_to_the_open(anchor, &steps, 1, &threshold, mt_state::implemented_major())
 }
 
 // What a walk leaves a machine: the head and the proposal before it kept, the head moved onto it,
