@@ -20,11 +20,21 @@
 // of window 1 is issued, since a right is issued for the window a close made final and for no other
 // (pulse.rs, the close). Here the pulse refuses after its patience, nothing of the store moves, and
 // nothing moves across a restart on the same store either.
+//
+// **And with what a machine that did not prove the decision stands at the points.** The same world,
+// with substitutes of the held-back proposal standing at every point of window 2 while the machine
+// waits. Under the identifier the decision makes, there are three: a proof of nothing, a proof of
+// another runner's key, and a signature that does not verify. Under other identifiers, there are
+// three more: the same decision with another cement, with another roll, and with another root. The
+// wrong implementation refused here takes a proposal of the expected identifier without judging its
+// signature and its proof, or takes one of another identifier; either closes the window on it.
 
 use montana_node::attest::LivedCensus;
 use montana_node::pulse::{self, withhold, Cohort};
+use montana_node::round;
 use montana_node::{Configuration, Machine, NodeError};
 use mt_state::layout::Proposal;
+use mt_state::Layout;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -142,4 +152,115 @@ fn a_count_at_the_quorum_with_no_proposal_standing_closes_nothing() {
         Machine::start(&Configuration::at(&at.0, "127.0.0.1:0")).expect("the machine starts again");
     assert!(!born, "a restart drew a second secret");
     assert_at_the_attempt(&again, &then, "a restart after a count at the quorum");
+}
+
+// The substitutes of a proposal a machine that did not prove the decision can stand at the points,
+// each named. The first three carry the identifier the decision makes, which no key, proof or
+// signature enters; the last three carry another. A substitute signed anew is signed by a key of
+// this test's own, under which no ticket was ever proven.
+fn substitutes_of(own: &Proposal) -> Vec<(&'static str, Proposal)> {
+    let expected = own.id().expect("an identifier");
+    let (key, secret) = mt_suite::sign::keypair_from_seed(&[0x5A; mt_suite::sign::SEED_BYTES]);
+    let signed = |mut held: Proposal| {
+        held.runner_pubkey = key.as_bytes().to_vec();
+        held.signature = mt_suite::sign::sign(&secret, &held.signed_scope().expect("scope"))
+            .expect("the test owns its key")
+            .as_bytes()
+            .to_vec();
+        held
+    };
+    let mut absent = own.clone();
+    absent.ticket_proof.fill(0);
+    let mut unsigned = own.clone();
+    unsigned.signature[0] ^= 1;
+    let mut recemented = own.clone();
+    recemented.cement_count += 1;
+    let mut rerolled = own.clone();
+    rerolled.roll[0] ^= 1;
+    let mut rerooted = own.clone();
+    rerooted.note_root[0] ^= 1;
+    let out = vec![
+        ("a proof of nothing", signed(absent)),
+        ("a proof of another runner's key", signed(own.clone())),
+        ("a signature that does not verify", unsigned),
+        ("another cement", signed(recemented)),
+        ("another roll", signed(rerolled)),
+        ("another root", signed(rerooted)),
+    ];
+    for (at, (what, held)) in out.iter().enumerate() {
+        let id = held.id().expect("an identifier");
+        assert_eq!(
+            id == expected,
+            at < 3,
+            "{what} carries the wrong identifier"
+        );
+    }
+    out
+}
+
+// The signatures of the proposals of the window held back standing at its points.
+fn standing_at_the_window(machine: &Machine) -> Vec<Vec<u8>> {
+    let width = Proposal::expected_len();
+    let of_proposal = mt_wire::message::body_len(width).expect("the Decree names the cell");
+    let mut out = Vec::new();
+    for point in round::points_of_window(HELD_BACK).expect("the points of the window") {
+        for body in machine
+            .objects_at_the_point(&point, HELD_BACK)
+            .expect("the point answers")
+        {
+            if body.len() != of_proposal {
+                continue;
+            }
+            if let Ok(held) = Proposal::parse(&body[..width]) {
+                if held.window == HELD_BACK && !out.contains(&held.signature) {
+                    out.push(held.signature);
+                }
+            }
+        }
+    }
+    out
+}
+
+// Box 3 of #10 on the live path: a count at the quorum, and only substitutes stand at the points.
+#[test]
+fn a_substituted_or_unproven_proposal_at_the_points_closes_nothing() {
+    let at = Scratch::named("quorum-substitutes");
+    let (machine, _) =
+        Machine::start(&Configuration::at(&at.0, "127.0.0.1:0")).expect("the machine starts");
+    let stood: Rc<RefCell<Vec<(&'static str, Proposal)>>> = Rc::new(RefCell::new(Vec::new()));
+    let (lived, then) = live_held_back(&machine, {
+        let stood = Rc::clone(&stood);
+        move |machine: &Machine, own: &Proposal| {
+            for (what, held) in substitutes_of(own) {
+                let bytes = held.bytes().expect("a proposal of its width");
+                for point in round::points_of_window(HELD_BACK).expect("the points of the window") {
+                    machine
+                        .publish_at_the_point(&point, HELD_BACK, &bytes)
+                        .expect("it stands at the point");
+                }
+                stood.borrow_mut().push((what, held));
+            }
+        }
+    });
+    assert_eq!(lived, Err(NodeError::Refused { what: NO_PROPOSAL }));
+
+    // Every substitute stood at the points of the window the whole time the machine waited there,
+    // and nothing else did.
+    let standing = standing_at_the_window(&machine);
+    let stood = stood.borrow();
+    assert_eq!(stood.len(), 6);
+    for (what, held) in stood.iter() {
+        assert!(
+            standing.contains(&held.signature),
+            "{what} did not stand at the points"
+        );
+    }
+    assert_eq!(standing.len(), stood.len());
+    assert_at_the_attempt(&machine, &then, "a substitute at the points");
+
+    drop(machine);
+    let (again, born) =
+        Machine::start(&Configuration::at(&at.0, "127.0.0.1:0")).expect("the machine starts again");
+    assert!(!born, "a restart drew a second secret");
+    assert_at_the_attempt(&again, &then, "a restart after substitutes at the points");
 }
