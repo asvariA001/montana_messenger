@@ -4775,7 +4775,7 @@ demands the width from this row rather than declaring one of its own.
 | `standing_censuses` — the census windows the standing of a machine is counted over, newest first | 10 |
 | `census_interval`, in windows — derived: τ₂ / standing_censuses, so the censuses span one period of adaptation | τ₂ / 10 = 2 016 |
 | `standing_committee` — the votes the standing of an electorate draws in a window, in expectation, once it is wide enough to be sampled | 6 499 |
-| `air_hash` — the constraint sets the proofs of this network are accepted under | 386737ff95308260f48a5ea85d7001740032d0aeffb9c54cdf3d766a63790ca0 |
+| `air_hash` — the constraint sets the proofs of this network are accepted under | 09d333821ba444522d32bbeb189f53ad79189412291d9c81942685dba2c36a29 |
 
 **The volume the schedule is checked against.** Per machine, per window, across its chains:
 eligibility strikes 1.1094 times in expectation; 0.6710 of machines publish one heavy

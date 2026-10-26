@@ -80,7 +80,11 @@ impl Lived {
                 "the verifier accepted {what}"
             );
         }
-        assert_eq!(self.state.notes_root(), notes, "{what} moved the tree of notes");
+        assert_eq!(
+            self.state.notes_root(),
+            notes,
+            "{what} moved the tree of notes"
+        );
         assert_eq!(self.wallet.balance().unwrap(), 0, "{what} moved a balance");
     }
 }
