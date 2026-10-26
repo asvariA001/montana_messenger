@@ -49,6 +49,11 @@ mt_codec::constants! {
     /// What the chains and the walks of this circuit fill, one power of two. The height it is
     /// **built** at is the one every description stands at.
     pub const ROWS_FILLED_LOG2: usize = 16, code "the rows the chains and the walks of an admission fill, one power of two: what the height every description stands at must hold";
+    /// The places of the values of thirty-two bytes in the public input after the window, in the
+    /// order `public_of` lays them. The machine's commitment stands at the third and binds no cell.
+    pub const SLOT_RECORD_ROOT: usize = 0, code "the place of the root of records among the values of thirty-two bytes of the public input of an admission";
+    pub const SLOT_NAMING_HALF: usize = 1, code "the place of the naming half among the values of thirty-two bytes of the public input of an admission";
+    pub const SLOT_RIGHT: usize = 3, code "the place of the right among the values of thirty-two bytes of the public input of an admission, after the machine's commitment";
 }
 
 // How the blocks of the admission stand. Block zero is idle so every chain has a seam before it.
@@ -175,12 +180,6 @@ impl Places {
         out
     }
 }
-
-// The places of the values of thirty-two bytes in the public input, after the window. The
-// commitment of the machine stands at the third and binds no cell.
-const SLOT_RECORD_ROOT: usize = 0;
-const SLOT_NAMING_HALF: usize = 1;
-const SLOT_RIGHT: usize = 3;
 
 // The limbs a secret of thirty-two bytes stands in, and therefore a digest's bytes as well.
 fn secret_limbs() -> usize {
