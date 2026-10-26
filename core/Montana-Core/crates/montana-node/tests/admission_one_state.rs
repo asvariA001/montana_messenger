@@ -42,9 +42,14 @@ fn key_of(record: &[u8]) -> [u8; 32] {
     mt_proof::records::leaf(record).bytes()
 }
 
-// The first level, least significant bit first as the walk reads a key, at which two keys part.
+// The level of the claimant's walk whose sibling another record moves: the highest bit at which
+// the two keys part. The tree splits on bit 255 at its root and on bit 0 above the leaves
+// (`mt_proof::records::path_of_leaves`), so a record joins the claimant's sibling at the first
+// split where their keys go apart, walking down from the root, and the walk's siblings are indexed
+// by that height.
 fn parting(a: &[u8; 32], b: &[u8; 32]) -> usize {
     (0..256usize)
+        .rev()
         .find(|&level| (a[level >> 3] ^ b[level >> 3]) >> (level & 7) & 1 == 1)
         .expect("two records of distinct rights stand at distinct keys")
 }
@@ -52,7 +57,11 @@ fn parting(a: &[u8; 32], b: &[u8; 32]) -> usize {
 // A candidacy of the claimant's own record walked by `siblings`, proven the only way a prover can:
 // under the root that walk answers. Against `held`, the root the verifier holds, the same trace
 // satisfies nothing and proves nothing. What comes back is the candidacy and the root it answers.
-fn walked(record: &[u8], siblings: &[Digest], held: &Digest) -> (mt_state::layout::Candidacy, Digest) {
+fn walked(
+    record: &[u8],
+    siblings: &[Digest],
+    held: &Digest,
+) -> (mt_state::layout::Candidacy, Digest) {
     let (trace, digests) = mt_proof::circuit::admission::trace_of(
         record,
         &key_of(record),
@@ -61,10 +70,12 @@ fn walked(record: &[u8], siblings: &[Digest], held: &Digest) -> (mt_state::layou
         &OWN_RIGHT,
     )
     .expect("an attacker writes it");
-    assert_ne!(digests[0], *held, "the walk answers the root the verifier holds");
+    assert_ne!(
+        digests[0], *held,
+        "the walk answers the root the verifier holds"
+    );
     let statement = mt_proof::circuit::admission::description().expect("the description stands");
-    let at_held =
-        mt_proof::circuit::admission::public_of(WINDOW, held, &digests[1], &digests[2]);
+    let at_held = mt_proof::circuit::admission::public_of(WINDOW, held, &digests[1], &digests[2]);
     assert!(
         !statement.satisfied_by(&trace, &mt_proof::poseidon::limbs_of(&at_held)),
         "the statement accepts the walk under the root the verifier holds"
@@ -160,12 +171,18 @@ fn a_path_spliced_of_two_states_of_the_tree_is_refused() {
     opened(&mut state, 0x45, &first);
     let middle = state.clone();
     opened(&mut state, 0x46, &second);
-    let roots = [early.records_root(), middle.records_root(), state.records_root()];
+    let roots = [
+        early.records_root(),
+        middle.records_root(),
+        state.records_root(),
+    ];
     let key = key_of(&own);
     let path = |held: &State| held.path_of_a_record(&key).expect("the record stands");
     let (before, between, now) = (path(&early), path(&middle), path(&state));
     let moved = |a: &[Digest], b: &[Digest]| -> Vec<usize> {
-        (0..a.len()).filter(|level| a[*level] != b[*level]).collect()
+        (0..a.len())
+            .filter(|level| a[*level] != b[*level])
+            .collect()
     };
     assert_eq!(moved(&before[..], &between[..]), vec![at_first]);
     assert_eq!(moved(&between[..], &now[..]), vec![at_second]);
@@ -178,7 +195,10 @@ fn a_path_spliced_of_two_states_of_the_tree_is_refused() {
     let held = state.records_root();
     let (mixed, answered) = walked(&own, &spliced, &held);
     for root in &roots {
-        assert_ne!(answered, *root, "the spliced path answers a root a state held");
+        assert_ne!(
+            answered, *root,
+            "the spliced path answers a root a state held"
+        );
     }
     for root in &roots {
         refused(
