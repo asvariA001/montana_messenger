@@ -1,6 +1,6 @@
 # Montana for Windows — Work in Progress
 
-**Status: Work in Progress · Partial Implementation · Not a release.** State as of 25.10.2026 15:55 UTC.
+**Status: Work in Progress · Partial Implementation · Not a release.** State as of 26.10.2026 03:30 UTC.
 Do not use it with an identity that holds anything of value.
 
 ## What it is
@@ -21,47 +21,47 @@ its assets — is the work of its own authors; this port follows it and claims n
 
 | Path | What it is | Lines |
 |---|---|---|
-| `app/src-tauri/src/` | the Windows side in Rust, 61 files: identity, pipes and letters, the twin mirror, archive and copies, groups, channels, calls' signalling, coins and the wallet, music, the VPN wall's server book, the home node, Windows Hello, notifications | 35 090 |
-| `app/src/` | the interface (React 19 + Vite 8), drawn after the iOS screens | 20 423 |
+| `app/src-tauri/src/` | the Windows side in Rust, 61 files: identity, pipes and letters, the twin mirror, archive and copies, groups, channels, calls' signalling, coins and the wallet, music, the VPN wall's server book, the home node, Windows Hello, notifications | 35 129 |
+| `app/src/` | the interface (React 19 + Vite 8), drawn after the iOS screens | 20 738 |
 | `app/protocol-core/` | `montana_core.dll`: the boundary crate `core/Montana-Core/crates/mt-boundary`, unchanged, as one Windows library | 64 |
 | `app/src-tauri/node/` | the home node the app installs on a machine one owns: iOS's `Code/Node` (deviation 12) | 1 250 |
-| `app/tools/` | 97 UI scenes (PowerShell + UI Automation) that drive two or more real windows with test identities, a manual check of Windows Hello, their helpers, the runner `all.ps1` and the protocol core's build script; `chess-check.mjs`; `clocknode.py`, an isolated node on a clock of its own; the generators `glyphs.py` and `ui_atlas.py` | 8 814 |
+| `app/tools/` | 98 UI scenes (PowerShell + UI Automation) that drive two or more real windows with test identities, a manual check of Windows Hello, their helpers, the runner `all.ps1` and the protocol core's build script; `chess-check.mjs`; `pagekeys.mjs`, which fails two pages of one kind that can take one place without keys of their own; `clocknode.py`, an isolated node on a clock of its own; the generators `glyphs.py` and `ui_atlas.py` | 9 768 |
 
-This tree is the developer's local work at its commit `da7c109` (25.10.2026 14:10 UTC), copied in as files; that history is not
-published. Two edits were made for this repository, as for PR #13: the path of the core in `app/protocol-core/Cargo.toml`
-(`../../../../../core/...`), and LF line endings in `app/src/glyphs.js` and `app/tools/shot.ps1`. A third came later:
-`app/.gitignore` also keeps out `*.words` and `*.mtbak`, the files of an identity's 24 words and of its copy (#40). The program code — Rust and
-the interface — is that of local commit `6aad43e`; the four commits after it add three unit tests (`wire.rs`, module
-`canon_walk`) and change the scenes' helper (`tools/ui.ps1`) and the internal notes. Work in progress elsewhere and not in this
-tree: the fix of the Settings freeze (Known defects).
+This tree is the developer's local work at its commit `aacbf76` (26.10.2026 02:51 UTC), copied in as files; that history is not
+published. Edits made for this repository, as for PR #13: the path of the core in `app/protocol-core/Cargo.toml`
+(`../../../../../core/...`), LF line endings in `app/src/glyphs.js` and `app/tools/shot.ps1`, and a wider `app/.gitignore`,
+which also keeps out `*.words` and `*.mtbak`, the files of an identity's 24 words and of its copy (#40). Every other file of
+`app/` is byte for byte the local one. The program code — Rust and the interface — is that of local commit `abdabb2`;
+`aacbf76` after it changes one scene (`tools/deeds.ps1`). Since this tree was first published (local `da7c109`) it has taken
+the fix of the Settings freeze, the fix of the copy's last page and the scenes' fixes (Checks).
 
 ## State per feature
 
 *works*: a scene or unit test passed, with its date; *partial*: present, with the gaps named; *prototype*: a first form that
-lacks an essential part. A scene's date with no note is the 30-scene run of 25.10.2026 on this tree's program code (Checks);
-"earlier code" marks a run before the chats-tab work; "not re-run" marks a scene in `app/tools/` not run on this program code.
-The last full run of every scene (24.10.2026, an earlier build, against iOS 2304) passed 52 of 71.
+lacks an essential part. A scene named with no date is one of the 75 of `tools\all.ps1`: all of them passed on this tree's
+program code in the final full run of 26.10.2026 (73 at once, `deeds` and `voice` on a re-run; Checks). "earlier code" marks
+a run of a scene outside `all.ps1` before the chats-tab work.
 
 | Feature | State | Evidence | Main gaps |
 |---|---|---|---|
-| Identity: the 24 words, restoring by them, several identities on one computer, deleting one | works; interface partial | `seats` (25.10.2026); `leave` (25.10.2026, earlier code); unit tests in `history`, `twin`, `forgotten` | no Back while an identity is made; no restore page with progress; a new identity's sign-in is not a page over the tabs |
-| Meeting a person, contacts, a person's page | partial | `ab` (25.10.2026) | no fingerprint verification (deviation 3); Contacts is a bare list; no @name sheet; a person's page lacks its call buttons; no MTSamePair, so one person can stand in two rows (deviation 4) |
+| Identity: the 24 words, restoring by them, several identities on one computer, deleting one | works; interface partial | `seats`; `leave` (25.10.2026, earlier code); unit tests in `history`, `twin`, `forgotten` | no Back while an identity is made; no restore page with progress; a new identity's sign-in is not a page over the tabs |
+| Meeting a person, contacts, a person's page | partial | `ab` | no fingerprint verification (deviation 3); Contacts is a bare list; no @name sheet; a person's page lacks its call buttons; no MTSamePair, so one person can stand in two rows (deviation 4) |
 | The pipe secret and its daily step | partial | unit tests in `wire`, with `wire::canon_walk`; `walkiso.ps1` in an isolated room, clocks moved, never the network (25.10.2026, earlier code) | iOS 2310's tag walk and erasure not ported (deviation 2); departs from Canon (deviation 1); not yet run on the real date, 29.10.2026 00:00 UTC |
-| Letters one to one, Saved Messages, drafts, forwarding, selection | works; interface partial | `ab`, `savedpick`, `select` (25.10.2026); `savedtwin`, `drafts` (24.10.2026, earlier code) | no search inside a conversation, no jump to the newest, no floating date; an unsent letter is not offered again; a poorer hold menu; attachments go at once (no Send Later) |
+| Letters one to one, Saved Messages, drafts, forwarding, selection | works; interface partial | `ab`, `savedpick`, `select`, `drafts`, `forward`; `savedtwin` (24.10.2026, earlier code) | no search inside a conversation, no jump to the newest, no floating date; an unsent letter is not offered again; a poorer hold menu; attachments go at once (no Send Later) |
 | One identity on several devices (iOS's twin mirror) | works between Windows and the Android port on emulators | `twin*.ps1` (25.10.2026, earlier code: that of PR #13; table below) | never checked against an iPhone; a two-minute wait of its own (deviation 14) |
-| Groups | partial | `groups`, `gtyping`, `gface`, `glink`, `grights` (not re-run) | the group's page is flat |
-| Channels | partial | `channel`, `ccomments` (not re-run) | the channel's page is flat |
-| Calls: audio, video, rooms | partial | `calls` (25.10.2026); `callbreak`, `callvideo`, `room` and others (not re-run) | no ringing sounds; the video call is laid out differently; few ways into a call; the call's row in a conversation differs |
-| Files and media | partial | `files`, `album`, `bigfile`, `heic`, `gif`, `voice`, `note`, `stickers` (not re-run) | photos sent together are not laid as one album mosaic; the viewer's gestures and menus in part; video notes cut down; the emoji panel simplified; the Gallery has no viewer or menu |
+| Groups | partial | `groups`, `gtyping`, `gface`, `glink`, `grights` | the group's page is flat |
+| Channels | partial | `channel`, `ccomments` | the channel's page is flat |
+| Calls: audio, video, rooms | partial | `calls`, `callbreak`, `callvideo`, `room` and the other call scenes | no ringing sounds; the video call is laid out differently; few ways into a call; the call's row in a conversation differs |
+| Files and media | partial | `files`, `album`, `bigfile`, `heic`, `gif`, `voice`, `note`, `stickers` | photos sent together are not laid as one album mosaic; the viewer's gestures and menus in part; video notes cut down; the emoji panel simplified; the Gallery has no viewer or menu |
 | Notifications | partial | Windows toasts (`tauri-plugin-notification`); the tray keeps the program hearing letters with its window closed | no push service: letters are heard only while the program runs (deviation 9); a tap on a banner does nothing yet |
-| The node: the doors, the box, the home node | partial | unit tests in `doors`, `homenode`; `homenode`, `core`, `p2p` (not re-run) | no Bluetooth mesh (deviation 11); iOS 2309-2311 not ported |
-| Wallet and coins | partial | `walletlook` (25.10.2026); `coins`, `coinhold`, `coinreact`, `flow`, `seedbook`, `seatsend` (not re-run); transfers checked only between test identities | sending from a group; the Transaction page; a call's receipt; the Explorer opens in the system browser (deviation 10) |
-| Settings and the copy (`.mtbak`) | partial | `keeping` (25.10.2026); unit tests in `history` (a cut, forged or reordered copy is refused) | **leaving a Settings sub-page freezes the window** (Known defects); parts of Appearance; the copy's pages simplified |
-| Wall, music, chess, card, passwords | partial | `music`, `library` (25.10.2026); `wall`, `chess`, `chesscpu`, `card`, `passwords` (not re-run); `node tools/chess-check.mjs` 40 of 40 on this tree | the chess board's Moves sheet, Flip board, Live position and the timer of a game on one device; the wall's common feed; posts' media and links |
-| VPN wall | prototype | `vpn` (25.10.2026): the server book and the subscriptions | no tunnel: the engine is not in this port (deviation 11) |
+| The node: the doors, the box, the home node | partial | unit tests in `doors`, `homenode`; `homenode`, `core`, `p2p` | no Bluetooth mesh (deviation 11); iOS 2309-2311 not ported |
+| Wallet and coins | partial | `walletlook`, `coins`, `coinhold`, `coinreact`, `flow`, `seedbook`, `seatsend`; transfers checked only between test identities | sending from a group; the Transaction page; a call's receipt; the Explorer opens in the system browser (deviation 10) |
+| Settings and the copy (`.mtbak`) | partial; the freeze fixed | `slotpage`: Settings from the drawer, each of its pages and an answer of Questions left by Back, Esc, Alt+Left, the mouse's back button and the edge stroke, five times in a row, and the slot's own pages left by their cross, the window answering after each; `datapage`, `keeping`; unit tests in `history` (a cut, forged or reordered copy is refused) | parts of Appearance; the copy's pages simplified; the waiting rows are a Windows adaptation (deviation 15) |
+| Wall, music, chess, card, passwords | partial | `music`, `library`, `wall`, `chess`, `chesscpu`, `card`, `passwords`; `node tools/chess-check.mjs` 40 of 40 on the tree first published | the chess board's Moves sheet, Flip board, Live position and the timer of a game on one device; the wall's common feed; posts' media and links |
+| VPN wall | prototype | `vpn`: the server book and the subscriptions | no tunnel: the engine is not in this port (deviation 11) |
 | Languages | partial | Russian and English, keyed as iOS's catalog (`app/src/strings.js` 1-3) | iOS's catalog also has Simplified Chinese |
 | The interface against iOS | partial | the atlas below | compared visually with the SwiftUI source on 22 rows; none on an iPhone; no animation compared |
-| Build and installer | builds; unsigned | the program of `6aad43e` built, exit 0 | the NSIS installer is not code-signed |
+| Build and installer | builds; unsigned | `npx tauri build` exit 0 on this tree's program code (`abdabb2`): the program and `Montana_0.1.0_x64-setup.exe` | the NSIS installer is not code-signed |
 | Dinet Device Sync | design only | — | no code (`CREDITS.md`) |
 
 ### The interface, row by row
@@ -126,33 +126,32 @@ Windows and an emulator through it from today to 03.11.2026.
 
 ## Checks
 
-On this tree, Windows 11 Pro 10.0.26200, 25.10.2026:
+**On this tree's program code**, the developer's commit `abdabb2` (this tree's `app/` is `aacbf76`, which changes one scene
+after it), Windows 11 Pro 10.0.26200, in `app/src-tauri/` with `CARGO_TARGET_DIR=<repo>/target` and
+`RUSTUP_TOOLCHAIN=1.92.0-x86_64-pc-windows-msvc`, 25.10.2026:
 
-| Command (in `app/`; cargo in `app/src-tauri/`) | Exit code | Result | UTC |
-|---|---|---|---|
-| `node tools/chess-check.mjs` | 0 | 40 of 40 | 15:21 |
-| `npm ci` | 0 | | 15:22 |
-| `npm run build` (Vite) | 0 | one warning: a chunk over 500 kB | 15:22 |
-| `cargo clippy --all-targets -- -D warnings` | 0 | no warning | 15:26 |
-| `cargo test --lib` | 0 | 150 passed, 0 failed, 19 ignored | 15:36 |
-| `cargo test --release --lib` | 0 | 150 passed, 0 failed, 19 ignored | 15:52 |
+| Command | Exit code | Result |
+|---|---|---|
+| `cargo test --release --lib` | 0 | 150 passed, 0 failed, 19 ignored |
+| `cargo clippy --release --all-targets -- -D warnings` | 0 | no warning |
+| `npx tauri build` (in `app/`) | 0 | the program and its NSIS installer `Montana_0.1.0_x64-setup.exe`, 19.94 MiB (23:16 UTC) |
 
-The cargo runs linked `mt_bindings.dll` and `montana_core.dll` built from `main`'s `core/` with the portability commit 291869b
-applied (core tree 17ea6d0e). The program and its installer were not built from this tree (`npx tauri build`).
+The runs were made in the developer's repository, whose `core/` is tree 17ea6d0e: the `core/` this tree was first published
+against (4ce3d670) with the portability commit 291869b applied.
 
-On the developer's commits, 25.10.2026:
+**The UI scenes**, the final full run on a fresh root, 26.10.2026: `tools\all.ps1`, 75 scenes, **73 passed**.
 
-| Command | Commit | Exit code | Result |
-|---|---|---|---|
-| the program's build | `6aad43e` (this tree's program code) | 0 | |
-| `cargo test --release --lib` | `6aad43e` | 0 | 147 passed, 0 failed, 19 ignored; this tree adds the 3 tests of `wire::canon_walk` |
-| `cargo clippy --all-targets -- -D warnings` | `6aad43e`, `e5014fe` | 0 | |
-| `cargo test --lib wire::canon_walk` | `e5014fe` | 0 | 3 passed (13:34 UTC) |
-| the 30 UI scenes of the atlas's chats section, after the chats-tab work | `90e9cc7` | — | **11 passed** (`ab`, `savedpick`, `select`, `look`, `calls`, `keeping`, `walletlook`, `seats`, `vpn`, `music`, `library`), **19 failed**; being fixed |
+- `deeds` and `voice` failed once, and passed on a re-run and on a fresh root. `deeds` then got a scene fix (`aacbf76`): it
+  waited for the Sent status, which stands for under a second before Delivered.
+- The run before it found one fault of the app: `datapage`, the copy's count after its last page closed. `abdabb2` fixes it,
+  and `datapage` passed on the fresh root.
+- `slotpage`, new with the freeze fix, drives every way back from Settings, each of its pages and the slot's own pages, five
+  times in a row, and checks that the window answers after each. It passed.
 
-After that scene run, `961dc4e` changed the scenes' helper: `Front-Montana` (`tools/ui.ps1`) no longer gives the keyboard to the
-list's search field, which since the chats-tab work turns the list into search results and hides the Write button. The 30
-scenes have not been run again since.
+**Earlier, on the tree first published** (local `da7c109`, program code of `6aad43e`), 25.10.2026: `node tools/chess-check.mjs`
+0 (40 of 40), `npm ci` 0, `npm run build` 0, `cargo clippy --all-targets -- -D warnings` 0, `cargo test --lib` 0 and
+`cargo test --release --lib` 0 (150 passed, 0 failed, 19 ignored each). The full run of 74 scenes on that program code passed
+68; the six failures were faults of the scenes or of the environment, fixed in the scenes since.
 
 The 19 ignored unit tests need the live network or a second window; the scenes run those paths instead. The core, built with the
 portability change of `dinetpda/core-windows-portability` (see Build), passed `cargo test --release --workspace` in `core/Code` on
@@ -213,7 +212,7 @@ powershell -NoProfile -STA -ExecutionPolicy Bypass -File tools\all.ps1 -Root DIR
 Pop-Location
 ```
 
-`tools\all.ps1` runs 74 scenes in turn; the others (the twin mirror with the Android port on emulators, the walk in the isolated
+`tools\all.ps1` runs 75 scenes in turn; the others (the twin mirror with the Android port on emulators, the walk in the isolated
 room, Windows Hello by hand) run one by one. The scenes drive the Russian interface. Between scenes `tools\all.ps1` closes the
 windows left behind only under the developer's own checkout path (its line 17); in another clone, close them by hand.
 
@@ -293,11 +292,26 @@ another commit is named.
     524-529): an addition for an Android client that keeps its devices in step by archive blocks alone and answers no ask. iOS has
     no such wait, so a Saved Message written on an iPhone may reach a running Windows about two minutes late; not checked with an
     iPhone.
+15. **A page whose read has not answered shows a waiting row, and a red row that asks again.** The window asks the program for
+    what a page shows, where iOS reads the values at once (`@AppStorage`, `MTKeepingSection`). So the pages of Settings
+    (notifications, data, privacy, language), the copy's section, a person's page, the wall's rules and the wallet's frame stand
+    at once with a spinner row; when the read did not answer, the row turns red, «Could not be read.», with «Try again»
+    (`app/src/Settings.jsx` 211-220 `Waiting`, 298, 322, 345, 379, 603; `Profile.jsx` 247; `Wall.jsx` 129, 772;
+    `Wallet.jsx` 928). A Windows adaptation; not compared on an iPhone.
+16. **The crop of a new photo has a loading frame.** iOS has the picture before its crop's cover rises (`MTAvatarCropView` in a
+    `fullScreenCover`, `Montana/MontanaProfile.swift` 810-811); here a window reads it first (a HEIC is converted), so the crop
+    stands at once with its ground, its cross and a spinner while it is read, never nothing over the page under it
+    (`app/src/Profile.jsx` 93-104).
+17. **The window guards itself where iOS needs nothing of the kind.** A second press of a double click that lands on another
+    layer than its first is no press (`app/src/press.js`), and a page takes no pointer until its way in ends, as UIKit takes no
+    touch during a push; a cover with no live page over it for a second is traced («cover freed») and taken away
+    (`app/src/App.jsx`); a window that fell while drawing is drawn again, at most once in 30 s, and a second fall shows a black
+    ground with «Try again» (`app/src/main.jsx`). A linked post that is not on this computer opens a Comments page with iOS's
+    words, where iOS shows its verdict and opens nothing (`Montana/MontanaFirstContact.swift` 1938-1942). Not compared on an
+    iPhone.
 
 ## Known defects
 
-- **Leaving a Settings sub-page freezes the window.** A fix is in progress and is not in this tree.
-- 19 of the 30 scenes of the chats section failed on 25.10.2026 after the chats-tab work (Checks); they are being fixed.
 - One person can stand in two rows (deviation 4); no fingerprint verification (deviation 3).
 - From 01.11.2026 UTC, iOS 2310's transition (deviation 2).
 
