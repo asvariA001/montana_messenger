@@ -1643,7 +1643,17 @@ object Groups {
             return true
         }
     }
-    /** The copy's pipe was gone before it left (Post.flush): my row says so (iOS copySettled, red with no pipe). */
+    /** The row of mine a copy carries, still riding (iOS bidsNamed of the queued letter): the cargo check reads its media there. */
+    fun copyRow(name: String): Msg? {
+        synchronized(lock) {
+            val c = (if (ready()) copies[name] else null)?.takeIf { it.own && it.letter.isNotEmpty() } ?: return null
+            return Book.chat(key(c.group))?.msgs?.find { it.mine && it.mid == c.letter }
+        }
+    }
+    /**
+     * The copy's pipe was gone before it left (Post.flush): my row says so (iOS copySettled, red with no pipe);
+     * so does its cargo found gone (Pipes.cargoReported, iOS copyRefused).
+     */
     fun copyLost(name: String): Boolean {
         synchronized(lock) {
             val c = (if (ready()) copies[name] else null) ?: return false

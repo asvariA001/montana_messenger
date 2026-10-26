@@ -1752,15 +1752,17 @@ object Post {
         return if (land(secret, card, f[0], text, f[2])) Wire.reference(secret) else null
     }
 
-    /** The pipe a first letter gives birth to: the chat with the writer's name, the face beside the pipe read, the letter placed and answered. */
     /**
      * THE RECEIVER SAYS MY LETTER'S CARGO IS GONE (iOS cargoLostMark, MontanaChatStore 4083-4098; verifyCargoNow and checkCargo,
      * MontanaDeliveryEngine 1198-1232; atom 7787c49622e5). The report may be stale -- about an old incarnation of the letter while a
      * resend rides under the same name -- so it never retracts the letter: the stores pass the sentence, every proven store asked, one
      * silent store is «don't know». Only a cargo truly absent turns a letter still riding red; a delivered letter keeps its row.
+     * A group's copy has no row on its pipe: the row it carries stands in the group's feed, and the verdict turns that row
+     * (iOS settleRefused → MTGroup.copyRefused).
      */
     private fun cargoReported(ref: String, lost: String) {
-        val m = Book.chat(ref)?.msgs?.find { it.mid == lost && it.mine } ?: return
+        val copy = Groups.copyRow(lost)
+        val m = copy ?: Book.chat(ref)?.msgs?.find { it.mid == lost && it.mine } ?: return
         val o = runCatching { JSONObject(m.text.removePrefix(Marks.MEDIA)) }.getOrNull()?.takeIf { m.text.startsWith(Marks.MEDIA) } ?: return
         val bids = if (o.has("mref")) listOf(o.optString("mref"))
             else o.optJSONArray("chunks")?.let { a -> (0 until a.length()).map { a.getJSONObject(it).optString("bid") } }.orEmpty()
@@ -1771,12 +1773,14 @@ object Post {
             val gone = bids.count { it.isNotEmpty() && it !in have }
             if (gone == 0) return@Thread
             Log.d("Montana", "cargo_lost m=" + lost.take(8) + " sender check: " + gone + "/" + bids.size + " chunks gone from the node — red if the letter still rides")
+            if (copy != null) { Groups.copyLost(lost); return@Thread }   // a receipted copy has left the group's list: no verdict
             var red: Msg? = null
             Book.edit(ref) { c -> c.msgs.find { it.mid == lost && it.mine }?.let { if (it.advance(-1)) red = it } }
             red?.let { CoinSend.hold(it, ref) }
         }.start()
     }
 
+    /** The pipe a first letter gives birth to: the chat with the writer's name, the face beside the pipe read, the letter placed and answered. */
     private fun land(secret: ByteArray, root: ByteArray, mid: String, text: String, name0: String): Boolean {
         // a letter of a conversation buried after it was born opens no chat again (iOS 876ab288): the funeral's moment says so
         if (Book.chat(Wire.reference(secret)) == null && Book.diedBefore(Wire.reference(secret), mid)) {
