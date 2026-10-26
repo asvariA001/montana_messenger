@@ -177,6 +177,22 @@ class MainActivity : Activity() {
             if (hasSeed && termsAccepted) push { close -> walletPage(this, close) }
             return
         }
+        // A SET'S LINK IS NOT AN INVITATION (iOS handleLink 1966-1985): it names a set and nobody else. The hand that passed it was
+        // remembered when the letter landed (StickerWire.noteLink), so the set is asked of that hand and its page opens over that
+        // very conversation. A link from nowhere opens nothing: there is no register to ask, and no address is guessed.
+        StickerPack.idIn(link)?.let { (id, title) ->
+            if (!hasSeed || !termsAccepted) return
+            android.util.Log.d("Montana", "sticker_link opened pack=" + id.take(8))
+            // my own set's link (iOS: its giver is my own reference): nobody to ask — my set's page over the open conversation
+            if (id == StickerBook.mineId) { Book.openChat?.let { Stickers.setPage(this, it) }; return }
+            val giver = StickerBook.giver(id)
+            if (giver.isNullOrEmpty()) { sayVerdict(this, R.string.sticker_ask_giver); return }
+            if (!StickerBook.holds(id)) StickerBook.meet(id, title.ifEmpty { "Montana" }, giver, 0)
+            background { StickerWire.ask(id, giver) }
+            if (Book.chat(giver) != null && Book.openChat != giver) push { close -> conversationPage(this, giver, close) }
+            Stickers.setPage(this, giver, id)
+            return
+        }
         if (!hasSeed || !termsAccepted) {
             Prefs.setStr("pendingInvite", link)
             sayVerdict(this, R.string.invite_wait)

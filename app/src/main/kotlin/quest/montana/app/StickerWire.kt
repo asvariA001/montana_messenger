@@ -1,5 +1,8 @@
 package quest.montana.app
 
+import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.util.Base64
 import android.util.Log
 import org.json.JSONArray
@@ -57,6 +60,30 @@ object StickerBook {
     private fun keep(list: List<Pack>) = Prefs.setStr(PACKS, JSONArray(list.map { it.json() }).toString())
     fun pack(id: String): Pack? = packs().firstOrNull { it.id == id }
     fun holds(id: String) = id == mineId || pack(id) != null
+
+    /** The one page watching a set fill (Stickers.setPage): told on the main thread whenever a set is met or a page lands. */
+    @Volatile var onChange: (() -> Unit)? = null
+    private val main = Handler(Looper.getMainLooper())
+    fun changed() { main.post { onChange?.invoke() } }
+
+    /**
+     * A SET REMOVED FROM THIS PHONE (iOS drop(pack:)): the set leaves the book and its pictures leave the disk — all but those
+     * my own set or another set still names, since a sticker is one file whoever holds it.
+     */
+    fun drop(id: String) {
+        synchronized(lock) {
+            val list = packs().toMutableList()
+            val p = list.firstOrNull { it.id == id } ?: return
+            list.remove(p)
+            keep(list)
+            val kept = Stickers.names(Book.ctx).toSet() + list.flatMap { it.names }
+            p.names.filter { it !in kept }.forEach { File(File(Book.ctx.filesDir, "stickers"), it).delete() }
+            Log.d("Montana", "sticker_book drop pack=" + id.take(8) + " n=" + p.names.size)
+        }
+    }
+
+    /** A picture another set names (iOS allFiles): forgotten from my set, its file stays for that set. */
+    fun othersHold(name: String) = packs().any { name in it.names }
 
     /** A set's word arrived: the set is known by name before a single sticker of it has landed (iOS meet). */
     fun meet(id: String, title: String, owner: String, expected: Int) = synchronized(lock) {
@@ -200,5 +227,38 @@ object StickerWire {
             }
             else -> {}   // a shape from a newer build: buried in silence
         }
+        StickerBook.changed()
+    }
+
+    /**
+     * A LETTER CARRYING A SET'S LINK NAMES ITS GIVER (iOS noteLink): the link holds no address of anybody, so the one who handed
+     * it over is remembered at the moment the letter lands — that is whom the set is asked of when the link is tapped.
+     */
+    fun noteLink(text: String, peer: String) {
+        val (id, title) = StickerPack.idIn(text) ?: return
+        if (peer.isEmpty()) return
+        if (!StickerBook.holds(id)) StickerBook.meet(id, title.ifEmpty { "Montana" }, peer, 0)
+        StickerBook.note(peer, id)
+        Log.d("Montana", "sticker_wire link noted pack=" + id.take(8) + " giver=" + peer.take(10))
+    }
+}
+
+/**
+ * THE SET'S LINK (iOS MontanaStickerPack.link / idIn, MontanaSticker.swift:361-391): the set's name and its title, and not one
+ * address of anybody — montana://pack/<64 hex>?n=<title>. Found wherever it stands among a letter's words.
+ */
+object StickerPack {
+    private const val HEAD = "montana://pack/"   // NOT-UI
+
+    fun link(id: String, title: String): String = HEAD + id + if (title.isEmpty()) "" else "?n=" + Uri.encode(title)
+
+    fun idIn(text: String): Pair<String, String>? {
+        val at = text.indexOf(HEAD, ignoreCase = true).takeIf { it >= 0 } ?: return null
+        val tail = text.substring(at + HEAD.length)
+        val id = tail.takeWhile { it in '0'..'9' || it.lowercaseChar() in 'a'..'f' }
+        if (id.length != 64) return null
+        val q = tail.indexOf("?n=")
+        val title = if (q < 0) "" else runCatching { Uri.decode(tail.substring(q + 3).takeWhile { !it.isWhitespace() }) }.getOrDefault("")
+        return id.lowercase() to title
     }
 }

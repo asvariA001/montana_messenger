@@ -2063,6 +2063,8 @@ object Post {
                 var isNew = false
                 if (lp != null) Log.d("Montana", "link card: rides the letter mid=" + mid.take(8))
                 Presence.noteSeen(ref, Marks.birthMs(mid), "letter")   // a person's own word stamps the moment it was written (iOS append)
+                // A LETTER CARRYING A SET'S LINK NAMES ITS GIVER (iOS ChatStore 4597-4601): the hand that passed it is whom it is asked of
+                if (text.contains("montana://pack/", ignoreCase = true)) StickerWire.noteLink(text, ref)
                 Book.edit(ref) { c ->
                     val had = c.msgs.find { it.mid == mid }
                     // THE SAME LETTER AGAIN, NOW WITH ITS CARD (iOS attachPreview's copy): the card joins the row, nothing else moves
