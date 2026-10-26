@@ -13,7 +13,10 @@ use common::Scratch;
 fn a_refused_proposal_leaves_the_previous_credit_root_across_restart() {
     let at = Scratch::named("refused-close-credit");
     let secret = [0x6Du8; 32];
-    mt_store::Store::open(&at.0).unwrap().bear_secret(&secret).unwrap();
+    mt_store::Store::open(&at.0)
+        .unwrap()
+        .bear_secret(&secret)
+        .unwrap();
     let config = Configuration::at(&at.0, "127.0.0.1:0");
     let (machine, _) = Machine::start(&config).unwrap();
     let cohort = Cohort::of(&[Cohort::half_of(&secret)]).unwrap();
@@ -41,13 +44,22 @@ fn a_refused_proposal_leaves_the_previous_credit_root_across_restart() {
     })));
     let result = pulse::live_doing(&machine, &cohort, 0, 3, 4, Some(&errand)).map(|_| ());
     withhold::own_proposals(None);
-    assert!(matches!(result, Err(NodeError::Refused {
-        what: "a window no proposal of its decision ever stood at"
-    })), "{result:?}");
+    assert!(
+        matches!(
+            result,
+            Err(NodeError::Refused {
+                what: "a window no proposal of its decision ever stood at"
+            })
+        ),
+        "{result:?}"
+    );
     let (plane, record, head, closed) = before.into_inner().unwrap();
     let old_root = machine.value().unwrap().credited().bytes();
-    assert_ne!(candidate.borrow().unwrap(), old_root,
-        "the refused candidate must actually include the new credit");
+    assert_ne!(
+        candidate.borrow().unwrap(),
+        old_root,
+        "the refused candidate must actually include the new credit"
+    );
     assert_eq!(machine.value().unwrap().encode().unwrap(), plane);
     assert_eq!(std::fs::read(at.0.join("window")).unwrap(), record);
     assert_eq!(machine.head().unwrap(), head);
@@ -69,5 +81,8 @@ fn a_refused_proposal_leaves_the_previous_credit_root_across_restart() {
     drop(again);
     let (final_restart, _) = Machine::start(&config).unwrap();
     assert_eq!(final_restart.closed_window().unwrap(), Some(2));
-    assert_eq!(final_restart.value().unwrap().credited().bytes(), accepted_root);
+    assert_eq!(
+        final_restart.value().unwrap().credited().bytes(),
+        accepted_root
+    );
 }

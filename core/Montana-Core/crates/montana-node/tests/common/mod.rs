@@ -68,6 +68,7 @@ pub fn proposal_over(
         machine_root: roots.machine_root,
         admitted_root: roots.admitted_root,
         operations_root: roots.operations_root,
+        credited_root: roots.credited_root,
         roll: roots.roll,
         admitted_count: roots.admitted_count,
         cement_aggregate: [0x99; 32],
