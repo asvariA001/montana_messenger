@@ -138,6 +138,29 @@ function Find-Named([string]$Name, [int]$Timeout = 15) {
     throw "nothing named '$Name' on screen"
 }
 
+# AN ELEMENT BY ITS WHOLE NAME, never a part of a longer one (a comment's eye «Показать» while a post over it wears «Показать
+# полностью», a mere text that no press moves): waits until one stands, as Find-Named; Click-Exact presses it as Click-Named does
+function Find-Exact([string]$Name, [int]$Timeout = 15) {
+    $end = (Get-Date).AddSeconds($Timeout)
+    do {
+        $all = All-Named
+        if (Answer-KeepAsk $all $Name) { $all = All-Named }
+        try { foreach ($e in $all) { if ($e.Current.Name -eq $Name) { return $e } } } catch {}
+        Start-Sleep -Milliseconds 300
+    } while ((Get-Date) -lt $end)
+    throw "nothing named exactly '$Name' on screen"
+}
+function Click-Exact([string]$Name, [int]$Timeout = 15) {
+    Find-Exact $Name $Timeout | Out-Null
+    foreach ($e in @(All-Named | Where-Object { try { $_.Current.Name -eq $Name } catch { $false } })) {
+        $p = $null
+        if ($e.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern, [ref]$p)) { $p.Toggle(); return }
+        if ($e.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$p)) { $p.Invoke(); return }
+        if ($e.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$p)) { $p.Select(); return }
+    }
+    throw "'$Name' cannot be pressed"
+}
+
 # THE TIME COIN IS A PAGE OVER THE APP (iOS ui.walletPage): before the panel's glyphs are pressed, the wallet's page standing over them
 # is closed by its cross, as a person closes it
 function Leave-Wallet {
@@ -288,6 +311,31 @@ public class MontanaWin {
 "@
 Add-Type -AssemblyName System.Drawing
 [MontanaWin]::SetProcessDPIAware() | Out-Null
+Add-Type @"
+using System; using System.Runtime.InteropServices; using System.Text;
+public class MontanaPoint {
+  [StructLayout(LayoutKind.Sequential)] public struct P { public int X, Y; }
+  [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(P p);
+  [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr h, uint flags);
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
+}
+"@
+
+# WHO HOLDS THE SCREEN (the real mouse presses what stands at its point, and a window put in front again is a return to the app): nothing
+# while it is this window -- its frame or its web view, whose own window's root is the app's --, else the program and the title of the
+# window there. The desktop is not always the scenes' alone: on 25.10.2026 a browser, an editor and terminals of other sessions took the
+# front in the middle of the scenes, and a press meant for the window landed on them.
+function Holder-Of([IntPtr]$h) {
+    $root = [MontanaPoint]::GetAncestor($h, 2)   # GA_ROOT
+    if ($root -eq (Handle)) { return "" }
+    [uint32]$id = 0; [MontanaPoint]::GetWindowThreadProcessId($root, [ref]$id) | Out-Null
+    $t = New-Object Text.StringBuilder 200; [MontanaPoint]::GetWindowText($root, $t, 200) | Out-Null
+    $n = try { (Get-Process -Id $id -ErrorAction Stop).ProcessName } catch { "pid $id" }
+    "$n '$t'"
+}
+function Point-Holder([int]$X, [int]$Y) { $p = New-Object MontanaPoint+P; $p.X = $X; $p.Y = $Y; Holder-Of ([MontanaPoint]::WindowFromPoint($p)) }
+function Front-Holder { Holder-Of ([MontanaWin]::GetForegroundWindow()) }
 
 # The window to the front (a chat says «read» only before the person's eyes), placed and sized in its own pixels
 function Front-Montana([int]$X = -1, [int]$Y = 0, [int]$Width = 0, [int]$Height = 0) {
@@ -421,11 +469,13 @@ function Media-Mode([string]$Want) {
 # THE DRAWER, WHATEVER THE FIRST SLOT SAYS (TopBar: «App Library», or what stands in the way -- «Keep my copy with my contacts»,
 # «Notifications are off» -- whose right click still opens the drawer, iOS MontanaDrawerHost): a scene never depends on the hint
 function Open-Drawer {
-    foreach ($n in @("Библиотека приложений", "App Library")) { try { Click-Named $n 2; return } catch {} }
+    $why = @()   # a press refused because another program holds the front is said with the failure, never swallowed with it
+    foreach ($n in @("Библиотека приложений", "App Library")) { try { Click-Named $n 2; return } catch { if ("$_" -like "*another program*") { $why += "$_" } } }
     foreach ($n in @("Хранить мою копию у собеседников", "Keep my copy with my contacts", "Уведомления выключены", "Notifications are off")) {
-        try { RightClick-Named $n 2; return } catch {}
+        try { RightClick-Named $n 2; return } catch { if ("$_" -like "*another program*") { $why += "$_" } }
     }
-    throw "nothing on screen opens the drawer"
+    $said = if ($why.Count) { ": " + ((@($why) | Select-Object -Unique) -join "; ") } else { "" }
+    throw "nothing on screen opens the drawer$said"
 }
 function RightClick-Named([string]$Name, [int]$Timeout = 15) {
     $e = Find-Named $Name $Timeout
@@ -435,7 +485,15 @@ function RightClick-Named([string]$Name, [int]$Timeout = 15) {
     # a letter that just arrived still rises on the feed's spring (iOS MTLetterMotion): the hand waits until it stands still
     $r = $e.Current.BoundingRectangle
     for ($i = 0; $i -lt 20; $i++) { Start-Sleep -Milliseconds 120; $n = $e.Current.BoundingRectangle; if ($n -eq $r) { break }; $r = $n }
-    [MontanaMouse]::SetCursorPos([int]($r.X + $r.Width / 2), [int]($r.Y + $r.Height / 2)) | Out-Null
+    # another program's window brought over the point meanwhile is put behind once more; while it still stands there the press is not
+    # made -- the scene says who holds the front rather than read the menu that never opened as the app's
+    $px = [int]($r.X + $r.Width / 2); $py = [int]($r.Y + $r.Height / 2)
+    if (Point-Holder $px $py) {
+        Front-Montana
+        $who = Point-Holder $px $py
+        if ($who) { throw "the press on '$Name' would land on $who -- another program holds the front" }
+    }
+    [MontanaMouse]::SetCursorPos($px, $py) | Out-Null
     Start-Sleep -Milliseconds 150
     [MontanaMouse]::mouse_event(0x0008, 0, 0, 0, [UIntPtr]::Zero); [MontanaMouse]::mouse_event(0x0010, 0, 0, 0, [UIntPtr]::Zero)
     Start-Sleep -Milliseconds 400

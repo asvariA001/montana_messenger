@@ -37,7 +37,10 @@ function PostMenu([string]$text) {
     }
     throw "no menu of the post '$text'"
 }
-function MyPage { Open-Drawer; Click-Named "Алиса Тест" }
+# my page stands before anything on it is pressed: the drawer opens it 0.3 s after it leaves (App.jsx fromDrawer), and until then the
+# page under the drawer is still the reader's -- the Wall of Thoughts wears the very «Комментарии 1» of my post, whose comments it opens
+# under my page, where they stand out of the reader's tree (App.jsx covered: inert) -- a run of 25.10.2026 pressed it there
+function MyPage { Open-Drawer; Click-Named "Алиса Тест"; Find-Exact "Моя стена" 15 | Out-Null }
 function PeerPage([string]$who) { Click-Named "Контакты"; RightClick-Named $who }
 # the share of a region's points whose colour passes a test (this window's own pixels): x and y in parts of the window
 function Share([double]$x0, [double]$x1, [double]$y0, [double]$y1, [scriptblock]$test) {
@@ -167,8 +170,9 @@ $line = @(Get-Texts | Where-Object { $_ -match '^\d+ · \d\d\.\d\d\.\d{4} \d\d:\
 if (-not $line.Count) { throw "no comment wears its number line" }
 "  the comment's line: $($line[0])"
 "A hides B's comment from her visitors (iOS hideComment)"
-Click-Named "Скрыть"
-Find-Named "Показать" 10 | Out-Null
+# the comment's eye by its whole name: a long post of an earlier run wears «Показать полностью», a text no press moves
+Click-Exact "Скрыть"
+Find-Exact "Показать" 10 | Out-Null
 Snap "108-A-wall-moved"
 Click-Named "Закрыть"
 # B's marks stand on A's post: kept by A and B, reposted once
@@ -223,8 +227,8 @@ Click-Named "Назад"
 Use-Montana $A; Front-Montana
 MyPage
 Click-Named "Комментарии 1" 30
-Click-Named "Показать"
-Find-Named "Скрыть" 10 | Out-Null
+Click-Exact "Показать"   # the long post above wears «Показать полностью»: only the eye's own name is pressed
+Find-Exact "Скрыть" 10 | Out-Null
 Click-Named "Закрыть"
 "A's post of a film, a track and a file, kept first as a draft (iOS MTBoardComposer, MTBoardDraftCell): the cross keeps the words,
 the wall shows the draft, the page opens as it was left"
