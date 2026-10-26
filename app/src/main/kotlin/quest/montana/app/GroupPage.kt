@@ -97,7 +97,7 @@ fun groupPage(act: MainActivity, key: String, onClose: () -> Unit,
      * phone holds their pipe, a hold names the deeds. The ways out stand in «More» and in the editor.
      */
     fun drawGroup() {
-        val owns = Groups.owns(key)
+        val owns = Groups.manages(key)   // a group its owner ended is nobody's to add to or take from (iOS lines: g.mine && g.left != true)
         val plates = c.hstack { setPadding(0, dp(4), 0, dp(10)) }
         fun plate(icon: Int, label: String, work: (View) -> Unit) {
             if (plates.childCount > 0) plates.addView(View(c), lp(c.dp(10), 1))
@@ -133,7 +133,7 @@ fun groupPage(act: MainActivity, key: String, onClose: () -> Unit,
         val iBan = !owns && Groups.mayBan(key)   // an administrator takes out a member who is none, while «Ban Users» stands (G.6)
         class Person(val seat: String, val name: String, val pipe: String, val me: Boolean)
         val people = Groups.pagePeople(c, key).map { Person(it.seat, it.name, it.pipe, false) } +
-            listOfNotNull(mySeat?.let { Person(it, Prefs.userName, "", true) })
+            listOfNotNull(mySeat?.let { Person(it, Groups.myName(c), "", true) })
         fun rank(seat: String) = if (seat == Groups.OWNER) 0 else if (Groups.isAdmin(key, seat)) 1 else 2
         for (p in people.sortedWith(compareBy<Person> { rank(it.seat) }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.name })) {
             val r = rank(p.seat)
@@ -161,7 +161,7 @@ fun groupPage(act: MainActivity, key: String, onClose: () -> Unit,
                 setPadding(dp(16), dp(8), dp(16), dp(8))
                 minimumHeight = dp(56)
                 val face = when {
-                    p.me -> c.avatar(SelfFace.load(c), Prefs.userName, 40)
+                    p.me -> c.avatar(SelfFace.load(c), p.name, 40)
                     root != null -> c.peerFace(root, p.name, 40)
                     else -> c.avatar(null, p.name, 40).apply { background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Groups.tint(ref)) } }
                 }
@@ -379,7 +379,7 @@ private fun groupEditPage(act: MainActivity, key: String, onBack: () -> Unit, on
                         addView(c.plate { addView(about, lp()) }, lp())
                         addView(c.text(c.getString(R.string.gp_about_note), 13f, MT.gray).apply { setPadding(dp(16), dp(6), dp(16), 0) }, lp())
                     }
-                    if (!channel && Groups.owns(key)) {
+                    if (!channel && Groups.manages(key)) {
                         // THE ADMINISTRATORS, as the reference's editor lists them, with their count (iOS MTGroupAdminsPage, G.6)
                         gap(20)
                         val count = c.text("", 17f, MT.gray)
@@ -542,7 +542,7 @@ private fun groupLinksPage(act: MainActivity, key: String, onBack: () -> Unit): 
                 addView(share, lp(0, WRAP, 1f))
             }, lp())
         })
-        if (!Groups.owns(key)) return@settingsPage   // the owner alone asks first and ends the links given before
+        if (!Groups.manages(key)) return@settingsPage   // the owner alone asks first and ends the links given before
         // THE LINK ASKS THE OWNER FIRST (iOS MTGroupInviteLinksPage, G.8): who opens it waits among the requests
         var ready = false   // the switch set to what is stored is not the owner's tap
         lateinit var note: android.widget.TextView
