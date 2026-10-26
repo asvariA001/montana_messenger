@@ -28,7 +28,10 @@
 // in the public input, not across the trace. The bits of the record walk are witness by design, as a
 // note's position is: the statement is membership under a public root, not the key. The window is a
 // limb of the public input and enters the transcript of every proof, so a proof of one window stands
-// for no other. Continuity remains open in AUDIT.md: no field of the record but its right is read.
+// for no other. The machine's commitment and its suite stand there the same way: no cell holds
+// them, and the transcript every proof opens with does, so a proof seen under one `node_commit`
+// stands under no other and a relay cannot lift a candidacy onto a machine of its own.
+// Continuity remains open in AUDIT.md: no field of the record but its right is read.
 
 use super::permutation::ring_column;
 use super::{capacity, path, permutation, sponge};
@@ -118,30 +121,32 @@ impl Places {
     }
 
     // The public input, in the order the set gives it: the window, then the root of records, the
-    // naming half and the right, each a digest of four words of the hash state. The window binds
-    // no cell: it is the limbs the transcript of the proof opens with.
+    // naming half, the machine's commitment and the right, each of thirty-two bytes, then the
+    // suite. The window, the commitment and the suite bind no cell: they are limbs the transcript
+    // of the proof opens with.
     // The three digests at the ends of their chains, and the eight limbs of the record's right held
     // where they enter the absorption — the first block of the record for the first two of them,
     // the second for the rest — to the limbs of the right the public input carries.
     pub fn boundaries(&self) -> Vec<Boundary> {
         let window = crate::poseidon::limbs_of(&0u64.to_le_bytes()).len();
+        // Each end beside the place its digest takes among the values of thirty-two bytes.
         let ends = [
-            self.seam_before(self.halves()),
-            self.seam_before(self.nullifier()),
-            self.blocks() * permutation::period() - 1,
+            (self.seam_before(self.halves()), SLOT_RECORD_ROOT),
+            (self.seam_before(self.nullifier()), SLOT_NAMING_HALF),
+            (self.blocks() * permutation::period() - 1, SLOT_RIGHT),
         ];
         let mut out = Vec::with_capacity(ends.len() * CAPACITY + secret_limbs());
-        for (which, row) in ends.iter().enumerate() {
+        for (row, slot) in ends {
             for cell in 0..CAPACITY {
                 out.push(Boundary {
                     column: ring_column(cell) as u16,
-                    row: *row as u64,
+                    row: row as u64,
                     // A word is a pair of adjacent limbs, so a cell's index steps by two limbs.
-                    value: BoundaryValue::Word((window + 2 * (which * CAPACITY + cell)) as u16),
+                    value: BoundaryValue::Word((window + 2 * (slot * CAPACITY + cell)) as u16),
                 });
             }
         }
-        let right = window + 2 * (ends.len() - 1) * CAPACITY;
+        let right = window + 2 * SLOT_RIGHT * CAPACITY;
         for at in 0..secret_limbs() {
             let limb = LIMB_OPERATOR_NF + at;
             out.push(Boundary {
@@ -170,6 +175,12 @@ impl Places {
         out
     }
 }
+
+// The places of the values of thirty-two bytes in the public input, after the window. The
+// commitment of the machine stands at the third and binds no cell.
+const SLOT_RECORD_ROOT: usize = 0;
+const SLOT_NAMING_HALF: usize = 1;
+const SLOT_RIGHT: usize = 3;
 
 // The limbs a secret of thirty-two bytes stands in, and therefore a digest's bytes as well.
 fn secret_limbs() -> usize {
@@ -309,19 +320,23 @@ pub fn trace_of(
 
 // The public input of an admission, in the order the set gives it: the window the candidacy is
 // published in, the root of records of the proposal the set names for that window, the naming
-// half, and the right. A verifier lays it from the window it applies, the root it holds and the
-// two fields of the object, and from nothing else.
+// half, the commitment of the machine, the right, and the suite. A verifier lays it from the
+// window it applies, the root it holds and the four fields of the object, and from nothing else.
 pub fn public_of(
     window: u64,
     record_root: &crate::poseidon::Digest,
     naming_half: &crate::poseidon::Digest,
+    node_commit: &[u8; 32],
     operator_nullifier: &crate::poseidon::Digest,
+    suite_id: u16,
 ) -> Vec<u8> {
-    let mut out = Vec::with_capacity(8 + 3 * 32);
+    let mut out = Vec::with_capacity(8 + 4 * 32 + 2);
     out.extend_from_slice(&window.to_le_bytes());
-    for digest in [record_root, naming_half, operator_nullifier] {
-        out.extend_from_slice(&digest.bytes());
-    }
+    out.extend_from_slice(&record_root.bytes());
+    out.extend_from_slice(&naming_half.bytes());
+    out.extend_from_slice(node_commit);
+    out.extend_from_slice(&operator_nullifier.bytes());
+    out.extend_from_slice(&suite_id.to_le_bytes());
     out
 }
 
@@ -362,9 +377,22 @@ mod tests {
 
     const MACHINE: [u8; 32] = [0x5A; 32];
     const RIGHT: [u8; 32] = [0x22; 32];
+    const NODE_COMMIT: [u8; 32] = [0x66; 32];
+    const SUITE: u16 = 1;
+
+    fn public_at(digests: &[Digest; 3], window: u64) -> Vec<u8> {
+        public_of(
+            window,
+            &digests[0],
+            &digests[1],
+            &NODE_COMMIT,
+            &digests[2],
+            SUITE,
+        )
+    }
 
     fn public_of_the(digests: &[Digest; 3], window: u64) -> Vec<crate::field::F> {
-        poseidon::limbs_of(&public_of(window, &digests[0], &digests[1], &digests[2]))
+        poseidon::limbs_of(&public_at(digests, window))
     }
 
     #[test]
@@ -431,7 +459,7 @@ mod tests {
             "the right to raise a machine"
         );
         let held = description().expect("the description stands");
-        let public = public_of(WINDOW, &digests[0], &digests[1], &digests[2]);
+        let public = public_at(&digests, WINDOW);
         if !held.satisfied_by(&trace, &poseidon::limbs_of(&public)) {
             for at in 0..held.constraints.len() {
                 for row in 0..held.rows() {
@@ -461,13 +489,47 @@ mod tests {
             .collect();
         let another_root = crate::records::root_of_leaves(&leaves);
         assert_ne!(another_root, root);
-        let elsewhere = public_of(WINDOW, &another_root, &digests[1], &digests[2]);
+        let elsewhere = public_of(
+            WINDOW,
+            &another_root,
+            &digests[1],
+            &NODE_COMMIT,
+            &digests[2],
+            SUITE,
+        );
         assert!(crate::scheme::verify(&held, &elsewhere, &bytes).is_err());
         assert!(!held.satisfied_by(&trace, &poseidon::limbs_of(&elsewhere)));
 
         // Another window: no cell holds it, and the transcript does.
-        let later = public_of(WINDOW + 1, &digests[0], &digests[1], &digests[2]);
+        let later = public_at(&digests, WINDOW + 1);
         assert!(crate::scheme::verify(&held, &later, &bytes).is_err());
+
+        // Another machine's commitment and another suite: no cell holds them either, and the
+        // same proof stands under neither. The named wrong implementation: a public input that
+        // leaves `node_commit` out, under which a relay lifts the candidacy onto its own machine.
+        let mut lifted = [0x99u8; 32];
+        lifted[0] = NODE_COMMIT[0];
+        for other in [
+            public_of(
+                WINDOW,
+                &digests[0],
+                &digests[1],
+                &lifted,
+                &digests[2],
+                SUITE,
+            ),
+            public_of(
+                WINDOW,
+                &digests[0],
+                &digests[1],
+                &NODE_COMMIT,
+                &digests[2],
+                SUITE + 1,
+            ),
+        ] {
+            assert!(held.satisfied_by(&trace, &poseidon::limbs_of(&other)));
+            assert!(crate::scheme::verify(&held, &other, &bytes).is_err());
+        }
     }
 
     // The counterexample of the audit at the relation: a foreign record — one carrying another

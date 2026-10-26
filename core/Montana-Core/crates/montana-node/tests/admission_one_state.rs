@@ -75,25 +75,32 @@ fn walked(
         "the walk answers the root the verifier holds"
     );
     let statement = mt_proof::circuit::admission::description().expect("the description stands");
-    let at_held = mt_proof::circuit::admission::public_of(WINDOW, held, &digests[1], &digests[2]);
+    let node_commit =
+        mt_derive::node_commit(&[0xA1; mt_codec::size::SIGNING_PUBLIC_KEY], 1, &[0xB2; 32]);
+    let public_at = |root: &Digest| {
+        mt_proof::circuit::admission::public_of(
+            WINDOW,
+            root,
+            &digests[1],
+            &node_commit,
+            &digests[2],
+            1,
+        )
+    };
+    let at_held = public_at(held);
     assert!(
         !statement.satisfied_by(&trace, &mt_proof::poseidon::limbs_of(&at_held)),
         "the statement accepts the walk under the root the verifier holds"
     );
     assert!(mt_proof::scheme::prove(&statement, &at_held, &trace).is_err());
-    let at_own =
-        mt_proof::circuit::admission::public_of(WINDOW, &digests[0], &digests[1], &digests[2]);
+    let at_own = public_at(&digests[0]);
     let proof = mt_proof::scheme::prove(&statement, &at_own, &trace)
         .expect("the walk proves under the root it answers");
     (
         mt_state::layout::Candidacy {
             window: WINDOW,
             naming_half: digests[1].bytes(),
-            node_commit: mt_derive::node_commit(
-                &[0xA1; mt_codec::size::SIGNING_PUBLIC_KEY],
-                1,
-                &[0xB2; 32],
-            ),
+            node_commit,
             operator_nullifier: digests[2].bytes(),
             suite_id: 1,
             proof,

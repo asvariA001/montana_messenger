@@ -2122,6 +2122,9 @@ pub fn check_derivations(md: &str) -> Result<(), String> {
     let candidacy_secret = repeat32(bare_input(candidacy_inputs))?;
     let candidacy_right = input32(candidacy_inputs, "operator_secret")?;
     let candidacy_window = number(input_of(candidacy_inputs, "window")?)?;
+    let candidacy_machine = input32(candidacy_inputs, "node_commit")?;
+    let candidacy_suite = u16::try_from(number(input_of(candidacy_inputs, "suite_id")?)?)
+        .map_err(|_| "the suite of the vector of a candidacy is no u16".to_string())?;
     let right = mt_derive::nullifier::operator(&candidacy_right);
     let record = record_of_the_vector(labeled(&candidacy_rows, "record")?, &right)?;
     let serialized = mt_state::Layout::bytes(&record)
@@ -2160,7 +2163,9 @@ pub fn check_derivations(md: &str) -> Result<(), String> {
         candidacy_window,
         &record_root,
         &as_digest(&naming)?,
+        &candidacy_machine,
         &as_digest(&right)?,
+        candidacy_suite,
     );
     compare_hash(
         "SHA-256(public input)",

@@ -506,7 +506,17 @@ impl State {
         let right = Digest::of_bytes(&candidacy.operator_nullifier).ok_or(NodeError::Refused {
             what: "a right that is not a digest of the family",
         })?;
-        let public = mt_proof::circuit::admission::public_of(window, record_root, &naming, &right);
+        // The commitment of the machine and the suite are laid from the object as they stand, and
+        // the transcript of the proof holds them: a relay rewriting either presents a proof of
+        // another statement (AUDIT.md, a candidacy lifted onto another `node_commit`).
+        let public = mt_proof::circuit::admission::public_of(
+            window,
+            record_root,
+            &naming,
+            &candidacy.node_commit,
+            &right,
+            candidacy.suite_id,
+        );
         let description =
             mt_proof::circuit::admission::description().ok_or(NodeError::Refused {
                 what: "a description of an admission this Decree does not give",
