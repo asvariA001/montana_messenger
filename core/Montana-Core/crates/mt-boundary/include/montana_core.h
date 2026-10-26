@@ -5,7 +5,7 @@
  *
  *   0  the work was done
  *  -1  refused, and the reason stands in `mtc_last_said`
- *  -2  a pointer that is nothing was handed where a value was asked for
+ *  -2  a required pointer is absent, or mtc_last_said has no diagnostic to read
  *  -3  a buffer smaller than what it must hold; the length written says how much is needed
  *  -4  a door broke rather than answering
  *
@@ -25,7 +25,8 @@
 extern "C" {
 #endif
 
-/* The reason the last door refused. */
+/* The reason the last door refused. With no diagnostic, returns -2 and clears valid text outputs.
+ * Reading absence or using an invalid output buffer does not create or replace a diagnostic. */
 int32_t mtc_last_said(char *out, size_t cap, size_t *len);
 
 /* Which network this core is of: thirty-two bytes. */

@@ -206,18 +206,21 @@ fn the_machine() -> Result<Arc<Machine>, String> {
 // after any answer other than well; it names no peer and no person.
 #[no_mangle]
 pub extern "C" fn mtc_last_said(out: *mut c_char, cap: usize, len: *mut usize) -> i32 {
-    text_door(
-        || {
-            Ok(SAID
-                .lock()
-                .ok()
-                .and_then(|held| held.clone())
-                .unwrap_or_default())
-        },
-        out,
-        cap,
-        len,
-    )
+    let held = match SAID.lock() {
+        Ok(held) => held,
+        Err(_) => return Answer::Broke as i32,
+    };
+    match held.as_deref() {
+        Some(text) => hand_text(text, out, cap, len),
+        None => {
+            // Clear stale caller text without manufacturing a refusal in SAID: a second read
+            // must still report absence, while bad buffers retain the existing boundary errors.
+            match hand_text("", out, cap, len) {
+                code if code == Answer::Well as i32 => Answer::Nothing as i32,
+                code => code,
+            }
+        }
+    }
 }
 
 // Which network this core is of. Two clients disagreeing here are not on one network, whatever
