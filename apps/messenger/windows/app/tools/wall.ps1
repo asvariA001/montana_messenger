@@ -301,14 +301,16 @@ Page-Ground "По умолчанию"   # the gold is gone whole (iOS 2304): the
 # A RULE OF THE WALL LEFT BY «НАЗАД» (the freeze of 25.10.2026, Wall.jsx WallRules: the rule is a step of «Стена»): «Стена» must stand
 # again within 2 s -- not «leaving», inert under the window's foot -- and the window answer after the way out; no rule is changed
 "A's wall rules: a rule's page left by «Назад» brings «Стена» back, and the window answers"
+# a rule's row is one button UI Automation names «<rule> <value>» (read on the live window 26.10.2026), so the row is pressed and
+# proved by that whole name; nothing above changed a rule, so both stand on «Все»
 Open-Drawer; Press-Exact "Настройки"
 Page-Drawn "Настройки" "Уведомления и звуки"; Start-Sleep -Milliseconds 450
 Press-In-Page "Настройки" "Приватность"; Page-Drawn "Приватность" "Заблокированные"; Start-Sleep -Milliseconds 400
-Press-In-Page "Приватность" "Стена"; Page-Drawn "Стена" "Кто может видеть мою стену" 10; Start-Sleep -Milliseconds 400
-Press-In-Page "Стена" "Кто может писать на моей стене"; Page-Drawn "Кто может писать на моей стене" "Только я"; Start-Sleep -Milliseconds 400
+Press-In-Page "Приватность" "Стена"; Page-Drawn "Стена" "Кто может видеть мою стену Все" 10; Start-Sleep -Milliseconds 400
+Press-In-Page "Стена" "Кто может писать на моей стене Все"; Page-Drawn "Кто может писать на моей стене" "Только я"; Start-Sleep -Milliseconds 400
 Press-In-Page "Кто может писать на моей стене" "Назад"; Page-Left "Кто может писать на моей стене" "Только я"
-Page-Drawn "Стена" "Кто может видеть мою стену"; Start-Sleep -Milliseconds 400
-Press-In-Page "Стена" "Назад"; Page-Left "Стена" "Кто может видеть мою стену"
+Page-Drawn "Стена" "Кто может видеть мою стену Все"; Start-Sleep -Milliseconds 400
+Press-In-Page "Стена" "Назад"; Page-Left "Стена" "Кто может видеть мою стену Все"
 Page-Drawn "Приватность" "Заблокированные"; Start-Sleep -Milliseconds 400
 Press-In-Page "Приватность" "Назад"; Page-Left "Приватность" "Заблокированные"
 Page-Drawn "Настройки" "Уведомления и звуки"; Start-Sleep -Milliseconds 300

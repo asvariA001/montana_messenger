@@ -163,12 +163,13 @@ try {
                      @("Приватность", "Приватность", "Заблокированные"))) {
         Push $p[0] $p[1] $p[2]; Back-To-List "back" $p[1] $p[2]
     }
-    # the answer is a step of «Вопросы»: back from it, the questions stand again, then the list
-    Push "Вопросы" "Вопросы" "Кто видит мой уровень?"
-    Press-In-Page "Вопросы" "Кто видит мой уровень?"; Page-Drawn "Приватность" "Кто видит мой уровень?"; Start-Sleep -Milliseconds 400
-    Press-In-Page "Приватность" "Назад"; Page-Left "Приватность" "Кто видит мой уровень?"; Page-Drawn "Вопросы" "Кто видит мой уровень?"
+    # the answer is a step of «Вопросы»: back from it, the questions stand again, then the list. A question's row is one button
+    # that UI Automation names «<question> ›» (Questions.jsx:199-200; read on the live window 26.10.2026), not the bare question
+    Push "Вопросы" "Вопросы" "Кто видит мой уровень? ›"
+    Press-In-Page "Вопросы" "Кто видит мой уровень? ›"; Page-Drawn "Приватность" "Кто видит мой уровень?"; Start-Sleep -Milliseconds 400
+    Press-In-Page "Приватность" "Назад"; Page-Left "Приватность" "Кто видит мой уровень?"; Page-Drawn "Вопросы" "Кто видит мой уровень? ›"
     Start-Sleep -Milliseconds 300
-    Back-To-List "back" "Вопросы" "Кто видит мой уровень?"
+    Back-To-List "back" "Вопросы" "Кто видит мой уровень? ›"
 
     "the list keeps its place under a page and after it (iOS NavigationStack: the list is never drawn anew)"
     $pg = Page-Over $list $listProof
