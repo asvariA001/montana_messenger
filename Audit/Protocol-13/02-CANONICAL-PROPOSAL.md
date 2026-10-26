@@ -76,6 +76,10 @@ Both mutants were run on detached commits that are on no branch.
   - Run `a554-p2lock` on the core test host: `cargo test --locked`.
   - All 45 test binaries of `montana-node` and `mt-store` ran, each under `unshare -n`.
   - 0 binaries failed.
+- **`a8c9cab`** (`bd62ded` plus four comment lines in a test header; the same code as `cb4283c` except the `Cargo.lock` line of `2556c4b`).
+  - Runs 16-19 of the helper p2-close of Agent 552 on Lauterbourg-2: `cargo test -p montana-node --no-fail-fast` in four batches, together the lib, 2 bins and 40 test files.
+  - rc 0 in each batch: 100 passed, 1 ignored (in the lib), 0 failed; `four_machines_decide_one_name` 2240.63 s, boxes 3 and 4 2 of 2 in 643.21 s.
+  - Not `--locked`, under `systemd-run`, without a network namespace per binary; checked by the chairman against the log (link 8899).
 - **`cb4283c`**, the head that merges, on Lauterbourg-3 (snapshots of tree `729a7123`):
 
 | Name | Command | rc | Result |
@@ -84,13 +88,15 @@ Both mutants were run on detached commits that are on no branch.
 | c2 | `cargo fmt --all --check` | 0 |  |
 | c3 | `cargo clippy --locked --workspace --all-targets -- -D warnings` | 0 |  |
 | c4 | `cargo test --locked -p mt-store` | 0 | 3 binaries, 25 passed, 0 failed |
-| s1 | `cargo test --locked -p montana-node --no-fail-fast --test four_machines_decide_one_name` | running |  |
-| s2 | the same, `--test` a_round_over_the_wire, a_window_outlives_the_restart_of_every_holder, certificate_matrix, a_ballot_casts_the_standing_a_machine_lived | running |  |
-| s3 | the same, `--test` a_quorum_without_a_verified_proposal_closes_nothing, a_device_joins_the_running_chain, three_machines_live_a_window, a_walk_from_an_anchor | running |  |
-| s4 | the same, `--test` two_hosts_live_a_window, a_payment_settles_before_a_window, issuance_audit, value_enters_the_network, a_verdict_reads_no_clock, a_record_is_opened, a_wallet_pays_a_wallet, genesis_stands_under_window_zero_alone | running |  |
-| s5 | the same, `--lib --bins` and the other 23 test binaries | running |  |
+| s1 | `cargo test --locked -p montana-node --no-fail-fast --test four_machines_decide_one_name` | 0 | 1 binary, 1 passed, 0 failed (3486.86s) |
+| s2 | the same, `--test` a_round_over_the_wire, a_window_outlives_the_restart_of_every_holder, certificate_matrix, a_ballot_casts_the_standing_a_machine_lived | 0 | 4 binaries, 11 passed, 0 failed |
+| s3 | the same, `--test` a_quorum_without_a_verified_proposal_closes_nothing, a_device_joins_the_running_chain, three_machines_live_a_window, a_walk_from_an_anchor | 0 | 4 binaries, 5 passed, 0 failed |
+| s4 | the same, `--test` two_hosts_live_a_window, a_payment_settles_before_a_window, issuance_audit, value_enters_the_network, a_verdict_reads_no_clock, a_record_is_opened, a_wallet_pays_a_wallet, genesis_stands_under_window_zero_alone | 0 | 8 binaries, 12 passed, 0 failed |
+| s5 | the same, `--lib --bins` and the other 23 test binaries | 0 | 26 binaries, 71 passed, 1 ignored (in the lib), 0 failed |
 
 Each run is a systemd unit with `PrivateNetwork=yes`, `MemoryMax=12G` and `CARGO_NET_OFFLINE=true`. Logs are kept on the host in `/srv/montana/a562-logs/`.
+
+Together the shards s1-s5 ran the 43 test binaries of `montana-node` (the lib, 2 bins and 40 test files): 100 passed, 1 ignored (in the lib), 0 failed -- the same counts as runs 16-19 on Lauterbourg-2.
 
 ## Not established here
 
