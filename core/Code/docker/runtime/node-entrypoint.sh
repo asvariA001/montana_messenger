@@ -42,6 +42,7 @@ if [ ! -f "$DATA_DIR/identity.bin" ]; then
         exec runuser -u montana -- setsid --wait /usr/local/bin/montana-node init --data-dir "$DATA_DIR" --mnemonic-stdin
       )
     else
+      unset MONTANA_MNEMONIC
       runuser -u montana -- setsid --wait /usr/local/bin/montana-node init --data-dir "$DATA_DIR"
     fi
   )

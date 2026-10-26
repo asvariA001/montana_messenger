@@ -20,8 +20,8 @@ zero external dependencies: it runs its own genesis TimeChain and cements a
 Proposal every window. On first launch it generates a 24-word recovery mnemonic
 and writes its initialization output, including the recovery mnemonic, to
 `/var/lib/montana/mnemonic.txt`. The file is created with mode `0400` before
-initialization; neither output stream nor a controlling terminal receives the
-phrase. Initialization failure stops startup and preserves the private output
+initialization; the container's standard output, standard error and controlling
+terminal do not receive the phrase. Initialization failure stops startup and preserves the private output
 for inspection. An existing recovery file is never overwritten. Save it offline:
 
 ```bash

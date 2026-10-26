@@ -131,6 +131,22 @@ sys.exit(subprocess.run(sys.argv[2:], start_new_session=True).returncode)
         self.assertFalse((self.data / 'identity.bin').exists())
         self.assertEqual(stat.S_IMODE((self.data / 'mnemonic.txt').stat().st_mode), 0o400)
 
+    def test_provided_recovery_failure_preserves_pipeline_exit(self):
+        self.env['MONTANA_MNEMONIC'] = MARKER
+        self.env['TEST_FAIL'] = 'yes'
+        result = self.run_entrypoint()
+        self.assertEqual(result.returncode, 17)
+        self.assertEqual([call[0] for call in self.calls()], ['init'])
+        self.assertIn('--mnemonic-stdin', self.calls()[0])
+        self.assertNotIn(MARKER, self.log.read_text())
+
+    def test_empty_recovery_environment_is_not_inherited_by_init(self):
+        self.env['MONTANA_MNEMONIC'] = ''
+        result = self.run_entrypoint()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([call[0] for call in self.calls()], ['init', 'start'])
+        self.assertNotIn('--mnemonic-stdin', self.calls()[0])
+
     def test_existing_recovery_is_not_overwritten_or_followed(self):
         target = self.at / 'retained'
         target.write_text('keep this artifact')
