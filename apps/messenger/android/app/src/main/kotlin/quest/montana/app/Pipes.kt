@@ -2040,6 +2040,9 @@ object Post {
             text.startsWith(Groups.MARK) -> Groups.handle(ref, sid, text)
             // A WORD OF A WALL (iOS MTBoard.handle): a page of a person's wall, an ask for mine — receipted, never a row
             text.startsWith(Board.MARK) -> Board.handle(ref, sid, text)
+            // A WORD OF A STICKER SET (iOS MontanaStickerWire.handle): a sticker letter's passport, an ask for my set, a page of a set —
+            // receipted, never a row
+            text.startsWith(StickerWire.MARK) -> { receipt(ref, sid); if (!PeerSafety.isBlocked(ref)) StickerWire.handle(text, ref) }
             // A CALL AS A LETTER (iOS ringMark): it rings here and is never a row; its age and the seeds seen cut the stale (Calls);
             // a dead invitation still gets its receipt, as a missed call's repeat does (iOS 89e12948)
             text.startsWith(Marks.RING) -> { if (!Calls.ringLetter(ref, text.removePrefix(Marks.RING))) receipt(ref, sid) }
