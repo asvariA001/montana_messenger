@@ -1715,8 +1715,14 @@ mod tests {
         // PANIC-OK: a test reading a moment the Decree's spread bounds.
         let window = mt_derive::nullifier::claim_window(&machine_secret, due)
             .expect("the Decree names the spread");
-        let amounts = balanced();
-        // The right stands where note 0 stood, worth what that note was worth.
+        // The right stands where note 0 stood, worth the window's credit (A2: the frame holds a
+        // right's worth to `window_credit`), and the spend pays that same credit onward, so the
+        // refusals below are the moment's and membership's alone, never the worth's.
+        // PANIC-OK: a test reading a value the Decree names.
+        let credit = u128::from(mt_genesis::scalar("window_credit").expect("the credit"));
+        let mut amounts = balanced();
+        amounts[0][0] = credit;
+        amounts[0][2] = 1_000_000_000 + credit;
         let (frame_of_notes, places, root) = frame_of(amounts);
         let mut frame = frame_of_notes;
         frame.window = window;

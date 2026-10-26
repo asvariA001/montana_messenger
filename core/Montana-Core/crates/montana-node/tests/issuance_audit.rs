@@ -4,6 +4,7 @@
 // before any balance moves, and the right it tried to inflate is still redeemable at its credit.
 use montana_node::{attest, state::State};
 use montana_wallet::{Note, Wallet};
+use mt_state::Layout;
 
 mod common;
 use common::{of, payee_of, Scratch};
