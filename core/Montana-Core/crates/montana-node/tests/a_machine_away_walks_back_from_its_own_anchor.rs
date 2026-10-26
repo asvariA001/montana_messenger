@@ -14,7 +14,7 @@
 // is started — the machine come back, under the secret it always had — reaches the network, and is
 // asked to live the window the network stands at. The second copy of the disk comes back once the
 // network has let the windows it missed go, which is what the end of the retention does to them: the
-// points of the first window it missed are gone from every holder.
+// points of the first window it missed, and of every window before it, are gone from every holder.
 //
 // **The wrong implementations it refuses**, named before the assertions: a machine that opens the
 // window it is told on what it holds — there it opens the network's window on proposals two windows
@@ -209,12 +209,20 @@ fn a_machine_away_walks_back_from_its_own_anchor_and_lives_on() {
     assert_eq!(device.closed_window().expect("the store answers"), None);
     drop(device);
 
-    // The end of the retention: every holder lets the points of the first window the machine missed
-    // go. The second copy of the disk comes back and is told no certificate stands; its head, its
-    // closed window and its kept proposals stand as they were.
+    // The end of the retention, by the holders' own rule rather than by hand: a holder keeping a cell
+    // of window `w` lets go of the points of every window below `w - retained_windows`
+    // (`montana-node/src/lib.rs`, `keep_the_cell`, calling `mt-store/src/lib.rs`,
+    // `drop_points_before`). The network is not lived on to window `BEFORE + 1 + retained_windows`
+    // here; the same rule is applied to its disk as it stands at that window, which lets go of the
+    // first window the machine missed and of every window before it. The second copy of the disk
+    // comes back and is told no certificate stands; its head, its closed window and its kept
+    // proposals stand as they were.
     drop(network);
-    std::fs::remove_dir_all(at.0.join("points").join(format!("{BEFORE:020}")))
-        .expect("the points of the first window missed go");
+    mt_store::Store::open(&at.0)
+        .expect("the network's store opens")
+        .drop_points_before(BEFORE + 1)
+        .expect("the points of the windows past the retention go");
+    assert!(!at.0.join("points").join(format!("{BEFORE:020}")).exists());
     let (network, _) = Machine::start(&Configuration::at(&at.0, "127.0.0.1:0"))
         .expect("the network answers again");
     let (late, _) = Machine::start(&Configuration::at(
