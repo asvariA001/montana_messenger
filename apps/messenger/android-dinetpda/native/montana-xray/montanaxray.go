@@ -5,12 +5,14 @@
 package montanaxray
 
 import (
+	"bufio"
 	"bytes"
 	ctx "context"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"runtime"
@@ -21,6 +23,9 @@ import (
 	"time"
 	_ "unsafe" // go:linkname, to reach the core's read strategy
 
+	probedispatch "github.com/xtls/xray-core/app/dispatcher"
+	probelog "github.com/xtls/xray-core/app/log"
+	"github.com/xtls/xray-core/app/proxyman"
 	corenet "github.com/xtls/xray-core/common/net"
 	commserial "github.com/xtls/xray-core/common/serial"
 	"github.com/xtls/xray-core/common/session"
@@ -161,93 +166,233 @@ func Version() string { return core.Version() }
 // something else entirely -- the plans put an entry node near the user in front of every country, so "Netherlands"
 // answered in six milliseconds while the Netherlands were still a hundred away (measured 22.09: the entry of that
 // plan sits in Moscow -- 2 ms from our Moscow node, 46 ms from Amsterdam).
-// Ported from the reference implementation of the engine's mobile library (MeasureOutboundDelay / measureInstDelay,
-// 2dust/AndroidLibXrayLite, libv2ray_utils.go, MPL-2.0): inbounds dropped, only the outbound/dispatcher/log
-// apps kept, two attempts, the smaller one wins.
 //
 // `iface`, when given, binds every socket the probe opens to that network interface. That is the one piece the
 // reference solves with the platform's protect(): with our own tunnel up, an unbound socket of the app would ride
 // into the tunnel and the number would be the tunnel's road plus the server's, not the server's.
+//
+// Two attempts are made one after the other and the smaller time is the answer; a call that gets no 204 from either
+// returns -1 and an error naming what each attempt met. The engine built for the call listens on nothing and is closed
+// before the call returns, whatever happened.
 func MeasureDelay(configJSON string, url string, iface string) (int64, error) {
-	cfg, err := serial.LoadJSONConfig(bytes.NewReader([]byte(configJSON)))
-	if err != nil {
-		return -1, err
-	}
-	cfg.Inbound = nil
-	var keep []*commserial.TypedMessage
-	for _, app := range cfg.App {
-		switch app.Type {
-		case "xray.app.proxyman.OutboundConfig", "xray.app.dispatcher.Config", "xray.app.log.Config":
-			keep = append(keep, app)
-		}
-	}
-	cfg.App = keep
-
-	if iface != "" {
-		bindSocketsTo(iface)
-		defer bindSocketsTo("")
-	}
-
-	inst, err := core.New(cfg)
-	if err != nil {
-		return -1, err
-	}
-	if err := inst.Start(); err != nil {
-		return -1, err
-	}
-	defer inst.Close()
-
+	callEnd := time.Now().Add(delayCallLimit)
 	if url == "" {
 		url = probeURL
 	}
-	context, cancel := ctx.WithTimeout(ctx.Background(), 12*time.Second)
-	defer cancel()
-
-	tr := &http.Transport{
-		TLSHandshakeTimeout: 6 * time.Second,
-		DialContext: func(c ctx.Context, network, addr string) (net.Conn, error) {
-			dest, err := corenet.ParseDestination(fmt.Sprintf("%s:%s", network, addr))
-			if err != nil {
-				return nil, err
-			}
-			return core.Dial(c, inst, dest)
-		},
+	req, dest, err := delayRequest(url)
+	if err != nil {
+		return -1, err
 	}
-	defer tr.CloseIdleConnections()
-	client := &http.Client{Transport: tr, Timeout: 12 * time.Second}
+	// The core treats a socket option it cannot apply as a log line and dials unbound, so a missing interface is
+	// refused here, before anything is dialled past it.
+	if iface != "" {
+		if _, err := net.InterfaceByName(iface); err != nil {
+			return -1, fmt.Errorf("measure delay: interface %q: %w", iface, err)
+		}
+	}
+	engine, err := delayEngine(configJSON, iface)
+	if err != nil {
+		return -1, err
+	}
+	defer engine.Close()
 
-	var best int64 = -1
-	var last error
-	for i := 0; i < 2; i++ {
-		req, err := http.NewRequestWithContext(context, "GET", url, nil)
+	ms, err := delayBestOfTwo(engine, "", req, dest, callEnd, delayCallLimit)
+	if err != nil {
+		return -1, fmt.Errorf("measure delay of %s: %w", url, err)
+	}
+	return ms, nil
+}
+
+// delayBestOfTwo makes the two attempts one after the other on the outbound named by tag ("" -- the default one) and
+// answers the smaller time; with no 204 from either, an error naming what each attempt met. No attempt runs past callEnd.
+func delayBestOfTwo(engine *core.Instance, tag string, req *http.Request, dest corenet.Destination, callEnd time.Time,
+	callLimit time.Duration) (int64, error) {
+	best := int64(-1)
+	var failures []string
+	for n := 1; n <= 2; n++ {
+		limit := min(delayAttemptLimit, time.Until(callEnd))
+		if limit <= 0 {
+			failures = append(failures, fmt.Sprintf("attempt %d: not made, the call's %v ran out", n, callLimit))
+			continue
+		}
+		ms, err := delayAttempt(engine, tag, req, dest, limit)
 		if err != nil {
-			last = err
+			failures = append(failures, fmt.Sprintf("attempt %d: %v", n, err))
 			continue
 		}
-		start := time.Now()
-		resp, err := client.Do(req)
-		if err != nil {
-			last = err
-			continue
-		}
-		_, _ = io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
-		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-			last = fmt.Errorf("status %s", resp.Status)
-			continue
-		}
-		ms := time.Since(start).Milliseconds()
 		if best < 0 || ms < best {
 			best = ms
 		}
 	}
 	if best < 0 {
-		if last == nil {
-			last = fmt.Errorf("no answer")
-		}
-		return -1, last
+		return -1, errors.New(strings.Join(failures, "; "))
 	}
 	return best, nil
+}
+
+// One attempt is a fresh connection through the outbound: TCP to the server, the outbound's own handshake (TLS or
+// Reality), then the request and its answer -- three to four round trips. Five seconds hold that at a 1 s round trip
+// with room for a lost SYN (first retransmit at 1 s); a server slower than that is no server to ride. The whole call
+// keeps the module's bound for one server (probeDeadlineSeconds), so a silent server costs 5 + 3 s, never more.
+// Variables, not constants, only so the tests can shorten them.
+var (
+	delayAttemptLimit = 5 * time.Second
+	delayCallLimit    = probeDeadlineSeconds * time.Second
+)
+
+// delayRequest checks the address once for both attempts and names the place the outbound is asked to reach.
+func delayRequest(target string) (*http.Request, corenet.Destination, error) {
+	req, err := http.NewRequest(http.MethodGet, target, nil)
+	if err != nil {
+		return nil, corenet.Destination{}, fmt.Errorf("measure delay: url %q: %w", target, err)
+	}
+	port := req.URL.Port()
+	switch req.URL.Scheme {
+	case "http":
+		if port == "" {
+			port = "80"
+		}
+	case "https":
+		if port == "" {
+			port = "443"
+		}
+	default:
+		return nil, corenet.Destination{}, fmt.Errorf("measure delay: url %q: scheme must be http or https", target)
+	}
+	host := req.URL.Hostname()
+	if host == "" {
+		return nil, corenet.Destination{}, fmt.Errorf("measure delay: url %q has no host", target)
+	}
+	p, err := corenet.PortFromString(port)
+	if err != nil {
+		return nil, corenet.Destination{}, fmt.Errorf("measure delay: url %q: %w", target, err)
+	}
+	req.Close = true // one request per connection; nothing is kept for later
+	return req, corenet.TCPDestination(corenet.ParseAddress(host), p), nil
+}
+
+// delayEngine builds the engine of one measurement: the outbounds of the config and only the apps they need to carry a
+// request -- no inbound, so it listens on nothing, and no router, so the request leaves by the default outbound.
+func delayEngine(configJSON string, iface string) (*core.Instance, error) {
+	cfg, err := serial.LoadJSONConfig(strings.NewReader(configJSON))
+	if err != nil {
+		return nil, fmt.Errorf("measure delay: config: %w", err)
+	}
+	if len(cfg.Outbound) == 0 {
+		return nil, fmt.Errorf("measure delay: config has no outbound")
+	}
+	probeOutboundsOnly(cfg)
+	if iface != "" {
+		for _, out := range cfg.Outbound {
+			if err := bindOutboundTo(out, iface); err != nil {
+				return nil, fmt.Errorf("measure delay: %w", err)
+			}
+		}
+	}
+	engine, err := core.New(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("measure delay: engine: %w", err)
+	}
+	if err := engine.Start(); err != nil {
+		_ = engine.Close()
+		return nil, fmt.Errorf("measure delay: engine start: %w", err)
+	}
+	return engine, nil
+}
+
+// probeOutboundsOnly strips a loaded config to what its outbounds need to carry a measurement: no inbound, so the engine
+// listens on nothing, and of the apps only the outbound manager, the dispatcher and the log -- no router, so a request
+// leaves by the default outbound or the one its context names.
+func probeOutboundsOnly(cfg *core.Config) {
+	cfg.Inbound = nil
+	needed := map[string]bool{
+		commserial.GetMessageType(&proxyman.OutboundConfig{}): true,
+		commserial.GetMessageType(&probedispatch.Config{}):    true,
+		commserial.GetMessageType(&probelog.Config{}):         true,
+	}
+	var apps []*commserial.TypedMessage
+	for _, app := range cfg.App {
+		if needed[app.Type] {
+			apps = append(apps, app)
+		}
+	}
+	cfg.App = apps
+}
+
+// bindOutboundTo writes the interface into one outbound's own socket options. The binding lives in this engine's
+// config and dies with it; the core applies it per platform (SO_BINDTODEVICE on Linux, IP_BOUND_IF on Darwin).
+func bindOutboundTo(out *core.OutboundHandlerConfig, iface string) error {
+	sender := new(proxyman.SenderConfig)
+	if out.SenderSettings != nil {
+		msg, err := out.SenderSettings.GetInstance()
+		if err != nil {
+			return fmt.Errorf("outbound %q: %w", out.Tag, err)
+		}
+		s, ok := msg.(*proxyman.SenderConfig)
+		if !ok {
+			return fmt.Errorf("outbound %q: sender settings of type %s", out.Tag, out.SenderSettings.Type)
+		}
+		sender = s
+	}
+	if sender.StreamSettings == nil {
+		sender.StreamSettings = new(internet.StreamConfig)
+	}
+	if sender.StreamSettings.SocketSettings == nil {
+		sender.StreamSettings.SocketSettings = new(internet.SocketConfig)
+	}
+	sender.StreamSettings.SocketSettings.Interface = iface
+	out.SenderSettings = commserial.ToTypedMessage(sender)
+	return nil
+}
+
+// delayAttempt times one GET through the engine -- on the outbound named by tag, or the default one for "" -- from the
+// dial to the answer's status line.
+func delayAttempt(engine *core.Instance, tag string, req *http.Request, dest corenet.Destination, limit time.Duration) (int64, error) {
+	attempt, cancel := ctx.WithTimeout(ctx.Background(), limit)
+	defer cancel() // ends the outbound's work for this connection inside the core
+	route := attempt
+	if tag != "" {
+		route = session.SetForcedOutboundTagToContext(attempt, tag)
+	}
+	start := time.Now()
+	conn, err := core.Dial(route, engine, dest)
+	if err != nil {
+		return -1, err
+	}
+	defer conn.Close()
+	// The core's in-process connection ignores deadlines; the limit is kept by closing it, which ends any read.
+	unwatch := ctx.AfterFunc(attempt, func() { _ = conn.Close() })
+	defer unwatch()
+
+	var stream net.Conn = conn
+	if req.URL.Scheme == "https" {
+		secure := tls.Client(conn, &tls.Config{ServerName: req.URL.Hostname()})
+		if err := secure.HandshakeContext(attempt); err != nil {
+			return -1, attemptError(attempt, limit, "tls", err)
+		}
+		stream = secure
+	}
+	if err := req.Write(stream); err != nil {
+		return -1, attemptError(attempt, limit, "request", err)
+	}
+	resp, err := http.ReadResponse(bufio.NewReader(stream), req)
+	if err != nil {
+		return -1, attemptError(attempt, limit, "answer", err)
+	}
+	took := time.Since(start)
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		return -1, fmt.Errorf("answered %q, not 204", resp.Status)
+	}
+	return took.Milliseconds(), nil
+}
+
+// attemptError names a timeout as one; anything else keeps its own words.
+func attemptError(attempt ctx.Context, limit time.Duration, stage string, err error) error {
+	if attempt.Err() != nil {
+		return fmt.Errorf("no answer within %v", limit.Round(time.Millisecond))
+	}
+	return fmt.Errorf("%s: %w", stage, err)
 }
 
 // MeasureUDP answers the question a call asks of a server: does it carry our packets, and how fast. The
@@ -264,15 +409,7 @@ func MeasureUDP(configJSON string, stun string, iface string) (int64, error) {
 	if err != nil {
 		return -1, err
 	}
-	cfg.Inbound = nil
-	var keep []*commserial.TypedMessage
-	for _, app := range cfg.App {
-		switch app.Type {
-		case "xray.app.proxyman.OutboundConfig", "xray.app.dispatcher.Config", "xray.app.log.Config":
-			keep = append(keep, app)
-		}
-	}
-	cfg.App = keep
+	probeOutboundsOnly(cfg)
 
 	if iface != "" {
 		bindSocketsTo(iface)
@@ -501,15 +638,7 @@ func batchInstance(outboundsJSON string, iface string) ([]probeAnswer, *core.Ins
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	cfg.Inbound = nil
-	var keep []*commserial.TypedMessage
-	for _, app := range cfg.App {
-		switch app.Type {
-		case "xray.app.proxyman.OutboundConfig", "xray.app.dispatcher.Config", "xray.app.log.Config":
-			keep = append(keep, app)
-		}
-	}
-	cfg.App = keep
+	probeOutboundsOnly(cfg)
 	if iface != "" {
 		bindSocketsTo(iface)
 		defer bindSocketsTo("")
@@ -546,52 +675,15 @@ func runBatch(n int, width int, job func(int)) {
 // delayVia is one server's delay through a running instance: two GETs of the 204-endpoint on the outbound named by
 // `tag`, the smaller one wins (the reference's own rule), all within `deadline`.
 func delayVia(inst *core.Instance, tag string, url string, deadline time.Duration) (int64, error) {
-	c, cancel := ctx.WithTimeout(ctx.Background(), deadline)
-	defer cancel()
-	tr := &http.Transport{
-		TLSHandshakeTimeout: deadline,
-		DialContext: func(dc ctx.Context, network, addr string) (net.Conn, error) {
-			dest, err := corenet.ParseDestination(fmt.Sprintf("%s:%s", network, addr))
-			if err != nil {
-				return nil, err
-			}
-			return core.Dial(session.SetForcedOutboundTagToContext(dc, tag), inst, dest)
-		},
+	callEnd := time.Now().Add(deadline)
+	if url == "" {
+		url = probeURL
 	}
-	defer tr.CloseIdleConnections()
-	client := &http.Client{Transport: tr, Timeout: deadline}
-	var best int64 = -1
-	var last error
-	for i := 0; i < 2; i++ {
-		req, err := http.NewRequestWithContext(c, "GET", url, nil)
-		if err != nil {
-			last = err
-			continue
-		}
-		start := time.Now()
-		resp, err := client.Do(req)
-		if err != nil {
-			last = err
-			continue
-		}
-		_, _ = io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
-		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-			last = fmt.Errorf("status %s", resp.Status)
-			continue
-		}
-		ms := time.Since(start).Milliseconds()
-		if best < 0 || ms < best {
-			best = ms
-		}
+	req, dest, err := delayRequest(url)
+	if err != nil {
+		return -1, err
 	}
-	if best < 0 {
-		if last == nil {
-			last = fmt.Errorf("no answer")
-		}
-		return -1, last
-	}
-	return best, nil
+	return delayBestOfTwo(inst, tag, req, dest, callEnd, deadline)
 }
 
 // Every socket the engine opens from here on is bound to the named interface (empty -- the system chooses).
