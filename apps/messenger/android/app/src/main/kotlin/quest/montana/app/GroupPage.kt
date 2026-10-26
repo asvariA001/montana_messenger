@@ -706,7 +706,7 @@ private fun groupAdminsPage(act: MainActivity, key: String, onBack: () -> Unit):
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(16), dp(12), dp(16), dp(12))
             minimumHeight = dp(48)
-            addView(c.text(Prefs.userName, 17f, Color.WHITE).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))   // USER-DATA: my name
+            addView(c.text(Groups.myName(c), 17f, Color.WHITE).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))   // USER-DATA: my name, cut as it goes out (iOS MTGroup.clean)
             addView(role(Groups.OWNER, owner = true))
         }
         admins.forEach { p ->
