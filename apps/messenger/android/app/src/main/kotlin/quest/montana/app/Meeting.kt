@@ -80,6 +80,10 @@ object Meeting {
     fun wipe() { listOf(FIRSTS, SCANS, CARDS).forEach(DeviceVault::delete) }
     /** A root this phone met a person by (iOS MontanaMeeting.cardMet(root:)): a name heard before may stand from memory. */
     fun metAtRoot(root: ByteArray): Boolean = synchronized(gate) { jmap(CARDS).optString(MontanaCard.b64url(root)).isNotEmpty() }
+    /** The conversation a root was met by, while its pipe stands (iOS MontanaMeeting.cardMet(root:) and MTPipeBook.holds). */
+    fun cardMet(root: ByteArray): String? = synchronized(gate) {
+        jmap(CARDS).optString(MontanaCard.b64url(root)).takeIf { it.isNotEmpty() && Book.secret(it) != null }
+    }
 
     /** A folded conversation's cards and links open the older one (iOS MontanaMeeting.repoint). */
     fun repoint(newer: String, older: String) = synchronized(gate) {
@@ -122,7 +126,7 @@ object Meeting {
      */
     fun healFace(ref: String, link: String) {
         val inv = invite(link) ?: return
-        Thread { face(inv)?.let { Book.face(ref).writeBytes(it); Book.edit(ref) {} } }.start()
+        Thread { wearCardFace(ref, inv) }.start()
     }
     /** A whole card in the link (the old long form montana://c/…): the key and the name themselves. */
     private fun longCard(link: String): ByteArray? {
@@ -167,7 +171,7 @@ object Meeting {
                         val nm = String(p, 1184, p.size - 1184, Charsets.UTF_8).trim()
                         if (nm.isNotEmpty() && Book.admitState(known, "name", 0L)) Book.edit(known) { it.name = stripCrown(nm) }
                     }
-                    face(inv)?.let { Book.face(known).writeBytes(it); Book.edit(known) {} }
+                    wearCardFace(known, inv)
                 }.start()
                 return Outcome.Opened(known)
             }
@@ -184,7 +188,7 @@ object Meeting {
             if (inv != null) synchronized(gate) { jsave(SCANS, jmap(SCANS).put(MontanaCard.b64url(inv), known)) }
             if (name.isNotEmpty() && Book.admitState(known, "name", 0L)) Book.edit(known) { it.name = stripCrown(name) }   // a card is undated: never over the peer's dated word
             // THE FACE RIDES BESIDE THE NAME ON THIS ROOT TOO (iOS fea4e68ea0da refaceFromCard:1174, the «card-book»/«root» branches).
-            if (inv != null) Thread { face(inv)?.let { Book.face(known).writeBytes(it); Book.edit(known) {} } }.start()
+            if (inv != null) Thread { wearCardFace(known, inv) }.start()
             return Outcome.Opened(known)
         }
         // One encapsulation, and the correspondence exists; the ciphertext waits for the first letter (iOS MontanaCard.meet).
@@ -200,7 +204,7 @@ object Meeting {
         }
         val perm = inv != null && isPermanent(inv)
         Book.open(ref, stripCrown(name), perm)
-        if (inv != null) Thread { face(inv)?.let { Book.face(ref).writeBytes(it); Book.edit(ref) {} } }.start()
+        if (inv != null) Thread { wearCardFace(ref, inv) }.start()
         Thread { layPipeFace(secret) }.start()
         // ONE PERSON, ONE CONVERSATION (iOS MTSamePair.ask): whether we already share a pipe is asked at once — the silent
         // first letter, which carries the card's ciphertext to its owner.
@@ -262,6 +266,12 @@ object Meeting {
         val sealed = Wire.getBlob(MontanaCard.faceBid(inv)) ?: return null
         return Wire.open(MontanaCard.faceKey(inv), sealed)?.takeIf { it.isNotEmpty() && it.size <= 262_144 }
     }
+    /** A CARD THAT WEARS MY FACE IS MINE (iOS refaceFromCard, 80a9490f): its link came by the pipe my other device shares with this
+     * correspondent and was noted as theirs; forgotten, it is neither read for a face again nor handed on as theirs. */
+    private fun wearCardFace(ref: String, inv: ByteArray) {
+        val f = face(inv) ?: return
+        if (SelfFace.isMine(f)) PeerLinks.forget(ref) else Book.setFace(ref, f)
+    }
     /** Was the link a permanent one? The mark beside the card says so (iOS isPermanent). */
     private fun isPermanent(inv: ByteArray): Boolean {
         val sealed = Wire.getBlob(MontanaCard.permBid(inv)) ?: return false
@@ -270,8 +280,8 @@ object Meeting {
     /** THE FACE BESIDE THE PIPE (iOS layPipeFace): under a name and a seal only the two of them derive; empty says «no face». */
     private fun layPipeFace(secret: ByteArray) {
         val face = SelfFace.bytes(Book.ctx) ?: ByteArray(0)
-        val bid = Wire.hex(Wire.sha("mt-pipe-f".toByteArray() + byteArrayOf(0), secret))
-        val key = Wire.sha("mt-pipe-fk".toByteArray() + byteArrayOf(0), secret)
+        val bid = Wire.faceBid(secret)
+        val key = Wire.faceKey(secret)
         Wire.seal(key, face)?.let { sealed -> Signal.writeOrder("blob").any { d ->
             Wire.post(d, "/blob-put", JSONObject().put("bid", bid).put("data", Base64.encodeToString(sealed, Base64.NO_WRAP)).put("over", true), 30_000).first == 200
         } }
@@ -307,12 +317,17 @@ object Meeting {
 
 /** The person handed a link in: the meeting runs off the main thread, and the person is answered aloud (iOS resolveInvite, verdict). */
 fun openInvitation(act: MainActivity, link: String) {
+    // a group's invite link is its owner's card and the group's mark: the mark waits for the meeting (iOS handleLink, stage R.6)
+    val card = Groups.takeJoin(link)
     act.background {
-        val o = Meeting.meet(act, link)
+        val o = Meeting.meet(act, card)
         act.onMain {
             when (o) {
                 // a pipe folded into a conversation is never opened as a page of its own (iOS meet → MTSamePair.root)
-                is Meeting.Outcome.Opened -> act.push { close -> conversationPage(act, SamePair.root(o.ref), close) }
+                is Meeting.Outcome.Opened -> {
+                    act.push { close -> conversationPage(act, SamePair.root(o.ref), close) }
+                    act.background { Groups.askJoin(o.ref) }   // a group's link: the join is asked of the owner just met
+                }
                 else -> sayVerdict(act, Meeting.verdict(o))
             }
         }

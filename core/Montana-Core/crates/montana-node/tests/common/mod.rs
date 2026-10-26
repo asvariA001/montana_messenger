@@ -92,3 +92,79 @@ pub fn payee_of(seed: u8) -> (Payee, [u8; 32]) {
         nf_key,
     )
 }
+
+// A record as its holder brings it into being, carrying the right to raise a machine of
+// `operator_secret`: nothing lived, nothing done, opened in `window` at `segment`. The bytes are the
+// layout the set fixes, written through the layout itself.
+pub fn a_record_carrying(operator_secret: &[u8; 32], window: u64, segment: u32) -> Vec<u8> {
+    mt_state::Layout::bytes(&mt_state::layout::Record {
+        segment_bitmap: 0,
+        last_active_segment: segment,
+        opened_window: window,
+        own_height: 0,
+        operator_nf: mt_derive::nullifier::operator(operator_secret),
+        fabric_root: [0x11; 32],
+        suite_id: 1,
+        current_pubkey: vec![0x22; mt_codec::size::SIGNING_PUBLIC_KEY],
+        blind: [0x33; 32],
+    })
+    .expect("a record of the layout")
+}
+
+// The opening of that record, proven as its claimant proves it.
+pub fn an_opening_of(
+    open_secret: &[u8; 32],
+    record: &[u8],
+    window: u64,
+    segment: u32,
+) -> mt_state::layout::Opening {
+    let (trace, digests) =
+        mt_proof::circuit::opening::trace_of(open_secret, record).expect("a claimant writes it");
+    let public = mt_proof::circuit::opening::public_of(&digests, window, segment);
+    let held = mt_proof::circuit::opening::description().expect("the description stands");
+    let proof = mt_proof::scheme::prove(&held, &public, &trace).expect("a true opening proves");
+    mt_state::layout::Opening {
+        open_nullifier: digests[0].bytes(),
+        record_commit: digests[1].bytes(),
+        proof,
+    }
+}
+
+// A candidacy as its claimant proves it: the record walked in the tree of records the state holds,
+// the claimant's own machine and the right the record carries, against the root that tree has now.
+pub fn a_candidacy_of(
+    state: &montana_node::state::State,
+    record: &[u8],
+    machine_secret: &[u8; 32],
+    operator_secret: &[u8; 32],
+    window: u64,
+) -> mt_state::layout::Candidacy {
+    let key = mt_proof::records::leaf(record).bytes();
+    let siblings = state
+        .path_of_a_record(&key)
+        .expect("the record stands in the tree the state holds");
+    let (trace, digests) = mt_proof::circuit::admission::trace_of(
+        record,
+        &key,
+        &siblings,
+        machine_secret,
+        operator_secret,
+    )
+    .expect("a claimant writes it");
+    let public =
+        mt_proof::circuit::admission::public_of(window, &digests[0], &digests[1], &digests[2]);
+    let held = mt_proof::circuit::admission::description().expect("the description stands");
+    let proof = mt_proof::scheme::prove(&held, &public, &trace).expect("a true candidacy proves");
+    mt_state::layout::Candidacy {
+        window,
+        naming_half: digests[1].bytes(),
+        node_commit: mt_derive::node_commit(
+            &[0xA1; mt_codec::size::SIGNING_PUBLIC_KEY],
+            1,
+            &[0xB2; 32],
+        ),
+        operator_nullifier: digests[2].bytes(),
+        suite_id: 1,
+        proof,
+    }
+}

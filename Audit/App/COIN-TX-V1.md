@@ -1,6 +1,6 @@
 # Coin transfer record v1 (MTTX) -- the one source of its format
 
-The author's words 11.10.2026 19:5x-20:2x MSK (No.63): «a person is their seed and everything is in it»; «so I can pay them in
+The author's words 11.10.2026 16:5x-17:2x UTC (No.63): «a person is their seed and everything is in it»; «so I can pay them in
 any scenario»; «either the coins left or not -- there is no third»; «on the TimeChain page an Explorer button to open and check a
 transaction, and on any transaction a link that confirms the sending»; «everything professional in the TimeChain, for auditors».
 

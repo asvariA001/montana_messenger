@@ -1,13 +1,13 @@
 {
  "what": "The status of the thirteen protocol requirements as this tree holds them. A session that closes or moves an item edits its row and its report (protocol-13/, beside this file) in the same commit as the work, and publish_protocol13.py writes the public folder Audit/Protocol-13 from that commit: the reports, the table from this file and the source; an item is closed only with an implementation revision, the exact test command and its result in the report of that item.",
- "recorded": "2026-10-16",
+ "recorded": "2026-10-25",
  "items": [
   {
    "item": 1,
    "report": "01-WINDOW-PROOF.md",
    "requirement": "A complete window proof and verifier",
-   "status": "open",
-   "summary": "Active, sessions 39 to 47. In the branch: the window closes through one verifying door, the roots of state are defined and a device walks from an anchor to the head (2add1f6); the ballot proves a count of votes and hides the standing it was drawn from, a payer's frame applies with its round, the draw's threshold is the width and the ticket orders runners, a right needs the machine's own part in the cement (cdcbd7a, 6ae1a3b, 9f22057, 2538b6a). Open: agreement on what a window decided. The author chose its construction on 2026-10-16 (AGREEMENT.md, section 6: the roll of a proposal is one body whose root stands inside its name); its specification text, its code and the test of four machines at a quorum of three are not written. A run on six hosts closed window 0 on two names, and the memory of a stalled window grew without a bound."
+   "status": "closed",
+   "summary": "Closed on 2026-10-25. The relation of a window and its verifier are implemented (WINDOW-RELATION.md); the closure of a window is stated as theorems with proofs (WINDOW-THEOREM.md), Lemmas 1-2 and Theorems 1-4 checked by machine in Lean (formal/Window.lean: exit 0, no sorry); the obligations O-1 to O-6 are discharged; agreement on what a window decided (AGREEMENT.md, section 6) is implemented and held by the test of four machines. The ring of the core is green on 4451b21 and the run of O-6 on 033c6b7 (01-WINDOW-PROOF.md, Runs). Outside this closure: the rule that bounds the memory of a stalled window, and the run on six hosts (item 13); model checking of the code with Kani is item 2."
   },
   {
    "item": 2,
