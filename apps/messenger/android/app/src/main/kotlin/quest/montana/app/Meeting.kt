@@ -29,7 +29,7 @@ object Meeting {
         else -> R.string.invite_refused
     }
 
-    private const val FIRSTS = "pipeFirst"     // ref → {ct, inv}: the introduction still unanswered
+    private const val FIRSTS = "pipeFirst"     // ref → {ct, inv, cf}: the introduction still unanswered, cf its key confirmation
     private const val SCANS = "rdvScanned"     // invitation → ref (iOS scanBook)
     private const val CARDS = "cardMetByRoot"  // card root → ref (iOS cardBook)
     private val gate = Any()
@@ -43,6 +43,31 @@ object Meeting {
         val ct = runCatching { Base64.decode(o.getString("ct"), Base64.NO_WRAP) }.getOrNull() ?: return null
         val inv = runCatching { Base64.decode(o.getString("inv"), Base64.NO_WRAP) }.getOrNull() ?: return null
         ct to inv
+    }
+
+    /** The key confirmation a first letter carries (iOS MontanaFirstContact.firstConfirm): sixteen bytes over the whole secret and the ciphertext. */
+    private fun confirm(secret: ByteArray, ct: ByteArray): String =
+        if (!Wire.holdsOrigin(secret)) "" else MontanaCard.b64url(Wire.sha("mt-first-conf".toByteArray() + byteArrayOf(0), secret, ct).copyOf(16))
+    /**
+     * THE CONFIRMATION OF A FIRST LETTER OUTLIVES THE FLOOR (iOS MTPipeBook.rememberConfirm / firstConfirm(for:pipe:ct:), bf55cd1a,
+     * decision 188, #36): from ERASE_DAY the book holds the floor, never the secret, and an introduction still unanswered then could not
+     * be sent again. So the confirmation is made once, at the pipe's birth, and kept in the introduction's own record beside the very
+     * ciphertext it was made for -- gone with it on the answer or the drop. It is bytes the wire carries anyway: it opens nothing.
+     */
+    private fun firstConfirm(secret: ByteArray, ct: ByteArray): String {
+        val ref = Wire.reference(secret)
+        if (Wire.holdsOrigin(secret)) return confirm(secret, ct).also { cf ->
+            // an introduction met before 551 kept none: a letter sent while the secret is whole lays it beside its ciphertext
+            synchronized(gate) {
+                val m = jmap(FIRSTS); val o = m.optJSONObject(ref)
+                if (o != null && !o.has("cf") && runCatching { Base64.decode(o.getString("ct"), Base64.NO_WRAP) }.getOrNull()?.contentEquals(ct) == true) jsave(FIRSTS, m.put(ref, o.put("cf", cf)))
+            }
+        }
+        return synchronized(gate) {
+            val o = jmap(FIRSTS).optJSONObject(ref) ?: return@synchronized ""
+            val kept = runCatching { Base64.decode(o.getString("ct"), Base64.NO_WRAP) }.getOrNull()
+            if (kept != null && kept.contentEquals(ct)) o.optString("cf") else ""
+        }
     }
 
     /** The card root an unanswered introduction knocks at (iOS MTPipeBook.root(for:)): the card book read backwards. */
@@ -198,7 +223,8 @@ object Meeting {
         ss.fill(0); o.fill(0)
         val ref = Book.establish(secret) ?: return Outcome.Refused
         synchronized(gate) {
-            if (inv != null) jsave(FIRSTS, jmap(FIRSTS).put(ref, JSONObject().put("ct", Base64.encodeToString(ct, Base64.NO_WRAP)).put("inv", Base64.encodeToString(inv, Base64.NO_WRAP))))
+            if (inv != null) jsave(FIRSTS, jmap(FIRSTS).put(ref, JSONObject().put("ct", Base64.encodeToString(ct, Base64.NO_WRAP)).put("inv", Base64.encodeToString(inv, Base64.NO_WRAP))
+                .put("cf", confirm(secret, ct))))
             if (inv != null) jsave(SCANS, jmap(SCANS).put(MontanaCard.b64url(inv), ref))
             jsave(CARDS, jmap(CARDS).put(root64, ref))
         }
@@ -235,7 +261,7 @@ object Meeting {
         ss.fill(0); o.fill(0)
         val ref = Book.establish(secret) ?: return Outcome.Refused
         synchronized(gate) {
-            jsave(FIRSTS, jmap(FIRSTS).put(ref, JSONObject().put("ct", Base64.encodeToString(ct, Base64.NO_WRAP)).put("inv", "")))
+            jsave(FIRSTS, jmap(FIRSTS).put(ref, JSONObject().put("ct", Base64.encodeToString(ct, Base64.NO_WRAP)).put("inv", "").put("cf", confirm(secret, ct))))
             jsave(CARDS, jmap(CARDS).put(root64, ref))
         }
         Book.open(ref, n, true)   // the name's link keeps the person in the book, as the permanent link it stands in for does
@@ -296,7 +322,7 @@ object Meeting {
      */
     fun knockFirst(secret: ByteArray, ct: ByteArray, inv: ByteArray, mid: String, text: String, silent: Boolean = false): Boolean {
         val twin = MontanaSeed.twin ?: return false
-        val conf = MontanaCard.b64url(Wire.sha("mt-first-conf".toByteArray() + byteArrayOf(0), secret, ct).copyOf(16))
+        val conf = firstConfirm(secret, ct)
         var body = ct
         for (f in listOf(mid, text, Prefs.userName.trim(), "", conf)) body += f.toByteArray() + byteArrayOf(0)
         if (body.size > 1536) return false

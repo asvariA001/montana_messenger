@@ -952,6 +952,7 @@ object NodeClock {
     }
     @Synchronized fun learn(serverMs: Long) {
         PersonChain.answered(serverMs)   // a node's answer is a second of the person on the network (iOS learnSkew, personFeed)
+        FloorGuard.heard(serverMs)   // the clock guard of the first floor: c of this run, and M (iOS MTPipeBook.heard, decision 188, #38)
         load()
         val s = System.currentTimeMillis() - serverMs
         val moved = Math.abs(s - skew)
