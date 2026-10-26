@@ -219,6 +219,33 @@ class ReconcileTests(unittest.TestCase):
         self.assertIn('9.4.0 at README.md:1', result.stdout)
         self.assertEqual(subprocess.run(run[:-1] + ['does-not-exist'], capture_output=True).returncode, 2)
 
+    def test_uppercase_hex_conflict_cannot_disappear(self):
+        # Rejects skipping a valid hex spelling while other documents still agree.
+        self.write('README.md', f'Canon 9.5.0.\ngenesis_state_hash = {"EE" * 32}\n')
+        self.commit()
+        code, out = report(self.root, 'HEAD')
+        self.assertEqual(code, 1, '\n'.join(out))
+        self.assertTrue(any(row.startswith(f'  {"ee" * 32} at ') and 'README.md:2' in row
+                            for row in out), '\n'.join(out))
+
+    def test_hex_case_is_normalized_for_every_text_quantity(self):
+        # Rejects both dropped uppercase values and false disagreements over case alone.
+        for label, key, value in [
+            ('air_hash', 'air_hash', AIR),
+            ('published_parameters', 'published_parameters', PARAMETERS),
+            ('genesis_state_hash', 'genesis_state_hash', GENESIS),
+            ('identifier of the frame', 'air identifier of the frame', FRAME),
+        ]:
+            for spelling in [value.upper(), ''.join(c.upper() if (i // 2) % 2 else c
+                                                    for i, c in enumerate(value))]:
+                with self.subTest(label=label, spelling=spelling):
+                    text = f'{label} = {spelling}\n'
+                    found = statements('README.md', text, {'any', 'prose'})
+                    self.assertEqual([(row[0], row[1]) for row in found], [(key, value)])
+                    self.write('README.md', 'Canon 9.5.0.\n' + text)
+                    self.commit()
+                    self.assertEqual(report(self.root, 'HEAD')[0], 0)
+
     def test_byte_array_reads_as_its_hex(self):
         # Rejects a code reader that keeps the 0x prefixes or the case of the bytes.
         found = statements('x.rs', DECREE.replace('0x5a', '0x5A'), {'any', 'rs'})
