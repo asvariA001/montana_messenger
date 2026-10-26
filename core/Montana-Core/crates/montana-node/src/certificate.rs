@@ -574,6 +574,8 @@ pub struct Roots {
     pub record_root: [u8; 32],
     pub machine_root: [u8; 32],
     pub admitted_root: [u8; 32],
+    // The tree of credited rights once the proposal has credited the cement of the window before.
+    pub credited_root: [u8; 32],
     pub operations_root: [u8; 32],
     // The identifier of the roll: the frames applied, in their order, and the parts of the cement,
     // ascending. Canon, "The roll of a proposal".
@@ -610,6 +612,7 @@ pub fn decided_identifier(held: &Held<'_>, roots: &Roots) -> Result<[u8; 32], No
         record_root: roots.record_root,
         machine_root: roots.machine_root,
         admitted_root: roots.admitted_root,
+        credited_root: roots.credited_root,
         operations_root: roots.operations_root,
         roll: roots.roll,
         admitted_count: roots.admitted_count,
@@ -687,6 +690,7 @@ fn judge(proposal: &Proposal, held: &Held<'_>, roots: Option<&Roots>) -> Result<
             proposal.record_root,
             proposal.machine_root,
             proposal.admitted_root,
+            proposal.credited_root,
             proposal.operations_root,
             proposal.roll,
             proposal.admitted_count,
@@ -697,6 +701,7 @@ fn judge(proposal: &Proposal, held: &Held<'_>, roots: Option<&Roots>) -> Result<
             roots.record_root,
             roots.machine_root,
             roots.admitted_root,
+            roots.credited_root,
             roots.operations_root,
             roots.roll,
             roots.admitted_count,

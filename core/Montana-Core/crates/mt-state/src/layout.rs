@@ -482,6 +482,9 @@ layout! {
         record_root: [u8; 32],
         machine_root: [u8; 32],
         admitted_root: [u8; 32],
+        /// The root of the tree of credited rights once this proposal has appended the parts of
+        /// the cement of the window before it: the root a right of that window walks to.
+        credited_root: [u8; 32],
         operations_root: [u8; 32],
         /// The identifier of the roll: the frames the window applied in the order they applied, then
         /// the parts of its cement. Inside the name, since it is what the window decided, and a
@@ -1078,7 +1081,7 @@ mod tests {
         assert_eq!(
             Proposal::expected_len(),
             8 + 4
-                + 9 * 32
+                + 10 * 32
                 + 8
                 + 32
                 + 8
@@ -1091,7 +1094,7 @@ mod tests {
         // The decided fields stand from the height through the suite, the census among them.
         assert_eq!(
             super::super::PROPOSAL_DECIDED_LEN,
-            8 + 4 + 8 * 32 + 8 + 32 + 8 + censuses * (32 + 8) + 2
+            8 + 4 + 9 * 32 + 8 + 32 + 8 + censuses * (32 + 8) + 2
         );
         assert_eq!(Ballot::expected_len(), 8 + 32 + 8 + super::super::PROOF_LEN);
         assert_eq!(
@@ -1120,6 +1123,7 @@ mod tests {
             record_root: [0x55; 32],
             machine_root: [0x66; 32],
             admitted_root: [0x77; 32],
+            credited_root: [0xAA; 32],
             operations_root: [0x88; 32],
             roll: [0xBB; 32],
             admitted_count: 3,
@@ -1616,9 +1620,9 @@ mod tests {
             ..a_proposal()
         };
         let expected = Proposal::expected_len();
-        // The fixed fields: the window, the version, nine digests, the admitted count, the cement
+        // The fixed fields: the window, the version, ten digests, the admitted count, the cement
         // pair, the census of the standing — a root and a count per census window — and the suite.
-        let fixed = 8 + 4 + 9 * 32 + 8 + 32 + 8 + count_of("standing_censuses") * (32 + 8) + 2;
+        let fixed = 8 + 4 + 10 * 32 + 8 + 32 + 8 + count_of("standing_censuses") * (32 + 8) + 2;
         assert_eq!(empty.encode().len(), fixed);
         assert_eq!(
             empty.bytes(),

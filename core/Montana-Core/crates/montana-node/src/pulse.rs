@@ -1774,6 +1774,10 @@ pub fn live_doing(
             Predecessor::Proposal(before) => before.census.clone(),
             Predecessor::Genesis => certificate::empty_census()?,
         };
+        // **The challenge of the window before closed with this window's decision**, so the proposal
+        // of this window credits its cement: the parts of its decided roll enter the tree of credited
+        // rights before the roots are taken, and the root this proposal carries stands after them.
+        machine.credit(&credited_by(&memory, &predecessor)?)?;
         let (mut roots, roll) = {
             let plane = machine.value()?;
             (
@@ -1892,6 +1896,25 @@ pub fn live_doing(
     Ok(out)
 }
 
+// The parts the proposal of a window credits: those of the decided roll of the window before it,
+// which this machine closed and kept the roll of, and none for the first window of a network.
+// Canon, "The right of a machine to its coin of a window, and what redeems it". The set leaves out a
+// part a contradicting pair of that window's challenge convicted; the sanction itself is not built
+// (Registry, CNS-10), so the whole cement is credited until it is.
+fn credited_by(memory: &Memory, predecessor: &Predecessor<'_>) -> Result<Vec<[u8; 32]>, NodeError> {
+    match predecessor {
+        Predecessor::Genesis => Ok(Vec::new()),
+        Predecessor::Proposal(before) => match memory.facts.get(&before.window) {
+            Some(facts) if facts.roll.id().ok() == Some(before.roll) => {
+                Ok(facts.roll.parts.clone())
+            }
+            _ => Err(NodeError::Refused {
+                what: "a window before whose decided roll this machine does not hold",
+            }),
+        },
+    }
+}
+
 // The positions the frames of a window took as a replay applied them, by the frame: what a payer is
 // told again.
 type Positions = BTreeMap<[u8; 32], Vec<u64>>;
@@ -1997,6 +2020,13 @@ fn replay(
             }
             Err(_) => return invalid("a frame of the roll the decided state refuses"),
         }
+    }
+    // The credit the proposal of this window writes: the decided cement of the window before it.
+    let Ok(credited) = credited_by(memory, &previous) else {
+        return invalid("a window before whose decided roll this machine does not hold");
+    };
+    if state.credit(&credited).is_err() {
+        return invalid("a cement the tree of credited rights cannot hold");
     }
     let mut roots = state.roots(cohort, window, &roll.parts)?;
     let censused = mt_pulse::standing::is_census(window).map_err(|_| NodeError::Decree {

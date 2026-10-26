@@ -1709,6 +1709,7 @@ pub fn check_serialized_layouts(md: &str) -> Result<(), String> {
         record_root: [0x55; 32],
         machine_root: [0x66; 32],
         admitted_root: [0x77; 32],
+        credited_root: [0xAA; 32],
         operations_root: [0x88; 32],
         roll: [0xBB; 32],
         admitted_count: 3,
@@ -4874,9 +4875,9 @@ pub fn check_identifiers(md: &str) -> Result<(), String> {
     Ok(())
 }
 
-// The six roots the Genesis State Hash consumes, against the frozen empty root of each tree. Every
-// one of the six is frozen elsewhere in the set with its own construction; what was missing is the
-// sentence tying the six a genesis actually carries to those values. Without it a table could pick
+// The seven roots the Genesis State Hash consumes, against the frozen empty root of each tree. Every
+// one of the seven is frozen elsewhere in the set with its own construction; what was missing is the
+// sentence tying the seven a genesis actually carries to those values. Without it a table could pick
 // its doors one way and the set freeze them another, and no build would say a word — which is how a
 // tree of the proof hash came to be folded under the SHA-256 doors of the state with its own
 // domains, the one arrangement the set names a defect in as many words.
@@ -4890,12 +4891,13 @@ pub fn check_genesis_roots(md: &str) -> Result<(), String> {
     let sparse_top = format!("empty_internal({})", mt_merkle::KEY_BITS);
     let append_top = format!("empty_internal({})", note_tree_depth()?);
 
-    let frozen: [(Table, &str); 6] = [
+    let frozen: [(Table, &str); 7] = [
         (Table::Notes, "note_root (empty)"),
         (Table::Nullifiers, sparse_top.as_str()),
         (Table::Records, "record empty_internal(256)"),
         (Table::Machines, sparse_top.as_str()),
         (Table::Admitted, "admitted_root (empty)"),
+        (Table::Credited, "credited_root (empty)"),
         (Table::Operations, append_top.as_str()),
     ];
 
@@ -4904,7 +4906,7 @@ pub fn check_genesis_roots(md: &str) -> Result<(), String> {
         let rows = match *table {
             Table::Notes => &note_rows,
             Table::Records => &record_rows,
-            Table::Admitted => &claim_rows,
+            Table::Admitted | Table::Credited => &claim_rows,
             _ => &merkle_rows,
         };
         compare_hash(
@@ -4914,7 +4916,7 @@ pub fn check_genesis_roots(md: &str) -> Result<(), String> {
         )?;
         if slot != &table.empty_root() {
             return Err(format!(
-                "the six of a genesis and the empty root of {table:?} are two values"
+                "the seven of a genesis and the empty root of {table:?} are two values"
             ));
         }
     }

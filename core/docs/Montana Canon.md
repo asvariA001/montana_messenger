@@ -3651,15 +3651,15 @@ ignores the period of adaptation and holds one set of entries forever.
 
 ```
 window = 1000; protocol_version = 0x00010000
-previous, final_beacon and the six roots = 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88 each x 32
+previous, final_beacon and the seven roots = 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0xAA, 0x88 each x 32
 roll = 0xBB x 32
 admitted_count = 3; cement_aggregate = 0x99 x 32; cement_count = 2
 census entry i of ten: root = (0xC0 + i) x 32, count = i
 suite_id = 1; runner_pubkey = 0xA1 x 1952; ticket_proof = 0x00 x 333 888; signature = 0x5E x 3309
-proposal_len                     = 339 899
-SHA-256 of the serialized proposal = 5fa4081fd61af207a52aa465523b0d3d8bce81a147129e4ba608a911af4aa824
-proposal_id over the 718 bytes the window decided
-                                 = 63316f7bdf2584df960fa2cf3e648bc3bb5b67e06a2b43ce7bb1ff43585de0f5
+proposal_len                     = 339 931
+SHA-256 of the serialized proposal = 362e6b4ac382261d876bcd43ea1b9294bf2a63bdebb74f0b0c6db07b14390fe7
+proposal_id over the 750 bytes the window decided
+                                 = a99a95547645bdb30a4c039352e003ce55b9fcecf5a1b7409482dc209ba26a33
 ```
 
 The identifier line catches the implementations the scope rule names: one that hashes the whole
@@ -4765,16 +4765,17 @@ over this table, computed by the gate on every build rather than remembered by a
 **The Genesis State Hash** binds the parameters to the state they open. Every parameter of the
 table enters as an unsigned eight-byte little-endian integer, resolved to its numeric value and in
 the order the table stands; a parameter written as a ratio enters as two such integers, numerator
-first; a parameter written as a hash enters as its thirty-two bytes. After them stand the six roots of the genesis state in the order a proposal carries them,
-each the empty root of its own structure — the notes, the admitted machines and the operations
-under the append-only construction, the nullifiers, the records and the machine state under the
-sparse one:
+first; a parameter written as a hash enters as its thirty-two bytes. After them stand the seven roots of the genesis state in the order a proposal carries them,
+each the empty root of its own structure — the notes, the admitted machines, the credited rights
+and the operations under the append-only construction, the nullifiers, the records and the machine
+state under the sparse one:
 
 ```
 genesis_state_hash = SHA-256("mt-genesis-state" || 0x00 || parameters
-                             || note_root || nullifier_root || record_root || machine_root || admitted_root || operations_root)
+                             || note_root || nullifier_root || record_root || machine_root || admitted_root
+                             || credited_root || operations_root)
 
-                   = 8a1f7e0182d32a2539ad85428f6da7afd27eafe289cee6164a5ab5ca033e0b3b
+                   = 8670319f420cc516dda68ec9a07ad103e366ab99ab065a92f1e432e285ccc991
 
 published_parameters = SHA-256("mt-genesis-state" || 0x00 || the parameters that are published,
                                in the order and the encoding above)
@@ -4786,7 +4787,7 @@ implementations refuse it at the first proposal rather than diverging from it la
 
 **Why both values stand here.** The first is the hash a chain opens on, and honest implementations
 refuse a chain whose value differs at the first proposal. The second is the digest of the
-parameters alone, without the six roots, and it exists so that an implementation whose encoding of
+parameters alone, without the seven roots, and it exists so that an implementation whose encoding of
 the table has moved fails on the digest before it fails on the chain — the nearer alarm of the two.
 Both are computed by the gate on every build; neither is remembered by anyone.
 
@@ -4971,6 +4972,7 @@ serialize(proposal)
   record_root                      32 B
   machine_root                     32 B
   admitted_root                    32 B         over the tree of admitted machines, appended at admission
+  credited_root                    32 B         over the tree of credited rights, after the parts of the window before entered
   operations_root                  32 B         over the frames the window applied, in the order they applied
   roll                             32 B         the identifier of the roll: the frames applied and the parts of the cement
   admitted_count                    8 B   u64   the machines the tree of admitted machines holds
@@ -4985,15 +4987,15 @@ serialize(proposal)
   ticket_proof     PRESENCE_PROOF_LEN B         the clearing of the runner's ticket, under the description of the ticket
   signature                      3309 B         over everything above, by the rules for a signed object
 
-proposal_len = 8 + 4 + 8 x 32 + 8 + 32 + 8 + 10 x (32 + 8) + 2 + 32 + 1952 + PRESENCE_PROOF_LEN + 3309
-             = 339 899 B
+proposal_len = 8 + 4 + 9 x 32 + 8 + 32 + 8 + 10 x (32 + 8) + 2 + 32 + 1952 + PRESENCE_PROOF_LEN + 3309
+             = 339 931 B
 ```
 
 **The identifier of a proposal is taken over what the window decided** — the bytes from `window`
 through `suite_id`, under the proposal domain of the registry:
 
 ```
-proposal_id = SHA-256("mt-proposal" || 0x00 || serialize(proposal)[0 .. 718])
+proposal_id = SHA-256("mt-proposal" || 0x00 || serialize(proposal)[0 .. 750])
 ```
 
 The reason is what reads the identifier. An attestation attests it and the sanction of a double
@@ -5015,12 +5017,13 @@ decision between them.
 **Invariants of the proposal:**
 
 - Its length is exactly `proposal_len`; a proposal of any other length is refused before it is parsed.
-- Its identifier is taken under the proposal domain over the fields from `window` through `suite_id`, 718 bytes; an implementation hashing the whole object gives every proposal a name its runner can grind through the randomness of a proof, and one hashing through `final_beacon` or `runner_pubkey` gives two branches or two runners of one decision two names.
+- Its identifier is taken under the proposal domain over the fields from `window` through `suite_id`, 750 bytes; an implementation hashing the whole object gives every proposal a name its runner can grind through the randomness of a proof, and one hashing through `final_beacon` or `runner_pubkey` gives two branches or two runners of one decision two names.
 - `census` is the census of the standing of an electorate the rule of that section carries from the proposal before: at a census window the window's own cement — the root of its tree and its count — enters first and the oldest leaves, and at any other window it is carried as it stands. The electorate of the window two on reads its standing and its committee off it.
 - `runner_pubkey` is one-time and answers for this proposal alone; a key seen for two proposals is a defect, and it names no machine and no owner.
 - `protocol_version` carries the major component in its upper sixteen bits and the minor in its lower. A machine refuses a proposal whose major exceeds the one it implements, and refuses one whose value stands below its predecessor's — so rules never roll back inside one chain, and both rules the Constitution states are a comparison of this field.
 - `previous` is the identifier of the proposal of the window before, so the chain of proposals is a chain by construction and round zero of every window stands on bytes that are fixed. The first window of a network has no proposal before it, and its `previous` is the Genesis State Hash, so the chain of every network begins at the parameters it opened on.
 - The roots are recomputed by every verifier and never taken from the proposal on trust; `admitted_count` is the count of leaves of the tree `admitted_root` stands over, recomputed with it.
+- `credited_root` is the root of the tree of credited rights after this proposal appended the parts of the cement of the window before it, ascending, less the parts its challenge convicted; the first window of a network appends nothing. A verifier recomputes it from the tree it holds and the decided roll of the window before, and a proposal whose root differs is refused.
 - `roll` is the identifier of the roll of this proposal, laid out below: the identifiers of the frames the window applied, in the order they applied, then the parts of its cement, ascending. A machine replaying the roll recomputes `operations_root` from its frames and the cement from its parts, and a proposal whose roll does not replay to it is followed by no machine that did not take it.
 - `cement_aggregate` and `cement_count` are the aggregate and the count of the cement of this window, its living machines whatever names they pledged: the state the beacon `final_beacon` carried, a count reaching the quorum of the electorate, which a machine of the window recomputed from the heavy attestations it held when it answered that beacon, and which a device walking a certificate reads off that beacon among the beacons of the certificate; a proposal whose pair differs is refused. They are what the electorate of the window two on and the draw of that window read, and `cement_count` is the coins the window credits, one to each of its living machines.
 - `ticket_proof` asserts that the ticket drawn from the runner's secret and the cemented aggregate of the window two before clears the threshold of the draw, that the half the secret names stands in the tree of admitted machines of the electorate, and that the digest of the key this proposal answers under is the one the proof names — without disclosing the ticket, the secret or the machine. It stands at the height of the presence and is of its length.

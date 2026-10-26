@@ -42,6 +42,7 @@ fn kept(window: u64) -> Proposal {
         record_root: [0x55; 32],
         machine_root: [0x66; 32],
         admitted_root: [0x77; 32],
+        credited_root: [0xAA; 32],
         operations_root: [0x88; 32],
         roll: [0xBB; 32],
         admitted_count: 1,

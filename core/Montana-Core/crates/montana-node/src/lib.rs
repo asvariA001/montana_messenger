@@ -813,6 +813,13 @@ impl Machine {
         })
     }
 
+    // The cement of the window before, credited as the proposal of this window closes it: its parts
+    // enter the tree of credited rights of this machine's plane, and the plane is kept with them.
+    pub fn credit(&self, parts: &[[u8; 32]]) -> Result<(), NodeError> {
+        let mut state = self.value()?;
+        update_value(&mut state, &self.store, |candidate| candidate.credit(parts))
+    }
+
     // The frames standing at the points of the round this machine is in, verified and applied in
     // ascending order of their identifiers. A frame stands at the points of the round its canonical
     // slot names, exactly as a beacon and the attestations answering it do — so a machine reads the
