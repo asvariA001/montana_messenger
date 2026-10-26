@@ -1,5 +1,6 @@
 pub mod clock;
 pub mod commands;
+pub mod diagnostics;
 pub mod identity;
 /// Name layer on the node. The subsystem is OFF by default: until verified live,
 /// the node behaves exactly as before.

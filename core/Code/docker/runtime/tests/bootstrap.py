@@ -50,7 +50,10 @@ if args[0] == 'init':
     else:
         tty.close()
         raise SystemExit(92)  # init could bypass stream redirection through this terminal.
-    assert stat.S_IMODE((at / 'mnemonic.txt').stat().st_mode) == 0o400
+    assert stat.S_IMODE((at / 'init.log').stat().st_mode) == 0o400
+    fd = os.open(at / 'mnemonic.txt', os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o400)
+    with os.fdopen(fd, 'w') as recovery:
+        recovery.write(os.environ['TEST_MARKER'] + '\\n')
     if '--mnemonic-stdin' in args:
         assert sys.stdin.read().strip() == os.environ['TEST_MARKER']
     print(os.environ['TEST_MARKER'], flush=True)
@@ -113,7 +116,9 @@ sys.exit(subprocess.run(sys.argv[2:], start_new_session=True).returncode)
         self.assertEqual([call[0] for call in self.calls()], ['init', 'start'])
         recovery = self.data / 'mnemonic.txt'
         self.assertEqual(stat.S_IMODE(recovery.stat().st_mode), 0o400)
-        self.assertEqual(recovery.read_text().splitlines(), [MARKER, MARKER + '_STDERR'])
+        self.assertEqual(recovery.read_text().splitlines(), [MARKER])
+        self.assertEqual((self.data / 'init.log').read_text().splitlines(), [MARKER, MARKER + '_STDERR'])
+        self.assertEqual(stat.S_IMODE((self.data / 'init.log').stat().st_mode), 0o400)
         self.assertNotIn('MONTANA_REPORT_URL', SOURCE.read_text())
 
     def test_provided_recovery_uses_stdin_and_is_not_in_the_child_environment(self):
