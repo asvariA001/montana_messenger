@@ -430,8 +430,9 @@ fn pledged_name(attested: &[[u8; 32]], beacon: &[u8; 32]) -> Option<[u8; 32]> {
 
 // What a window decided of its cement: the beacon it closed on and the pair that beacon carried,
 // with the votes the beacon carried as the evidence of the close. Consensus, "The beacon a window
-// closes on": a proposal carries the pair, the share of every living machine divides the mint by
-// its count, and the draw of the window two on reads its aggregate; the votes enter no proposal.
+// closes on": a proposal carries the pair, its count is the coins the window credits, one to every
+// living machine, and the draw of the window two on reads its aggregate; the votes enter no
+// proposal.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Decided {
     pub window: u64,
@@ -585,6 +586,8 @@ pub struct Roots {
     pub record_root: [u8; 32],
     pub machine_root: [u8; 32],
     pub admitted_root: [u8; 32],
+    // The tree of credited rights once the proposal has credited the cement of the window before.
+    pub credited_root: [u8; 32],
     pub operations_root: [u8; 32],
     // The identifier of the roll: the frames applied, in their order, and the parts of the cement,
     // ascending. Canon, "The roll of a proposal".
@@ -621,6 +624,7 @@ pub fn decided_identifier(held: &Held<'_>, roots: &Roots) -> Result<[u8; 32], No
         record_root: roots.record_root,
         machine_root: roots.machine_root,
         admitted_root: roots.admitted_root,
+        credited_root: roots.credited_root,
         operations_root: roots.operations_root,
         roll: roots.roll,
         admitted_count: roots.admitted_count,
@@ -698,6 +702,7 @@ fn judge(proposal: &Proposal, held: &Held<'_>, roots: Option<&Roots>) -> Result<
             proposal.record_root,
             proposal.machine_root,
             proposal.admitted_root,
+            proposal.credited_root,
             proposal.operations_root,
             proposal.roll,
             proposal.admitted_count,
@@ -708,6 +713,7 @@ fn judge(proposal: &Proposal, held: &Held<'_>, roots: Option<&Roots>) -> Result<
             roots.record_root,
             roots.machine_root,
             roots.admitted_root,
+            roots.credited_root,
             roots.operations_root,
             roots.roll,
             roots.admitted_count,
@@ -1003,6 +1009,16 @@ pub fn walk_to_the_open(
 // door it refuses: one that lets a second answering key stand under one part (C3), one that counts a
 // ballot outside the cement or below the largest of its part (C5), one that hands the agreement a
 // pledge under a key the part never proved (C6).
+//
+// The lemma is checked class by class, the class being the parts the three heavy attestations name:
+// each was drawn by `one_of(&PARTS)`, an index below three, so the twenty-seven triples of indices
+// part the input and their union is the whole of it. Within a class the parts are constants, so the
+// cement, the answering keys and the book of the door hold their attestations at places the model
+// checker reads off rather than searches. Two functions the harness never reaches are stubbed so the
+// cryptography behind them is not compiled into it: `verify_light`, as the round carries no light
+// attestation, and `Proposal::id`, as the window stands on the Genesis State Hash; each stub fails
+// the harness were it reached. What the first would verify reaches `Closure::answered` alone and no
+// assertion reads it.
 #[cfg(kani)]
 mod proofs {
     use super::*;
@@ -1061,6 +1077,26 @@ mod proofs {
         }
     }
 
+    fn no_light(
+        _: &LightAttestation,
+        _: &[u8],
+        _: &[u8; 32],
+        _: u8,
+        _: u32,
+        _: &mt_pulse::U256,
+    ) -> Result<(), NodeError> {
+        kani::assert(
+            false,
+            "the round of the harness carries no light attestation",
+        );
+        Err(refused())
+    }
+
+    fn no_proposal(_: &Proposal) -> Result<[u8; 32], mt_state::ObjectError> {
+        kani::assert(false, "the harness stands on the Genesis State Hash");
+        Ok([0; 32])
+    }
+
     fn beacon_id(beacon: &Beacon) -> Result<[u8; 32], mt_state::ObjectError> {
         Ok(beacon.previous)
     }
@@ -1098,12 +1134,12 @@ mod proofs {
         vec![u8::from(kani::any::<bool>())]
     }
 
-    fn any_heavy() -> Confirmation {
+    fn any_heavy(part: usize) -> Confirmation {
         let names = [LOW, BEACON, PREVIOUS];
         Confirmation {
             window: this_or_next(),
             attested: vec![one_of(&names), one_of(&names)],
-            part_nullifier: one_of(&PARTS),
+            part_nullifier: PARTS[part],
             round_nullifier: [0; 32],
             suite_id: 0,
             answering_key: a_bit(),
@@ -1150,18 +1186,9 @@ mod proofs {
         }
     }
 
-    #[kani::proof]
-    #[kani::unwind(9)]
-    #[kani::stub(crate::attest::verify_heavy, heavy_oracle)]
-    #[kani::stub(crate::attest::verify_ballot, ballot_oracle)]
-    #[kani::stub(crate::attest::verify_pledge, pledge_oracle)]
-    #[kani::stub(mt_state::layout::Beacon::id, beacon_id)]
-    #[kani::stub(mt_state::tables::genesis_state_hash, genesis_name)]
-    #[kani::stub(mt_pulse::retarget::round_threshold, any_threshold)]
-    #[kani::stub(mt_pulse::cement::Cement::aggregate, fixed_aggregate)]
-    #[kani::stub(mt_genesis::ratio, crate::kani_decree::ratio)]
-    #[kani::stub(mt_genesis::scalar, crate::kani_decree::scalar)]
-    fn an_accepted_certificate_satisfies_the_predicate() {
+    // The lemma on the class `parts`: the heavy attestations name PARTS[parts[0]], PARTS[parts[1]]
+    // and PARTS[parts[2]], everything else drawn as before.
+    fn an_accepted_certificate_satisfies_the_predicate(parts: [usize; 3]) {
         let expected: u64 = kani::any();
         kani::assume(expected < 3);
         let electorate = Electorate {
@@ -1183,7 +1210,11 @@ mod proofs {
             cement_count: 0,
             cement_votes: 0,
         };
-        let heavy = [any_heavy(), any_heavy(), any_heavy()];
+        let heavy = [
+            any_heavy(parts[0]),
+            any_heavy(parts[1]),
+            any_heavy(parts[2]),
+        ];
         let ballots = [any_ballot(), any_ballot()];
         let pledges = [any_pledge(), any_pledge()];
         let rounds = [Round {
@@ -1283,5 +1314,69 @@ mod proofs {
             book.decided(&agreement).map(|(name, _)| name),
             Some(PREVIOUS)
         );
+    }
+
+    // One harness per class. No loop of a class runs more than three times -- three attestations, two
+    // ballots, two pledges, and no map or set of the door or of the book above three keys -- so each
+    // is unwound to four; a comparison of 32 bytes is a loop of `memcmp` the command line unwinds to
+    // thirty-three.
+    macro_rules! classes {
+        ($($name:ident: $parts:expr;)*) => {$(
+            #[kani::proof]
+            #[kani::unwind(4)]
+            #[kani::stub(crate::attest::verify_heavy, heavy_oracle)]
+            #[kani::stub(crate::attest::verify_light, no_light)]
+            #[kani::stub(crate::attest::verify_ballot, ballot_oracle)]
+            #[kani::stub(crate::attest::verify_pledge, pledge_oracle)]
+            #[kani::stub(mt_state::layout::Beacon::id, beacon_id)]
+            #[kani::stub(mt_state::layout::Proposal::id, no_proposal)]
+            #[kani::stub(mt_state::tables::genesis_state_hash, genesis_name)]
+            #[kani::stub(mt_pulse::retarget::round_threshold, any_threshold)]
+            #[kani::stub(mt_pulse::cement::Cement::aggregate, fixed_aggregate)]
+            #[kani::stub(mt_genesis::ratio, crate::kani_decree::ratio)]
+            #[kani::stub(mt_genesis::scalar, crate::kani_decree::scalar)]
+            fn $name() {
+                an_accepted_certificate_satisfies_the_predicate($parts);
+            }
+        )*};
+    }
+
+    classes! {
+        // One part: a cement below the quorum of an electorate of two, which no door accepts unless
+        // its agreement too counts a quorum of one; these classes complete the input.
+        an_accepted_certificate_satisfies_the_predicate_on_1_1_1: [0, 0, 0];
+        an_accepted_certificate_satisfies_the_predicate_on_2_2_2: [1, 1, 1];
+        an_accepted_certificate_satisfies_the_predicate_on_3_3_3: [2, 2, 2];
+        // Two parts, the first two attestations of one part (the second cover stands here): the door
+        // that lets a second key stand under a part, counts a ballot of the part outside the cement or
+        // one below the largest of its part, or hands the agreement a pledge under a key never proved.
+        an_accepted_certificate_satisfies_the_predicate_on_1_1_2: [0, 0, 1];
+        an_accepted_certificate_satisfies_the_predicate_on_1_1_3: [0, 0, 2];
+        an_accepted_certificate_satisfies_the_predicate_on_2_2_1: [1, 1, 0];
+        an_accepted_certificate_satisfies_the_predicate_on_2_2_3: [1, 1, 2];
+        an_accepted_certificate_satisfies_the_predicate_on_3_3_1: [2, 2, 0];
+        an_accepted_certificate_satisfies_the_predicate_on_3_3_2: [2, 2, 1];
+        // Two parts, the repeated part in the third attestation: the same doors, the second key met
+        // after another part entered the cement.
+        an_accepted_certificate_satisfies_the_predicate_on_1_2_1: [0, 1, 0];
+        an_accepted_certificate_satisfies_the_predicate_on_1_2_2: [0, 1, 1];
+        an_accepted_certificate_satisfies_the_predicate_on_1_3_1: [0, 2, 0];
+        an_accepted_certificate_satisfies_the_predicate_on_1_3_3: [0, 2, 2];
+        an_accepted_certificate_satisfies_the_predicate_on_2_1_1: [1, 0, 0];
+        an_accepted_certificate_satisfies_the_predicate_on_2_1_2: [1, 0, 1];
+        an_accepted_certificate_satisfies_the_predicate_on_2_3_2: [1, 2, 1];
+        an_accepted_certificate_satisfies_the_predicate_on_2_3_3: [1, 2, 2];
+        an_accepted_certificate_satisfies_the_predicate_on_3_1_1: [2, 0, 0];
+        an_accepted_certificate_satisfies_the_predicate_on_3_1_3: [2, 0, 2];
+        an_accepted_certificate_satisfies_the_predicate_on_3_2_2: [2, 1, 1];
+        an_accepted_certificate_satisfies_the_predicate_on_3_2_3: [2, 1, 2];
+        // Three parts: the door that does not count its cement against the electorate, and closes on
+        // a cement larger than it.
+        an_accepted_certificate_satisfies_the_predicate_on_1_2_3: [0, 1, 2];
+        an_accepted_certificate_satisfies_the_predicate_on_1_3_2: [0, 2, 1];
+        an_accepted_certificate_satisfies_the_predicate_on_2_1_3: [1, 0, 2];
+        an_accepted_certificate_satisfies_the_predicate_on_2_3_1: [1, 2, 0];
+        an_accepted_certificate_satisfies_the_predicate_on_3_1_2: [2, 0, 1];
+        an_accepted_certificate_satisfies_the_predicate_on_3_2_1: [2, 1, 0];
     }
 }

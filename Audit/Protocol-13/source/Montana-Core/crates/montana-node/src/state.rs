@@ -273,6 +273,7 @@ impl State {
         &self,
         cohort: &crate::pulse::Cohort,
         window: u64,
+        parts: &[[u8; 32]],
     ) -> Result<crate::certificate::Roots, NodeError> {
         if cohort.root() != self.admitted {
             return Err(NodeError::Refused {
@@ -293,6 +294,7 @@ impl State {
         };
         let operations_root =
             tables::root_of_sequence(Table::Operations, applied).ok_or_else(refused)?;
+        let roll = self.roll(window, parts).id().map_err(NodeError::Object)?;
         Ok(crate::certificate::Roots {
             note_root: self.notes_root().bytes(),
             nullifier_root,
@@ -300,11 +302,37 @@ impl State {
             machine_root,
             admitted_root: self.admitted.bytes(),
             operations_root,
+            roll,
             admitted_count: cohort.count(),
             // The census is carried from the proposal before with the cement of the window, which
             // the plane does not hold; the pulse writes it beside these roots.
             census: Vec::new(),
         })
+    }
+
+    // The identifiers of the frames this plane applied in `window`, in the order they applied, and
+    // nothing where the tree of operations holds another window.
+    pub fn operations_of(&self, window: u64) -> Vec<[u8; 32]> {
+        if self.operations.0 == window {
+            self.operations.1.clone()
+        } else {
+            Vec::new()
+        }
+    }
+
+    // The roll of `window` as this plane applied it: the frames in the order they applied, then the
+    // parts of the cement the window decided, ascending. Canon, "The roll of a proposal".
+    pub fn roll(&self, window: u64, parts: &[[u8; 32]]) -> mt_state::layout::Roll {
+        let frames = if self.operations.0 == window {
+            self.operations.1.clone()
+        } else {
+            Vec::new()
+        };
+        mt_state::layout::Roll {
+            window,
+            frames,
+            parts: parts.to_vec(),
+        }
     }
 
     // A commitment entering the tree outside a frame: what a window's minting writes, and what a
@@ -389,6 +417,67 @@ impl State {
         // what lets a machine hold the tree without ever seeing a record.
         self.records.insert(opening.record_commit, commitment);
         self.opened = (window, held + 1);
+        Ok(())
+    }
+
+    // The window whose proposal carries the root of records a candidacy of `window` is verified
+    // against: the last window of the stride standing for it, by the integer form of the horizon of
+    // proving — the rule a frame walks a right by. Before the first stride stands there is none, and
+    // no candidacy applies. `docs/Montana Canon.md`, "The candidacy of a machine".
+    pub fn window_of_the_root_of_a_candidacy(window: u64) -> Option<u64> {
+        let stride = mt_proof::horizon::standing_stride(window)?;
+        mt_proof::horizon::stride_span(stride)?.1.checked_sub(1)
+    }
+
+    // A candidacy applied: the window its own, the right refused if already spent, the proof
+    // verified against the root of records the verifier holds of the one proposal the set names
+    // for the window, and only then the right spent.
+    //
+    // **The root comes from the machine and never from the object.** A candidacy states no root,
+    // and a verifier that took one from it would let a claimant walk a record in a tree no proposal
+    // carries — a foreign record in a tree of its own making. What the caller hands here is the
+    // `record_root` of the proposal of `window_of_the_root_of_a_candidacy(window)`.
+    //
+    // What it writes is the right alone. The naming half is what a selection event writes into the
+    // tree of admitted machines, and the event is not of this plane; a candidacy that is never
+    // admitted has spent its right all the same.
+    pub fn apply_candidacy(
+        &mut self,
+        candidacy: &mt_state::layout::Candidacy,
+        window: u64,
+        record_root: &Digest,
+    ) -> Result<(), NodeError> {
+        candidacy.bytes().map_err(|_| NodeError::Refused {
+            what: "a candidacy outside its canonical shape",
+        })?;
+        if candidacy.window != window {
+            return Err(NodeError::Refused {
+                what: "a candidacy of another window than the one being applied",
+            });
+        }
+        if self.is_spent_right(&candidacy.operator_nullifier) {
+            return Err(NodeError::Refused {
+                what: "a candidacy under a right already spent",
+            });
+        }
+        let naming = Digest::of_bytes(&candidacy.naming_half).ok_or(NodeError::Refused {
+            what: "a naming half that is not a digest of the family",
+        })?;
+        let right = Digest::of_bytes(&candidacy.operator_nullifier).ok_or(NodeError::Refused {
+            what: "a right that is not a digest of the family",
+        })?;
+        let public = mt_proof::circuit::admission::public_of(window, record_root, &naming, &right);
+        let description =
+            mt_proof::circuit::admission::description().ok_or(NodeError::Refused {
+                what: "a description of an admission this Decree does not give",
+            })?;
+        mt_proof::scheme::verify(&description, &public, &candidacy.proof).map_err(|_| {
+            NodeError::Unprovable {
+                what:
+                    "a candidacy whose proof does not stand against the record root of its window",
+            }
+        })?;
+        self.nullifiers.push(candidacy.operator_nullifier);
         Ok(())
     }
 
