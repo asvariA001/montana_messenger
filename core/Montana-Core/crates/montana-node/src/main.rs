@@ -141,7 +141,8 @@ fn run() -> Result<(), String> {
     }
     // **A machine that was away walks back before it lives.** Asked to open a window further on than
     // the one after the last it closed, it walks from the two final proposals it kept to the head the
-    // network made final since, over the links it reached, and opens the window after that head.
+    // network made final since, over the links it reached, and opens the window the network stands at:
+    // the one after the proposal the walk keeps awaiting its certificate, where it keeps one.
     let from = montana_node::pulse::come_back(
         &machine,
         configuration.from,

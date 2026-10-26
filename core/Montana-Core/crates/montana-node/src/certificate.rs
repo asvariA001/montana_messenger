@@ -801,6 +801,21 @@ pub fn walk(
     draw_threshold: &mt_pulse::U256,
     implemented_major: u16,
 ) -> Result<Anchor, NodeError> {
+    walk_to_the_pending(anchor, steps, chains, draw_threshold, implemented_major)
+        .map(|(head, _)| head)
+}
+
+// The walk, and beside the head the proposal of the window after it that the last step judged whole
+// but for the certificate that would make it final: the proposal awaiting its certificate, where the
+// walk took one. It is no head and nothing is taken against its roots; it is the name a machine that
+// walked pledges in the window after it, as a machine that closed that window took it.
+pub(crate) fn walk_to_the_pending(
+    anchor: &Anchor,
+    steps: &[Step<'_>],
+    chains: u64,
+    draw_threshold: &mt_pulse::U256,
+    implemented_major: u16,
+) -> Result<(Anchor, Option<Proposal>), NodeError> {
     let mut earlier = anchor.earlier.clone();
     let mut later = anchor.later.clone();
     if earlier.window.checked_add(1) != Some(later.window)
@@ -918,13 +933,16 @@ pub fn walk(
             // attested name the head is where the walk stands.
             return match refusal {
                 Some(why) => Err(why),
-                None => Ok(head),
+                None => Ok((head, None)),
             };
         };
         earlier = later;
         later = next.clone();
     }
-    Ok(head)
+    // Where the walk took a proposal after the head, `later` is that proposal; where it took none,
+    // `later` is the head itself.
+    let pending = (later.window != head.later.window).then_some(later);
+    Ok((head, pending))
 }
 
 // Lemma 2 of WINDOW-THEOREM.md: every certificate this door accepts satisfies Pi_cert. The presence

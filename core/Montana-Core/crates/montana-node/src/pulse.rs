@@ -2520,6 +2520,18 @@ fn stand_at_the_window(machine: &Machine, window: u64, object: &[u8]) -> Result<
 // certificate stands; a device further behind takes a fresh anchor, and the set says that is a
 // change of trust. The head and the proposal before it are kept, and the head moves onto it.
 pub fn join(machine: &Machine, anchor: &Anchor, patience: u32) -> Result<Anchor, NodeError> {
+    let (head, pending) = walked(machine, anchor, patience)?;
+    kept_as_walked(machine, &head, pending.as_ref())?;
+    Ok(head)
+}
+
+// The walk of a join, read and judged, with nothing of it kept yet: the head, and the proposal after
+// it awaiting its certificate, where the walk took one.
+fn walked(
+    machine: &Machine,
+    anchor: &Anchor,
+    patience: u32,
+) -> Result<(Anchor, Option<Proposal>), NodeError> {
     let retained = mt_genesis::scalar("retained_windows").ok_or(NodeError::Decree {
         row: "retained_windows".to_string(),
     })?;
@@ -2587,20 +2599,42 @@ pub fn join(machine: &Machine, anchor: &Anchor, patience: u32) -> Result<Anchor,
     // not whole yet: the proposal before it awaits its certificate, and a walk refused at it is taken
     // again without it, so the head is the newest proposal a whole certificate made final. What the
     // second walk takes it verified whole; what it cannot take is refused as the first was.
-    let head = match certificate::walk(anchor, &steps, 1, &threshold, major) {
-        Ok(head) => head,
-        Err(refused) if before_the_newest.is_empty() => return Err(refused),
-        Err(_) => certificate::walk(anchor, before_the_newest, 1, &threshold, major)?,
-    };
+    match certificate::walk_to_the_pending(anchor, &steps, 1, &threshold, major) {
+        Ok(walked) => Ok(walked),
+        Err(refused) if before_the_newest.is_empty() => Err(refused),
+        Err(_) => certificate::walk_to_the_pending(anchor, before_the_newest, 1, &threshold, major),
+    }
+}
+
+// What a walk leaves a machine: the head and the proposal before it kept, the head moved onto it,
+// and the proposal after the head awaiting its certificate kept as the name of the window it closes
+// — the window the network closed and whose agreement the next window holds. **A machine that walked
+// lives the window the network stands at and not one it closed:** "It then follows the beacons of the
+// open window as any machine does" (Consensus, "The join", 6). A machine that lived again a window
+// the network closed would close it on a beacon of its own, a fuller cement than the network's, and
+// pledge in the open window a name of its own that nobody beside it took (seen on four machines,
+// 25.10.2026 10:59 UTC: the agreement of the open window in its eighth attempt, undecided).
+fn kept_as_walked(
+    machine: &Machine,
+    head: &Anchor,
+    pending: Option<&Proposal>,
+) -> Result<(), NodeError> {
     machine.keep_proposal(&head.earlier)?;
     machine.keep_proposal(&head.later)?;
     machine.finalize(head.later.window)?;
-    // A device that walked to this head stands in no window at or below it: those are decided, and
-    // a machine pledges nothing of a decided window. The number that refuses them is the one the
-    // close writes, so a joiner asked to live a decided window is refused at the opening rather than
-    // at the close, where its head would have to leave the decision.
-    machine.let_go_of(head.later.window)?;
-    Ok(head)
+    // A device that walked to this head stands in no window at or below it, nor in the window of the
+    // proposal awaiting its certificate: those are closed, and a machine pledges nothing of a closed
+    // window. The number that refuses them is the one the close writes, so a joiner asked to live a
+    // closed window is refused at the opening rather than at the close, where its head would have to
+    // leave the decision.
+    let closed = match pending {
+        Some(proposal) => {
+            machine.keep_proposal(proposal)?;
+            proposal.window
+        }
+        None => head.later.window,
+    };
+    machine.let_go_of(closed)
 }
 
 // What a walk that finds nothing to verify answers, whether the device holds nothing or lived the
@@ -2614,11 +2648,12 @@ const NO_CERTIFICATE_TO_WALK: &str = "no certificate to walk; a fresh anchor is 
 // (Consensus, "The TimeChain"). A machine asked to live a window further on than the one after the
 // last it closed walks from the two final proposals it kept — its head and the proposal before it —
 // to the head the certificates standing since make final, as a joining device walks, and lives on
-// from the window after that head: the window it answers. A walk that moves the head nowhere is no
-// way back — the certificates of the windows it missed stand nowhere, or the chain stands where the
-// machine left it — and is refused as a walk with nothing to verify; a machine holding no two final
-// proposals of its own has no anchor to walk from. A machine asked to live the window after the last
-// it closed, or holding nothing, is answered that window, and the opening of it judges the rest.
+// from the window after the last it closed now: the window it answers. A walk that moves the head
+// nowhere is no way back — the certificates of the windows it missed stand nowhere, or the chain
+// stands where the machine left it — and is refused as a walk with nothing to verify, before anything
+// of it is kept; a machine holding no two final proposals of its own has no anchor to walk from. A
+// machine asked to live the window after the last it closed, or holding nothing, is answered that
+// window, and the opening of it judges the rest.
 pub fn come_back(machine: &Machine, to: u64, patience: u32) -> Result<u64, NodeError> {
     let Some(closed) = machine.closed_window()? else {
         return Ok(to);
@@ -2637,12 +2672,13 @@ pub fn come_back(machine: &Machine, to: u64, patience: u32) -> Result<u64, NodeE
     .ok_or(NodeError::Refused {
         what: "a machine away from the chain holding no two final proposals of its own",
     })?;
-    let head = join(machine, &anchor, patience)?;
+    let (head, pending) = walked(machine, &anchor, patience)?;
     if head.later.window <= anchor.later.window {
         return Err(NodeError::Refused {
             what: NO_CERTIFICATE_TO_WALK,
         });
     }
+    kept_as_walked(machine, &head, pending.as_ref())?;
     machine
         .closed_window()?
         .and_then(|closed| closed.checked_add(1))
