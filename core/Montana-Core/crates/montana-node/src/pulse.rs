@@ -1831,7 +1831,10 @@ pub fn live_doing(
         // stands after them. The credit is the close's and no one else's: it becomes durable only in the
         // one record of this close, so a refused proposal leaves the plane and its record on the close
         // before (F-562-1).
-        plane.credit(&credited_by(&memory, &predecessor)?)?;
+        let credited = credited_by(machine, &memory, &predecessor)?.ok_or(NodeError::Refused {
+            what: "a window before whose decided roll this machine does not hold",
+        })?;
+        plane.credit(&credited)?;
         let mut roots = plane.roots(cohort, window, &decided_parts)?;
         let roll = plane.roll(window, &decided_parts);
         roots.census =
@@ -1895,18 +1898,7 @@ pub fn live_doing(
             machine.settled_through(before.window)?;
             let final_id = before.id().map_err(NodeError::Object)?;
             let link: String = final_id.iter().map(|b| format!("{b:02x}")).collect();
-            // The decided roll: the one this run held of a window it lived, and of the window an
-            // earlier run of this machine closed before it stopped, the roll standing at the points
-            // of that window under the identifier its final proposal carries.
-            let decided_roll = match memory.facts.get(&before.window) {
-                Some(facts) => Some(facts.roll.clone()),
-                None => rolls_of(
-                    &bodies_at_a_past_window(machine, before.window)?,
-                    before.window,
-                )
-                .into_iter()
-                .find(|one| one.id().ok() == Some(before.roll)),
-            };
+            let decided_roll = decided_roll(machine, &memory, before)?;
             let right = match decided_roll {
                 Some(roll) => {
                     let part_before = mt_derive::nullifier::part(&of_the_machine, before.window)
@@ -1978,22 +1970,45 @@ pub fn live_doing(
     Ok(out)
 }
 
+// The decided roll of a window this machine closed: the one this run held of a window it lived, and
+// of the window an earlier run of this machine closed before it stopped, the roll standing at the
+// points of that window under the identifier its final proposal carries -- so a machine started
+// again credits and issues what it would have had it never stopped (Consensus, "The way back"). A
+// roll whose identifier is not the one the proposal carries is no decided roll of it.
+fn decided_roll(
+    machine: &Machine,
+    memory: &Memory,
+    before: &Proposal,
+) -> Result<Option<Roll>, NodeError> {
+    if let Some(facts) = memory.facts.get(&before.window) {
+        if facts.roll.id().ok() == Some(before.roll) {
+            return Ok(Some(facts.roll.clone()));
+        }
+    }
+    Ok(rolls_of(
+        &bodies_at_a_past_window(machine, before.window)?,
+        before.window,
+    )
+    .into_iter()
+    .find(|one| one.id().ok() == Some(before.roll)))
+}
+
 // The parts the proposal of a window credits: those of the decided roll of the window before it,
-// which this machine closed and kept the roll of, and none for the first window of a network.
-// Canon, "The right of a machine to its coin of a window, and what redeems it". The set leaves out a
-// part a contradicting pair of that window's challenge convicted; the sanction itself is not built
-// (Registry, CNS-10), so the whole cement is credited until it is.
-fn credited_by(memory: &Memory, predecessor: &Predecessor<'_>) -> Result<Vec<[u8; 32]>, NodeError> {
+// which this machine closed, and none for the first window of a network; none at all where this
+// machine holds no decided roll of that window. Canon, "The right of a machine to its coin of a
+// window, and what redeems it". The set leaves out a part a contradicting pair of that window's
+// challenge convicted; the sanction itself is not built (Registry, CNS-10), so the whole cement is
+// credited until it is.
+fn credited_by(
+    machine: &Machine,
+    memory: &Memory,
+    predecessor: &Predecessor<'_>,
+) -> Result<Option<Vec<[u8; 32]>>, NodeError> {
     match predecessor {
-        Predecessor::Genesis => Ok(Vec::new()),
-        Predecessor::Proposal(before) => match memory.facts.get(&before.window) {
-            Some(facts) if facts.roll.id().ok() == Some(before.roll) => {
-                Ok(facts.roll.parts.clone())
-            }
-            _ => Err(NodeError::Refused {
-                what: "a window before whose decided roll this machine does not hold",
-            }),
-        },
+        Predecessor::Genesis => Ok(Some(Vec::new())),
+        Predecessor::Proposal(before) => {
+            Ok(decided_roll(machine, memory, before)?.map(|roll| roll.parts))
+        }
     }
 }
 
@@ -2104,7 +2119,7 @@ fn replay(
         }
     }
     // The credit the proposal of this window writes: the decided cement of the window before it.
-    let Ok(credited) = credited_by(memory, &previous) else {
+    let Some(credited) = credited_by(machine, memory, &previous)? else {
         return invalid("a window before whose decided roll this machine does not hold");
     };
     if state.credit(&credited).is_err() {
