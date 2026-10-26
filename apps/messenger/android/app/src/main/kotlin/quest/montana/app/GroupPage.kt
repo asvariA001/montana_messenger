@@ -460,6 +460,13 @@ private fun groupEditPage(act: MainActivity, key: String, onBack: () -> Unit, on
                                 }, lp())
                             }, lp())
                         }
+                    } else if (!channel && Groups.heldLink(key) != null) {
+                        // an administrator who may invite holds the link the owner handed it (iOS MontanaPeerInfoScreen 795-801, G.6)
+                        gap(20)
+                        val links = c.navRow(R.drawable.ic_link, c.getString(R.string.gp_links), null) {
+                            act.push { back -> groupLinksPage(act, key, back) }
+                        }
+                        addView(c.plate { addView(links, lp()) }, lp())
                     }
                 })
             }, lp(MATCH, 0, 1f))
@@ -505,7 +512,8 @@ private fun groupLinksPage(act: MainActivity, key: String, onBack: () -> Unit): 
             .setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT, link), null))
     }
     fun fetch() = act.background {
-        val l = Groups.inviteLink(act, key)
+        // the owner's own link, or -- to an administrator who may invite (iOS MTGroupInviteLinksPage onAppear, G.6) -- the one the owner handed it
+        val l = Groups.inviteLink(act, key) ?: Groups.heldLink(key)
         act.onMain {
             link = l
             if (l == null) android.widget.Toast.makeText(c, R.string.card_failed, android.widget.Toast.LENGTH_LONG).show()
@@ -534,6 +542,7 @@ private fun groupLinksPage(act: MainActivity, key: String, onBack: () -> Unit): 
                 addView(share, lp(0, WRAP, 1f))
             }, lp())
         })
+        if (!Groups.owns(key)) return@settingsPage   // the owner alone asks first and ends the links given before
         // THE LINK ASKS THE OWNER FIRST (iOS MTGroupInviteLinksPage, G.8): who opens it waits among the requests
         var ready = false   // the switch set to what is stored is not the owner's tap
         lateinit var note: android.widget.TextView
@@ -748,7 +757,11 @@ private fun groupAdminRightsPage(act: MainActivity, key: String, seat: String, n
     val done = c.icon(R.drawable.ic_check, Color.WHITE).apply {
         setPadding(c.dp(10), c.dp(10), c.dp(10), c.dp(10))
         contentDescription = c.getString(R.string.gp_done)
-        pressable { hideKeys(); Groups.setAdmin(key, seat, true, taken, rank.text.toString()); onBack() }
+        pressable {
+            hideKeys(); Groups.setAdmin(key, seat, true, taken, rank.text.toString())
+            if (Groups.INVITE !in taken) act.background { Groups.handLink(act, key) }   // the link to an admin who invites, once a card stands
+            onBack()
+        }
     }
     return settingsPage(act, c.getString(R.string.gp_rights), { hideKeys(); onBack() }, trailing = done) {
         section(null, null, c.text(name, 17f, Color.WHITE, bold = true).apply {   // USER-DATA: a person's name
