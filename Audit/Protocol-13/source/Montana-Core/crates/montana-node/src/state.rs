@@ -273,6 +273,7 @@ impl State {
         &self,
         cohort: &crate::pulse::Cohort,
         window: u64,
+        parts: &[[u8; 32]],
     ) -> Result<crate::certificate::Roots, NodeError> {
         if cohort.root() != self.admitted {
             return Err(NodeError::Refused {
@@ -293,6 +294,7 @@ impl State {
         };
         let operations_root =
             tables::root_of_sequence(Table::Operations, applied).ok_or_else(refused)?;
+        let roll = self.roll(window, parts).id().map_err(NodeError::Object)?;
         Ok(crate::certificate::Roots {
             note_root: self.notes_root().bytes(),
             nullifier_root,
@@ -300,11 +302,37 @@ impl State {
             machine_root,
             admitted_root: self.admitted.bytes(),
             operations_root,
+            roll,
             admitted_count: cohort.count(),
             // The census is carried from the proposal before with the cement of the window, which
             // the plane does not hold; the pulse writes it beside these roots.
             census: Vec::new(),
         })
+    }
+
+    // The identifiers of the frames this plane applied in `window`, in the order they applied, and
+    // nothing where the tree of operations holds another window.
+    pub fn operations_of(&self, window: u64) -> Vec<[u8; 32]> {
+        if self.operations.0 == window {
+            self.operations.1.clone()
+        } else {
+            Vec::new()
+        }
+    }
+
+    // The roll of `window` as this plane applied it: the frames in the order they applied, then the
+    // parts of the cement the window decided, ascending. Canon, "The roll of a proposal".
+    pub fn roll(&self, window: u64, parts: &[[u8; 32]]) -> mt_state::layout::Roll {
+        let frames = if self.operations.0 == window {
+            self.operations.1.clone()
+        } else {
+            Vec::new()
+        };
+        mt_state::layout::Roll {
+            window,
+            frames,
+            parts: parts.to_vec(),
+        }
     }
 
     // A commitment entering the tree outside a frame: what a window's minting writes, and what a

@@ -1679,16 +1679,15 @@ pub fn check_genesis_state_hash(md: &str) -> Result<(), String> {
 pub fn check_sizes(md: &str) -> Result<(), String> {
     use mt_codec::size;
     // The rows of the Decree that carry a width, each read by its own name.
-    for (row, held) in [("hash_bytes", size::HASH)] {
-        match mt_genesis::scalar(row) {
-            Some(width) if width as usize == held => verified_note_number(row, width),
-            Some(width) => {
-                return Err(format!(
-                    "size divergence at `{row}`: the Decree states {width} B, the code holds {held} B"
-                ))
-            }
-            None => return Err(format!("the Decree names no `{row}`")),
+    let (row, held) = ("hash_bytes", size::HASH);
+    match mt_genesis::scalar(row) {
+        Some(width) if width as usize == held => verified_note_number(row, width),
+        Some(width) => {
+            return Err(format!(
+                "size divergence at `{row}`: the Decree states {width} B, the code holds {held} B"
+            ))
         }
+        None => return Err(format!("the Decree names no `{row}`")),
     }
     // The widths the row of the form table carries, each read at its own name in that row.
     let body = section(md, "### The form table", &["\n### ", "\n## "])?;
@@ -1741,6 +1740,7 @@ pub fn check_serialized_layouts(md: &str) -> Result<(), String> {
         machine_root: [0x66; 32],
         admitted_root: [0x77; 32],
         operations_root: [0x88; 32],
+        roll: [0xBB; 32],
         admitted_count: 3,
         cement_aggregate: [0x99; 32],
         cement_count: 2,
@@ -1881,9 +1881,10 @@ pub fn check_layouts(md: &str) -> Result<(), String> {
         }
         Ok(totals)
     };
-    let named: [(&str, usize, &str); 12] = [
+    let named: [(&str, usize, &str); 13] = [
         ("proposal_len", Proposal::expected_len(), Proposal::NAME),
         ("ballot_len", Ballot::expected_len(), Ballot::NAME),
+        ("pledge_len", Pledge::expected_len(), Pledge::NAME),
         (
             "confirmation_len",
             Confirmation::expected_len(),
@@ -2674,6 +2675,10 @@ pub const DOMAINS_AWAITING_A_VECTOR: &[(&str, &str)] = &[
     // The pulse: the objects a window carries beside its attestations.
     ("mt-nodereg", "the pulse"),
     ("mt-cascade", "the pulse"),
+    // The agreement on what a window decided: the place of a part in an attempt and the identifier
+    // of a roll, frozen with the stage that runs them.
+    ("mt-proposer", "the agreement on what a window decided"),
+    ("mt-roll", "the agreement on what a window decided"),
     // The wire: the two signatures of the handshake and the envelope of a delivery.
     ("mt-noise-pq-v1-sig-r", "the wire"),
     ("mt-noise-pq-v1-sig-i", "the wire"),
@@ -3614,12 +3619,13 @@ pub fn check_device_answers(md: &str) -> Result<(), String> {
     Ok(())
 }
 
-// Every heading of a derivation that restates a value of the Decree, held against the row it
-// names. A section writes its own value in its heading — ``### `cell_bytes` = 1 232`` — and that
-// is a second statement of a number whose one place is the Decree: the two agree today and
-// nothing holds them there. A heading that states a value and names no row of the Decree fails
-// here too, since a value restated outside the block that holds it is the defect this stage is
-// drawn against.
+// Every heading of a derivation that restates a value, held against the row it names. A section
+// writes its own value in its heading — ``### `cell_bytes` = 1 232`` — and that is a second
+// statement of a number whose one place is the Decree or, for a parameter of the proof scheme
+// (``### `proof_queries` = 92``), the table the scheme states and the code that proves holds: the
+// two agree today and nothing holds them there. A heading that states a value and names no
+// row of either fails here too, since a value restated outside the block that holds it is the
+// defect this stage is drawn against.
 pub fn check_derivation_headings(md: &str) -> Result<usize, String> {
     let tau2 = mt_genesis::scalar("tau2");
     let mut compared = 0usize;
@@ -3656,7 +3662,7 @@ pub fn check_derivation_headings(md: &str) -> Result<usize, String> {
         }
         for (name, half) in names.iter().zip(halves.iter()) {
             let value = scalar_value(half, tau2)?;
-            let held = match mt_genesis::scalar(name) {
+            let held = match mt_genesis::scalar(name).or_else(|| proof_parameter(name)) {
                 Some(held) => held,
                 None => match name.rsplit_once('_') {
                     // A ratio stands in the Decree under one name and in a heading under two.
@@ -3668,14 +3674,15 @@ pub fn check_derivation_headings(md: &str) -> Result<usize, String> {
                     )?,
                     _ => {
                         return Err(format!(
-                            "a heading states a value under `{name}`, which the Decree does not hold"
+                            "a heading states a value under `{name}`, which neither the Decree \
+                             nor the proof scheme holds"
                         ))
                     }
                 },
             };
             if value != held {
                 return Err(format!(
-                    "heading divergence at `{name}`: the heading states {value}, the Decree holds {held}"
+                    "heading divergence at `{name}`: the heading states {value}, the row it names holds {held}"
                 ));
             }
             verified_note_number(name, value);
@@ -3860,6 +3867,14 @@ pub fn check_layout_register(md: &str) -> Result<(), String> {
             absent.join(", ")
         ));
     }
+    // A body is held against the set as a layout is: every row of its register stands as a block of
+    // the set, so a body the code holds and the set never laid out fails with its name.
+    for (name, in_the_set) in mt_state::layout::BODIES {
+        let opens = format!("serialize({in_the_set})");
+        if !md.lines().any(|line| line.trim() == opens) {
+            return Err(format!("the body `{name}` the code holds is laid out by no block of the set"));
+        }
+    }
     // The other direction: every line of the set that opens a layout block names a layout the code
     // holds. A block is opened by `serialize(` in this set, and what stands inside the parentheses
     // is the layout it lays out.
@@ -3882,6 +3897,12 @@ pub fn check_layout_register(md: &str) -> Result<(), String> {
             continue;
         }
         if mt_wire::NAMES.contains(&named) {
+            continue;
+        }
+        if mt_state::layout::BODIES
+            .iter()
+            .any(|(_, in_the_set)| *in_the_set == named)
+        {
             continue;
         }
         // Two spaces share the shape of a commitment and of a renewal, so the set lays each out
@@ -3924,6 +3945,7 @@ fn registers() -> Vec<&'static [mt_codec::Constant]> {
         mt_derive::fingerprint::FINGERPRINT,
         mt_derive::tag::TAG_WIDTHS,
         mt_state::PROOF_AND_COMMITMENT,
+        mt_state::AGREEMENT,
         mt_pulse::CHAINS,
         mt_store::STORE,
         mt_net::NET,
@@ -4282,8 +4304,9 @@ fn crates_dir() -> std::path::PathBuf {
 
 // Every declaration of a constant whose value opens with a digit, read out of the library sources.
 // What is passed over is stated rather than implied: the harness itself, whose numbers are the
-// comparisons; the tests, which are not the library; and the Decree, whose numbers are compared
-// row by row against the set in both directions and would otherwise be compared twice.
+// comparisons; the tests and the proofs of the model checker, which are not the library; and the
+// Decree, whose numbers are compared row by row against the set in both directions and would
+// otherwise be compared twice.
 fn numerals_of_the_sources() -> Result<Vec<(String, String)>, String> {
     let mut out = Vec::new();
     let root = crates_dir();
@@ -4345,10 +4368,9 @@ fn sources_under(dir: &std::path::Path) -> Result<Vec<std::path::PathBuf>, Strin
 }
 
 // The names of the constants a source declares with a value opening with a digit. What is read is
-// the library and never the tests: the text is cut at the first block of tests, which by the shape
-// of this tree stands last in a file.
+// the library and never the tests or the proofs: the text is cut where the library ends.
 fn numerals_of(text: &str) -> Vec<String> {
-    let library = text.split("#[cfg(test)]").next().unwrap_or(text);
+    let library = &text[..library_end(text)];
     let mut out = Vec::new();
     for line in library.lines() {
         let trimmed = line.trim_start();
@@ -4380,6 +4402,111 @@ fn numerals_of(text: &str) -> Vec<String> {
         }
     }
     out
+}
+
+// Where the library of a source ends: at the first block of tests, or at the first block of proofs
+// the model checker alone compiles, whichever stands first. A block of proofs is no more the
+// library than a block of tests — its numbers are the instance a harness checks, and no build of
+// the tree carries them — and by the shape of this tree it too stands last in a file. A module of
+// proofs declared in a file of its own (`#[cfg(kani)] mod kani_decree;`) is a declaration and not
+// a block: nothing is cut there, and its file is read as any other.
+fn library_end(text: &str) -> usize {
+    const PROOFS: &str = "#[cfg(kani)]";
+    let tests = text.find("#[cfg(test)]").unwrap_or(text.len());
+    let proofs = text
+        .match_indices(PROOFS)
+        .map(|(at, _)| at)
+        .find(|at| {
+            let next = text[at + PROOFS.len()..].trim_start();
+            let next = next.lines().next().unwrap_or_default().trim_end();
+            next.starts_with("mod ") && next.ends_with('{')
+        })
+        .unwrap_or(text.len());
+    tests.min(proofs)
+}
+
+// The modules of the verdict, and the clocks none of them reads. Constitution, I-15: "reading the
+// system clock of the operating system, reading a monotonic clock inside protocol logic" are
+// forbidden in protocol code; Consensus, "Invariants of the TimeChain": "No quantity from outside the
+// protocol — a clock, a date, a duration — enters any object of the chain, and none of its rules
+// reads one". Whether a certificate, a proposal, a frame or a decision of the agreement stands is
+// answered in these sources, so a source of them naming a clock fails the build with the name, the
+// file and the line. What is read is the library of each, cut where its tests or its proofs begin,
+// and its code without its comments; the waiting of a machine stands in the pulse, which is conduct
+// and is read here by no rule.
+pub const VERDICT_SOURCES: &[&str] = &[
+    "montana-node/src/certificate.rs",
+    "montana-node/src/state.rs",
+    "montana-node/src/agreement.rs",
+    "mt-pulse/src",
+    "mt-proof/src",
+];
+
+// The names a reading of a clock goes by in Rust: the module of time, its two clocks, and the wait
+// a thread is put to sleep by.
+pub const CLOCK_READINGS: &[&str] = &["std::time", "Instant", "SystemTime", "sleep"];
+
+pub fn check_no_clock_in_the_verdict() -> Result<(), String> {
+    let root = crates_dir();
+    let mut read = 0usize;
+    let mut found: Vec<String> = Vec::new();
+    for source in VERDICT_SOURCES {
+        let path = root.join(source);
+        let files = if path.is_dir() {
+            sources_under(&path)?
+        } else {
+            vec![path]
+        };
+        for file in files {
+            let text = std::fs::read_to_string(&file)
+                .map_err(|e| format!("a source of the verdict is unreadable at {file:?}: {e}"))?;
+            read += 1;
+            let shown = file
+                .strip_prefix(&root)
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|_| file.display().to_string());
+            for (line, name) in clocks_read_by(&text) {
+                found.push(format!("`{name}` at {shown}:{line}"));
+            }
+        }
+    }
+    if read == 0 {
+        return Err(format!("no source of the verdict was read at {root:?}"));
+    }
+    if found.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "a module of the verdict reads a clock: {}; whether a window stands is a count of what the \
+         chain carries and of nothing a machine measures alone (Constitution, I-15)",
+        found.join(", ")
+    ))
+}
+
+// The readings of a clock a source makes in its library, by line: each name of `CLOCK_READINGS`
+// standing as a word of its own in the code of a line, its comment cut away.
+pub fn clocks_read_by(text: &str) -> Vec<(usize, &'static str)> {
+    let library = &text[..library_end(text)];
+    let mut out = Vec::new();
+    for (at, line) in library.lines().enumerate() {
+        let code = line.split("//").next().unwrap_or_default();
+        for name in CLOCK_READINGS {
+            if names_the_word(code, name) {
+                out.push((at + 1, *name));
+            }
+        }
+    }
+    out
+}
+
+// Whether `code` names `word` as a word of its own and not as a part of a longer identifier.
+fn names_the_word(code: &str, word: &str) -> bool {
+    let of_an_identifier = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    code.match_indices(word).any(|(at, _)| {
+        let before = code[..at].chars().next_back();
+        let after = code[at + word.len()..].chars().next();
+        !before.is_some_and(of_an_identifier) && !after.is_some_and(of_an_identifier)
+    })
 }
 
 // The canonical description of a constraint set: the artifact itself awaits its author, and its
@@ -4551,10 +4678,12 @@ pub fn check_proof_vectors(md: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn check_proof_parameters(md: &str) -> Result<(), String> {
-    use mt_proof::ext::ELEMENT_BYTES;
+// The rows of the tables of the proof scheme, each with the value the code that proves holds for
+// it. They stand in the set beside the scheme and not in the Decree, so the two stages that read
+// them — the tables here, and a heading that restates one — read them from this one list.
+fn proof_parameter_rows() -> [(&'static str, u64); 13] {
     use mt_proof::params as p;
-    let rows: [(&str, u64); 13] = [
+    [
         ("proof_security_bits", u64::from(p::SECURITY_BITS)),
         ("proof_trace_width_bound", p::TRACE_WIDTH_BOUND as u64),
         ("proof_row_values", p::ROW_VALUES as u64),
@@ -4568,8 +4697,20 @@ pub fn check_proof_parameters(md: &str) -> Result<(), String> {
         ("rows_per_permutation", p::ROWS_PER_PERMUTATION as u64),
         ("the commitment to the execution trace", p::ROOT_BYTES as u64),
         ("the commitment to the quotient", p::ROOT_BYTES as u64),
-    ];
-    for (label, held) in rows {
+    ]
+}
+
+fn proof_parameter(name: &str) -> Option<u64> {
+    proof_parameter_rows()
+        .into_iter()
+        .find(|(label, _)| *label == name)
+        .map(|(_, held)| held)
+}
+
+pub fn check_proof_parameters(md: &str) -> Result<(), String> {
+    use mt_proof::ext::ELEMENT_BYTES;
+    use mt_proof::params as p;
+    for (label, held) in proof_parameter_rows() {
         compare_number(label, table_value(md, label)?, held)?;
     }
     // And the length of a proof is derived from those rows rather than restated: the shape of a
@@ -4654,6 +4795,7 @@ pub fn check_all(md: &str) -> Result<(), String> {
     check_proof_parameters(md)?;
     check_awaiting_is_earned()?;
     check_coverage(md)?;
+    check_no_clock_in_the_verdict()?;
     Ok(())
 }
 

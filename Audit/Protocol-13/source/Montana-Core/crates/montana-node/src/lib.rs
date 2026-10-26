@@ -15,8 +15,12 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::all)]
 
+pub mod agreement;
+pub mod attempt;
 pub mod attest;
 pub mod certificate;
+#[cfg(kani)]
+mod kani_decree;
 pub mod pay;
 pub mod pulse;
 pub mod round;
@@ -77,9 +81,30 @@ type OpenRound = Arc<Mutex<Option<Round>>>;
 
 // What a machine does once a frame of its own has applied in the order of its round: it is told the
 // positions the frame's commitments took, or nothing where the round left without applying it.
-pub type Settlement = Box<dyn FnOnce(Option<&[u64]>) + Send>;
+// What a payer is told of its frame: the positions it took as its round left, the positions a
+// replay of a decided roll moved it to, or that it applies in no window. Consensus, "When the
+// decision is not the name a machine took": "A payer learns what its frame took as the round
+// carrying it leaves ... and where a replay moves it, the replay tells it again".
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Told {
+    Applied(Vec<u64>),
+    Moved(Vec<u64>),
+    Left,
+    // The window of the frame is final: nothing moves it again, and what was kept to move it goes.
+    Final,
+}
+
+// A settlement is told as the round leaves and again by every replay that moves its frame, so it is
+// a closure called more than once.
+pub type Settlement = Box<dyn FnMut(Told) + Send>;
 
 type Settling = Arc<Mutex<Vec<(Round, [u8; 32], Settlement)>>>;
+
+type Carriers = Mutex<Vec<(mt_net::Closer, std::thread::JoinHandle<()>)>>;
+
+// The settlements of frames whose rounds left, with the positions they were told, kept until the
+// window of the frame is final: what a replay tells again, and what goes when nothing can move it.
+type Retelling = Arc<Mutex<Vec<(u64, [u8; 32], Settlement, Option<Vec<u64>>)>>>;
 
 fn points_of(store: &Store, open: Option<Round>) -> Vec<[u8; POINT_BYTES]> {
     let mut out = match store.head() {
@@ -314,6 +339,9 @@ type ReadBack = (u64, usize, Vec<Vec<u8>>);
 struct Standing {
     at: Mutex<BTreeMap<[u8; POINT_BYTES], AtAPoint>>,
     retained: u64,
+    // The window whose points, and those of every window before it, were dropped from the disk
+    // last: the disk follows the memory's retention, once per window turning.
+    pruned_through: Mutex<u64>,
 }
 
 impl Standing {
@@ -321,7 +349,57 @@ impl Standing {
         Self {
             at: Mutex::new(BTreeMap::new()),
             retained,
+            pruned_through: Mutex::new(0),
         }
+    }
+
+    // **What the machine held at its points stands again.** The cells the store kept, by window and
+    // point, in the order they were taken: the deliveries begun and the digests are read off the
+    // cells themselves, under the keys every machine computes for the point. A cell that does not
+    // read as a cell of its point is not of this point and is left out.
+    fn loaded(retained: u64, store: &Store, cell_width: usize) -> Result<Self, NodeError> {
+        let standing = Self::empty(retained);
+        let kept = store.cells_standing(cell_width).map_err(NodeError::Store)?;
+        {
+            let mut at = standing.at.lock().map_err(|_| NodeError::Uncountable)?;
+            for (window, point, cells) in kept {
+                let held = at.entry(point).or_insert(AtAPoint {
+                    window,
+                    cells: Vec::new(),
+                    begun: Vec::new(),
+                    digests: std::collections::BTreeSet::new(),
+                });
+                for cell in cells {
+                    let Some((delivery, _)) = mt_wire::publish::delivery_of(&point, window, &cell)
+                    else {
+                        continue;
+                    };
+                    use sha2::{Digest as _, Sha256};
+                    let digest: [u8; 32] = Sha256::digest(&cell).into();
+                    if !held.digests.insert(digest) {
+                        continue;
+                    }
+                    if !held.begun.contains(&delivery) {
+                        held.begun.push(delivery);
+                    }
+                    held.cells.push(cell);
+                }
+            }
+        }
+        Ok(standing)
+    }
+
+    // Whether the disk is due to let go of the windows the memory let go of: once per window.
+    fn prune_due(&self, window: u64) -> bool {
+        let Ok(mut through) = self.pruned_through.lock() else {
+            return false;
+        };
+        let below = window.saturating_sub(self.retained);
+        if below > *through {
+            *through = below;
+            return true;
+        }
+        false
     }
 
     // `of_a_delivery` is which delivery this cell belongs to and how many blocks that delivery
@@ -448,10 +526,20 @@ struct Reached {
 // A successful socket write is not evidence that the holder accepted a cell.
 // Only a collection acknowledging the exact bytes suppresses a later retry.
 // Keep hashes only for cells this machine also accepts, under its point bound.
+// **A push the far side does not acknowledge is tried again later, not at once.** A machine that
+// left a window refuses in silence every cell of that window's points, and a neighbour still in it
+// that pushed what it holds at every asking would spend both machines' doors on refusals — hundreds
+// of thousands of them in one run — for as long as it stood there. So the askings between two
+// pushes of the same unacknowledged cells double, and start again from one the moment a collection
+// from that far side brings something new, which says it stands at that point still. Conduct of
+// this machine alone; it changes nothing of what is published or taken.
 struct RemotePoint {
     window: u64,
     read: u16,
     acknowledged: std::collections::BTreeSet<[u8; 32]>,
+    asked: u32,
+    pushes_again_at: u32,
+    backoff: u32,
 }
 
 // A machine that has been born: its store, the key it answers with, the door it stands at, the
@@ -491,8 +579,32 @@ pub struct Machine {
     // its standing, which it proves in a ballot and publishes nowhere.
     census: Arc<Mutex<Vec<attest::LivedCensus>>>,
     // The frames of this machine's own standing at the points of a round, each with what the
-    // machine does once the round applies it.
+    // machine does once the round applies it; and those whose rounds left, told once and told again
+    // where a replay moves them, until their window is final.
     settling: Settling,
+    retelling: Retelling,
+    // The threads carrying the links this machine answered or was handed, each with the end of its
+    // link. **A machine stopped lets its store go.** Every such thread holds the store, and one
+    // still reading a link the far side kept open held the lock of the root after the machine was
+    // dropped, so a start on that store in the same process was refused as held by another.
+    carriers: Carriers,
+}
+
+// Every link the machine carries is ended and every thread carrying one is waited for, so the store
+// goes with the machine: the threads drop what they hold of it before the fields of the machine do.
+impl Drop for Machine {
+    fn drop(&mut self) {
+        let carriers = match self.carriers.get_mut() {
+            Ok(carriers) => std::mem::take(carriers),
+            Err(poisoned) => std::mem::take(poisoned.into_inner()),
+        };
+        for (closer, _) in &carriers {
+            closer.close();
+        }
+        for (_, carrier) in carriers {
+            let _ = carrier.join();
+        }
+    }
 }
 
 impl Machine {
@@ -536,6 +648,8 @@ impl Machine {
         // memory alone made every note die with the run that created it, and a person paid held a
         // note their own machine could no longer prove a path for. What is read here is what this
         // machine wrote, and a file that does not read back whole is refused rather than half-read.
+        let cell_width = mt_wire::cell_bytes().map_err(|_| of_the_decree("cell_bytes"))?;
+        let standing = Standing::loaded(retained, &store, cell_width)?;
         let kept = store.value().map_err(NodeError::Store)?;
         let held_value = if kept.is_empty() {
             state::State::new()
@@ -552,7 +666,7 @@ impl Machine {
                 answering,
                 door,
                 held: Arc::new(Held::to_the_ceiling(ceiling)),
-                standing: Arc::new(Standing::empty(retained)),
+                standing: Arc::new(standing),
                 value: Arc::new(Mutex::new(held_value)),
                 reached: Arc::new(Mutex::new(Vec::new())),
                 admitted: Arc::new(Mutex::new(0)),
@@ -560,6 +674,8 @@ impl Machine {
                 counts: Arc::new(say::Counts::default()),
                 census: Arc::new(Mutex::new(census)),
                 settling: Arc::new(Mutex::new(Vec::new())),
+                retelling: Arc::new(Mutex::new(Vec::new())),
+                carriers: Mutex::new(Vec::new()),
             },
             born,
         ))
@@ -584,7 +700,7 @@ impl Machine {
         let mut held = self.census.lock().map_err(|_| NodeError::Uncountable)?;
         held.retain(|one| one.window != lived.window);
         held.push(lived);
-        held.sort_by(|a, b| b.window.cmp(&a.window));
+        held.sort_by_key(|one| std::cmp::Reverse(one.window));
         held.truncate(censuses);
         self.store
             .put_standing(&attest::LivedCensus::encode(&held))
@@ -616,8 +732,9 @@ impl Machine {
         Ok(())
     }
 
-    // The settlements of the round this machine leaves, each told what its frame took; one of an
-    // earlier window, whose round this machine left without reading it, is told nothing.
+    // The settlements of the round this machine leaves, each told what its frame took — or that the
+    // round passed it over; one of an earlier window, whose round this machine left without reading
+    // it, is told the same. Each is then kept with what it was told, for a replay to tell again.
     fn settle(&self, left: Round, took: &BTreeMap<[u8; 32], Vec<u64>>) -> Result<(), NodeError> {
         let due: Vec<(Round, [u8; 32], Settlement)> = {
             let mut held = self.settling.lock().map_err(|_| NodeError::Uncountable)?;
@@ -627,8 +744,62 @@ impl Machine {
             *held = waiting;
             due
         };
-        for (_, frame, settlement) in due {
-            settlement(took.get(&frame).map(Vec::as_slice));
+        let mut kept = self.retelling.lock().map_err(|_| NodeError::Uncountable)?;
+        for (round, frame, mut settlement) in due {
+            let told = took.get(&frame).cloned();
+            settlement(match &told {
+                Some(positions) => Told::Applied(positions.clone()),
+                None => Told::Left,
+            });
+            kept.push((round.0, frame, settlement, told));
+        }
+        Ok(())
+    }
+
+    // **Told again.** The frames of `window` as a replay applied them, by their positions: every
+    // settlement of that window whose positions moved is told where to, and one whose frame the
+    // replay left out is told that it applies in no window. Consensus, "When the decision is not the
+    // name a machine took".
+    pub fn retell(
+        &self,
+        window: u64,
+        positions: &BTreeMap<[u8; 32], Vec<u64>>,
+    ) -> Result<usize, NodeError> {
+        let mut kept = self.retelling.lock().map_err(|_| NodeError::Uncountable)?;
+        let mut retold = 0usize;
+        for (of, frame, settlement, told) in kept.iter_mut() {
+            if *of != window {
+                continue;
+            }
+            let now = positions.get(frame).cloned();
+            if now == *told {
+                continue;
+            }
+            // A frame the round passed over that the decided roll holds applies for the first time
+            // here, and is told so as such: the payer spends and enters anew, not moves.
+            settlement(match (&*told, &now) {
+                (None, Some(applied)) => Told::Applied(applied.clone()),
+                (Some(_), Some(moved)) => Told::Moved(moved.clone()),
+                (_, None) => Told::Left,
+            });
+            *told = now;
+            retold += 1;
+        }
+        Ok(retold)
+    }
+
+    // The settlements of every window at or below `window` go: the window is final and no replay
+    // moves its frames again. Each is told so first, so that what a payer kept to follow a replay --
+    // the spent notes whole -- goes with them.
+    pub fn settled_through(&self, window: u64) -> Result<(), NodeError> {
+        let mut kept = self.retelling.lock().map_err(|_| NodeError::Uncountable)?;
+        let (due, waiting): (Vec<_>, Vec<_>) = std::mem::take(&mut *kept)
+            .into_iter()
+            .partition(|(of, _, _, _)| *of <= window);
+        *kept = waiting;
+        drop(kept);
+        for (_, _, mut settlement, _) in due {
+            settlement(Told::Final);
         }
         Ok(())
     }
@@ -752,20 +923,71 @@ impl Machine {
         }
     }
 
-    // The head moves onto a proposal the cement of the window after it made final, and onto no
-    // other: the store refuses a head naming a proposal it does not hold.
+    // The head moves onto a proposal the agreement of the window after it decided, and onto no
+    // other: the store refuses a head naming a proposal it does not hold, and this door refuses a
+    // head that leaves a decided window — "A decided window is never abandoned by a machine that
+    // verified its decision" (Consensus, "Finality").
     pub fn finalize(&self, window: u64) -> Result<(), NodeError> {
+        if self.head()?.is_some_and(|held| held > window) {
+            return Err(NodeError::Refused {
+                what: "a head that leaves a decided window",
+            });
+        }
         self.store.set_head(window).map_err(NodeError::Store)
     }
 
-    pub(crate) fn lock_predecessor(
-        &self,
-        window: u64,
-        proposal: &[u8; 32],
-    ) -> Result<(), NodeError> {
+    // The record of this machine's agreement on one open window, kept before anything it governs is
+    // published and through a restart, and let go at the close. Consensus, "What a machine holds of
+    // the agreement"; the store holds one file for each open window and never a history.
+    pub fn keep_agreement(&self, record: &attempt::Record) -> Result<(), NodeError> {
         self.store
-            .lock_predecessor(window, proposal)
+            .put_agreement(record.window, &record.encode())
             .map_err(NodeError::Store)
+    }
+
+    // The opening of a window's record, exclusive: what stands afterwards is this record or the one
+    // another process of this store opened first, and the caller compares the name taken.
+    pub fn open_agreement(&self, record: &attempt::Record) -> Result<attempt::Record, NodeError> {
+        let standing = self
+            .store
+            .open_agreement(record.window, &record.encode())
+            .map_err(NodeError::Store)?;
+        attempt::Record::decode(&standing)
+    }
+
+    // The last window this machine closed, or none.
+    pub fn closed_window(&self) -> Result<Option<u64>, NodeError> {
+        self.store.closed().map_err(NodeError::Store)
+    }
+
+    // A window closed: the number that refuses it to be opened again is written first, then its
+    // record is let go — so no restart finds a closed window without a record and pledges a second
+    // name for it (Consensus, "What a machine holds of the agreement"; "The way back").
+    pub fn let_go_of(&self, window: u64) -> Result<(), NodeError> {
+        self.store.put_closed(window).map_err(NodeError::Store)?;
+        self.drop_agreement(window)
+    }
+
+    pub fn agreement_of(&self, window: u64) -> Result<Option<attempt::Record>, NodeError> {
+        match self.store.agreement(window).map_err(NodeError::Store)? {
+            None => Ok(None),
+            Some(bytes) => attempt::Record::decode(&bytes).map(Some),
+        }
+    }
+
+    // The one door that drops a record is `let_go_of`, which writes the number first: a caller that
+    // dropped the record alone would leave a closed window open to a second pledge.
+    fn drop_agreement(&self, window: u64) -> Result<(), NodeError> {
+        self.store.drop_agreement(window).map_err(NodeError::Store)
+    }
+
+    // The plane this machine holds, replaced whole: what a machine does once the agreement decided
+    // a name it did not take and it replayed the decided roll and its own window again over the
+    // result. Consensus, "When the decision is not the name a machine took". Written before the
+    // swap, as every change of the plane is.
+    pub fn replace_plane(&self, plane: state::State) -> Result<(), NodeError> {
+        let mut current = self.value()?;
+        commit_value(&mut current, &self.store, plane)
     }
 
     // Reaching an acquaintance. A machine answering with another key is not the machine the
@@ -802,7 +1024,14 @@ impl Machine {
 
     // Entering a round, and leaving it: what a machine stands at moves with the pulse rather than
     // being fixed when it started.
+    // A round of a window this machine already closed is refused: the record of that window is
+    // gone, and a machine standing in it again could pledge what contradicts what it pledged.
     pub fn enter_round(&self, window: u64, chain: u8, round: u32) -> Result<(), NodeError> {
+        if self.closed_window()?.is_some_and(|closed| window <= closed) {
+            return Err(NodeError::Refused {
+                what: "a round of a window this machine already closed",
+            });
+        }
         let mut held = self.open.lock().map_err(|_| NodeError::Uncountable)?;
         *held = Some((window, chain, round));
         Ok(())
@@ -853,6 +1082,9 @@ impl Machine {
         let took = self
             .standing
             .hold(*point, window, cell.to_vec(), ceiling, of_a_delivery);
+        if took == say::Took::Held {
+            keep_the_cell(&self.store, &self.standing, point, window, cell)?;
+        }
         match took {
             say::Took::Held => self.counts.raise(&self.counts.deposits_taken),
             say::Took::Repeated => self.counts.raise(&self.counts.deposits_repeated),
@@ -889,6 +1121,7 @@ impl Machine {
     pub fn answer_one(&self) -> Result<usize, NodeError> {
         self.held.wait_for_room()?;
         let link = self.door.answer(&self.answering).map_err(NodeError::Net)?;
+        let closer = link.closer().map_err(NodeError::Net)?;
         let standing = self.held.took()?;
         let held = Arc::clone(&self.held);
         let open = Arc::clone(&self.open);
@@ -898,7 +1131,7 @@ impl Machine {
         let width = mt_wire::cell_bytes().map_err(|_| of_the_decree("cell_bytes"))?;
         let admitted = Arc::clone(&self.admitted);
         let counts = Arc::clone(&self.counts);
-        std::thread::spawn(move || {
+        let carrier = std::thread::spawn(move || {
             let mut link = link;
             let _carried = carry_until_it_ends(
                 &mut link,
@@ -912,6 +1145,7 @@ impl Machine {
             );
             held.release();
         });
+        self.keep_carrier(closer, carrier)?;
         Ok(standing)
     }
 
@@ -925,6 +1159,7 @@ impl Machine {
     // the two carry nothing for each other. What a link is for is what crosses it afterwards, so
     // reaching and carrying are one call rather than two a caller must remember to make in order.
     pub fn carry(&self, link: Link) -> Result<(), NodeError> {
+        let closer = link.closer().map_err(NodeError::Net)?;
         let open = Arc::clone(&self.open);
         let standing_at_the_points = Arc::clone(&self.standing);
         let value = Arc::clone(&self.value);
@@ -932,7 +1167,7 @@ impl Machine {
         let width = mt_wire::cell_bytes().map_err(|_| of_the_decree("cell_bytes"))?;
         let admitted = Arc::clone(&self.admitted);
         let counts = Arc::clone(&self.counts);
-        std::thread::spawn(move || {
+        let carrier = std::thread::spawn(move || {
             let mut link = link;
             let _carried = carry_until_it_ends(
                 &mut link,
@@ -945,6 +1180,19 @@ impl Machine {
                 width,
             );
         });
+        self.keep_carrier(closer, carrier)
+    }
+
+    // A carrier is kept until the machine stops. Those whose links already ended go as the next one
+    // comes, so a machine answering for months holds the threads that stand and no more.
+    fn keep_carrier(
+        &self,
+        closer: mt_net::Closer,
+        carrier: std::thread::JoinHandle<()>,
+    ) -> Result<(), NodeError> {
+        let mut carriers = self.carriers.lock().map_err(|_| NodeError::Uncountable)?;
+        carriers.retain(|(_, carrier)| !carrier.is_finished());
+        carriers.push((closer, carrier));
         Ok(())
     }
 
@@ -1079,12 +1327,19 @@ impl Machine {
                     window,
                     read: 0,
                     acknowledged: std::collections::BTreeSet::new(),
+                    asked: 0,
+                    pushes_again_at: 0,
+                    backoff: 0,
                 });
                 if known.window != window {
                     known.window = window;
                     known.read = 0;
                     known.acknowledged.clear();
+                    known.asked = 0;
+                    known.pushes_again_at = 0;
+                    known.backoff = 0;
                 }
+                known.asked = known.asked.saturating_add(1);
                 self.counts.raise(&self.counts.collections_asked);
                 let Ok(cells) = pulse::collect_from(&mut one.link, point, known.read) else {
                     continue;
@@ -1093,11 +1348,18 @@ impl Machine {
                     .raise_by(&self.counts.cells_pulled, cells.len() as u64);
                 let read = u16::try_from(cells.len()).unwrap_or(u16::MAX);
                 known.read = known.read.saturating_add(read);
+                if read > 0 {
+                    known.backoff = 0;
+                    known.pushes_again_at = known.asked;
+                }
                 use sha2::{Digest as _, Sha256};
                 for cell in &cells {
                     if self.take_deposit(point, cell)? {
                         known.acknowledged.insert(Sha256::digest(cell).into());
                     }
+                }
+                if known.asked < known.pushes_again_at {
+                    continue;
                 }
                 let mut carried = false;
                 for cell in self.standing_at(point) {
@@ -1112,6 +1374,8 @@ impl Machine {
                 }
                 if carried {
                     self.counts.raise(&self.counts.pushes_carried);
+                    known.backoff = known.backoff.max(1).saturating_mul(2);
+                    known.pushes_again_at = known.asked.saturating_add(known.backoff);
                 }
             }
         }
@@ -1297,7 +1561,13 @@ fn take_the_deposit(
         {
             let window = deposit_window(store, held);
             let of_a_delivery = mt_wire::publish::delivery_of(&point, window, &cell);
-            match standing.hold(point, window, cell, ceiling, of_a_delivery) {
+            let took = standing.hold(point, window, cell.clone(), ceiling, of_a_delivery);
+            if took == say::Took::Held
+                && keep_the_cell(store, standing, &point, window, &cell).is_err()
+            {
+                counts.raise(&counts.pushes_lost);
+            }
+            match took {
                 say::Took::Held => counts.raise(&counts.deposits_taken),
                 say::Took::Repeated => counts.raise(&counts.deposits_repeated),
                 say::Took::PastTheCeiling => counts.raise(&counts.deposits_past_the_ceiling),
@@ -1420,6 +1690,26 @@ fn answer_the_head(link: &mut Link, store: &Store, message: &[u8]) -> Result<(),
         return Ok(());
     };
     link.send(Kind::HeadAnswer, &answer)
+}
+
+// A cell a point took, kept on the disk beside the window it belongs to, and the windows the memory
+// let go of let go of on the disk too, once per window turning.
+fn keep_the_cell(
+    store: &Store,
+    standing: &Standing,
+    point: &[u8; POINT_BYTES],
+    window: u64,
+    cell: &[u8],
+) -> Result<(), NodeError> {
+    store
+        .append_cell(window, point, cell)
+        .map_err(NodeError::Store)?;
+    if standing.prune_due(window) {
+        store
+            .drop_points_before(window.saturating_sub(standing.retained))
+            .map_err(NodeError::Store)?;
+    }
+    Ok(())
 }
 
 // Validate on a candidate. A failed write cannot consume a note or move the live admitted root.

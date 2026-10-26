@@ -1,6 +1,6 @@
 # Montana — Canon
 
-**Version:** 8.1.0
+**Version:** 9.5.0
 
 Canon is the one place where the values and the bytes of Montana live. Every other document
 of the set names a quantity and points here; none of them restates a number, a size, a
@@ -183,6 +183,7 @@ internally, so an outer hash is redundant.
 | an action of the identity plane | the current suite carried in the acting record |
 | Proposal header | the suite the proposal carries, checked natively under the key the ticket proof names by its digest |
 | window confirmation | the suite the confirmation carries, checked natively under the key the proof of presence names by its digest |
+| a pledge of the agreement | the suite the pledge carries, checked natively under the key the proof of presence of its part's confirmation names by its digest |
 | a publication of a channel | the suite the reveal of that slot published |
 
 A candidacy carries no signature and stands in no row above: the key it would sign with is published
@@ -612,9 +613,12 @@ A table holding a set is a sparse tree whose every present key carries the one-b
 the key is the whole of the entry, and the record stands because the construction holds no empty
 one. `admitted_count` is the count of the leaves of the tree `admitted_root` stands over.
 
-**The order of the entries of the append-only tables.** The frames of a window apply round by round:
-the frames standing at the points of one round apply when a machine leaves that round, in ascending
-order of their identifiers, and the rounds apply in their order. A note enters the tree of notes at
+**The order of the entries of the append-only tables.** The frames of a window apply round by round,
+over the decided state of the window before: the frames standing at the points of one round apply
+when a machine leaves that round, in ascending order of their identifiers, and the rounds apply in
+their order. A machine whose name of the window before is not the one its agreement decided replays
+the decided roll over the decided state of the window two before and applies its own window's frames
+again, in the order they applied, over what results — Consensus states when. A note enters the tree of notes at
 the lowest free position as its frame applies. The tree of operations holds one window — it stands
 empty when a window opens — and its leaves are the identifiers of the frames that window applied, in
 the order they applied, so the two append-only roots that move with a frame move in one order. The
@@ -634,7 +638,7 @@ table of machines.
 - Every root and the count a proposal carries are recomputed by the verifier from the state it holds; a proposal whose roots or count differ from the recomputed ones is refused.
 - Each table folds under the construction and the pair of domains of its row and under no other; one content under two constructions is two roots.
 - The tree of operations holds the frames of one window in the order they applied, and it stands empty at the opening of every window.
-- A frame applies once, when a machine leaves the round whose points carry it, among the frames of that round in ascending order of identifier.
+- A frame applies once, when a machine leaves the round whose points carry it, among the frames of that round in ascending order of identifier, over the decided state of the window before; a machine replaying a decided roll applies its frames in the order of the roll, which is the order they applied.
 
 ### The horizon of proving
 
@@ -1166,9 +1170,12 @@ windows it missed, and the material those certificates are made of must stand so
 collect — while retention that grew without bound would be the slow bloat the lifecycle invariant
 refuses.
 
-**Derivation.** The certificate of a window is its heavy attestations, which already stand at the
-points of their rounds; retaining them costs what the window cost — one attestation per attesting
-machine, of the length Canon fixes for a confirmation — for as many windows as the bound names. One
+**Derivation.** The certificate of a window is its heavy attestations, the light attestations
+answering its final beacon and the pledges its decision stands on, which already stand at their
+points; retaining them costs what the window cost — one attestation per attesting machine, of the
+length Canon fixes for a confirmation, and its pledges and the light attestations of one round, each
+under a sixtieth of one — for as many windows as the bound names, and the frames and the rolls the
+same bound keeps for a machine replaying a decided window cost what the window carried. One
 binary order over the open window's own load keeps every device that carries a window in the storage
 class it already stands in, and it is three doublings above the one or two windows an ordinary
 restart or a brief partition leaves a device behind by. A device behind by more than the bound finds
@@ -1270,9 +1277,9 @@ sample to land, and a quarter of the standing absent is the margin a committee o
 **Target.** The consensus-and-payment stream of a window stays inside the commodity envelope
 [I-5] fixes, at any population the profile is calibrated for.
 
-**Derivation.** The chains of a window cost `k` × 54.7 MB of frames — `frames_per_window`
-frames of `frame_len` bytes each — while attestation volume stays flat in `k` at ≈ 252 KB per
-machine, so the volume of a window is `k · 56.5 MB + N · 252 KB` and the share of it one machine
+**Derivation.** The chains of a window cost `k` × 110.6 MB of frames — `frames_per_window`
+frames of `frame_len` bytes each — while attestation volume stays flat in `k` at ≈ 230 KB per
+machine, so the volume of a window is `k · 110.6 MB + N · 230 KB` and the share of it one machine
 carries is that total over the population it is carried by. What the envelope is checked against
 is that share and never the total: the frames of a window are divided among whoever carries them,
 so the share falls as the population grows, and eight chains keep one machine's share inside the
@@ -1400,7 +1407,9 @@ Transparent because a trusted setup is a ceremony whose failure nobody can obser
 protocol that refuses standing viewing keys cannot accept a secret that, if kept, forges value
 forever. Hash-based because the hashes are already here: its soundness rests on the collision
 resistance of the proof hash, whose honest cost the primitives section states with the name of
-what is risked, and on nothing else.
+what is risked, and on the proximity gaps of Reed–Solomon codes up to the Johnson bound, which is
+a theorem (Ben-Sasson, Carmon, Ishai, Kopparty and Saraf, "Proximity gaps for Reed–Solomon codes",
+ePrint 2020/654), and on nothing else.
 
 **Why the length is fixed by construction.** The circuit of a frame is fixed: `spends_per_frame`
 spends, `items_per_spend` positions each, a Merkle path of `note_tree_depth` and the seven
@@ -1415,8 +1424,24 @@ The number of bytes follows from the field, the security target and the number o
 | `proof_field` | `2⁶⁴ − 2³² + 1` | one machine word, and the modulus is named rather than the width: two implementations over two sixty-four-bit primes compute two different proofs. Its multiplication reduces by shifts and additions with no division, and `p − 1 = 2³² · (2³² − 1)` carries a subgroup of order `2³²`, nine doublings above the extended domain this scheme uses |
 | `proof_challenge_field` | `proof_field[X] / (X³ − 7)` | every challenge and every out-of-domain value is drawn here and never from the base field, and the degree is derived rather than chosen. The soundness of the mixing and of the deep composition is the degree of the trace over the size of the field the challenge came from, so the requirement is `|F|^e ≥ 2^(proof_security_bits) · 2^rows_log2`: the base field gives `2⁻⁴⁴` and a quadratic extension `2⁻¹⁰⁸`, both short of the target, while the cubic gives `2⁻¹⁷²`. Seven is a non-residue of this prime |
 | `proof_blowup` | 8 | the rate at which the trace is extended; larger blowup buys fewer queries at more proving |
-| `PROOF_LEN` | 213 440 B | derived below from the contents and the parameters |
-| `proof_queries` | 48 | derived: at blowup 8 each query rejects a false proof with probability 7 in 8, and 48 of them leave a forgery chance below the security target |
+| `PROOF_LEN` | 404 576 B | derived below from the contents and the parameters |
+| `proof_queries` | 92 | derived below: at blowup 8 and below the Johnson bound the whole soundness error of the scheme — the mixing and the deep composition, the commit phase of the folding and its queries — is at most 2^−128.35, and 91 queries leave it above 2^−128 at every parameter of the bound |
+
+### `proof_queries` = 92
+
+**Value.** 92, at `proof_blowup` 8, `proof_fold` 4, five folding layers and queries at distinct positions of the extended domain.
+
+**Class.** Security.
+
+**Target.** The whole soundness error of the scheme — the mixing and the deep composition, the commit phase of the folding, and the query phase together — is at most 2^−`proof_security_bits` = 2^−128 per attempt, proved and not conjectured: the bound is taken below the Johnson radius of the code, where the proximity gaps of Reed–Solomon codes are a theorem.
+
+**References.** Ben-Sasson, Bentov, Horesh and Riabzev, "Fast Reed–Solomon Interactive Oracles of Proximity" (ICALP 2018; ePrint 2018/046), for the folding and its query phase; Ben-Sasson, Carmon, Ishai, Kopparty and Saraf, "Proximity gaps for Reed–Solomon codes" (FOCS 2020; ePrint 2020/654, ECCC TR20-083 revision 3), Lemma 8.2 and Theorem 8.3, for the soundness of the folding up to the Johnson bound; StarkWare, "ethSTARK Documentation" (ePrint 2021/582), for the sampling of positions and the accounting of the query phase.
+
+**Derivation.** Theorem 8.3 of the reference bounds the error of the folding, for an integer m ≥ 3 the analysis chooses, by ε = ε_C + (√ρ(1 + 1/2m))^q, with the commit phase ε_C = (m + 1/2)^7 · n₀² / (2ρ^(3/2) · |K|) + (2m + 1)(n₀ + 1)/√ρ · Σ l / |K| (Lemma 8.2). Here the rate is ρ = 1 / `proof_blowup` = 1/8, so √ρ = 2^−1.5; n₀ = 2^19 is the largest extended domain of the set, that of the frame and the ballot; |K| = p³ ≈ 2^192 is the order of `proof_challenge_field`, from which every folding coefficient and every coefficient of the mixing is drawn; Σ l = 5 × 4 = 20 is the sum of the folding ratios over the five layers. The mixing and the deep composition add 2^−172 (the row of `proof_challenge_field`). m trades the two phases against each other: a larger m lowers the query term toward 2^−1.5 q and raises the commit term as m^7. At m = 7 the commit phase is 2^−130.15 + 2^−163.27 = 2^−130.15 and one query passes a false proof with probability at most 2^−1.5 × 15/14 = 2^−1.40046, so 92 queries leave 2^−128.84 and the sum is 2^−130.15 + 2^−128.84 + 2^−172 = 2^−128.35, which reaches the target. 91 queries reach it at no m: the sum is 2^−127.24 at m = 7, 2^−127.70 at m = 8 and 2^−127.36 at m = 9, and the commit phase alone is above 2^−128 from m = 9 on. 92 is the least count that reaches the target, at m = 7 or m = 8, and m = 7 leaves the larger margin. The presence, of the extended domain 2^17 and four layers, stands under the same query term with a smaller commit phase, 2^−134.15. The queries are at distinct positions, which only lowers the chance that all of them land where a false proof agrees; no proof-of-work term enters the transcript.
+
+**Sensitivity.** One query more or fewer moves the query term by 1.40 bits at m = 7: 93 give a sum of 2^−129.20, 91 give 2^−127.24. The margin of 92 is 0.35 bit, and the term of the mixing and the deep composition could grow by a factor of 2^41 before it ate it. `PROOF_LEN` moves by 4 344 B per query and `PRESENCE_PROOF_LEN` by 3 576 B. The free block must stay above what the queries open: 2 × 92 + 2 = 186 values against `proof_free_rows` = 256.
+
+**Defence.** Why not 48 queries on the capacity reading, 7 in 8 per query — it takes the proximity gaps of Reed–Solomon codes up to capacity, which is a conjecture, and a protocol whose target is a proof must not rest a security level on a conjecture; the unique-decoding and Johnson readings are theorems and give 2^−39.8 and at best 2^−72 for 48. Why not 88 queries at m = 16, which bounds the query phase alone below 2^−128 — the commit phase at m = 16 is 2^−122.19, so the sum stays above the target at every count of queries; the target is the whole error, not one of its terms. Why not blowup 16, which reaches the same level with fewer queries — it doubles the extended trace a telephone holds whole to prove, and the prover of every machine is a telephone; blowup 8 keeps the memory and the time of the extension as they stand and pays in bytes. Why the cost is acceptable — 191 136 B more on each proof than at 48 queries, carried once by each frame, ballot and candidacy and once by each machine's heavy attestation per window.
 
 ### What a proof contains, and therefore how long it is
 
@@ -1442,14 +1467,14 @@ here. A proof is, in this order and nothing else:
 | `proof_trace_width_bound` | 64 |
 | `proof_row_values` | 65 |
 | `proof_composition_parts` | 2 |
-| `proof_free_rows` | 128 |
+| `proof_free_rows` | 256 |
 | `rows_per_permutation` | 128 |
 
 **The tail travels as its coefficients, once, and that is why the last layer opens no path.** A
 degree is bounded either by counting the coefficients of a polynomial or by sampling it, and only
 the first of the two is a bound: the openings of the last layer stand at query positions, and a
 verifier holding some values of a function knows nothing about its degree that the prover did not
-choose. Sixty-four coefficients ride once, one and a half kilobytes of a quarter of a megabyte,
+choose. Sixty-four coefficients ride once, one and a half kilobytes of a proof of about four tenths of a megabyte,
 and the last check becomes counting them and evaluating them where the last fold lands — no
 sampling, no interpolation, and no tree below the tail.
 
@@ -1576,7 +1601,7 @@ is indistinguishable from a frame of notes in every field and every length.
 ```
 per query = 32 x 19 + 65 x 8 + 32 x 19 + 2 x 24 + 32 x 65 + 5 x 4 x 24 = 4 344 B
 
-PROOF_LEN = 32 + 32 + 5 x 32 + 132 x 24 + 64 x 24 + 48 x 4 344 = 213 440 B
+PROOF_LEN = 32 + 32 + 5 x 32 + 132 x 24 + 64 x 24 + 92 x 4 344 = 404 576 B
 ```
 
 Every term of that sum comes from a number frozen above, and the sum is the same on every
@@ -2002,6 +2027,10 @@ beacon_len        = 8 + 1 + 4 + 32 + 32 + 8 + 8 = 93 B
 beacon_id         = SHA-256("mt-beacon" || 0x00 || serialize(beacon))
 
 round_nf(machine_secret, beacon_id) = SHA-256("mt-round-nf" || 0x00 || machine_secret || beacon_id)
+
+place(part_nf, A, a)               = SHA-256("mt-proposer" || 0x00 || part_nf || A || a_4B_LE)
+    the parts of a window propose in an attempt `a` of its agreement in ascending order of place,
+    compared unsigned and big-endian over the full width
 ```
 
 `part_nf` is the nullifier of the machine's part in that window, derived where that nullifier is
@@ -2014,10 +2043,11 @@ another fails at the boundary that names it. Each digest takes a domain of its o
 of the key's seed, because a seed is SHA-256 and a digest is of the proof hash, and the registry
 holds every domain to one family. `A` is the cemented aggregate
 of the window two before — exactly the value and binding
-the runner's draw consumes; `previous` is the prior beacon of the chain, or the proposal
-identifier of the window before at round zero; `cement_aggregate` is the aggregate of the draw
-section below over the part-nullifiers of the heavy attestations the beacon's chain has cemented so
-far, with the window as its context, and `cement_count` is how many of them there are;
+the runner's draw consumes; `previous` is the prior beacon of the chain, or at round zero the
+identifier of the proposal of the window two before — the proposal that fixed the electorate of the
+window, final when it opens; `cement_aggregate` is the aggregate of the draw section below over the
+part-nullifiers of the heavy attestations the beacon's chain has cemented so far, whatever name each
+of them pledges, with the window as its context, and `cement_count` is how many of them there are;
 `cement_votes` is the sum, over those parts, of the votes the ballot of each part casts — each
 part's once, the largest its runner verified — and nought for a part that cast none.
 
@@ -2029,10 +2059,11 @@ a window, the other attests it — and a machine that did both under one key wou
 - A one-time key takes the machine's secret and the window and nothing else, so one machine yields one key per window, no two windows share one, and nothing joins a key to the machine that made it.
 - Eligibility takes the nullifier of the machine's part in that window, the cemented aggregate of the window two before and the pair of chain and round, and nothing else; nothing in the preimage is anyone's to choose, which is the property the aggregation rule buys the draw, extended to a faster pulse — and every atom of it is either asserted by a proof of presence or cemented before the window opened.
 - The digest of a one-time key is taken under the part-key-digest domain over the limbs of that key, and it is what a proof of presence carries in its public input; the digest of a runner's key is taken the same way under the runner-key-digest domain and is what a proof of a ticket carries. A digest takes a domain of its own and never the domain of the key's seed: the seed is SHA-256 and the digest is of the proof hash, and one domain stands in one family. The keys themselves enter no proof, since asserting their generation would cost orders more than the statement around it.
-- A beacon serializes the window, the chain index, the round index, the identifier of its predecessor, the cement aggregate, the cement count and the cement votes, in that order and no other; its identifier is taken under the beacon domain, and every beacon links to its predecessor by that identifier.
+- A beacon serializes the window, the chain index, the round index, the identifier of its predecessor, the cement aggregate, the cement count and the cement votes, in that order and no other; its identifier is taken under the beacon domain, every beacon links to its predecessor by that identifier, and round zero links to the proposal of the window two before.
 - The round nullifier takes the machine's secret and the attested beacon's identifier, so one machine yields one value per beacon, versions of one round yield distinct values, and nothing joins a value to the machine that made it.
 - One attestation stands per machine per beacon; a repeated round nullifier under one beacon is refused in silence.
-- The cement of a beacon is the aggregate over the part-nullifiers of the heavy attestations published so far, each at most once, under the aggregation rule of the set with the window as context, beside their count; every verifier recomputes both from the attestations it holds, and a beacon whose state is not that pair is refused.
+- The place of a part takes the part-nullifier, the cemented aggregate of the window two before and the attempt, and nothing else; the part is fixed by the machine's secret and the window, so nobody draws places until one is low, and the place is known of a part once its heavy attestation stands.
+- The cement of a beacon is the aggregate over the part-nullifiers of the heavy attestations published so far, whatever name each pledges, each at most once, under the aggregation rule of the set with the window as context, beside their count; every verifier recomputes both from the attestations it holds, and a beacon whose state is not that pair is refused.
 - The votes of a beacon are evidence of the close and not a value the window decides: a verifier refuses a beacon whose votes exceed the sum, over the parts of its cement, of the largest count a verified ballot of each part casts, and takes any lower sum, which only delays the close of the version carrying it.
 
 ### The draw, and the two canonical orders
@@ -2268,7 +2299,7 @@ serialize(collect_answer)
                                                 and never above collect_answer_max
   cells       cell_count x cell_bytes B
 
-collect_answer_max = 336, the cells of the largest object that stands at a point
+collect_answer_max = 624, the cells of the largest object that stands at a point
 ```
 
 **Invariants of the deposit and collection messages:**
@@ -2516,12 +2547,15 @@ The sealing itself is checked against the known answer of RFC 8439, Example and 
 vector of ours: an implementation that reproduces that answer holds the primitive, and one that
 does not holds something else by the same name.
 
-**What a delivery costs in cells.** A proposal is 208 blocks in 18 groups, so 288 cells; a frame is
-244 blocks in 21 groups, so 336 cells; a heavy attestation is 208 blocks in 18 groups, so 288
-cells; a candidacy is 244 blocks in 21 groups, so 336 cells; a publication of a channel is 4 blocks
+**What a delivery costs in cells.** A proposal is 392 blocks in 33 groups, so 528 cells; a frame is
+467 blocks in 39 groups, so 624 cells; a heavy attestation is 391 blocks in 33 groups, so 528
+cells; a candidacy is 467 blocks in 39 groups, so 624 cells; a publication of a channel is 4 blocks
 in one group, so 16 cells; a beacon is 1 block in one group, so 16 cells; a light attestation is 7
-blocks in one group, so 16 cells. The
-largest of them is what `collect_answer_max` stands on. Every count follows from `chunk_bytes`,
+blocks in one group, so 16 cells; a pledge is 7 blocks in one group, so 16 cells; a roll grows with
+what it names, and at 273 frames and 124 parts it is 12 724 bytes in 15 blocks of 2 groups, so 32
+cells. The largest of them is what `collect_answer_max` stands on: a roll stands no longer than a
+frame while its entries number at most 12 693, and a round point read by a `u16` index holds the heavy
+attestations of no more than 124 parts. Every count follows from `chunk_bytes`,
 `erasure_data` and `erasure_group` and from nothing else.
 
 ### The points a round stands at
@@ -2540,7 +2574,8 @@ notice_point(nf, W, i)    = SHA-256("mt-notice-point"  || 0x00 || nf_32B || W_8B
 
 A beacon and the attestations answering it stand at the round points of their own round; a frame
 and an operation of the identity plane stand at the round points of the round their canonical slot
-names; a proposal stands at the window points of the window it closes; and the notice of every
+names; a proposal and its roll stand at the window points of the window it closes, and
+a pledge at the window points of the window it is made in; and the notice of every
 nullifier a frame spends stands at the notice points of that nullifier, so that two frames spending
 one note meet at one point whatever slot carried either of them. Value states what a notice is and
 what a reader of such a point may conclude; the point of one is derived here because it is of this
@@ -2554,7 +2589,7 @@ them, taking the union of what they hold.
 - The point of a notice is a function of the nullifier, the window and the index alone. Nobody but the owner of a note can compute it before that note is spent — a nullifier is derived from the redemption branch of its owner and from the position the tree assigned, so neither the payer of a note nor any reader of the chain holds what the derivation takes — and once the frame stands the nullifier is public and the point names nobody.
 - **A machine opens what it can do before it opens the door to it.** Every rule of this section is read against something the machine holds — the round it stands in, the window it is at, the count of machines its window admits — and a door opened before that thing is in force refuses the work it was opened for, in the silence every refusal keeps. The neighbour that published in that moment published into nothing and never learns, because the wire tells it nothing; the loss is total and it is invisible from both ends. What follows for an implementation: the window is entered before the door answers, and every bound a door enforces is read when the work arrives and never once when the door was opened.
 - **A point refuses a delivery whole and never its tail.** What a point holds is bounded, and a holder that took the first cells of a delivery and refused the rest would hold a body with a hole in it — which reads back as nothing, so a point filled to its bound stops answering with anything at all, exactly when the round it carries matters most. A holder therefore admits a delivery only where what remains of its bound holds the whole of it, and refuses the whole of it otherwise, in the same silence every other refusal keeps.
-- A deposit at a point of a past round is refused in silence, exactly as under a past tag. The heavy attestations of a window survive at their points for `retained_windows` windows after the window closes — they are the certificate a device behind walks to the head — and nothing else of a round outlives its window.
+- A deposit at a point of a past round is refused in silence, exactly as under a past tag. The heavy attestations, the ballots and the pledges of a window survive at their points for `retained_windows` windows after the window closes — they are the certificate a device behind walks to the head — and so do the frames of its rounds and its proposals with their rolls, which a machine that took another name replays; nothing else of a round outlives its window.
 - A machine deposits at every replica and collects from every replica; withholding therefore requires every holder of a round to withhold at once, and the objects themselves are self-carrying, so a holder can delay them and can forge none.
 - The right to collect from a point of a round is public, like the right to a publication and unlike the right to mail from a pipe: what stands there names nobody.
 - A holder answers what it holds and keeps no record of who asked or who deposited; the count of collections at a point says what the ledger of the wire already says about answering at all.
@@ -2852,7 +2887,7 @@ may differ.
 - It takes the spending half of the machine's secret and the window and nothing else, so one machine yields one value per window and two machines never collide.
 - The window enters as one element, for the reason the window of a right and the amount of a frame do: two limbs of one number are two witnesses inside a proof.
 - Its domain is distinct from the one that spends a right to a share, so answering a window and taking its share are two acts that do not join.
-- What a second appearance of one part-nullifier means is a rule and not a value, and Consensus holds it whole: a repetition within one window adds nothing to the cement and is lawful, and what a sanction rests on is one part-nullifier under two different proposal identifiers of one height. This document holds the derivation and nothing about the rule.
+- What a second appearance of one part-nullifier means is a rule and not a value, and Consensus holds it whole: a repetition within one window adds nothing to the cement and is lawful, and what a sanction rests on is one part-nullifier under one of the three contradicting pairs of pledges Consensus names. This document holds the derivation and nothing about the rule.
 
 ### The identifier of an application
 
@@ -3545,13 +3580,14 @@ ignores the period of adaptation and holds one set of entries forever.
 ```
 window = 1000; protocol_version = 0x00010000
 previous, final_beacon and the six roots = 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88 each x 32
+roll = 0xBB x 32
 admitted_count = 3; cement_aggregate = 0x99 x 32; cement_count = 2
 census entry i of ten: root = (0xC0 + i) x 32, count = i
-suite_id = 1; runner_pubkey = 0xA1 x 1952; ticket_proof = 0x00 x 176 544; signature = 0x5E x 3309
-proposal_len                     = 182 523
-SHA-256 of the serialized proposal = 3cb99b67d64e293c8ddf4a727a786e0665bf0bb8459544a0757580fd93f9cddd
-proposal_id over the 686 bytes the window decided
-                                 = 510fa5fcc18ff003695aa688fb953057fb67192e3ec4abccafb838a8c5025601
+suite_id = 1; runner_pubkey = 0xA1 x 1952; ticket_proof = 0x00 x 333 888; signature = 0x5E x 3309
+proposal_len                     = 339 899
+SHA-256 of the serialized proposal = 5fa4081fd61af207a52aa465523b0d3d8bce81a147129e4ba608a911af4aa824
+proposal_id over the 718 bytes the window decided
+                                 = 63316f7bdf2584df960fa2cf3e648bc3bb5b67e06a2b43ce7bb1ff43585de0f5
 ```
 
 The identifier line catches the implementations the scope rule names: one that hashes the whole
@@ -3566,9 +3602,9 @@ misses both.
 
 ```
 spend s: nullifiers = (0x20 + s) x 32, commitments = (0x30 + s) x 32, rate nullifier = (0x40 + s) x 32
-proof = 0x00 x 213 440
-frame_len                       = 213 920
-SHA-256 of the serialized frame = 51df18cfbb14981fad54bed7840dd1e7f6cfebdb4fad87008e953cb82a4cf744
+proof = 0x00 x 404 576
+frame_len                       = 405 056
+SHA-256 of the serialized frame = aca4fb73e19afbaff5e63dd9a37e1a823f1c283cad16dc03148a07e0c11a80ed
 ```
 
 **A notice, and its length.** It carries the nullifier it names and the identifier of the frame
@@ -3581,7 +3617,7 @@ serialized above, so both ends of this line are values this set already holds.
 serialize(notice) = nullifier_32B || frame_id_32B
 notice_len        = 32 + 32 = 64
 nullifier = test_nullifier; frame_id = the identifier of the frame serialized above
-SHA-256 of the serialized notice = 60eeb42008ffae345cb44eba4f434936df5f11327aa524724097d616907e66de
+SHA-256 of the serialized notice = 520f523e85fbf2ce7629b38843e40c92666794b1fab64606ca6bbc6c29afaff3
 ```
 
 **The tag of first contact to a claimed name.**
@@ -3696,7 +3732,7 @@ line, which of the two it is writing.
 | `mt-cement-leaf` | a leaf of the tree of a census cement: the part-nullifier at that position |
 | `mt-cement-node` | an internal node of the tree of a census cement |
 | `mt-operator-nf` | the one-time right to raise a machine |
-| `mt-part-nf` | the nullifier of a machine's part in one window: first appearance enters the cement, and equivocation between two closings of one height is caught by it |
+| `mt-part-nf` | the nullifier of a machine's part in one window: first appearance enters the cement, and equivocation in the agreement of the window is caught by it |
 | `mt-open-nf` | the one-time right of a person to open their record |
 | `mt-noise-pq-v1-master` | the master key of the post-quantum handshake |
 | `mt-noise-pq-v1-i2r` | the directional key, initiator to responder |
@@ -3736,7 +3772,9 @@ line, which of the two it is writing.
 | `mt-pipe-ratchet` | the step of the walk by which the secret of a pipe moves from one window to the next |
 | `mt-collect` | the right to take mail from a pipe, sealed to the two correspondents for one window |
 | `mt-round-point` | the points a beacon and its attestations stand at |
-| `mt-window-point` | the points a proposal stands at |
+| `mt-window-point` | the points a proposal, its roll and the pledges of an agreement stand at |
+| `mt-proposer` | the place of a part of a window in an attempt of its agreement, over the part-nullifier, the cemented aggregate and the attempt |
+| `mt-roll` | the identifier of the roll of a proposal |
 | `mt-notice-point` | the points the notice of a spend stands at |
 | `mt-delivery` | the identifier a delivery carries inside its pipe layer |
 | `mt-proof-transcript` | the running transcript from which every challenge of a proof is drawn |
@@ -3906,13 +3944,17 @@ votes_reached(votes, expected)  = votes × confirmation_quorum_den
 offered(active)                 = max(1, active / admission_divisor)   # division toward zero
 ```
 
-A window closes where both of the first two hold over its final beacon: the count of its cement
-against the count of the electorate, and the votes of that beacon against the committee the
-electorate's standing draws, which the section below derives. Where the standing is too narrow to be
-sampled the committee expects nought, and the second rule holds of every beacon.
+Both of the first two hold of every quorum the close reads: over the final beacon of a window — the
+count of its cement against the count of the electorate, and the votes of that beacon against the
+committee the electorate's standing draws, which the section below derives — and over the pledges of
+one kind, attempt and name in the agreement of the window, their count of distinct parts against the
+same count and the votes the ballots of those parts cast against the same committee. Where the
+standing is too narrow to be sampled the committee expects nought, and the second rule holds of every
+beacon and every set of pledges.
 
 `cemented` is the count of distinct machines of the electorate whose confirmations entered the
-cement of the window, `total` the count of the electorate — the admitted set the proposal of the
+cement of the window, or whose pledges of one kind, attempt and name the agreement counts, `total`
+the count of the electorate — the admitted set the proposal of the
 window two before carries — both unsigned. The comparison multiplies rather than divides, so a
 window closes at exactly the share the Decree names and never at the nearest integer below it.
 
@@ -4111,7 +4153,7 @@ ood_values                  132 x 24 B         evaluations out of the domain, in
                                               and the two parts of the composition at z; those of a
                                               slot above the width and below the randomizer zero
 tail                        64 x 24 B         the coefficients of the last layer, low order first
-queries              48 x 4 344 B             one block per query, laid out below
+queries              92 x 4 344 B             one block per query, laid out below
 
 per query = the block the contents above fix, in that order and of that width: the path of the
             trace and the row it opens — the columns of the bound and the randomizer beside them —
@@ -4207,7 +4249,7 @@ transcript_(3+m) = S(transcript_(2+m) || fri_roots[m-1])
     the folding coefficient of layer m = the first field element drawn from it, m = 1 .. 5
 transcript_9 = S(transcript_8 || leaf of the tail)
 query_seed  = Q(transcript_9)
-    the 48 query positions = eight-byte little-endian draws from the digests of query_seed with a
+    the 92 query positions = eight-byte little-endian draws from the digests of query_seed with a
     counter, as below, each taken modulo the size of the evaluation domain, repeats redrawn
 
 drawing a challenge, which is one rule for every challenge above:
@@ -4463,13 +4505,13 @@ length is the arithmetic of `PROOF_LEN` at that height — the folding stops at 
 ```
 per query = 32 x 17 + 65 x 8 + 32 x 17 + 2 x 24 + 32 x 48 + 4 x 4 x 24 = 3 576 B
 
-PRESENCE_PROOF_LEN = 32 + 32 + 4 x 32 + 132 x 24 + 64 x 24 + 48 x 3 576 = 176 544 B
+PRESENCE_PROOF_LEN = 32 + 32 + 4 x 32 + 132 x 24 + 64 x 24 + 92 x 3 576 = 333 888 B
 ```
 
 | Parameter | Value |
 |---|---|
 | `presence_rows_log2` | 14 |
-| `PRESENCE_PROOF_LEN` | 176 544 B |
+| `PRESENCE_PROOF_LEN` | 333 888 B |
 
 The queries, the blowup, the tail, the slot of the evaluations and the bound on the width are
 the scheme's, unchanged: a second height is not a second scheme, and a verifier reading the
@@ -4600,7 +4642,7 @@ demands the width from this row rather than declaring one of its own.
 | `inbound_slots` — the links a device answers, beside the entries it chose | 96 |
 | `target_rounds` — derived: the least count of rounds at which the expected uncovered share of the electorate falls to the complement of the quorum | 284 |
 | `round_floor` — the fewest machines a round of a chain draws in expectation, whatever the population | 50 |
-| `retained_windows` — the windows the heavy attestations of a closed window stand at their points for, which is the certificate a device behind walks | 8 |
+| `retained_windows` — the windows the heavy attestations and the pledges of a closed window stand at their points for, which is the certificate a device behind walks | 8 |
 | `k_max` — the cap of parallel chains | 8 |
 | `k_step`, in windows — one chain added each step of height, to the cap | 96 τ₂ |
 | `cascade_width` — entitled parallel versions per chain | 3 |
@@ -4613,12 +4655,12 @@ demands the width from this row rather than declaring one of its own.
 
 **The volume the schedule is checked against.** Per machine, per window, across its chains:
 eligibility strikes 1.1094 times in expectation; 0.6710 of machines publish one heavy
-attestation of 181 945 bytes, and the remaining 0.4384 expected strikes publish light attestations
-of 5 401 bytes — ≈ 124 KB per machine per window, flat in the count of chains, because the crowd of
+attestation of 339 289 bytes, and the remaining 0.4384 expected strikes publish light attestations
+of 5 401 bytes — ≈ 230 KB per machine per window, flat in the count of chains, because the crowd of
 a round carries the count of chains and spreads the strikes across them.
-Frames add 54.7 MB per chain per window, payer-borne, and beacons add `target_rounds` objects of
+Frames add 110.6 MB per chain per window, payer-borne, and beacons add `target_rounds` objects of
 `beacon_len` per chain per window — 24 KB, runner-borne — so the payload of a window is
-`k · 54.7 MB + N · 124 KB`. What crosses the wire is that payload times what carriage costs: every
+`k · 110.6 MB + N · 230 KB`. What crosses the wire is that payload times what carriage costs: every
 object of consensus stands at `consensus_replicas` points, and every envelope crosses at least
 `hop_min` distinct machines. The cap of the schedule is the frozen ceiling of that product per machine, with both
 multipliers in it, and neither is left to be discovered by whoever measures the wire. It caps the
@@ -4796,7 +4838,7 @@ serialize(opening)
   record_commit                    32 B         the commitment of the record this opening creates, and its key in the tree of records
   proof                     PROOF_LEN B         the right spent and the commitment opened, disclosing neither
 
-opening_len = 32 + 32 + PROOF_LEN = 213 504 B
+opening_len = 32 + 32 + PROOF_LEN = 404 640 B
 ```
 
 **Invariants of an opening:**
@@ -4823,7 +4865,7 @@ serialize(action)
   act_nullifier                    32 B         the nullifier of the rate of action of this window
   proof                     PROOF_LEN B         the transition lawful, the predecessor a member, the signature verified, disclosing all three
 
-action_len = 32 + 32 + 32 + PROOF_LEN = 213 536 B
+action_len = 32 + 32 + 32 + PROOF_LEN = 404 672 B
 ```
 
 **Invariants of an action:**
@@ -4840,8 +4882,8 @@ action_len = 32 + 32 + 32 + PROOF_LEN = 213 536 B
 A proposal is what a runner publishes to close a window, and its length is one number for every
 window ever closed. It carries the proof of one thing only — that the runner's ticket cleared the
 draw — and the public facts the windows after it stand on: the count of the machines it admits, the
-cement that made its predecessor final, and the census the standing of the electorate is counted
-over.
+cement of its living, among whom its predecessor was decided, the roll of what it applied, and the
+census the standing of the electorate is counted over.
 
 ```
 serialize(proposal)
@@ -4854,8 +4896,9 @@ serialize(proposal)
   machine_root                     32 B
   admitted_root                    32 B         over the tree of admitted machines, appended at admission
   operations_root                  32 B         over the frames the window applied, in the order they applied
+  roll                             32 B         the identifier of the roll: the frames applied and the parts of the cement
   admitted_count                    8 B   u64   the machines the tree of admitted machines holds
-  cement_aggregate                 32 B         the aggregate over the parts that made the predecessor final
+  cement_aggregate                 32 B         the aggregate over the parts of the window's cement: its living, among whom its predecessor was decided
   cement_count                      8 B   u64   how many parts that cement names
   census x standing_censuses                    newest first, by the rule of the standing of an electorate
     root                           32 B         the root of the tree of a census cement
@@ -4866,15 +4909,15 @@ serialize(proposal)
   ticket_proof     PRESENCE_PROOF_LEN B         the clearing of the runner's ticket, under the description of the ticket
   signature                      3309 B         over everything above, by the rules for a signed object
 
-proposal_len = 8 + 4 + 7 x 32 + 8 + 32 + 8 + 10 x (32 + 8) + 2 + 32 + 1952 + PRESENCE_PROOF_LEN + 3309
-             = 182 523 B
+proposal_len = 8 + 4 + 8 x 32 + 8 + 32 + 8 + 10 x (32 + 8) + 2 + 32 + 1952 + PRESENCE_PROOF_LEN + 3309
+             = 339 899 B
 ```
 
 **The identifier of a proposal is taken over what the window decided** — the bytes from `window`
 through `suite_id`, under the proposal domain of the registry:
 
 ```
-proposal_id = SHA-256("mt-proposal" || 0x00 || serialize(proposal)[0 .. 686])
+proposal_id = SHA-256("mt-proposal" || 0x00 || serialize(proposal)[0 .. 718])
 ```
 
 The reason is what reads the identifier. An attestation attests it and the sanction of a double
@@ -4886,7 +4929,7 @@ branch of the versions of a round writes differently: machines closing one windo
 would attest as many names as the window had runners and branches, and the cement of the window
 after it would part among them. The fields from `window` through `suite_id` offer neither freedom —
 the roots and the census are recomputed by every verifier, the cement and the counts are what the
-final beacon carried — so two runners that closed on one cement write one name whichever beacon of
+final beacon carried, and the roll is a function of the frames and the parts those already fix — so two runners that closed on one cement write one name whichever beacon of
 whichever branch carried it, and either one's bytes are the proposal of the window. The final beacon
 stands after the name as the evidence a device that was not there reads the cement and its votes
 off; the votes stand in no field of the proposal, because two runners holding one cement may have
@@ -4896,27 +4939,30 @@ decision between them.
 **Invariants of the proposal:**
 
 - Its length is exactly `proposal_len`; a proposal of any other length is refused before it is parsed.
-- Its identifier is taken under the proposal domain over the fields from `window` through `suite_id`, 686 bytes; an implementation hashing the whole object gives every proposal a name its runner can grind through the randomness of a proof, and one hashing through `final_beacon` or `runner_pubkey` gives two branches or two runners of one decision two names.
+- Its identifier is taken under the proposal domain over the fields from `window` through `suite_id`, 718 bytes; an implementation hashing the whole object gives every proposal a name its runner can grind through the randomness of a proof, and one hashing through `final_beacon` or `runner_pubkey` gives two branches or two runners of one decision two names.
 - `census` is the census of the standing of an electorate the rule of that section carries from the proposal before: at a census window the window's own cement — the root of its tree and its count — enters first and the oldest leaves, and at any other window it is carried as it stands. The electorate of the window two on reads its standing and its committee off it.
 - `runner_pubkey` is one-time and answers for this proposal alone; a key seen for two proposals is a defect, and it names no machine and no owner.
 - `protocol_version` carries the major component in its upper sixteen bits and the minor in its lower. A machine refuses a proposal whose major exceeds the one it implements, and refuses one whose value stands below its predecessor's — so rules never roll back inside one chain, and both rules the Constitution states are a comparison of this field.
 - `previous` is the identifier of the proposal of the window before, so the chain of proposals is a chain by construction and round zero of every window stands on bytes that are fixed. The first window of a network has no proposal before it, and its `previous` is the Genesis State Hash, so the chain of every network begins at the parameters it opened on.
 - The roots are recomputed by every verifier and never taken from the proposal on trust; `admitted_count` is the count of leaves of the tree `admitted_root` stands over, recomputed with it.
-- `cement_aggregate` and `cement_count` are the aggregate and the count of the cement that made the proposal before this one final — the state the beacon `final_beacon` carried, a count reaching the quorum of the electorate — which a machine of the window recomputed from the heavy attestations it held when it answered that beacon, and which a device walking a certificate reads off that beacon among the beacons of the certificate; a proposal whose pair differs is refused. They are what the electorate of the window two on and the draw of that window read.
+- `roll` is the identifier of the roll of this proposal, laid out below: the identifiers of the frames the window applied, in the order they applied, then the parts of its cement, ascending. A machine replaying the roll recomputes `operations_root` from its frames and the cement from its parts, and a proposal whose roll does not replay to it is followed by no machine that did not take it.
+- `cement_aggregate` and `cement_count` are the aggregate and the count of the cement of this window, its living machines whatever names they pledged: the state the beacon `final_beacon` carried, a count reaching the quorum of the electorate, which a machine of the window recomputed from the heavy attestations it held when it answered that beacon, and which a device walking a certificate reads off that beacon among the beacons of the certificate; a proposal whose pair differs is refused. They are what the electorate of the window two on and the draw of that window read.
 - `ticket_proof` asserts that the ticket drawn from the runner's secret and the cemented aggregate of the window two before clears the threshold of the draw, that the half the secret names stands in the tree of admitted machines of the electorate, and that the digest of the key this proposal answers under is the one the proof names — without disclosing the ticket, the secret or the machine. It stands at the height of the presence and is of its length.
 - The signature covers every byte above it, and the rules for a signed object fix what is signed and how.
 
 ### The certificate of a window
 
-The certificate of a window is not an object: it is the proposal that closed the window together with
-the heavy attestations of the window after it and the ballots of their parts, which stand at the
-points of their rounds exactly as they were published. A device verifies a certificate as the living
+The certificate of a window is not an object: it is the proposal that closed the window with its roll, together with
+the heavy attestations of the window after it, the light attestations of that window answering the
+final beacon its proposal names, the pledges of that window's agreement its decision
+stands on and the ballots of their parts, which stand at their points exactly as they were
+published. A device verifies a certificate as the living
 verified its parts, and Consensus states the procedure.
 
 **Invariants of the certificate:**
 
-- A certificate introduces no object, no signature and no key; its parts are a proposal, the heavy attestations that made it final and the ballots of their parts, each of the layout and the length this document already fixes.
-- The heavy attestations and the ballots of a window survive at their points for `retained_windows` windows after the window closes; a deposit at a point of a past round is refused, and what stands there is held until the retention ends, and nothing else of a round outlives its window.
+- A certificate introduces no object, no signature and no key; its parts are a proposal with its roll, the heavy attestations of the window after it, the light attestations of that window answering the final beacon its proposal names, the pledges its decision stands on and the ballots of their parts, each of the layout and the length this document already fixes. A final beacon no verified attestation of the certificate answered closes nothing for a device, as it closes nothing for a machine of the window.
+- The heavy attestations, the light attestations answering its final beacon, the ballots and the pledges of a window, the frames of its rounds and its proposals with their rolls survive at their points for `retained_windows` windows after the window closes; a deposit at a point of a past round is refused, and what stands there is held until the retention ends, and nothing else of a round outlives its window.
 
 ### The frame of a payment
 
@@ -4937,8 +4983,8 @@ serialize(frame)
   proof                     PROOF_LEN B
 
 frame_len = spends_per_frame x (spend_inputs + spend_outputs + 1) x 32 + PROOF_LEN
-          = 3 x 5 x 32 + 213 440
-          = 213 920 B
+          = 3 x 5 x 32 + 404 576
+          = 405 056 B
 
 frame_id  = SHA-256("mt-frame" || 0x00 || serialize(frame))
 ```
@@ -4975,17 +5021,18 @@ serialize(confirmation)
   proof           PRESENCE_PROOF_LEN B          under the description of the presence, at its height
   signature                      3309 B         over everything above
 
-confirmation_len = 8 + 2 + 64 + 32 + 32 + 2 + 1 952 + 176 544 + 3 309 = 181 945 B
+confirmation_len = 8 + 2 + 64 + 32 + 32 + 2 + 1 952 + 333 888 + 3 309 = 339 289 B
 ```
 
 **Invariants of a confirmation:**
 
 - `attested` ascends lexicographically and holds no repeat; an implementation sorting it any other way produces a different identifier for the same attestation.
-- `part_nullifier` is derived from the machine's secret and this window alone, so one machine yields one value per window; its first appearance enters the cement and every later one adds nothing, and what Consensus sanctions is one part-nullifier under two different proposal identifiers of one height.
-- `attested` holds exactly two identifiers — the beacon of the round and the proposal of the previous window — ascending; `round_nullifier` is derived from the machine's secret and the attested beacon, so versions of one round yield distinct values and attesting them all is duty, while a repeat under one beacon is refused in silence.
+- `part_nullifier` is derived from the machine's secret and this window alone, so one machine yields one value per window; its first appearance enters the cement and every later one adds nothing, and what Consensus sanctions is one part-nullifier under one of the three contradicting pairs of pledges, two confirmations of one window attesting two names among them.
+- Two confirmations of one `part_nullifier` are ordered by the chain and the round of the beacon each attests, ascending, then by `round_nullifier` compared as 32 bytes from the first, ascending, then by the name among `attested` that is not the beacon, ascending; the first stands and the second is refused (Consensus, "The sanction of a double answer").
+- `attested` holds exactly two identifiers — the beacon of the round and the name its machine took of the proposal of the previous window, which is its pledge of attempt zero — ascending; `round_nullifier` is derived from the machine's secret and the attested beacon, so versions of one round yield distinct values and attesting them all is duty, while a repeat under one beacon is refused in silence.
 - `answering_key` is the one-time key of this window and verifies this object alone; the key a machine answers the wire with is published nowhere, and a confirmation carrying it would name the machine across every window it ever attested.
 - The proof asserts that the bearer is a machine of the electorate of this window and that the nullifier and the key derive from one secret — disclosing neither. It carries no weight: a part counts once in the cement or not at all.
-- The length of this object is one number, 181 945 B: `attested` holds exactly two identifiers and every field above has a fixed width, and its proof is of the presence's height and length. A confirmation of any other length is refused before it is parsed.
+- The length of this object is one number, 339 289 B: `attested` holds exactly two identifiers and every field above has a fixed width, and its proof is of the presence's height and length. A confirmation of any other length is refused before it is parsed.
 
 **The light attestation** is the same object without `proof`:
 
@@ -4993,7 +5040,7 @@ confirmation_len = 8 + 2 + 64 + 32 + 32 + 2 + 1 952 + 176 544 + 3 309 = 181 945 
 serialize(light_attestation)
   window                            8 B   u64   the window attested
   attested_count                    2 B   u16   two
-  attested                         64 B         the beacon of the round and the proposal of the previous window, ascending
+  attested                         64 B         the beacon of the round and the name its heavy attestation pledged, ascending
   part_nullifier                   32 B
   round_nullifier                  32 B         bound to the beacon attested
   suite_id                          2 B   u16
@@ -5006,7 +5053,7 @@ light_attestation_len = 8 + 2 + 64 + 32 + 32 + 2 + 1952 + 3309 = 5 401 B
 **Invariants of the light attestation:**
 
 - It is valid only where a heavy attestation under the same answering key stands published for the same window, whose proof it inherits; until that heavy is seen it stands in escrow — neither admitted to a beacon's pulse nor refused — so that a heavy still in flight is never mistaken for a heavy that never existed.
-- It carries the evidence of an equivocation exactly as a heavy attestation does. What it omits is the proof, and a sanction reads no proof: it reads one part-nullifier under two proposal identifiers of one height, and the key signing a light attestation is the machine's own, its binding to a living machine already proven by the heavy it inherits.
+- It pledges nothing: it carries the name its heavy attestation pledged, enters no quorum of the agreement and is no evidence of an equivocation, and one carrying another name than its heavy's is refused. Its key is the machine's own, its binding to a living machine already proven by the heavy it inherits.
 - A machine's first attestation of a window is heavy and enters the cement; every later one is light and enters only the pulse.
 - Its length is exactly `light_attestation_len`; a light attestation of any other length is refused before it is parsed.
 
@@ -5024,7 +5071,7 @@ serialize(ballot)
   votes                             8 B   u64   the votes the standing drew, at least one
   proof                     PROOF_LEN B         under the description of the ballot, at the frame's height
 
-ballot_len = 8 + 32 + 8 + 213 440 = 213 488 B
+ballot_len = 8 + 32 + 8 + 404 576 = 404 624 B
 ```
 
 **What its proof asserts.** That the part is the nullifier of the spending half the proof holds and
@@ -5044,6 +5091,61 @@ order of the rows of a comparison, and the count, in that order.
 - Two ballots under one part count once, at the larger of their votes: a ballot can cast fewer votes than its standing drew and never more, so the larger is the one nearer the truth and no tally exceeds it.
 - It names no machine and no census window: what a reader learns is that some machine of the electorate drew this many votes in this window, a draw whose expectation is its standing over the committee and which joins to nothing across windows.
 
+### The pledge of a part
+
+What a machine of a window publishes in an attempt of the agreement on the proposal of the window
+before. It names no machine: what a reader learns is that some part of the electorate stood behind a
+name in an attempt, on a quorum it names or on none.
+
+```
+serialize(pledge)
+  window                            8 B   u64   the window whose part signs it
+  attempt                           4 B   u32   the attempt of the agreement it is made in
+  name                             32 B         the identifier of a proposal of the window before
+  since                             4 B   u32   the attempt whose quorum it stands on, or 0xFFFFFFFF for none
+  part_nullifier                   32 B         the nullifier of this machine's part in this window
+  suite_id                          2 B   u16
+  answering_key                  1952 B         the one-time key of this window, under the part domain
+  signature                      3309 B         over everything above
+
+pledge_len = 8 + 4 + 32 + 4 + 32 + 2 + 1 952 + 3 309 = 5 343 B
+```
+
+**Invariants of a pledge:**
+
+- A `since` equal to `attempt` makes a closing pledge, and a `since` below `attempt` or of `0xFFFFFFFF` an open pledge; a pledge whose `since` stands above its attempt and is not `0xFFFFFFFF`, or whose attempt is `0xFFFFFFFF`, is refused where it is read, and so is an open pledge of attempt zero, the heavy attestation being the one open pledge of that attempt.
+- `answering_key` is the one-time key of the window and the key of the confirmation of the same part; a pledge whose part has no confirmation standing under that key stands in escrow, and one whose key is another is refused.
+- `part_nullifier` is the part of the window, so a pledge joins to the confirmation of its own machine and to nothing across windows; Consensus counts a part once per kind and attempt and sanctions three pairs.
+- Its length is exactly `pledge_len`; a pledge of any other length is refused before it is parsed.
+
+### The roll of a proposal
+
+The frames a window applied and the parts of its cement, in one body beside the proposal, whose
+identifier the proposal's `roll` carries inside the scope of its name.
+
+```
+serialize(roll)
+  window                            8 B   u64   the window of the proposal the roll belongs to
+  frames                            4 B   u32   how many frames the window applied, at most frames_per_window
+  parts                             8 B   u64   how many parts its cement names
+  entry x (frames + parts)         32 B each    the frames in the order they applied, then the parts ascending
+
+roll_len = 8 + 4 + 8 + 32 x (frames + parts) = 20 + 32 x (frames + parts)
+
+roll_id = SHA-256("mt-roll" || 0x00 || serialize(roll))
+```
+
+One body suffices because both of its counts are bounded before it is read: the frames by
+`frames_per_window`, the parts by the count of the electorate. A roll is therefore at most
+`20 + 32 x (273 + T)` bytes, and it stands at the window points for as long as the frames it names.
+
+**Invariants of the roll:**
+
+- `frames` is at most `frames_per_window` and `parts` is the `cement_count` of the proposal; the frames are the leaves of `operations_root` in their order, and the parts are those `cement_aggregate` aggregates. A roll whose frames do not fold to that root, or whose parts do not aggregate to that pair, is not the proposal's.
+- The parts ascend and hold no repeat, and each is the part of a confirmation of the window the proposal closes.
+- A roll carries no key and no signature: it is verified by its identifier, which the proposal names.
+- Its length is exactly `roll_len` of its own two counts; a roll of any other length, or whose `frames` exceeds `frames_per_window`, is refused before an entry is read.
+
 ### The candidacy of a machine
 
 What a claimant publishes to enter the set of machines. It carries no key and no signature: the key
@@ -5058,7 +5160,7 @@ serialize(candidacy)
   suite_id                          2 B   u16
   proof                     PROOF_LEN B         the continuity met, the commitment opened, and both halves of one reading of the secret
 
-candidacy_len = 8 + 32 + 32 + 32 + 2 + PROOF_LEN = 213 546 B
+candidacy_len = 8 + 32 + 32 + 32 + 2 + PROOF_LEN = 404 682 B
 ```
 
 **Invariants of a candidacy:**
