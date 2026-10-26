@@ -939,8 +939,12 @@ object Groups {
         }
     }
 
+    /** This phone's own name among a group's people, as it goes out with its words; «Member» while it has none (iOS lines, clean(myDisplayName)). */
+    fun myName(c: Context) = clean(Prefs.userName, NAME_LIMIT).ifEmpty { c.getString(R.string.gr_member) }
     /** This phone owns the group: its page edits it (iOS state.mine). */
     fun owns(key: String) = state(key)?.mine == true
+    /** This phone owns the group and has not ended it: it adds, names, takes out and hands the link (iOS manages, canManage). */
+    fun manages(key: String) = state(key)?.let { it.mine && !it.left } == true
     /** Whether the owner's phone already carries the group to this person (iOS carries(to:in:)): the page's «add» lists the others only. */
     fun carriesTo(pipe: String, key: String): Boolean {
         val p = SamePair.root(pipe)
@@ -2086,7 +2090,7 @@ object Groups {
                     Log.i("Montana", "group_refused an answer to another's letter seat=$seat")
                     return Verdict.REFUSED
                 }
-            } else if (t in gone) return Verdict.HELD
+            } else if (t in gone || Book.isBuried(key, t)) return Verdict.HELD   // the letter is gone here already (iOS store.buried)
             else if (g.mine) return Verdict.WAIT   // the letter has not landed at the owner yet: the copy knocks again
             else if (words.startsWith(Marks.DELETE)) { bury(t); remember(id); return Verdict.HELD }
         }
