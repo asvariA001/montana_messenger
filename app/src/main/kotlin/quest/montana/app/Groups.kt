@@ -2086,7 +2086,7 @@ object Groups {
                     Log.i("Montana", "group_refused an answer to another's letter seat=$seat")
                     return Verdict.REFUSED
                 }
-            } else if (t in gone) return Verdict.HELD
+            } else if (t in gone || Book.isBuried(key, t)) return Verdict.HELD   // the letter is gone here already (iOS store.buried)
             else if (g.mine) return Verdict.WAIT   // the letter has not landed at the owner yet: the copy knocks again
             else if (words.startsWith(Marks.DELETE)) { bury(t); remember(id); return Verdict.HELD }
         }
