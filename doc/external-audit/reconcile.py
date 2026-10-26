@@ -81,7 +81,8 @@ def statements(path, text, applies):
                 value = ''.join(b[2:].lower() for b in re.findall(r'0x[0-9a-fA-F]{2}', value))
             line = text.count('\n', 0, match.start(match.lastindex)) + 1
             historical = bool(HISTORICAL.search(lines[line - 1]))
-            found[(line, key)] = (key, value, path, line, historical)
+            # Equal claims may overlap patterns, but a different value must survive.
+            found[(line, key, value)] = (key, value, path, line, historical)
     return [found[k] for k in sorted(found)]
 
 

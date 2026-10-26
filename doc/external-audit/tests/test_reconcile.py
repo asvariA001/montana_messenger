@@ -134,6 +134,29 @@ class ReconcileTests(unittest.TestCase):
                 self.assertEqual(len(stated), 1, '\n'.join(out))
                 self.assertNotIn(value, stated[0])
 
+    def test_conflicting_values_on_one_line_both_orders_are_retained(self):
+        # Rejects last-match-wins: a later correct assertion cannot erase an earlier conflict.
+        wrong = 'ee' * 32
+        for first, second in [(wrong, GENESIS), (GENESIS, wrong)]:
+            with self.subTest(first=first):
+                self.write('README.md', f'Canon 9.5.0.\ngenesis_state_hash = {first}; '
+                           f'genesis_state_hash = {second}\n')
+                self.commit()
+                code, out = report(self.root, 'HEAD')
+                self.assertEqual(code, 1, '\n'.join(out))
+                values = {s[1] for s in collect(self.root, 'HEAD')[1]
+                          if s[2:] == ('README.md', 2, False)}
+                self.assertEqual(values, {wrong, GENESIS})
+                self.assertTrue(any(row.startswith(f'  {wrong} at ') and 'README.md:2' in row
+                                    for row in out), '\n'.join(out))
+
+    def test_same_line_equal_claims_do_not_create_a_disagreement(self):
+        # Rejects treating the number of assertions as the number of distinct values.
+        self.write('README.md', f'Canon 9.5.0.\ngenesis_state_hash = {GENESIS}; '
+                   f'genesis_state_hash = {GENESIS}\n')
+        self.commit()
+        self.assertEqual(report(self.root, 'HEAD')[0], 0)
+
     def test_historical_mark_on_the_line_removes_the_value(self):
         # Rejects a reader that compares a value its own document marks as historical.
         self.write('Audit/Protocol-13/12-SOURCE-AND-CLAIMS.md',
