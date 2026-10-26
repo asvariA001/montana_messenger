@@ -68,11 +68,16 @@ impl std::fmt::Display for Verdict {
 pub struct PulseStatus {
     pub on: Verdict,
     pub asking: u32,
+    pub refused: u64,
 }
 
 impl std::fmt::Display for PulseStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}; asking {}", self.on, self.asking)
+        write!(
+            f,
+            "{}; asking {}; refused {}",
+            self.on, self.asking, self.refused
+        )
     }
 }
 
@@ -129,24 +134,29 @@ impl Counts {
             Some(PulseStatus {
                 on: Verdict::NoDiagnostics,
                 asking: held.map_or(0, |status| status.asking),
+                refused: self.refusals(),
             })
         } else {
             held
         }
     }
 
-    pub fn observe(&self, proof_refused: bool, missing: bool, asking: u32) -> Verdict {
+    // A refused public deposit proves no cause of the shortfall. Keep its count beside
+    // the verdict: an outsider can increase this count but cannot select the verdict.
+    pub fn observe(&self, missing: bool, asking: u32) -> Verdict {
         let on = if self.door_lost.load(Ordering::Acquire) {
             Verdict::NoDiagnostics
-        } else if proof_refused {
-            Verdict::ProofRefused
         } else if missing {
             Verdict::NoData
         } else {
             Verdict::NoQuorum
         };
         if let Ok(mut held) = self.status.lock() {
-            *held = Some(PulseStatus { on, asking });
+            *held = Some(PulseStatus {
+                on,
+                asking,
+                refused: self.refusals(),
+            });
         }
         on
     }

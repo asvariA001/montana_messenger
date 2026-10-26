@@ -1215,7 +1215,6 @@ pub fn live_doing(
     let mut out: Vec<Lived> = Vec::new();
     for step in 0..windows {
         counts.clear_status();
-        let refused_before = counts.refusals();
         let window = from.checked_add(step).ok_or(NodeError::Refused {
             what: "a window past the last one a count carries",
         })?;
@@ -1324,11 +1323,7 @@ pub fn live_doing(
                 if !arrived.beacons.is_empty() {
                     break arrived.beacons;
                 }
-                let on = counts.observe(
-                    counts.refusals() > refused_before,
-                    true,
-                    askings_since(opened_at),
-                );
+                let on = counts.observe(true, askings_since(opened_at));
                 waited += 1;
                 if waited >= patience {
                     return Err(NodeError::Stalled {
@@ -1579,7 +1574,6 @@ pub fn live_doing(
                     final_beacon = at_the_quorum.first().map(|one| (*one).clone());
                 }
                 let on = counts.observe(
-                    counts.refusals() > refused_before,
                     final_beacon.is_none()
                         && (ordered.is_empty() || unreconciled > 0 || missing_light_key),
                     asked,
@@ -1738,11 +1732,7 @@ pub fn live_doing(
                     }
                     None => {}
                 }
-                let on = counts.observe(
-                    counts.refusals() > refused_before,
-                    true,
-                    askings_since(opened_at),
-                );
+                let on = counts.observe(true, askings_since(opened_at));
                 waited += 1;
                 if waited >= patience {
                     return Err(NodeError::Stalled {
@@ -2384,7 +2374,7 @@ fn take_the_proposal(
             .status()
             .map_or(0, |status| status.asking)
             .saturating_add(1);
-        let on = counts.observe(!refused.is_empty(), true, asking);
+        let on = counts.observe(true, asking);
         waited += 1;
         if waited >= patience {
             return Err(NodeError::Stalled {

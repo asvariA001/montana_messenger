@@ -66,6 +66,7 @@ impl Server {
                 let status = counts.status().unwrap_or(PulseStatus {
                     on: Verdict::NoDiagnostics,
                     asking: 0,
+                    refused: 0,
                 });
                 let _ = writeln!(stream, "{status}");
             }
@@ -108,6 +109,7 @@ pub fn read(data: &Path) -> Result<PulseStatus, Verdict> {
     let bound = PulseStatus {
         on: Verdict::NoDiagnostics,
         asking: u32::MAX,
+        refused: u64::MAX,
     }
     .to_string()
     .len()
@@ -126,6 +128,9 @@ pub fn read(data: &Path) -> Result<PulseStatus, Verdict> {
         .trim()
         .split_once("; asking ")
         .ok_or(Verdict::NoDiagnostics)?;
+    let (asking, refused) = asking
+        .split_once("; refused ")
+        .ok_or(Verdict::NoDiagnostics)?;
     let on = match on {
         "proof refused" => Verdict::ProofRefused,
         "no data" => Verdict::NoData,
@@ -135,5 +140,6 @@ pub fn read(data: &Path) -> Result<PulseStatus, Verdict> {
     Ok(PulseStatus {
         on,
         asking: asking.parse().map_err(|_| Verdict::NoDiagnostics)?,
+        refused: refused.parse().map_err(|_| Verdict::NoDiagnostics)?,
     })
 }

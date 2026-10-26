@@ -1930,14 +1930,14 @@ mod tests {
         );
         let counts = machine.counts();
         assert_eq!(counts.status().unwrap().on, say::Verdict::NoDiagnostics);
-        assert_eq!(counts.observe(true, true, 7), say::Verdict::NoDiagnostics);
+        assert_eq!(counts.observe(true, 7), say::Verdict::NoDiagnostics);
     }
 
     // CNS-20: a panic must take the same path as an ordinary terminal door error.
     #[test]
     fn an_unwinding_door_leaves_no_diagnostics() {
         let counts = Arc::new(say::Counts::default());
-        counts.observe(false, false, 3);
+        counts.observe(false, 3);
         let watch = counts.watch_door();
         assert!(std::thread::spawn(move || {
             let _watch = watch;
@@ -1949,7 +1949,8 @@ mod tests {
             counts.status(),
             Some(say::PulseStatus {
                 on: say::Verdict::NoDiagnostics,
-                asking: 3
+                asking: 3,
+                refused: 0,
             })
         );
     }
