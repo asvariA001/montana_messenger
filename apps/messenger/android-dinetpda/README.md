@@ -30,7 +30,7 @@ phone, and no iPhone.
 
 **The start.** The app began as upstream's `apps/messenger/android` build 411. That is folder tree `674ab0c96f69…`
 from source commit `07e5f3cde2e0`, which `main` held until 2026-10-25. Since `86d5b28`, `main` holds the project's newer
-builds: 543, and at `c7270dd` build 547, tree `ce66d6909efe…`. It was imported on
+builds: 543 to 552, and at `d5a334e` build 552, tree `af8316a93370…`. It was imported on
 2026-10-17 at 14:22 UTC from upstream commit `97433815677a` into a local repository. The core `4ce3d6705224…` sat beside
 it.
 
@@ -38,7 +38,7 @@ it.
 app or its tools. This folder is that commit's `android/` and `tools/`, copied as files: the local history is not part
 of this repository.
 
-**Changes made for this folder.** Apart from this README, 31 files differ from that commit.
+**Changes made for this folder.** Apart from this README, 33 files differ from that commit.
 
 - 11 for the build here:
   - the paths to the core;
@@ -54,8 +54,11 @@ of this repository.
 - 5 for the author field's self-check, which now reads each vector on its own day (see [Tests](#tests)): `AuthorCanon.kt`,
   `tools/author_canon_check.kt` and `tools/author_canon_check.sh` are new, and `Pipes.kt` and `tools/author_vectors.py`
   follow. The local repository carries the same change; here the check script reads `app/`.
+- 2 for the VPN engine's delay measure, written anew (see [The VPN engine's delay measure](#the-vpn-engines-delay-measure)):
+  `native/montana-xray/montanaxray.go` and its new tests, `native/montana-xray/measuredelay_test.go`.
 
-Every other file is byte for byte the same.
+`scripts/toolchain.json`, one of the 11, also pins the core's tree (see [Build](#build)). Every other file is byte for
+byte the same.
 
 **Comparing with the project's app.** This command shows what differs from `main`'s Android app:
 
@@ -63,14 +66,14 @@ Every other file is byte for byte the same.
 git diff --stat origin/main:apps/messenger/android HEAD:apps/messenger/android-dinetpda
 ```
 
-On 2026-10-25, for this folder as of folder tree `4a40ba2312bc`, the result was:
+On 2026-10-26, for this folder as of folder tree `d0faa10afd19`, the result was:
 
 | `main`'s Android folder | Equal | Changed | New here | Only in `main` |
 |---|---|---|---|---|
-| build 411 (tree `674ab0c96f69`, `main` up to `2c7eb0d`), where this app began | 247 | 53 | 134 | 1: `BackupSeed.kt`, removed here |
-| build 547 (tree `ce66d6909efe`, `main` since `c7270dd`) | 213 | 91 | 130 | 19: `BackupSeed.kt`, and 18 files that build 543 added |
+| build 411 (tree `674ab0c96f69`, `main` up to `2c7eb0d`), where this app began | 247 | 53 | 135 | 1: `BackupSeed.kt`, removed here |
+| build 552 (tree `af8316a93370`, `main` since `d5a334e`) | 213 | 91 | 131 | 20: `BackupSeed.kt`, 18 files that build 543 added, and `FloorGuard.kt` |
 
-The new files are those of `app/`, `native/` and `tools/`, plus `.gitattributes` and this README. Builds 543 to 547 have
+The new files are those of `app/`, `native/` and `tools/`, plus `.gitattributes` and this README. Builds 543 to 552 have
 not been compared with this app feature by feature.
 
 ## Layout
@@ -80,7 +83,7 @@ not been compared with this app feature by feature.
 | `app/src/main/kotlin/quest/montana/app` | The app: 116 Kotlin files (about 55 000 lines). The package is `quest.montana.app` and the application id is `quest.montana.app.dev` |
 | `app/src/main/res` | Resources: en, ru and zh-rCN strings, drawables, the network security config, the coin-writes flag |
 | `native/montana-jni` | The Rust JNI library `libmontana.so`, linking the core's own crates. Its tests compare every JNI function with the C function iOS calls |
-| `native/montana-xray` | The VPN wall's engine wrapper. iOS's `montanaxray.go`, `go.mod` and `go.sum` byte for byte, plus `protect_android.go` |
+| `native/montana-xray` | The VPN wall's engine wrapper: `montanaxray.go` (iOS's, with its delay measure written anew), its tests `measuredelay_test.go`, iOS's `go.mod` and `go.sum` byte for byte, and `protect_android.go` |
 | `scripts` | The build road, with no Gradle: `toolchain.json` (every pin), `setup.py`, `build.py`, `toolchain.py`, `version` |
 | `tools` | WSL wrappers, APK verification, vector checks, the LZFSE check, the twin-reference tool, the emulator driver |
 
@@ -342,6 +345,25 @@ with `tools/ui.ps1`. The checks with Windows are the Windows app's scenes in `ap
 Commit hashes change each time this branch is rebased onto `main`; folder trees do not, so the runs are named by the
 folder tree (`git rev-parse HEAD:apps/messenger/android-dinetpda`) and by the commit they ran on.
 
+**On folder tree `d0faa10afd19`** (2026-10-26), after the VPN engine's delay measure was written anew and the core was
+pinned to `main`'s tree `6aeb359d095b`, on commit `9844b50`. The checks ran from a plain clone in WSL, with a build copy
+of its own. The Go steps ran in `native/montana-xray` with the pinned Go and no network for modules
+(`GOTOOLCHAIN=local GOPROXY=off GOFLAGS=-mod=mod`). This README's update came afterwards and changes nothing that is built.
+
+| Command | Result |
+|---|---|
+| `go version` | exit 0. `go1.26.8 linux/amd64` |
+| `go vet ./...` | exit 0 |
+| `go test -race -count=1 -v -run 'TestDelay\|TestMeasure' .` | exit 0, 26 s. 16 tests passed, none skipped; 60 calls (10 of them batches) left goroutines 3 → 3 and open files 7 → 7 |
+| `gofmt -l .` | lists `montanaxray.go` for one comment's alignment in its closing `const` block (`ipBoundIf`), as in the earlier file and in iOS's |
+| `bash tools/wsl-build.sh check` | exit 0, 105 s. The VPN engines rebuilt; the code compiles: 1008 classes |
+| `bash tools/wsl-build.sh apk` | exit 0, 110 s. `core: tree 6aeb359d095b, Rust 1.92.0, NDK 27.2.12479018, arm64-v8a`. Output `Montana-9844b50-arm64-v8a.apk`, 39 528 089 bytes, SHA-256 `731edb99be9ee77775829ce426b97b3f1edab707f4f8c23167e360ab285d501c` |
+| `bash tools/verify-apk.sh out/Montana-9844b50-arm64-v8a.apk` | exit 0. Signature v2 + v3 (debug certificate), `quest.montana.app.dev`, arm64-v8a, `zipalign -c -P 16 4` OK, every library LOAD-aligned to 16 KiB, 41 JNI functions |
+| `bash tools/wsl-build.sh test-jni` | exit 0. 20 passed, 0 failed |
+| `bash tools/wsl-build.sh test-core` | exit 0, 694 s. 455 passed, 0 failed, 0 ignored, against the core's tree `6aeb359d095b`. Run on folder tree `3eb818d8d2e1` (commit `6e8e34a`), which differs from this one only by the wording of two lines of `measuredelay_test.go`; the same steps there gave the same results, and an APK with the same SHA-256 |
+
+The APK was not installed or started, and no delay was measured against a real server.
+
 **On folder tree `4a40ba2312bc`**, after the author field's self-check was fixed, on commit `8244d8e`. The checks ran
 from a plain clone in WSL, with a build copy of its own. This README's update came afterwards and changes nothing that is
 built.
@@ -450,7 +472,8 @@ Not run: no backup or restore was made on an emulator with this build (`adb shel
    - on Android 13 and later the local network is excluded with `excludeRoute`.
 9. **Calls.** An incoming call is shown as a full-screen notification. There is no ConnectionService, the counterpart of
    iOS CallKit. iOS 2307 and 2308 are not ported.
-10. **The native library.** `libmontana.so` is built from this repository's `core/` (tree `4ce3d6705224`). The project's
+10. **The native library.** `libmontana.so` is built from this repository's `core/` (tree `6aeb359d095b` since 2026-10-26;
+    `4ce3d6705224` before). The project's
     Android build pins instead the private core commit `ae36d1f927a7` (`apps/messenger/android/native/montana-jni/Cargo.toml`
     names `../../../Montana Protocol`). The library is therefore not byte-identical to the one in the project's APK of
     build 411. Its tests compare every JNI function with the C function iOS calls.
@@ -481,11 +504,30 @@ The backup frames are sealed with ChaCha20-Poly1305, as on iOS (`.mtbak` v2).
 - **The pipe secret's step.** It has not been checked on the real date, after 2026-10-29 00:00 UTC.
 - **Later iOS builds.** iOS 2307 and 2308 (call echo, a dead ring's receipt) are left to the project's Android line.
   iOS 2309 to 2311 have not been compared yet.
-- **A licence to settle.** `native/montana-xray/montanaxray.go:164-165` says that its delay measure was ported from
-  2dust/AndroidLibXrayLite under MPL-2.0. That repository's LICENSE read LGPL-3.0 on 2026-10-18. The file is iOS's byte
-  for byte, so the question concerns iOS too.
 - **Comments that cite other files.** Comments citing `docs/BUILD.md`, `docs/calls.md` or
   `docs/core-note-entropy-to-mnemonic.md` come from upstream's Android tree, which does not publish those files either.
+
+## The VPN engine's delay measure
+
+`MeasureDelay` in `native/montana-xray/montanaxray.go` used to say that it was ported from 2dust/AndroidLibXrayLite
+(`libv2ray_utils.go`) under MPL-2.0, while that repository's licence is LGPL-3.0. On 2026-10-26 the code was replaced:
+
+- `MeasureDelay` was written anew from its behaviour alone. It brings the outbound up in an engine that listens on
+  nothing, fetches the 204-endpoint through it, takes the smaller of two attempts, and binds the probe's sockets to the
+  interface it is given. Each attempt is a fresh connection with its own limit (5 s) inside the call's bound (8 s). A
+  missing interface is refused before anything is dialled, and the error names what each attempt met. The "Ported from"
+  lines are gone.
+- `delayVia`, the batch path's measure, now rides the same helpers on the outbound its tag names.
+- The two filters of a loaded config, `MeasureUDP`'s and `batchInstance`'s, are one helper of this file:
+  `probeOutboundsOnly`.
+- An independent comparison with that library (commit `76a6e2172210`) found the new `MeasureDelay` independent of it.
+  It found `delayVia` and the two filters derived, so both were replaced too.
+- A token comparison with the LGPL file finds only overlap at the level of the engine's API and Go idioms: 84 runs of 8
+  tokens, against 217 in the old file.
+- `native/montana-xray/measuredelay_test.go` drives `MeasureDelay` and `MeasureMany` through a real engine against local
+  servers. Its results are under [Run for this publication](#run-for-this-publication-2026-10-25-utc).
+- `go.mod`, `go.sum` and `protect_android.go` are unchanged. iOS's `apps/messenger/ios/scripts/xray-ios/montanaxray.go`
+  still carries the earlier code, so this file no longer equals it.
 
 ## Third-party components and licences
 
@@ -509,7 +551,7 @@ The backup frames are sealed with ChaCha20-Poly1305, as on iOS (`.mtbak` v2).
 
 | What | Why |
 |---|---|
-| The local repository's `core/` | `main`'s `core/` is the same tree (`4ce3d6705224`), and a platform branch does not change `core/` |
+| The local repository's `core/` | This folder builds from `main`'s `core/` (tree `6aeb359d095b`, pinned in `scripts/toolchain.json`), and a platform branch does not change `core/` |
 | The local repository's `docs/` (13 files) | Internal working notes (journal, parity table, test programme, coin notes, the iOS watch's state and reports). Their facts are in this README |
 | The local repository's own `README.md` and `UPSTREAM.md` | Replaced by this README; the provenance is above |
 | `tools/ios-watch/` and `.github/workflows/ios-watch.yml` | The watcher reads this repository from outside it, and it keeps its state in the internal notes that are not published. GitHub runs no workflow from a subfolder, and at the root this one would open issues and push to `main` |
