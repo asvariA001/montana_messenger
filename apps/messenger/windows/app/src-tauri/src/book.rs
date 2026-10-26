@@ -167,6 +167,22 @@ pub struct Chat {
     /// the letters pinned in the chat, newest last (iOS pinned per chat; PN: for both)
     #[serde(rename = "pins", default, skip_serializing_if = "Vec::is_empty")]
     pub pins: Vec<String>,
+    /// THE ANSWER THE LIST'S ROW WEARS (iOS listState «r», «rm», «ra», «rat»): the newest answer to a letter of this chat -- mine or
+    /// theirs -- until a letter born after it takes the row back; its withdrawal takes it away. This machine's own, never said.
+    #[serde(rename = "rr", default, skip_serializing_if = "Option::is_none")]
+    pub row_react: Option<RowReact>,
+}
+
+/// One answer as the row wears it: the letter answered, the emoji, whose, the answer's own birth (ms).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+pub struct RowReact {
+    #[serde(rename = "m")]
+    pub mid: String,
+    #[serde(rename = "e")]
+    pub emoji: String,
+    #[serde(rename = "o", default)]
+    pub mine: bool,
+    pub at: i64,
 }
 
 impl Chat {

@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { t, locale, mtSize } from "./strings.js";
 import { Glyph } from "./TopBar.jsx";
-import { Page, Section, Row, SHEET_GROUND } from "./Settings.jsx";
+import { Page, Section, Row, SHEET_GROUND, Waiting } from "./Settings.jsx";
 import { SAVED, chatName, rowTime } from "./Chats.jsx";
 import { drawableUrl, sizeText } from "./Media.jsx";
 import { CORE_SAID } from "./Wallet.jsx";
@@ -113,12 +113,23 @@ const commentLink = (p, n, c) => (postLink(p).startsWith("montana://wall/@") ? `
  *  comment the link names brought to the middle. */
 export function PostPage({ wall, id, focus, onClose }) {
   const [st, setSt] = useState(null);
-  const read = () => invoke("wall_state", { wall: wall || null }).then(setSt).catch(() => {});
+  const [failed, setFailed] = useState(false);   // the wall did not come
+  const read = () => invoke("wall_state", { wall: wall || null }).then((x) => { setFailed(false); setSt(x); }, () => setFailed(true));
   useWall(read, [wall, id]);
   const post = st?.posts.find((p) => p.id === id);
   useEffect(() => { if (post) invoke("trace", { line: `wall_link opens post comments=${post.comments.length}` }).catch(() => {}); }, [!!post]);
-  if (!post) return null;
-  return <Comments post={post} wall={wall || null} canComment={!wall || st.canWrite} onMoved={read} onClose={onClose} focus={focus} />;
+  if (post) return <Comments post={post} wall={wall || null} canComment={!wall || st.canWrite} onMoved={read} onClose={onClose} focus={focus} />;
+  // THE PAGE STANDS AT ONCE (the freeze of the panel's first slot, 25.10.2026): the comments' frame while the wall is read, never
+  // nothing over an app it has made inert; a post this computer does not hold is said so, in iOS's words (MontanaFirstContact.swift
+  // 1938-1942), its cross the way back
+  return (
+    <Page title={t("Comments")} onClose={onClose} ground={SHEET_GROUND}>
+      <Section>
+        {st ? <div className="set-row"><span className="row-title row-caption">{t("This post is not on this computer yet. Open the writer's page, then tap the link again.")}</span></div>
+          : <Waiting failed={failed} onRetry={read} />}
+      </Section>
+    </Page>
+  );
 }
 
 /** THE ROAD FROM A WRITER'S NAME TO THEIR PAGE (iOS MTBoardOpen): "" -- My page, a correspondent's reference -- theirs; the page
@@ -743,49 +754,53 @@ const RULES = [["everyone", "Everyone"], ["onlyMe", "Only me"], ["some", "Some p
  *  «Only contacts» is iOS's own: Windows keeps no contact book. */
 export function WallRules({ onClose }) {
   const [r, setR] = useState(null);
+  const [failed, setFailed] = useState(false);   // the rules did not come
   const [people, setPeople] = useState([]);
   const [act, setAct] = useState(null);
-  const read = () => invoke("wall_rules").then(setR).catch(() => {});
+  const read = () => invoke("wall_rules").then((x) => { setFailed(false); setR(x); }, () => setFailed(true));
   useEffect(() => { read(); invoke("chats").then((rows) => setPeople((rows || []).filter((x) => !x.group && !x.blocked && x.ref !== SAVED))).catch(() => {}); }, []);
-  if (!r) return null;
   const put = async (a, next) => { await invoke("wall_rule_set", { act: a, rule: next }); read(); };
-  if (act) {
-    const cur = r[act];
-    const list = cur.rule === "some" ? "allow" : "deny";
-    return (
-      <Page title={t(act === "see" ? "Who can see my wall" : "Who can write on my wall")} onClose={() => setAct(null)} back>
-        <Section>
-          <div className="slow-steps rule-steps" role="radiogroup" aria-label={t(act === "see" ? "Who can see my wall" : "Who can write on my wall")}>
-            {RULES.map(([k, w]) => (
-              <button key={k} role="radio" aria-checked={cur.rule === k} className={"slow-step" + (cur.rule === k ? " on" : "")}
-                      onClick={() => put(act, { ...cur, rule: k })}>{t(w)}</button>
-            ))}
-          </div>
-        </Section>
-        {(cur.rule === "some" || cur.rule === "except") && (
-          <Section head={t("Choose people")}>
-            {people.map((p) => {
-              const on = cur[list].includes(p.ref);
-              return (
-                <label key={p.ref} className="set-row toggle">
-                  <span className="row-title">{chatName(p.name)}</span>
-                  <input type="checkbox" role="switch" aria-label={chatName(p.name)} checked={on}
-                         onChange={() => put(act, { ...cur, [list]: on ? cur[list].filter((x) => x !== p.ref) : [...cur[list], p.ref] })} />
-                </label>
-              );
-            })}
-          </Section>
-        )}
-      </Page>
-    );
-  }
   const word = (x) => t((RULES.find(([k]) => k === x.rule) || [0, "Everyone"])[1]);
+  const cur = r && act ? r[act] : null;
+  const list = cur?.rule === "some" ? "allow" : "deny";
+  // THE PAGE STANDS AT ONCE (the freeze of the panel's first slot, 25.10.2026): its frame while the rules are read; A RULE IS PUSHED
+  // OVER IT (iOS NavigationLink → MTBoardRulePage, MontanaSettings.swift 2205-2211), the wall's page waiting under it as it stood
   return (
-    <Page title={t("Wall")} onClose={onClose} back>
-      <Section>
-        <Row title={t("Who can write on my wall")} value={word(r.write)} onClick={() => setAct("write")} />
-        <Row title={t("Who can see my wall")} value={word(r.see)} onClick={() => setAct("see")} />
-      </Section>
-    </Page>
+    <>
+      <Page key="wall" title={t("Wall")} onClose={onClose} back under={!!act}>
+        <Section>
+          {!r ? <Waiting failed={failed} onRetry={read} /> : <>
+            <Row title={t("Who can write on my wall")} value={word(r.write)} onClick={() => setAct("write")} />
+            <Row title={t("Who can see my wall")} value={word(r.see)} onClick={() => setAct("see")} />
+          </>}
+        </Section>
+      </Page>
+      {cur && (
+        <Page key={act} title={t(act === "see" ? "Who can see my wall" : "Who can write on my wall")} onClose={() => setAct(null)} back>
+          <Section>
+            <div className="slow-steps rule-steps" role="radiogroup" aria-label={t(act === "see" ? "Who can see my wall" : "Who can write on my wall")}>
+              {RULES.map(([k, w]) => (
+                <button key={k} role="radio" aria-checked={cur.rule === k} className={"slow-step" + (cur.rule === k ? " on" : "")}
+                        onClick={() => put(act, { ...cur, rule: k })}>{t(w)}</button>
+              ))}
+            </div>
+          </Section>
+          {(cur.rule === "some" || cur.rule === "except") && (
+            <Section head={t("Choose people")}>
+              {people.map((p) => {
+                const on = cur[list].includes(p.ref);
+                return (
+                  <label key={p.ref} className="set-row toggle">
+                    <span className="row-title">{chatName(p.name)}</span>
+                    <input type="checkbox" role="switch" aria-label={chatName(p.name)} checked={on}
+                           onChange={() => put(act, { ...cur, [list]: on ? cur[list].filter((x) => x !== p.ref) : [...cur[list], p.ref] })} />
+                  </label>
+                );
+              })}
+            </Section>
+          )}
+        </Page>
+      )}
+    </>
   );
 }

@@ -5,7 +5,7 @@ import { t, locale, dayWord } from "./strings.js";
 import { Glyph } from "./TopBar.jsx";
 import { BIG, GIF_NAME, sizeText, urlOf, useFile } from "./Media.jsx";
 import PhotoAlbum from "./PhotoAlbum.jsx";
-import { chatName, hourOf } from "./Chats.jsx";
+import { SAVED, chatName, hourOf } from "./Chats.jsx";
 import { count as coinCount, foldHistory, KIND_GLYPH } from "./Wallet.jsx";
 import { Wall } from "./Wall.jsx";
 import { ForwardGlyph, MenuRow } from "./Conversation.jsx";
@@ -214,7 +214,8 @@ export function PeerPanes({ chat, name, myName, onShowLetter, onForward }) {
   const [, title, empty] = TABS.find(([k]) => k === tab);
   const icon = ICONS[tab];
   let body = null;
-  if (tab === "wall") body = <Wall wall={chat} name={name} bare />;
+  // the wall of Saved Messages is my own (iOS isLocalRoom → MTBoardRows owner nil), every other chat's the correspondent's
+  if (tab === "wall") body = <Wall wall={chat === SAVED ? null : chat} name={chat === SAVED ? myName : name} bare />;
   else if (tab === "transactions") {
     const days = moves ? foldHistory(moves) : [];
     body = !moves ? <div className="pane-wait"><span className="spinner" /></div> : !days.length ? <Empty icon={icon} word={empty} /> : days.map((d) => (

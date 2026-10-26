@@ -39,7 +39,10 @@ Find-Named $t 10 | Out-Null
 Start-Sleep -Seconds 1
 $before = ([regex]::Matches((Page-Text), [regex]::Escape($t))).Count   # the bubble, and the list's preview where the list stands beside
 RightClick-Named $t; Click-Named "Переслать"
-$rows = Get-Texts | Where-Object { $_ -like "Переслать: *" }
+# the picker asks for the chats list once it opens (Conversation.jsx ForwardSheet: invoke("chats")) and lays all its rows at once:
+# they are read once the first stands, never in the moment before it (a busy machine left the picker read empty)
+$end = (Get-Date).AddSeconds(10)
+do { $rows = @(Get-Texts | Where-Object { $_ -like "Переслать: *" }); if ($rows.Count) { break }; Start-Sleep -Milliseconds 300 } while ((Get-Date) -lt $end)
 "  the picker: " + ($rows -join " | ")
 if ($rows -contains "Переслать: Saved Messages") { Snap "savedpick-2-picker"; throw "the picker names the room by its key, not its word" }
 if (-not ($rows -contains "Переслать: Избранное")) { Snap "savedpick-2-picker"; throw "the picker does not offer Saved Messages" }
