@@ -63,8 +63,8 @@
   },
   "protocol": {
     "dir": "../../../core",
-    "tree": "4ce3d6705224c8c99db0db1710a70bbde3d04361",
-    "why": "the core/ at the root of github.com/efir369999/montana_messenger (this folder is apps/messenger/android-dinetpda), pinned by its git tree: the tree RELEASES.md names for core (source commit 3848245e308b), the same one this app was built and tested against since 97433815677a; upstream's own Android build pins instead its private commit ae36d1f927a7 in a folder 'Montana Protocol', which no one outside the project can fetch"
+    "tree": "6aeb359d095b2f670559a320275a713bbd9fbf8e",
+    "why": "the core/ at the root of github.com/efir369999/montana_messenger (this folder is apps/messenger/android-dinetpda), pinned by its git tree: the tree RELEASES.md names for core (source commit cb4283c9d221, pull request #58, 26.10.2026); before it, from 97433815677a, this app was built and tested against the tree 4ce3d6705224 (source commit 3848245e308b); upstream's own Android build pins instead its private commit ae36d1f927a7 in a folder 'Montana Protocol', which no one outside the project can fetch"
   },
   "hosts": {
     "macos-aarch64": {
