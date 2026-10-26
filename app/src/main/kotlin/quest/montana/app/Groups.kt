@@ -363,12 +363,16 @@ object Groups {
 
     // ── the wire ──
 
+    /** A person this phone will not carry the group to (iOS ChatStore.refusesCold): one it blocked, or one the network barred. */
+    private fun refuses(pipe: String): Boolean = PeerSafety.isBlocked(pipe) || pipe in PeerSafety.barred()
+
     /**
      * ONE COPY TO ONE RECEIVER, UNDER A NAME OF ITS OWN (iOS carry): it has no row of its own — the row it carries stands in the
      * group's feed under the letter's name, and the copy's receipt moves that row (follow).
      */
     private fun carry(w: JSONObject, pipe: String, letter: String, own: Boolean): String? {
         val secret = Book.secret(pipe) ?: return null
+        if (refuses(pipe)) return null   // a person this phone blocked, or one the network barred, is carried nothing (iOS refusesCold)
         w.put("au", ownTag(w, secret))   // signed by the person: the seed's other devices know the word as their own (566c6dcc)
         val name = Marks.mintMid()
         copies[name] = Copy(w.getString("g"), letter, pipe, own, 1)
@@ -580,8 +584,8 @@ object Groups {
 
     /**
      * A LETTER PINNED OR UNPINNED FOR EVERYONE (iOS MTGroup.pin): here at once, and its word carried to every phone of the group by
-     * the answers' road; `notify` -- «Pin and notify all members» against «Only Pin» (n 0: pinned without a banner). The service row
-     * «X pinned "..."» waits for the group's events (iOS lay, MTGroupEvent), which this build does not carry yet.
+     * the answers' road; `notify` -- «Pin and notify all members» against «Only Pin» (n 0: pinned without a banner); a pin lays
+     * the service row «X pinned "..."» (iOS lay, MTGroupEvent).
      */
     fun pin(key: String, m: Msg, pin: Boolean, notify: Boolean) {
         synchronized(lock) {
@@ -617,11 +621,10 @@ object Groups {
      */
     private fun throwTyping(w: JSONObject, pipes: List<String>) {
         val text = MARK + w.toString()
-        pipes.filter { !PeerSafety.isBlocked(it) }.forEach { Post.now(it, text) }
+        pipes.filter { !refuses(it) }.forEach { Post.now(it, text) }
     }
     /** The moment the owner last threw a member's typing on: once in two seconds a member, whatever it sends (iOS typingThrown, I-15). */
     private val typingThrown = HashMap<String, Long>()
-    /** A TYPING WORD LANDED (iOS typed): its seat proven by the pipe it came by, as every word's is; the head shows it for the typing's life. */
     /**
      * A LETTER TAKEN AWAY FOR EVERYONE STAYS ON THIS PHONE (iOS tellKept, MontanaGroup.swift:841-856; LevelAccess.keepDeleted): its
      * speaker alone is told, by the keeper's own word «kp» to that seat -- the owner carries it there. An older build refuses the word.
@@ -655,6 +658,7 @@ object Groups {
         return Verdict.HELD
     }
 
+    /** A TYPING WORD LANDED (iOS typed): its seat proven by the pipe it came by, as every word's is; the head shows it for the typing's life. */
     private fun typed(w: JSONObject, pipe: String): Verdict {
         val g = groups[w.getString("g")] ?: return Verdict.INSTANT
         if (g.left || g.kind != GROUP) return Verdict.INSTANT
@@ -822,7 +826,7 @@ object Groups {
     fun create(channel: Boolean, title: String, about: String, face: ByteArray?, people: List<String>): String? {
         synchronized(lock) {
             val name = clean(title, TITLE_LIMIT)
-            val pipes = people.map { SamePair.root(it) }.filter { !isKey(it) && Book.secret(it) != null }.distinct().take(PEOPLE_LIMIT)
+            val pipes = people.map { SamePair.root(it) }.filter { !isKey(it) && Book.secret(it) != null && !refuses(it) }.distinct().take(PEOPLE_LIMIT)
             // A GROUP MAY BEGIN WITH NOBODY YET (iOS b4cf7d10, the checklist's A.2): its owner adds people from its page
             if (!ready() || name.isEmpty()) {
                 Log.i("Montana", "group_refused birth -- title=" + (if (name.isEmpty()) 0 else 1) + " people=" + pipes.size)
@@ -980,7 +984,7 @@ object Groups {
             val taken = (g.members.map { it.seat } + OWNER_SEAT).toMutableSet()
             val fresh = mutableListOf<Member>()
             for (p in people.map { SamePair.root(it) }.distinct()) {
-                if (isKey(p) || Book.secret(p) == null || p in held || g.members.size + fresh.size >= PEOPLE_LIMIT) continue
+                if (isKey(p) || Book.secret(p) == null || refuses(p) || p in held || g.members.size + fresh.size >= PEOPLE_LIMIT) continue
                 var seat = mintSeat()
                 while (seat in taken) seat = mintSeat()
                 taken.add(seat)
