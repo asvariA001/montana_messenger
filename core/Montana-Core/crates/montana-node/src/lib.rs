@@ -45,24 +45,39 @@ pub enum NodeError {
     // the block it produced failed a test of health. A machine born on a broken source looks
     // ordinary and is guessable, and nothing later reveals that — so it is refused, never warned
     // about.
-    Unborn { said: String },
+    Unborn {
+        said: String,
+    },
     // An acquaintance written in a shape this tree does not read.
-    Unreadable { what: String },
+    Unreadable {
+        what: String,
+    },
     // A row of the Decree this machine reads and the Decree does not carry.
-    Decree { row: String },
+    Decree {
+        row: String,
+    },
     // The count of the links this machine holds became unreadable, which is a machine that can no
     // longer hold itself to the ceiling the set fixes. It stops rather than answering past it.
     Uncountable,
     // What this machine could not prove or could not build of its own standing. It names what was
     // being made and never a value of it: a machine that cannot prove its presence answers nothing
     // rather than answering with something a verifier would refuse.
-    Unprovable { what: &'static str },
+    Unprovable {
+        what: &'static str,
+    },
     // What arrived and was refused. The reason reaches this operator and never the sender: every
     // refusal of a far side is silence, and what carries a reason is the local end alone.
-    Refused { what: &'static str },
+    Refused {
+        what: &'static str,
+    },
     // The round's context is known, but its cement cannot yet be reconstructed
     // from verified heavy attestations. More data may resolve this; no clock can.
     UnreconciledCement,
+    // CNS-20: a local waiting budget ended, granting no authority to close.
+    Stalled {
+        on: say::Verdict,
+        what: &'static str,
+    },
     // An object of another shape than its layout gives.
     Object(mt_state::ObjectError),
 }

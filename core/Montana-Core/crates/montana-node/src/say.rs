@@ -14,11 +14,48 @@
 // discloses nothing that the points of a round do not already publish.
 
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
+
+// CNS-20: local observation only; never an input to consensus or to the wire.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Verdict {
+    ProofRefused,
+    NoData,
+    NoQuorum,
+    NoDiagnostics,
+}
+
+impl std::fmt::Display for Verdict {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::ProofRefused => "proof refused",
+            Self::NoData => "no data",
+            Self::NoQuorum => "no quorum",
+            Self::NoDiagnostics => "no diagnostics",
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PulseStatus {
+    pub on: Verdict,
+    pub asking: u32,
+}
+
+impl std::fmt::Display for PulseStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}; asking {}", self.on, self.asking)
+    }
+}
 
 // One count, held so that every thread of a machine may raise it: the door answers on threads of
 // its own while the pulse asks on the thread it was called from.
 #[derive(Default)]
 pub struct Counts {
+    status: Mutex<Option<PulseStatus>>,
+    pub light_refused: AtomicU64,
+    pub ballots_refused: AtomicU64,
+    pub proposals_refused: AtomicU64,
     // What arrived at the door before any rule looked at it. Held apart from what was taken so
     // that a machine holding nothing can say whether nothing came or everything was refused — the
     // two look alike from outside and are opposite inside.
@@ -57,6 +94,41 @@ pub struct Counts {
 }
 
 impl Counts {
+    pub fn status(&self) -> Option<PulseStatus> {
+        self.status.lock().ok().and_then(|held| *held)
+    }
+
+    pub fn observe(&self, proof_refused: bool, missing: bool, asking: u32) -> Verdict {
+        let on = if proof_refused {
+            Verdict::ProofRefused
+        } else if missing {
+            Verdict::NoData
+        } else {
+            Verdict::NoQuorum
+        };
+        if let Ok(mut held) = self.status.lock() {
+            *held = Some(PulseStatus { on, asking });
+        }
+        on
+    }
+
+    pub fn refusals(&self) -> u64 {
+        [
+            &self.attestations_undrawn,
+            &self.attestations_unsigned,
+            &self.attestations_unproven,
+            &self.attestations_refused,
+            &self.pledges_refused,
+            &self.light_refused,
+            &self.ballots_refused,
+            &self.proposals_refused,
+        ]
+        .iter()
+        .fold(0u64, |sum, count| {
+            sum.saturating_add(count.load(Ordering::Relaxed))
+        })
+    }
+
     pub fn raise(&self, which: &AtomicU64) {
         which.fetch_add(1, Ordering::Relaxed);
     }
@@ -72,7 +144,7 @@ impl Counts {
         format!(
             "arrived {} took {} repeat {} refused {}w/{}p/{}n/{}c | published {} in {} cells, pushed {} lost {} \
              | asked {} pulled {} cells | read back {} of memory {} | cement +{} repeat {} \
-             refused {}w/{}d/{}s/{}p/{}o | pledges booked {} refused {} made {}",
+             refused {}w/{}d/{}s/{}p/{}o | pledges booked {} refused {} made {} | refused light {} ballot {} proposal {}",
             held(&self.deposits_arrived),
             held(&self.deposits_taken),
             held(&self.deposits_repeated),
@@ -98,6 +170,9 @@ impl Counts {
             held(&self.pledges_booked),
             held(&self.pledges_refused),
             held(&self.pledges_made),
+            held(&self.light_refused),
+            held(&self.ballots_refused),
+            held(&self.proposals_refused),
         )
     }
 }

@@ -416,6 +416,7 @@ fn said(e: NodeError) -> String {
             "this machine could not build {what}, and answers nothing rather than answering with \
              what a verifier would refuse"
         ),
+        NodeError::Stalled { on, what } => format!("{on}: {what}"),
         NodeError::Refused { what } => format!("refused: {what}"),
         NodeError::UnreconciledCement => {
             "waiting: beacon cement does not match the verified heavy attestations; no signature or round transition is authorized".to_string()
