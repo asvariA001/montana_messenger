@@ -1173,6 +1173,10 @@ const RU = {
   "You have changed the filter. Discard changes?": "Вы изменили папку. Отменить изменения?",
   "Discard": "Отменить",
   "Both players put the stake into the game's pot, and every move adds a coin to it within the same one coin a second. The winner takes the whole pot; a draw gives each their own back.": "Оба игрока кладут ставку в банк партии, и каждый ход добавляет в него монету в пределах той же одной монеты в секунду. Победитель забирает весь банк; при ничьей каждому возвращается своё.",
+  // a page that waits for its program (the freeze of the panel's first slot, 25.10.2026; Windows' own: iOS reads these at once) and a
+  // linked post this computer does not hold (iOS's words, MontanaFirstContact.swift 1941, the phone a computer here)
+  "Could not be read.": "Не удалось прочитать.",
+  "This post is not on this computer yet. Open the writer's page, then tap the link again.": "Этого поста ещё нет на этом компьютере. Откройте страницу автора и нажмите ссылку снова.",
 };
 
 /** The person's language, as the platform names it: the dates and hours are written in it. Settings may choose another

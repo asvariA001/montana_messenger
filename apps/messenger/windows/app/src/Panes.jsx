@@ -93,7 +93,8 @@ export function Contacts({ query, head = null, over = null, onWrite, onProfile }
     // people alone (iOS ContactsTabView, mtContacts): a group is no contact, nor Saved Messages, the room of writing to oneself
     const pairs = all.filter((r) => !r.group && r.ref !== SAVED);
     setRows(pairs);
-    Promise.all(pairs.map((r) => invoke("presence", { chat: r.ref }).then((s) => [r.ref, s]).catch(() => [r.ref, null])))
+    // answered once every presence is: one word of the book asks for one round of them at a time (Chats.jsx useChanged)
+    return Promise.all(pairs.map((r) => invoke("presence", { chat: r.ref }).then((s) => [r.ref, s]).catch(() => [r.ref, null])))
       .then((l) => setSeen(Object.fromEntries(l)));
   });
   useEffect(() => {

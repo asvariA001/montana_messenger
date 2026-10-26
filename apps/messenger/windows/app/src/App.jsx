@@ -11,7 +11,7 @@ import { useLeave } from "./leave.js";
 import { useStrokes } from "./turn.js";
 import { Calls, Contacts, Drawer, Gallery, Music, NotYet } from "./Panes.jsx";
 import { ChessPane } from "./Chess.jsx";
-import Settings, { Page, KeepAsk, VERSION } from "./Settings.jsx";
+import Settings, { DataStorage, KeepAsk, NotificationsPage, Page, VERSION } from "./Settings.jsx";
 import CardPane from "./Card.jsx";
 import { PageGround } from "./Ground.jsx";
 import { FeedPane, PostPage } from "./Wall.jsx";
@@ -160,7 +160,8 @@ function Main({ person, onPerson }) {
     look();
   }, []);
   useEffect(() => { lookMissed(); }, [pane]);
-  useChanged(() => { look(); onPerson(); lookMissed(); });
+  // the three reads one word of the book asks for, answered together before the next word asks again (Chats.jsx useChanged)
+  useChanged(() => Promise.allSettled([look(), onPerson(), lookMissed()]));
   // the list learns the unsent words of a chat when it is left (iOS showDraft at openConv's change)
   useEffect(() => {
     window.addEventListener("montana-drafts", look);
@@ -211,11 +212,13 @@ function Main({ person, onPerson }) {
       invoke("seats_state").then((s) => setParked(s.parked)).catch(() => {});
       return setDrawer(true);
     }
-    // the panel's first slot while something stands in the way (iOS slot 0): the banners' page, the copy with contacts
-    if (p === "notifications") return setOver({ settings: "notifications" });
+    // THE PANEL'S FIRST SLOT WHILE SOMETHING STANDS IN THE WAY (iOS slot 0, MontanaChatsList.swift 373, 493): the banners' page or Data
+    // and Storage alone, each a page of its own over the app with its cross -- never the Settings under it (iOS overlayPage
+    // .notifications, .keeping, ContentView.swift 2467-2478)
+    if (p === "notifications") return setOver("notifications");
     // THE TIME COIN IS A PAGE OVER THE APP (iOS ui.walletPage), never a page under the panel
     if (p === "wallet") return setOver("wallet");
-    if (p === "keeping") return setOver({ settings: "data" });
+    if (p === "keeping") return setOver("keeping");
     if (p === "chats") setArchive(false);   // the chats' slot always leads to the chats, out of the archive
     if (p === "music" || p === "gallery") {
       setMedia(p);
@@ -278,11 +281,31 @@ function Main({ person, onPerson }) {
     setDrawer(false); setMoving(true);
     invoke("seat_add", { carry }).catch(() => setMoving(false));
   };
-  if (moving) return <div className="splash"><span className="spinner" /></div>;
-
   // A PAGE OVER THE APP COVERS IT WHOLE (iOS: what a pushed page or a sheet covers is not read nor touched): the screen under it
   // leaves the keyboard's way and the reader's tree until the page leaves
   const covered = !!(over || qrFull || newGroup || newChannel || people.length);
+  // THE COVER NEVER OUTLIVES ITS PAGE (the freeze of the panel's first slot, 25.10.2026): the app is out of reach only while a page
+  // stands over it to take the touch; covered with no live page over it for more than a second, the window would take none at all --
+  // the trace is told, and the cover is taken away, whatever left it so
+  const cover = useRef(null);
+  cover.current = { over, people: people.length, qrFull, newGroup, newChannel, moving };
+  useEffect(() => {
+    if (!covered) return undefined;
+    let since = 0;
+    const id = setInterval(() => {
+      const live = document.visibilityState !== "visible" || cover.current.moving
+        || [...document.querySelectorAll('[role="dialog"]')].some((d) => !d.closest('[inert], [aria-hidden="true"]'));
+      if (live) { since = 0; return; }
+      if (!since) { since = performance.now(); return; }
+      if (performance.now() - since < 1000) return;
+      clearInterval(id);
+      const c = cover.current;
+      const what = typeof c.over === "string" ? c.over : c.over ? Object.keys(c.over)[0] : "none";
+      invoke("trace", { line: `cover freed: no page stood over the app for 1 s over=${what} people=${c.people} qr=${c.qrFull ? 1 : 0} group=${c.newGroup ? 1 : 0} channel=${c.newChannel ? 1 : 0}` }).catch(() => {});
+      setOver(null); setPeople([]); setQrFull(false); setNewGroup(false); setNewChannel(false);
+    }, 250);
+    return () => clearInterval(id);
+  }, [covered]);
   // THE ROWS RUN ON UNDER THE BAR (iOS MTChatListFrame.runsToEdges, the author's word 23.09: «the feed to the end of the screen,
   // as in the chats»): the list's head -- the time panel, the search, the folders -- is measured, and every pane's rows start at
   // its foot as they always did but scroll on beneath it, sinking into the ground by the chat's own wash (CSS .list > .rows)
@@ -624,8 +647,12 @@ function Main({ person, onPerson }) {
       {NOT_YET[p] && <NotYet title={NOT_YET[p]} />}
     </>);
   };
-  return (
-    <div className={"shell" + (drawer ? " drawer-open" : "")} ref={shell}>
+  // A MOVE BETWEEN SEATS DRAWS ITS SPLASH OVER THE APP, NEVER IN ITS PLACE (the review of 25.10.2026): the app stays drawn under it,
+  // every hook of this page called as before -- a page that returned the splash before its last hooks drew fewer of them, React
+  // threw (#300) and took the whole window away, and a move refused while a call stands (lib.rs seat_switch, seat_add: «call») came
+  // back to nothing: a black window until the tray's Quit. Refused, the splash goes and the app stands as it was.
+  return (<>
+    <div className={"shell" + (drawer ? " drawer-open" : "")} ref={shell} inert={moving || undefined}>
       <Drawer open={drawer} shown={drawer || drawerMoving} person={person} counts={{ chats: unreadChats, calls: missed }} version={VERSION} onClose={() => setDrawer(false)}
               parked={parked} onSeat={(id) => fromDrawer(() => seat(id))} onAdd={() => fromDrawer(addPerson)}
               onApp={(k) => fromDrawer(() => go(k))} onMe={() => fromDrawer(() => setOver("me"))} onSettings={() => fromDrawer(() => setOver("settings"))} />
@@ -698,7 +725,9 @@ function Main({ person, onPerson }) {
       {newGroup && <GroupCreate onClose={() => setNewGroup(false)} onMade={(r) => { setNewGroup(false); setPane("chats"); look(); setTimeout(() => setOpen(r), 400); }} />}
       {newChannel && <ChannelCreate onClose={() => setNewChannel(false)} onMade={(r) => { setNewChannel(false); setPane("chats"); look(); setTimeout(() => setOpen(r), 400); }} />}
       {/* a page leaves after its way out: it closes itself only, never the page opened over the app meanwhile */}
-      {(over === "settings" || over?.settings) && <Settings start={over?.settings} onClose={() => { const was = over; setOver((o) => (o === was ? null : o)); }} onGone={() => window.location.reload()} />}
+      {over === "settings" && <Settings key="settings" onClose={() => setOver((o) => (o === "settings" ? null : o))} onGone={() => window.location.reload()} />}
+      {over === "keeping" && <DataStorage key="keeping" motion="slot" onClose={() => setOver((o) => (o === "keeping" ? null : o))} />}
+      {over === "notifications" && <NotificationsPage key="notifications" motion="slot" onClose={() => setOver((o) => (o === "notifications" ? null : o))} />}
       {over === "wallet" && <WalletPage person={person} onOpenChat={write} onClose={() => setOver((o) => (o === "wallet" ? null : o))} />}
       {over?.folders && <FoldersPage opening={over.folders} me={person} onClose={() => { const was = over; setOver((o) => (o === was ? null : o)); }} />}
       {over === "me" && <MyPage person={person} onClose={() => setOver((o) => (o === "me" ? null : o))} onChanged={onPerson} />}
@@ -714,5 +743,6 @@ function Main({ person, onPerson }) {
                       onShowLetter={(mid) => showLetter(pg.ref, mid)} onForward={(mids) => forwardFrom(pg.ref, mids)} />;
       })}
     </div>
-  );
+    {moving && <div className="splash moving" role="status" aria-busy="true"><span className="spinner" /></div>}
+  </>);
 }

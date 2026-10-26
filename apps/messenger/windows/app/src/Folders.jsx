@@ -278,7 +278,8 @@ function Deletable({ label, onDelete, children }) {
  *  «Create a Folder»; the folders with the count of their chats and the chevron, All among them and never taken away; under them
  *  «Tap the pencil to change the order or delete folders.»; the pencil turns the list to its editing -- the red minus and the
  *  handle on each folder but All, the checkmark ends it -- and the folders the reference recommends, each with its plus. Over the
- *  tabs (a tab's menu) its mark is the cross; from Settings it is pushed, its mark the way back. */
+ *  tabs (a tab's menu: iOS overlayPage .folders, ContentView.swift 2486) its mark is the cross, and it rides in from the trailing edge
+ *  in 0.25 s and goes at once, as the app's slot shows its pages; from Settings it is pushed, its mark the way back. */
 export function FoldersPage({ onClose, opening = {}, pushed = false, me: given }) {
   const folders = useFolders();
   const [me, setMe] = useState(given);   // my own face for Saved Messages in the pickers
@@ -345,7 +346,7 @@ export function FoldersPage({ onClose, opening = {}, pushed = false, me: given }
     ? <button className="glass-mark" onClick={() => { setEditing(false); setDoomed(null); }} aria-label={t("Done")}><Glyph name="tick" size={18} color="var(--bar-glyph)" /></button>
     : <button className="glass-mark" onClick={() => setEditing(true)} aria-label={t("Edit")}><Glyph name="pencil" size={18} color="var(--bar-glyph)" /></button>;
   return (
-    <Page title={t("Folders")} onClose={onClose} back={pushed} right={mark}>
+    <Page title={t("Folders")} onClose={onClose} back={pushed} right={mark} motion={pushed ? undefined : "slot"}>
       <div className="folders-intro"><FolderGlyph size={64} color="#fff" />
         <span>{t("Create folders for different groups of chats and quickly switch between them.")}</span></div>
       <Section head={t("Folders")} foot={t("Tap the pencil to change the order or delete folders.")}>

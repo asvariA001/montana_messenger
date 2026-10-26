@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { GLYPHS } from "./glyphs.js";
 import logo from "./assets/logo.png";
 import { t } from "./strings.js";
@@ -79,9 +80,17 @@ export default function TopBar({ pane, onPane, unread = 0, missed = 0, mediaIsMu
     return () => { gone = true; clearInterval(id); };
   }, []);
   // THE FIRST SLOT SAYS WHAT STANDS IN THE WAY (iOS slot 0): the banners refused, then the copy with contacts kept nowhere, else
-  // the drawer's grid; read again at every page
+  // the drawer's grid; read again at every page, whenever the keeping moves and whenever the window comes to the front -- the
+  // banners are allowed in Windows' own settings (iOS reads both live: MontanaChatsList.swift 291-292, MTKeeping.swift 448-451)
   const [first, setFirst] = useState("");
-  useEffect(() => { invoke("bar_first").then(setFirst).catch(() => {}); }, [pane]);
+  const lookFirst = () => invoke("bar_first").then(setFirst).catch(() => {});
+  useEffect(() => { lookFirst(); }, [pane]);
+  useEffect(() => {
+    let stop = null, gone = false;
+    listen("montana://keeping", lookFirst).then((u) => { if (gone) u(); else stop = u; });
+    window.addEventListener("focus", lookFirst);
+    return () => { gone = true; stop?.(); window.removeEventListener("focus", lookFirst); };
+  }, []);
   const network = lamp.up ? "up" : lamp.known ? "down" : "unknown";
 
   // the puck stands under the pane's slot, measured as drawn (iOS MTBarSlotKey): folded, only the logo has a place

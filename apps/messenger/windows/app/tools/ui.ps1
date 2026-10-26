@@ -578,3 +578,117 @@ function Pick-File([string]$Path, [int]$Timeout = 15) {
     [MontanaDlg]::SendMessage([MontanaDlg]::GetDlgItem($h, 1), 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null   # BM_CLICK
     Start-Sleep -Milliseconds 800
 }
+
+# ---- THE PAGES OVER THE APP AND THE WINDOW'S LIFE (the freeze of 25.10.2026: tools\slotpage.ps1, rename.ps1, wall.ps1, channel.ps1)
+# Names match whole, case and all (UI Automation's own match: a section's «КЕШ» is not the alert «Кеш»); a press inside a page
+# presses inside that page alone -- the window's own title bar wears a «Закрыть» that hides the window (lib.rs).
+
+# every element of exactly that name, in the window or under the element given
+function Exact-Named([string]$Name, $Under = $null) {
+    $c = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, $Name)
+    try { if (-not $Under) { $Under = Root }; return @($Under.FindAll([System.Windows.Automation.TreeScope]::Descendants, $c)) } catch { return @() }
+}
+# whether the element wears that class (React's className, as UI Automation reads it)
+function Wears($e, [string]$Class) { try { return (($e.Current.ClassName -split ' ') -contains $Class) } catch { return $false } }
+# the first element of exactly that name under the page given
+function Inside-Page($Page, [string]$Name) {
+    if (-not $Page) { return $null }
+    $c = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, $Name)
+    try { return $Page.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $c) } catch { return $null }
+}
+# A SLOT OF THE TIME PANEL by its whole name (TopBar.jsx: a «bar-slot»), or nothing: a page over the app makes the whole window under
+# it inert, out of the reader's tree
+function Bar-Slot([string]$Name) { @(Exact-Named $Name | Where-Object { Wears $_ "bar-slot" }) | Select-Object -First 1 }
+# A PAGE OVER THE APP (Settings.jsx Page: the «page-over» of role dialog, named by its title) of that title -- $null: any, an untitled
+# page is found by what it holds -- holding an element of exactly that name when one is given; the newest of them. A page on its way
+# out is inert: out of the reader's tree, it is no longer found.
+function Page-Over($Title, [string]$Holding = "") {
+    $all = if ($null -eq $Title) { @(All-Named) } else { @(Exact-Named ([string]$Title)) }
+    $hit = $null
+    foreach ($e in $all) {
+        if (-not (Wears $e "page-over")) { continue }
+        if ($Holding -and -not (Inside-Page $e $Holding)) { continue }
+        $hit = $e
+    }
+    $hit
+}
+function Page-Words($Title, [string]$Holding = "") {
+    $w = if ($null -eq $Title) { "the page" } else { "the page «$Title»" }
+    if ($Holding) { "$w holding «$Holding»" } else { $w }
+}
+# the element pressed, or the nearest of its holders that takes a press (a row's text names its button) -- never above $Stop
+function Press-Up($e, $Stop = $null) {
+    $up = [System.Windows.Automation.TreeWalker]::ControlViewWalker
+    for ($i = 0; $e -and $i -lt 4; $i++) {
+        $p = $null; $has = $false
+        try { $has = $e.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$p) } catch {}
+        if ($has) { try { $p.Invoke(); return $true } catch { return $false } }
+        if ($Stop -and [System.Windows.Automation.Automation]::Compare($e, $Stop)) { break }
+        try { $e = $up.GetParent($e) } catch { $e = $null }
+    }
+    $false
+}
+# A PRESS INSIDE ONE PAGE ALONE: the element of exactly that name, or the button holding its text, on the page of that title (an
+# untitled one: $null and what it holds), waited for up to $Seconds
+function Press-In-Page($Title, [string]$Name, [string]$Holding = "", [double]$Seconds = 2) {
+    $w = [Diagnostics.Stopwatch]::StartNew()
+    do {
+        $pg = Page-Over $Title $Holding
+        if ($pg) { foreach ($e in @(Exact-Named $Name $pg)) { if (Press-Up $e $pg) { return } } }
+        Start-Sleep -Milliseconds 100
+    } while ($w.Elapsed.TotalSeconds -lt $Seconds)
+    throw "no «$Name» to press on $(Page-Words $Title $Holding) within $Seconds s"
+}
+# a press of exactly that name where no page holds it (a row of the drawer)
+function Press-Exact([string]$Name, [double]$Seconds = 2) {
+    $w = [Diagnostics.Stopwatch]::StartNew()
+    do { foreach ($e in @(Exact-Named $Name)) { if (Press-Up $e) { return } }; Start-Sleep -Milliseconds 100 } while ($w.Elapsed.TotalSeconds -lt $Seconds)
+    throw "nothing named exactly «$Name» to press within $Seconds s"
+}
+# THE PAGE STANDS within $Seconds -- the owner's word 25.10.2026: a page that does not stand within 2 s fails the check -- of that
+# title, holding its proof (what that page alone shows)
+function Page-Drawn($Title, [string]$Proof, [double]$Seconds = 2) {
+    $w = [Diagnostics.Stopwatch]::StartNew()
+    do {
+        if (Page-Over $Title $Proof) { return "  drawn: $(Page-Words $Title $Proof), $([int]$w.Elapsed.TotalMilliseconds) ms" }
+        Start-Sleep -Milliseconds 100
+    } while ($w.Elapsed.TotalSeconds -lt $Seconds)
+    throw "$(Page-Words $Title $Proof) did not stand within $Seconds s"
+}
+# THE PAGE IS GONE within $Seconds: out of the reader's tree, taken away or leaving (inert)
+function Page-Left($Title, [string]$Holding = "", [double]$Seconds = 2) {
+    $w = [Diagnostics.Stopwatch]::StartNew()
+    do { if (-not (Page-Over $Title $Holding)) { return }; Start-Sleep -Milliseconds 100 } while ($w.Elapsed.TotalSeconds -lt $Seconds)
+    throw "$(Page-Words $Title $Holding) still stands after $Seconds s"
+}
+# THE WINDOW ANSWERS (the freeze of 25.10.2026: a page left by «Назад» came back «leaving» -- inert, under the window's foot -- and
+# the window under it stayed inert: the chats drawn, nothing taking a click, no button in the reader's tree): the time panel stands
+# in the reader's tree, a click of the mouse itself on «Контакты» brings the contacts' own «Поделиться» (App.jsx: their page alone
+# wears that door, searching or not) and «Чаты» takes it away again
+function Window-Alive([string]$After, [double]$Seconds = 2) {
+    $doors = { @(Exact-Named "Поделиться" | Where-Object { Wears $_ "compose-door" }).Count }
+    $w = [Diagnostics.Stopwatch]::StartNew(); $s = $null
+    do { $s = Bar-Slot "Контакты"; if ($s) { break }; Start-Sleep -Milliseconds 100 } while ($w.Elapsed.TotalSeconds -lt $Seconds)
+    if (-not $s) {
+        $cond = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button)
+        $n = 0; try { $n = (Root).FindAll([System.Windows.Automation.TreeScope]::Descendants, $cond).Count } catch {}
+        $pages = @(All-Named | Where-Object { Wears $_ "page-over" } | ForEach-Object { try { "«" + $_.Current.Name + "»" } catch {} }) -join ", "
+        throw "after $After the window answers nothing: no «Контакты» on the time panel within $Seconds s; $n buttons in the reader's tree (the frozen window of 25.10.2026 held none); pages standing: $(if ($pages) { $pages } else { 'none' })"
+    }
+    if ((& $doors) -gt 0) { Press-Up (Bar-Slot "Чаты") | Out-Null; Start-Sleep -Milliseconds 400 }   # the mouse must bring the contacts
+    Front-Montana
+    $r = (Bar-Slot "Контакты").Current.BoundingRectangle
+    if ($r.Width -lt 4 -or $r.Height -lt 4) { throw "after ${After}: «Контакты» stands with no room for the mouse (the time panel folded)" }
+    [MontanaMouse]::SetCursorPos([int]($r.X + $r.Width / 2), [int]($r.Y + $r.Height / 2)) | Out-Null
+    Start-Sleep -Milliseconds 120
+    $t = [Diagnostics.Stopwatch]::StartNew()
+    [MontanaMouse]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero); [MontanaMouse]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
+    do { if ((& $doors) -gt 0) { break }; Start-Sleep -Milliseconds 100 } while ($t.Elapsed.TotalSeconds -lt $Seconds)
+    if ((& $doors) -eq 0) { throw "after ${After}: the mouse's click on «Контакты» brought no «Поделиться» within $Seconds s" }
+    $ms = [int]$t.Elapsed.TotalMilliseconds
+    if (-not (Press-Up (Bar-Slot "Чаты"))) { throw "after ${After}: «Чаты» takes no press" }
+    $t.Restart()
+    do { if ((& $doors) -eq 0) { break }; Start-Sleep -Milliseconds 100 } while ($t.Elapsed.TotalSeconds -lt $Seconds)
+    if ((& $doors) -gt 0) { throw "after ${After}: «Чаты» left the contacts' «Поделиться» standing" }
+    "  the window answers after ${After}: «Контакты» by the mouse in $ms ms, «Чаты» again"
+}

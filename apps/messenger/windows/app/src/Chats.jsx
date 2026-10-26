@@ -13,13 +13,34 @@ import { spring, turnEdge } from "./turn.js";
 import { endFoldedCall, unfoldCall, useFoldedCall } from "./Call.jsx";
 import { RoomRowMark } from "./Room.jsx";
 
-/** The book's word to the window (lib.rs CHANGED): something moved, ask again. */
+/** How long a read the book's word asked for may stay unanswered before the next word asks again all the same. */
+const CHANGED_HOLD_MS = 10000;
+
+/** The book's word to the window (lib.rs CHANGED): something moved, ask again. ONE READ IN FLIGHT, ONE MORE AFTER IT (the freeze's
+ *  P2.11, 25.10.2026): the channel's landing says «changed» once a letter (lib.rs land), and every read it asks for is its own task
+ *  of the blocking pool -- a backlog of letters would start hundreds of copies of the book and unseals at once. While the read a word
+ *  asked for is on its way (what `fn` returns: its promise), the words that follow ask for one read more, made after it answers,
+ *  with what the page is then; the word carries nothing, so nothing is lost. A read that never answers holds the next word back
+ *  no longer than CHANGED_HOLD_MS. */
 export function useChanged(fn) {
   const ref = useRef(fn);
   ref.current = fn;
   useEffect(() => {
-    let stop = null, gone = false;
-    listen("montana://changed", () => ref.current()).then((u) => { if (gone) u(); else stop = u; });
+    let stop = null, gone = false, busy = false, again = false;
+    const run = () => {
+      if (gone) return;
+      if (busy) { again = true; return; }
+      busy = true;
+      again = false;
+      let held = 0;
+      const read = Promise.resolve().then(() => ref.current()).catch(() => {});
+      Promise.race([read, new Promise((ok) => { held = setTimeout(ok, CHANGED_HOLD_MS); })]).then(() => {
+        clearTimeout(held);
+        busy = false;
+        if (again) run();
+      });
+    };
+    listen("montana://changed", run).then((u) => { if (gone) u(); else stop = u; });
     return () => { gone = true; stop && stop(); };
   }, []);
 }

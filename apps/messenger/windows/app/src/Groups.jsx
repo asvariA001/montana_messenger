@@ -284,15 +284,14 @@ export function GroupCreate({ onClose, onMade }) {
   const [photo, setPhoto] = useState(null);   // {bytes, url}: the face the group is born with
   const picker = useRef(null);
   if (!people) return <Pick title={t("New Group")} onClose={onClose} onDone={setPeople} />;
-  if (file) return <Crop file={file} {...GROUP_FACE} onCancel={() => setFile(null)}
-                         onDone={(bytes) => { setPhoto({ bytes, url: URL.createObjectURL(new Blob([bytes], { type: "image/jpeg" })) }); setFile(null); }} />;
   const make = async () => {
     const chat = await invoke("group_create", { title, pipes: people });
     if (photo) await invoke("group_face", photo.bytes, { headers: { chat } });
     onMade(chat);
   };
-  return (
-    <Page title={t("New Group")} onClose={() => setPeople(null)} back
+  // the crop stands over the name's step, which waits under it as it stood -- never drawn anew, sliding in again, when it goes
+  return (<>
+    <Page key="name" title={t("New Group")} onClose={() => setPeople(null)} back under={!!file}
           right={<button className="glass-mark" disabled={!title.trim()} style={{ opacity: title.trim() ? 1 : 0.4 }} onClick={make} aria-label={t("Done")}>
             <Glyph name="tick" size={18} color="var(--bar-glyph)" /></button>}>
       <input ref={picker} type="file" accept="image/*" hidden onChange={(e) => { if (e.target.files[0]) setFile(e.target.files[0]); e.target.value = ""; }} />
@@ -306,7 +305,9 @@ export function GroupCreate({ onClose, onMade }) {
       </Section>
       {people.length > 0 && <PeopleChosen refs={people} />}
     </Page>
-  );
+    {file && <Crop file={file} {...GROUP_FACE} onCancel={() => setFile(null)}
+                   onDone={(bytes) => { setPhoto({ bytes, url: URL.createObjectURL(new Blob([bytes], { type: "image/jpeg" })) }); setFile(null); }} />}
+  </>);
 }
 
 /** A NEW CHANNEL IN THREE STEPS (iOS MontanaChannel: MTChannelIntroStep, MTChannelInfoStep, MTChannelSubscribersStep): what a
@@ -323,13 +324,13 @@ export function ChannelCreate({ onClose, onMade }) {
     if (photo) await invoke("group_face", photo.bytes, { headers: { chat } });
     onMade(chat);
   };
-  if (step === "pick") return <Pick title={t("Add Subscribers")} onClose={() => setStep("info")} onDone={make} pushed tokens={false}
-                                    foot={t("A post rides the pipe of each person, so only the people you write with are listed.")} />;
-  if (file) return <Crop file={file} {...GROUP_FACE} onCancel={() => setFile(null)}
-                         onDone={(bytes) => { setPhoto({ bytes, url: URL.createObjectURL(new Blob([bytes], { type: "image/jpeg" })) }); setFile(null); }} />;
-  if (step === "intro") {
-    return (
-      <Page title={t("New Channel")} onClose={onClose}>
+  // THE STEPS ARE PUSHED ONE OVER ANOTHER (iOS MontanaChannel.swift 14, 38, 83: a NavigationStack, MTChannelIntroStep →
+  // MTChannelInfoStep → MTChannelSubscribersStep): each step is its own page and waits under the next as it stood; one leaving takes
+  // itself away alone. THE CROP STANDS OVER THEM (iOS MTAvatarCropView in a fullScreenCover): the steps wait under it as they stood,
+  // never drawn anew when it goes -- neither rising nor sliding in again
+  return (
+    <>
+      <Page key="intro" title={t("New Channel")} onClose={onClose} under={step !== "intro" || !!file}>
         <div className="channel-intro">
           <MegaphoneFill size={64} />
           <div className="channel-intro-title">{t("What is a Channel?")}</div>
@@ -337,26 +338,30 @@ export function ChannelCreate({ onClose, onMade }) {
           <button className="primary-wide" onClick={() => setStep("info")}>{t("Create Channel")}</button>
         </div>
       </Page>
-    );
-  }
-  return (
-    <Page title={t("New Channel")} onClose={() => setStep("intro")} back
-          right={<button className="glass-mark" disabled={!title.trim()} style={{ opacity: title.trim() ? 1 : 0.4 }} onClick={() => setStep("pick")} aria-label={t("Done")}>
-            <Glyph name="tick" size={18} color="var(--bar-glyph)" /></button>}>
-      <input ref={picker} type="file" accept="image/*" hidden onChange={(e) => { if (e.target.files[0]) setFile(e.target.files[0]); e.target.value = ""; }} />
-      {/* THE FACE AND THE NAME IN ONE LINE (iOS MTChannelInfoStep: MTFacePicker 60 beside the field) */}
-      <Section>
-        <div className="set-row face-name-row">
-          <FacePicker photo={photo} onPick={() => picker.current.click()} />
-          <input className="set-field" placeholder={t("Channel Name")} value={title} maxLength={64} autoFocus aria-label={t("Channel Name")}
-                 onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && title.trim() && setStep("pick")} />
-        </div>
-      </Section>
-      <Section foot={t("You can provide an optional description for your channel.")}>
-        <textarea className="set-field" rows={3} placeholder={t("Description (Optional)")} value={about} maxLength={255}
-                  aria-label={t("Description (Optional)")} onChange={(e) => setAbout(e.target.value)} />
-      </Section>
-    </Page>
+      {step !== "intro" && (
+        <Page key="info" title={t("New Channel")} onClose={() => setStep("intro")} back under={step === "pick" || !!file}
+              right={<button className="glass-mark" disabled={!title.trim()} style={{ opacity: title.trim() ? 1 : 0.4 }} onClick={() => setStep("pick")} aria-label={t("Done")}>
+                <Glyph name="tick" size={18} color="var(--bar-glyph)" /></button>}>
+          <input ref={picker} type="file" accept="image/*" hidden onChange={(e) => { if (e.target.files[0]) setFile(e.target.files[0]); e.target.value = ""; }} />
+          {/* THE FACE AND THE NAME IN ONE LINE (iOS MTChannelInfoStep: MTFacePicker 60 beside the field) */}
+          <Section>
+            <div className="set-row face-name-row">
+              <FacePicker photo={photo} onPick={() => picker.current.click()} />
+              <input className="set-field" placeholder={t("Channel Name")} value={title} maxLength={64} autoFocus aria-label={t("Channel Name")}
+                     onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && title.trim() && setStep("pick")} />
+            </div>
+          </Section>
+          <Section foot={t("You can provide an optional description for your channel.")}>
+            <textarea className="set-field" rows={3} placeholder={t("Description (Optional)")} value={about} maxLength={255}
+                      aria-label={t("Description (Optional)")} onChange={(e) => setAbout(e.target.value)} />
+          </Section>
+        </Page>
+      )}
+      {step === "pick" && <Pick key="pick" title={t("Add Subscribers")} onClose={() => setStep("info")} onDone={make} pushed tokens={false}
+                                foot={t("A post rides the pipe of each person, so only the people you write with are listed.")} />}
+      {file && <Crop file={file} {...GROUP_FACE} onCancel={() => setFile(null)}
+                     onDone={(bytes) => { setPhoto({ bytes, url: URL.createObjectURL(new Blob([bytes], { type: "image/jpeg" })) }); setFile(null); }} />}
+    </>
   );
 }
 

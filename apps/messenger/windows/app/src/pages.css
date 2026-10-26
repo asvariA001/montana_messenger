@@ -39,11 +39,16 @@
 .page-over.rises { animation: page-sheet-in 0.42s cubic-bezier(0.2, 0.9, 0.2, 1) backwards; }
 .page-over.slides.leaving { animation: page-push-out 0.26s cubic-bezier(0.4, 0, 0.9, 0.6) forwards; }
 .page-over.rises.leaving { animation: page-sheet-out 0.26s cubic-bezier(0.4, 0, 0.9, 0.6) forwards; }
+/* AN OVERLAY PAGE OF THE APP (iOS MontanaPageSlot, ContentView.swift 717-727): it rides in from the trailing edge in 0.25 s
+   (withAnimation .easeOut 0.25, insertion .move(edge: .trailing)); its cross takes it away at once (removal .identity) */
+.page-over.enters { animation: page-push-in 0.25s ease-out backwards; }
 @keyframes page-push-in { from { transform: translateX(100%); } }
 @keyframes page-sheet-in { from { transform: translateY(100%); } }
 @keyframes page-push-out { to { transform: translateX(100%); } }
 @keyframes page-sheet-out { to { transform: translateY(100%); } }
-@media (prefers-reduced-motion: reduce) { .page-over.slides, .page-over.rises { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .page-over.slides, .page-over.rises, .page-over.enters { animation: none; } }
+/* ON ITS WAY IN A PAGE TAKES NO POINTER (iOS: no touch while a page is pushed): the shield over it, the bar's marks too, until it stands */
+.page-shield { position: absolute; inset: 0; z-index: 5; }
 .page-bar { flex: none; height: 56px; display: grid; grid-template-columns: 52px 1fr 52px; align-items: center; padding: 0 8px; }
 /* the bar stands over the rows (iOS 26): the wheel and the pointer go through it to the rows, its marks alone answer */
 .page-over > .page-bar { position: absolute; top: 0; left: 0; right: 0; z-index: 3; pointer-events: none; }

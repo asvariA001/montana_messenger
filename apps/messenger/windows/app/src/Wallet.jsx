@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { t, locale } from "./strings.js";
-import { Page, Section } from "./Settings.jsx";
+import { Page, Section, Waiting } from "./Settings.jsx";
 import { chatName, Face, hourOf, SAVED, SelfFace } from "./Chats.jsx";
 import { Glyph } from "./TopBar.jsx";
 import { CoinSpinner, MintCoin, PULL, pullAngle } from "./Coin.jsx";
@@ -843,13 +843,16 @@ export function WalletPage({ person, onOpenChat, onClose }) {
 
 export default function WalletPane({ person, onOpenChat, bar }) {
   const [st, setSt] = useState(null);
+  const [failed, setFailed] = useState(false);   // the page's first read did not answer
   const [main, setMain] = useState(() => { try { return localStorage.getItem("coinUnit") || "time"; } catch { return "time"; } });
   const [sheet, setSheet] = useState(null);
   const [pops, setPops] = useState([]);
   const read = () => invoke("wallet_state", {}).then(setSt).catch(() => {});
+  // the page's opening read: asked again from its waiting row when it did not answer
+  const opening = () => invoke("wallet_state", { open: true }).then((x) => { setFailed(false); setSt(x); }, () => setFailed(true));
   useEffect(() => {
     // THE AUTO MINTING IS ON BY DEFAULT (iOS, 09.10.2026): the page standing open mints by the second; leaving it ends it
-    invoke("wallet_state", { open: true }).then(setSt).catch(() => {});
+    opening();
     let stop = null, gone = false;
     listen("montana://coins", read).then((u) => { if (gone) u(); else stop = u; });
     // the page leaving ends the auto minting and lets the coin go (iOS onDisappear: autoMint.stop, pantheon.released)
@@ -917,7 +920,15 @@ export default function WalletPane({ person, onOpenChat, bar }) {
   };
   useEffect(() => () => { clearTimeout(nine.current); clearTimeout(pullRef.current.idle); }, []);
   const pick = (u) => { setMain(u); try { localStorage.setItem("coinUnit", u); } catch { /* the choice lives this run */ } };
-  if (!st) return null;
+  // THE BAR STANDS AT ONCE (the freeze of the panel's first slot, 25.10.2026): the page's title and its cross while the wallet is
+  // read, never a page without its way out over an app it has made inert
+  if (!st) {
+    return (
+      <div className="wallet-wrap">{bar}<div className="wallet-pane">
+        {failed ? <Section><Waiting failed onRetry={opening} /></Section> : <div className="history-more" role="status"><span className="spinner" /></div>}
+      </div></div>
+    );
+  }
   // THE PERSON'S COINS ARE THE CHAIN'S (iOS MTWalletScreen.total, fold-7): once the chain has spoken in this run, the available it
   // holds; before it, the book (and the balance a device of the same words told in its tip) -- the sums, π's place and the Send
   const total = st.split ? st.available : st.balance;

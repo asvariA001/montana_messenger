@@ -298,5 +298,21 @@ if ((Share 0.02 0.12 0.2 0.8 $blue) -ge 0.3) { throw "B's own page is not on its
 "  B's own page still stands on its default ground"
 Use-Montana $A; Front-Montana
 Page-Ground "По умолчанию"   # the gold is gone whole (iOS 2304): the default is A's page's ground again
+# A RULE OF THE WALL LEFT BY «НАЗАД» (the freeze of 25.10.2026, Wall.jsx WallRules: the rule is a step of «Стена»): «Стена» must stand
+# again within 2 s -- not «leaving», inert under the window's foot -- and the window answer after the way out; no rule is changed
+"A's wall rules: a rule's page left by «Назад» brings «Стена» back, and the window answers"
+Open-Drawer; Press-Exact "Настройки"
+Page-Drawn "Настройки" "Уведомления и звуки"; Start-Sleep -Milliseconds 450
+Press-In-Page "Настройки" "Приватность"; Page-Drawn "Приватность" "Заблокированные"; Start-Sleep -Milliseconds 400
+Press-In-Page "Приватность" "Стена"; Page-Drawn "Стена" "Кто может видеть мою стену" 10; Start-Sleep -Milliseconds 400
+Press-In-Page "Стена" "Кто может писать на моей стене"; Page-Drawn "Кто может писать на моей стене" "Только я"; Start-Sleep -Milliseconds 400
+Press-In-Page "Кто может писать на моей стене" "Назад"; Page-Left "Кто может писать на моей стене" "Только я"
+Page-Drawn "Стена" "Кто может видеть мою стену"; Start-Sleep -Milliseconds 400
+Press-In-Page "Стена" "Назад"; Page-Left "Стена" "Кто может видеть мою стену"
+Page-Drawn "Приватность" "Заблокированные"; Start-Sleep -Milliseconds 400
+Press-In-Page "Приватность" "Назад"; Page-Left "Приватность" "Заблокированные"
+Page-Drawn "Настройки" "Уведомления и звуки"; Start-Sleep -Milliseconds 300
+Press-In-Page "Настройки" "Закрыть"; Page-Left "Настройки" "Уведомления и звуки"
+Window-Alive "a wall rule → «Назад» → «Назад» → «Назад» → «Закрыть»"
 "done in $([int]((Get-Date) - $t0).TotalSeconds) s"
 Use-Montana $A; Stop-Montana; Use-Montana $B; Stop-Montana

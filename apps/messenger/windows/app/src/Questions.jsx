@@ -187,33 +187,35 @@ const RU = {
 const say = (s) => (locale.startsWith("ru") ? RU[s] || s : s);
 
 export function QuestionsPage({ onClose }) {
+  // AN ANSWER IS PUSHED OVER THE QUESTIONS (iOS NavigationLink → MTAnswerPage, MontanaSettings.swift 340): the list stays where it
+  // stood, its scroll kept, out of reach while the answer stands; the answer leaving takes itself away alone
   const [open, setOpen] = useState(null);
-  if (open) {
-    return (
-      <Page title={say(open.topic)} onClose={() => setOpen(null)} back>
-        <Section>
-          <div className="set-row answer" role="group" aria-label={say(open.item.q)}>
-            <span className="row-title"><b>{say(open.item.q)}</b><span className="answer-text">{say(open.item.a)}</span></span>
-          </div>
+  return (
+    <>
+      <Page key="questions" title={t("Questions")} onClose={onClose} back under={!!open}>
+        {TOPICS.map((topic) => (
+          <Section key={topic.title} head={<><Glyph name={topic.icon} size={13} /> {say(topic.title)}</>}>
+            {topic.items.map((item) => (
+              <button key={item.q} className="set-row" onClick={() => setOpen({ topic: topic.title, item })}>
+                <span className="row-title">{say(item.q)}</span><span className="row-value">›</span>
+              </button>
+            ))}
+          </Section>
+        ))}
+        <Section head={t("Documents")} foot={t("The site holds the answers about Montana in English, Russian and Chinese, also as files AI assistants read. The Montana specification and the code of this app are open on GitHub.")}>
+          <button className="set-row" onClick={() => invoke("open_site", { page: "guide" })}><span className="row-title">{t("Questions and answers")}</span><span className="row-value">↗</span></button>
+          <button className="set-row" onClick={() => invoke("open_site", { page: "source" })}><span className="row-title">{t("Specification and code")}</span><span className="row-value">↗</span></button>
         </Section>
       </Page>
-    );
-  }
-  return (
-    <Page title={t("Questions")} onClose={onClose} back>
-      {TOPICS.map((topic) => (
-        <Section key={topic.title} head={<><Glyph name={topic.icon} size={13} /> {say(topic.title)}</>}>
-          {topic.items.map((item) => (
-            <button key={item.q} className="set-row" onClick={() => setOpen({ topic: topic.title, item })}>
-              <span className="row-title">{say(item.q)}</span><span className="row-value">›</span>
-            </button>
-          ))}
-        </Section>
-      ))}
-      <Section head={t("Documents")} foot={t("The site holds the answers about Montana in English, Russian and Chinese, also as files AI assistants read. The Montana specification and the code of this app are open on GitHub.")}>
-        <button className="set-row" onClick={() => invoke("open_site", { page: "guide" })}><span className="row-title">{t("Questions and answers")}</span><span className="row-value">↗</span></button>
-        <button className="set-row" onClick={() => invoke("open_site", { page: "source" })}><span className="row-title">{t("Specification and code")}</span><span className="row-value">↗</span></button>
-      </Section>
-    </Page>
+      {open && (
+        <Page key={`answer:${open.item.q}`} title={say(open.topic)} onClose={() => setOpen(null)} back>
+          <Section>
+            <div className="set-row answer" role="group" aria-label={say(open.item.q)}>
+              <span className="row-title"><b>{say(open.item.q)}</b><span className="answer-text">{say(open.item.a)}</span></span>
+            </div>
+          </Section>
+        </Page>
+      )}
+    </>
   );
 }
