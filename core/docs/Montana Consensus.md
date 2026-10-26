@@ -358,8 +358,9 @@ step of the schedule, and the volume arithmetic every step is checked against.
 ## The secret of a machine
 
 A machine holds one secret, and everything it does derives from it: the ticket it draws at
-home, its part in a window, its right to raise itself, its share, and the moment that share is
-taken. The secret never leaves the machine and enters no object it publishes — what leaves is
+home, its part in a window, the half its candidacy names it by, its share, and the moment that
+share is taken. The right that raises it is not among them: that right is a person's, carried by
+the record of the person who raises the machine. The secret never leaves the machine and enters no object it publishes — what leaves is
 always a value derived from it in one direction, under the domain Canon names for that use.
 
 **One secret of its own, and one value its owner places there.** Everything the machine
@@ -922,9 +923,14 @@ material.
 claimant extinguishes a one-time right to raise a machine, under the domain Canon names for
 it. The right is proven by possession and its nullifier names no one, so what the network
 learns is that some claimant spent theirs — never whose it was, nor how many machines answer
-to one person, because the answer is one and the rule needs no counting to hold it. Without
-this a lived continuity period would buy an unbounded fleet: the gate would cost time once
-and yield machines forever.
+to one record, because the answer is one and the rule needs no counting to hold it. The right
+is carried by the record whose continuity the candidacy proves: the opening of the record writes
+it, every successor carries it unchanged, and the proof of a candidacy asserts that the right it
+spends is the one that record carries, that the record stands in the tree of records under the
+root of one proposal Canon names, and that the half it publishes comes of a secret the claimant
+holds. Without this a lived continuity period would buy an unbounded fleet: the gate would cost
+time once and yield machines forever, and one person's record would seat another person's
+machine.
 
 **Invariants of admission:**
 
@@ -935,7 +941,7 @@ and yield machines forever.
 - A candidacy carries the extinguished one-time right to raise a machine; a second candidacy under the same right is refused, and the refusal names nobody.
 - The order of candidates within an event follows the canonical sort key derived from the cemented aggregate; no participant chooses it.
 - The number admitted by one event never exceeds the bound Canon fixes.
-- A candidacy that is not admitted expires after the period Canon fixes and leaves no record.
+- A candidacy that is not admitted expires after the period Canon fixes and leaves nothing behind but the right it spent.
 
 ## The attestation of presence
 
@@ -1324,7 +1330,7 @@ An implementation conforms to this document when all of the following hold.
 7. It admits a candidate only through a selection event, in the canonical order, within the bound, and only after the lived continuity period Identity defines.
 8. It issues one equal right per living machine per window, carries the indivisible remainder forward, and derives the count of the living from the cement and from nothing else.
 9. It publishes of an admission the commitment that stands for the machine — derived under the domain Canon names from the answering key, its suite and a blinding factor — and nothing that names an owner, an address or a person.
-10. It refuses a candidacy whose one-time right to raise a machine is already extinguished, and it derives that right under the domain Canon names.
+10. It refuses a candidacy whose one-time right to raise a machine is already extinguished, and it derives that right under the domain Canon names; it verifies the proof of a candidacy of the window it applies against the root of the tree of records it takes from the one proposal Canon names for that window, never against a root the candidacy states.
 11. It disregards, for the window in which a proposal was rejected, the ticket of the machine that published it — and restores it for the next window, because the loss is of duty and never of its place.
 12. It refuses a repeated round nullifier under one beacon in silence, holds as evidence against a machine only one part-nullifier under one of the three contradicting pairs of pledges, extinguishes that right without issuing its share, applies the refusal by the canonical order of the window, and accepts no other evidence.
 13. It treats a decided window as final: it never abandons a decision it verified, it resolves nothing by chain length within one set of rules, and it discards beacons, attestations, pledges and the evidence of an equivocation with the close that ends the challenge.
