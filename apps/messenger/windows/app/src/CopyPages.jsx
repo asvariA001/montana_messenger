@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { mtSize, t } from "./strings.js";
 import { Page, Section, Toggle } from "./Settings.jsx";
@@ -28,9 +28,12 @@ export function CopyStack({ start, onClose }) {
   const [stack, setStack] = useState([start]);
   const read = () => invoke("copy_pages").then((v) => setInv({ ...v, plan: { skipChats: [], skipKinds: [], skipFiles: [], ...v.plan } })).catch(() => {});
   useEffect(() => { read(); }, []);
-  const plan = (next) => { setInv((x) => ({ ...x, plan: next })); invoke("copy_plan_set", { plan: next }).catch(() => {}); };
+  // the plan's last write: Data and Storage, standing under these pages, counts again the moment they close (as iOS on appear),
+  // so the last page waits for the write to land -- a count taken before it would show the plan as it was (26.10.2026, datapage)
+  const written = useRef(Promise.resolve());
+  const plan = (next) => { setInv((x) => ({ ...x, plan: next })); written.current = invoke("copy_plan_set", { plan: next }).catch(() => {}); };
   const push = (p) => setStack((s) => [...s, p]);
-  const pop = () => setStack((s) => (s.length > 1 ? s.slice(0, -1) : (onClose(), s)));
+  const pop = () => setStack((s) => (s.length > 1 ? s.slice(0, -1) : (written.current.then(onClose), s)));
   const top = stack[stack.length - 1];
   if (!inv) return <Page title={t(start === "chats" ? "Conversations" : "Attachments")} onClose={onClose} back />;
   if (top === "chats") return <CopyChatsPage inv={inv} plan={plan} onClose={pop} />;
