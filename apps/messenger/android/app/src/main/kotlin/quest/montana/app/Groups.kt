@@ -29,7 +29,8 @@ object Groups {
     private const val OWNER_SEAT = "0"
     private const val GROUP = "g"
     private const val CHANNEL = "c"
-    private const val STORE = "groups.held"
+    /** [P2P-COMPAT] iOS MTGroup.stateKey: the groups held, under this name on both phones and on the card of a copy. */
+    const val STORE = "groups.held"
     private const val COPIES = "groups.copies"
     /** A copy outlives the queue's own term by a day and is let go with it (iOS copyLife). */
     private const val COPY_LIFE_MS = 8L * 24 * 3600 * 1000
@@ -174,10 +175,107 @@ object Groups {
         DeviceVault.delete(STORE); DeviceVault.delete(COPIES)
     }
 
+    // ── the copy: the groups ride the card in the iPhone's form, and every group held stands a row ──
+
+    /** The name a group's face is laid under in the copy's faces (iOS MTGroupState.face: a file of the avatars folder). */
+    fun faceFile(id: String) = "grp_$id.jpg"
+
+    /**
+     * THE GROUPS A COPY CARRIES (iOS SeedScope.dataKeys → MTGroup.stateKey; 8cd39e19 «groups and channels did not come back»): every
+     * group held here as the iPhone keeps it -- one map of id to MTGroupState, moments in seconds -- laid over the card's own record of
+     * it, so what only an iPhone knows of a group rides on; its face by the file `face` laid it under in the copy, none when not laid.
+     * Without it a copy brought the group's letters back to a phone that held no group to open them by.
+     */
+    fun carried(base: JSONObject?, face: (String, java.io.File) -> String?): ByteArray? = synchronized(lock) {
+        if (!ready()) return null
+        fun seats(l: List<Member>) = JSONArray().apply { l.forEach { put(JSONObject().put("seat", it.seat).put("pipe", it.pipe)) } }
+        val out = JSONObject()
+        for ((id, g) in groups) {
+            val o = base?.optJSONObject(id) ?: JSONObject()
+            o.put("id", id).put("kind", g.kind).put("title", g.title).put("about", g.about).put("owner", g.owner).put("me", g.me)
+                .put("members", seats(g.members)).put("count", g.count).put("names", JSONObject(g.names.toMap())).put("at", g.at / 1000.0)
+                .put("left", g.left).put("removed", g.removed).put("admins", JSONArray(g.admins))
+                .put("readBy", JSONObject(g.readBy.toMap())).put("barred", JSONArray(g.barred)).put("slow", g.slow)
+                .put("adminTaken", JSONObject().apply { g.taken.forEach { (k, v) -> put(k, JSONArray(v)) } }).put("ranks", JSONObject(g.ranks.toMap()))
+                .put("approval", g.approval).put("history", g.history).put("banned", seats(g.banned))
+                .put("requests", JSONArray().apply { g.requests.forEach { put(JSONObject().put("pipe", it.pipe).put("name", it.name).put("at", it.at / 1000.0)) } })
+            for ((k, v) in listOf("faceTag" to g.faceTag, "invite" to g.invite)) if (v == null) o.remove(k) else o.put(k, v)
+            val file = Book.face(key(id)).takeIf { it.isFile }?.let { face(faceFile(id), it) }
+            if (file == null) o.remove("face") else o.put("face", file)
+            out.put(id, o)
+        }
+        out.toString().toByteArray(Charsets.UTF_8)
+    }
+
+    /**
+     * THE GROUPS A COPY BROUGHT (iOS layCard → MTGroup.reread, then standAll): a group this phone does not hold is taken as the copy
+     * holds it, its face out of the copy's faces when this phone has none; a group held here keeps this phone's word. Then every
+     * group held stands its row, before the archive reads the letters back into it.
+     */
+    fun lay(raw: ByteArray, faces: java.io.File?): Int {
+        val o = runCatching { JSONObject(String(raw, Charsets.UTF_8)) }.getOrNull() ?: return 0
+        var took = 0
+        synchronized(lock) {
+            if (!ready()) return 0
+            for (id in o.keys()) {
+                if (groups.containsKey(id) || !isLabel(id)) continue
+                val s = o.optJSONObject(id) ?: continue
+                val g = runCatching { fromCard(id, s) }.getOrNull() ?: continue
+                groups[id] = g
+                took++
+                val src = s.optString("face").takeIf { MontanaBackup.plainName(it) }?.let { f -> faces?.let { java.io.File(it, f) } }
+                val dst = Book.face(key(id))
+                if (src != null && src.isFile && !dst.exists()) runCatching { src.copyTo(dst) }
+            }
+            if (took > 0) save()
+        }
+        Log.i("Montana", "group_laid took=$took of ${o.length()}")
+        standAll()
+        return took
+    }
+    /** One group of the card, in this phone's form (iOS MTGroupState: moments in seconds, the people by seat and pipe). */
+    private fun fromCard(id: String, s: JSONObject): State? {
+        val kind = s.optString("kind")
+        if (kind != GROUP && kind != CHANNEL) return null
+        fun seats(a: JSONArray?) = a?.let { MutableList(it.length()) { i -> it.getJSONObject(i).let { m -> Member(m.getString("seat"), m.getString("pipe")) } } } ?: mutableListOf()
+        fun words(a: JSONArray?) = a?.let { MutableList(it.length()) { i -> it.getString(i) } } ?: mutableListOf()
+        fun map(o: JSONObject?) = o?.let { m -> m.keys().asSequence().associateWith { m.getString(it) }.toMutableMap() } ?: mutableMapOf()
+        return State(id, kind, clean(s.optString("title"), TITLE_LIMIT), s.optString("about"), s.optString("owner"), s.getString("me"),
+            seats(s.optJSONArray("members")), s.optInt("count", 2), map(s.optJSONObject("names")), (s.optDouble("at", 0.0) * 1000).toLong(),
+            s.optBoolean("left"), s.optString("faceTag").ifEmpty { null },
+            s.optJSONObject("readBy")?.let { r -> r.keys().asSequence().associateWith { r.getLong(it) }.toMutableMap() } ?: mutableMapOf(),
+            s.optBoolean("removed"), words(s.optJSONArray("admins")),
+            s.optJSONObject("adminTaken")?.let { x -> x.keys().asSequence().associateWith { k -> words(x.getJSONArray(k)).toList() }.toMutableMap() } ?: mutableMapOf(),
+            map(s.optJSONObject("ranks")), words(s.optJSONArray("barred")), s.optInt("slow"), s.optBoolean("history"),
+            seats(s.optJSONArray("banned")), s.optString("invite").ifEmpty { null }, s.optBoolean("approval"),
+            s.optJSONArray("requests")?.let { a -> MutableList(a.length()) { i -> a.getJSONObject(i).let { Request(it.getString("pipe"), it.optString("name"), (it.optDouble("at", 0.0) * 1000).toLong()) } } } ?: mutableListOf())
+    }
+
+    /**
+     * EVERY GROUP THIS PHONE HOLDS STANDS ON THE LIST (iOS MTGroup.standAll, 8cd39e19): a group has no pipe, so nothing derives its row
+     * from a feed -- a group a copy brought, or one whose row was lost, stands one under its title, at every launch and after every
+     * copy laid. A group the person deleted stays deleted: its row was erased here, or -- erased on the phone the copy came from,
+     * whose deletions this phone's copy does not carry -- it was left, and a left group with no row is not stood back.
+     */
+    fun standAll() {
+        var stood = 0
+        synchronized(lock) {
+            if (!ready() || groups.isEmpty()) return
+            for (id in groups.keys.sorted()) {
+                val g = groups[id] ?: continue
+                val key = key(id)
+                if (g.left || Book.chat(key) != null || Book.erased(key)) continue
+                Book.open(key, g.title, false)
+                stood++
+            }
+        }
+        if (stood > 0) Log.i("Montana", "group_stood rows=$stood held=${groups.size}")
+    }
+
     // ── names ──
 
     fun isKey(chat: String) = chat.startsWith(KEY_HEAD)
-    private fun key(id: String) = KEY_HEAD + id
+    fun key(id: String) = KEY_HEAD + id
     /** [I-14]: a letter's link card on the wire, at most -- the pair's leg (iOS cardLimit). [I-15]: how long a card that outran its letter waits for it (iOS cardWait). */
     private const val CARD_LIMIT = 16_384
     private const val CARD_WAIT_MS = 600_000L
@@ -265,7 +363,8 @@ object Groups {
      * group's feed under the letter's name, and the copy's receipt moves that row (follow).
      */
     private fun carry(w: JSONObject, pipe: String, letter: String, own: Boolean): String? {
-        if (Book.secret(pipe) == null) return null
+        val secret = Book.secret(pipe) ?: return null
+        w.put("au", ownTag(w, secret))   // signed by the person: the seed's other devices know the word as their own (566c6dcc)
         val name = Marks.mintMid()
         copies[name] = Copy(w.getString("g"), letter, pipe, own, 1)
         saveCopies()
@@ -1483,9 +1582,31 @@ object Groups {
      */
     fun handle(pipe: String, sid: String, text: String) {
         val w = runCatching { JSONObject(text.removePrefix(MARK)) }.getOrNull()
+        // THE PERSON'S OWN WORD, HEARD ON A PIPE ITS DEVICES SHARE (iOS MTGroup.handle, 566c6dcc; the author's words 18.10.2026
+        // 10:3x UTC: «check what the errors of sending into channels on T1 are, and fix everything»): a group's word rides too big
+        // for the letter's eighth field more often than not (an invitation with the group's face, a channel's post), so the seed's
+        // other device heard it as the member's and refused it without end. A word this person signed is done here as the hand did
+        // it there (handleOwn) -- never judged as a stranger's, never answered: the device that spoke carries it.
+        if (w != null && isLabel(w.optString("g")) && ownWord(w, pipe)) { handleOwn(text, pipe); return }
         val verdict = if (w != null && isLabel(w.optString("g"))) synchronized(lock) { take(w, pipe) }
             else Verdict.REFUSED.also { Log.i("Montana", "group_refused unreadable from=${pipe.take(10)}") }
         if (verdict != Verdict.WAIT && verdict != Verdict.INSTANT) Post.receiptFor(pipe, sid)
+    }
+
+    /** The fields the person's tag is made over (iOS MTGroup.tagText): the kind, the letter's name, the seats, the title and the
+     *  words -- what a member could alter to pass another's word off. */
+    private fun tagText(w: JSONObject) =
+        listOf("t", "id", "me", "s", "ti", "tx").joinToString("\u0000") { w.optString(it) }
+    /** THE WORD'S AUTHOR IS THE PERSON (iOS MTGroup.ownTag, MTPipeKey.authorTag): sixteen bytes only this person's devices make,
+     *  under the letter author's key over the pipe's item key of the day and the word's own fields, as a letter's eighth field.
+     *  No author key yet: the word rides unsigned, as from an older build. */
+    private fun ownTag(w: JSONObject, secret: ByteArray): String? =
+        LetterAuthor.key?.let { Wire.authorTag(it, Wire.itemKey(secret), w.getString("g"), tagText(w)) }
+    /** Whether a word heard on a pipe was signed by this person -- on another of its devices (iOS MTGroup.ownWord). */
+    private fun ownWord(w: JSONObject, pipe: String): Boolean {
+        val tag = w.optString("au").ifEmpty { return false }
+        val secret = Book.secret(pipe) ?: return false
+        return Wire.authorHolds(tag, LetterAuthor.key, secret, w.getString("g"), tagText(w))
     }
 
     /**

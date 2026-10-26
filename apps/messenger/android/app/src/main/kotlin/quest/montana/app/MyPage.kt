@@ -188,15 +188,20 @@ fun newPostPage(act: MainActivity, onClose: () -> Unit, sharedWords: String = ""
         if (uris.isEmpty()) return
         taking += uris.size
         drawTaken()
+        // THE PAGE'S ORDER IS THE POST'S ORDER (iOS MTBoardComposer.take, 2312): one hand copies the files one after another, and
+        // the diary says how many were picked and how many came
         Thread {
+            var got = 0
             for (u in uris) {
                 val a = WallFiles.take(c, u)
+                if (a != null) got++
                 MainThread.post {
                     taking--
                     if (a != null && files.size < MEDIA_LIMIT && !closed) files.add(a) else a?.file?.delete()
                     drawTaken()
                 }
             }
+            android.util.Log.i("Montana", "post_files picked=${uris.size} staged=$got")
         }.start()
     }
     fun showBar() {

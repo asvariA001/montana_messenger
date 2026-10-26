@@ -222,7 +222,8 @@ class MainActivity : Activity() {
         if (hasSeed && termsAccepted) MontanaPaths.heal(this)   // the copy's old store joins the letters' folder before the archive looks there
         Thread { runCatching { MontanaBackup.sweep(applicationContext, "launch") } }.start()   // what a killed hand left on the shelf
         if (hasSeed && termsAccepted) Archive.atLaunch()   // the archive read into the feed's empty conversations (iOS cold start 15.10)
-        if (hasSeed && termsAccepted) Thread { Groups.mirrorHeld() }.start()   // the groups held before the twin mirror, once a device (iOS standAll → mirrorHeld)
+        // every group held stands its row (iOS standAll at every history load, 8cd39e19), then the groups held before the twin mirror, once a device
+        if (hasSeed && termsAccepted) Thread { Groups.standAll(); Groups.mirrorHeld() }.start()
         // The identity is born: the invitation that waited for it opens by itself (iOS replayPendingInvite).
         if (hasSeed && termsAccepted && !showWelcome) Prefs.str("pendingInvite", "").takeIf { it.isNotEmpty() }?.let { Prefs.remove("pendingInvite"); openInvitation(this, it) }
     }

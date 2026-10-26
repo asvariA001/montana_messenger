@@ -18,7 +18,7 @@ PROSE_DIR = 'Audit/Protocol-13/'
 REQUIRED = ('canon_version', 'air_hash', 'published_parameters', 'genesis_state_hash')
 HISTORICAL = re.compile(r'\bhistorical\b', re.I)
 
-HEX = r'([0-9a-f]{64})\b'
+HEX = r'([0-9a-fA-F]{64})\b'
 BYTES = r'\[\s*((?:0x[0-9a-fA-F]{2}\s*,\s*){31}0x[0-9a-fA-F]{2})\s*,?\s*\]'
 NAMES = r'(air_hash|genesis_state_hash|published_parameters)'
 
@@ -75,13 +75,14 @@ def statements(path, text, applies):
         if kind not in applies:
             continue
         for match in pattern.finditer(text):
-            value = match.group(match.lastindex)
+            value = match.group(match.lastindex).lower()
             key = quantity if isinstance(quantity, str) else quantity(match)
             if value.startswith('0x'):
                 value = ''.join(b[2:].lower() for b in re.findall(r'0x[0-9a-fA-F]{2}', value))
             line = text.count('\n', 0, match.start(match.lastindex)) + 1
             historical = bool(HISTORICAL.search(lines[line - 1]))
-            found[(line, key)] = (key, value, path, line, historical)
+            # Equal claims may overlap patterns, but a different value must survive.
+            found[(line, key, value)] = (key, value, path, line, historical)
     return [found[k] for k in sorted(found)]
 
 
