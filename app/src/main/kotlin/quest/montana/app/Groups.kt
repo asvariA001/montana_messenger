@@ -278,6 +278,7 @@ object Groups {
     fun key(id: String) = KEY_HEAD + id
     /** [I-14]: a letter's link card on the wire, at most -- the pair's leg (iOS cardLimit). [I-15]: how long a card that outran its letter waits for it (iOS cardWait). */
     private const val CARD_LIMIT = 16_384
+    private const val PASSPORT_LIMIT = 4_096          // iOS passportLimit: a sticker's passport, never a carrier of anything else
     private const val CARD_WAIT_MS = 600_000L
     private fun state(key: String): State? = synchronized(lock) { if (isKey(key) && ready()) groups[key.removePrefix(KEY_HEAD)] else null }
     /** The people in the group, the owner included — the head of the group's chat says this number (iOS people). */
@@ -441,6 +442,48 @@ object Groups {
             val n = spread(word("lp", g).put("id", mid).put("s", g.me).put("tx", tx), g, null, own = false)   // no copy of a card witnesses the row
             Log.i("Montana", "group_tx mid=" + mid.take(14) + " card copies=$n bytes=" + tx.toByteArray().size)
         }
+    }
+
+    /**
+     * A STICKER'S PASSPORT INTO A GROUP (iOS MTGroup.carryPassport, MontanaGroup.swift:774): the set my sticker is of rides as the
+     * group's own word «sp» under the sticker letter's name, to everyone this phone carries to; it names no address. An older build
+     * buries it.
+     */
+    fun carryPassport(key: String, letter: String, body: String) {
+        synchronized(lock) {
+            val g = state(key) ?: return
+            if (g.left || (g.kind != GROUP && !g.mine) || !isLetterName(letter) || body.toByteArray().size > PASSPORT_LIMIT) return
+            val n = spread(word("sp", g).put("id", letter).put("s", g.me).put("tx", body), g, null, own = false)   // no copy witnesses the row
+            Log.i("Montana", "group_tx mid=" + letter.take(14) + " passport copies=$n")
+        }
+    }
+
+    /**
+     * A STICKER'S PASSPORT (iOS passported, MontanaGroup.swift:2403): read by the pair's one reader of a passport (StickerWire.handle)
+     * and carried on by the owner. Only the sticker's speaker names it; it names no address, so the set is asked of the pipe it came by
+     * (a member holds the owner's).
+     */
+    private fun passported(w: JSONObject, pipe: String): Verdict {
+        val g = groups[w.getString("g")] ?: return Verdict.WAIT
+        if (g.left) return Verdict.REFUSED
+        val id = w.optString("id"); val body = w.optString("tx")
+        if (!isLetterName(id) || body.toByteArray().size > PASSPORT_LIMIT) return Verdict.REFUSED
+        val o = runCatching { JSONObject(body) }.getOrNull() ?: return Verdict.REFUSED
+        if (o.optString("t") != "id" || StickerBook.bare(o.optString("m")) != id) return Verdict.REFUSED
+        val from = SamePair.root(pipe)
+        val seat = (if (g.mine) g.members.firstOrNull { SamePair.root(it.pipe) == from }?.seat
+            else w.optString("s").takeIf { SamePair.root(g.owner) == from && isSeat(it) && it != g.me }) ?: return Verdict.REFUSED
+        val row = Book.chat(key(g.id))?.msgs?.firstOrNull { it.mid == id }
+        if (row != null && (row.mine || author(row, g) != seat)) {
+            Log.i("Montana", "group_refused a passport past its sticker's speaker")
+            return Verdict.REFUSED
+        }
+        o.remove("o")   // no address rides a group: the giver is the pipe this word came by
+        val clean = o.toString()
+        StickerWire.handle(StickerWire.MARK + clean, pipe)
+        if (g.mine) spread(word("sp", g).put("id", id).put("s", seat).put("tx", clean), g, seat, own = false)
+        Log.i("Montana", "group_rx mid=$id passport owner=" + (if (g.mine) 1 else 0))
+        return Verdict.HELD
     }
 
     /**
@@ -1774,6 +1817,7 @@ object Groups {
             "kk" -> kicked(w, pipe)   // COMPAT-GATED: an administrator's «take out», to the owner (iOS stage R.6)
             "ci" -> infoAsked(w, pipe)   // COMPAT-GATED: a member's renewal, to the owner (iOS G.5)
             "jn" -> joined(w, pipe)   // COMPAT-GATED: a person who opened the group's invite link, to the owner (iOS stage R.6)
+            "sp" -> passported(w, pipe)   // COMPAT-GATED: a sticker's passport (iOS 17.10, 2df34a13), an older build buries it
             "lp" -> carded(w, pipe)   // COMPAT-GATED: a letter's link card (iOS 17.10, 89dfd51d), an older build buries it
             "kp" -> keptHeard(w, pipe)   // COMPAT-GATED: a keeper's word to the one who deleted a letter (iOS 16.10, fbd8a190)
             else -> Verdict.REFUSED.also { Log.i("Montana", "group_refused kind=${t.take(8)}") }   // a newer build's word: its road ends here

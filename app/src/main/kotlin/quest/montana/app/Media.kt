@@ -179,12 +179,12 @@ object Media {
      * then the letter with the manifest leaves by the ordinary post (the pieces first — the receiver must find them).
      */
     fun send(c: Context, ref: String, picked: Picked, caption: String, qt: String? = null, group: MediaGroup.Slot? = null,
-             swap: (() -> ByteArray?)? = null, gate: Boolean = true, turn: String? = null) {
+             swap: (() -> ByteArray?)? = null, gate: Boolean = true, turn: String? = null, named: String? = null) {
         // A MEDIA LETTER OF A GROUP IS ASKED OF THE GROUP FIRST (iOS sendGatedMedia, G.5): a right the group took from its members, or
         // slow mode's wait, is said and no row is laid; every other letter goes on by the one road
         if (gate && Groups.isKey(ref)) refusal(c, ref, picked, caption)?.let { Groups.tellRefusal(it); return }
         var p = picked
-        val mid = Marks.mintMid()
+        val mid = named ?: Marks.mintMid()   // a sticker names its letter first: its passport rides under the same name (iOS letterMidFor)
         val local = file(c, mid, p.ext)
         local.writeBytes(p.bytes)
         val provisional = Marks.MEDIA + JSONObject().put("k", p.kind).put("e", p.ext).put("sz", p.bytes.size).apply {

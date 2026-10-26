@@ -33,8 +33,9 @@ import java.io.File
  *     (iOS sendStickerFile: kind img, docName MontanaCardPlate.stickerName), drawn in its own square without a bubble.
  * MY OWN SET (iOS MontanaStickerBook): the pictures lie in the app's private storage, the order in the defaults; a picture is
  * named by its own bytes, so the same sticker is kept once and, used again, moves to the front; the ceiling is a person's set.
- * Not yet here: the sets of other people and the «SP:» words that carry them (an older build buries them unread, and so does
- * this one), and the platform's subject cut — iOS lifts the subject with Vision; Android has no such native road.
+ * THE SETS OF OTHER PEOPLE travel by the «SP:» words (StickerWire): a sticker of my set carries its passport, my set is given to
+ * whoever asks it, the sets of others are met and land in StickerBook. Not yet here: the page of another's set, its link, and
+ * the platform's subject cut — iOS lifts the subject with Vision; Android has no such native road.
  */
 object Stickers {
     /** The card sticker's name in a picture's manifest (iOS MontanaCardPlate.stickerName): every build draws it bare. */
@@ -48,7 +49,7 @@ object Stickers {
 
     private fun dir(c: Context) = File(c.filesDir, "stickers").apply { mkdirs() }
     /** The person forgotten: their stickers leave with them (Book.wipe); the list of names lived in the person's preferences. */
-    fun wipe(c: Context) = File(c.filesDir, "stickers").deleteRecursively()
+    fun wipe(c: Context) { File(c.filesDir, "stickers").deleteRecursively(); StickerBook.wipe() }
     fun file(c: Context, name: String) = File(dir(c), name)
     fun names(c: Context): List<String> = Prefs.str(SHELF, "").split('\n').filter { it.isNotEmpty() && file(c, it).exists() }
     private fun keep(list: List<String>) = Prefs.setStr(SHELF, list.joinToString("\n"))
@@ -162,12 +163,19 @@ object Stickers {
         Post.send(ref, mid, text)
     }
 
-    /** A picture of my set leaves by the picture road with the card sticker's name, and moves to the front of the set. */
+    /**
+     * A picture of my set leaves by the picture road with the card sticker's name, and moves to the front of the set; its passport
+     * follows under the letter's own name, so the other side knows the set it is of (iOS sendStickerFile + MontanaStickerWire.sendPassport).
+     */
     fun sendPicture(c: Context, ref: String, name: String) {
         val f = file(c, name).takeIf { it.exists() } ?: return
         val bytes = f.readBytes()
         add(c, bytes, f.extension)
-        Thread { Media.send(c, ref, Media.Picked(bytes, "img", f.extension, CARD), "") }.start()
+        val mid = Marks.mintMid()
+        Thread {
+            Media.send(c, ref, Media.Picked(bytes, "img", f.extension, CARD), "", named = mid)
+            if (Book.chat(ref)?.msgs?.any { it.mid == mid } == true) StickerWire.sendPassport(ref, mid, bytes)   // a refused letter has no passport
+        }.start()
     }
 
     /** ANY STICKER LETTER CAN BE RE-CUT, MINE OR THEIRS (iOS onEditSticker: MontanaMessageMenu.swift:474-476 and
