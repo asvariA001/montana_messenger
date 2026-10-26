@@ -212,8 +212,7 @@ pub struct Round<'a> {
 // refused by its own name and is none of these.
 const BELOW_THE_QUORUM: &str = "a cement below the quorum share of the electorate";
 const BELOW_THE_COMMITTEE: &str = "votes below the quorum share of the committee";
-const UNDECIDED: &str =
-    "a certificate whose agreement does not decide the proposal it finalizes";
+const UNDECIDED: &str = "a certificate whose agreement does not decide the proposal it finalizes";
 
 fn not_whole_yet(refused: &NodeError) -> bool {
     matches!(refused, NodeError::Refused { what }
