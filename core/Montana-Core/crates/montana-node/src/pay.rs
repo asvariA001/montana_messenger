@@ -45,9 +45,10 @@ fn not_applied() -> NodeError {
 // the network holds one right and nothing else. What is published names nobody: nullifiers,
 // commitments and the nullifier of a rate, and no amount among them.
 //
-// The window whose right this is, and how many machines its cement named, are what the operator
-// read off that window when it closed. They are of the world in the same way an acquaintance is:
-// the machine cannot ask anybody for them, and nothing else it holds implies them.
+// The window this right is of is what the operator read off that window when it closed. It is of
+// the world in the same way an acquaintance is: the machine cannot ask anybody for it, and nothing
+// else it holds implies it. What the right is worth is not asked for: one coin, whatever
+// the count of that window's cement (Consensus, "The right to a window's coin").
 //
 // **The note enters the wallet once its frame has applied, and not before.** The frame stands at
 // the points of the round and applies with the frames of that round as the machine leaves it, so the
@@ -64,7 +65,6 @@ impl Machine {
         at: &Path,
         cohort: &pulse::Cohort,
         of_the_window: u64,
-        living: usize,
         window: u64,
         chain: u8,
         round: u32,
@@ -75,7 +75,7 @@ impl Machine {
         let secret = self.machine_secret()?;
         let mut of_the_machine = [0u8; 32];
         of_the_machine.copy_from_slice(&secret[..32]);
-        let right = crate::attest::right_of(&of_the_machine, of_the_window, living)?;
+        let right = crate::attest::right_of(&of_the_machine, of_the_window)?;
         if right.accepted_in != window {
             return Err(NodeError::Refused {
                 what: "a right presented in a window it is not accepted in",
@@ -105,7 +105,7 @@ impl Machine {
             .redeem(
                 &of_the_machine,
                 of_the_window,
-                u128::from(right.share),
+                u128::from(right.worth),
                 &branch.siblings,
                 branch.position,
                 &own,
@@ -128,7 +128,7 @@ impl Machine {
         let frame = identifier_of(&minted.frame)?;
         self.stand_the_frame(&minted.frame, window, chain, round)?;
         let at = at.to_path_buf();
-        // The note of the minted share, as the wallet of this machine would hold it at a position.
+        // The note of the redeemed coin, as the wallet of this machine would hold it at a position.
         let wallet_of = at.clone();
         let minted_note = move |position: u64| -> Result<montana_wallet::Note, NodeError> {
             let wallet = wallet_at(&wallet_of)?;

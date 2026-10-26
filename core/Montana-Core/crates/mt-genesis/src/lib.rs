@@ -16,7 +16,6 @@ pub const TAU2: u64 = 20_160;
 pub enum Entry {
     Scalar(&'static str, u64),
     Ratio(&'static str, u64, u64),
-    Schedule(&'static str, &'static [(u64, u64)]),
     Hash(&'static str, [u8; 32]),
     // A parameter the set names and has not published. It carries no value — not a zero, not a
     // stand-in, nothing — because a value written in place of one that does not exist is a value
@@ -32,7 +31,6 @@ impl Entry {
         match self {
             Entry::Scalar(n, _)
             | Entry::Ratio(n, _, _)
-            | Entry::Schedule(n, _)
             | Entry::Hash(n, _)
             | Entry::Unpublished(n, _) => n,
         }
@@ -42,7 +40,6 @@ impl Entry {
         match self {
             Entry::Scalar(n, _)
             | Entry::Ratio(n, _, _)
-            | Entry::Schedule(n, _)
             | Entry::Hash(n, _)
             | Entry::Unpublished(n, _) => n,
         }
@@ -52,7 +49,6 @@ impl Entry {
         match self {
             Entry::Scalar(..) => Some(8),
             Entry::Ratio(..) => Some(16),
-            Entry::Schedule(_, rows) => Some(2 + 16 * rows.len()),
             Entry::Hash(..) => Some(32),
             Entry::Unpublished(..) => None,
         }
@@ -65,13 +61,6 @@ impl Entry {
             Entry::Ratio(_, num, den) => {
                 out.extend_from_slice(&num.to_le_bytes());
                 out.extend_from_slice(&den.to_le_bytes());
-            }
-            Entry::Schedule(_, rows) => {
-                out.extend_from_slice(&(rows.len() as u16).to_le_bytes());
-                for (height, mint) in rows.iter() {
-                    out.extend_from_slice(&height.to_le_bytes());
-                    out.extend_from_slice(&mint.to_le_bytes());
-                }
             }
             Entry::Hash(_, h) => out.extend_from_slice(h),
         }
@@ -326,6 +315,9 @@ mod tests {
         assert_eq!(s("claim_spread"), s("segment_windows"));
         assert_eq!(s("retarget_period"), TAU2);
         assert_eq!(s("census_interval") * s("standing_censuses"), TAU2);
+        // One second, one coin: every machine living a window is credited one coin for it, and
+        // the constitutional layer fixes the number.
+        assert_eq!(s("window_credit"), 1);
     }
 
     #[test]
@@ -335,17 +327,10 @@ mod tests {
         // them: what is checked is that order, read off the table rather than pinned by a place a
         // new row would move.
         let mut at = 0usize;
-        for entry in PARAMETERS.iter().take(2) {
+        for entry in PARAMETERS.iter().take(3) {
             let width = entry.encoded_len().expect("a published row");
             if let Entry::Scalar(_, value) = entry {
                 assert_eq!(&bytes[at..at + 8], &value.to_le_bytes());
-            }
-            if let Entry::Schedule(_, rows) = entry {
-                assert_eq!(
-                    &bytes[at..at + 2],
-                    &(rows.len() as u16).to_le_bytes(),
-                    "a schedule opens with its count of rows"
-                );
             }
             at += width;
         }

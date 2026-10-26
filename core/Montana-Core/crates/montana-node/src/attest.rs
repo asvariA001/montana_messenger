@@ -518,12 +518,12 @@ pub fn verify_ballot(
     Ok(held.votes)
 }
 
-// What a window mints, and to whom. Minting creates no note: a window mints a fixed quantity and
-// issues, to each living machine, a **right to a share** of it — one right per machine per window,
-// extinguished by exactly one nullifier, so no machine takes its share twice and none takes
-// another's. The count of the living is the count of part-nullifiers the cement holds, and the
-// share is the mint of that window divided by it, the remainder that does not divide carried
-// forward rather than appropriated.
+// What a window credits, and to whom. Minting creates no note: a window credits **one coin** to
+// every machine living in it and issues to each a **right to its coin** of that window — one right
+// per machine per window, extinguished by exactly one nullifier, so no machine takes its coin twice
+// and none takes another's. Nothing is divided, so no remainder exists to carry: the count of the
+// living is the count of part-nullifiers the cement holds, and it is the supply the window adds, in
+// coins, and never the price of a right. Consensus, "The right to a window's coin".
 //
 // A machine reads its own right out of its own secret and tells nobody: the nullifier names no one,
 // and the window it is accepted in is drawn from the same absorption, so a person chooses nothing
@@ -533,49 +533,41 @@ pub struct Right {
     pub nullifier: [u8; 32],
     // The window this right is accepted in — not early and not late.
     pub accepted_in: u64,
-    pub share: u64,
-    pub carried_forward: u64,
+    // What the right brings into the balance of the frame that redeems it: one coin.
+    pub worth: u64,
 }
 
-// The mint of a window, read off the schedule of the Decree by the height of that window.
-pub fn mint_of(window: u64) -> Result<u64, NodeError> {
-    let schedule = mt_genesis::get("emission_schedule").ok_or(NodeError::Decree {
-        row: "emission_schedule".to_string(),
-    })?;
-    let rows = match schedule {
-        mt_genesis::Entry::Schedule(_, rows) => rows,
-        _ => {
-            return Err(NodeError::Decree {
-                row: "emission_schedule".to_string(),
-            })
-        }
-    };
-    // The row a height reads: the last one whose height does not exceed it, the rows ascending.
-    let mut held = None;
-    for (height, mint) in rows.iter() {
-        if *height <= window {
-            held = Some(*mint);
-        }
-    }
-    held.ok_or(NodeError::Decree {
-        row: "emission_schedule".to_string(),
+// The coins a window credits to every machine living in it, read off the Decree: one, fixed by the
+// constitutional layer, whatever the height and whatever the count of the living. No clock is read
+// to issue it.
+pub fn window_credit() -> Result<u64, NodeError> {
+    mt_genesis::scalar("window_credit").ok_or(NodeError::Decree {
+        row: "window_credit".to_string(),
     })
 }
 
-// The right this machine holds to the share of a window it lived in. The count of the living is
-// what the cement names, and the division is exact: the share each takes and the remainder the
-// window carries forward.
-pub fn right_of(machine_secret: &[u8; 32], window: u64, living: usize) -> Result<Right, NodeError> {
-    if living == 0 {
-        return Err(NodeError::Refused {
-            what: "a window whose cement names no machine mints no share",
-        });
-    }
-    let mint = mint_of(window)?;
-    let living = living as u64;
+// What a window adds to the supply: the credit of one coin to every part its cement names, and
+// nothing else. A cement of nobody adds nothing.
+pub fn supply_added(living: usize) -> Result<u64, NodeError> {
+    let living = u64::try_from(living).map_err(|_| NodeError::Refused {
+        what: "a cement past counting",
+    })?;
+    window_credit()?
+        .checked_mul(living)
+        .ok_or(NodeError::Refused {
+            what: "a cement past counting",
+        })
+}
+
+// The right this machine holds to its coin of a window it lived in. What the right is worth does not
+// read the count of the living: one coin, the same for every machine of every cement. Whether the
+// machine lived the window is the caller's to know — its part among the parts the decided roll
+// names — and nothing here can see it.
+pub fn right_of(machine_secret: &[u8; 32], window: u64) -> Result<Right, NodeError> {
+    let worth = window_credit()?;
     let nullifier =
         mt_derive::nullifier::credit(machine_secret, window).ok_or(NodeError::Unprovable {
-            what: "the right of this machine to a window's share",
+            what: "the right of this machine to a window's coin",
         })?;
     let accepted_in = mt_derive::nullifier::claim_window(machine_secret, window).ok_or(
         NodeError::Unprovable {
@@ -586,7 +578,6 @@ pub fn right_of(machine_secret: &[u8; 32], window: u64, living: usize) -> Result
         window,
         nullifier,
         accepted_in,
-        share: mint / living,
-        carried_forward: mint % living,
+        worth,
     })
 }

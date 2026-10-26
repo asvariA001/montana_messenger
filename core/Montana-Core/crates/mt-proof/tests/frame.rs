@@ -71,7 +71,8 @@ fn admitted_of_one(machine_secret: &[u8; 32]) -> (Digest, Vec<Digest>) {
 fn a_real_frame() -> (Frame, Places, Digest, Digest) {
     let places = Places::of(depth()).expect("the Decree names the shape of a frame");
     let amounts: [[u128; 4]; 3] = [
-        [5_000_000_000, 3_000_000_000, 6_000_000_000, 2_000_000_000],
+        // The first position of the first spend is a right, worth one coin.
+        [1, 3_000_000_000, 2_000_000_001, 1_000_000_000],
         [13_000_000_000, 1, 1, 13_000_000_000],
         [1 << 40, 1 << 20, 1 << 20, 1 << 40],
     ];
@@ -106,7 +107,7 @@ fn a_real_frame() -> (Frame, Places, Digest, Digest) {
         held.siblings = paths[held.position as usize].clone();
     }
     // The first redemption of the frame consumes a right: the machine's membership in the tree
-    // of admitted machines, its share riding the cells an amount rides in, its moment computed.
+    // of admitted machines, its one coin riding the cells an amount rides in, its moment computed.
     let machine_secret = [0x77u8; 32];
     let (admitted_root, admitted_siblings) = admitted_of_one(&machine_secret);
     let due = 1000u64;
@@ -164,7 +165,8 @@ fn a_first_frame() -> (Frame, Places, Digest, Digest) {
     let due = 1000u64;
     let window = mt_derive::nullifier::claim_window(&machine_secret, due)
         .expect("the Decree names the spread");
-    let share = 13_000_000_000u128;
+    // A right is worth one coin (Consensus, "The right to a window's coin").
+    let worth = 1u128;
     let mut spends: Vec<Spend> = (0..3)
         .map(|spend| Spend {
             consumed: (0..2)
@@ -178,9 +180,9 @@ fn a_first_frame() -> (Frame, Places, Digest, Digest) {
                     )
                     .1
                     .bytes(),
-                    // Only the first spend pays out: it carries the whole share, the rest create
-                    // nothing, and the shape says nothing about which did which.
-                    value: if spend == 0 && at == 0 { share } else { 0 },
+                    // Only the first spend pays out: it carries the coin, the rest create nothing,
+                    // and the shape says nothing about which did which.
+                    value: if spend == 0 && at == 0 { worth } else { 0 },
                     note_pk: [0x60 + (spend * 2 + at) as u8; 32],
                     rcm: [0x90 + (spend * 2 + at) as u8; 32],
                 })
@@ -194,7 +196,7 @@ fn a_first_frame() -> (Frame, Places, Digest, Digest) {
     spends[0].consumed[0] = Consumed::Right(HeldRight {
         machine_secret,
         window: due,
-        value: share,
+        value: worth,
         siblings: admitted_siblings,
         position: 0,
     });

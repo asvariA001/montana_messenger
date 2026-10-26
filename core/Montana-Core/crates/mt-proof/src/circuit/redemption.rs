@@ -631,7 +631,7 @@ pub fn write_lane(columns: &mut [Vec<F>], loads: &[usize], spending: &[usize], c
 }
 
 // What a redemption of a right holds instead of a note: a machine's secret, the window the right
-// belongs to, the share it is worth, and the walk to the machine's own leaf in the tree of
+// belongs to, what it is worth — one coin — and the walk to the machine's own leaf in the tree of
 // admitted machines. It spends its own nullifier and stands at its own moment, and the blocks it
 // occupies are the note branch's exactly, so a frame says nothing by its size.
 #[derive(Clone, Debug)]
@@ -661,12 +661,15 @@ pub fn write_right_redemption(
     }
     let (spending, naming) = poseidon::hash_elements_twice(domain::MT_KEY_HALVES, &elements);
 
-    // The unread note: the commitment blocks run under their own domain over the naming half, the
-    // share the right is worth, and nothing else — a chain whose digest no rule of this branch
-    // consumes, standing so the count of blocks says nothing about the branch. The share rides in
-    // the cells an amount rides in, so the balance of the spend takes it by the same tie it takes
-    // a note's; what binds that share to the share the window issued is the circuit of a window,
-    // where the count of the living is computed.
+    // The unread note: the commitment blocks run under their own domain over the naming half, what
+    // the right is worth, and nothing else — a chain whose digest no rule of this branch consumes,
+    // standing so the count of blocks says nothing about the branch. The worth rides in the cells
+    // an amount rides in, so the balance of the spend takes it by the same tie it takes a note's.
+    // A right is worth one coin, a constant and never a quantity of its window (Canon, "The right
+    // of a machine to its coin of a window, and what redeems it"); no rule of this branch holds the
+    // witnessed worth to that constant yet, so a frame alone does not price a right — the open
+    // finding `montana-node/tests/issuance_audit.rs` reproduces it, and the Registry's VAL-08 owes
+    // the constraint.
     let mut unread = Vec::new();
     unread.extend_from_slice(naming.elements());
     unread.extend_from_slice(&poseidon::limbs_of(&held.value.to_le_bytes()));

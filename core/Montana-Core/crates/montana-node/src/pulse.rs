@@ -858,8 +858,8 @@ impl Pulse {
         })
     }
 
-    // How many machines the cement names: the count of the living, which the share of the window
-    // is divided by, and a count of distinct part-nullifiers and of nothing else.
+    // How many machines the cement names: the count of the living, which is the coins the window
+    // credits, one to each, and a count of distinct part-nullifiers and of nothing else.
     pub fn living(&self) -> usize {
         self.cement.count() as usize
     }
@@ -905,7 +905,7 @@ impl Pulse {
 // identifier are of the decided proposal, and stand once the window is final — decided by the
 // agreement of the window after, at that window's close; until then the identifier is the name
 // this machine took and the right is none, since a right is issued from the decided roll and from
-// no count, and a machine whose part that roll does not name took no share of the window.
+// no count, and a machine whose part that roll does not name took no coin of the window.
 pub struct Lived {
     pub window: u64,
     pub rounds: u32,
@@ -1807,8 +1807,8 @@ pub fn live_doing(
         )?;
         // **The decision of this window made the proposal before it final**, and the head moves
         // onto it now, after the proposal it names stands kept and verified. The right of that
-        // window is issued from its decided roll: one equal share to every part the roll names, and
-        // none to a machine whose part it does not name. The proposal of this window is kept before
+        // window is issued from its decided roll: one coin to every part the roll names, and none
+        // to a machine whose part it does not name. The proposal of this window is kept before
         // anything points at it, and is final when the agreement of the next window decides it.
         if let Some(before) = &predecessor_held {
             machine.finalize(before.window)?;
@@ -1824,11 +1824,7 @@ pub fn live_doing(
                             what: "the halves of this machine's secret",
                         })?;
                     if facts.roll.parts.binary_search(&part_before).is_ok() {
-                        Some(attest::right_of(
-                            &of_the_machine,
-                            before.window,
-                            facts.roll.parts.len(),
-                        )?)
+                        Some(attest::right_of(&of_the_machine, before.window)?)
                     } else {
                         None
                     }
@@ -1837,11 +1833,11 @@ pub fn live_doing(
             };
             match &right {
                 Some(right) => println!(
-                    "window {} is final under the proposal {} decided in attempt {} | it mints {} to this machine, accepted in window {}",
-                    before.window, link, decided_in, right.share, right.accepted_in
+                    "window {} is final under the proposal {} decided in attempt {} | it credits {} coin to this machine, accepted in window {}",
+                    before.window, link, decided_in, right.worth, right.accepted_in
                 ),
                 None => println!(
-                    "window {} is final under the proposal {} decided in attempt {} | this machine's part is not in its cement, so it took no share of it",
+                    "window {} is final under the proposal {} decided in attempt {} | this machine's part is not in its cement, so it took no coin of it",
                     before.window, link, decided_in
                 ),
             }
