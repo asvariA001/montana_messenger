@@ -2267,6 +2267,45 @@ fn carries_the_quorum(beacon: &Beacon, electorate: &Electorate) -> bool {
     .unwrap_or(false)
 }
 
+// **What a test of a close without a proposal reaches, and nothing else does.** Every machine of
+// the electorate clears the draw, so a machine holding a final beacon and a decision always proves
+// a proposal of its own, and no world a test arranges leaves it at the quorum with no proposal it
+// verified. A test of that close holds back, on the thread living the window, the proposal this
+// machine proved: it is handed it first — to read, and to forge from — and where it answers true,
+// the proposal is neither published nor taken, and the machine waits for one standing at the points
+// as a machine whose proof never came. The door every proposal is judged at is not reached from
+// here. It is compiled into tests alone and is no parameter of anything this protocol runs.
+#[cfg(feature = "withhold")]
+pub mod withhold {
+    use crate::Machine;
+    use mt_state::layout::Proposal;
+    use std::cell::RefCell;
+
+    pub type Hook = Box<dyn FnMut(&Machine, &Proposal) -> bool>;
+
+    thread_local! {
+        static HOOK: RefCell<Option<Hook>> = const { RefCell::new(None) };
+    }
+
+    // From now on, on this thread, every proposal a machine proves of its own is handed to `hook`,
+    // and one it answers true for is withheld. `None` disarms.
+    pub fn own_proposals(hook: Option<Hook>) {
+        HOOK.set(hook);
+    }
+
+    pub(crate) fn withholds(machine: &Machine, own: &Proposal) -> bool {
+        HOOK.with_borrow_mut(|hook| hook.as_mut().is_some_and(|hook| hook(machine, own)))
+    }
+}
+
+#[cfg(not(feature = "withhold"))]
+mod withhold {
+    #[inline(always)]
+    pub(crate) fn withholds(_: &crate::Machine, _: &mt_state::layout::Proposal) -> bool {
+        false
+    }
+}
+
 // The proposal of this window under the identifier this machine recomputed. A runner of the window
 // proves its own unless a proposal of that identifier already stands verified at the window's
 // points — two runners of one decision publish one identifier, so one proof serves the window — and
@@ -2318,14 +2357,16 @@ fn take_the_proposal(
                 held.decided,
             )?;
             verify_proposal(&own, held, roots)?;
-            let bytes = own.bytes().map_err(NodeError::Object)?;
-            stand_at_the_window(machine, window, &bytes)?;
-            // **The roll stands beside the proposal**, at the points of the window it closes, for
-            // as long as the frames it names: what a machine that took another name replays.
-            // Canon, "The roll of a proposal".
-            let body = roll.bytes().map_err(NodeError::Object)?;
-            stand_at_the_window(machine, window, &body)?;
-            return Ok(own);
+            if !withhold::withholds(machine, &own) {
+                let bytes = own.bytes().map_err(NodeError::Object)?;
+                stand_at_the_window(machine, window, &bytes)?;
+                // **The roll stands beside the proposal**, at the points of the window it closes,
+                // for as long as the frames it names: what a machine that took another name
+                // replays. Canon, "The roll of a proposal".
+                let body = roll.bytes().map_err(NodeError::Object)?;
+                stand_at_the_window(machine, window, &body)?;
+                return Ok(own);
+            }
         }
     }
     let mut waited = 0;
