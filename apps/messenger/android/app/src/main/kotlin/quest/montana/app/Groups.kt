@@ -363,7 +363,8 @@ object Groups {
      * group's feed under the letter's name, and the copy's receipt moves that row (follow).
      */
     private fun carry(w: JSONObject, pipe: String, letter: String, own: Boolean): String? {
-        if (Book.secret(pipe) == null) return null
+        val secret = Book.secret(pipe) ?: return null
+        w.put("au", ownTag(w, secret))   // signed by the person: the seed's other devices know the word as their own (566c6dcc)
         val name = Marks.mintMid()
         copies[name] = Copy(w.getString("g"), letter, pipe, own, 1)
         saveCopies()
@@ -1581,9 +1582,31 @@ object Groups {
      */
     fun handle(pipe: String, sid: String, text: String) {
         val w = runCatching { JSONObject(text.removePrefix(MARK)) }.getOrNull()
+        // THE PERSON'S OWN WORD, HEARD ON A PIPE ITS DEVICES SHARE (iOS MTGroup.handle, 566c6dcc; the author's words 18.10.2026
+        // 10:3x UTC: «check what the errors of sending into channels on T1 are, and fix everything»): a group's word rides too big
+        // for the letter's eighth field more often than not (an invitation with the group's face, a channel's post), so the seed's
+        // other device heard it as the member's and refused it without end. A word this person signed is done here as the hand did
+        // it there (handleOwn) -- never judged as a stranger's, never answered: the device that spoke carries it.
+        if (w != null && isLabel(w.optString("g")) && ownWord(w, pipe)) { handleOwn(text, pipe); return }
         val verdict = if (w != null && isLabel(w.optString("g"))) synchronized(lock) { take(w, pipe) }
             else Verdict.REFUSED.also { Log.i("Montana", "group_refused unreadable from=${pipe.take(10)}") }
         if (verdict != Verdict.WAIT && verdict != Verdict.INSTANT) Post.receiptFor(pipe, sid)
+    }
+
+    /** The fields the person's tag is made over (iOS MTGroup.tagText): the kind, the letter's name, the seats, the title and the
+     *  words -- what a member could alter to pass another's word off. */
+    private fun tagText(w: JSONObject) =
+        listOf("t", "id", "me", "s", "ti", "tx").joinToString("\u0000") { w.optString(it) }
+    /** THE WORD'S AUTHOR IS THE PERSON (iOS MTGroup.ownTag, MTPipeKey.authorTag): sixteen bytes only this person's devices make,
+     *  under the letter author's key over the pipe's item key of the day and the word's own fields, as a letter's eighth field.
+     *  No author key yet: the word rides unsigned, as from an older build. */
+    private fun ownTag(w: JSONObject, secret: ByteArray): String? =
+        LetterAuthor.key?.let { Wire.authorTag(it, Wire.itemKey(secret), w.getString("g"), tagText(w)) }
+    /** Whether a word heard on a pipe was signed by this person -- on another of its devices (iOS MTGroup.ownWord). */
+    private fun ownWord(w: JSONObject, pipe: String): Boolean {
+        val tag = w.optString("au").ifEmpty { return false }
+        val secret = Book.secret(pipe) ?: return false
+        return Wire.authorHolds(tag, LetterAuthor.key, secret, w.getString("g"), tagText(w))
     }
 
     /**
