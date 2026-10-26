@@ -1936,8 +1936,8 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         addView(callHandset(act, true, null).also { handsets.add(it) }, lp(dp(44), dp(44)))   // 15.8: back to the folded call (iOS chatTop 1847)
         addView(roundMark(R.drawable.ic_arrow_back_ios_new, R.string.back) { hideKeys(); onClose() }.also { rounds.add(it) }, lp(dp(44), dp(44)))
         // THE SHIELD ON THE INTERLOCUTOR'S BUBBLE (iOS MontanaConversation.swift:1957-1962): a badge over its top right corner while this
-        // phone keeps what others delete -- a sibling over the door, never inside it, its target centred on the corner. A pair's chat
-        // only: a group's deletion is not kept on Android yet (iOS MTGroup.tellKept), so its shield would say a false word.
+        // phone keeps what others delete -- a sibling over the door, never inside it, its target centred on the corner; a group's too,
+        // its keeper telling the one who deleted (Groups.tellKept).
         addView(FrameLayout(c).apply {
         nameBubble = this
         clipChildren = false
@@ -1960,9 +1960,9 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 }.show(); true
             }
         }, FrameLayout.LayoutParams(MATCH, MATCH))
-        if (!group && !local) addView(keepShield(act).apply { translationX = c.dp(18).toFloat(); translationY = -c.dp(18).toFloat() },
+        if (!local) addView(keepShield(act).apply { translationX = c.dp(18).toFloat(); translationY = -c.dp(18).toFloat() },
             FrameLayout.LayoutParams(c.dp(44), c.dp(44), Gravity.TOP or Gravity.END))
-        }, lp(0, dp(44), 1f).apply { marginStart = dp(6); if (!group && !local) marginEnd = dp(6) })
+        }, lp(0, dp(44), 1f).apply { marginStart = dp(6); if (!local) marginEnd = dp(6) })
         if (coinStands) {
             // THE WALLET BESIDE THE COIN (iOS walletMark): the wallet page over the chat, the one road a coin's link takes
             addView(FrameLayout(c).apply {

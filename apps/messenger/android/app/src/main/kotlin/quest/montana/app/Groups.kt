@@ -619,9 +619,20 @@ object Groups {
     private val typingThrown = HashMap<String, Long>()
     /** A TYPING WORD LANDED (iOS typed): its seat proven by the pipe it came by, as every word's is; the head shows it for the typing's life. */
     /**
+     * A LETTER TAKEN AWAY FOR EVERYONE STAYS ON THIS PHONE (iOS tellKept, MontanaGroup.swift:841-856; LevelAccess.keepDeleted): its
+     * speaker alone is told, by the keeper's own word «kp» to that seat -- the owner carries it there. An older build refuses the word.
+     */
+    private fun tellKept(g: State, sid: String, seat: String) {
+        if (g.left || seat == g.me) return
+        val w = JSONObject().put("t", "kp").put("g", g.id).put("id", Marks.mintMid()).put("s", g.me)
+            .put("tx", Marks.DELETE_KEPT + sid).put("ts", JSONArray().put(seat))   // COMPAT-GATED: refused by older builds
+        if (g.mine) g.members.firstOrNull { it.seat == seat }?.let { carry(w, it.pipe, "", false) } else carry(w, g.owner, "", false)
+        Log.i("Montana", "delete_kept group word to seat=$seat")
+    }
+    /**
      * MY DELETION WAS KEPT IN THE GROUP (iOS keptHeard, fbd8a190): a member whose level keeps deleted letters tells the one who took
      * the letter away -- its speaker, or the owner or an administrator who deleted it -- by the group's word «kp» to that seat. The
-     * owner passes it on to the seat; the seat reads the banner. This phone keeps no deletion itself: it never says «kp».
+     * owner passes it on to the seat; the seat reads the banner.
      */
     private fun keptHeard(w: JSONObject, pipe: String): Verdict {
         val g = groups[w.getString("g")] ?: return Verdict.REFUSED
@@ -2028,7 +2039,7 @@ object Groups {
             else if (words.startsWith(Marks.DELETE)) { bury(t); remember(id); return Verdict.HELD }
         }
         remember(id)
-        apply(key, words)
+        apply(g, key, words, seat)
         // the reference's service row of a pin: «X pinned "..."», laid under the pinned letter's own words (iOS answered)
         if (words.startsWith(PIN_MARK)) runCatching {
             val o = JSONObject(words.removePrefix(PIN_MARK))
@@ -2060,9 +2071,16 @@ object Groups {
         return Verdict.HELD
     }
 
-    private fun apply(key: String, words: String) {
+    private fun apply(g: State, key: String, words: String, seat: String) {
         when {
-            words.startsWith(Marks.DELETE) -> target(words)?.let { t -> Book.drop(key, listOf(t)) }
+            // THE PERSON KEEPS WHAT OTHERS DELETE (iOS MontanaChatStore.swift:4693-4709, LevelAccess.keepDeleted): the letter stays, and
+            // the one who took it away alone is told -- the deletion's own speaker, an administrator too -- by the group's word «kp».
+            // The level is read before it is asked; a letter not on this phone is not kept.
+            words.startsWith(Marks.DELETE) -> target(words)?.let { t ->
+                PersonChain.prime(); CoinBook.warm()
+                if (LevelAccess.keepsDeleted && Book.chat(key)?.msgs?.any { it.mid == t } == true) tellKept(g, words.removePrefix(Marks.DELETE), seat)
+                else Book.drop(key, listOf(t))
+            }
             words.startsWith(Marks.EDIT) -> {
                 val tx = runCatching { JSONObject(words.removePrefix(Marks.EDIT)).getString("tx") }.getOrNull()
                 val t = target(words)
