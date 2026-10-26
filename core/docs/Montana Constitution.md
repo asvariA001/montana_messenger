@@ -1,6 +1,6 @@
 # Montana — Constitution
 
-**Version:** 3.15.0
+**Version:** 4.0.0
 
 The Constitution holds the properties the protocol preserves across every one of its
 components, and the rules by which the normative document set is read.

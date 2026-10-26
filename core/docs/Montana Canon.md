@@ -1,6 +1,6 @@
 # Montana — Canon
 
-**Version:** 9.5.0
+**Version:** 10.0.0
 
 Canon is the one place where the values and the bytes of Montana live. Every other document
 of the set names a quantity and points here; none of them restates a number, a size, a

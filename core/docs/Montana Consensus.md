@@ -1,6 +1,6 @@
 # Montana — Consensus
 
-**Version:** 7.3.0
+**Version:** 8.0.0
 
 Consensus holds the TimeChain and its movement: how a window advances, who runs it, how it is cemented,
 how a machine enters the set that runs windows, and how the right to a window's coin is

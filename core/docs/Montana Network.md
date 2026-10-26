@@ -1,6 +1,6 @@
 # Montana — Network
 
-**Version:** 3.3.0
+**Version:** 4.0.0
 
 Network holds delivery: how a thing crosses from one person to another when neither of them
 has an address and no map of the network exists. It is the layer that makes the transport

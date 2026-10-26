@@ -1,6 +1,6 @@
 # Montana — App
 
-**Version:** 3.4.0
+**Version:** 4.0.0
 
 App holds the boundary between the protocol and everything built on it: what an application may
 put into the chain, what it may never learn about the people using it, and what a client owes

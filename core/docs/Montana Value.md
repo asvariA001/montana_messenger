@@ -1,6 +1,6 @@
 # Montana — Value
 
-**Version:** 4.1.0
+**Version:** 5.0.0
 
 Value holds what money is in Montana and how it moves: the note, its commitment, its
 nullifier, the trees they live in, the fixed shape of a spend, what the proof asserts, how a
