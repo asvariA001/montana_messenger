@@ -74,6 +74,10 @@ int32_t mtc_errand_pay(const uint8_t *half, const uint8_t *note_pk, const uint8_
 
 /* The pulse: the cohort as the naming halves laid one after another, thirty-two bytes each. */
 int32_t mtc_pulse_begin(const uint8_t *halves, size_t count, uint64_t from, uint64_t windows);
+/* CNS-20. Local verdict and asking number, independent of last_said.
+ * 0 means text read, not healthy consensus; -2 means no diagnostics.
+ * No status query overwrites last_said. */
+int32_t mtc_pulse_status(char *out, size_t cap, size_t *len);
 int32_t mtc_pulse_running(int32_t *out);
 int32_t mtc_pulse_lived(size_t *out);
 int32_t mtc_pulse_lived_at(size_t at, uint64_t *window, uint32_t *rounds, size_t *living,

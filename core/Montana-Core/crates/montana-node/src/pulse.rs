@@ -1214,6 +1214,7 @@ pub fn live_doing(
     memory.bases.insert(from, machine.value()?.clone());
     let mut out: Vec<Lived> = Vec::new();
     for step in 0..windows {
+        counts.clear_status();
         let refused_before = counts.refusals();
         let window = from.checked_add(step).ok_or(NodeError::Refused {
             what: "a window past the last one a count carries",
@@ -1934,6 +1935,7 @@ pub fn live_doing(
             "window {} closed after {} rounds on a cement naming {} machines and casting {} votes; the next links to the proposal {} and decides it",
             lived.window, lived.rounds, lived.living, decided.cement_votes, link
         );
+        counts.clear_status();
         out.push(lived);
         memory.facts.insert(
             window,

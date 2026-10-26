@@ -39,6 +39,18 @@ fn a_missing_diagnostic_is_not_success_and_reading_it_creates_no_error() {
         -2
     );
 
+    assert_eq!(
+        mt_boundary::mtc_pulse_status(out.as_mut_ptr(), out.len(), &mut len),
+        -2
+    );
+    let status: Vec<u8> = out[..len].iter().map(|byte| *byte as u8).collect();
+    assert_eq!(status, b"no diagnostics");
+    assert_eq!(
+        mt_boundary::mtc_last_said(out.as_mut_ptr(), out.len(), &mut len),
+        -2,
+        "reading pulse status must not populate SAID"
+    );
+
     // A real door called before its device stands supplies the error; no mock populates SAID.
     let mut present = -1;
     assert_eq!(mt_boundary::mtc_person_stands(&mut present), -1);
@@ -51,6 +63,31 @@ fn a_missing_diagnostic_is_not_success_and_reading_it_creates_no_error() {
     assert!(String::from_utf8(text)
         .expect("diagnostic text")
         .contains("no device stands"));
+    assert_eq!(
+        mt_boundary::mtc_pulse_status(out.as_mut_ptr(), out.len(), &mut len),
+        -2
+    );
+    assert_eq!(
+        mt_boundary::mtc_pulse_status(out.as_mut_ptr(), 0, &mut len),
+        -3
+    );
+    assert_eq!(
+        mt_boundary::mtc_pulse_status(std::ptr::null_mut(), out.len(), &mut len),
+        -2
+    );
+    assert_eq!(
+        mt_boundary::mtc_pulse_status(out.as_mut_ptr(), out.len(), std::ptr::null_mut()),
+        -2
+    );
+    assert_eq!(
+        mt_boundary::mtc_last_said(out.as_mut_ptr(), out.len(), &mut len),
+        0
+    );
+    assert_eq!(
+        &out[..len],
+        original.as_slice(),
+        "pulse status must not overwrite SAID"
+    );
     let needed = len;
     assert_eq!(
         mt_boundary::mtc_last_said(out.as_mut_ptr(), needed, &mut len),

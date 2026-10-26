@@ -10,6 +10,7 @@ montana-node — a machine of Montana
   montana-node --data <directory> --listen <address> [--acquaintance <line>]...
                [--admitted <half>]... [--from <window>] [--windows <n>]
 
+  --status               read the live local verdict and asking number (requires --data)
   --data <directory>     where this machine keeps what it holds between starts
   --listen <address>     where it answers, as an address and a port
   --acquaintance <line>  a machine to reach, as its operator handed it over:
@@ -57,8 +58,10 @@ fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(said) => {
-            eprintln!("montana-node: {said}");
-            ExitCode::FAILURE
+            eprintln!("{said}");
+            ExitCode::from(
+                montana_node::say::Verdict::from_line(&said).map_or(1, |on| on.exit_code()),
+            )
         }
     }
 }
@@ -69,9 +72,17 @@ fn run() -> Result<(), String> {
         print!("{USAGE}");
         return Ok(());
     }
+    if held.iter().any(|arg| arg == "--status") {
+        return read_status(&held);
+    }
     let (configuration, payment) = read_configuration(&held)?;
 
     let (machine, born) = Machine::start(&configuration).map_err(said)?;
+    let machine = std::sync::Arc::new(machine);
+    #[cfg(unix)]
+    let _status =
+        montana_node::status::Server::open(&configuration.data, std::sync::Arc::clone(&machine))
+            .map_err(|error| format!("no diagnostics: {error}"))?;
     if born {
         println!("this machine was born: it drew its secret and will not draw another");
     }
@@ -155,11 +166,7 @@ fn run() -> Result<(), String> {
     machine
         .enter_round(configuration.from, montana_node::pulse::opening_chain(), 0)
         .map_err(said)?;
-    let machine = std::sync::Arc::new(machine);
-    let answering = std::sync::Arc::clone(&machine);
-    std::thread::spawn(move || {
-        let _ = answering.serve();
-    });
+    machine.answer_in_background();
     for line in unreached {
         montana_node::pulse::reach_again(std::sync::Arc::clone(&machine), line);
     }
@@ -602,4 +609,67 @@ fn read_configuration(held: &[String]) -> Result<(Configuration, Option<Asked>),
         }
     };
     Ok((configuration, asked))
+}
+
+// The status query never opens Store: it must not create a machine or acquire its data lock.
+fn read_status(args: &[String]) -> Result<(), String> {
+    let mut args = args.iter();
+    let mut data = None;
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--status" => {}
+            "--data" if data.is_none() => data = args.next(),
+            _ => return Err("no diagnostics: --status requires only --data DIR".to_string()),
+        }
+    }
+    let data = data.ok_or("no diagnostics: --status requires --data DIR")?;
+    #[cfg(unix)]
+    {
+        let status =
+            montana_node::status::read(std::path::Path::new(data)).map_err(|on| on.to_string())?;
+        Err(status.to_string())
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = data;
+        Err("no diagnostics: this platform has no local status door".to_string())
+    }
+}
+
+#[cfg(test)]
+mod status_tests {
+    // CNS-20: rejects the generic error prefix obscuring the typed stall's first word.
+    #[test]
+    fn the_last_error_line_starts_with_the_verdict() {
+        let codes: std::collections::BTreeSet<u8> = [
+            montana_node::say::Verdict::NoQuorum,
+            montana_node::say::Verdict::NoData,
+            montana_node::say::Verdict::ProofRefused,
+            montana_node::say::Verdict::NoDiagnostics,
+        ]
+        .into_iter()
+        .map(|on| {
+            let line = super::said(montana_node::NodeError::Stalled {
+                on,
+                what: "budget exhausted",
+            });
+            assert_eq!(montana_node::say::Verdict::from_line(&line), Some(on));
+            assert_ne!(on.exit_code(), 0);
+            on.exit_code()
+        })
+        .collect();
+        assert_eq!(codes.len(), 4);
+        for on in [
+            montana_node::say::Verdict::NoQuorum,
+            montana_node::say::Verdict::NoData,
+            montana_node::say::Verdict::ProofRefused,
+            montana_node::say::Verdict::NoDiagnostics,
+        ] {
+            assert!(super::said(montana_node::NodeError::Stalled {
+                on,
+                what: "budget exhausted"
+            })
+            .starts_with(&format!("{on}:")));
+        }
+    }
 }

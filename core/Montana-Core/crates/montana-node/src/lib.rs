@@ -27,6 +27,8 @@ pub mod round;
 pub mod runner;
 pub mod say;
 pub mod state;
+#[cfg(unix)]
+pub mod status;
 
 use mt_codec::size;
 use mt_net::{Acquaintance, Answering, Door, Link, NetError};
@@ -1599,12 +1601,27 @@ impl Machine {
             })
     }
 
+    // Both operator interfaces share the same watcher, including a panic of the door thread.
+    pub fn answer_in_background(
+        self: &Arc<Self>,
+    ) -> std::thread::JoinHandle<Result<(), NodeError>> {
+        let machine = Arc::clone(self);
+        let watch = self.counts.watch_door();
+        std::thread::spawn(move || {
+            let _watch = watch;
+            machine.serve()
+        })
+    }
+
     // Answering links until the machine is stopped.
     pub fn serve(&self) -> Result<(), NodeError> {
         loop {
             // A handshake that failed took no slot and is no reason to stop: the next caller may be
             // whoever this machine is waiting for.
-            let _ = self.answer_one();
+            match self.answer_one() {
+                Ok(_) | Err(NodeError::Net(_)) => {}
+                Err(error) => return Err(error),
+            }
         }
     }
 }
@@ -1890,6 +1907,52 @@ mod tests {
     }
 
     // Scratch artifacts are retained for inspection; tests never remove existing files.
+
+    // CNS-20: rejects a terminal door error swallowed by the serving loop or by its caller.
+    #[test]
+    fn a_dead_door_reaches_the_verdict_and_cannot_be_erased_by_the_pulse() {
+        let at = Scratch::named("dead-door");
+        let machine = Arc::new(
+            Machine::start(&Configuration::at(&at.0, "127.0.0.1:0"))
+                .unwrap()
+                .0,
+        );
+        let held = Arc::clone(&machine.held);
+        assert!(std::thread::spawn(move || {
+            let _held = held.standing.lock().unwrap();
+            panic!("corrupt this test's link counter");
+        })
+        .join()
+        .is_err());
+        assert_eq!(
+            machine.answer_in_background().join().unwrap(),
+            Err(NodeError::Uncountable)
+        );
+        let counts = machine.counts();
+        assert_eq!(counts.status().unwrap().on, say::Verdict::NoDiagnostics);
+        assert_eq!(counts.observe(true, true, 7), say::Verdict::NoDiagnostics);
+    }
+
+    // CNS-20: a panic must take the same path as an ordinary terminal door error.
+    #[test]
+    fn an_unwinding_door_leaves_no_diagnostics() {
+        let counts = Arc::new(say::Counts::default());
+        counts.observe(false, false, 3);
+        let watch = counts.watch_door();
+        assert!(std::thread::spawn(move || {
+            let _watch = watch;
+            panic!("this test's door unwinds");
+        })
+        .join()
+        .is_err());
+        assert_eq!(
+            counts.status(),
+            Some(say::PulseStatus {
+                on: say::Verdict::NoDiagnostics,
+                asking: 3
+            })
+        );
+    }
 
     #[test]
     fn an_acquaintance_is_written_and_read_back_and_a_malformed_one_is_refused() {

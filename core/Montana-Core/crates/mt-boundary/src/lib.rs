@@ -420,11 +420,25 @@ pub extern "C" fn mtc_machine_reach(line: *const c_char) -> i32 {
 pub extern "C" fn mtc_machine_answer() -> i32 {
     door(|| {
         let machine = the_machine()?;
-        std::thread::spawn(move || {
-            let _ = machine.serve();
-        });
+        machine.answer_in_background();
         Ok(())
     })
+}
+
+// CNS-20: independent of SAID. A successful read of a stall is not a healthy-node verdict.
+#[no_mangle]
+pub extern "C" fn mtc_pulse_status(out: *mut c_char, cap: usize, len: *mut usize) -> i32 {
+    let status = the_machine()
+        .ok()
+        .and_then(|machine| machine.counts().status());
+    let missing = status.is_none_or(|held| held.on == montana_node::say::Verdict::NoDiagnostics);
+    let text = status.map_or_else(|| "no diagnostics".to_string(), |held| held.to_string());
+    let answer = hand_text(&text, out, cap, len);
+    if missing && answer == Answer::Well as i32 {
+        Answer::Nothing as i32
+    } else {
+        answer
+    }
 }
 
 #[no_mangle]
@@ -801,4 +815,53 @@ pub extern "C" fn mtc_measure_redemption(milliseconds: *mut u64, width: *mut usi
         )?;
         wrote(width, minted.frame.len())
     })
+}
+
+#[cfg(test)]
+mod status_tests {
+    use super::*;
+
+    // CNS-20: rejects a boundary that reads SAID as the pulse cause or loses a real live stall.
+    #[test]
+    fn the_live_pulse_status_is_independent_of_the_last_boundary_error() {
+        let at = std::env::temp_dir().join(format!(
+            "mt-boundary-status-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let dir = std::ffi::CString::new(at.to_str().unwrap()).unwrap();
+        let listen = std::ffi::CString::new("127.0.0.1:0").unwrap();
+        let mut born = 0;
+        assert_eq!(mtc_device_open(dir.as_ptr(), listen.as_ptr(), &mut born), 0);
+        let machine = the_machine().unwrap();
+        let cohort = pulse::Cohort::of(&[machine.naming_half().unwrap()]).unwrap();
+        let errand = |machine: &Machine, _| machine.enter_round(1, 0, 0);
+        assert!(matches!(
+            pulse::live_doing(&machine, &cohort, 0, 1, 1, Some(&errand)),
+            Err(NodeError::Stalled {
+                on: montana_node::say::Verdict::NoData,
+                ..
+            })
+        ));
+        assert_eq!(mtc_machine_reach(std::ptr::null()), -1);
+        let mut out = [0 as c_char; 256];
+        let mut len = 0;
+        assert_eq!(mtc_last_said(out.as_mut_ptr(), out.len(), &mut len), 0);
+        let original = out[..len].to_vec();
+        assert_eq!(mtc_pulse_status(out.as_mut_ptr(), out.len(), &mut len), 0);
+        let status: Vec<u8> = out[..len].iter().map(|byte| *byte as u8).collect();
+        assert_eq!(
+            String::from_utf8(status).unwrap(),
+            machine.counts().status().unwrap().to_string()
+        );
+        assert_eq!(mtc_last_said(out.as_mut_ptr(), out.len(), &mut len), 0);
+        assert_eq!(&out[..len], original.as_slice());
+        drop(machine.counts().watch_door());
+        assert_eq!(mtc_pulse_status(out.as_mut_ptr(), out.len(), &mut len), -2);
+        assert_eq!(mtc_last_said(out.as_mut_ptr(), out.len(), &mut len), 0);
+        assert_eq!(&out[..len], original.as_slice());
+    }
 }

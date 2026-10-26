@@ -13,7 +13,7 @@
 // no person and no amount appears in any of them, so an account written to an operator's console
 // discloses nothing that the points of a round do not already publish.
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 
 // CNS-20: local observation only; never an input to consensus or to the wire.
@@ -23,6 +23,34 @@ pub enum Verdict {
     NoData,
     NoQuorum,
     NoDiagnostics,
+}
+
+impl Verdict {
+    // CNS-20 operator exit codes, requested by issue #21; never protocol values.
+    pub fn exit_code(self) -> u8 {
+        match self {
+            Self::NoQuorum => 1,
+            Self::NoData => 2,
+            Self::ProofRefused => 3,
+            Self::NoDiagnostics => 4,
+        }
+    }
+
+    pub fn from_line(line: &str) -> Option<Self> {
+        [
+            Self::ProofRefused,
+            Self::NoData,
+            Self::NoQuorum,
+            Self::NoDiagnostics,
+        ]
+        .into_iter()
+        .find(|on| {
+            let name = on.to_string();
+            line == name
+                || line.starts_with(&format!("{name}:"))
+                || line.starts_with(&format!("{name}; asking "))
+        })
+    }
 }
 
 impl std::fmt::Display for Verdict {
@@ -53,6 +81,7 @@ impl std::fmt::Display for PulseStatus {
 #[derive(Default)]
 pub struct Counts {
     status: Mutex<Option<PulseStatus>>,
+    door_lost: AtomicBool,
     pub light_refused: AtomicU64,
     pub ballots_refused: AtomicU64,
     pub proposals_refused: AtomicU64,
@@ -95,11 +124,21 @@ pub struct Counts {
 
 impl Counts {
     pub fn status(&self) -> Option<PulseStatus> {
-        self.status.lock().ok().and_then(|held| *held)
+        let held = self.status.lock().ok().and_then(|held| *held);
+        if self.door_lost.load(Ordering::Acquire) {
+            Some(PulseStatus {
+                on: Verdict::NoDiagnostics,
+                asking: held.map_or(0, |status| status.asking),
+            })
+        } else {
+            held
+        }
     }
 
     pub fn observe(&self, proof_refused: bool, missing: bool, asking: u32) -> Verdict {
-        let on = if proof_refused {
+        let on = if self.door_lost.load(Ordering::Acquire) {
+            Verdict::NoDiagnostics
+        } else if proof_refused {
             Verdict::ProofRefused
         } else if missing {
             Verdict::NoData
@@ -110,6 +149,16 @@ impl Counts {
             *held = Some(PulseStatus { on, asking });
         }
         on
+    }
+
+    pub fn clear_status(&self) {
+        if let Ok(mut held) = self.status.lock() {
+            *held = None;
+        }
+    }
+
+    pub fn watch_door(self: &std::sync::Arc<Self>) -> DoorWatch {
+        DoorWatch(std::sync::Arc::clone(self))
     }
 
     pub fn refusals(&self) -> u64 {
@@ -186,4 +235,12 @@ pub enum Took {
     AnotherWidth,
     AnotherPoint,
     PastTheCeiling,
+}
+
+// A returning or unwinding door cannot leave a healthy-looking observation behind.
+pub struct DoorWatch(std::sync::Arc<Counts>);
+impl Drop for DoorWatch {
+    fn drop(&mut self) {
+        self.0.door_lost.store(true, Ordering::Release);
+    }
 }
