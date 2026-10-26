@@ -576,7 +576,37 @@ impl Store {
     // across a restart). It stands in the record of the window, written before the record of the
     // agreement is dropped.
     pub fn closed(&self) -> Result<Option<u64>, StoreError> {
-        Ok(self.window()?.closed)
+        let [_, closed] = self.marks()?;
+        Ok(closed)
+    }
+
+    // **The two windows of the record, read off its first bytes alone.** Which points this
+    // machine holds follows from its head, so the head is asked at every deposit its door takes,
+    // and the record behind it carries a whole plane and a proposal. Reading the whole of it to
+    // learn two numbers read hundreds of kilobytes at every deposit, and four machines taking
+    // hundreds of thousands of deposits a window stopped agreeing on one (the four machines of
+    // `four_machines_decide_one_name` on 05014f6, issue #19). The marks lead the record and take
+    // at most two bytes and two windows, so those are all that is read -- what the head and the
+    // number cost before they moved into the record.
+    fn marks(&self) -> Result<[Option<u64>; 2], StoreError> {
+        let at = self.window_at();
+        let mut file = match fs::File::open(&at) {
+            Ok(file) => file,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok([None, None]),
+            Err(e) => return Err(said(&at, e)),
+        };
+        let mut lead = Zeroizing::new([0u8; 2 * (1 + HEAD_BYTES)]);
+        let mut read = 0;
+        while read < lead.len() {
+            match file.read(&mut lead[read..]) {
+                Ok(0) => break,
+                Ok(n) => read += n,
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(e) => return Err(said(&at, e)),
+            }
+        }
+        let (windows, _) = WindowRecord::marks_of(&at, &lead[..read])?;
+        Ok(windows)
     }
 
     // The number moves forward and never back: a window below the one already closed was closed
@@ -665,7 +695,8 @@ impl Store {
     }
 
     pub fn head(&self) -> Result<Option<u64>, StoreError> {
-        Ok(self.window()?.head)
+        let [head, _] = self.marks()?;
+        Ok(head)
     }
 
     // **What stands at a machine's points stands across a stop.** The heavy attestations, the
@@ -834,7 +865,8 @@ impl WindowRecord {
         out
     }
 
-    fn decode(at: &Path, bytes: &[u8]) -> Result<Self, StoreError> {
+    // The two marks the record leads with, and the count of bytes they took.
+    fn marks_of(at: &Path, bytes: &[u8]) -> Result<([Option<u64>; 2], usize), StoreError> {
         let short = || StoreError::WrongLength {
             at: at.display().to_string(),
             expected: 1 + HEAD_BYTES,
@@ -857,11 +889,15 @@ impl WindowRecord {
                 _ => return Err(short()),
             };
         }
-        let [head, closed] = windows;
+        Ok((windows, bytes.len().saturating_sub(rest.len())))
+    }
+
+    fn decode(at: &Path, bytes: &[u8]) -> Result<Self, StoreError> {
+        let ([head, closed], taken) = Self::marks_of(at, bytes)?;
         Ok(Self {
             head,
             closed,
-            kept: Zeroizing::new(rest.to_vec()),
+            kept: Zeroizing::new(bytes[taken..].to_vec()),
         })
     }
 }
