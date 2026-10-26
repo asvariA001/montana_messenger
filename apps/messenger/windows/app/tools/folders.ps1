@@ -33,7 +33,7 @@ Says "Рекомендуемые папки" 10
 Click-Named "Создать папку"
 Type-Into "Название папки" "Работа"
 Click-Named "Добавить чаты"
-Click-Named "Личные"   # the personal chats: B's, the group stays out
+Click-Named "Не контакты"   # the people (iOS: with no address book every person is a non-contact): B's, the group stays out
 Click-Named "Готово"   # the picker
 Click-Named "Готово"   # the folder
 Says "Работа" 10
@@ -61,7 +61,7 @@ RightClick-Named "Папка: Все"
 Says "Изменить папки" 10
 Click-Named "Изменить папки"
 Says "Рекомендуемые папки" 10
-Click-Named "Назад"
+Click-Named "Закрыть"   # over the tabs the folders' page wears the cross (iOS overlayPage .folders: MontanaCloseMark)
 Click-Named "Папка: Все"   # the next scenarios find the group in the list: the tab All stands chosen again
 Start-Sleep -Seconds 1
 "done in $([int]((Get-Date) - $t0).TotalSeconds) s"

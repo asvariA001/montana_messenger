@@ -393,7 +393,14 @@ export default function Conversation({ chat, onBack, narrow, myName, myFace, foc
     field.current?.focus();
     const back = () => sayRead();
     window.addEventListener("focus", back);
-    return () => { window.removeEventListener("focus", back); clearTimeout(readTimer.current); };
+    return () => {
+      window.removeEventListener("focus", back);
+      clearTimeout(readTimer.current);
+      // A RECORDING DOES NOT FOLLOW THE PERSON OUT OF THE CHAT (iOS MontanaConversation .onDisappear): leaving it -- for another chat
+      // or for the list -- cancels a voice or a round note being recorded, and the microphone and the camera are let go
+      stopVoice(false);
+      stopNote(false);
+    };
   }, [chat]);
   useChanged(() => look(false));
   // THE UNSENT WORDS STAY WITH THE CHAT (iOS persistDraft / ChatStore.draft): the field's words kept for this chat at every change,
@@ -1005,8 +1012,9 @@ export default function Conversation({ chat, onBack, narrow, myName, myFace, foc
                 ) : kind === "sticker" ? (
                   <div className="sticker" data-mid={m.mid} onContextMenu={(e) => open(e, m)}>{m.text.slice(2)}{meta}</div>
                 ) : (
+                  // A SET'S STICKER TAPPED OPENS AMONG THE CHAT'S PICTURES, as any picture (iOS MontanaBubble onTapImage); its set is shown
+                  // from the letter's menu (iOS «View sticker set», MontanaMessageMenu) -- never both at one tap
                   <div className={"bubble" + (kind === "media" ? " media-bubble k-" + (manifestOf(m.text).k || "doc") + (/^stick_/i.test(manifestOf(m.text).n || "") || manifestOf(m.text).n === "montana-card" ? " bare" : "") : "")}
-                       onClick={kind === "media" && manifestOf(m.text).n === "montana-card" && !picking ? () => setStickerFor(m.mid) : undefined}
                        data-mid={m.mid} data-state={m.state} onContextMenu={(e) => open(e, m)}>
                     {speaker && <span className="speaker" style={{ color: tint(channel ? talk.ref : `gm:${talk.ref.slice(4)}/${m.seat}`) }}>{speaker}</span>}
                     {forwardLabel(m.qt) && <span className="forwarded">{forwardLabel(m.qt)}</span>}
@@ -1310,6 +1318,9 @@ export default function Conversation({ chat, onBack, narrow, myName, myFace, foc
                         ))}
                       </div>
                     </div>
+                  )}
+                  {letterKind(menu.m.text) === "media" && manifestOf(menu.m.text).n === "montana-card" && (
+                    <MenuRow icon="grid" label={t("View sticker set")} onClick={() => { setStickerFor(menu.m.mid); setMenu(null); }} />
                   )}
                   <MenuRow icon="forward" label={t("Forward")} onClick={() => deed("forward")} />
                   {talk.pins.includes(menu.m.mid)

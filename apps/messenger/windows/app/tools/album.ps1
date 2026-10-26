@@ -38,7 +38,13 @@ $B = Start-Montana -DataDir "$Root\B"; Front-Montana -X 920 -Y 40 -Width 900 -He
 Click-Named "Алиса Тест"
 Files-Key; Pick-File $one; Start-Sleep -Seconds 2
 Files-Key; Pick-File $two
-Says "Отправлено" 60
+# the pictures left: A's window is on, so the ladder under the newest walks on to «Доставлено» -- in a triage of 25.10.2026 its
+# «Отправлено» stood 0.2 s and 1.7 s, less than a look at the whole window may take; the newest leaves (no «Отправка…» twice running),
+# then the ladder says it left, at whichever rung
+Sent-Settle 60
+$x = Get-Texts
+if (-not (($x -contains "Отправлено") -or ($x -contains "Доставлено") -or ($x -contains "Прочитано"))) { throw "the pictures never left" }
+"  sees: the pictures left"
 
 "A taps the first: the album opens on it among the chat's pictures"
 Use-Montana $A; Front-Montana

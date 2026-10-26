@@ -1,6 +1,6 @@
 # Montana — Value
 
-**Version:** 4.0.0
+**Version:** 4.1.0
 
 Value holds what money is in Montana and how it moves: the note, its commitment, its
 nullifier, the trees they live in, the fixed shape of a spend, what the proof asserts, how a
@@ -228,7 +228,9 @@ applies it or refuses it there; the frame that enters a nullifier first is the o
 frames spending one nullifier stand at the points their senders' slots name, so machines holding one
 and not the other separate them by the canonical order of the window that carries them. What a
 recipient holds within one echo is therefore the agreement of the machines holding the points of the
-frame it was paid by; what the close of that window adds is the agreement of the cement. The two are
+frame it was paid by; what the decision of that window adds is the agreement of the quorum that
+decides it, and where that decision is another name than the one the recipient's machine took, the
+positions it was told are told again from the decided roll, before any note of them can spend. The two are
 different strengths, and this document names which is which rather than letting one word cover both.
 What makes the race visible before the window decides it is the notice.
 
@@ -270,7 +272,7 @@ attack on this mechanism reaches past its absence.
 - A payment is received the moment the frame carrying it is applied, and its note spends onward the moment the stride holding the root of its window stands as the horizon of proving; no rule of settlement reads a beacon, a cement or a proposal.
 - The position a payer walks is the one the tree answered with, and the root its proof stands under is one the horizon of proving holds.
 - Settlement is counted in the round that carries the frame; no quantity of a clock enters it, and no duration is fixed for it anywhere.
-- Within one echo a payment carries the agreement of the machines holding the points of its round, and the cement of its window raises that to the agreement of the quorum; neither strength is stated as the other.
+- Within one echo a payment carries the agreement of the machines holding the points of its round, and the decision of its window raises that to the agreement of the quorum; neither strength is stated as the other, and the positions a note spends from are those of the decided roll.
 - A notice carries a nullifier and the identifier of the frame spending it and nothing else; it is unsigned, and no party is derivable from it.
 - A frame deposits one notice at every notice point Canon derives from every nullifier it spends; a notice standing anywhere else is not of this mechanism. A notice repeated whole adds nothing and is lawful; a notice of one nullifier naming another frame stands beside the first, since refusing it would refuse the race this mechanism exists to reveal.
 - The point of a nullifier reveals a race and decides none: which of two frames stands is the canonical order of the window carrying them, and an implementation deciding it at the point is wrong whatever rule it decides by.

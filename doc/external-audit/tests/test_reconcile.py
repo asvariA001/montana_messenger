@@ -134,6 +134,29 @@ class ReconcileTests(unittest.TestCase):
                 self.assertEqual(len(stated), 1, '\n'.join(out))
                 self.assertNotIn(value, stated[0])
 
+    def test_conflicting_values_on_one_line_both_orders_are_retained(self):
+        # Rejects last-match-wins: a later correct assertion cannot erase an earlier conflict.
+        wrong = 'ee' * 32
+        for first, second in [(wrong, GENESIS), (GENESIS, wrong)]:
+            with self.subTest(first=first):
+                self.write('README.md', f'Canon 9.5.0.\ngenesis_state_hash = {first}; '
+                           f'genesis_state_hash = {second}\n')
+                self.commit()
+                code, out = report(self.root, 'HEAD')
+                self.assertEqual(code, 1, '\n'.join(out))
+                values = {s[1] for s in collect(self.root, 'HEAD')[1]
+                          if s[2:] == ('README.md', 2, False)}
+                self.assertEqual(values, {wrong, GENESIS})
+                self.assertTrue(any(row.startswith(f'  {wrong} at ') and 'README.md:2' in row
+                                    for row in out), '\n'.join(out))
+
+    def test_same_line_equal_claims_do_not_create_a_disagreement(self):
+        # Rejects treating the number of assertions as the number of distinct values.
+        self.write('README.md', f'Canon 9.5.0.\ngenesis_state_hash = {GENESIS}; '
+                   f'genesis_state_hash = {GENESIS}\n')
+        self.commit()
+        self.assertEqual(report(self.root, 'HEAD')[0], 0)
+
     def test_historical_mark_on_the_line_removes_the_value(self):
         # Rejects a reader that compares a value its own document marks as historical.
         self.write('Audit/Protocol-13/12-SOURCE-AND-CLAIMS.md',
@@ -195,6 +218,33 @@ class ReconcileTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn('9.4.0 at README.md:1', result.stdout)
         self.assertEqual(subprocess.run(run[:-1] + ['does-not-exist'], capture_output=True).returncode, 2)
+
+    def test_uppercase_hex_conflict_cannot_disappear(self):
+        # Rejects skipping a valid hex spelling while other documents still agree.
+        self.write('README.md', f'Canon 9.5.0.\ngenesis_state_hash = {"EE" * 32}\n')
+        self.commit()
+        code, out = report(self.root, 'HEAD')
+        self.assertEqual(code, 1, '\n'.join(out))
+        self.assertTrue(any(row.startswith(f'  {"ee" * 32} at ') and 'README.md:2' in row
+                            for row in out), '\n'.join(out))
+
+    def test_hex_case_is_normalized_for_every_text_quantity(self):
+        # Rejects both dropped uppercase values and false disagreements over case alone.
+        for label, key, value in [
+            ('air_hash', 'air_hash', AIR),
+            ('published_parameters', 'published_parameters', PARAMETERS),
+            ('genesis_state_hash', 'genesis_state_hash', GENESIS),
+            ('identifier of the frame', 'air identifier of the frame', FRAME),
+        ]:
+            for spelling in [value.upper(), ''.join(c.upper() if (i // 2) % 2 else c
+                                                    for i, c in enumerate(value))]:
+                with self.subTest(label=label, spelling=spelling):
+                    text = f'{label} = {spelling}\n'
+                    found = statements('README.md', text, {'any', 'prose'})
+                    self.assertEqual([(row[0], row[1]) for row in found], [(key, value)])
+                    self.write('README.md', 'Canon 9.5.0.\n' + text)
+                    self.commit()
+                    self.assertEqual(report(self.root, 'HEAD')[0], 0)
 
     def test_byte_array_reads_as_its_hex(self):
         # Rejects a code reader that keeps the 0x prefixes or the case of the bytes.

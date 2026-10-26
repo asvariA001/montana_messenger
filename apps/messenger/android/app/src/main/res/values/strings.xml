@@ -325,6 +325,7 @@
     <string name="search_messages">MESSAGES</string>
     <string name="search_global">GLOBAL SEARCH</string>
     <string name="search_message_on_montana">Message on Montana</string>
+    <string name="chat_search_hint">Search in chat…</string>
     <string name="nothing_found">Nothing found</string>
     <string name="back_to_top">Back to top</string>
     <!-- the correspondent's edit page (iOS MontanaPeerInfoScreen editor) -->

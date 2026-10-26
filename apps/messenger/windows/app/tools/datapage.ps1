@@ -16,6 +16,13 @@ function Named-Like([string]$pattern, [int]$timeout = 30) {
 }
 # the backup's «Беседы» row speaks its count in its own name: «Беседы 2 / 2»
 function Copy-Count { [regex]::Match((Named-Like '^Беседы\s*\d+ / \d+$' 15), '\d+ / \d+').Value }
+# the count Data and Storage shows after a page of the copy closes: it is counted again on the return, an answer that comes a moment
+# after the page stands -- so the count is read until it says what is wanted, for 10 s at most, and the last reading is returned
+function Copy-Count-Is([string]$Want) {
+    $end = (Get-Date).AddSeconds(10); $c = Copy-Count
+    while ($c -ne $Want -and (Get-Date) -lt $end) { Start-Sleep -Milliseconds 250; $c = Copy-Count }
+    $c
+}
 $t0 = Get-Date
 $A = Start-Montana -DataDir "$Root\A"; Front-Montana -X 0 -Y 40 -Width 900 -Height 1000
 
@@ -66,11 +73,11 @@ Snap "174-A-copy-chats"
 Click-Named "Борис Тест"
 Snap "174b-A-copy-chats-out"
 Click-Named "Назад"
-$out = Copy-Count
+$out = Copy-Count-Is "$($taken - 1) / $all"
 if ($out -ne "$($taken - 1) / $all") { throw "leaving Boris out did not change the count: $out (was $inv)" }
 "  Boris left out: $out"
 Click-Named "Беседы"; Click-Named "Борис Тест"; Click-Named "Назад"
-$back = Copy-Count
+$back = Copy-Count-Is $inv
 if ($back -ne $inv) { throw "Boris did not come back into the copy: $back" }
 "  Boris back: $back"
 

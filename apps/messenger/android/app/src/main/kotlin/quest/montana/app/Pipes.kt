@@ -152,6 +152,25 @@ object Wire {
         return byteArrayOf(FLOOR_FORM) + le8(f) + pipeSecret(p, f) + convRoot(p) + sameRank(p) + fingerprintMaterial(p) +
             (if (isFloor(p)) part(p, 4) else sha(d("mt-pipe-f"), p)) + faceKey(p) + pairTag(p) + ref
     }
+    /** The day F a floor holds the walk at; null while the pipe holds the established secret. */
+    fun floorDayOf(p: ByteArray): Long? = if (isFloor(p)) floorDay(p) else null
+    /**
+     * ONE PIPE MET AGAIN (iOS MTPipeKey.samePipe, 67332869, decision 188, #37): two pipes are one when equal, or when both, walked to the
+     * later floor day of the two, give the same whole floor -- the walk's value, root, rank, fingerprint, face name and key, pair and
+     * reference. Never the reference alone: a pipe that differs in any one kept quantity is another. Two whole secrets are one only equal.
+     */
+    fun samePipe(a: ByteArray, b: ByteArray): Boolean {
+        if (a.contentEquals(b)) return true
+        val f = listOfNotNull(floorDayOf(a), floorDayOf(b)).maxOrNull() ?: return false
+        val x = floored(a, f + FLOOR_LAG); val y = floored(b, f + FLOOR_LAG)
+        return isFloor(x) && isFloor(y) && x.contentEquals(y)
+    }
+    /** Of two pipes that are one, the one a book keeps: the further floor; a whole secret met again is never written over a floor. */
+    fun further(a: ByteArray, b: ByteArray): ByteArray {
+        val o = floorDayOf(b) ?: return a
+        val s = floorDayOf(a) ?: return b
+        return if (o > s) b else a
+    }
     /** The label of one step, from the secret two neighbouring machines share (iOS MTPipe.stepLabel). */
     fun stepLabel(secret: ByteArray, w: Long) = domained("mt-step", secret, le8(w)).copyOf(16)
     /** The seal a hop lays so the owners inside one delivery are counted distinct (iOS MTPipe.relaySeal). */
@@ -349,6 +368,13 @@ object Wire {
                     && convW(f, ERASE_DAY + 1) == convW(s32, ERASE_DAY + 1) && reference(f) == reference(s32)
                     && convRoot(f).contentEquals(convRoot(s32)) && sameRank(f).contentEquals(sameRank(s32))
                     && faceBid(f) == faceBid(s32) && faceKey(f).contentEquals(faceKey(s32)) && itemKeys(f).size == 1
+                    // one pipe met again (iOS floor-188-tests, #37): the secret and its floors of any two days are one pipe, the book keeps
+                    // the further floor; another secret is another pipe, whatever the day
+                    && floored(s32, ERASE_DAY + 3).let { g ->
+                        samePipe(f, s32) && samePipe(s32, g) && samePipe(f, g) && further(f, g) === g && further(g, f) === g
+                            && further(f, s32) === f && further(s32, f) === f && !samePipe(f, floored(r(0x56, 32), ERASE_DAY + 1))
+                            && !samePipe(s32, r(0x56, 32))
+                    }
             }
             && hex(stepLabel(r(0x51, 32), 1000)) == "4b8cb5c6442a52d0750bfb4fac0ba39d"
             && hex(stepLabel(r(0x52, 32), 1000)) == "401d8ab71a2e2554ab30c11aab1ae97d"
@@ -702,18 +728,40 @@ object Book {
     private fun saveIndex() { DeviceVault.set(INDEX, JSONArray(chats.keys.toList()).toString().toByteArray()) }
     private fun save(c: Chat) { DeviceVault.set("chat:${c.ref}", c.json().toString().toByteArray()) }
 
-    /** A pipe's bytes as the day allows them: from ERASE_DAY the floor, sealed again the moment the walk moves it, the head too (iOS
-     *  MTPipeKey.held/lags: a form read with more than the walk allows writes itself again). */
-    fun secret(ref: String): ByteArray? = synchronized(lock) {
+    private var secretsDay = 0L        // the UTC day the book in memory stands floored for (iOS cacheDay)
+    private var secretsHeld = false    // the clock guard withheld the first floor at the last walk: the next read asks again (iOS cacheHeld)
+    private var refusedAt = 0L         // when the vault last refused the floored book; 0 while the disk holds what memory holds
+
+    /**
+     * THE BOOK WALKS WITH THE DAY (iOS MTPipeBook.load, bf55cd1a and 67332869, decisions 126, 188 and 191): memory holds the book as
+     * floored for the day it is read on, by the day the clock guard gives (FloorGuard, asked again at every read while it withholds the
+     * first floor); every pipe the walk moved is sealed again with the archive's head of its correspondence in the floor's form, and from
+     * ERASE_DAY the archive's old heads with the secret leave the folders' logs. A refused write leaves memory floored and is sealed again
+     * by a later read, at most once a minute. Under the lock.
+     */
+    private fun walked(): MutableMap<String, ByteArray> {
         val m = sec()
-        val p = m[ref] ?: return null
-        val f = Wire.floored(p)
-        if (f !== p) {
-            m[ref] = f
-            if (saveSecrets(m)) { Log.d("Montana", "pipe_floor ref=" + ref.take(8)); Archive.head(ref) } else m[ref] = p
+        val day = Wire.day()
+        val retry = refusedAt != 0L && System.currentTimeMillis() - refusedAt >= 60_000
+        if (secretsDay == day && !secretsHeld && !retry) return m
+        val fd = FloorGuard.floorDay(m.isNotEmpty()) { m.values.any(Wire::isFloor) }
+        secretsDay = day; secretsHeld = fd < day
+        val moved = m.filter { (_, p) -> Wire.floored(p, fd) !== p }.keys.toList()
+        moved.forEach { r -> m[r] = Wire.floored(m.getValue(r), fd) }
+        if (moved.isNotEmpty() || retry) {
+            if (saveSecrets(m)) {
+                refusedAt = 0L
+                if (moved.isNotEmpty()) Log.d("Montana", "pipes_floored n=" + moved.size + " day=" + fd)
+                moved.forEach { Archive.head(it) }
+            } else { refusedAt = System.currentTimeMillis(); Log.d("Montana", "pipes_write_refused n=" + m.size) }
         }
-        m[ref]
+        if (fd >= Wire.ERASE_DAY) Archive.dropSecretHeads(fd)   // after the floor heads, on the archive's one queue
+        return m
     }
+    /** A pipe's bytes as the day allows them: from ERASE_DAY the floor (iOS MTPipeKey.held/lags; the book walks, walked). */
+    fun secret(ref: String): ByteArray? = synchronized(lock) { walked()[ref] }
+    /** The day the book floors by now (iOS MTPipeBook.floorDay): the device day, or the day before ERASE_DAY while the guard withholds. */
+    fun floorDay(): Long = synchronized(lock) { walked(); FloorGuard.lastFloorDay() }
     private fun saveSecrets(m: Map<String, ByteArray>): Boolean {
         val o = JSONObject(); m.forEach { (k, v) -> o.put(k, Base64.encodeToString(v, Base64.NO_WRAP)) }
         return DeviceVault.set(SECRETS, o.toString().toByteArray())
@@ -723,10 +771,17 @@ object Book {
     /** A correspondence is born from the secret its first letter produced (iOS MTPipeBook.establish). */
     fun establish(secret: ByteArray): String? = synchronized(lock) {
         val ref = Wire.reference(secret)
-        val m = sec()
-        // a floor no longer holds the bytes to compare: the name, a hash of them, answers for them
-        m[ref]?.let { return if (it.contentEquals(secret) || !Wire.holdsOrigin(it) || !Wire.holdsOrigin(secret)) ref else null }
-        m[ref] = Wire.floored(secret)
+        val m = walked()
+        // ONE PIPE MET AGAIN (iOS MTPipeBook.remember, 67332869, decision 188, #37): from ERASE_DAY the book holds the floor, and a card's
+        // letter brings the whole secret again, an archive head a floor of another day. They are one pipe only when both, walked to the
+        // later floor day, give the same whole floor -- never the name alone; the book keeps the further floor, never the secret again.
+        m[ref]?.let { held ->
+            if (!Wire.samePipe(held, secret)) return null
+            val keep = Wire.further(held, secret)
+            if (keep !== held) { m[ref] = keep; if (saveSecrets(m)) Archive.head(ref) else m[ref] = held }
+            return ref
+        }
+        m[ref] = Wire.floored(secret, FloorGuard.lastFloorDay())
         if (!saveSecrets(m)) { m.remove(ref); return null }
         markErased(listOf(ref), false)   // the pipe born again (iOS: a scan clears the deletion)
         Archive.head(ref)   // the pipe is born: its folder and its secret's head are sealed now (iOS MTPipe 432)
@@ -943,6 +998,8 @@ object Book {
         DeviceVault.set(ERASED, JSONArray(s.toList()).toString().toByteArray())
         erasedHashes = null
     }
+    /** Whether the person deleted this conversation here (iOS deletedChats): a row stood back by its owner stays deleted. */
+    fun erased(ref: String): Boolean = synchronized(lock) { ref in erasedSet() }
     /** A block names its conversation by the hash of the reference (Archive.conv): the erased set is asked by that hash. */
     fun erasedHere(convHex: String): Boolean = synchronized(lock) {
         val h = erasedHashes ?: erasedSet().mapTo(HashSet()) { Wire.hex(Wire.sha(it.toByteArray())) }.also { erasedHashes = it }
@@ -1110,7 +1167,9 @@ object Book {
         synchronized(lock) {
             ensure(); chats.keys.forEach { DeviceVault.delete("chat:$it") }; chats.clear()
             DeviceVault.delete(INDEX); DeviceVault.delete(SECRETS); secrets = null
+            secretsDay = 0L; secretsHeld = false; refusedAt = 0L
         }
+        FloorGuard.wipe(); Archive.forgetPurge()   // the clock guard and the purge's mark are this seat's, as the book (iOS SeedScope.seatKeys)
         File(ctx.filesDir, "faces").deleteRecursively()
         DeviceVault.delete(Post.OUTBOX)
         Meeting.wipe(); SamePair.wipe(); Groups.wipe(); PeerLinks.wipe(); PasswordVault.wipe()

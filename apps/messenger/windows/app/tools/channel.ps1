@@ -24,6 +24,17 @@ Says "Сообщений пока нет" 30   # the channel opens with an empty
 Type-Into "Сообщение..." "Пост канала $stamp"; Click-Named "Отправить"
 Says "Отправлено" 30
 Snap "34-A-channel"
+# THE SECOND STEP LEFT BY «НАЗАД» (the freeze of 25.10.2026, Groups.jsx ChannelCreate: the steps are one page): the introduction must
+# stand again within 2 s -- not «leaving», inert under the window's foot -- and the window answer after its cross; nothing is made
+"A opens a new channel's second step and goes back by «Назад»: the introduction stands again, and the window answers"
+Window-Alive "the post"   # the mouse's own click also takes the keys from the search field: the chats' «Написать» stands
+Click-Named "Написать"; Click-Named "Новый канал"
+Page-Drawn "Новый канал" "Создать канал" 10; Start-Sleep -Milliseconds 450
+Press-In-Page "Новый канал" "Создать канал"; Page-Drawn "Новый канал" "Название канала"; Start-Sleep -Milliseconds 400
+Press-In-Page "Новый канал" "Назад"; Page-Left "Новый канал" "Название канала"
+Page-Drawn "Новый канал" "Создать канал"; Start-Sleep -Milliseconds 450
+Press-In-Page "Новый канал" "Закрыть"; Page-Left "Новый канал" "Создать канал"
+Window-Alive "a new channel's second step → «Назад» → «Закрыть»"
 Stop-Montana
 "B finds the post and reads it"
 $B = Start-Montana -DataDir "$Root\B"; Front-Montana -X 0 -Y 40 -Width 1500 -Height 950

@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { GLYPHS } from "./glyphs.js";
 import logo from "./assets/logo.png";
 import { t } from "./strings.js";
@@ -62,7 +63,7 @@ function SpeakerSlash({ size = 26, color }) {
   );
 }
 
-export default function TopBar({ pane, onPane, unread = 0, missed = 0, mediaIsMusic = true }) {
+export default function TopBar({ pane, onPane, unread = 0, missed = 0, mediaIsMusic = true, stroke = null }) {
   const open = usePanelOpen();
   const slots = useRef([]);
   const plate = useRef(null);
@@ -79,19 +80,32 @@ export default function TopBar({ pane, onPane, unread = 0, missed = 0, mediaIsMu
     return () => { gone = true; clearInterval(id); };
   }, []);
   // THE FIRST SLOT SAYS WHAT STANDS IN THE WAY (iOS slot 0): the banners refused, then the copy with contacts kept nowhere, else
-  // the drawer's grid; read again at every page
+  // the drawer's grid; read again at every page, whenever the keeping moves and whenever the window comes to the front -- the
+  // banners are allowed in Windows' own settings (iOS reads both live: MontanaChatsList.swift 291-292, MTKeeping.swift 448-451)
   const [first, setFirst] = useState("");
-  useEffect(() => { invoke("bar_first").then(setFirst).catch(() => {}); }, [pane]);
+  const lookFirst = () => invoke("bar_first").then(setFirst).catch(() => {});
+  useEffect(() => { lookFirst(); }, [pane]);
+  useEffect(() => {
+    let stop = null, gone = false;
+    listen("montana://keeping", lookFirst).then((u) => { if (gone) u(); else stop = u; });
+    window.addEventListener("focus", lookFirst);
+    return () => { gone = true; stop?.(); window.removeEventListener("focus", lookFirst); };
+  }, []);
   const network = lamp.up ? "up" : lamp.known ? "down" : "unknown";
 
   // the puck stands under the pane's slot, measured as drawn (iOS MTBarSlotKey): folded, only the logo has a place
+  // THE PUCK RIDES WITH THE FINGER (iOS MTPuckSlide): while a stroke turns the pages it is on its way to the neighbour's glyph by
+  // the pane's own progress -- the offset over the page's width (--turn-p, set by the stroke) -- the distance in slots
+  const next = stroke ? PANE_SLOT[stroke.pane] : null;
   useLayoutEffect(() => {
     const el = slots.current[home];
     if (home == null || !el || !plate.current || (!open && home !== 3)) { setPuck(null); return; }
     const a = plate.current.getBoundingClientRect();
-    const b = el.getBoundingClientRect();
-    setPuck({ left: b.left - a.left - plate.current.clientLeft + 3, width: b.width - 6 });   // MTBarPuck().padding(.horizontal, 3)
-  }, [home, open]);
+    const place = (x) => { const b = x.getBoundingClientRect(); return { left: b.left - a.left - plate.current.clientLeft + 3, width: b.width - 6 }; };   // MTBarPuck().padding(.horizontal, 3)
+    const h = place(el);
+    const to = next != null && (open || next === 3) && slots.current[next] ? place(slots.current[next]) : h;
+    setPuck({ ...h, dl: to.left - h.left, dw: to.width - h.width });
+  }, [home, open, next]);
 
   // THE DRAWER STAYS ONE STROKE AWAY (iOS MontanaDrawerHost: the screen's left edge): while the first slot says what stands in the way,
   // its right button -- or a stroke from the window's left edge (App) -- still opens the drawer
@@ -108,7 +122,8 @@ export default function TopBar({ pane, onPane, unread = 0, missed = 0, mediaIsMu
   return (
     <div className="time-panel">
       <div ref={plate} className={`bar-plate${open ? "" : " folded"}`}>
-        {puck && <span className="bar-puck" style={{ transform: `translateX(${puck.left}px)`, width: puck.width }} />}
+        {puck && <span className="bar-puck" style={{ transform: `translateX(calc(${puck.left}px + var(--turn-p, 0) * ${puck.dl}px))`,
+                                                     width: `calc(${puck.width}px + var(--turn-p, 0) * ${puck.dw}px)` }} />}
         {slot(0, first === "notifications" ? t("Notifications are off") : first === "keeping" ? t("Keep my copy with my contacts") : t("App Library"),
           () => onPane(first || "drawer"),
           first === "notifications" ? <SpeakerSlash size={26} color={ink} /> : <Glyph name={first === "keeping" ? "peopleSlash" : "drawer"} size={26} color={ink} />)}

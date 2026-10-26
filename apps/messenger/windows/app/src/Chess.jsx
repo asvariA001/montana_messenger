@@ -95,7 +95,7 @@ export function ChessBoard({ chat, name, onClose, computer = false }) {
   const conceded = useRef(null);
   const look = () => (computer ? setKept(keptComputer()) : invoke("chess_letters", { chat }).then(setLetters).catch(() => setLetters([])));
   useEffect(() => { look(); }, [chat, computer]);
-  useChanged(() => { if (!computer) look(); });
+  useChanged(() => (computer ? undefined : look()));
   useEffect(() => { const id = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(id); }, []);
   const pair = computer ? null : letters ? games(letters) : null;
   // THE POT PAID AT THE END (iOS MTChessCoins.pay): each machine books its own side once, by the game's names

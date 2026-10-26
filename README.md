@@ -9,8 +9,9 @@ the source of the protocol core and of the two Montana applications, laid out fo
 
 [montana.quest](https://montana.quest) · [Whitepaper](WHITEPAPER.md) · [Audit package](AUDIT.md) · [13-item status](Audit/Protocol-13/README.md) · [Security](SECURITY.md)
 
-**Protocol closure is open: 0 of 13 acceptance criteria are closed.** Finality, the issuance bound,
-authenticated first joining and node anonymity are not established by the published snapshot.
+**Protocol closure is open: 1 of 13 acceptance criteria is closed** -- item 1, the window proof and its
+verifier ([report](Audit/Protocol-13/01-WINDOW-PROOF.md)). The issuance bound, authenticated first joining,
+node anonymity and a run of the network on many hosts are not established by the published snapshot.
 Read the source-pinned [reports in Audit](Audit/README.md) before treating historical readiness
 statements or passing primitive tests as evidence of these properties.
 

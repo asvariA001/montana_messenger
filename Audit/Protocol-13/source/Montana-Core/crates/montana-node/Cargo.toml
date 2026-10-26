@@ -31,3 +31,9 @@ zeroize = { workspace = true }
 
 [dev-dependencies]
 mt-conformance = { path = "../mt-conformance" }
+# The vectors of a crash fail the file operations of the store at the count they arm.
+mt-store = { workspace = true, features = ["fault"] }
+
+# The harnesses of the model checker stand under cfg(kani), which `cargo kani` sets and no build does.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(kani)"] }

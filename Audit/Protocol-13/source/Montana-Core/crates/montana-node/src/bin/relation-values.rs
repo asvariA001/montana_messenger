@@ -67,6 +67,7 @@ fn main() {
         machine_root: [0x66; 32],
         admitted_root: [0x77; 32],
         operations_root: [0x88; 32],
+        roll: [0xBB; 32],
         admitted_count: 3,
         cement_aggregate: [0x99; 32],
         cement_count: 2,

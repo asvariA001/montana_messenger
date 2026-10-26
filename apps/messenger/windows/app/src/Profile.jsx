@@ -2,11 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { t } from "./strings.js";
 import { Glyph } from "./TopBar.jsx";
-import { Face, SelfFace, chatName } from "./Chats.jsx";
-import { Page, Section, Row } from "./Settings.jsx";
+import { Face, SAVED, SelfFace, chatName } from "./Chats.jsx";
+import { Page, Section, Row, Waiting } from "./Settings.jsx";
 import { BlockSheet, ReportPage } from "./Safety.jsx";
 import { GroundPicker, PAGE, TheirGround } from "./Ground.jsx";
 import { drawableUrl } from "./Media.jsx";
+import { useLeave } from "./leave.js";
 import { Wall } from "./Wall.jsx";
 import { forgetSmallFaces } from "./WallMedia.jsx";
 import { PeerPanes } from "./PeerPanes.jsx";
@@ -73,6 +74,7 @@ export function CallsignPicker({ current, onPick, onClose }) {
 
 export function Crop({ file, onDone, onCancel, out = 640, limit = 131072, q0 = 0.85 }) {
   const [img, setImg] = useState(null);
+  useLeave(onCancel);   // Esc, the mouse's back button, Alt+← -- its cross, never the page waiting under it
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const drag = useRef(null);
@@ -88,7 +90,19 @@ export function Crop({ file, onDone, onCancel, out = 640, limit = 131072, q0 = 0
     });
     return () => { live = false; if (u) URL.revokeObjectURL(u); };
   }, [file]);
-  if (!img) return null;
+  // THE CROP STANDS AT ONCE (iOS MTAvatarCropView in a fullScreenCover, MontanaProfile.swift 810-811; iOS has the picture before
+  // the cover rises, a window reads it here -- a HEIC is converted first): its ground, its cross and a spinner while it is read,
+  // never nothing over a page that waits under it
+  if (!img) {
+    return (
+      <div className="crop" role="dialog">
+        <div className="crop-bar">
+          <button className="glass-mark" onClick={onCancel} aria-label={t("Cancel")}><Glyph name="close" size={18} color="#fff" /></button>
+        </div>
+        <span className="spinner" role="status" />
+      </div>
+    );
+  }
   const base = side / Math.min(img.naturalWidth, img.naturalHeight);   // the picture always covers the frame
   const k = base * zoom, w = img.naturalWidth * k, h = img.naturalHeight * k;
   const clamp = (p) => ({ x: Math.min(0, Math.max(side - w, p.x)), y: Math.min(0, Math.max(side - h, p.y)) });
@@ -106,7 +120,7 @@ export function Crop({ file, onDone, onCancel, out = 640, limit = 131072, q0 = 0
     }
   };
   return (
-    <div className="crop">
+    <div className="crop" role="dialog">
       <div className="crop-bar">
         <button className="glass-mark" onClick={onCancel} aria-label={t("Cancel")}><Glyph name="close" size={18} color="#fff" /></button>
         <button className="glass-mark" onClick={done} aria-label={t("Done")}><Glyph name="tick" size={18} color="#fff" /></button>
@@ -192,6 +206,7 @@ function Editor({ person, onDone }) {
 /** A CORRESPONDENT'S PAGE (iOS PeerInfo): their face, name, words about themselves and link. */
 export function PeerPage({ chat, face, myName, onClose, onWrite, onShowLetter, onForward }) {
   const [p, setP] = useState(null);
+  const [failed, setFailed] = useState(false);   // their words did not come
   const [blocked, setBlocked] = useState(false);
   const [asking, setAsking] = useState(false);
   const [reporting, setReporting] = useState(false);
@@ -199,63 +214,77 @@ export function PeerPage({ chat, face, myName, onClose, onWrite, onShowLetter, o
   const [original, setOriginal] = useState(false);
   const [ground, setGround] = useState(false);   // the chat's ground being chosen
   const look = () => {
-    invoke("peer_about", { chat }).then(setP);
-    invoke("chat_open", { chat }).then((c) => setBlocked(!!c?.blocked));
+    invoke("peer_about", { chat }).then((x) => { setFailed(false); setP(x); }, () => setFailed(true));
+    invoke("chat_open", { chat }).then((c) => setBlocked(!!c?.blocked)).catch(() => {});
   };
   useEffect(() => { look(); }, [chat]);
-  if (!p) return null;
-  const [name, bio, link, alias, theirs] = p;
-  if (reporting) return <ReportPage chat={chat} name={name} onClose={() => { setReporting(false); look(); }} />;
-  if (ground) return <GroundPicker conv={chat} onClose={() => setGround(false)} />;
-  if (editing) {
-    const done = async () => { await invoke("peer_rename", { chat, first: editing.first, last: editing.last }); setEditing(null); look(); };
+  // SAVED MESSAGES IS ITS PANES (iOS MontanaPeerInfoScreen 58-64, the author's word 18.09): the room without an address has no face,
+  // no name and no actions to show -- its page opens straight on the strip of what it holds, with no title over it
+  if (chat === SAVED) {
     return (
-      <Page title={t("Edit")} onClose={() => setEditing(null)} back
-            right={<button className="glass-mark" onClick={done} aria-label={t("Done")}><Glyph name="tick" size={18} color="#fff" /></button>}>
-        <div className="me-head"><Face chat={chat} version={face} size={104} /></div>
-        <Section foot={alias && theirs && original ? theirs : null}>
-          <input className="set-field" placeholder={t("First name")} aria-label={t("First name")} value={editing.first} maxLength={64}
-                 onChange={(e) => setEditing({ ...editing, first: e.target.value })} />
-          <input className="set-field" placeholder={t("Last name")} aria-label={t("Last name")} value={editing.last} maxLength={64}
-                 onChange={(e) => setEditing({ ...editing, last: e.target.value })} />
-          {alias && theirs && <button className="set-row" onClick={() => setOriginal(!original)}><span className="row-title" style={{ color: "var(--blue)" }}>{t("Show original name")}</span></button>}
-        </Section>
+      <Page key="saved" title="" onClose={onClose} back>
+        <PeerPanes chat={chat} name="" myName={myName} onShowLetter={onShowLetter} onForward={onForward} />
+        <div className="player-foot"><PlayerBar /></div>
       </Page>
     );
   }
+  const [name, bio, link, alias, theirs] = p || [];
+  if (reporting) return <ReportPage chat={chat} name={name} onClose={() => { setReporting(false); look(); }} />;
+  if (ground) return <GroundPicker conv={chat} onClose={() => setGround(false)} />;
+  const done = async () => { await invoke("peer_rename", { chat, first: editing.first, last: editing.last }); setEditing(null); look(); };
   const edit = () => {
     const shown = (alias || theirs || "").trim();
     const cut = shown.indexOf(" ");
     setEditing(cut > 0 ? { first: shown.slice(0, cut), last: shown.slice(cut + 1) } : { first: shown, last: "" });
   };
+  // THE PAGE STANDS AT ONCE, ON THEIR GROUND (the freeze of the panel's first slot, 25.10.2026): its frame while their words are read,
+  // never nothing over an app it has made inert; MY NAME FOR THEM is written on a page pushed over it (iOS edit mode), the page
+  // waiting under it as it stood
   return (
-    <Page title="" onClose={onClose} back ground={<TheirGround chat={chat} />}
-          right={<button className="glass-mark" onClick={edit} aria-label={t("Edit")}><Glyph name="pencil" size={18} color="#fff" /></button>}>
-      <div className="me-head">
-        <Face chat={chat} version={face} size={104} />
-        <div className="me-bubble name">{chatName(name)}</div>
-        {bio && <div className="me-bubble">{bio}</div>}
-        <Links field={link} />
-      </div>
-      {blocked && <div className="me-head"><span className="blocked-pill">{t("Blocked")}</span></div>}
-      <Section>
-        <button className="set-row accent" onClick={onWrite}><Glyph name="compose" size={18} color="#fff" /><span className="row-title">{t("Write")}</span></button>
-        <Row icon="photo" color="#636366" title={t("Chat background")} onClick={() => setGround(true)} />
-      </Section>
-      <Section>
-        <button className="set-row" onClick={() => (blocked ? invoke("chat_block", { chat, on: false }).then(() => setTimeout(look, 300)) : setAsking(true))}>
-          <Glyph name="nosign" size={18} color="var(--red)" /><span className="row-title red">{blocked ? t("Unblock") : t("Block")}</span>
-        </button>
-        <button className="set-row" onClick={() => setReporting(true)}>
-          <Glyph name="report" size={18} color="var(--red)" /><span className="row-title red">{t("Report")}</span>
-        </button>
-      </Section>
-      {/* THE PANES (iOS MontanaPeerInfoScreen.panes): the strip, then the wall or what the chat holds */}
-      <PeerPanes chat={chat} name={name} myName={myName} onShowLetter={onShowLetter} onForward={onForward} />
-      {/* THE MINI PLAYER STANDS HERE TOO (iOS MontanaPeerInfoScreen: the same bar as the chat's and the list's) */}
-      <div className="player-foot"><PlayerBar /></div>
-      {asking && <BlockSheet name={name} onClose={() => setAsking(false)}
-                             onBlock={async () => { setAsking(false); await invoke("chat_block", { chat, on: true }); setTimeout(look, 300); }} />}
-    </Page>
+    <>
+      <Page key="peer" title="" onClose={onClose} back ground={<TheirGround chat={chat} />} under={!!editing}
+            right={p && <button className="glass-mark" onClick={edit} aria-label={t("Edit")}><Glyph name="pencil" size={18} color="#fff" /></button>}>
+        {!p ? <Section><Waiting failed={failed} onRetry={look} /></Section> : <>
+          <div className="me-head">
+            <Face chat={chat} version={face} size={104} />
+            <div className="me-bubble name">{chatName(name)}</div>
+            {bio && <div className="me-bubble">{bio}</div>}
+            <Links field={link} />
+          </div>
+          {blocked && <div className="me-head"><span className="blocked-pill">{t("Blocked")}</span></div>}
+          <Section>
+            <button className="set-row accent" onClick={onWrite}><Glyph name="compose" size={18} color="#fff" /><span className="row-title">{t("Write")}</span></button>
+            <Row icon="photo" color="#636366" title={t("Chat background")} onClick={() => setGround(true)} />
+          </Section>
+          <Section>
+            <button className="set-row" onClick={() => (blocked ? invoke("chat_block", { chat, on: false }).then(() => setTimeout(look, 300)) : setAsking(true))}>
+              <Glyph name="nosign" size={18} color="var(--red)" /><span className="row-title red">{blocked ? t("Unblock") : t("Block")}</span>
+            </button>
+            <button className="set-row" onClick={() => setReporting(true)}>
+              <Glyph name="report" size={18} color="var(--red)" /><span className="row-title red">{t("Report")}</span>
+            </button>
+          </Section>
+          {/* THE PANES (iOS MontanaPeerInfoScreen.panes): the strip, then the wall or what the chat holds */}
+          <PeerPanes chat={chat} name={name} myName={myName} onShowLetter={onShowLetter} onForward={onForward} />
+          {/* THE MINI PLAYER STANDS HERE TOO (iOS MontanaPeerInfoScreen: the same bar as the chat's and the list's) */}
+          <div className="player-foot"><PlayerBar /></div>
+          {asking && <BlockSheet name={name} onClose={() => setAsking(false)}
+                                 onBlock={async () => { setAsking(false); await invoke("chat_block", { chat, on: true }); setTimeout(look, 300); }} />}
+        </>}
+      </Page>
+      {p && editing && (
+        <Page key="edit" title={t("Edit")} onClose={() => setEditing(null)} back
+              right={<button className="glass-mark" onClick={done} aria-label={t("Done")}><Glyph name="tick" size={18} color="#fff" /></button>}>
+          <div className="me-head"><Face chat={chat} version={face} size={104} /></div>
+          <Section foot={alias && theirs && original ? theirs : null}>
+            <input className="set-field" placeholder={t("First name")} aria-label={t("First name")} value={editing.first} maxLength={64}
+                   onChange={(e) => setEditing({ ...editing, first: e.target.value })} />
+            <input className="set-field" placeholder={t("Last name")} aria-label={t("Last name")} value={editing.last} maxLength={64}
+                   onChange={(e) => setEditing({ ...editing, last: e.target.value })} />
+            {alias && theirs && <button className="set-row" onClick={() => setOriginal(!original)}><span className="row-title" style={{ color: "var(--blue)" }}>{t("Show original name")}</span></button>}
+          </Section>
+        </Page>
+      )}
+    </>
   );
 }

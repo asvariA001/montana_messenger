@@ -23,7 +23,8 @@ import android.widget.Switch
  * change is the owner's word to every phone of the group (Groups.renew, add, remove, leave), never one phone's alone.
  */
 fun groupPage(act: MainActivity, key: String, onClose: () -> Unit,
-              toChat: (String, String?) -> Unit = { to, mid -> act.push { close -> conversationPage(act, to, close, jump = mid) } }): View {
+              toChat: (String, String?) -> Unit = { to, mid -> act.push { close -> conversationPage(act, to, close, jump = mid) } },
+              onSearch: () -> Unit = { onClose(); act.push { close -> conversationPage(act, key, close, search = true) } }): View {
     val c: Context = act
     // THE GROUP'S PANES UNDER ITS PEOPLE, AS THE REFERENCE'S PAGE HAS THEM (iOS 82c9ae3f, V.7): Media -- its photos and its videos
     // together --, Files, Links, Music and Voice; a channel keeps its page as it was
@@ -113,6 +114,8 @@ fun groupPage(act: MainActivity, key: String, onClose: () -> Unit,
         plate(if (muted) R.drawable.ic_set_bell else R.drawable.ic_bell_off, c.getString(if (muted) R.string.gp_unmute else R.string.gp_mute)) {
             ChatMarks.toggleMute(key); redraw()   // the one switch of a chat's sound, the list's swipe's own
         }
+        // «Search» (iOS .search, MontanaPeerInfoScreen.swift:590-596): the chat's own search, the page gone down to its chat
+        plate(R.drawable.ic_search, c.getString(R.string.search)) { onSearch() }
         plate(R.drawable.ic_more_horiz, c.getString(R.string.pi_more)) { v -> groupMore(v) }
         body.addView(plates, lp())
         Groups.about(key).takeIf { it.isNotEmpty() }?.let { about ->

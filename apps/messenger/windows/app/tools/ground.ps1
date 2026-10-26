@@ -60,7 +60,33 @@ function Peer-Ground {
     Click-Named "Фон чата"
     Says "Фоны Montana" 10
 }
-function Open-Talk { Click-Named "Чаты"; Click-Named "Борис Тест"; Find-Named "Сообщение..." 15 | Out-Null; Start-Sleep -Milliseconds 800 }
+# THE CHAT'S GROUND IS READ AT THE FEED'S HEAD, where the first day's plate stands under the title's capsule and nothing right of it:
+# the feed opens at its newest end, and the scenes before this one in the full order fill the chat with B -- there A's own card and a
+# picture stood under the capsule, right of the plate (a full run of 25.10.2026 read 34 % «dark» on A's card letter). The wheel draws the
+# feed down over its middle until the window's pixels there stand still.
+function Feed-Look {
+    $f = Join-Path $env:TEMP "montana-ground-feed.png"
+    Shot-Montana $f
+    $bmp = [System.Drawing.Bitmap]::FromFile($f)
+    try { $s = ""; for ($i = 0; $i -lt 8; $i++) { for ($j = 0; $j -lt 12; $j++) { $s += $bmp.GetPixel([int]($bmp.Width * (0.42 + 0.07 * $i)), [int]($bmp.Height * (0.15 + 0.055 * $j))).ToArgb() } }; $s }
+    finally { $bmp.Dispose(); Remove-Item $f -ErrorAction SilentlyContinue }
+}
+function Feed-Head {
+    $r = New-Object MontanaWin+Rect; [MontanaWin]::GetWindowRect((Handle), [ref]$r) | Out-Null
+    $x = [int]($r.Left + ($r.Right - $r.Left) * 0.7); $y = [int]($r.Top + ($r.Bottom - $r.Top) * 0.5)
+    $before = Feed-Look
+    for ($i = 0; $i -lt 30; $i++) {
+        if (Point-Holder $x $y) { Front-Montana; $who = Point-Holder $x $y; if ($who) { throw "the wheel over the feed would turn $who -- another program holds the front" } }
+        [MontanaMouse]::SetCursorPos($x, $y) | Out-Null; Start-Sleep -Milliseconds 100
+        for ($k = 0; $k -lt 10; $k++) { [MontanaMouse]::mouse_event(0x0800, 0, 0, 1200, [UIntPtr]::Zero); Start-Sleep -Milliseconds 30 }
+        Start-Sleep -Milliseconds 700
+        $now = Feed-Look
+        if ($now -eq $before) { return }
+        $before = $now
+    }
+    throw "the chat's feed never stood still at its head"
+}
+function Open-Talk { Click-Named "Чаты"; Click-Named "Борис Тест"; Find-Named "Сообщение..." 15 | Out-Null; Start-Sleep -Milliseconds 800; Feed-Head }
 Add-Type -AssemblyName System.Drawing
 $pic = Join-Path $Root "ground-test.png"
 $bmp = New-Object System.Drawing.Bitmap 1200, 800

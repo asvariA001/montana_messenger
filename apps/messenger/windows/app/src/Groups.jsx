@@ -46,7 +46,12 @@ const RIGHTS = [
 ];
 /** The steps of slow mode (iOS MTGroupPermissionsPage.steps): off, 10 and 30 seconds, 1, 5 and 15 minutes, an hour. */
 const SLOW = [0, 10, 30, 60, 300, 900, 3600];
-const slowWord = (s) => (s === 0 ? t("Off") : s < 60 ? `${s} ${locale.startsWith("ru") ? "с" : "s"}` : s < 3600 ? `${s / 60} ${locale.startsWith("ru") ? "мин" : "min"}` : `1 ${locale.startsWith("ru") ? "ч" : "h"}`);
+// a step's word by the system's own short units (iOS MTGroupPage.word: .abbreviated, one unit) -- «10 с», «1 мин», «1 ч»; «10s», «1m», «1h»
+const slowWord = (s) => {
+  if (s === 0) return t("Off");
+  const [n, unit] = s < 60 ? [s, "second"] : s < 3600 ? [s / 60, "minute"] : [s / 3600, "hour"];
+  return new Intl.NumberFormat(locale, { style: "unit", unit, unitDisplay: "narrow" }).format(n);
+};
 
 /** Why the group takes not these words, in iOS's sentence (MTGroupRight.refusal, slowRefusal). */
 export function refusalWords(why) {
@@ -201,18 +206,32 @@ export function GroupFace({ size = 48, chat, version, onClick }) {
 
 /** THE PEOPLE A GROUP CAN HOLD (iOS MTGroupPickStep): only those with a correspondence -- a group's letter rides each
  *  person's own pipe. */
-function Pick({ title, except = [], onDone, onClose, foot = t("A group's letter rides each person's own channel, so only the people you write with are listed.") }) {
+function Pick({ title, except = [], onDone, onClose, required = false, tokens = true, pushed = false,
+                foot = t("A group's letter rides each person's own channel, so only the people you write with are listed.") }) {
   const [rows, setRows] = useState([]);
   const [q, setQ] = useState("");
   const [chosen, setChosen] = useState([]);
   useEffect(() => { invoke("chats").then((r) => setRows(r.filter((x) => !x.group && !x.blocked && x.ref !== SAVED && !except.includes(x.ref)))); }, []);
   const shown = rows.filter((r) => !q.trim() || chatName(r.name).toLowerCase().includes(q.trim().toLowerCase()));
   const flip = (r) => setChosen(chosen.includes(r) ? chosen.filter((x) => x !== r) : [...chosen, r]);
+  // A NEW GROUP MAY BEGIN WITH NOBODY YET, as the reference's does (iOS MTGroupPickStep, A.2); adding asks for someone to add
+  const off = required && !chosen.length;
   return (
-    <Page title={title} onClose={onClose}
-          right={<button className="glass-mark" disabled={!chosen.length} onClick={() => onDone(chosen)} aria-label={t("Done")}>
-            <Glyph name="tick" size={18} color={chosen.length ? "#fff" : "#555"} /></button>}>
+    <Page title={title} onClose={onClose} back={pushed}
+          right={<button className="glass-mark" disabled={off} style={{ opacity: off ? 0.4 : 1 }} onClick={() => onDone(chosen)} aria-label={t("Done")}>
+            <Glyph name="tick" size={18} color="var(--bar-glyph)" /></button>}>
       <input className="meet-field pick-search" placeholder={t("Search")} value={q} onChange={(e) => setQ(e.target.value)} aria-label={t("Search")} />
+      {/* THE CHOSEN AS TOKENS OVER THE LIST (iOS: the reference's token field): each a capsule, a tap lets one go */}
+      {tokens && chosen.length > 0 && (
+        <Section>
+          <div className="pick-tokens">
+            {chosen.map((ref) => {
+              const r = rows.find((x) => x.ref === ref);
+              return <button key={ref} className="pick-token" onClick={() => flip(ref)} aria-label={`${t("Remove")}: ${chatName(r?.name)}`}>{chatName(r?.name)}</button>;
+            })}
+          </div>
+        </Section>
+      )}
       <Section foot={foot}>
         {shown.map((r) => (
           <button key={r.ref} className="set-row pick-row" onClick={() => flip(r.ref)} aria-label={`${t("Choose")}: ${chatName(r.name)}`}>
@@ -226,6 +245,37 @@ function Pick({ title, except = [], onDone, onClose, foot = t("A group's letter 
   );
 }
 
+/** THE FACE OF A GROUP OR A CHANNEL BEING BORN (iOS MTFacePicker): a circle of 60 -- the picture chosen, else the tertiary fill with
+ *  camera.fill -- that opens the picker. */
+function FacePicker({ photo, onPick }) {
+  return (
+    <button className="face-picker" onClick={onPick} aria-label={photo ? t("Change photo") : t("Choose photo")}>
+      {photo ? <img src={photo.url} alt="" className="face-photo" />
+        : <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4.5h6l1.4 2H19a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2h2.6z" fill="#fff" /><circle cx="12" cy="13" r="3.6" fill="rgb(44,44,46)" /></svg>}
+    </button>
+  );
+}
+/** The people chosen for the group, under its name (iOS MTGroupNameStep: «N members», the face 40 and the name). */
+function PeopleChosen({ refs }) {
+  const [rows, setRows] = useState([]);
+  useEffect(() => { invoke("chats").then((r) => setRows(r.filter((x) => refs.includes(x.ref)))).catch(() => {}); }, []);
+  return (
+    <Section head={members(refs.length)}>
+      {rows.map((r) => (
+        <div key={r.ref} className="set-row"><Face chat={r.ref} version={r.face} size={40} /><span className="row-title">{chatName(r.name)}</span></div>
+      ))}
+    </Section>
+  );
+}
+/** SF megaphone.fill, at its shape. */
+const MegaphoneFill = ({ size = 64 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M3 10.2v3.6c0 .8.6 1.4 1.4 1.4h2.2l6.1 4.1c.6.4 1.5 0 1.5-.8V5.5c0-.8-.9-1.2-1.5-.8L6.6 8.8H4.4c-.8 0-1.4.6-1.4 1.4z" fill="#fff" />
+    <path d="M7 15.6l1.2 4.4c.2.8 1 1.2 1.8 1l.4-.1c.7-.2 1.1-.9.9-1.6L10.2 16z" fill="#fff" />
+    <path d="M17.2 8.6a5 5 0 0 1 0 6.8M19.4 6.4a8 8 0 0 1 0 11.2" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" />
+  </svg>
+);
+
 /** A NEW GROUP (iOS: the people, then the name). */
 export function GroupCreate({ onClose, onMade }) {
   const [people, setPeople] = useState(null);
@@ -234,29 +284,30 @@ export function GroupCreate({ onClose, onMade }) {
   const [photo, setPhoto] = useState(null);   // {bytes, url}: the face the group is born with
   const picker = useRef(null);
   if (!people) return <Pick title={t("New Group")} onClose={onClose} onDone={setPeople} />;
-  if (file) return <Crop file={file} {...GROUP_FACE} onCancel={() => setFile(null)}
-                         onDone={(bytes) => { setPhoto({ bytes, url: URL.createObjectURL(new Blob([bytes], { type: "image/jpeg" })) }); setFile(null); }} />;
   const make = async () => {
     const chat = await invoke("group_create", { title, pipes: people });
     if (photo) await invoke("group_face", photo.bytes, { headers: { chat } });
     onMade(chat);
   };
-  return (
-    <Page title={t("New Group")} onClose={() => setPeople(null)} back
-          right={<button className="glass-mark" disabled={!title.trim()} onClick={make} aria-label={t("Done")}>
-            <Glyph name="tick" size={18} color={title.trim() ? "#fff" : "#555"} /></button>}>
+  // the crop stands over the name's step, which waits under it as it stood -- never drawn anew, sliding in again, when it goes
+  return (<>
+    <Page key="name" title={t("New Group")} onClose={() => setPeople(null)} back under={!!file}
+          right={<button className="glass-mark" disabled={!title.trim()} style={{ opacity: title.trim() ? 1 : 0.4 }} onClick={make} aria-label={t("Done")}>
+            <Glyph name="tick" size={18} color="var(--bar-glyph)" /></button>}>
       <input ref={picker} type="file" accept="image/*" hidden onChange={(e) => { if (e.target.files[0]) setFile(e.target.files[0]); e.target.value = ""; }} />
-      <div className="me-head">
-        {photo ? <div className="face" style={{ width: 60, height: 60, cursor: "pointer" }} onClick={() => picker.current.click()}><img src={photo.url} alt="" className="face-photo" /></div>
-          : <GroupFace size={60} onClick={() => picker.current.click()} />}
-        <button className="link-button" onClick={() => picker.current.click()}>{photo ? t("Change photo") : t("Choose photo")}</button>
-      </div>
-      <Section head={members(people.length + 1)}>
-        <input className="set-field" placeholder={t("Group Name")} value={title} maxLength={64} autoFocus aria-label={t("Group Name")}
-               onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && title.trim() && make()} />
+      {/* THE FACE AND THE NAME IN ONE LINE (iOS MTGroupNameStep: MTFacePicker 60 beside the field), the people chosen under them */}
+      <Section>
+        <div className="set-row face-name-row">
+          <FacePicker photo={photo} onPick={() => picker.current.click()} />
+          <input className="set-field" placeholder={t("Group Name")} value={title} maxLength={64} autoFocus aria-label={t("Group Name")}
+                 onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && title.trim() && make()} />
+        </div>
       </Section>
+      {people.length > 0 && <PeopleChosen refs={people} />}
     </Page>
-  );
+    {file && <Crop file={file} {...GROUP_FACE} onCancel={() => setFile(null)}
+                   onDone={(bytes) => { setPhoto({ bytes, url: URL.createObjectURL(new Blob([bytes], { type: "image/jpeg" })) }); setFile(null); }} />}
+  </>);
 }
 
 /** A NEW CHANNEL IN THREE STEPS (iOS MontanaChannel: MTChannelIntroStep, MTChannelInfoStep, MTChannelSubscribersStep): what a
@@ -273,41 +324,44 @@ export function ChannelCreate({ onClose, onMade }) {
     if (photo) await invoke("group_face", photo.bytes, { headers: { chat } });
     onMade(chat);
   };
-  if (step === "pick") return <Pick title={t("Add Subscribers")} onClose={() => setStep("info")} onDone={make}
-                                    foot={t("A post rides the pipe of each person, so only the people you write with are listed.")} />;
-  if (file) return <Crop file={file} {...GROUP_FACE} onCancel={() => setFile(null)}
-                         onDone={(bytes) => { setPhoto({ bytes, url: URL.createObjectURL(new Blob([bytes], { type: "image/jpeg" })) }); setFile(null); }} />;
-  if (step === "intro") {
-    return (
-      <Page title={t("New Channel")} onClose={onClose}>
+  // THE STEPS ARE PUSHED ONE OVER ANOTHER (iOS MontanaChannel.swift 14, 38, 83: a NavigationStack, MTChannelIntroStep →
+  // MTChannelInfoStep → MTChannelSubscribersStep): each step is its own page and waits under the next as it stood; one leaving takes
+  // itself away alone. THE CROP STANDS OVER THEM (iOS MTAvatarCropView in a fullScreenCover): the steps wait under it as they stood,
+  // never drawn anew when it goes -- neither rising nor sliding in again
+  return (
+    <>
+      <Page key="intro" title={t("New Channel")} onClose={onClose} under={step !== "intro" || !!file}>
         <div className="channel-intro">
-          <Glyph name="antenna" size={64} color="#fff" />
+          <MegaphoneFill size={64} />
           <div className="channel-intro-title">{t("What is a Channel?")}</div>
           <div className="channel-intro-text">{t("Channels are a new tool for broadcasting your messages to large audiences.")}</div>
           <button className="primary-wide" onClick={() => setStep("info")}>{t("Create Channel")}</button>
         </div>
       </Page>
-    );
-  }
-  return (
-    <Page title={t("New Channel")} onClose={() => setStep("intro")} back
-          right={<button className="glass-mark" disabled={!title.trim()} onClick={() => setStep("pick")} aria-label={t("Done")}>
-            <Glyph name="tick" size={18} color={title.trim() ? "#fff" : "#555"} /></button>}>
-      <input ref={picker} type="file" accept="image/*" hidden onChange={(e) => { if (e.target.files[0]) setFile(e.target.files[0]); e.target.value = ""; }} />
-      <div className="me-head">
-        {photo ? <div className="face" style={{ width: 60, height: 60, cursor: "pointer" }} onClick={() => picker.current.click()}><img src={photo.url} alt="" className="face-photo" /></div>
-          : <GroupFace size={60} onClick={() => picker.current.click()} />}
-        <button className="link-button" onClick={() => picker.current.click()}>{photo ? t("Change photo") : t("Choose photo")}</button>
-      </div>
-      <Section>
-        <input className="set-field" placeholder={t("Channel Name")} value={title} maxLength={64} autoFocus aria-label={t("Channel Name")}
-               onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && title.trim() && setStep("pick")} />
-      </Section>
-      <Section foot={t("You can provide an optional description for your channel.")}>
-        <textarea className="set-field" rows={3} placeholder={t("Description (Optional)")} value={about} maxLength={255}
-                  aria-label={t("Description (Optional)")} onChange={(e) => setAbout(e.target.value)} />
-      </Section>
-    </Page>
+      {step !== "intro" && (
+        <Page key="info" title={t("New Channel")} onClose={() => setStep("intro")} back under={step === "pick" || !!file}
+              right={<button className="glass-mark" disabled={!title.trim()} style={{ opacity: title.trim() ? 1 : 0.4 }} onClick={() => setStep("pick")} aria-label={t("Done")}>
+                <Glyph name="tick" size={18} color="var(--bar-glyph)" /></button>}>
+          <input ref={picker} type="file" accept="image/*" hidden onChange={(e) => { if (e.target.files[0]) setFile(e.target.files[0]); e.target.value = ""; }} />
+          {/* THE FACE AND THE NAME IN ONE LINE (iOS MTChannelInfoStep: MTFacePicker 60 beside the field) */}
+          <Section>
+            <div className="set-row face-name-row">
+              <FacePicker photo={photo} onPick={() => picker.current.click()} />
+              <input className="set-field" placeholder={t("Channel Name")} value={title} maxLength={64} autoFocus aria-label={t("Channel Name")}
+                     onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && title.trim() && setStep("pick")} />
+            </div>
+          </Section>
+          <Section foot={t("You can provide an optional description for your channel.")}>
+            <textarea className="set-field" rows={3} placeholder={t("Description (Optional)")} value={about} maxLength={255}
+                      aria-label={t("Description (Optional)")} onChange={(e) => setAbout(e.target.value)} />
+          </Section>
+        </Page>
+      )}
+      {step === "pick" && <Pick key="pick" title={t("Add Subscribers")} onClose={() => setStep("info")} onDone={make} pushed tokens={false}
+                                foot={t("A post rides the pipe of each person, so only the people you write with are listed.")} />}
+      {file && <Crop file={file} {...GROUP_FACE} onCancel={() => setFile(null)}
+                     onDone={(bytes) => { setPhoto({ bytes, url: URL.createObjectURL(new Blob([bytes], { type: "image/jpeg" })) }); setFile(null); }} />}
+    </>
   );
 }
 
@@ -338,7 +392,7 @@ export function GroupPage({ chat, onClose, onGone }) {
   if (reactions) return <ChannelReactions chat={chat} g={g} onClose={() => { setReactions(false); setTimeout(look, 500); }} />;
   if (promoting) return <AdminRights chat={chat} g={g} p={promoting} onClose={() => { setPromoting(null); setTimeout(look, 500); }} />;
   const kicks = g.owner || (g.admin && (g.rights || []).includes("bu"));   // the owner, or an administrator with «Ban Users»
-  if (adding) return <Pick title={t("Add Members")} onClose={() => setAdding(false)}
+  if (adding) return <Pick title={t("Add Members")} required onClose={() => setAdding(false)}
                            onDone={(p) => { invoke("group_add", { chat, pipes: p }); setAdding(false); setTimeout(look, 500); }} />;
   return (
     <Page title="" onClose={onClose} back

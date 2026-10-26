@@ -59,14 +59,22 @@ def _live_taken(pairs):
         db().commit()
     return len(rows)
 
-def _live_untaken(body, subs, rows):
+def _live_untaken(body, subs, rows, who=""):
+    if os.environ.get("CLOCKNODE_DEBUG"):
+        boxed = {r[0] for r in db().execute("SELECT DISTINCT conv FROM box").fetchall()}
+        asked = {str(c)[:64] for c in subs}
+        print(f"[clock] fetch by={who[:24]!r} labels={len(asked)} boxed_convs={len(boxed)} matched={sorted(c[:8] for c in asked & boxed)}"
+              f" rows={[(c[:8], m[:14]) for c, m, e, a in rows][:6]} devs={'yes' if body.get('devs') else 'no'} day_now={int(time.time() // 86400)}", flush=True)
     devs = body.get("devs")
     if not isinstance(devs, list) or len(devs) != len(subs):
         return list(rows)   # a page without «devs» reads as before
     dev_of = {str(c)[:64]: str(d) for c, d in zip(subs, devs)}
     _live_taken_table()
-    return [(c, m, e, a) for c, m, e, a in rows
-            if not (dev_of.get(c) and db().execute("SELECT 1 FROM taken WHERE mid=? AND dev=?", (m, dev_of[c])).fetchone())]
+    out = [(c, m, e, a) for c, m, e, a in rows
+           if not (dev_of.get(c) and db().execute("SELECT 1 FROM taken WHERE mid=? AND dev=?", (m, dev_of[c])).fetchone())]
+    if os.environ.get("CLOCKNODE_DEBUG") and len(out) != len(rows):
+        print(f"[clock]   after the taken marks: {[(c[:8], m[:14]) for c, m, e, a in out][:6]}", flush=True)
+    return out
 '''
 
 time.time = lambda: _real() + _shift() * 86400
@@ -90,13 +98,15 @@ patch('''f" AND frm NOT IN ({qs}) ORDER BY at LIMIT 128",
                                 convs + own).fetchall()''',
       '''f" AND frm NOT IN ({qs}) ORDER BY at",
                                 convs + own).fetchall()
-            rows = _live_untaken(body, subs, rows)[:128]''')
+            rows = _live_untaken(body, subs, rows, self.headers.get("User-Agent", ""))[:128]''')
 patch('''            mids = body.get("mids") or []
             if not isinstance(mids, list) or not mids or len(mids) > 256:
                 return self._j(400, {"error": "bad mids"})''',
       '''            took = 0
             if "taken" in body:
                 took = _live_taken(body.get("taken"))
+                if os.environ.get("CLOCKNODE_DEBUG"):
+                    print(f"[clock] taken by={self.headers.get('User-Agent', '')[:24]!r} {[(m[:14], d[:8]) for m, d in (body.get('taken') or [])][:6]} -> {took}", flush=True)
                 if took is None:
                     return self._j(400, {"error": "bad taken"})
                 if not body.get("mids"):
