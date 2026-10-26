@@ -80,6 +80,8 @@ object Groups {
         /** THE LINK ASKS THE OWNER FIRST (iOS approval, G.8, the reference's «Request Admin Approval»): who opens it waits in `requests` until the owner adds or dismisses them. The owner's alone, never on the wire. */
         var approval: Boolean = false,
         val requests: MutableList<Request> = mutableListOf(),
+        /** THE GROUP'S INVITE LINK AS THE OWNER HANDS IT TO AN ADMINISTRATOR WHO MAY INVITE BY IT (iOS link, G.6): kept only while this phone is one. */
+        var link: String? = null,
     ) {
         val mine: Boolean get() = owner.isEmpty()
         fun json(): JSONObject = JSONObject().put("id", id).put("k", kind).put("ti", title).put("ds", about).put("ow", owner).put("me", me)
@@ -91,6 +93,7 @@ object Groups {
             .put("bd", JSONArray().apply { banned.forEach { put(JSONObject().put("s", it.seat).put("p", it.pipe)) } })
             .put("iv", invite ?: "").put("ap", approval)
             .put("rq", JSONArray().apply { requests.forEach { put(JSONObject().put("p", it.pipe).put("n", it.name).put("at", it.at)) } })
+            .put("lk", link ?: "")
         companion object {
             fun of(o: JSONObject) = State(o.getString("id"), o.getString("k"), o.optString("ti"), o.optString("ds"), o.optString("ow"),
                 o.getString("me"),
@@ -106,7 +109,8 @@ object Groups {
                 o.optBoolean("hy"),
                 o.optJSONArray("bd")?.let { a -> MutableList(a.length()) { i -> a.getJSONObject(i).let { Member(it.getString("s"), it.getString("p")) } } } ?: mutableListOf(),
                 o.optString("iv").ifEmpty { null }, o.optBoolean("ap"),
-                o.optJSONArray("rq")?.let { a -> MutableList(a.length()) { i -> a.getJSONObject(i).let { Request(it.getString("p"), it.optString("n"), it.optLong("at")) } } } ?: mutableListOf())
+                o.optJSONArray("rq")?.let { a -> MutableList(a.length()) { i -> a.getJSONObject(i).let { Request(it.getString("p"), it.optString("n"), it.optLong("at")) } } } ?: mutableListOf(),
+                o.optString("lk").ifEmpty { null })
         }
     }
 
@@ -849,6 +853,8 @@ object Groups {
      * seat, and the face where it is given — `only`, the seats the face goes to (the people just added).
      */
     private fun tellAll(g: State, face: String?, only: Set<String>? = null, by: String = OWNER_SEAT) {
+        // the group's link, minted once, for the administrators who may invite by it (iOS 1957-1958, G.6)
+        val link = if (g.admins.any { adminCan(g, it, INVITE) }) standingLink(g) else null
         for (m in g.members) {
             val w = word("inv", g).put("k", g.kind).put("ti", g.title).put("c", g.count).put("me", m.seat)
             if (g.about.isNotEmpty()) w.put("ds", g.about)
@@ -857,6 +863,7 @@ object Groups {
             // the administrators' rights left out and the custom titles (iOS ax, rk, G.6); an older build skips the keys
             if (g.taken.isNotEmpty()) w.put("ax", JSONObject().apply { g.taken.forEach { (k, v) -> put(k, JSONArray(v)) } })
             if (g.ranks.isNotEmpty()) w.put("rk", JSONObject(g.ranks.toMap()))
+            if (link != null && m.seat in g.admins && adminCan(g, m.seat, INVITE)) w.put("lk", link)   // the link, to an admin who invites
             // what the members may not do, and the slow mode (iOS bn, sw, G.5): an older build skips the keys, the owner's door holds
             if (g.barred.isNotEmpty()) w.put("bn", JSONArray(g.barred))
             if (0 < g.slow) w.put("sw", g.slow)
@@ -1039,14 +1046,40 @@ object Groups {
         }
         val card = MontanaCard.offerPermanent(c) ?: return null
         val id = state(key)?.id ?: return null
-        return card + (if ('?' in card) "&" else "?") + JOIN_PARAM + "=" + id + "." + mark
+        return joinLink(card, id, mark)
     }
+    private fun joinLink(card: String, id: String, mark: String) = card + (if ('?' in card) "&" else "?") + JOIN_PARAM + "=" + id + "." + mark
+    /**
+     * The owner's link as the invitation's word carries it (iOS tellAll's inviteLink): the card this phone already holds, never one
+     * born here -- the word is laid under the groups' lock, and a card is born on the network. Null: no card stands yet (handLink).
+     */
+    private fun standingLink(g: State): String? {
+        if (!g.mine || g.kind != GROUP || g.left) return null
+        val card = MontanaCard.heldPermanent() ?: return null
+        val mark = g.invite ?: mintId().also { g.invite = it; save() }
+        return joinLink(card, g.id, mark)
+    }
+    /**
+     * AN ADMINISTRATOR WHO MAY INVITE HOLDS THE LINK AT ONCE (iOS tellAll mints it before it tells, G.6): where no card stands yet,
+     * the page asks for one off the main thread, and the invitation's word goes again once it is born.
+     */
+    fun handLink(c: Context, key: String) {
+        if (MontanaCard.heldPermanent() != null) return
+        val g = state(key) ?: return
+        if (!g.mine || g.admins.none { adminCan(g, it, INVITE) }) return
+        if (inviteLink(c, key) == null) return
+        synchronized(lock) { state(key)?.let { if (!it.left) tellAll(it, null) } }
+    }
+    /** The link the owner handed this phone, an administrator who may invite by it (iOS state.link, G.6); null elsewhere. */
+    fun heldLink(key: String): String? = state(key)?.link
     /** A NEW MARK (iOS resetInvite, the reference's «Revoke Link»): every link given before opens nothing more. */
     fun resetInvite(key: String) = synchronized(lock) {
         val g = state(key) ?: return@synchronized
         if (!g.mine || g.kind != GROUP) return@synchronized
         g.invite = mintId()
         save()
+        // an administrator who invites holds the new link at once (iOS 1574-1575, G.6); the old one opens nothing more
+        if (g.admins.any { adminCan(g, it, INVITE) }) tellAll(g, null)
         Log.i("Montana", "group_link reset")
     }
     /** A group's id or a link's mark: 32 lowercase hex, the form mintId makes (iOS isMark). */
@@ -1071,16 +1104,19 @@ object Groups {
     }
     /** THE MEETING OPENED ITS CONVERSATION (iOS askJoin): the waiting join is asked of the owner over it, the mark and this phone's name. */
     fun askJoin(pipe: String) {
-        synchronized(lock) {
+        val w = synchronized(lock) {
             val j = waitingJoin ?: return
             waitingJoin = null
             if (System.currentTimeMillis() - j.third > 600_000 || !ready()) return
             val me = clean(Prefs.userName, NAME_LIMIT)
-            val w = JSONObject().put("t", "jn").put("g", j.first).put("id", Marks.mintMid()).put("tx", j.second)
-            if (me.isNotEmpty()) w.put("n", me)
-            val sent = carry(w, pipe, "", own = false) != null
-            Log.i("Montana", "group_link join asked sent=" + (if (sent) 1 else 0))
+            JSONObject().put("t", "jn").put("g", j.first).put("id", Marks.mintMid()).put("tx", j.second).apply { if (me.isNotEmpty()) put("n", me) }
         }
+        // the meeting's pipe may still be standing up: at once when it holds, else every two seconds, a minute at most (iOS askJoin)
+        Thread {
+            for (i in 0 until 30) { if (Book.secret(pipe) != null) break; Thread.sleep(2000) }
+            val sent = synchronized(lock) { carry(w, pipe, "", own = false) } != null
+            Log.i("Montana", "group_link join asked sent=" + (if (sent) 1 else 0))
+        }.start()
     }
     /**
      * ONE WHO OPENED THE GROUP'S LINK ASKS AT THE OWNER'S PHONE (iOS joined): the mark must be the group's standing one; one the
@@ -1893,7 +1929,7 @@ object Groups {
 
     /**
      * The owner's word about its administrators, taken as it stands (iOS takeAdmins, G.6): the rights left out (known ones alone)
-     * and the custom titles. The link an inviting administrator holds (iOS lk) waits for the group's invite links on this phone.
+     * the custom titles and the link -- an https link of the owner's card, kept only while this phone is an administrator who may invite.
      */
     private fun takeAdmins(w: JSONObject, g: State) {
         g.taken.clear()
@@ -1913,6 +1949,8 @@ object Groups {
                 if (t.isNotEmpty()) g.ranks[seat] = t
             }
         }
+        val mine = adminCan(g, g.me, INVITE) && g.me != OWNER_SEAT
+        g.link = if (mine) w.optString("lk").takeIf { it.length <= 2048 && it.startsWith("https://") } else null
     }
 
     /** What the members may not do and the slow mode, as the owner's word says them (iOS bn, sw, G.5): known rights alone, an hour at most. */
