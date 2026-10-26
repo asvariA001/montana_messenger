@@ -332,6 +332,8 @@ the witness must not be cited as evidence of anonymity.
 The collection extension is mapped in [C-NONEMPTY-COLLECTION.md](C-NONEMPTY-COLLECTION.md).
 It identifies a joint P/H decoded-ID separator and a conditional distributional obstruction;
 the finite-horizon reachability/wrong-output premise remains open (C-COLLECT-EXACT).
+Section 3.1 of that document gives the sufficient unconditional bound and explains
+why the allowed stalled environments prevent deriving a universal bound from source.
 It supplies neither an equal-leakage collection witness nor an unconditional no-pair theorem.
 Those broader instances remain open. The following original candidate remains conditional: the two-pair
 switch `R_0={(a,c),(b,d)}`, `R_1={(a,d),(b,c)}` with four fixed honest participants,

@@ -210,6 +210,69 @@ queue contents and a completed valid response. ACK is still mapped above because
 belongs to the requested horizon, not because waiting for ACK is needed to identify
 the earlier decoded-ID exposure.
 
+### 3.1 C-COLLECT-EXACT: why the source does not supply the missing bound
+
+Follow-up to the chair's fourth-session review, 2026-10-26 UTC; same M and
+same 180-second experiment. The requested source-only alternative can be settled:
+**the stated experiment does not determine a strictly positive separation bound.**
+This settles the reason for the missing bound, not the unconditional no-pair claim.
+
+Here is a sufficient contract that does not assume independence. In Q0, let R be
+the event that C's first collection blob is presented for H's opening and that
+opening finishes by the fixed horizon. Let F be the subset of R on which it does
+not open to C's actual input rX (including rejection). Write q0 = Pr_Q0[R] and
+f0 = Pr_Q0[F]. Then, by the definition of p0 in section 3,
+
+```
+p0 = q0 - f0.
+If q0 >= q, f0 <= delta and e1 <= epsilon, then
+Pr_Q0[B] - Pr_Q1[B] >= q - delta - epsilon.
+q > delta + epsilon is sufficient for unequal full leakage laws.
+```
+
+All probabilities are unconditional, over the original executions. F is a subset
+of R, so this subtraction is exact; no multiplication of independent transport
+and cryptographic probabilities is used. An error rate conditional on completed
+openings cannot silently be substituted for these unconditional bounds. An upper
+bound for e1 must cover the *joined statistic* J, including its association with
+C's blob, rather than only an unrelated invocation of the decryption primitive.
+When q <= delta + epsilon this criterion is inconclusive; it proves neither
+equal leakage nor absence of another distinguishing event.
+
+The following missing inputs are distinct:
+
+| Obligation | Source establishes | Still needed for a concrete strict bound |
+|---|---|---|
+| q0, timely reachability | Client :33-47, :159-175 and handlers :282-315, :455-509 define awaited operations and error branches. Section 1 permits unfinished operations at 180 seconds. | A specified E and initial randomness law with a justified lower bound on completion before that horizon, including scheduling, connection/probe, forwarding and opening. An offered call is not a completed call. |
+| f0, honest failure | Crypto :454-540 calls encapsulation, decapsulation and AEAD and propagates errors. | A correctness/error contract for the actual generated key pair, encapsulation randomness, native provider, AEAD and executed build, sufficient to bound failed or wrong honest openings in the joint experiment. |
+| e1, wrong joined output | Handlers :286-305 and :506 preserve the blob and expose H's opened ID; the section 2 equality join applies. | A bound that this blob from C with input rY is joined to decoded rX, with the request association and any permitted transport behavior included. Source comments asserting integrity are not this probability proof. |
+
+The implementation dependency is concrete: at M,
+`mt-crypto-native/csrc/mt_crypto.c:454-545` calls OpenSSL
+`EVP_PKEY_encapsulate` and `EVP_PKEY_decapsulate`. Its `build.rs:15-24`
+selects either `MT_OPENSSL_DIR` or an `openssl_src` build. The Rust AEAD is
+`chacha20poly1305` 0.10.1 (`Cargo.lock:302-314`). Reading these call sites
+identifies proof dependencies; it does not certify the selected binary/provider,
+its correctness probability, or a concrete cryptographic error bound. No such
+certificate is introduced by this document.
+
+There is a decisive obstruction even if perfect honest round-trip correctness is
+added as an assumption. Choose the same causal E in both worlds that never
+schedules C or D beyond the pre-request probe during the horizon. Offers and all
+failed/pending traces remain; there is no conditioning and no scheduler access to
+b. This E is permitted by Definition C and section 1. Then q0 = p0 = e1 = 0:
+J is bottom in both worlds and the strict premise cannot follow from M for every
+allowed E. This is a counterexample to a *universal bound*, not a proof that the
+entire earlier/later physical leakage is equal in the concrete execution.
+
+Thus selecting another horizon, asserting eventual progress, or running examples
+cannot fill this gap. A fixed E with a proven timely-progress lower bound and
+adequate joint wrong-output/error bounds must be supplied to apply the displayed
+criterion. No numerical anonymity estimate, equal-leakage collection witness,
+PQ-KEY/PQ-SEAL result or unconditional C-NONEMPTY impossibility follows here.
+C-COLLECT-EXACT remains open for any particular execution law until those inputs
+are supplied; its source-only underdetermination is now explicit.
+
 ## 4. Accounting against every section 4 row
 
 This is a row-by-row **obstruction map**, not a table claiming equal marginals or
@@ -255,9 +318,9 @@ witness has not been established either. SIM, PQ-KEY, PQ-SEAL, JOINT, SEQ and W-
 remain open as written. No statement here closes the shipped phone path, transport
 subrows, observed provisioning, or issue #4. There is no numerical anonymity claim.
 
-**NEXT:** chair review of the endpoint projection and first separator, then the
-explicit reachability/wrong-output premise before treating this as an unconditional
-negative C-NONEMPTY result. The new source map needs line-by-line review; earlier
+**NEXT:** chair review of section 3.1: the sufficient unconditional bound and
+the admissible stalled-environment counterexample. Supply the stated E/provider
+contracts before treating this as an unconditional negative C-NONEMPTY result. The new source map needs line-by-line review; earlier
 intake acceptance does not imply acceptance of this file. A different observer or
 caller would require a separately authorized experiment, not relabeling these rows.
 
