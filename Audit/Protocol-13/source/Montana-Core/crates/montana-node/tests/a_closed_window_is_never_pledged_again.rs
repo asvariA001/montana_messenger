@@ -92,7 +92,11 @@ fn a_window_this_machine_closed_is_refused_running_and_after_a_restart() {
     );
     drop(pulse);
 
-    // The window closes: the number first, then the record.
+    // The window closes: its proposal kept, the number, then the record. The store holds no number
+    // of a closed window whose proposal it cannot show.
+    machine
+        .keep_proposal(&kept(WINDOW))
+        .expect("a proposal is kept");
     machine.let_go_of(WINDOW).expect("the window is let go");
     assert_eq!(
         machine.closed_window().expect("the store answers"),
