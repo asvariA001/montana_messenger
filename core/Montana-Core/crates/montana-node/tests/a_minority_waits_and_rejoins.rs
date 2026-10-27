@@ -82,9 +82,14 @@ const PATIENCE: u32 = 40_000;
 
 // How often the test looks at the machines it waits on, and how many of its looks in a row may pass
 // with no window closed at any of them before it stops and fails. Conduct of the test and no number
-// of the protocol: the bound of a test that would otherwise wait as long as a minority does.
+// of the protocol: the bound of a test that would otherwise wait as long as a minority does. It covers
+// the window lived together once the parts meet: the two waited alone into a late attempt of its
+// agreement, whose spans double, and the fourth proves its presence and the runner its proposal on a
+// loaded host — at 1 800 the bound ran out with all three decided on one name in attempt eight and the
+// proposal not yet proven (27.10.2026 17:38 UTC, Lauterbourg-3). A split is no such wait: two names
+// are held for ever and the attempts go on, so it fails at this bound all the same.
 const ASKING: Duration = Duration::from_secs(1);
-const STILL: u32 = 1_800;
+const STILL: u32 = 3_600;
 
 const NO_PROPOSAL_TWO_BEFORE: &str =
     "a window past the first two of a network standing on no proposal two before";
