@@ -20,11 +20,10 @@ use mt_state::compute_state_root;
 use mt_store::FsStore;
 use mt_timechain::{cemented_bundle_aggregate, next_d, ssha_step};
 
-use crate::clock::{load_current_window, save_current_window};
 use crate::identity::{default_data_dir, load_identity, NodeError};
 use crate::node_lifecycle::{load_or_init_lifecycle, save_lifecycle, NodeLifecycle, NodePhase};
 use crate::state::LocalState;
-use crate::timechain_state::{load_or_init_timechain, save_timechain, TimeChainState};
+use crate::timechain_state::TimeChainState;
 
 static STOP: AtomicBool = AtomicBool::new(false);
 
@@ -97,15 +96,11 @@ pub fn run(args: StartArgs) -> Result<(), NodeError> {
     // spec, Genesis Decree: Genesis = empty window 0. The genesis state is empty
     // (no baked active operators); a node self-admits via the existing admission
     // path. The manifest is discovery-only and is not hash-bound.
-    let mut state = LocalState::load_or_bootstrap(&data_dir, &identity, params)?;
-    // Persist the seeded genesis state immediately so a separate `status`
-    // invocation reads the real bootstrapped tables instead of re-bootstrapping
-    // an incomplete view.
-    if !data_dir.join("accounts.bin").exists() {
-        state.save(&data_dir)?;
-    }
-    let mut current = load_current_window(&data_dir)?;
-    let mut timechain = load_or_init_timechain(&data_dir)?;
+    // Issue #19 K5: the window record is the truth of the tables, the window and the clock
+    // (a store without one is migrated once, if its earlier files hold one window); the
+    // earlier files are rewritten from it as views, so `status` reads the real tables.
+    let (mut state, mut current, mut timechain) =
+        crate::window_record::open(&data_dir, &identity, params)?;
     let mut lifecycle = load_or_init_lifecycle(&data_dir, &identity, params)?;
     let mut effective_d = args.d_test_override.unwrap_or(timechain.current_d);
 
@@ -232,6 +227,9 @@ pub fn run(args: StartArgs) -> Result<(), NodeError> {
     }
     let mut fast_sync: Option<mt_sync::FastSyncClient> = None;
     let mut fast_sync_deadline: Option<Instant> = None;
+    // Issue #19 K5: the cemented envelope the fast-sync anchor root was taken from; the
+    // record of the synced window carries it.
+    let mut fast_sync_anchor: Option<Vec<u8>> = None;
     // M7 fast-sync: recent cemented bootstrap state_roots (window -> root),
     // the trusted set a reconstructed snapshot root must match.
     let mut recent_roots: BTreeMap<u64, Hash32> = BTreeMap::new();
@@ -306,6 +304,7 @@ pub fn run(args: StartArgs) -> Result<(), NodeError> {
                     equivocations: &mut equivocations,
                     fast_sync: &mut fast_sync,
                     fast_sync_deadline: &mut fast_sync_deadline,
+                    fast_sync_anchor: &mut fast_sync_anchor,
                     last_cement_at: &mut last_cement_at,
                     prev_proposal_hash: &mut prev_proposal_hash,
                     fast_sync_lag_threshold,
@@ -627,95 +626,22 @@ pub fn run(args: StartArgs) -> Result<(), NodeError> {
                     break 'active_arm;
                 }
 
-                // Cementing: evidence = confirmations of window propose_w,
-                // included_bundles = confirmations of window propose_w-1.
-                let evidence = bc_accumulator.get(&propose_w).cloned().unwrap_or_default();
-                let prev_w = propose_w.saturating_sub(1);
-                let bundles_prev: Vec<BundledConfirmation> = if propose_w >= 1 {
-                    bc_accumulator
-                        .get(&prev_w)
-                        .map(|m| m.values().cloned().collect())
-                        .unwrap_or_default()
-                } else {
-                    Vec::new()
-                };
-                let confirmers: Vec<mt_state::NodeId> =
-                    bundles_prev.iter().map(|b| b.node_id).collect();
-                let included_bundles_root = meta_root(
-                    &bundles_prev
-                        .iter()
-                        .map(|b| (b.node_id, bundle_hash(b)))
-                        .collect::<Vec<_>>(),
-                );
-                // Single state transition (the same as for followers).
-                let post_root = {
+                // Cementing: the window is committed once with its envelope before anything
+                // of it leaves the node (issue #19 K5); a failed commit stops the node.
+                let cemented = {
                     let mut ctx = net_ctx!();
-                    settle_and_bookkeep(&mut ctx, propose_w, &confirmers, None)?
-                        .expect("leader mode: expected_root=None always commits")
-                };
-                let recomputed = compute_state_root(
-                    &state.nodes.root(),
-                    &state.candidates.root(),
-                    &state.accounts.root(),
-                );
-                if recomputed != post_root {
-                    panic!(
-                        "state_root self-verify failed: {:02x?}.. ≠ {:02x?}..",
-                        &post_root[..4],
-                        &recomputed[..4]
-                    );
-                }
-
-                let mut header = ProposalHeader {
-                    prev_proposal_hash,
-                    window_index: propose_w,
-                    protocol_version: 1,
-                    control_root: empty_internal(TREE_DEPTH),
-                    node_root: state.nodes.root(),
-                    candidate_root: state.candidates.root(),
-                    account_root: state.accounts.root(),
-                    state_root: post_root,
-                    timechain_value: t_r_w,
-                    included_bundles_root,
-                    included_reveals_root: [0u8; 32],
-                    winner_endpoint: [0u8; 32],
-                    winner_id: [0u8; 32],
-                    proposer_node_id: canonical_proposer,
-                    target: 0,
-                    fallback_depth: my_depth,
-                    signature: Signature::from_array([0u8; SIGNATURE_SIZE]),
-                };
-                let mut header_scope = Vec::new();
-                header.encode_signed_scope(&mut header_scope);
-                header.signature =
-                    sign(&identity.node_sk, &header_scope).map_err(NodeError::Crypto)?;
-
-                // Envelope: [header 3722][u16 n1][BC of window w-1][u16 n2][BC of window w].
-                let mut envelope_payload: Vec<u8> =
-                    Vec::with_capacity(3722 + 4 + 3500 * (bundles_prev.len() + evidence.len()));
-                header.encode(&mut envelope_payload);
-                envelope_payload.extend_from_slice(&(bundles_prev.len() as u16).to_le_bytes());
-                for bc in &bundles_prev {
-                    bc.encode(&mut envelope_payload);
-                }
-                envelope_payload.extend_from_slice(&(evidence.len() as u16).to_le_bytes());
-                for bc in evidence.values() {
-                    bc.encode(&mut envelope_payload);
-                }
-                // Archive before broadcast: a cemented envelope must survive a
-                // process crash — after a restart it is re-broadcast from the archive.
-                if let Err(e) = store.archive_proposal_envelope(propose_w, &envelope_payload) {
-                    eprintln!(
-                        "[archive] FAILED to write envelope w={propose_w} to {}/proposals: {e:?}",
-                        data_dir.display()
-                    );
-                }
-                if let Some(ref handle) = network_handle {
-                    let envelope = ProtocolMessage::new(
-                        MsgType::Proposal,
+                    cement_as_leader(
+                        &mut ctx,
+                        &identity,
                         propose_w,
-                        envelope_payload.clone(),
-                    );
+                        t_r_w,
+                        canonical_proposer,
+                        my_depth,
+                    )?
+                };
+                if let Some(ref handle) = network_handle {
+                    let envelope =
+                        ProtocolMessage::new(MsgType::Proposal, propose_w, cemented.envelope);
                     if let Err(e) = handle.broadcast_tx.send(envelope) {
                         eprintln!(
                             "[consensus] broadcast CEMENTED Proposal w={propose_w} failed: {e}"
@@ -723,20 +649,12 @@ pub fn run(args: StartArgs) -> Result<(), NodeError> {
                     } else {
                         eprintln!(
                             "[consensus] broadcast CEMENTED Proposal window={propose_w} → peers (bundles={}, evidence={})",
-                            bundles_prev.len(),
-                            evidence.len()
+                            cemented.bundles, cemented.evidence
                         );
                     }
                 }
-                recent_roots.insert(propose_w, post_root);
-                bound_map(&mut recent_roots);
-                prev_proposal_hash = proposal_hash(&header);
-                last_proposer_cement.insert(my_node, propose_w);
-                last_cement_at = Instant::now();
-                let living: std::collections::BTreeSet<&mt_state::NodeId> =
-                    confirmers.iter().collect();
                 session_emitted = session_emitted.saturating_add(
-                    mt_account::window_credit_moneta(params) * living.len() as u128,
+                    mt_account::window_credit_moneta(params) * cemented.living as u128,
                 );
                 session_windows += 1;
             },
@@ -774,6 +692,9 @@ pub fn run(args: StartArgs) -> Result<(), NodeError> {
     Ok(())
 }
 
+// The end of a turn. A window is committed by its own settle; what moved in memory without
+// one (the node's own registration in the pool, a turn of the clock) is committed here as the
+// record of window `window`, with its views. The lifecycle record is the node's own.
 fn save_progress(
     data_dir: &std::path::Path,
     state: &LocalState,
@@ -781,9 +702,7 @@ fn save_progress(
     lifecycle: &NodeLifecycle,
     window: u64,
 ) -> Result<(), NodeError> {
-    state.save(data_dir)?;
-    save_current_window(data_dir, window)?;
-    save_timechain(data_dir, timechain)?;
+    crate::window_record::commit_if_moved(data_dir, window, state, timechain)?;
     save_lifecycle(data_dir, lifecycle)?;
     Ok(())
 }
@@ -854,6 +773,7 @@ struct NetCtx<'a> {
     equivocations: &'a mut Equivocations,
     fast_sync: &'a mut Option<mt_sync::FastSyncClient>,
     fast_sync_deadline: &'a mut Option<Instant>,
+    fast_sync_anchor: &'a mut Option<Vec<u8>>,
     last_cement_at: &'a mut Instant,
     prev_proposal_hash: &'a mut Hash32,
     fast_sync_lag_threshold: u64,
@@ -1052,20 +972,20 @@ fn meta_root(entries: &[(mt_state::NodeId, Hash32)]) -> Hash32 {
     tree.root()
 }
 
-/// Single state transition when closing window settled_w — shared by the proposer
-/// and followers (determinism): apply_proposal + candidate expiry + selection
-/// event + D adaptation at the τ₂ boundary + per-window histories.
-fn settle_and_bookkeep(
-    ctx: &mut NetCtx,
-    settled_w: u64,
-    confirmers: &[mt_state::NodeId],
-    expected_root: Option<Hash32>,
-) -> Result<Option<Hash32>, NodeError> {
-    // DEV-042: the transition is applied to CLONES of the tables; the real state, history
-    // and disk are mutated only if post_root matched expected_root. On
-    // divergence the node does NOT panic — it returns Ok(None), the window is rejected,
-    // the state is restored via fast-sync. One diverging envelope
-    // does not kill the node and does not bring down the network.
+/// The transition of window settled_w, computed and not yet applied: the tables after it,
+/// the state_root the proposal names and the count the selection event activated.
+struct Settled {
+    state: LocalState,
+    post_root: Hash32,
+    activated_count: usize,
+}
+
+/// The pure transition of window settled_w — shared by the proposer and followers
+/// (determinism): apply_proposal + candidate expiry + selection event. DEV-042: it is applied
+/// to CLONES of the tables; nothing of ctx and nothing on disk moves (issue #19 K5). On a
+/// divergence from the header the follower drops it and the window is rejected, the state is
+/// restored via fast-sync: one diverging envelope does not kill the node.
+fn settle_window(ctx: &NetCtx, settled_w: u64, confirmers: &[mt_state::NodeId]) -> Settled {
     let mut accounts = ctx.state.accounts.clone();
     let mut nodes = ctx.state.nodes.clone();
     let mut candidates = ctx.state.candidates.clone();
@@ -1096,28 +1016,67 @@ fn settle_and_bookkeep(
         );
         activated_count = activated.len();
     }
-    if let Some(exp) = expected_root {
-        if post_root != exp {
-            return Ok(None);
-        }
+    Settled {
+        state: LocalState {
+            accounts,
+            nodes,
+            candidates,
+        },
+        post_root,
+        activated_count,
     }
-    ctx.state.accounts = accounts;
-    ctx.state.nodes = nodes;
-    ctx.state.candidates = candidates;
-    if activated_count > 0 {
-        println!("[selection W={settled_w}] activated {activated_count} node(s)");
-    }
+}
+
+/// Single state transition when closing window settled_w — shared by the proposer
+/// and followers: the settled tables, D adaptation at the τ₂ boundary and the clock value
+/// t_r_w of the window go into ONE record with the cemented envelope (issue #19 K5). Memory
+/// and the per-window histories move only after that record stands; a failed commit is an
+/// error and moves nothing. The earlier files are written after it, as views.
+fn settle_and_bookkeep(
+    ctx: &mut NetCtx,
+    settled_w: u64,
+    confirmers: &[mt_state::NodeId],
+    settled: Settled,
+    envelope: &[u8],
+    t_r_w: Hash32,
+) -> Result<(), NodeError> {
+    let mut current_d = ctx.timechain.current_d;
     if settled_w > 0 && settled_w % ctx.params.tau2_windows == 0 {
         let median_permille = 1000u32;
-        let new_d = next_d(ctx.timechain.current_d, median_permille, ctx.params);
-        if new_d != ctx.timechain.current_d {
-            println!(
-                "[next_d W={settled_w}] D: {} → {}",
-                ctx.timechain.current_d, new_d
-            );
-            ctx.timechain.current_d = new_d;
-        }
+        current_d = next_d(ctx.timechain.current_d, median_permille, ctx.params);
     }
+    // Canonical clock value of the cemented window — a lagging clock catches up.
+    let (t_r, last_window) = if ctx.timechain.last_window < settled_w {
+        (t_r_w, settled_w)
+    } else {
+        (ctx.timechain.t_r, ctx.timechain.last_window)
+    };
+    let record = mt_store::WindowRecord {
+        window: settled_w,
+        t_r,
+        current_d,
+        last_window,
+        accounts: settled.state.accounts,
+        nodes: settled.state.nodes,
+        candidates: settled.state.candidates,
+        envelope: envelope.to_vec(),
+    };
+    crate::window_record::commit(ctx.store, &record)?;
+    let (state, window, clock, envelope) = crate::window_record::into_parts(record);
+    *ctx.state = state;
+    if settled.activated_count > 0 {
+        println!(
+            "[selection W={settled_w}] activated {} node(s)",
+            settled.activated_count
+        );
+    }
+    if clock.current_d != ctx.timechain.current_d {
+        println!(
+            "[next_d W={settled_w}] D: {} → {}",
+            ctx.timechain.current_d, clock.current_d
+        );
+    }
+    *ctx.timechain = clock;
     if settled_w >= 1 {
         ctx.bc_set_history
             .insert(settled_w - 1, confirmers.to_vec());
@@ -1125,12 +1084,161 @@ fn settle_and_bookkeep(
     bound_map(ctx.bc_set_history);
     ctx.bc_accumulator.remove(&settled_w.saturating_sub(1));
     bound_map(ctx.bc_accumulator);
-    *ctx.current = settled_w;
-    save_current_window(ctx.data_dir, settled_w)?;
-    ctx.store
-        .save_meta_last_cemented(settled_w)
-        .map_err(|e| NodeError::InvalidArguments(format!("save_meta_last_cemented: {e:?}")))?;
-    Ok(Some(post_root))
+    *ctx.current = window;
+    crate::window_record::write_views(
+        ctx.store,
+        ctx.data_dir,
+        window,
+        ctx.state,
+        ctx.timechain,
+        &envelope,
+    )
+}
+
+/// What the proposer's cement of a window hands back to its loop: the envelope to broadcast,
+/// its two list lengths, and the count of the living the window credited.
+struct Cemented {
+    envelope: Vec<u8>,
+    bundles: usize,
+    evidence: usize,
+    living: usize,
+}
+
+/// The proposer closes window propose_w (issue #19 K5): the transition is computed without a
+/// write, the header is built and signed from it, the envelope assembled, and then the window
+/// is committed ONCE with that envelope, before anything of it leaves the node.
+/// Evidence = confirmations of window propose_w, included_bundles = those of propose_w-1.
+fn cement_as_leader(
+    ctx: &mut NetCtx,
+    identity: &crate::identity::Identity,
+    propose_w: u64,
+    t_r_w: Hash32,
+    canonical_proposer: mt_state::NodeId,
+    my_depth: u8,
+) -> Result<Cemented, NodeError> {
+    let evidence = ctx
+        .bc_accumulator
+        .get(&propose_w)
+        .cloned()
+        .unwrap_or_default();
+    let prev_w = propose_w.saturating_sub(1);
+    let bundles_prev: Vec<BundledConfirmation> = if propose_w >= 1 {
+        ctx.bc_accumulator
+            .get(&prev_w)
+            .map(|m| m.values().cloned().collect())
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    let confirmers: Vec<mt_state::NodeId> = bundles_prev.iter().map(|b| b.node_id).collect();
+    let included_bundles_root = meta_root(
+        &bundles_prev
+            .iter()
+            .map(|b| (b.node_id, bundle_hash(b)))
+            .collect::<Vec<_>>(),
+    );
+    // Single state transition (the same as for followers), not yet committed.
+    let settled = settle_window(ctx, propose_w, &confirmers);
+    let post_root = settled.post_root;
+    let recomputed = compute_state_root(
+        &settled.state.nodes.root(),
+        &settled.state.candidates.root(),
+        &settled.state.accounts.root(),
+    );
+    if recomputed != post_root {
+        panic!(
+            "state_root self-verify failed: {:02x?}.. ≠ {:02x?}..",
+            &post_root[..4],
+            &recomputed[..4]
+        );
+    }
+
+    let mut header = ProposalHeader {
+        prev_proposal_hash: *ctx.prev_proposal_hash,
+        window_index: propose_w,
+        protocol_version: 1,
+        control_root: empty_internal(TREE_DEPTH),
+        node_root: settled.state.nodes.root(),
+        candidate_root: settled.state.candidates.root(),
+        account_root: settled.state.accounts.root(),
+        state_root: post_root,
+        timechain_value: t_r_w,
+        included_bundles_root,
+        included_reveals_root: [0u8; 32],
+        winner_endpoint: [0u8; 32],
+        winner_id: [0u8; 32],
+        proposer_node_id: canonical_proposer,
+        target: 0,
+        fallback_depth: my_depth,
+        signature: Signature::from_array([0u8; SIGNATURE_SIZE]),
+    };
+    let mut header_scope = Vec::new();
+    header.encode_signed_scope(&mut header_scope);
+    header.signature = sign(&identity.node_sk, &header_scope).map_err(NodeError::Crypto)?;
+
+    // Envelope: [header 3722][u16 n1][BC of window w-1][u16 n2][BC of window w].
+    let mut envelope: Vec<u8> =
+        Vec::with_capacity(3722 + 4 + 3500 * (bundles_prev.len() + evidence.len()));
+    header.encode(&mut envelope);
+    envelope.extend_from_slice(&(bundles_prev.len() as u16).to_le_bytes());
+    for bc in &bundles_prev {
+        bc.encode(&mut envelope);
+    }
+    envelope.extend_from_slice(&(evidence.len() as u16).to_le_bytes());
+    for bc in evidence.values() {
+        bc.encode(&mut envelope);
+    }
+    // One commit: the tables, the clock and the envelope of propose_w. The archive view is
+    // written from it before the broadcast; after a restart the envelope is re-broadcast.
+    settle_and_bookkeep(ctx, propose_w, &confirmers, settled, &envelope, t_r_w)?;
+    ctx.recent_roots.insert(propose_w, post_root);
+    bound_map(ctx.recent_roots);
+    *ctx.prev_proposal_hash = proposal_hash(&header);
+    ctx.last_proposer_cement.insert(ctx.my_node, propose_w);
+    *ctx.last_cement_at = Instant::now();
+    let living: std::collections::BTreeSet<&mt_state::NodeId> = confirmers.iter().collect();
+    Ok(Cemented {
+        envelope,
+        bundles: bundles_prev.len(),
+        evidence: evidence.len(),
+        living: living.len(),
+    })
+}
+
+/// A verified snapshot of window `window` applied (issue #19 K5): the three tables, the
+/// window, the clock of the anchor and the cemented envelope the anchor root was taken from
+/// (when it is that window's and names that root) are ONE record; memory moves only after
+/// it stands.
+fn complete_fast_sync(
+    ctx: &mut NetCtx,
+    window: u64,
+    tables: mt_sync::snapshot::TypedTables,
+) -> Result<(), NodeError> {
+    let mut record = mt_store::WindowRecord {
+        window,
+        t_r: ctx.timechain.t_r,
+        current_d: ctx.timechain.current_d,
+        last_window: ctx.timechain.last_window,
+        accounts: tables.accounts,
+        nodes: tables.nodes,
+        candidates: tables.candidates,
+        envelope: Vec::new(),
+    };
+    // #2: align the local clock to the synced window's canonical t_r so forward grinding
+    // matches the chain.
+    if let Some(t_r) = ctx.t_r_history.get(&window).copied() {
+        record.t_r = t_r;
+        record.last_window = window;
+    }
+    if let Some(envelope) = ctx.fast_sync_anchor.take() {
+        let names_it = parse_header(&envelope)
+            .is_some_and(|h| h.window_index == window && h.state_root == record.state_root());
+        if names_it {
+            record.envelope = envelope;
+        }
+    }
+    ctx.state
+        .apply_fast_sync(record, ctx.data_dir, ctx.current, ctx.timechain)
 }
 
 /// Handling one incoming protocol message. Called from
@@ -1242,6 +1350,7 @@ fn handle_protocol_message(
                 // sequential apply (line below), so without this it self-blocks.
                 ctx.recent_roots.insert(w, header.state_root);
                 bound_map(ctx.recent_roots);
+                *ctx.fast_sync_anchor = Some(msg.payload.clone());
                 // #2: stash the anchor's canonical t_r(w) so finalize can set
                 // the synced clock instead of re-grinding from a stale window.
                 ctx.t_r_history.insert(w, header.timechain_value);
@@ -1389,30 +1498,28 @@ fn handle_protocol_message(
                 );
                 return Ok(());
             }
-            // Application by a single state transition (transactional, DEV-042).
-            if settle_and_bookkeep(ctx, w, &confirmers, Some(header.state_root))?.is_none() {
+            // Application by a single state transition (transactional, DEV-042): computed on
+            // clones, checked against the header, then committed once with this envelope and
+            // the clock value of the window (issue #19 K5).
+            let settled = settle_window(ctx, w, &confirmers);
+            if settled.post_root != header.state_root {
                 eprintln!(
                     "[consensus] w={w}: state_root divergence — window rejected, recovery via fast-sync"
                 );
                 return Ok(());
             }
+            settle_and_bookkeep(
+                ctx,
+                w,
+                &confirmers,
+                settled,
+                &msg.payload,
+                header.timechain_value,
+            )?;
             ctx.recent_roots.insert(w, header.state_root);
             bound_map(ctx.recent_roots);
             ctx.t_r_history.insert(w, header.timechain_value);
             bound_map(ctx.t_r_history);
-            if ctx.timechain.last_window < w {
-                // Canonical clock value from the quorum envelope — catch up.
-                ctx.timechain.t_r = header.timechain_value;
-                ctx.timechain.last_window = w;
-            }
-            // The archive is observability, not consensus: a write failure is logged
-            // loudly (with the path), the node continues working.
-            if let Err(e) = ctx.store.archive_proposal_envelope(w, &msg.payload) {
-                eprintln!(
-                    "[archive] FAILED to write envelope w={w} to {}/proposals: {e:?}",
-                    ctx.data_dir.display()
-                );
-            }
             *ctx.prev_proposal_hash = proposal_hash(&header);
             ctx.last_proposer_cement.insert(header.proposer_node_id, w);
             *ctx.last_cement_at = Instant::now();
@@ -1493,16 +1600,7 @@ fn handle_protocol_message(
                         Ok(mt_sync::AcceptOutcome::Complete) => {
                             match client.finalize(ctx.recent_roots) {
                                 Ok((window, tables)) => {
-                                    ctx.state.apply_fast_sync(tables, ctx.data_dir, window)?;
-                                    *ctx.current = window;
-                                    save_current_window(ctx.data_dir, window)?;
-                                    // #2: align the local clock to the synced window's
-                                    // canonical t_r so forward grinding matches the chain.
-                                    if let Some(tr) = ctx.t_r_history.get(&window).copied() {
-                                        ctx.timechain.t_r = tr;
-                                        ctx.timechain.last_window = window;
-                                        save_timechain(ctx.data_dir, ctx.timechain)?;
-                                    }
+                                    complete_fast_sync(ctx, window, tables)?;
                                     *ctx.fast_sync_deadline = None;
                                     eprintln!(
                                     "[m7] fast-sync complete → state replaced, current_window={window}"
@@ -1810,6 +1908,9 @@ pub struct NetworkHandle {
 
 #[cfg(test)]
 mod order_tests;
+
+#[cfg(test)]
+mod window_commit_tests;
 
 #[cfg(test)]
 mod tests {
