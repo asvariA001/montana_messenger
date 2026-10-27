@@ -308,6 +308,11 @@ object Groups {
     fun isChannel(key: String) = state(key)?.kind == CHANNEL
     /** Everyone writes in a group, the owner alone in a channel (iOS canWrite). */
     fun canWrite(key: String): Boolean { val g = state(key) ?: return false; return !g.left && (g.kind == GROUP || g.mine) }
+    /**
+     * WHETHER THE FIELD OF THIS GROUP HOLDS THE COIN (iOS takesCoins; the author's word 17.10.2026 21:14 UTC): a group's every person
+     * who writes; never a channel -- its owner alone posts and its subscribers have no field.
+     */
+    fun takesCoins(key: String): Boolean = state(key)?.kind == GROUP && canWrite(key)
     /** Whether this phone pins a letter of the group for everyone (iOS mayPin). */
     fun mayPin(key: String): Boolean { val g = state(key) ?: return false; return !g.left && pins(g, g.me) }
 
@@ -900,6 +905,38 @@ object Groups {
             .map { (s, _) -> Seat(s, speakerName(c, speaker(g.id, s)), "") }.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
             .forEach { out.add(it) }
         return out
+    }
+    /**
+     * ONE PERSON OF A GROUP AS A COIN OF THIS PHONE REACHES THEM (iOS MTGroupPayee): the seat, the name shown, the pair's chat a
+     * transfer to them rides when it is open to coins (null otherwise), and whether this phone holds a pipe with them at all.
+     */
+    class Payee(val seat: String, val name: String, val ref: String?, val held: Boolean)
+    /**
+     * WHOM A COIN OF THE GROUP REACHES FROM THIS PHONE (iOS coinPeople; the author's word 17.10.2026 21:14 UTC: «with a choice by check
+     * marks among the members, as on the Send page of the time coin»): a transfer is one record for one receiver under the pair's own
+     * secret, so a person is reached only through a pipe this phone holds with them -- the owner's phone every member it carries to,
+     * a member's phone the owner. The others stand by their seat and name alone; the pair's own door decides the rest (CoinSend.canPay).
+     */
+    fun coinPeople(c: Context, key: String): List<Payee> {
+        if (!takesCoins(key)) return emptyList()
+        val me = state(key)?.me ?: return emptyList()
+        return pagePeople(c, key).filter { it.seat != me }.map { p ->
+            if (p.pipe.isEmpty()) return@map Payee(p.seat, p.name, null, false)
+            val root = SamePair.root(p.pipe)
+            Payee(p.seat, p.name, root.takeIf { CoinSend.canPay(it) }, true)
+        }
+    }
+    /**
+     * THE GROUP IS TOLD, IT IS NEVER PAID (iOS tellCoins): the coins went to each person picked by the pair's own transfer; the group's
+     * feed gets the sender's plain words of how many were paid -- no sum, no name, no coin letter, so no phone of the group credits
+     * anything by it. A right the group took from its members, or slow mode's wait, leaves the words unsaid: the transfers stand.
+     */
+    fun tellCoins(c: Context, people: Int, key: String) {
+        if (people <= 0 || !takesCoins(key)) return
+        val words = "🪙 " + c.resources.getQuantityString(R.plurals.gr_coins_told, people, people)
+        if (!carries(words) || refusal(c, key, words, true) != null) { Log.i("Montana", "group_coin told=0 people=$people"); return }
+        send(key, words, null, null)
+        Log.i("Montana", "group_coin told=1 people=$people")
     }
     // ── mentions (iOS stage R, the reference folder: «@» names a person of the group) ──
 

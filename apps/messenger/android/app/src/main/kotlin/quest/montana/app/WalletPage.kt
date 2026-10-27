@@ -8,6 +8,7 @@ import android.graphics.Outline
 import android.graphics.drawable.GradientDrawable
 import android.text.InputFilter
 import android.text.InputType
+import android.util.Log
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
@@ -345,14 +346,18 @@ fun walletPage(act: MainActivity, onClose: () -> Unit): View {
  * SEND COINS (iOS MTCoinSendSheet): the levels of π as the amounts, a box chosen stands beside every chat picked; each chat its own
  * field, the system's, the coins typed there are what that chat gets; our send at the trailing edge. A short balance refuses
  * and nothing leaves; one recipient's chat opens after the send.
+ * A GROUP'S COIN IS THIS PAGE OVER THE GROUP'S PEOPLE (iOS MTCoinSendSheet group/each/sent; the author's word 17.10.2026 21:14 UTC):
+ * `group` -- the group's key when the page opens from its field; the rows are the people a coin of this phone reaches
+ * (Groups.coinPeople), the others stand greyed with why; `each` -- the number written in the field, each pick's coins; each pick
+ * gets the pair's own transfer, the group is told only how many were paid (Groups.tellCoins), `sent` empties the field.
  */
-fun sendCoinsPage(act: MainActivity, onClose: () -> Unit): View {
+fun sendCoinsPage(act: MainActivity, onClose: () -> Unit, group: String? = null, each: Long = 0L, sent: () -> Unit = {}): View {
     val c: Context = act
     val body = c.vstack(Gravity.NO_GRAVITY)
     val picked = LinkedHashMap<String, EditText>()
     val fields = LinkedHashMap<String, EditText>()
     val marks = HashMap<String, ImageView>()
-    var chosen = 1L
+    var chosen = if (0L < each) each else 1L
     val total = c.labeled(c.getString(R.string.coin_total), "0")
     fun coinsOf(f: EditText) = f.text.toString().toLongOrNull() ?: 0L
     fun drawTotal() {
@@ -388,10 +393,14 @@ fun sendCoinsPage(act: MainActivity, onClose: () -> Unit): View {
     }
     body.addView(HorizontalScrollView(c).apply { isHorizontalScrollBarEnabled = false; addView(boxes); setPadding(0, dp(12), 0, dp(6)) }, lp())
     body.addView(total, lp())
-    val people = Book.all().filter { CoinSend.canPay(it.ref) }
+    val payees = group?.let { Groups.coinPeople(c, it) }
+    val people: List<Pair<String, String>> = payees?.mapNotNull { p -> p.ref?.let { it to (Book.chat(it)?.shown?.ifBlank { null } ?: p.name) } }
+        ?: Book.all().filter { CoinSend.canPay(it.ref) }.map { it.ref to it.shown }
+    val unreached = payees?.filter { it.ref == null }.orEmpty()
+    Log.i("Montana", "coin_send_page " + (if (group != null) "group " else "") + "pairs=" + people.size + " unreached=" + unreached.size)
     val list = c.plate {
-        if (people.isEmpty()) addView(c.text(c.getString(R.string.coin_no_chats), 16f, MT.gray).apply { setPadding(dp(16), dp(14), dp(16), dp(14)) }, lp())
-        people.forEachIndexed { i, ch ->
+        if (people.isEmpty() && unreached.isEmpty()) addView(c.text(c.getString(if (group == null) R.string.coin_no_chats else R.string.coin_no_members), 16f, MT.gray).apply { setPadding(dp(16), dp(14), dp(16), dp(14)) }, lp())
+        people.forEachIndexed { i, (ref, shown) ->
             if (0 < i) divider()
             val field = EditText(c).apply {
                 inputType = InputType.TYPE_CLASS_NUMBER
@@ -407,34 +416,50 @@ fun sendCoinsPage(act: MainActivity, onClose: () -> Unit): View {
                     override fun afterTextChanged(s: android.text.Editable?) {
                         // coins typed pick the chat, a field emptied lets it go
                         val n = s?.toString()?.toLongOrNull() ?: 0L
-                        if (0L < n) picked[ch.ref] = this@apply else picked.remove(ch.ref)
-                        mark(ch.ref); drawTotal()
+                        if (0L < n) picked[ref] = this@apply else picked.remove(ref)
+                        mark(ref); drawTotal()
                     }
                 })
             }
-            fields[ch.ref] = field
+            fields[ref] = field
             val pick = ImageView(c).apply { setPadding(dp(10), dp(10), dp(10), dp(10)) }
-            marks[ch.ref] = pick
+            marks[ref] = pick
             addView(c.hstack {
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(dp(16), dp(8), dp(8), dp(8))
                 addView(c.hstack {
                     gravity = Gravity.CENTER_VERTICAL
-                    addView(c.peerFace(ch.ref, ch.shown, 40), lp(dp(40), dp(40)))
+                    addView(c.peerFace(ref, shown, 40), lp(dp(40), dp(40)))
                     gap(12)
-                    addView(c.text(ch.shown.ifBlank { c.getString(R.string.peer) }, 16f).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))   // USER-DATA: the name
+                    addView(c.text(shown.ifBlank { c.getString(R.string.peer) }, 16f).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))   // USER-DATA: the name
                     minimumHeight = dp(44)
-                    pressable { toggle(ch.ref) }
+                    pressable { toggle(ref) }
                 }, lp(0, WRAP, 1f))
                 addView(field, lp(dp(96), dp(44)))
                 addView(pick, lp(dp(44), dp(44)).apply { marginStart = dp(4) })
-                pick.pressable { toggle(ch.ref) }
+                pick.pressable { toggle(ref) }
             }, lp())
-            mark(ch.ref)
+            mark(ref)
+        }
+        // THE PEOPLE NO COIN OF THIS PHONE REACHES stand greyed with why (iOS unreached): no pipe of its own with them, or a pair closed to coins
+        unreached.forEachIndexed { i, p ->
+            if (0 < i || people.isNotEmpty()) divider()
+            addView(c.hstack {
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(16), dp(8), dp(16), dp(8))
+                minimumHeight = dp(44)
+                addView(c.avatar(null, p.name.ifBlank { "?" }, 40), lp(dp(40), dp(40)))
+                gap(12)
+                addView(c.vstack(Gravity.NO_GRAVITY) {
+                    addView(c.text(p.name, 16f, MT.gray).apply { singleLineEllipsis() })   // USER-DATA: a person's name in the group
+                    addView(c.text(c.getString(if (p.held) R.string.coin_pair_closed else R.string.coin_no_pair), 12f, MT.gray).apply { alpha = 0.7f; maxLines = 2 })
+                }, lp(0, WRAP, 1f))
+            }, lp())
         }
     }
-    body.addView(c.text(c.getString(R.string.coin_choose_chats), 13f, MT.gray).apply { setPadding(dp(16), dp(22), dp(16), dp(6)) }, lp())
+    body.addView(c.text(c.getString(if (group == null) R.string.coin_choose_chats else R.string.coin_choose_members), 13f, MT.gray).apply { setPadding(dp(16), dp(22), dp(16), dp(6)) }, lp())
     body.addView(list, lp())
+    if (group != null) body.addView(c.text(c.getString(R.string.coin_group_note), 13f, MT.gray).apply { setPadding(dp(16), dp(6), dp(16), dp(6)) }, lp())
     drawTotal()
     lateinit var close: () -> Unit
     val go = c.icon(R.drawable.ic_paperplane, MT.blue).apply {
@@ -452,9 +477,11 @@ fun sendCoinsPage(act: MainActivity, onClose: () -> Unit): View {
                 AlertDialog.Builder(act).setTitle(R.string.coin_not_enough).setMessage(R.string.coin_not_enough_sub).setPositiveButton(R.string.ok, null).show()
                 return@pressable
             }
+            Log.i("Montana", "coin_send_many chats=" + to.size + " total=" + sum + " went=" + went.size)
+            if (group != null) { Groups.tellCoins(c, went.size, group); sent() }
             close()
-            // one recipient's chat opens at once (iOS MontanaOutsideOpen.chat); many close the page
-            if (went.size == 1) act.push { back -> conversationPage(act, went[0], back) }
+            // one recipient's chat opens at once (iOS MontanaOutsideOpen.chat); many close the page; from a group it closes back into the group
+            if (group == null && went.size == 1) act.push { back -> conversationPage(act, went[0], back) }
         }
     }
     close = onClose
