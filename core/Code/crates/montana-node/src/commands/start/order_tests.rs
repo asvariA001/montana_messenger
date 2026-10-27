@@ -160,6 +160,17 @@ impl Fixture {
         depth: u8,
         edit: impl Fn(&mut ProposalHeader),
     ) -> ProposalHeader {
+        self.header_with(proposer, depth, self.confirmers_two_before(), edit)
+    }
+
+    /// The same, with the state_root the settle computes for the given confirmers of W-1.
+    fn header_with(
+        &self,
+        proposer: &crate::identity::Identity,
+        depth: u8,
+        confirmers: Vec<mt_state::NodeId>,
+        edit: impl Fn(&mut ProposalHeader),
+    ) -> ProposalHeader {
         let mut accounts = self.accounts.clone();
         let mut nodes = self.nodes.clone();
         let state_root = apply_proposal(
@@ -168,7 +179,7 @@ impl Fixture {
             &CandidatePool::new(),
             &ProposalSettle {
                 window_w: W,
-                cemented_confirmers: self.confirmers_two_before(),
+                cemented_confirmers: confirmers,
             },
             genesis_params(),
         );
@@ -200,13 +211,22 @@ impl Fixture {
 
     /// The cemented envelope of a header: the confirmations of W-1 and of W by all three.
     fn envelope_of(&self, header: &ProposalHeader) -> ProtocolMessage {
-        let bundles_prev: Vec<BundledConfirmation> = self
-            .members()
+        self.envelope_with(header, &self.members(), &self.members())
+    }
+
+    /// The cemented envelope of a header with the confirmations of W-1 by `included` and of W
+    /// by `evidence`, in that order.
+    fn envelope_with(
+        &self,
+        header: &ProposalHeader,
+        included: &[&crate::identity::Identity],
+        evidence: &[&crate::identity::Identity],
+    ) -> ProtocolMessage {
+        let bundles_prev: Vec<BundledConfirmation> = included
             .iter()
             .map(|id| self.confirmation(id, W - 1, T_R_PREV))
             .collect();
-        let evidence: Vec<BundledConfirmation> = self
-            .members()
+        let evidence: Vec<BundledConfirmation> = evidence
             .iter()
             .map(|id| self.confirmation(id, W, T_R_W))
             .collect();
@@ -527,6 +547,41 @@ fn a_second_envelope_of_an_applied_window_is_refused_and_the_pair_kept() {
         "a repeated or foreign envelope moved the state"
     );
     assert_eq!(node.equivocations.len(), 1);
+}
+
+// Issue #18, S5. An envelope that names one node's confirmation twice, in the confirmations of
+// W-1 or in the evidence of W, is refused whole and moves nothing. Three nodes of chain length
+// 10 give a quorum of 21: P and A alone (20) fall short, P counted twice (30) passes. Rejects the
+// counting code before S5, which summed the repeat into the quorum and applied the envelope with
+// P's chain length raised twice.
+#[test]
+fn an_envelope_naming_one_confirmation_twice_is_refused_whole() {
+    let f = Fixture::new();
+    let proposer = f.ticket_order()[0];
+    let all = f.members();
+    let twice = [&f.p, &f.a, &f.p];
+    let mut repeated: Vec<mt_state::NodeId> = twice.iter().map(|i| i.node_id()).collect();
+    repeated.sort();
+    for (name, header, included, evidence) in [
+        (
+            "included",
+            f.header_with(proposer, 1, repeated, |_| {}),
+            twice,
+            all,
+        ),
+        ("evidence", f.header(proposer, 1, |_| {}), all, twice),
+    ] {
+        let mut node = Follower::new(&f, "named-twice");
+        let before = node.held();
+        node.deliver(
+            &f.follower,
+            vec![f.envelope_with(&header, &included, &evidence)],
+        );
+        assert!(
+            node.held() == before,
+            "{name}: an envelope naming a confirmation twice moved the state"
+        );
+    }
 }
 
 // Issue #18, S1. Rejects a follower that names a proposer from confirmers of W-2 it does not

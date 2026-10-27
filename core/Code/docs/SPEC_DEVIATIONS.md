@@ -1124,6 +1124,7 @@ Mitigated by DEV-042: a divergence triggered by this race is now rejected and re
 - Issuance (S2): `apply_emission` (EMISSION_moneta to the operator of winner_id, panic on an unknown winner) is replaced by `apply_window_credit`: every cemented confirmer of W-1, counted once, is credited `window_credit_moneta` = 60 × 10^9 nɈ; a node or account missing from the tables is credited nothing, without a panic. `emission_moneta` stays in the Decree layout and is read by no issuance.
 **Deviation that remains:** the construction of the ticket, DEV-055.
 - Header (S3): `target`, `included_reveals_root`, `winner_endpoint` and `winner_id` stay in the signed 3722-byte layout at their offsets (396..412, 268..300, 300..332, 332..364) and are written as zeros; a follower refuses a header in which any of them is not zero (`mt_consensus::validate_retired_fields`). The layout and the sizes do not change.
+- Refusal (S5): an envelope whose confirmations of W-1, or whose evidence of W, name one node twice is refused whole (montana-node start.rs `names_a_node_twice`). Before it, the repeat was summed into the quorum and raised the node's chain_length twice in `apply_chain_length_increment`.
 **Status:**          closed for S1, S2 and S3; S4 (two proposals of one proposer for one window) is closed as DEV-026.
 
 ## DEV-055 (open): the ticket of core/Code is drawn from the node_id, not from the machine's secret (issue #18)

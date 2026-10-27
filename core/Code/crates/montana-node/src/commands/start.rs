@@ -959,6 +959,12 @@ fn keep_equivocation(ctx: &mut NetCtx, header: &ProposalHeader, payload: &[u8]) 
     bound_map(ctx.equivocations);
 }
 
+/// Whether a list of confirmations names one node more than once.
+fn names_a_node_twice(list: &[BundledConfirmation]) -> bool {
+    let mut seen = std::collections::BTreeSet::new();
+    list.iter().any(|bc| !seen.insert(bc.node_id))
+}
+
 /// Parsing the 3722-byte proposal header from the canonical layout.
 fn parse_header(payload: &[u8]) -> Option<ProposalHeader> {
     if payload.len() < 3722 {
@@ -1315,6 +1321,13 @@ fn handle_protocol_message(
                 eprintln!("[consensus] cemented w={w}: envelope tail not parsed — skip");
                 return Ok(());
             };
+            // Issue #18, S5: a list that names one node's confirmation twice would count that
+            // node twice in the quorum and in its chain length. Such an envelope contradicts
+            // itself and is refused whole.
+            if names_a_node_twice(&bundles_prev) || names_a_node_twice(&evidence) {
+                eprintln!("[consensus] w={w}: a confirmation named twice — skip");
+                return Ok(());
+            }
             let active_cl = active_chain_length_at(&ctx.state.nodes, w, ctx.params);
             // Acceptance threshold is the deterministic 67% of the 2τ₂ active set
             // (active_cl); no wall-clock and no proposer-based relaxation.
