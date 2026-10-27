@@ -557,7 +557,7 @@ pub fn run(args: StartArgs) -> Result<(), NodeError> {
                         winner_endpoint: [0u8; 32],
                         winner_id: [0u8; 32],
                         proposer_node_id: canonical_proposer,
-                        target: HEADER_TARGET,
+                        target: 0,
                         fallback_depth: my_depth,
                         signature: Signature::from_array([0u8; SIGNATURE_SIZE]),
                     };
@@ -676,7 +676,7 @@ pub fn run(args: StartArgs) -> Result<(), NodeError> {
                     winner_endpoint: [0u8; 32],
                     winner_id: [0u8; 32],
                     proposer_node_id: canonical_proposer,
-                    target: HEADER_TARGET,
+                    target: 0,
                     fallback_depth: my_depth,
                     signature: Signature::from_array([0u8; SIGNATURE_SIZE]),
                 };
@@ -808,12 +808,6 @@ const SSHA_PROGRESS_CHUNKS: u64 = 10;
 
 /// Retention depth of per-window histories (confirmations, confirmer sets, clock values).
 const HISTORY_BOUND: usize = 64;
-
-/// The header field `target` stays in the signed 3722-byte layout, but the
-/// lottery threshold it carried is removed (issue #18). Every header carries the
-/// former genesis value, under which every ticket was admitted, and a follower
-/// refuses any other value.
-const HEADER_TARGET: u128 = u128::MAX;
 
 fn bound_map<K: Ord + Copy, V>(m: &mut BTreeMap<K, V>) {
     while m.len() > HISTORY_BOUND {
@@ -1268,8 +1262,9 @@ fn handle_protocol_message(
                 );
                 return Ok(());
             }
-            if header.target != HEADER_TARGET {
-                eprintln!("[consensus] w={w}: envelope target != fixed value — skip");
+            // The fields of the lottery carry zeros (issue #18, S3).
+            if let Err(e) = mt_consensus::validate_retired_fields(&header) {
+                eprintln!("[consensus] w={w}: {e:?} — skip");
                 return Ok(());
             }
             let Some((bundles_prev, evidence)) = parse_envelope_bundles(&msg.payload) else {

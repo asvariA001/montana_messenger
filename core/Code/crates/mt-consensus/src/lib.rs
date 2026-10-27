@@ -281,11 +281,28 @@ pub fn validate_control_set(
 //   (a) proposer = proposer_at(W, aggregate(W-2), electorate(W), fallback_depth)
 //   (b) included_bundles ≥ 67% active_chain_length
 //   (c) state_root is correct (independent recomputation — delegated to mt-account::apply_proposal)
+//   (d) target, included_reveals_root, winner_endpoint and winner_id are zero
 // The former (c) included_reveals and (d) winner_{W-1} = argmin are removed with the lottery.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AcceptanceError {
     ProposerNotCanonical,
     InsufficientBundles,
+    RetiredFieldNotZero,
+}
+
+// The four fields of the lottery stay in the signed 3722-byte layout and carry zeros (issue #18,
+// the author's decision 279: "the fields target/reveals_root/winner in the header -- zeros, with
+// no change of the wire"). A header in which any of them is not zero is refused: nothing in
+// core/Code gives them a value, so a value there is a header no honest proposer wrote.
+pub fn validate_retired_fields(header: &ProposalHeader) -> Result<(), AcceptanceError> {
+    if header.target != 0
+        || header.included_reveals_root != [0u8; 32]
+        || header.winner_endpoint != [0u8; 32]
+        || header.winner_id != [0u8; 32]
+    {
+        return Err(AcceptanceError::RetiredFieldNotZero);
+    }
+    Ok(())
 }
 
 // (a) proposer canonical check, at the fallback_depth the signed header declares.
@@ -937,6 +954,33 @@ mod tests {
             validate_proposer_is_canonical(&h2, &agg, &[]),
             Err(AcceptanceError::ProposerNotCanonical)
         );
+    }
+
+    // Issue #18, S3. Rejects a follower that reads, or lets through, a value in a field of the
+    // lottery: each of the four, set to anything but zero, is refused; all four zero pass.
+    #[test]
+    fn a_header_with_a_non_zero_lottery_field_is_refused() {
+        let mut zero = stub_header([0x55; 32]);
+        zero.target = 0;
+        zero.included_reveals_root = [0u8; 32];
+        zero.winner_endpoint = [0u8; 32];
+        zero.winner_id = [0u8; 32];
+        assert_eq!(validate_retired_fields(&zero), Ok(()));
+        let edits: [fn(&mut ProposalHeader); 5] = [
+            |h| h.target = 1,
+            |h| h.target = u128::MAX,
+            |h| h.included_reveals_root[31] = 1,
+            |h| h.winner_endpoint[0] = 1,
+            |h| h.winner_id[16] = 0x80,
+        ];
+        for edit in edits {
+            let mut h = zero.clone();
+            edit(&mut h);
+            assert_eq!(
+                validate_retired_fields(&h),
+                Err(AcceptanceError::RetiredFieldNotZero)
+            );
+        }
     }
 
     #[test]

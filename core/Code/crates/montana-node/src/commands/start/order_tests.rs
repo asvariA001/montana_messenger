@@ -187,7 +187,7 @@ impl Fixture {
             winner_endpoint: [0u8; 32],
             winner_id: [0u8; 32],
             proposer_node_id: proposer.node_id(),
-            target: HEADER_TARGET,
+            target: 0,
             fallback_depth: depth,
             signature: Signature::from_array([0u8; SIGNATURE_SIZE]),
         };
@@ -439,6 +439,40 @@ fn a_window_has_one_proposer_whatever_the_order_of_delivery() {
     );
     node.deliver(&f.follower, vec![f.envelope(order[1], 2)]);
     assert_eq!(node.current, W, "depth 2 refused from the second ticket");
+}
+
+// Issue #18, S3. Rejects a follower that applies a header carrying a value in a field of the
+// lottery: the proposer the ticket names signs each such header itself, so only the field is
+// wrong, and every one is refused; the same header with the four fields zero is applied.
+#[test]
+fn a_header_with_a_non_zero_lottery_field_is_refused() {
+    let f = Fixture::new();
+    let proposer = f.ticket_order()[0];
+    let edits: [fn(&mut ProposalHeader); 4] = [
+        |h| h.target = u128::MAX,
+        |h| h.included_reveals_root = [0x09; 32],
+        |h| h.winner_endpoint = [0x0A; 32],
+        |h| h.winner_id = [0x0B; 32],
+    ];
+    for (i, edit) in edits.into_iter().enumerate() {
+        let mut node = Follower::new(&f, "lottery-field");
+        let before = node.outcome();
+        node.deliver(
+            &f.follower,
+            vec![f.envelope_of(&f.header(proposer, 1, edit))],
+        );
+        assert_eq!(
+            node.outcome(),
+            before,
+            "field {i}: a non-zero lottery field applied"
+        );
+    }
+    let mut node = Follower::new(&f, "lottery-zero");
+    node.deliver(&f.follower, vec![f.envelope(proposer, 1)]);
+    assert_eq!(
+        node.current, W,
+        "a header with the four fields zero refused"
+    );
 }
 
 // Issue #18, S1. Rejects a follower that names a proposer from confirmers of W-2 it does not
