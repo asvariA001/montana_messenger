@@ -48,8 +48,13 @@
 // closes it on a beacon of its own carrying a fuller cement, takes a proposal of its own, and pledges
 // in the open window a name the two never took and cannot replay, and the agreement of that window
 // does not decide (seen on this test, 25.10.2026 10:59 UTC: attempt eight, the two on one name and the
-// fourth on another); and a rejoined machine whose presence does not count — there the two never close
-// a window without it, and the window lived together carries a cement of two.
+// fourth on another); a way back that keeps the proposals it walked and not the state they carry —
+// there the fourth lives the window the two stand in over a plane that credited none of the windows it
+// missed, its proposal of that window carries a root of credited rights nobody else recomputes, no
+// roll replays to it, and the agreement of the window after parts two to one and never decides (seen
+// on this test, 27.10.2026 14:25 UTC: window 5 in its ninth attempt, the two opening on one name and
+// the fourth on another, cement 3 of 4); and a rejoined machine whose presence does not count — there
+// the two never close a window without it, and the window lived together carries a cement of two.
 
 use montana_node::certificate::Anchor;
 use montana_node::pulse::{self, Cohort, Lived};
@@ -473,6 +478,29 @@ fn a_machine_parted_from_the_quorum_moves_nothing_and_rejoins_by_verifying() {
         .expect("the walk closed what it verified")
         + 1;
     assert_eq!(from, PARTED);
+    // A way back that keeps the proposals it walked and not the state they carry: the fourth would
+    // live the window the two stand in over a plane that credited none of the windows it missed, and
+    // close it on roots nobody else recomputes.
+    let last_closed = machines[0]
+        .proposal_of(PARTED - 1)
+        .expect("the store answers")
+        .expect("the window the three closed last");
+    assert_eq!(
+        back.value()
+            .expect("the plane")
+            .tables_of(PARTED - 1)
+            .expect("the tables"),
+        [
+            last_closed.note_root,
+            last_closed.nullifier_root,
+            last_closed.record_root,
+            last_closed.machine_root,
+            last_closed.admitted_root,
+            last_closed.credited_root,
+            last_closed.operations_root,
+        ],
+        "the walk left the fourth on a plane that is not the decided state of the window it closed"
+    );
 
     // The fourth lives from the window the two stand in, beside them.
     living(&back, &halves, from, TOGETHER, 3, &answers);

@@ -2657,7 +2657,7 @@ fn stand_at_the_window(machine: &Machine, window: u64, object: &[u8]) -> Result<
 // change of trust. The head and the proposal before it are kept, and the head moves onto it.
 pub fn join(machine: &Machine, anchor: &Anchor, patience: u32) -> Result<Anchor, NodeError> {
     let (head, pending) = walked(machine, anchor, patience)?;
-    kept_as_walked(machine, &head, pending.as_ref())?;
+    kept_as_walked(machine, anchor, &head, pending.as_ref(), patience)?;
     Ok(head)
 }
 
@@ -2741,27 +2741,205 @@ fn walked(
 // the network closed would close it on a beacon of its own, a fuller cement than the network's, and
 // pledge in the open window a name of its own that nobody beside it took (seen on four machines,
 // 25.10.2026 10:59 UTC: the agreement of the open window in its eighth attempt, undecided).
+//
+// **And what it walked to, it holds the state of.** "It takes the state it needs against the roots of
+// the head ... and it recomputes every root it takes rather than accepting one" (Consensus, "The
+// join", 5). A machine that lives the open window needs the whole of it: the decided state of the
+// window it closed by the walk is what the proposal of the open window credits and applies over, and
+// a machine standing on another state takes a proposal under roots nobody else recomputes, which no
+// roll replays to — the agreement of the window after parts on two names and never decides (seen on
+// four machines, 27.10.2026 14:25 UTC: window 5 in its ninth attempt, the two on one name and the one
+// come back on another). Where the machine holds a state to replay from, the walk keeps the state it
+// replayed with the proposals in the one record of a close; where it holds none, it keeps the
+// proposals alone, and lives no window on them that anybody else verifies.
 fn kept_as_walked(
     machine: &Machine,
+    anchor: &Anchor,
     head: &Anchor,
     pending: Option<&Proposal>,
+    patience: u32,
 ) -> Result<(), NodeError> {
     machine.keep_proposal(&head.earlier)?;
-    machine.keep_proposal(&head.later)?;
-    machine.finalize(head.later.window)?;
     // A device that walked to this head stands in no window at or below it, nor in the window of the
     // proposal awaiting its certificate: those are closed, and a machine pledges nothing of a closed
     // window. The number that refuses them is the one the close writes, so a joiner asked to live a
     // closed window is refused at the opening rather than at the close, where its head would have to
     // leave the decision.
-    let closed = match pending {
-        Some(proposal) => {
-            machine.keep_proposal(proposal)?;
-            proposal.window
+    let taken = pending.unwrap_or(&head.later);
+    let known = [
+        &anchor.earlier,
+        &anchor.later,
+        &head.earlier,
+        &head.later,
+        taken,
+    ];
+    let beyond = machine
+        .closed_window()?
+        .is_none_or(|closed| taken.window > closed);
+    if beyond {
+        if let Some((plane, before)) = state_of_the_walk(machine, &known, taken, patience)? {
+            return machine.close(crate::Closing {
+                head: Some(head.later.clone()),
+                taken: taken.clone(),
+                plane,
+                before: Some(before),
+                census: None,
+            });
         }
-        None => head.later.window,
+    }
+    machine.keep_proposal(&head.later)?;
+    machine.finalize(head.later.window)?;
+    if pending.is_some() {
+        machine.keep_proposal(taken)?;
+    }
+    machine.let_go_of(taken.window)
+}
+
+// **The state a walk reaches, replayed and not received.** From the state this machine holds — the
+// decided state of its own head, kept in the record of the last window it closed, or, for a machine
+// that holds no chain and walked from the first window of a network, the plane before any window —
+// the decided roll of every window walked is replayed in its order, as a machine that took another
+// name replays one (Consensus, "The roll of a proposal"): its frames over the decided state of the
+// window before, then the parts of the decided roll before it credited, and the tables recomputed
+// are the proposal's or the walk is refused. What it answers is the state of the proposal taken and
+// the state of the window before it. Nothing, where the machine holds no state to replay from: a
+// device handed an anchor past the first window takes the state by the inclusion proofs Canon lays
+// out, which this machine does not carry.
+fn state_of_the_walk(
+    machine: &Machine,
+    known: &[&Proposal],
+    taken: &Proposal,
+    patience: u32,
+) -> Result<Option<(State, State)>, NodeError> {
+    let genesis = Predecessor::Genesis.id()?;
+    let (from, mut state) = match machine.decided_state_of_the_head()? {
+        Some((head, state)) => (Some(head), state),
+        None if machine.head()?.is_none() && machine.closed_window()?.is_none() => {
+            match known
+                .iter()
+                .find(|one| one.window == 0 && one.previous == genesis)
+            {
+                Some(first) => {
+                    let admitted = mt_proof::poseidon::Digest::of_bytes(&first.admitted_root)
+                        .ok_or(NodeError::Refused {
+                            what: "an admitted root outside the field",
+                        })?;
+                    (None, State::new().with_admitted(admitted))
+                }
+                None => return Ok(None),
+            }
+        }
+        None => return Ok(None),
     };
-    machine.let_go_of(closed)
+    // The proposals from the window of that state to the one taken, each the one the next names.
+    let mut chain: Vec<Proposal> = vec![taken.clone()];
+    while let Some(last) = chain.last() {
+        if last.window <= from.unwrap_or(0) {
+            break;
+        }
+        let at = last.window - 1;
+        let named =
+            proposal_named(machine, known, at, &last.previous)?.ok_or(NodeError::Refused {
+                what: "a walked window whose proposal stands at none of its points",
+            })?;
+        chain.push(named);
+    }
+    chain.reverse();
+    let mut credited: Vec<[u8; 32]> = Vec::new();
+    let replayed = match from {
+        // The state of the head is the head's on the chain walked, or it is another chain's.
+        Some(head) => {
+            let base = &chain[0];
+            let own = machine.proposal_of(head)?.and_then(|one| one.id().ok());
+            if base.window != head
+                || own != base.id().ok()
+                || state.tables_of(head)? != tables_carried(base)
+            {
+                return Err(NodeError::Refused {
+                    what: "a decided state of the head that is not the head the walk passed",
+                });
+            }
+            credited = roll_named(machine, base)?
+                .ok_or(NodeError::Refused {
+                    what: "a walked window whose decided roll stands at none of its points",
+                })?
+                .parts;
+            &chain[1..]
+        }
+        None => &chain[..],
+    };
+    let mut before = state.clone();
+    for proposal in replayed {
+        let window = proposal.window;
+        let roll = roll_named(machine, proposal)?.ok_or(NodeError::Refused {
+            what: "a walked window whose decided roll stands at none of its points",
+        })?;
+        before = state.clone();
+        if !roll.frames.is_empty() {
+            let frames = frames_of_a_past_window(machine, window, patience)?;
+            for id in &roll.frames {
+                let frame = frames.get(id).ok_or(NodeError::Refused {
+                    what: "a frame of a walked roll that stands at no round of its window",
+                })?;
+                state.apply(frame, window).map_err(|_| NodeError::Refused {
+                    what: "a frame of a walked roll the decided state refuses",
+                })?;
+            }
+        }
+        state.credit(&credited)?;
+        if state.tables_of(window)? != tables_carried(proposal) {
+            return Err(NodeError::Refused {
+                what: "a walked proposal whose roots the replay of its roll does not reproduce",
+            });
+        }
+        credited = roll.parts;
+    }
+    Ok(Some((state, before)))
+}
+
+// The proposal of `window` under the identifier `named`: one the walk handed over, one this machine
+// keeps, or one standing at the points of that window.
+fn proposal_named(
+    machine: &Machine,
+    known: &[&Proposal],
+    window: u64,
+    named: &[u8; 32],
+) -> Result<Option<Proposal>, NodeError> {
+    let is_it = |one: &Proposal| one.window == window && one.id().ok().as_ref() == Some(named);
+    if let Some(one) = known.iter().find(|one| is_it(one)) {
+        return Ok(Some((*one).clone()));
+    }
+    if let Some(one) = machine.proposal_of(window)?.filter(is_it) {
+        return Ok(Some(one));
+    }
+    Ok(
+        proposals_of(&bodies_at_a_past_window(machine, window)?, window)?
+            .into_iter()
+            .find(is_it),
+    )
+}
+
+// The roll a proposal names, standing at the points of its window.
+fn roll_named(machine: &Machine, proposal: &Proposal) -> Result<Option<Roll>, NodeError> {
+    Ok(rolls_of(
+        &bodies_at_a_past_window(machine, proposal.window)?,
+        proposal.window,
+    )
+    .into_iter()
+    .find(|one| one.id().ok() == Some(proposal.roll)))
+}
+
+// The seven tables a proposal carries, in the order a plane recomputes them.
+fn tables_carried(proposal: &Proposal) -> [[u8; 32]; 7] {
+    [
+        proposal.note_root,
+        proposal.nullifier_root,
+        proposal.record_root,
+        proposal.machine_root,
+        proposal.admitted_root,
+        proposal.credited_root,
+        proposal.operations_root,
+    ]
 }
 
 // What a walk that finds nothing to verify answers, whether the device holds nothing or lived the
@@ -2805,7 +2983,7 @@ pub fn come_back(machine: &Machine, to: u64, patience: u32) -> Result<u64, NodeE
             what: NO_CERTIFICATE_TO_WALK,
         });
     }
-    kept_as_walked(machine, &head, pending.as_ref())?;
+    kept_as_walked(machine, &anchor, &head, pending.as_ref(), patience)?;
     machine
         .closed_window()?
         .and_then(|closed| closed.checked_add(1))
