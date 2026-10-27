@@ -19,7 +19,7 @@ fn a_release_build_refuses_the_d_test_override() {
         .expect("spawn montana-node");
     let stderr = String::from_utf8_lossy(&out.stderr);
     if cfg!(debug_assertions) {
-        // A debug/test build keeps the lever; the empty data dir stops it at the identity.
+        // A debug/test build keeps the lever; the start stops later (no manifest).
         assert!(!stderr.contains(REFUSAL), "debug build refused: {stderr}");
     } else {
         // Rejects a release binary that accepts the flag and goes on to load the store.

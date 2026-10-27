@@ -61,15 +61,14 @@ if [ -f "$MANIFEST" ] && [ -n "${MONTANA_MANIFEST_SHA256:-}" ]; then
 fi
 
 # 3. Start the node.
-# The node requires --listen and --genesis-manifest TOGETHER (cross-machine mode)
-# or NEITHER (singleton mode). Never --listen alone.
-if [ -f "$MANIFEST" ]; then
-  set -- start --data-dir "$DATA_DIR" --listen "$LISTEN" --genesis-manifest "$MANIFEST"
-  echo "[entrypoint] cross-machine mode"
-else
-  set -- start --data-dir "$DATA_DIR"
-  echo "[entrypoint] singleton mode — no manifest, no --listen"
+# The node requires --listen and --genesis-manifest together: there is no single
+# mode without a manifest (issue #17 K5).
+if [ ! -f "$MANIFEST" ]; then
+  echo "[entrypoint] FATAL: no genesis manifest at $MANIFEST; a node does not start without one" >&2
+  exit 1
 fi
+set -- start --data-dir "$DATA_DIR" --listen "$LISTEN" --genesis-manifest "$MANIFEST"
+echo "[entrypoint] cross-machine mode"
 
 # No unsolicited site report: the node's identity, label, location and state
 # stay with its operator. This does not erase earlier disclosures.

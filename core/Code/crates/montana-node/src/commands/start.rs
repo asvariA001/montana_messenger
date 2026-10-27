@@ -71,7 +71,15 @@ pub struct StartArgs {
     pub enable_names: bool,
 }
 
+/// issue #17 K5: the single mode without a manifest is dropped.
+pub const NO_MANIFEST_REFUSED: &str =
+    "start requires --listen and --genesis-manifest: there is no single mode without a manifest";
+
 pub fn run(args: StartArgs) -> Result<(), NodeError> {
+    // A node starts only in the cross-machine mode, before it reads its identity or store.
+    if args.listen_multiaddr.is_none() || args.genesis_manifest.is_none() {
+        return Err(NodeError::InvalidArguments(NO_MANIFEST_REFUSED.into()));
+    }
     let data_dir = args.data_dir.unwrap_or_else(default_data_dir);
     let identity = load_identity(&data_dir)?;
     let params = genesis_params();

@@ -49,7 +49,7 @@ fn main() -> ExitCode {
 
 fn help_text() -> String {
     String::from(
-        "montana-node — Montana node (singleton or cross-machine M8 mode)\n\
+        "montana-node — Montana node (cross-machine M8 mode)\n\
          \n\
          Usage:\n\
          \n\
@@ -64,7 +64,7 @@ fn help_text() -> String {
          \n\
            montana-node start   [--data-dir <PATH>] [--max-windows <N>]\n\
                                  [--d-test-override <N>]\n\
-                                 [--listen <multiaddr>] [--genesis-manifest <PATH>]\n\
+                                 --listen <multiaddr> --genesis-manifest <PATH>\n\
          \n\
          Commands:\n\
          \n\
@@ -110,6 +110,9 @@ fn help_text() -> String {
            --force                    Overwrite existing identity.bin.\n\
            --reveal-master-seed       In inspect: show the full master_seed.\n\
            --max-windows <N>          In start: stop after N windows.\n\
+           --listen <multiaddr>       In start: libp2p listen address. Required.\n\
+           --genesis-manifest <PATH>  In start: genesis cohort peers. Required: there is\n\
+                                      no single mode without a manifest.\n\
            --d-test-override <N>      In start: TEST-ONLY override D = N iterations.\n\
                                       Production uses params.d0 (Genesis Decree, value from mt-genesis).\n\
                                       Debug and test builds only; a release build refuses it.\n",
@@ -304,11 +307,8 @@ fn parse_start(args: &[String]) -> Result<start::StartArgs, NodeError> {
             },
         }
     }
-    if listen_multiaddr.is_some() != genesis_manifest.is_some() {
-        return Err(NodeError::InvalidArguments(
-            "--listen and --genesis-manifest must be given together (cross-machine mode) or both omitted (singleton mode)"
-                .into(),
-        ));
+    if listen_multiaddr.is_none() || genesis_manifest.is_none() {
+        return Err(NodeError::InvalidArguments(start::NO_MANIFEST_REFUSED.into()));
     }
     Ok(start::StartArgs {
         enable_candidate,
