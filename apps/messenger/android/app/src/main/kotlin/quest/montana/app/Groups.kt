@@ -1682,6 +1682,56 @@ object Groups {
         Book.edit(key(c.group)) { ch -> ch.msgs.find { it.mine && it.mid == c.letter }?.advance(next) }
     }
 
+    /** Whether a row of mine still has a copy in the queue (iOS rides, for paintOrphanSending): a clock with nothing behind it is a lie. */
+    fun rides(letter: String, queued: Set<String>): Boolean = synchronized(lock) {
+        if (!ready()) return true   // an unread store says nothing is lost: the clock waits for the store
+        copies.any { it.value.own && it.value.letter == letter && it.key in queued }
+    }
+    /**
+     * A ROW OF MINE STANDS WHERE ITS COPIES SAY, ASKED AGAIN AT THE COLD SWEEP (iOS answersFor, 2315; the author's words 27.10.2026
+     * 09:15 and 09:44 UTC: after a relaunch a channel's files wore red and «retry» though they stood in the channel). A group's
+     * media rides on its copies under names of their own, never the letter's; true when the row is the group's to answer -- a copy
+     * of mine names the letter, or the store is not read yet -- and the row is moved by follow, as its receipts would move it.
+     */
+    fun answersFor(letter: String): Boolean = synchronized(lock) {
+        if (!ready()) return true
+        val c = copies.values.firstOrNull { it.own && it.letter == letter } ?: return false
+        follow(c)
+        true
+    }
+    /**
+     * A HAND ASKED AGAIN (iOS MTGroup.resend, the red mark's retry): the row goes back to the clock; every copy still in the queue
+     * keeps riding, one the queue let go rides again to its receiver anew; a letter with no copy left leaves anew to everyone.
+     */
+    fun resend(key: String, m: Msg) {
+        synchronized(lock) {
+            val g = state(key)?.takeIf { !it.left && (it.kind == GROUP || it.mine) } ?: return
+            if (!m.mine) return
+            var back = false
+            Book.edit(key) { c -> c.msgs.find { it.mid == m.mid && it.mine }?.let { back = it.restart() } }
+            if (!back) return
+            val w = word("say", g).put("id", m.mid).put("s", g.me).put("tx", m.text)
+            if (!m.qt.isNullOrEmpty()) w.put("qt", m.qt)
+            if (!m.qm.isNullOrEmpty()) w.put("qm", m.qm)
+            val queued = Post.queued()
+            val mine = copies.filter { it.value.own && it.value.group == g.id && it.value.letter == m.mid }
+            if (mine.isEmpty()) {
+                if (spread(w, g, null, own = true) == 0) Book.edit(key) { c -> c.msgs.find { it.mid == m.mid }?.advance(if (alone(g)) 2 else -1) }
+                Log.i("Montana", "group_resend mid=" + m.mid.take(14) + " anew")
+                return
+            }
+            val gone = mine.filter { it.key !in queued }
+            gone.keys.forEach { copies.remove(it) }
+            val again = gone.values.mapNotNull { carry(w, it.to, m.mid, own = true) }
+            val left = mine.size - gone.size + again.size
+            copies.values.filter { it.own && it.group == g.id && it.letter == m.mid }.forEach { it.of = left }
+            saveCopies()
+            if (left == 0) Book.edit(key) { c -> c.msgs.find { it.mid == m.mid }?.advance(-1) }
+            Log.i("Montana", "group_resend mid=" + m.mid.take(14) + " copies=" + left + " again=" + again.size)
+        }
+        Thread { Post.flush() }.start()
+    }
+
     // ── arrival ──
 
     /**

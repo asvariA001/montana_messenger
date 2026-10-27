@@ -264,6 +264,30 @@ object Media {
     }
     /** The files an unsent letter still names (iOS MontanaMediaStore.held): the cache never clears them. */
     fun inHand(): Set<String> = synchronized(intentLock) { intents().let { a -> (0 until a.length()).mapNotNull { a.optJSONObject(it)?.optString("f") }.toSet() } }
+    /** The letters whose intent waits for the drain: the queue holds them (iOS queueHolds), their clock is honest. */
+    fun intentMids(): Set<String> = synchronized(intentLock) { intents().let { a -> (0 until a.length()).mapNotNull { a.optJSONObject(it)?.optString("mid") }.toSet() } }
+    /**
+     * A RED FILE TAPPED (iOS resendMedia): THE SAME ROAD AS THE FIRST SEND under the row's own name -- the pieces sealed and laid
+     * again from the file beside the row, the letter posted again; the row back at the clock with its ring. A file gone is no retry.
+     */
+    fun resend(c: Context, ref: String, m: Msg) {
+        val f = m.file?.let { File(it) }?.takeIf { it.exists() } ?: return
+        val man = manifestOf(m) ?: return
+        var back = false
+        Book.edit(ref) { ch -> ch.msgs.find { it.mid == m.mid && it.mine }?.let { back = it.restart() } }
+        if (!back) return
+        if (!Book.isLocal(ref)) Transfers.set(m.mid, 0.01f)
+        Log.i("Montana", "resend_tap m=" + m.mid.take(8) + " kind=" + man.optString("k") + " human retry")
+        Thread {
+            val wave = man.optString("wv").takeIf { it.isNotEmpty() }?.let { w ->
+                runCatching { Base64.decode(w, Base64.NO_WRAP) }.getOrNull()?.let { b -> FloatArray(b.size) { (b[it].toInt() and 0xFF) / 255f } }
+            }
+            val p = Picked(f.readBytes(), man.optString("k").ifEmpty { "doc" }, man.optString("e").ifEmpty { f.extension }, man.optString("n").ifEmpty { null },
+                man.optDouble("du").takeIf { !it.isNaN() }, wave, man.optBoolean("r"))
+            val caption = man.optString("cap")
+            if (!deliver(c, ref, m.mid, p, caption, f, m.qt, MediaGroup.read(man))) keepIntent(ref, m.mid, f, Marks.MEDIA + man.toString(), caption, m.qt)
+        }.start()
+    }
     @Volatile private var draining = false
     /** The intents still waiting go out again, oldest first, one at a time, at every pickup of the box; while the node takes nothing the rest wait too. */
     fun drainIntents(c: Context) {
@@ -697,6 +721,16 @@ class MediaProvider : ContentProvider() {
 object StagedOrder {
     /** The number a place wears: one more than its index. */
     fun number(index: Int) = index + 1
+    /**
+     * THE PERSON SETS THE ORDER (iOS MTStagedOrder.moved, 2315; the author's words 27.10.2026 09:16 UTC): a plate carried from `from`
+     * stands at `to`, every other keeps its turn, and the numbers follow by construction. A place outside the tray changes nothing.
+     */
+    fun <T> moved(items: List<T>, from: Int, to: Int): List<T> {
+        if (from !in items.indices || to !in items.indices || from == to) return items
+        val a = items.toMutableList()
+        a.add(to, a.removeAt(from))
+        return a
+    }
     /** The plates of a tray: a run of two or more pictures folds into one; a file (`true`) ends the run and stands alone. */
     fun plates(files: List<Boolean>): List<IntRange> {
         val out = ArrayList<IntRange>()

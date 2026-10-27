@@ -617,6 +617,12 @@ class Msg(
         if (ok) { state = next; statusAt = System.currentTimeMillis() }
         return ok
     }
+    /** THE ONE ROAD BACK IS THE HUMAN HAND (iOS ChatStore.restartSend): «retry» pressed, a red row stands at the clock again. */
+    fun restart(): Boolean {
+        if (state != -1) return false
+        state = 0; statusAt = System.currentTimeMillis()
+        return true
+    }
 
     companion object {
         fun of(o: JSONObject) = Msg(o.getString("m"), o.getString("t"), o.getBoolean("o"), o.getLong("at"), o.optInt("s"), o.optBoolean("e"),
@@ -1380,6 +1386,58 @@ object Post {
         }
     }
 
+    /** The names the queue holds (iOS queueMids): the letters and copies waiting in it, and the files whose intent waits for the drain. */
+    fun queued(): Set<String> {
+        val a = synchronized(outLock) { outbox() }
+        return (0 until a.length()).map { a.getJSONObject(it).optString("m") }.toSet() + Media.intentMids()
+    }
+
+    @Volatile private var coldSwept = false
+    @Volatile private var sweptAt = 0L
+    /**
+     * A CLOCK WITH NOTHING BEHIND IT IS A LIE (iOS ChatStore.paintOrphanSending, MontanaChatStore 1302, the mirror law's M-2; and
+     * markStaleSendsFailed 1679 at the cold start): a row of mine at the clock that no queue item, no intent, no living upload and
+     * no copy of a group carries will never move -- it turns red, and the tap on it sends it again (resendAny). At the process's
+     * first pass a file's row goes red at once, since no upload can be alive yet; later only a row older than two minutes.
+     * A ROW OF A GROUP RIDES ON ITS COPIES (iOS 2315, MTGroup.answersFor and rides): never under the letter's own name, so the
+     * queue never holds it; the group answers for the row and moves it as its copies stand. The room without a wire is settled.
+     */
+    fun sweepClocks() {
+        val now = System.currentTimeMillis()
+        if (coldSwept && now - sweptAt < 5_000L) return   // once in five seconds at most (iOS reconcile's lastMirror)
+        sweptAt = now
+        val cold = !coldSwept
+        coldSwept = true
+        val queued = queued()
+        val edge = now - 120_000L
+        var fixed = 0
+        for (ch in Book.rooms()) for (m in ch.msgs) {
+            if (!m.mine || m.state != 0) continue
+            if (Book.isLocal(ch.ref)) { Book.edit(ch.ref) { c -> c.msgs.find { it.mid == m.mid }?.advance(2) }; continue }
+            if (m.mid in queued || Transfers.riding(m.mid)) continue
+            val media = m.file != null
+            if (Groups.isKey(ch.ref) && (if (cold && media) Groups.answersFor(m.mid) else Groups.rides(m.mid, queued))) continue
+            if (!(cold && media) && edge <= m.at) continue
+            var red: Msg? = null
+            Book.edit(ch.ref) { c -> c.msgs.find { it.mid == m.mid && it.mine && it.state == 0 }?.let { r -> if (r.advance(-1)) red = r } }
+            red?.let { CoinSend.hold(it, ch.ref); fixed++ }
+        }
+        if (fixed > 0) Log.d("Montana", "tx_stale stuck sends turned red: " + fixed + " cold=" + (if (cold) 1 else 0))
+    }
+
+    /**
+     * A HUMAN TAPPED A RED LETTER (iOS resendAny's text road: settleByMid(.sending) → retryNow): the row goes back to the clock and
+     * the letter rides again under the SAME name -- one still in the queue keeps its place, one the queue gave up on enters again.
+     */
+    fun retry(ref: String, m: Msg) {
+        var back: Msg? = null
+        Book.edit(ref) { c -> c.msgs.find { it.mid == m.mid && it.mine }?.let { r -> if (r.restart()) back = r } }
+        val row = back ?: return
+        CoinSend.hold(row, ref)   // on its way again, its coins taken again (iOS restartSend)
+        Log.d("Montana", "resend_tap m=" + m.mid.take(8) + " human retry")
+        send(ref, row.mid, row.text, row.qt, row.qm, row.lp)
+    }
+
     /** A letter's body up to its glyph (iOS sendP2P 902-908): mid ‖ 0 ‖ words ‖ 0 ‖ my name ‖ 0 ‖ glyph — one shape for the box and the channels. */
     private fun letterHead(mid: String, text: String): ByteArray =
         mid.toByteArray() + 0 + text.toByteArray() + 0 + Prefs.userName.trim().toByteArray() + 0 + byteArrayOf(0)
@@ -1632,6 +1690,7 @@ object Post {
         Media.fetchPending(Book.ctx)
         Thread { Media.drainIntents(Book.ctx) }.start()   // a file whose pieces did not land goes out again (iOS 1675), never ahead of the letters
         flush()
+        sweepClocks()   // after the queue's own pass, with the history in hand (iOS: the mirror, and the cold sweep after the load)
     }
 
     private fun fetchOnce() {

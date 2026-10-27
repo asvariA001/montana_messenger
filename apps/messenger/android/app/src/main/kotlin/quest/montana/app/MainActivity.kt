@@ -525,10 +525,11 @@ class MainActivity : Activity() {
 
     /** Tracks and files, any number, from the system's document picker (iOS fileImporter [.audio, .item], allowsMultipleSelection). */
     fun openDocuments(done: (List<Uri>) -> Unit) {
-        manyDone = done
+        manyDone = { got -> got.lastOrNull()?.let { FilesFolder.remember(it) }; done(got) }
         runCatching {
             @Suppress("DEPRECATION") startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
-                .setType("*/*").putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true), PICK_MANY)
+                .setType("*/*").putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+                .apply { FilesFolder.last()?.let { putExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI, it) } }, PICK_MANY)
         }.onFailure { manyDone = null; done(emptyList()) }
     }
 
@@ -651,4 +652,24 @@ class MainActivity : Activity() {
     override fun attachBaseContext(base: android.content.Context) = super.attachBaseContext(pinnedText(AppLanguage.wrap(base)))
 
     private companion object { const val PICK_PHOTO = 1; const val ASK_NOTIFY = 2; const val DOCUMENT = 3; const val ASK_CAMERA = 4; const val CONFIRM_OWNER = 5; const val CAPTURE = 6; const val PICK_CONTACT = 7; const val ASK_CALL_MIC = 9; const val ASK_CALL_OUT = 10; const val ASK_SCREEN = 11; const val PICK_MANY = 12; const val ASK_MEDIA = 13; const val ASK_MIC = 14; const val ADD_CONTACT = 15 }
+}
+
+/**
+ * THE FILES PAGE OPENS WHERE THE PERSON LAST TOOK A FILE FROM (iOS MTFilesFolder, 2315; the author's word 27.10.2026 09:15 UTC,
+ * council link 9561): the last document chosen is the system page's first place -- it opens in that document's folder. Kept in
+ * the device-only vault (iOS: sealed on this phone, SeedScope.deviceKeys): a place of this phone's storage never travels in a copy.
+ * A document gone lets the page open where it would. Read once per run.
+ */
+object FilesFolder {
+    private const val KEY = "filesPageFolder"
+    private var held: Uri? = null
+    private var read = false
+    @Synchronized fun last(): Uri? {
+        if (!read) { read = true; held = DeviceVault.get(KEY)?.let { Uri.parse(String(it, Charsets.UTF_8)) } }
+        return held
+    }
+    @Synchronized fun remember(file: Uri) {
+        read = true; held = file
+        DeviceVault.set(KEY, file.toString().toByteArray(Charsets.UTF_8))
+    }
 }
