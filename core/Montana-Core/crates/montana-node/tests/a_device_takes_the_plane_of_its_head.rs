@@ -233,3 +233,98 @@ fn a_device_that_walked_to_the_head_takes_its_tables_against_its_roots() {
     assert_eq!(again.head().expect("the store answers"), Some(at));
     drop(far);
 }
+
+// The bytes of a plane holding nothing but the tree of admitted machines `admitted` and the two
+// lists of the one set of nullifiers, in the order State::encode writes a plane (state.rs): counts
+// four bytes little-endian, values thirty-two, the opening window and count and the window of the
+// operations eight. The empty case is held equal to State::encode below, so the layout is the
+// tree's and not this test's.
+fn a_plane_of_nullifiers(
+    admitted: &[u8; 32],
+    spent: &[[u8; 32]],
+    nullifiers: &[[u8; 32]],
+) -> Vec<u8> {
+    let count = |out: &mut Vec<u8>, n: usize| out.extend_from_slice(&(n as u32).to_le_bytes());
+    let mut out = Vec::new();
+    count(&mut out, 0);
+    count(&mut out, spent.len());
+    for value in spent {
+        out.extend_from_slice(value);
+    }
+    out.extend_from_slice(admitted);
+    count(&mut out, 0);
+    count(&mut out, nullifiers.len());
+    for value in nullifiers {
+        out.extend_from_slice(value);
+    }
+    out.extend_from_slice(&0u64.to_le_bytes());
+    out.extend_from_slice(&0u64.to_le_bytes());
+    count(&mut out, 0);
+    out.extend_from_slice(&0u64.to_le_bytes());
+    count(&mut out, 0);
+    count(&mut out, 0);
+    out
+}
+
+// **V5. The set of nullifiers is one** (Canon, "The roots of state", "What enters the two sets":
+// the nullifiers of notes, rights, openings and candidacies, "which no reader tells apart"). The
+// plane keeps it as two lists, `spent` and `nullifiers`, and one root folds them (state.rs, roots),
+// so a server can offer the nullifier of a spent note in the other list under the head's own root.
+// The device takes that plane, and the note stays spent on it: State::is_spent answers true, which
+// is what refuses a frame redeeming it ("a frame repeating a spent note or rate right", state.rs,
+// State::apply). And one nullifier standing in both lists: State::decode refuses a repeat inside one
+// list only, and the fold inserts it twice into one sparse tree, where the second insertion replaces
+// the first (mt-merkle, SparseTree::insert, a BTreeMap) -- so the root is the root of the set holding
+// it once, the plane is taken, and both checks answer true.
+//
+// **The wrong implementation it refuses**, named before the assertions: an `is_spent` that reads the
+// list of spent notes and the rate set alone -- the moved nullifier would redeem its note again on
+// the device.
+#[test]
+fn a_nullifier_moved_between_the_lists_of_the_one_set_stays_spent() {
+    let at = Scratch::named("plane-one-set");
+    let (device, _) =
+        Machine::start(&Configuration::at(&at.0, "127.0.0.1:0")).expect("the device starts");
+    let cohort =
+        Cohort::of(&[device.naming_half().expect("a half of the device")]).expect("a cohort");
+    let admitted = cohort.root().bytes();
+    assert_eq!(
+        a_plane_of_nullifiers(&admitted, &[], &[]),
+        State::new()
+            .with_admitted(cohort.root())
+            .encode()
+            .expect("the plane encodes"),
+        "the layout of a plane is State::encode's"
+    );
+
+    // The head: a proposal of window zero over a plane whose list of spent notes holds `spent`.
+    let spent = [0x5Au8; 32];
+    let honest = State::decode(&a_plane_of_nullifiers(&admitted, &[spent], &[]))
+        .expect("the honest plane reads");
+    assert!(honest.is_spent(&spent));
+    let head = common::proposal_over(
+        0,
+        mt_state::tables::genesis_state_hash().expect("the hash of the network"),
+        &honest,
+        &cohort,
+        1,
+    );
+    device.keep_proposal(&head).expect("the head is kept");
+    device.finalize(0).expect("the head moves onto it");
+
+    // Moved from the list of spent notes to the other list: taken, since the root is the head's, and
+    // the note is still spent on the device.
+    let moved = a_plane_of_nullifiers(&admitted, &[], &[spent]);
+    assert_eq!(pulse::take_the_plane(&device, &cohort, &moved), Ok(()));
+    assert!(
+        device.value().expect("the plane").is_spent(&spent),
+        "a nullifier moved to the other list of the one set redeems its note again"
+    );
+    assert!(device.value().expect("the plane").is_spent_right(&spent));
+
+    // Standing in both lists: taken under the same root, and spent by both checks.
+    let both = a_plane_of_nullifiers(&admitted, &[spent], &[spent]);
+    assert_eq!(pulse::take_the_plane(&device, &cohort, &both), Ok(()));
+    assert!(device.value().expect("the plane").is_spent(&spent));
+    assert!(device.value().expect("the plane").is_spent_right(&spent));
+}

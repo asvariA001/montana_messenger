@@ -298,10 +298,16 @@ impl State {
         self.notes.path(position)
     }
 
-    // A value a frame presents is refused where it stands already, whichever of the two sets holds
-    // it: a spent note or right, or a rate the horizon holds.
+    // A value a frame presents is refused where it stands already: in the one set of nullifiers, or
+    // in the rate set of the horizon. **The set of nullifiers is one.** It holds the nullifiers of
+    // notes, of rights, of openings and of candidacies, "which no reader tells apart" (Canon, "The
+    // roots of state", "What enters the two sets"), and one root folds it. This plane keeps it as two
+    // lists, `spent` and `nullifiers`, and reads both: a plane offered with an entry in the other list
+    // stands under the same root and refuses the same frames.
     pub fn is_spent(&self, nullifier: &[u8; 32]) -> bool {
-        self.spent.contains(nullifier) || self.rates.contains(nullifier)
+        self.spent.contains(nullifier)
+            || self.nullifiers.contains(nullifier)
+            || self.rates.contains(nullifier)
     }
 
     // The seven roots and the count a proposal of `window` carries, recomputed from this plane and
@@ -472,8 +478,11 @@ impl State {
         mt_proof::records::path_of_leaves(&self.records, key)
     }
 
+    // A right, an opening or a candidacy is refused where the one set of nullifiers holds its
+    // nullifier, in either of the two lists that keep it (see `is_spent`; Canon, "What enters the two
+    // sets").
     pub fn is_spent_right(&self, nullifier: &[u8; 32]) -> bool {
-        self.nullifiers.contains(nullifier)
+        self.spent.contains(nullifier) || self.nullifiers.contains(nullifier)
     }
 
     // An opening applied: the proof verified against what the object publishes and the window being
