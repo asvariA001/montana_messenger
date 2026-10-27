@@ -62,7 +62,9 @@ fn a_machine_holding_nothing_opens_the_network_at_its_first_window_alone() {
 
 #[test]
 fn a_machine_started_again_on_its_store_lives_on_its_own_chain() {
-    const FROM: u64 = 3_600;
+    // Window zero, the one window a cohort opens a network at (Consensus, "Invariants of the
+    // TimeChain"): a machine holding nothing refuses to open one anywhere else.
+    const FROM: u64 = 0;
     let at = Scratch::named("lives-on");
     let (machine, _) =
         Machine::start(&Configuration::at(&at.0, "127.0.0.1:0")).expect("the machine starts");

@@ -20,7 +20,9 @@ use montana_node::{Configuration, Machine};
 use mt_state::Layout;
 use std::ffi::{c_char, CString};
 
-const FROM: u64 = 3_000;
+// The window the network opens at: zero, the one window the Genesis State Hash stands under
+// (Consensus, "Invariants of the TimeChain").
+const FROM: u64 = 0;
 const WINDOWS: u64 = 4;
 
 // How many askings a machine spends at one round before giving it up: of the operator alone, sized
