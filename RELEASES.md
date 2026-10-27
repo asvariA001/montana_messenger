@@ -15,8 +15,8 @@ does and does not establish is in [`AUDIT.md`](AUDIT.md), section 3.
 | Folder | Build | Source commit | Folder tree | Staged |
 |---|---|---|---|---|
 | `apps/messenger/android` | 552 | `e8e25d01c77e` | `af8316a93370d0a6bdafc3b74e58f2578e832839` | 2026-10-26 10:03 UTC |
-| `apps/messenger/ios` | 1.0 (2314) | `df26a92dd9fe` | `d10682c6a9aff4b8fadbe976f390f075cf03ee80` | 2026-10-26 11:36 UTC |
-| `core` | not built (PR #53) | `cd68e05fb146` | `ce0725825836057030db81bdfd094e7d79b73f73` | 2026-10-26 13:22 UTC |
+| `apps/messenger/ios` | 1.0 (2315) | `1604d008df48` | `1143ed8e26ff3f42016c6a2affe5bc56dcd6823b` | 2026-10-27 10:57 UTC |
+| `core` | not built (branch codex/issue22-private-cli-552 with main 6b0283b6 merged) | `6b0283b61faa` | `9814dd5219c22855673458f31f1e06213b72a732` | 2026-10-27 18:46 UTC |
 <!-- sources:end -->
 
 ## Binaries
@@ -36,7 +36,7 @@ A release of 2026-10-08 was prepared and not created. Its files are listed here 
 | File | Application | Version | SHA-256 | Source |
 |---|---|---|---|---|
 | `Montana-Messenger.ipa` | Montana, iPhone, iPad, Mac | 1.0 (2165) | `72fb193070cb6f523811d015efbab12aa55f7a44013c61589b38e65d1e66bc14` | `apps/messenger/ios`, commit `7b405422`; the build is commit `862261a1`, which differs in the comments of `Code/Montana/nodes.txt` only |
-| `Montana-Messenger.apk` | Montana, Android | 1.0 (246) | `41de6e3eb8db810286629e36e1ded140f090d5885eff98af900f948c13b924bd` | `apps/messenger/android`, commit `67f144ec` |
+| `Montana-Messenger.apk` | Montana, Android | 1.0 (246) | `41de6e3eb8db810286629e36e1ded140f090d5885eff98af900f948c13b924bd` | `apps/messenger/android`, commit `67f144ec`; historical (marked 2026-10-27 UTC): build 246 of the release of 2026-10-08 that was not created, an asset no GitHub release of this repository carries; the current Android build is the `apps/messenger/android` row of Sources above |
 | `Montana-Wallet.ipa` | MT Wallet, iPhone, iPad, Mac | 1.0 (5) | `14084ed4b55c78ab9545ee5f48daf6afb2960049f632e3c9ebb7c5bb55a18003` | `apps/wallet/ios`, commit `07047617`; MT Wallet is retired from this repository |
 
 ## Retired folders
