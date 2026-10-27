@@ -574,16 +574,23 @@ object CoinSend {
     /** A pair's own conversation, open to letters: where coins can go. */
     fun canPay(ref: String): Boolean = !Groups.isKey(ref) && Book.chat(ref) != null && Book.secret(ref) != null && !PeerSafety.isBlocked(ref)
 
+    /**
+     * A FIELD TRANSFER'S HONEST OUTCOMES (iOS MTCoinSend.TransferResult): only the balance may call it short; any other refusal is
+     * «not sent», nothing left the book. iOS's pending and noKey belong to the nodes' record (MTCoinTx), which this build has not.
+     */
+    enum class Sent { SENT, SHORT, REFUSED }
     /** Coins to a person, as a coin letter in their chat. False: refused, nothing sent. */
-    fun transfer(ref: String, coins: Long): Boolean {
-        if (!canPay(ref) || coins <= 0) return false
+    fun transfer(ref: String, coins: Long): Boolean = transferResult(ref, coins) == Sent.SENT
+    fun transferResult(ref: String, coins: Long): Sent {
+        if (!canPay(ref) || coins <= 0) { Log.i("Montana", "coin_refused transfer invalid coins=" + coins); return Sent.REFUSED }
+        if (CoinBook.balance < coins) { Log.i("Montana", "coin_refused transfer coins=" + coins + " balance=" + CoinBook.balance); return Sent.SHORT }
         val mid = Marks.mintMid()
-        if (!CoinBook.send(coins, ref, wire(mid))) return false
+        if (!CoinBook.send(coins, ref, wire(mid))) return Sent.REFUSED
         val text = CoinLetter.text(coins, mid.substringAfter('-'))
         Book.edit(ref) { it.msgs.add(Msg(mid, text, true, Marks.birthMs(mid) ?: System.currentTimeMillis())) }
         Post.send(ref, mid, text)
         Log.i("Montana", "coin_send coins=" + coins + " balance=" + CoinBook.balance)
-        return true
+        return Sent.SENT
     }
 
     /**

@@ -459,6 +459,8 @@
     <string name="coin_available">Available</string>
     <string name="close">Close</string>
     <string name="coin_not_enough_sub">Your coin balance is lower than this.</string>
+    <string name="coin_not_sent">Coins were not sent</string>
+    <string name="coin_not_sent_sub">Nothing left your balance. Try again in a moment.</string>
     <string name="coin_you">You</string>
     <string name="coin_letter_sent">Coins sent</string>
     <string name="coin_letter_received">Coins received</string>

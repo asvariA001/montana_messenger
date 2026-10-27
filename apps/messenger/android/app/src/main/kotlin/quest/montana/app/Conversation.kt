@@ -1548,8 +1548,12 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     bar.coins = CoinSend.canPay(ref) || groupCoin
     bar.onSendCoin = { n ->
         if (groupCoin) { hideKeys(); act.push { close -> sendCoinsPage(act, close, ref, n) { field.setText(""); Prefs.setStr("draft.$ref", "") } } }
-        else if (CoinSend.transfer(ref, n)) { field.setText(""); Prefs.setStr("draft.$ref", "") }
-        else AlertDialog.Builder(c).setTitle(R.string.coin_not_enough).setMessage(R.string.coin_not_enough_sub).setPositiveButton(R.string.ok, null).show()
+        else when (CoinSend.transferResult(ref, n)) {
+            // the three honest answers (iOS sendCoin 1636-1645): sent -- the field empties; short -- the balance; refused -- nothing left
+            CoinSend.Sent.SENT -> { field.setText(""); Prefs.setStr("draft.$ref", "") }
+            CoinSend.Sent.SHORT -> AlertDialog.Builder(c).setTitle(R.string.coin_not_enough).setMessage(R.string.coin_not_enough_sub).setPositiveButton(R.string.ok, null).show()
+            CoinSend.Sent.REFUSED -> AlertDialog.Builder(c).setTitle(R.string.coin_not_sent).setMessage(R.string.coin_not_sent_sub).setPositiveButton(R.string.ok, null).show()
+        }
     }
     bar.onSendLater = { v -> sendLaterMenu(act, v, ref, { field.text.toString() }) { field.setText(""); Prefs.setStr("draft.$ref", "") } }
     // A CONTACT OF THE PHONE (iOS ContactPicker): its name and number leave as one letter

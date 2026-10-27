@@ -454,6 +454,8 @@
     <string name="coin_available">Доступно</string>
     <string name="close">Закрыть</string>
     <string name="coin_not_enough_sub">На вашем балансе меньше монет.</string>
+    <string name="coin_not_sent">Монеты не отправлены</string>
+    <string name="coin_not_sent_sub">С баланса ничего не ушло. Попробуйте ещё раз чуть позже.</string>
     <string name="coin_you">Вы</string>
     <string name="coin_letter_sent">Монеты отправлены</string>
     <string name="coin_letter_received">Монеты получены</string>
