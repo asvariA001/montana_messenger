@@ -350,6 +350,82 @@ impl State {
         })
     }
 
+    // **A plane offered to a device that walked to a head, judged against the roots of that head.**
+    // Consensus, "The join": "Every leaf of state a joining device takes is checked against a root the
+    // verified head carries, by recomputation; a leaf accepted on the word of whoever answered is a
+    // defect." Every table is folded again here from the leaves offered, by the folds `roots` above
+    // proposes with, and compared with the root the head carries; the first that differs is refused by
+    // the name of its table, and so is a count of admitted machines other than the head's.
+    //
+    // What comes back holds the leaves those roots stand over and nothing else. The rate set of the
+    // horizon stands in no root (Canon, "The roots of state": a rate nullifier "is no entry of this
+    // one"), and neither does the count of openings of a window nor the frames of a window other than
+    // the head's, so none of them is taken on the word of whoever offered it.
+    pub fn taken_under(
+        &self,
+        head: &mt_state::layout::Proposal,
+        cohort: &crate::pulse::Cohort,
+    ) -> Result<Self, NodeError> {
+        let roots = self.roots(cohort, head.window, &[])?;
+        for (recomputed, carried, what) in [
+            (
+                roots.note_root,
+                head.note_root,
+                "a tree of notes whose root is not the head's",
+            ),
+            (
+                roots.nullifier_root,
+                head.nullifier_root,
+                "a set of nullifiers whose root is not the head's",
+            ),
+            (
+                roots.record_root,
+                head.record_root,
+                "a tree of records whose root is not the head's",
+            ),
+            (
+                roots.machine_root,
+                head.machine_root,
+                "a table of machines whose root is not the head's",
+            ),
+            (
+                roots.admitted_root,
+                head.admitted_root,
+                "a tree of admitted machines whose root is not the head's",
+            ),
+            (
+                roots.credited_root,
+                head.credited_root,
+                "a tree of credited rights whose root is not the head's",
+            ),
+            (
+                roots.operations_root,
+                head.operations_root,
+                "a tree of operations whose root is not the head's",
+            ),
+        ] {
+            if recomputed != carried {
+                return Err(NodeError::Refused { what });
+            }
+        }
+        if roots.admitted_count != head.admitted_count {
+            return Err(NodeError::Refused {
+                what: "a tree of admitted machines whose count is not the head's",
+            });
+        }
+        Ok(Self {
+            notes: self.notes.clone(),
+            spent: self.spent.clone(),
+            admitted: self.admitted,
+            records: self.records.clone(),
+            nullifiers: self.nullifiers.clone(),
+            opened: (0, 0),
+            rates: Vec::new(),
+            operations: (head.window, self.operations_of(head.window)),
+            credited: self.credited.clone(),
+        })
+    }
+
     // The identifiers of the frames this plane applied in `window`, in the order they applied, and
     // nothing where the tree of operations holds another window.
     pub fn operations_of(&self, window: u64) -> Vec<[u8; 32]> {

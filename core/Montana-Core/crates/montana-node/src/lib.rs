@@ -1261,6 +1261,60 @@ impl Machine {
         self.drop_agreement(window)
     }
 
+    // **What this machine holds of the plane of a window**: the plane the last close left, for the
+    // window that close closed, and the decided state of the window before, for that one — what a
+    // machine has to answer a device that walked to its head and asks for the tables of the head.
+    // Nothing for any other window: a machine keeps no plane further back.
+    pub fn plane_of(&self, window: u64) -> Result<Option<state::State>, NodeError> {
+        let record = self.store.window().map_err(NodeError::Store)?;
+        if record.kept.is_empty() {
+            return Ok(None);
+        }
+        let kept = Kept::decode(&record.kept)?;
+        Ok(if kept.taken.window == window {
+            Some(kept.plane)
+        } else if kept.taken.window.checked_sub(1) == Some(window) {
+            kept.before
+        } else {
+            None
+        })
+    }
+
+    // **A device that walked to a head holds the plane of that head**, judged before it reaches here
+    // (pulse::take_the_plane). It is kept in the record of the window as a close keeps the plane it
+    // closed on, beside the proposal whose roots it answers for and under the head and the window
+    // closed the walk wrote, and held in memory only once the record stands — so it stands again after
+    // a restart. The device lived no window: it holds no decided state of the window before, and its
+    // standing is what it already held.
+    pub fn hold_the_plane(
+        &self,
+        head: &mt_state::layout::Proposal,
+        plane: state::State,
+    ) -> Result<(), NodeError> {
+        let standing = self.store.window().map_err(NodeError::Store)?;
+        if standing.head != Some(head.window) {
+            return Err(NodeError::Refused {
+                what: "a plane of another window than the head this machine holds",
+            });
+        }
+        let kept = Kept {
+            taken: head.clone(),
+            plane,
+            before: None,
+            census: self.lived_census()?,
+        };
+        let record = mt_store::WindowRecord {
+            head: standing.head,
+            closed: standing.closed,
+            kept: kept.encode()?,
+        };
+        let written = self.store.commit_window(&record);
+        if written.is_ok() || matches!(&written, Err(StoreError::CommitUncertain { .. })) {
+            *self.value()? = kept.plane;
+        }
+        written.map_err(NodeError::Store)
+    }
+
     // Reaching an acquaintance. A machine answering with another key is not the machine the
     // operator meant, and the error says which of the two failed — this end is the operator's and
     // carries reasons; the far end is told nothing at all.
