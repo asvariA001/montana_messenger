@@ -441,6 +441,11 @@
     <string name="coin_send_title">发送硬币</string>
     <string name="coin_choose_chats">选择聊天</string>
     <string name="coin_no_chats">暂无聊天</string>
+    <string name="coin_choose_members">选择成员</string>
+    <string name="coin_no_members">暂无成员</string>
+    <string name="coin_pair_closed">无法向此聊天发送硬币</string>
+    <string name="coin_no_pair">你与该成员没有单独的聊天</string>
+    <string name="coin_group_note">每位选中的成员都会在你与其的聊天中收到一笔单独的转账。群组只会得知你向多少位成员转了硬币。</string>
     <string name="coin_total">合计</string>
     <string name="coin_not_enough">硬币不足</string>
     <string name="coin_enter_amount">输入硬币数量</string>

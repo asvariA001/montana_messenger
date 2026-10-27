@@ -441,6 +441,11 @@
     <string name="coin_send_title">Отправить монеты</string>
     <string name="coin_choose_chats">Выберите чаты</string>
     <string name="coin_no_chats">Пока нет чатов</string>
+    <string name="coin_choose_members">Выберите участников</string>
+    <string name="coin_no_members">Пока нет участников</string>
+    <string name="coin_pair_closed">В этот чат монеты не отправить</string>
+    <string name="coin_no_pair">Нет своего чата с этим участником</string>
+    <string name="coin_group_note">Каждый выбранный участник получает свой перевод в вашем чате с ним. Группа узнаёт только, скольким участникам вы перевели монеты.</string>
     <string name="coin_total">Итого</string>
     <string name="coin_not_enough">Недостаточно монет</string>
     <string name="coin_enter_amount">Введите сумму монет</string>

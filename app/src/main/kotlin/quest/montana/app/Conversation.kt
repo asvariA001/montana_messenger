@@ -1523,8 +1523,9 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         onAll = { act.pickVisualMany { stage(it) } }) }
     // «SEND LATER» (iOS: the send key's hold): the words leave the field and wait for their moment (Schedule.kt)
     // THE COIN FROM THE FIELD (iOS sendCoin 1629-1645, coins: MTCoinSend.canPay at 3811): a pair's chat goes microphone, camera,
-    // coin; the number written goes as the pair's own transfer, a short balance is told and the number stays. A group's coin
-    // (iOS groupCoin, the Send page over its people) is the next stage of Groups item 7.
+    // coin; the number written goes as the pair's own transfer, a short balance is told and the number stays. A GROUP'S COIN
+    // (iOS groupCoin 3032, sheet .groupCoin 1632/2271; the author's word 17.10.2026 21:14 UTC) is a transfer to each person picked:
+    // the coin's key opens the Send page over the group's people at any tap, the number written stands beside each pick.
     // THE AVAILABLE ABOVE THE FIELD (iOS MTCoinBalancePlate 1128-1160, composePreviews 3745; the author's word 06.10.2026 and 16.10.2026:
     // «a transfer from the chat shows only the available»): in the coin's mode a plate stands where a reply's stands -- our coin,
     // «Available» and the number a send is weighed by -- and its cross takes the button back to the microphone. It follows the book.
@@ -1542,9 +1543,12 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     }
     val coinListener: () -> Unit = { coinCount.text = CoinText.count(CoinBook.balance) }
     bar.onCoinMode = { on -> coinPlate.visibility = if (on) View.VISIBLE else View.GONE; if (on) coinListener() }
-    bar.coins = CoinSend.canPay(ref)
+    val groupCoin = Groups.takesCoins(ref)
+    bar.coinPicks = groupCoin
+    bar.coins = CoinSend.canPay(ref) || groupCoin
     bar.onSendCoin = { n ->
-        if (CoinSend.transfer(ref, n)) { field.setText(""); Prefs.setStr("draft.$ref", "") }
+        if (groupCoin) { hideKeys(); act.push { close -> sendCoinsPage(act, close, ref, n) { field.setText(""); Prefs.setStr("draft.$ref", "") } } }
+        else if (CoinSend.transfer(ref, n)) { field.setText(""); Prefs.setStr("draft.$ref", "") }
         else AlertDialog.Builder(c).setTitle(R.string.coin_not_enough).setMessage(R.string.coin_not_enough_sub).setPositiveButton(R.string.ok, null).show()
     }
     bar.onSendLater = { v -> sendLaterMenu(act, v, ref, { field.text.toString() }) { field.setText(""); Prefs.setStr("draft.$ref", "") } }
