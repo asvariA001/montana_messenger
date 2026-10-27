@@ -108,13 +108,22 @@ four patience exits to the second half of Consensus "The liveness price"
 reading is that stall, and the head, the last window closed, the kept proposal,
 the note root and the census windows stand as before the wait. The record of
 the agreement the wait made survives a restart unchanged, and the restarted
-machine goes on to close the window it stalled in once the world lets it.
+machine goes on as the cold start lets it (`Consensus`, "The cold start"): its
+store holds that record and closed no window, so it holds a chain and no
+anchor; asked to live window zero again it is refused as a store that holds a
+chain, and the refusal writes nothing. It enters the network only from an
+anchor, by "The join", which a test of one process cannot hand it.
 
 - `a round no beacon ever stood at` (a machine one round ahead of its beacon);
-- `waiting budget exhausted: agreement undecided` (closing pledges withheld;
-  after the restart they stand and the window closes);
+- `waiting budget exhausted: agreement undecided` (closing pledges withheld);
 - `a window no proposal of its decision ever stood at` (its own proposal held
-  back; after the restart it is not).
+  back).
+
+A restart that goes on to close the window it stalled in is not possible in
+this tree: the cold start refuses window zero to a store holding a chain, and
+`live_doing` starts at no window past the first, because the proposals a window
+stands on are held in memory. A node stalled inside a window resumes only from
+an anchor.
 
 The exit `a decided proposal that never stood at the points with its roll` is
 not reached: its world is a window after a close whose agreement decides a name

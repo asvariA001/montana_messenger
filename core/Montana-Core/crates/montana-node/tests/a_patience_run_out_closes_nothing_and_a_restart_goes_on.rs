@@ -1,9 +1,12 @@
 // CNS-20 / issue #21 F4: a patience that runs out closes nothing. At a patience exit of the live
 // pulse the head, the last window closed, the proposals kept, the note root and the census windows
 // stand as they stood before the wait; the record of the agreement the wait made survives a restart
-// unchanged; the reading is the stall; and the restarted machine opens the same store and goes on to
-// close the window it stalled in once the world lets it. CNS-20 is the anchor: Consensus, "The
-// liveness price" -- monitoring reports these conditions and authorizes no transition.
+// unchanged; the reading is the stall; and the restarted machine opens the same store and goes on
+// as the cold start lets it: its store holds the record of the agreement on window 0 and closed no
+// window, so it holds a chain and no anchor, living window 0 again is refused before anything is
+// written, and it enters the network only from an anchor by "The join" (Consensus, "The cold
+// start"). CNS-20 is the anchor: Consensus, "The liveness price" -- monitoring reports these
+// conditions and authorizes no transition.
 //
 // The patience exits of pulse.rs, and the test of each here:
 //   1. `a round no beacon ever stood at` -- exit_one_...;
@@ -21,18 +24,15 @@
 
 use montana_node::attempt::Record;
 use montana_node::attest::LivedCensus;
-use montana_node::certificate::Predecessor;
 use montana_node::pulse::{self, withhold, Cohort};
 use montana_node::say::{PulseStatus, Verdict};
-use montana_node::{round, Configuration, Machine, NodeError};
+use montana_node::{Configuration, Machine, NodeError};
 use mt_state::layout::Proposal;
-use mt_state::Layout;
 
 mod common;
-use common::{stall, walk, Scratch};
+use common::{stall, Scratch};
 
-// The cap on every wait of a machine that goes on: past what a cohort of itself, or the four of the
-// fixture, spend at a round and at the proposal of a window.
+// The cap on every wait of the restarted machine asked to live again.
 const PATIENCE: u32 = 24_000;
 
 // What only a close moves.
@@ -117,19 +117,28 @@ fn stalled_then_restarted(
     again
 }
 
-// The closing pledges of window 0 the fixture withholds: the three other machines close on the
-// Genesis State Hash in attempt zero.
-fn closing_pledges(machine: &Machine, cohort: &Cohort) -> Result<(), NodeError> {
-    let genesis = Predecessor::Genesis.id()?;
-    let beacon = walk::opening(0, genesis);
-    let (_, pledges, _) = walk::heavies(&stall::SECRETS[1..], cohort, 0, &beacon, genesis);
-    for pledge in pledges {
-        let bytes = pledge.bytes().map_err(NodeError::Object)?;
-        for point in round::points_of_window(0).unwrap() {
-            machine.publish_at_the_point(&point, 0, &bytes)?;
-        }
-    }
-    Ok(())
+// The restarted machine goes on as the cold start lets it: asked to live window 0 again, it is
+// refused as a store that holds a chain, and the refusal writes nothing of a close or of the
+// agreement.
+fn goes_on(again: &Machine, cohort: &Cohort) {
+    let closed = closes(again);
+    let made = agreement(again);
+    assert_eq!(
+        pulse::live(again, cohort, 0, 1, PATIENCE).map(|_| ()),
+        Err(NodeError::Refused {
+            what: "a network opened on a store that holds a chain"
+        })
+    );
+    assert_eq!(
+        closes(again),
+        closed,
+        "a refused start moved what a close moves"
+    );
+    assert_eq!(
+        agreement(again),
+        made,
+        "a refused start moved the record of the agreement"
+    );
 }
 
 #[test]
@@ -151,8 +160,7 @@ fn exit_one_a_round_no_beacon_stood_at_closes_nothing_and_a_restart_goes_on() {
         Verdict::NoData,
         "a round no beacon ever stood at",
     );
-    pulse::live(&again, &cohort, 0, 1, PATIENCE).expect("the restarted machine closes window 0");
-    assert_eq!(again.closed_window().unwrap(), Some(0));
+    goes_on(&again, &cohort);
 }
 
 #[test]
@@ -173,14 +181,7 @@ fn exit_two_an_agreement_undecided_at_the_final_beacon_closes_nothing_and_a_rest
         agreement(&again).is_some_and(|record| !record.made.is_empty()),
         "the wait made no closing pledge of its own"
     );
-    // Once the withheld closing pledges stand, the restarted machine decides and closes.
-    let delivered = |machine: &Machine, _| {
-        stall::cut_closing_pledges(machine, &cohort)?;
-        closing_pledges(machine, &cohort)
-    };
-    pulse::live_doing(&again, &cohort, 0, 1, PATIENCE, Some(&delivered))
-        .expect("the restarted machine closes window 0");
-    assert_eq!(again.closed_window().unwrap(), Some(0));
+    goes_on(&again, &cohort);
 }
 
 #[test]
@@ -205,6 +206,5 @@ fn exit_four_a_window_no_proposal_stood_at_closes_nothing_and_a_restart_goes_on(
         Verdict::NoData,
         "a window no proposal of its decision ever stood at",
     );
-    pulse::live(&again, &cohort, 0, 1, PATIENCE).expect("the restarted machine closes window 0");
-    assert_eq!(again.closed_window().unwrap(), Some(0));
+    goes_on(&again, &cohort);
 }
