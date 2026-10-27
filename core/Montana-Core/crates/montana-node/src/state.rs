@@ -319,6 +319,31 @@ impl State {
                 what: "a plane standing against another tree of admitted machines than its cohort",
             });
         }
+        let [notes, nullifiers, records, machines, admitted, credited, operations] =
+            self.tables_of(window)?;
+        let roll = self.roll(window, parts).id().map_err(NodeError::Object)?;
+        Ok(crate::certificate::Roots {
+            note_root: notes,
+            nullifier_root: nullifiers,
+            record_root: records,
+            machine_root: machines,
+            admitted_root: admitted,
+            credited_root: credited,
+            operations_root: operations,
+            roll,
+            admitted_count: cohort.count(),
+            // The census is carried from the proposal before with the cement of the window, which
+            // the plane does not hold; the pulse writes it beside these roots.
+            census: Vec::new(),
+        })
+    }
+
+    // The roots of the seven tables a proposal of `window` carries, recomputed from this plane
+    // alone and in the order the proposal lays them out: notes, nullifiers, records, machines,
+    // admitted machines, credited rights and operations. The roll and the count are not among them:
+    // the first needs the parts of the cement the window decided and the second the cohort, and a
+    // plane holds neither.
+    pub fn tables_of(&self, window: u64) -> Result<[[u8; 32]; 7], NodeError> {
         let refused = || NodeError::Refused {
             what: "a table of the state its construction cannot hold",
         };
@@ -333,21 +358,15 @@ impl State {
         };
         let operations_root =
             tables::root_of_sequence(Table::Operations, applied).ok_or_else(refused)?;
-        let roll = self.roll(window, parts).id().map_err(NodeError::Object)?;
-        Ok(crate::certificate::Roots {
-            note_root: self.notes_root().bytes(),
+        Ok([
+            self.notes_root().bytes(),
             nullifier_root,
-            record_root: self.records_root().bytes(),
+            self.records_root().bytes(),
             machine_root,
-            admitted_root: self.admitted.bytes(),
-            credited_root: self.credited().bytes(),
+            self.admitted.bytes(),
+            self.credited().bytes(),
             operations_root,
-            roll,
-            admitted_count: cohort.count(),
-            // The census is carried from the proposal before with the cement of the window, which
-            // the plane does not hold; the pulse writes it beside these roots.
-            census: Vec::new(),
-        })
+        ])
     }
 
     // The identifiers of the frames this plane applied in `window`, in the order they applied, and
