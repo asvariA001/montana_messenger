@@ -698,7 +698,7 @@ mod tests {
     fn calibration_spans_the_window() {
         let step = clock_step_ns();
         assert!(
-            step >= 1 && step < 1_000_000,
+            (1..1_000_000).contains(&step),
             "clock step outside the reasonable range: {step}"
         );
         let units = calibrate(1, lcg_work);
