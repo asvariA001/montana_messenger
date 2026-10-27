@@ -55,6 +55,19 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
         setOnLongClickListener { if (field.text.isNotBlank()) onSendLater?.invoke(it); onSendLater != null }   // a hold: «Send later» (iOS)
     }
     private val record = RecordKey(c)
+    /**
+     * THE COIN, THE BUTTON'S THIRD MODE (iOS ChatInputBar coins/coinMode/coinKey, the author's word 06.10.2026): a chat that may take
+     * coins goes microphone, camera, coin; at rest our coin, whose tap takes the button back to the microphone, and once a number
+     * stands in the field the send of the coins (onSendCoin). A group's coin (coinPicks) opens the choice of people at any tap.
+     */
+    private val coinKey = FrameLayout(c).apply {
+        addView(MintCoin(c, TIER), FrameLayout.LayoutParams(dp(TIER), dp(TIER), Gravity.CENTER))
+        contentDescription = c.getString(R.string.coin_key)
+        pressable {
+            val n = coinAmount
+            if (0L < n || coinPicks) onSendCoin?.invoke(n) else { Prefs.setStr(MODE_KEY, "mic"); syncSend() }
+        }
+    }
 
     init {
         orientation = VERTICAL
@@ -79,6 +92,7 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
 
         sendColumn.addView(send, FrameLayout.LayoutParams(dp(TIER), dp(TIER), Gravity.CENTER))
         sendColumn.addView(record, FrameLayout.LayoutParams(dp(TIER), dp(TIER), Gravity.CENTER))
+        sendColumn.addView(coinKey, FrameLayout.LayoutParams(dp(TIER), dp(TIER), Gravity.CENTER))
 
         addView(fieldRow, lp())
         addView(actionRow, lp().apply { topMargin = dp(TIER_GAP) })
@@ -149,11 +163,30 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
     var attached = false
         set(v) { field = v; syncSend() }
 
-    /** Words or a waiting picture → the send artwork; neither → the recording button (iOS sendColumn). */
+    /** The chat may take coins (iOS coins: MTCoinSend.canPay or the group's coin) and the coin's key opens the people (iOS coinPicks). */
+    var coins = false
+        set(v) { field = v; syncSend() }
+    var coinPicks = false
+    var onSendCoin: ((Long) -> Unit)? = null
+    private val coinMode get() = coins && Prefs.str(MODE_KEY, "mic") == COIN_MODE
+    /** The number written in the coin's mode: digits alone, the commas and spaces aside; any other letter makes none (iOS coinAmount). */
+    private val coinAmount: Long get() {
+        val digits = field.text.filter { !it.isWhitespace() && it != ',' }
+        if (digits.isEmpty() || 15 < digits.length || !digits.all { it in '0'..'9' }) return 0L
+        return digits.toString().toLongOrNull() ?: 0L
+    }
+    private var coinHint = false
+
+    /** Words or a waiting picture → the send artwork; neither → the recording button; the coin's mode → the coin (iOS sendColumn). */
     fun syncSend() {
-        val words = this.field.text.isNotBlank() || attached
+        val coin = coinMode && !record.active && !attached
+        val words = !coin && (this.field.text.isNotBlank() || attached)
         send.visibility = if (words) View.VISIBLE else View.GONE
-        record.visibility = if (words) View.GONE else View.VISIBLE
+        record.visibility = if (words || coin) View.GONE else View.VISIBLE
+        coinKey.visibility = if (coin) View.VISIBLE else View.GONE
+        coinKey.contentDescription = c.getString(if (0L < coinAmount || coinPicks) R.string.coin_send_coins else R.string.coin_key)
+        // the field lit up as «enter the sum of coins» (iOS 921), and back to the words' own hint when the mode goes
+        if (coinMode != coinHint) { coinHint = coinMode; field.hint = c.getString(if (coinHint) R.string.coin_enter_amount else R.string.message_hint) }
     }
 
     private fun showKeys() {
@@ -298,7 +331,7 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
     fun tooShortHint() {
         field.performHapticFeedback(if (android.os.Build.VERSION.SDK_INT >= 30) android.view.HapticFeedbackConstants.REJECT else android.view.HapticFeedbackConstants.LONG_PRESS)
         field.hint = c.getString(R.string.hold_to_record)   // in the placeholder's own grey, as the iPhone's (MontanaConversation.swift:911)
-        MainThread.later(1600) { field.hint = c.getString(R.string.message_hint) }
+        MainThread.later(1600) { field.hint = c.getString(if (coinHint) R.string.coin_enter_amount else R.string.message_hint) }
     }
 
     /** One round glass key at the tier's height with the grey glyph (iOS .montanaOctagon(square: true, bar: true)). */
@@ -346,8 +379,9 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
             setOnClickListener {
                 if (locked) { finish(cancel = false, why = "arrow"); return@setOnClickListener }
                 VoiceTape.standDown()   // the hold ended as a tap: the readied tape is not wanted (iOS MontanaConversation.swift:1047 at 2155)
-                Prefs.setStr(MODE_KEY, if (video) "mic" else "video")
-                draw()
+                // microphone, camera, then the coin where the chat takes coins (iOS onVerdict .tap 1068)
+                Prefs.setStr(MODE_KEY, if (video) (if (coins) COIN_MODE else "mic") else "video")
+                draw(); syncSend()
             }
             setOnTouchListener { v, e -> track(v, e); true }
         }
@@ -520,5 +554,6 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
         val GLYPH = Color.rgb(204, 204, 204)               // iOS MontanaOctagon.barGlyph
         const val OPEN_KEY = "composeOpen"
         const val MODE_KEY = "composeMediaMode"            // iOS @AppStorage("composeMediaMode")
+        const val COIN_MODE = "coin"                       // iOS ChatInputBar.coinMode
     }
 }

@@ -1522,6 +1522,14 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         } },
         onAll = { act.pickVisualMany { stage(it) } }) }
     // «SEND LATER» (iOS: the send key's hold): the words leave the field and wait for their moment (Schedule.kt)
+    // THE COIN FROM THE FIELD (iOS sendCoin 1629-1645, coins: MTCoinSend.canPay at 3811): a pair's chat goes microphone, camera,
+    // coin; the number written goes as the pair's own transfer, a short balance is told and the number stays. A group's coin
+    // (iOS groupCoin, the Send page over its people) is the next stage of Groups item 7.
+    bar.coins = CoinSend.canPay(ref)
+    bar.onSendCoin = { n ->
+        if (CoinSend.transfer(ref, n)) { field.setText(""); Prefs.setStr("draft.$ref", "") }
+        else AlertDialog.Builder(c).setTitle(R.string.coin_not_enough).setMessage(R.string.coin_not_enough_sub).setPositiveButton(R.string.ok, null).show()
+    }
     bar.onSendLater = { v -> sendLaterMenu(act, v, ref, { field.text.toString() }) { field.setText(""); Prefs.setStr("draft.$ref", "") } }
     // A CONTACT OF THE PHONE (iOS ContactPicker): its name and number leave as one letter
     // A KEY OF THE BAR ASKS THE GROUP BEFORE ITS PAGE OPENS (iOS groupLets, 18b97c6c, G.5): a right the group took, or slow mode's
