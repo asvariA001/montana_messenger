@@ -858,8 +858,8 @@ impl Pulse {
         })
     }
 
-    // How many machines the cement names: the count of the living, which the share of the window
-    // is divided by, and a count of distinct part-nullifiers and of nothing else.
+    // How many machines the cement names: the count of the living, which is the coins the window
+    // credits, one to each, and a count of distinct part-nullifiers and of nothing else.
     pub fn living(&self) -> usize {
         self.cement.count() as usize
     }
@@ -905,7 +905,7 @@ impl Pulse {
 // identifier are of the decided proposal, and stand once the window is final — decided by the
 // agreement of the window after, at that window's close; until then the identifier is the name
 // this machine took and the right is none, since a right is issued from the decided roll and from
-// no count, and a machine whose part that roll does not name took no share of the window.
+// no count, and a machine whose part that roll does not name took no coin of the window.
 pub struct Lived {
     pub window: u64,
     pub rounds: u32,
@@ -1754,7 +1754,7 @@ pub fn live_doing(
         }
         // The plane the window closes on: the one applied again over the decided state, or the one
         // this machine applied round by round.
-        let plane = match &replayed {
+        let mut plane = match &replayed {
             Some((_, plane, _)) => plane.clone(),
             None => machine.value()?.clone(),
         };
@@ -1808,6 +1808,16 @@ pub fn live_doing(
             Predecessor::Proposal(before) => before.census.clone(),
             Predecessor::Genesis => certificate::empty_census()?,
         };
+        // **The challenge of the window before closed with this window's decision**, so the proposal
+        // of this window credits its cement: the parts of its decided roll enter the tree of credited
+        // rights of the candidate plane before the roots are taken, and the root this proposal carries
+        // stands after them. The credit is the close's and no one else's: it becomes durable only in the
+        // one record of this close, so a refused proposal leaves the plane and its record on the close
+        // before (F-562-1).
+        let credited = credited_by(machine, &memory, &predecessor)?.ok_or(NodeError::Refused {
+            what: "a window before whose decided roll this machine does not hold",
+        })?;
+        plane.credit(&credited)?;
         let mut roots = plane.roots(cohort, window, &decided_parts)?;
         let roll = plane.roll(window, &decided_parts);
         roots.census =
@@ -1863,7 +1873,7 @@ pub fn live_doing(
                 facts.roll = adopted.roll;
             }
         }
-        // The right of the window made final is issued from its decided roll: one equal share to
+        // The right of the window made final is issued from its decided roll: the window's credit to
         // every part the roll names, and none to a machine whose part it does not name.
         if let Some(before) = &predecessor_held {
             // The window is final: no replay moves its frames again, and what its payers were told
@@ -1871,18 +1881,15 @@ pub fn live_doing(
             machine.settled_through(before.window)?;
             let final_id = before.id().map_err(NodeError::Object)?;
             let link: String = final_id.iter().map(|b| format!("{b:02x}")).collect();
-            let right = match memory.facts.get(&before.window) {
-                Some(facts) => {
+            let decided_roll = decided_roll(machine, &memory, before)?;
+            let right = match decided_roll {
+                Some(roll) => {
                     let part_before = mt_derive::nullifier::part(&of_the_machine, before.window)
                         .ok_or(NodeError::Unprovable {
                             what: "the halves of this machine's secret",
                         })?;
-                    if facts.roll.parts.binary_search(&part_before).is_ok() {
-                        Some(attest::right_of(
-                            &of_the_machine,
-                            before.window,
-                            facts.roll.parts.len(),
-                        )?)
+                    if roll.parts.binary_search(&part_before).is_ok() {
+                        Some(attest::right_of(&of_the_machine, before.window)?)
                     } else {
                         None
                     }
@@ -1891,11 +1898,11 @@ pub fn live_doing(
             };
             match &right {
                 Some(right) => println!(
-                    "window {} is final under the proposal {} decided in attempt {} | it mints {} to this machine, accepted in window {}",
-                    before.window, link, decided_in, right.share, right.accepted_in
+                    "window {} is final under the proposal {} decided in attempt {} | it credits {} coin to this machine, accepted in window {}",
+                    before.window, link, decided_in, right.worth, right.accepted_in
                 ),
                 None => println!(
-                    "window {} is final under the proposal {} decided in attempt {} | this machine's part is not in its cement, so it took no share of it",
+                    "window {} is final under the proposal {} decided in attempt {} | this machine's part is not in its cement, so it took no coin of it",
                     before.window, link, decided_in
                 ),
             }
@@ -1945,6 +1952,48 @@ pub fn live_doing(
         stands_on.retain(|at, _| at.saturating_add(1) >= window);
     }
     Ok(out)
+}
+
+// The decided roll of a window this machine closed: the one this run held of a window it lived, and
+// of the window an earlier run of this machine closed before it stopped, the roll standing at the
+// points of that window under the identifier its final proposal carries -- so a machine started
+// again credits and issues what it would have had it never stopped (Consensus, "The way back"). A
+// roll whose identifier is not the one the proposal carries is no decided roll of it.
+fn decided_roll(
+    machine: &Machine,
+    memory: &Memory,
+    before: &Proposal,
+) -> Result<Option<Roll>, NodeError> {
+    if let Some(facts) = memory.facts.get(&before.window) {
+        if facts.roll.id().ok() == Some(before.roll) {
+            return Ok(Some(facts.roll.clone()));
+        }
+    }
+    Ok(rolls_of(
+        &bodies_at_a_past_window(machine, before.window)?,
+        before.window,
+    )
+    .into_iter()
+    .find(|one| one.id().ok() == Some(before.roll)))
+}
+
+// The parts the proposal of a window credits: those of the decided roll of the window before it,
+// which this machine closed, and none for the first window of a network; none at all where this
+// machine holds no decided roll of that window. Canon, "The right of a machine to its coin of a
+// window, and what redeems it". The set leaves out a part a contradicting pair of that window's
+// challenge convicted; the sanction itself is not built (Registry, CNS-10), so the whole cement is
+// credited until it is.
+fn credited_by(
+    machine: &Machine,
+    memory: &Memory,
+    predecessor: &Predecessor<'_>,
+) -> Result<Option<Vec<[u8; 32]>>, NodeError> {
+    match predecessor {
+        Predecessor::Genesis => Ok(Some(Vec::new())),
+        Predecessor::Proposal(before) => {
+            Ok(decided_roll(machine, memory, before)?.map(|roll| roll.parts))
+        }
+    }
 }
 
 // The positions the frames of a window took as a replay applied them, by the frame: what a payer is
@@ -2052,6 +2101,13 @@ fn replay(
             }
             Err(_) => return invalid("a frame of the roll the decided state refuses"),
         }
+    }
+    // The credit the proposal of this window writes: the decided cement of the window before it.
+    let Some(credited) = credited_by(machine, memory, &previous)? else {
+        return invalid("a window before whose decided roll this machine does not hold");
+    };
+    if state.credit(&credited).is_err() {
+        return invalid("a cement the tree of credited rights cannot hold");
     }
     let mut roots = state.roots(cohort, window, &roll.parts)?;
     let censused = mt_pulse::standing::is_census(window).map_err(|_| NodeError::Decree {
@@ -2301,6 +2357,45 @@ fn carries_the_quorum(beacon: &Beacon, electorate: &Electorate) -> bool {
     .unwrap_or(false)
 }
 
+// **What a test of a close without a proposal reaches, and nothing else does.** Every machine of
+// the electorate clears the draw, so a machine holding a final beacon and a decision always proves
+// a proposal of its own, and no world a test arranges leaves it at the quorum with no proposal it
+// verified. A test of that close holds back, on the thread living the window, the proposal this
+// machine proved: it is handed it first — to read, and to forge from — and where it answers true,
+// the proposal is neither published nor taken, and the machine waits for one standing at the points
+// as a machine whose proof never came. The door every proposal is judged at is not reached from
+// here. It is compiled into tests alone and is no parameter of anything this protocol runs.
+#[cfg(feature = "withhold")]
+pub mod withhold {
+    use crate::Machine;
+    use mt_state::layout::Proposal;
+    use std::cell::RefCell;
+
+    pub type Hook = Box<dyn FnMut(&Machine, &Proposal) -> bool>;
+
+    thread_local! {
+        static HOOK: RefCell<Option<Hook>> = const { RefCell::new(None) };
+    }
+
+    // From now on, on this thread, every proposal a machine proves of its own is handed to `hook`,
+    // and one it answers true for is withheld. `None` disarms.
+    pub fn own_proposals(hook: Option<Hook>) {
+        HOOK.set(hook);
+    }
+
+    pub(crate) fn withholds(machine: &Machine, own: &Proposal) -> bool {
+        HOOK.with_borrow_mut(|hook| hook.as_mut().is_some_and(|hook| hook(machine, own)))
+    }
+}
+
+#[cfg(not(feature = "withhold"))]
+mod withhold {
+    #[inline(always)]
+    pub(crate) fn withholds(_: &crate::Machine, _: &mt_state::layout::Proposal) -> bool {
+        false
+    }
+}
+
 // The proposal of this window under the identifier this machine recomputed. A runner of the window
 // proves its own unless a proposal of that identifier already stands verified at the window's
 // points — two runners of one decision publish one identifier, so one proof serves the window — and
@@ -2352,14 +2447,16 @@ fn take_the_proposal(
                 held.decided,
             )?;
             verify_proposal(&own, held, roots)?;
-            let bytes = own.bytes().map_err(NodeError::Object)?;
-            stand_at_the_window(machine, window, &bytes)?;
-            // **The roll stands beside the proposal**, at the points of the window it closes, for
-            // as long as the frames it names: what a machine that took another name replays.
-            // Canon, "The roll of a proposal".
-            let body = roll.bytes().map_err(NodeError::Object)?;
-            stand_at_the_window(machine, window, &body)?;
-            return Ok(own);
+            if !withhold::withholds(machine, &own) {
+                let bytes = own.bytes().map_err(NodeError::Object)?;
+                stand_at_the_window(machine, window, &bytes)?;
+                // **The roll stands beside the proposal**, at the points of the window it closes,
+                // for as long as the frames it names: what a machine that took another name
+                // replays. Canon, "The roll of a proposal".
+                let body = roll.bytes().map_err(NodeError::Object)?;
+                stand_at_the_window(machine, window, &body)?;
+                return Ok(own);
+            }
         }
     }
     let mut waited = 0;

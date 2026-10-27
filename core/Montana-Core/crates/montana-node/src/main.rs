@@ -28,9 +28,10 @@ montana-node — a machine of Montana
                          two values are what the payee's wallet printed of them.
   --amount <n>           what to pay, in the smallest unit
   --hand-to <file>       where to write what the payee needs of the note, closed to its owner
-  --redeem <w>:<n>       the right of window <w>, whose cement named <n> machines, redeemed into a
-                         note of --wallet. A right is not a note: it is extinguished inside a frame
-                         and what comes out is a commitment its holder keeps. It is presented in the
+  --redeem <w>           the right of window <w>, worth the window's credit, redeemed into a note of --wallet:
+                         every machine living a window is credited one coin for every second of it, whatever the
+                         count of its cement. A right is not a note: it is extinguished inside a
+                         frame and what comes out is a commitment its holder keeps. It is presented in the
                          window that right is accepted in, which the machine printed when it took
                          it, so --from names that window.
   --help                 this
@@ -176,16 +177,14 @@ fn run() -> Result<(), String> {
     // window closes — so an errand run after the window publishes into points nobody holds, and the
     // only machine that takes it is one still lagging behind. It is carried into the pulse, which
     // runs it after this machine has entered the round and before it attests anything.
-    let cohort_of_the_errand = &cohort;
     let errand = |machine: &montana_node::Machine,
                   window: u64|
      -> Result<(), montana_node::NodeError> {
-        let cohort = cohort_of_the_errand;
         let out = (|| -> Result<(), String> {
             // The right of a window turned into a note of a wallet, in the window that right
             // is accepted in — and it is done here, where the machine does stand at the points
             // of that window, rather than after a close that has already released them.
-            if let Some((of_the_window, living)) = configuration.redeem {
+            if let Some(of_the_window) = configuration.redeem {
                 let at = configuration
                     .wallet
                     .as_deref()
@@ -196,9 +195,7 @@ fn run() -> Result<(), String> {
                 machine
                         .redeem_into(
                             &wallet_at.clone(),
-                            cohort,
                             of_the_window,
-                            living,
                             window,
                             montana_node::pulse::opening_chain(),
                             0,
@@ -300,10 +297,10 @@ fn run() -> Result<(), String> {
         );
         match &one.right {
             Some(right) => println!(
-                "  it mints {} to this machine, accepted in window {}",
-                right.share, right.accepted_in
+                "  it credits {} coin to this machine, accepted in window {}",
+                right.worth, right.accepted_in
             ),
-            None => println!("  this machine's part is not in its cement, so it mints it nothing"),
+            None => println!("  this machine's part is not in its cement, so it took no coin"),
         }
     }
     Ok(())
@@ -343,6 +340,12 @@ fn pay_and_report(machine: &Machine, asked: &Asked) -> Result<(), String> {
     // here and never typed: a payer that supplied it would be choosing what must be drawn.
     let rate_secret =
         *mt_wire::draw::block::<32>().map_err(|e| format!("nothing to draw from: {e:?}"))?;
+    // The two roots a frame proves against, as this machine's plane holds them: the tree of notes
+    // and the tree of credited rights, read under one hold of the plane.
+    let (root, credited) = {
+        let plane = machine.value().map_err(said)?;
+        (plane.notes_root(), plane.credited())
+    };
     let payment = machine
         .pay(
             &asked.line,
@@ -357,8 +360,8 @@ fn pay_and_report(machine: &Machine, asked: &Asked) -> Result<(), String> {
             asked.chain,
             asked.round,
             &rate_secret,
-            &machine.value().map_err(said)?.notes_root(),
-            &mt_proof::admitted::empty_root(),
+            &root,
+            &credited,
         )
         .map_err(said)?;
     println!("the frame stands at the points of round {}", asked.round);
@@ -550,20 +553,13 @@ fn read_configuration(held: &[String]) -> Result<(Configuration, Option<Asked>),
         admitted,
         from: from.unwrap_or(0),
         windows,
+        // A right is worth the window's credit whatever its cement counted, so the window alone names it.
         redeem: match redeem {
             None => None,
-            Some(said) => {
-                let (window, living) = said
-                    .split_once(':')
-                    .ok_or("--redeem is <window>:<machines the cement named>")?;
-                let window: u64 = window
-                    .parse()
-                    .map_err(|_| "--redeem names a window as a number".to_string())?;
-                let living: usize = living
-                    .parse()
-                    .map_err(|_| "--redeem names a count as a number".to_string())?;
-                Some((window, living))
-            }
+            Some(said) => Some(
+                said.parse()
+                    .map_err(|_| "--redeem names a window as a number".to_string())?,
+            ),
         },
         wallet: wallet.clone(),
         pay_to: match pay_to {
