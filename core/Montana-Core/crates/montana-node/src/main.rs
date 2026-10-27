@@ -84,10 +84,6 @@ fn run() -> Result<(), String> {
 
     let (machine, born) = Machine::start(&configuration).map_err(said)?;
     let machine = std::sync::Arc::new(machine);
-    #[cfg(unix)]
-    let _status =
-        montana_node::status::Server::open(&configuration.data, std::sync::Arc::clone(&machine))
-            .map_err(|error| format!("no diagnostics: {error}"))?;
     if born {
         println!("this machine was born: it drew its secret and will not draw another");
     }
@@ -164,6 +160,13 @@ fn run() -> Result<(), String> {
         "living from window {from} in a cohort of {}",
         cohort.count()
     );
+    // The status endpoint writes its locator into the store, so it opens only once every refusal
+    // of a start is behind: a refused start writes nothing (Consensus, "The cold start"). A machine
+    // that lives no window has no pulse to read and reads `no diagnostics`.
+    #[cfg(unix)]
+    let _status =
+        montana_node::status::Server::open(&configuration.data, std::sync::Arc::clone(&machine))
+            .map_err(|error| format!("no diagnostics: {error}"))?;
 
     // The door and the pulse stand at once: the door answers the links strangers open, and the
     // pulse asks over the links this machine opened. Neither waits on the other, which is what
