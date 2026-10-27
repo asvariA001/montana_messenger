@@ -157,6 +157,7 @@ fn a_device_walks_from_its_anchor_to_the_head_and_no_further() {
         record_root: [0x51; 32],
         machine_root: [0x61; 32],
         admitted_root: all.root().bytes(),
+        credited_root: [0x8A; 32],
         operations_root: [0x81; 32],
         roll: roll.id().expect("an identifier"),
         admitted_count: all.count(),
