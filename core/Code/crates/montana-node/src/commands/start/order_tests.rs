@@ -167,7 +167,6 @@ impl Fixture {
             &CandidatePool::new(),
             &ProposalSettle {
                 window_w: W,
-                winner_id: winner,
                 cemented_confirmers: confirmers,
             },
             genesis_params(),

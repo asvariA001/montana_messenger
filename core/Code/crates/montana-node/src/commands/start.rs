@@ -790,7 +790,11 @@ pub fn run(args: StartArgs) -> Result<(), NodeError> {
                 prev_proposal_hash = proposal_hash(&header);
                 last_proposer_cement.insert(my_node, propose_w);
                 last_cement_at = Instant::now();
-                session_emitted = session_emitted.saturating_add(params.emission_moneta);
+                let living: std::collections::BTreeSet<&mt_state::NodeId> =
+                    confirmers.iter().collect();
+                session_emitted = session_emitted.saturating_add(
+                    mt_account::window_credit_moneta(params) * living.len() as u128,
+                );
                 session_windows += 1;
             },
         }
@@ -1174,7 +1178,6 @@ fn settle_and_bookkeep(
     let mut candidates = ctx.state.candidates.clone();
     let settle = ProposalSettle {
         window_w: settled_w,
-        winner_id,
         cemented_confirmers: confirmers.to_vec(),
     };
     let post_root = apply_proposal(&mut accounts, &mut nodes, &candidates, &settle, ctx.params);
