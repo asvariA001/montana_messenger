@@ -394,9 +394,14 @@ impl State {
         }
     }
 
-    // A commitment entering the tree outside a frame: what a window's minting writes, and what a
-    // cohort starts from. It is not a door a frame goes through — a frame goes through the one
-    // below, which verifies first.
+    // A commitment entering the tree outside a frame, with no proof and no nullifier: what the
+    // vectors of this crate build a plane of notes from. It is not a door a frame goes through — a
+    // frame goes through `apply`, which verifies first and spends a nullifier. **No build of the
+    // protocol carries it** (issue #19, step K4): a door that mints a note no nullifier closes
+    // would issue again every time a window is applied again, so it stands under the feature
+    // `witness`, which the tests of this crate alone enable, and every note a machine holds enters
+    // by `apply`.
+    #[cfg(feature = "witness")]
     pub fn witness(&mut self, commitment: &[u8; 32]) -> Result<u64, NodeError> {
         self.notes.push(commitment).map_err(|_| NodeError::Refused {
             what: "a commitment the tree of notes cannot hold",
