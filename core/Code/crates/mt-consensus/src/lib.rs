@@ -159,12 +159,13 @@ pub fn validate_header(
 // runners, and "the machine whose ticket is lowest usually carries the decision first and alone"
 // (Consensus, "The threshold of the draw, and the order of the runners").
 //
-// What core/Code carries over is the rule, not the construction. core/Montana-Core draws the
-// ticket from the machine's secret and proves its clearing in zero knowledge; core/Code has no
-// such proof, so a ticket a follower can check is drawn from what every verifier holds: the
-// aggregate and the node_id. Its order is therefore public one window ahead, as the lottery's
-// was. The aggregate is mt-timechain `cemented_bundle_aggregate(W-2, cemented confirmers of
-// W-2)`, the confirmers being those the proposal of W-1 included.
+// What core/Code carries over is the rule, not the construction (docs/SPEC_DEVIATIONS.md,
+// DEV-055). core/Montana-Core draws the ticket from the machine's secret and proves its clearing
+// in zero knowledge; core/Code has no such proof, so a ticket a follower can check is drawn from
+// what every verifier holds: the aggregate and the node_id. Its order is therefore public one
+// window ahead, as the lottery's was. The aggregate is mt-timechain
+// `cemented_bundle_aggregate(W-2, cemented confirmers of W-2)`, the confirmers being those the
+// proposal of W-1 included.
 //
 //   ticket(W, node)  = SHA-256("mt-ticket" || 0x00 || aggregate(W-2) || node_id)
 //   order(W)         = the electorate of W, ascending by (ticket, node_id), compared unsigned
@@ -174,12 +175,10 @@ pub fn validate_header(
 // The cascade of fallback_depth is the existing liveness rule of core/Code (DEV-023, DEV-043),
 // walked over this order instead of over the lottery's candidates of W-2.
 //
-// Genesis = empty window 0: with no electorate, or before window 2, there is no canonical
-// proposer and NO_PROPOSER (zero NodeId) is returned. Solo cold-start is closed through the
-// existing admission path: a single node with a zero Active set self-admits
-// (selection_slots(0)=1) and cements its own chain (quorum(1)=1). Recognizing NO_PROPOSER and
-// submitting its own proposal is the responsibility of the caller (the node knows its own
-// node_id).
+// Before window 2, with no electorate, or past the cascade there is no canonical proposer, and
+// NO_PROPOSER (zero NodeId) is returned. No node stands in the Node Table under it, so
+// validate_header refuses every header that names it. How a network with no electorate opens
+// is not decided by this rule (the author's decision 280, issue #17).
 pub const NO_PROPOSER: NodeId = [0u8; 32];
 
 pub fn ticket(aggregate_w_minus_2: &Hash32, node_id: &NodeId) -> Hash32 {

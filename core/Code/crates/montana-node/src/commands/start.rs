@@ -514,8 +514,9 @@ pub fn run(args: StartArgs) -> Result<(), NodeError> {
             NodePhase::Active => 'active_arm: {
                 // Legitimate proposer of window next_window: the lowest ticket by the
                 // aggregate of next_window-2 (issue #18); on silence — the cascade over the
-                // same order. With no canonical proposer (cold start) a lone node proposes
-                // itself, and its header carries NO_PROPOSER.
+                // same order. With no canonical proposer the node keeps the behaviour it had
+                // before issue #18 (it proposes, and its header carries NO_PROPOSER); how a
+                // network with no electorate opens is issue #17's (decision 280), not this rule's.
                 let silence = last_cement_at.elapsed().as_secs();
                 let (acting, my_depth, canonical_proposer) = {
                     let ctx = net_ctx!();
@@ -1772,10 +1773,8 @@ mod tests {
         assert_eq!(resolve(Some(String::new())), DEFAULT);
     }
 
-    // Genesis cold-start: in the first windows (w<2), or with no electorate, the canonical
-    // proposer = NO_PROPOSER — exactly this value must go into the header field
-    // proposer_node_id. The orchestration in that case proposes itself (acting = my_node),
-    // but the HEADER carries NO_PROPOSER, to pass validate_proposer_is_canonical.
+    // In the first windows (w<2), or with no electorate, the canonical proposer = NO_PROPOSER,
+    // and validate_proposer_is_canonical passes a header naming it and refuses any real id.
     #[test]
     fn cold_start_canonical_proposer_is_no_proposer() {
         let history = BTreeMap::new();

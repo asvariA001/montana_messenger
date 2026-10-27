@@ -700,6 +700,7 @@ Spec: "the aggregate of signatures of the cemented BundledConfirmation of window
 ## DEV-026 (open): leader equivocation — first valid wins, not reject-both
 
 Spec: "Two proposals from the same proposer_node_id in one window: both are rejected". Implementation: the first valid quorum envelope is applied; the second is rejected by window monotonicity. Safety rests on the BC quorum (identical content is deterministic); divergence is possible only in metadata (prev_proposal_hash during a fallback race). Closure: buffering of competing envelopes of the window + a selection rule.
+Issue #18 (R2, S4): with one proposer per window (DEV-054) a second, different envelope of an already applied window from the same proposer is evidence of equivocation, but rejecting both independently of order needs a rule for when a window is final (a hold before applying, or a bounded roll-back), which neither this specification nor the author's decision 279 gives; it is put to the author as a question in issue #18, and the code is unchanged.
 
 ## DEV-027 (closed): supply formula corrected to EMISSION_moneta × W (EXT-MON-01, spec v35.26.2)
 
@@ -1121,6 +1122,18 @@ Mitigated by DEV-042: a divergence triggered by this race is now rejected and re
 - Proposer (S1): `mt_consensus::proposer_at(W, aggregate(W-2), electorate(W), fallback_depth)`, ticket = SHA-256("mt-ticket" ‖ 0x00 ‖ aggregate(W-2) ‖ node_id), electorate = the active nodes of the Node Table, ascending by (ticket, node_id). The aggregate is `cemented_bundle_aggregate(W-2, confirmers of W-2)`, the confirmers being those the proposal of W-1 included (bc_set_history); a follower that does not hold them refuses. The fallback cascade (DEV-023/DEV-043) walks the same order.
 - Removed: SshaReveal and its pool, compute_endpoint, validate_reveal, weights and ln_q64, Candidate, determine_winner, the cascade over lottery candidates, winner_history, lottery_history, validate_winner, validate_included_reveals, the leader penalty helper. MsgType::SshaReveal stays a wire code and is ignored; BundledConfirmation.reveal_hashes stays in the layout and is published empty.
 - Issuance (S2): `apply_emission` (EMISSION_moneta to the operator of winner_id, panic on an unknown winner) is replaced by `apply_window_credit`: every cemented confirmer of W-1, counted once, is credited `window_credit_moneta` = 60 × 10^9 nɈ; a node or account missing from the tables is credited nothing, without a panic. `emission_moneta` stays in the Decree layout and is read by no issuance.
-**Deviation that remains:** core/Montana-Core draws the ticket from the machine's secret and proves its clearing in zero knowledge, so nobody learns the order; core/Code has no such proof, so its ticket is drawn from the node_id and the order of a window is public once the aggregate of W-2 is cemented (as the lottery's order was).
+**Deviation that remains:** the construction of the ticket, DEV-055.
 - Header (S3): `target`, `included_reveals_root`, `winner_endpoint` and `winner_id` stay in the signed 3722-byte layout at their offsets (396..412, 268..300, 300..332, 332..364) and are written as zeros; a follower refuses a header in which any of them is not zero (`mt_consensus::validate_retired_fields`). The layout and the sizes do not change.
 **Status:**          closed for S1, S2 and S3; S4 (two proposals of one proposer for one window, DEV-026) is a question to the author in issue #18.
+
+## DEV-055 (open): the ticket of core/Code is drawn from the node_id, not from the machine's secret (issue #18)
+
+**Crate:**           mt-consensus, mt-codec
+**File:line:**       crates/mt-consensus/src/lib.rs `ticket` (Phase B); crates/mt-codec/src/lib.rs `domain::TICKET`
+**Spec section:**    core/docs Canon, "The draw, and the two canonical orders"; Consensus, "The runner's draw"
+**Spec quote:**      Canon: "ticket(W) = sponge("mt-ticket", cells(spending_half) || limbs(aggregate(W - 2)))" ... "it is never published: the proof the proposal carries asserts the clearing." Consensus, invariants of the draw: "A ticket is derived from the machine's secret and the cemented aggregate, and from nothing else; it is never published." core/Montana-Core: mt-derive/src/aggregate.rs `ticket` (the proof hash over the spending half of the secret).
+**What the code does:** ticket(W, node) = SHA-256("mt-ticket" ‖ 0x00 ‖ aggregate(W-2) ‖ node_id); the electorate is ordered by it and the lowest names the proposer of W (the author's decision 279, record 288).
+**Why:**             the decision carries over the rule "the lowest ticket by the aggregate", and core/Code must name one proposer per window that every follower can check. core/Code has no ticket proof and no proof hash, so a ticket from the machine's secret could be checked by nobody. The node_id is what every verifier holds; the construction takes the shape of Canon's public order keys (SHA-256 over a domain, the aggregate of W-2 and a public identity) under the ticket's own separator.
+**Consequence:**     the order of the proposers of W is public once the aggregate of W-2 is cemented, one window ahead, as the lottery's was; the secret ticket of core/Montana-Core is known to nobody.
+**Closure path:**    the author's word: keep this construction for core/Code (close as a recorded deviation of the earlier core), or carry over the secret ticket with a proof (a construction core/Code does not have).
+**Status:**          open; this row was asked for by the chairman (chain link 10052), and the closure is the author's.
