@@ -69,10 +69,10 @@ to refuse start on manifest drift.
 - After the required sequential SHA-256 chain length plus the next selection
   event it transitions to `Active` and participates in the lottery.
 
-The genesis cohort starts as a singleton bootstrap proposer
-(`protocol_params.n_seed = 0`, `genesis_active_operators` empty); additional
-nodes are discovery peers that earn `Active` status through the protocol, not a
-hardcoded active set.
+A network opens by its operator's explicit act: the machine the manifest names as
+its bootstrap peer starts once with `MONTANA_OPEN=1` on an empty store, and opens
+window zero on itself. There is no self-admission into an empty set; a node with
+an empty store that is not asked to open does not start.
 
 ## Environment reference (entrypoint)
 
@@ -81,6 +81,7 @@ hardcoded active set.
 | `MONTANA_LISTEN` | `/ip4/0.0.0.0/tcp/8444` | libp2p listen multiaddr |
 | `MONTANA_GENESIS_MANIFEST` | `/etc/montana/genesis-manifest.json` | manifest path; absent ⇒ the node does not start |
 | `MONTANA_MANIFEST_SHA256` | _(unset)_ | refuse start unless manifest sha matches |
+| `MONTANA_OPEN` | _(unset)_ | `1` = open a network: window zero on an empty store, as the manifest's bootstrap peer |
 | `MONTANA_MNEMONIC` | _(unset)_ | fixed identity; otherwise generated once per volume |
 
 ## Build the image directly (no compose)

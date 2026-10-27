@@ -63,7 +63,7 @@ fn help_text() -> String {
            montana-node time    [--data-dir <PATH>]\n\
          \n\
            montana-node start   [--data-dir <PATH>] [--max-windows <N>]\n\
-                                 [--d-test-override <N>]\n\
+                                 [--d-test-override <N>] [--open]\n\
                                  --listen <multiaddr> --genesis-manifest <PATH>\n\
          \n\
          Commands:\n\
@@ -92,6 +92,7 @@ fn help_text() -> String {
                                                    via apply_noderegistrations_batch)\n\
                        Registered → Active (via apply_selection_event at\n\
                                             the next W % 336 == 0)\n\
+                     A machine that opens window zero by --open is Active from it.\n\
                        Active: per window SshaReveal + BundledConfirmation +\n\
                                ProposalHeader + apply_proposal + archive_proposal,\n\
                                state_root self-verify, 13 Ɉ emission to the operator\n\
@@ -113,6 +114,10 @@ fn help_text() -> String {
            --listen <multiaddr>       In start: libp2p listen address. Required.\n\
            --genesis-manifest <PATH>  In start: genesis cohort peers. Required: there is\n\
                                       no single mode without a manifest.\n\
+           --open                     In start: open a network — window zero, on the\n\
+                                      operator's cohort: this machine, which the manifest\n\
+                                      names as its bootstrap peer. Refused on a store that\n\
+                                      holds a chain; without it an empty store does not start.\n\
            --d-test-override <N>      In start: TEST-ONLY override D = N iterations.\n\
                                       Production uses params.d0 (Genesis Decree, value from mt-genesis).\n\
                                       Debug and test builds only; a release build refuses it.\n",
@@ -253,6 +258,7 @@ fn parse_start(args: &[String]) -> Result<start::StartArgs, NodeError> {
     let mut d_test_override: Option<u64> = None;
     let mut listen_multiaddr: Option<String> = None;
     let mut genesis_manifest: Option<PathBuf> = None;
+    let mut open = false;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -290,6 +296,10 @@ fn parse_start(args: &[String]) -> Result<start::StartArgs, NodeError> {
                 enable_names = true;
                 i += 1;
             },
+            "--open" => {
+                open = true;
+                i += 1;
+            },
             "--listen" => {
                 listen_multiaddr = Some(expect_value(args, i, "--listen")?.to_string());
                 i += 2;
@@ -319,6 +329,7 @@ fn parse_start(args: &[String]) -> Result<start::StartArgs, NodeError> {
         d_test_override,
         listen_multiaddr,
         genesis_manifest,
+        open,
     })
 }
 

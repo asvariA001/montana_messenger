@@ -8,6 +8,8 @@
 #   MONTANA_MNEMONIC           fixed identity (otherwise generated on first run)
 #   MONTANA_GENESIS_MANIFEST   manifest path (default /etc/montana/genesis-manifest.json)
 #   MONTANA_MANIFEST_SHA256    if set, refuse to start unless manifest sha matches
+#   MONTANA_OPEN               1 = open a network: window zero, on an empty store, as the
+#                              manifest's bootstrap peer (otherwise an empty store does not start)
 # The image runs a release build, which refuses --d-test-override: D = params.d0.
 set -euo pipefail
 
@@ -69,6 +71,12 @@ if [ ! -f "$MANIFEST" ]; then
 fi
 set -- start --data-dir "$DATA_DIR" --listen "$LISTEN" --genesis-manifest "$MANIFEST"
 echo "[entrypoint] cross-machine mode"
+# Window zero opens only by the operator's explicit act on an empty store (issue #17 K5);
+# without it a node with an empty store does not start.
+if [ "${MONTANA_OPEN:-}" = "1" ]; then
+  set -- "$@" --open
+  echo "[entrypoint] --open: opening window zero"
+fi
 
 # No unsolicited site report: the node's identity, label, location and state
 # stay with its operator. This does not erase earlier disclosures.

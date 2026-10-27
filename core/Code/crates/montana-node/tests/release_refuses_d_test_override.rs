@@ -46,6 +46,7 @@ fn the_library_entry_refuses_the_d_test_override_in_release() {
         genesis_manifest: None,
         enable_candidate: false,
         enable_names: false,
+        open: true,
     })
     .expect_err("this start has no manifest and is refused in every build");
     let said = format!("{err:?}");

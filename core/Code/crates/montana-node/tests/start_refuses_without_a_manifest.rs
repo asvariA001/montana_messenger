@@ -52,6 +52,7 @@ fn the_library_entry_refuses_a_start_without_a_manifest() {
         genesis_manifest: None,
         enable_candidate: false,
         enable_names: false,
+        open: true,
     })
     .expect_err("a start without a manifest must be refused");
     assert!(
