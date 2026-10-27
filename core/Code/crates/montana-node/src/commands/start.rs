@@ -240,6 +240,9 @@ pub fn run(args: StartArgs) -> Result<(), NodeError> {
     let mut bc_set_history: BTreeMap<u64, Vec<mt_state::NodeId>> = BTreeMap::new();
     let mut own_bc_cache: BTreeMap<u64, BundledConfirmation> = BTreeMap::new();
     let mut pending_msgs: Vec<ProtocolMessage> = Vec::new();
+    // Issue #18, S4: two envelopes of one applied window from one proposer, kept as the
+    // evidence of an equivocation.
+    let mut equivocations: Equivocations = BTreeMap::new();
     let mut last_cement_at = Instant::now();
     // Re-broadcast of the last cemented envelope after a restart:
     // if the process died between cementing and delivery, followers will receive the
@@ -300,6 +303,7 @@ pub fn run(args: StartArgs) -> Result<(), NodeError> {
                     last_proposer_cement: &mut last_proposer_cement,
                     own_bc_cache: &mut own_bc_cache,
                     pending_msgs: &mut pending_msgs,
+                    equivocations: &mut equivocations,
                     fast_sync: &mut fast_sync,
                     fast_sync_deadline: &mut fast_sync_deadline,
                     last_cement_at: &mut last_cement_at,
@@ -831,6 +835,9 @@ fn active_chain_length_at(
         .sum()
 }
 
+/// The evidence of equivocations: (window, proposer) → (the applied envelope, the second one).
+type Equivocations = BTreeMap<(u64, mt_state::NodeId), (Vec<u8>, Vec<u8>)>;
+
 /// The node's whole consensus context as one bundle of references — shared by
 /// the message handler, the proposer and the turn epilogue.
 struct NetCtx<'a> {
@@ -844,6 +851,7 @@ struct NetCtx<'a> {
     last_proposer_cement: &'a mut BTreeMap<mt_state::NodeId, u64>,
     own_bc_cache: &'a mut BTreeMap<u64, BundledConfirmation>,
     pending_msgs: &'a mut Vec<ProtocolMessage>,
+    equivocations: &'a mut Equivocations,
     fast_sync: &'a mut Option<mt_sync::FastSyncClient>,
     fast_sync_deadline: &'a mut Option<Instant>,
     last_cement_at: &'a mut Instant,
@@ -917,6 +925,38 @@ fn canonical_proposer_at(ctx: &NetCtx, w: u64, fallback_depth: u8) -> mt_state::
         ),
         None => mt_consensus::NO_PROPOSER,
     }
+}
+
+/// A second envelope of a window this node already applied (issue #18, S4). It is refused and
+/// nothing of the state moves: core/docs Consensus, invariant 13 (Consensus.md:1382), a machine
+/// "never abandons a decision it verified"; of two proposals of one height the chain keeps the one
+/// the agreement of the window after decided (:425-428), never the later arrival. When the second
+/// envelope names the proposer of the applied one, carries another decision (another
+/// proposal_hash) and verifies under that proposer's key, the two are an equivocation (:1239-1243)
+/// and the pair is kept as its evidence. A second envelope from another proposer (a cascade of
+/// another depth) is only refused.
+fn keep_equivocation(ctx: &mut NetCtx, header: &ProposalHeader, payload: &[u8]) {
+    let w = header.window_index;
+    let Ok(Some(applied)) = ctx.store.load_proposal_envelope(w) else {
+        return;
+    };
+    let Some(first) = parse_header(&applied) else {
+        return;
+    };
+    if first.proposer_node_id != header.proposer_node_id
+        || proposal_hash(&first) == proposal_hash(header)
+        || mt_consensus::verify_header_signature(header, &ctx.state.nodes).is_err()
+    {
+        return;
+    }
+    eprintln!(
+        "[consensus] w={w}: equivocation by {} — second envelope refused, the pair kept",
+        hex16(&header.proposer_node_id)
+    );
+    ctx.equivocations
+        .entry((w, header.proposer_node_id))
+        .or_insert_with(|| (applied, payload.to_vec()));
+    bound_map(ctx.equivocations);
 }
 
 /// Parsing the 3722-byte proposal header from the canonical layout.
@@ -1208,7 +1248,10 @@ fn handle_protocol_message(
                         "[consensus] cemented w={w} gap (current={}) — awaiting sequential cementing or fast-sync",
                         *ctx.current
                     );
-                } else if header.proposer_node_id != ctx.my_node {
+                } else {
+                    keep_equivocation(ctx, &header, &msg.payload);
+                }
+                if w <= *ctx.current && header.proposer_node_id != ctx.my_node {
                     // The neighbour broadcasts an already closed window = it has fallen behind. Serve it
                     // the missing archive envelopes sequentially.
                     let from = w + 1;

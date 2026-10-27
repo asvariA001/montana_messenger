@@ -132,7 +132,16 @@ pub fn validate_header(
     if header.protocol_version > local_max_supported_version {
         return Err(HeaderError::ProtocolVersionUnsupported);
     }
-    // proposer lookup + suite check + signature
+    verify_header_signature(header, node_table)
+}
+
+// (a) + (b) alone: the proposer is in the Node Table under ML-DSA-65 and the signature
+// verifies over the signed scope. A header of a window already applied is checked by this
+// alone (issue #18, S4): its window is no longer the next one.
+pub fn verify_header_signature(
+    header: &ProposalHeader,
+    node_table: &NodeTable,
+) -> Result<(), HeaderError> {
     let proposer = node_table
         .get(&header.proposer_node_id)
         .ok_or(HeaderError::UnknownProposer)?;

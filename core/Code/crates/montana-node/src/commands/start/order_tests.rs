@@ -238,6 +238,7 @@ struct Follower {
     last_proposer_cement: BTreeMap<mt_state::NodeId, u64>,
     own_bc_cache: BTreeMap<u64, BundledConfirmation>,
     pending_msgs: Vec<ProtocolMessage>,
+    equivocations: Equivocations,
     fast_sync: Option<mt_sync::FastSyncClient>,
     fast_sync_deadline: Option<Instant>,
     last_cement_at: Instant,
@@ -271,6 +272,7 @@ impl Follower {
             last_proposer_cement: BTreeMap::new(),
             own_bc_cache: BTreeMap::new(),
             pending_msgs: Vec::new(),
+            equivocations: BTreeMap::new(),
             fast_sync: None,
             fast_sync_deadline: None,
             last_cement_at: Instant::now(),
@@ -295,6 +297,7 @@ impl Follower {
             last_proposer_cement: &mut self.last_proposer_cement,
             own_bc_cache: &mut self.own_bc_cache,
             pending_msgs: &mut self.pending_msgs,
+            equivocations: &mut self.equivocations,
             fast_sync: &mut self.fast_sync,
             fast_sync_deadline: &mut self.fast_sync_deadline,
             last_cement_at: &mut self.last_cement_at,
@@ -311,6 +314,25 @@ impl Follower {
             handle_protocol_message(&mut ctx, &tx, m).expect("deliver");
         }
         replay_deferred(&mut ctx, &tx);
+    }
+
+    /// Everything the follower holds of its state: the closed window, the roots of the three
+    /// tables, the hash of the proposal it closed on, and every file of its data directory
+    /// (current_window, meta_last_cemented, the archived envelopes) byte for byte.
+    fn held(&self) -> (Outcome, Hash32, BTreeMap<PathBuf, Vec<u8>>) {
+        fn walk(dir: &std::path::Path, out: &mut BTreeMap<PathBuf, Vec<u8>>) {
+            for entry in std::fs::read_dir(dir).expect("read dir") {
+                let path = entry.expect("entry").path();
+                if path.is_dir() {
+                    walk(&path, out);
+                } else {
+                    out.insert(path.clone(), std::fs::read(&path).expect("read"));
+                }
+            }
+        }
+        let mut files = BTreeMap::new();
+        walk(&self.data_dir, &mut files);
+        (self.outcome(), self.prev_proposal_hash, files)
     }
 
     /// What every verifier must agree on: the closed window and the roots.
@@ -473,6 +495,38 @@ fn a_header_with_a_non_zero_lottery_field_is_refused() {
         node.current, W,
         "a header with the four fields zero refused"
     );
+}
+
+// Issue #18, S4: a second envelope of an applied window: refused, state byte-identical, the pair
+// kept. core/docs Consensus:1382, a machine "never abandons a decision it verified"; :1239-1243,
+// two decisions that both verify are an equivocation and are kept as its evidence. Rejects a
+// follower that takes the second envelope as the window's decision (re-archives it, moves to it,
+// re-applies it), and one that keeps no evidence of the equivocation.
+#[test]
+fn a_second_envelope_of_an_applied_window_is_refused_and_the_pair_kept() {
+    let f = Fixture::new();
+    let order = f.ticket_order();
+    let first = f.envelope(order[0], 1);
+    let edited = f.header(order[0], 1, |h| h.included_bundles_root = [0x77; 32]);
+    let second = f.envelope_of(&edited);
+    let mut node = Follower::new(&f, "equivocation");
+    node.deliver(&f.follower, vec![first.clone()]);
+    assert_eq!(node.current, W, "the first envelope is applied");
+    let held = node.held();
+    node.deliver(&f.follower, vec![second.clone()]);
+    assert!(node.held() == held, "a second envelope moved the state");
+    assert_eq!(
+        node.equivocations.get(&(W, order[0].node_id())),
+        Some(&(first.payload.clone(), second.payload.clone())),
+        "the pair of the equivocation is not kept"
+    );
+    // The same envelope again, or one of another proposer, is no equivocation of the first.
+    node.deliver(&f.follower, vec![first, f.envelope(order[1], 2)]);
+    assert!(
+        node.held() == held,
+        "a repeated or foreign envelope moved the state"
+    );
+    assert_eq!(node.equivocations.len(), 1);
 }
 
 // Issue #18, S1. Rejects a follower that names a proposer from confirmers of W-2 it does not
