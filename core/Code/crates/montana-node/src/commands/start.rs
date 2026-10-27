@@ -2083,6 +2083,9 @@ pub struct NetworkHandle {
 }
 
 #[cfg(test)]
+mod order_tests;
+
+#[cfg(test)]
 mod tests {
     use super::canonical_proposer_lookback;
     use super::resolve_fast_sync_lag_threshold as resolve;
