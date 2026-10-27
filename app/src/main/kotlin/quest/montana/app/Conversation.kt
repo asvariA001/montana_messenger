@@ -1525,6 +1525,23 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     // THE COIN FROM THE FIELD (iOS sendCoin 1629-1645, coins: MTCoinSend.canPay at 3811): a pair's chat goes microphone, camera,
     // coin; the number written goes as the pair's own transfer, a short balance is told and the number stays. A group's coin
     // (iOS groupCoin, the Send page over its people) is the next stage of Groups item 7.
+    // THE AVAILABLE ABOVE THE FIELD (iOS MTCoinBalancePlate 1128-1160, composePreviews 3745; the author's word 06.10.2026 and 16.10.2026:
+    // «a transfer from the chat shows only the available»): in the coin's mode a plate stands where a reply's stands -- our coin,
+    // «Available» and the number a send is weighed by -- and its cross takes the button back to the microphone. It follows the book.
+    val coinCount = c.text("", 14f, Color.WHITE).apply { fontFeatureSettings = "tnum"; singleLineEllipsis() }   // USER-DATA: the coins available
+    val coinPlate = c.hstack {
+        visibility = View.GONE
+        background = c.glassPlate().apply { cornerRadius = dp(18).toFloat() }
+        setPadding(dp(16), dp(6), dp(8), dp(6))
+        addView(MintCoin(c, 22), lp(dp(22), dp(22)).apply { marginEnd = dp(10) })
+        addView(c.vstack(Gravity.NO_GRAVITY) { addView(c.text(c.getString(R.string.coin_available), 12f, MT.gray)); addView(coinCount) }, lp(0, WRAP, 1f))
+        addView(c.icon(R.drawable.ic_close, MT.gray).apply {
+            setPadding(dp(8), dp(8), dp(8), dp(8)); contentDescription = c.getString(R.string.close)
+            pressable { bar.toMic() }
+        }, lp(dp(36), dp(36)))
+    }
+    val coinListener: () -> Unit = { coinCount.text = CoinText.count(CoinBook.balance) }
+    bar.onCoinMode = { on -> coinPlate.visibility = if (on) View.VISIBLE else View.GONE; if (on) coinListener() }
     bar.coins = CoinSend.canPay(ref)
     bar.onSendCoin = { n ->
         if (CoinSend.transfer(ref, n)) { field.setText(""); Prefs.setStr("draft.$ref", "") }
@@ -2213,6 +2230,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         }
         val under = c.vstack(Gravity.NO_GRAVITY) {
             addView(strip, lp().apply { marginStart = dp(10); marginEnd = dp(10); bottomMargin = dp(4) })
+            addView(coinPlate, lp().apply { marginStart = dp(10); marginEnd = dp(10); bottomMargin = dp(4) })
             addView(linkPlate, lp().apply { marginStart = dp(10); marginEnd = dp(10); bottomMargin = dp(4) })
             addView(mentionPlate, lp().apply { marginStart = dp(8); marginEnd = dp(8); bottomMargin = dp(4) })
             addView(stagedStrip, lp())
@@ -2365,6 +2383,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 Presence.listen(presenceListener); lane = true
                 LiveDraft.listen(draftListener); drawDraft()
                 LinkCompose.listen(linkListener); drawLink()
+                CoinBook.listen(coinListener); Thread { CoinBook.warm(); MainThread.post { coinListener() } }.start()
                 if (!local) { Presence.sayChat(ref, true); MainThread.later(Presence.BEAT, chatBeat); Signal.hold(ref, "chat") }
                 VoicePlayer.endedAtEar = earHook   // the open chat answers its peer's voice at the ear
                 if (!group && !local) LiveDraft.sayLink(ref)   // our daily link, to hand on (iOS sendLinkWord on a chat's opening)
@@ -2382,7 +2401,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 if (Book.openChat == ref) Book.openChat = null; Book.unlisten(listener)
                 if (Groups.refused === sayRefusal) Groups.refused = null   // only this chat's own: another may stand over it
                 if (ShowLetter.open === showLetter) ShowLetter.open = null
-                Presence.unlisten(presenceListener); LiveDraft.unlisten(draftListener); LinkCompose.unlisten(linkListener)
+                Presence.unlisten(presenceListener); LiveDraft.unlisten(draftListener); LinkCompose.unlisten(linkListener); CoinBook.unlisten(coinListener)
                 // words left in the field stand on their screen as a checkpoint, frozen, not typing (iOS «ck»)
                 if (!local) field.text.toString().takeIf { it.isNotBlank() }?.let { LiveDraft.say(ref, it, field.selectionEnd, checkpoint = true) }
                 if (!local) Signal.release(ref, "chat")
