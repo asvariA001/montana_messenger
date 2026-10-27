@@ -47,11 +47,7 @@ fn open_on_an_empty_store_opens_window_zero_on_the_bootstrap_peer() {
         .get(&identity.node_id())
         .expect("the opener is admitted at window zero");
     assert_eq!(record.start_window, 0);
-    assert_eq!(
-        state.nodes.len(),
-        1,
-        "window zero carries the cohort alone"
-    );
+    assert_eq!(state.nodes.len(), 1, "window zero carries the cohort alone");
     assert!(
         state.candidates.is_empty(),
         "no candidate, no selection event"

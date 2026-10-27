@@ -53,7 +53,10 @@ fn the_library_entry_refuses_the_d_test_override_in_release() {
     if cfg!(debug_assertions) {
         assert!(!said.contains(REFUSAL), "debug build refused: {said}");
     } else {
-        assert!(said.contains(REFUSAL), "release start::run accepted: {said}");
+        assert!(
+            said.contains(REFUSAL),
+            "release start::run accepted: {said}"
+        );
     }
     assert!(!dir.join("accounts.bin").exists(), "the store was touched");
 }
