@@ -131,6 +131,15 @@
     <string name="gr_pick_note">Письмо группы идёт по каналу каждого человека, поэтому в списке только те, с кем вы переписываетесь.</string>
     <string name="gr_new">Новая группа</string>
     <string name="gr_name">Название группы</string>
+    <string name="chn_what_is">Что такое канал?</string>
+    <string name="chn_what_is_sub">Каналы — это новый инструмент для трансляции ваших сообщений большой аудитории.</string>
+    <string name="chn_create">Создать канал</string>
+    <string name="chn_new">Новый канал</string>
+    <string name="chn_name">Название канала</string>
+    <string name="chn_about_hint">Описание (необязательно)</string>
+    <string name="chn_about_footer">Можно добавить описание канала.</string>
+    <string name="chn_pick_note">Пост идёт по каналу каждого человека, поэтому в списке только те, с кем вы переписываетесь.</string>
+    <string name="chn_channel">Канал</string>
     <string name="gp_members">УЧАСТНИКИ</string>
     <string name="gp_you">Вы</string>
     <string name="gp_creator">создатель</string>

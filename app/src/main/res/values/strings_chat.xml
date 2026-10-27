@@ -131,6 +131,15 @@
     <string name="gr_pick_note">A group letter rides the pipe of each person, so only the people you write with are listed.</string>
     <string name="gr_new">New Group</string>
     <string name="gr_name">Group Name</string>
+    <string name="chn_what_is">What is a Channel?</string>
+    <string name="chn_what_is_sub">Channels are a new tool for broadcasting your messages to large audiences.</string>
+    <string name="chn_create">Create Channel</string>
+    <string name="chn_new">New Channel</string>
+    <string name="chn_name">Channel Name</string>
+    <string name="chn_about_hint">Description (Optional)</string>
+    <string name="chn_about_footer">You can provide an optional description for your channel.</string>
+    <string name="chn_pick_note">A post rides the pipe of each person, so only the people you write with are listed.</string>
+    <string name="chn_channel">Channel</string>
     <string name="gp_members">MEMBERS</string>
     <string name="gp_you">You</string>
     <string name="gp_creator">creator</string>
