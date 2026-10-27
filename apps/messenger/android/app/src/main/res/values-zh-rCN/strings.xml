@@ -443,6 +443,9 @@
     <string name="coin_no_chats">暂无聊天</string>
     <string name="coin_total">合计</string>
     <string name="coin_not_enough">硬币不足</string>
+    <string name="coin_enter_amount">输入硬币数量</string>
+    <string name="coin_send_coins">发送硬币</string>
+    <string name="coin_key">硬币</string>
     <string name="coin_not_enough_sub">您的硬币余额不足。</string>
     <string name="coin_you">您</string>
     <string name="coin_letter_sent">已发送的硬币</string>
