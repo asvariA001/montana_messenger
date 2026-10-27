@@ -210,6 +210,7 @@
     <string name="pw_reason">Unlock your passwords</string>
     <string name="pw_locked">Your passwords unlock with your fingerprint, face or the device\'s code.</string>
     <plurals name="gr_members"><item quantity="one">%d member</item><item quantity="other">%d members</item></plurals>
+    <plurals name="chn_subscribers"><item quantity="one">%d subscriber</item><item quantity="other">%d subscribers</item></plurals>
     <plurals name="gr_coins_told"><item quantity="one">Sent coins to %d member</item><item quantity="other">Sent coins to %d members</item></plurals>
     <plurals name="gr_online"><item quantity="one">%d online</item><item quantity="other">%d online</item></plurals>
     <string name="lw_photo">Photo</string>

@@ -210,6 +210,7 @@
     <string name="pw_reason">解锁你的密码</string>
     <string name="pw_locked">密码通过指纹、面孔或设备密码解锁。</string>
     <plurals name="gr_members"><item quantity="other">%d 名成员</item></plurals>
+    <plurals name="chn_subscribers"><item quantity="other">%d 位订阅者</item></plurals>
     <plurals name="gr_coins_told"><item quantity="other">已向 %d 位成员转账硬币</item></plurals>
     <plurals name="gr_online"><item quantity="other">%d 人在线</item></plurals>
     <string name="lw_photo">照片</string>

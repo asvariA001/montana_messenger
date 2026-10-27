@@ -304,7 +304,8 @@ private fun channelInfoPage(act: MainActivity, onBack: () -> Unit, onCreate: (St
         c.getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(name.windowToken, 0)
         val title = name.text.toString().trim()
         val words = about.text.toString().trim()
-        act.push { back -> channelSubscribersPage(act, back) { people -> back(); onCreate(title, words, face, people) } }
+        // the keys go down first: a page pushed while they stand is laid out keyboard-short and keeps a black band under it
+        name.postDelayed({ act.push { back -> channelSubscribersPage(act, back) { people -> back(); onCreate(title, words, face, people) } } }, 250)
     }
     bar.ready(false)
     val body = ScrollView(c).apply {

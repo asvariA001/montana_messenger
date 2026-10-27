@@ -294,8 +294,9 @@ object Groups {
      */
     fun headLine(c: Context, key: String): String? {
         val g = state(key) ?: return null
+        // A CHANNEL'S HEAD IS «N SUBSCRIBERS», THE OWNER COUNTED AMONG THEM (iOS MTChannelPage.head, MontanaChannel.swift 494)
+        if (g.kind == CHANNEL) return c.resources.getQuantityString(R.plurals.chn_subscribers, g.count, g.count)
         val members = c.resources.getQuantityString(R.plurals.gr_members, g.count, g.count)
-        if (g.kind != GROUP) return members
         val lit = 1 + heldConversations(g).count { Presence.word(c, it)?.second == true }
         return if (lit == 1) members else members + ", " + c.resources.getQuantityString(R.plurals.gr_online, lit, lit)
     }
