@@ -514,6 +514,8 @@ fun chatRow(act: MainActivity, chat: Chat): View {
                 addView(callHandset(act, false, chat.ref), lp(dp(44), dp(44)))   // 15.8 (iOS ChatRow 2150)
                 // a muted chat wears the struck bell after its name (iOS ChatRow muted)
                 if (ChatMarks.isMuted(chat.ref)) addView(c.icon(R.drawable.ic_bell_off, MT.gray, 12), lp(dp(12), dp(12)).apply { marginEnd = dp(5) })
+                // a group's living room: the small green mark after its name (iOS MTRoomRowMark)
+                Rooms.brief(chat.ref)?.let { b -> addView(c.icon(Rooms.glyph(b), SysColor.green, 12), lp(dp(12), dp(12)).apply { marginEnd = dp(5) }) }
                 if (last != null) {
                     // the ladder's dots left of the hour, only when the last word was mine; a letter that did not go, the red mark
                     // THE ROW READS A PLATE AS ITS LINE DOES (iOS ChatStore.ladderLetter, MTLadder): the last plate's slowest letter, so
@@ -2198,6 +2200,8 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             addView(selTop, lp(MATCH, WRAP))
             // THE PINNED PLATE under the header (iOS the pinned bar): shown while a letter of this chat is pinned
             addView(pinnedPlate(act, ref) { mid -> jumpTo(mid) }, lp().apply { marginStart = dp(10); marginEnd = dp(10); bottomMargin = dp(4) })
+            // THE ROOM'S BAR (iOS MTRoomBar): a group's living voice or video chat, or its stream
+            if (group) addView(roomBar(act, ref), lp().apply { marginStart = dp(8); marginEnd = dp(8); bottomMargin = dp(4) })
         }
         val under = c.vstack(Gravity.NO_GRAVITY) {
             addView(strip, lp().apply { marginStart = dp(10); marginEnd = dp(10); bottomMargin = dp(4) })

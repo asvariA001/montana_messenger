@@ -714,6 +714,8 @@ object Book {
     fun listen(l: () -> Unit) { synchronized(listeners) { listeners.add(l) } }
     fun unlisten(l: () -> Unit) { synchronized(listeners) { listeners.remove(l) } }
     private fun changed() { val ls = synchronized(listeners) { listeners.toList() }; MainThread.post { ls.forEach { it() } } }
+    /** The rows redraw for a change outside the book that they wear (a group's room, Rooms). */
+    fun redraw() = changed()
 
     private fun sec(): MutableMap<String, ByteArray> {
         secrets?.let { return it }

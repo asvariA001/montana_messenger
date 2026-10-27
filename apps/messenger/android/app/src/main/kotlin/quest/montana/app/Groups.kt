@@ -370,14 +370,15 @@ object Groups {
      * ONE COPY TO ONE RECEIVER, UNDER A NAME OF ITS OWN (iOS carry): it has no row of its own — the row it carries stands in the
      * group's feed under the letter's name, and the copy's receipt moves that row (follow).
      */
-    private fun carry(w: JSONObject, pipe: String, letter: String, own: Boolean): String? {
+    private fun carry(w: JSONObject, pipe: String, letter: String, own: Boolean, ring: Boolean? = null): String? {
         val secret = Book.secret(pipe) ?: return null
         if (refuses(pipe)) return null   // a person this phone blocked, or one the network barred, is carried nothing (iOS refusesCold)
         w.put("au", ownTag(w, secret))   // signed by the person: the seed's other devices know the word as their own (566c6dcc)
         val name = Marks.mintMid()
         copies[name] = Copy(w.getString("g"), letter, pipe, own, 1)
         saveCopies()
-        Post.send(pipe, name, MARK + w.toString(), quiet = w.optInt("hs") == 1)   // the past (G.4) rings nothing on the wire
+        // the past (G.4) rings nothing on the wire; a room's word rings only where it is an invitation (iOS carry ring, 07.10)
+        Post.send(pipe, name, MARK + w.toString(), quiet = w.optInt("hs") == 1 || ring == false)
         Log.i("Montana", "group_tx mid=" + name.take(14) + " t=" + w.optString("t") + " to=" + pipe.take(10))
         return name
     }
@@ -1553,8 +1554,24 @@ object Groups {
             "named" -> if (mine) c.getString(R.string.ge_named_me, t) else c.getString(R.string.ge_named, who, t)
             "face" -> if (mine) c.getString(R.string.ge_face_me) else c.getString(R.string.ge_face, who)
             "pinned" -> if (mine) c.getString(R.string.ge_pinned_me, t) else c.getString(R.string.ge_pinned, who, t)
+            // a group's room (iOS eventWords «call», «ended»): begun by whom, ended with how long it lived
+            "call" -> when {
+                e.optString("k") == "live" -> if (mine) c.getString(R.string.ge_live_me) else c.getString(R.string.ge_live, who)
+                e.optInt("v") == 1 -> if (mine) c.getString(R.string.ge_video_me) else c.getString(R.string.ge_video, who)
+                else -> if (mine) c.getString(R.string.ge_voice_me) else c.getString(R.string.ge_voice, who)
+            }
+            "ended" -> c.getString(when {
+                e.optString("k") == "live" -> R.string.ge_live_ended
+                e.optInt("v") == 1 -> R.string.ge_video_ended
+                else -> R.string.ge_voice_ended
+            }, span(e.optInt("d")))
             else -> null
         }
+    }
+    /** A room's length as the reference's row says it: minutes and seconds, hours when it ran past one (iOS span). */
+    private fun span(seconds: Int): String {
+        val s = maxOf(0, seconds)
+        return if (s >= 3600) "%d:%02d:%02d".format(s / 3600, s % 3600 / 60, s % 60) else "%d:%02d".format(s / 60, s % 60)
     }
     /** The pinned letter's words as its service row quotes them (iOS pinWords): the list's own preview, cut at forty letters. */
     private fun pinWords(m: Msg): String {
@@ -1596,6 +1613,7 @@ object Groups {
             g.members.clear()
             save()
             Log.i("Montana", "group_dissolved by its owner")
+            Rooms.groupGone(g.id)   // its room goes with the group (iOS groupGone)
         }
         erase(key)
     }
@@ -1609,6 +1627,7 @@ object Groups {
             save()
             carry(JSONObject().put("t", "bye").put("g", g.id), g.owner, "", own = false)
             Log.i("Montana", "group_left by this phone")
+            Rooms.groupGone(g.id)
         }
         Book.edit(key) {}   // the open chat trades its field for the note at once
     }
@@ -1935,6 +1954,7 @@ object Groups {
             "sp" -> passported(w, pipe)   // COMPAT-GATED: a sticker's passport (iOS 17.10, 2df34a13), an older build buries it
             "lp" -> carded(w, pipe)   // COMPAT-GATED: a letter's link card (iOS 17.10, 89dfd51d), an older build buries it
             "kp" -> keptHeard(w, pipe)   // COMPAT-GATED: a keeper's word to the one who deleted a letter (iOS 16.10, fbd8a190)
+            "room" -> roomed(w, pipe)   // COMPAT-GATED: a group room's word (iOS MTGroupRoom, 07.10)
             else -> Verdict.REFUSED.also { Log.i("Montana", "group_refused kind=${t.take(8)}") }   // a newer build's word: its road ends here
         }
     }
@@ -2111,6 +2131,56 @@ object Groups {
      * feed once by its name. Only a letter's own speaker changes it or takes it away; a deletion of a letter not landed yet
      * buries it before it comes.
      */
+    /**
+     * A ROOM'S WORD (iOS roomed): its seat is proven by the pipe it came by, as an answer's is; the room reads it once by its name,
+     * and the owner of the group passes it on to everyone else -- a targeted word (an invitation, a key) to the seats it names alone,
+     * ringing there only if it is an invitation. A room's word is never a row.
+     */
+    private fun roomed(w: JSONObject, pipe: String): Verdict {
+        val g = groups[w.getString("g")] ?: return Verdict.WAIT
+        if (g.left) return Verdict.REFUSED
+        val id = w.optString("id")
+        val words = w.optString("tx")
+        if (!isLetterName(id) || words.isEmpty() || words.toByteArray().size > 4096) return Verdict.REFUSED
+        val from = SamePair.root(pipe)
+        val seat = if (g.mine) g.members.firstOrNull { SamePair.root(it.pipe) == from }?.seat ?: return Verdict.REFUSED
+            else w.optString("s").takeIf { SamePair.root(g.owner) == from && isSeat(it) && it != g.me } ?: return Verdict.REFUSED
+        if (id in heard) return Verdict.HELD
+        if (!paced(g, seat)) return Verdict.WAIT
+        remember(id)
+        Rooms.heard(words, g.id, seat)
+        if (g.mine) {
+            val on = JSONObject().put("t", "room").put("g", g.id).put("k", g.kind).put("ti", g.title).put("id", id).put("s", seat).put("tx", words)
+            w.optString("n").ifEmpty { null }?.let { on.put("n", it) }
+            val ts = w.optJSONArray("ts")
+            if (ts != null && ts.length() <= 32) {
+                // a targeted word: to the seats it names alone -- ringing there if it is an invitation (a word naming no ring is one)
+                val ring = !w.has("rg") || w.optInt("rg") == 1
+                val to = List(ts.length()) { ts.optString(it) }.toSet()
+                on.put("ts", ts).put("rg", if (ring) 1 else 0)
+                for (m in g.members) if (m.seat in to && m.seat != seat) carry(JSONObject(on.toString()), m.pipe, "", own = false, ring = ring)
+            } else {
+                for (m in g.members) if (m.seat != seat) carry(JSONObject(on.toString()), m.pipe, "", own = false, ring = false)
+            }
+        }
+        return Verdict.HELD
+    }
+    /** The pace of one member's room words the owner takes and carries on (iOS paced, carriedPerMinute 30). */
+    private val carriedAt = HashMap<String, MutableList<Long>>()
+    private fun paced(g: State, seat: String): Boolean {
+        if (!g.mine) return true
+        val now = System.currentTimeMillis()
+        val moments = carriedAt.getOrPut(g.id + "/" + seat) { mutableListOf() }
+        moments.removeAll { now - it >= 60_000 }
+        if (moments.size >= 30) { Log.i("Montana", "group_paced a member past thirty room words a minute"); return false }
+        moments.add(now)
+        return true
+    }
+    /** A row of the room laid in the group's feed (iOS lay MTGroupEvent «call», «ended»): this phone's own, never sent. */
+    fun layRoom(gid: String, e: JSONObject) { synchronized(lock) { groups[gid]?.let { lay(it, e) } } }
+    /** The name a seat is shown by in its group (iOS speakerName(speaker(group, seat))). */
+    fun seatName(c: Context, gid: String, seat: String): String = speakerName(c, speaker(gid, seat))
+
     private fun answered(w: JSONObject, pipe: String): Verdict {
         val g = groups[w.getString("g")] ?: return Verdict.WAIT
         if (g.left) return Verdict.REFUSED
@@ -2220,6 +2290,7 @@ object Groups {
             g.left = true
             g.removed = true
             save()
+            Rooms.groupGone(g.id)
             if (!ended) lay(g, event("removed", OWNER_SEAT, listOf(g.me)))   // «X removed you»
             Book.edit(key(g.id)) {}   // the open chat trades its field for the way out at once
             Log.i("Montana", "group_rx taken out by the owner")
