@@ -1065,6 +1065,10 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             // a post's card is this phone's own row, not a letter: no rung under it (iOS MTRowLetter.ownRow, MTRowLetter.swift:60-63 at 2155)
             if (m.mine && !local && WallCard.of(m.text) == null) (b.getChildAt(0) as LinearLayout).addView(c.deliveryLine(ref, row.minWithOrNull(compareBy<Msg>({ it.state }, { -it.statusMoment })) ?: row.last()),
                 LinearLayout.LayoutParams(WRAP, WRAP).apply { topMargin = c.dp(3); marginEnd = c.dp(4) })
+            // ANY FAILED BUBBLE: A TAP SENDS IT AGAIN (iOS primaryTap → onResend → resendAny, the author's invariant 24.08): a plate's
+            // red letters each ride again, its other letters keep their own tap -- the red stands over every control inside the bubble
+            val red = row.filter { it.mine && it.state == -1 }
+            if (red.isNotEmpty() && !local) b.getChildAt(0).tapEverywhere { red.forEach { resendAny(act, ref, it) } }
             // THE MENU OPENS ON EVERY LETTER (iOS: the long press is the bubble's, whatever it holds): a picture, a film, a circle, a
             // voice or a link's card keeps its own tap, and its long press opens the letter's menu as the words' does
             b.getChildAt(0).holdEverywhere { letterMenu(act, ref, m, onReply = { replyTo = m; editing = null; showStrip(); showKeys() },
@@ -1340,9 +1344,58 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         }.start()
     }
     // THE CAMERA BESIDE THE PHOTOS (iOS MTGalleryPick: the camera's tile, «All photos»): a shot goes the picked picture's road
+    // THE ORDER IS SET HERE (iOS MTTrayDrop and MTStagedOrder.moved, 2315; the author's words 27.10.2026 09:16 UTC, council links
+    // 9562-9563: «they are loaded into the field in the wrong order and it cannot be changed»): a plate held and carried over another
+    // takes its place the moment it enters it, every other keeps its turn, the numbers follow, and the arrow sends the tray in the
+    // order it stands. Only the other plates move in the row, never the one under the finger, so the touch is never cut.
+    val traySlop = android.view.ViewConfiguration.get(c).scaledTouchSlop
+    fun carryInTray(plate: View) {
+        var downX = 0f; var leftAtDown = 0; var carrying = false
+        val lift = Runnable {
+            carrying = true
+            plate.parent?.requestDisallowInterceptTouchEvent(true)
+            plate.animate().scaleX(1.06f).scaleY(1.06f).setDuration(120).start()
+            plate.elevation = c.dp(6).toFloat()
+            plate.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+        }
+        plate.setOnTouchListener { v, e ->
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = e.rawX; leftAtDown = v.left; carrying = false
+                    v.postDelayed(lift, android.view.ViewConfiguration.getLongPressTimeout().toLong())
+                }
+                MotionEvent.ACTION_MOVE -> if (!carrying) { if (traySlop < kotlin.math.abs(e.rawX - downX)) v.removeCallbacks(lift) } else {
+                    val from = stagedRow.indexOfChild(v)
+                    val centre = leftAtDown + v.width / 2f + e.rawX - downX
+                    var to = from
+                    for (i in staged.indices) stagedRow.getChildAt(i)?.let { o -> if (o !== v && o.left <= centre && centre < o.right) to = i }
+                    if (from in staged.indices && to != from) {
+                        val moved = StagedOrder.moved(staged.toList(), from, to)
+                        staged.clear(); staged.addAll(moved)
+                        var at = from
+                        while (at < to) { val n = stagedRow.getChildAt(at + 1); stagedRow.removeView(n); stagedRow.addView(n, at); at++ }
+                        while (to < at) { val n = stagedRow.getChildAt(at - 1); stagedRow.removeView(n); stagedRow.addView(n, at); at-- }
+                        for (i in staged.indices) stagedRow.getChildAt(i)?.findViewWithTag<TextView>(TRAY_NUMBER)?.text = StagedOrder.number(i).toString()
+                    }
+                    v.translationX = e.rawX - downX - (v.left - leftAtDown)
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    v.removeCallbacks(lift)
+                    if (carrying) {
+                        carrying = false
+                        v.animate().translationX(0f).scaleX(1f).scaleY(1f).setDuration(150).start()
+                        v.elevation = 0f
+                        android.util.Log.i("Montana", "tray_move place=" + StagedOrder.number(stagedRow.indexOfChild(v)) + " of=" + staged.size)
+                    }
+                }
+            }
+            true
+        }
+    }
     drawStaged = {
         stagedRow.removeAllViews()
         for ((place, s) in staged.toList().withIndex()) stagedRow.addView(FrameLayout(c).apply {
+            carryInTray(this)
             addView(ImageView(c).apply {
                 scaleType = ImageView.ScaleType.CENTER_CROP
                 if (s.second != null) setImageBitmap(s.second) else setBackgroundColor(Color.rgb(51, 51, 51))
@@ -1364,6 +1417,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             // THE PLACE IT HOLDS (iOS stagedNumber, 2312): 1, 2, 3 in the order chosen, the order the arrow sends them in; read off
             // the place in the tray, so a cross closes the numbers up
             addView(c.text(StagedOrder.number(place).toString(), 12f, Color.BLACK, bold = true).apply {   // USER-DATA: the place of the person's own pick, digits only
+                tag = TRAY_NUMBER
                 gravity = Gravity.CENTER
                 minWidth = c.dp(20); minHeight = c.dp(20)
                 setPadding(c.dp(5), 0, c.dp(5), 0)
@@ -3771,6 +3825,30 @@ fun captionPage(act: MainActivity, p: Media.Picked, draft: String, onCancel: () 
 }
 
 /** The long press reaches the letter's menu through every part of the bubble that takes its own tap. */
+/** The tap of a failed bubble (iOS primaryTap's first word): the bubble and every control inside it answer it alike. */
+private fun View.tapEverywhere(root: Boolean = true, tap: () -> Unit) {
+    if (root || hasOnClickListeners()) setOnClickListener { tap() }
+    if (this is android.view.ViewGroup) for (i in 0 until childCount) getChildAt(i).tapEverywhere(false, tap)
+}
+
+/**
+ * ONE RESEND FOR EVERY BUBBLE KIND (iOS resendAny): a file seals and rides again; a group's letter rides again on its own copies;
+ * words re-knock through the queue under the SAME name -- the receiver keeps one row by the name, so a double tap makes no second.
+ * A coin letter's coins came back with its red: the retry takes them again, or a short balance refuses it.
+ */
+private fun resendAny(act: MainActivity, ref: String, m: Msg) {
+    if (!CoinSend.mayRetry(m)) {
+        AlertDialog.Builder(act).setTitle(R.string.coin_not_enough).setMessage(R.string.coin_not_enough_sub).setPositiveButton(R.string.ok, null).show()
+        return
+    }
+    if (m.file != null) { Media.resend(act, ref, m); return }
+    if (Groups.isKey(ref)) { Thread { Groups.resend(ref, m) }.start(); return }
+    Thread { Post.retry(ref, m) }.start()
+}
+
+/** The tag of a tray plate's number, found again when a carried plate changes the places. */
+private const val TRAY_NUMBER = "trayNumber"
+
 private fun View.holdEverywhere(root: Boolean = true, menu: () -> Unit) {
     if (root || isClickable) setOnLongClickListener { menu(); true }
     if (this is android.view.ViewGroup) for (i in 0 until childCount) getChildAt(i).holdEverywhere(false, menu)

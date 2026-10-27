@@ -663,6 +663,14 @@ object CoinSend {
     /** Where a coin letter's day starts: the box took it, or it was born and no box ever did. */
     private fun since(m: Msg): Long = if (m.state == 1 && 0 < m.statusAt) m.statusAt else Marks.birthMs(m.mid) ?: m.at
 
+    /** A red coin letter may ride again (iOS mayRetry): its coins never came back, or the balance holds them again. */
+    fun mayRetry(m: Msg): Boolean {
+        if (!m.mine) return true
+        val coin = coinOf(m) ?: return true
+        val name = wire(m.mid)
+        if (!CoinBook.holds(CoinEntry.SEND, name)) return true
+        return moves(CoinEntry.SEND, AGAIN + name) == moves(CoinEntry.RECEIVE, BACK + name) || coin.c <= CoinBook.balance
+    }
     /** Whether a coin letter of mine stands red with its coins back (the bubble says so). */
     fun returned(m: Msg): Boolean {
         val name = wire(m.mid)
