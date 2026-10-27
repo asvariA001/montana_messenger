@@ -99,3 +99,26 @@ a restart between the two never passes the old endpoint's answer off as the new
 process's. The regression `a_status_read_in_a_loop_never_stops_a_node_from_starting`
 restarts a node fifty times while another thread reads the status in a loop,
 and requires every start to succeed.
+
+## A patience that runs out closes nothing, and a restart goes on
+
+`a_patience_run_out_closes_nothing_and_a_restart_goes_on` holds three of the
+four patience exits to the second half of Consensus "The liveness price"
+(monitoring authorizes no transition): the pulse returns the typed stall, the
+reading is that stall, and the head, the last window closed, the kept proposal,
+the note root and the census windows stand as before the wait. The record of
+the agreement the wait made survives a restart unchanged, and the restarted
+machine goes on to close the window it stalled in once the world lets it.
+
+- `a round no beacon ever stood at` (a machine one round ahead of its beacon);
+- `waiting budget exhausted: agreement undecided` (closing pledges withheld;
+  after the restart they stand and the window closes);
+- `a window no proposal of its decision ever stood at` (its own proposal held
+  back; after the restart it is not).
+
+The exit `a decided proposal that never stood at the points with its roll` is
+not reached: its world is a window after a close whose agreement decides a name
+the machine did not take, and a machine of this tree neither starts a pulse at
+a window past the first (`pulse.rs`, the windows standing on no proposal before
+them are refused) nor takes a deposit at a round it has left, so a fixture of
+one process cannot arrange it. It stays open for a test with peers.
