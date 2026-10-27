@@ -2,7 +2,7 @@
 // This local socket carries no network object and grants no consensus authority.
 use crate::say::{PulseStatus, Verdict};
 use crate::Machine;
-use std::fs::{File, OpenOptions, TryLockError};
+use std::fs::OpenOptions;
 use std::io::{Read, Write};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -90,13 +90,12 @@ impl Drop for Server {
     }
 }
 
+// A read never takes the store's lock, not even for an instant (issue #21, F3): a reader that
+// took it while no node held it would make a node starting in that instant refuse its own store.
+// The proof that the owner lives is the endpoint itself: only a `Server`, which holds the very
+// `Machine` that holds the lock, answers it, and it stops answering when that owner goes.
 pub fn read(data: &Path) -> Result<PulseStatus, Verdict> {
     let absent = |_| Verdict::NoDiagnostics;
-    let root = File::open(data).map_err(absent)?;
-    match root.try_lock() {
-        Err(TryLockError::WouldBlock) => {}
-        _ => return Err(Verdict::NoDiagnostics),
-    }
     let locator = std::fs::read_to_string(data.join("pulse-status")).map_err(absent)?;
     let mut stream = UnixStream::connect(locator.trim()).map_err(absent)?;
     stream
@@ -122,9 +121,7 @@ pub fn read(data: &Path) -> Result<PulseStatus, Verdict> {
         .read_to_string(&mut text)
         .map_err(absent)?;
     // A restart must not turn the old endpoint's last answer into the new process's status.
-    if std::fs::read_to_string(data.join("pulse-status")).map_err(absent)? != locator
-        || !matches!(root.try_lock(), Err(TryLockError::WouldBlock))
-    {
+    if std::fs::read_to_string(data.join("pulse-status")).map_err(absent)? != locator {
         return Err(Verdict::NoDiagnostics);
     }
     match PulseStatus::parse(text.trim()) {

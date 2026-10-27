@@ -85,3 +85,17 @@ because the patience counts the askings of one wait, and so it reads
 machine should give such a window up at all is the open Gate 0 question of
 this item (`Consensus` "the chain may remain halted indefinitely" against
 `WAITS_UP_TO`); this reading neither answers nor hides it.
+
+## A status read never takes the store's lock
+
+`status::read` used to probe the data directory's lock. When no node held it,
+the probe held it for an instant, and a node starting in that instant refused
+its own store as held by another, so an operator polling `--status` during a
+restart could stop the restart. The read now takes no lock at all. That the
+owner lives is proved by the endpoint: only a status server answers it, the
+server holds the very machine that holds the store's lock, and it stops
+answering when that owner goes. The locator is read again after the answer, so
+a restart between the two never passes the old endpoint's answer off as the new
+process's. The regression `a_status_read_in_a_loop_never_stops_a_node_from_starting`
+restarts a node fifty times while another thread reads the status in a loop,
+and requires every start to succeed.
