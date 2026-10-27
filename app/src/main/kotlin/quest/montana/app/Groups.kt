@@ -2178,8 +2178,6 @@ object Groups {
     }
     /** A row of the room laid in the group's feed (iOS lay MTGroupEvent «call», «ended»): this phone's own, never sent. */
     fun layRoom(gid: String, e: JSONObject) { synchronized(lock) { groups[gid]?.let { lay(it, e) } } }
-    /** This phone's seat in a group (iOS g.me). */
-    fun mySeat(gid: String): String? = synchronized(lock) { groups[gid]?.me }
     /** The name a seat is shown by in its group (iOS speakerName(speaker(group, seat))). */
     fun seatName(c: Context, gid: String, seat: String): String = speakerName(c, speaker(gid, seat))
 

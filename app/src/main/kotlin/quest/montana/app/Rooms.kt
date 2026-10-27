@@ -74,7 +74,7 @@ object Rooms {
         // the seat's own moment of coming in: s where the word names one (never later than the word itself), else the word's moment
         val came = if (e.has("s")) minOf((e.optDouble("s") * 1000).toLong(), at) else at
         val key = e.optString("k").takeIf { k -> runCatching { Base64.decode(k, Base64.DEFAULT).size == 32 }.getOrDefault(false) }
-        val me = Groups.mySeat(gid)   // asked before the book's lock: the group's lock is never taken under it
+        val me = Groups.mySeat(Groups.key(gid))   // asked before the book's lock: the group's lock is never taken under it
         var laid: JSONObject? = null
         synchronized(lock) {
             val book = book()
