@@ -446,6 +446,8 @@
     <string name="coin_enter_amount">Введите сумму монет</string>
     <string name="coin_send_coins">Отправить монеты</string>
     <string name="coin_key">Монета</string>
+    <string name="coin_available">Доступно</string>
+    <string name="close">Закрыть</string>
     <string name="coin_not_enough_sub">На вашем балансе меньше монет.</string>
     <string name="coin_you">Вы</string>
     <string name="coin_letter_sent">Монеты отправлены</string>

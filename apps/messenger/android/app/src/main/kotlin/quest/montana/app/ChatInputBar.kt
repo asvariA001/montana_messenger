@@ -39,6 +39,7 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
     private val fieldRow = LinearLayout(c).apply { orientation = HORIZONTAL; gravity = Gravity.BOTTOM }
     private val actionRow = LinearLayout(c).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
     private val plate = FrameLayout(c)                 // the field's glass, with the emoji key inside while folded
+    private val plateGlass = c.glassPlate().apply { cornerRadius = dp(18).toFloat() }   // above init: init lays it on the plate
     private val unfoldKey = glassKey(R.drawable.ic_chevron_down, R.string.compose_open) { if (!record.active) setOpen(true) }
     private val emojiInside = ImageView(c).apply {
         setImageResource(R.drawable.ic_face_smiling); imageTintList = android.content.res.ColorStateList.valueOf(GLYPH)
@@ -65,7 +66,7 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
         contentDescription = c.getString(R.string.coin_key)
         pressable {
             val n = coinAmount
-            if (0L < n || coinPicks) onSendCoin?.invoke(n) else { Prefs.setStr(MODE_KEY, "mic"); syncSend() }
+            if (0L < n || coinPicks) onSendCoin?.invoke(n) else toMic()
         }
     }
 
@@ -86,7 +87,7 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
             minHeight = dp(TIER)
         }
-        plate.background = c.glassPlate().apply { cornerRadius = dp(18).toFloat() }
+        plate.background = plateGlass
         plate.addView(field, FrameLayout.LayoutParams(MATCH, WRAP))
         plate.addView(emojiInside, FrameLayout.LayoutParams(dp(TIER), dp(TIER), Gravity.BOTTOM or Gravity.END))
 
@@ -168,6 +169,10 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
         set(v) { field = v; syncSend() }
     var coinPicks = false
     var onSendCoin: ((Long) -> Unit)? = null
+    /** The coin's mode came or went: the page stands the balance above the field or takes it away (iOS MTCoinBalancePlate). */
+    var onCoinMode: ((Boolean) -> Unit)? = null
+    /** Back to the microphone (iOS composeMediaMode = "mic"): the coin's tap at rest, the balance plate's cross. */
+    fun toMic() { Prefs.setStr(MODE_KEY, "mic"); syncSend() }
     private val coinMode get() = coins && Prefs.str(MODE_KEY, "mic") == COIN_MODE
     /** The number written in the coin's mode: digits alone, the commas and spaces aside; any other letter makes none (iOS coinAmount). */
     private val coinAmount: Long get() {
@@ -186,7 +191,13 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
         coinKey.visibility = if (coin) View.VISIBLE else View.GONE
         coinKey.contentDescription = c.getString(if (0L < coinAmount || coinPicks) R.string.coin_send_coins else R.string.coin_key)
         // the field lit up as «enter the sum of coins» (iOS 921), and back to the words' own hint when the mode goes
-        if (coinMode != coinHint) { coinHint = coinMode; field.hint = c.getString(if (coinHint) R.string.coin_enter_amount else R.string.message_hint) }
+        // and the field wears the thin blue ring while it takes a number (iOS 915: MTMiniFace.playingRing, 1.5 around the plate)
+        if (coinMode != coinHint) {
+            coinHint = coinMode; field.hint = c.getString(if (coinHint) R.string.coin_enter_amount else R.string.message_hint)
+            if (coinHint) plateGlass.setStroke(Math.round(1.5f * resources.displayMetrics.density), MT.blue)
+            else plateGlass.setStroke(dp(1).coerceAtMost(3), Color.argb(46, 255, 255, 255))
+            onCoinMode?.invoke(coinHint)
+        }
     }
 
     private fun showKeys() {

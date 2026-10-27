@@ -451,6 +451,8 @@
     <string name="coin_enter_amount">Enter the coin amount</string>
     <string name="coin_send_coins">Send coins</string>
     <string name="coin_key">Coin</string>
+    <string name="coin_available">Available</string>
+    <string name="close">Close</string>
     <string name="coin_not_enough_sub">Your coin balance is lower than this.</string>
     <string name="coin_you">You</string>
     <string name="coin_letter_sent">Coins sent</string>
