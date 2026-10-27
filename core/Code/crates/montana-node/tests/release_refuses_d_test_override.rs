@@ -6,6 +6,8 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
+use montana_node::commands::start::{run, StartArgs};
+
 const REFUSAL: &str = "--d-test-override is refused in a release build";
 
 #[test]
@@ -30,6 +32,29 @@ fn a_release_build_refuses_the_d_test_override() {
             "release build touched the store"
         );
     }
+}
+
+#[test]
+fn the_library_entry_refuses_the_d_test_override_in_release() {
+    // Rejects a release start::run that takes the override from a caller around the CLI.
+    let dir = tempdir();
+    let err = run(StartArgs {
+        data_dir: Some(dir.clone()),
+        max_windows: Some(0),
+        d_test_override: Some(1),
+        listen_multiaddr: None,
+        genesis_manifest: None,
+        enable_candidate: false,
+        enable_names: false,
+    })
+    .expect_err("this start has no manifest and is refused in every build");
+    let said = format!("{err:?}");
+    if cfg!(debug_assertions) {
+        assert!(!said.contains(REFUSAL), "debug build refused: {said}");
+    } else {
+        assert!(said.contains(REFUSAL), "release start::run accepted: {said}");
+    }
+    assert!(!dir.join("accounts.bin").exists(), "the store was touched");
 }
 
 fn tempdir() -> PathBuf {

@@ -74,8 +74,15 @@ pub struct StartArgs {
 /// issue #17 K5: the single mode without a manifest is dropped.
 pub const NO_MANIFEST_REFUSED: &str =
     "start requires --listen and --genesis-manifest: there is no single mode without a manifest";
+/// issue #17 K5: the test-only D override is refused in a release build.
+pub const D_TEST_OVERRIDE_REFUSED: &str =
+    "--d-test-override is refused in a release build: D = params.d0 (Genesis Decree)";
 
 pub fn run(args: StartArgs) -> Result<(), NodeError> {
+    // The release refusal holds here too, so no caller of the library runs on an overridden D.
+    if args.d_test_override.is_some() && !cfg!(debug_assertions) {
+        return Err(NodeError::InvalidArguments(D_TEST_OVERRIDE_REFUSED.into()));
+    }
     // A node starts only in the cross-machine mode, before it reads its identity or store.
     if args.listen_multiaddr.is_none() || args.genesis_manifest.is_none() {
         return Err(NodeError::InvalidArguments(NO_MANIFEST_REFUSED.into()));
