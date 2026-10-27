@@ -428,3 +428,40 @@ fn every_delivery_order_gives_the_same_window_and_roots() {
         assert_eq!(first.0, expected, "{name}: window after delivery");
     }
 }
+
+// R4. Rejects a verifier that applies an envelope while a cemented ticket is
+// missing from its pool: the ticket of B never arrives, so the envelope that
+// names the wrong winner must not be applied, whichever comes first.
+#[test]
+fn an_envelope_with_a_missing_ticket_is_not_applied() {
+    let f = Fixture::new();
+    let (_, loser) = f.winner_and_loser();
+    let ra = f.ticket(&f.a);
+    for msgs in [
+        vec![f.ticket_msg(&ra), f.envelope(loser)],
+        vec![f.envelope(loser), f.ticket_msg(&ra)],
+    ] {
+        let mut node = Follower::new(&f, "incomplete");
+        let before = node.outcome();
+        node.deliver(&f.follower, msgs);
+        assert_eq!(node.current, W - 1, "incomplete data closed the window");
+        assert_eq!(node.outcome(), before, "incomplete data moved the state");
+    }
+}
+
+// R4. Rejects a clock-record decoder that slices before it checks the length:
+// a record shorter than its magic must be refused with an error, not panic.
+#[test]
+fn a_clock_record_shorter_than_its_magic_is_refused() {
+    let dir = temp_data_dir("short-clock");
+    let path = crate::timechain_state::timechain_path(&dir);
+    std::fs::create_dir_all(path.parent().expect("meta dir")).expect("meta dir");
+    std::fs::write(&path, b"mt").expect("write");
+    let got = std::panic::catch_unwind(|| load_or_init_timechain(&dir).is_err());
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(
+        got.ok(),
+        Some(true),
+        "a 2-byte clock record must be an error"
+    );
+}
