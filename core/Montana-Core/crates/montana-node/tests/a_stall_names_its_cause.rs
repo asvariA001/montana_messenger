@@ -16,7 +16,10 @@ fn no_quorum_is_named_when_closing_pledges_are_withheld() {
         matches!(error, NodeError::Stalled { on: Verdict::NoQuorum, what } if what.contains("agreement undecided")),
         "{error:?}"
     );
-    assert_eq!(machine.counts().status().unwrap().on, Verdict::NoQuorum);
+    assert_eq!(
+        machine.counts().status().unwrap().on(),
+        Some(Verdict::NoQuorum)
+    );
 }
 
 #[test]
@@ -36,7 +39,10 @@ fn no_data_is_named_when_no_beacon_can_be_collected() {
         ),
         "{error:?}"
     );
-    assert_eq!(machine.counts().status().unwrap().on, Verdict::NoData);
+    assert_eq!(
+        machine.counts().status().unwrap().on(),
+        Some(Verdict::NoData)
+    );
 }
 
 #[test]
@@ -67,8 +73,11 @@ fn a_mutated_attestation_does_not_replace_the_missing_data_verdict() {
         "{error:?}"
     );
     assert!(machine.counts().refusals() > 0);
-    assert_eq!(machine.counts().status().unwrap().on, Verdict::NoData);
-    assert!(machine.counts().status().unwrap().refused > 0);
+    assert_eq!(
+        machine.counts().status().unwrap().on(),
+        Some(Verdict::NoData)
+    );
+    assert!(machine.counts().status().unwrap().refused() > 0);
 }
 
 // CNS-20 / F1: real mutated deposits must not label absent closing pledges as a proof fault.
@@ -93,9 +102,9 @@ fn a_mutated_attestation_does_not_replace_the_no_quorum_verdict() {
         "{error:?}"
     );
     let status = machine.counts().status().unwrap();
-    assert_eq!(status.on, Verdict::NoQuorum);
+    assert_eq!(status.on(), Some(Verdict::NoQuorum));
     assert!(
-        status.refused > 0,
+        status.refused() > 0,
         "the actual verifier must refuse the mutated deposit"
     );
     assert!(status.to_string().contains("; refused "));

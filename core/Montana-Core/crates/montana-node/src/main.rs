@@ -10,7 +10,8 @@ montana-node — a machine of Montana
   montana-node --data <directory> --listen <address> [--acquaintance <line>]...
                [--admitted <half>]... [--from <window>] [--windows <n>]
 
-  --status               read the live local verdict and asking number (requires --data)
+  --status               read the live local reading (requires --data): a closed window or a
+                         wait inside the patience exits 0, a stall exits 1, 2 or 4
   --data <directory>     where this machine keeps what it holds between starts
   --listen <address>     where it answers, as an address and a port
   --acquaintance <line>  a machine to reach, as its operator handed it over:
@@ -623,7 +624,13 @@ fn read_status(args: &[String]) -> Result<(), String> {
     {
         let status =
             montana_node::status::read(std::path::Path::new(data)).map_err(|on| on.to_string())?;
-        Err(status.to_string())
+        // A close and a wait inside the patience are healthy and exit 0; a stall exits its code.
+        if status.exit_code() == 0 {
+            println!("{status}");
+            Ok(())
+        } else {
+            Err(status.to_string())
+        }
     }
     #[cfg(not(unix))]
     {

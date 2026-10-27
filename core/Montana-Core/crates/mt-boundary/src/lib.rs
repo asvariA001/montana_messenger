@@ -431,7 +431,8 @@ pub extern "C" fn mtc_pulse_status(out: *mut c_char, cap: usize, len: *mut usize
     let status = the_machine()
         .ok()
         .and_then(|machine| machine.counts().status());
-    let missing = status.is_none_or(|held| held.on == montana_node::say::Verdict::NoDiagnostics);
+    let missing =
+        status.is_none_or(|held| held.on() == Some(montana_node::say::Verdict::NoDiagnostics));
     let text = status.map_or_else(|| "no diagnostics".to_string(), |held| held.to_string());
     let answer = hand_text(&text, out, cap, len);
     if missing && answer == Answer::Well as i32 {

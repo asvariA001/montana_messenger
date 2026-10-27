@@ -78,7 +78,8 @@ int32_t mtc_errand_pay(const uint8_t *half, const uint8_t *note_pk, const uint8_
  * window lived is read with the coin it credited this machine: one where its part stood in the
  * cement, nought where it did not. */
 int32_t mtc_pulse_begin(const uint8_t *halves, size_t count, uint64_t from, uint64_t windows);
-/* CNS-20. Local verdict and asking number, independent of last_said.
+/* CNS-20. The local reading, independent of last_said: "closed window W; ...", a wait inside the
+ * patience "waiting: <verdict>; ...", or a stall "<verdict>; asking N; refused R".
  * 0 means text read, not healthy consensus; -2 means no diagnostics.
  * No status query overwrites last_said. */
 int32_t mtc_pulse_status(char *out, size_t cap, size_t *len);

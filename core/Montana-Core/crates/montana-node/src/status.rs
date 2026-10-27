@@ -63,7 +63,7 @@ impl Server {
                 if stream.read_exact(&mut request).is_err() || request != *b"?" {
                     continue;
                 }
-                let status = counts.status().unwrap_or(PulseStatus {
+                let status = counts.status().unwrap_or(PulseStatus::Stalled {
                     on: Verdict::NoDiagnostics,
                     asking: 0,
                     refused: 0,
@@ -106,9 +106,12 @@ pub fn read(data: &Path) -> Result<PulseStatus, Verdict> {
         .map_err(absent)?;
     stream.write_all(b"?").map_err(absent)?;
     let mut text = String::new();
-    let bound = PulseStatus {
+    // The longest line a reading writes: a wait, every number at its width.
+    let bound = PulseStatus::Waiting {
         on: Verdict::NoDiagnostics,
         asking: u32::MAX,
+        waited: u32::MAX,
+        patience: u32::MAX,
         refused: u64::MAX,
     }
     .to_string()
@@ -124,21 +127,8 @@ pub fn read(data: &Path) -> Result<PulseStatus, Verdict> {
     {
         return Err(Verdict::NoDiagnostics);
     }
-    let (on, asking) = text
-        .trim()
-        .split_once("; asking ")
-        .ok_or(Verdict::NoDiagnostics)?;
-    let (asking, refused) = asking
-        .split_once("; refused ")
-        .ok_or(Verdict::NoDiagnostics)?;
-    let on = match on {
-        "no data" => Verdict::NoData,
-        "no quorum" => Verdict::NoQuorum,
-        _ => return Err(Verdict::NoDiagnostics),
-    };
-    Ok(PulseStatus {
-        on,
-        asking: asking.parse().map_err(|_| Verdict::NoDiagnostics)?,
-        refused: refused.parse().map_err(|_| Verdict::NoDiagnostics)?,
-    })
+    match PulseStatus::parse(text.trim()) {
+        Some(status) if status.on() != Some(Verdict::NoDiagnostics) => Ok(status),
+        _ => Err(Verdict::NoDiagnostics),
+    }
 }

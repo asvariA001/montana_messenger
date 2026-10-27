@@ -1213,8 +1213,10 @@ pub fn live_doing(
     // roll replays over.
     memory.bases.insert(from, machine.value()?.clone());
     let mut out: Vec<Lived> = Vec::new();
+    // A reading of an earlier run is not this run's. Inside the run the last reading stands until
+    // the next replaces it: a window that opens after a close still reads that close.
+    counts.clear_status();
     for step in 0..windows {
-        counts.clear_status();
         let window = from.checked_add(step).ok_or(NodeError::Refused {
             what: "a window past the last one a count carries",
         })?;
@@ -1323,13 +1325,10 @@ pub fn live_doing(
                 if !arrived.beacons.is_empty() {
                     break arrived.beacons;
                 }
-                let on = counts.observe(true, askings_since(opened_at));
+                let on = counts.observe(true, askings_since(opened_at), waited, patience);
                 waited += 1;
                 if waited >= patience {
-                    return Err(NodeError::Stalled {
-                        on,
-                        what: "a round no beacon ever stood at",
-                    });
+                    return Err(counts.exhausted(on, "a round no beacon ever stood at"));
                 }
                 std::thread::sleep(ASKS_AGAIN_AFTER);
             };
@@ -1577,6 +1576,8 @@ pub fn live_doing(
                     final_beacon.is_none()
                         && (ordered.is_empty() || unreconciled > 0 || missing_light_key),
                     asked,
+                    waited,
+                    patience,
                 );
                 if final_beacon.is_some() {
                     if let Some(decision) = pulse.decided(&electorate) {
@@ -1595,14 +1596,14 @@ pub fn live_doing(
                 }
                 waited += 1;
                 if waited >= patience {
-                    return Err(NodeError::Stalled {
+                    return Err(counts.exhausted(
                         on,
-                        what: if final_beacon.is_some() {
+                        if final_beacon.is_some() {
                             "waiting budget exhausted: agreement undecided; window unchanged"
                         } else {
                             "waiting budget exhausted without a verified answer; round unchanged"
                         },
-                    });
+                    ));
                 }
                 // **The account is written while the machine waits, and not only when it moves.** A
                 // round is made of waiting, so a machine that spoke once a round would be silent for
@@ -1732,13 +1733,13 @@ pub fn live_doing(
                     }
                     None => {}
                 }
-                let on = counts.observe(true, askings_since(opened_at));
+                let on = counts.observe(true, askings_since(opened_at), waited, patience);
                 waited += 1;
                 if waited >= patience {
-                    return Err(NodeError::Stalled {
+                    return Err(counts.exhausted(
                         on,
-                        what: "a decided proposal that never stood at the points with its roll",
-                    });
+                        "a decided proposal that never stood at the points with its roll",
+                    ));
                 }
                 std::thread::sleep(ASKS_AGAIN_AFTER);
             };
@@ -1932,7 +1933,7 @@ pub fn live_doing(
             "window {} closed after {} rounds on a cement naming {} machines and casting {} votes; the next links to the proposal {} and decides it",
             lived.window, lived.rounds, lived.living, decided.cement_votes, link
         );
-        counts.clear_status();
+        counts.closed(lived.window);
         out.push(lived);
         memory.facts.insert(
             window,
@@ -2469,15 +2470,12 @@ fn take_the_proposal(
         let counts = machine.counts();
         let asking = counts
             .status()
-            .map_or(0, |status| status.asking)
+            .map_or(0, |status| status.asking())
             .saturating_add(1);
-        let on = counts.observe(true, asking);
+        let on = counts.observe(true, asking, waited, patience);
         waited += 1;
         if waited >= patience {
-            return Err(NodeError::Stalled {
-                on,
-                what: "a window no proposal of its decision ever stood at",
-            });
+            return Err(counts.exhausted(on, "a window no proposal of its decision ever stood at"));
         }
         std::thread::sleep(ASKS_AGAIN_AFTER);
     }

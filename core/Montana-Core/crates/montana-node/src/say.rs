@@ -61,20 +61,123 @@ impl std::fmt::Display for Verdict {
     }
 }
 
+// CNS-20: what the pulse of this run last did, in three readings an operator never confuses
+// (issue #21, F2). A window it closed and a shortfall it waits on inside the patience of that wait
+// are a healthy node and read 0; only a shortfall the patience ran out on, or a diagnostic that is
+// gone, is a stall and reads its verdict's code. `waited` and `patience` are the pulse's own count
+// of askings at that wait and its budget, shown and never a new threshold.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct PulseStatus {
-    pub on: Verdict,
-    pub asking: u32,
-    pub refused: u64,
+pub enum PulseStatus {
+    Closed {
+        window: u64,
+        refused: u64,
+    },
+    Waiting {
+        on: Verdict,
+        asking: u32,
+        waited: u32,
+        patience: u32,
+        refused: u64,
+    },
+    Stalled {
+        on: Verdict,
+        asking: u32,
+        refused: u64,
+    },
+}
+
+impl PulseStatus {
+    // The shortfall named, where the reading has one.
+    pub fn on(&self) -> Option<Verdict> {
+        match *self {
+            Self::Closed { .. } => None,
+            Self::Waiting { on, .. } | Self::Stalled { on, .. } => Some(on),
+        }
+    }
+
+    pub fn asking(&self) -> u32 {
+        match *self {
+            Self::Closed { .. } => 0,
+            Self::Waiting { asking, .. } | Self::Stalled { asking, .. } => asking,
+        }
+    }
+
+    pub fn refused(&self) -> u64 {
+        match *self {
+            Self::Closed { refused, .. }
+            | Self::Waiting { refused, .. }
+            | Self::Stalled { refused, .. } => refused,
+        }
+    }
+
+    pub fn exit_code(&self) -> u8 {
+        match *self {
+            Self::Stalled { on, .. } => on.exit_code(),
+            Self::Closed { .. } | Self::Waiting { .. } => 0,
+        }
+    }
+
+    // The reading back from the line `Display` writes, and nothing else.
+    pub fn parse(line: &str) -> Option<Self> {
+        fn number<T: std::str::FromStr>(text: &str) -> Option<T> {
+            text.parse().ok()
+        }
+        let verdict = |text: &str| {
+            [Verdict::NoData, Verdict::NoQuorum, Verdict::NoDiagnostics]
+                .into_iter()
+                .find(|on| on.to_string() == text)
+        };
+        let (head, refused) = line.rsplit_once("; refused ")?;
+        let refused = number(refused)?;
+        if let Some(window) = head.strip_prefix("closed window ") {
+            return Some(Self::Closed {
+                window: number(window)?,
+                refused,
+            });
+        }
+        if let Some(waiting) = head.strip_prefix("waiting: ") {
+            let (on, rest) = waiting.split_once("; asking ")?;
+            let (asking, rest) = rest.split_once("; waited ")?;
+            let (waited, patience) = rest.split_once(" of ")?;
+            return Some(Self::Waiting {
+                on: verdict(on)?,
+                asking: number(asking)?,
+                waited: number(waited)?,
+                patience: number(patience)?,
+                refused,
+            });
+        }
+        let (on, asking) = head.split_once("; asking ")?;
+        Some(Self::Stalled {
+            on: verdict(on)?,
+            asking: number(asking)?,
+            refused,
+        })
+    }
 }
 
 impl std::fmt::Display for PulseStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}; asking {}; refused {}",
-            self.on, self.asking, self.refused
-        )
+        match self {
+            Self::Closed { window, refused } => {
+                write!(f, "closed window {window}; refused {refused}")
+            }
+            Self::Waiting {
+                on,
+                asking,
+                waited,
+                patience,
+                refused,
+            } => write!(
+                f,
+                "waiting: {on}; asking {asking}; waited {waited} of {patience}; refused {refused}"
+            ),
+            Self::Stalled {
+                on,
+                asking,
+                refused,
+            } => write!(f, "{on}; asking {asking}; refused {refused}"),
+        }
     }
 }
 
@@ -128,9 +231,9 @@ impl Counts {
     pub fn status(&self) -> Option<PulseStatus> {
         let held = self.status.lock().ok().and_then(|held| *held);
         if self.door_lost.load(Ordering::Acquire) {
-            Some(PulseStatus {
+            Some(PulseStatus::Stalled {
                 on: Verdict::NoDiagnostics,
-                asking: held.map_or(0, |status| status.asking),
+                asking: held.map_or(0, |status| status.asking()),
                 refused: self.refusals(),
             })
         } else {
@@ -138,9 +241,16 @@ impl Counts {
         }
     }
 
+    fn hold(&self, status: PulseStatus) {
+        if let Ok(mut held) = self.status.lock() {
+            *held = Some(status);
+        }
+    }
+
     // A refused public deposit proves no cause of the shortfall. Keep its count beside
     // the verdict: an outsider can increase this count but cannot select the verdict.
-    pub fn observe(&self, missing: bool, asking: u32) -> Verdict {
+    // `waited` askings of `patience` are spent at this wait: it is a wait, not yet a stall.
+    pub fn observe(&self, missing: bool, asking: u32, waited: u32, patience: u32) -> Verdict {
         let on = if self.door_lost.load(Ordering::Acquire) {
             Verdict::NoDiagnostics
         } else if missing {
@@ -148,14 +258,34 @@ impl Counts {
         } else {
             Verdict::NoQuorum
         };
-        if let Ok(mut held) = self.status.lock() {
-            *held = Some(PulseStatus {
-                on,
-                asking,
-                refused: self.refusals(),
-            });
-        }
+        self.hold(PulseStatus::Waiting {
+            on,
+            asking,
+            waited,
+            patience,
+            refused: self.refusals(),
+        });
         on
+    }
+
+    // The patience of a wait ran out on `on`: the reading becomes the stall, and the error the
+    // pulse returns is made here so that neither is had without the other. Nothing is closed.
+    pub fn exhausted(&self, on: Verdict, what: &'static str) -> crate::NodeError {
+        let asking = self.status().map_or(0, |status| status.asking());
+        self.hold(PulseStatus::Stalled {
+            on,
+            asking,
+            refused: self.refusals(),
+        });
+        crate::NodeError::Stalled { on, what }
+    }
+
+    // Read only after the record of the close stands.
+    pub fn closed(&self, window: u64) {
+        self.hold(PulseStatus::Closed {
+            window,
+            refused: self.refusals(),
+        });
     }
 
     pub fn clear_status(&self) {

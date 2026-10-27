@@ -57,3 +57,31 @@ The verdicts are therefore `no quorum` (exit 1), `no data` (exit 2) and
 `no diagnostics` (exit 4). Exit 3 is retired and given to no other verdict.
 Proof rejection is still distinguishable, as the count beside the verdict, but
 never as the cause of a shortfall.
+
+## Three readings: closed, waiting, stalled
+
+The live reading of a running node is one of three, and `--status` tells them
+apart by text and by exit code:
+
+- `closed window W; refused N` -- the last thing the pulse did was close W.
+  It stays the reading while the next window opens. Exit 0.
+- `waiting: <verdict>; asking A; waited X of P; refused N` -- a shortfall
+  awaited inside the patience of that wait, `X` askings of its budget `P`
+  spent. Both are the pulse's own counts, shown and never a threshold. Exit 0:
+  a wait inside the budget is a healthy node, not a stall.
+- `<verdict>; asking A; refused N` -- the patience ran out on that shortfall,
+  or the diagnostic door is gone. Nothing was closed. Exit 1 (`no quorum`),
+  2 (`no data`) or 4 (`no diagnostics`).
+
+A node that has made no reading yet in this run, or whose endpoint is absent,
+reads `no diagnostics` (exit 4). The regression
+`the_status_tells_a_close_a_wait_and_a_stall_apart` closes a window and reads
+exit 0 through the binary, then reads a withheld round while it waits (exit 0,
+`waiting: no data`) and again after its patience ran out (exit 2).
+
+A quorum shortfall whose rounds keep turning does not exhaust a patience,
+because the patience counts the askings of one wait, and so it reads
+`waiting: no quorum` with exit 0 for as long as the rounds turn. Whether a
+machine should give such a window up at all is the open Gate 0 question of
+this item (`Consensus` "the chain may remain halted indefinitely" against
+`WAITS_UP_TO`); this reading neither answers nor hides it.
