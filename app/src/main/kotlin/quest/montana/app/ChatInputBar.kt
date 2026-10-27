@@ -171,7 +171,7 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
     private val coinMode get() = coins && Prefs.str(MODE_KEY, "mic") == COIN_MODE
     /** The number written in the coin's mode: digits alone, the commas and spaces aside; any other letter makes none (iOS coinAmount). */
     private val coinAmount: Long get() {
-        val digits = field.text.filter { !it.isWhitespace() && it != ',' }
+        val digits = this.field.text.filter { !it.isWhitespace() && it != ',' }
         if (digits.isEmpty() || 15 < digits.length || !digits.all { it in '0'..'9' }) return 0L
         return digits.toString().toLongOrNull() ?: 0L
     }
