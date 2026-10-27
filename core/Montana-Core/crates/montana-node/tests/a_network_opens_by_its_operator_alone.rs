@@ -175,7 +175,10 @@ fn an_open_on_a_store_holding_a_chain_is_refused_and_writes_nothing() {
     // final proposal to live from.
     let ran = started(&at.0, &half, false);
     let said = String::from_utf8_lossy(&ran.stderr);
-    assert!(!ran.status.success(), "a record of the agreement was an anchor");
+    assert!(
+        !ran.status.success(),
+        "a record of the agreement was an anchor"
+    );
     assert!(said.contains(NO_ANCHOR), "{said}");
     assert_eq!(
         everything_under(&at.0),
