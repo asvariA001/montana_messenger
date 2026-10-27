@@ -90,7 +90,8 @@ fn stopped_inside_window_zero(at: &Path, secret: [u8; 32]) -> [u8; 32] {
     let errand: pulse::Errand<'_> = &ahead;
     assert_eq!(
         pulse::live_doing(&machine, &cohort, 0, 1, 4, Some(errand)).map(|_| ()),
-        Err(NodeError::Refused {
+        Err(NodeError::Stalled {
+            on: montana_node::say::Verdict::NoData,
             what: "a round no beacon ever stood at"
         })
     );
