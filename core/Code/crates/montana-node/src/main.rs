@@ -112,7 +112,7 @@ fn help_text() -> String {
            --max-windows <N>          In start: stop after N windows.\n\
            --d-test-override <N>      In start: TEST-ONLY override D = N iterations.\n\
                                       Production uses params.d0 (Genesis Decree, value from mt-genesis).\n\
-                                      Override is used in tests for speed.\n",
+                                      Debug and test builds only; a release build refuses it.\n",
     )
 }
 
@@ -241,6 +241,9 @@ fn parse_time(args: &[String]) -> Result<time::TimeArgs, NodeError> {
     Ok(time::TimeArgs { data_dir })
 }
 
+const D_TEST_OVERRIDE_REFUSED: &str =
+    "--d-test-override is refused in a release build: D = params.d0 (Genesis Decree)";
+
 fn parse_start(args: &[String]) -> Result<start::StartArgs, NodeError> {
     let mut data_dir: Option<PathBuf> = None;
     let mut enable_candidate = false;
@@ -264,6 +267,10 @@ fn parse_start(args: &[String]) -> Result<start::StartArgs, NodeError> {
                 i += 2;
             },
             "--d-test-override" => {
+                // Test-only: a release build refuses it, D stays params.d0 of the Decree.
+                if !cfg!(debug_assertions) {
+                    return Err(NodeError::InvalidArguments(D_TEST_OVERRIDE_REFUSED.into()));
+                }
                 d_test_override = Some(
                     expect_value(args, i, "--d-test-override")?
                         .parse()
