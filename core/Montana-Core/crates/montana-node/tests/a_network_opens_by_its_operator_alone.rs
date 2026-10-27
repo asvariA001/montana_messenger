@@ -27,12 +27,16 @@ use common::Scratch;
 const NO_ANCHOR: &str = "refused: a machine with no anchor opens no window";
 const OPENED_OVER_A_CHAIN: &str = "refused: a network opened on a store that holds a chain";
 
-// A store with a secret borne and nothing else, and the naming half of the machine it is.
+// A store with a secret borne and nothing else, and the naming half of the machine it is. A secret
+// is written once and its temporary is kept beside it, which the next opening of the store sweeps;
+// the store is opened once more here, so what a test compares is the store as every start leaves
+// it and not the sweep of a temporary.
 fn borne(at: &Path, secret: [u8; 32]) -> [u8; 32] {
     mt_store::Store::open(at)
         .expect("a fresh store opens")
         .bear_secret(&secret)
         .expect("the secret is borne");
+    drop(mt_store::Store::open(at).expect("the store opens again"));
     Cohort::half_of(&secret)
 }
 
