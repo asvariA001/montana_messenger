@@ -5088,6 +5088,17 @@ stands on and the ballots of their parts, which stand at their points exactly as
 published. A device verifies a certificate as the living
 verified its parts, and Consensus states the procedure.
 
+**The proof a machine writes with a window it closed is the proposal, and never the certificate.**
+When a machine closes a window it writes one record: the tables of its plane at that window, the
+head, the number of the window closed, and as the proof of that transition the bytes of the
+proposal that closed it — `proposal_len` bytes, its `ticket_proof` and its signature among them —
+whose roots are the ones those tables recompute to. The certificate of that window cannot stand in
+the record: it is made of the attestations, the pledges and the ballots of the window after it,
+which do not exist when the window closes, so a record waiting on them would write the tables and
+the head of one window apart. The certificate is what a device walking to the head verifies, from
+the points where its parts are retained, and it enters the record of no machine (the Author's
+decision of 27.10.2026 19:48 UTC, issue #19).
+
 **Invariants of the certificate:**
 
 - A certificate introduces no object, no signature and no key; its parts are a proposal with its roll, the heavy attestations of the window after it, the light attestations of that window answering the final beacon its proposal names, the pledges its decision stands on and the ballots of their parts, each of the layout and the length this document already fixes. A final beacon no verified attestation of the certificate answered closes nothing for a device, as it closes nothing for a machine of the window.

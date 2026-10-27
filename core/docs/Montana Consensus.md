@@ -1323,6 +1323,7 @@ liveness only when the original authorization and verification requirements are 
 - No silence, locally counted population, missing diagnostic or restart supplies authority.
 - A certificate is verified whole before finality or issuance.
 - A different Genesis is a different network and requires an explicit operator choice.
+- A machine must start only if the roots its kept plane gives at the window of the proposal it keeps beside that plane, in the record of the last window it closed, equal the roots that proposal carries — `note_root`, `nullifier_root`, `record_root`, `machine_root`, `admitted_root`, `credited_root` and `operations_root` — and it must refuse the record whole otherwise, before it draws a secret, opens a door or holds anything. A record that reads back whole is still not trusted: a plane or a proposal changed on the disk would leave the machine holding notes no proposal of the network names. The compared proposal is the one of the record, not the one of the archive of proposals, which a close under another name rewrites first; the roll and the count are not compared, since the plane holds neither the cement nor the cohort they are recomputed from. The rule is `Kept::stands_under_its_proposal` (`core/Montana-Core/crates/montana-node/src/lib.rs:774-791`), called from `Machine::start` at `lib.rs:880-887` before the secret is read or drawn at `lib.rs:888` (the Author's decision of 27.10.2026 19:48 UTC, issue #19).
 
 ## The cold start
 
