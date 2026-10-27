@@ -1185,11 +1185,14 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
     private fun corner(f: ChatFolder) {
         if (!::write.isInitialized) return   // the list's first fill comes before the corner is built
         val w = write as? FrameLayout ?: return
-        val group = f.onlyKind == ChatFolders.GROUPS
-        (w.getChildAt(0) as? android.widget.ImageView)?.setImageResource(if (group) R.drawable.ic_plus else R.drawable.ic_compose)
-        w.contentDescription = c.getString(if (group) R.string.app_groups else R.string.share)
+        // the corner of the Groups app and of the Channels app: one of the page's kind is born from it (iOS createButton(channel:))
+        val kind = f.onlyKind
+        (w.getChildAt(0) as? android.widget.ImageView)?.setImageResource(if (kind == ChatFolders.GROUPS || kind == ChatFolders.CHANNELS) R.drawable.ic_plus else R.drawable.ic_compose)
+        w.contentDescription = c.getString(when (kind) { ChatFolders.GROUPS -> R.string.app_groups; ChatFolders.CHANNELS -> R.string.chn_channel; else -> R.string.share })
     }
     private fun createGroup() = act.push { close -> groupPickPage(act, close, onCreated = { key -> act.push { back -> conversationPage(act, key, back) } }) }
+    /** THE CHANNEL IS BORN AND OPENED (iOS creatingChannel → MTChannelIntroStep → MTGroup.create(.channel) → openChat). */
+    private fun createChannel() = act.push { close -> channelCreatePage(act, close, onCreated = { key -> act.push { back -> conversationPage(act, key, back) } }) }
     /** The bar stands: the rows keep room under it and «Write» steps above it, as the music's plus and the feed's write. */
     fun reserve(on: Boolean) {
         foot.layoutParams = lp(MATCH, dp(if (on) 180 else 120)); foot.requestLayout()
@@ -1216,7 +1219,7 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
             background = c.glassPlate(oval = true)
             contentDescription = c.getString(R.string.share)
             addView(c.icon(R.drawable.ic_compose, barGlyph), FrameLayout.LayoutParams(dp(30), dp(30), Gravity.CENTER))
-            pressable { if (folder.onlyKind == ChatFolders.GROUPS) createGroup() else act.push { cardPage(act, it) } }
+            pressable { when (folder.onlyKind) { ChatFolders.GROUPS -> createGroup(); ChatFolders.CHANNELS -> createChannel(); else -> act.push { cardPage(act, it) } } }
         }
         corner(folder)
         // THE FOLDERS' TABS AS THE TIME PANEL (iOS MTFolderTabs at 2240, the author's word 18.10.2026 10:2x MSK): at the panel's side

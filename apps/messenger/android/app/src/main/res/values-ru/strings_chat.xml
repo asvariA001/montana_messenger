@@ -131,6 +131,15 @@
     <string name="gr_pick_note">Письмо группы идёт по каналу каждого человека, поэтому в списке только те, с кем вы переписываетесь.</string>
     <string name="gr_new">Новая группа</string>
     <string name="gr_name">Название группы</string>
+    <string name="chn_what_is">Что такое канал?</string>
+    <string name="chn_what_is_sub">Каналы — это новый инструмент для трансляции ваших сообщений большой аудитории.</string>
+    <string name="chn_create">Создать канал</string>
+    <string name="chn_new">Новый канал</string>
+    <string name="chn_name">Название канала</string>
+    <string name="chn_about_hint">Описание (необязательно)</string>
+    <string name="chn_about_footer">Можно добавить описание канала.</string>
+    <string name="chn_pick_note">Пост идёт по каналу каждого человека, поэтому в списке только те, с кем вы переписываетесь.</string>
+    <string name="chn_channel">Канал</string>
     <string name="gp_members">УЧАСТНИКИ</string>
     <string name="gp_you">Вы</string>
     <string name="gp_creator">создатель</string>
@@ -201,6 +210,7 @@
     <string name="pw_reason">Откройте свои пароли</string>
     <string name="pw_locked">Пароли открываются отпечатком, лицом или кодом устройства.</string>
     <plurals name="gr_members"><item quantity="one">%d участник</item><item quantity="few">%d участника</item><item quantity="many">%d участников</item><item quantity="other">%d участника</item></plurals>
+    <plurals name="chn_subscribers"><item quantity="one">%d подписчик</item><item quantity="few">%d подписчика</item><item quantity="many">%d подписчиков</item><item quantity="other">%d подписчика</item></plurals>
     <plurals name="gr_coins_told"><item quantity="one">Монеты переведены %d участнику</item><item quantity="few">Монеты переведены %d участникам</item><item quantity="many">Монеты переведены %d участникам</item><item quantity="other">Монеты переведены %d участника</item></plurals>
     <plurals name="gr_online"><item quantity="one">%d в сети</item><item quantity="few">%d в сети</item><item quantity="many">%d в сети</item><item quantity="other">%d в сети</item></plurals>
     <string name="lw_photo">Фото</string>
