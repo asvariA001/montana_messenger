@@ -10,7 +10,6 @@ pub const CANON_RELATIVE: &str = "../../../docs/Montana Canon.md";
 pub enum ParsedValue {
     Scalar(u64),
     Ratio(u64, u64),
-    Schedule(Vec<(u64, u64)>),
     // A parameter the set names and has not published. It carries no value of any kind, and the
     // gate holds the code to carrying none either.
     Unpublished,
@@ -182,26 +181,6 @@ fn parse_block(md: &str, header: &str) -> Result<Vec<ParsedRow>, String> {
                 label: first.to_string(),
                 name: "tau2".to_string(),
                 value: ParsedValue::Scalar(value),
-            });
-        } else if first == "emission_schedule" {
-            let mut schedule = Vec::new();
-            for pair in value_cell.split('(').skip(1) {
-                let inner = pair
-                    .split(')')
-                    .next()
-                    .ok_or_else(|| format!("an unclosed schedule row: {value_cell:?}"))?;
-                let mut parts = inner.split(',');
-                let height = number(parts.next().unwrap_or_default())?;
-                let mint = number(parts.next().unwrap_or_default())?;
-                schedule.push((height, mint));
-            }
-            if schedule.is_empty() {
-                return Err(format!("an empty emission schedule: {value_cell:?}"));
-            }
-            rows.push(ParsedRow {
-                label: first.to_string(),
-                name: first.to_string(),
-                value: ParsedValue::Schedule(schedule),
             });
         } else if value_cell.contains("**unpublished**") {
             rows.push(ParsedRow {
@@ -446,15 +425,6 @@ fn check_block(rows: &[ParsedRow], code: &[mt_genesis::Entry], block: &str) -> R
                 if (n, d) != (cn, cd) {
                     return Err(format!(
                         "Decree divergence at `{}`: the set holds {n} over {d}, the code holds {cn} over {cd}",
-                        row.name
-                    ));
-                }
-                true
-            }
-            (ParsedValue::Schedule(s), mt_genesis::Entry::Schedule(_, cs)) => {
-                if s.as_slice() != *cs {
-                    return Err(format!(
-                        "Decree divergence at `{}`: the set holds {s:?}, the code holds {cs:?}",
                         row.name
                     ));
                 }
@@ -1739,6 +1709,7 @@ pub fn check_serialized_layouts(md: &str) -> Result<(), String> {
         record_root: [0x55; 32],
         machine_root: [0x66; 32],
         admitted_root: [0x77; 32],
+        credited_root: [0xAA; 32],
         operations_root: [0x88; 32],
         roll: [0xBB; 32],
         admitted_count: 3,
@@ -2151,6 +2122,9 @@ pub fn check_derivations(md: &str) -> Result<(), String> {
     let candidacy_secret = repeat32(bare_input(candidacy_inputs))?;
     let candidacy_right = input32(candidacy_inputs, "operator_secret")?;
     let candidacy_window = number(input_of(candidacy_inputs, "window")?)?;
+    let candidacy_machine = input32(candidacy_inputs, "node_commit")?;
+    let candidacy_suite = u16::try_from(number(input_of(candidacy_inputs, "suite_id")?)?)
+        .map_err(|_| "the suite of the vector of a candidacy is no u16".to_string())?;
     let right = mt_derive::nullifier::operator(&candidacy_right);
     let record = record_of_the_vector(labeled(&candidacy_rows, "record")?, &right)?;
     let serialized = mt_state::Layout::bytes(&record)
@@ -2189,7 +2163,9 @@ pub fn check_derivations(md: &str) -> Result<(), String> {
         candidacy_window,
         &record_root,
         &as_digest(&naming)?,
+        &candidacy_machine,
         &as_digest(&right)?,
+        candidacy_suite,
     );
     compare_hash(
         "SHA-256(public input)",
@@ -2292,6 +2268,42 @@ pub fn check_derivations(md: &str) -> Result<(), String> {
         labeled(&claim_rows, "admitted_root (two leaves)")?,
         &mt_proof::admitted::root_of(&[machine_pk, second], depth)
             .ok_or("a half of the vector is no digest of the family")?
+            .bytes(),
+    )?;
+    // The tree of credited rights: the part of one window, its leaf, and the roots over nothing,
+    // over that part alone and over the parts of two windows of one machine in the order they were
+    // credited — the last pins the pairing of a level, and that two windows of one machine are two
+    // leaves.
+    let credited_part = |window: u64| {
+        mt_derive::nullifier::part(&claim_secret, window)
+            .ok_or("the spending half of the vector is no digest of the family")
+    };
+    let (of_one, of_two) = (credited_part(1000)?, credited_part(1001)?);
+    compare_hash("part_nf(1000)", labeled(&claim_rows, "part_nf(1000)")?, &of_one)?;
+    compare_hash(
+        "credited_leaf(1000)",
+        labeled(&claim_rows, "credited_leaf(1000)")?,
+        &mt_proof::credited::leaf(&of_one)
+            .ok_or("a part of the vector is no digest of the family")?
+            .bytes(),
+    )?;
+    compare_hash(
+        "credited_root (empty)",
+        labeled(&claim_rows, "credited_root (empty)")?,
+        &mt_proof::credited::empty_root().bytes(),
+    )?;
+    compare_hash(
+        "credited_root (one leaf at 0)",
+        labeled(&claim_rows, "credited_root (one leaf at 0)")?,
+        &mt_proof::credited::root_of(&[of_one], depth)
+            .ok_or("a part of the vector is no digest of the family")?
+            .bytes(),
+    )?;
+    compare_hash(
+        "credited_root (two leaves)",
+        labeled(&claim_rows, "credited_root (two leaves)")?,
+        &mt_proof::credited::root_of(&[of_one, of_two], depth)
+            .ok_or("a part of the vector is no digest of the family")?
             .bytes(),
     )?;
     for (label, expected) in &claim_rows {
@@ -4962,9 +4974,9 @@ pub fn check_identifiers(md: &str) -> Result<(), String> {
     Ok(())
 }
 
-// The six roots the Genesis State Hash consumes, against the frozen empty root of each tree. Every
-// one of the six is frozen elsewhere in the set with its own construction; what was missing is the
-// sentence tying the six a genesis actually carries to those values. Without it a table could pick
+// The seven roots the Genesis State Hash consumes, against the frozen empty root of each tree. Every
+// one of the seven is frozen elsewhere in the set with its own construction; what was missing is the
+// sentence tying the seven a genesis actually carries to those values. Without it a table could pick
 // its doors one way and the set freeze them another, and no build would say a word — which is how a
 // tree of the proof hash came to be folded under the SHA-256 doors of the state with its own
 // domains, the one arrangement the set names a defect in as many words.
@@ -4978,12 +4990,13 @@ pub fn check_genesis_roots(md: &str) -> Result<(), String> {
     let sparse_top = format!("empty_internal({})", mt_merkle::KEY_BITS);
     let append_top = format!("empty_internal({})", note_tree_depth()?);
 
-    let frozen: [(Table, &str); 6] = [
+    let frozen: [(Table, &str); 7] = [
         (Table::Notes, "note_root (empty)"),
         (Table::Nullifiers, sparse_top.as_str()),
         (Table::Records, "record empty_internal(256)"),
         (Table::Machines, sparse_top.as_str()),
         (Table::Admitted, "admitted_root (empty)"),
+        (Table::Credited, "credited_root (empty)"),
         (Table::Operations, append_top.as_str()),
     ];
 
@@ -4992,7 +5005,7 @@ pub fn check_genesis_roots(md: &str) -> Result<(), String> {
         let rows = match *table {
             Table::Notes => &note_rows,
             Table::Records => &record_rows,
-            Table::Admitted => &claim_rows,
+            Table::Admitted | Table::Credited => &claim_rows,
             _ => &merkle_rows,
         };
         compare_hash(
@@ -5002,7 +5015,7 @@ pub fn check_genesis_roots(md: &str) -> Result<(), String> {
         )?;
         if slot != &table.empty_root() {
             return Err(format!(
-                "the six of a genesis and the empty root of {table:?} are two values"
+                "the seven of a genesis and the empty root of {table:?} are two values"
             ));
         }
     }

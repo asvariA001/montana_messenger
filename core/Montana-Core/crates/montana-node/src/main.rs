@@ -8,7 +8,7 @@ const USAGE: &str = "\
 montana-node — a machine of Montana
 
   montana-node --data <directory> --listen <address> [--acquaintance <line>]...
-               [--admitted <half>]... [--from <window>] [--windows <n>]
+               [--admitted <half>]... [--open] [--windows <n>]
 
   --data <directory>     where this machine keeps what it holds between starts
   --listen <address>     where it answers, as an address and a port
@@ -19,7 +19,10 @@ montana-node — a machine of Montana
                          every machine of the cohort — this one included — it is what
                          a cohort that witnesses itself is. Without any of them this
                          machine answers its door and lives no window.
-  --from <window>        the window to open at; the first if it is not named
+  --open                 open a network: window zero, on the cohort named by --admitted.
+                         Refused on a store that holds a chain. Without it, a machine
+                         lives from its own anchor, after the last window it closed, and
+                         a machine that holds nothing lives no window.
   --windows <n>          how many windows to live before stopping; without it, until
                          the machine is stopped
   --pay-to <half>:<pk>   whom this living machine pays out of --wallet, against the tree it holds
@@ -32,7 +35,7 @@ montana-node — a machine of Montana
                          count of its cement. A right is not a note: it is extinguished inside a
                          frame and what comes out is a commitment its holder keeps. It is presented in the
                          window that right is accepted in, which the machine printed when it took
-                         it, so --from names that window.
+                         it, so the machine is started to live that window.
   --help                 this
 
   montana-node --data <directory> --listen <address> --pay <line>
@@ -140,19 +143,13 @@ fn run() -> Result<(), String> {
             hex(&half)
         ));
     }
-    // **A machine that was away walks back before it lives.** Asked to open a window further on than
-    // the one after the last it closed, it walks from the two final proposals it kept to the head the
-    // network made final since, over the links it reached, and opens the window the network stands at:
-    // the one after the proposal the walk keeps awaiting its certificate, where it keeps one.
-    let from = montana_node::pulse::come_back(
-        &machine,
-        configuration.from,
-        montana_node::pulse::WAITS_UP_TO,
-    )
-    .map_err(said)?;
+    // Where this machine begins, decided before it enters anything: window zero only where its
+    // operator opened a network on an empty store, otherwise the window after the last it closed,
+    // and no window at all for a machine holding nothing that was not asked to open (Consensus,
+    // "The cold start").
+    let from = montana_node::pulse::first_window(&machine, configuration.open).map_err(said)?;
     println!(
-        "living from window {} in a cohort of {}",
-        from,
+        "living from window {from} in a cohort of {}",
         cohort.count()
     );
 
@@ -452,7 +449,7 @@ fn read_configuration(held: &[String]) -> Result<(Configuration, Option<Asked>),
     let mut at_round: Option<String> = None;
     let mut hand_to: Option<String> = None;
     let mut admitted: Vec<[u8; 32]> = Vec::new();
-    let mut from: Option<u64> = None;
+    let mut open = false;
     let mut windows: Option<u64> = None;
     let mut redeem: Option<String> = None;
     let mut pay_to: Option<String> = None;
@@ -481,13 +478,10 @@ fn read_configuration(held: &[String]) -> Result<(Configuration, Option<Asked>),
                 admitted.push(read32(&value()?)?);
                 at += 2;
             }
-            "--from" => {
-                from = Some(
-                    value()?
-                        .parse()
-                        .map_err(|_| "--from names a number".to_string())?,
-                );
-                at += 2;
+            // A flag naming no value: the act of opening is the whole of what it says.
+            "--open" => {
+                open = true;
+                at += 1;
             }
             "--pay-to" => {
                 pay_to = Some(value()?);
@@ -548,12 +542,17 @@ fn read_configuration(held: &[String]) -> Result<(Configuration, Option<Asked>),
         .ok_or_else(|| format!("--data names where this machine keeps what it holds\n\n{USAGE}"))?;
     let listen =
         listen.ok_or_else(|| format!("--listen names where this machine answers\n\n{USAGE}"))?;
+    // A network opened on no cohort is an operator asking for what cannot be done, and a door
+    // answered in its place would be this machine doing something it was not asked to.
+    if open && admitted.is_empty() {
+        return Err("--open asks for the cohort it opens on, named by --admitted".to_string());
+    }
     let configuration = Configuration {
         data: std::path::PathBuf::from(data),
         listen,
         acquaintances,
         admitted,
-        from: from.unwrap_or(0),
+        open,
         windows,
         // A right is worth the window's credit whatever its cement counted, so the window alone names it.
         redeem: match redeem {

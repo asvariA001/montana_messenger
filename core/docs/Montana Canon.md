@@ -3406,16 +3406,16 @@ is assembled from. The wrong implementations these refuse: one placing `operator
 after `own_height`, or writing the branch itself into the record in place of its sponge, parts at
 the commitment and at the root over it; one taking the naming half of a second absorption of the
 secret in place of the second squeeze of one parts at the half; one ordering the public input
-otherwise parts at its digest.
+otherwise, or leaving the machine's commitment or the suite out of it, parts at its digest.
 
 ```
-machine_secret = 0x5A x 32, operator_secret = 0x22 x 32, window = 1000
+machine_secret = 0x5A x 32, operator_secret = 0x22 x 32, window = 1000, node_commit = 0x66 x 32, suite_id = 1
 record = segment_bitmap 11, last_active_segment 7, opened_window 990, own_height 4, operator_nf of operator_secret, fabric_root 0x11 x 32, suite_id 1, current_pubkey 0x44 x 1952, blind 0x33 x 32
 operator_nullifier of the candidacy = aeea4d6acef552552144f4decd573616b555b73b0ddee09b37659870a2898fc0
 record_commit of the candidacy      = e795f229b47d3a835faef33f30e1e8d581eea2bbf75e41940e5213c4e686d543
 record_root of the candidacy        = 397e75dc054ebcebed04cd7107bffa17a8502639955e33b5ebb1b8169494bac2
 naming_half of the candidacy        = 34f171bc0471f01de0765a81708f5daaec4117ca0610e2e89f43a7ff9e7b9755
-SHA-256(public input)               = 8a282af4cd6822be6e1d92c4b53edceeced0cac467fcba8f2154a2b6180fe21d
+SHA-256(public input)               = df4a8b89d020b8bb07d24272a9f607a5245728ca958be140df6d95631dbdb9da
 ```
 
 **The birth of a seed, end to end.**
@@ -4422,7 +4422,7 @@ air_hash = the hash, under the domain of a description's identifier, of the iden
 
 identifier of the frame     = 01f51109574f2c463fa5bf4da0d43dd314447e10bd79aa17820f0827e65b2562
 identifier of the ticket    = 0c50e4291fede09b20945f9070e50746429b40153911600a690832aab6e65378
-identifier of the admission = 2d3b183b5b8766f06c289b4bbcb0b9767f6f28fff065fb9295c351b2b071cbac
+identifier of the admission = df6b61c212011e407d44462c1cd253556c5feccf44246cb201c6c87eb66b4323
 identifier of the presence  = a948eeaf8b4b07e7d51763944498a6edc463670f649dfdf351e7b478bb053052
 identifier of the opening   = 34c92be6edfe2e089be14dc59489dd2d1ef3483db4fab5d08abc28eaa0ca18da
 identifier of the ballot    = a329f7e7ae7656e26147604e0f757ff9cea56facbf953eb30fd01a3f59fe9928
@@ -4775,7 +4775,7 @@ demands the width from this row rather than declaring one of its own.
 | `standing_censuses` — the census windows the standing of a machine is counted over, newest first | 10 |
 | `census_interval`, in windows — derived: τ₂ / standing_censuses, so the censuses span one period of adaptation | τ₂ / 10 = 2 016 |
 | `standing_committee` — the votes the standing of an electorate draws in a window, in expectation, once it is wide enough to be sampled | 6 499 |
-| `air_hash` — the constraint sets the proofs of this network are accepted under | 09d333821ba444522d32bbeb189f53ad79189412291d9c81942685dba2c36a29 |
+| `air_hash` — the constraint sets the proofs of this network are accepted under | 49533d474ed50d1cb5d6174cf2379ba9ee7f68ff603a4b91ef2f95bbff98799c |
 
 **The volume the schedule is checked against.** Per machine, per window, across its chains:
 eligibility strikes 1.1094 times in expectation; 0.6710 of machines publish one heavy
@@ -4822,11 +4822,11 @@ genesis_state_hash = SHA-256("mt-genesis-state" || 0x00 || parameters
                              || note_root || nullifier_root || record_root || machine_root || admitted_root
                              || credited_root || operations_root)
 
-                   = 98748879e99ad907e440bc7df1fbbdf8521c0cb3209cf4b259cf37e45ea1fa20
+                   = 3f053286a6e38aca13d690cd15f561a92d6a63c1ff4e47a259644aa562d7e524
 
 published_parameters = SHA-256("mt-genesis-state" || 0x00 || the parameters that are published,
                                in the order and the encoding above)
-                     = 56a8abac5cbe2b041493f92b23441b9cf64977e77b96784bd37459de8cd4457b
+                     = e913fb4d56f06bc450570e7a83c75fed5f3e7a9fa6a3d1e2426952a3cc34d5d5
 ```
 
 A chain whose value differs is not a fork of Montana but a different protocol, and honest
@@ -5296,11 +5296,11 @@ candidacy_len = 8 + 32 + 32 + 32 + 2 + PROOF_LEN = 404 682 B
 
 - Its length is exactly `candidacy_len`; a candidacy of any other length is refused before it is parsed.
 - `operator_nullifier` is the one-time right of Canon, taking no window and no index, and it is the `operator_nf` the claimant's record carries, so one record raises one machine and a second candidacy under it presents the identical value and collides. It enters the set of nullifiers when the candidacy applies, whether or not an event admits the machine.
-- `node_commit` is the commitment of Canon over the answering key, its suite and a fresh blinding factor; the key itself appears in no field of this object. It is a field of this object and of its identifier, and the proof asserts nothing of it.
+- `node_commit` is the commitment of Canon over the answering key, its suite and a fresh blinding factor; the key itself appears in no field of this object. It is a field of this object and of its identifier, and it stands in the public input of the proof, so a proof made under one `node_commit` stands under no other: a relay rewriting the field of a candidacy it has seen presents a proof of another statement, and the node refuses it with the right unspent.
 - `naming_half` is the half that names the machine, and it is what a selection event writes into the tree of admitted machines, whose leaf Canon folds over exactly that value — so what a candidacy publishes and what an admission records are one value. Without it an event would hold a commitment and be asked to write a half, and no rule would say how one becomes the other.
 - Publishing it discloses nothing a machine does not disclose by being admitted: that tree is public and its leaf is that half. A candidacy that is not admitted publishes it too, and no later admission can be joined to that attempt — the right it spent is one-time, so there is no second candidacy under it and no success for a failure to be linked to.
 - The proof asserts that the record, the right and the half come of one admissible state: a record standing in the tree of records under the root the verifier takes for this window, the `operator_nf` that record carries equal to `operator_nullifier` and to the sponge of a branch the claimant holds, and `naming_half` the second squeeze of one absorption of a secret the claimant holds. A claimant cannot spend one person's right to seat another person's machine, cannot pair a record with a right it does not carry, and cannot publish a half whose secret it does not hold.
-- The public input is `window ‖ record_root ‖ naming_half ‖ operator_nullifier`, 104 B, each value in its own bytes. `window` is the field of this object, and a verifier applying another window refuses the candidacy before it verifies anything. `record_root` is no field of this object: it is the root of the tree of records the proposal of the standing stride's last window carries, the stride standing for `window` by the integer form of the horizon of proving, taken by the verifier from that one proposal — the same rule by which a frame walks a right against the root of admitted machines. Before the first stride stands no root does, and no candidacy applies.
+- The public input is `window ‖ record_root ‖ naming_half ‖ node_commit ‖ operator_nullifier ‖ suite_id`, 138 B, each value in its own bytes. `window`, `node_commit` and `suite_id` bind no cell of the trace: they enter the transcript every proof opens with, and a proof stands under no other value of any of them. `window` is the field of this object, and a verifier applying another window refuses the candidacy before it verifies anything. `record_root` is no field of this object: it is the root of the tree of records the proposal of the standing stride's last window carries, the stride standing for `window` by the integer form of the horizon of proving, taken by the verifier from that one proposal — the same rule by which a frame walks a right against the root of admitted machines. Before the first stride stands no root does, and no candidacy applies.
 - The proof asserts the lived continuity the gate of entry demands of this window, out of that same record, disclosing neither the record nor its history.
 - It carries no signature and no key, and an implementation that adds one names a machine for the whole of its life.
 

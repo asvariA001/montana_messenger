@@ -189,10 +189,11 @@ pub struct Configuration {
     // cohort witnesses itself, so its halves pass between operators exactly as an acquaintance
     // does; a machine handed none of them answers its door and lives no window.
     pub admitted: Vec<[u8; 32]>,
-    // The window to open at, and how many to live. Neither is a value of the protocol: the first
-    // is where an operator starts a machine and the second is when it stops, and a machine given
-    // no count lives until it is stopped.
-    pub from: u64,
+    // Whether the operator opens a network on this machine, and how many windows to live. Neither
+    // is a value of the protocol. Opening is an act of the operator on an empty store and the one
+    // way to window zero; a machine not asked to open lives only from an anchor (Consensus, "The
+    // cold start"). A machine given no count lives until it is stopped.
+    pub open: bool,
     pub windows: Option<u64>,
     // The window whose right is to be redeemed into a note of the wallet below, which the operator
     // read off that window when it closed. The right is worth the window's credit, so nothing else of the
@@ -214,7 +215,7 @@ impl Configuration {
             listen: listen.to_string(),
             acquaintances: Vec::new(),
             admitted: Vec::new(),
-            from: 0,
+            open: false,
             windows: None,
             redeem: None,
             wallet: None,
@@ -320,21 +321,113 @@ impl Held {
 // that have begun to stand there. The third is what lets a point take a delivery whole or refuse
 // the whole of it — a delivery already begun is counted for, and one not begun enters only where
 // the whole of it fits.
-// The window a point lives, the cells standing at it in the order they arrived, the deliveries
-// begun, and the digests of the standing cells — the last because a repetition is answered by a
-// lookup and never by a walk: the ceiling of a point is the round and the slots the set admits,
-// and a door that compared a cell against everything standing would slow by the square of what
-// it honestly holds.
+// The window a point lives, how many cells stand at it, the deliveries begun, and the digests of the
+// standing cells — the last because a repetition is answered by a lookup and never by a walk: the
+// ceiling of a point is the round and the slots the set admits, and a door that compared a cell
+// against everything standing would slow by the square of what it honestly holds.
+// **The cells themselves stand in one place, the file of the point** (issue #63). A point held its
+// cells in memory beside the file they were appended to, and what was read back held them again as
+// objects; a window that did not close stood at a new round every few seconds, and the cohort of
+// three was killed for its memory (Amsterdam at 320 MiB, Moscow at 1 GiB) while every round of the
+// window was still owed to its walk. What memory holds of a point is its count and its digests, a
+// few dozen bytes a cell against the whole width of one, and a reader is handed the range of the
+// file it asks for.
 struct AtAPoint {
     window: u64,
-    cells: Vec<Vec<u8>>,
+    count: usize,
     begun: Vec<[u8; POINT_BYTES]>,
     digests: std::collections::BTreeSet<[u8; 32]>,
 }
 
 // What one point last read back as: the window it belonged to, the count of cells that produced the
-// reading, and the objects that came of them.
-type ReadBack = (u64, usize, Vec<Vec<u8>>);
+// reading, when it was last asked for, the bytes of its objects and the objects.
+struct Read {
+    window: u64,
+    count: usize,
+    asked: u64,
+    bytes: usize,
+    objects: Vec<Vec<u8>>,
+}
+
+// What points last read back as. **It holds a ceiling of bytes, and the point asked for longest ago
+// goes first** (issue #63): it held every point of the window it was read in, and a window standing
+// at round after round held every round of it a second time. What goes is read again from the cells
+// the next time it is asked for; a live round is asked for many times a second and stays.
+struct ReadBack {
+    points: BTreeMap<[u8; POINT_BYTES], Read>,
+    bytes: usize,
+    asked: u64,
+    ceiling: usize,
+}
+
+impl ReadBack {
+    fn to_the_ceiling(ceiling: usize) -> Self {
+        Self {
+            points: BTreeMap::new(),
+            bytes: 0,
+            asked: 0,
+            ceiling,
+        }
+    }
+
+    // The objects a point read back as, where the count that produced them still stands.
+    fn of(&mut self, point: &[u8; POINT_BYTES], window: u64, count: usize) -> Option<Vec<Vec<u8>>> {
+        self.asked = self.asked.saturating_add(1);
+        let asked = self.asked;
+        let held = self.points.get_mut(point)?;
+        if held.window != window || held.count != count {
+            return None;
+        }
+        held.asked = asked;
+        Some(held.objects.clone())
+    }
+
+    // A reading kept: the windows before it go, and then the readings asked for longest ago until
+    // this one fits. A reading wider than the whole ceiling is not kept at all.
+    fn keep(&mut self, point: [u8; POINT_BYTES], window: u64, count: usize, objects: Vec<Vec<u8>>) {
+        if let Some(gone) = self.points.remove(&point) {
+            self.bytes = self.bytes.saturating_sub(gone.bytes);
+        }
+        let mut freed = 0usize;
+        self.points.retain(|_, held| {
+            let stays = held.window >= window;
+            if !stays {
+                freed = freed.saturating_add(held.bytes);
+            }
+            stays
+        });
+        self.bytes = self.bytes.saturating_sub(freed);
+        let bytes: usize = objects.iter().map(Vec::len).sum();
+        if bytes > self.ceiling {
+            return;
+        }
+        while self.bytes.saturating_add(bytes) > self.ceiling {
+            let Some(oldest) = self
+                .points
+                .iter()
+                .min_by_key(|(_, held)| held.asked)
+                .map(|(key, _)| *key)
+            else {
+                break;
+            };
+            if let Some(gone) = self.points.remove(&oldest) {
+                self.bytes = self.bytes.saturating_sub(gone.bytes);
+            }
+        }
+        self.asked = self.asked.saturating_add(1);
+        self.bytes = self.bytes.saturating_add(bytes);
+        self.points.insert(
+            point,
+            Read {
+                window,
+                count,
+                asked: self.asked,
+                bytes,
+                objects,
+            },
+        );
+    }
+}
 
 struct Standing {
     at: Mutex<BTreeMap<[u8; POINT_BYTES], AtAPoint>>,
@@ -342,14 +435,19 @@ struct Standing {
     // The window whose points, and those of every window before it, were dropped from the disk
     // last: the disk follows the memory's retention, once per window turning.
     pruned_through: Mutex<u64>,
+    // Where the cells of every point stand, and the width each of them is cut at.
+    store: Arc<Store>,
+    cell_width: usize,
 }
 
 impl Standing {
-    fn empty(retained: u64) -> Self {
+    fn empty(retained: u64, store: Arc<Store>, cell_width: usize) -> Self {
         Self {
             at: Mutex::new(BTreeMap::new()),
             retained,
             pruned_through: Mutex::new(0),
+            store,
+            cell_width,
         }
     }
 
@@ -357,18 +455,25 @@ impl Standing {
     // point, in the order they were taken: the deliveries begun and the digests are read off the
     // cells themselves, under the keys every machine computes for the point. A cell that does not
     // read as a cell of its point is not of this point and is left out.
-    fn loaded(retained: u64, store: &Store, cell_width: usize) -> Result<Self, NodeError> {
-        let standing = Self::empty(retained);
+    fn loaded(retained: u64, store: &Arc<Store>, cell_width: usize) -> Result<Self, NodeError> {
+        let standing = Self::empty(retained, Arc::clone(store), cell_width);
         let kept = store.cells_standing(cell_width).map_err(NodeError::Store)?;
         {
             let mut at = standing.at.lock().map_err(|_| NodeError::Uncountable)?;
             for (window, point, cells) in kept {
+                let read = cells.len();
                 let held = at.entry(point).or_insert(AtAPoint {
                     window,
-                    cells: Vec::new(),
+                    count: 0,
                     begun: Vec::new(),
                     digests: std::collections::BTreeSet::new(),
                 });
+                // A point lives one window, and its file is the one under that window: a file of
+                // the same point under another window is not of it.
+                if held.window != window {
+                    continue;
+                }
+                let mut taken: Vec<Vec<u8>> = Vec::with_capacity(read);
                 for cell in cells {
                     let Some((delivery, _)) = mt_wire::publish::delivery_of(&point, window, &cell)
                     else {
@@ -382,7 +487,15 @@ impl Standing {
                     if !held.begun.contains(&delivery) {
                         held.begun.push(delivery);
                     }
-                    held.cells.push(cell);
+                    held.count += 1;
+                    taken.push(cell);
+                }
+                // The file holds exactly what the point took, in the order it took it: a cell
+                // left out here and kept there would shift every index a reader asks for.
+                if taken.len() != read {
+                    store
+                        .put_cells(window, &point, &taken)
+                        .map_err(NodeError::Store)?;
                 }
             }
         }
@@ -423,7 +536,7 @@ impl Standing {
         at.retain(|_, held| window <= held.window.saturating_add(retained));
         let standing = at.entry(point).or_insert(AtAPoint {
             window,
-            cells: Vec::new(),
+            count: 0,
             begun: Vec::new(),
             digests: std::collections::BTreeSet::new(),
         });
@@ -452,14 +565,24 @@ impl Standing {
             return say::Took::AnotherPoint;
         };
         let begun = standing.begun.contains(&delivery);
-        if !begun && standing.cells.len() + usize::from(declared) > ceiling {
+        if !begun && standing.count + usize::from(declared) > ceiling {
             return say::Took::PastTheCeiling;
+        }
+        // **The cell goes to the disk under the lock that counts it**, so the count of a point and
+        // the cells of its file are one order: a reader handed the cells from an index reads the
+        // ones the count names. A cell the disk did not take is not held.
+        if self
+            .store
+            .append_cell(standing.window, &point, &cell)
+            .is_err()
+        {
+            return say::Took::Unkept;
         }
         if !begun {
             standing.begun.push(delivery);
         }
         standing.digests.insert(digest);
-        standing.cells.push(cell);
+        standing.count += 1;
         say::Took::Held
     }
 
@@ -468,18 +591,32 @@ impl Standing {
     fn count_at(&self, point: &[u8; POINT_BYTES]) -> usize {
         self.at
             .lock()
-            .map(|at| at.get(point).map(|held| held.cells.len()).unwrap_or(0))
+            .map(|at| at.get(point).map(|held| held.count).unwrap_or(0))
             .unwrap_or(0)
     }
 
     fn at(&self, point: &[u8; POINT_BYTES]) -> Vec<Vec<u8>> {
-        self.at
+        self.cells_of(point, 0, usize::MAX)
+    }
+
+    // The cells of a point from `from`, at most `take` of them, read off its file, and never past
+    // the count: a cell is appended before it is counted, so what the count names is on the disk.
+    fn cells_of(&self, point: &[u8; POINT_BYTES], from: usize, take: usize) -> Vec<Vec<u8>> {
+        let Some((window, count)) = self
+            .at
             .lock()
-            .map(|at| {
-                at.get(point)
-                    .map(|held| held.cells.clone())
-                    .unwrap_or_default()
-            })
+            .ok()
+            .and_then(|at| at.get(point).map(|held| (held.window, held.count)))
+        else {
+            return Vec::new();
+        };
+        let from = from.min(count);
+        let take = (count - from).min(take);
+        if take == 0 {
+            return Vec::new();
+        }
+        self.store
+            .cells_at(window, point, self.cell_width, from, take)
             .unwrap_or_default()
     }
 
@@ -623,6 +760,35 @@ impl Kept {
             census: attest::LivedCensus::decode(parts[3])?,
         })
     }
+
+    // **The plane a record keeps gives the roots of the proposal it keeps beside it.** Every
+    // proposal a close takes is verified against the roots recomputed from the plane it closes on
+    // (`pulse::take_the_proposal`, `certificate::verify_proposal`), and the close keeps the two
+    // together, so the seven tables of the plane at the window of the proposal give the roots that
+    // proposal carries. A plane or a proposal changed on the disk gives others, and is refused
+    // whole: a machine living on it would hold notes no proposal of the network names and prove
+    // paths nobody else can verify. The proposal compared is the one in the record and not the one
+    // of the archive of proposals, which the close of a machine that took another name rewrites
+    // before its own record stands. The roll and the count are not compared: the plane holds
+    // neither the cement nor the cohort they are recomputed from.
+    pub fn stands_under_its_proposal(&self) -> Result<(), NodeError> {
+        let taken = &self.taken;
+        let carried = [
+            taken.note_root,
+            taken.nullifier_root,
+            taken.record_root,
+            taken.machine_root,
+            taken.admitted_root,
+            taken.credited_root,
+            taken.operations_root,
+        ];
+        if self.plane.tables_of(taken.window)? != carried {
+            return Err(NodeError::Refused {
+                what: "a kept plane whose roots are not those of the proposal kept beside it",
+            });
+        }
+        Ok(())
+    }
 }
 
 // A machine that has been born: its store, the key it answers with, the door it stands at, the
@@ -654,7 +820,7 @@ pub struct Machine {
     // not a second place for what stands — the cells are the one place, and this is the answer the
     // last reading of them gave, held against the count that produced it so that it cannot outlive
     // what it was read from.
-    read_back: Arc<Mutex<BTreeMap<[u8; POINT_BYTES], ReadBack>>>,
+    read_back: Arc<Mutex<ReadBack>>,
     // The account this machine keeps of its own doings. Every count of it names nobody, and it is
     // what an operator reads instead of guessing.
     counts: Arc<say::Counts>,
@@ -697,6 +863,28 @@ impl Machine {
     // standing without being told.
     pub fn start(configuration: &Configuration) -> Result<(Self, bool), NodeError> {
         let store = Store::open(&configuration.data).map_err(NodeError::Store)?;
+        // **What the machine held of the value plane stands again**: the plane of the last window it
+        // closed, kept in the record of that close. A note takes its position in the tree of notes,
+        // and a path is proven against that tree — so a plane that lived in memory alone made every
+        // note die with the run that created it, and a person paid held a note their own machine
+        // could no longer prove a path for. What is read here is what this machine wrote, and a
+        // record that does not read back whole is refused rather than half-read. **And the standing
+        // it earned stands again**, from the same record: a machine that forgot the census windows it
+        // lived would vote as a stranger until it had lived them all a second time.
+        //
+        // **What reads back whole is still not trusted.** The plane is held to the proposal the
+        // same record keeps for the window it closed, and a record whose plane gives other roots is
+        // refused before a secret is drawn, a door opened or anything held (issue #19, step K3).
+        // The head and the window closed name proposals the store holds, or the store refused to
+        // open (`StoreError::HeadWithoutItsProposal`, `StoreError::ClosedWithoutItsProposal`).
+        let record = store.window().map_err(NodeError::Store)?;
+        let kept = if record.kept.is_empty() {
+            None
+        } else {
+            let kept = Kept::decode(&record.kept)?;
+            kept.stands_under_its_proposal()?;
+            Some(kept)
+        };
         let born = match store.secret().map_err(NodeError::Store)? {
             Some(_) => false,
             None => {
@@ -726,27 +914,17 @@ impl Machine {
         let retained = mt_genesis::scalar("retained_windows").ok_or(NodeError::Decree {
             row: "retained_windows".to_string(),
         })?;
-        // **What the machine held of the value plane stands again**: the plane of the last window it
-        // closed, kept in the record of that close. A note takes its position in the tree of notes,
-        // and a path is proven against that tree — so a plane that lived in memory alone made every
-        // note die with the run that created it, and a person paid held a note their own machine
-        // could no longer prove a path for. What is read here is what this machine wrote, and a
-        // record that does not read back whole is refused rather than half-read. **And the standing
-        // it earned stands again**, from the same record: a machine that forgot the census windows it
-        // lived would vote as a stranger until it had lived them all a second time.
         let cell_width = mt_wire::cell_bytes().map_err(|_| of_the_decree("cell_bytes"))?;
+        let store = Arc::new(store);
         let standing = Standing::loaded(retained, &store, cell_width)?;
-        let record = store.window().map_err(NodeError::Store)?;
-        let (held_value, census) = if record.kept.is_empty() {
-            (state::State::new(), Vec::new())
-        } else {
-            let kept = Kept::decode(&record.kept)?;
-            (kept.plane, kept.census)
+        let (held_value, census) = match kept {
+            None => (state::State::new(), Vec::new()),
+            Some(kept) => (kept.plane, kept.census),
         };
         Ok((
             Self {
                 open: Arc::new(Mutex::new(None)),
-                store: Arc::new(store),
+                store,
                 answering,
                 door,
                 held: Arc::new(Held::to_the_ceiling(ceiling)),
@@ -754,7 +932,9 @@ impl Machine {
                 value: Arc::new(Mutex::new(held_value)),
                 reached: Arc::new(Mutex::new(Vec::new())),
                 admitted: Arc::new(Mutex::new(0)),
-                read_back: Arc::new(Mutex::new(BTreeMap::new())),
+                read_back: Arc::new(Mutex::new(ReadBack::to_the_ceiling(
+                    mt_store::READ_BACK_BYTES,
+                ))),
                 counts: Arc::new(say::Counts::default()),
                 census: Arc::new(Mutex::new(census)),
                 settling: Arc::new(Mutex::new(Vec::new())),
@@ -1025,6 +1205,19 @@ impl Machine {
         self.store.closed().map_err(NodeError::Store)
     }
 
+    // **Whether this store holds anything of a chain**: a head, a window it closed, the proposal of
+    // the first window or its record of the agreement on it. An operator opens a network only on a
+    // store holding none of them (Consensus, "The cold start"). The bytes are asked for and not
+    // read: a proposal or a record that does not parse is still something this machine wrote, and
+    // a store holding it is not empty. A machine reaches no later window without closing one, so
+    // these four are everything a chain leaves in a store.
+    pub fn holds_a_chain(&self) -> Result<bool, NodeError> {
+        Ok(self.head()?.is_some()
+            || self.closed_window()?.is_some()
+            || self.store.proposal(0).map_err(NodeError::Store)?.is_some()
+            || self.store.agreement(0).map_err(NodeError::Store)?.is_some())
+    }
+
     // A window closed: the number that refuses it to be opened again is written first, then its
     // record is let go — so no restart finds a closed window without a record and pledges a second
     // name for it (Consensus, "What a machine holds of the agreement"; "The way back").
@@ -1214,8 +1407,14 @@ impl Machine {
         let took = self
             .standing
             .hold(*point, window, cell.to_vec(), ceiling, of_a_delivery);
+        if took == say::Took::Unkept {
+            self.counts.raise(&self.counts.pushes_lost);
+            return Err(NodeError::Refused {
+                what: "a cell the disk of this machine did not take",
+            });
+        }
         if took == say::Took::Held {
-            keep_the_cell(&self.store, &self.standing, point, window, cell)?;
+            let_go_on_the_disk(&self.store, &self.standing, window)?;
         }
         match took {
             say::Took::Held => self.counts.raise(&self.counts.deposits_taken),
@@ -1520,12 +1719,10 @@ impl Machine {
         // moved, and a window turning drops the point with everything read of it.
         let standing = self.standing.count_at(point);
         {
-            let held = self.read_back.lock().map_err(|_| NodeError::Uncountable)?;
-            if let Some((stood, count, objects)) = held.get(point) {
-                if *stood == window && *count == standing {
-                    self.counts.raise(&self.counts.points_read_from_memory);
-                    return Ok(objects.clone());
-                }
+            let mut held = self.read_back.lock().map_err(|_| NodeError::Uncountable)?;
+            if let Some(objects) = held.of(point, window, standing) {
+                self.counts.raise(&self.counts.points_read_from_memory);
+                return Ok(objects);
             }
         }
         self.counts.raise(&self.counts.points_read_back);
@@ -1534,8 +1731,7 @@ impl Machine {
                 what: "cells at a point the wire cannot read back",
             })?;
         let mut held = self.read_back.lock().map_err(|_| NodeError::Uncountable)?;
-        held.retain(|_, (stood, _, _)| *stood >= window);
-        held.insert(*point, (window, standing, objects.clone()));
+        held.keep(*point, window, standing, objects.clone());
         Ok(objects)
     }
 
@@ -1694,8 +1890,8 @@ fn take_the_deposit(
             let window = deposit_window(store, held);
             let of_a_delivery = mt_wire::publish::delivery_of(&point, window, &cell);
             let took = standing.hold(point, window, cell.clone(), ceiling, of_a_delivery);
-            if took == say::Took::Held
-                && keep_the_cell(store, standing, &point, window, &cell).is_err()
+            if took == say::Took::Unkept
+                || (took == say::Took::Held && let_go_on_the_disk(store, standing, window).is_err())
             {
                 counts.raise(&counts.pushes_lost);
             }
@@ -1734,10 +1930,8 @@ fn answer_the_collection(
     let Ok(bound) = message::collect_answer_max() else {
         return Ok(());
     };
-    let held = standing.at(&point);
-    let from = usize::from(after).min(held.len());
-    let take = (held.len() - from).min(bound);
-    let Ok(answer) = message::encode_collect_answer(&held[from..from + take]) else {
+    let held = standing.cells_of(&point, usize::from(after), bound);
+    let Ok(answer) = message::encode_collect_answer(&held) else {
         return Ok(());
     };
     link.send(Kind::CollectAnswer, &answer)
@@ -1824,18 +2018,9 @@ fn answer_the_head(link: &mut Link, store: &Store, message: &[u8]) -> Result<(),
     link.send(Kind::HeadAnswer, &answer)
 }
 
-// A cell a point took, kept on the disk beside the window it belongs to, and the windows the memory
-// let go of let go of on the disk too, once per window turning.
-fn keep_the_cell(
-    store: &Store,
-    standing: &Standing,
-    point: &[u8; POINT_BYTES],
-    window: u64,
-    cell: &[u8],
-) -> Result<(), NodeError> {
-    store
-        .append_cell(window, point, cell)
-        .map_err(NodeError::Store)?;
+// The windows the memory let go of are let go of on the disk too, once per window turning. The cell
+// itself went to the disk where the point took it, under the lock that counted it.
+fn let_go_on_the_disk(store: &Store, standing: &Standing, window: u64) -> Result<(), NodeError> {
     if standing.prune_due(window) {
         store
             .drop_points_before(window.saturating_sub(standing.retained))
@@ -1875,6 +2060,58 @@ mod tests {
     }
 
     // Scratch artifacts are retained for inspection; tests never remove existing files.
+
+    // **A point holds its cells on the disk alone, and what was read back holds a ceiling** (issue
+    // #63). The wrong implementations refused: a point answering from a copy in memory beside its
+    // file, under which a range read here is not the range of the file, and a read-back holding
+    // every point of the window it was read in, under which the bytes it holds pass the ceiling.
+    #[test]
+    fn a_point_holds_its_cells_on_the_disk_alone_and_what_was_read_back_holds_a_ceiling() {
+        let scratch = Scratch::named("cells-on-the-disk");
+        let store = Arc::new(Store::open(&scratch.0).expect("a fresh store opens"));
+        let width = 4;
+        let standing = Standing::empty(2, Arc::clone(&store), width);
+        let point = [7u8; POINT_BYTES];
+        let delivery = Some(([9u8; POINT_BYTES], 3));
+        let cells: Vec<Vec<u8>> = (0u8..3).map(|i| vec![i; width]).collect();
+        for cell in &cells {
+            assert_eq!(
+                standing.hold(point, 5, cell.clone(), 8, delivery),
+                say::Took::Held
+            );
+        }
+        assert_eq!(
+            standing.hold(point, 5, cells[0].clone(), 8, delivery),
+            say::Took::Repeated
+        );
+        assert_eq!(standing.count_at(&point), 3);
+        assert_eq!(standing.at(&point), cells);
+        assert_eq!(standing.cells_of(&point, 1, 1), vec![cells[1].clone()]);
+        assert!(standing.cells_of(&point, 3, 4).is_empty());
+        assert_eq!(
+            store
+                .cells_at(5, &point, width, 0, usize::MAX)
+                .expect("the file of the point reads"),
+            cells
+        );
+
+        let mut read_back = ReadBack::to_the_ceiling(100);
+        for i in 0u8..10 {
+            read_back.keep([i; POINT_BYTES], 5, 1, vec![vec![i; 30]]);
+            assert!(
+                read_back.bytes <= 100,
+                "the read-back held {} bytes",
+                read_back.bytes
+            );
+        }
+        assert_eq!(
+            read_back.of(&[9; POINT_BYTES], 5, 1),
+            Some(vec![vec![9; 30]])
+        );
+        assert_eq!(read_back.of(&[0; POINT_BYTES], 5, 1), None);
+        read_back.keep([42; POINT_BYTES], 5, 1, vec![vec![0; 101]]);
+        assert_eq!(read_back.of(&[42; POINT_BYTES], 5, 1), None);
+    }
 
     #[test]
     fn an_acquaintance_is_written_and_read_back_and_a_malformed_one_is_refused() {
