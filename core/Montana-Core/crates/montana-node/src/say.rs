@@ -17,46 +17,43 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 
 // CNS-20: local observation only; never an input to consensus or to the wire.
+//
+// There is no verdict `proof refused`. Every refusal this machine counts is of an object that
+// arrived at a public point, which anyone may deposit, so a refusal names no cause of a shortfall
+// (issue #21, F1a); it is counted beside the verdict as `refused N` and never chosen as one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Verdict {
-    ProofRefused,
     NoData,
     NoQuorum,
     NoDiagnostics,
 }
 
 impl Verdict {
-    // CNS-20 operator exit codes, requested by issue #21; never protocol values.
+    // CNS-20 operator exit codes, requested by issue #21; never protocol values. Code 3 was
+    // `proof refused` and is retired with it, not given to another verdict.
     pub fn exit_code(self) -> u8 {
         match self {
             Self::NoQuorum => 1,
             Self::NoData => 2,
-            Self::ProofRefused => 3,
             Self::NoDiagnostics => 4,
         }
     }
 
     pub fn from_line(line: &str) -> Option<Self> {
-        [
-            Self::ProofRefused,
-            Self::NoData,
-            Self::NoQuorum,
-            Self::NoDiagnostics,
-        ]
-        .into_iter()
-        .find(|on| {
-            let name = on.to_string();
-            line == name
-                || line.starts_with(&format!("{name}:"))
-                || line.starts_with(&format!("{name}; asking "))
-        })
+        [Self::NoData, Self::NoQuorum, Self::NoDiagnostics]
+            .into_iter()
+            .find(|on| {
+                let name = on.to_string();
+                line == name
+                    || line.starts_with(&format!("{name}:"))
+                    || line.starts_with(&format!("{name}; asking "))
+            })
     }
 }
 
 impl std::fmt::Display for Verdict {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
-            Self::ProofRefused => "proof refused",
             Self::NoData => "no data",
             Self::NoQuorum => "no quorum",
             Self::NoDiagnostics => "no diagnostics",

@@ -640,7 +640,6 @@ mod status_tests {
         let codes: std::collections::BTreeSet<u8> = [
             montana_node::say::Verdict::NoQuorum,
             montana_node::say::Verdict::NoData,
-            montana_node::say::Verdict::ProofRefused,
             montana_node::say::Verdict::NoDiagnostics,
         ]
         .into_iter()
@@ -654,11 +653,16 @@ mod status_tests {
             on.exit_code()
         })
         .collect();
-        assert_eq!(codes.len(), 4);
+        assert_eq!(codes.len(), 3);
+        // F1a: the retired verdict reads as no verdict and its code is given to none.
+        assert!(!codes.contains(&3));
+        assert_eq!(
+            montana_node::say::Verdict::from_line("proof refused; asking 1; refused 1"),
+            None
+        );
         for on in [
             montana_node::say::Verdict::NoQuorum,
             montana_node::say::Verdict::NoData,
-            montana_node::say::Verdict::ProofRefused,
             montana_node::say::Verdict::NoDiagnostics,
         ] {
             assert!(super::said(montana_node::NodeError::Stalled {

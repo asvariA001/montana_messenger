@@ -132,7 +132,6 @@ pub fn read(data: &Path) -> Result<PulseStatus, Verdict> {
         .split_once("; refused ")
         .ok_or(Verdict::NoDiagnostics)?;
     let on = match on {
-        "proof refused" => Verdict::ProofRefused,
         "no data" => Verdict::NoData,
         "no quorum" => Verdict::NoQuorum,
         _ => return Err(Verdict::NoDiagnostics),

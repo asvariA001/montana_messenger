@@ -1,4 +1,5 @@
-// CNS-20: these reject a live pulse that conflates absent evidence, refused proof and absent quorum.
+// CNS-20: these reject a live pulse that conflates absent evidence and absent quorum, or lets a
+// refused public deposit name the cause (issue #21, F1 and F1a).
 use montana_node::{pulse, say::Verdict, NodeError};
 use mt_state::Layout;
 mod common;
