@@ -1,12 +1,15 @@
-//! Issue #18, R3 and R4: the order of delivery and incomplete data.
+//! Issue #18: the order of delivery, the proposer of a window and its issuance.
 //!
-//! A follower at window 4 receives the messages that close window 5: the
-//! tickets of window 4 from two nodes and one cemented envelope. The envelope is
-//! built by hand from real ML-DSA-65 keys so that every check before the ticket
-//! check passes; only the ticket check decides.
+//! A follower at window 4 receives the messages that close window 5: confirmations
+//! of the window and cemented envelopes. The envelopes are built by hand from real
+//! ML-DSA-65 keys so that every check passes except the one a test aims at.
+//!
+//! The lottery is removed (the author's decision 279): the proposer of window 5 is
+//! the lowest ticket by the aggregate of window 3 among the active nodes
+//! (mt_consensus::proposer_at), and a window credits every living node the seconds
+//! of the window.
 
 use super::*;
-use mt_lottery::{Candidate, WINNER_CLASS_NODE};
 use mt_state::{AccountRecord, AccountTable, CandidatePool, NodeRecord, NodeTable};
 use std::sync::atomic::AtomicU64;
 
@@ -31,7 +34,7 @@ fn temp_data_dir(tag: &str) -> PathBuf {
     dir
 }
 
-/// The proposer P and the two ticket holders A and B, with their tables.
+/// Three active nodes P, A and B, with their tables, and a follower outside them.
 struct Fixture {
     p: crate::identity::Identity,
     a: crate::identity::Identity,
@@ -86,18 +89,32 @@ impl Fixture {
         }
     }
 
-    fn ticket(&self, id: &crate::identity::Identity) -> SshaReveal {
-        let cba = cemented_bundle_aggregate(W - 3, &[]);
-        let mut r = SshaReveal {
-            node_id: id.node_id(),
-            window_index: W - 1,
-            endpoint: compute_endpoint(&T_R_PREV, &cba, &id.node_id(), W - 1),
-            signature: Signature::from_array([0u8; SIGNATURE_SIZE]),
-        };
-        let mut scope = Vec::new();
-        r.encode_signed_scope(&mut scope);
-        r.signature = sign(&id.node_sk, &scope).expect("sign ticket");
-        r
+    fn members(&self) -> [&crate::identity::Identity; 3] {
+        [&self.p, &self.a, &self.b]
+    }
+
+    /// The confirmers of window W-2 the follower holds, as the proposal of W-1 included them.
+    fn confirmers_two_before(&self) -> Vec<mt_state::NodeId> {
+        let mut ids: Vec<mt_state::NodeId> = self.members().iter().map(|i| i.node_id()).collect();
+        ids.sort();
+        ids
+    }
+
+    /// The three nodes in the order of their tickets for window W.
+    fn ticket_order(&self) -> Vec<&crate::identity::Identity> {
+        let aggregate = cemented_bundle_aggregate(W - 2, &self.confirmers_two_before());
+        let electorate: Vec<mt_state::NodeId> =
+            self.members().iter().map(|i| i.node_id()).collect();
+        mt_consensus::proposer_order(&aggregate, &electorate)
+            .iter()
+            .map(|id| {
+                *self
+                    .members()
+                    .iter()
+                    .find(|i| i.node_id() == *id)
+                    .expect("a member")
+            })
+            .collect()
     }
 
     fn confirmation(
@@ -105,14 +122,13 @@ impl Fixture {
         id: &crate::identity::Identity,
         window: u64,
         endpoint: Hash32,
-        reveal_hashes: Vec<Hash32>,
     ) -> BundledConfirmation {
         let mut bc = BundledConfirmation {
             node_id: id.node_id(),
             endpoint,
             window_index: window,
             op_hashes: Vec::new(),
-            reveal_hashes,
+            reveal_hashes: Vec::new(),
             signature: Signature::from_array([0u8; SIGNATURE_SIZE]),
         };
         let mut scope = Vec::new();
@@ -121,44 +137,29 @@ impl Fixture {
         bc
     }
 
-    /// The argmin winner of the two tickets and the other one.
-    fn winner_and_loser(&self) -> (mt_state::NodeId, mt_state::NodeId) {
-        let cands: Vec<Candidate> = [self.ticket(&self.a), self.ticket(&self.b)]
-            .iter()
-            .map(|r| Candidate {
-                ticket: weighted_ticket_node(&r.endpoint, 10, 10),
-                class: WINNER_CLASS_NODE,
-                id: r.node_id,
-            })
-            .collect();
-        let win = mt_lottery::determine_winner(&cands)
-            .expect("two candidates")
-            .id;
-        let lose = if win == self.a.node_id() {
-            self.b.node_id()
-        } else {
-            self.a.node_id()
-        };
-        (win, lose)
+    fn confirmation_msg(&self, id: &crate::identity::Identity, window: u64) -> ProtocolMessage {
+        let endpoint = if window == W { T_R_W } else { T_R_PREV };
+        let mut payload = Vec::new();
+        self.confirmation(id, window, endpoint).encode(&mut payload);
+        ProtocolMessage::new(MsgType::BundledConfirmation, window, payload)
     }
 
-    /// A cemented envelope of window W naming `winner`, with the state_root
-    /// that the settle computes for that winner.
-    fn envelope(&self, winner: mt_state::NodeId) -> ProtocolMessage {
-        let (ra, rb) = (self.ticket(&self.a), self.ticket(&self.b));
-        let mut cemented = vec![reveal_hash(&ra), reveal_hash(&rb)];
-        cemented.sort();
-        let signers = [&self.p, &self.a, &self.b];
-        let bundles_prev: Vec<BundledConfirmation> = signers
-            .iter()
-            .map(|id| self.confirmation(id, W - 1, T_R_PREV, Vec::new()))
-            .collect();
-        let evidence: Vec<BundledConfirmation> = signers
-            .iter()
-            .map(|id| self.confirmation(id, W, T_R_W, cemented.clone()))
-            .collect();
-        let mut confirmers: Vec<mt_state::NodeId> = signers.iter().map(|i| i.node_id()).collect();
-        confirmers.sort();
+    /// A confirmation of B for window W with one signature byte flipped.
+    fn corrupt_confirmation_msg(&self) -> ProtocolMessage {
+        let mut msg = self.confirmation_msg(&self.b, W);
+        let last = msg.payload.len() - 1;
+        msg.payload[last] ^= 0x01;
+        msg
+    }
+
+    /// The header of window W proposed and signed by `proposer` at fallback_depth `depth`,
+    /// with the state_root the settle computes, after `edit` and before the signature.
+    fn header(
+        &self,
+        proposer: &crate::identity::Identity,
+        depth: u8,
+        edit: impl Fn(&mut ProposalHeader),
+    ) -> ProposalHeader {
         let mut accounts = self.accounts.clone();
         let mut nodes = self.nodes.clone();
         let state_root = apply_proposal(
@@ -167,19 +168,10 @@ impl Fixture {
             &CandidatePool::new(),
             &ProposalSettle {
                 window_w: W,
-                cemented_confirmers: confirmers,
+                cemented_confirmers: self.confirmers_two_before(),
             },
             genesis_params(),
         );
-        let reveal_entries = vec![
-            (ra.node_id, reveal_hash(&ra)),
-            (rb.node_id, reveal_hash(&rb)),
-        ];
-        let winner_endpoint = if winner == ra.node_id {
-            ra.endpoint
-        } else {
-            rb.endpoint
-        };
         let mut header = ProposalHeader {
             prev_proposal_hash: [0u8; 32],
             window_index: W,
@@ -191,17 +183,33 @@ impl Fixture {
             state_root,
             timechain_value: T_R_W,
             included_bundles_root: [0u8; 32],
-            included_reveals_root: meta_root(&reveal_entries),
-            winner_endpoint,
-            winner_id: winner,
-            proposer_node_id: self.p.node_id(),
-            target: u128::MAX,
-            fallback_depth: 1,
+            included_reveals_root: [0u8; 32],
+            winner_endpoint: [0u8; 32],
+            winner_id: [0u8; 32],
+            proposer_node_id: proposer.node_id(),
+            target: HEADER_TARGET,
+            fallback_depth: depth,
             signature: Signature::from_array([0u8; SIGNATURE_SIZE]),
         };
+        edit(&mut header);
         let mut scope = Vec::new();
         header.encode_signed_scope(&mut scope);
-        header.signature = sign(&self.p.node_sk, &scope).expect("sign header");
+        header.signature = sign(&proposer.node_sk, &scope).expect("sign header");
+        header
+    }
+
+    /// The cemented envelope of a header: the confirmations of W-1 and of W by all three.
+    fn envelope_of(&self, header: &ProposalHeader) -> ProtocolMessage {
+        let bundles_prev: Vec<BundledConfirmation> = self
+            .members()
+            .iter()
+            .map(|id| self.confirmation(id, W - 1, T_R_PREV))
+            .collect();
+        let evidence: Vec<BundledConfirmation> = self
+            .members()
+            .iter()
+            .map(|id| self.confirmation(id, W, T_R_W))
+            .collect();
         let mut payload = Vec::new();
         header.encode(&mut payload);
         for list in [&bundles_prev, &evidence] {
@@ -213,33 +221,19 @@ impl Fixture {
         ProtocolMessage::new(MsgType::Proposal, W, payload)
     }
 
-    fn ticket_msg(&self, r: &SshaReveal) -> ProtocolMessage {
-        let mut payload = Vec::new();
-        r.encode(&mut payload);
-        ProtocolMessage::new(MsgType::SshaReveal, W - 1, payload)
-    }
-
-    /// A ticket of B with one signature byte flipped.
-    fn corrupt_ticket_msg(&self) -> ProtocolMessage {
-        let mut msg = self.ticket_msg(&self.ticket(&self.b));
-        let last = msg.payload.len() - 1;
-        msg.payload[last] ^= 0x01;
-        msg
+    fn envelope(&self, proposer: &crate::identity::Identity, depth: u8) -> ProtocolMessage {
+        self.envelope_of(&self.header(proposer, depth, |_| {}))
     }
 }
 
-/// A follower at window W-1 that knows the clock of W-1 and W and the
-/// canonical proposer of W (P, the first candidate of W-2).
+/// A follower at window W-1 that knows the clock of W-1 and W and the confirmers of W-2.
 struct Follower {
     state: LocalState,
     current: u64,
     timechain: TimeChainState,
     recent_roots: BTreeMap<u64, Hash32>,
     t_r_history: BTreeMap<u64, Hash32>,
-    reveal_pool: BTreeMap<u64, BTreeMap<mt_state::NodeId, SshaReveal>>,
     bc_accumulator: BTreeMap<u64, BTreeMap<mt_state::NodeId, BundledConfirmation>>,
-    winner_history: BTreeMap<u64, mt_state::NodeId>,
-    lottery_history: BTreeMap<u64, Vec<mt_lottery::Candidate>>,
     bc_set_history: BTreeMap<u64, Vec<mt_state::NodeId>>,
     last_proposer_cement: BTreeMap<mt_state::NodeId, u64>,
     own_bc_cache: BTreeMap<u64, BundledConfirmation>,
@@ -260,15 +254,8 @@ impl Follower {
         let mut t_r_history = BTreeMap::new();
         t_r_history.insert(W - 1, T_R_PREV);
         t_r_history.insert(W, T_R_W);
-        let mut lottery_history = BTreeMap::new();
-        lottery_history.insert(
-            W - 2,
-            vec![Candidate {
-                ticket: 0,
-                class: WINNER_CLASS_NODE,
-                id: f.p.node_id(),
-            }],
-        );
+        let mut bc_set_history = BTreeMap::new();
+        bc_set_history.insert(W - 2, f.confirmers_two_before());
         Follower {
             state: LocalState {
                 accounts: f.accounts.clone(),
@@ -279,11 +266,8 @@ impl Follower {
             timechain,
             recent_roots: BTreeMap::new(),
             t_r_history,
-            reveal_pool: BTreeMap::new(),
             bc_accumulator: BTreeMap::new(),
-            winner_history: BTreeMap::new(),
-            lottery_history,
-            bc_set_history: BTreeMap::new(),
+            bc_set_history,
             last_proposer_cement: BTreeMap::new(),
             own_bc_cache: BTreeMap::new(),
             pending_msgs: Vec::new(),
@@ -306,10 +290,7 @@ impl Follower {
             timechain: &mut self.timechain,
             recent_roots: &mut self.recent_roots,
             t_r_history: &mut self.t_r_history,
-            reveal_pool: &mut self.reveal_pool,
             bc_accumulator: &mut self.bc_accumulator,
-            winner_history: &mut self.winner_history,
-            lottery_history: &mut self.lottery_history,
             bc_set_history: &mut self.bc_set_history,
             last_proposer_cement: &mut self.last_proposer_cement,
             own_bc_cache: &mut self.own_bc_cache,
@@ -323,7 +304,6 @@ impl Follower {
             data_dir: &self.data_dir,
             params: genesis_params(),
             store: &self.store,
-            identity: me,
             my_node: me.node_id(),
         };
         for m in msgs {
@@ -376,12 +356,13 @@ fn permutations(n: usize) -> Vec<Vec<usize>> {
     out
 }
 
-/// Every order of the same messages gives every follower the same window and roots.
+/// Every order of the same messages, each to a fresh follower: the order, the outcome and the
+/// hash of the proposal the follower closed the window on.
 fn outcomes_over_all_orders(
     f: &Fixture,
     msgs: &[ProtocolMessage],
     tag: &str,
-) -> Vec<(Vec<usize>, Outcome)> {
+) -> Vec<(Vec<usize>, Outcome, Hash32)> {
     permutations(msgs.len())
         .into_iter()
         .map(|order| {
@@ -390,34 +371,33 @@ fn outcomes_over_all_orders(
                 &f.follower,
                 order.iter().map(|&i| msgs[i].clone()).collect(),
             );
-            (order, node.outcome())
+            (order, node.outcome(), node.prev_proposal_hash)
         })
         .collect()
 }
 
-// R3. Rejects a verifier whose verdict depends on whether the tickets arrived
-// before the envelope (the "accepted by quorum" path of start.rs before R2):
-// an envelope naming the wrong winner must be refused in every one of the 24
-// orders, and the honest envelope applied in every one, with the same roots.
+// R3, carried over the removal of the lottery. Rejects a verifier whose verdict depends on the
+// order of delivery: the envelope of the proposer the ticket names must be applied in every one
+// of the 24 orders, and the envelope of a node the ticket does not name refused in every one,
+// with the same roots.
 #[test]
 fn every_delivery_order_gives_the_same_window_and_roots() {
     let f = Fixture::new();
-    let (winner, loser) = f.winner_and_loser();
-    let (ra, rb) = (f.ticket(&f.a), f.ticket(&f.b));
+    let order = f.ticket_order();
     for (name, env, closes) in [
-        ("honest", f.envelope(winner), true),
-        ("wrong-winner", f.envelope(loser), false),
+        ("lowest-ticket", f.envelope(order[0], 1), true),
+        ("not-the-ticket", f.envelope(order[1], 1), false),
     ] {
         let msgs = vec![
-            f.ticket_msg(&ra),
-            f.ticket_msg(&rb),
-            f.corrupt_ticket_msg(),
+            f.confirmation_msg(&f.a, W),
+            f.confirmation_msg(&f.p, W - 1),
+            f.corrupt_confirmation_msg(),
             env,
         ];
         let runs = outcomes_over_all_orders(&f, &msgs, name);
         assert_eq!(runs.len(), 24);
-        let (first_order, first) = runs[0].clone();
-        for (order, out) in &runs {
+        let (first_order, first, _) = runs[0].clone();
+        for (order, out, _) in &runs {
             assert_eq!(
                 out, &first,
                 "{name}: order {order:?} gives a different window or roots than {first_order:?}"
@@ -428,23 +408,73 @@ fn every_delivery_order_gives_the_same_window_and_roots() {
     }
 }
 
-// R4. Rejects a verifier that applies an envelope while a cemented ticket is
-// missing from its pool: the ticket of B never arrives, so the envelope that
-// names the wrong winner must not be applied, whichever comes first.
+// Issue #18, S1. Rejects a proposer rule taken from arrival: every node of the electorate sends
+// its own envelope of window W at depth 1, and in every one of the 6 orders the follower closes
+// the window on the envelope of the lowest ticket by the aggregate of W-2, and on no other.
 #[test]
-fn an_envelope_with_a_missing_ticket_is_not_applied() {
+fn a_window_has_one_proposer_whatever_the_order_of_delivery() {
     let f = Fixture::new();
-    let (_, loser) = f.winner_and_loser();
-    let ra = f.ticket(&f.a);
-    for msgs in [
-        vec![f.ticket_msg(&ra), f.envelope(loser)],
-        vec![f.envelope(loser), f.ticket_msg(&ra)],
-    ] {
-        let mut node = Follower::new(&f, "incomplete");
-        let before = node.outcome();
-        node.deliver(&f.follower, msgs);
-        assert_eq!(node.current, W - 1, "incomplete data closed the window");
-        assert_eq!(node.outcome(), before, "incomplete data moved the state");
+    let order = f.ticket_order();
+    let lowest = proposal_hash(&f.header(order[0], 1, |_| {}));
+    let msgs: Vec<ProtocolMessage> = f.members().iter().map(|id| f.envelope(id, 1)).collect();
+    let runs = outcomes_over_all_orders(&f, &msgs, "one-proposer");
+    assert_eq!(runs.len(), 6);
+    for (delivery, out, closed_on) in &runs {
+        assert_eq!(out.0, W, "order {delivery:?}: the window stays open");
+        assert_eq!(
+            *closed_on, lowest,
+            "order {delivery:?}: closed on another proposer's envelope"
+        );
+    }
+    // The cascade walks the same order: depth 2 names the second ticket and nobody else.
+    let mut node = Follower::new(&f, "depth-two");
+    node.deliver(
+        &f.follower,
+        vec![f.envelope(order[0], 2), f.envelope(order[2], 2)],
+    );
+    assert_eq!(
+        node.current,
+        W - 1,
+        "depth 2 accepted from a node it does not name"
+    );
+    node.deliver(&f.follower, vec![f.envelope(order[1], 2)]);
+    assert_eq!(node.current, W, "depth 2 refused from the second ticket");
+}
+
+// Issue #18, S1. Rejects a follower that names a proposer from confirmers of W-2 it does not
+// hold: without them it refuses, rather than hashing an absent set as an empty one.
+#[test]
+fn a_follower_that_does_not_hold_the_aggregate_refuses() {
+    let f = Fixture::new();
+    let order = f.ticket_order();
+    let mut node = Follower::new(&f, "no-aggregate");
+    node.bc_set_history.clear();
+    let before = node.outcome();
+    node.deliver(&f.follower, vec![f.envelope(order[0], 1)]);
+    assert_eq!(
+        node.outcome(),
+        before,
+        "applied without the aggregate of W-2"
+    );
+}
+
+// Issue #18, S2 at the node. Rejects a window that issues anything but its seconds to each of
+// its living nodes: the three confirmers of W-1 gain 60 coins each, and nobody else gains.
+#[test]
+fn a_closed_window_issues_its_seconds_to_every_living_node() {
+    let f = Fixture::new();
+    let order = f.ticket_order();
+    let mut node = Follower::new(&f, "issuance");
+    let supply = |n: &Follower| -> u128 { n.state.accounts.iter().map(|r| r.balance).sum() };
+    let before = supply(&node);
+    node.deliver(&f.follower, vec![f.envelope(order[0], 1)]);
+    assert_eq!(node.current, W);
+    assert_eq!(supply(&node) - before, 3 * 60 * mt_account::MONETA_PER_COIN);
+    for id in f.members() {
+        assert_eq!(
+            node.state.accounts.get(&id.account_id()).map(|r| r.balance),
+            Some(60 * mt_account::MONETA_PER_COIN)
+        );
     }
 }
 
