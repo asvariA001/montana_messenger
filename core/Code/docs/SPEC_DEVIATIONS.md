@@ -973,7 +973,7 @@ Mitigated by DEV-042: a divergence triggered by this race is now rejected and re
 
 **Closure (commit see git log).** The follower acceptance path no longer computes a per-node wall-clock `silence`/`fallback_secs` depth to gate the proposer. Leader legitimacy is decided ONLY by `validate_proposer_is_canonical(header, sorted_W-2)` — i.e. `proposer_node_id == fallback_proposer(W-2, header.fallback_depth)` — a pure function of the signed header and the cemented W-2 candidate set, identical on every honest node. The cascade depth is the depth DECLARED in the signed header, not a local timer. Wall-clock survives ONLY in the proposer-side self-action decision ("do I lead this window"), which never enters consensus state: competing proposals of different depth for the same window carry an identical `state_root` (deterministic from cemented sets), so a depth race cannot diverge state. Residual metadata-only divergence of `prev_proposal_hash` under concurrent fallback is tracked as DEV-026 (not state-affecting: `prev_proposal_hash` is not cross-checked in `validate_header` and is not part of `state_root`). [I-3] restored.
 
-## DEV-044 (open, acknowledged): devnet ssha_entry_windows / selection_interval = 1 (production = 20160 / 336)
+## DEV-044 (closed): devnet ssha_entry_windows / selection_interval = 1 (production = 20160 / 336)
 
 **Crate:**           mt-genesis
 **File:line:**       crates/mt-genesis/src/lib.rs (genesis_params)
@@ -985,6 +985,8 @@ Mitigated by DEV-042: a divergence triggered by this race is now rejected and re
 **Closure cost:**    minutes (two constants); re-baking the Genesis State Hash is not required.
 **Status:**          open (devnet override, author-acknowledged for local testing)
 **Acknowledged:**    the author explicitly chose "leave 1 for the test" (2026-06-23)
+
+**Closed (issue #17 K5, the author's decision at council link 7790, question 5, 2026-10-25):** `genesis_params` carries `ssha_entry_windows = 20 160` and `selection_interval = 336`, equal to `conformance/spec-v35.27.0.contract`. The two lines "not part of the ... Genesis State Hash composition" and "re-baking the Genesis State Hash is not required" above were wrong: `ProtocolParams::encode` writes both fields (`crates/mt-genesis/src/lib.rs`, `write_u64` of `ssha_entry_windows` and `selection_interval`), and `compute_genesis_state_hash` hashes that encoding. The Genesis State Hash of the earlier core therefore moves, explicitly: the contract now pins it as `hash genesis_state_hash 1fa530475e4bda2e4041822c023f1b9908444c1103a3974e51012881df9337d8`, records the devnet value it moved from (`c8f6243c6b74f1d77ecad05c4a6e5d1b56012ff455d4b94c8d24fdedf2e19942`), and the conformance gate asserts the code against it (`genesis.genesis_state_hash`). A network opened under the devnet Decree is a different network.
 
 
 ---
