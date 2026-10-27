@@ -36,7 +36,7 @@ A release of 2026-10-08 was prepared and not created. Its files are listed here 
 | File | Application | Version | SHA-256 | Source |
 |---|---|---|---|---|
 | `Montana-Messenger.ipa` | Montana, iPhone, iPad, Mac | 1.0 (2165) | `72fb193070cb6f523811d015efbab12aa55f7a44013c61589b38e65d1e66bc14` | `apps/messenger/ios`, commit `7b405422`; the build is commit `862261a1`, which differs in the comments of `Code/Montana/nodes.txt` only |
-| `Montana-Messenger.apk` | Montana, Android | 1.0 (246) | `41de6e3eb8db810286629e36e1ded140f090d5885eff98af900f948c13b924bd` | `apps/messenger/android`, commit `67f144ec` |
+| `Montana-Messenger.apk` | Montana, Android | 1.0 (246) | `41de6e3eb8db810286629e36e1ded140f090d5885eff98af900f948c13b924bd` | `apps/messenger/android`, commit `67f144ec`; historical (marked 2026-10-27 UTC): build 246 of the release of 2026-10-08 that was not created, an asset no GitHub release of this repository carries; the current Android build is the `apps/messenger/android` row of Sources above |
 | `Montana-Wallet.ipa` | MT Wallet, iPhone, iPad, Mac | 1.0 (5) | `14084ed4b55c78ab9545ee5f48daf6afb2960049f632e3c9ebb7c5bb55a18003` | `apps/wallet/ios`, commit `07047617`; MT Wallet is retired from this repository |
 
 ## Retired folders
