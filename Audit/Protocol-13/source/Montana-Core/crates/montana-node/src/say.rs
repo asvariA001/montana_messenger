@@ -111,4 +111,7 @@ pub enum Took {
     AnotherWidth,
     AnotherPoint,
     PastTheCeiling,
+    // The disk did not take it, so the point does not count it: a count its file does not hold
+    // would hand a reader an index past the cells.
+    Unkept,
 }

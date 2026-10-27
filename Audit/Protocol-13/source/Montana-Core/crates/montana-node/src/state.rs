@@ -34,6 +34,9 @@ pub struct State {
     // The frames applied in the window this state last applied one in, by identifier and in the
     // order they applied: the tree of operations a proposal carries holds one window.
     operations: (u64, Vec<[u8; 32]>),
+    // The parts of the cements of the windows before, each window's credited by the proposal of the
+    // window after it: the tree a right of a window walks to. It moves with no frame.
+    credited: mt_proof::credited::Tree,
 }
 
 impl Default for State {
@@ -53,6 +56,7 @@ impl State {
             opened: (0, 0),
             rates: Vec::new(),
             operations: (0, Vec::new()),
+            credited: mt_proof::credited::Tree::new(mt_proof::tree_depth()),
         }
     }
 
@@ -74,6 +78,7 @@ impl State {
             (self.nullifiers.len(), 32),
             (self.rates.len(), 32),
             (self.operations.1.len(), 32),
+            (self.credited.leaves().len(), 32),
         ];
         let refuses = || NodeError::Refused {
             what: "value plane exceeds its canonical encoding or allocation",
@@ -118,6 +123,10 @@ impl State {
         count(&mut out, self.operations.1.len());
         for frame in &self.operations.1 {
             out.extend_from_slice(frame);
+        }
+        count(&mut out, self.credited.leaves().len());
+        for leaf in self.credited.leaves() {
+            out.extend_from_slice(&leaf.bytes());
         }
         Ok(out)
     }
@@ -203,6 +212,11 @@ impl State {
         eight.copy_from_slice(take(8, &mut at)?);
         let of_the_window = u64::from_le_bytes(eight);
         let operations = distinct_values(&mut at)?;
+        let credited_held = count(&mut at, 32)?;
+        let mut credited = Vec::with_capacity(credited_held);
+        for _ in 0..credited_held {
+            credited.push(of_digest(take(32, &mut at)?)?);
+        }
         if at != bytes.len() {
             return Err(NodeError::Refused {
                 what: "a value plane longer than what it declares",
@@ -221,30 +235,55 @@ impl State {
             opened: (window, opened),
             rates,
             operations: (of_the_window, operations),
+            credited: mt_proof::credited::Tree::of_leaves(mt_proof::tree_depth(), credited)
+                .map_err(|_| NodeError::Refused {
+                    what: "a tree of credited rights deeper than the Decree admits",
+                })?,
         })
     }
 
-    // The tree of admitted machines this state stands beside. A frame carries it as a public value
-    // whichever branch its redemptions took, so the state names it rather than each caller.
+    // The tree of admitted machines this state stands beside: the root a proposal carries and the
+    // cohort its roots are answered for. A frame does not prove against it — a right walks the tree
+    // of credited rights below — so it is what the pulse stands on, told to the plane.
     pub fn with_admitted(mut self, admitted: Digest) -> Self {
         self.admitted = admitted;
         self
     }
 
     // The same value, told rather than built with. **A machine's value plane stands against the
-    // same tree of admitted machines its pulse does**: a frame redeeming a right proves that the
-    // machine is among those the window admitted, and a state holding an empty tree verifies that
-    // proof against a tree standing for nobody — so the machine refuses its own true frame. The
-    // pulse learns the cohort when it opens a window, and tells the state in the same breath.
-    // The tree of admitted machines this state stands against, as a caller building a frame needs
-    // it: what the frame proves and what this state verifies are one value or the machine refuses
-    // its own true frame.
+    // same tree of admitted machines its pulse does**, or the roots it answers for a proposal are
+    // another cohort's. The pulse learns the cohort when it opens a window, and tells the state in
+    // the same breath.
     pub fn admitted(&self) -> Digest {
         self.admitted
     }
 
     pub fn admits(&mut self, admitted: Digest) {
         self.admitted = admitted;
+    }
+
+    // A window credited: the parts of its cement, ascending, entering the tree of credited rights
+    // at the proposal of the window after it, whole or not at all. Canon, "The right of a machine to
+    // its coin of a window, and what redeems it".
+    pub fn credit(&mut self, parts: &[[u8; 32]]) -> Result<(), NodeError> {
+        self.credited.credit(parts).map_err(|_| NodeError::Refused {
+            what: "a cement the tree of credited rights cannot hold",
+        })
+    }
+
+    // The root of the tree of credited rights as this plane holds it: the root every frame it
+    // applies proves its rights against, and so the one a caller building a frame proves against —
+    // what the frame proves and what this state verifies are one value or the machine refuses its
+    // own true frame.
+    pub fn credited(&self) -> Digest {
+        self.credited.root()
+    }
+
+    // Where a part stands in the tree of credited rights and the siblings it walks, or nothing for
+    // a part no credited cement held: what a machine walks to redeem its right of a window.
+    pub fn credited_branch(&self, part: &[u8; 32]) -> Option<(Vec<Digest>, u64)> {
+        let position = self.credited.position_of(part)?;
+        Some((self.credited.path(position)?, position))
     }
 
     pub fn notes_root(&self) -> Digest {
@@ -265,8 +304,8 @@ impl State {
         self.spent.contains(nullifier) || self.rates.contains(nullifier)
     }
 
-    // The six roots and the count a proposal of `window` carries, recomputed from this plane and the
-    // cohort it stands against. `docs/Montana Canon.md`, "The roots of state". The tree of admitted
+    // The seven roots and the count a proposal of `window` carries, recomputed from this plane and
+    // the cohort it stands against. `docs/Montana Canon.md`, "The roots of state". The tree of admitted
     // machines is the cohort's, and a plane told another tree is refused rather than mixed with it;
     // the table of machines holds what selection events admit, and an opening cohort writes none.
     pub fn roots(
@@ -301,6 +340,7 @@ impl State {
             record_root: self.records_root().bytes(),
             machine_root,
             admitted_root: self.admitted.bytes(),
+            credited_root: self.credited().bytes(),
             operations_root,
             roll,
             admitted_count: cohort.count(),
@@ -466,7 +506,17 @@ impl State {
         let right = Digest::of_bytes(&candidacy.operator_nullifier).ok_or(NodeError::Refused {
             what: "a right that is not a digest of the family",
         })?;
-        let public = mt_proof::circuit::admission::public_of(window, record_root, &naming, &right);
+        // The commitment of the machine and the suite are laid from the object as they stand, and
+        // the transcript of the proof holds them: a relay rewriting either presents a proof of
+        // another statement (AUDIT.md, a candidacy lifted onto another `node_commit`).
+        let public = mt_proof::circuit::admission::public_of(
+            window,
+            record_root,
+            &naming,
+            &candidacy.node_commit,
+            &right,
+            candidacy.suite_id,
+        );
         let description =
             mt_proof::circuit::admission::description().ok_or(NodeError::Refused {
                 what: "a description of an admission this Decree does not give",
@@ -525,10 +575,13 @@ impl State {
                 rate_nullifier: spend.rate_nullifier,
             })
             .collect();
+        // A right of a window stands under the tree of credited rights and under no other: the
+        // root laid here is the plane's own, so a frame proving a part no credited cement held is
+        // refused before anything of it applies.
         let public = mt_proof::circuit::frame::public_of_published(
             &published,
             &self.notes_root(),
-            &self.admitted,
+            &self.credited(),
             window,
         );
         let places = mt_proof::circuit::frame::Places::of(mt_proof::tree_depth()).ok_or(
