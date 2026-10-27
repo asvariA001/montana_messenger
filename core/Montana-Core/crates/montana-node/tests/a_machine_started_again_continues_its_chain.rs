@@ -72,17 +72,26 @@ fn a_machine_started_again_lives_the_window_after_the_last_it_closed_on_what_it_
     drop(machine);
 
     // Started again, and told windows it may not open: the one it closed, one past the window after
-    // it, and the first of the network. Each refused before it stands at a round, with nothing of the
+    // it, and the first of the network — a second window zero of a network it already stands in
+    // (Consensus, "The cold start"). Each refused before it stands at a round, with nothing of the
     // window written.
     let (machine, born) =
         Machine::start(&Configuration::at(&at.0, "127.0.0.1:0")).expect("the machine starts again");
     assert!(!born, "a restart drew a second secret");
-    for from in [BEFORE - 1, BEFORE + 1, 0] {
+    for (from, what) in [
+        (
+            BEFORE - 1,
+            "a window other than the one after the last this machine closed",
+        ),
+        (
+            BEFORE + 1,
+            "a window other than the one after the last this machine closed",
+        ),
+        (0, "a network opened on a store that holds a chain"),
+    ] {
         assert_eq!(
             pulse::live(&machine, &cohort, from, 1, PATIENCE).map(|_| ()),
-            Err(refused(
-                "a window other than the one after the last this machine closed"
-            )),
+            Err(refused(what)),
             "a machine that closed window {} lived window {from}",
             BEFORE - 1
         );
