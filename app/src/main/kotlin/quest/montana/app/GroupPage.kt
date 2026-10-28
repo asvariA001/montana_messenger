@@ -442,7 +442,11 @@ private fun groupEditPage(act: MainActivity, key: String, onBack: () -> Unit, on
                         val out = c.navRow(R.drawable.ic_hand, c.getString(R.string.gp_removed), removed) {
                             act.push { back -> groupRemovedPage(act, key, back) { reweigh() } }
                         }
-                        addView(c.plate { addView(out, lp()) }, lp())
+                        // «Recent Actions» under the people taken out (iOS editor 699-707)
+                        val deeds = c.navRow(R.drawable.ic_clock_arrow, c.getString(R.string.ch_recent_actions), null) {
+                            act.push { back -> channelActionsPage(act, key, back) }
+                        }
+                        addView(c.plate { addView(out, lp()); divider(); addView(deeds, lp()) }, lp())
                         gap(20)
                         addView(c.plate {
                             addView(c.text(c.getString(R.string.ch_dissolve), 17f, SysColor.red).apply {
@@ -866,6 +870,56 @@ private fun channelReactionsPage(act: MainActivity, key: String, onBack: () -> U
     }
     draw()
     return settingsPage(act, c.getString(R.string.ch_reactions), onBack) { addView(body, lp()) }
+}
+
+/**
+ * WHAT WAS DONE IN A CHANNEL, AS THE REFERENCE'S PAGE SHOWS IT (iOS MTChannelActionsPage, MontanaChannel 847-903): the deeds of the last
+ * two days, newest first, each in the reference's words with its moment; none -- «No actions here yet».
+ */
+private fun channelActionsPage(act: MainActivity, key: String, onBack: () -> Unit): View {
+    val c: Context = act
+    val acts = Groups.recentActs(key)
+    return settingsPage(act, c.getString(R.string.ch_recent_actions), onBack) {
+        if (acts.isEmpty()) {
+            addView(c.vstack(Gravity.CENTER_HORIZONTAL) {
+                setPadding(dp(16), dp(36), dp(16), dp(36))
+                addView(c.text(c.getString(R.string.ch_no_actions), 17f, Color.WHITE, bold = true, center = true), lp(MATCH, WRAP))
+                gap(8)
+                addView(c.text(c.getString(R.string.ch_no_actions_note), 15f, MT.gray, center = true), lp(MATCH, WRAP))
+            }, lp())
+            return@settingsPage
+        }
+        val moment = java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM, java.text.DateFormat.SHORT)
+        section(null, null, *acts.map { a ->
+            c.vstack(Gravity.NO_GRAVITY) {
+                setPadding(dp(16), dp(10), dp(16), dp(10))
+                addView(c.text(actWords(c, a), 17f, Color.WHITE), lp())   // USER-DATA: the people's names inside the catalogue's sentence
+                gap(3)
+                addView(c.text(moment.format(java.util.Date(a.at)), 12f, MT.gray), lp())   // USER-DATA: the deed's moment
+            }
+        }.toTypedArray())
+    }
+}
+
+/** The deed in the reference's words, its doer this phone's owner (iOS MTChannelActionsPage.words). */
+private fun actWords(c: Context, a: Groups.Act): String {
+    val names = (a.p ?: emptyList()).map { it.ifEmpty { c.getString(R.string.gr_member) } }.joinToString(", ")
+    return when (a.e) {
+        "invited" -> c.getString(R.string.cha_invited, names)
+        "joined" -> c.getString(R.string.cha_joined, names)
+        "removed" -> c.getString(R.string.cha_removed, names)
+        "left" -> c.getString(R.string.cha_left, names)
+        "title" -> c.getString(R.string.cha_title, a.t ?: "")
+        "about" -> c.getString(R.string.cha_about)
+        "photo" -> c.getString(R.string.cha_photo)
+        "promoted" -> c.getString(R.string.cha_promoted, names)
+        "demoted" -> c.getString(R.string.cha_demoted, names)
+        "signOn" -> c.getString(R.string.cha_sign_on)
+        "signOff" -> c.getString(R.string.cha_sign_off)
+        "reactOn" -> c.getString(R.string.cha_react_on)
+        "reactSome" -> c.getString(R.string.cha_react_some)
+        else -> c.getString(R.string.cha_react_off)
+    }
 }
 
 /** «Add Admin» (iOS MTGroupAdminPickPage): the members who are none yet, each opening the rights it would have. */
