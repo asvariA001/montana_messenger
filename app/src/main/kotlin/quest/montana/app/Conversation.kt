@@ -721,6 +721,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     }.apply {
         isVerticalScrollBarEnabled = false
         isFillViewport = true
+        if (group) setOnScrollChangeListener { _, _, _, _, _ -> showPosts() }   // a channel's posts the finger brings into the window are told
         // the feed, and under it their live draft (iOS LiveDraftBubble at the feed's foot)
         addView(feedFrame.apply { addView(c.vstack(Gravity.NO_GRAVITY) { addView(column, lp()); addView(draftRow, lp()) }, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM)) })
     }
@@ -985,14 +986,31 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         }
         android.util.Log.d("Montana", "row_birth born=" + births.size + " moved=" + moved)
     }
+    // A CHANNEL'S POSTS ON A SUBSCRIBER'S SCREEN (iOS the row's onAppear → MTChannelViews.shown): each post whose row stands in the
+    // feed's window is told to the owner once, for the eye under it
+    fun showPosts() {
+        if (!group || !Groups.isChannel(ref) || Groups.owns(ref) || !scroll.isLaidOut) return
+        val y0 = mediaPlateOffset(column, scroll) - scroll.scrollY
+        var byMid: Map<String, Msg>? = null
+        for (r in feed) {
+            val v = r.view ?: continue
+            if (!r.letter || !v.isLaidOut) continue
+            val y = y0 + v.top
+            if (y + v.height <= 0 || scroll.height <= y) continue
+            val m = (byMid ?: feedChat.msgs.associateBy { it.mid }.also { byMid = it })[r.key.trimEnd('\'')] ?: continue
+            ChannelViews.shown(m, ref)
+        }
+    }
     fun redraw() {
         val chat = Book.chat(ref) ?: return
         feedChat.name = chat.name; feedChat.pin = chat.pin
         feedChat.msgs.clear(); feedChat.msgs.addAll(chat.msgs)
+        scroll.post { showPosts() }
         // the pass's own switches, read once: every row's signature takes the same answer
         val skin = BubbleStyle.style
         val canPull = !group || Groups.canWrite(ref)
         val talks = group && Groups.talks(ref)   // a channel's comments: every post wears its count
+        val channel = group && Groups.isChannel(ref)   // a channel's eye: every post wears its number of people
         val played = Prefs.bool("plcap_$ref", false)
         val auto by lazy { Media.autoAllowed(c) }
         val byMid by lazy { chat.msgs.associateBy { it.mid } }
@@ -1007,6 +1025,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             for (x in row) { s.add(x.mid); s.add(x.text); s.add(x.state); s.add(x.edited); s.add(x.heard); s.add(x.reactions.toList()); s.add(x.myReact); s.add(x.file); s.add(x.meta); s.add(x.lp) }
             s.add(skin); s.add(canPull); s.add(m.mine && played); s.add(selecting); s.add(selecting && m.mid in picked)
             s.add(if (talks) ChannelComments.count(m.mid, ref) else -1)
+            s.add(if (channel) ChannelViews.views(m, ref) else -1)
             if (m.qt != null && m.qt != FORWARDED_QUOTE) {
                 val whose = m.qm?.let { byMid[it] }
                 s.add(if (whose?.mine == true) Prefs.userName else if (group) speakers.getOrPut(whose?.from) { Groups.speakerName(c, whose?.from) } else chat.shown)
@@ -2372,7 +2391,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
             override fun onViewAttachedToWindow(v: View) {
                 v.requestApplyInsets()
-                Book.openChat = ref; Book.listen(listener); ChannelComments.listen(listener); Notify.clear(ref)
+                Book.openChat = ref; Book.listen(listener); ChannelComments.listen(listener); ChannelViews.listen(listener); Notify.clear(ref)
                 // WHAT THE GROUP REFUSED IS SAID HERE (iOS groupRefusal's alert): the reference's sentence, the field left as it was
                 if (group) Groups.refused = sayRefusal
                 ShowLetter.open = showLetter
@@ -2408,7 +2427,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 endEarReply()
                 bar.cancelRecording()
                 VoiceTape.standDown()   // a tape readied by a hold that never began goes with the chat (iOS MontanaConversation.swift:1667)
-                if (Book.openChat == ref) Book.openChat = null; Book.unlisten(listener); ChannelComments.unlisten(listener)
+                if (Book.openChat == ref) Book.openChat = null; Book.unlisten(listener); ChannelComments.unlisten(listener); ChannelViews.unlisten(listener)
                 if (Groups.refused === sayRefusal) Groups.refused = null   // only this chat's own: another may stand over it
                 if (ShowLetter.open === showLetter) ShowLetter.open = null
                 Presence.unlisten(presenceListener); LiveDraft.unlisten(draftListener); LinkCompose.unlisten(linkListener); CoinBook.unlisten(coinListener)
@@ -2704,6 +2723,11 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                 }
                 val meta = c.hstack {
                     gravity = Gravity.CENTER_VERTICAL
+                    // THE EYE AND ITS NUMBER BEFORE THE TIME (iOS metaLine, the reference's channel stamp): the owner's count of people
+                    if (Groups.isKey(chat.ref) && Groups.isChannel(chat.ref)) {
+                        addView(c.icon(R.drawable.ic_set_eye, metaInk, 11), lp(dp(11), dp(11)).apply { marginEnd = dp(2) })
+                        addView(c.text(ChannelViews.short(ChannelViews.views(m, chat.ref)) + " ", 11f, metaInk).apply { fontFeatureSettings = "tnum" })   // USER-DATA: a count of people
+                    }
                     if (m.edited) addView(c.text(c.getString(R.string.edited) + " ", 11f, metaInk))
                     // a signed channel's post: its signer before the time, «Name, 12:30» (iOS signature, Sign Messages)
                     val time = android.text.format.DateFormat.getTimeFormat(c).format(Date(m.at))

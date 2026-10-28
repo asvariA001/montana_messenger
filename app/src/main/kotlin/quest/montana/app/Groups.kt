@@ -41,6 +41,8 @@ object Groups {
     private const val FACE_SIDE = 160   // iOS faceSide
     /** [I-14]: a group is bounded by the people its owner carries to (iOS peopleLimit). */
     private const val PEOPLE_LIMIT = 200
+    /** [I-14]: the posts one word of a channel's views names (iOS viewsBatch). */
+    const val VIEWS_BATCH = 200
     private const val PIECE_CHARS = 4500   // iOS ChatStore.sendPieceChars
     private const val HEARD_LIMIT = 512
     private val CROWNS = setOf(0x1F451, 0x2654, 0x2655, 0x265A, 0x265B)   // iOS MTCrown: only the Montana room wears a crown
@@ -192,6 +194,7 @@ object Groups {
         groups.clear(); gone.clear(); heard.clear(); copies.clear(); loaded = false; unread = false
         DeviceVault.delete(STORE); DeviceVault.delete(COPIES)
         ChannelComments.wipe()
+        ChannelViews.wipe()
     }
 
     // ── the copy: the groups ride the card in the iPhone's form, and every group held stands a row ──
@@ -1502,6 +1505,69 @@ object Groups {
             return Verdict.HELD
         }
     }
+
+    // ── a channel's views (the reference's eye under a post; ChannelViews) ──
+
+    /**
+     * A SUBSCRIBER'S SCREEN SHOWED POSTS (iOS tellSeen): their names go to the owner alone, silent, for its count. False -- no pipe to
+     * the owner now, and the posts wait. It is a read receipt: with the person's «Read receipts» off the word never leaves.
+     */
+    fun tellSeen(letters: List<String>, key: String): Boolean {
+        synchronized(lock) {
+            if (!Prefs.bool("readReceiptsEnabled", true) || letters.isEmpty()) return false
+            val g = state(key) ?: return false
+            if (g.kind != CHANNEL || g.mine || g.left) return false
+            val w = JSONObject().put("t", "vw").put("g", g.id).put("id", Marks.mintMid()).put("s", g.me)
+                .put("tx", letters.take(VIEWS_BATCH).joinToString(","))   // COMPAT-GATED: an older owner refuses «vw»
+            return carry(w, g.owner, "", own = false) != null
+        }
+    }
+    /** THE OWNER TELLS THE NUMBERS THAT MOVED (iOS tellCounts): one silent word to every subscriber. */
+    fun tellCounts(numbers: Map<String, Int>, key: String) {
+        synchronized(lock) {
+            val g = state(key) ?: return
+            if (g.kind != CHANNEL || !g.mine || g.left || numbers.isEmpty()) return
+            val w = JSONObject().put("t", "vc").put("g", g.id).put("id", Marks.mintMid()).put("s", OWNER_SEAT)
+                .put("tx", JSONObject(numbers).toString())   // COMPAT-GATED: an older subscriber refuses «vc»
+            for (m in g.members) carry(JSONObject(w.toString()), m.pipe, "", own = false)
+        }
+    }
+    /** A subscriber's posts shown, at the owner's phone (iOS seen): the seat is the pipe's, and only posts of this channel's feed count. */
+    private fun seen(w: JSONObject, pipe: String): Verdict {
+        val posts = Book.chat(key(w.optString("g")))?.msgs?.toList()?.filter { !isEvent(it.text) }?.map { it.mid }?.toSet()
+            ?: emptySet()   // read before the lock: the book keeps its own; the owner's posts and its administrators'
+        val seat: String
+        val k: String
+        val letters: List<String>
+        synchronized(lock) {
+            val g = groups[w.optString("g")] ?: return Verdict.WAIT
+            val from = SamePair.root(pipe)
+            val tx = w.optString("tx")
+            val m = g.members.firstOrNull { SamePair.root(it.pipe) == from }
+            if (!g.mine || g.kind != CHANNEL || g.left || tx.isEmpty() || 16_384 < tx.toByteArray().size || m == null) return Verdict.REFUSED
+            seat = m.seat
+            k = key(g.id)
+            letters = tx.split(",").take(VIEWS_BATCH).filter { isLetterName(it) && it in posts }
+        }
+        ChannelViews.saw(letters, seat, k)
+        return Verdict.HELD
+    }
+    /** The owner's numbers, at a subscriber's phone (iOS counted): from the owner's pipe alone. */
+    private fun counted(w: JSONObject, pipe: String): Verdict {
+        val k: String
+        val numbers = mutableMapOf<String, Int>()
+        synchronized(lock) {
+            val g = groups[w.optString("g")] ?: return Verdict.WAIT
+            val tx = w.optString("tx")
+            if (g.mine || g.kind != CHANNEL || g.left || SamePair.root(g.owner) != SamePair.root(pipe) ||
+                tx.isEmpty() || 16_384 < tx.toByteArray().size) return Verdict.REFUSED
+            val o = runCatching { JSONObject(tx) }.getOrNull() ?: return Verdict.REFUSED
+            for (l in o.keys()) { val n = o.opt(l); if (isLetterName(l) && n is Number) numbers[l] = n.toInt() }
+            k = key(g.id)
+        }
+        ChannelViews.told(numbers, k)
+        return Verdict.HELD
+    }
     /** THE OWNER CHOOSES THE REACTIONS ITS CHANNEL TAKES (iOS setReactionList, Some Reactions), or every one (null). */
     fun setReactionList(key: String, list: List<String>?) {
         synchronized(lock) {
@@ -2220,6 +2286,8 @@ object Groups {
             "lp" -> carded(w, pipe)   // COMPAT-GATED: a letter's link card (iOS 17.10, 89dfd51d), an older build buries it
             "kp" -> keptHeard(w, pipe)   // COMPAT-GATED: a keeper's word to the one who deleted a letter (iOS 16.10, fbd8a190)
             "cm" -> commented(w, pipe)   // COMPAT-GATED: a comment under a channel's post (iOS MTChannelComments, 2315)
+            "vw" -> seen(w, pipe)   // COMPAT-GATED: a subscriber's posts shown, to a channel's owner (iOS 17.10)
+            "vc" -> counted(w, pipe)   // COMPAT-GATED: a channel owner's view counts, to its subscribers (iOS 17.10)
             "room" -> roomed(w, pipe)   // COMPAT-GATED: a group room's word (iOS MTGroupRoom, 07.10)
             else -> Verdict.REFUSED.also { Log.i("Montana", "group_refused kind=${t.take(8)}") }   // a newer build's word: its road ends here
         }
@@ -2632,7 +2700,7 @@ object Groups {
 
     private fun isLabel(s: String) = s.length == 32 && s.all { it in '0'..'9' || it in 'a'..'f' }
     private fun isSeat(s: String) = s.isNotEmpty() && s.length <= 16 && s.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }
-    private fun isLetterName(s: String) = s.isNotEmpty() && s.length <= 80 && !s.startsWith("mid:") &&
+    fun isLetterName(s: String) = s.isNotEmpty() && s.length <= 80 && !s.startsWith("mid:") &&
         s.all { it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it == '-' }
 
     /** A name or a title as the group shows it (iOS clean): trimmed, without a crown, at most `limit` characters as a person counts them. */
