@@ -3011,6 +3011,27 @@ pub fn take_the_plane(machine: &Machine, cohort: &Cohort, offered: &[u8]) -> Res
     machine.hold_the_plane(&head, plane)
 }
 
+// **And it asks the network for it.** Consensus, "The join", step 5, over the wire the Canon lays
+// out for it (`table_query`, `table_answer`): every machine this device reached offers the plane of
+// the head table by table, and each offer is judged alone by `take_the_plane` — the first whose every
+// root is the head's is held, and the rest are not asked about. A device none of whose offers passes
+// holds what it held, and says so.
+pub fn take_the_plane_of_the_network(machine: &Machine, cohort: &Cohort) -> Result<(), NodeError> {
+    let window = machine.head()?.ok_or(NodeError::Refused {
+        what: "a plane asked for by a device that holds no head",
+    })?;
+    let mut refused = NodeError::Refused {
+        what: "no machine reached offered the plane of the head",
+    };
+    for offered in machine.planes_offered(window, cohort.root())? {
+        match take_the_plane(machine, cohort, &offered) {
+            Ok(()) => return Ok(()),
+            Err(why) => refused = why,
+        }
+    }
+    Err(refused)
+}
+
 // A beacon of a round as a walk reads it off the points: the beacon, the heavy and the light
 // attestations that answered it, and the ballots standing beside it.
 type StandingRound = (
