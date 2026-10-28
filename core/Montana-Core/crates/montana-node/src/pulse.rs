@@ -2825,8 +2825,8 @@ fn kept_as_walked(
 // window before, then the parts of the decided roll before it credited, and the tables recomputed
 // are the proposal's or the walk is refused. What it answers is the state of the proposal taken and
 // the state of the window before it, where the replay passed that window. A machine that holds no
-// state to replay from and was handed a cohort starts from the plane of the walked head the network
-// offers, judged against the head's roots (`plane_of_the_network`), with the rate set the walk
+// state to replay from, or one from before the anchor only, and was handed a cohort starts from the
+// plane of the walked head the network offers, judged against the head's roots (`plane_of_the_network`), with the rate set the walk
 // rebuilds beside it (`remember_the_walked_rates`): with no proposal after the head it answers that
 // plane and no state before it, which it never held. Nothing, where it holds no state and was handed
 // no cohort.
@@ -2851,9 +2851,14 @@ fn state_of_the_walk(
         .iter()
         .find(|one| one.window == 0 && one.previous == genesis);
     let empty = machine.head()?.is_none() && machine.closed_window()?.is_none();
+    let since = anchor.later.window;
     // The window the replay starts from beside the proposal its state answers for, and that state.
+    // A state of its own from before the anchor stands on windows the walk did not pass, which the
+    // retention may have let go of; handed a cohort, the machine takes the plane of the head instead.
     let (from, mut state) = match (machine.decided_state_of_the_head()?, first) {
-        (Some((window, state)), _) => (Some((window, machine.proposal_of(window)?)), state),
+        (Some((window, state)), _) if window >= since || cohort.is_none() => {
+            (Some((window, machine.proposal_of(window)?)), state)
+        }
         (None, Some(first)) if empty => {
             let admitted = mt_proof::poseidon::Digest::of_bytes(&first.admitted_root).ok_or(
                 NodeError::Refused {
@@ -2862,11 +2867,10 @@ fn state_of_the_walk(
             )?;
             (None, State::new().with_admitted(admitted))
         }
-        (None, _) => match cohort {
+        _ => match cohort {
             Some(cohort) => {
                 let head = &head.later;
                 let mut plane = plane_of_the_network(machine, head, cohort)?;
-                let since = anchor.later.window;
                 remember_the_walked_rates(machine, known, head, since, &mut plane, patience)?;
                 (Some((head.window, Some(head.clone()))), plane)
             }
