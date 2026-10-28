@@ -312,7 +312,6 @@ object Groups {
     fun isOut(key: String) = state(key)?.left == true
     /** A channel, not a group: its page is the channels' (iOS kind == .channel). */
     fun isChannel(key: String) = state(key)?.kind == CHANNEL
-    /** Everyone writes in a group, the owner alone in a channel (iOS canWrite). */
     fun canWrite(key: String): Boolean { val g = state(key) ?: return false; return !g.left && posts(g, g.me) }
     /** WHO WRITES HERE (iOS canWrite): a group's every person; a channel's owner and the administrators it let post (the reference's «Post Messages»). */
     private fun posts(g: State, seat: String) = g.kind == GROUP || seat == OWNER_SEAT || (seat in g.admins && POST !in (g.taken[seat] ?: emptyList()))
