@@ -2347,7 +2347,10 @@ shape before reading fields; an encoder checks that shape before publishing or s
 **Joining.** A device that holds nothing asks for the head, then — from the anchor its operator
 handed it — collects at the points of the windows it walks the proposals and the heavy attestations
 that are their certificates, and then asks for the leaves it needs. Every answer is judged against
-what the asker recomputes and never against who answered; Consensus states the walk.
+what the asker recomputes and never against who answered; Consensus states the walk. The plane of
+the head it reached it takes whole, table by table, as the leaves each table folds and never as a
+root: it asks one table from the first leaf it does not hold, repeats until an answer carries fewer
+leaves than the bound, and folds every root again from what it holds.
 
 ```
 serialize(head_query)
@@ -2366,6 +2369,20 @@ state_query_len = 41 B
 serialize(state_answer)
   proof_len                         4 B   u32   zero when the answerer holds no such leaf
   proof                     proof_len B         a MerkleProof for a sparse root, an AppendProof for an append-only one
+
+serialize(table_query)
+  genesis_state_hash               32 B         the network the asker means, recomputed by itself
+  window                            8 B   u64   the window whose head the asker verified
+  table_index                       1 B         0 notes, 1 nullifiers, 2 records, 3 machines, 4 admitted, 5 credited, 6 operations
+  from                              4 B   u32   the index of the first leaf the asker does not hold
+table_query_len = 45 B
+
+serialize(table_answer)
+  leaf_count                        4 B   u32   zero for a table read to its end and for a plane the answerer does not hold
+  leaves           leaf_count x leaf B          from `from`, in the order the table folds them; a leaf of records is its key
+                                                and its record, 64 B, a leaf of every other table 32 B
+
+table_answer_max(table) = floor((2 + collect_answer_max x cell_bytes - 4) / leaf)
 ```
 
 **Asking what a slot publishes.** One slot at a time, against the nullifier of a reach.
@@ -2393,6 +2410,7 @@ serialize(slot_answer)
 - A `collect_answer` of zero cells is the ordinary answer and is indistinguishable from any other, so asking says nothing about whether anything waits.
 - `cell_count` never exceeds `collect_answer_max`, and an answer declaring more is refused before a cell of it is read. Every other count of this section is bounded by its own construction; this one is bounded by name, because nothing else bounds it and a holder that answered with the width of the field would spend a collector's memory on one reply. A collection whose answer is refused for this reason is repeated at no point: the deposit stands where it stood.
 - A `slot_query` carries exactly one slot; a query carrying a set of slots is refused, and a repeated reach nullifier within one window is refused in silence.
+- A `table_query` names the network as a `head_query` does and one of the seven tables in the order a proposal lays their roots out; a table index past them is refused in silence. A `table_answer` is answered only from the plane of a window the answerer holds whole — the window its last close closed and the one before it — and is otherwise of zero leaves, indistinguishable from a table read to its end. `leaf_count` never exceeds `table_answer_max`, which keeps every answer within the answer of a collection, the largest message of this wire, and an answer declaring more is refused before a leaf of it is read. Nothing an answer carries is a root: the asker folds every root again from the leaves it holds and compares it with the root the head it verified carries, and a leaf no root covers — the rate set of the horizon, the count of openings — is never taken from an answer.
 - A `head_query` names the network by the hash the asker computed itself, so an answerer of another network is told apart before a byte of its proposal is parsed; a `state_answer` is verified by recomputing the root and comparing it with the root of a proposal already verified, and a proof of length zero is the ordinary answer for a leaf that does not exist.
 - A wake carries a tag or a handle, and a window, and nothing else; a handle is drawn at random by the holder of the letter, lives beside its pipe for that window alone, and resolves nowhere outside the machine that drew it.
 - No message of this section carries an address, a name, a person or a count of anything but its own cells.
@@ -2453,6 +2471,8 @@ message_kind
   2 collect           6 wake_handle     10 state_answer
   3 collect_public    7 head_query      11 slot_query
   4 collect_answer    8 head_answer     12 slot_answer
+                                        13 table_query
+                                        14 table_answer
 ```
 
 **Invariants of the link unit:**
