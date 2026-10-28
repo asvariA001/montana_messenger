@@ -2876,6 +2876,9 @@ private val fieldEmojiPanel: List<String> by lazy { EMOJI_CATEGORIES.flatMap { i
 object QuickReactions {
     private const val KEY = "reactionUse"
     private val common = listOf("👍", "❤️", "🔥", "😂", "😮", "😢", "🎉", "🙏", "👏")
+    /** THE REACTIONS A CHANNEL'S OWNER CHOOSES AMONG (iOS MTChannelReactionsPage.choice): the common ones first, then the field's
+     * emoji panel, each once, at most the list's limit. */
+    val channelChoice: List<String> by lazy { (common + fieldEmojiPanel).distinct().take(Groups.REACT_LIST_LIMIT) }
 
     /** A new answer sent is counted once (iOS note(_:) 97-102); only when it is set, never when it is taken off. */
     fun note(e: String) {
@@ -3036,6 +3039,10 @@ fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Unit, onEd
     // THE QUICK REACTIONS FIT THE WIDTH AND LEARN FROM USE (iOS MTReactions 93-142, 239-262): five to seven answers — what this
     // person reaches for most stand first, filled out with the common ones — never a fixed nine on a narrow screen.
     fun react(e: String) { close(); answerLetter(ref, m, e, group) }
+    // A CHANNEL THAT TAKES SOME REACTIONS (iOS reactionsOnly, «Some Reactions»): the row and the whole choice offer its list alone;
+    // one whose owner turned them off (iOS reactionsAllowed, «Allow Reactions») stands no row at all
+    val only = if (group) Groups.reactionList(ref) else null
+    val reactsHere = !group || Groups.reactionsOn(ref)
     // THE WHOLE CHOICE AS A GRID (iOS cloud's reactionsOpen 355-374): the nine reached for most, then every emoji of the
     // field's panel, each name once (QuickReactions.all) — nine to a row, a choice here reacting exactly as a quick one does
     val grid = ScrollView(c).apply {
@@ -3044,7 +3051,7 @@ fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Unit, onEd
         background = c.rounded(Color.argb(235, 44, 44, 46), 20, Color.argb(26, 255, 255, 255))
         addView(c.vstack(Gravity.NO_GRAVITY) {
             setPadding(dp(10), dp(8), dp(10), dp(8))
-            val rows = QuickReactions.all.chunked(9)
+            val rows = (only ?: QuickReactions.all).chunked(9)
             for ((i, row) in rows.withIndex()) {
                 if (i > 0) gap(6)
                 addView(c.hstack {
@@ -3061,13 +3068,13 @@ fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Unit, onEd
         addView(c.hstack {
             setPadding(dp(8), dp(4), dp(8), dp(4))
             val count = QuickReactions.fitCount(c, c.resources.displayMetrics.widthPixels)
-            for (e in QuickReactions.top(count)) addView(c.text(e, 28f).apply {
+            for (e in only?.take(count) ?: QuickReactions.top(count)) addView(c.text(e, 28f).apply {
                 setPadding(dp(6), dp(4), dp(6), dp(4))
                 pressable { react(e) }
             })
             // THE CHEVRON OPENS EVERY REACTION (iOS MontanaMessageMenu.reactionsRow 244-251): the row's last key, a 17-point
             // glyph wearing the 44-point target, turns the quick row into the grid above
-            addView(FrameLayout(c).apply {
+            if ((only?.size ?: Int.MAX_VALUE) > count) addView(FrameLayout(c).apply {
                 addView(c.icon(R.drawable.ic_chevron_down, Color.argb(191, 255, 255, 255), 17), FrameLayout.LayoutParams(dp(17), dp(17), Gravity.CENTER))
                 contentDescription = c.getString(R.string.reactions_all)
                 pressable { reactions.visibility = View.GONE; grid.visibility = View.VISIBLE }
@@ -3078,7 +3085,7 @@ fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Unit, onEd
     val copy = if (chat != null) letterBubble(c, m, chat, members) else View(c)
     val menuColumn = c.vstack(if (m.mine) Gravity.END else Gravity.START) {
         setPadding(dp(14), 0, dp(14), 0)
-        if (!group || !Groups.isOut(ref)) { addView(reactions, lp(WRAP, WRAP)); addView(grid, lp(MATCH, dp(220))); gap(8) }
+        if ((!group || !Groups.isOut(ref)) && reactsHere) { addView(reactions, lp(WRAP, WRAP)); addView(grid, lp(MATCH, dp(220))); gap(8) }
         addView(copy, lp())
         gap(8)
         addView(actions, lp(dp(250), WRAP))

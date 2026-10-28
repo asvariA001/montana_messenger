@@ -143,6 +143,12 @@
     <string name="ch_add_admin_note">您可以添加管理员来帮助您管理频道。</string>
     <string name="ch_sign">消息署名</string>
     <string name="ch_sign_note">在管理员发布的消息中添加其姓名。</string>
+    <string name="ch_reactions">回应</string>
+    <string name="ch_allow_reactions">允许回应</string>
+    <string name="ch_allow_reactions_note">允许订阅者对频道帖子作出回应。</string>
+    <string name="ch_available_reactions">可用回应</string>
+    <string name="ch_reactions_off">已禁用</string>
+    <string name="ch_reactions_all">所有回应</string>
     <string name="ch_rights_q">该管理员可以做什么？</string>
     <string name="ch_r_info">更改频道信息</string>
     <string name="ch_r_post">发布消息</string>

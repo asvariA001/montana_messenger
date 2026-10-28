@@ -143,6 +143,12 @@
     <string name="ch_add_admin_note">You can add admins to help you manage your channel.</string>
     <string name="ch_sign">Sign Messages</string>
     <string name="ch_sign_note">Add names of the admins to the messages they post.</string>
+    <string name="ch_reactions">Reactions</string>
+    <string name="ch_allow_reactions">Allow Reactions</string>
+    <string name="ch_allow_reactions_note">Allow subscribers to react to channel posts.</string>
+    <string name="ch_available_reactions">AVAILABLE REACTIONS</string>
+    <string name="ch_reactions_off">Disabled</string>
+    <string name="ch_reactions_all">All Reactions</string>
     <string name="ch_rights_q">What can this admin do?</string>
     <string name="ch_r_info">Change Channel Info</string>
     <string name="ch_r_post">Post Messages</string>
