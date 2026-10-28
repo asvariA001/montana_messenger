@@ -311,7 +311,10 @@ private fun groupEditPage(act: MainActivity, key: String, onBack: () -> Unit, on
     val name = EditText(c).apply {
         setText(Book.chat(key)?.shown ?: "")   // USER-DATA: the group's title
         hint = c.getString(if (channel) R.string.ch_name else R.string.gr_name)
-        setTextColor(Color.WHITE); setHintTextColor(MT.gray)
+        // an administrator who may only invite reads the name (iOS MontanaPeerInfoScreen 663, G.6)
+        val named = Groups.mayChangeInfo(key)
+        isEnabled = named
+        setTextColor(if (named) Color.WHITE else MT.gray); setHintTextColor(MT.gray)
         background = null
         isSingleLine = true
         setPadding(c.dp(16), c.dp(12), c.dp(16), c.dp(12))
