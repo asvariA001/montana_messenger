@@ -476,14 +476,13 @@ fn a_fast_sync_death_then_the_leader_issues_each_window_once() {
     let f = Fixture::new();
     let me = &f.ids[0];
     let snapshot = f.closed(&f.tables(), W);
+    let anchor = f.envelope_of_w();
     let credit = mt_account::window_credit_moneta(genesis_params());
     let apply = |node: &mut Node| {
-        let tables = mt_sync::snapshot::TypedTables {
-            accounts: snapshot.accounts.clone(),
-            nodes: snapshot.nodes.clone(),
-            candidates: snapshot.candidates.clone(),
-        };
-        node.with_ctx(me.node_id(), |ctx| complete_fast_sync(ctx, W, tables))
+        node.fast_sync_anchor = Some(anchor.clone());
+        node.with_ctx(me.node_id(), |ctx| {
+            complete_fast_sync(ctx, W, typed(&snapshot))
+        })
     };
     let ops = {
         let dir = f.store_at_w_minus_1("one-emission-count");
@@ -524,6 +523,63 @@ fn a_fast_sync_death_then_the_leader_issues_each_window_once() {
             "death at {k}: after a restart"
         );
         drop(reopened);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// The tables of a snapshot, as `FastSyncClient::finalize` hands them over.
+fn typed(s: &LocalState) -> mt_sync::snapshot::TypedTables {
+    mt_sync::snapshot::TypedTables {
+        accounts: s.accounts.clone(),
+        nodes: s.nodes.clone(),
+        candidates: s.candidates.clone(),
+    }
+}
+
+// Rejects a fast sync that commits a head without its proof (the Author's decisions 301/303:
+// the proof in the record of a head is the cemented Proposal; 74738de committed the record
+// with an empty envelope). A snapshot whose anchor is missing, cut short, the envelope of
+// another window, or names another state_root is refused: the store is left byte for byte,
+// memory stays at W-1 and the anchor is spent. The next attempt, whose anchor is the envelope
+// of W naming the snapshot's root, applies W with that envelope in its record.
+#[test]
+fn a_fast_sync_whose_anchor_does_not_name_its_window_and_root_is_refused() {
+    let f = Fixture::new();
+    let me = &f.ids[0];
+    let snapshot = f.closed(&f.tables(), W);
+    let anchor = f.envelope_of_w();
+    let id = me.node_id();
+    let old = (W - 1, root(&f.tables()));
+    let (a, s) = (|| Some(anchor.clone()), || typed(&snapshot));
+    for (name, given, window, tables) in [
+        ("no anchor", None, W, s()),
+        ("cut short", Some(anchor[..100].to_vec()), W, s()),
+        ("another window", a(), W + 1, s()),
+        ("another root", a(), W, typed(&f.tables())),
+    ] {
+        let dir = f.store_at_w_minus_1("no-proof");
+        let mut node = Node::start(&f, &dir, me);
+        let before = files(&dir);
+        node.fast_sync_anchor = given;
+        let got = node.with_ctx(id, |ctx| complete_fast_sync(ctx, window, tables));
+        assert!(got.is_ok(), "{name}: a refused sync stopped the node");
+        assert!(
+            files(&dir) == before,
+            "{name}: a head was committed without its proof"
+        );
+        assert_eq!(node.held(), old, "{name}: memory moved");
+        assert!(node.fast_sync_anchor.is_none(), "{name}: anchor kept");
+        // The retry on the next cemented window, with the anchor that names it.
+        node.fast_sync_anchor = Some(anchor.clone());
+        let retry = node.with_ctx(id, |ctx| complete_fast_sync(ctx, W, typed(&snapshot)));
+        retry.expect("the retry");
+        assert_eq!(node.held(), (W, root(&snapshot)), "{name}: the retry");
+        let record = WindowRecord::decode(&record_bytes(&dir)).expect("the synced record");
+        assert!(
+            record.window == W && record.envelope == anchor,
+            "{name}: the retry's record does not carry its anchor"
+        );
+        drop(node);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

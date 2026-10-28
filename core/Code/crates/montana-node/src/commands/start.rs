@@ -1207,8 +1207,10 @@ fn cement_as_leader(
 
 /// A verified snapshot of window `window` applied (issue #19 K5): the three tables, the
 /// window, the clock of the anchor and the cemented envelope the anchor root was taken from
-/// (when it is that window's and names that root) are ONE record; memory moves only after
-/// it stands.
+/// are ONE record; memory moves only after it stands. The proof of the head is that envelope
+/// (the Author's decisions 301/303, issue #19): when the anchor is not the envelope of
+/// `window` naming the snapshot's state_root, the sync is refused — nothing is written,
+/// memory stays, the caller has dropped the client, and the next cemented window retries.
 fn complete_fast_sync(
     ctx: &mut NetCtx,
     window: u64,
@@ -1230,15 +1232,22 @@ fn complete_fast_sync(
         record.t_r = t_r;
         record.last_window = window;
     }
-    if let Some(envelope) = ctx.fast_sync_anchor.take() {
-        let names_it = parse_header(&envelope)
-            .is_some_and(|h| h.window_index == window && h.state_root == record.state_root());
-        if names_it {
-            record.envelope = envelope;
-        }
+    let anchor = ctx.fast_sync_anchor.take().unwrap_or_default();
+    let names_it = parse_header(&anchor)
+        .is_some_and(|h| h.window_index == window && h.state_root == record.state_root());
+    if !names_it {
+        eprintln!(
+            "[m7] fast-sync of window {window} refused: no anchor envelope names that window and \
+             its state_root, a head without its proof is not committed — drop client, retry on \
+             next cemented"
+        );
+        return Ok(());
     }
+    record.envelope = anchor;
     ctx.state
-        .apply_fast_sync(record, ctx.data_dir, ctx.current, ctx.timechain)
+        .apply_fast_sync(record, ctx.data_dir, ctx.current, ctx.timechain)?;
+    eprintln!("[m7] fast-sync complete → state replaced, current_window={window}");
+    Ok(())
 }
 
 /// Handling one incoming protocol message. Called from
@@ -1602,9 +1611,6 @@ fn handle_protocol_message(
                                 Ok((window, tables)) => {
                                     complete_fast_sync(ctx, window, tables)?;
                                     *ctx.fast_sync_deadline = None;
-                                    eprintln!(
-                                    "[m7] fast-sync complete → state replaced, current_window={window}"
-                                );
                                 },
                                 Err(e) => eprintln!(
                                     "[m7] fast-sync finalize rejected: {e:?} — retry on next lag"
