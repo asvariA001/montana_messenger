@@ -1026,7 +1026,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             s.add(skin); s.add(canPull); s.add(m.mine && played); s.add(selecting); s.add(selecting && m.mid in picked)
             s.add(if (talks) ChannelComments.count(m.mid, ref) else -1)
             s.add(if (channel) ChannelViews.views(m, ref) else -1)
-            if (m.qt != null && m.qt != FORWARDED_QUOTE) {
+            if (m.qt != null && !isForwardQuote(m.qt)) {
                 val whose = m.qm?.let { byMid[it] }
                 s.add(if (whose?.mine == true) Prefs.userName else if (group) speakers.getOrPut(whose?.from) { Groups.speakerName(c, whose?.from) } else chat.shown)
             }
@@ -1107,7 +1107,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             b.tag = m.mid
             // TEXT WITH A QUOTE — A TAP GOES TO THE ORIGINAL (iOS MontanaBubble 475, jumpTo 2999-3012)
             val q = m.qm
-            if (q != null && m.qt != FORWARDED_QUOTE && !Marks.isService(m.text)) b.getChildAt(0).setOnClickListener { toQuoted(q) }
+            if (q != null && !isForwardQuote(m.qt) && !Marks.isService(m.text)) b.getChildAt(0).setOnClickListener { toQuoted(q) }
             // SAVE TO PHOTOS, BESIDE THE BUBBLE (iOS MTSaveBeside/saveBesideBadge/MTSaveMediaBadge, MontanaBubble.swift 383-396,
             // 861-880, 1891-1923, the author's words 11.09 and 20.09): strictly to the right of a correspondent's photo or film,
             // level with the media's own middle, never on the picture itself and never on one's own letters; a plate wears one
@@ -2650,8 +2650,9 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                 clipToOutline = true
             } else setPadding(dp(12), dp(7), dp(12), dp(6))
             if (who != null && place == SPEAKER_INSIDE) addView(speakerHead(c, who, m.from), lp(WRAP, WRAP).apply { gravity = Gravity.START; bottomMargin = dp(2) })   // the name widens the bubble, never cut by its words
-            // A FORWARDED LETTER (iOS isForwarded): one grey line over its words, no name and no bar
-            if (m.qt == FORWARDED_QUOTE) addView(c.text(c.getString(R.string.ld_forwarded), 13f, BubbleStyle.time(mine)), lp(WRAP, WRAP).apply { bottomMargin = dp(3) })
+            // A FORWARDED LETTER (iOS isForwarded): one grey line over its words, no name and no bar; a channel's post names its
+            // channel on that line (iOS MontanaBubble 552-560, «Forwarded from»)
+            if (isForwardQuote(m.qt)) addView(c.text(forwardedFrom(m.qt)?.let { c.getString(R.string.ld_forwarded_from, it) } ?: c.getString(R.string.ld_forwarded), 13f, BubbleStyle.time(mine)).apply { singleLineEllipsis() }, lp(WRAP, WRAP).apply { bottomMargin = dp(3) })   // USER-DATA: the channel's name
             else if (m.qt != null) {
                 val whose = m.qm?.let { q -> chat.msgs.find { it.mid == q } }
                 // in a group the quoted letter's speaker wears their own colour (iOS quoteTint)

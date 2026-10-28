@@ -206,7 +206,7 @@ def publish(directory, code, name):
                              % (commit[:12], before[:16], digest(APK)[:16]))
     open(target, "wb").write(open(APK, "rb").read())
     record = dict(build=code, name=name, commit=commit, sha256=digest(target), apk=target,
-                  time=time.strftime("%Y-%m-%d %H:%M:%S %Z"))
+                  time=time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()))
     open(os.path.join(place, "build.json"), "w", encoding="utf-8").write(json.dumps(record, ensure_ascii=False, indent=2) + "\n")
     open(os.path.join(directory, "latest.json"), "w", encoding="utf-8").write(json.dumps(record, ensure_ascii=False, indent=2) + "\n")
     print("RESULT " + json.dumps(record, ensure_ascii=False), flush=True)

@@ -39,6 +39,7 @@
     <string name="ld_forward">转发</string>
     <string name="ld_forward_to">转发到…</string>
     <string name="ld_forwarded">↪︎ 转发的消息</string>
+    <string name="ld_forwarded_from">↪︎ 转发自 %s</string>
     <string name="ld_select">选择</string>
     <!-- the contacts page (iOS ContactsTabView: the menu about a person) -->
     <string name="ct_write">发消息</string>

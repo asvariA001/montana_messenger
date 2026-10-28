@@ -41,6 +41,7 @@
     <string name="ld_forward">Forward</string>
     <string name="ld_forward_to">Forward to…</string>
     <string name="ld_forwarded">↪︎ Forwarded message</string>
+    <string name="ld_forwarded_from">↪︎ Forwarded from %s</string>
     <string name="ld_select">Select</string>
     <!-- the contacts page (iOS ContactsTabView: the menu about a person) -->
     <string name="ct_write">Write</string>
