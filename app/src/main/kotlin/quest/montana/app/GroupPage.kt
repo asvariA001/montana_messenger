@@ -73,6 +73,9 @@ fun groupPage(act: MainActivity, key: String, onClose: () -> Unit,
                     .setNegativeButton(R.string.cancel, null).show()
             }
         }
+        // A SUBSCRIBER'S «MORE» ON A CHANNEL'S PAGE IS THE REPORT ALONE (iOS MontanaPeerInfoScreen 563-567 at 2315): «Leave» stands
+        // among the page's buttons, and a channel's history is not the subscriber's to clear
+        if (Groups.isChannel(key)) items.retainAll { it.first == c.getString(R.string.pi_report) }
         PopupMenu(c, v).apply {
             items.forEachIndexed { i, (t, _) -> menu.add(0, i, i, t) }
             setOnMenuItemClickListener { items[it.itemId].second(); true }
