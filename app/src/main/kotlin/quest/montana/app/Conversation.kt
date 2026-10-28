@@ -2575,6 +2575,7 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
         val darkMeta = onPlate || (bare && !edge)
         addView(c.vstack(Gravity.END) {
             background = if (Stickers.bare(m)) null else BubbleStyle.drawable(context, mine)   // a sticker stands without a bubble
+            if (Groups.isKey(chat.ref) && Groups.talks(chat.ref)) minimumWidth = dp(210)   // a post over its comments' footer (iOS MontanaBubble 506-541)
             if (edge) {
                 setPadding(0, 0, 0, 0)
                 outlineProvider = object : android.view.ViewOutlineProvider() {
@@ -2726,10 +2727,10 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
             addView(c.hstack {
                 gravity = Gravity.CENTER_VERTICAL
                 background = BubbleStyle.drawable(context, mine)
-                minimumWidth = dp(210)
                 setPadding(dp(12), dp(8), dp(10), dp(8))
                 addView(c.icon(R.drawable.ic_set_textbubble, ink, 18), lp(dp(18), dp(18)).apply { marginEnd = dp(8) })
-                addView(c.text(if (n == 0) c.getString(R.string.ch_leave_comment) else c.resources.getQuantityString(R.plurals.ch_comments_n, n, n), 15f, ink, bold = true), lp(0, WRAP, 1f))
+                addView(c.text(if (n == 0) c.getString(R.string.ch_leave_comment) else c.resources.getQuantityString(R.plurals.ch_comments_n, n, n), 15f, ink, bold = true).apply { singleLineEllipsis() }, lp(WRAP, WRAP))
+                addView(android.widget.Space(c), lp(0, 0, 1f))
                 addView(c.icon(R.drawable.ic_chevron_right, ink, 14).apply { alpha = 0.6f }, lp(dp(14), dp(14)))
                 pressable { (c as? MainActivity)?.let { act -> act.push { back -> channelCommentsPage(act, chat.ref, m, back) } } }
             }, lp(MATCH, WRAP).apply { topMargin = dp(2) })
