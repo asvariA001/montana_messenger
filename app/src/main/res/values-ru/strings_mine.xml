@@ -39,6 +39,7 @@
     <string name="ld_forward">Переслать</string>
     <string name="ld_forward_to">Переслать в…</string>
     <string name="ld_forwarded">↪︎ Пересланное сообщение</string>
+    <string name="ld_forwarded_from">↪︎ Переслано из %s</string>
     <string name="ld_select">Выбрать</string>
     <!-- the contacts page (iOS ContactsTabView: the menu about a person) -->
     <string name="ct_write">Написать</string>
