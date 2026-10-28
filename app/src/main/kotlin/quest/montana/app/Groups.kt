@@ -286,6 +286,7 @@ object Groups {
     private const val CARD_WAIT_MS = 600_000L
     private fun state(key: String): State? = synchronized(lock) { if (isKey(key) && ready()) groups[key.removePrefix(KEY_HEAD)] else null }
     /** The people in the group, the owner included — the head of the group's chat says this number (iOS people). */
+    fun count(key: String): Int? = state(key)?.count
     fun peopleLine(c: Context, key: String): String? = state(key)?.count?.let { c.resources.getQuantityString(R.plurals.gr_members, it, it) }
     /**
      * A GROUP'S HEAD AS THE REFERENCE SAYS IT (iOS groupHead, 9bff8550): «N members, M online» once someone besides this phone is

@@ -128,6 +128,9 @@
     <string name="gr_out_note">You are no longer a member: the messages stay here to read.</string>
     <string name="gr_add_members">Add Members</string>
     <string name="gr_add_subscribers">Add Subscribers</string>
+    <string name="ch_subscribers">Subscribers</string>
+    <string name="ch_settings">Channel Settings</string>
+    <string name="ch_remove_q">Remove from the channel?</string>
     <string name="gr_pick_note">A group letter rides the pipe of each person, so only the people you write with are listed.</string>
     <string name="gr_new">New Group</string>
     <string name="gr_name">Group Name</string>
