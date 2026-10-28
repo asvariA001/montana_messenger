@@ -131,6 +131,14 @@
     <string name="ch_subscribers">Subscribers</string>
     <string name="ch_settings">Channel Settings</string>
     <string name="ch_remove_q">Remove from the channel?</string>
+    <string name="ch_name">Channel Name</string>
+    <string name="ch_about_note">You can provide an optional description for your channel.</string>
+    <string name="ch_link_note">Anyone who follows this link will be able to join your channel.</string>
+    <string name="ch_link_revoke_q">Are you sure you want to revoke this link? Once you do, no one will be able to join the channel using it.</string>
+    <string name="ch_removed_note">Users removed from the channel by admins cannot rejoin it via invite links.</string>
+    <string name="ch_removed_add">Add to Channel</string>
+    <string name="ch_dissolve">Delete Channel</string>
+    <string name="ch_dissolve_q">Wait! Deleting this channel will remove all members and all messages will be lost. Delete the channel anyway?</string>
     <string name="gr_pick_note">A group letter rides the pipe of each person, so only the people you write with are listed.</string>
     <string name="gr_new">New Group</string>
     <string name="gr_name">Group Name</string>

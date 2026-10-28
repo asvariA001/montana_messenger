@@ -131,6 +131,14 @@
     <string name="ch_subscribers">订阅者</string>
     <string name="ch_settings">频道设置</string>
     <string name="ch_remove_q">从频道中移除？</string>
+    <string name="ch_name">频道名称</string>
+    <string name="ch_about_note">您可以为频道添加可选描述。</string>
+    <string name="ch_link_note">任何点击此链接的人都可以加入您的频道。</string>
+    <string name="ch_link_revoke_q">确定要撤销此链接吗？撤销后任何人都无法通过它加入频道。</string>
+    <string name="ch_removed_note">被管理员移出频道的用户无法通过邀请链接重新加入。</string>
+    <string name="ch_removed_add">添加到频道</string>
+    <string name="ch_dissolve">删除频道</string>
+    <string name="ch_dissolve_q">等等！删除此频道将移除所有成员，所有消息都将丢失。仍要删除频道吗？</string>
     <string name="gr_pick_note">群组消息经由每个人各自的通道传送，因此这里只列出与你有通信的人。</string>
     <string name="gr_new">新建群组</string>
     <string name="gr_name">群组名称</string>

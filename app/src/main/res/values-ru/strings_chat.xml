@@ -131,6 +131,14 @@
     <string name="ch_subscribers">Подписчики</string>
     <string name="ch_settings">Настройки канала</string>
     <string name="ch_remove_q">Удалить из канала?</string>
+    <string name="ch_name">Название канала</string>
+    <string name="ch_about_note">Можно добавить описание канала.</string>
+    <string name="ch_link_note">Любой, кто перейдёт по этой ссылке, сможет подписаться на ваш канал.</string>
+    <string name="ch_link_revoke_q">Отозвать эту ссылку? После этого никто не сможет подписаться на канал по ней.</string>
+    <string name="ch_removed_note">Пользователи, удалённые из канала администраторами, не смогут вернуться по ссылке-приглашению.</string>
+    <string name="ch_removed_add">Добавить в канал</string>
+    <string name="ch_dissolve">Удалить канал</string>
+    <string name="ch_dissolve_q">Подождите! Удаление канала удалит всех подписчиков, и все сообщения будут потеряны. Всё равно удалить канал?</string>
     <string name="gr_pick_note">Письмо группы идёт по каналу каждого человека, поэтому в списке только те, с кем вы переписываетесь.</string>
     <string name="gr_new">Новая группа</string>
     <string name="gr_name">Название группы</string>
