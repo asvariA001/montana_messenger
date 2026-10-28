@@ -422,6 +422,10 @@ private fun groupEditPage(act: MainActivity, key: String, onBack: () -> Unit, on
                         val links = c.navRow(R.drawable.ic_link, c.getString(R.string.gp_links), null) {
                             act.push { back -> groupLinksPage(act, key, back) }
                         }
+                        // «Discussion» (iOS editor 689): «Allow Comments» on its own page
+                        val talk = c.navRow(R.drawable.ic_set_textbubble, c.getString(R.string.ch_discussion), null) {
+                            act.push { back -> channelDiscussionPage(act, key, back) }
+                        }
                         // «Reactions» (iOS editor 692-695): «Disabled», the number of the owner's list, or «All Reactions»
                         val said = c.text("", 17f, MT.gray)
                         fun reread() {
@@ -434,7 +438,7 @@ private fun groupEditPage(act: MainActivity, key: String, onBack: () -> Unit, on
                         val reactions = c.navRow(R.drawable.ic_face_smiling, c.getString(R.string.ch_reactions), said) {
                             act.push { back -> channelReactionsPage(act, key, back) { reread() } }
                         }
-                        addView(c.plate { addView(links, lp()); divider(); addView(reactions, lp()) }, lp())
+                        addView(c.plate { addView(links, lp()); divider(); addView(talk, lp()); divider(); addView(reactions, lp()) }, lp())
                         gap(20)
                         val removed = c.text("", 17f, MT.gray)
                         fun reweigh() { removed.text = Groups.bannedPeople(c, key).size.toString() }   // USER-DATA: a count
@@ -902,6 +906,19 @@ private fun channelActionsPage(act: MainActivity, key: String, onBack: () -> Uni
 }
 
 /** The deed in the reference's words, its doer this phone's owner (iOS MTChannelActionsPage.words). */
+/** A CHANNEL'S DISCUSSION (iOS MTChannelDiscussionPage, MontanaChannel 1045-1061): «Allow Comments» -- every post then wears its
+ *  comments' footer on every subscriber's phone; the comments ride the channel itself, no group hosts them. */
+private fun channelDiscussionPage(act: MainActivity, key: String, onBack: () -> Unit): View {
+    val c: Context = act
+    val row = c.toggleRow(c.getString(R.string.ch_allow_comments)) { v -> if (v != Groups.talks(key)) Groups.setTalks(key, v) }.apply {
+        setPadding(dp(16), dp(10), dp(16), dp(10))
+        (0 until childCount).map { getChildAt(it) }.filterIsInstance<Switch>().firstOrNull()?.isChecked = Groups.talks(key)
+    }
+    return settingsPage(act, c.getString(R.string.ch_discussion), onBack) {
+        addView(c.vstack(Gravity.NO_GRAVITY) { section(null, c.getString(R.string.ch_allow_comments_note), row) }, lp())
+    }
+}
+
 private fun actWords(c: Context, a: Groups.Act): String {
     val names = (a.p ?: emptyList()).map { it.ifEmpty { c.getString(R.string.gr_member) } }.joinToString(", ")
     return when (a.e) {
@@ -918,6 +935,8 @@ private fun actWords(c: Context, a: Groups.Act): String {
         "signOff" -> c.getString(R.string.cha_sign_off)
         "reactOn" -> c.getString(R.string.cha_react_on)
         "reactSome" -> c.getString(R.string.cha_react_some)
+        "talkOn" -> c.getString(R.string.cha_talk_on)
+        "talkOff" -> c.getString(R.string.cha_talk_off)
         else -> c.getString(R.string.cha_react_off)
     }
 }

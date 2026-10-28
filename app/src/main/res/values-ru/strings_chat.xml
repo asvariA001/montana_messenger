@@ -166,6 +166,11 @@
     <string name="cha_react_on">Вы включили все реакции</string>
     <string name="cha_react_some">Вы изменили список разрешённых реакций</string>
     <string name="cha_react_off">Вы выключили реакции</string>
+    <string name="ch_discussion">Обсуждение</string>
+    <string name="ch_allow_comments">Разрешить комментарии</string>
+    <string name="ch_allow_comments_note">Подписчики комментируют каждую публикацию. Комментарии едут в самом канале, с телефона на телефон.</string>
+    <string name="cha_talk_on">Вы включили комментарии</string>
+    <string name="cha_talk_off">Вы выключили комментарии</string>
     <string name="ch_rights_q">Что может этот администратор?</string>
     <string name="ch_r_info">Изменение профиля канала</string>
     <string name="ch_r_post">Публикация сообщений</string>
