@@ -2551,6 +2551,9 @@ private fun fillGroupFoot(c: Context, ref: String, into: FrameLayout) {
     into.visibility = if (into.childCount > 0) View.VISIBLE else View.GONE
 }
 
+/** The footer of a channel's post (its comments): the failed bubble's resend tap passes it by. */
+private const val COMMENTS_TAG = "channel-comments"
+
 private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = listOf(m), head: Boolean = true): ReplySwipe = ReplySwipe(c).apply {
     mine = m.mine
     val mine = m.mine
@@ -2725,6 +2728,7 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
             val n = ChannelComments.count(m.mid, chat.ref)
             val ink = BubbleStyle.text(mine)
             addView(c.hstack {
+                tag = COMMENTS_TAG
                 gravity = Gravity.CENTER_VERTICAL
                 background = BubbleStyle.drawable(context, mine)
                 setPadding(dp(12), dp(8), dp(10), dp(8))
@@ -3896,6 +3900,7 @@ fun captionPage(act: MainActivity, p: Media.Picked, draft: String, onCancel: () 
 /** The long press reaches the letter's menu through every part of the bubble that takes its own tap. */
 /** The tap of a failed bubble (iOS primaryTap's first word): the bubble and every control inside it answer it alike. */
 private fun View.tapEverywhere(root: Boolean = true, tap: () -> Unit) {
+    if (tag == COMMENTS_TAG) return   // a post's comments keep their own tap: the thread opens, the post does not ride again
     if (root || hasOnClickListeners()) setOnClickListener { tap() }
     if (this is android.view.ViewGroup) for (i in 0 until childCount) getChildAt(i).tapEverywhere(false, tap)
 }
