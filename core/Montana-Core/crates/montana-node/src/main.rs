@@ -141,10 +141,20 @@ fn run() -> Result<(), String> {
     // join": it asks the machines it reached for what stands at the points of every window after the
     // anchor, judges every answer and trusts none, and takes as its head the newest proposal whose
     // certificate verified. A walk that refuses stops the machine: a machine that went on to live
-    // a window would be living it on a chain it could not verify.
+    // a window would be living it on a chain it could not verify. Handed a cohort, it also takes the
+    // state of that head from them, against its roots, where it holds none to replay from.
+    let cohort = if configuration.admitted.is_empty() {
+        None
+    } else {
+        Some(montana_node::pulse::Cohort::of(&configuration.admitted).map_err(said)?)
+    };
     if let Some(anchor) = anchor {
-        let head = montana_node::pulse::join(&machine, &anchor, montana_node::pulse::WAITS_UP_TO)
-            .map_err(said)?;
+        let waits = montana_node::pulse::WAITS_UP_TO;
+        let head = match &cohort {
+            Some(cohort) => montana_node::pulse::join_under(&machine, &anchor, cohort, waits),
+            None => montana_node::pulse::join(&machine, &anchor, waits),
+        }
+        .map_err(said)?;
         println!(
             "walked from window {} to the head at window {}",
             anchor.later.window, head.later.window
@@ -161,11 +171,10 @@ fn run() -> Result<(), String> {
     // A machine handed no cohort answers its door and lives no window: it has no tree of admitted
     // machines to prove its presence against, and a machine that made one up would be proving
     // something no other machine holds.
-    if configuration.admitted.is_empty() {
+    let Some(cohort) = cohort else {
         println!("no machine was named as admitted, so this one lives no window");
         return machine.serve().map_err(said);
-    }
-    let cohort = montana_node::pulse::Cohort::of(&configuration.admitted).map_err(said)?;
+    };
     let half = machine.naming_half().map_err(said)?;
     if !cohort.holds(&half) {
         return Err(format!(
