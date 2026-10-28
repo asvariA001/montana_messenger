@@ -9,11 +9,12 @@ the source of the protocol core and of the two Montana applications, laid out fo
 
 [montana.quest](https://montana.quest) · [Whitepaper](WHITEPAPER.md) · [Audit package](AUDIT.md) · [13-item status](Audit/Protocol-13/README.md) · [Security](SECURITY.md)
 
-**Protocol closure is open: 4 of 13 acceptance criteria are closed** -- items 1 to 4: the window proof and its
+**Protocol closure is open: 5 of 13 acceptance criteria are closed** -- items 1 to 4: the window proof and its
 verifier, closing only a verified canonical Proposal, redemption bound to authorized issuance, and admission witnesses
-bound to one state ([status](Audit/Protocol-13/README.md), written from `core/Montana-Core/PROTOCOL-13.json`). Items 5
-to 13 are open: continuity after a partition, authenticated first joining, node anonymity and a run of the network on
-many hosts are among what the published snapshot does not establish.
+bound to one state; and item 7: the earlier core's lottery removed ([status](Audit/Protocol-13/README.md), written from
+`core/Montana-Core/PROTOCOL-13.json`). Items 5, 6 and 8 to 13 are open: continuity after a partition, authenticated
+first joining, node anonymity and a run of the network on many hosts are among what the published snapshot does not
+establish.
 Read the source-pinned [reports in Audit](Audit/README.md) before treating historical readiness
 statements or passing primitive tests as evidence of these properties.
 
