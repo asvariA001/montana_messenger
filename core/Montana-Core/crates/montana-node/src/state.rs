@@ -833,6 +833,18 @@ impl State {
         Ok(positions)
     }
 
+    // **The rate nullifiers of a frame this plane did not apply**, entering the rate set of the
+    // horizon alone: a device that took its plane from the network holds none, since no root covers
+    // one, and the walk hands it the frames the decided rolls of the windows it walked name
+    // (pulse, `remember_the_walked_rates`). A value already held is held once, as the plane encodes.
+    pub fn remember_the_rates_of(&mut self, frame: &Frame) {
+        for spend in &frame.spends {
+            if !self.rates.contains(&spend.rate_nullifier) {
+                self.rates.push(spend.rate_nullifier);
+            }
+        }
+    }
+
     // A frame as it stands on the wire, read back and applied. The length a delivery is taken at is
     // the width of a frame, which every machine derives from the Decree and none is told.
     pub fn width_of_a_frame() -> usize {
