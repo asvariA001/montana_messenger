@@ -422,7 +422,19 @@ private fun groupEditPage(act: MainActivity, key: String, onBack: () -> Unit, on
                         val links = c.navRow(R.drawable.ic_link, c.getString(R.string.gp_links), null) {
                             act.push { back -> groupLinksPage(act, key, back) }
                         }
-                        addView(c.plate { addView(links, lp()) }, lp())
+                        // «Reactions» (iOS editor 692-695): «Disabled», the number of the owner's list, or «All Reactions»
+                        val said = c.text("", 17f, MT.gray)
+                        fun reread() {
+                            said.text = when {
+                                !Groups.reactionsOn(key) -> c.getString(R.string.ch_reactions_off)
+                                else -> Groups.reactionList(key)?.size?.toString() ?: c.getString(R.string.ch_reactions_all)   // USER-DATA: a count
+                            }
+                        }
+                        reread()
+                        val reactions = c.navRow(R.drawable.ic_face_smiling, c.getString(R.string.ch_reactions), said) {
+                            act.push { back -> channelReactionsPage(act, key, back) { reread() } }
+                        }
+                        addView(c.plate { addView(links, lp()); divider(); addView(reactions, lp()) }, lp())
                         gap(20)
                         val removed = c.text("", 17f, MT.gray)
                         fun reweigh() { removed.text = Groups.bannedPeople(c, key).size.toString() }   // USER-DATA: a count
@@ -807,6 +819,53 @@ private fun channelAdminsPage(act: MainActivity, key: String, onBack: () -> Unit
     }
     draw()   // a rights page or «Add Admin» closed: the list is drawn again (iOS tick)
     return settingsPage(act, c.getString(R.string.gp_admins), onBack) { addView(body, lp()) }
+}
+
+/**
+ * WHAT A CHANNEL'S POSTS TAKE, AS THE REFERENCE'S PAGE KEEPS IT (iOS MTChannelReactionsPage, MontanaChannel 738-800): «Allow
+ * Reactions», and while on, «Available Reactions» -- six to a row, the chosen bright with a check, the rest dim; at least one stays,
+ * every one chosen is the whole choice. Every subscriber hears it by the invitation's word again.
+ */
+private fun channelReactionsPage(act: MainActivity, key: String, onBack: () -> Unit, onChange: () -> Unit): View {
+    val c: Context = act
+    val all = QuickReactions.channelChoice
+    val chosen = (Groups.reactionList(key) ?: all).toMutableSet()
+    val body = c.vstack(Gravity.NO_GRAVITY) {}
+    fun draw() {
+        body.removeAllViews()
+        val on = Groups.reactionsOn(key)
+        body.section(null, c.getString(R.string.ch_allow_reactions_note), c.toggleRow(c.getString(R.string.ch_allow_reactions)) { v ->
+            if (v != Groups.reactionsOn(key)) { Groups.setReactions(key, v); onChange(); body.post { draw() } }   // the switch set while drawn changes nothing
+        }.apply {
+            setPadding(dp(16), dp(10), dp(16), dp(10))
+            (0 until childCount).map { getChildAt(it) }.filterIsInstance<Switch>().firstOrNull()?.isChecked = on
+        })
+        if (!on) return
+        val grid = c.vstack(Gravity.NO_GRAVITY) { setPadding(dp(10), dp(6), dp(10), dp(6)) }
+        for (row in all.chunked(6)) {
+            grid.addView(c.hstack {
+                for (e in row) addView(FrameLayout(c).apply {
+                    val glyph = c.text(e, 28f, center = true).apply { alpha = if (e in chosen) 1f else 0.3f }
+                    addView(glyph, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.CENTER))
+                    val tick = c.icon(R.drawable.ic_set_check_circle, Color.WHITE, 13).apply { visibility = if (e in chosen) View.VISIBLE else View.GONE }
+                    addView(tick, FrameLayout.LayoutParams(dp(13), dp(13), Gravity.CENTER).apply { leftMargin = dp(16); topMargin = dp(16) })
+                    contentDescription = e   // USER-DATA: a reaction's glyph
+                    // one in or out: at least one stays (none at all is «Allow Reactions» off); every one chosen is the whole choice
+                    pressable {
+                        if (e in chosen) { if (chosen.size == 1) return@pressable; chosen.remove(e) } else chosen.add(e)
+                        glyph.alpha = if (e in chosen) 1f else 0.3f
+                        tick.visibility = if (e in chosen) View.VISIBLE else View.GONE
+                        Groups.setReactionList(key, if (chosen.size == all.size) null else all.filter { it in chosen })
+                        onChange()   // the editor's row says it at once: the system's back closes the page past onBack
+                    }
+                }, lp(0, dp(48), 1f))
+                repeat(6 - row.size) { addView(View(c), lp(0, dp(48), 1f)) }
+            }, lp(MATCH, WRAP))
+        }
+        body.section(c.getString(R.string.ch_available_reactions), null, grid)
+    }
+    draw()
+    return settingsPage(act, c.getString(R.string.ch_reactions), onBack) { addView(body, lp()) }
 }
 
 /** «Add Admin» (iOS MTGroupAdminPickPage): the members who are none yet, each opening the rights it would have. */

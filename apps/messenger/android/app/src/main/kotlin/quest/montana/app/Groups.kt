@@ -84,6 +84,10 @@ object Groups {
         var link: String? = null,
         /** THE CHANNEL SIGNS ITS POSTS (iOS signs, the reference's «Sign Messages»): its writer's name in every post's stamp. Carried in its invitation (sg). */
         var signs: Boolean = false,
+        /** THE CHANNEL TAKES REACTIONS (iOS reacts, the reference's «Allow Reactions»): false -- its owner turned them off. Carried in its invitation (rx). */
+        var reacts: Boolean = true,
+        /** THE REACTIONS A CHANNEL TAKES (iOS reactList, the reference's «Some Reactions»): the owner's list; null -- every one. Carried in its invitation (rl). */
+        var reactList: List<String>? = null,
     ) {
         val mine: Boolean get() = owner.isEmpty()
         fun json(): JSONObject = JSONObject().put("id", id).put("k", kind).put("ti", title).put("ds", about).put("ow", owner).put("me", me)
@@ -95,7 +99,7 @@ object Groups {
             .put("bd", JSONArray().apply { banned.forEach { put(JSONObject().put("s", it.seat).put("p", it.pipe)) } })
             .put("iv", invite ?: "").put("ap", approval)
             .put("rq", JSONArray().apply { requests.forEach { put(JSONObject().put("p", it.pipe).put("n", it.name).put("at", it.at)) } })
-            .put("lk", link ?: "").put("sg", signs)
+            .put("lk", link ?: "").put("sg", signs).put("rx", reacts).apply { reactList?.let { put("rl", JSONArray(it)) } }
         companion object {
             fun of(o: JSONObject) = State(o.getString("id"), o.getString("k"), o.optString("ti"), o.optString("ds"), o.optString("ow"),
                 o.getString("me"),
@@ -112,7 +116,8 @@ object Groups {
                 o.optJSONArray("bd")?.let { a -> MutableList(a.length()) { i -> a.getJSONObject(i).let { Member(it.getString("s"), it.getString("p")) } } } ?: mutableListOf(),
                 o.optString("iv").ifEmpty { null }, o.optBoolean("ap"),
                 o.optJSONArray("rq")?.let { a -> MutableList(a.length()) { i -> a.getJSONObject(i).let { Request(it.getString("p"), it.optString("n"), it.optLong("at")) } } } ?: mutableListOf(),
-                o.optString("lk").ifEmpty { null }, o.optBoolean("sg"))
+                o.optString("lk").ifEmpty { null }, o.optBoolean("sg"), o.optBoolean("rx", true),
+                reactionList(o.optJSONArray("rl")))
         }
     }
 
@@ -207,6 +212,8 @@ object Groups {
                 .put("requests", JSONArray().apply { g.requests.forEach { put(JSONObject().put("pipe", it.pipe).put("name", it.name).put("at", it.at / 1000.0)) } })
             for ((k, v) in listOf("faceTag" to g.faceTag, "invite" to g.invite)) if (v == null) o.remove(k) else o.put(k, v)
             if (g.kind == CHANNEL && g.signs) o.put("signs", true) else o.remove("signs")
+            if (g.kind == CHANNEL && !g.reacts) o.put("reacts", false) else o.remove("reacts")
+            g.reactList?.takeIf { g.kind == CHANNEL }?.let { o.put("reactList", JSONArray(it)) } ?: o.remove("reactList")
             val file = Book.face(key(id)).takeIf { it.isFile }?.let { face(faceFile(id), it) }
             if (file == null) o.remove("face") else o.put("face", file)
             out.put(id, o)
@@ -256,7 +263,8 @@ object Groups {
             map(s.optJSONObject("ranks")), words(s.optJSONArray("barred")), s.optInt("slow"), s.optBoolean("history"),
             seats(s.optJSONArray("banned")), s.optString("invite").ifEmpty { null }, s.optBoolean("approval"),
             s.optJSONArray("requests")?.let { a -> MutableList(a.length()) { i -> a.getJSONObject(i).let { Request(it.getString("pipe"), it.optString("name"), (it.optDouble("at", 0.0) * 1000).toLong()) } } } ?: mutableListOf(),
-            signs = kind == CHANNEL && s.optBoolean("signs"))
+            signs = kind == CHANNEL && s.optBoolean("signs"), reacts = kind != CHANNEL || s.optBoolean("reacts", true),
+            reactList = if (kind == CHANNEL) reactionList(s.optJSONArray("reactList")) else null)
     }
 
     /**
@@ -886,6 +894,8 @@ object Groups {
             if (g.taken.isNotEmpty()) w.put("ax", JSONObject().apply { g.taken.forEach { (k, v) -> put(k, JSONArray(v)) } })
             if (g.ranks.isNotEmpty()) w.put("rk", JSONObject(g.ranks.toMap()))
             if (g.kind == CHANNEL && g.signs) w.put("sg", 1)   // a channel signs its posts (iOS sg, Sign Messages)
+            if (g.kind == CHANNEL && !g.reacts) w.put("rx", 0)   // a channel takes no reactions (iOS rx, Allow Reactions off)
+            if (g.kind == CHANNEL) g.reactList?.let { w.put("rl", JSONArray(it)) }   // the reactions a channel takes (iOS rl, Some Reactions)
             if (link != null && m.seat in g.admins && adminCan(g, m.seat, INVITE)) w.put("lk", link)   // the link, to an admin who invites
             // what the members may not do, and the slow mode (iOS bn, sw, G.5): an older build skips the keys, the owner's door holds
             if (g.barred.isNotEmpty()) w.put("bn", JSONArray(g.barred))
@@ -1323,6 +1333,45 @@ object Groups {
             save()
             tellAll(g, null)
             Log.i("Montana", "channel_signs " + (if (on) "on" else "off"))
+        }
+    }
+    /** [I-14]: the reactions a channel's list names, at most (iOS reactListLimit). */
+    const val REACT_LIST_LIMIT = 80
+    /** A list of reactions as it came (iOS reactionList): glyphs alone, each once, bounded; null for none or for every one. */
+    fun reactionList(a: JSONArray?): List<String>? = a?.let { reactionList((0 until it.length()).map { i -> it.optString(i) }) }
+    fun reactionList(l: List<String>?): List<String>? {
+        val out = (l ?: return null).filter { e ->
+            e.isNotEmpty() && e.codePointCount(0, e.length) <= 16 &&
+                BreakIterator.getCharacterInstance().apply { setText(e) }.let { b -> var n = 0; while (b.next() != BreakIterator.DONE) n++; n <= 4 }
+        }.distinct().take(REACT_LIST_LIMIT)
+        return out.ifEmpty { null }
+    }
+    /** The reactions a channel takes: its owner's list, or null for every one (iOS reactionList(key)). */
+    fun reactionList(key: String): List<String>? = state(key)?.takeIf { it.kind == CHANNEL }?.reactList
+    /** Whether a channel's posts take reactions (iOS reactionsOn, «Allow Reactions»): on unless its owner turned them off. */
+    fun reactionsOn(key: String) = state(key)?.reacts != false
+    /** THE OWNER ALLOWS REACTIONS OR TURNS THEM OFF (iOS setReactions): every subscriber hears it by the invitation's word again. */
+    fun setReactions(key: String, on: Boolean) {
+        synchronized(lock) {
+            val g = state(key) ?: return
+            if (!g.mine || g.left || g.kind != CHANNEL || g.reacts == on) return
+            g.reacts = on
+            save()
+            tellAll(g, null)
+            Log.i("Montana", "channel_reactions " + (if (on) "on" else "off"))
+        }
+    }
+    /** THE OWNER CHOOSES THE REACTIONS ITS CHANNEL TAKES (iOS setReactionList, Some Reactions), or every one (null). */
+    fun setReactionList(key: String, list: List<String>?) {
+        synchronized(lock) {
+            val g = state(key) ?: return
+            if (!g.mine || g.left || g.kind != CHANNEL) return
+            val next = reactionList(list)
+            if (next == g.reactList) return
+            g.reactList = next
+            save()
+            tellAll(g, null)
+            Log.i("Montana", "channel_reactions list=${next?.size ?: 0}")
         }
     }
     /** The name a signed channel's post wears in its stamp (iOS signature): its writer's -- my own on my posts; null where the channel does not sign. */
@@ -1883,6 +1932,8 @@ object Groups {
                     if (g.taken.isNotEmpty()) w.put("ax", JSONObject().apply { g.taken.forEach { (k, v) -> put(k, JSONArray(v)) } })
                     if (g.ranks.isNotEmpty()) w.put("rk", JSONObject(g.ranks.toMap()))
                     if (g.kind == CHANNEL && g.signs) w.put("sg", 1)
+                    if (g.kind == CHANNEL && !g.reacts) w.put("rx", 0)
+                    if (g.kind == CHANNEL) g.reactList?.let { w.put("rl", JSONArray(it)) }
                     return w
                 }
                 if (g.mine) g.members.forEach { m -> notes.add(Triple(m.pipe, MARK + invitation(m.seat), true)) }
@@ -2118,6 +2169,8 @@ object Groups {
         w.optJSONArray("bn")?.let { a -> g.barred.addAll((0 until a.length()).map { a.optString(it) }.filter { it in MEMBER_RIGHTS }.distinct()) }
         g.slow = w.optInt("sw").coerceIn(0, 3600)
         g.signs = g.kind == CHANNEL && w.optInt("sg") == 1   // iOS g.signs = w.sg == 1
+        g.reacts = g.kind != CHANNEL || w.optInt("rx", 1) != 0   // iOS g.reacts = w.rx == 0 ? false : nil
+        g.reactList = if (g.kind == CHANNEL) reactionList(w.optJSONArray("rl")) else null   // iOS reactionList(w.rl)
     }
 
     /** The administrators an invitation names (iOS ad): seats alone. */
@@ -2268,6 +2321,16 @@ object Groups {
         if (words.startsWith(PIN_MARK) && !pins(g, seat)) {
             Log.i("Montana", "group_refused a pin by a seat without the right seat=$seat")
             return Verdict.REFUSED
+        }
+        // A CHANNEL WHOSE OWNER TURNED REACTIONS OFF TAKES NONE, ONE THAT TAKES SOME TAKES THOSE ALONE (iOS answered, Allow / Some
+        // Reactions): a subscriber's reaction ends here; the owner and its administrators are never refused
+        if (words.startsWith(Marks.REACTION) && g.kind == CHANNEL && seat != OWNER_SEAT && seat !in g.admins) {
+            val o = runCatching { JSONObject(words.removePrefix(Marks.REACTION)) }.getOrNull()
+            val list = g.reactList
+            if (!g.reacts || (list != null && o?.optString("op") == "add" && o.optString("e") !in list)) {
+                Log.i("Montana", "group_refused a reaction the channel does not take")
+                return Verdict.REFUSED
+            }
         }
         if (g.mine && !allows(g, seat, words)) {   // a reaction or an edit past the group's permissions (iOS answered, G.5)
             Log.i("Montana", "group_refused an answer past the group's permissions")

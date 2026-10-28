@@ -143,6 +143,12 @@
     <string name="ch_add_admin_note">Вы можете добавить администраторов, которые помогут вести канал.</string>
     <string name="ch_sign">Подписывать сообщения</string>
     <string name="ch_sign_note">Добавлять имена администраторов к их публикациям.</string>
+    <string name="ch_reactions">Реакции</string>
+    <string name="ch_allow_reactions">Разрешить реакции</string>
+    <string name="ch_allow_reactions_note">Разрешить подписчикам ставить реакции на публикации канала.</string>
+    <string name="ch_available_reactions">ДОСТУПНЫЕ РЕАКЦИИ</string>
+    <string name="ch_reactions_off">Выключены</string>
+    <string name="ch_reactions_all">Все реакции</string>
     <string name="ch_rights_q">Что может этот администратор?</string>
     <string name="ch_r_info">Изменение профиля канала</string>
     <string name="ch_r_post">Публикация сообщений</string>
