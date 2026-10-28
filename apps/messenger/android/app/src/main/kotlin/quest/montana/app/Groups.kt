@@ -51,6 +51,8 @@ object Groups {
     class Member(val seat: String, val pipe: String)
     /** ONE WHO ASKED TO JOIN BY THE LINK (iOS MTGroupRequest, the reference's «Member Requests»): the pipe the owner met them by, the name they gave and when (ms). */
     class Request(val pipe: String, val name: String, val at: Long)
+    /** One deed of a channel, as its owner's phone wrote it (iOS MTChannelAct): what, about whom by the names known then, when (ms). */
+    class Act(val e: String, val p: List<String>?, val t: String?, val at: Long)
 
     /** A group as this phone holds it (iOS MTGroupState): `owner` — the pipe to the owner, empty on the owner's phone; `me` — this phone's seat. */
     class State(
@@ -88,6 +90,8 @@ object Groups {
         var reacts: Boolean = true,
         /** THE REACTIONS A CHANNEL TAKES (iOS reactList, the reference's «Some Reactions»): the owner's list; null -- every one. Carried in its invitation (rl). */
         var reactList: List<String>? = null,
+        /** WHAT WAS DONE IN A CHANNEL (iOS acts, the reference's «Recent Actions»): the owner's phone writes each deed as it does it, by the names it knew then. Never on the wire. */
+        val acts: MutableList<Act> = mutableListOf(),
     ) {
         val mine: Boolean get() = owner.isEmpty()
         fun json(): JSONObject = JSONObject().put("id", id).put("k", kind).put("ti", title).put("ds", about).put("ow", owner).put("me", me)
@@ -100,6 +104,7 @@ object Groups {
             .put("iv", invite ?: "").put("ap", approval)
             .put("rq", JSONArray().apply { requests.forEach { put(JSONObject().put("p", it.pipe).put("n", it.name).put("at", it.at)) } })
             .put("lk", link ?: "").put("sg", signs).put("rx", reacts).apply { reactList?.let { put("rl", JSONArray(it)) } }
+            .put("as", actsJson(acts, 1L))
         companion object {
             fun of(o: JSONObject) = State(o.getString("id"), o.getString("k"), o.optString("ti"), o.optString("ds"), o.optString("ow"),
                 o.getString("me"),
@@ -117,7 +122,7 @@ object Groups {
                 o.optString("iv").ifEmpty { null }, o.optBoolean("ap"),
                 o.optJSONArray("rq")?.let { a -> MutableList(a.length()) { i -> a.getJSONObject(i).let { Request(it.getString("p"), it.optString("n"), it.optLong("at")) } } } ?: mutableListOf(),
                 o.optString("lk").ifEmpty { null }, o.optBoolean("sg"), o.optBoolean("rx", true),
-                reactionList(o.optJSONArray("rl")))
+                reactionList(o.optJSONArray("rl")), actsOf(o.optJSONArray("as"), 1L))
         }
     }
 
@@ -214,6 +219,7 @@ object Groups {
             if (g.kind == CHANNEL && g.signs) o.put("signs", true) else o.remove("signs")
             if (g.kind == CHANNEL && !g.reacts) o.put("reacts", false) else o.remove("reacts")
             g.reactList?.takeIf { g.kind == CHANNEL }?.let { o.put("reactList", JSONArray(it)) } ?: o.remove("reactList")
+            if (g.kind == CHANNEL && g.acts.isNotEmpty()) o.put("acts", actsJson(g.acts, 1000L)) else o.remove("acts")
             val file = Book.face(key(id)).takeIf { it.isFile }?.let { face(faceFile(id), it) }
             if (file == null) o.remove("face") else o.put("face", file)
             out.put(id, o)
@@ -264,7 +270,8 @@ object Groups {
             seats(s.optJSONArray("banned")), s.optString("invite").ifEmpty { null }, s.optBoolean("approval"),
             s.optJSONArray("requests")?.let { a -> MutableList(a.length()) { i -> a.getJSONObject(i).let { Request(it.getString("pipe"), it.optString("name"), (it.optDouble("at", 0.0) * 1000).toLong()) } } } ?: mutableListOf(),
             signs = kind == CHANNEL && s.optBoolean("signs"), reacts = kind != CHANNEL || s.optBoolean("reacts", true),
-            reactList = if (kind == CHANNEL) reactionList(s.optJSONArray("reactList")) else null)
+            reactList = if (kind == CHANNEL) reactionList(s.optJSONArray("reactList")) else null,
+            acts = if (kind == CHANNEL) actsOf(s.optJSONArray("acts"), 1000L) else mutableListOf())
     }
 
     /**
@@ -1029,6 +1036,9 @@ object Groups {
             val renamed = name != g.title
             g.title = name
             if (words != null) g.about = words
+            if (renamed) act(g, "title", t = name)
+            if (described) act(g, "about")
+            if (face != null) act(g, "photo")
             save()
             stand(g, face)
             tellAll(g, face?.let { thumb(it) }, by = by)
@@ -1058,6 +1068,7 @@ object Groups {
             if (fresh.isEmpty()) return
             g.members.addAll(fresh)
             g.count = g.members.size + 1
+            act(g, if (viaLink) "joined" else "invited", fresh.map { nameNow(g, it.seat) })
             // one taken out and added again by the owner's own hand is let back (iOS add, the reference's «Add To Group», G.7)
             g.banned.removeAll { b -> fresh.any { it.pipe == SamePair.root(b.pipe) } }
             save()
@@ -1081,6 +1092,7 @@ object Groups {
             val g = state(key) ?: return
             val m = (if (g.mine) g.members.firstOrNull { it.seat == seat } else null) ?: return
             keepName(g, m)
+            act(g, "removed", listOf(nameNow(g, seat)))
             // ONE TAKEN OUT IS KEPT OUT (iOS remove, G.7 and E.4, the reference's «Removed Users»): until the owner lets them back or adds them again
             g.banned.removeAll { it.seat == seat }
             g.banned.add(m)
@@ -1317,6 +1329,7 @@ object Groups {
             if (on && left.isNotEmpty()) g.taken[seat] = left else g.taken.remove(seat)
             val title = clean(rank ?: "", RANK_LIMIT)
             if (on && title.isNotEmpty()) g.ranks[seat] = title else g.ranks.remove(seat)
+            act(g, if (on) "promoted" else "demoted", listOf(nameNow(g, seat)))   // a channel's recent actions (its owner's phone alone)
             save()
             tellAll(g, null)
             Log.i("Montana", "group_admin " + (if (on) "named" else "dismissed"))
@@ -1330,6 +1343,7 @@ object Groups {
             val g = state(key) ?: return
             if (!g.mine || g.left || g.kind != CHANNEL || g.signs == on) return
             g.signs = on
+            act(g, if (on) "signOn" else "signOff")
             save()
             tellAll(g, null)
             Log.i("Montana", "channel_signs " + (if (on) "on" else "off"))
@@ -1346,6 +1360,31 @@ object Groups {
         }.distinct().take(REACT_LIST_LIMIT)
         return out.ifEmpty { null }
     }
+    /** [I-14]: the deeds a channel's owner keeps for its Recent Actions (iOS actsKept). */
+    private const val ACTS_KEPT = 100
+    /** The deeds as JSON -- their moments in ms here, in seconds where the iOS store keeps them (per = 1000). */
+    private fun actsJson(l: List<Act>, per: Long) = JSONArray().apply {
+        l.forEach { a -> put(JSONObject().put("e", a.e).put("at", if (per == 1L) a.at else a.at / 1000.0)
+            .apply { a.p?.let { put("p", JSONArray(it)) }; a.t?.let { put("t", it) } }) }
+    }
+    private fun actsOf(a: JSONArray?, per: Long): MutableList<Act> = a?.let { (0 until it.length()).mapNotNull { i -> it.optJSONObject(i) }.map { o ->
+        Act(o.optString("e"), o.optJSONArray("p")?.let { p -> List(p.length()) { p.optString(it) } }, o.optString("t").ifEmpty { null },
+            if (per == 1L) o.optLong("at") else (o.optDouble("at", 0.0) * 1000).toLong())
+    }.filter { it.e.isNotEmpty() }.takeLast(ACTS_KEPT).toMutableList() } ?: mutableListOf()
+    /** A DEED OF A CHANNEL, WRITTEN ON ITS OWNER'S PHONE (iOS act): a group keeps its events in its feed instead. */
+    private fun act(g: State, e: String, p: List<String>? = null, t: String? = null) {
+        if (g.kind != CHANNEL || !g.mine) return
+        g.acts.add(Act(e, p, t, System.currentTimeMillis()))
+        while (ACTS_KEPT < g.acts.size) g.acts.removeAt(0)
+    }
+    /** The name a seat is known by on this phone right now (iOS seatName): the book's, else the one it gave; empty -- unknown. */
+    private fun nameNow(g: State, seat: String): String =
+        g.members.firstOrNull { it.seat == seat }?.let { Book.chat(SamePair.root(it.pipe))?.shown?.ifBlank { null } } ?: g.names[seat] ?: ""
+    /** A channel's deeds of the last two days, newest first (iOS MTChannelActionsPage, span 48 hours). */
+    fun recentActs(key: String): List<Act> = synchronized(lock) {
+        val now = System.currentTimeMillis()
+        state(key)?.takeIf { it.kind == CHANNEL }?.acts?.filter { now - it.at < 48 * 3600_000L }?.reversed() ?: emptyList()
+    }
     /** The reactions a channel takes: its owner's list, or null for every one (iOS reactionList(key)). */
     fun reactionList(key: String): List<String>? = state(key)?.takeIf { it.kind == CHANNEL }?.reactList
     /** Whether a channel's posts take reactions (iOS reactionsOn, «Allow Reactions»): on unless its owner turned them off. */
@@ -1356,6 +1395,7 @@ object Groups {
             val g = state(key) ?: return
             if (!g.mine || g.left || g.kind != CHANNEL || g.reacts == on) return
             g.reacts = on
+            act(g, if (on) "reactOn" else "reactOff")
             save()
             tellAll(g, null)
             Log.i("Montana", "channel_reactions " + (if (on) "on" else "off"))
@@ -1369,6 +1409,7 @@ object Groups {
             val next = reactionList(list)
             if (next == g.reactList) return
             g.reactList = next
+            act(g, if (next == null) "reactOn" else "reactSome")
             save()
             tellAll(g, null)
             Log.i("Montana", "channel_reactions list=${next?.size ?: 0}")
@@ -2370,6 +2411,7 @@ object Groups {
         val from = SamePair.root(pipe)
         val m = (if (g.mine) g.members.firstOrNull { SamePair.root(it.pipe) == from } else null) ?: return Verdict.REFUSED
         keepName(g, m)
+        act(g, "left", listOf(nameNow(g, m.seat)))
         g.members.removeAll { it.seat == m.seat }
         g.admins.remove(m.seat)
         g.taken.remove(m.seat); g.ranks.remove(m.seat)
