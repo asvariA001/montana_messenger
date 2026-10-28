@@ -436,7 +436,7 @@ private fun groupEditPage(act: MainActivity, key: String, onBack: () -> Unit, on
                             addView(c.text(c.getString(R.string.ch_dissolve), 17f, SysColor.red).apply {
                                 setPadding(dp(16), dp(12), dp(16), dp(12)); minimumHeight = dp(48); gravity = Gravity.CENTER_VERTICAL
                                 pressable {
-                                    AlertDialog.Builder(c).setTitle(R.string.ch_dissolve_q)
+                                    AlertDialog.Builder(c).setMessage(R.string.ch_dissolve_q)   // the whole question, as the reference asks it
                                         .setPositiveButton(R.string.ch_dissolve) { _, _ -> Groups.dissolve(key); onGone() }
                                         .setNegativeButton(R.string.cancel, null).show()
                                 }
