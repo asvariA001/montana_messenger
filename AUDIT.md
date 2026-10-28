@@ -1,7 +1,7 @@
 # Audit package
 
 Current protocol closure is tracked separately in [Audit/Protocol-13](Audit/Protocol-13/README.md).
-On 2026-10-14 all 13 acceptance criteria were open; on 2026-10-27, 4 of 13 are closed (items 1 to 4) and items 5 to 13 are open, as `core/Montana-Core/PROTOCOL-13.json` and the table of that folder state. Those reports distinguish the published
+On 2026-10-14 all 13 acceptance criteria were open; on 2026-10-28, 5 of 13 are closed (items 1 to 4 and 7) and items 5, 6 and 8 to 13 are open, as `core/Montana-Core/PROTOCOL-13.json` and the table of that folder state. Those reports distinguish the published
 snapshot from candidate repairs and do not convert the historical findings below into closure.
 
 For the proposed third-party review in issue #2, the [commissioning package](doc/external-audit/README.md)
