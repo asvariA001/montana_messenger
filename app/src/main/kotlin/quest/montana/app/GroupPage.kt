@@ -432,7 +432,7 @@ private fun groupEditPage(act: MainActivity, key: String, onBack: () -> Unit, on
                         }
                         reread()
                         val reactions = c.navRow(R.drawable.ic_face_smiling, c.getString(R.string.ch_reactions), said) {
-                            act.push { back -> channelReactionsPage(act, key) { back(); reread() } }
+                            act.push { back -> channelReactionsPage(act, key, back) { reread() } }
                         }
                         addView(c.plate { addView(links, lp()); divider(); addView(reactions, lp()) }, lp())
                         gap(20)
@@ -826,7 +826,7 @@ private fun channelAdminsPage(act: MainActivity, key: String, onBack: () -> Unit
  * Reactions», and while on, «Available Reactions» -- six to a row, the chosen bright with a check, the rest dim; at least one stays,
  * every one chosen is the whole choice. Every subscriber hears it by the invitation's word again.
  */
-private fun channelReactionsPage(act: MainActivity, key: String, onBack: () -> Unit): View {
+private fun channelReactionsPage(act: MainActivity, key: String, onBack: () -> Unit, onChange: () -> Unit): View {
     val c: Context = act
     val all = QuickReactions.channelChoice
     val chosen = (Groups.reactionList(key) ?: all).toMutableSet()
@@ -835,7 +835,7 @@ private fun channelReactionsPage(act: MainActivity, key: String, onBack: () -> U
         body.removeAllViews()
         val on = Groups.reactionsOn(key)
         body.section(null, c.getString(R.string.ch_allow_reactions_note), c.toggleRow(c.getString(R.string.ch_allow_reactions)) { v ->
-            if (v != Groups.reactionsOn(key)) { Groups.setReactions(key, v); body.post { draw() } }   // the switch set while drawn changes nothing
+            if (v != Groups.reactionsOn(key)) { Groups.setReactions(key, v); onChange(); body.post { draw() } }   // the switch set while drawn changes nothing
         }.apply {
             setPadding(dp(16), dp(10), dp(16), dp(10))
             (0 until childCount).map { getChildAt(it) }.filterIsInstance<Switch>().firstOrNull()?.isChecked = on
@@ -856,6 +856,7 @@ private fun channelReactionsPage(act: MainActivity, key: String, onBack: () -> U
                         glyph.alpha = if (e in chosen) 1f else 0.3f
                         tick.visibility = if (e in chosen) View.VISIBLE else View.GONE
                         Groups.setReactionList(key, if (chosen.size == all.size) null else all.filter { it in chosen })
+                        onChange()   // the editor's row says it at once: the system's back closes the page past onBack
                     }
                 }, lp(0, dp(48), 1f))
                 repeat(6 - row.size) { addView(View(c), lp(0, dp(48), 1f)) }
