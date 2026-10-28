@@ -2699,7 +2699,11 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                 val meta = c.hstack {
                     gravity = Gravity.CENTER_VERTICAL
                     if (m.edited) addView(c.text(c.getString(R.string.edited) + " ", 11f, metaInk))
-                    addView(c.text(android.text.format.DateFormat.getTimeFormat(c).format(Date(m.at)), 11f, metaInk))
+                    // a signed channel's post: its signer before the time, «Name, 12:30» (iOS signature, Sign Messages)
+                    val time = android.text.format.DateFormat.getTimeFormat(c).format(Date(m.at))
+                    val signer = if (Groups.isKey(chat.ref)) Groups.signature(c, m, chat.ref) else null
+                    if (signer != null) addView(c.text(signer, 11f, metaInk).apply { singleLineEllipsis(); maxWidth = dp(160) })   // USER-DATA: the post's signer, cut, never its time
+                    addView(c.text(if (signer == null) time else ", $time", 11f, metaInk))
                     // the letter's gematria right of the time, the same number on both phones (iOS metaLine's seal, MTLetterSeal.mark)
                     LetterSeal.gematria(m.mid)?.let { g ->
                         addView(c.text(" · $g", 11f, metaInk).apply { fontFeatureSettings = "tnum" })   // USER-DATA: the letter's gematria
