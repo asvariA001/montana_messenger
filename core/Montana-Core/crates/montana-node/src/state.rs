@@ -440,7 +440,7 @@ impl State {
             });
         }
         let count = |out: &mut Vec<u8>, bytes: &[u8], width: usize| -> Result<(), NodeError> {
-            if bytes.len() % width != 0 {
+            if !bytes.len().is_multiple_of(width) {
                 return Err(refused());
             }
             let n = u32::try_from(bytes.len() / width).map_err(|_| refused())?;

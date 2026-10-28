@@ -1698,7 +1698,9 @@ impl Machine {
                     if declared < bound {
                         break;
                     }
-                    let Some(next) = u32::try_from(declared).ok().and_then(|n| from.checked_add(n))
+                    let Some(next) = u32::try_from(declared)
+                        .ok()
+                        .and_then(|n| from.checked_add(n))
                     else {
                         continue 'links;
                     };
@@ -2156,7 +2158,9 @@ fn answer_the_table(link: &mut Link, store: &Store, message: &[u8]) -> Result<()
         .map(|plane| plane.leaves_of(table, window))
         .unwrap_or_default();
     let start = (from as usize).saturating_mul(one).min(leaves.len());
-    let end = start.saturating_add(bound.saturating_mul(one)).min(leaves.len());
+    let end = start
+        .saturating_add(bound.saturating_mul(one))
+        .min(leaves.len());
     let Ok(answer) = message::encode_table_answer(table, &leaves[start..end]) else {
         return Ok(());
     };

@@ -633,7 +633,12 @@ pub fn parse_table_query(
     let table = TableIndex::of(bytes[hash + 8]).ok_or(WireError::Opening)?;
     let mut from = [0u8; 4];
     from.copy_from_slice(&bytes[hash + 9..]);
-    Ok((network, u64::from_le_bytes(window), table, u32::from_le_bytes(from)))
+    Ok((
+        network,
+        u64::from_le_bytes(window),
+        table,
+        u32::from_le_bytes(from),
+    ))
 }
 
 // **The bound of one answer is the largest message of this wire, and no new number.** As many
@@ -649,7 +654,7 @@ pub fn table_answer_max(table: TableIndex) -> Result<usize, WireError> {
 // plane the answerer does not hold, which it does not tell apart.
 pub fn encode_table_answer(table: TableIndex, leaves: &[u8]) -> Result<Vec<u8>, WireError> {
     let one = table.leaf_bytes();
-    if leaves.len() % one != 0 {
+    if !leaves.len().is_multiple_of(one) {
         return Err(width(leaves.len() - leaves.len() % one, leaves.len()));
     }
     let count = leaves.len() / one;
@@ -841,7 +846,10 @@ mod tests {
             let bound = table_answer_max(table).expect("named");
             let full = vec![0x55u8; bound * table.leaf_bytes()];
             let answer = encode_table_answer(table, &full).expect("encodes");
-            assert!(answer.len() <= largest, "a table answer past the largest message");
+            assert!(
+                answer.len() <= largest,
+                "a table answer past the largest message"
+            );
             assert_eq!(parse_table_answer(table, &answer), Ok(full));
             // One leaf past the bound is refused on both sides, before a leaf is read.
             let over = vec![0x55u8; (bound + 1) * table.leaf_bytes()];
