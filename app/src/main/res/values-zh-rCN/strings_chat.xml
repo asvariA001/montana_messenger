@@ -168,6 +168,7 @@
     <string name="cha_react_off">您停用了回应</string>
     <string name="ch_discussion">讨论</string>
     <string name="ch_join">加入</string>
+    <string name="ch_leave">离开</string>
     <string name="ch_allow_comments">允许评论</string>
     <string name="ch_allow_comments_note">订阅者可以在每条帖子下评论。评论随频道本身在手机之间传递。</string>
     <string name="cha_talk_on">您启用了评论</string>

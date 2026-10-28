@@ -168,6 +168,7 @@
     <string name="cha_react_off">You disabled reactions</string>
     <string name="ch_discussion">Discussion</string>
     <string name="ch_join">Join</string>
+    <string name="ch_leave">Leave</string>
     <string name="ch_allow_comments">Allow Comments</string>
     <string name="ch_allow_comments_note">Subscribers comment under every post. The comments ride the channel itself, phone to phone.</string>
     <string name="cha_talk_on">You enabled comments</string>

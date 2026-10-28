@@ -105,7 +105,15 @@ fun groupPage(act: MainActivity, key: String, onClose: () -> Unit,
         }
         // «Search» (iOS .search, MontanaPeerInfoScreen.swift:590-596): the chat's own search, the page gone down to its chat
         plate(R.drawable.ic_search, c.getString(R.string.search)) { onSearch() }
-        plate(R.drawable.ic_more_horiz, c.getString(R.string.pi_more)) { v -> groupMore(v) }
+        // A CHANNEL'S BUTTONS (iOS MTChannelPage.actions, MontanaChannel 500-511): its owner's sound and search (the live stream
+        // waits for the rooms), one out of it the same, a subscriber's sound, search, «Leave» asked first, and «More»
+        val subscriber = Groups.isChannel(key) && !Groups.manages(key) && !Groups.isOut(key) && Book.chat(key) != null
+        if (subscriber) plate(R.drawable.ic_leave, c.getString(R.string.ch_leave)) {
+            AlertDialog.Builder(c).setTitle(R.string.gp_leave_channel_q)
+                .setPositiveButton(R.string.gp_leave_channel) { _, _ -> Groups.leave(key); redraw() }
+                .setNegativeButton(R.string.cancel, null).show()
+        }
+        if (!Groups.isChannel(key) || subscriber) plate(R.drawable.ic_more_horiz, c.getString(R.string.pi_more)) { v -> groupMore(v) }
         body.addView(plates, lp())
         Groups.about(key).takeIf { it.isNotEmpty() }?.let { about ->
             body.section(null, null, c.vstack(Gravity.NO_GRAVITY) {
