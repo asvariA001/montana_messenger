@@ -48,6 +48,20 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
         pressable { onEmojiKey?.invoke() ?: showKeys() }
         setOnLongClickListener { onStickers?.invoke(); onStickers != null }   // a hold on the emoji key: the stickers
     }
+    /**
+     * THE CHANNEL'S BELL IN ITS FIELD (iOS bellKey, the reference's «Silent Broadcast»): beside the emoji key inside the plate, a tap
+     * turns the sound of the owner's next posts and says for two seconds what the subscribers will hear.
+     */
+    private val bellInside = ImageView(c).apply {
+        setImageResource(R.drawable.ic_set_bell)
+        imageTintList = android.content.res.ColorStateList.valueOf(GLYPH)
+        setPadding(dp(5), dp(8), dp(5), dp(8))
+        visibility = View.GONE
+        pressable {
+            onSilent?.invoke()
+            Toast.makeText(c, if (silent) R.string.ch_silent_said else R.string.ch_loud_said, Toast.LENGTH_SHORT).show()
+        }
+    }
     private val sendColumn = FrameLayout(c)
     private val send = ImageView(c).apply {
         setImageResource(R.drawable.send_button); scaleType = ImageView.ScaleType.FIT_CENTER
@@ -78,7 +92,7 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
         // stand over this ground and take their own touches first
         setOnClickListener { if (!field.hasFocus() && !record.active) showKeys() }
         field.apply {
-            hint = c.getString(R.string.message_hint)
+            hint = restHint()
             setHintTextColor(MT.gray); setTextColor(Color.WHITE)
             textSize = FONT
             // THE LINE IS 21 (iOS MTInputField.minH): in the font's own unit, so a larger font size of the phone grows it with the words
@@ -90,6 +104,7 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
         plate.background = plateGlass
         plate.addView(field, FrameLayout.LayoutParams(MATCH, WRAP))
         plate.addView(emojiInside, FrameLayout.LayoutParams(dp(TIER), dp(TIER), Gravity.BOTTOM or Gravity.END))
+        plate.addView(bellInside, FrameLayout.LayoutParams(dp(BELL), dp(TIER), Gravity.BOTTOM or Gravity.END))
 
         sendColumn.addView(send, FrameLayout.LayoutParams(dp(TIER), dp(TIER), Gravity.CENTER))
         sendColumn.addView(record, FrameLayout.LayoutParams(dp(TIER), dp(TIER), Gravity.CENTER))
@@ -131,7 +146,7 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
             // the words take the whole upper tier; the room of the emoji key is given back to them
             fieldRow.addView(plate, lp(0, WRAP, 1f))
             emojiInside.visibility = View.GONE
-            inset(dp(INSET_SIDE))
+            inset(dp(INSET_SIDE) + if (channel) dp(LINE_ROOM) else 0)
             val keys = listOf(
                 glassKey(R.drawable.ic_chevron_up, R.string.compose_fold) { if (!record.active) setOpen(false) },
                 glassKey(R.drawable.ic_face_smiling, R.string.emoji) { onEmojiKey?.invoke() ?: showKeys() }.apply { emojiRowKey = this; setOnLongClickListener { onStickers?.invoke(); onStickers != null } },
@@ -152,12 +167,33 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
             fieldRow.addView(plate, lp(0, WRAP, 1f))
             fieldRow.addView(sendColumn, lp(dp(TIER), dp(TIER)).apply { marginStart = dp(10) })
             emojiInside.visibility = View.VISIBLE
-            inset(dp(INSET_EMOJI))
+            inset(dp(INSET_EMOJI) + if (channel) dp(LINE_ROOM) else 0)
             actionRow.visibility = View.GONE
         }
+        // the bell stands before the emoji key while it is inside, at the plate's edge once the key went to the row (iOS .padding(.trailing, 11))
+        (bellInside.layoutParams as FrameLayout.LayoutParams).marginEnd = if (open) dp(6) else dp(TIER - 4)
+        bellInside.requestLayout()
         syncSend()
         widenTouchTarget()
         if (panelOn) panelShown(true)   // the row's keys are made anew: the emoji key keeps the keyboard's glyph while the panel stands
+    }
+
+    /** A CHANNEL'S OWNER'S FIELD (iOS channel): it says «Broadcast...» while empty and holds the bell. */
+    var channel = false
+        set(v) { field = v; bellInside.visibility = if (v) View.VISIBLE else View.GONE; shape(); calm() }
+    /** The owner's next posts go without sound (iOS silent): the bell wears its slash and the field says «Silent Broadcast...». */
+    var silent = false
+        set(v) { field = v; bellInside.setImageResource(if (v) R.drawable.ic_bell_off else R.drawable.ic_set_bell); calm() }
+    var onSilent: (() -> Unit)? = null
+    /** The field's hint at rest (iOS 921): the coin's sum, a channel's broadcast, or a letter. */
+    private fun restHint(): String = c.getString(when {
+        coinHint -> R.string.coin_enter_amount
+        channel -> if (silent) R.string.ch_silent_broadcast else R.string.ch_broadcast
+        else -> R.string.message_hint
+    })
+    private fun calm() {
+        bellInside.contentDescription = c.getString(if (silent) R.string.ch_silent_broadcast else R.string.ch_broadcast)
+        if (!record.active) field.hint = restHint()
     }
 
     /** Pictures wait above the field (iOS hasAttachment): the send artwork stands even without words — it sends them. */
@@ -193,7 +229,7 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
         // the field lit up as «enter the sum of coins» (iOS 921), and back to the words' own hint when the mode goes
         // and the field wears the thin blue ring while it takes a number (iOS 915: MTMiniFace.playingRing, 1.5 around the plate)
         if (coinMode != coinHint) {
-            coinHint = coinMode; field.hint = c.getString(if (coinHint) R.string.coin_enter_amount else R.string.message_hint)
+            coinHint = coinMode; field.hint = restHint()
             if (coinHint) plateGlass.setStroke(Math.round(1.5f * resources.displayMetrics.density), MT.blue)
             else plateGlass.setStroke(dp(1).coerceAtMost(3), Color.argb(46, 255, 255, 255))
             onCoinMode?.invoke(coinHint)
@@ -342,7 +378,7 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
     fun tooShortHint() {
         field.performHapticFeedback(if (android.os.Build.VERSION.SDK_INT >= 30) android.view.HapticFeedbackConstants.REJECT else android.view.HapticFeedbackConstants.LONG_PRESS)
         field.hint = c.getString(R.string.hold_to_record)   // in the placeholder's own grey, as the iPhone's (MontanaConversation.swift:911)
-        MainThread.later(1600) { field.hint = c.getString(if (coinHint) R.string.coin_enter_amount else R.string.message_hint) }
+        MainThread.later(1600) { field.hint = restHint() }
     }
 
     /** One round glass key at the tier's height with the grey glyph (iOS .montanaOctagon(square: true, bar: true)). */
@@ -485,7 +521,7 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
             if (!st.end(why)) return
             rest(); draw()
             onRecIdle?.invoke()
-            field.isEnabled = true; field.hint = c.getString(R.string.message_hint); field.setHintTextColor(MT.gray)
+            field.isEnabled = true; field.hint = restHint(); field.setHintTextColor(MT.gray)
             if (recordingNote) onNoteEnd?.invoke(cancel) else onVoiceEnd?.invoke(cancel)
         }
         fun endHold() = finish(cancel = false)
@@ -559,6 +595,8 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
         const val LINES = 13                               // iOS MTInputField.lines: the field grows to thirteen, then scrolls inside
         const val INSET_SIDE = 16                          // iOS MTInputField.inset.left
         const val INSET_EMOJI = 46                         // iOS MTInputField.inset.right: the emoji key's side
+        const val LINE_ROOM = 21                           // iOS extraRight MTInputField.minH: the bell's room in a channel's field
+        const val BELL = 30                                // the bell's key: its 19-20 glyph and a little room either side
         const val BAR_PAD = 8                              // iOS MTInputField.barPad: the bar's breathing room above and below
         const val TIER_GAP = 6                             // iOS MTInputField.tierGap: between the words and the keys
         const val TOUCH = 44                               // iOS montanaTouchTarget: the platform's least target

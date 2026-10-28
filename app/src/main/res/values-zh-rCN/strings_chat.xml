@@ -345,4 +345,8 @@
     <string name="gn_reactions">此群组禁止发送回应</string>
     <string name="gn_fixed">你无法编辑此权限。</string>
     <string name="gn_slow">已开启慢速模式。你可以在 %s 后发送下一条消息。</string>
+    <string name="ch_broadcast">广播...</string>
+    <string name="ch_silent_broadcast">静音广播...</string>
+    <string name="ch_loud_said">您发布时订阅者会收到通知</string>
+    <string name="ch_silent_said">您发布时订阅者不会收到通知</string>
 </resources>

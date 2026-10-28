@@ -345,4 +345,8 @@
     <string name="gn_reactions">Реакции в этой группе запрещены</string>
     <string name="gn_fixed">Это разрешение нельзя изменить.</string>
     <string name="gn_slow">Включён медленный режим. Следующее сообщение можно отправить через %s.</string>
+    <string name="ch_broadcast">Публикация...</string>
+    <string name="ch_silent_broadcast">Публикация без звука...</string>
+    <string name="ch_loud_said">Подписчики получат уведомление о публикации</string>
+    <string name="ch_silent_said">Подписчики не получат уведомление о публикации</string>
 </resources>

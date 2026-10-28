@@ -345,4 +345,8 @@
     <string name="gn_reactions">Sending reactions is not allowed in this group</string>
     <string name="gn_fixed">You cannot edit this permission.</string>
     <string name="gn_slow">Slowmode is enabled. You can send your next message in %s.</string>
+    <string name="ch_broadcast">Broadcast...</string>
+    <string name="ch_silent_broadcast">Silent Broadcast...</string>
+    <string name="ch_loud_said">Members will be notified when you post</string>
+    <string name="ch_silent_said">Members will not be notified when you post</string>
 </resources>

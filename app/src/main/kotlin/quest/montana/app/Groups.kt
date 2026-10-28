@@ -96,6 +96,8 @@ object Groups {
         val acts: MutableList<Act> = mutableListOf(),
         /** A CHANNEL'S SUBSCRIBERS COMMENT UNDER ITS POSTS (iOS talks, the reference's «Allow Comments»). Carried in its invitation (dc). */
         var talks: Boolean = false,
+        /** THE OWNER'S NEXT POSTS GO WITHOUT SOUND (iOS silent, the bell in a channel's field, the reference's «Silent Broadcast»). The owner's alone, never in an invitation. */
+        var silent: Boolean = false,
     ) {
         val mine: Boolean get() = owner.isEmpty()
         fun json(): JSONObject = JSONObject().put("id", id).put("k", kind).put("ti", title).put("ds", about).put("ow", owner).put("me", me)
@@ -108,7 +110,7 @@ object Groups {
             .put("iv", invite ?: "").put("ap", approval)
             .put("rq", JSONArray().apply { requests.forEach { put(JSONObject().put("p", it.pipe).put("n", it.name).put("at", it.at)) } })
             .put("lk", link ?: "").put("sg", signs).put("rx", reacts).put("dc", talks).apply { reactList?.let { put("rl", JSONArray(it)) } }
-            .put("as", actsJson(acts, 1L))
+            .put("as", actsJson(acts, 1L)).put("sl", silent)
         companion object {
             fun of(o: JSONObject) = State(o.getString("id"), o.getString("k"), o.optString("ti"), o.optString("ds"), o.optString("ow"),
                 o.getString("me"),
@@ -126,7 +128,7 @@ object Groups {
                 o.optString("iv").ifEmpty { null }, o.optBoolean("ap"),
                 o.optJSONArray("rq")?.let { a -> MutableList(a.length()) { i -> a.getJSONObject(i).let { Request(it.getString("p"), it.optString("n"), it.optLong("at")) } } } ?: mutableListOf(),
                 o.optString("lk").ifEmpty { null }, o.optBoolean("sg"), o.optBoolean("rx", true),
-                reactionList(o.optJSONArray("rl")), actsOf(o.optJSONArray("as"), 1L), o.optBoolean("dc"))
+                reactionList(o.optJSONArray("rl")), actsOf(o.optJSONArray("as"), 1L), o.optBoolean("dc"), o.optBoolean("sl"))
         }
     }
 
@@ -416,8 +418,8 @@ object Groups {
         val name = Marks.mintMid()
         copies[name] = Copy(w.getString("g"), letter, pipe, own, 1)
         saveCopies()
-        // the past (G.4) rings nothing on the wire; a room's word rings only where it is an invitation (iOS carry ring, 07.10)
-        Post.send(pipe, name, MARK + w.toString(), quiet = w.optInt("hs") == 1 || ring == false)
+        // the past (G.4) and a channel's silent post ring nothing on the wire; a room's word rings only where it is an invitation (iOS carry ring, 07.10)
+        Post.send(pipe, name, MARK + w.toString(), quiet = w.optInt("hs") == 1 || w.optInt("sl") == 1 || ring == false)
         Log.i("Montana", "group_tx mid=" + name.take(14) + " t=" + w.optString("t") + " to=" + pipe.take(10))
         return name
     }
@@ -438,6 +440,7 @@ object Groups {
     private fun word(t: String, g: State): JSONObject {
         val w = JSONObject().put("t", t).put("g", g.id)
         if (t == "say") w.put("k", g.kind).put("ti", g.title)
+        if (t == "say" && g.kind == CHANNEL && g.silent) w.put("sl", 1)   // the bell in the owner's field (iOS w.sl, Silent Broadcast)
         clean(Prefs.userName, NAME_LIMIT).takeIf { it.isNotEmpty() }?.let { w.put("n", it) }
         return w
     }
@@ -1426,6 +1429,17 @@ object Groups {
             save()
             tellAll(g, null)
             Log.i("Montana", "channel_comments " + (if (on) "on" else "off"))
+        }
+    }
+    /** WHETHER THE OWNER'S NEXT POSTS GO WITHOUT SOUND (iOS silent, the bell in a channel's field): its owner's choice, kept on its state. */
+    fun silent(key: String): Boolean = synchronized(lock) { state(key)?.silent == true }
+    fun setSilent(key: String, on: Boolean) {
+        synchronized(lock) {
+            val g = state(key) ?: return
+            if (!g.mine || g.left || g.kind != CHANNEL) return
+            g.silent = on
+            save()
+            Log.i("Montana", "channel_silent " + (if (on) "on" else "off"))
         }
     }
     /** [I-14]: a comment's words, at most (iOS commentLimit). */
@@ -2451,7 +2465,7 @@ object Groups {
         // a media letter's file is gathered from the pieces every member reads; its copy was receipted already (handle)
         if (landed && words.startsWith(Marks.MEDIA)) Media.fetch(Book.ctx, key, id, words)
         // the banner a running app owes its person: the group's title over who wrote and what (a channel speaks as itself)
-        val past = w.optInt("hs") == 1   // a letter of the group's past handed to one just added (G.4): it lands silent, no banner
+        val past = w.optInt("hs") == 1 || w.optInt("sl") == 1   // the group's past handed to one just added (G.4), and a channel's silent post: no banner
         if (landed && Book.openChat != key && !past) Notify.letter(key, words, if (g.kind == GROUP) speakerName(Book.ctx, sp) else null,
             mentioned = g.kind == GROUP && mentionsMe(words))   // a mention rings through the mute (iOS presentGroup mentioned)
         if (landed && Book.openChat == key && g.kind == GROUP) readSoon(key)   // read before the eyes: the speaker hears it (B.13)
