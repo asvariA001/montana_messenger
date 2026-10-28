@@ -27,8 +27,8 @@ fun groupPage(act: MainActivity, key: String, onClose: () -> Unit,
               onSearch: () -> Unit = { onClose(); act.push { close -> conversationPage(act, key, close, search = true) } }): View {
     val c: Context = act
     // THE GROUP'S PANES UNDER ITS PEOPLE, AS THE REFERENCE'S PAGE HAS THEM (iOS 82c9ae3f, V.7): Media -- its photos and its videos
-    // together --, Files, Links, Music and Voice; a channel keeps its page as it was
-    val panes = if (Groups.isChannel(key)) null else panesOf(act, key, group = true, onClose, toChat) {}
+    // together --, Files, Links, Music and Voice; a channel's Media and Video apart (iOS paneTabs, MontanaPeerInfoScreen 996 at 2315)
+    val panes: Panes? = panesOf(act, key, group = true, onClose, toChat) {}
     panes?.pane?.setPadding(0, 0, 0, 0)   // the page's own margins hold it
     val edit = c.text(c.getString(R.string.edit), 17f, SysColor.blue).apply { setPadding(c.dp(8), c.dp(10), c.dp(8), c.dp(10)) }
     edit.pressable { act.push { back -> groupEditPage(act, key, back) { back(); onClose() } } }
@@ -73,6 +73,9 @@ fun groupPage(act: MainActivity, key: String, onClose: () -> Unit,
                     .setNegativeButton(R.string.cancel, null).show()
             }
         }
+        // A SUBSCRIBER'S «MORE» ON A CHANNEL'S PAGE IS THE REPORT ALONE (iOS MontanaPeerInfoScreen 563-567 at 2315): «Leave» stands
+        // among the page's buttons, and a channel's history is not the subscriber's to clear
+        if (Groups.isChannel(key)) items.retainAll { it.first == c.getString(R.string.pi_report) }
         PopupMenu(c, v).apply {
             items.forEachIndexed { i, (t, _) -> menu.add(0, i, i, t) }
             setOnMenuItemClickListener { items[it.itemId].second(); true }
@@ -251,6 +254,11 @@ fun groupPage(act: MainActivity, key: String, onClose: () -> Unit,
                 .setNegativeButton(R.string.cancel, null).show()
         }
         if (rows.isNotEmpty()) body.section(null, null, *rows.toTypedArray())
+        panes?.let { p ->   // the channel's panes under its rows, as a group's stand under its people
+            body.addView(p.bar, lp(MATCH, c.dp(44)).apply { topMargin = c.dp(24) })
+            body.addView(p.pane, lp())
+            p.heard()
+        }
     }
     redraw = { draw() }
     draw()
