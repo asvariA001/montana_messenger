@@ -286,16 +286,18 @@ private fun groupEditPage(act: MainActivity, key: String, onBack: () -> Unit, on
             close = act.overlay(cropPage(act, image) { jpeg -> close(); if (jpeg != null) { face = jpeg; drawFace() } })
         }
     }
+    val channel = Groups.isChannel(key)
     val name = EditText(c).apply {
         setText(Book.chat(key)?.shown ?: "")   // USER-DATA: the group's title
-        hint = c.getString(R.string.gr_name)
+        hint = c.getString(if (channel) R.string.ch_name else R.string.gr_name)
         setTextColor(Color.WHITE); setHintTextColor(MT.gray)
         background = null
         isSingleLine = true
         setPadding(c.dp(16), c.dp(12), c.dp(16), c.dp(12))
     }
-    // THE DESCRIPTION, AS THE REFERENCE'S GROUP EDITOR HAS IT (iOS stage R): written by the owner, carried to every member (Groups.renew)
-    val channel = Groups.isChannel(key)
+    // THE DESCRIPTION, AS THE REFERENCE'S GROUP EDITOR HAS IT (iOS stage R): written by the owner, carried to every member (Groups.renew);
+    // a channel's by its owner alone (iOS MontanaPeerInfoScreen editor, mayChangeInfo)
+    val described = !channel || Groups.mayChangeInfo(key)
     val about = EditText(c).apply {
         setText(Groups.about(key))   // USER-DATA: the owner's words about the group
         hint = c.getString(R.string.gp_about_hint)
@@ -307,7 +309,7 @@ private fun groupEditPage(act: MainActivity, key: String, onBack: () -> Unit, on
     val done = c.text(c.getString(R.string.gp_done), 17f, SysColor.blue, bold = true).apply { setPadding(c.dp(8), c.dp(10), c.dp(8), c.dp(10)) }
     done.pressable {
         c.getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(name.windowToken, 0)
-        Groups.renew(key, name.text.toString(), face, if (channel) null else about.text.toString())
+        Groups.renew(key, name.text.toString(), face, if (described) about.text.toString() else null)
         onBack()
     }
     val bar = FrameLayout(c).apply {
@@ -327,10 +329,10 @@ private fun groupEditPage(act: MainActivity, key: String, onBack: () -> Unit, on
                     addView(faceBox, lp(dp(100), dp(100)))
                     gap(20)
                     addView(c.plate { addView(name, lp()) }, lp())
-                    if (!channel) {
+                    if (described) {
                         gap(20)
                         addView(c.plate { addView(about, lp()) }, lp())
-                        addView(c.text(c.getString(R.string.gp_about_note), 13f, MT.gray).apply { setPadding(dp(16), dp(6), dp(16), 0) }, lp())
+                        addView(c.text(c.getString(if (channel) R.string.ch_about_note else R.string.gp_about_note), 13f, MT.gray).apply { setPadding(dp(16), dp(6), dp(16), 0) }, lp())
                     }
                     if (!channel && Groups.manages(key)) {
                         // THE ADMINISTRATORS, as the reference's editor lists them, with their count (iOS MTGroupAdminsPage, G.6)
@@ -413,7 +415,34 @@ private fun groupEditPage(act: MainActivity, key: String, onBack: () -> Unit, on
                                 }, lp())
                             }, lp())
                         }
-                    } else if (!channel && Groups.heldLink(key) != null) {
+                    } else if (channel && Groups.manages(key)) {
+                        // THE CHANNEL'S LINK, THE PEOPLE TAKEN OUT AND ITS END, where the reference's channel settings keep them
+                        // (iOS MontanaPeerInfoScreen editor 683-711; Discussion, Reactions and Recent Actions come with their own pages)
+                        gap(20)
+                        val links = c.navRow(R.drawable.ic_link, c.getString(R.string.gp_links), null) {
+                            act.push { back -> groupLinksPage(act, key, back) }
+                        }
+                        addView(c.plate { addView(links, lp()) }, lp())
+                        gap(20)
+                        val removed = c.text("", 17f, MT.gray)
+                        fun reweigh() { removed.text = Groups.bannedPeople(c, key).size.toString() }   // USER-DATA: a count
+                        reweigh()
+                        val out = c.navRow(R.drawable.ic_hand, c.getString(R.string.gp_removed), removed) {
+                            act.push { back -> groupRemovedPage(act, key, back) { reweigh() } }
+                        }
+                        addView(c.plate { addView(out, lp()) }, lp())
+                        gap(20)
+                        addView(c.plate {
+                            addView(c.text(c.getString(R.string.ch_dissolve), 17f, SysColor.red).apply {
+                                setPadding(dp(16), dp(12), dp(16), dp(12)); minimumHeight = dp(48); gravity = Gravity.CENTER_VERTICAL
+                                pressable {
+                                    AlertDialog.Builder(c).setMessage(R.string.ch_dissolve_q)   // the whole question, as the reference asks it
+                                        .setPositiveButton(R.string.ch_dissolve) { _, _ -> Groups.dissolve(key); onGone() }
+                                        .setNegativeButton(R.string.cancel, null).show()
+                                }
+                            }, lp())
+                        }, lp())
+                    } else if (Groups.heldLink(key) != null) {
                         // an administrator who may invite holds the link the owner handed it (iOS MontanaPeerInfoScreen 795-801, G.6)
                         gap(20)
                         val links = c.navRow(R.drawable.ic_link, c.getString(R.string.gp_links), null) {
@@ -448,6 +477,7 @@ private fun Context.navRow(glyph: Int?, words: String, trail: View?, onTap: () -
  */
 private fun groupLinksPage(act: MainActivity, key: String, onBack: () -> Unit): View {
     val c: Context = act
+    val channel = Groups.isChannel(key)   // a channel's page has its own words and no approval (iOS MTChannelInviteLinksPage)
     var link: String? = null
     val shown = c.text("…", 17f, Color.WHITE).apply { setSingleLine(true); ellipsize = android.text.TextUtils.TruncateAt.MIDDLE }   // USER-DATA: the group's link
     fun button(words: Int, onTap: () -> Unit) = c.text(c.getString(words), 17f, Color.WHITE, bold = true, center = true).apply {
@@ -478,14 +508,14 @@ private fun groupLinksPage(act: MainActivity, key: String, onBack: () -> Unit): 
         minHeight = dp(48)
         gravity = Gravity.CENTER_VERTICAL
         pressable {
-            AlertDialog.Builder(c).setMessage(R.string.gp_link_revoke_q)
+            AlertDialog.Builder(c).setMessage(if (channel) R.string.ch_link_revoke_q else R.string.gp_link_revoke_q)
                 .setPositiveButton(R.string.gp_link_revoke_do) { _, _ -> Groups.resetInvite(key); shown.text = "…"; link = null; fetch() }
                 .setNegativeButton(R.string.cancel, null).show()
         }
     }
     fetch()
     return settingsPage(act, c.getString(R.string.gp_links), onBack) {
-        section(c.getString(R.string.gp_link_head), c.getString(R.string.gp_link_note), c.vstack(Gravity.NO_GRAVITY) {
+        section(c.getString(R.string.gp_link_head), c.getString(if (channel) R.string.ch_link_note else R.string.gp_link_note), c.vstack(Gravity.NO_GRAVITY) {
             setPadding(dp(16), dp(12), dp(16), dp(12))
             addView(shown, lp())
             gap(12)
@@ -497,23 +527,25 @@ private fun groupLinksPage(act: MainActivity, key: String, onBack: () -> Unit): 
         })
         if (!Groups.manages(key)) return@settingsPage   // the owner alone asks first and ends the links given before
         // THE LINK ASKS THE OWNER FIRST (iOS MTGroupInviteLinksPage, G.8): who opens it waits among the requests
-        var ready = false   // the switch set to what is stored is not the owner's tap
-        lateinit var note: android.widget.TextView
-        fun renote(on: Boolean) { note.text = c.getString(if (on) R.string.gp_approval_on_note else R.string.gp_approval_off_note) }
-        val approval = c.toggleRow(c.getString(R.string.gp_approval)) { on ->
-            if (!ready) return@toggleRow
-            Groups.setApproval(key, on)
-            renote(on)
-        }.apply {
-            setPadding(dp(16), dp(10), dp(16), dp(10)); minimumHeight = dp(48)
-            (getChildAt(0) as android.widget.TextView).textSize = 17f
-            (0 until childCount).map { getChildAt(it) }.filterIsInstance<Switch>().firstOrNull()?.isChecked = Groups.approval(key)
-            ready = true
+        if (!channel) {
+            var ready = false   // the switch set to what is stored is not the owner's tap
+            lateinit var note: android.widget.TextView
+            fun renote(on: Boolean) { note.text = c.getString(if (on) R.string.gp_approval_on_note else R.string.gp_approval_off_note) }
+            val approval = c.toggleRow(c.getString(R.string.gp_approval)) { on ->
+                if (!ready) return@toggleRow
+                Groups.setApproval(key, on)
+                renote(on)
+            }.apply {
+                setPadding(dp(16), dp(10), dp(16), dp(10)); minimumHeight = dp(48)
+                (getChildAt(0) as android.widget.TextView).textSize = 17f
+                (0 until childCount).map { getChildAt(it) }.filterIsInstance<Switch>().firstOrNull()?.isChecked = Groups.approval(key)
+                ready = true
+            }
+            section(null, "", approval)
+            note = getChildAt(childCount - 1) as android.widget.TextView   // the section's words under it change with the switch
+            renote(Groups.approval(key))
         }
-        section(null, "", approval)
-        note = getChildAt(childCount - 1) as android.widget.TextView   // the section's words under it change with the switch
-        renote(Groups.approval(key))
-        section(null, null, revoke)
+        if (!channel || Groups.manages(key)) section(null, null, revoke)
     }
 }
 
@@ -601,6 +633,7 @@ private fun groupRequestsPage(act: MainActivity, key: String, onBack: () -> Unit
  */
 private fun groupRemovedPage(act: MainActivity, key: String, onBack: () -> Unit, onLeft: () -> Unit): View {
     val c: Context = act
+    val channel = Groups.isChannel(key)   // a channel's page has its own words (iOS MTChannelRemovedPage)
     val body = c.vstack(Gravity.NO_GRAVITY) {}
     fun draw() {
         body.removeAllViews()
@@ -613,7 +646,7 @@ private fun groupRemovedPage(act: MainActivity, key: String, onBack: () -> Unit,
                 addView(c.text(p.name, 17f, Color.WHITE).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))   // USER-DATA: a removed person's name
                 pressable {
                     AlertDialog.Builder(c).setTitle(p.name)   // USER-DATA: a person's name
-                        .setItems(arrayOf(c.getString(R.string.gp_removed_add), c.getString(R.string.delete))) { _, i ->
+                        .setItems(arrayOf(c.getString(if (channel) R.string.ch_removed_add else R.string.gp_removed_add), c.getString(R.string.delete))) { _, i ->
                             if (i == 0) Groups.add(key, listOf(p.pipe)) else Groups.unban(key, p.seat)
                             draw()
                         }
@@ -621,7 +654,7 @@ private fun groupRemovedPage(act: MainActivity, key: String, onBack: () -> Unit,
                 }
             }
         }
-        body.section(c.getString(R.string.gp_removed_head), c.getString(R.string.gp_removed_note), *rows.toTypedArray())
+        body.section(c.getString(R.string.gp_removed_head), c.getString(if (channel) R.string.ch_removed_note else R.string.gp_removed_note), *rows.toTypedArray())
     }
     draw()
     val page = settingsPage(act, c.getString(R.string.gp_removed), onBack) { addView(body, lp()) }

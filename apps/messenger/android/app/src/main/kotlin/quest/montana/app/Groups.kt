@@ -1089,7 +1089,7 @@ object Groups {
     fun inviteLink(c: Context, key: String): String? {
         val mark = synchronized(lock) {
             val g = state(key) ?: return null
-            if (!g.mine || g.kind != GROUP || g.left) return null
+            if (!g.mine || g.left) return null   // a group's or a channel's (iOS inviteLink: canManage alone)
             g.invite ?: mintId().also { g.invite = it; save() }
         }
         val card = MontanaCard.offerPermanent(c) ?: return null
@@ -1102,7 +1102,7 @@ object Groups {
      * born here -- the word is laid under the groups' lock, and a card is born on the network. Null: no card stands yet (handLink).
      */
     private fun standingLink(g: State): String? {
-        if (!g.mine || g.kind != GROUP || g.left) return null
+        if (!g.mine || g.left) return null
         val card = MontanaCard.heldPermanent() ?: return null
         val mark = g.invite ?: mintId().also { g.invite = it; save() }
         return joinLink(card, g.id, mark)
@@ -1123,7 +1123,7 @@ object Groups {
     /** A NEW MARK (iOS resetInvite, the reference's «Revoke Link»): every link given before opens nothing more. */
     fun resetInvite(key: String) = synchronized(lock) {
         val g = state(key) ?: return@synchronized
-        if (!g.mine || g.kind != GROUP) return@synchronized
+        if (!g.mine) return@synchronized
         g.invite = mintId()
         save()
         // an administrator who invites holds the new link at once (iOS 1574-1575, G.6); the old one opens nothing more
@@ -1174,7 +1174,7 @@ object Groups {
     private fun joined(w: JSONObject, pipe: String): Verdict {
         val g = groups[w.optString("g")] ?: return Verdict.REFUSED
         val held = g.invite
-        if (!g.mine || g.kind != GROUP || g.left || held == null || w.optString("tx") != held) return Verdict.REFUSED
+        if (!g.mine || g.left || held == null || w.optString("tx") != held) return Verdict.REFUSED   // a channel's link too (iOS joined)
         val from = SamePair.root(pipe)
         if (g.members.any { SamePair.root(it.pipe) == from }) return Verdict.HELD   // already in: nothing more
         if (g.banned.any { SamePair.root(it.pipe) == from }) {
