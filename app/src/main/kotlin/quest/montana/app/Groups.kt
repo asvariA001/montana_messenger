@@ -333,6 +333,8 @@ object Groups {
         if (g.mine) g.members.map { it.pipe }.filter { it.isNotEmpty() }.map { SamePair.root(it) }.distinct() else listOf(SamePair.root(g.owner))
     /** Out of the group — it left, or the owner took it out: the chat says so instead of a field (iOS isOut). */
     fun isOut(key: String) = state(key)?.left == true
+    /** Taken out by the owner (iOS state.removed): a channel's foot then says «Join» in grey. */
+    fun removed(key: String) = state(key)?.removed == true
     /** A channel, not a group: its page is the channels' (iOS kind == .channel). */
     fun isChannel(key: String) = state(key)?.kind == CHANNEL
     fun canWrite(key: String): Boolean { val g = state(key) ?: return false; return !g.left && posts(g, g.me) }
