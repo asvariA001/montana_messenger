@@ -92,6 +92,8 @@ object Groups {
         var reactList: List<String>? = null,
         /** WHAT WAS DONE IN A CHANNEL (iOS acts, the reference's «Recent Actions»): the owner's phone writes each deed as it does it, by the names it knew then. Never on the wire. */
         val acts: MutableList<Act> = mutableListOf(),
+        /** A CHANNEL'S SUBSCRIBERS COMMENT UNDER ITS POSTS (iOS talks, the reference's «Allow Comments»). Carried in its invitation (dc). */
+        var talks: Boolean = false,
     ) {
         val mine: Boolean get() = owner.isEmpty()
         fun json(): JSONObject = JSONObject().put("id", id).put("k", kind).put("ti", title).put("ds", about).put("ow", owner).put("me", me)
@@ -103,7 +105,7 @@ object Groups {
             .put("bd", JSONArray().apply { banned.forEach { put(JSONObject().put("s", it.seat).put("p", it.pipe)) } })
             .put("iv", invite ?: "").put("ap", approval)
             .put("rq", JSONArray().apply { requests.forEach { put(JSONObject().put("p", it.pipe).put("n", it.name).put("at", it.at)) } })
-            .put("lk", link ?: "").put("sg", signs).put("rx", reacts).apply { reactList?.let { put("rl", JSONArray(it)) } }
+            .put("lk", link ?: "").put("sg", signs).put("rx", reacts).put("dc", talks).apply { reactList?.let { put("rl", JSONArray(it)) } }
             .put("as", actsJson(acts, 1L))
         companion object {
             fun of(o: JSONObject) = State(o.getString("id"), o.getString("k"), o.optString("ti"), o.optString("ds"), o.optString("ow"),
@@ -122,7 +124,7 @@ object Groups {
                 o.optString("iv").ifEmpty { null }, o.optBoolean("ap"),
                 o.optJSONArray("rq")?.let { a -> MutableList(a.length()) { i -> a.getJSONObject(i).let { Request(it.getString("p"), it.optString("n"), it.optLong("at")) } } } ?: mutableListOf(),
                 o.optString("lk").ifEmpty { null }, o.optBoolean("sg"), o.optBoolean("rx", true),
-                reactionList(o.optJSONArray("rl")), actsOf(o.optJSONArray("as"), 1L))
+                reactionList(o.optJSONArray("rl")), actsOf(o.optJSONArray("as"), 1L), o.optBoolean("dc"))
         }
     }
 
@@ -189,6 +191,7 @@ object Groups {
     fun wipe() = synchronized(lock) {
         groups.clear(); gone.clear(); heard.clear(); copies.clear(); loaded = false; unread = false
         DeviceVault.delete(STORE); DeviceVault.delete(COPIES)
+        ChannelComments.wipe()
     }
 
     // ── the copy: the groups ride the card in the iPhone's form, and every group held stands a row ──
@@ -218,6 +221,7 @@ object Groups {
             for ((k, v) in listOf("faceTag" to g.faceTag, "invite" to g.invite)) if (v == null) o.remove(k) else o.put(k, v)
             if (g.kind == CHANNEL && g.signs) o.put("signs", true) else o.remove("signs")
             if (g.kind == CHANNEL && !g.reacts) o.put("reacts", false) else o.remove("reacts")
+            if (g.kind == CHANNEL && g.talks) o.put("talks", true) else o.remove("talks")
             g.reactList?.takeIf { g.kind == CHANNEL }?.let { o.put("reactList", JSONArray(it)) } ?: o.remove("reactList")
             if (g.kind == CHANNEL && g.acts.isNotEmpty()) o.put("acts", actsJson(g.acts, 1000L)) else o.remove("acts")
             val file = Book.face(key(id)).takeIf { it.isFile }?.let { face(faceFile(id), it) }
@@ -271,7 +275,8 @@ object Groups {
             s.optJSONArray("requests")?.let { a -> MutableList(a.length()) { i -> a.getJSONObject(i).let { Request(it.getString("pipe"), it.optString("name"), (it.optDouble("at", 0.0) * 1000).toLong()) } } } ?: mutableListOf(),
             signs = kind == CHANNEL && s.optBoolean("signs"), reacts = kind != CHANNEL || s.optBoolean("reacts", true),
             reactList = if (kind == CHANNEL) reactionList(s.optJSONArray("reactList")) else null,
-            acts = if (kind == CHANNEL) actsOf(s.optJSONArray("acts"), 1000L) else mutableListOf())
+            acts = if (kind == CHANNEL) actsOf(s.optJSONArray("acts"), 1000L) else mutableListOf(),
+            talks = kind == CHANNEL && s.optBoolean("talks"))
     }
 
     /**
@@ -342,6 +347,8 @@ object Groups {
     fun bornAt(key: String): Long = state(key)?.at ?: 0L
 
     private fun speaker(id: String, seat: String) = SPEAKER_HEAD + id + "/" + seat
+    /** The speaker of a seat in a group by its key: the colour and the name every phone gives them (a channel's commenter). */
+    fun speakerOf(key: String, seat: String) = state(key)?.let { speaker(it.id, seat) } ?: ""
     /**
      * The name a speaker's rows wear (iOS speakerName): the person as this phone knows them where it holds their pipe, else the
      * name they gave themselves in their last word.
@@ -902,6 +909,7 @@ object Groups {
             if (g.ranks.isNotEmpty()) w.put("rk", JSONObject(g.ranks.toMap()))
             if (g.kind == CHANNEL && g.signs) w.put("sg", 1)   // a channel signs its posts (iOS sg, Sign Messages)
             if (g.kind == CHANNEL && !g.reacts) w.put("rx", 0)   // a channel takes no reactions (iOS rx, Allow Reactions off)
+            if (g.kind == CHANNEL && g.talks) w.put("dc", 1)   // a channel's subscribers comment (iOS dc, Allow Comments)
             if (g.kind == CHANNEL) g.reactList?.let { w.put("rl", JSONArray(it)) }   // the reactions a channel takes (iOS rl, Some Reactions)
             if (link != null && m.seat in g.admins && adminCan(g, m.seat, INVITE)) w.put("lk", link)   // the link, to an admin who invites
             // what the members may not do, and the slow mode (iOS bn, sw, G.5): an older build skips the keys, the owner's door holds
@@ -1399,6 +1407,99 @@ object Groups {
             save()
             tellAll(g, null)
             Log.i("Montana", "channel_reactions " + (if (on) "on" else "off"))
+        }
+    }
+    /** Whether a channel's subscribers comment under its posts (iOS talks, «Allow Comments»). */
+    fun talks(key: String) = state(key)?.let { it.kind == CHANNEL && it.talks } == true
+    /** THE OWNER LETS ITS SUBSCRIBERS COMMENT OR STOPS IT (iOS setTalks): every subscriber hears it by the invitation's word again. */
+    fun setTalks(key: String, on: Boolean) {
+        synchronized(lock) {
+            val g = state(key) ?: return
+            if (!g.mine || g.left || g.kind != CHANNEL || g.talks == on) return
+            g.talks = on
+            act(g, if (on) "talkOn" else "talkOff")
+            save()
+            tellAll(g, null)
+            Log.i("Montana", "channel_comments " + (if (on) "on" else "off"))
+        }
+    }
+    /** [I-14]: a comment's words, at most (iOS commentLimit). */
+    const val COMMENT_LIMIT = 4096
+    /**
+     * [I-15] ONE COMMENT FROM ONE PERSON IN THIS MANY MILLISECONDS (iOS commentGap, the reference's slowmode): the owner takes one
+     * comment from a seat in this span and refuses the rest; a subscriber's own phone keeps the same span and its field says what is
+     * left. The owner's own comments wait for nobody.
+     */
+    private const val COMMENT_GAP = 30_000L
+    private val commentAt = mutableMapOf<String, Long>()
+    private val myCommentAt = mutableMapOf<String, Long>()
+    /** The seconds this phone waits before its next comment in a channel: 0 when it may comment now (iOS commentWait). */
+    fun commentWait(key: String): Int {
+        val g = state(key) ?: return 0
+        if (g.mine) return 0
+        val last = synchronized(lock) { myCommentAt[g.id] } ?: return 0
+        return maxOf(0L, (COMMENT_GAP - (System.currentTimeMillis() - last) + 999) / 1000).toInt()
+    }
+    /**
+     * A COMMENT OF MINE UNDER A CHANNEL'S POST (iOS comment): kept here at once and carried as the channel's word -- a subscriber's
+     * to the owner, the owner's to everyone. False -- not carried (comments off, no pipe, an empty or overlong word).
+     */
+    fun comment(text: String, post: String, key: String): Boolean {
+        val words = text.trim()
+        synchronized(lock) {
+            val g = state(key) ?: return false
+            if (g.kind != CHANNEL || !g.talks || g.left || !isLetterName(post) || words.isEmpty() ||
+                words.codePointCount(0, words.length) > COMMENT_LIMIT || commentWait(key) != 0) return false
+            if (!g.mine) myCommentAt[g.id] = System.currentTimeMillis()
+            val me = clean(Prefs.userName, NAME_LIMIT)
+            val id = Marks.mintMid()
+            val w = JSONObject().put("t", "cm").put("g", g.id).put("id", id).put("s", g.me).put("tx", words).put("qm", post)   // COMPAT-GATED: older builds refuse «cm»
+            if (me.isNotEmpty()) w.put("n", me)
+            ChannelComments.put(ChannelComments.Comment(id, g.me, me, words, System.currentTimeMillis(), mine = true), post, key)
+            return 0 < spread(w, g, null, own = false) || (g.mine && g.members.isEmpty())
+        }
+    }
+    /**
+     * A COMMENT ARRIVED (iOS commented): the owner takes one only under a post of its feed, from a subscriber it carries to, while
+     * comments are on, and carries it on to everyone else; a subscriber takes the owner's word alone. Each comment once, by its name.
+     */
+    private fun commented(w: JSONObject, pipe: String): Verdict {
+        val postHere = Book.chat(key(w.optString("g")))?.msgs?.any { it.mid == w.optString("qm") } == true   // read before the lock: the book keeps its own
+        synchronized(lock) {
+            val g = groups[w.optString("g")] ?: return Verdict.WAIT
+            val id = w.optString("id"); val post = w.optString("qm"); val tx = w.optString("tx")
+            if (g.kind != CHANNEL || g.left || !isLetterName(id) || !isLetterName(post) || tx.isEmpty() ||
+                tx.codePointCount(0, tx.length) > COMMENT_LIMIT) return Verdict.REFUSED
+            val from = SamePair.root(pipe)
+            val key = key(g.id)
+            val seat: String
+            if (g.mine) {
+                val m = g.members.firstOrNull { SamePair.root(it.pipe) == from }
+                if (!g.talks || m == null || !postHere) return Verdict.REFUSED
+                seat = m.seat
+            } else {
+                val s = w.optString("s")
+                if (SamePair.root(g.owner) != from || !isSeat(s) || s == g.me) return Verdict.REFUSED
+                seat = s
+            }
+            if (ChannelComments.has(id, post, key)) return Verdict.HELD   // a repeat: taken already
+            if (g.mine) {
+                val now = System.currentTimeMillis(); val pace = g.id + "/" + seat
+                if (now - (commentAt[pace] ?: 0L) < COMMENT_GAP) {
+                    Log.i("Montana", "channel_comment_paced one comment from a seat in thirty seconds -- refused")
+                    return Verdict.REFUSED
+                }
+                commentAt[pace] = now
+            }
+            val name = clean(w.optString("n"), NAME_LIMIT)
+            val born = Marks.birthMs(id) ?: System.currentTimeMillis()
+            val fresh = ChannelComments.put(ChannelComments.Comment(id, seat, name, tx, born, mine = false), post, key)
+            if (fresh && g.mine) {
+                val on = JSONObject().put("t", "cm").put("g", g.id).put("id", id).put("s", seat).put("tx", tx).put("qm", post)
+                if (name.isNotEmpty()) on.put("n", name)
+                spread(on, g, seat, own = false)
+            }
+            return Verdict.HELD
         }
     }
     /** THE OWNER CHOOSES THE REACTIONS ITS CHANNEL TAKES (iOS setReactionList, Some Reactions), or every one (null). */
@@ -1974,6 +2075,7 @@ object Groups {
                     if (g.ranks.isNotEmpty()) w.put("rk", JSONObject(g.ranks.toMap()))
                     if (g.kind == CHANNEL && g.signs) w.put("sg", 1)
                     if (g.kind == CHANNEL && !g.reacts) w.put("rx", 0)
+                    if (g.kind == CHANNEL && g.talks) w.put("dc", 1)
                     if (g.kind == CHANNEL) g.reactList?.let { w.put("rl", JSONArray(it)) }
                     return w
                 }
@@ -2117,6 +2219,7 @@ object Groups {
             "sp" -> passported(w, pipe)   // COMPAT-GATED: a sticker's passport (iOS 17.10, 2df34a13), an older build buries it
             "lp" -> carded(w, pipe)   // COMPAT-GATED: a letter's link card (iOS 17.10, 89dfd51d), an older build buries it
             "kp" -> keptHeard(w, pipe)   // COMPAT-GATED: a keeper's word to the one who deleted a letter (iOS 16.10, fbd8a190)
+            "cm" -> commented(w, pipe)   // COMPAT-GATED: a comment under a channel's post (iOS MTChannelComments, 2315)
             "room" -> roomed(w, pipe)   // COMPAT-GATED: a group room's word (iOS MTGroupRoom, 07.10)
             else -> Verdict.REFUSED.also { Log.i("Montana", "group_refused kind=${t.take(8)}") }   // a newer build's word: its road ends here
         }
@@ -2212,6 +2315,7 @@ object Groups {
         g.signs = g.kind == CHANNEL && w.optInt("sg") == 1   // iOS g.signs = w.sg == 1
         g.reacts = g.kind != CHANNEL || w.optInt("rx", 1) != 0   // iOS g.reacts = w.rx == 0 ? false : nil
         g.reactList = if (g.kind == CHANNEL) reactionList(w.optJSONArray("rl")) else null   // iOS reactionList(w.rl)
+        g.talks = g.kind == CHANNEL && w.optInt("dc") == 1   // iOS g.talks = w.dc == 1 ? true : nil
     }
 
     /** The administrators an invitation names (iOS ad): seats alone. */
