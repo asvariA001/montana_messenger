@@ -1086,7 +1086,8 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             // below the clock, and of the letters on the lowest rung the one that reached it last names the moment — the line spoke
             // the plate's last letter, «Read» while a video of the same pick still rode
             // a post's card is this phone's own row, not a letter: no rung under it (iOS MTRowLetter.ownRow, MTRowLetter.swift:60-63 at 2155)
-            val laddered = m.mine && !local && WallCard.of(m.text) == null
+            // nor a channel's post: it goes out to every subscriber, no one rung speaks for it (iOS ladder !isChannel, MontanaConversation 2967)
+            val laddered = m.mine && !local && !channel && WallCard.of(m.text) == null
             if (laddered) (b.getChildAt(0) as LinearLayout).addView(c.deliveryLine(ref, row.minWithOrNull(compareBy<Msg>({ it.state }, { -it.statusMoment })) ?: row.last()),
                 LinearLayout.LayoutParams(WRAP, WRAP).apply { topMargin = c.dp(3); marginEnd = c.dp(4) })
             // ANY FAILED BUBBLE: A TAP SENDS IT AGAIN (iOS primaryTap → onResend → resendAny, the author's invariant 24.08): a plate's
@@ -3064,7 +3065,8 @@ fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Unit, onEd
             if (canForward(m)) row(c.getString(R.string.ld_forward), R.drawable.ic_reply, mirrored = true) { onForward() }
         } else {
             // THE RUNG AND ITS MOMENT over the actions (iOS MontanaMessageMenu ladder): the same line as under the bubble, with the time
-            if (m.mine && !Book.isLocal(ref)) actions.addView(c.deliveryLine(ref, m, withMoment = true).apply { setPadding(dp(16), dp(11), dp(16), dp(11)) }, lp())
+            // none for a channel's post (iOS ladder !isChannel, MontanaConversation 2428)
+            if (m.mine && !Book.isLocal(ref) && !(group && Groups.isChannel(ref))) actions.addView(c.deliveryLine(ref, m, withMoment = true).apply { setPadding(dp(16), dp(11), dp(16), dp(11)) }, lp())
             // «N SEEN» (iOS MTSeenByRow, B.13): who read a letter of mine in a group, «Nobody Viewed» while none has; a tap opens their names under it
             val seen = if (group && m.mine) Groups.seenBy(c, m, ref) else null
             if (seen != null) {
