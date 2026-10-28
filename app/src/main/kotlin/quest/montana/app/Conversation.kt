@@ -1118,7 +1118,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             val core: View = if (!channel || local) b else {
                 val round = shareRound(c, forward)
                 b.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-                    val col = b.getChildAt(0) as? ViewGroup ?: return@addOnLayoutChangeListener
+                    val col = b.getChildAt(0) as? android.view.ViewGroup ?: return@addOnLayoutChangeListener
                     val last = col.getChildAt(col.childCount - if (laddered && 1 < col.childCount) 2 else 1) ?: return@addOnLayoutChangeListener
                     round.translationY = (col.top + last.bottom - c.dp(1) + c.dp(7) - c.dp(44)).toFloat()
                 }
