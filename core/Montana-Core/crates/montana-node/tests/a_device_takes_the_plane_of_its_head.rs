@@ -1,6 +1,6 @@
-// Two machines live four windows of a network they open, a third that holds nothing walks to their
-// head from an anchor its operator hands it, and then takes the tables of the value plane of that
-// head from one of them.
+// Two machines live five windows of a network they open, a third that holds nothing walks to their
+// head from an anchor past the first window its operator hands it, and then takes the tables of the
+// value plane of that head from one of them.
 //
 // **What is measured.** Consensus, "The join", step 5: the device "takes the state it needs against
 // the roots of the head ... and it recomputes every root it takes rather than accepting one"; and
@@ -27,10 +27,11 @@ use mt_state::layout::Proposal;
 mod common;
 use common::Scratch;
 
-// The window the network opens at, the windows it lives and the patience of a round, as the test of
-// the walk beside this one holds them.
+// The window the network opens at, the windows it lives and the patience of a round. One window
+// more than the test of the walk beside this one lives, so the anchor stands past the first window
+// and the head is still followed by a window closed.
 const FROM: u64 = 0;
-const WINDOWS: u64 = 4;
+const WINDOWS: u64 = 5;
 const PATIENCE: u32 = 40_000;
 
 fn refused(what: &'static str) -> Result<(), NodeError> {
@@ -104,7 +105,12 @@ fn a_device_that_walked_to_the_head_takes_its_tables_against_its_roots() {
     let (far, theirs) = living.join().expect("the thread stands");
     theirs.expect("the answerer lives the windows");
 
-    // The device walks to the head, as the test of the walk measures it.
+    // The device walks to the head, as the test of the walk measures it, from an anchor past the
+    // first window. **An anchor naming the first window would hand it a state:** a device that
+    // holds no chain and walked from the first window replays from the plane before any window
+    // (pulse.rs, state_of_the_walk; bfc164f) and holds the chain's plane without taking one.
+    // Anchored past it, it holds no state to replay from and was handed no cohort, so the walk
+    // keeps the proposals alone.
     let (joining, _) = Machine::start(&Configuration::at(&joining_at.0, "127.0.0.1:0"))
         .expect("the joining device starts");
     let line = far.acquaintance().expect("an acquaintance is written");
@@ -118,13 +124,13 @@ fn a_device_that_walked_to_the_head_takes_its_tables_against_its_roots() {
     let far = answering.join().expect("the thread stands");
     let anchor = Anchor {
         earlier: far
-            .proposal_of(FROM)
-            .expect("the store answers")
-            .expect("the first proposal"),
-        later: far
             .proposal_of(FROM + 1)
             .expect("the store answers")
             .expect("the second proposal"),
+        later: far
+            .proposal_of(FROM + 2)
+            .expect("the store answers")
+            .expect("the third proposal"),
     };
     let head = pulse::join(&joining, &anchor, PATIENCE).expect("the walk reaches the head");
     let at = FROM + WINDOWS - 2;
@@ -160,7 +166,8 @@ fn a_device_that_walked_to_the_head_takes_its_tables_against_its_roots() {
     );
     // **V3. One leaf altered under the honest roots is refused at its table.** The tree of credited
     // rights is the last table of the encoding (state.rs, State::encode), and the head holds the
-    // parts of two cements in it; its last leaf is replaced by another digest of the family.
+    // parts of the cements credited up to it; its last leaf is replaced by another digest of the
+    // family.
     let mut altered = offered.clone();
     let end = altered.len();
     assert_ne!(
