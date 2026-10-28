@@ -78,15 +78,8 @@ fun groupPage(act: MainActivity, key: String, onClose: () -> Unit,
             setOnMenuItemClickListener { items[it.itemId].second(); true }
         }.show()
     }
-    /**
-     * A GROUP'S PAGE AS THE REFERENCE LAYS IT (iOS 1915a7f4, MTGroupPage): under the head its buttons -- its sound and «More» (no voice
-     * chat is held on this phone, nor has a chat its own search yet) -- the description with its caption over its words, then the people
-     * with no header: «Add Member» first for the owner, the owner, the administrators, everyone else by name, this phone among them.
-     * A row: the face, the name, online under it, the role on a capsule of its own colour; a tap opens the person's page where this
-     * phone holds their pipe, a hold names the deeds. The ways out stand in «More» and in the editor.
-     */
-    fun drawGroup() {
-        val owns = Groups.manages(key)   // a group its owner ended is nobody's to add to or take from (iOS lines: g.mine && g.left != true)
+    // THE PAGE'S BUTTONS under the head: a group's sound, search and «More»; a channel's as MTChannelPage.actions has them
+    fun drawPlates() {
         val plates = c.hstack { setPadding(0, dp(4), 0, dp(10)) }
         fun plate(icon: Int, label: String, work: (View) -> Unit) {
             if (plates.childCount > 0) plates.addView(View(c), lp(c.dp(10), 1))
@@ -115,6 +108,17 @@ fun groupPage(act: MainActivity, key: String, onClose: () -> Unit,
         }
         if (!Groups.isChannel(key) || subscriber) plate(R.drawable.ic_more_horiz, c.getString(R.string.pi_more)) { v -> groupMore(v) }
         body.addView(plates, lp())
+    }
+    /**
+     * A GROUP'S PAGE AS THE REFERENCE LAYS IT (iOS 1915a7f4, MTGroupPage): under the head its buttons -- its sound and «More» (no voice
+     * chat is held on this phone, nor has a chat its own search yet) -- the description with its caption over its words, then the people
+     * with no header: «Add Member» first for the owner, the owner, the administrators, everyone else by name, this phone among them.
+     * A row: the face, the name, online under it, the role on a capsule of its own colour; a tap opens the person's page where this
+     * phone holds their pipe, a hold names the deeds. The ways out stand in «More» and in the editor.
+     */
+    fun drawGroup() {
+        val owns = Groups.manages(key)   // a group its owner ended is nobody's to add to or take from (iOS lines: g.mine && g.left != true)
+        drawPlates()
         Groups.about(key).takeIf { it.isNotEmpty() }?.let { about ->
             body.section(null, null, c.vstack(Gravity.NO_GRAVITY) {
                 setPadding(dp(16), dp(10), dp(16), dp(10))
@@ -208,6 +212,7 @@ fun groupPage(act: MainActivity, key: String, onClose: () -> Unit,
             // «N members, M online», said once for the chat's top and the page (iOS MTGroupPage.head, 1915a7f4)
             Groups.headLine(c, key)?.let { addView(c.text(it, 15f, MT.gray, center = true), lp(WRAP, WRAP)) }
         }, lp())
+        if (channel) drawPlates()
         if (!channel) {
             drawGroup()
             panes?.let { p ->
