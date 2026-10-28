@@ -992,6 +992,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         // the pass's own switches, read once: every row's signature takes the same answer
         val skin = BubbleStyle.style
         val canPull = !group || Groups.canWrite(ref)
+        val talks = group && Groups.talks(ref)   // a channel's comments: every post wears its count
         val played = Prefs.bool("plcap_$ref", false)
         val auto by lazy { Media.autoAllowed(c) }
         val byMid by lazy { chat.msgs.associateBy { it.mid } }
@@ -1005,6 +1006,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             val s = ArrayList<Any?>(10 * row.size + 12)
             for (x in row) { s.add(x.mid); s.add(x.text); s.add(x.state); s.add(x.edited); s.add(x.heard); s.add(x.reactions.toList()); s.add(x.myReact); s.add(x.file); s.add(x.meta); s.add(x.lp) }
             s.add(skin); s.add(canPull); s.add(m.mine && played); s.add(selecting); s.add(selecting && m.mid in picked)
+            s.add(if (talks) ChannelComments.count(m.mid, ref) else -1)
             if (m.qt != null && m.qt != FORWARDED_QUOTE) {
                 val whose = m.qm?.let { byMid[it] }
                 s.add(if (whose?.mine == true) Prefs.userName else if (group) speakers.getOrPut(whose?.from) { Groups.speakerName(c, whose?.from) } else chat.shown)
@@ -2370,7 +2372,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
             override fun onViewAttachedToWindow(v: View) {
                 v.requestApplyInsets()
-                Book.openChat = ref; Book.listen(listener); Notify.clear(ref)
+                Book.openChat = ref; Book.listen(listener); ChannelComments.listen(listener); Notify.clear(ref)
                 // WHAT THE GROUP REFUSED IS SAID HERE (iOS groupRefusal's alert): the reference's sentence, the field left as it was
                 if (group) Groups.refused = sayRefusal
                 ShowLetter.open = showLetter
@@ -2406,7 +2408,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 endEarReply()
                 bar.cancelRecording()
                 VoiceTape.standDown()   // a tape readied by a hold that never began goes with the chat (iOS MontanaConversation.swift:1667)
-                if (Book.openChat == ref) Book.openChat = null; Book.unlisten(listener)
+                if (Book.openChat == ref) Book.openChat = null; Book.unlisten(listener); ChannelComments.unlisten(listener)
                 if (Groups.refused === sayRefusal) Groups.refused = null   // only this chat's own: another may stand over it
                 if (ShowLetter.open === showLetter) ShowLetter.open = null
                 Presence.unlisten(presenceListener); LiveDraft.unlisten(draftListener); LinkCompose.unlisten(linkListener); CoinBook.unlisten(coinListener)
@@ -2716,6 +2718,22 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
             }, lp(if (note) MATCH else WRAP, WRAP).apply { if (voice) { topMargin = dp(8); if (!mine) gravity = Gravity.START } })
             if (edge) edgeLay(this, onPlate)
         }, lp(WRAP, WRAP))
+        // A POST'S COMMENTS (iOS MontanaBubble 506-541, the reference's «Leave a Comment»): under the post a plate of the bubble's own
+        // fill across its width -- the bubble, «Leave a Comment» or «N Comments», the chevron; the touch opens the post's comments
+        if (Groups.isKey(chat.ref) && Groups.talks(chat.ref) && m.state != -1) {
+            val n = ChannelComments.count(m.mid, chat.ref)
+            val ink = BubbleStyle.text(mine)
+            addView(c.hstack {
+                gravity = Gravity.CENTER_VERTICAL
+                background = BubbleStyle.drawable(context, mine)
+                minimumWidth = dp(210)
+                setPadding(dp(12), dp(8), dp(10), dp(8))
+                addView(c.icon(R.drawable.ic_set_textbubble, ink, 18), lp(dp(18), dp(18)).apply { marginEnd = dp(8) })
+                addView(c.text(if (n == 0) c.getString(R.string.ch_leave_comment) else c.resources.getQuantityString(R.plurals.ch_comments_n, n, n), 15f, ink, bold = true), lp(0, WRAP, 1f))
+                addView(c.icon(R.drawable.ic_chevron_right, ink, 14).apply { alpha = 0.6f }, lp(dp(14), dp(14)))
+                pressable { (c as? MainActivity)?.let { act -> act.push { back -> channelCommentsPage(act, chat.ref, m, back) } } }
+            }, lp(MATCH, WRAP).apply { topMargin = dp(2) })
+        }
         // ONE PLATE PER ANSWER, THE FACES ON IT (iOS MontanaBubble.swift 505-555 at 2155): the same emoji from both sides is one
         // plate with two faces; the correspondent's face stands only on the answer they are named on, mine on mine; my own answer
         // is taken back by a touch where it is shown (iOS onTapReaction), theirs is not mine to remove and answers no touch.

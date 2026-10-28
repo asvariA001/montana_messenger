@@ -905,7 +905,6 @@ private fun channelActionsPage(act: MainActivity, key: String, onBack: () -> Uni
     }
 }
 
-/** The deed in the reference's words, its doer this phone's owner (iOS MTChannelActionsPage.words). */
 /** A CHANNEL'S DISCUSSION (iOS MTChannelDiscussionPage, MontanaChannel 1045-1061): «Allow Comments» -- every post then wears its
  *  comments' footer on every subscriber's phone; the comments ride the channel itself, no group hosts them. */
 private fun channelDiscussionPage(act: MainActivity, key: String, onBack: () -> Unit): View {
@@ -919,6 +918,97 @@ private fun channelDiscussionPage(act: MainActivity, key: String, onBack: () -> 
     }
 }
 
+/**
+ * THE COMMENTS OF A POST (iOS MTChannelCommentsSheet, MontanaChannel 966-1041): the post's words over the comments, each with its
+ * speaker's name in their colour and its moment; while comments are on and I am inside, the field under them, and the slowmode's
+ * words while this phone waits (Groups.commentWait). The list follows the book as comments come.
+ */
+internal fun channelCommentsPage(act: MainActivity, key: String, post: Msg, onBack: () -> Unit): View {
+    val c: Context = act
+    val list = ChannelComments.comments(post.mid, key)
+    val title = if (list.isEmpty()) c.getString(R.string.ch_comments) else c.resources.getQuantityString(R.plurals.ch_comments_n, list.size, list.size)
+    val rows = c.vstack(Gravity.NO_GRAVITY) {}
+    val time = android.text.format.DateFormat.getTimeFormat(c)
+    fun fill() {
+        rows.removeAllViews()
+        val now = ChannelComments.comments(post.mid, key)
+        rows.background = c.rounded(MT.plate, 12)
+        if (now.isEmpty()) rows.addView(c.text(c.getString(R.string.ch_no_comments), 17f, MT.gray, center = true).apply {
+            setPadding(dp(16), dp(24), dp(16), dp(24))
+        }, lp(MATCH, WRAP))
+        for (cm in now) rows.addView(c.vstack(Gravity.NO_GRAVITY) {
+            setPadding(dp(16), dp(8), dp(16), dp(8))
+            addView(c.hstack {
+                gravity = Gravity.CENTER_VERTICAL
+                val who = if (cm.mine) Groups.myName(c) else cm.name.ifEmpty { c.getString(R.string.gr_member) }
+                addView(c.text(who, 15f, Groups.tint(Groups.speakerOf(key, cm.seat)), bold = true).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))   // USER-DATA: the speaker's name
+                addView(c.text(time.format(java.util.Date(cm.at)), 11f, MT.gray), lp(WRAP, WRAP))   // USER-DATA: the comment's moment
+            }, lp(MATCH, WRAP))
+            gap(3)
+            addView(c.text(cm.text, 17f, Color.WHITE), lp(MATCH, WRAP))   // USER-DATA: the comment's words
+        }, lp(MATCH, WRAP))
+    }
+    fill()
+    val heard: () -> Unit = { fill() }
+    return settingsPage(act, title, onBack, cross = true) {
+        val words = post.text.takeIf { !Marks.isService(it) }.orEmpty()
+        if (words.isNotEmpty()) addView(c.vstack(Gravity.NO_GRAVITY) {
+            section(null, null, c.text(words, 17f, Color.WHITE).apply { maxLines = 8; ellipsize = android.text.TextUtils.TruncateAt.END; setPadding(dp(16), dp(12), dp(16), dp(12)) })   // USER-DATA: the post's words
+        }, lp())
+        addView(rows, lp(MATCH, WRAP).apply { setMargins(dp(16), dp(12), dp(16), dp(12)) })
+        if (Groups.talks(key) && !Groups.isOut(key)) {
+            // THE FIELD SAYS WHAT IS LEFT (the reference's slowmode words): one comment in thirty seconds (Groups.COMMENT_GAP)
+            val slow = c.text("", 13f, MT.gray, center = true).apply { visibility = View.GONE; setPadding(dp(16), 0, dp(16), dp(4)) }
+            val field = EditText(c).apply {
+                hint = c.getString(R.string.ch_comment)
+                setTextColor(Color.WHITE); setHintTextColor(MT.gray)
+                background = c.rounded(MT.plate, 22)
+                minLines = 1; maxLines = 5
+                setPadding(dp(14), dp(11), dp(14), dp(11))
+            }
+            val send = c.icon(R.drawable.ic_arrow_up, Color.WHITE, 22).apply {
+                background = c.rounded(MT.blue, 18); setPadding(dp(7), dp(7), dp(7), dp(7))
+                contentDescription = c.getString(R.string.send)
+            }
+            fun ready() { send.alpha = if (field.text.toString().isBlank()) 0.4f else 1f }
+            field.addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
+                override fun onTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
+                override fun afterTextChanged(s: android.text.Editable?) = ready()
+            })
+            ready()
+            send.setOnClickListener {
+                if (field.text.toString().isBlank()) return@setOnClickListener
+                if (Groups.comment(field.text.toString(), post.mid, key)) field.setText("")
+            }
+            val tick = object : Runnable {
+                override fun run() {
+                    val wait = Groups.commentWait(key)
+                    slow.visibility = if (0 < wait) View.VISIBLE else View.GONE
+                    if (0 < wait) slow.text = c.getString(R.string.ch_slowmode, String.format(java.util.Locale.ROOT, "0:%02d", wait))
+                    slow.postDelayed(this, 1000)
+                }
+            }
+            addView(slow, lp(MATCH, WRAP))
+            addView(c.hstack {
+                gravity = Gravity.BOTTOM
+                setPadding(dp(12), dp(8), dp(12), dp(8))
+                addView(field, lp(0, WRAP, 1f).apply { marginEnd = dp(8) })
+                addView(send, lp(dp(36), dp(36)).apply { bottomMargin = dp(4) })
+            }, lp(MATCH, WRAP))
+            slow.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+                override fun onViewAttachedToWindow(v: View) { tick.run() }
+                override fun onViewDetachedFromWindow(v: View) { v.removeCallbacks(tick) }
+            })
+        }
+        rows.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: View) { ChannelComments.listen(heard); fill() }
+            override fun onViewDetachedFromWindow(v: View) { ChannelComments.unlisten(heard) }
+        })
+    }
+}
+
+/** The deed in the reference's words, its doer this phone's owner (iOS MTChannelActionsPage.words). */
 private fun actWords(c: Context, a: Groups.Act): String {
     val names = (a.p ?: emptyList()).map { it.ifEmpty { c.getString(R.string.gr_member) } }.joinToString(", ")
     return when (a.e) {

@@ -171,6 +171,12 @@
     <string name="ch_allow_comments_note">Subscribers comment under every post. The comments ride the channel itself, phone to phone.</string>
     <string name="cha_talk_on">You enabled comments</string>
     <string name="cha_talk_off">You disabled comments</string>
+    <string name="ch_leave_comment">Leave a Comment</string>
+    <plurals name="ch_comments_n"><item quantity="one">%d Comment</item><item quantity="other">%d Comments</item></plurals>
+    <string name="ch_comments">Comments</string>
+    <string name="ch_no_comments">No comments here yet...</string>
+    <string name="ch_comment">Comment</string>
+    <string name="ch_slowmode">Slowmode is enabled. You can send your next message in %s.</string>
     <string name="ch_rights_q">What can this admin do?</string>
     <string name="ch_r_info">Change Channel Info</string>
     <string name="ch_r_post">Post Messages</string>
