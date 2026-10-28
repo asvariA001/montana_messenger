@@ -1582,6 +1582,12 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     }
     val coinListener: () -> Unit = { coinCount.text = CoinText.count(CoinBook.balance) }
     bar.onCoinMode = { on -> coinPlate.visibility = if (on) View.VISIBLE else View.GONE; if (on) coinListener() }
+    // A CHANNEL'S FIELD (iOS channel/silent/onSilent, 3806-3808): «Broadcast...» and the bell that turns the sound of the next posts
+    if (group && Groups.isChannel(ref)) {
+        bar.channel = true
+        bar.silent = Groups.silent(ref)
+        bar.onSilent = { Groups.setSilent(ref, !Groups.silent(ref)); bar.silent = Groups.silent(ref) }
+    }
     val groupCoin = Groups.takesCoins(ref)
     bar.coinPicks = groupCoin
     bar.coins = CoinSend.canPay(ref) || groupCoin
