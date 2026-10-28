@@ -2720,7 +2720,7 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
         }, lp(WRAP, WRAP))
         // A POST'S COMMENTS (iOS MontanaBubble 506-541, the reference's «Leave a Comment»): under the post a plate of the bubble's own
         // fill across its width -- the bubble, «Leave a Comment» or «N Comments», the chevron; the touch opens the post's comments
-        if (Groups.isKey(chat.ref) && Groups.talks(chat.ref) && m.state != -1) {
+        if (Groups.isKey(chat.ref) && Groups.talks(chat.ref)) {
             val n = ChannelComments.count(m.mid, chat.ref)
             val ink = BubbleStyle.text(mine)
             addView(c.hstack {
