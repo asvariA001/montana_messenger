@@ -270,13 +270,11 @@ fn a_replayed_heavy_gives_the_replayer_no_part_of_its_own() {
     held.copy_from_slice(&seed[..mt_suite::sign::SEED_BYTES]);
     let (key, secret_of_the_key) = mt_suite::sign::keypair_from_seed(&held);
     claimed.answering_key = key.as_bytes().to_vec();
-    claimed.signature = mt_suite::sign::sign(
-        &secret_of_the_key,
-        &claimed.signed_scope().expect("scope"),
-    )
-    .expect("the carrier owns its own key")
-    .as_bytes()
-    .to_vec();
+    claimed.signature =
+        mt_suite::sign::sign(&secret_of_the_key, &claimed.signed_scope().expect("scope"))
+            .expect("the carrier owns its own key")
+            .as_bytes()
+            .to_vec();
     assert_eq!(
         attest::verify_heavy(&claimed, &root, &aggregate, 0, 7, &everything),
         Err(montana_node::NodeError::Refused {
