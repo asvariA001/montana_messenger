@@ -254,7 +254,8 @@ impl Node {
         dir: &std::path::Path,
         me: &crate::identity::Identity,
     ) -> Result<Self, NodeError> {
-        let (state, current, timechain) = crate::window_record::open(dir, me, genesis_params(), false)?;
+        let (state, current, timechain) =
+            crate::window_record::open(dir, me, genesis_params(), false)?;
         let mut t_r_history = BTreeMap::new();
         for w in W - 1..=W + 2 {
             t_r_history.insert(w, t_r_of(w));
