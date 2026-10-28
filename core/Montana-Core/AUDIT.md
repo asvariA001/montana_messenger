@@ -405,7 +405,7 @@ silence, no default, no note conjured to make the command succeed. That refusal 
 seen from the outside — a wallet holds notes only where something minted, minting stands on a
 cemented window, a cemented window stands on admitted machines, and admission stands on an object
 the set does not lay out. What the run establishes is that everything up to that point stands on a
-terminal and not only in a test.
+terminal and not only in a test. Historical (marked 2026-10-27 UTC): this is the run of an earlier build. On `main` a right becomes a note and the note is paid away (`crates/montana-node/tests/value_enters_the_network.rs:23`; `crates/mt-proof/src/circuit/frame.rs:1111-1116`: a frame that redeems no note proves against the empty root). Whether F-8 is closed is not decided here.
 
 **The identity plane had a record and the rules of its life, and no object by which a record is
 opened or acts.** Canon laid out thirty-three objects; among them stood neither an opening nor an
@@ -541,7 +541,7 @@ is redeemed inside a frame, and a frame cannot be built without notes that only 
 could have created. Closing it is the same construction the action of a record already uses for its
 successor position: a third form whose values are drawn, with the proof asserting of each position
 that it holds a redemption or a blank without disclosing which. It moves the description of the
-frame, and with it `air_hash` and the Genesis State Hash.
+frame, and with it `air_hash` and the Genesis State Hash. Historical (marked 2026-10-27 UTC): "it is unreachable" (the sentence that begins "That is the first value in the network") is the circuit of an earlier tree. On `main` a right becomes a note and the note is paid away (`crates/montana-node/tests/value_enters_the_network.rs:23`; `crates/mt-proof/src/circuit/frame.rs:1111-1116`, filler beside the right). Whether F-8 is closed is not decided here.
 
 **The window's circuit binds its public input cell by cell, and at the one height that is a proof
 nobody runs.** Its description carries a boundary for every coefficient of every accumulator and of

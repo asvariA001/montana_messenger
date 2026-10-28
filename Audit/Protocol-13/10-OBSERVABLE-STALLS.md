@@ -11,7 +11,7 @@ The separate-host three-node diagnostic exposed another distinction: thousands
 of advancing rounds can coexist with an unchanged window and insufficient heavy
 participants. Reporting a growing round alone would hide this stall. A pending
 historical-read scheduling repair addresses the observed starvation; it does
-not establish finality.
+not establish finality. Historical (marked 2026-10-27 UTC): the repair is no longer pending as a test: `three_machines_live_a_window` passed in the ring of `4451b21` (92 test binaries, all exit 0, one host, `01-WINDOW-PROOF.md:57`). This item stays open; a run on several hosts stays item 13.
 
 Closure requires the actually used network and operator interfaces to
 distinguish insufficient quorum, missing authenticated data, proof rejection
