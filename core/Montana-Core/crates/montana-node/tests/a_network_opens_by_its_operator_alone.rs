@@ -27,6 +27,21 @@ use common::Scratch;
 const NO_ANCHOR: &str = "refused: a machine with no anchor opens no window";
 const OPENED_OVER_A_CHAIN: &str = "refused: a network opened on a store that holds a chain";
 
+// **Every test of this file runs alone.** A test that starts the binary forks, and until the child
+// execs it holds a duplicate of every descriptor of this process. One of them can be the lock of the
+// root of a store another test has just dropped: `mt-store`, `Store::open`, where the lock goes with
+// the handle. The next opening of that store is then refused `HeldByAnother` for the instant between
+// the fork and the exec. Seen on Lauterbourg-2 (a640-open3): one run in three parallel, at "the store
+// opens again"; green under --test-threads=1. The lock is right to refuse. What shares one process
+// is the tests, not the machines.
+static ALONE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn alone() -> std::sync::MutexGuard<'static, ()> {
+    ALONE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 // A store with a secret borne and nothing else, and the naming half of the machine it is. A secret
 // is written once and its temporary is kept beside it, which the next opening of the store sweeps;
 // the store is opened once more here, so what a test compares is the store as every start leaves
@@ -108,6 +123,7 @@ fn stopped_inside_window_zero(at: &Path, secret: [u8; 32]) -> [u8; 32] {
 // and its store holds a chain it opened alone.
 #[test]
 fn a_machine_holding_nothing_and_not_asked_to_open_is_refused_and_writes_nothing() {
+    let _alone = alone();
     let at = Scratch::named("open-neither");
     let half = borne(&at.0, [0x71; 32]);
     let before = everything_under(&at.0);
@@ -127,6 +143,7 @@ fn a_machine_holding_nothing_and_not_asked_to_open_is_refused_and_writes_nothing
 // carries another tree of admitted machines than the halves the operator named.
 #[test]
 fn an_operator_opens_window_zero_on_the_cohort_handed_over() {
+    let _alone = alone();
     let at = Scratch::named("open-empty");
     let half = borne(&at.0, [0x72; 32]);
     let ran = started(&at.0, &half, true);
@@ -163,6 +180,7 @@ fn an_operator_opens_window_zero_on_the_cohort_handed_over() {
 // and a start without --open that takes that record for an anchor and lives window zero again.
 #[test]
 fn an_open_on_a_store_holding_a_chain_is_refused_and_writes_nothing() {
+    let _alone = alone();
     let at = Scratch::named("open-held");
     let half = stopped_inside_window_zero(&at.0, [0x73; 32]);
     let before = everything_under(&at.0);
@@ -196,6 +214,7 @@ fn an_open_on_a_store_holding_a_chain_is_refused_and_writes_nothing() {
 // fa8ec28 lives again on the Genesis State Hash.
 #[test]
 fn the_pulse_opens_window_zero_on_an_empty_store_alone() {
+    let _alone = alone();
     let at = Scratch::named("open-pulse");
     let half = stopped_inside_window_zero(&at.0, [0x74; 32]);
     let before = everything_under(&at.0);
