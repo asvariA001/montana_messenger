@@ -225,7 +225,7 @@ fun groupPage(act: MainActivity, key: String, onClose: () -> Unit,
         if (Groups.manages(key)) {
             val admins = 1 + Groups.admins(key).size   // the reference counts its owner among them
             rows += c.navRow(R.drawable.ic_checkmark_shield, c.getString(R.string.gp_admins), c.text("$admins", 17f, MT.gray)) {
-                act.push { back -> groupAdminsPage(act, key, back) }
+                act.push { back -> groupAdminsPage(act, key) { back(); draw() } }   // the number counted again on the way back
             }
             rows += c.navRow(R.drawable.ic_app_groups, c.getString(R.string.ch_subscribers), c.text("${Groups.count(key) ?: 1}", 17f, MT.gray)) {
                 act.push { back -> channelPeoplePage(act, key) { back(); draw() } }
@@ -667,6 +667,14 @@ private fun groupRemovedPage(act: MainActivity, key: String, onBack: () -> Unit,
 }
 
 /** The rights' rows in the reference's own words (iOS MTAdminRight.title). */
+/** A channel's administrator's right in the reference's words (iOS MTChannelRight.title). */
+private fun channelRightWord(r: String) = when (r) {
+    Groups.INFO -> R.string.ch_r_info
+    Groups.POST -> R.string.ch_r_post
+    Groups.DELETE -> R.string.ch_r_delete
+    else -> R.string.gr_add_subscribers
+}
+
 private fun rightWord(r: String) = when (r) {
     Groups.INFO -> R.string.gp_r_info
     Groups.DELETE -> R.string.gp_r_delete
@@ -722,6 +730,7 @@ private fun channelPeoplePage(act: MainActivity, key: String, onBack: () -> Unit
  * with its custom title or its role, each opening its rights; «Add Admin» chooses among the members.
  */
 private fun groupAdminsPage(act: MainActivity, key: String, onBack: () -> Unit): View {
+    if (Groups.isChannel(key)) return channelAdminsPage(act, key, onBack)
     val c: Context = act
     val body = c.vstack(Gravity.NO_GRAVITY) {}
     fun role(seat: String, owner: Boolean) = c.text(Groups.rank(key, seat) ?: c.getString(if (owner) R.string.gp_owner_cap else R.string.gp_admin_cap), 17f, MT.gray)   // USER-DATA: the owner's custom title
@@ -748,6 +757,55 @@ private fun groupAdminsPage(act: MainActivity, key: String, onBack: () -> Unit):
         })
     }
     draw()   // a rights page or «Add Admin» closed: the list is drawn again (iOS onAppear tick)
+    return settingsPage(act, c.getString(R.string.gp_admins), onBack) { addView(body, lp()) }
+}
+
+/**
+ * A CHANNEL'S ADMINISTRATORS, AS THE REFERENCE'S PAGE LISTS THEM (iOS MTChannelAdminsPage, MontanaChannel 631-736): «Channel Admins» --
+ * the owner, every administrator opening its rights, the owner's swipe or hold dismissing one, «Add Admin» under them; then «Sign
+ * Messages». A channel's admins wear their role, no custom title.
+ */
+private fun channelAdminsPage(act: MainActivity, key: String, onBack: () -> Unit): View {
+    val c: Context = act
+    val body = c.vstack(Gravity.NO_GRAVITY) {}
+    fun draw() {
+        body.removeAllViews()
+        val owns = Groups.manages(key)
+        val people = Groups.pagePeople(c, key)
+        val admins = Groups.admins(key).mapNotNull { s -> people.firstOrNull { it.seat == s } }
+        fun role(word: Int) = c.text(c.getString(word), 17f, MT.gray)
+        val rows = mutableListOf<View>()
+        rows += c.hstack {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+            minimumHeight = dp(48)
+            addView(c.text(Groups.myName(c), 17f, Color.WHITE).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))   // USER-DATA: my name
+            addView(role(R.string.gp_owner_cap))
+        }
+        admins.forEach { p ->
+            val dismiss = { Groups.setAdmin(key, p.seat, false); draw() }
+            val row = c.navRow(null, p.name, role(R.string.gp_admin_cap)) {
+                if (owns) act.push { back -> groupAdminRightsPage(act, key, p.seat, p.name, isNew = false) { back(); draw() } }
+            }
+            if (owns) row.setOnLongClickListener {
+                AlertDialog.Builder(c).setTitle(p.name)   // USER-DATA: an administrator's name
+                    .setItems(arrayOf(c.getString(R.string.gp_dismiss))) { _, _ -> dismiss() }
+                    .setNegativeButton(R.string.cancel, null).show()
+                true
+            }
+            rows += if (!owns) row else SwipeRow(act, row, listOf(Tile(R.drawable.ic_minus_circle, red = true) { dismiss() }), ground = GLASS_TONE or (0xFF shl 24))
+        }
+        if (owns) rows += c.navRow(R.drawable.ic_person_add, c.getString(R.string.gp_add_admin), null) {
+            act.push { back -> groupAdminPickPage(act, key) { back(); draw() } }
+        }
+        body.section(c.getString(R.string.ch_admins_head), c.getString(R.string.ch_add_admin_note), *rows.toTypedArray())
+        // «Sign Messages» (iOS Toggle → MTGroup.setSigns): every subscriber hears it by the invitation's word again
+        if (owns) body.section(null, c.getString(R.string.ch_sign_note), c.toggleRow(c.getString(R.string.ch_sign)) { on -> Groups.setSigns(key, on) }.apply {
+            setPadding(dp(16), dp(10), dp(16), dp(10))
+            (0 until childCount).map { getChildAt(it) }.filterIsInstance<Switch>().firstOrNull()?.isChecked = Groups.signsOn(key)
+        })
+    }
+    draw()   // a rights page or «Add Admin» closed: the list is drawn again (iOS tick)
     return settingsPage(act, c.getString(R.string.gp_admins), onBack) { addView(body, lp()) }
 }
 
@@ -791,14 +849,16 @@ private fun groupAdminRightsPage(act: MainActivity, key: String, seat: String, n
             onBack()
         }
     }
+    // a channel's administrator has its own rights and no custom title (iOS MTChannelAdminRightsPage, MTChannelRight)
+    val channel = Groups.isChannel(key)
     return settingsPage(act, c.getString(R.string.gp_rights), { hideKeys(); onBack() }, trailing = done) {
         section(null, null, c.text(name, 17f, Color.WHITE, bold = true).apply {   // USER-DATA: a person's name
             setPadding(dp(16), dp(12), dp(16), dp(12)); singleLineEllipsis()
         })
-        section(c.getString(R.string.gp_rank), c.getString(R.string.gp_rank_note), rank)
-        section(c.getString(R.string.gp_rights_q), null, *Groups.RIGHTS.map { r ->
+        if (!channel) section(c.getString(R.string.gp_rank), c.getString(R.string.gp_rank_note), rank)
+        section(c.getString(if (channel) R.string.ch_rights_q else R.string.gp_rights_q), null, *Groups.rights(key).map { r ->
             var ready = false   // the switch set to what is stored is not the owner's tap
-            c.toggleRow(c.getString(rightWord(r))) { on ->
+            c.toggleRow(c.getString(if (channel) channelRightWord(r) else rightWord(r))) { on ->
                 if (!ready) return@toggleRow
                 if (on) taken.remove(r) else taken.add(r)
             }.apply {

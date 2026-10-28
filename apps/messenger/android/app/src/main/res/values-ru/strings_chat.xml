@@ -139,6 +139,14 @@
     <string name="ch_removed_add">Добавить в канал</string>
     <string name="ch_dissolve">Удалить канал</string>
     <string name="ch_dissolve_q">Подождите! Удаление канала удалит всех подписчиков, и все сообщения будут потеряны. Всё равно удалить канал?</string>
+    <string name="ch_admins_head">Администраторы канала</string>
+    <string name="ch_add_admin_note">Вы можете добавить администраторов, которые помогут вести канал.</string>
+    <string name="ch_sign">Подписывать сообщения</string>
+    <string name="ch_sign_note">Добавлять имена администраторов к их публикациям.</string>
+    <string name="ch_rights_q">Что может этот администратор?</string>
+    <string name="ch_r_info">Изменение профиля канала</string>
+    <string name="ch_r_post">Публикация сообщений</string>
+    <string name="ch_r_delete">Удаление чужих сообщений</string>
     <string name="gr_pick_note">Письмо группы идёт по каналу каждого человека, поэтому в списке только те, с кем вы переписываетесь.</string>
     <string name="gr_new">Новая группа</string>
     <string name="gr_name">Название группы</string>

@@ -139,6 +139,14 @@
     <string name="ch_removed_add">添加到频道</string>
     <string name="ch_dissolve">删除频道</string>
     <string name="ch_dissolve_q">等等！删除此频道将移除所有成员，所有消息都将丢失。仍要删除频道吗？</string>
+    <string name="ch_admins_head">频道管理员</string>
+    <string name="ch_add_admin_note">您可以添加管理员来帮助您管理频道。</string>
+    <string name="ch_sign">消息署名</string>
+    <string name="ch_sign_note">在管理员发布的消息中添加其姓名。</string>
+    <string name="ch_rights_q">该管理员可以做什么？</string>
+    <string name="ch_r_info">更改频道信息</string>
+    <string name="ch_r_post">发布消息</string>
+    <string name="ch_r_delete">删除他人消息</string>
     <string name="gr_pick_note">群组消息经由每个人各自的通道传送，因此这里只列出与你有通信的人。</string>
     <string name="gr_new">新建群组</string>
     <string name="gr_name">群组名称</string>
