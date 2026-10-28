@@ -4766,7 +4766,7 @@ demands the width from this row rather than declaring one of its own.
 | `inbound_slots` — the links a device answers, beside the entries it chose | 96 |
 | `target_rounds` — derived: the least count of rounds at which the expected uncovered share of the electorate falls to the complement of the quorum | 284 |
 | `round_floor` — the fewest machines a round of a chain draws in expectation, whatever the population | 50 |
-| `retained_windows` — the windows the heavy attestations and the pledges of a closed window stand at their points for, which is the certificate a device behind walks | 8 |
+| `retained_windows` — the windows the beacons of the rounds of a closed window, its heavy attestations, the light attestations answering its final beacon, the ballots and the pledges stand at their points for, which is the certificate a device behind walks | 8 |
 | `k_max` — the cap of parallel chains | 8 |
 | `k_step`, in windows — one chain added each step of height, to the cap | 96 τ₂ |
 | `cascade_width` — entitled parallel versions per chain | 3 |

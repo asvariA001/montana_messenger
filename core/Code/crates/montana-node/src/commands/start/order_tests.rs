@@ -261,6 +261,7 @@ struct Follower {
     equivocations: Equivocations,
     fast_sync: Option<mt_sync::FastSyncClient>,
     fast_sync_deadline: Option<Instant>,
+    fast_sync_anchor: Option<Vec<u8>>,
     last_cement_at: Instant,
     prev_proposal_hash: Hash32,
     data_dir: PathBuf,
@@ -271,7 +272,8 @@ impl Follower {
     fn new(f: &Fixture, tag: &str) -> Self {
         let data_dir = temp_data_dir(tag);
         let store = FsStore::open(&data_dir).expect("store");
-        let timechain = load_or_init_timechain(&data_dir).expect("genesis clock");
+        let timechain =
+            crate::timechain_state::load_or_init_timechain(&data_dir).expect("genesis clock");
         let mut t_r_history = BTreeMap::new();
         t_r_history.insert(W - 1, T_R_PREV);
         t_r_history.insert(W, T_R_W);
@@ -295,6 +297,7 @@ impl Follower {
             equivocations: BTreeMap::new(),
             fast_sync: None,
             fast_sync_deadline: None,
+            fast_sync_anchor: None,
             last_cement_at: Instant::now(),
             prev_proposal_hash: [0u8; 32],
             data_dir,
@@ -320,6 +323,7 @@ impl Follower {
             equivocations: &mut self.equivocations,
             fast_sync: &mut self.fast_sync,
             fast_sync_deadline: &mut self.fast_sync_deadline,
+            fast_sync_anchor: &mut self.fast_sync_anchor,
             last_cement_at: &mut self.last_cement_at,
             prev_proposal_hash: &mut self.prev_proposal_hash,
             fast_sync_lag_threshold: FAST_SYNC_LAG_THRESHOLD,
@@ -684,7 +688,8 @@ fn a_clock_record_shorter_than_its_magic_is_refused() {
     let path = crate::timechain_state::timechain_path(&dir);
     std::fs::create_dir_all(path.parent().expect("meta dir")).expect("meta dir");
     std::fs::write(&path, b"mt").expect("write");
-    let got = std::panic::catch_unwind(|| load_or_init_timechain(&dir).is_err());
+    let got =
+        std::panic::catch_unwind(|| crate::timechain_state::load_or_init_timechain(&dir).is_err());
     let _ = std::fs::remove_dir_all(&dir);
     assert_eq!(
         got.ok(),

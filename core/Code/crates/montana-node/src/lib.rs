@@ -11,6 +11,8 @@ pub mod node_lifecycle;
 pub mod ops;
 pub mod state;
 pub mod timechain_state;
+/// The window record: the one truth of the window a node applied (issue #19 K5).
+pub mod window_record;
 
 pub use clock::{
     current_window_path, ensure_current_window_initialized, load_current_window,
