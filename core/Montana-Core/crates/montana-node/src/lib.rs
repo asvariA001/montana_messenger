@@ -1200,6 +1200,24 @@ impl Machine {
         attempt::Record::decode(&standing)
     }
 
+    // **The decided state of the head this machine holds**, from the record of the last window it
+    // closed: the state that record keeps of the window before the one it closed, where that window
+    // is the head. It is what a machine that walked back replays the windows it missed over. None
+    // where the record keeps no such state or the head is not the window before the one closed.
+    pub fn decided_state_of_the_head(&self) -> Result<Option<(u64, state::State)>, NodeError> {
+        let record = self.store.window().map_err(NodeError::Store)?;
+        if record.kept.is_empty() {
+            return Ok(None);
+        }
+        let kept = Kept::decode(&record.kept)?;
+        match (record.head, record.closed, kept.before) {
+            (Some(head), Some(closed), Some(before)) if head.checked_add(1) == Some(closed) => {
+                Ok(Some((head, before)))
+            }
+            _ => Ok(None),
+        }
+    }
+
     // The last window this machine closed, or none.
     pub fn closed_window(&self) -> Result<Option<u64>, NodeError> {
         self.store.closed().map_err(NodeError::Store)
