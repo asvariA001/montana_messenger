@@ -39,17 +39,6 @@ fun groupPage(act: MainActivity, key: String, onClose: () -> Unit,
         addView(edit, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER_VERTICAL or Gravity.END))
     }
     val body = c.vstack(Gravity.NO_GRAVITY) { setPadding(dp(16), 0, dp(16), dp(32)) }
-    fun memberRow(face: View, name: String, role: String, onTap: (() -> Unit)?) = c.hstack {
-        gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(16), dp(6), dp(16), dp(6))
-        minimumHeight = dp(52)
-        addView(face, lp(dp(40), dp(40)).apply { marginEnd = dp(12) })
-        addView(c.vstack(Gravity.NO_GRAVITY) {
-            addView(c.text(name, 17f, Color.WHITE).apply { singleLineEllipsis() }, lp())   // USER-DATA: a person's name
-            addView(c.text(role, 13f, MT.gray), lp())
-        }, lp(0, WRAP, 1f))
-        if (onTap != null) pressable(onTap)
-    }
     fun actionRow(glyph: Int, words: String, red: Boolean, onTap: () -> Unit) = c.hstack {
         gravity = Gravity.CENTER_VERTICAL
         setPadding(dp(16), dp(12), dp(16), dp(12))
@@ -220,71 +209,35 @@ fun groupPage(act: MainActivity, key: String, onClose: () -> Unit,
             }
             return
         }
-        // THE GROUP'S DESCRIPTION (iOS the group page's info above its people, stage R): the owner's words, read by all
-        Groups.about(key).takeIf { it.isNotEmpty() && !channel }?.let { about ->
+        // THE CHANNEL'S DESCRIPTION (iOS sections .about, data.kind == .group holds a channel too): the owner's words, read by all
+        Groups.about(key).takeIf { it.isNotEmpty() }?.let { about ->
             body.section(null, null, c.vstack(Gravity.NO_GRAVITY) {
                 setPadding(dp(16), dp(10), dp(16), dp(10))
                 addView(c.text(about, 17f, Color.WHITE).apply { setTextIsSelectable(true) }, lp())   // USER-DATA: the owner's words
                 addView(c.text(c.getString(R.string.gp_about), 13f, MT.gray), lp())
             })
         }
+        // A CHANNEL'S ROWS, AS THE REFERENCE'S CHANNEL PAGE HAS THEM (iOS channelRows, MontanaPeerInfoScreen 404-420): its owner's
+        // «Administrators» and «Subscribers» with their numbers and «Channel Settings»; an administrator who may change its info or
+        // hand its link sees the settings alone; a subscriber sees no people of the channel
         val rows = mutableListOf<View>()
-        // «Add Member» heads the people, as the reference folder's group page has it (iOS stage R)
-        if (owns) rows += actionRow(R.drawable.ic_person_add, c.getString(R.string.gp_add), red = false) {
-            act.push { close -> groupPickPage(act, close, {}, adding = key) }
-        }
-        // THE ROLES, AS THE REFERENCE'S MEMBER LIST NAMES THEM (iOS stage R.6): owner, admin, member; the owner's hold on a person names
-        // or dismisses an administrator and takes the person out; an administrator's takes out a member who is none
-        val mySeat = Groups.mySeat(key)
-        val iAdmin = !owns && mySeat?.let { Groups.isAdmin(key, it) } == true
-        // an administrator takes a member out only while the owner left it «Ban Users» (iOS adminCan .ban, G.6)
-        val iBan = !owns && Groups.mayBan(key)
-        // the custom title the owner gave stands instead of the role's own word (iOS rank, G.6)
-        fun roleWord(seat: String?, role: Int) = seat?.takeIf { role != R.string.gp_member }?.let { Groups.rank(key, it) } ?: c.getString(role)
-        rows += memberRow(c.avatar(SelfFace.load(c), Prefs.userName, 40), c.getString(R.string.gp_you),
-            roleWord(mySeat, if (owns) R.string.gp_owner else if (iAdmin) R.string.gp_admin else R.string.gp_member), null)
-        Groups.pagePeople(c, key).forEach { s ->
-            val theOwner = !owns && s.seat == Groups.OWNER
-            val admin = Groups.isAdmin(key, s.seat)
-            val mayRemove = owns || (iBan && !theOwner && !admin)
-            val deeds = mutableListOf<Pair<String, () -> Unit>>()
-            // the admin's rights page, as the reference's «Promote» and «Edit Admin Rights» open it (iOS MTGroupAdminRightsPage, G.6)
-            if (owns && !channel) {
-                if (admin) {
-                    deeds += c.getString(R.string.gp_edit_rights) to { act.push { back -> groupAdminRightsPage(act, key, s.seat, s.name, isNew = false) { back(); draw() } } }
-                    deeds += c.getString(R.string.gp_dismiss) to { Groups.setAdmin(key, s.seat, false); draw() }
-                } else deeds += c.getString(R.string.gp_promote) to { act.push { back -> groupAdminRightsPage(act, key, s.seat, s.name, isNew = true) { back(); draw() } } }
+        val settings = { act.push { back -> groupEditPage(act, key, back) { back(); onClose() } }; Unit }
+        if (Groups.manages(key)) {
+            val admins = 1 + Groups.admins(key).size   // the reference counts its owner among them
+            rows += c.navRow(R.drawable.ic_checkmark_shield, c.getString(R.string.gp_admins), c.text("$admins", 17f, MT.gray)) {
+                act.push { back -> groupAdminsPage(act, key, back) }
             }
-            if (mayRemove) deeds += c.getString(R.string.gp_remove_from) to {
-                AlertDialog.Builder(c).setTitle(R.string.gp_remove_q)
-                    .setPositiveButton(R.string.gp_remove) { _, _ -> Groups.kick(key, s.seat); draw() }
-                    .setNegativeButton(R.string.cancel, null).show()
+            rows += c.navRow(R.drawable.ic_app_groups, c.getString(R.string.ch_subscribers), c.text("${Groups.count(key) ?: 1}", 17f, MT.gray)) {
+                act.push { back -> channelPeoplePage(act, key) { back(); draw() } }
             }
-            val face = if (s.pipe.isEmpty()) c.avatar(null, s.name, 40) else c.peerFace(SamePair.root(s.pipe), s.name, 40)
-            rows += memberRow(face, s.name, roleWord(s.seat, if (theOwner) R.string.gp_owner else if (admin) R.string.gp_admin else R.string.gp_member),
-                if (deeds.isEmpty()) null else ({
-                    AlertDialog.Builder(c).setTitle(s.name)   // USER-DATA: a person's name
-                        .setItems(deeds.map { it.first }.toTypedArray()) { _, i -> deeds[i].second() }
-                        .setNegativeButton(R.string.cancel, null).show()
-                }))
-        }
-        val title0 = Book.chat(key)?.shown ?: ""
-        // the owner's way out is the group's end for everyone (iOS «Delete Group», «Delete for All»)
-        if (owns && !channel) rows += actionRow(R.drawable.ic_delete, c.getString(R.string.gp_dissolve), red = true) {
-            AlertDialog.Builder(c).setTitle(c.getString(R.string.gp_dissolve_q, title0))   // USER-DATA: the group's title
-                .setPositiveButton(R.string.gp_dissolve_all) { _, _ -> Groups.dissolve(key); onClose() }
-                .setNegativeButton(R.string.cancel, null).show()
-        } else if (!owns && !Groups.isOut(key)) rows += actionRow(R.drawable.ic_leave,
-            c.getString(if (channel) R.string.gp_leave_channel else R.string.gp_leave_group), red = true) {
-            // LEAVE GROUP (iOS «Are you sure you want to leave and delete %@?»): the owner is told, and the chat goes; a channel is left as before
-            if (channel) AlertDialog.Builder(c).setTitle(R.string.gp_leave_channel_q)
+            rows += c.navRow(R.drawable.ic_settings, c.getString(R.string.ch_settings), null, settings)
+        } else if (Groups.mayChangeInfo(key) || Groups.heldLink(key) != null) rows += c.navRow(R.drawable.ic_settings, c.getString(R.string.ch_settings), null, settings)
+        if (!owns && !Groups.isOut(key)) rows += actionRow(R.drawable.ic_leave, c.getString(R.string.gp_leave_channel), red = true) {
+            AlertDialog.Builder(c).setTitle(R.string.gp_leave_channel_q)
                 .setPositiveButton(R.string.gp_leave_channel) { _, _ -> Groups.leave(key); draw() }
                 .setNegativeButton(R.string.cancel, null).show()
-            else AlertDialog.Builder(c).setTitle(c.getString(R.string.gr_erase_q, title0))
-                .setPositiveButton(R.string.gp_leave_group) { _, _ -> Groups.leaveAndErase(key); onClose() }
-                .setNegativeButton(R.string.cancel, null).show()
         }
-        body.section(c.getString(R.string.gp_members), null, *rows.toTypedArray())
+        if (rows.isNotEmpty()) body.section(null, null, *rows.toTypedArray())
     }
     redraw = { draw() }
     draw()
@@ -687,6 +640,48 @@ private fun rightWord(r: String) = when (r) {
     Groups.BAN -> R.string.gp_r_ban
     Groups.INVITE -> R.string.gp_r_invite
     else -> R.string.gp_r_pin
+}
+
+/**
+ * A CHANNEL'S SUBSCRIBERS, AS THE REFERENCE LISTS THEM (iOS MTChannelPeoplePage, MontanaChannel 514-576): «Add Subscribers» first for
+ * its owner, then every person; the owner's swipe or hold takes one out, asked «Remove from the channel?» first.
+ */
+private fun channelPeoplePage(act: MainActivity, key: String, onBack: () -> Unit): View {
+    val c: Context = act
+    val body = c.vstack(Gravity.NO_GRAVITY) {}
+    fun draw() {
+        body.removeAllViews()
+        val manages = Groups.manages(key)
+        if (manages) body.section(null, null, c.navRow(R.drawable.ic_person_add, c.getString(R.string.gr_add_subscribers), null) {
+            act.push { close -> groupPickPage(act, { close(); draw() }, {}, adding = key) }
+        })
+        val rows = Groups.pagePeople(c, key).map { p ->
+            val remove = {
+                AlertDialog.Builder(c).setTitle(R.string.ch_remove_q)
+                    .setPositiveButton(R.string.gp_remove) { _, _ -> Groups.remove(key, p.seat); draw() }
+                    .setNegativeButton(R.string.cancel, null).show()
+                Unit
+            }
+            val row = c.hstack {
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(16), dp(6), dp(16), dp(6))
+                minimumHeight = dp(52)
+                val face = if (p.pipe.isEmpty()) c.avatar(null, p.name, 40) else c.peerFace(SamePair.root(p.pipe), p.name, 40)
+                addView(face, lp(dp(40), dp(40)).apply { marginEnd = dp(12) })
+                addView(c.text(p.name, 17f, Color.WHITE).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))   // USER-DATA: a subscriber's name
+                if (manages) setOnLongClickListener {
+                    AlertDialog.Builder(c).setTitle(p.name)   // USER-DATA: a subscriber's name
+                        .setItems(arrayOf(c.getString(R.string.gp_remove))) { _, _ -> remove() }
+                        .setNegativeButton(R.string.cancel, null).show()
+                    true
+                }
+            }
+            if (!manages) row else SwipeRow(act, row, listOf(Tile(R.drawable.ic_delete, red = true) { remove() }), ground = GLASS_TONE or (0xFF shl 24))
+        }
+        if (rows.isNotEmpty()) body.section(null, null, *rows.toTypedArray())
+    }
+    draw()
+    return settingsPage(act, c.getString(R.string.ch_subscribers), onBack) { addView(body, lp()) }
 }
 
 /**

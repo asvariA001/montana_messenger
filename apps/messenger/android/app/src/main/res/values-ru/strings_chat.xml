@@ -128,6 +128,9 @@
     <string name="gr_out_note">Вы больше не участник: сообщения остаются здесь для чтения.</string>
     <string name="gr_add_members">Добавить участников</string>
     <string name="gr_add_subscribers">Добавить подписчиков</string>
+    <string name="ch_subscribers">Подписчики</string>
+    <string name="ch_settings">Настройки канала</string>
+    <string name="ch_remove_q">Удалить из канала?</string>
     <string name="gr_pick_note">Письмо группы идёт по каналу каждого человека, поэтому в списке только те, с кем вы переписываетесь.</string>
     <string name="gr_new">Новая группа</string>
     <string name="gr_name">Название группы</string>
