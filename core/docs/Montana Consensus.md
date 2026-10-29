@@ -924,6 +924,31 @@ cannot be bought or parallelized. Where the pressure of pending candidates excee
 of the active set, the required continuity rises by the multiplier Canon fixes, to a bounded
 maximum — so that a rush of applicants raises the price in time rather than in money.
 
+**The ramp of entry** (decision 292, answer 4b; constitution records 297 and 300). The count of
+segments in force at the gate of entry is
+
+```
+n = min(max_entry_segments,
+        max(continuity_segments,
+            ceil(continuity_segments x pending x adaptive_entry_multiplier / active)))
+```
+
+with the multiplications before the division and the division rounding upward. `active` is the
+`admitted_count` of a proposal. `pending` is the count of candidacies applied and neither admitted
+by a selection event nor expired, as they stand once that proposal has applied. Both are measured in
+one proposal: the proposal of the last window of the stride standing for the candidacy's window,
+the one whose `record_root` the candidacy is verified against (Canon, "The candidacy of a machine").
+A claimant therefore knows `n` before it proves. Every verifier recomputes `n` from the state it
+holds, and the candidacy states no `n`. Because `adaptive_entry_threshold_den /
+adaptive_entry_threshold_num = adaptive_entry_multiplier`, the ramp leaves `continuity_segments`
+exactly where `pending / active` reaches the threshold of 1/100, and it reaches `max_entry_segments`
+at four times the threshold. Each of the three numbers acts by its name: the threshold is where the
+ramp begins, the multiplier is its slope, and `max_entry_segments` is its ceiling. No Decree row
+moves. `n` is the `segments_in_force` of Identity, and the record of a candidacy passes when it lived
+at least `ceil(n x 2 / 3)` of the `n` segments ending with the current one (Canon, "The rules of
+continuity"). Where `active` is zero, the formula divides by zero. The count there awaits the
+Author's decision and is not stated here.
+
 **The commitment that stands for a machine.** A machine is represented in every consensus
 structure by a commitment derived, under the domain Canon names for it, from the public key it
 answers with, the suite that key belongs to, and a blinding factor of its own. That commitment
