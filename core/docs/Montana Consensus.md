@@ -1342,7 +1342,7 @@ liveness only when the original authorization and verification requirements are 
 
 What monitoring reports to an operator is three verdicts, and each carries an exit code of the
 operator's status read. The codes are operator signals and not values of the protocol: no
-proposal, root, frame or quorum carries them, and no machine reads another machine's verdict.
+proposal, root, frame, message of the wire or quorum carries them.
 
 - `no quorum`, code 1: the data the window waits on stands, and the pledges or the cement on it
   fall short of the quorum share.
@@ -1352,9 +1352,9 @@ proposal, root, frame or quorum carries them, and no machine reads another machi
   diagnostic door is gone, or no running machine holds its store. A missing reading never reads
   as success.
 
-A reading that names no verdict — a window closed, or a shortfall still awaited inside the
-patience of its wait — is a healthy machine and reads 0. A verdict reached when the patience of a
-wait runs out is a stall: it closes nothing and moves no head. A refused proof is not a verdict
+A window closed, and a shortfall still awaited inside the patience of its wait, are a healthy
+machine and read 0; the waiting reading names its shortfall and is not a stall. A verdict reached
+when the patience of a wait runs out is a stall: it closes nothing and moves no head. A refused proof is not a verdict
 and not a state. Every refusal a machine counts is of an object deposited at a public point, and
 anyone may deposit there, so a refusal names no cause of a shortfall. The machine counts its
 refusals and shows the count beside every reading as `refused N`, never in place of the verdict.
