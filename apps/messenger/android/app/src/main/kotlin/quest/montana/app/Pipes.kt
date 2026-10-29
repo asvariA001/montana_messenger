@@ -424,11 +424,41 @@ object Wire {
      * the bytes only when the node lacks them. A walk that knows its chunks are new (their key was drawn this moment) says so and
      * skips the question; a retry after a road that broke mid-answer asks, so a chunk the node took is not carried twice.
      */
-    fun putBlob(bid: String, data: ByteArray, cargo: String? = null, last: Boolean = false, assumeAbsent: Boolean = false): Boolean {
+    fun putBlob(bid: String, data: ByteArray, cargo: String? = null, last: Boolean = false, assumeAbsent: Boolean = false, bulk: Boolean = cargo != null): Boolean {
         if (!assumeAbsent && blobsHave(listOf(bid))?.contains(bid) == true) { Log.d("Montana", "blob_put already on the node id=" + bid.take(8)); return true }
         // A CHUNK GOES TO THE NEXT LIVE DOOR THE MOMENT THE FIRST ONE DIES (iOS build 1894): the doors that answered on this path
         // first, a resting one last, and every answer taught to the door book — a dead door held a piece its whole minute
-        return Signal.writeOrder("blob").any { door -> putBlobAt(door, bid, data, cargo, last) }   // the elected store first (iOS 2007)
+        // THE BULK PUTS OF THE WHOLE PHONE ARE THREE IN FLIGHT (iOS MTBulkPuts, 35eef496: T1 18.10, some 400 held puts let go at once
+        // built one letter's 8 MB body again and again and four threads died growing their buffers): the rest wait their turn,
+        // from the body's birth to the answer; a copy for the other machines rides after the permit is given back
+        if (bulk) BULK_PUTS.acquire()
+        val taken = (try { Signal.writeOrder("blob").firstOrNull { door -> putBlobAt(door, bid, data, cargo, last) } }
+            finally { if (bulk) BULK_PUTS.release() }) ?: return false   // the elected store first (iOS 2007)
+        // A LETTER'S CARGO LIES ON EVERY MACHINE (iOS 70b31768, T1 20.10 16:53Z): a piece on the one machine its put reached stood
+        // «loading» for a phone that could not reach that machine, and the node's own hop to its sibling rode the same broken road.
+        // Only the sender, who has just reached a machine, can lay the piece on the others; a failed copy costs the redundancy alone.
+        if (bulk) mirror(bid, data, cargo, last, taken)   // a letter's cargo: its pieces, its manifest, a long letter (iOS bulk: true)
+        return true
+    }
+    private val BULK_PUTS = java.util.concurrent.Semaphore(3, true)
+    /**
+     * The copy of a letter's piece for every machine but the one that took it (iOS MontanaBlobUpload.mirror 4374-4385): the very put
+     * that machine took — the same name, the same cargo marks — to the first living door of each other machine the network names
+     * (/doors "nodes"). It rides its own thread: the sender waits for nothing, and a copy's answer teaches the door book nothing.
+     */
+    private fun mirror(bid: String, data: ByteArray, cargo: String?, last: Boolean, taken: String) {
+        val takenHost = android.net.Uri.parse(taken).host
+        val doors = Doors.ordered("blob").filter { Signal.doorAlive(it) }
+        for ((id, hosts) in Doors.machineHosts()) {
+            if (takenHost != null && takenHost in hosts) continue
+            val door = doors.firstOrNull { android.net.Uri.parse(it).host in hosts } ?: continue
+            Thread {
+                val body = JSONObject().put("bid", bid).put("data", Base64.encodeToString(data, Base64.NO_WRAP))
+                if (cargo != null) { body.put("cg", cargo); if (last) body.put("last", true) }
+                val code = post(door, "/blob-put", body, cargoTimeoutMs(data.size)).first
+                Log.d("Montana", "blob_copy " + (if (code == 200) "done" else "FAIL code=$code") + " copy=" + bid.take(8) + " to=" + id)
+            }.start()
+        }
     }
     /**
      * What the node already holds of these chunks (iOS blobsPresent, askHave 1941-1981): only the chunks asked about count — a store
@@ -1495,12 +1525,21 @@ object Post {
     private operator fun ByteArray.plus(b: Int) = this + byteArrayOf(b.toByte())
 
     /** mid‖0‖text sealed under a fresh key, laid on the node under SHA-256 of the seal (iOS blobIdHex); the reference once per letter. */
+    /**
+     * A LONG LETTER IS SEALED ONCE PER FLIGHT (iOS sealLongLetter, 35eef496): two drains of the queue at once each sealed and put the
+     * same letter -- a drain that comes while the seal is in flight joins it and takes its reference.
+     */
+    private val sealFlights = HashMap<String, Any>()
     private fun sealLong(mid: String, text: String): String? {
+        val flight = synchronized(sealFlights) { sealFlights.getOrPut(mid) { Any() } }
+        return try { synchronized(flight) { sealLongOnce(mid, text) } } finally { synchronized(sealFlights) { sealFlights.remove(mid) } }
+    }
+    private fun sealLongOnce(mid: String, text: String): String? {
         Prefs.str("longRef.$mid", "").takeIf { it.isNotEmpty() }?.let { return it }
         val mk = MtBindings.nativeRandom(32) ?: return null
         val sealed = Wire.seal(mk, mid.toByteArray() + 0 + text.toByteArray()) ?: return null
         val bid = Wire.hex(Wire.sha(sealed))
-        if (!Wire.putBlob(bid, sealed, assumeAbsent = true)) return null   // a key drawn this moment: new by construction
+        if (!Wire.putBlob(bid, sealed, assumeAbsent = true, bulk = true)) return null   // a key drawn this moment: new by construction
         val link = Marks.LONG + JSONObject().put("r", bid).put("k", Base64.encodeToString(mk, Base64.NO_WRAP))
         Prefs.setStr("longRef.$mid", link)
         return link
@@ -1695,6 +1734,52 @@ object Post {
         sweepClocks()   // after the queue's own pass, with the history in hand (iOS: the mirror, and the cold sweep after the load)
     }
 
+    /**
+     * THE DAYS A BOX READ LISTENS AT (iOS MTNodeWire.boxDays, 4950795d): a letter lies a day from its last knock under the day it was
+     * sealed in, so the read needs that day and the one before, a day more for a sender's clock behind and one ahead. Ten days stood
+     * here from the week-long box of August -- seven of each ten asked a day no box keeps.
+     */
+    private fun boxDays(w0: Long) = (w0 - 2)..(w0 + 1)
+
+    // THE BOX'S OWN REST (iOS boxRest, noteTooOften 230-247): the node counts /fetch on a budget of its own, so its «too often» rests
+    // the box read alone -- a minute, two, four… up to half an hour by the machine's own refusals; a 200 forgets it.
+    private val boxRest = HashMap<String, Pair<Long, Int>>()   // host -> (resting until, streak)
+    private var restBooked = false
+    private fun hostOf(door: String) = android.net.Uri.parse(door).host ?: door
+    private fun boxTooOften(door: String) {
+        val h = hostOf(door)
+        val rest = synchronized(boxRest) {
+            val n = minOf((boxRest[h]?.second ?: 0) + 1, 6)
+            (60_000L shl (n - 1)).also { boxRest[h] = System.currentTimeMillis() + it to n }
+        }
+        Log.d("Montana", "box_fetch $h refused -- resting ${rest / 1000}s")
+    }
+    private fun boxAnswered(door: String) { synchronized(boxRest) { boxRest.remove(hostOf(door)) } }
+    /** The box's doors to read now (iOS boxReadDoors 265): the living ones (all when none lives), not resting, one per machine. */
+    private fun boxReadDoors(): List<String> {
+        val all = Doors.ordered("box")
+        val now = System.currentTimeMillis()
+        val rested = synchronized(boxRest) { HashMap(boxRest) }
+        val free = all.filter { Signal.doorAlive(it) }.ifEmpty { all }.filter { (rested[hostOf(it)]?.first ?: 0L) <= now }
+        // ONE DOOR PER MACHINE (iOS oneDoorPerNode 206): the door book says which door led to which machine; an unknown one keeps its place
+        val book = Doors.book()
+        val known = Doors.list()
+        val seen = HashSet<String>()
+        return free.filter { d -> known.firstOrNull { it.host == hostOf(d) }?.let { book[it.label]?.first }?.let { seen.add(it) } ?: true }
+    }
+    /**
+     * Every machine of the box rests (iOS boxRested, bookAfterRest): A PICKUP THE REST HELD IS BOOKED, NOT DROPPED -- one pickup at the
+     * first machine's waking, however many asked inside the rest (a «you have a letter» is never thrown away).
+     */
+    private fun boxRested() {
+        val now = System.currentTimeMillis()
+        val end = synchronized(boxRest) { boxRest.values.map { it.first }.filter { it > now }.minOrNull() } ?: now
+        val wait = maxOf(1_000L, end - now)
+        synchronized(fetchLock) { if (restBooked) return; restBooked = true }
+        Log.d("Montana", "box_fetch every machine rests after «too often» -- the pickup waits ${wait / 1000}s")
+        Thread { Thread.sleep(wait + 1_000L); synchronized(fetchLock) { restBooked = false }; fetch() }.start()
+    }
+
     private fun fetchOnce() {
         if (!Wire.agreesWithCanon()) { Log.e("Montana", "box: the wire disagrees with the canon — nothing is read"); return }
         val twin = MontanaSeed.twin ?: return
@@ -1705,11 +1790,11 @@ object Post {
         val w0 = Wire.day()
         for (inv in MontanaCard.outstandingInvites()) {
             val s = Wire.rdvLetterSecret(inv)
-            for (w in (w0 - 8)..(w0 + 1)) { val cw = Wire.rdvConvW(inv, w); secretOf[cw] = s; invOf[cw] = MontanaCard.b64url(inv) }
+            for (w in boxDays(w0)) { val cw = Wire.rdvConvW(inv, w); secretOf[cw] = s; invOf[cw] = MontanaCard.b64url(inv) }
         }
         for (ref in Book.refs()) {
             val s = Book.secret(ref) ?: continue
-            for (w in (w0 - 8)..(w0 + 1)) { val cw = Wire.convW(s, w); secretOf[cw] = s; chatOf[cw] = ref }
+            for (w in boxDays(w0)) { val cw = Wire.convW(s, w); secretOf[cw] = s; chatOf[cw] = ref }
         }
         // THE SEED'S OWN PIPE NAMES EACH DEVICE APART (iOS BoxEar, MontanaWakePush.swift:2641-2649): the store yields no letter to the sid
         // that laid it, so this device asks under its own name there -- its own letters stay for the others
@@ -1731,9 +1816,15 @@ object Post {
             val seen = HashSet<String>()
             val rows = mutableListOf<JSONObject>()
             // THE READ SWEEPS EVERY STORE of the network's list: a letter lies on the one node the writer elected (iOS 1638)
-            for (door in Doors.ordered("box")) {
+            // ONE DOOR PER MACHINE, AND A MACHINE THAT SAID «TOO OFTEN» RESTS (iOS 4950795d, T1 18.10): both names of each node spent
+            // the node's fetch budget twice, and a 429 was asked again at the next hint -- 5 817 refusals in 11 h on T1
+            val doors = boxReadDoors()
+            if (doors.isEmpty()) { boxRested(); break }
+            for (door in doors) {
                 val (code, text) = Wire.post(door, "/fetch", page, 6000)
+                if (code == 429) boxTooOften(door)
                 if (code != 200 || text == null) continue
+                boxAnswered(door)
                 val ls = runCatching { JSONObject(text).optJSONArray("letters") }.getOrNull() ?: continue
                 for (i in 0 until ls.length()) ls.getJSONObject(i).let { if (seen.add(it.optString("m"))) rows.add(it) }
             }

@@ -2265,7 +2265,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
 
     hideBar = { bar.visibility = View.GONE }
     if (Book.isMontana(ref)) hideBar()   // the room speaks; nobody writes into it (iOS composeSlot, MontanaConversation.swift:3636)
-    return FrameLayout(c).apply {
+    return TabPan(act).apply {
         setBackgroundColor(Color.BLACK)
         addView(c.chatGround(ref), FrameLayout.LayoutParams(MATCH, MATCH))   // the chat's own ground, or the pages' crest (iOS MTWallpaper)
         // THE FEED RUNS UNDER THE BARS (iOS MTFeedFrame.underlap, MontanaOctagon 107-114, the author's word 21.09; the word of
@@ -2474,6 +2474,76 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
 }
 
 /** One letter: the quote it answers, its words, «edited» and the time; its reactions under it (iOS MessageBubble). */
+/**
+ * THE CHAT LEAVES FROM ITS CENTRE TOO (iOS MTTabPan on MontanaSlideController, e59b73a4; the author's word 18.10.2026: «the swipe out
+ * of a chat not only from the screen's edge but, as when a page is turned, from its centre, so that it catches»): a stroke to the right
+ * anywhere on the chat's page drags it off by the finger, the same road as the edge's back, and the release goes by the same rule as
+ * iOS's pan -- faster than 300 a second, its way; slower, past a third of the width. The first points decide (iOS MTTabPan
+ * touchesMoved): down at once is the feed's, flat at once is ours, else the dominant way after ten points; a stroke to the left is
+ * the bubble's reply (ReplySwipe), and a view under the finger that scrolls sideways keeps its own stroke (iOS refuses).
+ */
+class TabPan(private val act: MainActivity) : FrameLayout(act) {
+    private var x0 = 0f; private var y0 = 0f
+    private var validated = false; private var failed = true; private var dragging = false
+    private var tracker: android.view.VelocityTracker? = null
+    private val dpx = resources.displayMetrics.density
+
+    /** The deepest view under the point, the platform's own hit walk (iOS v.hitTest). */
+    private fun hit(v: View, x: Float, y: Float): View {
+        if (v is android.view.ViewGroup) for (i in v.childCount - 1 downTo 0) {
+            val ch = v.getChildAt(i)
+            if (ch.visibility != View.VISIBLE) continue
+            val cx = x + v.scrollX - ch.left - ch.translationX; val cy = y + v.scrollY - ch.top - ch.translationY
+            if (cx >= 0 && cy >= 0 && cx < ch.width && cy < ch.height) return hit(ch, cx, cy)
+        }
+        return v
+    }
+    private fun refuses(x: Float, y: Float): Boolean {
+        var v: View? = hit(this, x, y)
+        while (v != null && v !== this) { if (v.canScrollHorizontally(1) || v.canScrollHorizontally(-1)) return true; v = v.parent as? View }
+        return false
+    }
+    private fun judge(e: android.view.MotionEvent) {
+        when (e.actionMasked) {
+            android.view.MotionEvent.ACTION_DOWN -> {
+                x0 = e.rawX; y0 = e.rawY; validated = false; dragging = false
+                failed = !act.panOwns(this) || refuses(e.x, e.y)
+                tracker?.recycle(); tracker = if (failed) null else android.view.VelocityTracker.obtain()
+            }
+            android.view.MotionEvent.ACTION_MOVE -> if (!failed && !dragging) {
+                val dx = e.rawX - x0; val adx = kotlin.math.abs(dx) / dpx; val ady = kotlin.math.abs(e.rawY - y0) / dpx
+                if (!validated) {
+                    if (kotlin.math.hypot(adx, ady) > 10) { if (adx >= ady) validated = true else failed = true }   // the dominant way after ten points
+                    else if (ady > 2 && ady > adx * 2) failed = true   // down at once: the feed's
+                    else if (adx > 2 && ady * 2 < adx) validated = true   // flat at once: ours
+                }
+                if (validated && dx < 0) failed = true   // a stroke to the left is the bubble's
+                else if (validated) { dragging = true; parent?.requestDisallowInterceptTouchEvent(true); act.panBegin(this) }
+            }
+        }
+        tracker?.addMovement(android.view.MotionEvent.obtain(e).apply { setLocation(e.rawX, e.rawY) })
+    }
+    override fun onInterceptTouchEvent(e: android.view.MotionEvent): Boolean { judge(e); return dragging }
+
+    @android.annotation.SuppressLint("ClickableViewAccessibility")
+    override fun onTouchEvent(e: android.view.MotionEvent): Boolean {
+        if (!dragging) { judge(e); return !failed }
+        tracker?.addMovement(android.view.MotionEvent.obtain(e).apply { setLocation(e.rawX, e.rawY) })
+        when (e.actionMasked) {
+            android.view.MotionEvent.ACTION_MOVE -> act.panMove(this, e.rawX - x0)
+            android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
+                val x = e.rawX - x0
+                val v = tracker?.run { computeCurrentVelocity(1000); xVelocity / dpx } ?: 0f
+                val out = e.actionMasked == android.view.MotionEvent.ACTION_UP && (if (kotlin.math.abs(v) > 300) v > 0 else x > width / 3f)
+                android.util.Log.d("Montana", "page_pan page=chat end=" + (if (e.actionMasked == android.view.MotionEvent.ACTION_UP) "completed" else "cancelled") + " close=" + (if (out) 1 else 0))
+                act.panEnd(this, out)
+                dragging = false; failed = true; tracker?.recycle(); tracker = null
+            }
+        }
+        return true
+    }
+}
+
 /**
  * A LETTER PULLED TO THE LEFT IS ANSWERED (iOS MTReplySwipe + SwipeReplyRow): the two first points decide — a stroke to the
  * right or an upright one is the scroll's, a flat one to the left is ours; the letter rides by the finger, the round glass with
