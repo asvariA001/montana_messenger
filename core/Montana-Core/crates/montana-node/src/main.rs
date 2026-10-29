@@ -8,12 +8,24 @@ const USAGE: &str = "\
 montana-node — a machine of Montana
 
   montana-node --data <directory> --listen <address> [--acquaintance <line>]...
+               [--anchor <earlier> --anchor <later>]
                [--admitted <half>]... [--open] [--windows <n>]
 
+  --status               read the live local reading (requires --data): a closed window or a
+                         wait inside the patience exits 0, a stall exits 1, 2 or 4
   --data <directory>     where this machine keeps what it holds between starts
   --listen <address>     where it answers, as an address and a port
   --acquaintance <line>  a machine to reach, as its operator handed it over:
                          an address, an at-sign and the key it answers with
+  --anchor <file>        given twice, the earlier first: the proposals of two consecutive
+                         final windows, as their operator handed them over. A machine
+                         keeps every proposal it took as one file of <data>/proposals,
+                         named by its window in twenty digits; its last final window
+                         is <data>/head, eight bytes, least significant first. That
+                         file and the one before it are an anchor. This machine walks
+                         from it to the head over the machines it reached, verifying
+                         every certificate, before it does anything else; the trust
+                         in the anchor is the trust placed in whoever handed it over.
   --admitted <half>      the naming half of a machine admitted to the window, in
                          hexadecimal, as its operator handed it over. Given once for
                          every machine of the cohort — this one included — it is what
@@ -61,8 +73,10 @@ fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(said) => {
-            eprintln!("montana-node: {said}");
-            ExitCode::FAILURE
+            eprintln!("{said}");
+            ExitCode::from(
+                montana_node::say::Verdict::from_line(&said).map_or(1, |on| on.exit_code()),
+            )
         }
     }
 }
@@ -73,9 +87,20 @@ fn run() -> Result<(), String> {
         print!("{USAGE}");
         return Ok(());
     }
-    let (configuration, payment) = read_configuration(&held)?;
+    if held.iter().any(|arg| arg == "--status") {
+        return read_status(&held);
+    }
+    let (configuration, payment, anchor) = read_configuration(&held)?;
+    // The anchor is read before the machine starts, so an anchor that is no anchor stops an
+    // operator before anything of this machine is drawn or kept.
+    let anchor = match anchor.as_slice() {
+        [] => None,
+        [earlier, later] => Some(read_anchor(earlier, later)?),
+        _ => return Err("--anchor is given twice, the earlier proposal first".to_string()),
+    };
 
     let (machine, born) = Machine::start(&configuration).map_err(said)?;
+    let machine = std::sync::Arc::new(machine);
     if born {
         println!("this machine was born: it drew its secret and will not draw another");
     }
@@ -120,6 +145,20 @@ fn run() -> Result<(), String> {
         }
     }
 
+    // **A machine handed an anchor walks to the head before it does anything else.** Consensus, "The
+    // join": it asks the machines it reached for what stands at the points of every window after the
+    // anchor, judges every answer and trusts none, and takes as its head the newest proposal whose
+    // certificate verified. A walk that refuses stops the machine: a machine that went on to live
+    // a window would be living it on a chain it could not verify.
+    if let Some(anchor) = anchor {
+        let head = montana_node::pulse::join(&machine, &anchor, montana_node::pulse::WAITS_UP_TO)
+            .map_err(said)?;
+        println!(
+            "walked from window {} to the head at window {}",
+            anchor.later.window, head.later.window
+        );
+    }
+
     if let Some(asked) = payment {
         return pay_and_report(&machine, &asked);
     }
@@ -152,6 +191,13 @@ fn run() -> Result<(), String> {
         "living from window {from} in a cohort of {}",
         cohort.count()
     );
+    // The status endpoint writes its locator into the store, so it opens only once every refusal
+    // of a start is behind: a refused start writes nothing (Consensus, "The cold start"). A machine
+    // that lives no window has no pulse to read and reads `no diagnostics`.
+    #[cfg(unix)]
+    let _status =
+        montana_node::status::Server::open(&configuration.data, std::sync::Arc::clone(&machine))
+            .map_err(|error| format!("no diagnostics: {error}"))?;
 
     // The door and the pulse stand at once: the door answers the links strangers open, and the
     // pulse asks over the links this machine opened. Neither waits on the other, which is what
@@ -163,11 +209,7 @@ fn run() -> Result<(), String> {
     machine
         .enter_round(from, montana_node::pulse::opening_chain(), 0)
         .map_err(said)?;
-    let machine = std::sync::Arc::new(machine);
-    let answering = std::sync::Arc::clone(&machine);
-    std::thread::spawn(move || {
-        let _ = answering.serve();
-    });
+    machine.answer_in_background();
     for line in unreached {
         montana_node::pulse::reach_again(std::sync::Arc::clone(&machine), line);
     }
@@ -408,6 +450,20 @@ fn read32(said: &str) -> Result<[u8; 32], String> {
     Ok(out)
 }
 
+// The two proposals of an anchor, each read whole off the file it was handed in and through the one
+// door of its layout. Whether they are consecutive, and everything after them, is the walk's.
+fn read_anchor(earlier: &str, later: &str) -> Result<montana_node::certificate::Anchor, String> {
+    let proposal = |at: &str| -> Result<mt_state::layout::Proposal, String> {
+        let bytes = std::fs::read(at).map_err(|e| format!("--anchor {at}: {e}"))?;
+        <mt_state::layout::Proposal as mt_state::Layout>::parse(&bytes)
+            .map_err(|e| format!("--anchor {at} is no proposal: {e:?}"))
+    };
+    Ok(montana_node::certificate::Anchor {
+        earlier: proposal(earlier)?,
+        later: proposal(later)?,
+    })
+}
+
 fn said(e: NodeError) -> String {
     match e {
         NodeError::Store(e) => format!("what this machine keeps: {e:?}"),
@@ -426,6 +482,7 @@ fn said(e: NodeError) -> String {
             "this machine could not build {what}, and answers nothing rather than answering with \
              what a verifier would refuse"
         ),
+        NodeError::Stalled { on, what } => format!("{on}: {what}"),
         NodeError::Refused { what } => format!("refused: {what}"),
         NodeError::UnreconciledCement => {
             "waiting: beacon cement does not match the verified heavy attestations; no signature or round transition is authorized".to_string()
@@ -437,8 +494,11 @@ fn said(e: NodeError) -> String {
 // What an operator typed. A flag naming no value, or a flag this machine does not know, is an
 // error rather than a default: a machine started with a misspelt flag and a default beside it is a
 // machine doing something its operator did not ask for.
-fn read_configuration(held: &[String]) -> Result<(Configuration, Option<Asked>), String> {
+type Typed = (Configuration, Option<Asked>, Vec<String>);
+
+fn read_configuration(held: &[String]) -> Result<Typed, String> {
     let mut data: Option<String> = None;
+    let mut anchor: Vec<String> = Vec::new();
     let mut listen: Option<String> = None;
     let mut acquaintances: Vec<String> = Vec::new();
     let mut pay: Option<String> = None;
@@ -472,6 +532,10 @@ fn read_configuration(held: &[String]) -> Result<(Configuration, Option<Asked>),
             }
             "--acquaintance" => {
                 acquaintances.push(value()?);
+                at += 2;
+            }
+            "--anchor" => {
+                anchor.push(value()?);
                 at += 2;
             }
             "--admitted" => {
@@ -605,5 +669,78 @@ fn read_configuration(held: &[String]) -> Result<(Configuration, Option<Asked>),
             })
         }
     };
-    Ok((configuration, asked))
+    Ok((configuration, asked, anchor))
+}
+
+// The status query never opens Store: it must not create a machine or acquire its data lock.
+fn read_status(args: &[String]) -> Result<(), String> {
+    let mut args = args.iter();
+    let mut data = None;
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--status" => {}
+            "--data" if data.is_none() => data = args.next(),
+            _ => return Err("no diagnostics: --status requires only --data DIR".to_string()),
+        }
+    }
+    let data = data.ok_or("no diagnostics: --status requires --data DIR")?;
+    #[cfg(unix)]
+    {
+        let status =
+            montana_node::status::read(std::path::Path::new(data)).map_err(|on| on.to_string())?;
+        // A close and a wait inside the patience are healthy and exit 0; a stall exits its code.
+        if status.exit_code() == 0 {
+            println!("{status}");
+            Ok(())
+        } else {
+            Err(status.to_string())
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = data;
+        Err("no diagnostics: this platform has no local status door".to_string())
+    }
+}
+
+#[cfg(test)]
+mod status_tests {
+    // CNS-20: rejects the generic error prefix obscuring the typed stall's first word.
+    #[test]
+    fn the_last_error_line_starts_with_the_verdict() {
+        let codes: std::collections::BTreeSet<u8> = [
+            montana_node::say::Verdict::NoQuorum,
+            montana_node::say::Verdict::NoData,
+            montana_node::say::Verdict::NoDiagnostics,
+        ]
+        .into_iter()
+        .map(|on| {
+            let line = super::said(montana_node::NodeError::Stalled {
+                on,
+                what: "budget exhausted",
+            });
+            assert_eq!(montana_node::say::Verdict::from_line(&line), Some(on));
+            assert_ne!(on.exit_code(), 0);
+            on.exit_code()
+        })
+        .collect();
+        assert_eq!(codes.len(), 3);
+        // F1a: the retired verdict reads as no verdict and its code is given to none.
+        assert!(!codes.contains(&3));
+        assert_eq!(
+            montana_node::say::Verdict::from_line("proof refused; asking 1; refused 1"),
+            None
+        );
+        for on in [
+            montana_node::say::Verdict::NoQuorum,
+            montana_node::say::Verdict::NoData,
+            montana_node::say::Verdict::NoDiagnostics,
+        ] {
+            assert!(super::said(montana_node::NodeError::Stalled {
+                on,
+                what: "budget exhausted"
+            })
+            .starts_with(&format!("{on}:")));
+        }
+    }
 }

@@ -27,6 +27,8 @@ pub mod round;
 pub mod runner;
 pub mod say;
 pub mod state;
+#[cfg(unix)]
+pub mod status;
 
 use mt_codec::size;
 use mt_net::{Acquaintance, Answering, Door, Link, NetError};
@@ -45,24 +47,39 @@ pub enum NodeError {
     // the block it produced failed a test of health. A machine born on a broken source looks
     // ordinary and is guessable, and nothing later reveals that — so it is refused, never warned
     // about.
-    Unborn { said: String },
+    Unborn {
+        said: String,
+    },
     // An acquaintance written in a shape this tree does not read.
-    Unreadable { what: String },
+    Unreadable {
+        what: String,
+    },
     // A row of the Decree this machine reads and the Decree does not carry.
-    Decree { row: String },
+    Decree {
+        row: String,
+    },
     // The count of the links this machine holds became unreadable, which is a machine that can no
     // longer hold itself to the ceiling the set fixes. It stops rather than answering past it.
     Uncountable,
     // What this machine could not prove or could not build of its own standing. It names what was
     // being made and never a value of it: a machine that cannot prove its presence answers nothing
     // rather than answering with something a verifier would refuse.
-    Unprovable { what: &'static str },
+    Unprovable {
+        what: &'static str,
+    },
     // What arrived and was refused. The reason reaches this operator and never the sender: every
     // refusal of a far side is silence, and what carries a reason is the local end alone.
-    Refused { what: &'static str },
+    Refused {
+        what: &'static str,
+    },
     // The round's context is known, but its cement cannot yet be reconstructed
     // from verified heavy attestations. More data may resolve this; no clock can.
     UnreconciledCement,
+    // CNS-20: a local waiting budget ended, granting no authority to close.
+    Stalled {
+        on: say::Verdict,
+        what: &'static str,
+    },
     // An object of another shape than its layout gives.
     Object(mt_state::ObjectError),
 }
@@ -1333,6 +1350,60 @@ impl Machine {
         self.drop_agreement(window)
     }
 
+    // **What this machine holds of the plane of a window**: the plane the last close left, for the
+    // window that close closed, and the decided state of the window before, for that one — what a
+    // machine has to answer a device that walked to its head and asks for the tables of the head.
+    // Nothing for any other window: a machine keeps no plane further back.
+    pub fn plane_of(&self, window: u64) -> Result<Option<state::State>, NodeError> {
+        let record = self.store.window().map_err(NodeError::Store)?;
+        if record.kept.is_empty() {
+            return Ok(None);
+        }
+        let kept = Kept::decode(&record.kept)?;
+        Ok(if kept.taken.window == window {
+            Some(kept.plane)
+        } else if kept.taken.window.checked_sub(1) == Some(window) {
+            kept.before
+        } else {
+            None
+        })
+    }
+
+    // **A device that walked to a head holds the plane of that head**, judged before it reaches here
+    // (pulse::take_the_plane). It is kept in the record of the window as a close keeps the plane it
+    // closed on, beside the proposal whose roots it answers for and under the head and the window
+    // closed the walk wrote, and held in memory only once the record stands — so it stands again after
+    // a restart. The device lived no window: it holds no decided state of the window before, and its
+    // standing is what it already held.
+    pub fn hold_the_plane(
+        &self,
+        head: &mt_state::layout::Proposal,
+        plane: state::State,
+    ) -> Result<(), NodeError> {
+        let standing = self.store.window().map_err(NodeError::Store)?;
+        if standing.head != Some(head.window) {
+            return Err(NodeError::Refused {
+                what: "a plane of another window than the head this machine holds",
+            });
+        }
+        let kept = Kept {
+            taken: head.clone(),
+            plane,
+            before: None,
+            census: self.lived_census()?,
+        };
+        let record = mt_store::WindowRecord {
+            head: standing.head,
+            closed: standing.closed,
+            kept: kept.encode()?,
+        };
+        let written = self.store.commit_window(&record);
+        if written.is_ok() || matches!(&written, Err(StoreError::CommitUncertain { .. })) {
+            *self.value()? = kept.plane;
+        }
+        written.map_err(NodeError::Store)
+    }
+
     // Reaching an acquaintance. A machine answering with another key is not the machine the
     // operator meant, and the error says which of the two failed — this end is the operator's and
     // carries reasons; the far end is told nothing at all.
@@ -1798,12 +1869,27 @@ impl Machine {
             })
     }
 
+    // Both operator interfaces share the same watcher, including a panic of the door thread.
+    pub fn answer_in_background(
+        self: &Arc<Self>,
+    ) -> std::thread::JoinHandle<Result<(), NodeError>> {
+        let machine = Arc::clone(self);
+        let watch = self.counts.watch_door();
+        std::thread::spawn(move || {
+            let _watch = watch;
+            machine.serve()
+        })
+    }
+
     // Answering links until the machine is stopped.
     pub fn serve(&self) -> Result<(), NodeError> {
         loop {
             // A handshake that failed took no slot and is no reason to stop: the next caller may be
             // whoever this machine is waiting for.
-            let _ = self.answer_one();
+            match self.answer_one() {
+                Ok(_) | Err(NodeError::Net(_)) => {}
+                Err(error) => return Err(error),
+            }
         }
     }
 }
@@ -2078,6 +2164,57 @@ mod tests {
     }
 
     // Scratch artifacts are retained for inspection; tests never remove existing files.
+
+    // CNS-20: rejects a terminal door error swallowed by the serving loop or by its caller.
+    #[test]
+    fn a_dead_door_reaches_the_verdict_and_cannot_be_erased_by_the_pulse() {
+        let at = Scratch::named("dead-door");
+        let machine = Arc::new(
+            Machine::start(&Configuration::at(&at.0, "127.0.0.1:0"))
+                .unwrap()
+                .0,
+        );
+        let held = Arc::clone(&machine.held);
+        assert!(std::thread::spawn(move || {
+            let _held = held.standing.lock().unwrap();
+            panic!("corrupt this test's link counter");
+        })
+        .join()
+        .is_err());
+        assert_eq!(
+            machine.answer_in_background().join().unwrap(),
+            Err(NodeError::Uncountable)
+        );
+        let counts = machine.counts();
+        assert_eq!(
+            counts.status().unwrap().on(),
+            Some(say::Verdict::NoDiagnostics)
+        );
+        assert_eq!(counts.observe(true, 7, 0, 1), say::Verdict::NoDiagnostics);
+        assert_eq!(counts.status().unwrap().exit_code(), 4);
+    }
+
+    // CNS-20: a panic must take the same path as an ordinary terminal door error.
+    #[test]
+    fn an_unwinding_door_leaves_no_diagnostics() {
+        let counts = Arc::new(say::Counts::default());
+        counts.observe(false, 3, 0, 1);
+        let watch = counts.watch_door();
+        assert!(std::thread::spawn(move || {
+            let _watch = watch;
+            panic!("this test's door unwinds");
+        })
+        .join()
+        .is_err());
+        assert_eq!(
+            counts.status(),
+            Some(say::PulseStatus::Stalled {
+                on: say::Verdict::NoDiagnostics,
+                asking: 3,
+                refused: 0,
+            })
+        );
+    }
 
     // **A point holds its cells on the disk alone, and what was read back holds a ceiling** (issue
     // #63). The wrong implementations refused: a point answering from a copy in memory beside its
