@@ -205,16 +205,32 @@ pub fn run(args: StartArgs) -> Result<(), NodeError> {
 
     println!("=== montana-node start — Montana node ===");
     println!();
-    println!("data-dir         : {}", data_dir.display());
-    println!("account_id       : {}", hex16(&my_account));
-    println!("node_id          : {}", hex16(&my_node));
+    crate::private_diagnostic!(
+        "[node] data directory selected",
+        "data-dir         : {}",
+        data_dir.display()
+    );
+    crate::private_diagnostic!(
+        "[node] account identity loaded",
+        "account_id       : {}",
+        hex16(&my_account)
+    );
+    crate::private_diagnostic!(
+        "[node] node identity loaded",
+        "node_id          : {}",
+        hex16(&my_node)
+    );
     println!("phase            : {:?}", lifecycle.phase);
     println!("current_window   : {current}");
     println!(
         "D                : {} SHA-256 iterations / window",
         effective_d
     );
-    println!("T_r              : {}", hex16(&timechain.t_r));
+    crate::private_diagnostic!(
+        "[node] timechain value loaded",
+        "T_r              : {}",
+        hex16(&timechain.t_r)
+    );
     println!(
         "balance start    : {} nɈ ({} Ɉ)",
         initial_balance,
@@ -398,7 +414,10 @@ pub fn run(args: StartArgs) -> Result<(), NodeError> {
                     if let Some(ref mut handle) = network_handle {
                         let mut ctx = net_ctx!();
                         if let Err(e) = drain_network(&mut ctx, handle) {
-                            eprintln!("[drain] mid-iteration: {e:?}");
+                            crate::private_diagnostic!(
+                                "[node] incoming message processing failed",
+                                "[drain] mid-iteration: {e:?}"
+                            );
                         }
                     }
                 },
@@ -517,7 +536,8 @@ pub fn run(args: StartArgs) -> Result<(), NodeError> {
                     lifecycle.nodereg_hash = nodereg_hash(&nr);
                     lifecycle.registration_window = next_window;
                     lifecycle.phase = NodePhase::Registered;
-                    println!(
+                    crate::private_diagnostic!(
+                        "[node] registration recorded",
                         "[register W={next_window}] nodereg_hash={} | ssha_chain_length={}",
                         hex16(&lifecycle.nodereg_hash),
                         lifecycle.candidate_progress
@@ -659,7 +679,8 @@ pub fn run(args: StartArgs) -> Result<(), NodeError> {
                     let envelope =
                         ProtocolMessage::new(MsgType::Proposal, propose_w, cemented.envelope);
                     if let Err(e) = handle.broadcast_tx.send(envelope) {
-                        eprintln!(
+                        crate::private_diagnostic!(
+                            "[node] broadcast failed",
                             "[consensus] broadcast CEMENTED Proposal w={propose_w} failed: {e}"
                         );
                     } else {
@@ -952,7 +973,8 @@ fn keep_equivocation(ctx: &mut NetCtx, header: &ProposalHeader, payload: &[u8]) 
     {
         return;
     }
-    eprintln!(
+    crate::private_diagnostic!(
+        "[node] equivocation kept",
         "[consensus] w={w}: equivocation by {} — second envelope refused, the pair kept",
         hex16(&header.proposer_node_id)
     );
@@ -1434,7 +1456,10 @@ fn handle_protocol_message(
                         *ctx.fast_sync_deadline =
                             Some(Instant::now() + std::time::Duration::from_secs(10));
                     },
-                    Err(e) => eprintln!("[m7] FastSyncRequest broadcast failed: {e}"),
+                    Err(e) => crate::private_diagnostic!(
+                        "[node] broadcast failed",
+                        "[m7] FastSyncRequest broadcast failed: {e}"
+                    ),
                 }
                 // EXT-SYNC-01: persist the observed anchor root for window w so
                 // FastSyncClient::finalize can match the incoming snapshot. The
@@ -1487,7 +1512,10 @@ fn handle_protocol_message(
             if let Err(e) =
                 mt_consensus::validate_header(&header, &ctx.state.nodes, *ctx.current, 1, 1)
             {
-                eprintln!("[consensus] header w={w} rejected: {e:?}");
+                crate::private_diagnostic!(
+                    "[node] proposal header refused",
+                    "[consensus] header w={w} rejected: {e:?}"
+                );
                 return Ok(());
             }
             // Proposer legitimacy is EXCLUSIVELY a deterministic check
@@ -1507,7 +1535,8 @@ fn handle_protocol_message(
             if let Err(e) =
                 mt_consensus::validate_proposer_is_canonical(&header, &aggregate, &electorate)
             {
-                eprintln!(
+                crate::private_diagnostic!(
+                    "[node] node identity loaded",
                     "[consensus] w={w}: leader {} not canonical ({e:?}) — skip",
                     hex16(&header.proposer_node_id)
                 );
@@ -1515,7 +1544,10 @@ fn handle_protocol_message(
             }
             // The fields of the lottery carry zeros (issue #18, S3).
             if let Err(e) = mt_consensus::validate_retired_fields(&header) {
-                eprintln!("[consensus] w={w}: {e:?} — skip");
+                crate::private_diagnostic!(
+                    "[node] retired header fields refused",
+                    "[consensus] w={w}: {e:?} — skip"
+                );
                 return Ok(());
             }
             let Some((bundles_prev, evidence)) = parse_envelope_bundles(&msg.payload) else {
@@ -1615,7 +1647,8 @@ fn handle_protocol_message(
             *ctx.prev_proposal_hash = proposal_hash(&header);
             ctx.last_proposer_cement.insert(header.proposer_node_id, w);
             *ctx.last_cement_at = Instant::now();
-            eprintln!(
+            crate::private_diagnostic!(
+                "[node] proposal applied",
                 "[consensus] applied cemented Proposal w={w} (confirmers={})",
                 confirmers.len()
             );
@@ -1663,7 +1696,10 @@ fn handle_protocol_message(
                 );
             },
             Err(e) => {
-                eprintln!("[m7] FastSyncRequest decode failed: {e:?}");
+                crate::private_diagnostic!(
+                    "[node] message decode failed",
+                    "[m7] FastSyncRequest decode failed: {e:?}"
+                );
             },
         },
         MsgType::FastSyncResponse => {
@@ -1695,7 +1731,8 @@ fn handle_protocol_message(
                                     complete_fast_sync(ctx, window, tables)?;
                                     *ctx.fast_sync_deadline = None;
                                 },
-                                Err(e) => eprintln!(
+                                Err(e) => crate::private_diagnostic!(
+                                    "[node] fast-sync finalization refused",
                                     "[m7] fast-sync finalize rejected: {e:?} — retry on next lag"
                                 ),
                             }
@@ -1704,12 +1741,16 @@ fn handle_protocol_message(
                             eprintln!("[m7] fast-sync chunk {received}/{total}");
                             *ctx.fast_sync = Some(client);
                         },
-                        Err(e) => eprintln!(
+                        Err(e) => crate::private_diagnostic!(
+                            "[node] fast-sync chunk refused",
                             "[m7] fast-sync chunk rejected: {e:?} — discard, retry on next lag"
                         ),
                     },
                     Err(reason) => {
-                        eprintln!("[m7] FastSyncResponse {reason}");
+                        crate::private_diagnostic!(
+                            "[node] fast-sync response refused",
+                            "[m7] FastSyncResponse {reason}"
+                        );
                         *ctx.fast_sync = Some(client);
                     },
                 }
@@ -1738,7 +1779,8 @@ fn handle_protocol_message(
                         .entry(bw)
                         .or_default()
                         .insert(node_id, bc);
-                    eprintln!(
+                    crate::private_diagnostic!(
+                        "[node] node identity loaded",
                         "[bc] accepted confirmation from {} for window {bw}",
                         hex16(&node_id)
                     );
@@ -1757,20 +1799,25 @@ fn handle_protocol_message(
                                 ));
                             }
                         }
-                        eprintln!(
+                        crate::private_diagnostic!(
+                            "[node] node identity loaded",
                             "[consensus] peer {} behind (window {bw} <= {}), re-served envelopes",
                             hex16(&node_id),
                             *ctx.current
                         );
                     }
                 } else {
-                    eprintln!(
+                    crate::private_diagnostic!(
+                        "[node] node identity loaded",
                         "[bc] confirmation {} w={bw} failed validation",
                         hex16(&bc.node_id)
                     );
                 }
             },
-            Err(e) => eprintln!("[bc] decode failed: {e:?}"),
+            Err(e) => crate::private_diagnostic!(
+                "[node] message decode failed",
+                "[bc] decode failed: {e:?}"
+            ),
         },
         _ => {},
     }
@@ -1946,7 +1993,7 @@ fn spawn_network_thread(
     let (incoming_tx, incoming_rx) =
         tokio::sync::mpsc::unbounded_channel::<mt_net::ProtocolMessage>();
 
-    eprintln!(
+    crate::private_diagnostic!("[node] starting network thread",
         "[main] spawning network thread, local_peer_id={local_peer_id},          listen={listen_addr}, peers={n}",
         n = manifest.peers.len()
     );
@@ -1961,7 +2008,10 @@ fn spawn_network_thread(
             {
                 Ok(rt) => rt,
                 Err(e) => {
-                    eprintln!("[network] failed to start tokio runtime: {e}");
+                    crate::private_diagnostic!(
+                        "[node] network runtime initialization failed",
+                        "[network] failed to start tokio runtime: {e}"
+                    );
                     return;
                 },
             };
@@ -1975,7 +2025,10 @@ fn spawn_network_thread(
                 broadcast_rx,
                 incoming_tx,
             )) {
-                eprintln!("[network] event loop exited with error: {e}");
+                crate::private_diagnostic!(
+                    "[node] network event loop failed",
+                    "[network] event loop exited with error: {e}"
+                );
             }
         })
         .map_err(|e| NodeError::Network(format!("spawn network thread: {e}")))?;

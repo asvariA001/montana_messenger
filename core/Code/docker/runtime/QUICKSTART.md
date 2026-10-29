@@ -18,19 +18,21 @@ first build) and starts the container with a persistent `montana-data` volume.
 The node needs a `genesis-manifest.json` next to `docker-compose.yml` (see
 "The genesis manifest" below): there is no single mode without a manifest, and
 the entrypoint refuses to start without one. On first launch it generates a 24-word recovery mnemonic
-and writes its initialization output, including the recovery mnemonic, to
-`/var/lib/montana/mnemonic.txt`. The file is created with mode `0400` before
-initialization; the container's standard output, standard error and controlling
+and writes it directly to `/var/lib/montana/mnemonic.txt`. The CLI creates this
+file exclusively with mode `0400` before writing the phrase; the container's standard output, standard error and controlling
 terminal do not receive the phrase. Initialization failure stops startup and preserves the private output
-for inspection. An existing recovery file is never overwritten. Save it offline:
+for inspection in a separate `0400` file, `/var/lib/montana/init.log`. Existing
+recovery and initialization-log files are never overwritten. Save recovery offline:
 
 ```bash
 docker exec montana-node cat /var/lib/montana/mnemonic.txt
 ```
 
 The entrypoint sends no unsolicited node report to the project site. This does
-not remove earlier disclosures or establish transport anonymity. Runtime logs
-of the node binary are outside this bootstrap change.
+not remove earlier disclosures or establish transport anonymity. The direct `init` command uses the same private recovery writer. Its optional
+`--recovery-file PATH` names a new file; even `--force` never overwrites that
+file. The direct CLI refuses platforms without its owner-only filesystem
+implementation. Other runtime privacy boundaries are described in the K7 review.
 
 ## Verify
 
