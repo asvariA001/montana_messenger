@@ -296,7 +296,9 @@ object Board {
         val dest = File(lookDir(), name)
         if (dest.exists()) { then(dest); return }
         val chunks = m.optJSONArray("chunks")
-        if (m.optString("kind") != "img" || chunks == null || chunks.length() == 0) return
+        // a picture comes by itself; a film too where this connection's automatic download is on, for its tile plays by itself (WallClip)
+        val kind = m.optString("kind")
+        if (!(kind == "img" || kind == "vid" && Media.autoAllowed(Book.ctx)) || chunks == null || chunks.length() == 0) return
         synchronized(going) { if (!going.add(name)) return }
         Thread {
             try {
@@ -896,6 +898,67 @@ object Board {
     fun nameOf(c: Context, ref: String) = Book.chat(ref)?.name?.takeIf { it.isNotBlank() } ?: c.getString(R.string.wall_someone)
 }
 
+/**
+ * A VIDEO IN A POST PLAYS BY ITSELF (iOS MTBoardClip, MontanaBoardViews.swift:1160-1196 at 2315; the author's words 25.09 «a video in the
+ * feed shows playing at once, without a tap» and 29.10 «the video in the feed must play by itself»): the system's player over the tile,
+ * without sound, round and round, while at least half of the tile stands on a screen the person sees -- off the screen, under another
+ * page or with the app away it rests and lets its decoder go. Under its first frame the poster stands as before; a touch is the full
+ * player with sound (openTile). Where this connection's automatic download is off the film never comes, and the tile stays its poster.
+ * iOS streams the pieces as its player asks; here the film's file is brought whole into the look folder first (Board.bring).
+ */
+private class WallClip(c: Context) : android.view.TextureView(c), android.view.TextureView.SurfaceTextureListener {
+    var file: File? = null
+        set(v) { field = v; look() }
+    private var surface: android.view.Surface? = null
+    private var player: android.media.MediaPlayer? = null
+    private val scrolled = android.view.ViewTreeObserver.OnScrollChangedListener { look() }
+    init { surfaceTextureListener = this; alpha = 0f }
+    override fun onAttachedToWindow() { super.onAttachedToWindow(); viewTreeObserver.addOnScrollChangedListener(scrolled); post { look() } }
+    override fun onDetachedFromWindow() { viewTreeObserver.removeOnScrollChangedListener(scrolled); rest(); super.onDetachedFromWindow() }
+    override fun onWindowVisibilityChanged(visibility: Int) { super.onWindowVisibilityChanged(visibility); look() }
+    private fun seen(): Boolean {
+        if (windowVisibility != View.VISIBLE || !isShown || height == 0) return false
+        val r = android.graphics.Rect()
+        return getGlobalVisibleRect(r) && 2 * r.height() >= height
+    }
+    private fun look() { if (seen()) play() else rest() }
+    private fun play() {
+        if (player != null) return
+        val f = file ?: return
+        val s = surface ?: return
+        val mp = android.media.MediaPlayer()
+        player = mp
+        runCatching {
+            mp.setDataSource(f.path)
+            mp.setSurface(s)
+            mp.isLooping = true
+            mp.setVolume(0f, 0f)
+            mp.setOnVideoSizeChangedListener { _, w, h -> crop(w, h) }
+            mp.setOnInfoListener { _, what, _ -> if (what == android.media.MediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START) alpha = 1f; false }
+            mp.setOnPreparedListener { if (player === it) it.start() }
+            mp.setOnErrorListener { p, _, _ -> if (player === p) rest(); true }
+            mp.prepareAsync()
+        }.onFailure { Log.w("Montana", "wall_clip: " + it.javaClass.simpleName); rest() }
+    }
+    private fun rest() {
+        val mp = player ?: return
+        player = null
+        alpha = 0f
+        runCatching { mp.reset() }
+        mp.release()
+    }
+    /** The film fills the tile as the poster does (CENTER_CROP): scaled by the larger side's need, cut evenly on the other. */
+    private fun crop(w: Int, h: Int) {
+        if (w <= 0 || h <= 0 || width == 0 || height == 0) return
+        val k = maxOf(width.toFloat() / w, height.toFloat() / h)
+        setTransform(android.graphics.Matrix().apply { setScale(w * k / width, h * k / height, width / 2f, height / 2f) })
+    }
+    override fun onSurfaceTextureAvailable(st: android.graphics.SurfaceTexture, w: Int, h: Int) { surface = android.view.Surface(st); look() }
+    override fun onSurfaceTextureSizeChanged(st: android.graphics.SurfaceTexture, w: Int, h: Int) { player?.let { crop(it.videoWidth, it.videoHeight) } }
+    override fun onSurfaceTextureDestroyed(st: android.graphics.SurfaceTexture): Boolean { rest(); surface?.release(); surface = null; return true }
+    override fun onSurfaceTextureUpdated(st: android.graphics.SurfaceTexture) {}
+}
+
 /** A picture of a post: its width the post's, its height by the frame's shape (iOS MTBoardFrame.held: 9:16 up to 16:9). */
 private class WallTile(c: Context, private val shape: Float) : ImageView(c) {
     override fun onMeasure(w: Int, h: Int) {
@@ -1188,13 +1251,23 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
                 clipToOutline = true
                 posterHeld?.let { b -> setImageBitmap(b) }
             }
-            addView(tile, lp())
+            // A FILM'S TILE PLAYS BY ITSELF (iOS MTBoardClip): the clip stands over the poster, the touch goes through to the tile
+            val clip = if (kind == "vid" && field == null) WallClip(c) else null
+            if (clip == null) addView(tile, lp())
+            else addView(FrameLayout(c).apply {
+                background = c.rounded(MT.hairline, 12)
+                outlineProvider = ViewOutlineProvider.BACKGROUND
+                clipToOutline = true
+                addView(tile, FrameLayout.LayoutParams(MATCH, WRAP))
+                addView(clip, FrameLayout.LayoutParams(MATCH, MATCH))
+            }, lp())
             // A TILE'S TOUCH OPENS ITS FILE (iOS MTBoardMediaView.tile, MontanaBoardViews.swift:695-716 at 2155; openTile)
             if (field == null) tile.pressable { openTile(act, it.wall, p, i, !onItsWall, whole) }   // the editor's tiles answer nothing (iOS onTile: { _ in }, 2090)
             // THE SHARP PICTURE, ELSE THE POSTER DECODED OFF THE MAIN THREAD, ELSE THE TILE'S GREY (iOS MTBoardPicture, MontanaBoardViews.swift:
             // 926-941 at 2155); what was drawn sharp stands sharp on the first frame of the next drawing (iOS MTBoardPicture.cache 944-948)
             if (posterHeld == null) WallPoster.decode(thumb) { b -> if (!sharp) tile.setImageBitmap(b) }
             Board.bring(m, p.optString("id"), i) { f ->
+                clip?.file = f
                 val held = wallSharp.get(f.path)
                 if (held != null) { sharp = true; tile.setImageBitmap(held) }
                 else Thread { Media.preview(c, f, kind, 1600)?.let { b -> wallSharp.put(f.path, b); MainThread.post { sharp = true; tile.setImageBitmap(b) } } }.start()
