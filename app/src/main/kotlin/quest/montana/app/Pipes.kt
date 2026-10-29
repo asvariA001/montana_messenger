@@ -428,13 +428,19 @@ object Wire {
         if (!assumeAbsent && blobsHave(listOf(bid))?.contains(bid) == true) { Log.d("Montana", "blob_put already on the node id=" + bid.take(8)); return true }
         // A CHUNK GOES TO THE NEXT LIVE DOOR THE MOMENT THE FIRST ONE DIES (iOS build 1894): the doors that answered on this path
         // first, a resting one last, and every answer taught to the door book — a dead door held a piece its whole minute
-        val taken = Signal.writeOrder("blob").firstOrNull { door -> putBlobAt(door, bid, data, cargo, last) } ?: return false   // the elected store first (iOS 2007)
+        // THE BULK PUTS OF THE WHOLE PHONE ARE THREE IN FLIGHT (iOS MTBulkPuts, 35eef496: T1 18.10, some 400 held puts let go at once
+        // built one letter's 8 MB body again and again and four threads died growing their buffers): the rest wait their turn,
+        // from the body's birth to the answer; a copy for the other machines rides after the permit is given back
+        if (bulk) BULK_PUTS.acquire()
+        val taken = (try { Signal.writeOrder("blob").firstOrNull { door -> putBlobAt(door, bid, data, cargo, last) } }
+            finally { if (bulk) BULK_PUTS.release() }) ?: return false   // the elected store first (iOS 2007)
         // A LETTER'S CARGO LIES ON EVERY MACHINE (iOS 70b31768, T1 20.10 16:53Z): a piece on the one machine its put reached stood
         // «loading» for a phone that could not reach that machine, and the node's own hop to its sibling rode the same broken road.
         // Only the sender, who has just reached a machine, can lay the piece on the others; a failed copy costs the redundancy alone.
         if (bulk) mirror(bid, data, cargo, last, taken)   // a letter's cargo: its pieces, its manifest, a long letter (iOS bulk: true)
         return true
     }
+    private val BULK_PUTS = java.util.concurrent.Semaphore(3, true)
     /**
      * The copy of a letter's piece for every machine but the one that took it (iOS MontanaBlobUpload.mirror 4374-4385): the very put
      * that machine took — the same name, the same cargo marks — to the first living door of each other machine the network names
@@ -1519,7 +1525,16 @@ object Post {
     private operator fun ByteArray.plus(b: Int) = this + byteArrayOf(b.toByte())
 
     /** mid‖0‖text sealed under a fresh key, laid on the node under SHA-256 of the seal (iOS blobIdHex); the reference once per letter. */
+    /**
+     * A LONG LETTER IS SEALED ONCE PER FLIGHT (iOS sealLongLetter, 35eef496): two drains of the queue at once each sealed and put the
+     * same letter -- a drain that comes while the seal is in flight joins it and takes its reference.
+     */
+    private val sealFlights = HashMap<String, Any>()
     private fun sealLong(mid: String, text: String): String? {
+        val flight = synchronized(sealFlights) { sealFlights.getOrPut(mid) { Any() } }
+        return try { synchronized(flight) { sealLongOnce(mid, text) } } finally { synchronized(sealFlights) { sealFlights.remove(mid) } }
+    }
+    private fun sealLongOnce(mid: String, text: String): String? {
         Prefs.str("longRef.$mid", "").takeIf { it.isNotEmpty() }?.let { return it }
         val mk = MtBindings.nativeRandom(32) ?: return null
         val sealed = Wire.seal(mk, mid.toByteArray() + 0 + text.toByteArray()) ?: return null
