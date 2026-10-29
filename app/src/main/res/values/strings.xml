@@ -425,6 +425,10 @@
     <string name="release_expand">Expand</string>
     <string name="release_collapse">Collapse</string>
     <string name="update_now">Update</string>
+    <!-- the update that cannot be put off (iOS MTUpdateRequired, 4befb14a) -->
+    <string name="update_required_title">Update Montana</string>
+    <string name="update_required_needs">%1$s needs build %2$d. This build is %3$d.</string>
+    <string name="update_required_install">Install the new build to go on.</string>
     <string name="update_loading">Downloading Montana %1$s (%2$d)</string>
     <string name="update_failed">The update did not download — try again later</string>
     <string name="update_current">Montana is up to date</string>

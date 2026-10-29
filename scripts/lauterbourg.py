@@ -92,10 +92,16 @@ def fetch(url):
     return urllib.request.urlopen(req, timeout=120).read()
 
 
+# THE LEVEL OF THE CORE AND THE LEAST BUILD (iOS 4befb14a, asc-publish.py CORE_LEVEL): latest.json names the core's level and, as the
+# least build the network admits, the build it lays -- every build before it that knows the page sees it at its next opening
+# (Update.required, updateRequiredPage); a build that knows no page goes on as before.
+CORE_LEVEL = "Montana Core v1.0"
+
+
 def lay_on_site(local, record):
     name = os.path.basename(local)
     shown = dict(build=record["build"], name=record["name"], commit=record["commit"], sha256=record["sha256"],
-                 file=name, size=os.path.getsize(local), time=record["time"])
+                 file=name, size=os.path.getsize(local), time=record["time"], min=record["build"], core=CORE_LEVEL)
     # what changed, for the Montana room's scroll (iOS MTClientRelease notes and l10n): the app shows the phone's language, else «notes»
     if record.get("notes"):
         shown["notes"] = record["notes"]

@@ -40,7 +40,7 @@ object Update {
     const val ACTION = "quest.montana.app.UPDATE"
 
     class Site(val number: Long, val version: String, val file: String, val sha256: String, val size: Long,
-               val notes: JSONArray = JSONArray(), val l10n: JSONObject? = null)
+               val notes: JSONArray = JSONArray(), val l10n: JSONObject? = null, val least: Long = 0, val core: String = "")
 
     @Volatile private var busy = false
 
@@ -62,8 +62,22 @@ object Update {
         if (!Regex("[A-Za-z0-9._-]+[.]apk").matches(file) || !Regex("[0-9a-f]{64}").matches(sha)) return null
         // what changed, as the publishing road wrote it, and in the languages it brought (iOS MTClientRelease notes, l10n)
         Site(j.optLong("build"), j.optString("name").substringBefore(" "), file, sha, j.optLong("size"),
-            j.optJSONArray("notes") ?: JSONArray(), j.optJSONObject("l"))
+            j.optJSONArray("notes") ?: JSONArray(), j.optJSONObject("l"), maxOf(0L, j.optLong("min")), j.optString("core").take(32))
     }.getOrNull()
+
+    /**
+     * THE UPDATE THAT CANNOT BE PUT OFF (iOS 4befb14a, MTClientRelease.least/core and MTReleaseState.required): latest.json names the
+     * least build the network admits (min) and the level of the core (core); a build below the least sees the update page over
+     * everything (UpdateRequired), at the launch and at every return, kept here so it stands before the site answers. A document
+     * without them admits every build.
+     */
+    class Required(val least: Long, val core: String)
+    fun required(c: Context): Required? {
+        val least = Prefs.str("mt.update.least", "0").toLongOrNull() ?: 0L
+        return if (own(c) < least) Required(least, Prefs.str("mt.update.core", "")) else null
+    }
+    /** The screen's ear for the least (MainActivity): told on the screen's thread whenever the site's word is read. */
+    @Volatile var onLeast: (() -> Unit)? = null
 
     /** Asked when the app comes to the front and on each box round, at most once an hour: a newer build rings once. */
     fun look(c: Context, force: Boolean = false) {
@@ -73,6 +87,9 @@ object Update {
         if (!force && roomTold && now - (Prefs.str("mt.update.lookedAt", "0").toLongOrNull() ?: 0L) < EVERY) return
         Prefs.setStr("mt.update.lookedAt", now.toString())
         val s = newest() ?: return
+        Prefs.setStr("mt.update.least", s.least.toString())
+        Prefs.setStr("mt.update.core", s.core)
+        onLeast?.let { android.os.Handler(android.os.Looper.getMainLooper()).post(it) }
         // THE ROOM HEARS THE BUILD (iOS MTReleaseState.deliver: release.build >= ownBuild): the newest and the one running alike, once
         if (own(c) <= s.number) {
             if (Book.appendRelease(s.number, s.version, s.notes, s.l10n, SITE)) Log.d("Montana", "release told build=" + s.number)
@@ -324,5 +341,37 @@ object Release {
         }, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = c.dp(3) })
         // the scroll is as wide as its head: a column that wraps would measure each point once at its own width and keep that height
         into.addView(col, LinearLayout.LayoutParams(c.dp(250), WRAP))
+    }
+}
+
+/**
+ * THE UPDATE PAGE OVER EVERYTHING (iOS MTUpdateRequired, 4befb14a): a build below the least the network admits sees only this -- the
+ * picture, the word, which core needs which build and which this one is, and the one way out, the update's own road (Update.take).
+ * MainActivity lays it over the whole window and holds every back while it stands; it leaves only when the least admits this build.
+ */
+fun updateRequiredPage(act: Activity, r: Update.Required): android.view.View = FrameLayout(act).apply {
+    setBackgroundColor(Color.BLACK)
+    isClickable = true   // nothing under the page is touched
+    val words = Color.argb(153, 235, 235, 245)   // iOS .secondary (dark)
+    addView(act.vstack {
+        setPadding(act.dp(32), 0, act.dp(32), act.dp(48))
+        addView(android.widget.Space(act), LinearLayout.LayoutParams(1, 0, 1f))
+        addView(act.icon(R.drawable.ic_arrow_down_app, Color.WHITE, 72))
+        addView(act.text(act.getString(R.string.update_required_title), 22f, Color.WHITE, bold = true, center = true),
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = act.dp(20) })
+        addView(act.text(act.getString(R.string.update_required_needs, r.core, r.least, Update.own(act)), 17f, words, center = true),
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = act.dp(20) })
+        addView(act.text(act.getString(R.string.update_required_install), 17f, words, center = true),
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = act.dp(20) })
+        addView(android.widget.Space(act), LinearLayout.LayoutParams(1, 0, 1f))
+        addView(FrameLayout(act).apply {
+            addView(act.icon(R.drawable.ic_arrow_circle_down, Color.WHITE, 56), FrameLayout.LayoutParams(act.dp(56), act.dp(56), Gravity.CENTER))
+            contentDescription = act.getString(R.string.update_required_title)
+            setOnClickListener { Update.take(act) }
+        }, LinearLayout.LayoutParams(act.dp(88), act.dp(88)))
+    }, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+    setOnApplyWindowInsetsListener { v, ins ->
+        @Suppress("DEPRECATION") v.setPadding(ins.systemWindowInsetLeft, ins.systemWindowInsetTop, ins.systemWindowInsetRight, ins.systemWindowInsetBottom)
+        ins
     }
 }

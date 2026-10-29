@@ -440,6 +440,7 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume(); CallScreen.front = this; PersonChain.onScreen = true; Thread { PersonChain.prime() }.start(); main.removeCallbacks(boxRound); main.post(boxRound); EarService.start(this)
         if (hasSeed && termsAccepted) Calls.rejoinHeldCall(this)   // the run goes back into the call its process held, once the app faces the person
+        Update.onLeast = { keepUpdateRequired() }; keepUpdateRequired()   // a build below the network's least sees only the update page
         Thread { Update.look(applicationContext) }.start()   // a newer build on the site rings its notice (Update)
         if (hasSeed && termsAccepted) Thread { Signal.sweep() }.start()   // every peer's last word, one question (iOS ContentView 471)
         if (hasSeed && termsAccepted) Thread { LiveDraft.sayLinkToAll() }.start()   // the daily link, preloaded to every correspondent (iOS ContentView.swift:472)
@@ -453,7 +454,7 @@ class MainActivity : Activity() {
         if (hasSeed && termsAccepted) Thread { MyWall.roadBack("active") }.start()   // a post on its way goes on by itself (iOS roadBack 1922)   // every coin letter the chats hold stands in the book (iOS MTCoinSend.settle)
     }
     // the ear stays when the app leaves the screen: EarService holds it (the app closed is heard as the app open)
-    override fun onPause() { super.onPause(); PersonChain.onScreen = false; PersonChain.left(); CoinBook.closeWindows(); if (CallScreen.front === this) CallScreen.front = null; main.removeCallbacks(boxRound) }
+    override fun onPause() { super.onPause(); Update.onLeast = null; PersonChain.onScreen = false; PersonChain.left(); CoinBook.closeWindows(); if (CallScreen.front === this) CallScreen.front = null; main.removeCallbacks(boxRound) }
 
     // THE CALL'S WINDOW OVER OTHER APPS (CallFloat): the person leaving on a system before the platform's auto-enter, and the
     // platform's own word that the window stands or is gone
@@ -477,8 +478,34 @@ class MainActivity : Activity() {
         if (asks.isEmpty()) takeTheCall(true) else requestPermissions(asks, ASK_CALL_MIC)
     }
 
+    /**
+     * THE UPDATE THAT CANNOT BE PUT OFF (iOS 4befb14a, the fullScreenCover over RootView): while this build stands below the least the
+     * network admits (Update.required), the update page lies over the whole window and every back is held; laid anew when the
+     * site's word changes its numbers, taken away when the least admits this build.
+     */
+    private var updatePage: View? = null
+    private var updateHold: android.window.OnBackInvokedCallback? = null
+    private fun keepUpdateRequired() {
+        val decor = window.decorView as android.view.ViewGroup
+        updatePage?.let { decor.removeView(it) }
+        updatePage = null
+        val r = Update.required(this)
+        if (r == null) {
+            if (Build.VERSION.SDK_INT >= 33) updateHold?.let { onBackInvokedDispatcher.unregisterOnBackInvokedCallback(it) }
+            updateHold = null
+            return
+        }
+        android.util.Log.d("Montana", "update_required least=" + r.least + " own=" + Update.own(this))
+        keysDown()
+        updatePage = updateRequiredPage(this, r).also { decor.addView(it, android.view.ViewGroup.LayoutParams(-1, -1)); it.requestApplyInsets() }
+        if (Build.VERSION.SDK_INT >= 33 && updateHold == null) updateHold = android.window.OnBackInvokedCallback {}.also {
+            onBackInvokedDispatcher.registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_OVERLAY, it)
+        }
+    }
+
     @Deprecated("registerBack's OnBackInvokedCallback takes every system back from API 33; this is the road below it")
     override fun onBackPressed() {
+        if (updatePage != null) return   // the update page holds every back
         val b = back
         if (b != null) b() else drawer?.open()   // the root never leaves the app (commitBack)
     }

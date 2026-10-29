@@ -420,6 +420,10 @@
     <string name="release_expand">Развернуть</string>
     <string name="release_collapse">Свернуть</string>
     <string name="update_now">Обновить</string>
+    <!-- the update that cannot be put off (iOS MTUpdateRequired, 4befb14a) -->
+    <string name="update_required_title">Обновить Монтану</string>
+    <string name="update_required_needs">%1$s требует сборку %2$d. Эта сборка — %3$d.</string>
+    <string name="update_required_install">Установите новую сборку, чтобы продолжить.</string>
     <string name="update_loading">Загрузка Montana %1$s (%2$d)</string>
     <string name="update_failed">Обновление не загрузилось — попробуйте позже</string>
     <string name="update_current">У вас последняя версия Montana</string>

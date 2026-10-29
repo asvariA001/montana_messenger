@@ -420,6 +420,10 @@
     <string name="release_expand">展开</string>
     <string name="release_collapse">收起</string>
     <string name="update_now">更新</string>
+    <!-- the update that cannot be put off (iOS MTUpdateRequired, 4befb14a) -->
+    <string name="update_required_title">更新 Montana</string>
+    <string name="update_required_needs">%1$s 需要版本 %2$d。当前版本为 %3$d。</string>
+    <string name="update_required_install">请安装新版本以继续。</string>
     <string name="update_loading">正在下载 Montana %1$s (%2$d)</string>
     <string name="update_failed">更新未能下载，请稍后再试</string>
     <string name="update_current">Montana 已是最新版本</string>
