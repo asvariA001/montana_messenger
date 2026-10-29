@@ -424,11 +424,35 @@ object Wire {
      * the bytes only when the node lacks them. A walk that knows its chunks are new (their key was drawn this moment) says so and
      * skips the question; a retry after a road that broke mid-answer asks, so a chunk the node took is not carried twice.
      */
-    fun putBlob(bid: String, data: ByteArray, cargo: String? = null, last: Boolean = false, assumeAbsent: Boolean = false): Boolean {
+    fun putBlob(bid: String, data: ByteArray, cargo: String? = null, last: Boolean = false, assumeAbsent: Boolean = false, bulk: Boolean = cargo != null): Boolean {
         if (!assumeAbsent && blobsHave(listOf(bid))?.contains(bid) == true) { Log.d("Montana", "blob_put already on the node id=" + bid.take(8)); return true }
         // A CHUNK GOES TO THE NEXT LIVE DOOR THE MOMENT THE FIRST ONE DIES (iOS build 1894): the doors that answered on this path
         // first, a resting one last, and every answer taught to the door book — a dead door held a piece its whole minute
-        return Signal.writeOrder("blob").any { door -> putBlobAt(door, bid, data, cargo, last) }   // the elected store first (iOS 2007)
+        val taken = Signal.writeOrder("blob").firstOrNull { door -> putBlobAt(door, bid, data, cargo, last) } ?: return false   // the elected store first (iOS 2007)
+        // A LETTER'S CARGO LIES ON EVERY MACHINE (iOS 70b31768, T1 20.10 16:53Z): a piece on the one machine its put reached stood
+        // «loading» for a phone that could not reach that machine, and the node's own hop to its sibling rode the same broken road.
+        // Only the sender, who has just reached a machine, can lay the piece on the others; a failed copy costs the redundancy alone.
+        if (bulk) mirror(bid, data, cargo, last, taken)   // a letter's cargo: its pieces, its manifest, a long letter (iOS bulk: true)
+        return true
+    }
+    /**
+     * The copy of a letter's piece for every machine but the one that took it (iOS MontanaBlobUpload.mirror 4374-4385): the very put
+     * that machine took — the same name, the same cargo marks — to the first living door of each other machine the network names
+     * (/doors "nodes"). It rides its own thread: the sender waits for nothing, and a copy's answer teaches the door book nothing.
+     */
+    private fun mirror(bid: String, data: ByteArray, cargo: String?, last: Boolean, taken: String) {
+        val takenHost = android.net.Uri.parse(taken).host
+        val doors = Doors.ordered("blob").filter { Signal.doorAlive(it) }
+        for ((id, hosts) in Doors.machineHosts()) {
+            if (takenHost != null && takenHost in hosts) continue
+            val door = doors.firstOrNull { android.net.Uri.parse(it).host in hosts } ?: continue
+            Thread {
+                val body = JSONObject().put("bid", bid).put("data", Base64.encodeToString(data, Base64.NO_WRAP))
+                if (cargo != null) { body.put("cg", cargo); if (last) body.put("last", true) }
+                val code = post(door, "/blob-put", body, cargoTimeoutMs(data.size)).first
+                Log.d("Montana", "blob_copy " + (if (code == 200) "done" else "FAIL code=$code") + " copy=" + bid.take(8) + " to=" + id)
+            }.start()
+        }
     }
     /**
      * What the node already holds of these chunks (iOS blobsPresent, askHave 1941-1981): only the chunks asked about count — a store
@@ -1500,7 +1524,7 @@ object Post {
         val mk = MtBindings.nativeRandom(32) ?: return null
         val sealed = Wire.seal(mk, mid.toByteArray() + 0 + text.toByteArray()) ?: return null
         val bid = Wire.hex(Wire.sha(sealed))
-        if (!Wire.putBlob(bid, sealed, assumeAbsent = true)) return null   // a key drawn this moment: new by construction
+        if (!Wire.putBlob(bid, sealed, assumeAbsent = true, bulk = true)) return null   // a key drawn this moment: new by construction
         val link = Marks.LONG + JSONObject().put("r", bid).put("k", Base64.encodeToString(mk, Base64.NO_WRAP))
         Prefs.setStr("longRef.$mid", link)
         return link

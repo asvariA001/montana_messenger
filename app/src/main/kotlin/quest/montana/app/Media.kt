@@ -374,7 +374,7 @@ object Media {
         val mk = MtBindings.nativeRandom(32) ?: return null
         val sealed = Wire.seal(mk, json.toByteArray()) ?: return null
         val mbid = Wire.hex(Wire.sha(sealed))
-        if (!Wire.putBlob(mbid, sealed, assumeAbsent = true)) return null   // sealed under a key drawn this moment: new by construction
+        if (!Wire.putBlob(mbid, sealed, assumeAbsent = true, bulk = true)) return null   // sealed under a key drawn this moment: new by construction
         return (Marks.MEDIA + JSONObject().put("mref", mbid).put("mk", Base64.encodeToString(mk, Base64.NO_WRAP)).put("sz", total)) to json
     }
 
