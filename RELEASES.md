@@ -16,7 +16,7 @@ does and does not establish is in [`AUDIT.md`](AUDIT.md), section 3.
 |---|---|---|---|---|
 | `apps/messenger/android` | 552 | `e8e25d01c77e` | `af8316a93370d0a6bdafc3b74e58f2578e832839` | 2026-10-26 10:03 UTC |
 | `apps/messenger/ios` | 1.0 (2315) | `1604d008df48` | `1143ed8e26ff3f42016c6a2affe5bc56dcd6823b` | 2026-10-27 10:57 UTC |
-| `core` | not built (branch agent-684/issue-75-adopt with main f56a419) | `82ac98945f03` | `3260fd29cb08a6d789d47abf433018a1a9418d4e` | 2026-10-29 15:09 UTC |
+| `core` | not built (branch agent-684/issue-75-adopt with main dba3c9e) | `82ac98945f03` | `db858f1c4fda21fb00f8c7531f88508552b708ed` | 2026-10-29 15:24 UTC |
 <!-- sources:end -->
 
 ## Binaries
