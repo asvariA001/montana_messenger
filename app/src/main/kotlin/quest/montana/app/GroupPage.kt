@@ -1029,7 +1029,7 @@ internal fun channelCommentsPage(act: MainActivity, key: String, post: Msg, onBa
             override fun onViewAttachedToWindow(v: View) { ChannelComments.listen(heard); fill() }
             override fun onViewDetachedFromWindow(v: View) { ChannelComments.unlisten(heard) }
         })
-    }
+    }.apply { standAboveKeys() }
 }
 
 /** The deed in the reference's words, its doer this phone's owner (iOS MTChannelActionsPage.words). */

@@ -1882,7 +1882,10 @@ fun wallCommentsPage(act: MainActivity, wall: String, id: String, onClose: () ->
             contentDescription = c.getString(R.string.wall_send)
             pressable {
                 val p = Board.post(wall, id) ?: return@pressable
-                Thread { Board.comment(wall, p, field.text.toString()) }.start()
+                // the words are read here, on the main thread: read inside the thread they came after the line below had emptied the
+                // field, and the comment went nowhere
+                val words = field.text.toString()
+                Thread { Board.comment(wall, p, words) }.start()
                 field.setText("")
             }
         }, lp(dp(44), dp(44)))
@@ -1904,6 +1907,7 @@ fun wallCommentsPage(act: MainActivity, wall: String, id: String, onClose: () ->
             override fun onViewAttachedToWindow(v: View) { Board.listen(again); draw() }
             override fun onViewDetachedFromWindow(v: View) { Board.unlisten(again) }
         })
+        standAboveKeys()
     }
 }
 

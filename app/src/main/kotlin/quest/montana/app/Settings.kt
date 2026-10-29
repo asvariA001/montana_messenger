@@ -128,6 +128,15 @@ fun MainActivity.push(build: (close: () -> Unit) -> View) {
     close = overlay(build { close() })
 }
 
+/**
+ * A PAGE WITH A FIELD AT ITS FOOT STANDS ABOVE THE KEYS (as the contact card's editor does, PeerInfo): a page over the current one is
+ * padded once by the system bars at its push (overlay), so the keyboard rose over its field and its send; the keys push it up instead.
+ */
+fun View.standAboveKeys() = setOnApplyWindowInsetsListener { v, insets ->
+    val b = insets.getInsets(android.view.WindowInsets.Type.systemBars() or android.view.WindowInsets.Type.ime())
+    v.setPadding(b.left, b.top, b.right, b.bottom); insets
+}
+
 // ─────────────────────────── the settings' first page (iOS SettingsTabView) ───────────────────────────
 
 /** THE SETTINGS ARE THE PLATFORM'S OWN LIST: two sections of rows, the cross top left. */
