@@ -52,15 +52,8 @@ impl Lack {
 /// closes nothing and moves no head.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Reading {
-    Closed {
-        window: u64,
-        refused: u64,
-    },
-    Stalled {
-        on: Lack,
-        window: u64,
-        refused: u64,
-    },
+    Closed { window: u64, refused: u64 },
+    Stalled { on: Lack, window: u64, refused: u64 },
 }
 
 impl Reading {
