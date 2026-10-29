@@ -41,7 +41,14 @@ fn main() -> ExitCode {
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("error: {e}");
+            if argv[1] == "init" {
+                // Argument and dependency errors can contain operator-supplied secret text.
+                eprintln!("initialization failed; check inputs and private output permissions; existing recovery files are never overwritten");
+            } else if argv[1] == "start" {
+                montana_node::private_diagnostic!("node start failed", "error: {e}");
+            } else {
+                eprintln!("error: {e}");
+            }
             ExitCode::from(1)
         },
     }
@@ -54,7 +61,7 @@ fn help_text() -> String {
          Usage:\n\
          \n\
            montana-node init    [--data-dir <PATH>] [--mnemonic \"<24 words>\"]\n\
-                                 [--mnemonic-stdin] [--entropy <hex32>] [--force]\n\
+                                 [--mnemonic-stdin] [--entropy <hex32>] [--force] [--recovery-file <PATH>]\n\
          \n\
            montana-node inspect [--data-dir <PATH>] [--reveal-master-seed]\n\
          \n\
@@ -107,6 +114,8 @@ fn help_text() -> String {
            --mnemonic-stdin           Read the 24-word phrase from stdin (no leak\n\
                                        via ps aux).\n\
            --entropy <hex32>          Use 32-byte entropy (64 hex).\n\
+           --recovery-file <PATH>    New owner-only recovery file; default DATA_DIR/mnemonic.txt.\n\
+                                      Existing files are always refused, even with --force.\n\
            --force                    Overwrite existing identity.bin.\n\
            --reveal-master-seed       In inspect: show the full master_seed.\n\
            --max-windows <N>          In start: stop after N windows.\n\
@@ -119,6 +128,7 @@ fn help_text() -> String {
 fn parse_init(args: &[String]) -> Result<init::InitArgs, NodeError> {
     let mut data_dir: Option<PathBuf> = None;
     let mut mnemonic: Option<String> = None;
+    let mut recovery_file: Option<PathBuf> = None;
     let mut entropy_hex: Option<String> = None;
     let mut force = false;
 
@@ -127,6 +137,10 @@ fn parse_init(args: &[String]) -> Result<init::InitArgs, NodeError> {
         match args[i].as_str() {
             "--data-dir" => {
                 data_dir = Some(PathBuf::from(expect_value(args, i, "--data-dir")?));
+                i += 2;
+            },
+            "--recovery-file" => {
+                recovery_file = Some(PathBuf::from(expect_value(args, i, "--recovery-file")?));
                 i += 2;
             },
             "--mnemonic" => {
@@ -167,6 +181,7 @@ fn parse_init(args: &[String]) -> Result<init::InitArgs, NodeError> {
         mnemonic,
         entropy_hex,
         force,
+        recovery_file,
     })
 }
 
