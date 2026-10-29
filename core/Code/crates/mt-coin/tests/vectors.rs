@@ -834,9 +834,37 @@ fn every_refusal_has_the_nodes_word() {
         (Refusal::Settled, "settled"),
         (Refusal::Stale, "stale"),
         (Refusal::NotYet, "not yet"),
+        (Refusal::Stopped, "minting stopped"),
     ];
     for (r, w) in words {
         assert_eq!(r.word(), w);
     }
-    assert_eq!(TX_FOLD, "fold-8");
+    assert_eq!(TX_FOLD, "fold-9");
+}
+
+// fold-9 (decision 362 a): from TX_MINT_STOP no MINT is taken, whatever its interval, and the life
+// credits nothing, so a key's coins only move. A MINT taken the second before keeps its fate at a
+// re-fold, and a GENESIS 0 still opens a key. Refuses a fold that still mints from the stop, or one
+// that refuses a MINT taken before it.
+#[test]
+fn v16_minting_stops_and_only_the_core_mints() {
+    let s = TX_MINT_STOP;
+    let mut k = Key::new(23);
+    k.genesis(0, s - 1000).unwrap();
+    k.mint(60, s - 200, s - 140, s - 130).unwrap();
+    let before = k.state;
+    assert_eq!(k.mint(60, s - 60, s, s), Err(Refusal::Stopped));
+    assert_eq!(k.mint(1, s + 60, s + 120, s + 125), Err(Refusal::Stopped));
+    assert_eq!(k.state, before);
+    assert_eq!(
+        at_now(&k.state, s + 86_400),
+        before,
+        "the life mints nothing after the stop"
+    );
+    assert_eq!(fold(&k.chain, &Book::default()).unwrap(), before);
+    let mut n = Key::new(24);
+    n.genesis(0, s + 10).unwrap();
+    assert_eq!(n.state.proven + n.state.declared, 0);
+    assert_eq!(n.genesis(1, s + 20), Err(Refusal::Genesis));
+    assert_eq!(n.mint(60, s + 10, s + 70, s + 75), Err(Refusal::Stopped));
 }

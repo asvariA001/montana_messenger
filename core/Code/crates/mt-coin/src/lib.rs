@@ -22,10 +22,16 @@ pub const TX_TIME_CUT: u64 = 1_792_702_800;
 // TX_MINT_FRESH seconds before the node takes it. A BURN is taken from the same second.
 pub const TX_ONLINE_CUT: u64 = 1_792_962_000;
 pub const TX_MINT_FRESH: u64 = 120;
+// Minting by a record stops at this second (fold-9, decision 362 a of the Author, 29.10.2026): a coin
+// is born only by the window right of the consensus core (Montana-Core window_credit), never by a
+// record a client lays. From it on a node takes no MINT at all; a GENESIS above 0 is refused since
+// TX_V2_CUT and the key's life credits nothing since TX_ONLINE_CUT, so no record mints from here.
+// Every record taken before it keeps its fate at a re-fold: the rule is chosen by the node's second.
+pub const TX_MINT_STOP: u64 = 1_793_361_600;
 pub const TX_DAY: u64 = 86_400;
 pub const TX_MINT_MIN: u64 = 60;
 // A change of the fold's rules re-folds every chain at a node's next start, so the rules have a name.
-pub const TX_FOLD: &str = "fold-8";
+pub const TX_FOLD: &str = "fold-9";
 pub const TX_GENESIS_CAP: u128 = a2(TX_V2_CUT - TX_COIN_EPOCH);
 
 const TX_LIMIT: u128 = 13;
@@ -161,6 +167,7 @@ pub enum Refusal {
     Settled,
     Stale,
     NotYet,
+    Stopped,
 }
 
 impl Refusal {
@@ -184,11 +191,12 @@ impl Refusal {
             Refusal::Settled => "settled",
             Refusal::Stale => "stale",
             Refusal::NotYet => "not yet",
+            Refusal::Stopped => "minting stopped",
         }
     }
 
     // The declaration's order: a refusal crosses the C door as its place in it, counted from 1.
-    pub const ALL: [Refusal; 17] = [
+    pub const ALL: [Refusal; 18] = [
         Refusal::NotOnTheHead,
         Refusal::Overspend,
         Refusal::Split,
@@ -206,6 +214,7 @@ impl Refusal {
         Refusal::Settled,
         Refusal::Stale,
         Refusal::NotYet,
+        Refusal::Stopped,
     ];
 
     pub fn code(self) -> u8 {
@@ -516,6 +525,9 @@ pub fn step<L: Ledger>(s: &KeyState, r: &Record, at: u64, ledger: &L) -> Result<
             n.declared = a;
         },
         Kind::Mint => {
+            if TX_MINT_STOP <= at {
+                return Err(Refusal::Stopped);
+            }
             if s.height == 0 {
                 return Err(Refusal::NoBirth);
             }
