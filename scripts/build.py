@@ -86,15 +86,22 @@ def core(p):
     if not os.path.isdir(p.protocol):
         raise SystemExit("the core's tree is not beside this repository: %s at %s (scripts/toolchain.json)"
                          % (p.protocol, pin["commit"]))
-    head = git(["rev-parse", "HEAD"], p.protocol)
-    changed = git(["status", "--porcelain", "--untracked-files=no"], p.protocol)
-    if head != pin["commit"] or changed:
-        raise SystemExit("the core's tree is %s%s; this build is pinned to %s (scripts/toolchain.json)"
-                         % (head[:12], " with changes" if changed else "", pin["commit"][:12]))
+    # the core's folder is checked, not the checkout's head: the public repository moves on in its other folders
+    code = pin["code"]
+    changed = git(["diff", "--name-only", pin["commit"], "--", code], p.protocol)
+    loose = git(["ls-files", "--others", "--exclude-standard", "--", code], p.protocol)
+    if changed or loose:
+        raise SystemExit("the core's %s in %s is not the one of %s: %s (scripts/toolchain.json)"
+                         % (code, p.protocol, pin["commit"][:12], (changed or loose).split("\n")[0]))
     channel = p.rust_channel()
-    say("core: Rust %s, NDK %s" % (channel, PIN["ndk"]))
+    say("core: %s of %s, Rust %s, NDK %s" % (code, pin["commit"][:12], channel, PIN["ndk"]))
+    # the library names no folder of this computer, so anyone who builds the pinned commit gets the same bytes
+    env = p.env()
+    places = [(os.path.join(p.protocol, code), "/core/Code"), (JNI, "/montana-jni"), (p.cargo_home, "/cargo")]
+    env["CARGO_ENCODED_RUSTFLAGS"] = "\x1f".join("--remap-path-prefix=%s=%s" % pair for pair in places)
+    env["CFLAGS_aarch64_linux_android"] = " ".join("-ffile-prefix-map=%s=%s" % pair for pair in places)
     run([p.tool("cargo"), "+" + channel, "ndk", "-t", ABI, "-P", MIN_SDK, "build", "--release"],
-        env=p.env(), cwd=JNI)
+        env=env, cwd=JNI)
     say("core: %s, %d bytes" % (os.path.relpath(CORE_SO, ROOT), os.path.getsize(CORE_SO)))
 
 

@@ -8,7 +8,7 @@
 
 `scripts/toolchain.json` держит версии и контрольные суммы: JDK Temurin 17.0.20.1+1, Android cmdline-tools 22.0,
 build-tools 35.0.0, платформа android-35, NDK 27.2.12479018, Kotlin 2.0.21, cargo-ndk 4.1.2, движок звонков WebRTC
-144.7559.15. Компилятор Rust — тот, что закрепило само ядро (`Montana Protocol/Code/rust-toolchain.toml`), здесь он
+144.7559.15. Компилятор Rust — тот, что закрепило само ядро (`core/Code/rust-toolchain.toml`), здесь он
 не повторяется.
 
 WebRTC — единственная библиотека сборки (слово Анны 06.10.2026, вариант А): тот же движок webrtc-sdk, на котором звонит
@@ -31,10 +31,12 @@ build-tools 35.0.0 пишет метаданные Kotlin только до 2.0 
 
 ## Ядро рядом
 
-Библиотека `native/montana-jni` собирает крейты ядра по пути `../../../Montana Protocol/Code/crates`, поэтому рядом
-с этим хранилищем лежит папка `Montana Protocol` — дерево ядра ровно на коммите `protocol.commit` из `toolchain.json`,
-без правок. Иначе сборка ядра откажет и назовёт нужный коммит. На Маке это рабочее дерево ядра:
-`git -C ДЕРЕВО-ПРОТОКОЛА worktree add --detach "ПАПКА/Montana Protocol" КОММИТ`.
+Библиотека `native/montana-jni` собирает крейты публичного ядра по пути `../../../montana_messenger/core/Code/crates`
+(решение председателя 312, #23), поэтому рядом с этим хранилищем лежит клон `montana_messenger` из
+`protocol.repository`. Сверяется не голова клона, а папка `core/Code`: она должна совпадать с `protocol.commit` из
+`toolchain.json` без правок и лишних файлов, иначе сборка ядра откажет и назовёт коммит. Пути этого компьютера
+в библиотеку не попадают (`--remap-path-prefix`, `-ffile-prefix-map`): кто соберёт тот же коммит, получит те же байты.
+В копии на GitHub (`apps/messenger/android`) путь ведёт в `core/` того же хранилища.
 
 ## Команды
 
@@ -47,8 +49,8 @@ build-tools 35.0.0 пишет метаданные Kotlin только до 2.0 
 
 ## Лотербург — общее место сборки
 
-- `/srv/android/montana-android` — рабочая копия общего хранилища; `/srv/android/Montana Protocol` — ядро
-  на закреплённом коммите (из `/var/backups/montana-protocol.git`).
+- `/srv/android/montana-android` — рабочая копия общего хранилища; `/srv/android/montana_messenger` — клон
+  публичного хранилища, ядро на закреплённом коммите.
 - `python3 /srv/android/build [REF]` — одна сборка за раз (замок): берёт REF из общего хранилища (по умолчанию main),
   подводит ядро к закреплённому коммиту, собирает с пониженным приоритетом (на машине живёт личный узел), подписывает
   общим ключом и кладёт в `/srv/android/out/НОМЕР-КОММИТ/` и `/srv/android/out/latest.json`.
