@@ -10,6 +10,8 @@ montana-node — a machine of Montana
   montana-node --data <directory> --listen <address> [--acquaintance <line>]...
                [--admitted <half>]... [--open] [--windows <n>]
 
+  --status               read the live local reading (requires --data): a closed window or a
+                         wait inside the patience exits 0, a stall exits 1, 2 or 4
   --data <directory>     where this machine keeps what it holds between starts
   --listen <address>     where it answers, as an address and a port
   --acquaintance <line>  a machine to reach, as its operator handed it over:
@@ -61,8 +63,10 @@ fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(said) => {
-            eprintln!("montana-node: {said}");
-            ExitCode::FAILURE
+            eprintln!("{said}");
+            ExitCode::from(
+                montana_node::say::Verdict::from_line(&said).map_or(1, |on| on.exit_code()),
+            )
         }
     }
 }
@@ -73,9 +77,13 @@ fn run() -> Result<(), String> {
         print!("{USAGE}");
         return Ok(());
     }
+    if held.iter().any(|arg| arg == "--status") {
+        return read_status(&held);
+    }
     let (configuration, payment) = read_configuration(&held)?;
 
     let (machine, born) = Machine::start(&configuration).map_err(said)?;
+    let machine = std::sync::Arc::new(machine);
     if born {
         println!("this machine was born: it drew its secret and will not draw another");
     }
@@ -152,6 +160,13 @@ fn run() -> Result<(), String> {
         "living from window {from} in a cohort of {}",
         cohort.count()
     );
+    // The status endpoint writes its locator into the store, so it opens only once every refusal
+    // of a start is behind: a refused start writes nothing (Consensus, "The cold start"). A machine
+    // that lives no window has no pulse to read and reads `no diagnostics`.
+    #[cfg(unix)]
+    let _status =
+        montana_node::status::Server::open(&configuration.data, std::sync::Arc::clone(&machine))
+            .map_err(|error| format!("no diagnostics: {error}"))?;
 
     // The door and the pulse stand at once: the door answers the links strangers open, and the
     // pulse asks over the links this machine opened. Neither waits on the other, which is what
@@ -163,11 +178,7 @@ fn run() -> Result<(), String> {
     machine
         .enter_round(from, montana_node::pulse::opening_chain(), 0)
         .map_err(said)?;
-    let machine = std::sync::Arc::new(machine);
-    let answering = std::sync::Arc::clone(&machine);
-    std::thread::spawn(move || {
-        let _ = answering.serve();
-    });
+    machine.answer_in_background();
     for line in unreached {
         montana_node::pulse::reach_again(std::sync::Arc::clone(&machine), line);
     }
@@ -426,6 +437,7 @@ fn said(e: NodeError) -> String {
             "this machine could not build {what}, and answers nothing rather than answering with \
              what a verifier would refuse"
         ),
+        NodeError::Stalled { on, what } => format!("{on}: {what}"),
         NodeError::Refused { what } => format!("refused: {what}"),
         NodeError::UnreconciledCement => {
             "waiting: beacon cement does not match the verified heavy attestations; no signature or round transition is authorized".to_string()
@@ -606,4 +618,77 @@ fn read_configuration(held: &[String]) -> Result<(Configuration, Option<Asked>),
         }
     };
     Ok((configuration, asked))
+}
+
+// The status query never opens Store: it must not create a machine or acquire its data lock.
+fn read_status(args: &[String]) -> Result<(), String> {
+    let mut args = args.iter();
+    let mut data = None;
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--status" => {}
+            "--data" if data.is_none() => data = args.next(),
+            _ => return Err("no diagnostics: --status requires only --data DIR".to_string()),
+        }
+    }
+    let data = data.ok_or("no diagnostics: --status requires --data DIR")?;
+    #[cfg(unix)]
+    {
+        let status =
+            montana_node::status::read(std::path::Path::new(data)).map_err(|on| on.to_string())?;
+        // A close and a wait inside the patience are healthy and exit 0; a stall exits its code.
+        if status.exit_code() == 0 {
+            println!("{status}");
+            Ok(())
+        } else {
+            Err(status.to_string())
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = data;
+        Err("no diagnostics: this platform has no local status door".to_string())
+    }
+}
+
+#[cfg(test)]
+mod status_tests {
+    // CNS-20: rejects the generic error prefix obscuring the typed stall's first word.
+    #[test]
+    fn the_last_error_line_starts_with_the_verdict() {
+        let codes: std::collections::BTreeSet<u8> = [
+            montana_node::say::Verdict::NoQuorum,
+            montana_node::say::Verdict::NoData,
+            montana_node::say::Verdict::NoDiagnostics,
+        ]
+        .into_iter()
+        .map(|on| {
+            let line = super::said(montana_node::NodeError::Stalled {
+                on,
+                what: "budget exhausted",
+            });
+            assert_eq!(montana_node::say::Verdict::from_line(&line), Some(on));
+            assert_ne!(on.exit_code(), 0);
+            on.exit_code()
+        })
+        .collect();
+        assert_eq!(codes.len(), 3);
+        // F1a: the retired verdict reads as no verdict and its code is given to none.
+        assert!(!codes.contains(&3));
+        assert_eq!(
+            montana_node::say::Verdict::from_line("proof refused; asking 1; refused 1"),
+            None
+        );
+        for on in [
+            montana_node::say::Verdict::NoQuorum,
+            montana_node::say::Verdict::NoData,
+            montana_node::say::Verdict::NoDiagnostics,
+        ] {
+            assert!(super::said(montana_node::NodeError::Stalled {
+                on,
+                what: "budget exhausted"
+            })
+            .starts_with(&format!("{on}:")));
+        }
+    }
 }
