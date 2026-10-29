@@ -32,7 +32,10 @@ FIXED_MOMENT = (1981, 1, 1, 1, 1, 2)
 BUILD = os.path.join(ROOT, "build")
 APK = os.path.join(BUILD, "Montana.apk")
 JNI = os.path.join(ROOT, "native", "montana-jni")
-CORE_SO = os.path.join(JNI, "target", "aarch64-linux-android", "release", "libmontana.so")
+# the core builds in one folder for every builder: OpenSSL's Configure writes its install folder into the library
+# (MODULESDIR, ENGINESDIR), and no prefix map reaches those strings
+CORE_TARGET = "/var/tmp/montana-jni-target"
+CORE_SO = os.path.join(CORE_TARGET, "aarch64-linux-android", "release", "libmontana.so")
 ABI = "arm64-v8a"
 APP = os.path.join(ROOT, "app", "src", "main")
 
@@ -100,6 +103,7 @@ def core(p):
     places = [(os.path.join(p.protocol, code), "/core/Code"), (JNI, "/montana-jni"), (p.cargo_home, "/cargo")]
     env["CARGO_ENCODED_RUSTFLAGS"] = "\x1f".join("--remap-path-prefix=%s=%s" % pair for pair in places)
     env["CFLAGS_aarch64_linux_android"] = " ".join("-ffile-prefix-map=%s=%s" % pair for pair in places)
+    env["CARGO_TARGET_DIR"] = CORE_TARGET
     run([p.tool("cargo"), "+" + channel, "ndk", "-t", ABI, "-P", MIN_SDK, "build", "--release"],
         env=env, cwd=JNI)
     say("core: %s, %d bytes" % (os.path.relpath(CORE_SO, ROOT), os.path.getsize(CORE_SO)))
