@@ -1340,6 +1340,30 @@ an eligible proposer and a verified certificate; obtaining the numeric quorum al
 Monitoring reports these conditions and authorizes no transition. Reconnection restores
 liveness only when the original authorization and verification requirements are met.
 
+What monitoring reports to an operator is three verdicts, and each carries an exit code of the
+operator's status read. The codes are operator signals and not values of the protocol: no
+proposal, root, frame or quorum carries them, and no machine reads another machine's verdict.
+
+- `no quorum`, code 1: the data the window waits on stands, and the pledges or the cement on it
+  fall short of the quorum share.
+- `no data`, code 2: a beacon, an attestation or a proposal the window waits on was not delivered
+  to the machine.
+- `no diagnostics`, code 4: the machine gives no reading. It made none in this run, its
+  diagnostic door is gone, or no running machine holds its store. A missing reading never reads
+  as success.
+
+A reading that names no verdict — a window closed, or a shortfall still awaited inside the
+patience of its wait — is a healthy machine and reads 0. A verdict reached when the patience of a
+wait runs out is a stall: it closes nothing and moves no head. A refused proof is not a verdict
+and not a state. Every refusal a machine counts is of an object deposited at a public point, and
+anyone may deposit there, so a refusal names no cause of a shortfall. The machine counts its
+refusals and shows the count beside every reading as `refused N`, never in place of the verdict.
+Code 3 is given to no verdict. The verdicts and their codes are `say::Verdict`
+(`core/Montana-Core/crates/montana-node/src/say.rs:24-40`); the readings and the counter are
+`say::PulseStatus` (`say.rs:69-87`, written at `say.rs:159-182`); the verdict is chosen from the
+shortfall alone at `say.rs:253-269` (the Author's decision 334 (a), record 339 of the constitution
+chain, 2026-10-29 09:28 UTC; issue #21).
+
 **Invariants of the way back:**
 
 - The electorate and the threshold are those of the proposal of the window two before, for all rounds of the window.
@@ -1412,3 +1436,4 @@ An implementation conforms to this document when all of the following hold.
 17. It counts a machine's standing as the census windows whose cements hold its parts, carries the census from proposal to proposal by the rule of Canon, reads the committee off the standing alone, draws every unit's coin from its own spending half, the census window and the aggregate of the window two before, publishes a ballot only where its standing drew a vote and the electorate is above the floor of the committee, verifies every ballot it gathers against the census, the aggregate and the committee of the electorate, counts a part's ballot once at its largest count, and refuses a beacon whose votes exceed what those ballots cast.
 18. It runs the agreement on what a window decided: it pledges in attempt zero the name it took, counts every open pledge on the quorum its `since` names and every closing pledge on the quorum of open pledges of its attempt, a part once per kind and attempt, closes on a quorum of open pledges of its attempt, proposes in the order of its place, follows the open pledge at the lowest place only where its lock admits it and the name is valid to it, moves to a later attempt on its spans or on pledges beyond the share the quorum leaves, keeps its attempt, its lock, its valid name and its pledges through a restart, and reproduces the frozen vectors of the place.
 19. It names in every proposal the roll of what its window applied, publishes the roll beside the proposal, follows a name it did not take only where a quorum backs it or its roll replays to it, replays the decided roll over the decided state of the window two before where its own name was not decided and applies its open window again over the result, and tells a payer again what its frame took where a replay moves it.
+20. It tells its operator, of a window it has not closed, one of the three verdicts of "The way back" with its code — `no quorum` 1, `no data` 2, `no diagnostics` 4 — and reads 0 for a window closed or a shortfall awaited inside its patience. It chooses the verdict from the shortfall it observes and never from a refusal. It counts refusals and shows the count beside the reading as `refused N`, never as a verdict or a state. It reads a missing reading as `no diagnostics` and never as success. No verdict, code or count enters a proposal, a root, the wire or a quorum, and a stall closes nothing.
