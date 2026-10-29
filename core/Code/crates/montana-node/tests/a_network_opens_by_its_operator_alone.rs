@@ -87,6 +87,7 @@ fn machine(entropy: &str, bootstrap: &str) -> (PathBuf, PathBuf) {
         mnemonic: None,
         entropy_hex: Some(entropy.to_string()),
         force: false,
+        recovery_file: None,
     })
     .expect("init");
     let named = tempdir();
@@ -95,6 +96,7 @@ fn machine(entropy: &str, bootstrap: &str) -> (PathBuf, PathBuf) {
         mnemonic: None,
         entropy_hex: Some(bootstrap.to_string()),
         force: false,
+        recovery_file: None,
     })
     .expect("init the named machine");
     let peer = load_identity(&named).expect("identity of the named machine");
