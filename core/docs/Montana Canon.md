@@ -3865,6 +3865,7 @@ line, which of the two it is writing.
 | `mt-noise-pq-v1-sig-r` | the identity signature of the responder |
 | `mt-noise-pq-v1-sig-i` | the identity signature of the initiator |
 | `mt-noise-pq-v1-transcript` | the transcript exposed as a channel-binding token |
+| `mt-link-renew` | the secret of a link after a renewal of its keys, folded from the secret before it and both encapsulations of the renewal |
 | `mt-lookup-nf` | the nullifier bounding a record to one reach into the space of slots per window |
 | `mt-channel-slot` | the slot a channel occupies, derived from its normalized name |
 | `mt-channel-key` | the key a channel signs its publications under, derived per slot |
@@ -3895,6 +3896,7 @@ line, which of the two it is writing.
 | `mt-relay-path` | the identity of a path, taken over the pipe layer that crosses it unchanged |
 | `mt-pipe-key` | the key sealing the delivery layer of a cell, held by the two correspondents alone |
 | `mt-pipe-ratchet` | the step of the walk by which the secret of a pipe moves from one window to the next |
+| `mt-pipe-heal` | the first value of the healed walk of a pipe, folded from the old walk and the encapsulation of a heal |
 | `mt-collect` | the right to take mail from a pipe, sealed to the two correspondents for one window |
 | `mt-round-point` | the points a beacon and its attestations stand at |
 | `mt-window-point` | the points a proposal, its roll and the pledges of an agreement stand at |

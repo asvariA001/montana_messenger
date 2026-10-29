@@ -2790,6 +2790,11 @@ pub const DOMAINS_AWAITING_A_VECTOR: &[(&str, &str)] = &[
     ("mt-noise-pq-v1-sig-r", "the wire"),
     ("mt-noise-pq-v1-sig-i", "the wire"),
     ("mt-delivery", "the wire"),
+    // The renewal of a link and the heal of a pipe (issue #75, NET-25): the fold is written and
+    // tested beside its definition, and its frozen values enter the set with the forms of the
+    // three messages of a renewal.
+    ("mt-link-renew", "the renewal of a link"),
+    ("mt-pipe-heal", "the renewal of a link"),
 ];
 
 // An entry names a label whole, or as a prefix ending at a boundary: the character after the
