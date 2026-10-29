@@ -65,12 +65,55 @@ pub struct StartArgs {
     /// the node behaves exactly as before it appeared — it assembles no batches, builds no index,
     /// answers no requests.
     pub enable_names: bool,
+    /// Open a network: window zero on the operator's cohort, on a store holding nothing
+    /// of a chain. Without it an empty store does not start (issue #17 K5).
+    pub open: bool,
 }
 
+/// issue #17 K5: the single mode without a manifest is dropped.
+pub const NO_MANIFEST_REFUSED: &str =
+    "start requires --listen and --genesis-manifest: there is no single mode without a manifest";
+/// issue #17 K5: the test-only D override is refused in a release build.
+pub const D_TEST_OVERRIDE_REFUSED: &str =
+    "--d-test-override is refused in a release build: D = params.d0 (Genesis Decree)";
+/// issue #17 K5, the author's decision 287: an empty store opens no window unasked.
+pub const NO_ANCHOR_REFUSED: &str =
+    "a machine with no anchor opens no window: an empty store starts only with --open";
+/// A second window zero of a network this store already stands in.
+pub const OPENED_OVER_A_CHAIN: &str = "--open is refused on a store that holds a chain";
+/// The cohort of window zero is the manifest's bootstrap peer.
+pub const OPENER_NOT_BOOTSTRAP: &str =
+    "--open is refused: the genesis manifest does not name this machine as its bootstrap peer";
+
 pub fn run(args: StartArgs) -> Result<(), NodeError> {
-    let data_dir = args.data_dir.unwrap_or_else(default_data_dir);
+    // The release refusal holds here too, so no caller of the library runs on an overridden D.
+    if args.d_test_override.is_some() && !cfg!(debug_assertions) {
+        return Err(NodeError::InvalidArguments(D_TEST_OVERRIDE_REFUSED.into()));
+    }
+    // A node starts only in the cross-machine mode, before it reads its identity or store.
+    let Some(manifest_path) = args.genesis_manifest.as_deref() else {
+        return Err(NodeError::InvalidArguments(NO_MANIFEST_REFUSED.into()));
+    };
+    if args.listen_multiaddr.is_none() {
+        return Err(NodeError::InvalidArguments(NO_MANIFEST_REFUSED.into()));
+    }
+    let data_dir = args.data_dir.clone().unwrap_or_else(default_data_dir);
     let identity = load_identity(&data_dir)?;
     let params = genesis_params();
+
+    // Window zero opens only by the operator's explicit --open on a store holding nothing
+    // of a chain; otherwise the node does not start (issue #17 K5, the author's decision
+    // 287; Consensus, "The cold start"). Decided before the network starts or anything is
+    // written, so a refusal leaves the store as it was.
+    let opening = match (args.open, holds_a_chain(&data_dir)?) {
+        (true, false) => true,
+        (true, true) => return Err(NodeError::InvalidArguments(OPENED_OVER_A_CHAIN.into())),
+        (false, false) => return Err(NodeError::InvalidArguments(NO_ANCHOR_REFUSED.into())),
+        (false, true) => false,
+    };
+    if opening && !is_the_bootstrap_peer(&identity, manifest_path)? {
+        return Err(NodeError::InvalidArguments(OPENER_NOT_BOOTSTRAP.into()));
+    }
 
     // Cross-machine M8: spawn a network thread with its own tokio runtime.
     // The network event loop is separate from the consensus loop (SSHA compute) —
@@ -94,13 +137,18 @@ pub fn run(args: StartArgs) -> Result<(), NodeError> {
     }
 
     // spec, Genesis Decree: Genesis = empty window 0. The genesis state is empty
-    // (no baked active operators); a node self-admits via the existing admission
-    // path. The manifest is discovery-only and is not hash-bound.
+    // (no baked active operators); window zero opens on the operator's cohort by
+    // --open. The manifest is not hash-bound.
     // Issue #19 K5: the window record is the truth of the tables, the window and the clock
     // (a store without one is migrated once, if its earlier files hold one window); the
     // earlier files are rewritten from it as views, so `status` reads the real tables.
+    // Issue #17 K5: an opening writes the cohort into the first record itself, so no record
+    // of window zero stands without it.
     let (mut state, mut current, mut timechain) =
-        crate::window_record::open(&data_dir, &identity, params)?;
+        crate::window_record::open(&data_dir, &identity, params, opening)?;
+    if opening {
+        println!("[open W=0] window zero opens on the operator's cohort (this machine)");
+    }
     let mut lifecycle = load_or_init_lifecycle(&data_dir, &identity, params)?;
     let mut effective_d = args.d_test_override.unwrap_or(timechain.current_d);
 
@@ -126,10 +174,8 @@ pub fn run(args: StartArgs) -> Result<(), NodeError> {
         .unwrap_or(0);
 
     // Genesis = empty window 0: no baked bootstrap node. A node is considered already
-    // active only if its node_id is present in NodeTable (it was admitted
-    // in a previous session and the state is loaded from disk). A fresh node is a
-    // candidate: self-admit via the standard admission path (selection_slots(0)=1
-    // admits the first candidate when the Active set is empty).
+    // active only if its node_id is present in NodeTable: it opened window zero by
+    // --open, or it was admitted in a previous session and the state is loaded from disk.
     let already_active = state.nodes.contains(&my_node);
 
     // Phase Bootstrap = first boot. Already active (in NodeTable) → Active.
@@ -499,40 +545,10 @@ pub fn run(args: StartArgs) -> Result<(), NodeError> {
                 }
             },
             NodePhase::Registered => {
-                // Cold-start self-admission: with an empty Active set (genesis, no
-                // Active operator at all) a registered node itself conducts the
-                // selection_event at the selection window. selection_slots(0)=1
-                // admits it (the only candidate) → Node Table; then the
-                // Active arm drives the windows itself (its own BC gives quorum at active=0/1).
-                // If the Active set is NOT empty — the node waits for ordinary admission
-                // by the existing Active (a no-op here). This is the bootstrap of the first node
-                // of a solo chain; admission-as-cemented-proposal for multi-node is
-                // a separate path (see the critic's cold-start finding).
-                if state.nodes.is_empty()
-                    && !state.candidates.is_empty()
-                    && next_window % params.selection_interval == 0
-                {
-                    let cba_w_minus_2 = cba_from(&bc_set_history, next_window.saturating_sub(2));
-                    let t_r_w = *t_r_history.get(&next_window).unwrap_or(&timechain.t_r);
-                    let admitted = apply_selection_event(
-                        &mut state.candidates,
-                        &mut state.nodes,
-                        &mut state.accounts,
-                        &t_r_w,
-                        &cba_w_minus_2,
-                        0,
-                        next_window,
-                        params,
-                    );
-                    if state.nodes.contains(&my_node) {
-                        lifecycle.phase = NodePhase::Active;
-                        last_cement_at = Instant::now();
-                        println!(
-                            "[cold-start W={next_window}] self-admit \u{2192} Active (admitted={})",
-                            admitted.len()
-                        );
-                    }
-                }
+                // A registered node waits for its admission by the Active set (a no-op
+                // here). There is no cold-start self-admission into an empty set: window
+                // zero opens only on the operator's cohort, by --open (issue #17 K5,
+                // the author's decision 287; Consensus, "The cold start").
             },
             NodePhase::Active => 'active_arm: {
                 // Legitimate proposer of window next_window: the lowest ticket by the
@@ -711,6 +727,73 @@ pub fn run(args: StartArgs) -> Result<(), NodeError> {
     );
 
     Ok(())
+}
+
+/// Whether a data dir holds anything of a chain: the window record, the three tables, the clock,
+/// the time chain, the lifecycle record or an archived proposal. identity.bin is not a chain.
+/// Read by presence alone, so a record that no longer parses still counts.
+pub fn holds_a_chain(data_dir: &std::path::Path) -> Result<bool, NodeError> {
+    let records = [
+        data_dir.join("accounts.bin"),
+        data_dir.join("nodes.bin"),
+        data_dir.join("candidates.bin"),
+        data_dir.join(mt_store::WINDOW_RECORD_FILE),
+        crate::clock::current_window_path(data_dir),
+        crate::timechain_state::timechain_path(data_dir),
+        crate::node_lifecycle::lifecycle_path(data_dir),
+    ];
+    if records.iter().any(|p| p.exists()) {
+        return Ok(true);
+    }
+    let proposals = data_dir.join("proposals");
+    Ok(proposals.is_dir() && std::fs::read_dir(&proposals)?.next().is_some())
+}
+
+// The cohort of window zero is the manifest's bootstrap peer: the manifest names exactly
+// one (mt-genesis manifest.rs) and carries the ids of a peer, not its public key, so the
+// opener admits itself alone and only when the manifest names it.
+fn is_the_bootstrap_peer(
+    identity: &crate::identity::Identity,
+    manifest_path: &std::path::Path,
+) -> Result<bool, NodeError> {
+    let text = std::fs::read_to_string(manifest_path)?;
+    let manifest = mt_genesis::GenesisManifest::parse(&text)
+        .map_err(|e| NodeError::Network(format!("parse manifest: {e}")))?;
+    let node = hex_lower(&identity.node_id());
+    let account = hex_lower(&identity.account_id());
+    Ok(manifest
+        .bootstrap_peer()
+        .is_some_and(|p| p.node_id_hex == node && p.account_id_hex == account))
+}
+
+// Window zero on the operator's cohort: the opener enters the Node Table at window zero
+// and its operator account becomes a node operator, as a selection event records an
+// admission, with no selection event and no SSHA entry (Consensus, "The cold start").
+pub(crate) fn open_window_zero(state: &mut LocalState, identity: &crate::identity::Identity) {
+    state.nodes.insert(mt_state::NodeRecord {
+        node_id: identity.node_id(),
+        node_pubkey: *identity.node_pk.as_bytes(),
+        suite_id: identity.suite_id as u16,
+        operator_account_id: identity.account_id(),
+        start_window: 0,
+        chain_length: 1,
+        chain_length_snapshot: 0,
+        chain_length_checkpoints: [0; 6],
+        last_confirmation_window: 0,
+    });
+    if let Some(account) = state.accounts.get(&identity.account_id()) {
+        let mut operator = account.clone();
+        operator.is_node_operator = true;
+        state.accounts.insert(operator);
+    }
+}
+
+fn hex_lower(bytes: &[u8]) -> String {
+    let mut s = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        s.push_str(&format!("{b:02x}"));
+    }
+    s
 }
 
 // The end of a turn. A window is committed by its own settle; what moved in memory without

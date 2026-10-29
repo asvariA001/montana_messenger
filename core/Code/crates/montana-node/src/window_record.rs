@@ -107,16 +107,30 @@ pub fn into_parts(record: WindowRecord) -> (LocalState, u64, TimeChainState, Vec
 
 /// What start takes as truth: the record. A store without one is migrated once from the
 /// earlier layout when that layout holds one window; otherwise the node does not start.
+/// `opening` (issue #17 K5, --open on a store holding nothing of a chain): the cohort of
+/// window zero enters the tables before the first record is committed, so the record of
+/// window zero never stands without it; a store that already holds a record is refused.
 pub fn open(
     data_dir: &Path,
     operator: &Identity,
     params: &ProtocolParams,
+    opening: bool,
 ) -> Result<(LocalState, u64, TimeChainState), NodeError> {
     let store = FsStore::open(data_dir).map_err(store_error("opening storage"))?;
     let record = match store.load_window_record() {
+        Ok(Some(_)) if opening => {
+            return Err(NodeError::InvalidArguments(
+                crate::commands::start::OPENED_OVER_A_CHAIN.into(),
+            ))
+        },
         Ok(Some(record)) => record,
         Ok(None) => {
-            let record = from_earlier_layout(&store, data_dir, operator, params)?;
+            let mut record = from_earlier_layout(&store, data_dir, operator, params)?;
+            if opening {
+                let (mut state, window, clock, envelope) = into_parts(record);
+                crate::commands::start::open_window_zero(&mut state, operator);
+                record = record_of(window, &state, &clock, envelope);
+            }
             commit(&store, &record)?;
             record
         },

@@ -8,7 +8,9 @@
 #   MONTANA_MNEMONIC           fixed identity (otherwise generated on first run)
 #   MONTANA_GENESIS_MANIFEST   manifest path (default /etc/montana/genesis-manifest.json)
 #   MONTANA_MANIFEST_SHA256    if set, refuse to start unless manifest sha matches
-#   MONTANA_D_TEST_OVERRIDE    TEST-ONLY fast SSHA (same value across the cohort)
+#   MONTANA_OPEN               1 = open a network: window zero, on an empty store, as the
+#                              manifest's bootstrap peer (otherwise an empty store does not start)
+# The image runs a release build, which refuses --d-test-override: D = params.d0.
 set -euo pipefail
 
 DATA_DIR="/var/lib/montana"
@@ -61,20 +63,19 @@ if [ -f "$MANIFEST" ] && [ -n "${MONTANA_MANIFEST_SHA256:-}" ]; then
 fi
 
 # 3. Start the node.
-# The node requires --listen and --genesis-manifest TOGETHER (cross-machine mode)
-# or NEITHER (singleton mode). Never --listen alone.
-if [ -f "$MANIFEST" ]; then
-  set -- start --data-dir "$DATA_DIR" --listen "$LISTEN" --genesis-manifest "$MANIFEST"
-  echo "[entrypoint] cross-machine mode"
-else
-  set -- start --data-dir "$DATA_DIR"
-  echo "[entrypoint] singleton mode — no manifest, no --listen"
+# The node requires --listen and --genesis-manifest together: there is no single
+# mode without a manifest (issue #17 K5).
+if [ ! -f "$MANIFEST" ]; then
+  echo "[entrypoint] FATAL: no genesis manifest at $MANIFEST; a node does not start without one" >&2
+  exit 1
 fi
-# TEST-ONLY: deterministic D override. All nodes in a test cohort MUST use the
-# same value or they fork. Unset in production (D = params.d0 from Genesis Decree).
-if [ -n "${MONTANA_D_TEST_OVERRIDE:-}" ]; then
-  set -- "$@" --d-test-override "$MONTANA_D_TEST_OVERRIDE"
-  echo "[entrypoint] TEST-ONLY d-test-override=$MONTANA_D_TEST_OVERRIDE"
+set -- start --data-dir "$DATA_DIR" --listen "$LISTEN" --genesis-manifest "$MANIFEST"
+echo "[entrypoint] cross-machine mode"
+# Window zero opens only by the operator's explicit act on an empty store (issue #17 K5);
+# without it a node with an empty store does not start.
+if [ "${MONTANA_OPEN:-}" = "1" ]; then
+  set -- "$@" --open
+  echo "[entrypoint] --open: opening window zero"
 fi
 
 # No unsolicited site report: the node's identity, label, location and state

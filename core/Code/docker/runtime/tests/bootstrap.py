@@ -84,10 +84,13 @@ sys.exit(subprocess.run(sys.argv[2:], start_new_session=True).returncode)
         text = text.replace('/usr/local/bin/montana-node', str(node))
         self.script = self.at / "entrypoint.sh"
         self.script.write_text(text)
+        self.manifest = self.at / 'genesis-manifest.json'
+        self.manifest.write_text('{}\n')
         self.env = {**os.environ, 'PATH': str(self.bin) + os.pathsep + os.environ['PATH'],
                     'TEST_CALLS': str(self.log), 'TEST_MARKER': MARKER,
-                    'MONTANA_GENESIS_MANIFEST': str(self.at / 'no-manifest')}
-        for name in ('MONTANA_MNEMONIC', 'MONTANA_D_TEST_OVERRIDE', 'MONTANA_MANIFEST_SHA256'):
+                    'MONTANA_GENESIS_MANIFEST': str(self.manifest)}
+        for name in ('MONTANA_MNEMONIC', 'MONTANA_D_TEST_OVERRIDE', 'MONTANA_MANIFEST_SHA256',
+                     'MONTANA_OPEN'):
             self.env.pop(name, None)
 
     def run_entrypoint(self):
@@ -168,6 +171,36 @@ sys.exit(subprocess.run(sys.argv[2:], start_new_session=True).returncode)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual([call[0] for call in self.calls()], ['start'])
         self.assertFalse((self.data / 'mnemonic.txt').exists())
+
+    def test_start_carries_listen_and_manifest(self):
+        (self.data / 'identity.bin').write_bytes(b'existing test identity')
+        # A release image refuses the test-only D override; the entrypoint does not pass it.
+        self.env['MONTANA_D_TEST_OVERRIDE'] = '1'
+        result = self.run_entrypoint()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        start = self.calls()[0]
+        self.assertEqual(start[start.index('--genesis-manifest') + 1], str(self.manifest))
+        self.assertIn('--listen', start)
+        self.assertNotIn('--d-test-override', start)
+        self.assertNotIn('--open', start)
+
+    def test_open_is_passed_only_when_the_operator_asks(self):
+        # issue #17 K5: window zero opens only by the operator's explicit act.
+        (self.data / 'identity.bin').write_bytes(b'existing test identity')
+        self.env['MONTANA_OPEN'] = '1'
+        result = self.run_entrypoint()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('--open', self.calls()[0])
+
+    def test_no_manifest_never_starts_the_node(self):
+        # issue #17 K5: no single mode without a manifest.
+        (self.data / 'identity.bin').write_bytes(b'existing test identity')
+        self.env['MONTANA_GENESIS_MANIFEST'] = str(self.at / 'no-manifest')
+        self.env['MONTANA_D_TEST_OVERRIDE'] = '1'
+        result = self.run_entrypoint()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(b'no genesis manifest', result.stderr)
+        self.assertEqual(self.calls(), [])
 
 
 if __name__ == '__main__':
