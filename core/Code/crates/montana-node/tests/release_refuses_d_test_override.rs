@@ -17,6 +17,8 @@ fn a_release_build_refuses_the_d_test_override() {
         .args(["start", "--data-dir"])
         .arg(&dir)
         .args(["--d-test-override", "1", "--max-windows", "1"])
+        // Both branches read the refusal text, shown only with private diagnostics on.
+        .env("MONTANA_PRIVATE_DIAGNOSTICS", "1")
         .output()
         .expect("spawn montana-node");
     let stderr = String::from_utf8_lossy(&out.stderr);

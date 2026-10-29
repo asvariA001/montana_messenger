@@ -14,7 +14,8 @@ use montana_node::commands::status::NO_RUNNING_HOLDER;
 use montana_node::node_lifecycle::{load_or_init_lifecycle, NodePhase};
 use montana_node::{load_identity, LocalState};
 
-// What the binary says when it refuses, as an operator reads it.
+// What the binary says when it refuses, as an operator reads it with private diagnostics on
+// (MONTANA_PRIVATE_DIAGNOSTICS=1); by default start prints only "node start failed".
 const NO_ANCHOR_REFUSED: &str = "a machine with no anchor opens no window";
 const OPENED_OVER_A_CHAIN: &str = "--open is refused on a store that holds a chain";
 const OPENER_NOT_BOOTSTRAP: &str = "does not name this machine as its bootstrap peer";
@@ -172,6 +173,7 @@ fn start(dir: &Path, manifest: &Path, extra: &[&str]) -> (Option<i32>, String) {
         .arg(manifest)
         .args(["--max-windows", "0"])
         .args(extra)
+        .env("MONTANA_PRIVATE_DIAGNOSTICS", "1")
         .output()
         .expect("spawn montana-node");
     (

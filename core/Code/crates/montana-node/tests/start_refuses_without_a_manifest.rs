@@ -17,6 +17,8 @@ fn start_cli(extra: &[&str]) -> (Option<i32>, String) {
         .args(["start", "--data-dir"])
         .arg(&dir)
         .args(extra)
+        // The refusal is read with private diagnostics on; by default start prints only "node start failed".
+        .env("MONTANA_PRIVATE_DIAGNOSTICS", "1")
         .output()
         .expect("spawn montana-node");
     (
