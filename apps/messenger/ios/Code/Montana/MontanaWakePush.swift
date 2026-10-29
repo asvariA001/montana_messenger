@@ -3548,6 +3548,28 @@ enum MontanaWakePush {
                 Task {
                     await fetchBox()
                     try? await Task.sleep(nanoseconds: 400_000_000)   // the tombstone drain has time to apply
+                    // A LONG FIRST LETTER IS NEVER LAID AS ITS REFERENCE (29.10.2026, an iPhone on 2316 drew «SM:…» as a
+                    // bubble): the extension could not fetch the cargo, the reference was laid as «New message», and
+                    // healUnresolvedRows later wrote the words into the row -- a service word (the same-pair question,
+                    // always long beside the encapsulation) became a bubble and was never answered. The pipe is born
+                    // above; the letter takes the one long-letter road of every other pushed letter: landed -- posted
+                    // with its words; waiting -- back into the box as an ordinary letter of this pipe; buried -- gone.
+                    if t.hasPrefix(letterBlobMark) {
+                        switch await takeLongLetter(conv: ref, mid: m, text: t) {
+                        case .landed(let full):
+                            await MainActor.run { ui2["text"] = full }
+                        case .waiting:
+                            await MainActor.run {
+                                inboxDrop([m])
+                                stashLongLetter(conv: ref, mid: m, text: t)
+                                _ = inboxTaken.remove(m)
+                            }
+                            return
+                        case .buried:
+                            await MainActor.run { inboxDrop([m]) }
+                            return
+                        }
+                    }
                     await MainActor.run {
                         if MontanaDeliveryEngine.shared.store?.deletedChats.contains(ref) == true {
                             MontanaTrace.mark("rdv_hatch_dead", "ref=\(String(ref.prefix(10))) the tombstone made it — the chat is not shown")
