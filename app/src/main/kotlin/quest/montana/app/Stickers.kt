@@ -157,13 +157,22 @@ object Stickers {
 
     // ── leaving ──
 
-    /** A glyph sticker: one letter of the mark and the emoji (iOS sendSticker). */
+    /**
+     * A STICKER ANSWERS A LETTER LIKE ANY WORD DOES (iOS sendSticker → sendMessage's replyingTo, sendStickerFile's answered,
+     * MontanaConversation.swift:4240-4243 and 4509-4515 at 2316; atom 0d501f110022): the open chat hands over the letter its plate
+     * holds, and the plate goes. A moving picture answers nobody (iOS sendGifFile / sendGifFound leave replyingTo where it stands).
+     */
+    var answering: ((String) -> Msg?)? = null
+    private fun answered(ref: String): Pair<String, String>? = answering?.invoke(ref)?.let { letterWords(Book.ctx, it).take(200) to it.mid }
+
+    /** A glyph sticker: one letter of the mark and the emoji, the quote with it as with any word (iOS sendSticker). */
     fun sendGlyph(ref: String, e: String) {
         val text = Marks.STICKER + e
-        if (Groups.isKey(ref)) { Groups.send(ref, text, null, null); return }   // a group's letter rides the group's carrier
+        val q = answered(ref)
+        if (Groups.isKey(ref)) { Groups.send(ref, text, q?.first, q?.second); return }   // a group's letter rides the group's carrier
         val mid = Marks.mintMid()
-        Book.edit(ref) { it.msgs.add(Msg(mid, text, true, Marks.birthMs(mid) ?: System.currentTimeMillis())) }
-        Post.send(ref, mid, text)
+        Book.edit(ref) { it.msgs.add(Msg(mid, text, true, Marks.birthMs(mid) ?: System.currentTimeMillis(), qt = q?.first, qm = q?.second)) }
+        Post.send(ref, mid, text, q?.first, q?.second)
     }
 
     /**
@@ -175,9 +184,11 @@ object Stickers {
         val bytes = f.readBytes()
         add(c, bytes, f.extension)
         val mid = Marks.mintMid()
+        // the plate stands over the sticker here at once; the picture road carries no reply, the quote rides the passport (iOS 22.09)
+        val q = answered(ref)
         Thread {
-            Media.send(c, ref, Media.Picked(bytes, "img", f.extension, CARD), "", named = mid)
-            if (Book.chat(ref)?.msgs?.any { it.mid == mid } == true) StickerWire.sendPassport(ref, mid, bytes)   // a refused letter has no passport
+            Media.send(c, ref, Media.Picked(bytes, "img", f.extension, CARD), "", named = mid, plate = q)
+            if (Book.chat(ref)?.msgs?.any { it.mid == mid } == true) StickerWire.sendPassport(ref, mid, bytes, q)   // a refused letter has no passport
         }.start()
     }
 

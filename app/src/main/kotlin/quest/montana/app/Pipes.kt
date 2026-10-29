@@ -619,7 +619,7 @@ object Marks {
 class Msg(
     val mid: String, var text: String, val mine: Boolean, val at: Long,
     var state: Int = 0, var edited: Boolean = false,
-    val qt: String? = null, val qm: String? = null,
+    var qt: String? = null, var qm: String? = null,   // the quote: a sticker's may settle late, from its passport (StickerWire.enrich)
     val reactions: MutableList<String> = mutableListOf(), var myReact: String? = null,
     var file: String? = null, var meta: String? = null,   // a media letter: the assembled file, and its manifest once known
     var statusAt: Long = 0, var heard: Boolean = false,

@@ -531,7 +531,7 @@ object Groups {
         }
         o.remove("o")   // no address rides a group: the giver is the pipe this word came by
         val clean = o.toString()
-        StickerWire.handle(StickerWire.MARK + clean, pipe)
+        StickerWire.handle(StickerWire.MARK + clean, pipe, key(g.id))
         if (g.mine) spread(word("sp", g).put("id", id).put("s", seat).put("tx", clean), g, seat, own = false)
         Log.i("Montana", "group_rx mid=$id passport owner=" + (if (g.mine) 1 else 0))
         return Verdict.HELD

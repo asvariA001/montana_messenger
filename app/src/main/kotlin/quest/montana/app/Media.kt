@@ -179,7 +179,8 @@ object Media {
      * then the letter with the manifest leaves by the ordinary post (the pieces first — the receiver must find them).
      */
     fun send(c: Context, ref: String, picked: Picked, caption: String, qt: String? = null, group: MediaGroup.Slot? = null,
-             swap: (() -> ByteArray?)? = null, gate: Boolean = true, turn: String? = null, named: String? = null) {
+             swap: (() -> ByteArray?)? = null, gate: Boolean = true, turn: String? = null, named: String? = null,
+             plate: Pair<String, String>? = null) {   // the quote the row shows and the letter does not carry: a sticker's rides its passport
         // A MEDIA LETTER OF A GROUP IS ASKED OF THE GROUP FIRST (iOS sendGatedMedia, G.5): a right the group took from its members, or
         // slow mode's wait, is said and no row is laid; every other letter goes on by the one road
         if (gate && Groups.isKey(ref)) refusal(c, ref, picked, caption)?.let { Groups.tellRefusal(it); return }
@@ -194,7 +195,7 @@ object Media {
             MediaGroup.stamp(this, group)
             p.wave?.takeIf { it.isNotEmpty() }?.let { w -> put("wv", Base64.encodeToString(ByteArray(w.size) { (w[it] * 255).toInt().coerceIn(0, 255).toByte() }, Base64.NO_WRAP)) }
         }
-        Book.edit(ref) { it.msgs.add(Msg(mid, provisional, true, Marks.birthMs(mid) ?: System.currentTimeMillis(), qt = qt, file = local.path)) }
+        Book.edit(ref) { it.msgs.add(Msg(mid, provisional, true, Marks.birthMs(mid) ?: System.currentTimeMillis(), qt = qt ?: plate?.first, qm = plate?.second, file = local.path)) }
         if (!Book.isLocal(ref)) Transfers.set(mid, 0.01f)   // the ring stands at the tap (iOS setUploadProgress(fileName, 0.01), MontanaConversation.swift:4609)
         val work: () -> Unit = work@{
             // A ROW TAKEN OFF THE FEED BEFORE ITS TURN (its cross, a deletion) is not sent after all (iOS MTSendLine's guard, 2312)
@@ -539,7 +540,10 @@ object Media {
         // A STICKER THAT ARRIVED IS KEPT (iOS MontanaChatStore.swift:3608-3620 at 2155, atom 0d501f110022): the
         // receiver's panel holds what was used in the conversation, exactly as the sender's does -- one copy per
         // picture, since Stickers.add names a sticker by its own bytes and moves a known one to the front.
-        if (man.optString("n") == Stickers.CARD) runCatching { Stickers.add(c, dest.readBytes(), dest.extension) }
+        if (man.optString("n") == Stickers.CARD) {
+            runCatching { Stickers.add(c, dest.readBytes(), dest.extension) }
+            StickerWire.enrich(ref, mid)   // the passport may have come before the picture: its quote settles here (iOS mediaLanded)
+        }
         // a group's copy was receipted by the group (Groups.handle), and its pieces serve every other member of it
         // my other device's letter (Post.landOwn): the correspondent still fetches these pieces, the receipt is theirs to give
         if (!own && !Groups.isKey(ref)) { Post.receiptFor(ref, mid); drop(man) }

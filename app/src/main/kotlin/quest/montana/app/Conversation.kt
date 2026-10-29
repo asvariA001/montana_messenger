@@ -2412,6 +2412,8 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             if (panelWas && !panel.up) { hold = minOf(panel.host.layoutParams.height, imeCover); ridePlace() }
             insets
         }
+        // a sticker sent from the panel answers the letter the plate holds, and the plate goes (Stickers.answering)
+        val takeAnswer: (String) -> Msg? = { r -> if (r != ref || editing != null) null else replyTo.also { if (it != null) { replyTo = null; showStrip() } } }
         val sayRefusal: (String) -> Unit = { why -> AlertDialog.Builder(c).setMessage(why).setPositiveButton(android.R.string.ok, null).show() }
         addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
             override fun onViewAttachedToWindow(v: View) {
@@ -2420,6 +2422,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 // WHAT THE GROUP REFUSED IS SAID HERE (iOS groupRefusal's alert): the reference's sentence, the field left as it was
                 if (group) Groups.refused = sayRefusal
                 ShowLetter.open = showLetter
+                Stickers.answering = takeAnswer
                 // the banner's road measured (iOS chat_open why=banner ms=…, 4b49d03f071b): from the tap to the chat standing
                 if (Notify.tappedAt != 0L) {
                     val t0 = Notify.tappedAt
@@ -2449,6 +2452,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 // behind a closed chat rolled on and the next one was refused. The recorder's own page lies over the chat, so it
                 // never detaches it; with nothing held the cancel does nothing.
                 if (VoicePlayer.endedAtEar === earHook) VoicePlayer.endedAtEar = null
+                if (Stickers.answering === takeAnswer) Stickers.answering = null
                 endEarReply()
                 bar.cancelRecording()
                 VoiceTape.standDown()   // a tape readied by a hold that never began goes with the chat (iOS MontanaConversation.swift:1667)
