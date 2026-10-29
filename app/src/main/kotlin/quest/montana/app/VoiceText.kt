@@ -73,7 +73,9 @@ object VoiceText {
                 val pcm = runCatching { decode(file) }.getOrNull()
                 main.post {
                     if (pcm == null || pcm.isEmpty()) keep(file, Reading.Silent, started, hints.size)
-                    else recognise(c.applicationContext, pcm, hints) { keep(file, it, started, hints.size) }
+                    // a system that will not give its recogniser after all says so in a word, never by falling
+                    else runCatching { recognise(c.applicationContext, pcm, hints) { keep(file, it, started, hints.size) } }
+                        .onFailure { keep(file, Reading.Unsupported, started, hints.size) }
                 }
             }.apply { name = "voice-text" }.start()
         }
@@ -237,7 +239,7 @@ object VoiceText {
         sr.startListening(ask)
         // the voice poured into the pipe on its own thread; the pipe's end closed tells the recogniser the voice is over
         Thread {
-            ParcelFileDescriptor.AutoCloseOutputStream(pipe[1]).use { out -> runCatching { out.write(pcm) } }
+            runCatching { ParcelFileDescriptor.AutoCloseOutputStream(pipe[1]).use { out -> out.write(pcm) } }
         }.apply { name = "voice-text-pour" }.start()
         // a recogniser that never answers does not leave the glyph turning: the voice's own length and half a minute more
         main.postDelayed({ end(null) }, pcm.size / 2L * 1000 / RATE + 30_000)
