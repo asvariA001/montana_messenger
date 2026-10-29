@@ -10,10 +10,10 @@
 // verifier keeping it as a fallback would accept. The node refuses the candidacy and the right stays
 // unspent.
 //
-// The second test reproduces an OPEN finding, in the shape of `issuance_audit.rs`: a passing test
-// there is evidence of the defect, not conformance. The proof of a candidacy asserts nothing of
-// `node_commit` (Canon, "The candidacy of a machine"), so a relay can lift a candidacy's proof onto
-// another commitment and spend its right first.
+// The second test holds the finding of a lifted candidacy closed (AUDIT.md, F-1): `node_commit` and
+// `suite_id` stand in the public input of the proof (Canon, "The candidacy of a machine"), so a
+// relay rewriting either presents a proof of another statement, the node refuses it with the right
+// unspent, and the honest candidacy then applies.
 
 use montana_node::state::State;
 use mt_proof::air::BoundaryValue;
@@ -23,10 +23,14 @@ mod common;
 use common::{a_candidacy_of, a_record_carrying, an_opening_of};
 
 const WINDOW: u64 = 1_000;
-const SEGMENT: u32 = 7;
+// The segment window 1 000 stands in, floor(1 000 / 1 440) = 0: the machine derives it from the
+// window (Canon, "The rules of continuity", rule 1; constitution records 297 and 300).
+const SEGMENT: u32 = 0;
 const CLAIMANT_MACHINE: [u8; 32] = [0x5A; 32];
 const CLAIMANT_RIGHT: [u8; 32] = [0x22; 32];
 const FOREIGN_RIGHT: [u8; 32] = [0x23; 32];
+const MIXED_MACHINE: [u8; 32] = [0x99; 32];
+const SUITE: u16 = 1;
 
 #[test]
 fn audit_refuses_a_foreign_record_with_the_claimants_secret_and_an_unrelated_path() {
@@ -35,11 +39,7 @@ fn audit_refuses_a_foreign_record_with_the_claimants_secret_and_an_unrelated_pat
     let foreign = a_record_carrying(&FOREIGN_RIGHT, WINDOW, SEGMENT);
     for (open, record) in [([0x44; 32], &claimants), ([0x45; 32], &foreign)] {
         state
-            .apply_opening(
-                &an_opening_of(&open, record, WINDOW, SEGMENT),
-                WINDOW,
-                SEGMENT,
-            )
+            .apply_opening(&an_opening_of(&open, record, WINDOW, SEGMENT), WINDOW)
             .expect("a record opens");
     }
     let root = state.records_root();
@@ -58,7 +58,14 @@ fn audit_refuses_a_foreign_record_with_the_claimants_secret_and_an_unrelated_pat
     )
     .expect("an attacker writes it");
     assert_ne!(digests[0], root, "the made tree is the state's own");
-    let public = admission::public_of(WINDOW, &digests[0], &digests[1], &digests[2]);
+    let public = admission::public_of(
+        WINDOW,
+        &digests[0],
+        &digests[1],
+        &MIXED_MACHINE,
+        &digests[2],
+        SUITE,
+    );
     let held = admission::description().expect("the description stands");
     assert!(
         !held.satisfied_by(&trace, &mt_proof::poseidon::limbs_of(&public)),
@@ -75,9 +82,9 @@ fn audit_refuses_a_foreign_record_with_the_claimants_secret_and_an_unrelated_pat
     let mixed = mt_state::layout::Candidacy {
         window: WINDOW,
         naming_half: digests[1].bytes(),
-        node_commit: [0x99; 32],
+        node_commit: MIXED_MACHINE,
         operator_nullifier: digests[2].bytes(),
-        suite_id: 1,
+        suite_id: SUITE,
         proof,
     };
     assert!(
@@ -104,30 +111,41 @@ fn audit_refuses_a_foreign_record_with_the_claimants_secret_and_an_unrelated_pat
     assert!(state.is_spent_right(&honest.operator_nullifier));
 }
 
-// Reproduces an OPEN finding. A passing test here is evidence of the defect, not conformance.
-// Replace the acceptance assertion with refusal when the proof of a candidacy binds its
-// `node_commit`.
+// F-1, closed: a candidacy whose `node_commit` or `suite_id` a relay rewrote is refused by the node
+// with the right unspent, since the proof stands under the public input of the honest one; the
+// honest candidacy then applies. Before the binding, the lifted one applied and spent the right.
 #[test]
-fn audit_reproduces_a_candidacy_lifted_onto_another_commitment() {
+fn audit_refuses_a_candidacy_lifted_onto_another_commitment() {
     let mut state = State::new();
     let record = a_record_carrying(&CLAIMANT_RIGHT, WINDOW, SEGMENT);
     state
         .apply_opening(
             &an_opening_of(&[0x44; 32], &record, WINDOW, SEGMENT),
             WINDOW,
-            SEGMENT,
         )
         .expect("the record opens");
     let root = state.records_root();
     let honest = a_candidacy_of(&state, &record, &CLAIMANT_MACHINE, &CLAIMANT_RIGHT, WINDOW);
     let mut lifted = honest.clone();
-    lifted.node_commit = [0x99; 32];
+    lifted.node_commit = MIXED_MACHINE;
     assert_ne!(lifted.node_commit, honest.node_commit);
+    let mut other_suite = honest.clone();
+    other_suite.suite_id = honest.suite_id + 1;
+    for (relayed, what) in [
+        (&lifted, "a candidacy lifted onto another node_commit"),
+        (&other_suite, "a candidacy relayed under another suite"),
+    ] {
+        assert!(
+            state.apply_candidacy(relayed, WINDOW, &root).is_err(),
+            "the node applied {what}"
+        );
+        assert!(
+            !state.is_spent_right(&relayed.operator_nullifier),
+            "{what} spent the claimant's right"
+        );
+    }
     state
-        .apply_candidacy(&lifted, WINDOW, &root)
-        .expect("the lifted candidacy applies");
-    assert!(state.apply_candidacy(&honest, WINDOW, &root).is_err());
-    eprintln!(
-        "OPEN FINDING: a candidacy's proof stood under another node_commit and spent the right first"
-    );
+        .apply_candidacy(&honest, WINDOW, &root)
+        .expect("the honest candidacy applies");
+    assert!(state.is_spent_right(&honest.operator_nullifier));
 }

@@ -2,6 +2,28 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
+## 1.0 (2316) - 2026-10-29
+
+Source commit `f6484629d89a`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2316.md).
+
+- When the network does not answer at the moment you open the wallet, the balance shows the last amount the chain confirmed for your key, not a lower local estimate. Your coins on the chain did not change.
+
+**Security and anonymity**
+
+- Security and anonymity are unchanged: the last amount the chain confirmed is kept sealed in your own folder on this phone, next to the key it belongs to, and never travels. When the road to the chain fails, the diary now records the reply code and which of the two chain nodes was asked, never the key.
+
+## 1.0 (2315) - 2026-10-27
+
+Source commit `1604d008df48`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2315.md).
+
+- A file you sent to a channel or a group no longer shows as failed with «retry» after you reopen the app: it stands as sent, the way the channel shows it.
+- In the row of files and pictures above the message field, hold one and carry it to another place: the numbers follow, and they are sent in the order you set.
+- The Files page opens in the folder you last took a file from.
+
+**Security and anonymity**
+
+- Security and anonymity are unchanged: the folder of the last chosen file is kept sealed on this phone alone and never travels in a copy, and the sent state of a channel's file is read from the copies this phone already holds. Nothing new leaves the phone.
+
 ## 1.0 (2314) - 2026-10-26
 
 Source commit `df26a92dd9fe`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2314.md).

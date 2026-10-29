@@ -418,8 +418,9 @@ fn pledged_name(attested: &[[u8; 32]], beacon: &[u8; 32]) -> Option<[u8; 32]> {
 
 // What a window decided of its cement: the beacon it closed on and the pair that beacon carried,
 // with the votes the beacon carried as the evidence of the close. Consensus, "The beacon a window
-// closes on": a proposal carries the pair, the share of every living machine divides the mint by
-// its count, and the draw of the window two on reads its aggregate; the votes enter no proposal.
+// closes on": a proposal carries the pair, its count is the coins the window credits, one to every
+// living machine, and the draw of the window two on reads its aggregate; the votes enter no
+// proposal.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Decided {
     pub window: u64,
@@ -573,6 +574,8 @@ pub struct Roots {
     pub record_root: [u8; 32],
     pub machine_root: [u8; 32],
     pub admitted_root: [u8; 32],
+    // The tree of credited rights once the proposal has credited the cement of the window before.
+    pub credited_root: [u8; 32],
     pub operations_root: [u8; 32],
     // The identifier of the roll: the frames applied, in their order, and the parts of the cement,
     // ascending. Canon, "The roll of a proposal".
@@ -609,6 +612,7 @@ pub fn decided_identifier(held: &Held<'_>, roots: &Roots) -> Result<[u8; 32], No
         record_root: roots.record_root,
         machine_root: roots.machine_root,
         admitted_root: roots.admitted_root,
+        credited_root: roots.credited_root,
         operations_root: roots.operations_root,
         roll: roots.roll,
         admitted_count: roots.admitted_count,
@@ -686,6 +690,7 @@ fn judge(proposal: &Proposal, held: &Held<'_>, roots: Option<&Roots>) -> Result<
             proposal.record_root,
             proposal.machine_root,
             proposal.admitted_root,
+            proposal.credited_root,
             proposal.operations_root,
             proposal.roll,
             proposal.admitted_count,
@@ -696,6 +701,7 @@ fn judge(proposal: &Proposal, held: &Held<'_>, roots: Option<&Roots>) -> Result<
             roots.record_root,
             roots.machine_root,
             roots.admitted_root,
+            roots.credited_root,
             roots.operations_root,
             roots.roll,
             roots.admitted_count,

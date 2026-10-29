@@ -288,6 +288,8 @@ registry! {
         MT_CREDIT_NF => "mt-credit-nf",
         MT_ADMITTED_LEAF => "mt-admitted-leaf",
         MT_ADMITTED_NODE => "mt-admitted-node",
+        MT_CREDIT_LEAF => "mt-credit-leaf",
+        MT_CREDIT_NODE => "mt-credit-node",
         MT_CEMENT_LEAF => "mt-cement-leaf",
         MT_CEMENT_NODE => "mt-cement-node",
         MT_OPERATOR_NF => "mt-operator-nf",

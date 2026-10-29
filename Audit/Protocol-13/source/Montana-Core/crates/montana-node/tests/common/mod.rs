@@ -68,6 +68,7 @@ pub fn proposal_over(
         machine_root: roots.machine_root,
         admitted_root: roots.admitted_root,
         operations_root: roots.operations_root,
+        credited_root: roots.credited_root,
         roll: roots.roll,
         admitted_count: roots.admitted_count,
         cement_aggregate: [0x99; 32],
@@ -151,20 +152,25 @@ pub fn a_candidacy_of(
         operator_secret,
     )
     .expect("a claimant writes it");
-    let public =
-        mt_proof::circuit::admission::public_of(window, &digests[0], &digests[1], &digests[2]);
+    let node_commit =
+        mt_derive::node_commit(&[0xA1; mt_codec::size::SIGNING_PUBLIC_KEY], 1, &[0xB2; 32]);
+    let suite_id = 1;
+    let public = mt_proof::circuit::admission::public_of(
+        window,
+        &digests[0],
+        &digests[1],
+        &node_commit,
+        &digests[2],
+        suite_id,
+    );
     let held = mt_proof::circuit::admission::description().expect("the description stands");
     let proof = mt_proof::scheme::prove(&held, &public, &trace).expect("a true candidacy proves");
     mt_state::layout::Candidacy {
         window,
         naming_half: digests[1].bytes(),
-        node_commit: mt_derive::node_commit(
-            &[0xA1; mt_codec::size::SIGNING_PUBLIC_KEY],
-            1,
-            &[0xB2; 32],
-        ),
+        node_commit,
         operator_nullifier: digests[2].bytes(),
-        suite_id: 1,
+        suite_id,
         proof,
     }
 }

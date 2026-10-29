@@ -43,6 +43,9 @@ mt_codec::constants! {
     pub const HEAD_BYTES: usize = 8, code "the width a window number is written at on a disk of this tree, which is the width every layout of the set gives it";
     /// The permissions of the file holding a secret, on a system that has them.
     const SECRET_MODE: u32 = 0o600, code "the permissions of the file holding a machine's secret: its owner and nobody else";
+    /// The bytes what a machine read back from the cells on its disk holds at most: the objects of
+    /// many rounds of a cohort, and a small part of the memory a machine is given (issue #63).
+    pub const READ_BACK_BYTES: usize = 64 << 20, code "the ceiling of what a machine holds in memory of the cells it read back from its disk, a bound of the conduct of this tree the set lays out nowhere";
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -360,7 +363,18 @@ pub struct Store {
     // check that the window is not closed — and no door can own the birth of the second writer but
     // this one. The lock goes with the handle, so a store dropped releases it and a process that
     // died holds nothing.
-    _held: fs::File,
+    held: fs::File,
+}
+
+// **A store dropped lets its root go before the drop returns.** The lock belongs to the root's open
+// description, and every process spawned by any thread of this one is forked with a copy of it that
+// it keeps until it becomes its own program. A store that only closed its handle left the lock to the
+// last copy, so a start in the instant such a child stood was refused as held by another (issue #21,
+// the ring a623-p72). Unlocking ends the lock for every copy of the description.
+impl Drop for Store {
+    fn drop(&mut self) {
+        let _ = self.held.unlock();
+    }
 }
 
 impl Store {
@@ -387,7 +401,7 @@ impl Store {
         // would be refused for ever. The lock is held, so every such file in the root is a dead
         // process's; this process holds the root alone.
         sweep_dead_openings(&root)?;
-        let store = Self { root, _held: held };
+        let store = Self { root, held };
         store.check_network()?;
         for earlier in ["head", "closed", "value", "standing"] {
             let at = store.root.join(earlier);
@@ -713,6 +727,11 @@ impl Store {
         self.root.join("points").join(format!("{window:020}"))
     }
 
+    fn point_file(&self, window: u64, point: &[u8; 16]) -> PathBuf {
+        let name: String = point.iter().map(|b| format!("{b:02x}")).collect();
+        self.points_at(window).join(name)
+    }
+
     pub fn append_cell(
         &self,
         window: u64,
@@ -721,14 +740,71 @@ impl Store {
     ) -> Result<(), StoreError> {
         let directory = self.points_at(window);
         fs::create_dir_all(&directory).map_err(|e| said(&directory, e))?;
-        let name: String = point.iter().map(|b| format!("{b:02x}")).collect();
-        let at = directory.join(name);
+        let at = self.point_file(window, point);
         let mut file = fs::OpenOptions::new()
             .append(true)
             .create(true)
             .open(&at)
             .map_err(|e| said(&at, e))?;
-        file.write_all(cell).map_err(|e| said(&at, e))
+        // A cell the disk took in part is cut off again, so the next one lands where a reader
+        // counts it and not behind the torn bytes: the file is the one place the cells of a point
+        // stand (issue #63), and a reader is handed them by their index in it.
+        let before = file.metadata().map_err(|e| said(&at, e))?.len();
+        if let Err(e) = file.write_all(cell) {
+            let _ = file.set_len(before);
+            return Err(said(&at, e));
+        }
+        Ok(())
+    }
+
+    // The cells of one point from `from`, at most `take` of them, read off its file where they were
+    // appended: a reader asking for a range is handed that range, and a point is never opened whole
+    // to answer a part of it. A point whose file is gone holds nothing.
+    pub fn cells_at(
+        &self,
+        window: u64,
+        point: &[u8; 16],
+        cell_width: usize,
+        from: usize,
+        take: usize,
+    ) -> Result<Vec<Vec<u8>>, StoreError> {
+        use std::io::{Seek, SeekFrom};
+        let at = self.point_file(window, point);
+        let mut file = match fs::File::open(&at) {
+            Ok(file) => file,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return Err(said(&at, e)),
+        };
+        let width = cell_width.max(1);
+        let unaddressable = || {
+            said(
+                &at,
+                std::io::Error::other("a range of cells past what a file addresses"),
+            )
+        };
+        let start = u64::try_from(from.saturating_mul(width)).map_err(|_| unaddressable())?;
+        let length = u64::try_from(take.saturating_mul(width)).map_err(|_| unaddressable())?;
+        file.seek(SeekFrom::Start(start))
+            .map_err(|e| said(&at, e))?;
+        let mut bytes = Vec::new();
+        file.take(length)
+            .read_to_end(&mut bytes)
+            .map_err(|e| said(&at, e))?;
+        Ok(bytes.chunks_exact(width).map(<[u8]>::to_vec).collect())
+    }
+
+    // The file of one point written again to exactly the cells given, whole or not at all: what a
+    // start reads of a point and leaves out (a repetition, a cell of another point) is left out of
+    // the file too, so every index a reader asks for is an index of what the point took.
+    pub fn put_cells(
+        &self,
+        window: u64,
+        point: &[u8; 16],
+        cells: &[Vec<u8>],
+    ) -> Result<(), StoreError> {
+        let directory = self.points_at(window);
+        fs::create_dir_all(&directory).map_err(|e| said(&directory, e))?;
+        write_whole(&self.point_file(window, point), &cells.concat())
     }
 
     // Every cell standing at every point this store keeps, by window and point, in the order the
