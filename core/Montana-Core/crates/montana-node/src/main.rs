@@ -104,22 +104,25 @@ fn run() -> Result<(), String> {
     if born {
         println!("this machine was born: it drew its secret and will not draw another");
     }
-    println!("answering at {}", machine.address().map_err(said)?);
+    // The address of this machine, its acquaintance, its digits and its half are details: they go
+    // to the owner-only file of the data directory and never to a default line (#22, K1).
+    montana_node::private::keep_at(configuration.data.as_path())
+        .map_err(|e| format!("the owner-only file of details does not stand: {e}"))?;
+    let address = machine.address().map_err(said)?;
+    montana_node::private::say("answering at its door", || format!("answering at {address}"));
     // Two values with two purposes: the line a machine reads, and the digits a person compares.
-    println!(
-        "hand this to another operator: {}",
-        machine.acquaintance().map_err(said)?
-    );
-    println!(
-        "check these digits with them by voice: {}",
-        machine.fingerprint()
-    );
+    let acquaintance = machine.acquaintance().map_err(said)?;
+    let digits = machine.fingerprint();
     // The half this machine is named by in the tree of admitted machines. It passes between
-    // operators exactly as the acquaintance above does, and it names no owner, no address and no
-    // person.
-    println!(
-        "hand this over too, to stand in one window: {}",
-        hex(&machine.naming_half().map_err(said)?)
+    // operators exactly as the acquaintance above does.
+    let half = hex(&machine.naming_half().map_err(said)?);
+    montana_node::private::say(
+        "what to hand to another operator stands in private.log of the data directory",
+        || {
+            format!(
+                "hand this to another operator: {acquaintance}\ncheck these digits with them by voice: {digits}\nhand this over too, to stand in one window: {half}"
+            )
+        },
     );
     match machine.head().map_err(said)? {
         Some(window) => println!("holding the chain to window {window}"),
@@ -134,12 +137,16 @@ fn run() -> Result<(), String> {
         match machine.reach_and_hold(line) {
             Ok(transcript) => {
                 let shown: String = transcript.iter().map(|b| format!("{b:02x}")).collect();
-                println!("reached {line}\n  transcript {shown}");
+                montana_node::private::say("reached an acquaintance", || {
+                    format!("reached {line}\n  transcript {shown}")
+                });
             }
             // A machine that did not answer is one line of an operator's morning and not a reason
             // to stop: the others may answer, and this one is dialled again once the machine lives.
             Err(e) => {
-                eprintln!("could not reach {line}: {}", said(e));
+                eprintln!("could not reach an acquaintance");
+                let why = said(e);
+                montana_node::private::note(|| format!("could not reach {line}: {why}"));
                 unreached.push(line.clone());
             }
         }
