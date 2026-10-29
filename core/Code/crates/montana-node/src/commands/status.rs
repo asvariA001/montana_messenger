@@ -6,7 +6,7 @@ use mt_genesis::genesis_params;
 use crate::clock::load_current_window;
 use crate::identity::{default_data_dir, load_identity, NodeError};
 use crate::node_lifecycle::load_or_init_lifecycle;
-use crate::reading::Verdict;
+use crate::reading::Lack;
 use crate::state::LocalState;
 use crate::timechain_state::load_or_init_timechain;
 
@@ -21,7 +21,7 @@ pub struct StatusArgs {
 /// as success. A status writes nothing.
 pub fn run(args: StatusArgs) -> u8 {
     let data_dir = args.data_dir.unwrap_or_else(default_data_dir);
-    let no_diagnostics = Verdict::NoDiagnostics;
+    let no_diagnostics = Lack::Diagnostics;
     if let Err(e) = report(&data_dir) {
         eprintln!("{}: {e}", no_diagnostics.name());
         return no_diagnostics.exit_code();

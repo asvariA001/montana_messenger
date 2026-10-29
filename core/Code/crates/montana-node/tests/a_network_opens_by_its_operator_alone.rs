@@ -125,7 +125,7 @@ fn status_fails_without_the_records_of_a_chain_or_a_running_holder() {
 // earlier one.
 #[test]
 fn status_exits_with_the_code_of_the_reading() {
-    use montana_node::reading::{self, Reading, Verdict};
+    use montana_node::reading::{self, Lack, Reading};
     let (dir, manifest) = machine(OPENER_ENTROPY, OPENER_ENTROPY);
     let (code, stderr) = start(&dir, &manifest, &["--open"]);
     assert_eq!(code, Some(0), "stderr: {stderr}");
@@ -140,7 +140,7 @@ fn status_exits_with_the_code_of_the_reading() {
     let holder = montana_node::holder::hold(&dir).expect("the store is held");
     let (code, stderr) = status(&dir);
     assert_eq!(code, Some(0), "stderr: {stderr}");
-    for (on, code) in [(Verdict::NoQuorum, 1), (Verdict::NoData, 2)] {
+    for (on, code) in [(Lack::Quorum, 1), (Lack::Data, 2)] {
         let stalled = Reading::Stalled {
             on,
             window: 1,

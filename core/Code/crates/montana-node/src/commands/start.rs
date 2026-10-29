@@ -599,7 +599,7 @@ pub fn run(args: StartArgs) -> Result<(), NodeError> {
                         crate::reading::write(
                             &data_dir,
                             crate::reading::Reading::Stalled {
-                                on: crate::reading::Verdict::NoData,
+                                on: crate::reading::Lack::Data,
                                 window: next_window,
                                 refused: 0,
                             },
@@ -1640,7 +1640,7 @@ fn handle_protocol_message(
                 crate::reading::write(
                     ctx.data_dir,
                     crate::reading::Reading::Stalled {
-                        on: crate::reading::Verdict::NoData,
+                        on: crate::reading::Lack::Data,
                         window: w,
                         refused: 0,
                     },
@@ -1711,7 +1711,7 @@ fn handle_protocol_message(
                         crate::reading::write(
                             ctx.data_dir,
                             crate::reading::Reading::Stalled {
-                                on: crate::reading::Verdict::NoQuorum,
+                                on: crate::reading::Lack::Quorum,
                                 window: w,
                                 refused,
                             },
@@ -1738,7 +1738,7 @@ fn handle_protocol_message(
                 crate::reading::write(
                     ctx.data_dir,
                     crate::reading::Reading::Stalled {
-                        on: crate::reading::Verdict::NoQuorum,
+                        on: crate::reading::Lack::Quorum,
                         window: w,
                         refused,
                     },

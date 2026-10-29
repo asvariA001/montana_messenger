@@ -18,31 +18,32 @@ use crate::identity::NodeError;
 pub const READING_FILE: &str = "reading";
 const WRITING_FILE: &str = "reading.writing";
 
-/// The verdicts, each with the exit code of `status`. Code 3 is given to none: a refused proof is
-/// a count beside the verdict and never the verdict (Consensus, "The way back").
+/// What a window stood short of: each verdict reads `no` and its name, with the exit code of
+/// `status`. Code 3 is given to none: a refused proof is a count beside the verdict and never the
+/// verdict (Consensus, "The way back").
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Verdict {
-    NoQuorum,
-    NoData,
-    NoDiagnostics,
+pub enum Lack {
+    Quorum,
+    Data,
+    Diagnostics,
 }
 
-impl Verdict {
-    pub const ALL: [Verdict; 3] = [Verdict::NoQuorum, Verdict::NoData, Verdict::NoDiagnostics];
+impl Lack {
+    pub const ALL: [Lack; 3] = [Lack::Quorum, Lack::Data, Lack::Diagnostics];
 
     pub fn exit_code(self) -> u8 {
         match self {
-            Self::NoQuorum => 1,
-            Self::NoData => 2,
-            Self::NoDiagnostics => 4,
+            Self::Quorum => 1,
+            Self::Data => 2,
+            Self::Diagnostics => 4,
         }
     }
 
     pub fn name(self) -> &'static str {
         match self {
-            Self::NoQuorum => "no quorum",
-            Self::NoData => "no data",
-            Self::NoDiagnostics => "no diagnostics",
+            Self::Quorum => "no quorum",
+            Self::Data => "no data",
+            Self::Diagnostics => "no diagnostics",
         }
     }
 }
@@ -56,7 +57,7 @@ pub enum Reading {
         refused: u64,
     },
     Stalled {
-        on: Verdict,
+        on: Lack,
         window: u64,
         refused: u64,
     },
@@ -81,7 +82,7 @@ impl Reading {
             });
         }
         let (name, window) = head.split_once("; window ")?;
-        let on = Verdict::ALL.into_iter().find(|on| on.name() == name)?;
+        let on = Lack::ALL.into_iter().find(|on| on.name() == name)?;
         Some(Self::Stalled {
             on,
             window: window.parse().ok()?,
@@ -152,13 +153,9 @@ mod tests {
         assert_eq!(closed.to_string(), "closed window 7; refused 2");
         assert_eq!(closed.exit_code(), 0);
         for (on, code, line) in [
-            (Verdict::NoQuorum, 1, "no quorum; window 8; refused 3"),
-            (Verdict::NoData, 2, "no data; window 8; refused 3"),
-            (
-                Verdict::NoDiagnostics,
-                4,
-                "no diagnostics; window 8; refused 3",
-            ),
+            (Lack::Quorum, 1, "no quorum; window 8; refused 3"),
+            (Lack::Data, 2, "no data; window 8; refused 3"),
+            (Lack::Diagnostics, 4, "no diagnostics; window 8; refused 3"),
         ] {
             let stalled = Reading::Stalled {
                 on,

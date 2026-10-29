@@ -21,7 +21,7 @@ fn main() -> ExitCode {
                 Ok(args) => ExitCode::from(status::run(args)),
                 Err(e) => {
                     eprintln!("no diagnostics: {e}");
-                    ExitCode::from(montana_node::reading::Verdict::NoDiagnostics.exit_code())
+                    ExitCode::from(montana_node::reading::Lack::Diagnostics.exit_code())
                 },
             };
         },
