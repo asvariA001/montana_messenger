@@ -21,8 +21,8 @@ chown -R montana:montana "$DATA_DIR"
 # 1. Generate identity once per data volume.
 if [ ! -f "$DATA_DIR/identity.bin" ]; then
   echo "[entrypoint] first run on this volume — generating node identity"
-  # Create the recovery output owner-only before init writes anything. Never overwrite
-  # a prior recovery artifact, including one left by an unsuccessful initialization.
+  # init owns mnemonic.txt. Keep its diagnostics in a separate owner-only file,
+  # and refuse recovery artifacts left by an unsuccessful initialization.
   if [ -e "$DATA_DIR/mnemonic.txt" ] || [ -L "$DATA_DIR/mnemonic.txt" ]; then
     echo "[entrypoint] recovery output already exists; inspect the volume before initializing" >&2
     exit 1
@@ -30,10 +30,10 @@ if [ ! -f "$DATA_DIR/identity.bin" ]; then
   (
     umask 0377
     set -C
-    exec > "$DATA_DIR/mnemonic.txt" 2>&1
-    chown montana:montana "$DATA_DIR/mnemonic.txt"
-    umask 0077 # The private recovery file is already open; init may create directories.
-    # init can write to /dev/tty. Detach from the container terminal, and keep
+    exec > "$DATA_DIR/init.log" 2>&1
+    chown montana:montana "$DATA_DIR/init.log"
+    umask 0077 # The private diagnostic file is open; init owns recovery creation.
+    # Detach from the container terminal as defence in depth, and keep
     # both output streams in the private file even on failure. setsid --wait
     # preserves the init exit status; a failed init must never start the node.
     if [ -n "${MONTANA_MNEMONIC:-}" ]; then
