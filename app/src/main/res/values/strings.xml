@@ -837,4 +837,9 @@
     <string name="cp_put_back">Put back into the copy</string>
     <string name="cp_total">Total: %1$s of attachments and %2$d records. The copy is sealed with the key your 24 words open; the words are not in it.</string>
     <string name="cp_letters">%1$d letters · %2$s</string>
+    <string name="voice_text_read">Transcribe</string>
+    <string name="voice_text_hide">Hide transcription</string>
+    <string name="voice_text_refused">Allow the microphone in Settings</string>
+    <string name="voice_text_unsupported">Speech recognition is not available for this language</string>
+    <string name="voice_text_silent">No speech recognized</string>
 </resources>

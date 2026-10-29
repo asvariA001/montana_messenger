@@ -832,4 +832,9 @@
     <string name="cp_put_back">Вернуть в копию</string>
     <string name="cp_total">Итого: вложений на %1$s и записей — %2$d. Копия запечатана ключом, который открывают ваши 24 слова; самих слов в ней нет.</string>
     <string name="cp_letters">писем: %1$d · %2$s</string>
+    <string name="voice_text_read">Расшифровать</string>
+    <string name="voice_text_hide">Скрыть расшифровку</string>
+    <string name="voice_text_refused">Разрешите микрофон в Настройках</string>
+    <string name="voice_text_unsupported">Распознавание речи на устройстве недоступно для этого языка</string>
+    <string name="voice_text_silent">Речь не распознана</string>
 </resources>

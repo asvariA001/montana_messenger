@@ -832,4 +832,9 @@
     <string name="cp_put_back">放回副本</string>
     <string name="cp_total">合计：附件 %1$s，记录 %2$d 条。备份由您的 24 个助记词所对应的密钥封存；助记词本身不在其中。</string>
     <string name="cp_letters">%1$d 条消息 · %2$s</string>
+    <string name="voice_text_read">转写</string>
+    <string name="voice_text_hide">隐藏转写</string>
+    <string name="voice_text_refused">请在设置中允许麦克风</string>
+    <string name="voice_text_unsupported">此语言不支持设备上的语音识别</string>
+    <string name="voice_text_silent">未识别到语音</string>
 </resources>

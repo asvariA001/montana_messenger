@@ -2688,6 +2688,13 @@ private fun fillGroupFoot(c: Context, ref: String, into: FrameLayout, onSearch: 
 /** The footer of a channel's post (its comments): the failed bubble's resend tap passes it by. */
 private const val COMMENTS_TAG = "channel-comments"
 
+/** The context the recogniser is given for a voice of this chat: one's own name, the chat's, its speakers', and the chat's words
+ *  (iOS voiceHints, MontanaConversation at b2fe4814). */
+private fun voiceHints(c: Context, chat: Chat): List<String> {
+    val speakers = chat.msgs.mapNotNull { it.from }.distinct().take(20).map { Groups.speakerName(c, it) }
+    return VoiceText.hints(listOf(Prefs.userName, chat.shown) + speakers, chat.msgs.map { it.text })
+}
+
 private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = listOf(m), head: Boolean = true): ReplySwipe = ReplySwipe(c).apply {
     mine = m.mine
     val mine = m.mine
@@ -2816,6 +2823,10 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                 background = GradientDrawable().apply { cornerRadius = dp(100).toFloat(); setColor(Color.argb(97, 0, 0, 0)); setStroke(1, Color.argb(46, 255, 255, 255)) }
                 setPadding(dp(8), dp(3), dp(8), dp(3))
             }
+            // THE VOICE'S WORDS UNDER ITS CAPSULE (iOS voiceTranscript, b2fe4814 at 2315): read on this phone, between the capsule
+            // and its pills, where the person opened them; the glyph that opens them stands after the stamp's pill (below)
+            val voiceFile = if (voice && VoiceText.canRead(c)) m.file?.takeIf { java.io.File(it).exists() } else null
+            if (voiceFile != null) addView(voiceWordsView(c, voiceFile, mine), lp(WRAP, WRAP).apply { topMargin = dp(6); if (!mine) gravity = Gravity.START })
             if (!call) addView(c.hstack {
                 gravity = Gravity.CENTER_VERTICAL
                 if (darkMeta) {
@@ -2858,6 +2869,7 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                     if (mine && m.state == -1) addView(c.failedMark(), lp(dp(12), dp(12)).apply { marginStart = dp(4) })
                 }
                 addView(if (voice) pill(meta) else meta, lp(WRAP, WRAP))
+                if (voiceFile != null) addView(voiceTextGlyph(c, voiceFile) { voiceHints(c, chat) }, lp(WRAP, WRAP))
             // iOS 966: the voice's stack leans to its own side -- their pills stand at the capsule's left edge, mine at its right
             }, lp(if (note) MATCH else WRAP, WRAP).apply { if (voice) { topMargin = dp(8); if (!mine) gravity = Gravity.START } })
             if (edge) edgeLay(this, onPlate)
