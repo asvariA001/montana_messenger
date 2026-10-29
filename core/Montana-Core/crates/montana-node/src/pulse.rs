@@ -1297,6 +1297,9 @@ pub fn live_doing(
     // roll replays over.
     memory.bases.insert(from, machine.value()?.clone());
     let mut out: Vec<Lived> = Vec::new();
+    // A reading of an earlier run is not this run's. Inside the run the last reading stands until
+    // the next replaces it: a window that opens after a close still reads that close.
+    counts.clear_status();
     for step in 0..windows {
         let window = from.checked_add(step).ok_or(NodeError::Refused {
             what: "a window past the last one a count carries",
@@ -1406,11 +1409,10 @@ pub fn live_doing(
                 if !arrived.beacons.is_empty() {
                     break arrived.beacons;
                 }
+                let on = counts.observe(true, askings_since(opened_at), waited, patience);
                 waited += 1;
                 if waited >= patience {
-                    return Err(NodeError::Refused {
-                        what: "a round no beacon ever stood at",
-                    });
+                    return Err(counts.exhausted(on, "a round no beacon ever stood at"));
                 }
                 std::thread::sleep(ASKS_AGAIN_AFTER);
             };
@@ -1428,6 +1430,7 @@ pub fn live_doing(
             let step = loop {
                 asked = askings_since(opened_at);
                 let mut unreconciled = 0;
+                let mut missing_light_key = false;
                 // **A version that arrives after this machine answered still gets an answer.** A
                 // machine answers every valid version of a round it sees, and the versions of a
                 // round do not all arrive at once; a machine that read the beacons once and then
@@ -1485,13 +1488,28 @@ pub fn live_doing(
                         );
                     }
                     for held in &arrived.light {
-                        let _ = pulse.gather_light(held, &aggregate, beacon, &of_a_round);
+                        // Another version's answer is not a failed proof of this version.
+                        if !held
+                            .attested
+                            .contains(&beacon.id().map_err(NodeError::Object)?)
+                        {
+                            continue;
+                        }
+                        match pulse.gather_light(held, &aggregate, beacon, &of_a_round) {
+                            Err(NodeError::Refused {
+                                what: "a light attestation before its proven heavy",
+                            }) => missing_light_key = true,
+                            Err(_) => counts.raise(&counts.light_refused),
+                            Ok(_) => {}
+                        }
                     }
                 }
                 // The ballots of the parts the cement holds: each judged once, and counted for its
                 // part at the largest count a ballot of that part casts.
                 for held in &arrived.ballots {
-                    let _ = pulse.gather_ballot(held, &electorate, &aggregate);
+                    if pulse.gather_ballot(held, &electorate, &aggregate).is_err() {
+                        counts.raise(&counts.ballots_refused);
+                    }
                 }
                 // Round completion does not end the window's cement collection.
                 // Revisit one historical round per read so a late heavy answer
@@ -1511,7 +1529,9 @@ pub fn live_doing(
                         }
                     }
                     for held in &past.ballots {
-                        let _ = pulse.gather_ballot(held, &electorate, &aggregate);
+                        if pulse.gather_ballot(held, &electorate, &aggregate).is_err() {
+                            counts.raise(&counts.ballots_refused);
+                        }
                     }
                 }
                 // **The pledges of the agreement stand at the points of the window**, and every
@@ -1636,6 +1656,13 @@ pub fn live_doing(
                     at_the_quorum.sort_by_key(|one| one.id().unwrap_or([0xFFu8; 32]));
                     final_beacon = at_the_quorum.first().map(|one| (*one).clone());
                 }
+                let on = counts.observe(
+                    final_beacon.is_none()
+                        && (ordered.is_empty() || unreconciled > 0 || missing_light_key),
+                    asked,
+                    waited,
+                    patience,
+                );
                 if final_beacon.is_some() {
                     if let Some(decision) = pulse.decided(&electorate) {
                         println!(
@@ -1653,9 +1680,14 @@ pub fn live_doing(
                 }
                 waited += 1;
                 if waited >= patience {
-                    return Err(NodeError::Refused {
-                        what: "waiting budget exhausted without a verified answer; round unchanged",
-                    });
+                    return Err(counts.exhausted(
+                        on,
+                        if final_beacon.is_some() {
+                            "waiting budget exhausted: agreement undecided; window unchanged"
+                        } else {
+                            "waiting budget exhausted without a verified answer; round unchanged"
+                        },
+                    ));
                 }
                 // **The account is written while the machine waits, and not only when it moves.** A
                 // round is made of waiting, so a machine that spoke once a round would be silent for
@@ -1673,7 +1705,7 @@ pub fn live_doing(
                 if held != said || waited % SAYS_EVERY == 0 {
                     said = held;
                     println!(
-                        "window {} round {} waiting: cement {} of {}, beacons {}, standing {}, unreconciled cement {}, attempt {}{} | {}",
+                        "{on}: window {} round {} waiting: cement {} of {}, beacons {}, standing {}, unreconciled cement {}, attempt {}{} | {}",
                         window,
                         pulse.round,
                         held.0,
@@ -1785,11 +1817,13 @@ pub fn live_doing(
                     }
                     None => {}
                 }
+                let on = counts.observe(true, askings_since(opened_at), waited, patience);
                 waited += 1;
                 if waited >= patience {
-                    return Err(NodeError::Refused {
-                        what: "a decided proposal that never stood at the points with its roll",
-                    });
+                    return Err(counts.exhausted(
+                        on,
+                        "a decided proposal that never stood at the points with its roll",
+                    ));
                 }
                 std::thread::sleep(ASKS_AGAIN_AFTER);
             };
@@ -1983,6 +2017,7 @@ pub fn live_doing(
             "window {} closed after {} rounds on a cement naming {} machines and casting {} votes; the next links to the proposal {} and decides it",
             lived.window, lived.rounds, lived.living, decided.cement_votes, link
         );
+        counts.closed(lived.window);
         out.push(lived);
         memory.facts.insert(
             window,
@@ -2516,11 +2551,15 @@ fn take_the_proposal(
         {
             return Ok(found);
         }
+        let counts = machine.counts();
+        let asking = counts
+            .status()
+            .map_or(0, |status| status.asking())
+            .saturating_add(1);
+        let on = counts.observe(true, asking, waited, patience);
         waited += 1;
         if waited >= patience {
-            return Err(NodeError::Refused {
-                what: "a window no proposal of its decision ever stood at",
-            });
+            return Err(counts.exhausted(on, "a window no proposal of its decision ever stood at"));
         }
         std::thread::sleep(ASKS_AGAIN_AFTER);
     }
@@ -2559,6 +2598,7 @@ fn standing_proposal(
         if verify_proposal(&candidate, held, roots).is_ok() {
             return Ok(Some(candidate));
         }
+        machine.counts().raise(&machine.counts().proposals_refused);
         refused.insert(fingerprint);
     }
     Ok(None)
