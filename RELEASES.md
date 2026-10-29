@@ -14,16 +14,19 @@ does and does not establish is in [`AUDIT.md`](AUDIT.md), section 3.
 <!-- sources:start -->
 | Folder | Build | Source commit | Folder tree | Staged |
 |---|---|---|---|---|
-| `apps/messenger/android` | 411 | `07e5f3cde2e0` | `674ab0c96f69aa395de8b22ec6b9162dce45c3da` | 2026-10-10 20:50 UTC |
-| `apps/messenger/ios` | 1.0 (2311) | `648c3225b9ae` | `1b3306f5b4cf84e1de7416dcbdd99bde8290525e` | 2026-10-25 15:34 UTC |
-| `core` | core line | `3848245e308b` | `4ce3d6705224c8c99db0db1710a70bbde3d04361` | 2026-10-10 11:51 UTC |
+| `apps/messenger/android` | 552 | `e8e25d01c77e` | `af8316a93370d0a6bdafc3b74e58f2578e832839` | 2026-10-26 10:03 UTC |
+| `apps/messenger/ios` | 1.0 (2315) | `1604d008df48` | `1143ed8e26ff3f42016c6a2affe5bc56dcd6823b` | 2026-10-27 10:57 UTC |
+| `core` | not built (branch codex/issue-5-leakage with main f56a419) | `a7eb7c7b45c5` | `c65f80b49b30ae118232a7474282a4db38bbeff4` | 2026-10-29 15:16 UTC |
 <!-- sources:end -->
 
 ## Binaries
 
-Each GitHub release of this repository carries `Montana-Messenger.ipa` (Montana for iPhone, iPad and Mac),
-`Montana-Messenger.apk` (Montana for Android) and `SHA256SUMS.txt`, and its notes name, for each file, the build, its
-SHA-256 and the folder tree of its source; the tag of the release is the commit of this repository whose trees those are.
+Each GitHub release of this repository carries `Montana-Messenger.ipa` (Montana for iPhone, iPad and Mac) and
+`SHA256SUMS.txt`, and its notes name the build of the IPA, its SHA-256 and the folder tree of its source; the tag of the
+release is the commit of this repository whose trees those are. No release carries `Montana-Messenger.apk`: the 75
+releases, `v1.0-2221` (2026-10-16) to `v1.0-2315` (2026-10-27), hold those two files and no other (GitHub API, read
+2026-10-27 UTC). Montana for Android is served by the site: `https://montana.quest/download/android/latest.json` names its
+build, commit and SHA-256.
 The IPA is the export uploaded to the App Store, signed for distribution there: it is published to be read, compared with the
 source or re-signed, and it installs through TestFlight. The APK is signed with the project's Android key and installs on
 Android 8 or later; the key is RSA-4096, the platform's admission for installing a package and not a security property of
@@ -36,7 +39,7 @@ A release of 2026-10-08 was prepared and not created. Its files are listed here 
 | File | Application | Version | SHA-256 | Source |
 |---|---|---|---|---|
 | `Montana-Messenger.ipa` | Montana, iPhone, iPad, Mac | 1.0 (2165) | `72fb193070cb6f523811d015efbab12aa55f7a44013c61589b38e65d1e66bc14` | `apps/messenger/ios`, commit `7b405422`; the build is commit `862261a1`, which differs in the comments of `Code/Montana/nodes.txt` only |
-| `Montana-Messenger.apk` | Montana, Android | 1.0 (246) | `41de6e3eb8db810286629e36e1ded140f090d5885eff98af900f948c13b924bd` | `apps/messenger/android`, commit `67f144ec` |
+| `Montana-Messenger.apk` | Montana, Android | 1.0 (246) | `41de6e3eb8db810286629e36e1ded140f090d5885eff98af900f948c13b924bd` | `apps/messenger/android`, commit `67f144ec`; historical (marked 2026-10-27 UTC): build 246 of the release of 2026-10-08 that was not created, an asset no GitHub release of this repository carries; the current Android build is the `apps/messenger/android` row of Sources above |
 | `Montana-Wallet.ipa` | MT Wallet, iPhone, iPad, Mac | 1.0 (5) | `14084ed4b55c78ab9545ee5f48daf6afb2960049f632e3c9ebb7c5bb55a18003` | `apps/wallet/ios`, commit `07047617`; MT Wallet is retired from this repository |
 
 ## Retired folders

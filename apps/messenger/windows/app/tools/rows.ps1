@@ -15,10 +15,21 @@ function Offers([string]$item) {   # whether the row's menu offers it; the menu 
     [MontanaMouse]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero); [MontanaMouse]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
     Start-Sleep -Milliseconds 400; $has
 }
+# THE ARCHIVE'S ROW IS SUMMONED (iOS onPull > 25): one notch of the wheel up over the list's top brings it -- short of the coin's
+# 140, the panel stays as it stands
+function Pull-Archive {
+    $e = Find-Named "Поиск" 10
+    $r = $e.Current.BoundingRectangle
+    [MontanaMouse]::SetCursorPos([int]($r.X + $r.Width / 2), [int]($r.Y + $r.Height / 2)) | Out-Null
+    Start-Sleep -Milliseconds 150
+    [MontanaMouse]::mouse_event(0x0800, 0, 0, 120, [UIntPtr]::Zero)
+    Start-Sleep -Milliseconds 700
+}
 $A = Start-Montana -DataDir "$Root\A"; Front-Montana -X 0 -Y 40 -Width 1500 -Height 950
 Start-Sleep -Seconds 2
 "A: the chat as an earlier run may have left it, undone"
-if ((Get-Texts) -contains "Архив") { Click-Named "Архив"; Menu "Из архива"; Click-Named "Чаты" }
+Pull-Archive
+if ((Get-Texts) -contains "Архив") { Click-Named "Архив"; Menu "Из архива"; Click-Named "Назад" }   # the archive is a page pushed over the chats: its way back
 Find-Named "Борис Тест" 20 | Out-Null
 if (Offers "Вкл. звук") { Menu "Вкл. звук" }
 if (Offers "Открепить") { Menu "Открепить" }
@@ -26,13 +37,16 @@ if (Offers "Открепить") { Menu "Открепить" }
 Menu "Закрепить"
 RightClick-Named "Борис Тест"; Says "Открепить"; Click-Named "Выкл. звук"
 RightClick-Named "Борис Тест"; Says "Вкл. звук"; Click-Named "Архив"
+Start-Sleep -Milliseconds 600
+Pull-Archive
 Says "Архив"
 Snap "18-A-archive-row"
 "A: the archive, and back"
 Click-Named "Архив"; Says "Борис Тест"
 Menu "Из архива"
-Click-Named "Чаты"
+Click-Named "Назад"
 Says "Борис Тест"
 Menu "Вкл. звук"
+Menu "Открепить"   # the archive keeps the pin (iOS archiveChat): the chat comes back pinned, and is unpinned by hand
 "done"
 Stop-Montana

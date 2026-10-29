@@ -471,6 +471,7 @@ const RU = {
   "today at %@": "Сегодня %@",
   "yesterday at %@": "Вчера %@",
   "min": "мин",
+  "View sticker set": "Посмотреть набор",
   "Online status": "Статус «Онлайн»",
   "Only whether others see you online. Walls and pages come and go regardless.":
     "Только видят ли вас другие в сети. Стены и страницы приходят и уходят независимо от этого.",
@@ -1144,7 +1145,38 @@ const RU = {
   "Paid by itself as a reaction on every letter the person writes from now on, while your coins last.": "Платится само реакцией на каждое письмо, которое человек напишет с этой минуты, пока хватает ваших монет.",
   "Stake": "Ставка",
   "Pot": "Банк",
+
+  // the chats' list: the rows' swipes and the selection (MontanaChatsList.swift 786-805, 1471-1493)
+  "Audio call": "Аудиозвонок",
+  "Video call": "Видеозвонок",
+  "Read all": "Прочитать все",
+  "Archive is empty": "Архив пуст",
+  "Group": "Группа",
+  "End the call?": "Завершить звонок?",
+  // the list's words of the last letter (ChatStore.listPreview, MTRowLetter.preview)
+  "Unanswered call": "Без ответа",
+  "Missed call": "Пропущенный звонок",
+  "Voice call": "Аудиозвонок",
+  "New message": "Новое сообщение",
+  "coins": "монет",
+  "A coin letter in this chat is on its way. The chat can be deleted once it is delivered or its coins come back.": "Письмо с монетами в этом чате ещё в пути. Чат можно удалить, когда его доставят или монеты вернутся.",
+  // the search's results (MontanaChatsList.swift 1796-1920)
+  "CHATS, GROUPS AND CONTACTS": "ЧАТЫ, ГРУППЫ И КОНТАКТЫ",
+  "saved messages": "сохранённые сообщения",
+  "Clear text": "Очистить текст",
+  // our bot and its folder (MTChatFolders.swift 10-40, 188-206, 334-336)
+  "Bots": "Боты",
+  "bot": "бот",
+  "Only messages from bots.": "Только сообщения от ботов.",
+  "Non-Contacts": "Не контакты",
+  "Tap the pencil to change the order or delete folders.": "Нажмите на карандаш, чтобы изменить порядок папок или удалить их.",
+  "You have changed the filter. Discard changes?": "Вы изменили папку. Отменить изменения?",
+  "Discard": "Отменить",
   "Both players put the stake into the game's pot, and every move adds a coin to it within the same one coin a second. The winner takes the whole pot; a draw gives each their own back.": "Оба игрока кладут ставку в банк партии, и каждый ход добавляет в него монету в пределах той же одной монеты в секунду. Победитель забирает весь банк; при ничьей каждому возвращается своё.",
+  // a page that waits for its program (the freeze of the panel's first slot, 25.10.2026; Windows' own: iOS reads these at once) and a
+  // linked post this computer does not hold (iOS's words, MontanaFirstContact.swift 1941, the phone a computer here)
+  "Could not be read.": "Не удалось прочитать.",
+  "This post is not on this computer yet. Open the writer's page, then tap the link again.": "Этого поста ещё нет на этом компьютере. Откройте страницу автора и нажмите ссылку снова.",
 };
 
 /** The person's language, as the platform names it: the dates and hours are written in it. Settings may choose another

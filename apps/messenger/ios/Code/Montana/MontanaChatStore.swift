@@ -1708,6 +1708,10 @@ class ChatStore: ObservableObject {
                 // A QUEUED INTENT IS NOT A CORPSE (18.09): the queue holds it and the drain will run it —
                 // the clock is honest on a phone that holds no node.
                 if let sid = m.msgId, MontanaDeliveryEngine.shared.queueHolds(mid: sid.hasPrefix("mid:") ? String(sid.dropFirst(4)) : sid) { continue }
+                // A GROUP'S ROW RIDES ON ITS COPIES (27.10.2026, council links 9561, 9597): never under the letter's own name, so the
+                // queue above never holds it; the group answers for the row and moves it as its copies stand (MTGroup.answersFor).
+                if MTGroup.isKey(chat), let sid = m.msgId,
+                   MTGroup.shared.answersFor(sid.hasPrefix("mid:") ? String(sid.dropFirst(4)) : sid, store: self) { continue }
                 if !coldStart {
                     let born = m.createdAt > 0 ? m.createdAt : 0
                     guard born > 0, born < edge else { continue }
@@ -6030,6 +6034,15 @@ MontanaLocalVault.setEncrypted("scheduledMsgs", d)
         if let k = progressKey { uploadTasks[k] = t; Task { @MainActor in _ = await t.value; self.uploadTasks[k] = nil } }
     }
 
+    /// THE NETWORK WORK OF ONE FILE IS OVER (25.10.2026, for MTSendLine): its encode, then its upload, each read from its one
+    /// holder -- the encode registry and the table of living uploads -- and never guessed by a clock. A file with neither
+    /// (Saved Messages, a refusal, a send left to the drain) is over at once.
+    @MainActor
+    func settled(_ file: String) async {
+        if let encode = MTEncodeRegistry.shared.task(file: file) { await encode.value }
+        if let upload = uploadTasks[file] { await upload.value }
+    }
+
     // Mirror the chat list + base URL into the shared keychain so the extension
     // «Share» can show the chat picker and know the blob-storage address.
     // name = address to send to (convRef), title = display name.
@@ -6852,7 +6865,7 @@ enum SeedScope {
         // the point it knocks at, the contact root a name was met by.
         "savedToPhotos", "callHandleTokens", "controlMids", "peerRdvLinks", "peerRdvLinks.b", "pendingMediaJSON",
         "gifFirstRun", "pipeTouched", "pipeDying", "pipeFirstCiphertexts", "pipeFirstRoots", "pipeFirstMeta",
-        "pipeNameRoots",
+        "pipeNameRoots", "pipeFirstConfirms",
         // THE WALL (24.09): my own wall's posts with their peers and marks, and the posts whose files I keep; the
         // correspondents whose build speaks the wall and the version each was carried; the people the wall's two rules
         // name — references of this identity's correspondences, gone with it.
@@ -6987,6 +7000,7 @@ enum SeedScope {
         MTInstallPrepare.offKey,   // the install road switched the tunnel off on this device (29.09): said on the page until it is raised
         MTVPNPay.tokenKey,   // this device's own access to the VPN of Montana's nodes (05.10.2026): one device's, never a copy's
         MTGroupRoom.bookKey,   // the group rooms this phone knows and their people's room keys (07.10.2026): live minutes, never a copy's
+        "filesPageFolder",   // the folder of the last file taken on this phone (MTFilesFolder, 27.10.2026): a path of this device's file system, never a copy's
         "pagesWall", "pagesWallRecent", "pagesWallBlur", MontanaWakePush.skewKey]
     /// What each node holds for this device's token -- the node's own word about this phone, whoever is seated on it: a person
     /// lifted into the seat finds the registration of the one before and registers what differs.
@@ -7009,7 +7023,9 @@ enum SeedScope {
         "coinBoard.levels",   // the Global Levels this person's correspondents told (MTCoinBoard, 11.10): learned for this person
         "mt.account.keys", "mt.twin.ref", "mt.node.identity", "mt.node.kem", "pipeSecrets",
         "pipeKept",   // what each pipe keeps of its secret for good (MTPipeKept, 22.10): the secrets' own, gone with them
+        "pipeFloorGuard",   // the clock guard of this book's first floor, M, H and Hc (MTPipeBook, decision 188, 25.10): the book's own
         "mt.history.folders", "mt.history.heads.form", "mt.history.nameheads", "mt.history.pushed",
+        "archiveSecretHeadsPurged",   // this person's archive had its old secret heads taken out (MontanaArchive.dropSecretHeads, 25.10)
         "mt.history.boxed", "mt.history.twinSeen",   // the history laid for this seed's other devices, and theirs filed here (11.10)
         "mt.group.mirrored.1",   // this device gave this person's groups to the seed's other devices (the twin mirror, 18.10)
         "mt.twin.asked",   // the rows this device asked of the seed's other devices (the twin's past, 18.10)
@@ -7056,7 +7072,7 @@ enum SeedScope {
         "montana.stickers.ids", "montana.gifs.mine", "videoLikes", "barredPeers", "reactionUse",
         "mt.vpn.servers", "mt.vpn.plans", "chatsJSON", "archivedJSON", "savedToPhotos", "callHandleTokens",
         "controlMids", "peerRdvLinks", "peerRdvLinks.b", "peerAbout", "pendingMediaJSON", "gifFirstRun", "pipeTouched",
-        "pipeDying", "pipeFirstCiphertexts", "pipeFirstRoots", "pipeFirstMeta", "pipeNameRoots"]
+        "pipeDying", "pipeFirstCiphertexts", "pipeFirstRoots", "pipeFirstMeta", "pipeNameRoots", "pipeFirstConfirms"]
     /// WHAT A RECORD IS KNOWN BY inside a list of records: the first of these fields it carries. A row of the
     /// chat list is its conversation, a contact its reference, a server its own id, a plan its link; two
     /// records known by one value are one record, and the device's own stands.

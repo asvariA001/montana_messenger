@@ -85,8 +85,12 @@ fn a_telephone_opens_bears_a_person_and_proves_the_frame_that_mints() {
         last_said()
     );
 
-    let at = std::env::temp_dir().join(format!("mt-bindings-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&at);
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("a test timestamp")
+        .as_nanos();
+    let at = std::env::temp_dir().join(format!("mt-bindings-{}-{unique}", std::process::id()));
+    std::fs::create_dir(&at).expect("a fresh retained test directory");
     let dir = CString::new(at.to_str().expect("a path of text")).expect("a path without a nul");
     let listen = CString::new("127.0.0.1:0").expect("an address without a nul");
     let mut born = -1i32;
@@ -226,6 +230,11 @@ fn a_telephone_opens_bears_a_person_and_proves_the_frame_that_mints() {
     let mut running = 1i32;
     assert_eq!(mt_boundary::mtc_pulse_running(&mut running), 0);
     assert_eq!(running, 0);
+    assert_eq!(
+        mt_boundary::mtc_errand_redeem(0, 0),
+        -1,
+        "a window whose cement named nobody issued no right to redeem"
+    );
     assert_eq!(mt_boundary::mtc_errand_redeem(0, 1), 0);
     let amount = 1u128.to_le_bytes();
     assert_eq!(
@@ -261,5 +270,5 @@ fn a_telephone_opens_bears_a_person_and_proves_the_frame_that_mints() {
     assert_eq!(mt_boundary::mtc_wallet_balance(balance.as_mut_ptr()), 0);
     assert_eq!(balance, [0u8; 16]);
 
-    let _ = std::fs::remove_dir_all(&at);
+    // Keep this run for inspection.
 }

@@ -204,18 +204,20 @@ fn a_changed_ratio_breaks_the_build_with_both_ratios() {
 }
 
 #[test]
-fn a_changed_emission_row_breaks_the_build_with_both_schedules() {
+fn a_changed_window_credit_breaks_the_build_with_both_values() {
     let md = canon();
-    let line = row_line(&md, "emission_schedule");
-    let (doctored, old_mint, new_mint) = bump_last_number(&line);
-    let Some(mt_genesis::Entry::Schedule(_, rows)) = mt_genesis::get("emission_schedule") else {
-        panic!("the Decree holds the schedule");
-    };
-    assert_eq!(old_mint, rows[0].1);
+    let line = row_line(&md, "window_credit");
+    let (doctored, old, new) = bump_last_number(&line);
+    // One coin for every second of a window to every machine living in it: the constitutional
+    // layer fixes the number, and the set and the code hold the same one.
+    assert_eq!(old, 60);
+    assert_eq!(Some(old), mt_genesis::scalar("window_credit"));
     let err = check_all(&doctored_canon(&md, &line, &doctored)).expect_err("the gate must refuse");
-    assert!(err.contains("emission_schedule"), "{err}");
-    assert!(err.contains(&old_mint.to_string()), "{err}");
-    assert!(err.contains(&new_mint.to_string()), "{err}");
+    assert!(err.contains("window_credit"), "{err}");
+    assert!(
+        err.contains(&format!("the set holds {new}, the code holds {old}")),
+        "{err}"
+    );
 }
 
 #[test]
@@ -370,6 +372,49 @@ fn a_changed_value_of_any_derivation_breaks_the_build_with_both_values() {
         walked >= 25,
         "the blocks hold {walked} frozen values, which is too few"
     );
+}
+
+#[test]
+fn a_changed_value_of_the_walk_of_a_pipe_breaks_the_build_with_both_values() {
+    // The walk of the secret of a pipe is named row by row rather than left to the sweep above:
+    // the secret walked one and two steps, the tags standing on them, the first frozen key of the
+    // inner seal, the two values frozen for the wrong walks, and the rows of the messages at the
+    // next window.
+    let md = canon();
+    let rows_of = [
+        (TAG_HEADER, "pipe_secret(W + 1)"),
+        (TAG_HEADER, "pipe_secret(W + 2)"),
+        (TAG_HEADER, "tag (W = 1001)"),
+        (TAG_HEADER, "tag (W = 1002)"),
+        (TAG_HEADER, "test_secret"),
+        (TAG_HEADER, "pipe_secret(test_secret, W + 1)"),
+        (TAG_HEADER, "tag(test_secret, W)"),
+        (TAG_HEADER, "tag(pipe_secret(test_secret, W + 1), W + 1)"),
+        (
+            TAG_HEADER,
+            "pipe_key(pipe_secret(test_secret, W + 1), W + 1)",
+        ),
+        (TAG_HEADER, "tag(unwalked secret, W = 1001)"),
+        (TAG_HEADER, "tag(walked 1001 steps, W = 1001)"),
+        (MESSAGES_HEADER, "pipe_key"),
+        (MESSAGES_HEADER, "collect_right (W = 1001)"),
+        (MESSAGES_HEADER, "pipe_key (W = 1001)"),
+    ];
+    for (header, label) in rows_of {
+        let rows = parse_labeled(&md, header).expect("the block parses");
+        let mut old = String::new();
+        for (l, v) in &rows {
+            if l == label {
+                old = v.clone();
+            }
+        }
+        assert!(!old.is_empty(), "{label} stands frozen");
+        let flipped = flip_first_hex(&old);
+        let err =
+            check_all(&doctored_canon(&md, &old, &flipped)).expect_err("the gate must refuse");
+        assert!(err.contains(&old), "{label}: {err}");
+        assert!(err.contains(&flipped), "{label}: {err}");
+    }
 }
 
 #[test]
@@ -758,38 +803,6 @@ fn bump_after_last_sign(md: &str, prefix: &str) -> (String, String, u64, u64) {
 }
 
 #[test]
-fn a_changed_identifier_of_the_fold_node_breaks_the_build_with_both_values() {
-    let md = canon();
-    let rows = parse_labeled(&md, FOLD_HEADER).expect("the fold block parses");
-    let (_, old) = rows
-        .iter()
-        .find(|(l, _)| l == "fold_node_id")
-        .expect("the identifier stands frozen")
-        .clone();
-    let flipped = flip_first_hex(&old);
-    let err = check_all(&doctored_canon(&md, &old, &flipped)).expect_err("the gate must refuse");
-    assert!(err.contains("fold_node_id"), "{err}");
-    assert!(err.contains(&old), "{err}");
-    assert!(err.contains(&flipped), "{err}");
-}
-
-#[test]
-fn a_changed_work_vector_of_the_fold_breaks_the_build_with_both_values() {
-    let md = canon();
-    let rows = parse_labeled(&md, COMMIT_VECTORS_HEADER).expect("the block parses");
-    let (label, old) = rows
-        .iter()
-        .find(|(l, _)| l.starts_with("fold_work("))
-        .expect("the work vector stands frozen")
-        .clone();
-    let flipped = flip_first_hex(&old);
-    let err = check_all(&doctored_canon(&md, &old, &flipped)).expect_err("the gate must refuse");
-    assert!(err.contains(&label), "{err}");
-    assert!(err.contains(&old), "{err}");
-    assert!(err.contains(&flipped), "{err}");
-}
-
-#[test]
 fn a_changed_confirmation_total_breaks_the_build_with_both_lengths() {
     let md = canon();
     let (line, doctored, old, new) = bump_after_last_sign(&md, "confirmation_len");
@@ -886,50 +899,6 @@ fn the_secret_of_first_contact_and_the_two_spaces_break_the_build_when_changed()
         assert!(err.contains(&old), "{label}: {err}");
         assert!(err.contains(&flipped), "{label}: {err}");
     }
-}
-
-#[test]
-fn a_changed_matrix_seed_of_the_standing_commitment_breaks_the_build() {
-    let md = canon();
-    let rows = parse_labeled(&md, COMMIT_VECTORS_HEADER).expect("the block parses");
-    let (_, old) = rows
-        .iter()
-        .find(|(l, _)| l == "matrix_seed")
-        .expect("the seed stands frozen")
-        .clone();
-    let flipped = flip_first_hex(&old);
-    let err = check_all(&doctored_canon(&md, &old, &flipped)).expect_err("the gate must refuse");
-    assert!(err.contains("matrix_seed"), "{err}");
-    assert!(err.contains(&old), "{err}");
-    assert!(err.contains(&flipped), "{err}");
-}
-
-#[test]
-fn a_changed_parameter_of_the_standing_commitment_breaks_the_build_with_both_values() {
-    // The parameters are those of ML-DSA-65 taken whole; a set that moves one of them is a
-    // set the code no longer transcribes. The value of q is read out of the set and bumped.
-    let md = canon();
-    let line = md
-        .lines()
-        .find(|l| l.trim_start().starts_with("d = ") && l.contains("q ="))
-        .expect("the set states the parameters")
-        .to_string();
-    let q_at = line.find("q =").expect("q stands in the line");
-    let after = &line[q_at + 3..];
-    let end = after.find(',').expect("a comma follows q");
-    let old_text = after[..end].trim().to_string();
-    let old: u64 = old_text
-        .chars()
-        .filter(|c| c.is_ascii_digit())
-        .collect::<String>()
-        .parse()
-        .expect("digits parse");
-    let new = old + 1;
-    let doctored_line = line.replacen(&old_text, &new.to_string(), 1);
-    let err =
-        check_all(&doctored_canon(&md, &line, &doctored_line)).expect_err("the gate must refuse");
-    assert!(err.contains(&old.to_string()), "{err}");
-    assert!(err.contains(&new.to_string()), "{err}");
 }
 
 #[test]
@@ -1034,7 +1003,7 @@ fn a_changed_vector_of_the_draw_or_of_a_round_threshold_breaks_the_build_with_bo
     // is covered the day it lands and none is covered by having been remembered.
     let md = canon();
     let mut walked = 0;
-    for header in [DRAW_RETARGET_HEADER, ROUND_THRESHOLD_HEADER] {
+    for header in [RECOMPUTATION_HEADER, ROUND_THRESHOLD_HEADER] {
         let rows = parse_labeled(&md, header).unwrap_or_else(|e| panic!("{header}: {e}"));
         for (label, stated) in rows {
             let hexish = stated.len() == 64 && stated.bytes().all(|b| b.is_ascii_hexdigit());
@@ -1061,7 +1030,7 @@ fn a_changed_input_of_a_frozen_vector_of_the_pulse_breaks_the_build() {
     // value no longer answers for it. Both the label and its number are read out of the set.
     let md = canon();
     for (header, name) in [
-        (DRAW_RETARGET_HEADER, "cleared "),
+        (RECOMPUTATION_HEADER, "cleared "),
         (ROUND_THRESHOLD_HEADER, "admitted "),
     ] {
         let rows = parse_labeled(&md, header).expect("the block parses");
@@ -1142,6 +1111,33 @@ fn a_heading_that_disagrees_with_its_row_breaks_the_build_with_both_values() {
     let err = check_derivation_headings(&md.replace(&heading, &doctored))
         .expect_err("the gate must refuse a heading that disagrees with its row");
     assert!(err.contains("cell_bytes"), "{err}");
+    assert!(err.contains(&(held + 1).to_string()), "{err}");
+    assert!(err.contains(&held.to_string()), "{err}");
+}
+
+// A parameter of the proof scheme stands in the table of the scheme and not in the Decree, and its
+// heading is held against the code that proves. The wrong implementation this refuses: one that
+// lets a heading the Decree does not hold pass unread, under which the count of queries a section
+// derives moves away from the count every proof is drawn with and the build stays green.
+#[test]
+fn a_heading_of_the_proof_scheme_that_disagrees_with_the_prover_breaks_the_build() {
+    let md = canon();
+    let heading = md
+        .lines()
+        .find(|line| line.starts_with("### `proof_queries`"))
+        .expect("the set derives the count of queries under its own heading")
+        .to_string();
+    let held = mt_proof::params::QUERIES as u64;
+    assert_eq!(
+        mt_genesis::scalar("proof_queries"),
+        None,
+        "the Decree does not name it"
+    );
+    let doctored = heading.replace(&format_number(held), &format_number(held + 1));
+    assert_ne!(doctored, heading, "the heading states the value of its row");
+    let err = check_derivation_headings(&md.replace(&heading, &doctored))
+        .expect_err("the gate must refuse a heading that disagrees with the prover");
+    assert!(err.contains("proof_queries"), "{err}");
     assert!(err.contains(&(held + 1).to_string()), "{err}");
     assert!(err.contains(&held.to_string()), "{err}");
 }
@@ -1258,6 +1254,34 @@ fn every_numeral_of_the_sources_stands_in_a_register() {
     // denominator: what is counted is the declarations of the sources, not the rows somebody
     // remembered to write.
     check_every_numeral_is_registered().expect("no numeral of this tree stands outside a register");
+}
+
+// No module of the verdict reads a clock, and the gate that holds it reads a clock wherever one is
+// named. The named wrong implementations: a door that waits on `Instant` or `std::thread::sleep`
+// before it judges — its name and its line come back; and a gate that read the comments, the tests
+// or the proofs of a source, or a longer identifier holding the name — it would refuse a tree whose
+// library reads no clock.
+#[test]
+fn a_clock_read_by_a_module_of_the_verdict_breaks_the_build() {
+    check_no_clock_in_the_verdict().expect("no module of the verdict reads a clock");
+    let reading = "use std::time::Instant;\nfn judge() {\n    let at = Instant::now();\n    std::thread::sleep(at.elapsed());\n    let _ = std::time::SystemTime::now();\n}\n";
+    assert_eq!(
+        clocks_read_by(reading),
+        vec![
+            (1, "std::time"),
+            (1, "Instant"),
+            (3, "Instant"),
+            (4, "sleep"),
+            (5, "std::time"),
+            (5, "SystemTime"),
+        ]
+    );
+    let silent = "// an Instant of the protocol is a round\nfn asleep_count(instantly: u64) -> u64 { instantly }\n#[cfg(test)]\nmod tests {\n    use std::time::Instant;\n}\n";
+    assert!(
+        clocks_read_by(silent).is_empty(),
+        "{:?}",
+        clocks_read_by(silent)
+    );
 }
 
 // And the rows of the tables are read as the lines of the blocks are.

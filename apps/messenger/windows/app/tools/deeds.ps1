@@ -12,7 +12,9 @@ $B = Start-Montana -DataDir "$Root\B"; Front-Montana -X 920 -Y 40 -Width 900 -He
 
 "B writes, then edits"
 Click-Named "Алиса Тест"
-Type-Into "Сообщение..." "Письмо для правки"; Click-Named "Отправить"; Says "Отправлено" 30 | Out-Null
+# the letter left: «Отправлено» stands for well under a second before «Доставлено» (the full run of 26.10.2026 missed it once),
+# so the scene waits for the sending to end, as album and forward do (Sent-Settle), not for one rung of the ladder
+Type-Into "Сообщение..." "Письмо для правки"; Click-Named "Отправить"; Sent-Settle
 RightClick-Named "Письмо для правки"; Click-Named "Изменить"
 Type-Into "Сообщение..." "Письмо после правки"; Click-Named "Отправить"
 Says "Письмо после правки"; Says "изменено"

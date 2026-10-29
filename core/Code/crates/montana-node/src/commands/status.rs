@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use mt_account::supply_moneta;
+use mt_account::{window_credit_coins, window_credit_moneta};
 use mt_genesis::genesis_params;
 
 use crate::clock::load_current_window;
@@ -15,7 +15,7 @@ pub struct StatusArgs {
 
 pub fn run(args: StatusArgs) -> Result<(), NodeError> {
     let data_dir = args.data_dir.unwrap_or_else(default_data_dir);
-    let identity = load_identity(&data_dir)?;
+    let identity = whole_and_held(&data_dir)?;
     let params = genesis_params();
     let state = LocalState::load_or_bootstrap(&data_dir, &identity, params)?;
     let current_window = load_current_window(&data_dir)?;
@@ -124,15 +124,9 @@ pub fn run(args: StatusArgs) -> Result<(), NodeError> {
         params.candidate_expiry_windows
     );
     println!(
-        "emission per window  : {} nɈ ({} Ɉ)",
-        params.emission_moneta,
-        params.emission_moneta / 1_000_000_000
-    );
-    let total_supply = supply_moneta(current_window, params);
-    println!(
-        "supply (closed-form) : {} nɈ ({} Ɉ) = emission × W",
-        total_supply,
-        total_supply / 1_000_000_000
+        "credit per window    : {} nɈ ({} Ɉ, one per second) to every living node",
+        window_credit_moneta(params),
+        window_credit_coins(params)
     );
 
     let total_balances: u128 = state.accounts.iter().map(|a| a.balance).sum();
@@ -145,6 +139,30 @@ pub fn run(args: StatusArgs) -> Result<(), NodeError> {
     );
 
     Ok(())
+}
+
+/// What `status` says of a store no running node holds (issue #21 K4).
+pub const NO_RUNNING_HOLDER: &str = "no running node holds";
+
+// Issue #21 K4: a status reports a running node from the records of its chain, or fails. A record
+// that is missing is named and no default stands in for it, and a store no running node holds is
+// said to be one, so a health check that reads the exit code never reads success for a dead node.
+fn whole_and_held(data_dir: &std::path::Path) -> Result<crate::identity::Identity, NodeError> {
+    let identity = load_identity(data_dir)?;
+    let records = crate::commands::start::chain_records(data_dir);
+    if let Some(missing) = records.iter().find(|p| !p.exists()) {
+        return Err(NodeError::InvalidArguments(format!(
+            "{} is missing; status reports nothing in its place",
+            missing.display()
+        )));
+    }
+    if !crate::holder::is_held(data_dir)? {
+        return Err(NodeError::InvalidArguments(format!(
+            "{NO_RUNNING_HOLDER} {}",
+            data_dir.display()
+        )));
+    }
+    Ok(identity)
 }
 
 fn hex_lower(bytes: &[u8]) -> String {

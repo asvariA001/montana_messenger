@@ -20,6 +20,17 @@ pub enum ObjectError {
     Attested,
     // The name field is not a lawful normalized name padded with zeros to its width.
     Name,
+    // A record claims segments outside the maximum continuity period.
+    RecordContinuity,
+    // The total byte length can be right while nested spending runs have wrong lengths.
+    FrameShape,
+    // A ballot casting no vote, or more votes than a standing holds units.
+    Votes,
+    // A pledge standing on an attempt after its own, made in the attempt no count reaches, or open in
+    // attempt zero, whose one open pledge is the heavy attestation.
+    Since,
+    // A roll naming more frames than a window applies, or parts that do not ascend.
+    Roll,
 }
 
 // The witness that the length of an input has been compared. Its one field is private, so the
@@ -427,12 +438,10 @@ macro_rules! nested {
 // fails with it. A count would pass a tree that lost one as readily as one that kept it.
 pub const NAMES: &[(&str, &str)] = &[
     ("proposal", "proposal"),
-    ("proof of a window", "window_proof"),
     ("frame", "frame"),
     ("confirmation", "confirmation"),
     ("light attestation", "light_attestation"),
     ("candidacy", "candidacy"),
-    ("node of the fold", "fold_node"),
     ("beacon", "beacon"),
     ("notice", "notice"),
     ("commitment over a slot", "name_commit"),
@@ -443,25 +452,63 @@ pub const NAMES: &[(&str, &str)] = &[
     ("committed record of a person", "record"),
     ("opening", "opening"),
     ("action", "action"),
+    ("ballot", "ballot"),
+    ("pledge", "pledge"),
 ];
 
+// The bodies this tree holds: objects whose length is a function of their own counts, each count
+// bounded before an entry is read. The gate compares this register with the set as it compares the
+// one above, so a body the set lays out and this tree does not hold fails the build with its name.
+pub const BODIES: &[(&str, &str)] = &[("roll", "roll")];
+
 // ── The proposal that closes a window ──────────────────────────────────────────────────────────
+
+nested! {
+    /// One census window of the standing a proposal carries: the root of the tree of its cement and
+    /// how many parts that cement names.
+    Census, {
+        root: [u8; 32],
+        count: u64,
+    }
+}
 
 layout! {
     Proposal, "proposal", {
         window: u64,
         protocol_version: u32,
         previous: [u8; 32],
-        final_beacon: [u8; 32],
         note_root: [u8; 32],
         nullifier_root: [u8; 32],
         record_root: [u8; 32],
         machine_root: [u8; 32],
         admitted_root: [u8; 32],
+        /// The root of the tree of credited rights once this proposal has appended the parts of
+        /// the cement of the window before it: the root a right of that window walks to.
+        credited_root: [u8; 32],
         operations_root: [u8; 32],
+        /// The identifier of the roll: the frames the window applied in the order they applied, then
+        /// the parts of its cement. Inside the name, since it is what the window decided, and a
+        /// function of what the roots and the cement already fix.
+        roll: [u8; 32],
+        /// The machines the tree of admitted machines holds, recomputed with its root: the count the
+        /// electorate of the window two on is read against.
+        admitted_count: u64,
+        /// The aggregate and the count of the cement of the window, its living whatever names they
+        /// pledged: the state the final beacon carried, recomputed by every verifier from the heavy
+        /// attestations it holds.
+        cement_aggregate: [u8; 32],
+        cement_count: u64,
+        /// The census windows the standing of the electorate is counted over, newest first: the
+        /// standing of the window two on is the sum of their counts, and a ballot walks their roots.
+        census: run(Census; count_of("standing_censuses")),
         suite_id: u16,
+        /// The beacon the runner closed the window on, carrying the cement above: the evidence a
+        /// device behind reads the cement off, and outside the name, because two branches of the
+        /// versions of a round carrying one cement are one decision.
+        final_beacon: [u8; 32],
         runner_pubkey: bytes(size::SIGNING_PUBLIC_KEY),
-        ticket_proof: bytes(super::PROOF_LEN),
+        /// Under the description of the ticket, at the height of the presence and of its length.
+        ticket_proof: bytes(super::PRESENCE_PROOF_LEN),
     } and a signature
 }
 
@@ -469,11 +516,11 @@ layout! {
 // refuses a proposal whose major exceeds the one it implements, and one whose value stands below
 // its predecessor's, so rules never roll back inside one chain.
 impl Proposal {
-    // The identifier of a proposal, over its deterministic fields alone, under the proposal
-    // domain. `docs/Montana Canon.md`, "The proposal that closes a window".
+    // The identifier of a proposal, over the fields the window decided, under the proposal domain.
+    // `docs/Montana Canon.md`, "The proposal that closes a window".
     pub fn id(&self) -> Result<[u8; 32], ObjectError> {
         let mut bytes = self.encode();
-        bytes.truncate(super::PROPOSAL_DETERMINISTIC_LEN);
+        bytes.truncate(super::PROPOSAL_DECIDED_LEN);
         Ok(super::identifier(mt_codec::domain::MT_PROPOSAL, &bytes))
     }
 
@@ -519,10 +566,23 @@ layout! {
 
 layout! {
     /// A frame carries no signature: its whole is its scope.
-    Frame, "frame", {
+    Frame, "frame", checked by frame_shape, {
         spends: run(Spend; count_of("spends_per_frame")),
         proof: bytes(super::PROOF_LEN),
     }
+}
+
+fn frame_shape(frame: &Frame) -> Result<(), ObjectError> {
+    if frame.spends.len() != count_of("spends_per_frame")
+        || frame.proof.len() != super::PROOF_LEN
+        || frame.spends.iter().any(|spend| {
+            spend.nullifiers.len() != count_of("spend_inputs")
+                || spend.commitments.len() != count_of("spend_outputs")
+        })
+    {
+        return Err(ObjectError::FrameShape);
+    }
+    Ok(())
 }
 
 impl Frame {
@@ -589,7 +649,6 @@ layout! {
         attested: count16([u8; 32]; ATTESTED_COUNT),
         part_nullifier: [u8; 32],
         round_nullifier: [u8; 32],
-        weight_commit: bytes(super::WEIGHT_COMMIT_BYTES),
         suite_id: u16,
         answering_key: bytes(size::SIGNING_PUBLIC_KEY),
         proof: bytes(super::PRESENCE_PROOF_LEN),
@@ -607,26 +666,6 @@ layout! {
     } and a signature
 }
 
-layout! {
-    /// The proof of a window, carried apart. It carries no signature and no key: a proof is judged
-    /// by verifying, and its whole is its scope. `docs/Montana Canon.md`, "The proof of a window,
-    /// carried apart".
-    WindowProof, "proof of a window", {
-        window: u64,
-        proposal: [u8; 32],
-        proof: bytes(super::PROOF_LEN),
-    }
-}
-
-impl WindowProof {
-    pub fn id(&self) -> Result<[u8; 32], ObjectError> {
-        Ok(super::identifier(
-            mt_codec::domain::MT_WINDOW_PROOF,
-            &self.signed_scope()?,
-        ))
-    }
-}
-
 // ── The candidacy of a machine ─────────────────────────────────────────────────────────────────
 
 layout! {
@@ -637,17 +676,6 @@ layout! {
         node_commit: [u8; 32],
         operator_nullifier: [u8; 32],
         suite_id: u16,
-        proof: bytes(super::PROOF_LEN),
-    }
-}
-
-// ── The node of the fold ───────────────────────────────────────────────────────────────────────
-
-layout! {
-    FoldNode, "node of the fold", {
-        left: [u8; 32],
-        right: [u8; 32],
-        commitment: bytes(super::WEIGHT_COMMIT_BYTES),
         proof: bytes(super::PROOF_LEN),
     }
 }
@@ -664,12 +692,19 @@ layout! {
 // ── The beacon of a round ──────────────────────────────────────────────────────────────────────
 
 layout! {
+    /// The cement a beacon carries is the aggregate over the part-nullifiers of the heavy
+    /// attestations published so far, each at most once, with the window as its context, beside
+    /// their count; every verifier recomputes both and refuses a beacon whose pair differs.
     Beacon, "beacon", {
         window: u64,
         chain: u8,
         round: u32,
         previous: [u8; 32],
-        cement_state: bytes(super::WEIGHT_COMMIT_BYTES),
+        cement_aggregate: [u8; 32],
+        cement_count: u64,
+        /// The votes the ballots of those parts drew, each part's at most once: the evidence the
+        /// close of the window reads beside the count, and no value of what the window decided.
+        cement_votes: u64,
     }
 }
 
@@ -684,14 +719,160 @@ impl Beacon {
     }
 }
 
-impl FoldNode {
-    // A node of the fold carries no signature, so its scope is the whole of its canonical bytes,
-    // and its identifier is taken over that under the class domain of the fold.
+// ── The ballot of a part ───────────────────────────────────────────────────────────────────────
+
+layout! {
+    /// It carries no key and no signature: the proof binds the part, the window and the count, and
+    /// nobody but the holder of the half that derived the part can write one.
+    Ballot, "ballot", checked by votes_of_a_ballot, {
+        window: u64,
+        part_nullifier: [u8; 32],
+        votes: u64,
+        proof: bytes(super::PROOF_LEN),
+    }
+}
+
+// A ballot casts at least one vote and no more than a standing holds units: one that casts none says
+// nothing, and one that casts more says what no proof of this set can assert.
+fn votes_of_a_ballot(value: &Ballot) -> Result<(), ObjectError> {
+    if value.votes == 0 || value.votes > count_of("standing_censuses") as u64 {
+        return Err(ObjectError::Votes);
+    }
+    Ok(())
+}
+
+// ── The pledge of a part ───────────────────────────────────────────────────────────────────────
+
+layout! {
+    /// What a part says in an attempt of the agreement on the proposal of the window before: which
+    /// name it stands behind, and on which quorum. It names no machine.
+    Pledge, "pledge", checked by since_of_a_pledge, {
+        window: u64,
+        attempt: u32,
+        name: [u8; 32],
+        since: u32,
+        part_nullifier: [u8; 32],
+        suite_id: u16,
+        answering_key: bytes(size::SIGNING_PUBLIC_KEY),
+    } and a signature
+}
+
+// A pledge stands on its own attempt (closing), on an earlier one or on none (open). One standing on a
+// later attempt says what nobody saw, one made in the attempt numbered as none could never be told
+// from a pledge standing on none, and an open pledge of attempt zero would be a second first vote
+// beside the heavy attestation, which is the one open pledge of that attempt.
+fn since_of_a_pledge(value: &Pledge) -> Result<(), ObjectError> {
+    let none = super::STANDS_ON_NONE;
+    if value.attempt == none
+        || (value.since != none && value.since > value.attempt)
+        || (value.attempt == 0 && value.since == none)
+    {
+        return Err(ObjectError::Since);
+    }
+    Ok(())
+}
+
+impl Pledge {
+    // A closing pledge stands on the quorum of its own attempt; every other pledge is open.
+    pub fn is_closing(&self) -> bool {
+        self.since == self.attempt
+    }
+
+    // The attempt whose quorum an open pledge stands on, or none.
+    pub fn stands_on(&self) -> Option<u32> {
+        (self.since != super::STANDS_ON_NONE).then_some(self.since)
+    }
+}
+
+// ── The roll of a proposal ─────────────────────────────────────────────────────────────────────
+
+// A body rather than a layout: its length is a function of its own two counts. Both are bounded
+// before an entry is read — the frames by what a window applies, the parts by the width of the
+// field and then by the length the bytes actually have — so the door compares one length, computed
+// from the head, before it reads anything after the head.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Roll {
+    pub window: u64,
+    pub frames: Vec<[u8; 32]>,
+    pub parts: Vec<[u8; 32]>,
+}
+
+impl Roll {
+    pub const NAME: &'static str = "roll";
+    // The window, the count of frames and the count of parts, at the widths of their types.
+    const HEAD: usize = size_of::<u64>() + size_of::<u32>() + size_of::<u64>();
+
+    // `roll_len` of the set, or nothing where the counts reach past what a length can hold.
+    pub fn len_of(frames: u64, parts: u64) -> Option<usize> {
+        let entries = frames.checked_add(parts)?;
+        let tail = entries.checked_mul(32)?;
+        usize::try_from(tail).ok()?.checked_add(Self::HEAD)
+    }
+
+    fn rule(&self) -> Result<(), ObjectError> {
+        if self.frames.len() > count_of("frames_per_window")
+            || !self.parts.windows(2).all(|pair| pair[0] < pair[1])
+        {
+            return Err(ObjectError::Roll);
+        }
+        Ok(())
+    }
+
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(Self::HEAD + 32 * (self.frames.len() + self.parts.len()));
+        out.extend_from_slice(&self.window.to_le_bytes());
+        out.extend_from_slice(&(self.frames.len() as u32).to_le_bytes());
+        out.extend_from_slice(&(self.parts.len() as u64).to_le_bytes());
+        for entry in self.frames.iter().chain(self.parts.iter()) {
+            out.extend_from_slice(entry);
+        }
+        out
+    }
+
+    // The one door: the head is read, the length its counts give is compared with the length the
+    // bytes have, and only then is an entry read.
+    pub fn parse(bytes: &[u8]) -> Result<Self, ObjectError> {
+        if bytes.len() < Self::HEAD {
+            return Err(ObjectError::Length {
+                expected: Self::HEAD,
+                found: bytes.len(),
+            });
+        }
+        let at = &mut 0usize;
+        let window = take_u64(bytes, at);
+        let frames = u64::from(take_u32(bytes, at));
+        let parts = take_u64(bytes, at);
+        if frames > count_of("frames_per_window") as u64 {
+            return Err(ObjectError::Roll);
+        }
+        let expected = Self::len_of(frames, parts).ok_or(ObjectError::Roll)?;
+        if bytes.len() != expected {
+            return Err(ObjectError::Length {
+                expected,
+                found: bytes.len(),
+            });
+        }
+        let mut entry = || <[u8; 32] as Field>::read(bytes, at);
+        let frames = (0..frames).map(|_| entry()).collect();
+        let parts = (0..parts).map(|_| entry()).collect();
+        let roll = Self {
+            window,
+            frames,
+            parts,
+        };
+        roll.rule()?;
+        Ok(roll)
+    }
+
+    // The bytes of a roll, handed out only where it answers its rule.
+    pub fn bytes(&self) -> Result<Vec<u8>, ObjectError> {
+        self.rule()?;
+        Ok(self.encode())
+    }
+
+    // `roll_id` of the set: the identifier the proposal carries in its field `roll`.
     pub fn id(&self) -> Result<[u8; 32], ObjectError> {
-        Ok(super::identifier(
-            mt_codec::domain::MT_FOLD_NODE,
-            &self.signed_scope()?,
-        ))
+        Ok(super::identifier(mt_codec::domain::MT_ROLL, &self.bytes()?))
     }
 }
 
@@ -796,16 +977,38 @@ layout! {
 
 // ── The committed record of a person ───────────────────────────────────────────────────────────
 
+// The width of the bitmap a record holds: `max_entry_segments`, the most segments any gate demands.
+fn continuity_width() -> Option<u32> {
+    scalar("max_entry_segments")
+        .and_then(|n| u32::try_from(n).ok())
+        .filter(|&n| n != 0 && n <= u64::BITS)
+}
+
+// The low `count` bits of a bitmap: the segments of a period of `count` ending with the newest.
+fn low_bits(count: u32) -> u64 {
+    let older = u64::BITS.saturating_sub(count);
+    u64::MAX.checked_shr(older).unwrap_or(0)
+}
+
+fn record_continuity(record: &Record) -> Result<(), ObjectError> {
+    let maximum = continuity_width().ok_or(ObjectError::RecordContinuity)?;
+    if record.segment_bitmap.checked_shr(maximum).unwrap_or(0) != 0 {
+        return Err(ObjectError::RecordContinuity);
+    }
+    Ok(())
+}
+
 layout! {
     /// The record is a preimage and never appears on the wire or in state; only its commitment
     /// does. Its field set **awaits Canon** — it freezes with the one open link the Constitution
     /// names — so an implementation reproduces the order and the widths and claims no conformance
     /// over them.
-    Record, "committed record of a person", {
+    Record, "committed record of a person", checked by record_continuity, {
         segment_bitmap: u64,
         last_active_segment: u32,
         opened_window: u64,
         own_height: u32,
+        operator_nf: [u8; 32],
         fabric_root: [u8; 32],
         suite_id: u16,
         current_pubkey: bytes(size::SIGNING_PUBLIC_KEY),
@@ -814,19 +1017,44 @@ layout! {
 }
 
 impl Record {
-    // What a gate compares is the number of segments lived, never a run of them, and the bitmap is
-    // read only after shifting it by the distance from the segment it was written against to the
-    // current one: a bitmap read without the shift measures continuity against a past that has
-    // moved.
-    pub fn segments_lived(&self, current_segment: u32) -> u32 {
-        if current_segment < self.last_active_segment {
+    // What a gate compares is the number of segments lived, never a run of them. The rules of
+    // continuity read it (Canon, "The rules of continuity", rules 2 and 3; constitution records 297
+    // and 300). Bit `i` stands for the segment `last_active_segment - i`, so the newest is bit 0.
+    // The bitmap is shifted left by the distance from the segment it was written against to the
+    // current one, and only the low `in_force` bits are counted: the segments of the period in force,
+    // which ends with the current segment. A bitmap read without the shift measures continuity
+    // against a past that has moved. One read without the mask counts segments lived before the
+    // period began.
+    pub fn segments_lived(&self, current_segment: u32, in_force: u32) -> u32 {
+        // Refuse reserved bits before shifting: otherwise an invented bit can
+        // enter the permitted region merely by waiting. In-memory constructors
+        // have not necessarily passed through the layout decoder.
+        let Some(width) = continuity_width() else {
+            return 0;
+        };
+        if record_continuity(self).is_err() || current_segment < self.last_active_segment {
             return 0;
         }
         let distance = current_segment - self.last_active_segment;
-        if distance >= 64 {
-            return 0;
+        // A period wider than the bitmap reads no segment the bitmap could not have kept: an
+        // action drops what passes the width, and a reading does not count it either.
+        let shifted = self.segment_bitmap.checked_shl(distance).unwrap_or(0);
+        (shifted & low_bits(in_force.min(width))).count_ones()
+    }
+
+    // The bitmap and the segment an action applied in `segment` leaves (rule 2). The bitmap shifts
+    // left by the distance from the segment it was written against, bit 0 is set for the segment
+    // acted in, and whatever passes the width of the bitmap leaves it. An action in the segment
+    // already written changes nothing. An action in a segment before it is no lawful transition and
+    // yields nothing, since `last_active_segment` never decreases.
+    pub fn continuity_after_action(&self, segment: u32) -> Option<(u64, u32)> {
+        let width = continuity_width()?;
+        if record_continuity(self).is_err() || segment < self.last_active_segment {
+            return None;
         }
-        (self.segment_bitmap >> distance).count_ones()
+        let distance = segment - self.last_active_segment;
+        let shifted = self.segment_bitmap.checked_shl(distance).unwrap_or(0);
+        Some(((shifted | 1) & low_bits(width), segment))
     }
 }
 
@@ -847,25 +1075,24 @@ mod tests {
         // that no two objects of different shapes were given one length by a copied line.
         let totals = [
             (Proposal::NAME, Proposal::expected_len()),
-            (WindowProof::NAME, WindowProof::expected_len()),
             (Frame::NAME, Frame::expected_len()),
             (Confirmation::NAME, Confirmation::expected_len()),
             (LightAttestation::NAME, LightAttestation::expected_len()),
             (Candidacy::NAME, Candidacy::expected_len()),
-            (FoldNode::NAME, FoldNode::expected_len()),
             (Beacon::NAME, Beacon::expected_len()),
             (SlotCommit::NAME, SlotCommit::expected_len()),
             (SlotRenew::NAME, SlotRenew::expected_len()),
             (NameReveal::NAME, NameReveal::expected_len()),
             (ChannelReveal::NAME, ChannelReveal::expected_len()),
             (ChannelPublication::NAME, ChannelPublication::expected_len()),
+            (Ballot::NAME, Ballot::expected_len()),
         ];
         for (name, total) in totals {
             assert!(total > 0, "the total of {name} is zero");
         }
         let carrying: Vec<usize> = totals
             .iter()
-            .filter(|(_, total)| *total > super::super::PROOF_LEN)
+            .filter(|(_, total)| *total > super::super::PRESENCE_PROOF_LEN)
             .map(|(_, total)| *total)
             .collect();
         let mut distinct = carrying.clone();
@@ -883,14 +1110,29 @@ mod tests {
     #[test]
     fn every_total_is_the_sum_of_the_fields_the_set_names() {
         use mt_codec::size;
+        let censuses = count_of("standing_censuses");
         assert_eq!(
             Proposal::expected_len(),
             8 + 4
-                + 8 * 32
+                + 10 * 32
+                + 8
+                + 32
+                + 8
+                + censuses * (32 + 8)
                 + 2
                 + size::SIGNING_PUBLIC_KEY
-                + super::super::PROOF_LEN
+                + super::super::PRESENCE_PROOF_LEN
                 + size::SIGNATURE
+        );
+        // The decided fields stand from the height through the suite, the census among them.
+        assert_eq!(
+            super::super::PROPOSAL_DECIDED_LEN,
+            8 + 4 + 9 * 32 + 8 + 32 + 8 + censuses * (32 + 8) + 2
+        );
+        assert_eq!(Ballot::expected_len(), 8 + 32 + 8 + super::super::PROOF_LEN);
+        assert_eq!(
+            Pledge::expected_len(),
+            8 + 4 + 32 + 4 + 32 + 2 + size::SIGNING_PUBLIC_KEY + size::SIGNATURE
         );
         assert_eq!(
             LightAttestation::expected_len(),
@@ -898,14 +1140,9 @@ mod tests {
         );
         assert_eq!(
             Confirmation::expected_len(),
-            LightAttestation::expected_len()
-                + super::super::WEIGHT_COMMIT_BYTES
-                + super::super::PRESENCE_PROOF_LEN
+            LightAttestation::expected_len() + super::super::PRESENCE_PROOF_LEN
         );
-        assert_eq!(
-            Beacon::expected_len(),
-            8 + 1 + 4 + 32 + super::super::WEIGHT_COMMIT_BYTES
-        );
+        assert_eq!(Beacon::expected_len(), 8 + 1 + 4 + 32 + 32 + 8 + 8);
     }
 
     fn a_proposal() -> Proposal {
@@ -919,32 +1156,77 @@ mod tests {
             record_root: [0x55; 32],
             machine_root: [0x66; 32],
             admitted_root: [0x77; 32],
+            credited_root: [0xAA; 32],
             operations_root: [0x88; 32],
+            roll: [0xBB; 32],
+            admitted_count: 3,
+            cement_aggregate: [0x99; 32],
+            cement_count: 2,
+            census: (0..count_of("standing_censuses"))
+                .map(|at| Census {
+                    root: [0xC0 + at as u8; 32],
+                    count: at as u64,
+                })
+                .collect(),
             suite_id: 1,
             runner_pubkey: vec![0xA1; mt_codec::size::SIGNING_PUBLIC_KEY],
-            ticket_proof: vec![0x00; super::super::PROOF_LEN],
+            ticket_proof: vec![0x00; super::super::PRESENCE_PROOF_LEN],
             signature: vec![0xF0; mt_codec::size::SIGNATURE],
         }
     }
 
-    // The identifier of a proposal stands over the deterministic fields alone. The named wrong
-    // implementation hashes the whole object: it agrees with the serialization hash the set
-    // freezes and disagrees with the identifier — and a name over proof bytes is a name a runner
-    // redraws by reproving.
+    // The identifier of a proposal stands over the fields the window decided. The named wrong
+    // implementations: one hashing the whole object, which agrees with the serialization hash the
+    // set freezes and disagrees with the identifier — a name over proof bytes is a name a runner
+    // redraws by reproving — and one hashing through the final beacon or the runner's key, under
+    // which two branches or two runners of one decision publish two names and the cement of the next
+    // window parts between them.
     #[test]
-    fn the_identifier_of_a_proposal_ignores_the_proof_and_the_signature() {
+    fn the_identifier_of_a_proposal_ignores_the_runner_the_proof_and_the_signature() {
         let one = a_proposal();
         let reproven = Proposal {
-            ticket_proof: vec![0x5A; super::super::PROOF_LEN],
+            ticket_proof: vec![0x5A; super::super::PRESENCE_PROOF_LEN],
             signature: vec![0x0F; mt_codec::size::SIGNATURE],
             ..a_proposal()
         };
         assert_eq!(one.id(), reproven.id());
-        let moved = Proposal {
+        let another_runner = Proposal {
+            runner_pubkey: vec![0xB2; mt_codec::size::SIGNING_PUBLIC_KEY],
+            ..a_proposal()
+        };
+        assert_eq!(one.id(), another_runner.id());
+        let mut through_the_beacon = one.encode();
+        through_the_beacon.truncate(super::super::PROPOSAL_DECIDED_LEN + 32);
+        assert_ne!(
+            Ok(super::super::identifier(
+                mt_codec::domain::MT_PROPOSAL,
+                &through_the_beacon
+            )),
+            one.id(),
+            "a name over the final beacon is another name"
+        );
+        // The beacon a runner closed on is where the window decided, not what it decided: two
+        // branches of the versions of a round carrying one cement are one name.
+        let another_branch = Proposal {
             final_beacon: [0x23; 32],
             ..a_proposal()
         };
+        assert_eq!(one.id(), another_branch.id());
+        let moved = Proposal {
+            cement_aggregate: [0x9A; 32],
+            ..a_proposal()
+        };
         assert_ne!(one.id(), moved.id());
+        // The two public facts the windows after it stand on are of the name as well.
+        let recounted = Proposal {
+            cement_count: 3,
+            ..a_proposal()
+        };
+        assert_ne!(one.id(), recounted.id());
+        // And the standing the window two on is counted over: a census moved is another decision.
+        let mut recensused = a_proposal();
+        recensused.census[3].count += 1;
+        assert_ne!(one.id(), recensused.id());
         let whole = super::super::identifier(mt_codec::domain::MT_PROPOSAL, &one.encode());
         assert_ne!(
             Ok(whole),
@@ -953,34 +1235,12 @@ mod tests {
         );
     }
 
-    #[test]
-    fn the_proof_of_a_window_has_one_width_and_one_name() {
-        let held = WindowProof {
-            window: 1000,
-            proposal: [0x99; 32],
-            proof: vec![0x00; super::super::PROOF_LEN],
-        };
-        assert_eq!(held.encode().len(), WindowProof::expected_len());
-        assert_eq!(
-            WindowProof::expected_len(),
-            8 + 32 + super::super::PROOF_LEN
-        );
-        // No signature and no key: the scope is the whole of it.
-        assert_eq!(WindowProof::scope_len(), WindowProof::expected_len());
-        let other = WindowProof {
-            proposal: [0x9A; 32],
-            ..held.clone()
-        };
-        assert_ne!(held.id(), other.id());
-    }
-
     fn a_confirmation() -> Confirmation {
         Confirmation {
             window: 1000,
             attested: vec![[0x10; 32], [0x20; 32]],
             part_nullifier: [0x30; 32],
             round_nullifier: [0x40; 32],
-            weight_commit: vec![0x11; super::super::WEIGHT_COMMIT_BYTES],
             suite_id: 1,
             answering_key: vec![0xA1; mt_codec::size::SIGNING_PUBLIC_KEY],
             proof: vec![0x00; super::super::PRESENCE_PROOF_LEN],
@@ -1045,23 +1305,25 @@ mod tests {
             Candidacy
         );
         round_trip!(
-            FoldNode {
-                left: [0xAB; 32],
-                right: [0xCD; 32],
-                commitment: vec![0x11; super::super::WEIGHT_COMMIT_BYTES],
-                proof: vec![0x00; super::super::PROOF_LEN],
-            },
-            FoldNode
-        );
-        round_trip!(
             Beacon {
                 window: 1000,
                 chain: 0,
                 round: 7,
                 previous: [0xEE; 32],
-                cement_state: vec![0x11; super::super::WEIGHT_COMMIT_BYTES],
+                cement_aggregate: [0x11; 32],
+                cement_count: 5,
+                cement_votes: 2,
             },
             Beacon
+        );
+        round_trip!(
+            Ballot {
+                window: 1000,
+                part_nullifier: [0x30; 32],
+                votes: 3,
+                proof: vec![0x00; super::super::PROOF_LEN],
+            },
+            Ballot
         );
         round_trip!(
             SlotCommit {
@@ -1119,6 +1381,7 @@ mod tests {
                 last_active_segment: 3,
                 opened_window: 1000,
                 own_height: 4,
+                operator_nf: [0x22; 32],
                 fabric_root: [0x77; 32],
                 suite_id: 1,
                 current_pubkey: vec![0xA1; mt_codec::size::SIGNING_PUBLIC_KEY],
@@ -1126,6 +1389,149 @@ mod tests {
             },
             Record
         );
+        round_trip!(a_pledge(3, 1), Pledge);
+    }
+
+    fn a_pledge(attempt: u32, since: u32) -> Pledge {
+        Pledge {
+            window: 1000,
+            attempt,
+            name: [0x4E; 32],
+            since,
+            part_nullifier: [0x30; 32],
+            suite_id: 1,
+            answering_key: vec![0xA1; mt_codec::size::SIGNING_PUBLIC_KEY],
+            signature: vec![0xF0; mt_codec::size::SIGNATURE],
+        }
+    }
+
+    // A pledge stands on its own attempt, an earlier one or none, and never opens attempt zero. The
+    // wrong implementations refused: one reading `since` without bounding it by the attempt (a pledge
+    // standing on a quorum nobody has seen yet), and one admitting an open pledge of attempt zero
+    // beside the heavy attestation, which is that attempt's one open pledge.
+    #[test]
+    fn a_pledge_stands_on_its_own_attempt_an_earlier_one_or_none() {
+        let none = super::super::STANDS_ON_NONE;
+        for (attempt, since, lawful) in [
+            (0, 0, true),
+            (3, 3, true),
+            (3, 1, true),
+            (3, none, true),
+            (0, none, false),
+            (3, 4, false),
+            (none, none, false),
+            (none, 0, false),
+        ] {
+            let pledge = a_pledge(attempt, since);
+            let written = pledge.bytes();
+            let read = Pledge::parse(&pledge.encode());
+            if lawful {
+                assert!(written.is_ok() && read.is_ok(), "{attempt} on {since}");
+            } else {
+                assert_eq!(written, Err(ObjectError::Since), "{attempt} on {since}");
+                assert_eq!(read, Err(ObjectError::Since), "{attempt} on {since}");
+            }
+        }
+        assert!(a_pledge(3, 3).is_closing() && !a_pledge(3, 1).is_closing());
+        assert_eq!(a_pledge(3, 1).stands_on(), Some(1));
+        assert_eq!(a_pledge(3, none).stands_on(), None);
+    }
+
+    fn a_roll() -> Roll {
+        Roll {
+            window: 1000,
+            frames: vec![[0x0F; 32], [0x0A; 32], [0x0C; 32]],
+            parts: vec![[0x31; 32], [0x32; 32]],
+        }
+    }
+
+    // A roll is read through one door that compares the length its head states before an entry, and
+    // its identifier holds the order of the frames. The wrong implementations refused: one sorting the
+    // frames (the order they applied is what a replay reproduces, so two orders are two rolls), one
+    // writing the parts before the frames, and one reading entries past a head whose counts the bytes
+    // do not carry.
+    #[test]
+    fn a_roll_is_its_frames_in_order_then_its_parts_ascending() {
+        let roll = a_roll();
+        let bytes = roll.bytes().expect("a lawful roll");
+        assert_eq!(Roll::len_of(3, 2), Some(bytes.len()));
+        assert_eq!(bytes.len(), 20 + 32 * 5);
+        assert_eq!(Roll::parse(&bytes), Ok(roll.clone()));
+        let id = roll.id().expect("an identifier");
+        let mut sorted = roll.clone();
+        sorted.frames.sort_unstable();
+        assert_ne!(sorted.id().expect("an identifier"), id);
+        let swapped = Roll {
+            window: roll.window,
+            frames: roll.parts.clone(),
+            parts: vec![[0x0A; 32], [0x0C; 32], [0x0F; 32]],
+        };
+        assert_ne!(swapped.id().expect("an identifier"), id);
+        let mut short = bytes.clone();
+        short.pop();
+        assert_eq!(
+            Roll::parse(&short),
+            Err(ObjectError::Length {
+                expected: bytes.len(),
+                found: bytes.len() - 1
+            })
+        );
+        assert!(matches!(
+            Roll::parse(&bytes[..19]),
+            Err(ObjectError::Length { .. })
+        ));
+        let mut claims_more = bytes.clone();
+        claims_more[12..20].copy_from_slice(&u64::MAX.to_le_bytes());
+        assert_eq!(Roll::parse(&claims_more), Err(ObjectError::Roll));
+    }
+
+    // A roll naming more frames than a window applies, or parts that do not ascend, is refused where it
+    // is written and where it is read.
+    #[test]
+    fn a_roll_beyond_a_window_or_with_parts_out_of_order_is_refused() {
+        let most = count_of("frames_per_window");
+        let full = Roll {
+            window: 1000,
+            frames: vec![[0x01; 32]; most],
+            parts: Vec::new(),
+        };
+        assert!(full.bytes().is_ok());
+        let over = Roll {
+            frames: vec![[0x01; 32]; most + 1],
+            ..full.clone()
+        };
+        assert_eq!(over.bytes(), Err(ObjectError::Roll));
+        assert_eq!(Roll::parse(&over.encode()), Err(ObjectError::Roll));
+        let mut descending = a_roll();
+        descending.parts.reverse();
+        assert_eq!(descending.bytes(), Err(ObjectError::Roll));
+        assert_eq!(Roll::parse(&descending.encode()), Err(ObjectError::Roll));
+        let mut repeated = a_roll();
+        repeated.parts[1] = repeated.parts[0];
+        assert_eq!(repeated.bytes(), Err(ObjectError::Roll));
+    }
+
+    // A ballot casting no vote, or more than a standing holds units, is refused where it is written
+    // and where it is read: the named wrong implementation takes the count off the wire and lets a
+    // ballot of nought votes or of more votes than census windows reach a cement.
+    #[test]
+    fn a_ballot_casts_between_one_vote_and_a_unit_of_every_census() {
+        let censuses = count_of("standing_censuses") as u64;
+        let ballot = |votes: u64| Ballot {
+            window: 1000,
+            part_nullifier: [0x30; 32],
+            votes,
+            proof: vec![0x00; super::super::PROOF_LEN],
+        };
+        assert!(ballot(1).bytes().is_ok());
+        assert!(ballot(censuses).bytes().is_ok());
+        for votes in [0, censuses + 1, u64::MAX] {
+            assert_eq!(ballot(votes).bytes(), Err(ObjectError::Votes), "{votes}");
+            assert_eq!(
+                Ballot::parse(&ballot(votes).encode()),
+                Err(ObjectError::Votes)
+            );
+        }
     }
 
     #[test]
@@ -1156,7 +1562,6 @@ mod tests {
         assert!(Frame::parse(&[0u8; 3]).is_err());
         assert!(Confirmation::parse(&[0u8; 3]).is_err());
         assert!(Candidacy::parse(&[0u8; 3]).is_err());
-        assert!(FoldNode::parse(&[0u8; 3]).is_err());
         assert!(Beacon::parse(&[0u8; 3]).is_err());
         assert!(SlotCommit::parse(&[0u8; 31]).is_err());
         assert!(SlotRenew::parse(&[0u8; 63]).is_err());
@@ -1249,24 +1654,18 @@ mod tests {
             ..a_proposal()
         };
         let expected = Proposal::expected_len();
-        assert_eq!(empty.encode().len(), 8 + 4 + 8 * 32 + 2);
+        // The fixed fields: the window, the version, ten digests, the admitted count, the cement
+        // pair, the census of the standing — a root and a count per census window — and the suite.
+        let fixed = 8 + 4 + 10 * 32 + 8 + 32 + 8 + count_of("standing_censuses") * (32 + 8) + 2;
+        assert_eq!(empty.encode().len(), fixed);
         assert_eq!(
             empty.bytes(),
             Err(ObjectError::Length {
                 expected,
-                found: 8 + 4 + 8 * 32 + 2
+                found: fixed
             })
         );
         assert!(empty.signed_scope().is_err());
-        // And a beacon of the wrong width names nothing.
-        let short = Beacon {
-            window: 1000,
-            chain: 0,
-            round: 7,
-            previous: [0xEE; 32],
-            cement_state: Vec::new(),
-        };
-        assert!(short.id().is_err());
     }
 
     #[test]
@@ -1288,6 +1687,20 @@ mod tests {
             Frame::expected_len(),
             spends * (inputs + outputs + 1) * 32 + super::super::PROOF_LEN
         );
+    }
+
+    #[test]
+    fn a_correct_total_length_does_not_hide_malformed_nested_runs() {
+        let mut frame = a_frame();
+        let moved = frame.spends[0].nullifiers.pop().unwrap();
+        frame.spends[1].nullifiers.push(moved);
+        assert_eq!(frame.encode().len(), Frame::expected_len());
+        assert_eq!(frame.bytes(), Err(ObjectError::FrameShape));
+        assert!(frame.id().is_err());
+        let mut frame = a_frame();
+        let moved = frame.spends[0].commitments.pop().unwrap();
+        frame.spends[1].commitments.push(moved);
+        assert_eq!(frame.bytes(), Err(ObjectError::FrameShape));
     }
 
     #[test]
@@ -1415,25 +1828,83 @@ mod tests {
         );
     }
 
-    #[test]
-    fn the_segments_of_a_record_are_counted_after_the_shift() {
-        // Four segments lived, written against segment ten. Read at segment ten the count is four;
-        // read at twelve, two of them have moved out of the window.
-        let record = Record {
-            segment_bitmap: 0b1111,
-            last_active_segment: 10,
+    fn a_record_of(segment_bitmap: u64, last_active_segment: u32) -> Record {
+        Record {
+            segment_bitmap,
+            last_active_segment,
             opened_window: 0,
             own_height: 0,
+            operator_nf: [0; 32],
             fabric_root: [0; 32],
             suite_id: 1,
             current_pubkey: vec![0; mt_codec::size::SIGNING_PUBLIC_KEY],
             blind: [0; 32],
-        };
-        assert_eq!(record.segments_lived(10), 4);
-        assert_eq!(record.segments_lived(12), 2);
-        assert_eq!(record.segments_lived(14), 0);
+        }
+    }
+
+    #[test]
+    fn the_segments_of_a_record_are_counted_after_the_shift() {
+        // Four segments lived, written against segment ten: bit 0 is segment ten and bit 3 is
+        // segment seven (rule 2, records 297 and 300). With fourteen in force they all count until
+        // the period, which ends with the current segment, leaves segment seven behind at twenty-one.
+        let record = a_record_of(0b1111, 10);
+        assert_eq!(record.segments_lived(10, 14), 4);
+        assert_eq!(record.segments_lived(20, 14), 4);
+        assert_eq!(record.segments_lived(21, 14), 3);
+        assert_eq!(record.segments_lived(23, 14), 1);
+        assert_eq!(record.segments_lived(24, 14), 0);
         // A bitmap read without the shift would answer four at every segment, which is the defect
-        // the shift exists to prevent.
-        assert_ne!(record.segments_lived(12), record.segments_lived(10));
+        // the shift exists to prevent. The old reader shifted right, read the low bits as the oldest,
+        // and answered nought at twenty.
+        assert_ne!(record.segments_lived(24, 14), record.segments_lived(10, 14));
+        // A segment before the one the bitmap is written against reads nothing.
+        assert_eq!(record.segments_lived(9, 14), 0);
+    }
+
+    #[test]
+    fn segments_lived_before_the_period_in_force_do_not_count() {
+        // Ten segments lived, the newest of them twenty segments before the segment written against
+        // (bits 20 to 29), as Agent 492 reported of the old reader: with fourteen in force none
+        // count, and with the whole width in force all ten do (rule 3, records 297 and 300).
+        let record = a_record_of(0b11_1111_1111 << 20, 100);
+        assert_eq!(record.segments_lived(100, 14), 0);
+        assert_eq!(record.segments_lived(100, 25), 5);
+        assert_eq!(record.segments_lived(100, 56), 10);
+        // A period wider than the bitmap counts nothing the bitmap could not have kept: at segment
+        // 127 the record's segments are 71 to 80, and 71 lies past the width of fifty-six.
+        assert_eq!(record.segments_lived(127, 64), 9);
+        assert_eq!(record.segments_lived(100, 0), 0);
+    }
+
+    #[test]
+    fn an_action_writes_its_segment_into_bit_nought() {
+        // Segments ten, nine and seven lived (rule 2, records 297 and 300).
+        let record = a_record_of(0b1011, 10);
+        // An action in the segment already written changes nothing.
+        assert_eq!(record.continuity_after_action(10), Some((0b1011, 10)));
+        // Two segments on, the bitmap shifts left by two and segment twelve takes bit 0.
+        assert_eq!(record.continuity_after_action(12), Some((0b10_1101, 12)));
+        // A segment before the one written against is no lawful transition.
+        assert_eq!(record.continuity_after_action(9), None);
+        // Far enough on, every older segment has passed the width and only the new one stands.
+        assert_eq!(record.continuity_after_action(10 + 56), Some((1, 66)));
+        assert_eq!(record.continuity_after_action(10 + 64), Some((1, 74)));
+        assert_eq!(
+            record.continuity_after_action(u32::MAX),
+            Some((1, u32::MAX))
+        );
+        // A full bitmap stays full: the oldest segment leaves as the newest enters, and the
+        // successor stands inside the width the layout holds a record to.
+        let width = continuity_width().expect("the Decree names it");
+        let full = a_record_of(low_bits(width), 10);
+        let (bitmap, last) = full.continuity_after_action(11).expect("lawful");
+        assert_eq!((bitmap, last), (low_bits(width), 11));
+        assert!(a_record_of(bitmap, last).bytes().is_ok());
+        // What an action writes is what a gate reads: segment twelve and the three before it.
+        let (bitmap, last) = record.continuity_after_action(12).expect("lawful");
+        let next = a_record_of(bitmap, last);
+        assert_eq!(next.segments_lived(12, 14), 4);
+        assert_eq!(next.segments_lived(12, 1), 1);
+        assert_eq!(next.segments_lived(12, 3), 2);
     }
 }

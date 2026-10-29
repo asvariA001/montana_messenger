@@ -22,16 +22,75 @@ function Wrote-Again([string]$line, [int]$before, [int]$timeout = 20) {
     throw "A never wrote '$line' again"
 }
 function Wallet { Open-Drawer; Click-Named "Монета Времени"; Says "Баланс Времени" 15 }
-# the page opened again while the Pantheon burns: taps light it, the wallet is left and opened at once
+# THE QUICK WAY BACK INTO THE WALLET: each name asked of the window alone (one question, not a reading of every element) and pressed the
+# moment it stands -- the wallet's cross, then the panel's first slot once the page is gone (its right button opens the drawer while a
+# hint stands there, as Open-Drawer does), the drawer's «Монета Времени», the page's «Баланс Времени». The way through Click-Named «Чаты»
+# and Open-Drawer read the whole window a dozen times and brought the page back 3.4-3.5 s after the last tap (a triage of 25.10.2026),
+# past the fire's three seconds.
+function Quick([string]$Name, [double]$Timeout = 5) {
+    $c = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, $Name)
+    $end = (Get-Date).AddSeconds($Timeout)
+    do { try { $e = (Root).FindFirst([System.Windows.Automation.TreeScope]::Descendants, $c); if ($e) { return $e } } catch {}; Start-Sleep -Milliseconds 40 } while ((Get-Date) -lt $end)
+    $null
+}
+function Quick-Back {
+    $x = Quick "Закрыть"; if (-not $x) { throw "the wallet's page wears no «Закрыть»" }
+    $x.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    $end = (Get-Date).AddSeconds(5); $opened = $false
+    do {
+        $lib = Quick "Библиотека приложений" 0
+        if ($lib) { $lib.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke(); $opened = $true }
+        foreach ($hint in @("Хранить мою копию у собеседников", "Уведомления выключены")) {
+            if ($opened) { break }
+            $h = Quick $hint 0
+            if (-not $h) { continue }
+            $b = $h.Current.BoundingRectangle; $px = [int]($b.X + $b.Width / 2); $py = [int]($b.Y + $b.Height / 2)
+            $who = Point-Holder $px $py
+            if ($who) { throw "the right button on '$hint' would land on $who -- another program holds the front" }
+            [MontanaMouse]::SetCursorPos($px, $py) | Out-Null
+            [MontanaMouse]::mouse_event(0x0008, 0, 0, 0, [UIntPtr]::Zero); [MontanaMouse]::mouse_event(0x0010, 0, 0, 0, [UIntPtr]::Zero)
+            $opened = $true
+        }
+        if (-not $opened) { Start-Sleep -Milliseconds 40 }
+    } while (-not $opened -and (Get-Date) -lt $end)
+    if (-not $opened) { throw "the panel's first slot never stood again after the wallet left" }
+    $coin = Quick "Монета Времени"; if (-not $coin) { throw "the drawer never showed «Монета Времени»" }
+    $coin.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    if (-not (Quick "Баланс Времени")) { throw "the wallet's page never came back" }
+    "  sees: Баланс Времени"
+}
+# the page opened again while the Pantheon burns: taps light it, the wallet is left and opened at once. The fire goes out three seconds
+# after the last tap (coins.rs QUIET); a page seen again later than 2.8 s after it may have opened on a fire gone out -- where the auto
+# minting rightly turns on -- and that look tells nothing: it is made again, three times at most
 function Reopen-Burning {
-    Front-Montana   # the window in front first: a return to it (iOS scenePhase .active) fires the auto minting by itself
-    for ($i = 0; $i -lt 3; $i++) { Click-Named "Монета" }
-    Click-Named "Чаты"
-    $on = Lines "wallet_pull auto on"
-    Wallet
-    Start-Sleep -Seconds 1
-    if ((Lines "wallet_pull auto on") -gt $on) { throw "the page opened while the Pantheon burns turned the auto minting on" }
-    "  the page opened while the Pantheon burns: no auto minting"
+    for ($try = 1; $try -le 3; $try++) {
+        Front-Montana   # the window in front first: a return to it (iOS scenePhase .active) fires the auto minting by itself
+        for ($i = 0; $i -lt 3; $i++) { Click-Named "Монета" }
+        $lit = Get-Date
+        $on = Lines "wallet_pull auto on"
+        Quick-Back
+        $took = ((Get-Date) - $lit).TotalSeconds
+        Start-Sleep -Seconds 1
+        if ($took -gt 2.8) { "  the page came back $([math]::Round($took, 1)) s after the last tap: the fire may be out, looked at again"; Start-Sleep -Seconds 4; continue }
+        if ((Lines "wallet_pull auto on") -gt $on) { throw "the page opened while the Pantheon burns turned the auto minting on" }
+        "  the page opened while the Pantheon burns ($([math]::Round($took, 1)) s after the last tap): no auto minting"
+        $script:quiet = Lines "wallet_pull auto on"
+        return
+    }
+    throw "the page never came back within 2.8 s of the last tap"
+}
+# THE REAL MOUSE PRESSES WHAT STANDS AT ITS POINT, and a window put in front again is a return that turns the auto minting on by itself
+# (lib.rs auto_fire «active»): when another program has taken the front since the window was put there, the press would land on it and
+# the step would read a turning-on that never came (a triage of 25.10.2026 saw a browser take the front 8 s before the hold) -- the scene
+# says so and stops rather than put the window in front once more
+function Still-Front($x, $y, [int]$since) {
+    $who = Front-Holder; if (-not $who) { $who = Point-Holder $x $y }
+    if ($who) { throw "another program took the front ($who) before the press: the desktop was not the scene's alone" }
+    # the front taken and given back meanwhile is a return all the same: the app's own diary says what turned the auto minting on
+    if ((Lines "wallet_pull auto on") -gt $since) {
+        $last = @(Get-Content "$Root\A\trace.log" -Encoding UTF8 -ErrorAction SilentlyContinue | Where-Object { $_ -like "*wallet_pull auto on*" }) | Select-Object -Last 1
+        throw "the auto minting was on before the press ($($last -replace '^\d+ ', '')): the press can show nothing"
+    }
 }
 # the coin's middle on the screen
 function Coin-Point { $r = (Find-Named "Монета" 15).Current.BoundingRectangle; @([int]($r.X + $r.Width / 2), [int]($r.Y + $r.Height / 2)) }
@@ -55,6 +114,7 @@ if ($a2 -ne $a1) { throw "the page minted with no auto minting ($a1 -> $a2)" }
 "A holds the coin nine seconds: the auto minting turns on"
 $p = Coin-Point
 [MontanaMouse]::SetCursorPos($p[0], $p[1]) | Out-Null; Start-Sleep -Milliseconds 200
+Still-Front $p[0] $p[1] $script:quiet
 $held = Lines "wallet_pull auto on why=hold"
 [MontanaMouse]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
 try { Wrote-Again "wallet_pull auto on why=hold" $held 14 } finally { [MontanaMouse]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero) }
@@ -72,6 +132,7 @@ Start-Sleep -Seconds 4
 $pulled = Lines "wallet_pull auto on why=pull"
 $p = Coin-Point   # the wheel over the page's top, where the coin stands in sight
 [MontanaMouse]::SetCursorPos($p[0], $p[1]) | Out-Null; Start-Sleep -Milliseconds 200
+Still-Front $p[0] $p[1] $script:quiet
 for ($i = 0; $i -lt 4; $i++) { [MontanaMouse]::mouse_event(0x0800, 0, 0, 120, [UIntPtr]::Zero); Start-Sleep -Milliseconds 40 }
 Wrote-Again "wallet_pull auto on why=pull" $pulled 10
 $a5 = Available; Start-Sleep -Seconds 4; $a6 = Available

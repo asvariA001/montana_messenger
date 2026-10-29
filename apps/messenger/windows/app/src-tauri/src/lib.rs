@@ -110,11 +110,17 @@ fn core_info() -> core::CoreInfo {
     core::info()
 }
 
+/// Who sits here and my face's version. Read on the blocking pool as copy_pages and disk_use are, and so are chats, chat_open,
+/// calls_*, keep_state, bar_first, face_get, media_get, media_list, search and copy_inventory: a DPAPI unseal, a settings file
+/// or a walk of a large book never holds one of the few async workers that answer every other invoke.
 #[tauri::command]
-async fn identity_state(p: State<'_, Person>, m: State<'_, Messenger>) -> Result<identity::State, ()> {
-    let mut s = identity::state(&p);
-    s.face = m.self_face().map_or(0, |f| i64::from_str_radix(&post::face_tag(&f)[..12], 16).unwrap_or(1));
-    Ok(s)
+async fn identity_state(app: AppHandle) -> Result<identity::State, ()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let (p, m) = (app.state::<Person>(), app.state::<Messenger>());
+        let mut s = identity::state(&p);
+        s.face = m.self_face().map_or(0, |f| i64::from_str_radix(&post::face_tag(&f)[..12], 16).unwrap_or(1));
+        Ok(s)
+    }).await.map_err(|_| ())?
 }
 
 #[tauri::command]
@@ -171,8 +177,11 @@ async fn identity_accept_terms(p: State<'_, Person>) -> Result<bool, ()> {
 }
 
 #[tauri::command]
-async fn chats(m: State<'_, Messenger>) -> Result<Vec<messenger::Row>, ()> {
-    Ok(m.rows())
+async fn chats(app: AppHandle) -> Result<Vec<messenger::Row>, ()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let m = app.state::<Messenger>();
+        Ok(m.rows())
+    }).await.map_err(|_| ())?
 }
 
 /// THE UNSENT WORDS (iOS ChatStore.draft / setDraft): what the chat's field held when it was left, and the field's words kept
@@ -187,11 +196,14 @@ async fn chat_keep_draft(m: State<'_, Messenger>, chat: String, text: String) ->
 }
 
 #[tauri::command]
-async fn chat_open(p: State<'_, Person>, m: State<'_, Messenger>, chat: String) -> Result<Option<messenger::Talk>, ()> {
-    if book::is_saved(&chat) && m.book.chat(&chat).is_none() {
-        m.book.edit(&chat, |_| {});   // Saved Messages is born here as it is opened (iOS seedIfNeeded)
-    }
-    Ok(m.talk(&chat, &p.profile.read().user_name))
+async fn chat_open(app: AppHandle, chat: String) -> Result<Option<messenger::Talk>, ()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let (p, m) = (app.state::<Person>(), app.state::<Messenger>());
+        if book::is_saved(&chat) && m.book.chat(&chat).is_none() {
+            m.book.edit(&chat, |_| {});   // Saved Messages is born here as it is opened (iOS seedIfNeeded)
+        }
+        Ok(m.talk(&chat, &p.profile.read().user_name))
+    }).await.map_err(|_| ())?
 }
 
 /// A letter (a reply when `qm` names the letter answered): drawn «sending» at once, then carried off the window's thread;
@@ -539,8 +551,11 @@ async fn account_delete(app: AppHandle) -> Result<(), ()> {
 
 /// The files of every conversation, for the gallery and the music.
 #[tauri::command]
-async fn media_list(m: State<'_, Messenger>) -> Result<Vec<serde_json::Value>, ()> {
-    Ok(m.files())
+async fn media_list(app: AppHandle) -> Result<Vec<serde_json::Value>, ()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let m = app.state::<Messenger>();
+        Ok(m.files())
+    }).await.map_err(|_| ())?
 }
 
 /// THE COPY OF THIS MACHINE (iOS «Create backup…»): the archive and the letters' files, sealed under the words, written to
@@ -2258,14 +2273,16 @@ fn node_lamp() -> serde_json::Value {
 /// MTKeeping.offShown), else nothing -- the drawer's grid.
 #[tauri::command]
 async fn bar_first(app: AppHandle) -> Result<&'static str, ()> {
-    if banners_refused(&app) {
-        return Ok("notifications");
-    }
-    let (p, m) = (app.state::<Person>(), app.state::<Messenger>());
-    Ok(match m.desk(&p) {
-        Some(d) if keeping::told(&d) && !keeping::mine(&d) => "keeping",
-        _ => "",
-    })
+    tauri::async_runtime::spawn_blocking(move || {
+        if banners_refused(&app) {
+            return Ok("notifications");
+        }
+        let (p, m) = (app.state::<Person>(), app.state::<Messenger>());
+        Ok(match m.desk(&p) {
+            Some(d) if keeping::told(&d) && !keeping::mine(&d) => "keeping",
+            _ => "",
+        })
+    }).await.map_err(|_| ())?
 }
 
 /// Whether Windows refuses this app's banners (iOS MTNotifyAllowed.refused): the person's switch for the app, or all of them, off.
@@ -2283,8 +2300,11 @@ fn banners_refused(_: &AppHandle) -> bool {
 
 /// The keeping as the settings show it (iOS MTKeepingSection).
 #[tauri::command]
-async fn keep_state(p: State<'_, Person>, m: State<'_, Messenger>) -> Result<serde_json::Value, ()> {
-    Ok(m.desk(&p).map(|d| keeping::state(&d)).unwrap_or_default())
+async fn keep_state(app: AppHandle) -> Result<serde_json::Value, ()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let (p, m) = (app.state::<Person>(), app.state::<Messenger>());
+        Ok(m.desk(&p).map(|d| keeping::state(&d)).unwrap_or_default())
+    }).await.map_err(|_| ())?
 }
 
 /// The person's hand on the keeping: «mine» (my copy with my contacts), «others» (parts for them), «told» (the question at the
@@ -2327,9 +2347,12 @@ async fn peer_rename(app: AppHandle, m: State<'_, Messenger>, chat: String, firs
 
 /// A correspondent's face, raw (a JPEG), or mine when `chat` is empty.
 #[tauri::command]
-async fn face_get(m: State<'_, Messenger>, chat: String) -> Result<tauri::ipc::Response, ()> {
-    let face = if chat.is_empty() { m.self_face() } else { m.faces.get(&chat) };
-    face.map(|f| tauri::ipc::Response::new(picture::viewable(f))).ok_or(())
+async fn face_get(app: AppHandle, chat: String) -> Result<tauri::ipc::Response, ()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let m = app.state::<Messenger>();
+        let face = if chat.is_empty() { m.self_face() } else { m.faces.get(&chat) };
+        face.map(picture::viewable).ok_or(())
+    }).await.map_err(|_| ())?.map(tauri::ipc::Response::new)
 }
 
 /// MY FACE CHOSEN (iOS MTSelfFace.set): a square JPEG made ready by the window (640 px, at most 128 KiB), raw; an empty body
@@ -2380,10 +2403,12 @@ fn chat_send_voice(app: AppHandle, request: tauri::ipc::Request) -> Result<(), S
 
 /// The file of a letter, raw, for the window to draw (a picture, a film, a voice).
 #[tauri::command]
-async fn media_get(m: State<'_, Messenger>, mid: String) -> Result<tauri::ipc::Response, ()> {
-    let b = m.media.get(&mid).ok_or(())?;
-    // a HEIC of iOS -- a photo, a sticker with its transparency -- comes as PNG: WebView2 does not draw HEIF
-    Ok(tauri::ipc::Response::new(tauri::async_runtime::spawn_blocking(move || picture::viewable(b)).await.map_err(|_| ())?))
+async fn media_get(app: AppHandle, mid: String) -> Result<tauri::ipc::Response, ()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let m = app.state::<Messenger>();
+        // the store's unseal, then a HEIC of iOS -- a photo, a sticker with its transparency -- as PNG: WebView2 does not draw HEIF
+        m.media.get(&mid).map(picture::viewable).ok_or(())
+    }).await.map_err(|_| ())?.map(tauri::ipc::Response::new)
 }
 
 /// A picture a person picks that the window cannot open (HEIC from an iPhone): raw in, PNG out, for the window to make it
@@ -2464,15 +2489,18 @@ fn note_opened(v: &vault::Vault, path: &std::path::Path) {
 /// WHAT THE COPY TAKES, COUNTED FROM THIS COMPUTER (iOS Data and Storage «BACKUP», CopyInventory): the conversations, their letters,
 /// the attachments and their size.
 #[tauri::command]
-async fn copy_inventory(m: State<'_, Messenger>) -> Result<serde_json::Value, ()> {
-    let inv = inventory(&m);
-    let plan = history::Plan::load(&m.vault);
-    let taken: Vec<&serde_json::Value> = inv["convs"].as_array().into_iter().flatten().filter(|c| plan.takes_chat(c["id"].as_str().unwrap_or(""))).collect();
-    let files: Vec<&serde_json::Value> = inv["files"].as_array().into_iter().flatten()
-        .filter(|f| f["chat"].as_str().is_some_and(|c| plan.takes_file(c, f["kind"].as_str().unwrap_or("file"), f["name"].as_str().unwrap_or("")))).collect();
-    Ok(serde_json::json!({ "convs": inv["convs"].as_array().map_or(0, |a| a.len()), "chats": taken.len(),
-        "letters": taken.iter().map(|c| c["letters"].as_u64().unwrap_or(0)).sum::<u64>(),
-        "files": files.len(), "bytes": files.iter().map(|f| f["bytes"].as_u64().unwrap_or(0)).sum::<u64>() }))
+async fn copy_inventory(app: AppHandle) -> Result<serde_json::Value, ()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let m = app.state::<Messenger>();
+        let inv = inventory(&m);
+        let plan = history::Plan::load(&m.vault);
+        let taken: Vec<&serde_json::Value> = inv["convs"].as_array().into_iter().flatten().filter(|c| plan.takes_chat(c["id"].as_str().unwrap_or(""))).collect();
+        let files: Vec<&serde_json::Value> = inv["files"].as_array().into_iter().flatten()
+            .filter(|f| f["chat"].as_str().is_some_and(|c| plan.takes_file(c, f["kind"].as_str().unwrap_or("file"), f["name"].as_str().unwrap_or("")))).collect();
+        Ok(serde_json::json!({ "convs": inv["convs"].as_array().map_or(0, |a| a.len()), "chats": taken.len(),
+            "letters": taken.iter().map(|c| c["letters"].as_u64().unwrap_or(0)).sum::<u64>(),
+            "files": files.len(), "bytes": files.iter().map(|f| f["bytes"].as_u64().unwrap_or(0)).sum::<u64>() }))
+    }).await.map_err(|_| ())?
 }
 
 /// WHAT THIS COMPUTER HOLDS FOR A COPY, COUNTED (iOS CopyInventory.gather): every conversation with letters -- its name, its letters,
@@ -3356,21 +3384,29 @@ async fn turn_cred() -> Result<Option<serde_json::Value>, ()> {
 }
 
 #[tauri::command]
-async fn calls_log(m: State<'_, Messenger>) -> Result<Vec<serde_json::Value>, ()> {
-    Ok(m.calls_log())
+async fn calls_log(app: AppHandle) -> Result<Vec<serde_json::Value>, ()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let m = app.state::<Messenger>();
+        Ok(m.calls_log())
+    }).await.map_err(|_| ())?
 }
 
 /// The missed calls not yet seen, for the badge on the calls' icon and the logo (iOS missedCallsUnseen).
 #[tauri::command]
-async fn calls_missed(m: State<'_, Messenger>) -> Result<usize, ()> {
-    Ok(m.calls_missed())
+async fn calls_missed(app: AppHandle) -> Result<usize, ()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let m = app.state::<Messenger>();
+        Ok(m.calls_missed())
+    }).await.map_err(|_| ())?
 }
 
 /// The calls page is looked at: its badge clears (iOS clearMissedCallsBadge).
 #[tauri::command]
-async fn calls_seen(m: State<'_, Messenger>) -> Result<(), ()> {
-    m.calls_seen();
-    Ok(())
+async fn calls_seen(app: AppHandle) -> Result<(), ()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<Messenger>().calls_seen();
+        Ok(())
+    }).await.map_err(|_| ())?
 }
 
 /// A NEW GROUP OR CHANNEL (iOS «New Group», «New Channel»): the title, the words about it, the chosen correspondences and
@@ -3728,8 +3764,11 @@ async fn chat_forward(app: AppHandle, chat: String, mid: String, to: String) -> 
 }
 
 #[tauri::command]
-async fn search(m: State<'_, Messenger>, q: String) -> Result<Vec<serde_json::Value>, ()> {
-    Ok(m.search(&q))
+async fn search(app: AppHandle, q: String) -> Result<Vec<serde_json::Value>, ()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let m = app.state::<Messenger>();
+        Ok(m.search(&q))
+    }).await.map_err(|_| ())?
 }
 
 #[tauri::command]
@@ -3761,6 +3800,29 @@ async fn chat_erase(app: AppHandle, chat: String, both: bool) -> Result<(), ()> 
     app.state::<Messenger>().keep_draft(&chat, "");   // its unsent words leave with the feed (iOS purgeConversation)
     deed(app, move |d| d.erase(&chat, both));
     Ok(())
+}
+
+/// THE COIN'S REFRESH (iOS ChatsListView.pullRefresh: the box asked at once, whatever waits there landed): the list drawn past the
+/// coin's trigger asks the node's box now instead of at the walk's next beat -- off the window's thread.
+#[tauri::command]
+async fn pull_refresh(app: AppHandle) -> Result<(), ()> {
+    std::thread::spawn(move || {
+        let (p, m) = (app.state::<Person>(), app.state::<Messenger>());
+        if let Some(d) = m.desk(&p) {
+            if d.fetch_once() > 0 {
+                changed(&app);
+                ring(&app, &p, &m, std::mem::take(&mut *d.news.lock().unwrap()));
+            }
+        }
+    });
+    Ok(())
+}
+
+/// THE DELETION'S TERMS (iOS MontanaDeleteChatSheet): whether «Delete for me and them» stands, and whether a coin letter travels.
+#[tauri::command]
+async fn chat_erase_terms(m: State<'_, Messenger>, chat: String) -> Result<serde_json::Value, ()> {
+    let (both, coins) = m.erase_terms(&chat);
+    Ok(serde_json::json!({ "both": both, "coins": coins }))
 }
 
 /// BLOCK OR UNBLOCK a correspondent (iOS «Заблокировать» / «Разблокировать»).
@@ -4668,6 +4730,8 @@ pub fn run() {
             chat_edit,
             chat_react,
             chat_erase,
+            chat_erase_terms,
+            pull_refresh,
             copy_text,
             chat_flag,
             chat_kept_draft,

@@ -66,6 +66,12 @@ pub struct Row {
     pub secret: bool,
     /// my unsent words in this chat (iOS rowModel draft): the row shows «Draft:» and them in place of the last letter
     pub draft: String,
+    /// the last row is a group's event, `last` its words (iOS MTRowLetter.preview: eventWords): the row shows them as they are
+    pub event: bool,
+    /// THE ANSWER IN THE ROW (iOS rowReaction): the newest event is an answer to a letter -- its emoji, whether it is mine; `last`
+    /// is then the letter answered and `at` the answer's own moment
+    pub react: String,
+    pub react_mine: bool,
 }
 
 /// THE UNSENT WORDS OF EVERY CHAT (iOS ChatStore.draftsAll / setDraft, «draftsMap»): one map sealed in the device-only vault,
@@ -286,19 +292,36 @@ impl Messenger {
     pub fn rows(&self) -> Vec<Row> {
         let held = crate::groups::held_of(&self.vault);
         let drafts = self.drafts();
+        let ru = self.vault.get("lang").is_none_or(|l| l != b"en");
         let mut rows: Vec<Row> = self
             .book
             .all()
             .into_iter()
             .filter(|c| crate::book::is_saved(&c.reference) || ((self.book.secret(&c.reference).is_some() || crate::groups::is_group(&c.reference)) && !c.hidden))
             .map(|c| {
-                // a game's step is the board's; the Money Flow's own row stands in the list as itself (iOS MTRowLetter.preview)
-                let last = c.msgs.iter().rev().find(|m| (marks::is_row(&m.text) && !crate::chess::is_step(&m.text)) || m.text == marks::FLOW_ROW);
+                // a game's step is the board's; the Money Flow's own row, a call's and a group's event stand in the list as
+                // themselves (iOS listPreview: the call's words, MTRowLetter.preview: the event's)
+                let last = c.msgs.iter().rev().find(|m| (marks::is_row(&m.text) && !crate::chess::is_step(&m.text)) || m.text == marks::FLOW_ROW
+                    || m.text.starts_with(crate::calls::LOG) || m.text.starts_with(crate::groups::EVENT));
+                let group = c.reference.strip_prefix("grp:").and_then(|id| held.get(id));
+                // the answer stands while no letter was born after it, and the letter it answers is still here
+                let answer = c.row_react.as_ref().filter(|w| last.is_none_or(|l| w.at >= l.at))
+                    .and_then(|w| c.msgs.iter().find(|m| m.mid == w.mid).map(|m| (w.clone(), m.clone())));
+                let event = last.is_some_and(|m| m.text.starts_with(crate::groups::EVENT));
+                // a row this machine laid itself -- a call's, an event's -- rode nowhere: no dots (iOS rowStatus: MTRowLetter.ownRow)
+                let own = last.is_some_and(|m| event || m.text.starts_with(crate::calls::LOG) || m.text == marks::FLOW_ROW);
+                let (react, react_mine) = answer.as_ref().map(|(w, _)| (w.emoji.clone(), w.mine)).unwrap_or_default();
+                let said = answer.as_ref().map(|(_, m)| m).or(last);
+                let worded = event && answer.is_none();   // the row's words are the event's own
                 Row {
                     name: self.shown_of(&c),
-                    last: last.map(|m| if crate::passwords::is_letter(&m.text) { crate::passwords::shown(&m.text) } else { m.text.clone() }).unwrap_or_default(),
-                    at: last.map(|m| m.at).unwrap_or(0),
-                    mine: last.is_some_and(|m| m.mine),
+                    last: said.map(|m| if crate::passwords::is_letter(&m.text) { crate::passwords::shown(&m.text) }
+                        else if worded {
+                            let e = serde_json::from_str::<serde_json::Value>(&m.text[crate::groups::EVENT.len()..]).unwrap_or_default();
+                            group.map(|g| crate::groups::event_words(&e, &g.names, &g.me, ru)).unwrap_or_default()
+                        } else { m.text.clone() }).unwrap_or_default(),
+                    at: answer.as_ref().map(|(w, _)| w.at).or(last.map(|m| m.at)).unwrap_or(0),
+                    mine: last.is_some_and(|m| m.mine) && !own,
                     state: last.map(|m| m.state).unwrap_or(0),
                     unread: c.unread,
                     perm: c.perm,
@@ -311,9 +334,12 @@ impl Messenger {
                     blocked: c.blocked,
                     group: crate::groups::is_group(&c.reference),
                     kind: c.reference.strip_prefix("grp:").and_then(|id| held.get(id)).map(|g| g.kind.clone()).unwrap_or_default(),
-                    hidden: last.is_some_and(|m| crate::filter::folds(m.mine, &words_of(&m.text))),
-                    secret: last.is_some_and(|m| crate::passwords::is_letter(&m.text)),
+                    hidden: !worded && said.is_some_and(|m| crate::filter::folds(m.mine, &words_of(&m.text))),
+                    secret: said.is_some_and(|m| crate::passwords::is_letter(&m.text)),
                     draft: drafts.get(&c.reference).cloned().unwrap_or_default(),
+                    event: worded,
+                    react,
+                    react_mine,
                     reference: c.reference,
                 }
             })
@@ -323,7 +349,7 @@ impl Messenger {
             rows.push(Row {
                 reference: crate::book::SAVED.into(), name: crate::book::SAVED.into(), last: String::new(), at: 0, mine: false, state: 0,
                 unread: 0, perm: true, face: 0, pinned: false, archived: false, muted: false, marked: false, live: false, blocked: false,
-                group: false, kind: String::new(), hidden: false, secret: false,
+                group: false, kind: String::new(), hidden: false, secret: false, event: false, react: String::new(), react_mine: false,
                 draft: drafts.get(crate::book::SAVED).cloned().unwrap_or_default(),
             });
         }
@@ -484,12 +510,9 @@ impl Messenger {
                 c.pinned_at = if on { crate::wire::now_ms() } else { 0 };
                 c.ordered_at = c.ordered_at.max(c.pinned_at);
             }
-            "archive" => {
-                c.archived = on;
-                if on {
-                    c.pinned_at = 0;
-                }
-            }
+            // THE ARCHIVE KEEPS THE PIN (iOS archiveChat moves the row between the shelves and leaves pinnedChats alone): the
+            // chat comes back pinned
+            "archive" => c.archived = on,
             "mute" => c.muted = on,
             "unread" => {
                 c.marked = on;
@@ -502,6 +525,16 @@ impl Messenger {
         true
     }
 
+    /// THE TERMS OF A CHAT'S DELETION (iOS MontanaDeleteChatSheet): «for me and them» while the pair's pipe is held (MontanaConv.holds:
+    /// a person's chat, never a group's nor the room without a wire), and whether a coin letter of mine is still on its way in it
+    /// (ChatStore.coinsTravel: mine, sending or sent, a coin letter) -- then the sheet says so and offers no deletion.
+    pub fn erase_terms(&self, r: &str) -> (bool, bool) {
+        let Some(c) = self.book.chat(r) else { return (false, false) };
+        let both = !crate::book::is_saved(r) && !crate::groups::is_group(r) && self.book.secret(r).is_some();
+        let travel = c.msgs.iter().any(|m| m.mine && (m.state == 0 || m.state == 1) && crate::coins::letter_of(&m.text).is_some());
+        (both, travel)
+    }
+
     /// Whether a chat says nothing when a letter lands (iOS MTQuietChats: muted or archived).
     pub fn quiet(&self, r: &str) -> bool {
         self.book.chat(r).is_some_and(|c| c.muted || c.archived)
@@ -509,13 +542,15 @@ impl Messenger {
 
     /// THE SEARCH OF LETTERS (iOS: the chats' search finds letters too): the newest hundred whose words (a file's name or
     /// caption) hold what was typed.
+    /// THE LETTERS THE SEARCH FINDS (iOS ChatsListView.refreshSearchHits): from the first key, the person's own letters of the list's
+    /// conversations -- not the archived, which the list does not hold, nor a service word or a call -- the newest sixty.
     pub fn search(&self, q: &str) -> Vec<serde_json::Value> {
         let q = q.trim().to_lowercase();
-        if q.chars().count() < 2 {
+        if q.is_empty() {
             return vec![];
         }
         let mut out = vec![];
-        for c in self.book.all().into_iter().filter(|c| !c.hidden && !c.blocked) {
+        for c in self.book.all().into_iter().filter(|c| !c.hidden && !c.archived) {
             for m in c.msgs.iter().filter(|m| marks::is_row(&m.text)) {
                 let words = if let Some(j) = m.text.strip_prefix(crate::media::MARK) {
                     let o: serde_json::Value = serde_json::from_str(j).unwrap_or_default();
@@ -530,7 +565,7 @@ impl Messenger {
             }
         }
         out.sort_by_key(|v| std::cmp::Reverse(v["at"].as_i64().unwrap_or(0)));
-        out.truncate(100);
+        out.truncate(60);
         out
     }
 

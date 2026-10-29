@@ -427,3 +427,130 @@ mod tests {
         assert_eq!((f[0].as_str(), f[1].as_str(), f[2].as_str(), f[6].as_str()), ("mid", "hello", "Alice", ""));
     }
 }
+
+/// CANON 8.1.0 AND 9.5.0, «A tag and the labels of its steps» and the walked rows of «The vectors of the messages» (Montana
+/// Canon.md 3212-3247 and 2352-2374 in Audit/Protocol-13/source/docs at main d5c6448; 3247-3282 and 2383-2405 in core/docs at
+/// PR #11 e6cfb3ee -- one text; the line numbers below are 8.1.0's), fed to this port's own functions: Protocol-13 item 12
+/// (#23), Registry NET-24. Where a function of the port takes the set's input, the set's output is asserted. Where none does,
+/// the divergence is asserted as it stands and not bent: the set walks the secret one step per TimeChain window from the window
+/// of the pipe's first letter (Canon 1335, 1343-1344, 1359) and every quantity of a window -- the tag, the right to collect, the
+/// key -- stands on the walked value (1347-1348); this port, as iOS 2308 (MTNodeWire.swift:65-104), walks one step per UTC day
+/// from one anchor day for every pipe, keys a minute by that minute's day, and lays its minute tag over the established secret
+/// (channels.rs:226, 271, 340). The set's collect_right has no function in this tree (no "mt-collect"), so its rows are not fed.
+#[cfg(test)]
+mod canon_walk {
+    use super::*;
+
+    const W: i64 = 1000;
+
+    fn r(b: u8) -> Vec<u8> {
+        vec![b; 32]
+    }
+
+    fn x(h: &str) -> Vec<u8> {
+        unhex(h).expect("a hex row of the Canon")
+    }
+
+    /// test_secret = SHA-256("mt-vector-pipe-secret"): the plain digest of the ASCII bytes, as the core reads it
+    /// (mt-conformance parse.rs:2366); the reading with the NUL gives 555c6a4d..., which is not the Canon's row.
+    fn test_secret() -> Vec<u8> {
+        sha(&[b"mt-vector-pipe-secret".as_slice()]).to_vec()
+    }
+
+    /// The rows whose inputs the port's functions take as the set gives them: the tag and the step labels of a window, the
+    /// negative public value, and the tag and the key of a window over a walked value the set itself states.
+    #[test]
+    fn canon_rows_the_port_takes_as_given() {
+        assert_eq!(hex(&pipe_tag(&r(0x44), W)), "1d99467017fe1d0cc7c7ba29df6fd1b6");
+        assert_eq!(hex(&step_label(&r(0x51), W)), "4b8cb5c6442a52d0750bfb4fac0ba39d");
+        assert_eq!(hex(&step_label(&r(0x52), W)), "401d8ab71a2e2554ab30c11aab1ae97d");
+        assert_eq!(hex(&step_label(&r(0x51), W + 1)), "1cc3ac539a8b1d2701e489455a8b04d5");
+        assert_eq!(hex(&test_secret()), "a225e0b87df8a5568331badccfa4b217aaee3c7077b6021a52fab89d8856ef56");
+        assert_eq!(hex(&pipe_tag(&test_secret(), W)), "42b13c7133439d4222c9bdf52b5f27b0");
+        // the negative line: a public value in place of the secret yields the value frozen for that mistake, and differs
+        assert_eq!(hex(&pipe_tag(&r(0x55), W)), "783b2b17dffaab016d1aca852f60ea3e");
+        assert_ne!(pipe_tag(&r(0x55), W), pipe_tag(&r(0x44), W));
+        // the tag and the key of a window over the walked value as the set states it
+        let one = x("1defe2877d6630f056ebaff2b6b94cd31baeb24747346b542ff5f31fe35db94d");
+        let two = x("a84614faf98fddb2d569aaf7a8bd3d6ff8b20fb5c22e72338af4558993176798");
+        assert_eq!(hex(&pipe_tag(&one, W + 1)), "5bcdd791565a49a2764157d72a8450dc");
+        assert_eq!(hex(&pipe_tag(&two, W + 2)), "7d15bb090586a75f651ab429b86e62f4");
+        let walked = x("92aa039f4d82a59e12a6e65eacaa998fa06455b63e4aef6405556f9e99e4c666");
+        assert_eq!(hex(&pipe_tag(&walked, W + 1)), "39e4abcd4db155761253830a3afa9959");
+        assert_eq!(hex(&seal_key(&walked, W + 1)), "eed13b68a4fecd9c91ff7ddca945f8289b62b02835f95260639616d2ba236ba8");
+        // the vectors of the messages: the key of the inner seal of a window (seal_key is the set's pipe_key)
+        assert_eq!(hex(&seal_key(&r(0x22), W)), "2097f12c25ecf20a14b191f77d0dc6407dbc3dc8fe28ecd90d1970d42faabefd");
+    }
+
+    /// One step of the port's walk is the set's step, SHA-256("mt-pipe-ratchet" ‖ 0x00 ‖ value), and k steps of the port are
+    /// k steps of the set. The port has no function of (secret, W0, W): its one walk, pipe_secret(secret, day), counts from
+    /// WALK_ANCHOR_DAY for every pipe, so the set's pipe_secret(W0 + k) is reached here as pipe_secret(secret, WALK_ANCHOR_DAY + k).
+    /// What is compared is the step and the count of steps, not the index the count is taken on -- that is the next test.
+    #[test]
+    fn canon_walk_is_the_ports_walk_counted_from_its_anchor_day() {
+        let a = WALK_ANCHOR_DAY;
+        let shared = r(0x44);
+        assert_eq!(pipe_secret(&shared, a), shared);
+        assert_eq!(hex(&pipe_secret(&shared, a + 1)), "1defe2877d6630f056ebaff2b6b94cd31baeb24747346b542ff5f31fe35db94d");
+        assert_eq!(hex(&pipe_secret(&shared, a + 2)), "a84614faf98fddb2d569aaf7a8bd3d6ff8b20fb5c22e72338af4558993176798");
+        assert_eq!(hex(&pipe_tag(&pipe_secret(&shared, a + 1), W + 1)), "5bcdd791565a49a2764157d72a8450dc");
+        assert_eq!(hex(&pipe_tag(&pipe_secret(&shared, a + 2), W + 2)), "7d15bb090586a75f651ab429b86e62f4");
+        let t = test_secret();
+        let walked = pipe_secret(&t, a + 1);
+        assert_eq!(hex(&walked), "92aa039f4d82a59e12a6e65eacaa998fa06455b63e4aef6405556f9e99e4c666");
+        assert_eq!(hex(&pipe_tag(&walked, W + 1)), "39e4abcd4db155761253830a3afa9959");
+        assert_eq!(hex(&seal_key(&walked, W + 1)), "eed13b68a4fecd9c91ff7ddca945f8289b62b02835f95260639616d2ba236ba8");
+        // the vectors of the messages: pipe_key (W = 1001) stands on the 0x22 secret walked one step
+        let k = seal_key(&pipe_secret(&r(0x22), a + 1), W + 1);
+        assert_eq!(hex(&k), "63b394b362ae40d238abf09c174ef6bafd9e546c4325190bf1ffbcd375ca5e35");
+        // the secret read from its other end parts on test_secret, where 0x44 x 32 cannot tell (Canon 3245-3247)
+        let reversed: Vec<u8> = t.iter().rev().copied().collect();
+        assert_ne!(pipe_secret(&reversed, a + 1), walked);
+        // 1001 steps of the port's loop, from whatever its cache holds, are the set's 1001-step value -- the one the set freezes
+        // for a walk taken once per unit of height; here it only measures a long walk, and the short one after it walks back
+        assert_eq!(hex(&pipe_tag(&pipe_secret(&shared, a + 1001), W + 1)), "11062c7ece61d640abf601e486170994");
+        assert_eq!(hex(&pipe_secret(&shared, a + 1)), "1defe2877d6630f056ebaff2b6b94cd31baeb24747346b542ff5f31fe35db94d");
+    }
+
+    /// THE DIVERGENCE, STATED: fed the set's own input -- the established secret and the window W + 1 = 1001 -- the port gives
+    /// the set's «unwalked» negative for the tag (the set freezes no value for the unwalked key: it only names that mistake, so
+    /// the key is checked against the set's walked row and against the port's own unwalked key). (1) The walk is indexed by the UTC day from WALK_ANCHOR_DAY = 20754
+    /// (28.10.2026), not by the TimeChain window from the window of the pipe's first letter (Canon 1335, 1343, 1359), so at 1001
+    /// nothing has walked. (2) The minute tag, pipe_tag over the established secret, never walks: this test holds pipe_tag's
+    /// value only; that the lane lays it over the established secret is read in channels.rs:226, 271, 340, not exercised here.
+    /// (3) The body key walks by the minute's day: minute 1001 (day 0) is unwalked, and one walked value serves 1440 windows.
+    /// (4) A pipe born after the anchor starts walked, where the set starts at the established secret. (5) The walk stops at
+    /// MAX_WALK; the set names no cap. Each assertion holds of the port today: the day one fails (save (2)'s lane, see above), the
+    /// port has moved, and this test is read again rather than loosened.
+    #[test]
+    fn canon_divergence_the_walk_is_by_day_from_one_anchor_and_the_tag_does_not_walk() {
+        let shared = r(0x44);
+        let unwalked_1001 = "c146445f67c990e25256dd88dfb39a49"; // Canon: tag(unwalked secret, W = 1001), a negative row
+        let canon_1001 = "5bcdd791565a49a2764157d72a8450dc"; // Canon: tag (W = 1001)
+        // (1) the set's W + 1 taken as the port's index stands before the anchor: the walk holds the secret unchanged
+        assert_eq!(pipe_secret(&shared, W + 1), shared);
+        assert_eq!(hex(&pipe_tag(&pipe_secret(&shared, W + 1), W + 1)), unwalked_1001);
+        assert_ne!(hex(&pipe_tag(&pipe_secret(&shared, W + 1), W + 1)), canon_1001);
+        // (2) the lane's tag of a window is pipe_tag over the established secret: the set's «unwalked» negative
+        assert_eq!(hex(&pipe_tag(&shared, W + 1)), unwalked_1001);
+        // (3) the body key of minute 1001 stands on day 0, unwalked: the key over the established secret, not the set's row
+        let t = test_secret();
+        assert_eq!(body_key(&t, W + 1), seal_key(&t, W + 1));
+        assert_ne!(hex(&body_key(&t, W + 1)), "eed13b68a4fecd9c91ff7ddca945f8289b62b02835f95260639616d2ba236ba8");
+        // ... and the first and the last minute of a day stand on one walked value, where the set steps once per window
+        let day = WALK_ANCHOR_DAY + 1;
+        let (first, last) = (day * MINUTES_PER_DAY, day * MINUTES_PER_DAY + MINUTES_PER_DAY - 1);
+        assert_eq!(body_key(&t, first), seal_key(&pipe_secret(&t, day), first));
+        assert_eq!(body_key(&t, last), seal_key(&pipe_secret(&t, day), last));
+        // (4) a pipe whose first letter falls on the seventh day after the anchor stands seven steps down on that day: seven
+        // explicit steps of the set's own step, SHA-256("mt-pipe-ratchet" ‖ 0 ‖ secret)
+        let mut seven = shared.clone();
+        for _ in 0..7 {
+            seven = domained("mt-pipe-ratchet", &[&seven]).to_vec();
+        }
+        assert_eq!(pipe_secret(&shared, WALK_ANCHOR_DAY + 7), seven);
+        assert_ne!(seven, shared);
+        // (5) the walk stops at MAX_WALK steps
+        assert_eq!(pipe_secret(&shared, WALK_ANCHOR_DAY + MAX_WALK + 1), pipe_secret(&shared, WALK_ANCHOR_DAY + MAX_WALK));
+    }
+}

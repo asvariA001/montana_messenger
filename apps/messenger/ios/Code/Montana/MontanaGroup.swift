@@ -1349,20 +1349,24 @@ final class MTGroup {
     }
     /// The same for a media letter not yet made, by its kind, roundness, file name and caption.
     @MainActor
-    func mediaRefusal(kind: String, round: Bool, name: String, caption: String, in key: String, store: ChatStore, except file: String = "") -> String? {
+    func mediaRefusal(kind: String, round: Bool, name: String, caption: String, in key: String, store: ChatStore, except files: Set<String> = []) -> String? {
         guard let g = state(key), g.kind == .group, !g.mine, g.left != true, g.admins?.contains(g.me) != true else { return nil }
         let banned = Set(g.barred ?? [])
         var asked = [Self.mediaRight(kind: kind, round: round, name: name)]
         if !MTLinks.urls(in: caption).isEmpty { asked.append(.links) }
         if let r = asked.first(where: { x in banned.contains(x.rawValue) }) { return r.refusal }
-        return slowRefusal(g, key: key, store: store, except: file)
+        return slowRefusal(g, key: key, store: store, except: files)
     }
-    /// The slow mode's wait from this phone's last letter in the group -- the row just laid for `file` is not that letter.
+    /// The slow mode's wait from this phone's last letter in the group -- the rows just laid for `files` are not that letter.
+    /// A TRAY SENT AT ONCE IS ONE LETTER TO SLOW MODE (the author's word 25.10.2026 17:40 UTC, council link 8089: «only one file
+    /// is added»): each file of a batch was asked alone, so the first one's row stood as «the last letter» of the second, and
+    /// in a member's slow group every file after the first was refused and taken off the feed. The batch names all its rows.
     @MainActor
-    private func slowRefusal(_ g: MTGroupState, key: String, store: ChatStore, except file: String = "") -> String? {
+    private func slowRefusal(_ g: MTGroupState, key: String, store: ChatStore, except files: Set<String> = []) -> String? {
         guard let s = g.slow, 0 < s,
               let last = (store.messages[key] ?? []).last(where: { r in
-                  r.isFromMe && MTGroupEvent.of(r.text) == nil && (file.isEmpty || ![r.imageFile, r.videoFile, r.audioFile, r.docFile].contains(file))
+                  r.isFromMe && MTGroupEvent.of(r.text) == nil
+                      && Set([r.imageFile, r.videoFile, r.audioFile, r.docFile].compactMap { $0 }).isDisjoint(with: files)
               })?.createdAt else { return nil }
         let left = Double(s) - (Date().timeIntervalSince1970 - last)
         guard 0 < left else { return nil }
@@ -2025,6 +2029,19 @@ final class MTGroup {
     func rides(_ letter: String, queued: Set<String>) -> Bool {
         guard ready() else { return true }   // an unread store says nothing is lost: the clock waits for the store
         return copies.contains { $0.value.own && $0.value.letter == letter && queued.contains($0.key) }
+    }
+    /// A ROW OF MINE STANDS WHERE ITS COPIES SAY, ASKED AGAIN AT THE COLD SWEEP (the author's words 27.10.2026 09:15 UTC and 09:44 UTC,
+    /// council links 9561, 9597: after a relaunch a channel's files wore red and «retry» though they stood in the channel). A group's
+    /// media rides on its copies, under names of their own and never under the letter's (carry): the sweep asked the queue for the
+    /// letter's name, found none, and painted red a row whose copies were carried (T1, 2314: «TX stale -> failed chat=grp:...» at
+    /// every launch after «upload END group carried=1»). True when the row is the group's to answer -- a copy of mine names the letter,
+    /// or the store is not read yet; the row is moved by `follow`, the ladder's one door, as its receipts would move it.
+    @MainActor
+    func answersFor(_ letter: String, store: ChatStore) -> Bool {
+        guard ready() else { return true }   // an unread store says nothing is lost: the clock waits for the store
+        guard let c = copies.values.first(where: { $0.own && $0.letter == letter }) else { return false }
+        follow(c, store: store)
+        return true
     }
 
     // -- arrival -------------------------------------------------------------------------------

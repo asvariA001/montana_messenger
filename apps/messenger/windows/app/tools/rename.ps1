@@ -44,5 +44,17 @@ Says "Борис Тест" 10
 Click-Named "Назад"
 Click-Named "Чаты"
 Says "Борис Тест" 10
+# «ГОТОВО» NEVER SHOWED THE WAY BACK (the freeze of 25.10.2026, Profile.jsx PeerPage: the edit is a step of B's page): left by «Назад»,
+# B's page must stand again within 2 s -- not «leaving», inert under the window's foot -- and the window answer after it
+"«Изменить» on B's page left by «Назад»: B's page stands again, and the window answers"
+Click-Named "Контакты"
+RightClick-Named "Борис Тест"   # the row's own menu is the person's page
+Page-Drawn $null "Пожаловаться" 10; Start-Sleep -Milliseconds 400
+Press-In-Page $null "Изменить" "Пожаловаться"
+Page-Drawn "Изменить" "Фамилия"; Start-Sleep -Milliseconds 400
+Press-In-Page "Изменить" "Назад"; Page-Left "Изменить" "Фамилия"
+Page-Drawn $null "Пожаловаться"; Start-Sleep -Milliseconds 400
+Press-In-Page $null "Назад" "Пожаловаться"; Page-Left $null "Пожаловаться"
+Window-Alive "B's page → «Изменить» → «Назад» → «Назад»"
 "done in $([int]((Get-Date) - $t0).TotalSeconds) s"
 Stop-Montana

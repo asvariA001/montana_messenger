@@ -11,17 +11,19 @@ mt_codec::constants! {
     pub const SECURITY_BITS: u32 = 128, writes "| `proof_security_bits` | 128 |";
     /// The rate at which the trace is extended.
     pub const BLOWUP: usize = 8, writes "| `proof_blowup` | 8 |";
-    /// At this blowup each query rejects a false proof with probability seven in eight, and this
-    /// many of them leave a forgery below the target.
-    pub const QUERIES: usize = 48, writes "| `proof_queries` | 48 |";
+    /// At this blowup, below the Johnson bound, this many queries leave the whole soundness error
+    /// of the scheme — the mixing, the commit phase of the folding and the queries — at 2^-128.35,
+    /// and one fewer leaves it above 2^-128 at every parameter of the bound (Canon, the card).
+    pub const QUERIES: usize = 92, writes "| `proof_queries` | 92 |";
     /// Folding divides the degree bound by this at every step.
     pub const FOLD: usize = 4, writes "| `proof_fold` | 4 |";
     /// Folding stops when the bound reaches this, and the tail travels nowhere.
     pub const TAIL_DEGREE: usize = 64, writes "| `proof_tail_degree` | 64 |";
-    /// The slot beside the roots: every column at the out-of-domain point, every column at the
-    /// point one row on, and the composition there — sized to the bound on the width rather than
-    /// to a width, so the length of a proof says nothing about the circuit that wrote it.
-    pub const OOD_VALUES: usize = 125, writes "| `proof_ood_values` | 125 |";
+    /// The slot beside the roots: every slot of a row at the out-of-domain point, every slot at
+    /// the point one row on, and the two parts of the composition there — sized to the values of
+    /// a row rather than to a width, so the length of a proof says nothing about the circuit that
+    /// wrote it.
+    pub const OOD_VALUES: usize = 132, writes "| `proof_ood_values` | 132 |";
     /// What one permutation of the proof hash costs in rows of a trace. It is measured rather than
     /// assumed: the layout of the gadget that asserts the permutation stands beside it as the
     /// witness, and the count closes on a power of two of its own accord.
@@ -29,7 +31,20 @@ mt_codec::constants! {
     /// The bound on the width of a trace, which the memory of a telephone fixes and the slot of
     /// the out-of-domain evaluations covers. A query opens a row of this width whatever the
     /// circuit is, so a narrower trace pays the difference in padding and not in disclosure.
-    pub const TRACE_WIDTH_BOUND: usize = 62, writes "| `proof_trace_width_bound` | 62 |";
+    pub const TRACE_WIDTH_BOUND: usize = 64, writes "| `proof_trace_width_bound` | 64 |";
+    /// The rows at the end of every trace that carry no constraint and no boundary. The prover
+    /// fills them with uniform randomness before it commits, so what a proof opens of a column —
+    /// the rows of the queries, the two points outside the domain — says nothing of the witness:
+    /// two blocks of the permutation, and more than twice the queries and the two points together:
+    /// 2 x 92 + 2 = 186 values opened against 256 free.
+    pub const FREE_ROWS: usize = 256, writes "| `proof_free_rows` | 256 |";
+    /// The values a query opens of a row: every column of the bound and the randomizer beside
+    /// them — a column of uniform values the prover draws, which the deep composition takes under
+    /// weights of its own, so that what a folding layer opens is uniform as well.
+    pub const ROW_VALUES: usize = 65, writes "| `proof_row_values` | 65 |";
+    /// The parts the composition polynomial is carried in: its degree stands above the height by
+    /// the free rows, so one part of the height and one of the free rows carry it.
+    pub const COMPOSITION_PARTS: usize = 2, writes "| `proof_composition_parts` | 2 |";
     /// The degree a constraint may carry. The composition of a constraint of degree d carries
     /// degree about (d - 1) times the rows; the folding divides by the fold at every layer and the
     /// count of layers is what carries the rows down to the tail, so it carries the composition
@@ -50,6 +65,7 @@ mt_codec::constants! {
 #[derive(Debug, PartialEq, Eq)]
 pub enum ShapeError {
     RowsDoNotReachTheTail { rows_log2: u32 },
+    RowsDoNotExceedTheFreeBlock { rows_log2: u32 },
 }
 
 // The shape of a proof over a trace of a stated height. Everything below follows from the
@@ -65,12 +81,21 @@ impl Shape {
     // that stands **at** the tail is refused with them and for a reason of the same kind: it folds
     // no layer at all, and every check of a proof past the first reads the layer the folding did
     // not make. A shape of no layers would carry a proof whose deep composition answers against
-    // nothing, so it is refused where a shape becomes a shape.
+    // nothing, so it is refused where a shape becomes a shape. A height the free block fills is
+    // refused there too: the constraints and the boundaries reach every row but the free block,
+    // and a trace of no row beyond it has no row for them to reach — the live rows of a shape are
+    // never zero, and never fewer.
     pub fn of_rows_log2(rows_log2: u32) -> Result<Shape, ShapeError> {
         let tail_log2 = TAIL_DEGREE.trailing_zeros();
         let fold_log2 = FOLD.trailing_zeros();
         if rows_log2 <= tail_log2 || !(rows_log2 - tail_log2).is_multiple_of(fold_log2) {
             return Err(ShapeError::RowsDoNotReachTheTail { rows_log2 });
+        }
+        if 1usize
+            .checked_shl(rows_log2)
+            .is_some_and(|rows| rows <= FREE_ROWS)
+        {
+            return Err(ShapeError::RowsDoNotExceedTheFreeBlock { rows_log2 });
         }
         Ok(Shape { rows_log2 })
     }
@@ -81,6 +106,12 @@ impl Shape {
 
     pub fn rows(self) -> usize {
         1usize << self.rows_log2
+    }
+
+    // The rows the constraints and the boundaries reach: every row but the free block at the end,
+    // which the prover fills with randomness.
+    pub fn live_rows(self) -> usize {
+        self.rows() - FREE_ROWS
     }
 
     pub fn domain_log2(self) -> u32 {
@@ -106,13 +137,13 @@ impl Shape {
     }
 
     // The bytes of one query: the path of the trace and the row it opens, the path of the
-    // composition and the value it opens, and for every folding layer its path and the values it
-    // folds. The row is of the bound on the width whatever the circuit is.
+    // composition and the parts it opens, and for every folding layer its path and the values it
+    // folds. The row is of the values of a row whatever the circuit is.
     pub fn query_bytes(self) -> usize {
         ROOT_BYTES * (self.domain_log2() as usize)
-            + TRACE_WIDTH_BOUND * 8
+            + ROW_VALUES * 8
             + ROOT_BYTES * (self.domain_log2() as usize)
-            + ELEMENT_BYTES
+            + COMPOSITION_PARTS * ELEMENT_BYTES
             + ROOT_BYTES * self.levels_of_a_query()
             + self.layers() * FOLD * ELEMENT_BYTES
     }
@@ -140,8 +171,9 @@ mod tests {
         let depth = mt_genesis::scalar("note_tree_depth").expect("the Decree names it") as usize;
         // Every hash of the circuit is of the proof hash family. A redemption walks its path —
         // one node per level and the two permutations of its leaf — opens its commitment and the
-        // public half of its nullifier key, and derives its nullifier; the counts of the openings
-        // are the sponge's own: limbs of the preimage, the pad element, blocks of the rate.
+        // public half of its nullifier key, derives the part a right walks from, and derives its
+        // nullifier; the counts of the openings are the sponge's own: limbs of the preimage, the
+        // pad element, blocks of the rate.
         // An absorption counts in elements: four-byte limbs for a byte field, the four words
         // of a digest where a derivation consumes another, one pad element, blocks of the rate.
         let blocks = |elements: usize| (elements + 1).div_ceil(8);
@@ -149,6 +181,8 @@ mod tests {
         let leaf_permutations = blocks(4);
         let cm_permutations = blocks(limbs(16) + limbs(32) + 4 + limbs(32));
         let nf_permutations = blocks(4 + 4 + 1);
+        // The part of a right's window: the half that spends and the window, one element.
+        let part_permutations = blocks(4 + 1);
         // The key is absorbed once and squeezed twice: the blocks of the absorption, and one more
         // whose state is the state they left. That block is what makes the two halves two values
         // of one reading of the key rather than two readings of it.
@@ -156,17 +190,21 @@ mod tests {
         let rate_permutations = blocks(limbs(32) + limbs(8) + limbs(1));
         // What the walk answers with costs no permutation: the value a redemption's accumulator
         // ends at stands at a boundary of the trace, against the root or against the right.
-        let redemption_permutations =
-            depth + leaf_permutations + cm_permutations + nf_permutations + key_permutations;
-        assert_eq!(redemption_permutations, 50);
+        let redemption_permutations = depth
+            + leaf_permutations
+            + cm_permutations
+            + part_permutations
+            + nf_permutations
+            + key_permutations;
+        assert_eq!(redemption_permutations, 51);
         let spend_permutations =
             2 * redemption_permutations + 2 * cm_permutations + rate_permutations;
-        assert_eq!(spend_permutations, 110);
+        assert_eq!(spend_permutations, 112);
         let frame_permutations = 3 * spend_permutations;
-        assert_eq!(frame_permutations, 330);
+        assert_eq!(frame_permutations, 336);
 
         let rows = frame_permutations * ROWS_PER_PERMUTATION;
-        assert_eq!(rows, 42_240);
+        assert_eq!(rows, 43_008);
         // The least lawful height above that count: 2^15 does not reach the tail by whole folds,
         // so the height is 2^16 — and every length that carries a proof stands where it stood.
         assert!(Shape::of_rows_log2(15).is_err());
@@ -176,15 +214,15 @@ mod tests {
         // one row more than this would carry the trace past its height and move every length that
         // carries a proof.
         let ceiling = (1usize << rows_log2) / frame_permutations;
-        assert_eq!(ceiling, 198);
+        assert_eq!(ceiling, 195);
         assert!(ROWS_PER_PERMUTATION <= ceiling);
 
         let shape = Shape::of_rows_log2(rows_log2).expect("the height reaches the tail");
         assert_eq!(shape.domain_log2(), 19);
         assert_eq!(shape.layers(), 5);
         assert_eq!(shape.levels_of_a_query(), 65);
-        assert_eq!(shape.query_bytes(), 4_296);
-        assert_eq!(shape.proof_bytes(), 210_968);
+        assert_eq!(shape.query_bytes(), 4_344);
+        assert_eq!(shape.proof_bytes(), 404_576);
         // And the length the state layer carries for a proof is that number, held in one place.
         assert_eq!(shape.proof_bytes(), mt_state::PROOF_LEN);
     }
@@ -204,7 +242,7 @@ mod tests {
         assert_eq!(presence.layers(), 4);
         assert_eq!(presence.domain_log2(), 17);
         assert_eq!(presence.levels_of_a_query(), 48);
-        assert_eq!(presence.query_bytes(), 3_528);
+        assert_eq!(presence.query_bytes(), 3_576);
         assert_eq!(presence.proof_bytes(), mt_state::PRESENCE_PROOF_LEN);
         // The named wrong implementation: a description built at a height of its own choosing.
         // Every height is a length, and the objects of this protocol have room for exactly two.
@@ -251,12 +289,37 @@ mod tests {
                 rows_log2: TAIL_DEGREE.trailing_zeros()
             })
         );
-        assert!(Shape::of_rows_log2(8).is_ok());
+        assert!(Shape::of_rows_log2(10).is_ok());
         assert_eq!(
-            Shape::of_rows_log2(8).map(|shape| shape.layers()),
-            Ok(1),
-            "the least height this scheme folds at folds once"
+            Shape::of_rows_log2(10).map(|shape| shape.layers()),
+            Ok(2),
+            "the least height this scheme proves at folds twice"
         );
         assert!(Shape::of_rows_log2(12).is_ok());
+    }
+
+    // A height the folding reaches the tail from is refused all the same when the free block fills
+    // it: the constraints and the boundaries would reach no row, and the last live row would stand
+    // before the first. The named wrong implementation is a shape admitted at the height of the
+    // free block, whose live rows are zero and whose arithmetic over them runs below zero.
+    #[test]
+    fn a_height_the_free_block_fills_is_refused() {
+        let free_log2 = FREE_ROWS.trailing_zeros();
+        assert_eq!(1usize << free_log2, FREE_ROWS);
+        assert_eq!(
+            Shape::of_rows_log2(free_log2),
+            Err(ShapeError::RowsDoNotExceedTheFreeBlock {
+                rows_log2: free_log2
+            })
+        );
+        // The least lawful height is the next one the folding reaches the tail from, and below it
+        // no height is a shape at all.
+        let least = free_log2 + FOLD.trailing_zeros();
+        for rows_log2 in 0..least {
+            assert!(Shape::of_rows_log2(rows_log2).is_err(), "{rows_log2}");
+        }
+        let shape = Shape::of_rows_log2(least).expect("the least lawful height");
+        assert!(shape.live_rows() > 0);
+        assert_eq!(shape.live_rows() + FREE_ROWS, shape.rows());
     }
 }
