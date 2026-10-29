@@ -265,7 +265,7 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
             val w = panes.width.toFloat()
             val d = if (side > 0) dx.coerceIn(-w, 0f) else dx.coerceIn(0f, w)
             views.getValue(pane).translationX = d
-            next?.let { views.getValue(it).translationX = d + side * w }
+            next?.let { views.getValue(it).translationX = d + side * w; if (0f < w) bar.ridePuck(pane, it, kotlin.math.abs(d) / w) }
         }
         override fun end(dx: Float, velocity: Float) {
             folderTo?.let { id ->
@@ -289,7 +289,7 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
                 if (!go) { nv.visibility = View.GONE; nv.translationX = 0f }
                 Motion.moveEnded("pane:" + (if (go) to.name.lowercase() else "stay"))
             }.start()
-            if (go) arrived(to)
+            if (go) arrived(to) else bar.showPane(pane)   // a turn let go: the puck rides home under the page that stays
             next = null
         }
     }
@@ -747,7 +747,7 @@ class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (
     /** The puck goes under the pane's slot; the dynamic glyph wears the music's or the gallery's face (iOS slot(of:)). */
     fun showPane(p: Pane, animated: Boolean = true) {
         // the groups and the channels are opened from the drawer: no glyph of the bar is theirs, the puck stands away (iOS slot nil)
-        slot = when (p) { Pane.CONTACTS -> 1; Pane.CALLS -> 2; Pane.FEED -> 3; Pane.CHATS -> 4; Pane.MUSIC, Pane.GALLERY -> 5; Pane.P2P -> 6; Pane.GROUPS, Pane.CHANNELS, Pane.MESH -> -1 }
+        slot = slotOf(p)
         if (p == Pane.MUSIC) media.setImageResource(R.drawable.ic_bar_play)
         if (p == Pane.GALLERY) media.setImageResource(R.drawable.ic_app_gallery)
         place(animated)
@@ -769,6 +769,23 @@ class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (
         val x = (if (v.width > 0) v.left.toFloat() else slot * w) + dp(3)
         if (animated) puck.animate().translationX(x).setDuration(200).setInterpolator(AccelerateDecelerateInterpolator()).start()
         else puck.translationX = x
+    }
+    private fun slotOf(p: Pane) = when (p) { Pane.CONTACTS -> 1; Pane.CALLS -> 2; Pane.FEED -> 3; Pane.CHATS -> 4; Pane.MUSIC, Pane.GALLERY -> 5; Pane.P2P -> 6; else -> -1 }
+    private fun puckX(i: Int): Float? {
+        val v = slotView(i)?.takeIf { it.width > 0 } ?: return null
+        return v.left.toFloat() + dp(3)
+    }
+    /**
+     * THE PUCK RIDES BETWEEN THE GLYPHS WITH THE STROKE (iOS turnStroke's puck, atom 79b78757f0c4): while the finger turns the pages
+     * the puck stands between the glyph of the page it leaves and the one coming in, by the share of the width the stroke has gone;
+     * the release's settle (showPane) carries it home. Folded, the puck keeps to the logo.
+     */
+    fun ridePuck(from: Pane, to: Pane, share: Float) {
+        if (fold < 1f || puck.visibility != View.VISIBLE) return
+        val a = puckX(slotOf(from)) ?: return
+        val b = puckX(slotOf(to)) ?: return
+        puck.animate().cancel()
+        puck.translationX = a + (b - a) * share.coerceIn(0f, 1f)
     }
 
     private companion object { const val CHATS = 4; const val OPEN = "timePanelOpen" }
