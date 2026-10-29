@@ -57,6 +57,8 @@ object Board {
     fun listen(l: () -> Unit) { synchronized(listeners) { listeners.add(l) } }
     fun unlisten(l: () -> Unit) { synchronized(listeners) { listeners.remove(l) } }
     private fun changed() { val ls = synchronized(listeners) { listeners.toList() }; MainThread.post { ls.forEach { it() } } }
+    /** The table for everyone was read anew or a writer of it hidden: the feed draws again (iOS MTBoard.objectWillChange). */
+    fun tableMoved() = changed()
 
     private fun store() = File(File(Book.ctx.filesDir, "board").apply { mkdirs() }, "pages.json")
     /** The person forgotten: the walls this phone held and the files brought for a look leave with them (Book.wipe). */
@@ -91,6 +93,7 @@ object Board {
     private fun send(ref: String, w: JSONObject): Boolean = sendWord(ref, w) != null
     /** A word of the wall to a correspondent: the letter's name, by which its receipt is known (the page's «sent» is written by it). */
     fun sendWord(ref: String, w: JSONObject): String? {
+        if (WallGlobal.isRef(ref)) return null   // a post of the table answers nobody (iOS 18.10): no conversation holds its wall
         if (Groups.isKey(ref) || PeerSafety.isBlocked(ref) || Book.secret(ref) == null) return null
         val mid = Marks.mintMid()
         Post.send(ref, mid, MARK + w.toString())
@@ -107,6 +110,7 @@ object Board {
     private fun people() = Book.refs().filter { !Groups.isKey(it) && !PeerSafety.isBlocked(it) && SamePair.merged(it) == null }
     /** THE LOOK ASKS (iOS lookFeed, the author's word 25.09): every wall not held, or held from more than ten minutes ago. */
     fun lookFeed() {
+        WallGlobal.read()   // the posts of everyone, from the nodes' table (iOS lookFeed 616)
         val now = System.currentTimeMillis()
         val due = synchronized(lock) { ensure(); people().filter { r -> now - (pages[r]?.optLong("at") ?: 0L) >= LOOK_STALE } }
         due.forEachIndexed { i, r -> MainThread.later(300L * i, Runnable { Thread { ask(r) }.start() }) }
@@ -117,6 +121,8 @@ object Board {
      * stood for the wall for ever -- is asked, a third of a second apart.
      */
     fun sweep() {
+        WallGlobal.laySoon()   // at the app's return: what the table holds of mine is set right (iOS sweep 594)
+        WallGlobal.keepFiles()   // and the files it names lie on the stores (iOS sweep 595)
         val speakers = MyWall.speakers()
         val unknown = synchronized(lock) { ensure(); speakers.filter { r -> pages[r]?.has("v") != true } }.filter { Book.secret(it) != null }
         unknown.forEachIndexed { n, r -> MainThread.later(300L * n, Runnable { Thread { ask(r) }.start() }) }
@@ -196,7 +202,7 @@ object Board {
     }
 
     /** WHAT ARRIVES IS HELD TO ITS BOUNDS (iOS clean, the critic 24.09): a hostile page cannot fill the store. */
-    private fun clean(p: JSONObject): JSONObject {
+    fun clean(p: JSONObject): JSONObject {
         val x = JSONObject().put("id", p.optString("id").take(64)).put("byName", p.optString("byName").take(64))
             .put("byGlyph", p.optString("byGlyph").take(8)).put("at", p.optDouble("at", 0.0))
             .put("text", p.optString("text").take(TEXT_LIMIT)).put("pinned", p.optBoolean("pinned"))
@@ -278,8 +284,13 @@ object Board {
                 (0 until ps.length()).mapNotNull { ps.optJSONObject(it)?.let { p -> Item(e.key, p) } }
             }
         }
+        // THE WALL OF THOUGHTS FOR EVERYONE (iOS feed 779-784): the posts of all people from the nodes' table, each once -- a post this
+        // phone already holds from a wall stays as that wall carried it, and a writer the person hid stays out.
+        val heldIds = all.map { it.post.optString("id") }.toSet()
+        val hidden = WallGlobal.hidden()
+        val table = WallGlobal.posts.filter { (r, p) -> p.optString("id") !in heldIds && r !in hidden }.map { (r, p) -> Item(WallGlobal.PREFIX + r, p) }
         val once = HashSet<String>()
-        return all.filter { once.add(it.post.optString("id")) }
+        return (all + table).filter { once.add(it.post.optString("id")) }
             .sortedWith(compareByDescending<Item> { it.post.optDouble("at") }.thenByDescending { it.post.optString("id") }).take(FEED_SIZE)
     }
 
@@ -331,6 +342,7 @@ object Board {
      * pieces this phone holds of it (iOS keep's progress, 1586-1593): the repost's bar reads it.
      */
     fun keep(wall: String, p: JSONObject, progress: ((Int, Int) -> Unit)? = null): Boolean {
+        if (WallGlobal.isRef(wall)) return false   // a post of the table answers nobody (iOS 18.10)
         val id = p.optString("id")
         if (!plain(id)) return false
         synchronized(lock) { if (!keeping.add(id)) return false }
@@ -384,6 +396,7 @@ object Board {
      * stays, and the wall's owner is told it keeps the post. The writer keeps theirs from the start.
      */
     private fun becomePeer(wall: String, p: JSONObject) {
+        if (WallGlobal.isRef(wall)) return   // a post of the table answers nobody (iOS 18.10)
         val id = p.optString("id")
         val ms = p.optJSONArray("media") ?: JSONArray()
         val here = (0 until ms.length()).map { fileName(id, it, ms.optJSONObject(it)?.optString("ext") ?: "") }.filter { MyWall.storeFile(it).exists() }
@@ -410,6 +423,7 @@ object Board {
     }
     /** REMOVE FROM SAVED (iOS unkeep 1624-1630): the writer keeps their post while it stands; only the wall's owner takes it down. */
     fun unkeep(wall: String, p: JSONObject) {
+        if (WallGlobal.isRef(wall)) return   // a post of the table answers nobody (iOS 18.10)
         val id = p.optString("id")
         if (wall.isEmpty()) { MyWall.ownMark(id, "keepers", false); return }
         if (p.optBoolean("mine")) return
@@ -436,6 +450,7 @@ object Board {
      * with a try again. The repost wears the face its post carried, else -- the owner's own post -- the face this phone holds for them.
      */
     fun repost(wall: String, p: JSONObject) {
+        if (WallGlobal.isRef(wall)) return   // a post of the table answers nobody (iOS 18.10)
         val id = p.optString("id")
         if (wall.isEmpty() || !plain(id)) return
         val ms = p.optJSONArray("media") ?: JSONArray()
@@ -594,6 +609,7 @@ object Board {
      * come to this phone -- on the owner's wall, and on this page at once; one counted in a launch before this one is not counted again.
      */
     private fun noteDownloaded(wall: String, p: JSONObject) {
+        if (WallGlobal.isRef(wall)) return   // a post of the table answers nobody (iOS 18.10)
         val id = p.optString("id")
         val ms = p.optJSONArray("media") ?: return
         if (ms.length() == 0) return
@@ -739,6 +755,7 @@ object Board {
      * the post is mine, the owner's own, or -- a repost -- its first writer's, where this phone holds the post as itself.
      */
     fun writer(wall: String, p: JSONObject): String? {
+        if (WallGlobal.isRef(wall)) return null   // a writer of the table: nobody this phone knows (iOS writer 2239)
         if (wall.isEmpty()) return MyWall.writerOf(p.optString("id")) ?: if (p.optBoolean("mine")) "" else null
         if (p.has("from")) return if (p.optBoolean("own")) wall else originalWriter(p.optString("id"), wall)
         if (p.optBoolean("mine")) return ""
@@ -776,6 +793,7 @@ object Board {
 
     /** A like given or taken back (iOS like): the word to the wall's owner and the page here at once; the owner's next page says it exact. */
     fun like(wall: String, p: JSONObject) {
+        if (WallGlobal.isRef(wall)) return   // a post of the table answers nobody (iOS 18.10)
         if (wall.isEmpty()) { MyWall.like(p.optString("id")); return }   // my own wall: my own mark, the version moves
         val on = !p.optBoolean("liked")
         val id = p.optString("id")
@@ -791,6 +809,7 @@ object Board {
     private val seenDue = HashMap<String, MutableList<String>>()
     private val viewed: MutableList<String> by lazy { Prefs.str("board.viewed", "").split('\n').filter { it.isNotEmpty() }.toMutableList() }
     fun view(wall: String, p: JSONObject) {
+        if (WallGlobal.isRef(wall)) return   // a post of the table answers nobody (iOS 18.10)
         if (wall.isEmpty() || p.optBoolean("mine") || !p.has("views")) return
         val id = p.optString("id")
         val first = synchronized(lock) {
@@ -870,6 +889,7 @@ object Board {
      * shown here at once as my own; the wall is asked again so the owner's page brings every comment.
      */
     fun comment(wall: String, p: JSONObject, text: String) {
+        if (WallGlobal.isRef(wall)) return   // a post of the table answers nobody (iOS 18.10)
         if (wall.isEmpty()) { MyWall.comment(p.optString("id"), text); return }
         val t = text.trim().take(COMMENT_LIMIT)
         if (t.isEmpty()) return
@@ -1179,15 +1199,25 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
         // one-tone glass in a correspondent's bubble's own shape, under the glass's thin light rim -- the clear glass is the buttons'
         background = c.rounded(GLASS_TONE, 18, android.graphics.Color.argb(46, 255, 255, 255))
         setPadding(dp(12), dp(12), dp(12), dp(12))
-        val name = p.optString("byName").ifEmpty { c.getString(R.string.wall_someone) }
+        // THE WRITER'S NAME AS IT STANDS NOW (iOS shownName, MontanaBoard.swift:758-773 at 2316; the author's word 18.10.2026: «everything
+        // right -- the avatars, the names»): mine as I am named now, a correspondent's as this phone names them, a writer this phone never
+        // met -- the table's among them -- by the name the post carried
+        val writer = Board.writer(it.wall, p)
+        val carried = p.optString("byName")
+        val name = when {
+            writer == null -> carried
+            writer.isEmpty() -> Prefs.userName.trim().ifEmpty { carried }
+            else -> Book.chat(writer)?.name?.takeIf { n -> n.isNotBlank() } ?: carried
+        }.ifEmpty { c.getString(R.string.wall_someone) }
+        val table = WallGlobal.isRef(it.wall)   // a post of the table wears the face it carried (iOS MTBoardGlobal)
         val face = if (own && it.wall.isEmpty()) SelfFace.load(c)   // my own wall: my own face
-            else if (own) Book.face(it.wall).takeIf { f -> f.exists() }?.let { f -> BitmapFactory.decodeFile(f.path) } else poster(p.optString("face"))
+            else if (own && !table) Book.face(it.wall).takeIf { f -> f.exists() }?.let { f -> BitmapFactory.decodeFile(f.path) } else poster(p.optString("face"))
         addView(c.hstack {
             gravity = Gravity.CENTER_VERTICAL
             // THE BYLINE OPENS ITS WRITER'S ONE PAGE (iOS MTBoardCell.header, MontanaBoardViews.swift:375-386 at 2155; MTBoardOpen 94-111):
             // the face, the name and when -- one target over its whole room; my name leads to My page, a correspondent's to theirs; a
             // writer this phone is not told of opens nothing, nor the wall's owner on their own wall's page
-            val w = Board.writer(it.wall, p)
+            val w = writer
             val opens = when {
                 w == null -> false
                 w.isEmpty() -> it.wall.isNotEmpty() || !onItsWall   // in the feed my own post opens my page
@@ -1341,9 +1371,11 @@ private fun postMenu(act: MainActivity, anchor: View, wall: String, p: JSONObjec
         menu.add(0, 0, 0, R.string.share)
         if (wall.isEmpty()) menu.add(0, 1, 1, if (p.optBoolean("pinned")) R.string.cl_unpin else R.string.cl_pin)
         if (wall.isEmpty() && mine && !p.has("from")) menu.add(0, 8, 1, R.string.edit)   // MY OWN WORDS ARE MINE TO CHANGE (iOS 416-419)
-        if (!p.optBoolean("kept")) menu.add(0, 2, 2, R.string.wall_save)
+        val table = WallGlobal.isRef(wall)   // a post of the table for everyone: its writer is nobody this phone knows (iOS 387, 437-440)
+        if (table) menu.add(0, 9, 2, red(R.string.wall_hide_person))
+        else if (!p.optBoolean("kept")) menu.add(0, 2, 2, R.string.wall_save)
         else if (!mine || wall.isEmpty()) menu.add(0, 3, 3, R.string.wall_unsave)
-        if (wall.isNotEmpty() && !p.optBoolean("reposted") && !mine) menu.add(0, 4, 4, R.string.wall_repost)
+        if (wall.isNotEmpty() && !table && !p.optBoolean("reposted") && !mine) menu.add(0, 4, 4, R.string.wall_repost)
         if (p.optString("text").isNotEmpty()) menu.add(0, 5, 5, R.string.copy)
         if (!mine) menu.add(0, 6, 6, red(R.string.pi_report))
         if (wall.isEmpty()) menu.add(0, 7, 7, red(R.string.delete))
@@ -1359,6 +1391,7 @@ private fun postMenu(act: MainActivity, anchor: View, wall: String, p: JSONObjec
                 6 -> reportPost(act, wall, p)
                 7 -> Thread { MyWall.remove(id) }.start()
                 8 -> act.push { close -> postEditor(act, p, close) }
+                9 -> WallGlobal.hide(wall)
             }
             true
         }
