@@ -99,6 +99,9 @@ pub fn run(args: StartArgs) -> Result<(), NodeError> {
     }
     let data_dir = args.data_dir.clone().unwrap_or_else(default_data_dir);
     let identity = load_identity(&data_dir)?;
+    // Issue #21 K4: the running node holds its data directory for the life of the process, so a
+    // status tells a running node from a store nobody runs, and a second start on it is refused.
+    let _holder = crate::holder::hold(&data_dir)?;
     let params = genesis_params();
 
     // Window zero opens only by the operator's explicit --open on a store holding nothing
@@ -743,11 +746,10 @@ pub fn run(args: StartArgs) -> Result<(), NodeError> {
     Ok(())
 }
 
-/// Whether a data dir holds anything of a chain: the window record, the three tables, the clock,
-/// the time chain, the lifecycle record or an archived proposal. identity.bin is not a chain.
-/// Read by presence alone, so a record that no longer parses still counts.
-pub fn holds_a_chain(data_dir: &std::path::Path) -> Result<bool, NodeError> {
-    let records = [
+/// The records of a chain in a data dir: the three tables, the window record, the clock, the time
+/// chain and the lifecycle record. identity.bin is not a chain. `status` reads every one of them.
+pub fn chain_records(data_dir: &std::path::Path) -> [std::path::PathBuf; 7] {
+    [
         data_dir.join("accounts.bin"),
         data_dir.join("nodes.bin"),
         data_dir.join("candidates.bin"),
@@ -755,8 +757,13 @@ pub fn holds_a_chain(data_dir: &std::path::Path) -> Result<bool, NodeError> {
         crate::clock::current_window_path(data_dir),
         crate::timechain_state::timechain_path(data_dir),
         crate::node_lifecycle::lifecycle_path(data_dir),
-    ];
-    if records.iter().any(|p| p.exists()) {
+    ]
+}
+
+/// Whether a data dir holds anything of a chain: one of its records (chain_records) or an
+/// archived proposal. Read by presence alone, so a record that no longer parses still counts.
+pub fn holds_a_chain(data_dir: &std::path::Path) -> Result<bool, NodeError> {
+    if chain_records(data_dir).iter().any(|p| p.exists()) {
         return Ok(true);
     }
     let proposals = data_dir.join("proposals");
