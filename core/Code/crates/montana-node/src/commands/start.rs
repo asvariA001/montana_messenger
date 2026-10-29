@@ -299,6 +299,9 @@ pub fn run(args: StartArgs) -> Result<(), NodeError> {
     // Per-window consensus histories (bounded by HISTORY_BOUND windows).
     let mut bc_set_history: BTreeMap<u64, Vec<mt_state::NodeId>> = BTreeMap::new();
     let mut own_bc_cache: BTreeMap<u64, BundledConfirmation> = BTreeMap::new();
+    // The window and cascade depth this node last reported a halt at, so the line is said once
+    // per halt and not on every turn of the loop (issue #21 K6).
+    let mut halted_at: Option<(u64, u8)> = None;
     let mut pending_msgs: Vec<ProtocolMessage> = Vec::new();
     // Issue #18, S4: two envelopes of one applied window from one proposer, kept as the
     // evidence of an equivocation.
@@ -553,20 +556,31 @@ pub fn run(args: StartArgs) -> Result<(), NodeError> {
             NodePhase::Active => 'active_arm: {
                 // Legitimate proposer of window next_window: the lowest ticket by the
                 // aggregate of next_window-2 (issue #18); on silence — the cascade over the
-                // same order. With no canonical proposer the node keeps the behaviour it had
-                // before issue #18 (it proposes, and its header carries NO_PROPOSER); how a
-                // network with no electorate opens is issue #17's (decision 280), not this rule's.
+                // same order. Before window 2 there is no canonical proposer and the node keeps
+                // the behaviour it had before issue #18 (it proposes, and its header carries
+                // NO_PROPOSER); how a network opens is issue #17's (decision 280). From window
+                // 2 on, no canonical proposer means the cascade is exhausted or the confirmers
+                // of next_window-2 are not held: the node halts there and says so, and never
+                // appoints itself (issue #21 K6).
                 let silence = last_cement_at.elapsed().as_secs();
                 let (acting, my_depth, canonical_proposer) = {
                     let ctx = net_ctx!();
                     let depth = fallback_depth_at(silence, ctx.fallback_secs);
                     let canonical = canonical_proposer_at(&ctx, next_window, depth);
-                    let acting = if canonical == mt_consensus::NO_PROPOSER {
-                        my_node
-                    } else {
-                        canonical
-                    };
-                    (acting, depth, canonical)
+                    (
+                        acting_proposer(next_window, canonical, my_node),
+                        depth,
+                        canonical,
+                    )
+                };
+                let Some(acting) = acting else {
+                    if halted_at != Some((next_window, my_depth)) {
+                        halted_at = Some((next_window, my_depth));
+                        eprintln!(
+                            "[consensus] w={next_window}: STALLED, no proposer at depth {my_depth} -- the cascade is exhausted or the confirmers of w-2 are not held; this node does not appoint itself"
+                        );
+                    }
+                    break 'active_arm;
                 };
                 if acting != my_node {
                     break 'active_arm;
@@ -948,6 +962,27 @@ fn canonical_proposer_at(ctx: &NetCtx, w: u64, fallback_depth: u8) -> mt_state::
             fallback_depth,
         ),
         None => mt_consensus::NO_PROPOSER,
+    }
+}
+
+/// Who acts as the proposer of window w, given its canonical proposer (issue #21 K6). Before
+/// window 2 there is none, and the node proposes itself as it did before issue #18 (how a network
+/// opens is issue #17's). From window 2 on a canonical proposer exists by the rule, so NO_PROPOSER
+/// there is a halt -- the cascade passed the electorate, or this node does not hold the
+/// confirmers of w-2 -- and nobody acts: a node that appointed itself would cement, on the
+/// confirmations every active node publishes, a header no follower accepts (validate_header
+/// refuses NO_PROPOSER as UnknownProposer), a window closed in a private chain by a timeout.
+fn acting_proposer(
+    w: u64,
+    canonical: mt_state::NodeId,
+    my_node: mt_state::NodeId,
+) -> Option<mt_state::NodeId> {
+    if canonical != mt_consensus::NO_PROPOSER {
+        Some(canonical)
+    } else if w < 2 {
+        Some(my_node)
+    } else {
+        None
     }
 }
 
@@ -2058,7 +2093,7 @@ mod window_commit_tests;
 mod tests {
     use super::resolve_fast_sync_lag_threshold as resolve;
     use super::FAST_SYNC_LAG_THRESHOLD as DEFAULT;
-    use super::{electorate_at, held_aggregate};
+    use super::{acting_proposer, electorate_at, held_aggregate};
     use mt_consensus::{proposer_at, validate_proposer_is_canonical, NO_PROPOSER};
     use std::collections::BTreeMap;
 
@@ -2087,6 +2122,36 @@ mod tests {
         let mut forged = stub_proposer_header([0x42; 32]);
         forged.window_index = 1;
         assert!(validate_proposer_is_canonical(&forged, &agg, &[]).is_err());
+    }
+
+    // Issue #21 K6: from window 2 on, an exhausted cascade halts and no node appoints itself.
+    // Refuses the code before K6, which acted as this node whenever the canonical proposer was
+    // NO_PROPOSER, and so cemented, on the confirmations every active node publishes, a header
+    // that validate_header refuses on every follower (UnknownProposer).
+    #[test]
+    fn an_exhausted_cascade_halts_and_never_self_appoints() {
+        let me = [0x11; 32];
+        let other = [0x22; 32];
+        let history = BTreeMap::new();
+        let agg = held_aggregate(&history, 0).expect("genesis aggregate");
+        let electorate = [me, other];
+        // Depth 3 passes an electorate of two: no canonical proposer, and nobody acts.
+        let exhausted = proposer_at(2, &agg, &electorate, 3);
+        assert_eq!(exhausted, NO_PROPOSER);
+        assert_eq!(acting_proposer(2, exhausted, me), None);
+        assert_eq!(acting_proposer(2, exhausted, other), None);
+        // No aggregate of w-2 held, or no electorate, past window 2: the same halt.
+        assert_eq!(acting_proposer(9, NO_PROPOSER, me), None);
+        // Inside the electorate the cascade names one member, whoever asks.
+        for depth in 1..=2 {
+            let canonical = proposer_at(2, &agg, &electorate, depth);
+            assert!(electorate.contains(&canonical));
+            assert_eq!(acting_proposer(2, canonical, me), Some(canonical));
+            assert_eq!(acting_proposer(2, canonical, other), Some(canonical));
+        }
+        // Before window 2 the opening keeps its behaviour (issue #17, decision 280).
+        assert_eq!(acting_proposer(0, NO_PROPOSER, me), Some(me));
+        assert_eq!(acting_proposer(1, NO_PROPOSER, me), Some(me));
     }
 
     // Issue #18: the aggregate of a window past genesis is read only from the confirmers this
