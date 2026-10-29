@@ -337,6 +337,7 @@
     <string name="pe_note">Note</string>
     <string name="pe_restore_photo">Restore original photo</string>
     <!-- the chat's ground (iOS MTWallpaperPicker) -->
+    <string name="wall_show_in_full">Show in full</string>
     <string name="wall_tab_ready">Wallpapers</string>
     <string name="wall_tab_photos">Photos</string>
     <string name="wall_same_as_page">Same as my page</string>

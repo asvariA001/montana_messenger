@@ -336,6 +336,7 @@
     <string name="pe_note">Заметка</string>
     <string name="pe_restore_photo">Вернуть оригинальное фото</string>
     <!-- the chat's ground (iOS MTWallpaperPicker) -->
+    <string name="wall_show_in_full">Показать полностью</string>
     <string name="wall_tab_ready">Обои</string>
     <string name="wall_tab_photos">Фото</string>
     <string name="wall_same_as_page">Как у моей страницы</string>

@@ -1253,11 +1253,35 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
         if (field != null) { gap(10); addView(field, lp()) }
         else if (words.isNotEmpty()) {
             gap(10)
-            addView(c.text(linkedWords(words) { u -> act.openLink(u.toString()) }, 16f).apply {
+            val shown = c.text(linkedWords(words) { u -> act.openLink(u.toString()) }, 16f).apply {
                 setTextIsSelectable(false)
                 movementMethod = android.text.method.LinkMovementMethod.getInstance()
                 setLinkTextColor(MT.blue)
-            }, lp())
+            }
+            addView(shown, lp())
+            // ONLY POSTS FOLD (iOS MTPostFold, MTMessageText.swift:267-294 at 2316; MTPostTextView 2955-2980; atoms 29b6ebf37967,
+            // b207add12856): off its own page a post's words stand at eight lines, the last cut with an ellipsis, and under them
+            // «Show in full» in the platform's blue with the chevron at the right; a touch anywhere but a link opens the post whole
+            // with its comments (the cell's own press, onOpenWords). On the post's own page the words stand whole.
+            if (!whole) {
+                shown.maxLines = POST_FOLD_LINES
+                shown.ellipsize = android.text.TextUtils.TruncateAt.END
+                val foot = c.hstack {
+                    gravity = Gravity.CENTER_VERTICAL or Gravity.END
+                    minimumHeight = dp(22)
+                    visibility = View.GONE
+                    addView(c.text(c.getString(R.string.wall_show_in_full), 16f, MT.blue).apply { gravity = Gravity.END }, lp(0, WRAP, 1f))
+                    gap(6)
+                    addView(c.icon(R.drawable.ic_chevron_right, android.graphics.Color.WHITE).apply { setPadding(dp(4), dp(4), dp(4), dp(4)) }, lp(dp(22), dp(22)))
+                }
+                addView(foot, lp())
+                shown.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
+                    val l = (v as android.widget.TextView).layout ?: return@addOnLayoutChangeListener
+                    val folds = 0 < l.lineCount && 0 < l.getEllipsisCount(l.lineCount - 1)
+                    val want = if (folds) View.VISIBLE else View.GONE
+                    if (foot.visibility != want) foot.post { foot.visibility = want }
+                }
+            }
         }
         // A LINK THE POST'S WRITER READ RIDES WITH THE POST (iOS MTWallLink, MontanaBoardViews.swift:544 at 2155, atom 5a84afb1f68f):
         // the picture its writer's own read brought, the site and the title under it.
@@ -1493,6 +1517,8 @@ private fun shownAll(wall: String, p: JSONObject, i: Int, inFeed: Boolean): List
 }
 
 private const val ZOOM_TAG = "wall_zoom"
+/** The post preview keeps its eight-line limit (iOS MTPostFold.foldLines). */
+private const val POST_FOLD_LINES = 8
 /** A few screens of pictures at their own pixels, kept by their cost (iOS MTBoardShownPicture.cache, MontanaBoardViews.swift:3141-3142). */
 private val wallShown = Caches.kept("wall_shown", object : android.util.LruCache<String, Bitmap>(48_000_000) { override fun sizeOf(key: String, value: Bitmap) = value.byteCount })
 

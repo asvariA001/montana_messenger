@@ -336,6 +336,7 @@
     <string name="pe_note">备注</string>
     <string name="pe_restore_photo">恢复原始照片</string>
     <!-- the chat's ground (iOS MTWallpaperPicker) -->
+    <string name="wall_show_in_full">显示全文</string>
     <string name="wall_tab_ready">壁纸</string>
     <string name="wall_tab_photos">照片</string>
     <string name="wall_same_as_page">与我的页面相同</string>
