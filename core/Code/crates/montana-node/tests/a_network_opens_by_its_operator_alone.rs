@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use montana_node::commands::init::{run as init_run, InitArgs};
+use montana_node::commands::status::NO_RUNNING_HOLDER;
 use montana_node::node_lifecycle::{load_or_init_lifecycle, NodePhase};
 use montana_node::{load_identity, LocalState};
 
@@ -77,6 +78,55 @@ fn open_by_a_machine_the_manifest_does_not_name_is_refused() {
     assert_eq!(code, Some(1), "stderr: {stderr}");
     assert!(stderr.contains(OPENER_NOT_BOOTSTRAP), "stderr: {stderr}");
     assert_eq!(files(&dir), before, "a refused --open wrote to the store");
+}
+
+// Issue #21 K4: status reports a running node from the records of its chain, or fails. Refuses the
+// status before K4, which stood a default in for every missing record and exited 0 on a store
+// holding nothing of a chain, and exited 0 on a store no node runs -- the Docker health check
+// is its exit code (docker-compose.yml). A probe writes nothing, and a held store is not
+// started a second time.
+#[test]
+fn status_fails_without_the_records_of_a_chain_or_a_running_holder() {
+    let (dir, manifest) = machine(OPENER_ENTROPY, OPENER_ENTROPY);
+    let (code, stderr) = status(&dir);
+    assert_eq!(code, Some(1), "stderr: {stderr}");
+    assert!(stderr.contains("is missing"), "stderr: {stderr}");
+
+    let (code, stderr) = start(&dir, &manifest, &["--open"]);
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    let opened = files(&dir);
+    let (code, stderr) = status(&dir);
+    assert_eq!(code, Some(1), "stderr: {stderr}");
+    assert!(stderr.contains(NO_RUNNING_HOLDER), "stderr: {stderr}");
+
+    // Held as a running start holds it.
+    let holder = montana_node::holder::hold(&dir).expect("the store is held");
+    let (code, stderr) = status(&dir);
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    let (code, stderr) = start(&dir, &manifest, &[]);
+    assert_eq!(code, Some(1), "a second start on a held store: {stderr}");
+    assert_eq!(
+        files(&dir),
+        opened,
+        "a probe or a refused start wrote to the store"
+    );
+
+    drop(holder);
+    let (code, stderr) = status(&dir);
+    assert_eq!(code, Some(1), "stderr: {stderr}");
+    assert!(stderr.contains(NO_RUNNING_HOLDER), "stderr: {stderr}");
+}
+
+fn status(dir: &Path) -> (Option<i32>, String) {
+    let out = Command::new(env!("CARGO_BIN_EXE_montana-node"))
+        .args(["status", "--data-dir"])
+        .arg(dir)
+        .output()
+        .expect("spawn montana-node");
+    (
+        out.status.code(),
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+    )
 }
 
 // A data dir holding the identity of `entropy` and nothing of a chain, and a manifest whose
