@@ -81,6 +81,12 @@ fn main() -> ExitCode {
     }
 }
 
+// The owner-only file of details stands from here on: the start is past every refusal.
+fn stand() -> Result<(), String> {
+    montana_node::private::stand()
+        .map_err(|e| format!("the owner-only file of details does not stand: {e}"))
+}
+
 fn run() -> Result<(), String> {
     let held: Vec<String> = std::env::args().skip(1).collect();
     if held.iter().any(|a| a == "--help" || a == "-h") {
@@ -105,9 +111,10 @@ fn run() -> Result<(), String> {
         println!("this machine was born: it drew its secret and will not draw another");
     }
     // The address of this machine, its acquaintance, its digits and its half are details: they go
-    // to the owner-only file of the data directory and never to a default line (#22, K1).
-    montana_node::private::keep_at(configuration.data.as_path())
-        .map_err(|e| format!("the owner-only file of details does not stand: {e}"))?;
+    // to the owner-only file of the data directory and never to a default line (#22, K1). The file
+    // is named here and created by `stand` once the start is past its refusals, since a refused
+    // start writes nothing (Consensus, "The cold start").
+    montana_node::private::keep_at(configuration.data.as_path());
     let address = machine.address().map_err(said)?;
     montana_node::private::say("answering at its door", || {
         format!("answering at {address}")
@@ -169,6 +176,7 @@ fn run() -> Result<(), String> {
     }
 
     if let Some(asked) = payment {
+        stand()?;
         return pay_and_report(&machine, &asked);
     }
 
@@ -180,6 +188,7 @@ fn run() -> Result<(), String> {
     // something no other machine holds.
     if configuration.admitted.is_empty() {
         println!("no machine was named as admitted, so this one lives no window");
+        stand()?;
         return machine.serve().map_err(said);
     }
     let cohort = montana_node::pulse::Cohort::of(&configuration.admitted).map_err(said)?;
@@ -196,6 +205,7 @@ fn run() -> Result<(), String> {
     // and no window at all for a machine holding nothing that was not asked to open (Consensus,
     // "The cold start").
     let from = montana_node::pulse::first_window(&machine, configuration.open).map_err(said)?;
+    stand()?;
     println!(
         "living from window {from} in a cohort of {}",
         cohort.count()
@@ -253,14 +263,19 @@ fn run() -> Result<(), String> {
                             &rate_secret,
                             Box::new(move |settled| match settled {
                                 Ok(minted) => {
-                                    println!(
-                                        "the right of window {of_the_window} is a note now: {} at position {}",
-                                        minted.value, minted.position
+                                    montana_node::private::say(
+                                        &format!("the right of window {of_the_window} is a note now"),
+                                        || {
+                                            format!(
+                                                "the right of window {of_the_window} is a note of {} at position {}",
+                                                minted.value, minted.position
+                                            )
+                                        },
                                     );
                                     if let Ok(balance) = montana_wallet::Wallet::open(&wallet_at)
                                         .and_then(|wallet| wallet.balance())
                                     {
-                                        println!("this wallet holds {balance}");
+                                        montana_node::private::note(|| format!("this wallet holds {balance}"));
                                     }
                                 }
                                 Err(e) => println!("the right of window {of_the_window} stands unredeemed: {e:?}"),
@@ -346,13 +361,16 @@ fn run() -> Result<(), String> {
             "window {} closed after {} rounds on a cement naming {} machines",
             one.window, one.rounds, one.living
         );
-        match &one.right {
-            Some(right) => println!(
-                "  it credits {} coin to this machine, accepted in window {}",
-                right.worth, right.accepted_in
+        montana_node::private::note(|| match &one.right {
+            Some(right) => format!(
+                "window {} credits {} coin to this machine, accepted in window {}",
+                one.window, right.worth, right.accepted_in
             ),
-            None => println!("  this machine's part is not in its cement, so it took no coin"),
-        }
+            None => format!(
+                "window {}: this machine's part is not in its cement, so it took no coin",
+                one.window
+            ),
+        });
     }
     Ok(())
 }
