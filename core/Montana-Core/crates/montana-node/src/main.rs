@@ -109,7 +109,9 @@ fn run() -> Result<(), String> {
     montana_node::private::keep_at(configuration.data.as_path())
         .map_err(|e| format!("the owner-only file of details does not stand: {e}"))?;
     let address = machine.address().map_err(said)?;
-    montana_node::private::say("answering at its door", || format!("answering at {address}"));
+    montana_node::private::say("answering at its door", || {
+        format!("answering at {address}")
+    });
     // Two values with two purposes: the line a machine reads, and the digits a person compares.
     let acquaintance = machine.acquaintance().map_err(said)?;
     let digits = machine.fingerprint();
