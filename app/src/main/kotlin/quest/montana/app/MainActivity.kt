@@ -386,6 +386,13 @@ class MainActivity : Activity() {
         } else android.window.OnBackInvokedCallback { commitBack() }
         onBackInvokedDispatcher.registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, callback)
     }
+    /** A page's own back stroke (Conversation.kt's TabPan, iOS MTTabPan): only the page a back would take away now may be dragged. */
+    fun panOwns(page: View) = slidingPage === page && back != null
+    fun panBegin(page: View) { keysDown(); page.animate().cancel(); Motion.moveBegan(page) }
+    fun panMove(page: View, x: Float) { page.translationX = x.coerceAtLeast(0f) }
+    /** The release: the same back as the edge's (the page's close slides it the rest of the way), or the page settles home. */
+    fun panEnd(page: View, out: Boolean) { if (out && panOwns(page)) back?.invoke() else settle(page, surface.width.toFloat(), out = false) }
+
     /**
      * THE BACK NEVER LEAVES THE APP (the author's word 09.10.2026 11:5x MSK: «take away the side swipe that leaves the app -- our swipe from
      * the left opens the side panel»): a page goes back as before; at the root the left edge's stroke opens the drawer it was dragging
