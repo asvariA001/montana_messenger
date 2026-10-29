@@ -35,6 +35,9 @@ JNI = os.path.join(ROOT, "native", "montana-jni")
 # the core builds in one folder for every builder: OpenSSL's Configure writes its install folder into the library
 # (MODULESDIR, ENGINESDIR), and no prefix map reaches those strings
 CORE_TARGET = "/var/tmp/montana-jni-target"
+# and reaches its sources through one place for every builder: cargo hashes the full path of a crate outside the
+# library's workspace (the core's crates) into the name of every symbol and folder it makes
+CORE_PLACE = "/var/tmp/montana-jni-src"
 CORE_SO = os.path.join(CORE_TARGET, "aarch64-linux-android", "release", "libmontana.so")
 ABI = "arm64-v8a"
 APP = os.path.join(ROOT, "app", "src", "main")
@@ -84,6 +87,16 @@ def version():
     return int(v["BUILD"]), "%s (%s)" % (v["MARKETING"], v["BUILD"])
 
 
+def link(target, place):
+    # a link this script owns, pointed afresh at every build
+    if os.path.lexists(place) and not os.path.islink(place):
+        raise SystemExit("%s is not a link: it is the place the core builds through (docs/BUILD.md)" % place)
+    if not os.path.islink(place) or os.readlink(place) != target:
+        fresh = "%s.%d" % (place, os.getpid())
+        os.symlink(target, fresh)
+        os.replace(fresh, place)
+
+
 def core(p):
     pin = PIN["protocol"]
     if not os.path.isdir(p.protocol):
@@ -99,12 +112,16 @@ def core(p):
     channel = p.rust_channel()
     say("core: %s of %s, Rust %s, NDK %s" % (code, pin["commit"][:12], channel, PIN["ndk"]))
     # the library names no folder of this computer, so anyone who builds the pinned commit gets the same bytes
+    link(os.path.join(p.protocol, code), os.path.join(ROOT, "native", "core"))
+    link(os.path.join(ROOT, "native"), CORE_PLACE)
+    jni = os.path.join(CORE_PLACE, "montana-jni")
     env = p.env()
-    places = [(os.path.join(p.protocol, code), "/core/Code"), (JNI, "/montana-jni"), (p.cargo_home, "/cargo")]
+    places = [(os.path.join(CORE_PLACE, "core"), "/core/Code"), (jni, "/montana-jni"), (p.cargo_home, "/cargo")]
     env["CARGO_ENCODED_RUSTFLAGS"] = "\x1f".join("--remap-path-prefix=%s=%s" % pair for pair in places)
     env["CFLAGS_aarch64_linux_android"] = " ".join("-ffile-prefix-map=%s=%s" % pair for pair in places)
     env["CARGO_TARGET_DIR"] = CORE_TARGET
-    run([p.tool("cargo"), "+" + channel, "ndk", "-t", ABI, "-P", MIN_SDK, "build", "--release"],
+    run([p.tool("cargo"), "+" + channel, "ndk", "-t", ABI, "-P", MIN_SDK, "--manifest-path",
+         os.path.join(jni, "Cargo.toml"), "build", "--release"],
         env=env, cwd=JNI)
     say("core: %s, %d bytes" % (os.path.relpath(CORE_SO, ROOT), os.path.getsize(CORE_SO)))
 

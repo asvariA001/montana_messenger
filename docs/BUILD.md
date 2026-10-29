@@ -31,14 +31,16 @@ build-tools 35.0.0 пишет метаданные Kotlin только до 2.0 
 
 ## Ядро рядом
 
-Библиотека `native/montana-jni` собирает крейты публичного ядра по пути `../../../montana_messenger/core/Code/crates`
-(решение председателя 312, #23), поэтому рядом с этим хранилищем лежит клон `montana_messenger` из
-`protocol.repository`. Сверяется не голова клона, а папка `core/Code`: она должна совпадать с `protocol.commit` из
-`toolchain.json` без правок и лишних файлов, иначе сборка ядра откажет и назовёт коммит. Пути этого компьютера
-в библиотеку не попадают (`--remap-path-prefix`, `-ffile-prefix-map`), а само ядро собирается в одной для всех папке
-`/var/tmp/montana-jni-target` (OpenSSL вшивает в библиотеку свою папку установки, её не снять картой путей):
-кто соберёт тот же коммит, получит те же байты.
-В копии на GitHub (`apps/messenger/android`) путь ведёт в `core/` того же хранилища.
+Библиотека `native/montana-jni` собирает крейты публичного ядра по пути `../core/crates` (решение председателя 312,
+#23): `native/core` — ссылка, которую `scripts/build.py` кладёт на папку `core/Code` клона `montana_messenger` из
+`protocol.repository` (у нас он лежит рядом с этим хранилищем, `protocol.dir`). Сверяется не голова клона, а папка
+`core/Code`: она должна совпадать с `protocol.commit` из `toolchain.json` без правок и лишних файлов, иначе сборка
+ядра откажет и назовёт коммит. Чтобы тот же коммит у любого давал те же байты, ядро у всех собирается из одних и тех же
+мест: исходники через ссылку `/var/tmp/montana-jni-src` (на `native/`; cargo вшивает полный путь крейтов ядра в имена
+символов), сборка в `/var/tmp/montana-jni-target` (OpenSSL вшивает свою папку установки); остальные пути снимаются
+`--remap-path-prefix` и `-ffile-prefix-map`. Для тестов дверей: `cargo test` в `/var/tmp/montana-jni-src/montana-jni`
+после `scripts/build.py`.
+В копии на GitHub (`apps/messenger/android`) ссылка ведёт в `core/Code` того же хранилища (`protocol.dir` = `../../..`).
 
 ## Команды
 

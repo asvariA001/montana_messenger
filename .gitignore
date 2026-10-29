@@ -2,6 +2,8 @@
 build/
 # the core's build output (scripts/build.py)
 native/montana-jni/target/
+# the link to the pinned core/Code (scripts/build.py)
+native/core
 # local tool state
 .claude/
 .idea/
