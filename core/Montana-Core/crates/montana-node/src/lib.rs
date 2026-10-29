@@ -22,6 +22,7 @@ pub mod certificate;
 #[cfg(kani)]
 mod kani_decree;
 pub mod pay;
+pub mod private;
 pub mod pulse;
 pub mod round;
 pub mod runner;

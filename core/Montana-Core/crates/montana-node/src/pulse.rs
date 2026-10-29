@@ -1558,23 +1558,24 @@ pub fn live_doing(
                             let bytes = pulse.make_pledge(machine, name, attempt, &electorate)?;
                             stand_at_the_window(machine, window, &bytes)?;
                             counts.raise(&counts.pledges_made);
-                            println!(
-                                "window {} part {} attempt {}: this machine closes on {} at asking {}",
+                            let line = format!(
+                                "window {} attempt {}: this machine closes on {} at asking {}",
                                 window,
-                                shown(&pulse.standing.part_nullifier),
                                 attempt,
                                 shown(&name),
                                 asked
                             );
+                            crate::private::say(&line, || {
+                                format!("{line} -- part {}", shown(&pulse.standing.part_nullifier))
+                            });
                         }
                         Action::Open(name, since) => {
                             let bytes = pulse.make_pledge(machine, name, since, &electorate)?;
                             stand_at_the_window(machine, window, &bytes)?;
                             counts.raise(&counts.pledges_made);
-                            println!(
-                                "window {} part {} attempt {}: this machine opens on {} standing on {} at asking {}",
+                            let line = format!(
+                                "window {} attempt {}: this machine opens on {} standing on {} at asking {}",
                                 window,
-                                shown(&pulse.standing.part_nullifier),
                                 pulse.record.attempt,
                                 shown(&name),
                                 if since == mt_state::STANDS_ON_NONE {
@@ -1584,6 +1585,9 @@ pub fn live_doing(
                                 },
                                 asked
                             );
+                            crate::private::say(&line, || {
+                                format!("{line} -- part {}", shown(&pulse.standing.part_nullifier))
+                            });
                         }
                         Action::Replay(name) => {
                             // A roll that is not at the points yet is asked for again after a few
@@ -1602,38 +1606,52 @@ pub fn live_doing(
                                         patience,
                                     )? {
                                         Some((outcome, adopted, why)) => {
-                                            println!(
-                                                "window {} part {} attempt {}: the roll of {} replayed at asking {}: {why}",
+                                            let line = format!(
+                                                "window {} attempt {}: the roll of {} replayed at asking {}: {why}",
                                                 window,
-                                                shown(&pulse.standing.part_nullifier),
                                                 pulse.record.attempt,
                                                 shown(&name),
                                                 asked
                                             );
+                                            crate::private::say(&line, || {
+                                                format!(
+                                                    "{line} -- part {}",
+                                                    shown(&pulse.standing.part_nullifier)
+                                                )
+                                            });
                                             pulse.learnt(name, outcome, adopted);
                                         }
-                                        None => println!(
-                                            "window {} part {} attempt {}: the proposal {} or its roll does not stand at the points of the window before yet (asking {})",
-                                            window,
-                                            shown(&pulse.standing.part_nullifier),
-                                            pulse.record.attempt,
-                                            shown(&name),
-                                            asked
-                                        ),
+                                        None => {
+                                            let line = format!(
+                                                "window {} attempt {}: the proposal {} or its roll does not stand at the points of the window before yet (asking {})",
+                                                window,
+                                                pulse.record.attempt,
+                                                shown(&name),
+                                                asked
+                                            );
+                                            crate::private::say(&line, || {
+                                                format!(
+                                                    "{line} -- part {}",
+                                                    shown(&pulse.standing.part_nullifier)
+                                                )
+                                            });
+                                        }
                                     }
                                 }
                             }
                         }
                         Action::Enter(attempt) => {
                             pulse.enter_attempt(machine, attempt, asked, &electorate)?;
-                            println!(
-                                "window {} part {} enters attempt {} at asking {} holding {} pledges of the agreement",
+                            let line = format!(
+                                "window {} enters attempt {} at asking {} holding {} pledges of the agreement",
                                 window,
-                                shown(&pulse.standing.part_nullifier),
                                 pulse.record.attempt,
                                 asked,
                                 pulse.book.held()
                             );
+                            crate::private::say(&line, || {
+                                format!("{line} -- part {}", shown(&pulse.standing.part_nullifier))
+                            });
                         }
                     }
                 }
@@ -1665,14 +1683,16 @@ pub fn live_doing(
                 );
                 if final_beacon.is_some() {
                     if let Some(decision) = pulse.decided(&electorate) {
-                        println!(
-                            "window {} part {} decided {} in attempt {} at asking {}",
+                        let line = format!(
+                            "window {} decided {} in attempt {} at asking {}",
                             window,
-                            shown(&pulse.standing.part_nullifier),
                             shown(&decision.0),
                             decision.1,
                             asked
                         );
+                        crate::private::say(&line, || {
+                            format!("{line} -- part {}", shown(&pulse.standing.part_nullifier))
+                        });
                         break Step::Close(decision);
                     }
                 } else if ordered.iter().any(|beacon| pulse.is_answered(beacon)) {
@@ -1981,16 +2001,19 @@ pub fn live_doing(
                 }
                 None => None,
             };
-            match &right {
-                Some(right) => println!(
-                    "window {} is final under the proposal {} decided in attempt {} | it credits {} coin to this machine, accepted in window {}",
-                    before.window, link, decided_in, right.worth, right.accepted_in
+            let line = format!(
+                "window {} is final under the proposal {} decided in attempt {}",
+                before.window, link, decided_in
+            );
+            crate::private::say(&line, || match &right {
+                Some(right) => format!(
+                    "{line} | it credits {} coin to this machine, accepted in window {}",
+                    right.worth, right.accepted_in
                 ),
-                None => println!(
-                    "window {} is final under the proposal {} decided in attempt {} | this machine's part is not in its cement, so it took no coin of it",
-                    before.window, link, decided_in
+                None => format!(
+                    "{line} | this machine's part is not in its cement, so it took no coin of it"
                 ),
-            }
+            });
             if let Some(lived) = out.iter_mut().find(|one| one.window == before.window) {
                 lived.right = right;
                 lived.proposal = final_id;
