@@ -56,7 +56,7 @@ fn main() -> ExitCode {
 
 fn help_text() -> String {
     String::from(
-        "montana-node — Montana node (singleton or cross-machine M8 mode)\n\
+        "montana-node — Montana node (cross-machine M8 mode)\n\
          \n\
          Usage:\n\
          \n\
@@ -70,8 +70,8 @@ fn help_text() -> String {
            montana-node time    [--data-dir <PATH>]\n\
          \n\
            montana-node start   [--data-dir <PATH>] [--max-windows <N>]\n\
-                                 [--d-test-override <N>]\n\
-                                 [--listen <multiaddr>] [--genesis-manifest <PATH>]\n\
+                                 [--d-test-override <N>] [--open]\n\
+                                 --listen <multiaddr> --genesis-manifest <PATH>\n\
          \n\
          Commands:\n\
          \n\
@@ -99,6 +99,7 @@ fn help_text() -> String {
                                                    via apply_noderegistrations_batch)\n\
                        Registered → Active (via apply_selection_event at\n\
                                             the next W % 336 == 0)\n\
+                     A machine that opens window zero by --open is Active from it.\n\
                        Active: per window SshaReveal + BundledConfirmation +\n\
                                ProposalHeader + apply_proposal + archive_proposal,\n\
                                state_root self-verify, 13 Ɉ emission to the operator\n\
@@ -119,9 +120,16 @@ fn help_text() -> String {
            --force                    Overwrite existing identity.bin.\n\
            --reveal-master-seed       In inspect: show the full master_seed.\n\
            --max-windows <N>          In start: stop after N windows.\n\
+           --listen <multiaddr>       In start: libp2p listen address. Required.\n\
+           --genesis-manifest <PATH>  In start: genesis cohort peers. Required: there is\n\
+                                      no single mode without a manifest.\n\
+           --open                     In start: open a network — window zero, on the\n\
+                                      operator's cohort: this machine, which the manifest\n\
+                                      names as its bootstrap peer. Refused on a store that\n\
+                                      holds a chain; without it an empty store does not start.\n\
            --d-test-override <N>      In start: TEST-ONLY override D = N iterations.\n\
                                       Production uses params.d0 (Genesis Decree, value from mt-genesis).\n\
-                                      Override is used in tests for speed.\n",
+                                      Debug and test builds only; a release build refuses it.\n",
     )
 }
 
@@ -265,6 +273,7 @@ fn parse_start(args: &[String]) -> Result<start::StartArgs, NodeError> {
     let mut d_test_override: Option<u64> = None;
     let mut listen_multiaddr: Option<String> = None;
     let mut genesis_manifest: Option<PathBuf> = None;
+    let mut open = false;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -279,6 +288,12 @@ fn parse_start(args: &[String]) -> Result<start::StartArgs, NodeError> {
                 i += 2;
             },
             "--d-test-override" => {
+                // Test-only: a release build refuses it, D stays params.d0 of the Decree.
+                if !cfg!(debug_assertions) {
+                    return Err(NodeError::InvalidArguments(
+                        start::D_TEST_OVERRIDE_REFUSED.into(),
+                    ));
+                }
                 d_test_override = Some(
                     expect_value(args, i, "--d-test-override")?
                         .parse()
@@ -294,6 +309,10 @@ fn parse_start(args: &[String]) -> Result<start::StartArgs, NodeError> {
             },
             "--enable-names" => {
                 enable_names = true;
+                i += 1;
+            },
+            "--open" => {
+                open = true;
                 i += 1;
             },
             "--listen" => {
@@ -312,10 +331,9 @@ fn parse_start(args: &[String]) -> Result<start::StartArgs, NodeError> {
             },
         }
     }
-    if listen_multiaddr.is_some() != genesis_manifest.is_some() {
+    if listen_multiaddr.is_none() || genesis_manifest.is_none() {
         return Err(NodeError::InvalidArguments(
-            "--listen and --genesis-manifest must be given together (cross-machine mode) or both omitted (singleton mode)"
-                .into(),
+            start::NO_MANIFEST_REFUSED.into(),
         ));
     }
     Ok(start::StartArgs {
@@ -326,6 +344,7 @@ fn parse_start(args: &[String]) -> Result<start::StartArgs, NodeError> {
         d_test_override,
         listen_multiaddr,
         genesis_manifest,
+        open,
     })
 }
 
