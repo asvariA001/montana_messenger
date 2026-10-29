@@ -1226,6 +1226,7 @@ object MainThread {
     private val h = android.os.Handler(android.os.Looper.getMainLooper())
     fun post(r: () -> Unit) { h.post(r) }
     fun later(ms: Long, r: Runnable) { h.postDelayed(r, ms) }
+    fun cancel(r: Runnable) { h.removeCallbacks(r) }
 }
 
 // ─────────────────────────── the post: the node box both ways (iOS MontanaWakePush box + delivery engine) ───────────────────────────

@@ -567,6 +567,7 @@
     <string name="wall_downloads">Downloads</string>
     <string name="wall_views">Views</string>
     <string name="wall_send">Send</string>
+    <string name="wall_hide_person">Hide this person</string>
     <string name="wall_save">Save</string>
     <string name="wall_unsave">Remove from saved</string>
     <string name="call_end_ask">End the call?</string>
