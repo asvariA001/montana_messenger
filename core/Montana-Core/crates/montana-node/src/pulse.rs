@@ -3032,6 +3032,25 @@ pub fn come_back(machine: &Machine, to: u64, patience: u32) -> Result<u64, NodeE
         })
 }
 
+// **A device that walked to a head takes the plane of that head against its roots.** Consensus, "The
+// join", step 5: "It takes the state it needs against the roots of the head ... and it recomputes
+// every root it takes rather than accepting one." The head is the proposal the walk kept and the store
+// names, never one handed beside the plane, so a server cannot pair its tables with a root of its own;
+// the cohort is the tree of admitted machines the root of the head stands over, handed as an opening
+// cohort is. The plane passes the one door of its encoding, every root is folded again from the leaves
+// offered and compared with the head's (State::taken_under), and only then is it held. A plane refused
+// leaves the device as it was.
+pub fn take_the_plane(machine: &Machine, cohort: &Cohort, offered: &[u8]) -> Result<(), NodeError> {
+    let window = machine.head()?.ok_or(NodeError::Refused {
+        what: "a plane offered to a device that holds no head",
+    })?;
+    let head = machine.proposal_of(window)?.ok_or(NodeError::Refused {
+        what: "a head whose proposal this device does not hold",
+    })?;
+    let plane = State::decode(offered)?.taken_under(&head, cohort)?;
+    machine.hold_the_plane(&head, plane)
+}
+
 // A beacon of a round as a walk reads it off the points: the beacon, the heavy and the light
 // attestations that answered it, and the ballots standing beside it.
 type StandingRound = (

@@ -68,6 +68,13 @@ int32_t mtc_machine_head(uint64_t *window, int32_t *present);
 int32_t mtc_machine_links(size_t *held, size_t *ceiling, size_t *reached);
 int32_t mtc_machine_account(char *out, size_t cap, size_t *len);
 
+/* The join of a device that holds nothing: the bytes of the two consecutive final proposals its
+ * operator handed it, the earlier and the later, each at the length stated beside it. The walk
+ * judges every certificate from there and writes the window the head stands at. It runs on the
+ * caller's thread, and it is refused while the pulse runs as the pulse is while a walk does. */
+int32_t mtc_machine_join(const uint8_t *earlier, size_t earlier_len, const uint8_t *later,
+                         size_t later_len, uint64_t *window);
+
 /* What the machine does of its own inside the window it lives, asked before the pulse begins. A
  * right is worth one coin whatever its cement counted; the count is read only to refuse a window
  * whose cement named nobody. */
