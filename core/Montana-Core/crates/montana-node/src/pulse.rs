@@ -1614,7 +1614,10 @@ pub fn live_doing(
                                                 asked
                                             );
                                             crate::private::say(&line, || {
-                                                format!("{line} -- part {}", shown(&pulse.standing.part_nullifier))
+                                                format!(
+                                                    "{line} -- part {}",
+                                                    shown(&pulse.standing.part_nullifier)
+                                                )
                                             });
                                             pulse.learnt(name, outcome, adopted);
                                         }
@@ -1627,7 +1630,10 @@ pub fn live_doing(
                                                 asked
                                             );
                                             crate::private::say(&line, || {
-                                                format!("{line} -- part {}", shown(&pulse.standing.part_nullifier))
+                                                format!(
+                                                    "{line} -- part {}",
+                                                    shown(&pulse.standing.part_nullifier)
+                                                )
                                             });
                                         }
                                     }
@@ -2004,7 +2010,9 @@ pub fn live_doing(
                     "{line} | it credits {} coin to this machine, accepted in window {}",
                     right.worth, right.accepted_in
                 ),
-                None => format!("{line} | this machine's part is not in its cement, so it took no coin of it"),
+                None => format!(
+                    "{line} | this machine's part is not in its cement, so it took no coin of it"
+                ),
             });
             if let Some(lived) = out.iter_mut().find(|one| one.window == before.window) {
                 lived.right = right;

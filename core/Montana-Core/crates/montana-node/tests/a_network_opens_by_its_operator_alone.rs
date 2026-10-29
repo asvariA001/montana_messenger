@@ -163,10 +163,16 @@ fn an_operator_opens_window_zero_on_the_cohort_handed_over() {
     // of the data directory. Refuses the start of 7e2ac1b's parent, which printed all four.
     let shown: String = half.iter().map(|b| format!("{b:02x}")).collect();
     for line in said.lines() {
-        assert!(!line.contains("127.0.0.1"), "an address on a default line: {line}");
+        assert!(
+            !line.contains("127.0.0.1"),
+            "an address on a default line: {line}"
+        );
         assert!(!line.contains(&shown), "the half on a default line: {line}");
         assert!(!line.contains(" part "), "a part on a default line: {line}");
-        assert!(!line.contains("coin"), "an amount on a default line: {line}");
+        assert!(
+            !line.contains("coin"),
+            "an amount on a default line: {line}"
+        );
     }
     let details = at.0.join(montana_node::private::FILE);
     let mode = std::os::unix::fs::PermissionsExt::mode(

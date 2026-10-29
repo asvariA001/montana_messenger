@@ -104,7 +104,9 @@ mod tests {
         keep_at(data.as_path());
         note(|| "held".to_string());
         // Held, not written: a start refused here leaves the file as it found it.
-        assert!(std::fs::read(at.as_path()).expect("the file reads").is_empty());
+        assert!(std::fs::read(at.as_path())
+            .expect("the file reads")
+            .is_empty());
         stand().expect("the file of details stands");
         note(|| "a detail".to_string());
         let mode = std::fs::metadata(at.as_path())
