@@ -1663,6 +1663,75 @@ impl Machine {
         message::point_ceiling(admitted).map_err(|_| of_the_decree("cell_bytes"))
     }
 
+    // **The plane of `window` as each machine this one reached offers it**, every table read whole
+    // over the link it was asked on, laid out by `State::encoded_of_leaves` with the tree of admitted
+    // machines this device stands against. Each offer is judged alone by its caller against the roots
+    // of a head it verified (pulse::take_the_plane); how many offers agree decides nothing (Consensus,
+    // "The join"). A link that answers with another kind, malformed bytes or past the reach of a
+    // count offers nothing.
+    pub fn planes_offered(
+        &self,
+        window: u64,
+        admitted: mt_proof::poseidon::Digest,
+    ) -> Result<Vec<Vec<u8>>, NodeError> {
+        let Some(network) = mt_state::tables::genesis_state_hash() else {
+            return Err(NodeError::Refused {
+                what: "a network whose Genesis State Hash this build cannot compute",
+            });
+        };
+        let mut offers = Vec::new();
+        let mut held = self.reached.lock().map_err(|_| NodeError::Uncountable)?;
+        'links: for one in held.iter_mut() {
+            let mut tables: [Vec<u8>; 7] = Default::default();
+            for table in message::TableIndex::ALL {
+                let Ok(bound) = message::table_answer_max(table) else {
+                    continue 'links;
+                };
+                let gathered = &mut tables[usize::from(table.byte())];
+                let mut from: u32 = 0;
+                loop {
+                    let query = message::encode_table_query(&network, window, table, from);
+                    if one.link.send(Kind::TableQuery, &query).is_err() {
+                        continue 'links;
+                    }
+                    let Ok((kind, arrived)) = one.link.receive() else {
+                        continue 'links;
+                    };
+                    if kind != Kind::TableAnswer || arrived.len() < 4 {
+                        continue 'links;
+                    }
+                    let mut four = [0u8; 4];
+                    four.copy_from_slice(&arrived[..4]);
+                    let declared = u32::from_le_bytes(four) as usize;
+                    let width = declared
+                        .saturating_mul(table.leaf_bytes())
+                        .saturating_add(4);
+                    if arrived.len() < width {
+                        continue 'links;
+                    }
+                    let Ok(leaves) = message::parse_table_answer(table, &arrived[..width]) else {
+                        continue 'links;
+                    };
+                    gathered.extend_from_slice(&leaves);
+                    if declared < bound {
+                        break;
+                    }
+                    let Some(next) = u32::try_from(declared)
+                        .ok()
+                        .and_then(|n| from.checked_add(n))
+                    else {
+                        continue 'links;
+                    };
+                    from = next;
+                }
+            }
+            if let Ok(plane) = state::State::encoded_of_leaves(window, admitted, &tables) {
+                offers.push(plane);
+            }
+        }
+        Ok(offers)
+    }
+
     // How many acquaintances this machine holds a link to. What an operator reads; what nothing
     // publishes, since it names no peer.
     pub fn reached(&self) -> usize {
@@ -1936,6 +2005,7 @@ fn carry_until_it_ends(
             Kind::Collect => answer_with_nothing(link),
             Kind::HeadQuery => answer_the_head(link, store, &message),
             Kind::StateQuery => answer_the_state(link, value, &message),
+            Kind::TableQuery => answer_the_table(link, store, &message),
             // An answer nobody asked for, and the messages a machine of this stage does not serve:
             // read, counted and dropped, because a reply saying "not for me" is information about
             // this machine that a stranger asked for and did not earn.
@@ -2093,6 +2163,58 @@ fn answer_the_state(
         None => Vec::new(),
     };
     link.send(Kind::StateAnswer, &message::encode_state_answer(&answer))
+}
+
+// **A table of a plane this machine holds whole, from the leaf the asker names.** The plane is the
+// one the last close kept, of the window it closed or of the window before it, read from the record
+// of the window and never from memory, which moves under a frame; any other window, another network
+// or a table read to its end is answered with zero leaves, which the asker does not tell apart.
+fn answer_the_table(link: &mut Link, store: &Store, message: &[u8]) -> Result<(), NetError> {
+    let width = message::table_query_len();
+    if message.len() < width {
+        return Ok(());
+    }
+    let Ok((asked, window, table, from)) = message::parse_table_query(&message[..width]) else {
+        return Ok(());
+    };
+    let Some(ours) = mt_state::tables::genesis_state_hash() else {
+        return Ok(());
+    };
+    if asked != ours {
+        return Ok(());
+    }
+    let Ok(bound) = message::table_answer_max(table) else {
+        return Ok(());
+    };
+    let one = table.leaf_bytes();
+    let leaves = plane_held(store, window)
+        .map(|plane| plane.leaves_of(table, window))
+        .unwrap_or_default();
+    let start = (from as usize).saturating_mul(one).min(leaves.len());
+    let end = start
+        .saturating_add(bound.saturating_mul(one))
+        .min(leaves.len());
+    let Ok(answer) = message::encode_table_answer(table, &leaves[start..end]) else {
+        return Ok(());
+    };
+    link.send(Kind::TableAnswer, &answer)
+}
+
+// The plane the record of the window keeps for `window`: the plane of the window the last close
+// closed, or the decided state of the window before it, and nothing for any other.
+fn plane_held(store: &Store, window: u64) -> Option<state::State> {
+    let record = store.window().ok()?;
+    if record.kept.is_empty() {
+        return None;
+    }
+    let kept = Kept::decode(&record.kept).ok()?;
+    if kept.taken.window == window {
+        Some(kept.plane)
+    } else if kept.taken.window.checked_sub(1) == Some(window) {
+        kept.before
+    } else {
+        None
+    }
 }
 
 fn answer_the_head(link: &mut Link, store: &Store, message: &[u8]) -> Result<(), NetError> {

@@ -2719,8 +2719,32 @@ fn stand_at_the_window(machine: &Machine, window: u64, object: &[u8]) -> Result<
 // certificate stands; a device further behind takes a fresh anchor, and the set says that is a
 // change of trust. The head and the proposal before it are kept, and the head moves onto it.
 pub fn join(machine: &Machine, anchor: &Anchor, patience: u32) -> Result<Anchor, NodeError> {
+    joined(machine, anchor, None, patience)
+}
+
+// **A device handed a cohort as well takes the state of the head from the network** where it holds
+// none to replay from (Consensus, "The join", 5): a device given a fresh anchor past the first window,
+// or one that was away past the retention. The plane of the head comes table by table from the
+// machines it reached and is judged against the roots of the head the walk verified; the walk replays
+// over it what stands after the head and keeps it in the one writing of a close, as a replayed walk
+// keeps its state. A device none of whose offers passes is refused the walk and lives no window on it.
+pub fn join_under(
+    machine: &Machine,
+    anchor: &Anchor,
+    cohort: &Cohort,
+    patience: u32,
+) -> Result<Anchor, NodeError> {
+    joined(machine, anchor, Some(cohort), patience)
+}
+
+fn joined(
+    machine: &Machine,
+    anchor: &Anchor,
+    cohort: Option<&Cohort>,
+    patience: u32,
+) -> Result<Anchor, NodeError> {
     let (head, pending) = walked(machine, anchor, patience)?;
-    kept_as_walked(machine, anchor, &head, pending.as_ref(), patience)?;
+    kept_as_walked(machine, anchor, &head, pending.as_ref(), cohort, patience)?;
     Ok(head)
 }
 
@@ -2813,13 +2837,16 @@ fn walked(
 // roll replays to — the agreement of the window after parts on two names and never decides (seen on
 // four machines, 27.10.2026 14:25 UTC: window 5 in its ninth attempt, the two on one name and the one
 // come back on another). Where the machine holds a state to replay from, the walk keeps the state it
-// replayed with the proposals in the one record of a close; where it holds none, it keeps the
-// proposals alone, and lives no window on them that anybody else verifies.
+// replayed with the proposals in the one record of a close, and so does a device that holds none but
+// was handed a cohort, from the plane of the head the network offered; where it holds none and was
+// handed no cohort, it keeps the proposals alone, and lives no window on them that anybody else
+// verifies.
 fn kept_as_walked(
     machine: &Machine,
     anchor: &Anchor,
     head: &Anchor,
     pending: Option<&Proposal>,
+    cohort: Option<&Cohort>,
     patience: u32,
 ) -> Result<(), NodeError> {
     machine.keep_proposal(&head.earlier)?;
@@ -2829,23 +2856,18 @@ fn kept_as_walked(
     // closed window is refused at the opening rather than at the close, where its head would have to
     // leave the decision.
     let taken = pending.unwrap_or(&head.later);
-    let known = [
-        &anchor.earlier,
-        &anchor.later,
-        &head.earlier,
-        &head.later,
-        taken,
-    ];
     let beyond = machine
         .closed_window()?
         .is_none_or(|closed| taken.window > closed);
     if beyond {
-        if let Some((plane, before)) = state_of_the_walk(machine, &known, taken, patience)? {
+        if let Some((plane, before)) =
+            state_of_the_walk(machine, anchor, head, taken, cohort, patience)?
+        {
             return machine.close(crate::Closing {
                 head: Some(head.later.clone()),
                 taken: taken.clone(),
                 plane,
-                before: Some(before),
+                before,
                 census: None,
             });
         }
@@ -2865,39 +2887,64 @@ fn kept_as_walked(
 // name replays one (Consensus, "The roll of a proposal"): its frames over the decided state of the
 // window before, then the parts of the decided roll before it credited, and the tables recomputed
 // are the proposal's or the walk is refused. What it answers is the state of the proposal taken and
-// the state of the window before it. Nothing, where the machine holds no state to replay from: a
-// device handed an anchor past the first window takes the state by the inclusion proofs Canon lays
-// out, which this machine does not carry.
+// the state of the window before it, where the replay passed that window. A machine that holds no
+// state to replay from, or one from before the anchor only, and was handed a cohort starts from the
+// plane of the walked head the network offers, judged against the head's roots (`plane_of_the_network`), with the rate set the walk
+// rebuilds beside it (`remember_the_walked_rates`): with no proposal after the head it answers that
+// plane and no state before it, which it never held. Nothing, where it holds no state and was handed
+// no cohort.
 fn state_of_the_walk(
     machine: &Machine,
-    known: &[&Proposal],
+    anchor: &Anchor,
+    head: &Anchor,
     taken: &Proposal,
+    cohort: Option<&Cohort>,
     patience: u32,
-) -> Result<Option<(State, State)>, NodeError> {
+) -> Result<Option<(State, Option<State>)>, NodeError> {
+    let known = [
+        &anchor.earlier,
+        &anchor.later,
+        &head.earlier,
+        &head.later,
+        taken,
+    ];
+    let known = &known[..];
     let genesis = Predecessor::Genesis.id()?;
-    let (from, mut state) = match machine.decided_state_of_the_head()? {
-        Some((head, state)) => (Some(head), state),
-        None if machine.head()?.is_none() && machine.closed_window()?.is_none() => {
-            match known
-                .iter()
-                .find(|one| one.window == 0 && one.previous == genesis)
-            {
-                Some(first) => {
-                    let admitted = mt_proof::poseidon::Digest::of_bytes(&first.admitted_root)
-                        .ok_or(NodeError::Refused {
-                            what: "an admitted root outside the field",
-                        })?;
-                    (None, State::new().with_admitted(admitted))
-                }
-                None => return Ok(None),
-            }
+    let first = known
+        .iter()
+        .find(|one| one.window == 0 && one.previous == genesis);
+    let empty = machine.head()?.is_none() && machine.closed_window()?.is_none();
+    let since = anchor.later.window;
+    // The window the replay starts from beside the proposal its state answers for, and that state.
+    // A state of its own from before the anchor stands on windows the walk did not pass, which the
+    // retention may have let go of; handed a cohort, the machine takes the plane of the head instead.
+    let (from, mut state) = match (machine.decided_state_of_the_head()?, first) {
+        (Some((window, state)), _) if window >= since || cohort.is_none() => {
+            (Some((window, machine.proposal_of(window)?)), state)
         }
-        None => return Ok(None),
+        (None, Some(first)) if empty => {
+            let admitted = mt_proof::poseidon::Digest::of_bytes(&first.admitted_root).ok_or(
+                NodeError::Refused {
+                    what: "an admitted root outside the field",
+                },
+            )?;
+            (None, State::new().with_admitted(admitted))
+        }
+        _ => match cohort {
+            Some(cohort) => {
+                let head = &head.later;
+                let mut plane = plane_of_the_network(machine, head, cohort)?;
+                remember_the_walked_rates(machine, known, head, since, &mut plane, patience)?;
+                (Some((head.window, Some(head.clone()))), plane)
+            }
+            None => return Ok(None),
+        },
     };
+    let start = from.as_ref().map_or(0, |(window, _)| *window);
     // The proposals from the window of that state to the one taken, each the one the next names.
     let mut chain: Vec<Proposal> = vec![taken.clone()];
     while let Some(last) = chain.last() {
-        if last.window <= from.unwrap_or(0) {
+        if last.window <= start {
             break;
         }
         let at = last.window - 1;
@@ -2909,14 +2956,14 @@ fn state_of_the_walk(
     }
     chain.reverse();
     let mut credited: Vec<[u8; 32]> = Vec::new();
-    let replayed = match from {
-        // The state of the head is the head's on the chain walked, or it is another chain's.
-        Some(head) => {
+    let replayed = match &from {
+        // The state answers for the proposal the walk passed at its window, or for another chain's.
+        Some((window, answered)) => {
             let base = &chain[0];
-            let own = machine.proposal_of(head)?.and_then(|one| one.id().ok());
-            if base.window != head
+            let own = answered.as_ref().and_then(|one| one.id().ok());
+            if base.window != *window
                 || own != base.id().ok()
-                || state.tables_of(head)? != tables_carried(base)
+                || state.tables_of(*window)? != tables_carried(base)
             {
                 return Err(NodeError::Refused {
                     what: "a decided state of the head that is not the head the walk passed",
@@ -2931,13 +2978,13 @@ fn state_of_the_walk(
         }
         None => &chain[..],
     };
-    let mut before = state.clone();
+    let mut before = None;
     for proposal in replayed {
         let window = proposal.window;
         let roll = roll_named(machine, proposal)?.ok_or(NodeError::Refused {
             what: "a walked window whose decided roll stands at none of its points",
         })?;
-        before = state.clone();
+        before = Some(state.clone());
         if !roll.frames.is_empty() {
             let frames = frames_of_a_past_window(machine, window, patience)?;
             for id in &roll.frames {
@@ -2958,6 +3005,44 @@ fn state_of_the_walk(
         credited = roll.parts;
     }
     Ok(Some((state, before)))
+}
+
+// **The rate set the walk rebuilds** (decision of the author 298, B = b): no root covers it (Canon,
+// "The roots of state"), so a plane offered carries none and none is taken from an offer. Every frame
+// the decided roll of a walked window names — each window after the anchor up to the head, each
+// proposal the one the next names — is read from the frames standing at its window, matched to the
+// identifier the roll carries, and its rate nullifiers enter the plane; the frames after the head
+// enter by the replay that applies them. A walk reaches back `retained_windows` and a stride of the
+// horizon `proving_horizon`: the rate nullifiers of a stride's windows before the anchor stand at no
+// point the walk reads, and the plane holds those of the windows walked alone.
+fn remember_the_walked_rates(
+    machine: &Machine,
+    known: &[&Proposal],
+    head: &Proposal,
+    since: u64,
+    plane: &mut State,
+    patience: u32,
+) -> Result<(), NodeError> {
+    let mut at = head.clone();
+    while at.window > since {
+        let roll = roll_named(machine, &at)?.ok_or(NodeError::Refused {
+            what: "a walked window whose decided roll stands at none of its points",
+        })?;
+        if !roll.frames.is_empty() {
+            let frames = frames_of_a_past_window(machine, at.window, patience)?;
+            for id in &roll.frames {
+                let frame = frames.get(id).ok_or(NodeError::Refused {
+                    what: "a frame of a walked roll that stands at no round of its window",
+                })?;
+                plane.remember_the_rates_of(frame);
+            }
+        }
+        let window = at.window - 1;
+        at = proposal_named(machine, known, window, &at.previous)?.ok_or(NodeError::Refused {
+            what: "a walked window whose proposal stands at none of its points",
+        })?;
+    }
+    Ok(())
 }
 
 // The proposal of `window` under the identifier `named`: one the walk handed over, one this machine
@@ -3046,7 +3131,7 @@ pub fn come_back(machine: &Machine, to: u64, patience: u32) -> Result<u64, NodeE
             what: NO_CERTIFICATE_TO_WALK,
         });
     }
-    kept_as_walked(machine, &anchor, &head, pending.as_ref(), patience)?;
+    kept_as_walked(machine, &anchor, &head, pending.as_ref(), None, patience)?;
     machine
         .closed_window()?
         .and_then(|closed| closed.checked_add(1))
@@ -3072,6 +3157,43 @@ pub fn take_the_plane(machine: &Machine, cohort: &Cohort, offered: &[u8]) -> Res
     })?;
     let plane = State::decode(offered)?.taken_under(&head, cohort)?;
     machine.hold_the_plane(&head, plane)
+}
+
+// **And it asks the network for it.** Consensus, "The join", step 5, over the wire the Canon lays
+// out for it (`table_query`, `table_answer`): every machine this device reached offers the plane of
+// the head table by table, and each offer is judged alone by `take_the_plane` — the first whose every
+// root is the head's is held, and the rest are not asked about. A device none of whose offers passes
+// holds what it held, and says so.
+pub fn take_the_plane_of_the_network(machine: &Machine, cohort: &Cohort) -> Result<(), NodeError> {
+    let window = machine.head()?.ok_or(NodeError::Refused {
+        what: "a plane asked for by a device that holds no head",
+    })?;
+    let head = machine.proposal_of(window)?.ok_or(NodeError::Refused {
+        what: "a head whose proposal this device does not hold",
+    })?;
+    let plane = plane_of_the_network(machine, &head, cohort)?;
+    machine.hold_the_plane(&head, plane)
+}
+
+// The plane of `head` as the machines this one reached offer it, each offer passing the one door of
+// its encoding and judged alone against the roots of that head (State::taken_under): the first that
+// passes, and nothing held by it — the caller keeps it, in a close or beside the head — or the
+// refusal of the last offer where none passes.
+fn plane_of_the_network(
+    machine: &Machine,
+    head: &Proposal,
+    cohort: &Cohort,
+) -> Result<State, NodeError> {
+    let mut refused = NodeError::Refused {
+        what: "no machine reached offered the plane of the head",
+    };
+    for offered in machine.planes_offered(head.window, cohort.root())? {
+        match State::decode(&offered).and_then(|plane| plane.taken_under(head, cohort)) {
+            Ok(plane) => return Ok(plane),
+            Err(why) => refused = why,
+        }
+    }
+    Err(refused)
 }
 
 // A beacon of a round as a walk reads it off the points: the beacon, the heavy and the light

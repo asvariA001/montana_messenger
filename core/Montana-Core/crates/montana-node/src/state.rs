@@ -375,6 +375,94 @@ impl State {
         ])
     }
 
+    // **The leaves of one table of this plane, in the order the table folds them**: what a machine
+    // answers a table query with (Canon, "Joining"). A set goes out ascending, which moves no root of
+    // it and makes two answerers of one plane answer alike; the tree of records goes out as key and
+    // record, ascending by key; an append-only tree goes out in the order its leaves entered, which
+    // is the order of its root. The table of machines is empty while no selection event admitted
+    // one, and the tree of admitted machines is held here as its root alone: its halves pass as an
+    // opening cohort's do (pulse, `Cohort`), and the root and count the head carries judge them.
+    pub fn leaves_of(&self, table: mt_wire::message::TableIndex, window: u64) -> Vec<u8> {
+        use mt_wire::message::TableIndex;
+        let mut out = Vec::new();
+        match table {
+            TableIndex::Notes => {
+                for leaf in self.notes.leaves() {
+                    out.extend_from_slice(&leaf.bytes());
+                }
+            }
+            TableIndex::Nullifiers => {
+                let set: std::collections::BTreeSet<&[u8; 32]> =
+                    self.spent.iter().chain(&self.nullifiers).collect();
+                for value in set {
+                    out.extend_from_slice(value);
+                }
+            }
+            TableIndex::Records => {
+                for (key, held) in &self.records {
+                    out.extend_from_slice(key);
+                    out.extend_from_slice(&held.bytes());
+                }
+            }
+            TableIndex::Machines | TableIndex::Admitted => {}
+            TableIndex::Credited => {
+                for leaf in self.credited.leaves() {
+                    out.extend_from_slice(&leaf.bytes());
+                }
+            }
+            TableIndex::Operations => {
+                for frame in self.operations_of(window) {
+                    out.extend_from_slice(&frame);
+                }
+            }
+        }
+        out
+    }
+
+    // **The leaves a device gathered, laid out as a plane and read through the one door of its
+    // encoding** (`decode`), so a leaf that is not a digest of the family, a set repeating a value
+    // or records out of their order are refused there as a stored plane's would be. Nothing no root
+    // covers comes from the answers: no spent note told apart from a right (the set is one, Canon,
+    // "What enters the two sets"), no rate set and no count of openings. Whether the leaves are the
+    // head's is not asked here; `taken_under` asks it of every root.
+    pub fn encoded_of_leaves(
+        window: u64,
+        admitted: Digest,
+        tables: &[Vec<u8>; 7],
+    ) -> Result<Vec<u8>, NodeError> {
+        let refused = || NodeError::Refused {
+            what: "leaves of a table that are not whole leaves of it",
+        };
+        let [notes, nullifiers, records, machines, _admitted, credited, operations] = tables;
+        if !machines.is_empty() {
+            return Err(NodeError::Refused {
+                what: "a table of machines no selection event wrote",
+            });
+        }
+        let count = |out: &mut Vec<u8>, bytes: &[u8], width: usize| -> Result<(), NodeError> {
+            if !bytes.len().is_multiple_of(width) {
+                return Err(refused());
+            }
+            let n = u32::try_from(bytes.len() / width).map_err(|_| refused())?;
+            out.extend_from_slice(&n.to_le_bytes());
+            out.extend_from_slice(bytes);
+            Ok(())
+        };
+        let mut out = Vec::new();
+        count(&mut out, notes, 32)?;
+        count(&mut out, &[], 32)?;
+        out.extend_from_slice(&admitted.bytes());
+        count(&mut out, records, 64)?;
+        count(&mut out, nullifiers, 32)?;
+        out.extend_from_slice(&0u64.to_le_bytes());
+        out.extend_from_slice(&0u64.to_le_bytes());
+        count(&mut out, &[], 32)?;
+        out.extend_from_slice(&window.to_le_bytes());
+        count(&mut out, operations, 32)?;
+        count(&mut out, credited, 32)?;
+        Ok(out)
+    }
+
     // **A plane offered to a device that walked to a head, judged against the roots of that head.**
     // Consensus, "The join": "Every leaf of state a joining device takes is checked against a root the
     // verified head carries, by recomputation; a leaf accepted on the word of whoever answered is a
@@ -743,6 +831,18 @@ impl State {
         }
         self.operations.1.push(id);
         Ok(positions)
+    }
+
+    // **The rate nullifiers of a frame this plane did not apply**, entering the rate set of the
+    // horizon alone: a device that took its plane from the network holds none, since no root covers
+    // one, and the walk hands it the frames the decided rolls of the windows it walked name
+    // (pulse, `remember_the_walked_rates`). A value already held is held once, as the plane encodes.
+    pub fn remember_the_rates_of(&mut self, frame: &Frame) {
+        for spend in &frame.spends {
+            if !self.rates.contains(&spend.rate_nullifier) {
+                self.rates.push(spend.rate_nullifier);
+            }
+        }
     }
 
     // A frame as it stands on the wire, read back and applied. The length a delivery is taken at is
