@@ -243,12 +243,42 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
         var next: Pane? = null
         var side = 0
         var folderTo: String? = null   // the stroke turns the chats' folders first (ChatsPane.folderBeside)
+        var base = 0f   // where the pane stood when the stroke began: 0, or the place a cut settle left it
+        var settling: Pair<Pane, Pane>? = null   // the two pages a settle is sliding, until it rests
         fun order(): List<Pane> {
             val media = if (pane == Pane.MUSIC || pane == Pane.GALLERY) pane
                         else if (Prefs.str("lastMediaPane", "music") == "gallery") Pane.GALLERY else Pane.MUSIC
             return listOf(Pane.CONTACTS, Pane.CALLS, Pane.FEED, Pane.CHATS, media, Pane.P2P)   // iOS turnOrder
         }
+        /** A STROKE THAT LANDS MID-SETTLE (iOS beginStroke, 47531d53282f): the settle is cut where it stands and the stroke goes
+         *  on from there, the page beside staying where it was; the stroke's own way is not read — the page showing is the one
+         *  the finger takes. False when the settle had already come to rest under the pane. */
+        fun resume(run: Pair<Pane, Pane>): Boolean {
+            settling = null
+            val (a, b) = run
+            views.getValue(a).animate().cancel(); views.getValue(b).animate().cancel()
+            val here = views.getValue(pane)   // the settle going on arrived at the release, one coming home did not
+            val beside = if (pane == a) b else a
+            val w = panes.width.toFloat()
+            base = here.translationX
+            if (pane != a && pane != b) {   // a glyph's tap chose another page meanwhile: both settled pages leave
+                listOf(a, b).map { views.getValue(it) }.filter { it !== here }.forEach { it.visibility = View.GONE; it.translationX = 0f }
+                here.translationX = 0f
+                base = 0f
+                return false
+            }
+            if (base == 0f || w <= 0f) {
+                views.getValue(beside).apply { visibility = View.GONE; translationX = 0f }
+                base = 0f
+                return false
+            }
+            next = beside; side = if (base < 0f) 1 else -1; folderTo = null
+            Motion.moveBegan(panes)
+            return true
+        }
         override fun begin(side: Int): Boolean {
+            settling?.let { if (resume(it)) return true }
+            base = 0f
             // the drawer's groups and channels are the chats' page too: their stroke turns the folders and, as a tab, the page back to the chats
             folderTo = if (views[pane] === chats && !search.active) chats.folderBeside(side) else null
             if (folderTo != null) { this.side = side; return true }
@@ -263,7 +293,16 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
         override fun move(dx: Float) {
             if (folderTo != null) return
             val w = panes.width.toFloat()
-            val d = if (side > 0) dx.coerceIn(-w, 0f) else dx.coerceIn(0f, w)
+            val total = base + dx
+            // THE PAGE BESIDE IS THE ONE ON THE STROKE'S SIDE NOW (iOS turnStroke: the neighbour by the sign of the total): a stroke that
+            // crosses where it began takes the page on the other side, so a second flick on a settle goes on to the next page
+            val want = if (total < 0f) 1 else if (total > 0f) -1 else side
+            if (want != side) order().let { o -> o.getOrNull(o.indexOf(pane) + want) }?.let { n ->
+                next?.let { views.getValue(it).apply { visibility = View.GONE; translationX = 0f } }
+                next = n; side = want
+                views.getValue(n).apply { animate().cancel(); alpha = 1f; visibility = View.VISIBLE }
+            }
+            val d = if (side > 0) total.coerceIn(-w, 0f) else total.coerceIn(0f, w)
             views.getValue(pane).translationX = d
             next?.let { views.getValue(it).translationX = d + side * w; if (0f < w) bar.ridePuck(pane, it, kotlin.math.abs(d) / w) }
         }
@@ -279,14 +318,18 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
             val to = next ?: return
             val w = panes.width.toFloat()
             val fling = c.dp(400)
-            val go = if (kotlin.math.abs(velocity) > fling) (velocity < 0) == (side > 0) else kotlin.math.abs(dx) > w / 3
+            val go = if (kotlin.math.abs(velocity) > fling) (velocity < 0) == (side > 0) else kotlin.math.abs(base + dx) > w / 3
+            base = 0f
             val cur = views.getValue(pane); val nv = views.getValue(to)
+            val run = Pair(pane, to)
+            settling = run
             val ms = 240L
             cur.animate().translationX(if (go) -side * w else 0f).setDuration(ms).setInterpolator(android.view.animation.DecelerateInterpolator()).withEndAction {
                 if (go) { cur.visibility = View.GONE; cur.translationX = 0f }
             }.start()
             nv.animate().translationX(if (go) 0f else side * w).setDuration(ms).setInterpolator(android.view.animation.DecelerateInterpolator()).withEndAction {
                 if (!go) { nv.visibility = View.GONE; nv.translationX = 0f }
+                if (settling === run) settling = null
                 Motion.moveEnded("pane:" + (if (go) to.name.lowercase() else "stay"))
             }.start()
             if (go) arrived(to) else bar.showPane(pane)   // a turn let go: the puck rides home under the page that stays

@@ -2060,11 +2060,19 @@ class FeedPane(private val act: MainActivity) : FrameLayout(act) {
     private val goingColumn = c.vstack(Gravity.NO_GRAVITY)
     private val column = c.vstack(Gravity.NO_GRAVITY)
     private val empty = c.text(c.getString(R.string.no_posts), 17f, MT.gray, center = true)
-    private val again: () -> Unit = { if (isShown) draw() }
+    // THE POSTS ARE LAID AS THEY COME INTO REACH (iOS MTFeedTabView's lazy stack): the first ones at once, the next ones while
+    // the scroll nears the end -- laying every post of the feed at once held the screen for 0.7 s each time the page was shown
+    // (A1, trial 670: «motion what=pane:feed worst_ms=740»), the turn's first frame included
+    private val scroll = ScrollView(c)
+    private var items = emptyList<Board.Item>()
+    private var laid = 0
+    private var stale = true        // the board moved while the page stood unseen
+    private var drawnAt = 0L
+    private val again: () -> Unit = { if (isShown) draw() else stale = true }
     private var goingIds = emptyList<String>()
     // A POST OF MINE ON ITS WAY READ LIVE (iOS MTBoardSendingLive, MontanaBoardViews.swift:2824-2834 at 2155): its bar moves with every
     // piece the node confirms; a post that left its way, or a new one, moves the feed
-    private val moved: () -> Unit = { if (isShown) { if (MyWall.sendingAll().map { it.id } != goingIds) draw() else drawGoing() } }
+    private val moved: () -> Unit = { if (isShown) { if (MyWall.sendingAll().map { it.id } != goingIds) draw() else drawGoing() } else stale = true }
     // ROOM KEPT AT THE BOTTOM FOR THE FLOATING PLAYER (iOS MTFeedTabView.reserve, MontanaBoardViews.swift:2864 at 2155,
     // atom f056cf90ad09): the posts scroll clear of the bar while it stands -- 60 more than the tab bar's own room, as
     // the music page's plus moves for it (MusicPage.reserve).
@@ -2079,9 +2087,14 @@ class FeedPane(private val act: MainActivity) : FrameLayout(act) {
         pressable { act.push { close -> newPostPage(act, close) } }
     }
     init {
-        addView(ScrollView(c).apply {
+        addView(scroll.apply {
             isVerticalScrollBarEnabled = false
             addView(c.vstack(Gravity.NO_GRAVITY) { addView(goingColumn, lp()); addView(column, lp()); addView(foot, lp(MATCH, dp(120))) })
+            val near = android.view.ViewTreeObserver.OnScrollChangedListener { reach() }
+            addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+                override fun onViewAttachedToWindow(v: View) { v.viewTreeObserver.addOnScrollChangedListener(near) }
+                override fun onViewDetachedFromWindow(v: View) { v.viewTreeObserver.removeOnScrollChangedListener(near) }
+            })
         }, LayoutParams(MATCH, MATCH))
         addView(empty, LayoutParams(WRAP, WRAP, Gravity.CENTER))
         addView(write, PageCorner.params(c))
@@ -2093,10 +2106,23 @@ class FeedPane(private val act: MainActivity) : FrameLayout(act) {
         write.layoutParams = PageCorner.params(c, reserve = on)
     }
     private fun draw() {
-        val items = Board.feed()
-        column.removeAllViews()
-        for (it in items) column.addView(postCell(act, it), lp().apply { setMargins(dp(12), dp(6), dp(12), dp(6)) })
+        items = Board.feed()
+        stale = false; drawnAt = System.currentTimeMillis()
+        // as many as stood laid are laid again, so a feed read deep down keeps its place when the board moves
+        val keep = laid
+        column.removeAllViews(); laid = 0
+        lay(maxOf(FIRST, keep))
         drawGoing()
+    }
+    private fun lay(n: Int) {
+        val to = minOf(items.size, laid + n)
+        for (i in laid until to) column.addView(postCell(act, items[i]), lp().apply { setMargins(dp(12), dp(6), dp(12), dp(6)) })
+        laid = to
+        if (laid < items.size) scroll.post { reach() }   // a short feed that does not fill the reach yet is laid on, a frame at a time
+    }
+    /** Two screens from the end, the next posts are laid. */
+    private fun reach() {
+        if (laid < items.size && column.bottom - scroll.scrollY < scroll.height * 3) lay(NEXT)
     }
     /** THE POSTS ON THEIR WAY STAND FIRST (iOS MTFeedTabView's rows, MontanaBoardViews.swift:2875-2879 and 2940-2942 at 2155): every post
      * of mine on its way to any wall, under the bar of its files, newest first, over the posts of the walls. */
@@ -2111,6 +2137,8 @@ class FeedPane(private val act: MainActivity) : FrameLayout(act) {
     override fun onDetachedFromWindow() { Board.unlisten(again); MyWall.unlisten(moved); super.onDetachedFromWindow() }
     override fun onVisibilityChanged(v: View, visibility: Int) {
         super.onVisibilityChanged(v, visibility)
-        if (visibility == View.VISIBLE && isAttachedToWindow) { Board.lookFeed(); draw() }
+        // laid again only when the board moved while it stood unseen, or a minute on, for the posts' «when»
+        if (visibility == View.VISIBLE && isAttachedToWindow) { Board.lookFeed(); if (stale || 60_000L < System.currentTimeMillis() - drawnAt) draw() }
     }
+    private companion object { const val FIRST = 12; const val NEXT = 12 }
 }

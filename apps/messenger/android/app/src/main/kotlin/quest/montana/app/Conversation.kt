@@ -236,22 +236,44 @@ object BubblePicture {
         override fun sizeOf(key: String, value: Shot) = value.pic.byteCount + value.blur.byteCount
     })
     private val worker = java.util.concurrent.Executors.newSingleThreadExecutor()
-    private val waiting = HashMap<String, MutableList<(Shot) -> Unit>>()
+    private class Ask(val done: (Shot) -> Unit, val refused: (() -> Unit)?)
+    private val waiting = HashMap<String, MutableList<Ask>>()
     private fun key(f: java.io.File, kind: String, px: Int) = f.path + "@" + f.lastModified() + "@" + kind + "@" + px
     fun kept(f: java.io.File, kind: String, px: Int): Shot? = kept.get(key(f, kind, px))
-    fun load(c: Context, f: java.io.File, kind: String, px: Int, done: (Shot) -> Unit) {
+    fun load(c: Context, f: java.io.File, kind: String, px: Int, refused: (() -> Unit)? = null, done: (Shot) -> Unit) {
         val k = key(f, kind, px)
         kept.get(k)?.let { done(it); return }
         synchronized(waiting) {
-            waiting[k]?.let { it.add(done); return }
-            waiting[k] = mutableListOf(done)
+            waiting[k]?.let { it.add(Ask(done, refused)); return }
+            waiting[k] = mutableListOf(Ask(done, refused))
         }
         worker.execute {
             val shot = Media.preview(c, f, kind, px)?.let { Shot(it, WallPlacer.mirrorBlur(it)) }
             if (shot != null) kept.put(k, shot)
             val all = synchronized(waiting) { waiting.remove(k) } ?: emptyList()
-            if (shot != null) MainThread.post { all.forEach { it(shot) } }
+            MainThread.post { all.forEach { a -> if (shot != null) a.done(shot) else a.refused?.invoke() } }
         }
+    }
+    /**
+     * THE CIRCLE ASKS UNTIL IT WEARS ITS FRAME (iOS MTNoteFrame.wear, atom 3ce81b0e64f9): the decoder refuses while a call or an
+     * encoder holds it, and one refusal left the manifest's small frame on the circle for the bubble's whole life. A refusal is
+     * asked again at a growing pause, one second to thirty; the asking ends at the frame, after five empty answers, or when the
+     * view that asked has left the screen. The small frame stands meanwhile.
+     */
+    fun wear(c: Context, f: java.io.File, kind: String, px: Int, view: View, done: (Shot) -> Unit) {
+        var empty = 0
+        var pause = 1000L
+        fun ask() {
+            load(c, f, kind, px, refused = {
+                empty++
+                android.util.Log.d("Montana", "note_frame refused try=" + empty + " -- the preview stands, the circle asks again")
+                if (empty < 5) {
+                    view.postDelayed({ if (view.isAttachedToWindow) ask() }, pause)
+                    pause = minOf(pause * 2, 30_000L)
+                }
+            }, done = done)
+        }
+        ask()
     }
 }
 
@@ -3759,7 +3781,7 @@ private fun noteBody(c: Context, m: Msg, f: java.io.File?, man: JSONObject?, int
         addView(NoteWindow(c, NoteWindow.cornerOf(man?.optString("rb"))).holding(ImageView(c).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
             if (pic != null) setImageBitmap(pic) else setBackgroundColor(Color.argb(60, 255, 255, 255))
-            if (full == null && f != null) BubblePicture.load(c, f, "vid", 600) { s -> background = null
+            if (full == null && f != null) BubblePicture.wear(c, f, "vid", 600, this) { s -> background = null
                 setImageBitmap(s.pic) }
         }), FrameLayout.LayoutParams(side, side))
         if (f == null && Media.waiting(c, m)) {
