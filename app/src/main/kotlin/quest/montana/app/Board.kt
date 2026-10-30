@@ -1262,7 +1262,6 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
             // with its comments (the cell's own press, onOpenWords). On the post's own page the words stand whole.
             if (!whole) {
                 shown.maxLines = POST_FOLD_LINES
-                shown.ellipsize = android.text.TextUtils.TruncateAt.END
                 val foot = c.hstack {
                     gravity = Gravity.CENTER_VERTICAL or Gravity.END
                     minimumHeight = dp(22)
@@ -1272,11 +1271,22 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
                     addView(c.icon(R.drawable.ic_chevron_right, android.graphics.Color.WHITE).apply { setPadding(dp(4), dp(4), dp(4), dp(4)) }, lp(dp(22), dp(22)))
                 }
                 addView(foot, lp())
+                // THE ELLIPSIS IS CUT BY HAND: a TextView with a movement method (the links' touch) lays no ellipsis of its own, so
+                // the eighth line stood cut with nothing to say more follows (seen on A1, trial 666). A layout that stops before the
+                // words' end folds: its last line takes the ellipsis where it fits, the links' spans kept, and the foot shows.
+                var folded = false
                 shown.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
-                    val l = (v as android.widget.TextView).layout ?: return@addOnLayoutChangeListener
-                    val folds = 0 < l.lineCount && 0 < l.getEllipsisCount(l.lineCount - 1)
-                    val want = if (folds) View.VISIBLE else View.GONE
-                    if (foot.visibility != want) foot.post { foot.visibility = want }
+                    val t = v as android.widget.TextView
+                    val l = t.layout ?: return@addOnLayoutChangeListener
+                    if (folded || l.lineCount < POST_FOLD_LINES || t.text.length <= l.getLineEnd(POST_FOLD_LINES - 1)) return@addOnLayoutChangeListener
+                    folded = true
+                    val start = l.getLineStart(POST_FOLD_LINES - 1)
+                    val last = t.text.subSequence(start, l.getLineEnd(POST_FOLD_LINES - 1)).trimEnd()
+                    val room = l.width.toFloat()
+                    val tail: CharSequence = if (t.paint.measureText(last, 0, last.length) + t.paint.measureText("…") <= room) android.text.SpannableStringBuilder(last).append("…")
+                        else android.text.TextUtils.ellipsize(last, t.paint, room, android.text.TextUtils.TruncateAt.END)
+                    val cut = android.text.SpannableStringBuilder(t.text.subSequence(0, start)).append(tail)
+                    t.post { t.text = cut; foot.visibility = View.VISIBLE }
                 }
             }
         }
