@@ -45,17 +45,17 @@ object Update {
     @Volatile private var busy = false
 
     /**
-     * WHAT THE UPDATE PAGE SHOWS WHILE ITS ROUND RUNS (updateRequiredPage; seen 30.10: a phone at 608 stood under the page and its tap
+     * WHAT THE UPDATE BANNER SHOWS WHILE ITS ROUND RUNS (updateBanner; seen 30.10: a phone at 608 stood under the page and its tap
      * showed nothing -- the share brought rode only in the shade's notice): the share brought 0..100, HANDED to the system's
-     * installer, FAILED (the page offers the tap again and the site's own file). Told on the screen's thread.
+     * installer, FAILED (the banner offers the tap again and the site's own file). Told on the screen's thread.
      */
     const val HANDED = 101
     const val FAILED = -1
     @Volatile var onRound: ((Int) -> Unit)? = null
-    /** The site's newest as the last round read it: the page's road through the browser takes its file (iOS opens release.url). */
+    /** The site's newest as the last round read it: the banner's road through the browser takes its file (iOS opens release.url). */
     @Volatile var lastFile: String? = null
     fun siteFile(): String = SITE + (lastFile ?: "")
-    /** The round's last word, so a page laid anew mid-round shows where it stands (null -- no round has run). */
+    /** The round's last word, so a banner laid anew mid-round shows where it stands (null -- no round has run). */
     @Volatile var lastRound: Int? = null
     private fun round(state: Int) {
         lastRound = state
@@ -85,8 +85,8 @@ object Update {
 
     /**
      * THE UPDATE THAT CANNOT BE PUT OFF (iOS 4befb14a, MTClientRelease.least/core and MTReleaseState.required): latest.json names the
-     * least build the network admits (min) and the level of the core (core); a build below the least sees the update page over
-     * everything (UpdateRequired), at the launch and at every return, kept here so it stands before the site answers. A document
+     * least build the network admits (min) and the level of the core (core); a build below the least sees the update banner over
+     * the screen (updateBanner), at the launch and at every return, kept here so it stands before the site answers. A document
      * without them admits every build.
      */
     class Required(val least: Long, val core: String)
@@ -368,60 +368,74 @@ object Release {
 }
 
 /**
- * THE UPDATE PAGE OVER EVERYTHING (iOS MTUpdateRequired, 4befb14a): a build below the least the network admits sees only this -- the
- * picture, the word, which core needs which build and which this one is, and the one way out, the update's own road (Update.take).
- * MainActivity lays it over the whole window and holds every back while it stands; it leaves only when the least admits this build.
+ * THE UPDATE IS A NOTICE, NOT A WALL (iOS MTUpdateBanner, 829d29f2; the author's word 30.10.2026 17:38 UTC, council link 13412,
+ * replacing the page of 4befb14a): a build below the least the network admits sees this card over the screen's top -- the picture,
+ * the word, which core needs which build and which this one is. A touch on it starts the update's own road (Update.take, where iOS
+ * opens release.url) and the card then stays to show where the round stands (seen 30.10: a phone at 608 saw nothing after its
+ * tap); the cross in its top right corner or a swipe up closes it. MainActivity lays it at the launch and at every return and
+ * takes it away after nine seconds.
  */
-fun updateRequiredPage(act: Activity, r: Update.Required): android.view.View = FrameLayout(act).apply {
-    setBackgroundColor(Color.BLACK)
-    isClickable = true   // nothing under the page is touched
+fun updateBanner(act: Activity, r: Update.Required, onTouched: () -> Unit, onClose: () -> Unit): android.view.View = FrameLayout(act).apply {
     val words = Color.argb(153, 235, 235, 245)   // iOS .secondary (dark)
-    addView(act.vstack {
-        setPadding(act.dp(32), 0, act.dp(32), act.dp(48))
-        addView(android.widget.Space(act), LinearLayout.LayoutParams(1, 0, 1f))
-        addView(act.icon(R.drawable.ic_arrow_down_app, Color.WHITE, 72))
-        addView(act.text(act.getString(R.string.update_required_title), 22f, Color.WHITE, bold = true, center = true),
-            LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = act.dp(20) })
-        addView(act.text(act.getString(R.string.update_required_needs, r.core, r.least, Update.own(act)), 17f, words, center = true),
-            LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = act.dp(20) })
-        addView(act.text(act.getString(R.string.update_required_install), 17f, words, center = true),
-            LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = act.dp(20) })
-        addView(android.widget.Space(act), LinearLayout.LayoutParams(1, 0, 1f))
-        val arrow = FrameLayout(act).apply {
-            addView(act.icon(R.drawable.ic_arrow_circle_down, Color.WHITE, 56), FrameLayout.LayoutParams(act.dp(56), act.dp(56), Gravity.CENTER))
-            contentDescription = act.getString(R.string.update_required_title)
-            setOnClickListener { Update.take(act) }
+    val head = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT)
+    val card = FrameLayout(act).apply {
+        background = act.rounded(GLASS_TONE, 24, Color.argb(46, 255, 255, 255))   // iOS .regularMaterial over the dark ground
+        elevation = act.dp(12).toFloat()
+        contentDescription = act.getString(R.string.update_required_title)
+    }
+    // where the round stands, under the words: the share brought, the installer's turn, or the failure with the site's own file
+    val state = act.text("", 15f, Color.WHITE)
+    val site = act.text(act.getString(R.string.update_required_site), 15f, Color.WHITE).apply {
+        paintFlags = paintFlags or android.graphics.Paint.UNDERLINE_TEXT_FLAG
+        setPadding(0, act.dp(6), act.dp(12), act.dp(6))
+        setOnClickListener {
+            runCatching { act.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(Update.siteFile()))) }
         }
-        addView(arrow, LinearLayout.LayoutParams(act.dp(88), act.dp(88)))
-        // where the round stands, under the arrow: the share brought, the installer's turn, or the failure with the site's own file
-        val state = act.text("", 15f, words, center = true)
-        addView(state, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = act.dp(8) })
-        val site = act.text(act.getString(R.string.update_required_site), 15f, Color.WHITE, center = true).apply {
-            paintFlags = paintFlags or android.graphics.Paint.UNDERLINE_TEXT_FLAG
-            setPadding(act.dp(12), act.dp(12), act.dp(12), act.dp(12))
-            visibility = android.view.View.GONE
-            setOnClickListener {
-                runCatching { act.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(Update.siteFile()))) }
-            }
+    }
+    card.addView(act.hstack {
+        setPadding(act.dp(16), act.dp(14), act.dp(40), act.dp(14))
+        addView(act.icon(R.drawable.ic_arrow_down_app, Color.WHITE, 30))
+        addView(act.vstack(Gravity.START) {
+            addView(act.text(act.getString(R.string.update_required_title), 17f, Color.WHITE, bold = true), head)
+            addView(act.text(act.getString(R.string.update_required_needs, r.core, r.least, Update.own(act)), 15f, words), head)
+            addView(act.text(act.getString(R.string.update_required_install), 15f, words), head)
+            addView(state, head)
+            addView(site, head)
+        }, android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = act.dp(12) })
+    }, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT))
+    card.addView(FrameLayout(act).apply {
+        addView(act.icon(R.drawable.ic_close, words, 13), FrameLayout.LayoutParams(act.dp(13), act.dp(13), Gravity.CENTER))
+        contentDescription = act.getString(R.string.close)
+        setOnClickListener { onClose() }
+    }, FrameLayout.LayoutParams(act.dp(44), act.dp(44), Gravity.TOP or Gravity.END))
+    fun show(r: Int?) {
+        val going = r != null && r != Update.FAILED && r != Update.HANDED
+        card.isEnabled = !going
+        state.text = when {
+            r == null -> ""
+            r == Update.FAILED -> act.getString(R.string.update_failed)
+            r == Update.HANDED -> act.getString(R.string.update_required_installing)
+            else -> act.getString(R.string.update_required_loading, r)
         }
-        addView(site, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-        fun show(r: Int?) {
-            val going = r != null && r != Update.FAILED && r != Update.HANDED
-            arrow.isEnabled = !going
-            arrow.alpha = if (going) 0.35f else 1f
-            state.text = when {
-                r == null -> ""
-                r == Update.FAILED -> act.getString(R.string.update_failed)
-                r == Update.HANDED -> act.getString(R.string.update_required_installing)
-                else -> act.getString(R.string.update_required_loading, r)
-            }
-            site.visibility = if (r == Update.FAILED) android.view.View.VISIBLE else android.view.View.GONE
+        state.visibility = if (r == null) android.view.View.GONE else android.view.View.VISIBLE
+        site.visibility = if (r == Update.FAILED) android.view.View.VISIBLE else android.view.View.GONE
+    }
+    show(Update.lastRound)
+    Update.onRound = { show(it); onTouched() }
+    card.setOnClickListener { onTouched(); Update.take(act) }
+    // a swipe up closes it (iOS DragGesture: up by more than 16)
+    var downY = 0f
+    card.setOnTouchListener { v, e ->
+        when (e.actionMasked) {
+            android.view.MotionEvent.ACTION_DOWN -> { downY = e.rawY; false }
+            android.view.MotionEvent.ACTION_UP -> if (downY - e.rawY > v.dp(16)) { onClose(); true } else false
+            else -> false
         }
-        show(Update.lastRound)
-        Update.onRound = { show(it) }
-    }, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+    }
+    addView(card, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT))
+    clipToPadding = false
     setOnApplyWindowInsetsListener { v, ins ->
-        @Suppress("DEPRECATION") v.setPadding(ins.systemWindowInsetLeft, ins.systemWindowInsetTop, ins.systemWindowInsetRight, ins.systemWindowInsetBottom)
+        @Suppress("DEPRECATION") v.setPadding(ins.systemWindowInsetLeft + v.dp(12), ins.systemWindowInsetTop + v.dp(6), ins.systemWindowInsetRight + v.dp(12), v.dp(24))
         ins
     }
 }

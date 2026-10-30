@@ -442,7 +442,7 @@ class MainActivity : Activity() {
         super.onResume(); CallScreen.front = this; PersonChain.onScreen = true; Thread { PersonChain.prime() }.start(); main.removeCallbacks(boxRound); main.post(boxRound); EarService.start(this)
         if (hasSeed && termsAccepted) Calls.rejoinHeldCall(this)   // the run goes back into the call its process held, once the app faces the person
         if (hasSeed && termsAccepted) ShareSuggest.seed()   // the share sheet offers the chats at once after an update (iOS seedSuggestions)
-        Update.onLeast = { keepUpdateRequired() }; keepUpdateRequired()   // a build below the network's least sees only the update page
+        Update.onLeast = { keepUpdateRequired(again = false) }; keepUpdateRequired()   // a build below the network's least sees the update banner
         Thread { Update.look(applicationContext) }.start()   // a newer build on the site rings its notice (Update)
         if (hasSeed && termsAccepted) Thread { Signal.sweep() }.start()   // every peer's last word, one question (iOS ContentView 471)
         if (hasSeed && termsAccepted) Thread { LiveDraft.sayLinkToAll() }.start()   // the daily link, preloaded to every correspondent (iOS ContentView.swift:472)
@@ -481,34 +481,47 @@ class MainActivity : Activity() {
     }
 
     /**
-     * THE UPDATE THAT CANNOT BE PUT OFF (iOS 4befb14a, the fullScreenCover over RootView): while this build stands below the least the
-     * network admits (Update.required), the update page lies over the whole window and every back is held; laid anew when the
-     * site's word changes its numbers, taken away when the least admits this build.
+     * THE UPDATE IS A NOTICE, NOT A WALL (iOS 829d29f2, .overlay(alignment: .top) { MTUpdateBanner() } over RootView): while this
+     * build stands below the least the network admits (Update.required), the update banner lies over the window's top at the launch,
+     * at every return and whenever the site's word names a new least; it hides by itself after nine seconds (iOS standing), unless
+     * its round is running, or by its cross or a swipe up. Nothing is held: the screen beneath works.
      */
-    private var updatePage: View? = null
-    private var updateHold: android.window.OnBackInvokedCallback? = null
-    private fun keepUpdateRequired() {
-        val decor = window.decorView as android.view.ViewGroup
-        updatePage?.let { decor.removeView(it) }
-        updatePage = null
+    private var updateCard: View? = null
+    private var updateLeast = 0L
+    private val updateHide = Runnable { hideUpdateBanner() }
+    private fun keepUpdateRequired(again: Boolean = true) {
         val r = Update.required(this)
-        if (r == null) {
-            if (Build.VERSION.SDK_INT >= 33) updateHold?.let { onBackInvokedDispatcher.unregisterOnBackInvokedCallback(it) }
-            updateHold = null
-            Update.onRound = null
-            return
-        }
+        if (r == null) { updateLeast = 0L; hideUpdateBanner(); return }
+        if (!again && r.least == updateLeast) return   // the same word read again shows nothing new (iOS onChange of least)
+        updateLeast = r.least
         android.util.Log.d("Montana", "update_required least=" + r.least + " own=" + Update.own(this))
-        keysDown()
-        updatePage = updateRequiredPage(this, r).also { decor.addView(it, android.view.ViewGroup.LayoutParams(-1, -1)); it.requestApplyInsets() }
-        if (Build.VERSION.SDK_INT >= 33 && updateHold == null) updateHold = android.window.OnBackInvokedCallback {}.also {
-            onBackInvokedDispatcher.registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_OVERLAY, it)
-        }
+        val decor = window.decorView as android.view.ViewGroup
+        updateCard?.let { main.removeCallbacks(updateHide); it.animate().cancel(); decor.removeView(it) }
+        val v = updateBanner(this, r, onTouched = { timeUpdateBanner() }, onClose = { hideUpdateBanner() })
+        updateCard = v
+        decor.addView(v, android.widget.FrameLayout.LayoutParams(-1, -2, android.view.Gravity.TOP))
+        v.requestApplyInsets()
+        v.alpha = 0f; v.translationY = -dp(60).toFloat()
+        v.animate().alpha(1f).translationY(0f).setDuration(300).setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+        timeUpdateBanner()
+    }
+    /** Nine seconds from now, unless the round runs: then the banner stands until the round has its last word. */
+    private fun timeUpdateBanner() {
+        main.removeCallbacks(updateHide)
+        val r = Update.lastRound
+        if (r == null || r == Update.FAILED || r == Update.HANDED) main.postDelayed(updateHide, 9_000)
+    }
+    private fun hideUpdateBanner() {
+        main.removeCallbacks(updateHide)
+        val v = updateCard ?: return
+        updateCard = null
+        Update.onRound = null
+        v.animate().alpha(0f).translationY(-v.height.toFloat()).setDuration(250)
+            .withEndAction { (v.parent as? android.view.ViewGroup)?.removeView(v) }.start()
     }
 
     @Deprecated("registerBack's OnBackInvokedCallback takes every system back from API 33; this is the road below it")
     override fun onBackPressed() {
-        if (updatePage != null) return   // the update page holds every back
         val b = back
         if (b != null) b() else drawer?.open()   // the root never leaves the app (commitBack)
     }
