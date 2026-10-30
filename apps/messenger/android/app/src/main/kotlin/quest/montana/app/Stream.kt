@@ -144,6 +144,12 @@ object Streams {
         synchronized(loaders) { return loaders.getOrPut(dest.path) { born } }
     }
 
+    /** A file of a loader still living -- the file, its part or its ledger -- is not a cache's to take (iOS MTStreams.holds). */
+    fun holds(name: String): Boolean {
+        val base = name.removeSuffix(StreamLoader.PART).removeSuffix(StreamLoader.LEDGER)
+        return synchronized(loaders) { loaders.values.any { it.dest.name == base } }
+    }
+
     /** A piece asked ahead of the player, once at a time. */
     fun ahead(l: StreamLoader, i: Int) {
         val k = l.dest.path + "#" + i

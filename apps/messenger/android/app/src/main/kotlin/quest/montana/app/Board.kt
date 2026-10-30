@@ -334,15 +334,21 @@ object Board {
         l.whenWhole { trimLook(); MainThread.post { whole(dest) } }
         return android.net.Uri.parse("content://" + Book.ctx.packageName + ".media/stream/" + dest.name)
     }
-    /** THE FOLDER KEEPS THE LATEST SEEN, BY COUNT AND BY THE DISK THEY TAKE (iOS MTBoardLook.trim, MontanaBoard.swift:2480-2494 at
-     * 2155): a gigabyte and three hundred files at most; the oldest go first. */
+    /**
+     * THE FOLDER KEEPS THE LATEST SEEN, BY COUNT AND BY THE DISK THEY TAKE (iOS MTBoardLook.trim, MontanaBoard.swift:2538-2560 at
+     * 2322): a gigabyte and three hundred files at most; the oldest go first. A FILE A PLAYER READS IS NOT THE TRIM'S (iOS, the
+     * author's word 03.10): a film streamed into this folder lies as a part at its whole length beside its ledger -- a file whose
+     * loader lives (Streams.holds) is neither counted nor taken, and a file counts by the disk it takes, so a part counts only
+     * the pieces laid.
+     */
     private fun trimLook() {
-        val all = lookDir().listFiles()?.sortedBy { it.lastModified() } ?: return
-        var total = all.sumOf { it.length() }
+        val all = lookDir().listFiles()?.filter { !Streams.holds(it.name) }?.sortedBy { it.lastModified() } ?: return
+        fun bytes(f: File) = runCatching { android.system.Os.stat(f.path).st_blocks * 512 }.getOrDefault(f.length())
+        var total = all.sumOf { bytes(it) }
         var count = all.size
         for (f in all) {
             if (count <= LOOK_KEEP && total <= LOOK_BUDGET) break
-            total -= f.length(); count--
+            total -= bytes(f); count--
             f.delete()
         }
     }
