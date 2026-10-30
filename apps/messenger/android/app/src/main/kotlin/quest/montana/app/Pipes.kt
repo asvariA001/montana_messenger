@@ -1515,6 +1515,15 @@ object Post {
         val cw = Wire.convW(secret, Wire.day())
         // a service word asks the node for a silent push (iOS wake: body["silent"]), judged by its words, not by a long letter's reference
         val silent = Marks.isSilent(text0) || quiet
+        // THE LETTER RIDES THE LANE BESIDE THE BOX (iOS MontanaWakePush.wake 1647-1660, atom 2ca7a3200d4d; the author's word 29.09: a
+        // move must be as instant as a word in the chat): while their chat or their board stands on this screen, the very envelope the
+        // box will hold leaves on the lane too and lands at once on a peer whose lane is up; the box stays the road that survives a
+        // sleeping peer, and the receiver buries the box's copy as a repeat. Nothing rides twice to a peer whose chat is closed here.
+        val ref = Wire.reference(secret)
+        if (Signal.onScreen(ref)) Wire.seal(Wire.bodyKey(secret, Wire.minute()), plain)?.let { env ->
+            Log.d("Montana", "lane_letter tx mid=" + mid.take(8) + " to=" + ref.take(10))
+            Signal.postWord(ref, "letter", env)
+        }
         // the elected door first, the next only past its death (iOS 1638)
         for (door in Signal.writeOrder("box")) {
             val env = Wire.seal(Wire.bodyKey(secret, Wire.minute()), plain) ?: return false
