@@ -487,9 +487,7 @@ private fun chatTracks(c: Context, chat: Chat): List<Pair<String, Track>> {
         val name = man.optString("n").ifEmpty { r.file?.let { File(it).name } ?: return@mapNotNull null }
         val uri = r.file?.let(::File)?.takeIf { it.exists() }?.let { android.net.Uri.fromFile(it) } ?: run {
             val dest = Media.file(app, r.mid, man.optString("e"))
-            val l = Streams.loader(dest, man) ?: return@mapNotNull null
-            l.whenWhole { Media.landed(app, chat.ref, r.mid, man, dest, own = r.mine) }
-            android.net.Uri.parse("content://" + app.packageName + ".media/stream/" + dest.name)
+            Streams.address(app, dest, man) { Media.landed(app, chat.ref, r.mid, man, dest, own = r.mine) } ?: return@mapNotNull null
         }
         r.mid to Track(uri, name).apply { length = man.optDouble("du", 0.0) }
     }

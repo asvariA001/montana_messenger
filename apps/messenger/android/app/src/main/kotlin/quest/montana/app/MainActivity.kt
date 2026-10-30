@@ -495,6 +495,7 @@ class MainActivity : Activity() {
         if (r == null) {
             if (Build.VERSION.SDK_INT >= 33) updateHold?.let { onBackInvokedDispatcher.unregisterOnBackInvokedCallback(it) }
             updateHold = null
+            Update.onRound = null
             return
         }
         android.util.Log.d("Montana", "update_required least=" + r.least + " own=" + Update.own(this))

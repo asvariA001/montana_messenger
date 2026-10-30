@@ -564,28 +564,40 @@ object Media {
         return dest.exists()
     }
 
-    /** One piece of a file, opened with its key, or null -- every road tried with its own patience. */
-    fun bring(bid: String, bk: ByteArray, cs: Int): ByteArray? {
+    /**
+     * One piece of a file, opened with its key, or null. WHEN it is asked is the lane's (Lane, iOS MTCargoLane): three pieces in
+     * flight for the whole phone, the one a player waits for first.
+     */
+    fun bring(bid: String, bk: ByteArray, cs: Int, need: Lane.Need = Lane.Need.LOOK): ByteArray? {
+        val sealed = Lane.bring(bid, need) ?: return null
+        return Wire.open(bk, sealed)?.let { if (cs <= it.size) it.copyOf(cs) else it }
+    }
+
+    /** One sealed piece, its name checked against its bytes, or null -- every road tried with its own patience (iOS bringChunk). */
+    fun fetch(bid: String): ByteArray? {
         // A PIECE OF ONE'S OWN NODE IS ASKED THERE AND ONLY THERE (iOS bringChunk, 6f24f091): the book names it (HomeBook);
         // the doors never carried it, and they never hear its name
         if (HomeBook.holds(bid)) {
             val sealed = Blobs.get(bid) ?: HomeShelf.get(bid)?.also { Blobs.put(bid, it) }
             if (sealed == null || Wire.hex(Wire.sha(sealed)) != bid) { Log.i("Montana", "home_get FAIL id=" + bid.take(8) + " -- your node did not give it"); return null }
-            return Wire.open(bk, sealed)?.let { if (cs <= it.size) it.copyOf(cs) else it }
+            return sealed
         }
         // ONE PIECE WITH THE DOORS' OWN PATIENCE (iOS bringChunk, MontanaWakePush 2458-2487; atom aeabdc576605): a busy door is
         // waited for on a growing pause (0.7 s doubling, six tries); a silent road gets three quick tries; neither is «gone»
         var silentTries = 0; var busyTries = 0
         while (silentTries < 3 && busyTries < 6) {
+            // an answer can finish exactly as a call begins: every retry stands behind the call (iOS bringChunk, MontanaCall.isBusy)
+            var held = false
+            while (Calls.busy()) {
+                if (!held) { held = true; Log.d("Montana", "blob_dl held=call id=" + bid.take(8)) }
+                Thread.sleep(1000)
+            }
             // a piece a neighbour brought ahead of its manifest is assembled from this phone's own store (iOS MontanaBlobStore)
             val near = Blobs.get(bid)
             if (near == null && Wire.isGone(bid)) break   // every door called it gone: asked once, not every opening of the chat (iOS 2438)
             val busy = BooleanArray(1)
             val sealed = near ?: Wire.getChunk(bid, busy)
-            if (sealed != null && Wire.hex(Wire.sha(sealed)) == bid) {   // the name is the bytes: integrity
-                val piece = Wire.open(bk, sealed)?.let { if (cs <= it.size) it.copyOf(cs) else it }
-                if (piece != null) return piece
-            }
+            if (sealed != null && Wire.hex(Wire.sha(sealed)) == bid) return sealed   // the name is the bytes: integrity
             if (Wire.isGone(bid)) break
             if (busy[0]) {
                 val pause = 700L shl busyTries

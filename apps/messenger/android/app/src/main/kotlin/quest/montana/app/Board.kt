@@ -326,13 +326,14 @@ object Board {
      * through its one loader (Streams) in the look's folder, the address the app's own door reads it by; [whole] is told once the
      * last piece lies, the file then standing where a look's copy does.
      */
-    fun stream(m: JSONObject, pid: String, i: Int, whole: (File) -> Unit = {}): android.net.Uri? {
+    fun stream(wall: String, m: JSONObject, pid: String, i: Int, whole: (File) -> Unit = {}): android.net.Uri? {
         val chunks = m.optJSONArray("chunks")
         if (chunks == null || chunks.length() == 0 || !plain(pid)) return null
         val dest = File(lookDir(), fileName(pid, i, m.optString("ext")))
-        val l = Streams.loader(dest, JSONObject().put("bk", m.optString("key")).put("chunks", chunks)) ?: return null
-        l.whenWhole { trimLook(); MainThread.post { whole(dest) } }
-        return android.net.Uri.parse("content://" + Book.ctx.packageName + ".media/stream/" + dest.name)
+        // a piece every door calls gone is said to the wall's owner, whose phone lays the post's files again (iOS MTStreamSource.post)
+        return Streams.address(Book.ctx, dest, JSONObject().put("bk", m.optString("key")).put("chunks", chunks), gone = { reportGone(wall, pid) }) {
+            trimLook(); MainThread.post { whole(dest) }
+        }
     }
     /**
      * THE FOLDER KEEPS THE LATEST SEEN, BY COUNT AND BY THE DISK THEY TAKE (iOS MTBoardLook.trim, MontanaBoard.swift:2538-2560 at
@@ -1357,7 +1358,7 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
                 else Thread { Media.preview(c, f, kind, 1600)?.let { b -> wallSharp.put(f.path, b); MainThread.post { sharp = true; tile.setImageBitmap(b) } } }.start()
             }
             Board.bring(m, p.optString("id"), i) { f -> clip?.file = f; sharpen(f) }
-            clip?.stream = { Board.stream(m, p.optString("id"), i) { f -> clip?.file = f; sharpen(f) } }
+            clip?.stream = { Board.stream(it.wall, m, p.optString("id"), i) { f -> clip?.file = f; sharpen(f) } }
         }
         // THE TRACKS AND THE FILES AS ROWS, UNDER THE PICTURES (iOS MTBoardMediaView, MontanaBoardViews.swift:657-667, 718-720 at 2155):
         // a track in the one player's face, any other file as its row
@@ -1502,7 +1503,7 @@ private fun openTile(act: MainActivity, wall: String, p: JSONObject, i: Int, inF
     val m = p.optJSONArray("media")?.optJSONObject(i)
     if (kind == "vid" && m != null && Board.here(p, i) == null) {
         val later = Board.fileOf(p, i)?.let { File(Board.lookIn(act), it) }
-        if (later != null) Board.stream(m, p.optString("id"), i) { Thread { Board.file(wall, p, i) }.start() }?.let { FilmActivity.openStream(act, it, later); return }
+        if (later != null) Board.stream(wall, m, p.optString("id"), i) { Thread { Board.file(wall, p, i) }.start() }?.let { FilmActivity.openStream(act, it, later); return }
     }
     Thread {
         val f = Board.file(wall, p, i) ?: return@Thread
@@ -1750,7 +1751,7 @@ private fun shownFilm(act: MainActivity, s: Shown, active: Boolean): View {
     // A FILM NOT YET HERE PLAYS FROM ITS FIRST PIECES (iOS MTBoardMediaPage, MontanaBoardViews.swift:3450-3455 at 2322): through the
     // file's one loader, shared with the feed's tile; once whole, the touch's road keeps it (Board.file -- this phone becomes its peer)
     val here = Board.here(s.post, s.i)
-    val uri = if (here != null) null else Board.stream(s.media, s.post.optString("id"), s.i) { Thread { Board.file(s.wall, s.post, s.i) }.start() }
+    val uri = if (here != null) null else Board.stream(s.wall, s.media, s.post.optString("id"), s.i) { Thread { Board.file(s.wall, s.post, s.i) }.start() }
     if (here != null || uri != null) { play(here, uri); return box }
     Thread {
         val f = Board.file(s.wall, s.post, s.i)
@@ -1920,7 +1921,7 @@ private fun playTrack(act: MainActivity, wall: String, p: JSONObject, i: Int, in
                 if (!once.add(nj)) continue
                 val touched = nj == name
                 val uri = Board.here(item.post, j)?.let { android.net.Uri.fromFile(it) }
-                    ?: Board.stream(mj, id, j) { if (touched) Thread { Board.file(item.wall, item.post, j) }.start() } ?: continue
+                    ?: Board.stream(item.wall, mj, id, j) { if (touched) Thread { Board.file(item.wall, item.post, j) }.start() } ?: continue
                 out.add(Track(uri, mj.optString("name").ifEmpty { nj }).apply { length = mj.optDouble("dur", 0.0) })
             }
         }
