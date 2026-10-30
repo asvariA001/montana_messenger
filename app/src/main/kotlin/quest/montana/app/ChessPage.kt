@@ -401,7 +401,7 @@ fun chessBoardPage(act: MainActivity, ref: String, game0: String, inChat: Boolea
                     addView(c.hstack {
                         gravity = Gravity.CENTER
                         if (g.status == ChessGame.Status.INVITED) {
-                            if (!g.whiteIsMine && !short) addView(c.barMark(R.drawable.ic_check, R.string.chess_accept_invitation) { send(ChessLetter.ACCEPT) }, lp(c.dp(44), c.dp(44)))
+                            if (!g.whiteIsMine) addView(c.barMark(R.drawable.ic_check, R.string.chess_accept_invitation) { send(ChessLetter.ACCEPT) }, lp(c.dp(44), c.dp(44)))
                             addView(c.barMark(R.drawable.ic_close, if (g.whiteIsMine) R.string.chess_withdraw else R.string.chess_decline_invitation) { send(ChessLetter.DECLINE) }, lp(c.dp(44), c.dp(44)))
                         } else if (g.status.finished && pairOver) addView(c.barMark(R.drawable.ic_plus, R.string.chess_new_game) { again(g) }, lp(c.dp(44), c.dp(44)))
                         alpha = if (live()) 1f else 0.4f
