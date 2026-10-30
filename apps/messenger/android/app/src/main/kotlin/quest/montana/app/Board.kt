@@ -884,9 +884,9 @@ object Board {
     }
 
     /**
-     * A COMMENT (iOS comment): sealed into the post's chain after the last seal this phone holds, sent to the wall's owner with
-     * one coin when the book holds one (the author's words 04.10 02:50: four of five burn, the fifth to the post's writer), and
-     * shown here at once as my own; the wall is asked again so the owner's page brings every comment.
+     * A COMMENT (iOS comment): sealed into the post's chain after the last seal this phone holds, sent to the wall's owner — it
+     * costs no coin and brings none (iOS 0e183aff, decision 383 «a», build 2322: nothing leaves the book) — and shown here at once
+     * as my own; the wall is asked again so the owner's page brings every comment.
      */
     fun comment(wall: String, p: JSONObject, text: String) {
         if (WallGlobal.isRef(wall)) return   // a post of the table answers nobody (iOS 18.10)
@@ -901,12 +901,9 @@ object Board {
         val prev = post(wall, id)?.optJSONArray("comments")?.let { cs -> cs.optJSONObject(cs.length() - 1)?.optString("h")?.takeIf { it.isNotEmpty() } } ?: ZERO_HASH
         val h = seal(cid, at, prev, t)
         val face = commentFace()
-        val r = java.util.UUID.randomUUID().toString().uppercase()
-        val paid = CoinBook.spend(1L, "post:" + id, wall, "cmt:" + r)
         val w = JSONObject().put("t", "cmt").put("id", id).put("at", at).put("tx", t).put("bn", name).put("bg", glyph)
             .put("cid", cid).put("hh", h).put("pv", prev)
         if (face != null) w.put("fc", face)
-        if (paid) w.put("c", 1).put("r", r)
         if (!send(wall, w)) return
         synchronized(lock) { askedAt[wall] = System.currentTimeMillis() }
         send(wall, JSONObject().put("t", "ask"))   // iOS askAfterAct: the owner answers with the page as it stands
@@ -1253,11 +1250,45 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
         if (field != null) { gap(10); addView(field, lp()) }
         else if (words.isNotEmpty()) {
             gap(10)
-            addView(c.text(linkedWords(words) { u -> act.openLink(u.toString()) }, 16f).apply {
+            val shown = c.text(linkedWords(words) { u -> act.openLink(u.toString()) }, 16f).apply {
                 setTextIsSelectable(false)
                 movementMethod = android.text.method.LinkMovementMethod.getInstance()
                 setLinkTextColor(MT.blue)
-            }, lp())
+            }
+            addView(shown, lp())
+            // ONLY POSTS FOLD (iOS MTPostFold, MTMessageText.swift:267-294 at 2316; MTPostTextView 2955-2980; atoms 29b6ebf37967,
+            // b207add12856): off its own page a post's words stand at eight lines, the last cut with an ellipsis, and under them
+            // «Show in full» in the platform's blue with the chevron at the right; a touch anywhere but a link opens the post whole
+            // with its comments (the cell's own press, onOpenWords). On the post's own page the words stand whole.
+            if (!whole) {
+                shown.maxLines = POST_FOLD_LINES
+                val foot = c.hstack {
+                    gravity = Gravity.CENTER_VERTICAL or Gravity.END
+                    minimumHeight = dp(22)
+                    visibility = View.GONE
+                    addView(c.text(c.getString(R.string.wall_show_in_full), 16f, MT.blue).apply { gravity = Gravity.END }, lp(0, WRAP, 1f))
+                    gap(6)
+                    addView(c.icon(R.drawable.ic_chevron_right, android.graphics.Color.WHITE).apply { setPadding(dp(4), dp(4), dp(4), dp(4)) }, lp(dp(22), dp(22)))
+                }
+                addView(foot, lp())
+                // THE ELLIPSIS IS CUT BY HAND: a TextView with a movement method (the links' touch) lays no ellipsis of its own, so
+                // the eighth line stood cut with nothing to say more follows (seen on A1, trial 666). A layout that stops before the
+                // words' end folds: its last line takes the ellipsis where it fits, the links' spans kept, and the foot shows.
+                var folded = false
+                shown.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
+                    val t = v as android.widget.TextView
+                    val l = t.layout ?: return@addOnLayoutChangeListener
+                    if (folded || l.lineCount < POST_FOLD_LINES || t.text.length <= l.getLineEnd(POST_FOLD_LINES - 1)) return@addOnLayoutChangeListener
+                    folded = true
+                    val start = l.getLineStart(POST_FOLD_LINES - 1)
+                    val last = t.text.subSequence(start, l.getLineEnd(POST_FOLD_LINES - 1)).trimEnd()
+                    val room = l.width.toFloat()
+                    val tail: CharSequence = if (t.paint.measureText(last, 0, last.length) + t.paint.measureText("…") <= room) android.text.SpannableStringBuilder(last).append("…")
+                        else android.text.TextUtils.ellipsize(last, t.paint, room, android.text.TextUtils.TruncateAt.END)
+                    val cut = android.text.SpannableStringBuilder(t.text.subSequence(0, start)).append(tail)
+                    t.post { t.text = cut; foot.visibility = View.VISIBLE }
+                }
+            }
         }
         // A LINK THE POST'S WRITER READ RIDES WITH THE POST (iOS MTWallLink, MontanaBoardViews.swift:544 at 2155, atom 5a84afb1f68f):
         // the picture its writer's own read brought, the site and the title under it.
@@ -1493,6 +1524,8 @@ private fun shownAll(wall: String, p: JSONObject, i: Int, inFeed: Boolean): List
 }
 
 private const val ZOOM_TAG = "wall_zoom"
+/** The post preview keeps its eight-line limit (iOS MTPostFold.foldLines). */
+private const val POST_FOLD_LINES = 8
 /** A few screens of pictures at their own pixels, kept by their cost (iOS MTBoardShownPicture.cache, MontanaBoardViews.swift:3141-3142). */
 private val wallShown = Caches.kept("wall_shown", object : android.util.LruCache<String, Bitmap>(48_000_000) { override fun sizeOf(key: String, value: Bitmap) = value.byteCount })
 

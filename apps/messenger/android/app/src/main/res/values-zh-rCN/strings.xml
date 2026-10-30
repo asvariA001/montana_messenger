@@ -336,6 +336,7 @@
     <string name="pe_note">备注</string>
     <string name="pe_restore_photo">恢复原始照片</string>
     <!-- the chat's ground (iOS MTWallpaperPicker) -->
+    <string name="wall_show_in_full">显示全文</string>
     <string name="wall_tab_ready">壁纸</string>
     <string name="wall_tab_photos">照片</string>
     <string name="wall_same_as_page">与我的页面相同</string>
@@ -505,7 +506,6 @@
     <string name="chess_no_clock">不限时</string>
     <string name="chess_you_white">你执白棋</string>
     <string name="chess_you_black">你执黑棋</string>
-    <string name="chess_stake">赌注 %1$s</string>
     <string name="chess_score">胜 %1$d · 负 %2$d · 和 %3$d</string>
     <string name="chess_accept_draw">同意和棋</string>
     <string name="chess_move_failed">无法发送走棋</string>
@@ -513,8 +513,6 @@
     <string name="chess_cancel">取消</string>
     <string name="chess_white_clock">白方用时</string>
     <string name="chess_black_clock">黑方用时</string>
-    <string name="chess_pot">奖池：%1$s</string>
-    <string name="chess_stake_short">金币不足以支付赌注</string>
     <string name="chess_accept_invitation">接受邀请</string>
     <string name="chess_withdraw">撤回邀请</string>
     <string name="chess_decline_invitation">拒绝邀请</string>
@@ -544,11 +542,8 @@
     <string name="chess_time_control">时间限制</string>
     <string name="chess_invite_correspondent">邀请联系人</string>
     <string name="chess_no_correspondents">未找到联系人</string>
-    <string name="chess_stake_field">赌注</string>
     <string name="chess_ask_new">开始新对局？</string>
-    <string name="coin_balance_line">%1$s 枚硬币</string>
     <string name="chess_invite_failed">无法发送邀请</string>
-    <string name="chess_pot_footer">双方将赌注放入对局奖池，每走一步都会按走棋者的等级乘以一千铸币放入奖池。胜者拿走整个奖池；和棋时各自取回自己的部分。</string>
     <string name="chess_accept">接受</string>
     <string name="chess_decline">拒绝</string>
     <string name="wall_comments">评论</string>

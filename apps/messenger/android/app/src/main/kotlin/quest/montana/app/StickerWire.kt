@@ -156,10 +156,13 @@ object StickerWire {
      * The passport of a sticker letter of my set, sent right behind it under the SAME name the picture rides (iOS sendPassport).
      * A group's passport rides the group's own word «sp» and names no address (Groups.carryPassport).
      */
-    fun sendPassport(ref: String, letter: String, bytes: ByteArray) {
+    fun sendPassport(ref: String, letter: String, bytes: ByteArray, quote: Pair<String, String>? = null) {
         if (ref.isEmpty() || letter.isEmpty()) return
         val w = JSONObject().put("t", "id").put("m", StickerBook.bare(letter)).put("p", StickerBook.mineId)
             .put("s", StickerBook.stickerId(bytes)).put("n", "Montana").put("c", Stickers.names(Book.ctx).size)
+        // THE QUOTE OF A STICKER RIDES HERE (iOS sendPassport rq/rm, MontanaStickerWire.swift:41-43 at 2316): the picture road
+        // carries no reply, so the letter it answers is named in its passport and the receiver's row grows the plate
+        quote?.takeIf { it.first.isNotEmpty() }?.let { (q, m) -> w.put("rq", q).put("rm", StickerBook.bare(m)) }
         if (Groups.isKey(ref)) { Groups.carryPassport(ref, StickerBook.bare(letter), w.toString()); return }
         MontanaSeed.twin?.let { w.put("o", it) }
         send(ref, w)
@@ -197,8 +200,21 @@ object StickerWire {
         Post.send(ref, Marks.mintMid(), MARK + w.toString(), quiet = true)
     }
 
-    /** A word of a set arrived (iOS handle): read here, never a row. `from` is the pipe it came by — the giver when it names none. */
-    fun handle(text: String, from: String) {
+    /**
+     * A LATE QUOTE SETTLES ON ITS ROW (iOS enrichQuote, MontanaChatStore.swift:2151-2157 at 2316): a sticker letter's passport names
+     * the letter it answers; the row takes it when it has none -- whichever of the two, the passport or the picture, came last.
+     */
+    fun enrich(chat: String, letter: String) {
+        val port = StickerBook.passport(letter)?.takeIf { it.quote.isNotEmpty() } ?: return
+        val mid = StickerBook.bare(letter)
+        if (Book.chat(chat)?.msgs?.any { it.mid == mid && it.qt == null } != true) return
+        Book.edit(chat) { ch -> ch.msgs.find { it.mid == mid && it.qt == null }?.let { it.qt = port.quote; it.qm = port.quoteMid.ifEmpty { null } } }
+        Log.d("Montana", "quote_enriched mid=" + mid.take(8))
+    }
+
+    /** A word of a set arrived (iOS handle): read here, never a row. `from` is the pipe it came by — the giver when it names none;
+     *  `chat` the feed its letter stands in (a group's key when the group carried it). */
+    fun handle(text: String, from: String, chat: String = from) {
         val o = runCatching { JSONObject(text.removePrefix(MARK)) }.getOrNull() ?: return
         when (o.optString("t")) {
             "id" -> {
@@ -210,6 +226,7 @@ object StickerWire {
                     o.optString("rq"), o.optString("rm")), letter)
                 if (!StickerBook.holds(pack)) StickerBook.meet(pack, title, owner, o.optInt("c"))
                 StickerBook.note(owner, pack)
+                enrich(chat, letter)   // the letter may already stand: its plate grows here
                 Log.d("Montana", "sticker_wire passport in letter=" + letter.take(12))
             }
             "ask" -> o.optString("p").takeIf { it.isNotEmpty() }?.let { answer(it, from) }

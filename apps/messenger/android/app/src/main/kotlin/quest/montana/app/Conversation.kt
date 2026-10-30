@@ -2032,7 +2032,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     // «SEARCH» OF THE GROUP'S PAGE (iOS perform(.search), MontanaPeerInfoScreen.swift:634-639): the page goes down to its chat and asks it
     val openPage = { hideKeys(); act.push { close -> if (group) groupPage(act, ref, close, pageLanding, onSearch = { close(); openSearch() }) else peerInfoPage(act, ref, close, pageLanding) } }
     // THE CHESS MARK'S TAP (iOS chessMark 1975-1986): an invitation waiting for my answer is answered in the feed, a played game opens
-    // its board; with none the platform's question asks for a new game and takes the stake under the balance (iOS 2054-2067)
+    // its board; with none the platform's question asks for a new game — no stake and no balance (iOS 480cd898)
     fun chessTap() {
         val id = playedGame()
         if (id != null && ChessSend.awaitsMe(ref, id)) {
@@ -2040,18 +2040,11 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             if (invite != null) { jumpHere(invite.mid); return }
         }
         if (id != null) { act.push { chessBoardPage(act, ref, id, true, it) }; return }
-        val field = EditText(c).apply { inputType = android.text.InputType.TYPE_CLASS_NUMBER; hint = c.getString(R.string.chess_stake_field) }
-        val box = FrameLayout(c).apply { setPadding(c.dp(20), 0, c.dp(20), 0); addView(field, FrameLayout.LayoutParams(MATCH, WRAP)) }
         AlertDialog.Builder(c)
             .setTitle(R.string.chess_ask_new)
-            .setMessage(c.getString(R.string.coin_balance_line, CoinText.count(CoinBook.balance)))   // USER-DATA: the balance
-            .setView(box)
             .setPositiveButton(R.string.chess_new_game) { _, _ ->
-                val stake = field.text.toString().filter { it.isDigit() }.take(13).toLongOrNull() ?: 0L
-                val game = ChessSend.invite(c, ref, ChessSend.CHAT_CLOCK, stake)
+                val game = ChessSend.invite(c, ref, ChessSend.CHAT_CLOCK)
                 if (game != null) act.push { chessBoardPage(act, ref, game, true, it) }
-                else if (0L < stake) AlertDialog.Builder(c).setTitle(R.string.coin_not_enough).setMessage(R.string.coin_not_enough_sub)
-                    .setPositiveButton(R.string.ok, null).show()
             }
             .setNegativeButton(R.string.cancel, null)
             .show()
@@ -2412,6 +2405,8 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             if (panelWas && !panel.up) { hold = minOf(panel.host.layoutParams.height, imeCover); ridePlace() }
             insets
         }
+        // a sticker sent from the panel answers the letter the plate holds, and the plate goes (Stickers.answering)
+        val takeAnswer: (String) -> Msg? = { r -> if (r != ref || editing != null) null else replyTo.also { if (it != null) { replyTo = null; showStrip() } } }
         val sayRefusal: (String) -> Unit = { why -> AlertDialog.Builder(c).setMessage(why).setPositiveButton(android.R.string.ok, null).show() }
         addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
             override fun onViewAttachedToWindow(v: View) {
@@ -2420,6 +2415,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 // WHAT THE GROUP REFUSED IS SAID HERE (iOS groupRefusal's alert): the reference's sentence, the field left as it was
                 if (group) Groups.refused = sayRefusal
                 ShowLetter.open = showLetter
+                Stickers.answering = takeAnswer
                 // the banner's road measured (iOS chat_open why=banner ms=…, 4b49d03f071b): from the tap to the chat standing
                 if (Notify.tappedAt != 0L) {
                     val t0 = Notify.tappedAt
@@ -2449,6 +2445,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 // behind a closed chat rolled on and the next one was refused. The recorder's own page lies over the chat, so it
                 // never detaches it; with nothing held the cancel does nothing.
                 if (VoicePlayer.endedAtEar === earHook) VoicePlayer.endedAtEar = null
+                if (Stickers.answering === takeAnswer) Stickers.answering = null
                 endEarReply()
                 bar.cancelRecording()
                 VoiceTape.standDown()   // a tape readied by a hold that never began goes with the chat (iOS MontanaConversation.swift:1667)
@@ -2740,7 +2737,7 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                     addView(View(c).apply { setBackgroundColor(quoteInk) }, lp(dp(2), MATCH).apply { marginEnd = dp(6) })
                     addView(c.vstack(Gravity.NO_GRAVITY) {
                         addView(c.text(if (whose?.mine == true) Prefs.userName.ifBlank { "·" } else if (Groups.isKey(chat.ref)) Groups.speakerName(c, whose?.from) else chat.shown.ifBlank { c.getString(R.string.peer) }, 13f, quoteInk, bold = true))
-                        addView(c.text(m.qt, 13f, BubbleStyle.time(mine)).apply { maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END; maxWidth = dp(240) })   // USER-DATA
+                        addView(c.text(m.qt ?: "", 13f, BubbleStyle.time(mine)).apply { maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END; maxWidth = dp(240) })   // USER-DATA
                     })
                 }, lp(WRAP, WRAP).apply { bottomMargin = dp(4) })
             }
