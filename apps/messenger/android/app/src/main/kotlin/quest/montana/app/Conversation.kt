@@ -387,7 +387,7 @@ object Notify {
      * person's. The face is the chat's own file (Book.shownFace -- a group's lives under its key), drawn round; none -- no picture,
      * and no letter in a circle (iOS left the gold letter for the bare banner).
      */
-    private fun faceOf(ref: String): android.graphics.Bitmap? = runCatching {
+    fun faceOf(ref: String): android.graphics.Bitmap? = runCatching {
         val f = Book.shownFace(ref).takeIf { it.exists() } ?: return null
         val o = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
         android.graphics.BitmapFactory.decodeFile(f.path, o)
@@ -456,6 +456,7 @@ object Notify {
     /** The conversation left this device: every banner it named goes, the pins' and the keeper's too, and its alias with them. */
     fun forget(ref: String) {
         clear(ref)
+        ShareSuggest.forget(ref)   // the share sheet no longer offers it (iOS forgetSuggestions), named by the alias about to go
         val gone = (NoticeAlias.forget(ref) + ref).toSet()
         val nm = Book.ctx.getSystemService(NotificationManager::class.java) ?: return
         runCatching { nm.activeNotifications }.getOrNull()?.forEach { s ->

@@ -221,6 +221,7 @@ class MainActivity : Activity() {
                 // «Forget this device» (iOS: Privacy): first the archive seals what the words can reopen — every head, name and face
                 // (iOS sealForForget) — then the seed and everything of the person leave; the sealed history stays for the 24 words.
                 Archive.sealForForget {
+                    ShareSuggest.forgetAll(this)   // the share sheet's suggestions of the departed person go with them
                     MontanaSeed.clear(); Archive.forgetKeys(); Prefs.forgetPerson(); SelfFace.clear(this); SavedMessages.forget(this)
                     MontanaHomeNode.forget(this); MontanaBackup.forget(this); MontanaCard.forget(); Book.wipe()
                     MontanaBackupID.withdraw(this)   // a record a build before wrote leaves the account
@@ -440,6 +441,7 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume(); CallScreen.front = this; PersonChain.onScreen = true; Thread { PersonChain.prime() }.start(); main.removeCallbacks(boxRound); main.post(boxRound); EarService.start(this)
         if (hasSeed && termsAccepted) Calls.rejoinHeldCall(this)   // the run goes back into the call its process held, once the app faces the person
+        if (hasSeed && termsAccepted) ShareSuggest.seed()   // the share sheet offers the chats at once after an update (iOS seedSuggestions)
         Update.onLeast = { keepUpdateRequired() }; keepUpdateRequired()   // a build below the network's least sees only the update page
         Thread { Update.look(applicationContext) }.start()   // a newer build on the site rings its notice (Update)
         if (hasSeed && termsAccepted) Thread { Signal.sweep() }.start()   // every peer's last word, one question (iOS ContentView 471)
