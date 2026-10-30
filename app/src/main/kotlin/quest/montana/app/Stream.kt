@@ -32,6 +32,7 @@ class StreamLoader(val dest: File, private val key: ByteArray, private val bids:
     @Volatile private var body: File = part
     @Volatile var whole = false; private set
     private val onWhole = ArrayList<() -> Unit>()
+    private val onGone = ArrayList<() -> Unit>()
 
     init {
         val led = runCatching { ledger.readBytes() }.getOrNull()
@@ -56,6 +57,9 @@ class StreamLoader(val dest: File, private val key: ByteArray, private val bids:
         if (now) f()
     }
 
+    /** Told when a piece is gone at every door -- the player alone would stand at 0:00 for good (iOS MTStreamSource.post). */
+    fun whenGone(f: () -> Unit) = synchronized(onGone) { onGone.add(f) }
+
     /**
      * Piece [i] of the file: from the part when it lies there, else brought now (one bring per piece, whoever asks). [need] is
      * the asker's place in the lane: a player waiting for the piece lifts the ask another reader already stands in.
@@ -67,7 +71,12 @@ class StreamLoader(val dest: File, private val key: ByteArray, private val bids:
             if (have[i] == 1.toByte()) read(i)?.let { return it }
             val t0 = System.currentTimeMillis()
             val plain = Media.bring(bids[i], key, sizes[i], need)
-            if (plain == null) { Log.i("Montana", "stream_piece FAIL i=" + i + " of " + count + " name=" + dest.name.take(20)); return null }
+            if (plain == null) {
+                val gone = Wire.isGone(bids[i])
+                Log.i("Montana", "stream_piece FAIL i=" + i + " of " + count + " name=" + dest.name.take(20) + " why=" + (if (gone) "gone" else "unreachable"))
+                if (gone) synchronized(onGone) { ArrayList(onGone) }.forEach { runCatching { it() } }
+                return null
+            }
             val all = synchronized(this) {
                 runCatching { RandomAccessFile(part, "rw").use { it.seek(starts[i]); it.write(plain) } }.getOrElse { return plain }
                 have[i] = 1
@@ -228,7 +237,10 @@ object Streams {
     private val asked = HashSet<String>()
 
     /** A file a player MAY read: its manifest and who is told when it is whole -- no loader yet (iOS MTStreamSource). */
-    private class Source(val dest: File, val man: JSONObject, val whole: () -> Unit) { val told = java.util.concurrent.atomic.AtomicBoolean() }
+    private class Source(val dest: File, val man: JSONObject, val whole: () -> Unit, val gone: () -> Unit) {
+        val told = java.util.concurrent.atomic.AtomicBoolean()
+        var hooked: StreamLoader? = null
+    }
     private const val SOURCES = 1024
     private val sources = object : LinkedHashMap<String, Source>(16, 0.75f, true) {
         override fun removeEldestEntry(e: MutableMap.MutableEntry<String, Source>) = SOURCES < size
@@ -237,11 +249,11 @@ object Streams {
     /**
      * THE ADDRESS A PLAYER READS [dest] BY BEFORE IT IS WHOLE (iOS MTStreamSource.url): only the manifest is kept here; the loader is
      * born when the player first reads, so a queue of fifty tracks does not push the playing one's loader out of the last 32.
-     * [whole] is told once, when the last piece lies. Null -- a manifest without pieces.
+     * [whole] is told once, when the last piece lies; [gone], when a piece is gone at every door. Null -- a manifest without pieces.
      */
-    fun address(c: Context, dest: File, man: JSONObject, whole: () -> Unit = {}): Uri? {
+    fun address(c: Context, dest: File, man: JSONObject, gone: () -> Unit = {}, whole: () -> Unit = {}): Uri? {
         if (man.optString("bk").isEmpty() || (man.optJSONArray("chunks")?.length() ?: 0) == 0) return null
-        synchronized(sources) { sources[dest.name] = Source(dest, man, whole) }
+        synchronized(sources) { sources[dest.name] = Source(dest, man, whole, gone) }
         return Uri.parse("content://${c.packageName}.media/stream/${dest.name}")
     }
 
@@ -298,7 +310,10 @@ object Streams {
         val src = synchronized(sources) { sources[name] }
         val l = synchronized(loaders) { loaders.values.firstOrNull { it.dest.name == name } }
             ?: src?.let { loader(it.dest, it.man) } ?: return null
-        if (src != null) l.whenWhole { if (src.told.compareAndSet(false, true)) src.whole() }
+        if (src != null && synchronized(sources) { (src.hooked !== l).also { src.hooked = l } }) {
+            l.whenWhole { if (src.told.compareAndSet(false, true)) src.whole() }
+            l.whenGone(src.gone)
+        }
         val t = HandlerThread("montana.stream").apply { start() }
         return runCatching {
             c.getSystemService(StorageManager::class.java).openProxyFileDescriptor(ParcelFileDescriptor.MODE_READ_ONLY, object : ProxyFileDescriptorCallback() {
