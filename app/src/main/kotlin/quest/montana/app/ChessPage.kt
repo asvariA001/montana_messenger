@@ -536,8 +536,10 @@ fun chessBoardPage(act: MainActivity, ref: String, game0: String, inChat: Boolea
     }
     val heard: () -> Unit = { reload() }
     page.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
-        override fun onViewAttachedToWindow(v: View) { ChessSend.shownGame = gameId; Book.listen(heard); reload(); main.post(ticker) }
-        override fun onViewDetachedFromWindow(v: View) { if (ChessSend.shownGame == gameId) ChessSend.shownGame = null; Book.unlisten(heard); main.removeCallbacks(ticker) }
+        // THE BOARD HOLDS ITS OWN LANE (iOS startBoardPolling/stopBoardPolling, 29.09): the chat's farewell under the pushed board took
+        // the hold with it, and the correspondent's move rode the box; while the board stands its moves ride the lane both ways
+        override fun onViewAttachedToWindow(v: View) { ChessSend.shownGame = gameId; Book.listen(heard); reload(); main.post(ticker); Signal.hold(ref, "board") }
+        override fun onViewDetachedFromWindow(v: View) { if (ChessSend.shownGame == gameId) ChessSend.shownGame = null; Book.unlisten(heard); main.removeCallbacks(ticker); Signal.release(ref, "board") }
     })
     return page
 }
