@@ -1309,6 +1309,8 @@ object Post {
             red?.let { CoinSend.hold(it, chat) }
             return
         }
+        // the chat a person writes to is offered in the share sheet, once a day (iOS enqueue's loud branch → MontanaNotify.suggest)
+        if (!Marks.isService(text) || text.startsWith(Marks.MEDIA) || text.startsWith(Marks.VOICE) || text.startsWith(Marks.STICKER)) ShareSuggest.suggest(SamePair.root(to))
         // THE TWIN MIRROR (iOS enqueue, MontanaDeliveryEngine.swift:963-972): what the person sends rides to the seed's other devices
         // under its name; a receipt and a read mark are this device's word to the correspondent
         if (Twin.mirrors(text) && !text.startsWith(Marks.DELIVERED) && !text.startsWith(Marks.READ))
