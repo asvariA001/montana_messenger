@@ -330,9 +330,7 @@ object Board {
         val chunks = m.optJSONArray("chunks")
         if (chunks == null || chunks.length() == 0 || !plain(pid)) return null
         val dest = File(lookDir(), fileName(pid, i, m.optString("ext")))
-        val l = Streams.loader(dest, JSONObject().put("bk", m.optString("key")).put("chunks", chunks)) ?: return null
-        l.whenWhole { trimLook(); MainThread.post { whole(dest) } }
-        return android.net.Uri.parse("content://" + Book.ctx.packageName + ".media/stream/" + dest.name)
+        return Streams.address(Book.ctx, dest, JSONObject().put("bk", m.optString("key")).put("chunks", chunks)) { trimLook(); MainThread.post { whole(dest) } }
     }
     /**
      * THE FOLDER KEEPS THE LATEST SEEN, BY COUNT AND BY THE DISK THEY TAKE (iOS MTBoardLook.trim, MontanaBoard.swift:2538-2560 at

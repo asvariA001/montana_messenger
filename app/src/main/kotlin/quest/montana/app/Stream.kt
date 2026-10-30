@@ -227,6 +227,24 @@ object Streams {
     private val aheadPool = java.util.concurrent.Executors.newFixedThreadPool(3)
     private val asked = HashSet<String>()
 
+    /** A file a player MAY read: its manifest and who is told when it is whole -- no loader yet (iOS MTStreamSource). */
+    private class Source(val dest: File, val man: JSONObject, val whole: () -> Unit) { val told = java.util.concurrent.atomic.AtomicBoolean() }
+    private const val SOURCES = 1024
+    private val sources = object : LinkedHashMap<String, Source>(16, 0.75f, true) {
+        override fun removeEldestEntry(e: MutableMap.MutableEntry<String, Source>) = SOURCES < size
+    }
+
+    /**
+     * THE ADDRESS A PLAYER READS [dest] BY BEFORE IT IS WHOLE (iOS MTStreamSource.url): only the manifest is kept here; the loader is
+     * born when the player first reads, so a queue of fifty tracks does not push the playing one's loader out of the last 32.
+     * [whole] is told once, when the last piece lies. Null -- a manifest without pieces.
+     */
+    fun address(c: Context, dest: File, man: JSONObject, whole: () -> Unit = {}): Uri? {
+        if (man.optString("bk").isEmpty() || (man.optJSONArray("chunks")?.length() ?: 0) == 0) return null
+        synchronized(sources) { sources[dest.name] = Source(dest, man, whole) }
+        return Uri.parse("content://${c.packageName}.media/stream/${dest.name}")
+    }
+
     /** The loader of [dest] by its manifest {bk, chunks:[{bid, cs}]}, or null for a manifest without pieces. */
     fun loader(dest: File, man: JSONObject): StreamLoader? {
         // a loader whose bytes the cache took meanwhile is born again: the file is brought anew
@@ -277,7 +295,10 @@ object Streams {
 
     /** The descriptor the app's door hands the player for «stream/NAME»: reads ask the loader, piece by piece. */
     fun descriptor(c: Context, name: String): ParcelFileDescriptor? {
-        val l = synchronized(loaders) { loaders.values.firstOrNull { it.dest.name == name } } ?: return null
+        val src = synchronized(sources) { sources[name] }
+        val l = synchronized(loaders) { loaders.values.firstOrNull { it.dest.name == name } }
+            ?: src?.let { loader(it.dest, it.man) } ?: return null
+        if (src != null) l.whenWhole { if (src.told.compareAndSet(false, true)) src.whole() }
         val t = HandlerThread("montana.stream").apply { start() }
         return runCatching {
             c.getSystemService(StorageManager::class.java).openProxyFileDescriptor(ParcelFileDescriptor.MODE_READ_ONLY, object : ProxyFileDescriptorCallback() {
