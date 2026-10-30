@@ -307,9 +307,8 @@ object Board {
         val dest = File(lookDir(), name)
         if (dest.exists()) { then(dest); return }
         val chunks = m.optJSONArray("chunks")
-        // a picture comes by itself; a film too where this connection's automatic download is on, for its tile plays by itself (WallClip)
-        val kind = m.optString("kind")
-        if (!(kind == "img" || kind == "vid" && Media.autoAllowed(Book.ctx)) || chunks == null || chunks.length() == 0) return
+        // A LOOK BRINGS PICTURES ONLY (iOS MTBoardClip: «never the whole file ahead»): a film plays from its first pieces (stream)
+        if (m.optString("kind") != "img" || chunks == null || chunks.length() == 0) return
         synchronized(going) { if (!going.add(name)) return }
         Thread {
             try {
@@ -321,6 +320,19 @@ object Board {
             } catch (e: Exception) { Log.w("Montana", "wall_look: " + e.javaClass.simpleName) }
             finally { synchronized(going) { going.remove(name) } }
         }.start()
+    }
+    /**
+     * WHAT A PLAYER READS BEFORE THE FILE IS WHOLE (iOS MTBoard.streamSource, MontanaBoard.swift:1727-1736 at 2322): a post's film
+     * through its one loader (Streams) in the look's folder, the address the app's own door reads it by; [whole] is told once the
+     * last piece lies, the file then standing where a look's copy does.
+     */
+    fun stream(m: JSONObject, pid: String, i: Int, whole: (File) -> Unit = {}): android.net.Uri? {
+        val chunks = m.optJSONArray("chunks")
+        if (chunks == null || chunks.length() == 0 || !plain(pid)) return null
+        val dest = File(lookDir(), fileName(pid, i, m.optString("ext")))
+        val l = Streams.loader(dest, JSONObject().put("bk", m.optString("key")).put("chunks", chunks)) ?: return null
+        l.whenWhole { trimLook(); MainThread.post { whole(dest) } }
+        return android.net.Uri.parse("content://" + Book.ctx.packageName + ".media/stream/" + dest.name)
     }
     /** THE FOLDER KEEPS THE LATEST SEEN, BY COUNT AND BY THE DISK THEY TAKE (iOS MTBoardLook.trim, MontanaBoard.swift:2480-2494 at
      * 2155): a gigabyte and three hundred files at most; the oldest go first. */
@@ -921,11 +933,15 @@ object Board {
  * without sound, round and round, while at least half of the tile stands on a screen the person sees -- off the screen, under another
  * page or with the app away it rests and lets its decoder go. Under its first frame the poster stands as before; a touch is the full
  * player with sound (openTile). Where this connection's automatic download is off the film never comes, and the tile stays its poster.
- * iOS streams the pieces as its player asks; here the film's file is brought whole into the look folder first (Board.bring).
+ * The pieces come as the player asks for them (Board.stream, iOS MTBoardClip at 2322), never the whole file ahead; a file this phone
+ * holds plays from the disk. The loader is born only when the tile first stands seen, and only where the connection lets it.
  */
 private class WallClip(c: Context) : android.view.TextureView(c), android.view.TextureView.SurfaceTextureListener {
     var file: File? = null
         set(v) { field = v; look() }
+    /** The film's address before it is whole (Board.stream), asked for once the tile first plays. */
+    var stream: (() -> android.net.Uri?)? = null
+    private var streamed: android.net.Uri? = null
     private var surface: android.view.Surface? = null
     private var player: android.media.MediaPlayer? = null
     private val scrolled = android.view.ViewTreeObserver.OnScrollChangedListener { look() }
@@ -941,12 +957,14 @@ private class WallClip(c: Context) : android.view.TextureView(c), android.view.T
     private fun look() { if (seen()) play() else rest() }
     private fun play() {
         if (player != null) return
-        val f = file ?: return
         val s = surface ?: return
+        val f = file?.takeIf { it.exists() }
+        val uri = if (f != null) null else streamed ?: (if (Media.autoAllowed(context)) stream?.invoke() else null)?.also { streamed = it }
+        if (f == null && uri == null) return
         val mp = android.media.MediaPlayer()
         player = mp
         runCatching {
-            mp.setDataSource(f.path)
+            if (f != null) mp.setDataSource(f.path) else mp.setDataSource(context, uri!!)
             mp.setSurface(s)
             mp.isLooping = true
             mp.setVolume(0f, 0f)
@@ -961,8 +979,8 @@ private class WallClip(c: Context) : android.view.TextureView(c), android.view.T
         val mp = player ?: return
         player = null
         alpha = 0f
-        runCatching { mp.reset() }
-        mp.release()
+        // a player still waiting on a piece lets go off the main thread: its read may stand on the network a while
+        Thread { runCatching { mp.reset() }; mp.release() }.start()
     }
     /** The film fills the tile as the poster does (CENTER_CROP): scaled by the larger side's need, cut evenly on the other. */
     private fun crop(w: Int, h: Int) {
@@ -1327,12 +1345,13 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
             // THE SHARP PICTURE, ELSE THE POSTER DECODED OFF THE MAIN THREAD, ELSE THE TILE'S GREY (iOS MTBoardPicture, MontanaBoardViews.swift:
             // 926-941 at 2155); what was drawn sharp stands sharp on the first frame of the next drawing (iOS MTBoardPicture.cache 944-948)
             if (posterHeld == null) WallPoster.decode(thumb) { b -> if (!sharp) tile.setImageBitmap(b) }
-            Board.bring(m, p.optString("id"), i) { f ->
-                clip?.file = f
+            fun sharpen(f: File) {
                 val held = wallSharp.get(f.path)
                 if (held != null) { sharp = true; tile.setImageBitmap(held) }
                 else Thread { Media.preview(c, f, kind, 1600)?.let { b -> wallSharp.put(f.path, b); MainThread.post { sharp = true; tile.setImageBitmap(b) } } }.start()
             }
+            Board.bring(m, p.optString("id"), i) { f -> clip?.file = f; sharpen(f) }
+            clip?.stream = { Board.stream(m, p.optString("id"), i) { f -> clip?.file = f; sharpen(f) } }
         }
         // THE TRACKS AND THE FILES AS ROWS, UNDER THE PICTURES (iOS MTBoardMediaView, MontanaBoardViews.swift:657-667, 718-720 at 2155):
         // a track in the one player's face, any other file as its row
@@ -1473,6 +1492,12 @@ private fun wallPage(wall: String, inFeed: Boolean): List<Board.Item> = when {
 private fun openTile(act: MainActivity, wall: String, p: JSONObject, i: Int, inFeed: Boolean, whole: Boolean = false) {
     val kind = p.optJSONArray("media")?.optJSONObject(i)?.optString("kind") ?: return
     if (!whole) { act.push { close -> wallMediaPage(act, wall, p, i, inFeed, close) }; return }
+    // A FILM NOT YET HERE OPENS AT ONCE ON ITS FIRST PIECES (iOS MTBoardMediaView.open, MontanaBoardViews.swift:981-982 at 2322)
+    val m = p.optJSONArray("media")?.optJSONObject(i)
+    if (kind == "vid" && m != null && Board.here(p, i) == null) {
+        val later = Board.fileOf(p, i)?.let { File(Board.lookIn(act), it) }
+        if (later != null) Board.stream(m, p.optString("id"), i) { Thread { Board.file(wall, p, i) }.start() }?.let { FilmActivity.openStream(act, it, later); return }
+    }
     Thread {
         val f = Board.file(wall, p, i) ?: return@Thread
         if (kind == "vid") { MainThread.post { FilmActivity.open(act, f) }; return@Thread }
@@ -1703,19 +1728,27 @@ private fun shownFilm(act: MainActivity, s: Shown, active: Boolean): View {
         override fun onViewAttachedToWindow(v: View) {}
         override fun onViewDetachedFromWindow(v: View) { gone = true; player?.stopPlayback(); player = null }   // the screen scrolled away rests (rest 3208-3213)
     })
+    fun play(f: File?, uri: android.net.Uri?) {
+        if (gone || f == null && uri == null) return
+        val v = android.widget.VideoView(c)
+        v.setMediaController(android.widget.MediaController(c))
+        v.setOnInfoListener { _, what, _ ->
+            if (what == android.media.MediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START) { wheel.visibility = View.GONE; poster.visibility = View.GONE }
+            false
+        }
+        box.addView(v, 0, FrameLayout.LayoutParams(MATCH, MATCH, Gravity.CENTER))
+        player = v
+        if (f != null) v.setVideoPath(f.path) else v.setVideoURI(uri)
+        v.start()
+    }
+    // A FILM NOT YET HERE PLAYS FROM ITS FIRST PIECES (iOS MTBoardMediaPage, MontanaBoardViews.swift:3450-3455 at 2322): through the
+    // file's one loader, shared with the feed's tile; once whole, the touch's road keeps it (Board.file -- this phone becomes its peer)
+    val here = Board.here(s.post, s.i)
+    val uri = if (here != null) null else Board.stream(s.media, s.post.optString("id"), s.i) { Thread { Board.file(s.wall, s.post, s.i) }.start() }
+    if (here != null || uri != null) { play(here, uri); return box }
     Thread {
         val f = Board.file(s.wall, s.post, s.i)
-        MainThread.post {
-            wheel.visibility = View.GONE
-            if (f == null || gone) return@post
-            val v = android.widget.VideoView(c)
-            v.setMediaController(android.widget.MediaController(c))
-            v.setOnInfoListener { _, what, _ -> if (what == android.media.MediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START) poster.visibility = View.GONE; false }
-            box.addView(v, 0, FrameLayout.LayoutParams(MATCH, MATCH, Gravity.CENTER))
-            player = v
-            v.setVideoPath(f.path)
-            v.start()
-        }
+        MainThread.post { wheel.visibility = View.GONE; play(f, null) }
     }.start()
     return box
 }
@@ -1865,26 +1898,32 @@ private fun postEditor(act: MainActivity, p: JSONObject, onClose: () -> Unit): V
  * here first by the touch's own road (Board.file), and a track of the page not yet here stands out of the queue.
  */
 private fun playTrack(act: MainActivity, wall: String, p: JSONObject, i: Int, inFeed: Boolean) {
-    Thread {
-        val f = Board.file(wall, p, i) ?: return@Thread
-        fun tracks(posts: List<Board.Item>): List<Track> {
-            val once = HashSet<String>()
-            val out = ArrayList<Track>()
-            for (item in posts) {
-                val ms = item.post.optJSONArray("media") ?: continue
-                for (j in 0 until ms.length()) {
-                    val mj = ms.optJSONObject(j) ?: continue
-                    if (mj.optString("kind") != "aud") continue
-                    val here = Board.here(item.post, j) ?: continue
-                    if (!once.add(here.name)) continue
-                    out.add(Track(android.net.Uri.fromFile(here), mj.optString("name").ifEmpty { here.name }).apply { length = mj.optDouble("dur", 0.0) })
-                }
+    // A TRACK PLAYS FROM ITS FIRST PIECES (iOS MTBoardMediaView's queue, MontanaBoardViews.swift:1032-1050 at 2322): a track on this
+    // phone from the disk, another on its own loader (Board.stream); the touched one, once whole, is kept by the touch's road (Board.file)
+    val name = Board.fileOf(p, i) ?: return
+    fun tracks(posts: List<Board.Item>): List<Track> {
+        val once = HashSet<String>()
+        val out = ArrayList<Track>()
+        for (item in posts) {
+            val ms = item.post.optJSONArray("media") ?: continue
+            val id = item.post.optString("id")
+            for (j in 0 until ms.length()) {
+                val mj = ms.optJSONObject(j) ?: continue
+                if (mj.optString("kind") != "aud") continue
+                val nj = Board.fileOf(item.post, j) ?: continue
+                if (!once.add(nj)) continue
+                val touched = nj == name
+                val uri = Board.here(item.post, j)?.let { android.net.Uri.fromFile(it) }
+                    ?: Board.stream(mj, id, j) { if (touched) Thread { Board.file(item.wall, item.post, j) }.start() } ?: continue
+                out.add(Track(uri, mj.optString("name").ifEmpty { nj }).apply { length = mj.optDouble("dur", 0.0) })
             }
-            return out
         }
+        return out
+    }
+    Thread {
         var list = tracks(wallPage(wall, inFeed))
-        if (list.none { t -> t.uri.lastPathSegment == f.name }) list = tracks(listOf(Board.Item(wall, p)))
-        val k = list.indexOfFirst { t -> t.uri.lastPathSegment == f.name }
+        if (list.none { t -> t.uri.lastPathSegment == name }) list = tracks(listOf(Board.Item(wall, p)))
+        val k = list.indexOfFirst { t -> t.uri.lastPathSegment == name }
         val queue = list
         Log.d("Montana", "music board queue n=" + queue.size + " at=" + (k + 1) + " in=" + (if (inFeed) "feed" else "wall"))
         if (k != -1) MainThread.post { MusicPlayer.play(act, queue, k) }
