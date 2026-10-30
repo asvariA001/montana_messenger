@@ -2108,8 +2108,10 @@ class FeedPane(private val act: MainActivity) : FrameLayout(act) {
     private fun draw() {
         items = Board.feed()
         stale = false; drawnAt = System.currentTimeMillis()
+        // as many as stood laid are laid again, so a feed read deep down keeps its place when the board moves
+        val keep = laid
         column.removeAllViews(); laid = 0
-        lay(FIRST)
+        lay(maxOf(FIRST, keep))
         drawGoing()
     }
     private fun lay(n: Int) {
