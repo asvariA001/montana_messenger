@@ -884,9 +884,9 @@ object Board {
     }
 
     /**
-     * A COMMENT (iOS comment): sealed into the post's chain after the last seal this phone holds, sent to the wall's owner with
-     * one coin when the book holds one (the author's words 04.10 02:50: four of five burn, the fifth to the post's writer), and
-     * shown here at once as my own; the wall is asked again so the owner's page brings every comment.
+     * A COMMENT (iOS comment): sealed into the post's chain after the last seal this phone holds, sent to the wall's owner — it
+     * costs no coin and brings none (iOS 0e183aff, decision 383 «a», build 2322: nothing leaves the book) — and shown here at once
+     * as my own; the wall is asked again so the owner's page brings every comment.
      */
     fun comment(wall: String, p: JSONObject, text: String) {
         if (WallGlobal.isRef(wall)) return   // a post of the table answers nobody (iOS 18.10)
@@ -901,12 +901,9 @@ object Board {
         val prev = post(wall, id)?.optJSONArray("comments")?.let { cs -> cs.optJSONObject(cs.length() - 1)?.optString("h")?.takeIf { it.isNotEmpty() } } ?: ZERO_HASH
         val h = seal(cid, at, prev, t)
         val face = commentFace()
-        val r = java.util.UUID.randomUUID().toString().uppercase()
-        val paid = CoinBook.spend(1L, "post:" + id, wall, "cmt:" + r)
         val w = JSONObject().put("t", "cmt").put("id", id).put("at", at).put("tx", t).put("bn", name).put("bg", glyph)
             .put("cid", cid).put("hh", h).put("pv", prev)
         if (face != null) w.put("fc", face)
-        if (paid) w.put("c", 1).put("r", r)
         if (!send(wall, w)) return
         synchronized(lock) { askedAt[wall] = System.currentTimeMillis() }
         send(wall, JSONObject().put("t", "ask"))   // iOS askAfterAct: the owner answers with the page as it stands

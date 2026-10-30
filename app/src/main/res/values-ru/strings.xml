@@ -506,7 +506,6 @@
     <string name="chess_no_clock">Без часов</string>
     <string name="chess_you_white">Вы играете белыми</string>
     <string name="chess_you_black">Вы играете чёрными</string>
-    <string name="chess_stake">ставка %1$s</string>
     <string name="chess_score">Победы %1$d · Поражения %2$d · Ничьи %3$d</string>
     <string name="chess_accept_draw">Согласиться на ничью</string>
     <string name="chess_move_failed">Не удалось отправить ход</string>
@@ -514,8 +513,6 @@
     <string name="chess_cancel">Отмена</string>
     <string name="chess_white_clock">Время белых</string>
     <string name="chess_black_clock">Время чёрных</string>
-    <string name="chess_pot">Банк: %1$s</string>
-    <string name="chess_stake_short">Не хватает монет на ставку</string>
     <string name="chess_accept_invitation">Принять приглашение</string>
     <string name="chess_withdraw">Отозвать приглашение</string>
     <string name="chess_decline_invitation">Отклонить приглашение</string>
@@ -545,11 +542,8 @@
     <string name="chess_time_control">Контроль времени</string>
     <string name="chess_invite_correspondent">Пригласить собеседника</string>
     <string name="chess_no_correspondents">Собеседники не найдены</string>
-    <string name="chess_stake_field">Ставка</string>
     <string name="chess_ask_new">Начать новую партию?</string>
-    <string name="coin_balance_line">Монет: %1$s</string>
     <string name="chess_invite_failed">Не удалось отправить приглашение</string>
-    <string name="chess_pot_footer">Оба игрока кладут ставку в банк партии, а каждый ход чеканит в него уровень сделавшего ход, умноженный на тысячу. Победитель забирает весь банк; при ничьей каждому возвращается своё.</string>
     <string name="chess_accept">Принять</string>
     <string name="chess_decline">Отклонить</string>
     <string name="wall_comments">Комментарии</string>

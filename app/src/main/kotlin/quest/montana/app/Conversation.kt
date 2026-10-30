@@ -2032,7 +2032,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     // «SEARCH» OF THE GROUP'S PAGE (iOS perform(.search), MontanaPeerInfoScreen.swift:634-639): the page goes down to its chat and asks it
     val openPage = { hideKeys(); act.push { close -> if (group) groupPage(act, ref, close, pageLanding, onSearch = { close(); openSearch() }) else peerInfoPage(act, ref, close, pageLanding) } }
     // THE CHESS MARK'S TAP (iOS chessMark 1975-1986): an invitation waiting for my answer is answered in the feed, a played game opens
-    // its board; with none the platform's question asks for a new game and takes the stake under the balance (iOS 2054-2067)
+    // its board; with none the platform's question asks for a new game — no stake and no balance (iOS 480cd898)
     fun chessTap() {
         val id = playedGame()
         if (id != null && ChessSend.awaitsMe(ref, id)) {
@@ -2040,18 +2040,11 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             if (invite != null) { jumpHere(invite.mid); return }
         }
         if (id != null) { act.push { chessBoardPage(act, ref, id, true, it) }; return }
-        val field = EditText(c).apply { inputType = android.text.InputType.TYPE_CLASS_NUMBER; hint = c.getString(R.string.chess_stake_field) }
-        val box = FrameLayout(c).apply { setPadding(c.dp(20), 0, c.dp(20), 0); addView(field, FrameLayout.LayoutParams(MATCH, WRAP)) }
         AlertDialog.Builder(c)
             .setTitle(R.string.chess_ask_new)
-            .setMessage(c.getString(R.string.coin_balance_line, CoinText.count(CoinBook.balance)))   // USER-DATA: the balance
-            .setView(box)
             .setPositiveButton(R.string.chess_new_game) { _, _ ->
-                val stake = field.text.toString().filter { it.isDigit() }.take(13).toLongOrNull() ?: 0L
-                val game = ChessSend.invite(c, ref, ChessSend.CHAT_CLOCK, stake)
+                val game = ChessSend.invite(c, ref, ChessSend.CHAT_CLOCK)
                 if (game != null) act.push { chessBoardPage(act, ref, game, true, it) }
-                else if (0L < stake) AlertDialog.Builder(c).setTitle(R.string.coin_not_enough).setMessage(R.string.coin_not_enough_sub)
-                    .setPositiveButton(R.string.ok, null).show()
             }
             .setNegativeButton(R.string.cancel, null)
             .show()

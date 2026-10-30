@@ -153,7 +153,7 @@ private fun walletFrame(act: MainActivity, title: String, onLead: () -> Unit, cr
 
 /**
  * THE WALLET (iOS MTWalletPage, «TimeCoin»): our coin where the card stood — Pantheon on Fire under the finger, every touch of the
- * coin its own, a +N rising from each touch that minted —, the book's balance in large type with the ticker, the same balance in
+ * coin its own, none of them minting —, the book's balance in large type with the ticker, the same balance in
  * Montana, the level of π and π revealed to it, Send and the levels of π; under them the minting's counts and the history.
  */
 fun walletPage(act: MainActivity, onClose: () -> Unit): View {
@@ -161,7 +161,6 @@ fun walletPage(act: MainActivity, onClose: () -> Unit): View {
     val body = c.vstack(Gravity.NO_GRAVITY)
     val fire = c.text(c.getString(R.string.coin_pantheon), 22f, MT.orange, bold = true, center = true)
     val coin = MintCoin(c, 120)
-    val pops = FrameLayout(c)
     val badge = c.text("", 13f, Color.WHITE, bold = true, center = true).apply {
         background = c.rounded(MT.blue, 11); setPadding(dp(7), dp(1), dp(7), dp(1)); minWidth = dp(22)
     }
@@ -199,7 +198,7 @@ fun walletPage(act: MainActivity, onClose: () -> Unit): View {
         fire.visibility = if (lit) View.VISIBLE else View.INVISIBLE
         speed.visibility = fire.visibility
         speed.text = Pantheon.speed.toString() + " / " + Pantheon.CEILING   // USER-DATA: the taps of the last second
-        coin.spinAt(maxOf(Pantheon.speed, if (WalletPull.on) 1 else 0))   // at least once a second while the auto minting runs (iOS MTWalletScreen.swift:73-77)
+        coin.spinAt(maxOf(Pantheon.speed, if (WalletPull.on) 1 else 0))   // at least once a second while the pull holds (iOS MTWalletScreen.swift:73-77)
         badge.text = maxOf(1, place).toString()   // the level the minting multiplies by
         val shownBar = (lit || WalletPull.on) && place < PiLevels.all.size   // iOS MTLevelProgress, MTWalletScreen.swift:124-126
         bar.visibility = if (shownBar) View.VISIBLE else View.INVISIBLE
@@ -238,29 +237,19 @@ fun walletPage(act: MainActivity, onClose: () -> Unit): View {
         windowRows.section(c.getString(R.string.coin_timechain), c.getString(R.string.coin_right_note), *shown.toTypedArray())
     }
 
-    // THE COIN TAKES EVERY FINGER (iOS MTCoinTapPad): each finger that lands mints, its +N rising where it touched; the page holds
-    // still under the game (the scroll is not given the finger while it is on the coin)
-    fun pop(x: Float, y: Float, coins: Long) {
-        val t = c.text("+" + CoinText.count(coins), 17f, Color.WHITE, bold = true).apply {   // USER-DATA: the coins one touch minted
-            background = c.rounded(Color.argb(170, 40, 40, 44), 14); setPadding(dp(8), dp(2), dp(8), dp(2))
-        }
-        pops.addView(t, FrameLayout.LayoutParams(WRAP, WRAP))
-        t.x = x - c.dp(20); t.y = y - c.dp(14)
-        t.animate().translationYBy(-c.dp(48).toFloat()).alpha(0f).setDuration(900).withEndAction { pops.removeView(t) }.start()
-        while (5 < pops.childCount) pops.removeViewAt(0)
-    }
+    // THE COIN TAKES EVERY FINGER (iOS MTCoinTapPad): each finger that lands lights the fire and counts the speed; it mints nothing and
+    // no +1 rises at the finger (iOS 86854488, decision 375 «a», build 2320). The page holds still under the game (the scroll is not
+    // given the finger while it is on the coin)
     val pad = FrameLayout(c).apply {
         contentDescription = c.getString(R.string.coin_a11y)
         isClickable = true
         setOnTouchListener { v, e ->
-            val i = e.actionIndex
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
                     v.parent?.requestDisallowInterceptTouchEvent(true)
                     Pantheon.touched()
-                    val coins = Pantheon.tap()
+                    Pantheon.tap()
                     v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                    if (0 < coins) pop(e.getX(i), e.getY(i), coins)
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> Pantheon.released()
             }
@@ -276,7 +265,6 @@ fun walletPage(act: MainActivity, onClose: () -> Unit): View {
             addView(coin, FrameLayout.LayoutParams(dp(120), dp(120), Gravity.CENTER))
             addView(badge, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.TOP or Gravity.END).apply { setMargins(0, dp(10), dp(10), 0) })
             addView(pad, FrameLayout.LayoutParams(MATCH, MATCH))
-            addView(pops, FrameLayout.LayoutParams(MATCH, MATCH))
         }, lp(dp(144), dp(144)))
         gap(10)
         addView(speed, lp(WRAP, WRAP))
@@ -295,7 +283,6 @@ fun walletPage(act: MainActivity, onClose: () -> Unit): View {
             addView(capsule(R.string.coin_levels, null, false) { act.push { piLevelsPage(act, it) } }, lp(0, WRAP, 1f))
         }, lp(MATCH, WRAP))
     }
-    pops.isClickable = false
     body.addView(head, lp())
     body.addView(rows, lp())
     body.addView(windowRows, lp())
@@ -311,8 +298,8 @@ fun walletPage(act: MainActivity, onClose: () -> Unit): View {
         if (round != asking || !holder.isAttachedToWindow) return
         Thread { runCatching { Signal.sweep(quiet = true) }; MainThread.later(3000, Runnable { askNodes(round) }) }.start()
     }
-    // THE PULL SWITCHES THE AUTO MINTING ON (iOS MTWalletPage.pulled, MTWalletScreen.swift:404-417): let go past the trigger, the pull
-    // mints every second from now on (WalletPull) and the page reads its windows again; the book's own change redraws it (CoinBook.listen).
+    // THE PULL READS THE TOPS AGAIN (iOS MTWalletPage.pulled, MTWalletScreen.swift:404-417): let go past the trigger, the coin turns
+    // once a second from now on (WalletPull), minting nothing, and the page reads its windows again; the book's own change redraws it (CoinBook.listen).
     val page = walletFrame(act, c.getString(R.string.coin_title), onClose, true, null, body) { WalletPull.fire(); readWindows() }
     // THE LOCK ENDS IT, NOT A GLANCE (iOS .onChange(of: phase), MTWalletScreen.swift:382-386): the app gone from the screen — its window
     // hidden, the screen locked — stops the auto minting and the nodes' questions; a shade or a dialog over it does not. The return reads

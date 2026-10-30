@@ -511,7 +511,6 @@
     <string name="chess_no_clock">No clock</string>
     <string name="chess_you_white">You play white</string>
     <string name="chess_you_black">You play black</string>
-    <string name="chess_stake">stake %1$s</string>
     <string name="chess_score">Wins %1$d · Losses %2$d · Draws %3$d</string>
     <string name="chess_accept_draw">Accept draw</string>
     <string name="chess_move_failed">Move could not be sent</string>
@@ -519,8 +518,6 @@
     <string name="chess_cancel">Cancel</string>
     <string name="chess_white_clock">White clock</string>
     <string name="chess_black_clock">Black clock</string>
-    <string name="chess_pot">Pot: %1$s</string>
-    <string name="chess_stake_short">Not enough coins for the stake</string>
     <string name="chess_accept_invitation">Accept invitation</string>
     <string name="chess_withdraw">Withdraw invitation</string>
     <string name="chess_decline_invitation">Decline invitation</string>
@@ -550,11 +547,8 @@
     <string name="chess_time_control">Time control</string>
     <string name="chess_invite_correspondent">Invite a correspondent</string>
     <string name="chess_no_correspondents">No correspondents found</string>
-    <string name="chess_stake_field">Stake</string>
     <string name="chess_ask_new">Start a new game?</string>
-    <string name="coin_balance_line">%1$s coins</string>
     <string name="chess_invite_failed">Invitation could not be sent</string>
-    <string name="chess_pot_footer">Both players put the stake into the game\'s pot, and every move mints its maker\'s level times a thousand into it. The winner takes the whole pot; a draw gives each their own back.</string>
     <string name="chess_accept">Accept</string>
     <string name="chess_decline">Decline</string>
     <string name="wall_comments">Comments</string>
