@@ -468,6 +468,8 @@ fun voiceBody(c: Context, m: Msg, du: Double, into: LinearLayout, wave: FloatArr
     }, LinearLayout.LayoutParams(WRAP, WRAP))
 }
 
+private val trackWaves = Caches.kept("track_waves", android.util.LruCache<String, FloatArray>(64))
+
 /** A letter's file is music by its name (iOS mtIsAudioName on docName, else on the file). */
 fun isTrackLetter(m: Msg, man: JSONObject?): Boolean =
     man?.optString("k") == "doc" && (Waveform.isAudio(man.optString("n")) || Waveform.isAudio(m.file ?: ""))
@@ -514,6 +516,9 @@ fun trackBody(c: Context, m: Msg, man: JSONObject, into: LinearLayout, chat: Cha
         barDp = 2f
         played = ink; rest = MT.withAlpha(ink, 0.5f)
     }
+    // A TRACK WITHOUT ITS WAVE IN THE LETTER IS MEASURED FROM ITS FILE (iOS waveColumn: MTWaveform.samples once on the disk), kept
+    if (wave == null && f != null) trackWaves.get(f.path)?.let { bar.bars = resampleWave(it, 44) }
+        ?: Thread { Waveform.compute(f)?.let { w -> trackWaves.put(f.path, w); MainThread.post { bar.bars = resampleWave(w, 44) } } }.start()
     val now = c.text(fmt(0.0), 11f, MT.withAlpha(tint, 0.8f)).apply { fontFeatureSettings = "tnum" }
     val length = c.text(fmt(total), 11f, MT.withAlpha(tint, 0.8f)).apply { fontFeatureSettings = "tnum" }
     val mark = ImageView(c).apply {
