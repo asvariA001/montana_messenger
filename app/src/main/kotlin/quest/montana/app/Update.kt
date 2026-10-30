@@ -44,6 +44,24 @@ object Update {
 
     @Volatile private var busy = false
 
+    /**
+     * WHAT THE UPDATE PAGE SHOWS WHILE ITS ROUND RUNS (updateRequiredPage; seen 30.10: a phone at 608 stood under the page and its tap
+     * showed nothing -- the share brought rode only in the shade's notice): the share brought 0..100, HANDED to the system's
+     * installer, FAILED (the page offers the tap again and the site's own file). Told on the screen's thread.
+     */
+    const val HANDED = 101
+    const val FAILED = -1
+    @Volatile var onRound: ((Int) -> Unit)? = null
+    /** The site's newest as the last round read it: the page's road through the browser takes its file (iOS opens release.url). */
+    @Volatile var lastFile: String? = null
+    fun siteFile(): String = SITE + (lastFile ?: "")
+    /** The round's last word, so a page laid anew mid-round shows where it stands (null -- no round has run). */
+    @Volatile var lastRound: Int? = null
+    private fun round(state: Int) {
+        lastRound = state
+        onRound?.let { f -> android.os.Handler(android.os.Looper.getMainLooper()).post { f(state) } }
+    }
+
     fun own(c: Context): Long = runCatching { c.packageManager.getPackageInfo(c.packageName, 0).longVersionCode }.getOrDefault(0L)
 
     /** The site's newest, asked without a word about this phone: the agent is the plain name, not the model. */
@@ -87,6 +105,7 @@ object Update {
         if (!force && roomTold && now - (Prefs.str("mt.update.lookedAt", "0").toLongOrNull() ?: 0L) < EVERY) return
         Prefs.setStr("mt.update.lookedAt", now.toString())
         val s = newest() ?: return
+        lastFile = s.file
         Prefs.setStr("mt.update.least", s.least.toString())
         Prefs.setStr("mt.update.core", s.core)
         onLeast?.let { android.os.Handler(android.os.Looper.getMainLooper()).post(it) }
@@ -144,18 +163,21 @@ object Update {
         Thread {
             var handed = false
             try {
+                round(0)
                 val s = newest()
-                if (s == null) say(act, R.string.update_failed)
-                else if (s.number <= own(c)) { clear(c); say(act, R.string.update_current) }
+                if (s != null) lastFile = s.file
+                if (s == null) { Log.w("Montana", "update: the site did not answer"); round(FAILED); say(act, R.string.update_failed) }
+                else if (s.number <= own(c)) { clear(c); round(FAILED); say(act, R.string.update_current) }
                 else {
+                    Log.d("Montana", "update_take build=" + s.number + " own=" + own(c))
                     progress(c, s, 0)
                     val apk = bring(c, s)
-                    if (apk == null) { clear(c); say(act, R.string.update_failed) }
-                    else { hand(c, apk); handed = true }
+                    if (apk == null) { clear(c); round(FAILED); say(act, R.string.update_failed) }
+                    else { hand(c, apk); handed = true; round(HANDED); Log.d("Montana", "update_handed build=" + s.number) }
                 }
             } catch (e: Exception) {
-                Log.w("Montana", "update: " + e.javaClass.simpleName)
-                clear(c); say(act, R.string.update_failed)
+                Log.w("Montana", "update: " + e.javaClass.simpleName + " " + (e.message ?: ""))
+                clear(c); round(FAILED); say(act, R.string.update_failed)
             } finally { if (!handed) busy = false }
         }.start()
     }
@@ -167,7 +189,7 @@ object Update {
         val conn = URL(SITE + s.file).openConnection() as HttpURLConnection
         conn.connectTimeout = 15000; conn.readTimeout = 30000
         conn.setRequestProperty("User-Agent", "Montana")
-        if (conn.responseCode != 200) { conn.disconnect(); return null }
+        if (conn.responseCode != 200) { Log.w("Montana", "update: the site answered " + conn.responseCode); conn.disconnect(); return null }
         val total = if (0L < conn.contentLengthLong) conn.contentLengthLong else s.size
         val md = MessageDigest.getInstance("SHA-256")
         val input = conn.inputStream
@@ -181,7 +203,7 @@ object Update {
                 if (n < 0) break
                 md.update(buf, 0, n); out.write(buf, 0, n); got += n
                 val pct = if (0L < total) (got * 100 / total).toInt() else 0
-                if (shown + 5 <= pct) { shown = pct; progress(c, s, pct) }
+                if (shown + 5 <= pct) { shown = pct; progress(c, s, pct); round(minOf(99, pct)) }
             }
         } finally { out.close(); input.close(); conn.disconnect() }
         val sum = md.digest().joinToString("") { "%02x".format(it) }
@@ -220,6 +242,7 @@ object Update {
             Log.w("Montana", "update: installer status " + status + " " + (why ?: ""))
             // not taken (refused, cancelled): the next look tells the same build again
             Prefs.remove("mt.update.told", "mt.update.lookedAt")
+            round(FAILED)
         }
     }
 
@@ -364,11 +387,38 @@ fun updateRequiredPage(act: Activity, r: Update.Required): android.view.View = F
         addView(act.text(act.getString(R.string.update_required_install), 17f, words, center = true),
             LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = act.dp(20) })
         addView(android.widget.Space(act), LinearLayout.LayoutParams(1, 0, 1f))
-        addView(FrameLayout(act).apply {
+        val arrow = FrameLayout(act).apply {
             addView(act.icon(R.drawable.ic_arrow_circle_down, Color.WHITE, 56), FrameLayout.LayoutParams(act.dp(56), act.dp(56), Gravity.CENTER))
             contentDescription = act.getString(R.string.update_required_title)
             setOnClickListener { Update.take(act) }
-        }, LinearLayout.LayoutParams(act.dp(88), act.dp(88)))
+        }
+        addView(arrow, LinearLayout.LayoutParams(act.dp(88), act.dp(88)))
+        // where the round stands, under the arrow: the share brought, the installer's turn, or the failure with the site's own file
+        val state = act.text("", 15f, words, center = true)
+        addView(state, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = act.dp(8) })
+        val site = act.text(act.getString(R.string.update_required_site), 15f, Color.WHITE, center = true).apply {
+            paintFlags = paintFlags or android.graphics.Paint.UNDERLINE_TEXT_FLAG
+            setPadding(act.dp(12), act.dp(12), act.dp(12), act.dp(12))
+            visibility = android.view.View.GONE
+            setOnClickListener {
+                runCatching { act.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(Update.siteFile()))) }
+            }
+        }
+        addView(site, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        fun show(r: Int?) {
+            val going = r != null && r != Update.FAILED && r != Update.HANDED
+            arrow.isEnabled = !going
+            arrow.alpha = if (going) 0.35f else 1f
+            state.text = when {
+                r == null -> ""
+                r == Update.FAILED -> act.getString(R.string.update_failed)
+                r == Update.HANDED -> act.getString(R.string.update_required_installing)
+                else -> act.getString(R.string.update_required_loading, r)
+            }
+            site.visibility = if (r == Update.FAILED) android.view.View.VISIBLE else android.view.View.GONE
+        }
+        show(Update.lastRound)
+        Update.onRound = { show(it) }
     }, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
     setOnApplyWindowInsetsListener { v, ins ->
         @Suppress("DEPRECATION") v.setPadding(ins.systemWindowInsetLeft, ins.systemWindowInsetTop, ins.systemWindowInsetRight, ins.systemWindowInsetBottom)
