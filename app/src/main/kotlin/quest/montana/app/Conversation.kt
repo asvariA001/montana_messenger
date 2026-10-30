@@ -3336,6 +3336,8 @@ private fun mediaBody(c: Context, m: Msg, into: LinearLayout, chat: Chat? = null
     // yet on the phone falls back to the waiting plate below, as any other picture does. A GIF LEAVES AN IPHONE AS A DOCUMENT
     // (iOS sendGifFile, kind "doc", MontanaConversation.swift 3807-3820 at 2155): the extension finds it under either kind.
     val isGif = f?.extension?.lowercase() == "gif" && (kind == "img" || kind == "doc")
+    // A MUSIC FILE IS HEARD, NOT OPENED (iOS audioBubble voice=false): the voice's bubble with the track's name (trackBody)
+    if (man != null && isTrackLetter(m, man)) { trackBody(c, m, man, into, chat); return }
     if (kind == "aud") {
         val wv = man?.optString("wv")?.takeIf { it.isNotEmpty() }?.let { runCatching { android.util.Base64.decode(it, android.util.Base64.DEFAULT) }.getOrNull() }
         voiceBody(c, m, man?.optDouble("du", 0.0) ?: 0.0, into, wv?.let { b -> FloatArray(b.size) { (b[it].toInt() and 0xFF) / 255f } }, chat)
