@@ -293,7 +293,16 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
         override fun move(dx: Float) {
             if (folderTo != null) return
             val w = panes.width.toFloat()
-            val d = if (side > 0) (base + dx).coerceIn(-w, 0f) else (base + dx).coerceIn(0f, w)
+            val total = base + dx
+            // THE PAGE BESIDE IS THE ONE ON THE STROKE'S SIDE NOW (iOS turnStroke: the neighbour by the sign of the total): a stroke that
+            // crosses where it began takes the page on the other side, so a second flick on a settle goes on to the next page
+            val want = if (total < 0f) 1 else if (total > 0f) -1 else side
+            if (want != side) order().let { o -> o.getOrNull(o.indexOf(pane) + want) }?.let { n ->
+                next?.let { views.getValue(it).apply { visibility = View.GONE; translationX = 0f } }
+                next = n; side = want
+                views.getValue(n).apply { animate().cancel(); alpha = 1f; visibility = View.VISIBLE }
+            }
+            val d = if (side > 0) total.coerceIn(-w, 0f) else total.coerceIn(0f, w)
             views.getValue(pane).translationX = d
             next?.let { views.getValue(it).translationX = d + side * w; if (0f < w) bar.ridePuck(pane, it, kotlin.math.abs(d) / w) }
         }
