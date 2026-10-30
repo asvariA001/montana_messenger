@@ -56,13 +56,17 @@ class StreamLoader(val dest: File, private val key: ByteArray, private val bids:
         if (now) f()
     }
 
-    /** Piece [i] of the file: from the part when it lies there, else brought now (one bring per piece, whoever asks). */
-    fun piece(i: Int): ByteArray? {
+    /**
+     * Piece [i] of the file: from the part when it lies there, else brought now (one bring per piece, whoever asks). [need] is
+     * the asker's place in the lane: a player waiting for the piece lifts the ask another reader already stands in.
+     */
+    fun piece(i: Int, need: Lane.Need = Lane.Need.LOOK): ByteArray? {
         if (have[i] == 1.toByte()) read(i)?.let { return it }
+        Lane.lift(bids[i], need)
         synchronized(locks[i]) {
             if (have[i] == 1.toByte()) read(i)?.let { return it }
             val t0 = System.currentTimeMillis()
-            val plain = Media.bring(bids[i], key, sizes[i])
+            val plain = Media.bring(bids[i], key, sizes[i], need)
             if (plain == null) { Log.i("Montana", "stream_piece FAIL i=" + i + " of " + count + " name=" + dest.name.take(20)); return null }
             val all = synchronized(this) {
                 runCatching { RandomAccessFile(part, "rw").use { it.seek(starts[i]); it.write(plain) } }.getOrElse { return plain }
@@ -100,7 +104,7 @@ class StreamLoader(val dest: File, private val key: ByteArray, private val bids:
         // THE PLAYER IS A FEW SECONDS AHEAD (iOS: the player's own buffered requests on MTCargoLane, width 3): the next pieces
         // are asked for while this one is read
         for (n in lo + 1..minOf(count - 1, lo + AHEAD)) if (have[n] != 1.toByte()) Streams.ahead(this, n)
-        val p = piece(lo) ?: return -1
+        val p = piece(lo, Lane.Need.PLAY) ?: return -1
         val from = (offset - starts[lo]).toInt()
         val take = minOf(size, p.size - from)
         if (take <= 0) return -1
@@ -112,6 +116,101 @@ class StreamLoader(val dest: File, private val key: ByteArray, private val bids:
         const val PART = ".part"
         const val LEDGER = ".have"
         private const val AHEAD = 2
+    }
+}
+
+/**
+ * THE ONE LANE FOR THE NODE'S CARGO (iOS MTCargoLane, MontanaStream.swift; atom ec7b4762586f). Every piece this phone asks the doors
+ * for passes here -- a picture of the feed, a played track, a film from its first pieces, a chat's attachment: three questions in
+ * flight for the whole phone, never more, so the letters, the calls and the screen keep their road. The piece a player is WAITING
+ * FOR goes first, then what stands on the screen, then what is only brought ahead; among equals, the earlier ask. A piece already
+ * asked is joined, never asked twice. The doors' own answers and patience stay where they were (Media.fetch); the lane decides only
+ * when and how many. While a call stands nothing new is asked: the lane wakes itself a second later.
+ */
+object Lane {
+    private const val WIDTH = 3
+    /** A wait in the line has a term (iOS waitLimitNs, 29.09): a piece still unasked past it fails honestly and is asked later. */
+    private const val WAIT_LIMIT_MS = 180_000L
+    enum class Need { AHEAD, LOOK, PLAY }
+
+    private class Ask(var need: Need, val seq: Long) {
+        var waiters = 0
+        var done = false
+        var sealed: ByteArray? = null
+    }
+    private val lock = java.util.concurrent.locks.ReentrantLock()
+    private val settled = lock.newCondition()
+    private val asks = HashMap<String, Ask>()
+    private val flying = HashSet<String>()
+    private val pool = java.util.concurrent.Executors.newFixedThreadPool(WIDTH)
+    private var seq = 0L
+    private var served = 0
+    private var callWake = false
+
+    /** The sealed piece: from the phone's own store when it lies here, else from the doors in the lane's turn; null -- not now. */
+    fun bring(bid: String, need: Need): ByteArray? {
+        Media.Blobs.get(bid)?.let { return it }
+        val deadline = System.currentTimeMillis() + WAIT_LIMIT_MS
+        lock.lock()
+        try {
+            val a = asks[bid]?.also { if (it.need < need) it.need = need } ?: Ask(need, ++seq).also { asks[bid] = it }
+            a.waiters++
+            pump()
+            while (!a.done) {
+                val left = deadline - System.currentTimeMillis()
+                // a piece already asked is the doors' own term; an unasked one leaves the line at its own
+                if (left <= 0 && bid !in flying) { leave(bid, a); return null }
+                try { settled.await(maxOf(left, 1000L), java.util.concurrent.TimeUnit.MILLISECONDS) }
+                catch (e: InterruptedException) { leave(bid, a); Thread.currentThread().interrupt(); return null }
+            }
+            return a.sealed
+        } finally { lock.unlock() }
+    }
+
+    /** A reader waits for a piece another stands in the line for: the ask takes the higher place. */
+    fun lift(bid: String, need: Need) {
+        lock.lock()
+        try { asks[bid]?.let { if (it.need < need) it.need = need } } finally { lock.unlock() }
+    }
+
+    /** The asker left: a piece nobody waits for any more is dropped from the line before it is asked. */
+    private fun leave(bid: String, a: Ask) {
+        a.waiters--
+        if (a.waiters <= 0 && bid !in flying && asks[bid] === a) asks.remove(bid)
+    }
+
+    private fun pump() {
+        // the call has the doors first: nothing new is asked while it stands, and the lane wakes itself after (iOS pump, MontanaCall.isBusy)
+        if (Calls.busy()) {
+            if (asks.isNotEmpty() && !callWake) {
+                callWake = true
+                Log.d("Montana", "cargo_lane held=call queued=" + asks.size + " flying=" + flying.size)
+                Thread { Thread.sleep(1000); lock.lock(); try { callWake = false; pump() } finally { lock.unlock() } }.start()
+            }
+            return
+        }
+        while (flying.size < WIDTH) {
+            val next = asks.entries.filter { it.key !in flying }
+                .minWithOrNull(compareByDescending<Map.Entry<String, Ask>> { it.value.need }.thenBy { it.value.seq }) ?: return
+            val bid = next.key
+            flying.add(bid)
+            pool.execute {
+                val sealed = runCatching { Media.fetch(bid) }.getOrNull()
+                settle(bid, sealed)
+            }
+        }
+    }
+
+    private fun settle(bid: String, sealed: ByteArray?) {
+        lock.lock()
+        try {
+            flying.remove(bid)
+            served++
+            asks.remove(bid)?.let { it.sealed = sealed; it.done = true }
+            settled.signalAll()
+            if (served % 25 == 0 || asks.isEmpty()) Log.d("Montana", "cargo_lane served=" + served + " queued=" + asks.size + " flying=" + flying.size)
+            pump()
+        } finally { lock.unlock() }
     }
 }
 
@@ -154,7 +253,7 @@ object Streams {
     fun ahead(l: StreamLoader, i: Int) {
         val k = l.dest.path + "#" + i
         synchronized(asked) { if (!asked.add(k)) return }
-        aheadPool.execute { try { l.piece(i) } finally { synchronized(asked) { asked.remove(k) } } }
+        aheadPool.execute { try { l.piece(i, Lane.Need.AHEAD) } finally { synchronized(asked) { asked.remove(k) } } }
     }
 
     /**
