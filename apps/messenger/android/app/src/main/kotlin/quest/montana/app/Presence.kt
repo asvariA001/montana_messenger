@@ -303,7 +303,7 @@ object Signal {
             if (e == "box") { Thread { Post.fetch() }.start(); continue }
             val sealed = runCatching { Base64.decode(e, Base64.DEFAULT) }.getOrNull() ?: continue
             val w0 = Wire.minute()
-            val plain = listOf(w0, w0 - 1, w0 + 1).firstNotNullOfOrNull { w -> Wire.open(Wire.bodyKey(secret, w), sealed) } ?: continue
+            val plain = Wire.openWalked(sealed, secret, w0, Book.healing(ref))?.plain ?: continue   // every walk the pipe gives (iOS bodyKeys)
             Meeting.firstDone(ref)   // a word under the pipe proves the other side holds it, on this road too (iOS 1961)
             val a = plain.indexOf(0); if (a < 0) continue
             val b = (a + 1 until plain.size).firstOrNull { plain[it] == 0.toByte() } ?: continue
@@ -314,7 +314,7 @@ object Signal {
             // the minute, the fields, the one incoming door (Post.fromChannel) -- so the box's copy, read later, is buried as a repeat.
             // An older build reads the epoch as a call's it does not hold and buries it unread; the letter still reaches it by the box.
             if (epoch == "letter") {
-                val letter = Wire.openBoxed(words, secret, System.currentTimeMillis() / 1000)
+                val letter = Book.openBoxedLetter(words, ref, System.currentTimeMillis() / 1000)   // heard by the heal (iOS openLetterEnvelope, 76f5eeb7)
                 if (letter == null) { Log.d("Montana", "sig_rx OPEN-FAIL lane=letter"); continue }
                 Log.d("Montana", "sig_apply lane=letter mid=" + Wire.fields(letter)[0].take(8) + " from=" + ref.take(10))
                 Thread { Post.fromChannel(ref, letter) }.start()   // a long letter's cargo is fetched off the lane's own question
@@ -338,8 +338,8 @@ object Signal {
         val w0 = Wire.day()
         for (ref in Book.refs()) {
             val secret = Book.secret(ref) ?: continue
-            for (w in (w0 - 1)..w0) {
-                val cw = Wire.convW(secret, w)
+            val h = Book.healing(ref)   // a heal in flight: the healed walk's label too (iOS subscriptions under convWs, 76f5eeb7)
+            for (w in (w0 - 1)..w0) for (cw in Wire.convWs(secret, w, h)) {
                 chatOf[cw] = ref
                 q.add(JSONObject().put("conv", cw).put("from_id", Wire.subId(cw, twin)))
             }
@@ -364,9 +364,9 @@ object Signal {
         }
         var words = 0
         for ((chat, w) in best) {
-            val secret = Book.secret(chat) ?: continue
+            if (Book.secret(chat) == null) continue
             val sealed = runCatching { Base64.decode(w.first, Base64.DEFAULT) }.getOrNull() ?: continue
-            val plain = Wire.openBoxed(sealed, secret, w.second) ?: continue
+            val plain = Book.openBoxedLetter(sealed, chat, w.second) ?: continue   // the last words open through the book (iOS 76f5eeb7)
             val a = plain.indexOf(0); if (a < 0) continue
             val b = (a + 1 until plain.size).firstOrNull { plain[it] == 0.toByte() } ?: continue
             if (String(plain, a + 1, b - a - 1, Charsets.UTF_8) != "chat") continue

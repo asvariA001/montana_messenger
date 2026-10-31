@@ -31,10 +31,25 @@ object Wire {
 
     /** The raw seal key of the set: SHA-256("mt-pipe-key" ‖ 0 ‖ step_secret ‖ W_LE) — held by the canon vectors (iOS MTNodeWire.sealKey). */
     fun sealKey(stepSecret: ByteArray, w: Long) = sha(d("mt-pipe-key"), stepSecret, le8(w))
-    /** The letter body key of a minute: the seal key under the pipe secret of that minute's day (iOS MTNodeWire.bodyKey). */
-    fun bodyKey(secret: ByteArray, w: Long) = sealKey(pipeSecret(secret, w / MINUTES_PER_DAY), w)
-    /** The conversation's daily label at the node, over the pipe secret of that day. */
-    fun convW(secret: ByteArray, day: Long) = convTag(pipeSecret(secret, day), day)
+    /** The letter body key of a minute a letter is sealed in: the seal key under the walk this side sends under on that minute's
+     *  day -- the healed one when the heal in flight `h` says so (Healing.sendsHealed), else the pipe's own (iOS MTPipeKey.bodyKey). */
+    fun bodyKey(secret: ByteArray, w: Long, h: Healing? = null) = sealKey(sendWalk(secret, w / MINUTES_PER_DAY, h), w)
+    /** The keys a letter sealed in a minute may open under, the healed walk's first, each with whether it is the healed walk: the
+     *  opener tells the heal which one opened (Book.healRead). One key, the pipe's own, while no heal is in flight (iOS bodyKeys). */
+    fun bodyKeys(secret: ByteArray, w: Long, h: Healing? = null): List<Pair<Boolean, ByteArray>> =
+        openWalks(secret, w / MINUTES_PER_DAY, h).map { it.first to sealKey(it.second, w) }
+    /** The conversation's daily label at the node, as this side deposits under it: over the walk of that day. */
+    fun convW(secret: ByteArray, day: Long, h: Healing? = null) = convTag(sendWalk(secret, day, h), day)
+    /** The labels of a day this side reads a box under: the healed walk's first while a heal is in flight, then the pipe's own (iOS convWs). */
+    fun convWs(secret: ByteArray, day: Long, h: Healing? = null): List<String> = openWalks(secret, day, h).map { convTag(it.second, day) }
+    /** The walk a letter laid on `day` goes under. */
+    private fun sendWalk(secret: ByteArray, day: Long, h: Healing?): ByteArray =
+        h?.takeIf { it.sendsHealed(day) }?.heal?.walked(day) ?: pipeSecret(secret, day)
+    /** The walks a letter of `day` may open under, the healed first (true); the pipe's own alone while no heal is in flight. */
+    private fun openWalks(secret: ByteArray, day: Long, h: Healing?): List<Pair<Boolean, ByteArray>> {
+        if (h == null) return listOf(false to pipeSecret(secret, day))
+        return h.opens(day).mapNotNull { healed -> if (healed) h.heal.walked(day)?.let { true to it } else false to pipeSecret(secret, day) }
+    }
     /** The canon's daily label over the day's secret: SHA-256("mt-wake-conv" ‖ 0 ‖ day_secret ‖ W_LE) — held by the wake vectors apart from the walk (iOS MTNodeWire.convTag). */
     fun convTag(daySecret: ByteArray, day: Long) = hex(sha(d("mt-wake-conv"), daySecret, le8(day)))
 
@@ -100,14 +115,25 @@ object Wire {
      */
     const val TAG_WALK_DAY = WALK_ANCHOR_DAY + 4   // 20758, 01.11.2026 UTC
     const val ERASE_DAY = TAG_WALK_DAY + 2         // 20760, 03.11.2026 UTC
-    fun windowTag(secret: ByteArray, w: Long): ByteArray {
+    /** Over the healed walk once this side sends under it (issue #75 slice C2b-2); else as above. */
+    fun windowTag(secret: ByteArray, w: Long, h: Healing? = null): ByteArray {
+        val day = w / MINUTES_PER_DAY
+        h?.takeIf { it.sendsHealed(day) }?.heal?.walked(day)?.let { return pipeTag(it, w) }
+        return ownTag(secret, w)
+    }
+    private fun ownTag(secret: ByteArray, w: Long): ByteArray {
         val day = w / MINUTES_PER_DAY
         return pipeTag(if (day >= TAG_WALK_DAY || !holdsOrigin(secret)) pipeSecret(secret, day) else secret, w)
     }
-    fun windowTags(secret: ByteArray, w: Long): List<ByteArray> {
+    /** The tags a receiver accepts in a window: the healed walk's while a heal is in flight; then, while the old walk is held, the
+     *  tag of the window and, on Y and Y + 1, the one an earlier build laid over the established secret (iOS MTPipeKey.tags). */
+    fun windowTags(secret: ByteArray, w: Long, h: Healing? = null): List<ByteArray> {
         val day = w / MINUTES_PER_DAY
-        val now = windowTag(secret, w)
-        return if (holdsOrigin(secret) && day >= TAG_WALK_DAY && day < ERASE_DAY) listOf(now, pipeTag(secret, w)) else listOf(now)
+        val walks = openWalks(secret, day, h)
+        val healed = walks.filter { it.first }.map { pipeTag(it.second, w) }
+        if (walks.none { !it.first }) return healed
+        val now = ownTag(secret, w)
+        return if (holdsOrigin(secret) && day >= TAG_WALK_DAY && day < ERASE_DAY) healed + listOf(now, pipeTag(secret, w)) else healed + now
     }
 
     /**
@@ -148,9 +174,24 @@ object Wire {
         if (day < ERASE_DAY || !isWhole(p)) return p
         val f = day - FLOOR_LAG
         if (isFloor(p) && floorDay(p) >= f) return p
+        return floorOf(p, f, pipeSecret(p, f))
+    }
+    /** The floor form at day `f` holding the walk's `value` there and the quantities `p` keeps for good. */
+    private fun floorOf(p: ByteArray, f: Long, value: ByteArray): ByteArray {
         val ref = if (isFloor(p)) p.copyOfRange(FLOOR_SIZE - 16, FLOOR_SIZE) else sha(p).copyOf(16)
-        return byteArrayOf(FLOOR_FORM) + le8(f) + pipeSecret(p, f) + convRoot(p) + sameRank(p) + fingerprintMaterial(p) +
+        return byteArrayOf(FLOOR_FORM) + le8(f) + value + convRoot(p) + sameRank(p) + fingerprintMaterial(p) +
             (if (isFloor(p)) part(p, 4) else sha(d("mt-pipe-f"), p)) + faceKey(p) + pairTag(p) + ref
+    }
+    /**
+     * A HEAL DONE IS NO HEAL CARRIED (iOS MTPipeKey.rebased, issue #75 slice C2b-2, 76f5eeb7): once the old walk is erased here the
+     * pipe stands on the healed walk as a floor on the day after the answering letter, whose value is the healed walk's first, with
+     * the quantities kept for good -- no new form, and the established secret and the old walk leave as a floor drops them. null
+     * while the old walk is held, or for a pipe that is not whole. NAMED LIMIT (as iOS): a whole secret met again after a heal is no
+     * longer one pipe with the rebased one (samePipe), and the book keeps the rebased one.
+     */
+    fun rebased(p: ByteArray, h: Healing?): ByteArray? {
+        if (h == null || h.holdsOld || !isWhole(p)) return null
+        return floorOf(p, h.heal.day + 1, h.heal.first)
     }
     /** The day F a floor holds the walk at; null while the pipe holds the established secret. */
     fun floorDayOf(p: ByteArray): Long? = if (isFloor(p)) floorDay(p) else null
@@ -208,13 +249,26 @@ object Wire {
     fun open(key: ByteArray, sealed: ByteArray): ByteArray? = MtBindings.nativeOpenBlob(key, sealed)
 
     /** A boxed letter wears the SENDER's minute, the node names the minute it took it: the walk goes back a day. */
-    fun openBoxed(sealed: ByteArray, secret: ByteArray, atS: Long): ByteArray? {
+    fun openBoxed(sealed: ByteArray, secret: ByteArray, atS: Long): ByteArray? = openBoxedWalked(sealed, secret, atS)?.plain
+    /** A letter opened, the walk that opened it (true = healed) and the minute it was sealed in -- what the heal hears (Book.healRead). */
+    class Opened(val plain: ByteArray, val healed: Boolean, val w: Long)
+    /** Every key of a minute the pipe gives is tried (bodyKeys, the healed walk's first while a heal is in flight; iOS MTNodeWire.openBoxed, 76f5eeb7). */
+    fun openBoxedWalked(sealed: ByteArray, secret: ByteArray, atS: Long, h: Healing? = null): Opened? {
         val w0 = atS / 60
-        for (w in longArrayOf(w0, w0 - 1, w0 + 1)) open(bodyKey(secret, w), sealed)?.let { return it }
+        fun at(w: Long): Opened? {
+            for ((healed, k) in bodyKeys(secret, w, h)) open(k, sealed)?.let { return Opened(it, healed, w) }
+            return null
+        }
+        for (w in longArrayOf(w0, w0 - 1, w0 + 1)) at(w)?.let { return it }
         var w = w0 - 2
-        repeat(1439) { open(bodyKey(secret, w), sealed)?.let { return it }; w-- }
+        repeat(1439) { at(w)?.let { return it }; w-- }
         return null
     }
+    /** A live letter sealed in `w` or a minute beside it, under every key the pipe gives (iOS MTPipe.openWalked). */
+    fun openWalked(sealed: ByteArray, secret: ByteArray, w: Long, h: Healing? = null): Opened? =
+        listOf(w, w - 1, w + 1).firstNotNullOfOrNull { k ->
+            bodyKeys(secret, k, h).firstNotNullOfOrNull { (healed, key) -> open(key, sealed)?.let { Opened(it, healed, k) } }
+        }
 
     /** mid‖0‖text‖0‖name‖0‖glyph‖0‖quote‖0‖quoted mid‖0‖card‖0‖author — eight fields, an absent one empty (iOS MTNodeWire.letterFields). */
     fun fields(plain: ByteArray, from: Int = 0): List<String> {
@@ -483,6 +537,8 @@ object Wire {
     // window, this client by the day, so the residue lasts at least to the end of the answering letter's day.
     /** A heal answered by a letter laid on `day`: the fold over the old walk of that day itself; null for a cut part or a day behind the floor (iOS MTPipeKey.heal). */
     fun heal(secret: ByteArray, answeredOn: Long, ss: ByteArray, pk: ByteArray, ct: ByteArray): Heal? {
+        // Before the anchor the walk stands still while a healed walk steps each day: no heal stands there (iOS 76f5eeb7).
+        if (answeredOn < WALK_ANCHOR_DAY) return null
         if (isFloor(secret) && steps(answeredOn) < steps(floorDay(secret))) return null
         return healed(pipeSecret(secret, answeredOn), ss, pk, ct)?.let { Heal(answeredOn, it) }
     }
@@ -646,6 +702,11 @@ object Wire {
         var offer: Offer? = null
         var owed: Owed? = null
         var healing: Healing? = null
+        /** The other side's offer this side answered last: another road's copy of that one letter is never answered again. */
+        var answered: ByteArray? = null
+        /** The pipe was rebased on a healed walk (rebased): its floor is a heal's, not the walk's erasure, so it never counts as
+         *  the first floor the clock guard asks about (FloorGuard, rule 4). */
+        var rebased = false
         /** One walk held: no heal in flight, or its old walk erased. */
         val holdsOneWalk get() = healing?.holdsOld != true
 
@@ -683,6 +744,9 @@ object Wire {
         fun received(part: HealPart, day: Long, pipe: ByteArray, kem: HealKem) {
             when (part) {
                 is HealPart.Offer -> {
+                    // One letter reaches a side by several roads (the lane, the box, the radio): an offer that rides once is never
+                    // sent again (carry), so the same key read twice is the same letter, and the heal it began is not let go.
+                    if (answered?.contentEquals(part.pk) == true || owed?.pk?.contentEquals(part.pk) == true) return
                     healing?.let { h ->
                         // The other side offers only while it holds one walk: it never opened this side's answer.
                         if (h.holdsOld) { if (h.offering) return; healing = null }
@@ -690,6 +754,7 @@ object Wire {
                     offer?.let { if (it.rode && offerStands(it.pk, part.pk)) return }
                     offer = null
                     owed = kem.answer(part.pk)?.let { Owed(part.pk, it.first, it.second) }
+                    if (owed != null) answered = part.pk
                 }
                 is HealPart.Answer -> {
                     val mine = offer ?: return
@@ -709,6 +774,8 @@ object Wire {
             healing?.let {
                 put("healing", JSONObject().put("offering", it.offering).put("day", it.heal.day).put("first", b(it.heal.first)).put("holdsOld", it.holdsOld))
             }
+            answered?.let { put("answered", b(it)) }
+            if (rebased) put("rebased", true)
         }.toString()
         override fun equals(other: Any?) = other is HealSide && other.json() == json()
         override fun hashCode() = json().hashCode()
@@ -724,6 +791,8 @@ object Wire {
                     j.optJSONObject("healing")?.let {
                         healing = Healing(it.getBoolean("offering"), Heal(it.getLong("day"), b(it, "first")), it.getBoolean("holdsOld"))
                     }
+                    if (j.has("answered")) answered = b(j, "answered")
+                    rebased = j.optBoolean("rebased")
                 }
             }.getOrNull()
 
@@ -760,6 +829,10 @@ object Wire {
                 val answer = a.carry(d, kem) as? HealPart.Answer ?: return false
                 if (HealPart.of(answer.field) != answer || !answer.rho.contentEquals(HealPart.rho(pk))) return false
                 a.sent(answer, d, pipe)
+                // The offer's letter read again by another road: the heal it began stands, nothing is owed anew.
+                val begun = a.json()
+                a.received(HealPart.Offer(pk), d, pipe, kem)
+                if (a.json() != begun || a.healing?.holdsOld != true) return false
                 o.received(answer, d, pipe, kem)
                 val ho = o.healing ?: return false
                 val ha = a.healing ?: return false
@@ -796,7 +869,74 @@ object Wire {
                 val lowPk = low.offer?.pk ?: return false
                 if (low.owed != null || high.offer != null || high.owed?.pk?.contentEquals(lowPk) != true) return false
                 // The side survives being kept.
-                return from(o.json()) == o
+                if (from(o.json()) != o) return false
+                return healWiredAgrees(kem)
+            }
+
+            /**
+             * THE HEAL WIRED INTO THE PIPE (iOS MTPipeKey.healWiredAgrees, slice C2b-2, 76f5eeb7): two keys of one pipe heal by letters,
+             * the KEM given -- on the day after the answer the offering side seals, deposits and labels under the healed walk and the
+             * answering side opens it, the answering side still under the old walk and the offering side opens that; the answering
+             * side opens a healed letter and is rebased, then the offering side; both stand on one floor, derive alike, keep their
+             * quantities, and the old walk opens nothing on either.
+             */
+            fun healWiredAgrees(kem: HealKem): Boolean {
+                val pipe = ByteArray(32) { 0x5B }
+                val d = WALK_ANCHOR_DAY + 1
+                val mpd = MINUTES_PER_DAY
+                val w = (d + 1) * mpd + 7
+                val late = (d + 5) * mpd + 3
+                val d0 = d * mpd + 9
+                fun eq(x: ByteArray, y: ByteArray) = x.contentEquals(y)
+                fun carried(part: HealPart): HealPart? {
+                    val body = withHeal(withAuthor("m\u0000t\u0000".toByteArray(), ByteArray(32) { it.toByte() }, pipe, "m", "t", d), part.field)
+                    if (body.size > ENVELOPE) return null
+                    return letterHeal(body + ByteArray(ENVELOPE - body.size))?.let { HealPart.of(it) }
+                }
+                val o = HealSide(); val a = HealSide()
+                val offer = o.carry(d, kem) ?: return false
+                val got = carried(offer) ?: return false
+                o.sent(offer, d, pipe)
+                a.received(got, d, pipe, kem)
+                val answer = a.carry(d, kem) ?: return false
+                val back = carried(answer) ?: return false
+                a.sent(answer, d, pipe)
+                o.received(back, d, pipe, kem)
+                val ho = o.healing ?: return false
+                val ha = a.healing ?: return false
+                // the answer's own day: both still under the old walk
+                if (!eq(bodyKey(pipe, d0, ho), bodyKey(pipe, d0)) || !eq(bodyKey(pipe, d0, ha), bodyKey(pipe, d0))
+                    // the day after: the offering side under the healed walk, the answering side opens it under the healed
+                    || eq(bodyKey(pipe, w, ho), bodyKey(pipe, w))
+                    || bodyKeys(pipe, w, ha).firstOrNull()?.let { it.first && eq(it.second, bodyKey(pipe, w, ho)) } != true
+                    || windowTags(pipe, w, ha).firstOrNull()?.let { eq(it, windowTag(pipe, w, ho)) } != true
+                    || convWs(pipe, d + 1, ha).firstOrNull() != convW(pipe, d + 1, ho)
+                    // the answering side still under the old walk, the offering side opens it under the old
+                    || !eq(bodyKey(pipe, w, ha), bodyKey(pipe, w))
+                    || bodyKeys(pipe, w, ho).none { !it.first && eq(it.second, bodyKey(pipe, w, ha)) }
+                    || windowTags(pipe, w, ho).none { eq(it, windowTag(pipe, w, ha)) }
+                    || convW(pipe, d + 1, ha) !in convWs(pipe, d + 1, ho)
+                    || rebased(pipe, ha) != null || rebased(pipe, ho) != null) return false
+                // The answering side opens the offering side's healed letter: its old walk is erased, it is rebased.
+                ha.opened(true)
+                val ra = rebased(pipe, ha) ?: return false
+                if (!isFloor(ra) || holdsOrigin(ra) || !eq(bodyKey(ra, w), bodyKey(pipe, w, ho)) || bodyKeys(ra, w).size != 1
+                    || windowTags(ra, w).let { it.size != 1 || !eq(it[0], windowTag(pipe, w, ho)) }
+                    || convWs(ra, d + 1) != listOf(convW(pipe, d + 1, ho))
+                    || bodyKeys(ra, w).any { eq(it.second, bodyKey(pipe, w)) }) return false
+                // The offering side opens the answering side's first healed letter: both stand on one floor.
+                ho.opened(true)
+                val ro = rebased(pipe, ho) ?: return false
+                val e = ERASE_DAY + 9
+                return eq(ro, ra)
+                    && eq(bodyKey(ro, late), bodyKey(ra, late)) && !eq(bodyKey(ro, late), bodyKey(pipe, late))
+                    && !eq(windowTag(ro, late), windowTag(pipe, late)) && convW(ro, d + 5) != convW(pipe, d + 5)
+                    && reference(ro) == reference(pipe) && eq(sameRank(ro), sameRank(pipe)) && eq(convRoot(ro), convRoot(pipe))
+                    && eq(fingerprintMaterial(ro), fingerprintMaterial(pipe)) && faceBid(ro) == faceBid(pipe)
+                    && eq(faceKey(ro), faceKey(pipe)) && eq(pairTag(ro), pairTag(pipe))
+                    && eq(bodyKey(floored(ro, e), e * mpd), bodyKey(floored(ra, e), e * mpd))
+                    // a heal folded on a day before the anchor, where the walk stands still, stands nowhere
+                    && heal(pipe, WALK_ANCHOR_DAY - 1, ByteArray(32), ByteArray(HEAL_OFFER_SIZE), ByteArray(HEAL_ANSWER_SIZE)) == null
             }
         }
     }
@@ -1193,7 +1333,8 @@ object Book {
         val day = Wire.day()
         val retry = refusedAt != 0L && System.currentTimeMillis() - refusedAt >= 60_000
         if (secretsDay == day && !secretsHeld && !retry) return m
-        val fd = FloorGuard.floorDay(m.isNotEmpty()) { m.values.any(Wire::isFloor) }
+        // A floor a heal laid (rebased) is no erasure by the walk: it never answers rule 4 for the book's first floor (iOS 76f5eeb7).
+        val fd = FloorGuard.floorDay(m.isNotEmpty()) { m.any { (r, p) -> Wire.isFloor(p) && !rebasedHere(r) } }
         secretsDay = day; secretsHeld = fd < day
         val moved = m.filter { (_, p) -> Wire.floored(p, fd) !== p }.keys.toList()
         moved.forEach { r -> m[r] = Wire.floored(m.getValue(r), fd) }
@@ -1216,6 +1357,120 @@ object Book {
         return DeviceVault.set(SECRETS, o.toString().toByteArray())
     }
     fun refs(): List<String> = synchronized(lock) { sec().keys.toList() }
+
+    // ── THE HEALS OF THE PIPES, SEALED BESIDE THE BOOK (iOS MTPipeBook healLoad/healStore/rebase/healCarry/healSent/healRead/open,
+    // issue #75 slice C2b-2, 76f5eeb7): each pipe's side of its heals (Wire.HealSide: its offer with the decapsulation key, the answer
+    // it owes with its shared secret, the heal in flight) is sealed under the device key beside the book, one of the seat's keys, as
+    // the pipe's secret is: never in the archive. Every road hands a pipe out with its heal in flight (healing), and a heal done
+    // rebases the pipe in the book. A record that lies on the disk and does not open now is not replaced, and nothing rides: no offer
+    // leaves whose decapsulation key is not sealed first. NOT IN THIS SLICE (as iOS): sending the offer and the answer (healCarry
+    // before the seal, withHeal, healSent after it) -- a pipe is held by every device of one seed and a heal by one place only, so
+    // sending waits on the Author's decision 416. While nothing is sent no heal starts and nothing changes.
+    private const val HEALS = "pipeHeal"
+    private var heals: MutableMap<String, Wire.HealSide>? = null
+    /** null: the record lies on the disk and does not open now. Under the lock. */
+    private fun healLoad(): MutableMap<String, Wire.HealSide>? {
+        heals?.let { return it }
+        val m = if (!DeviceVault.has(HEALS)) mutableMapOf() else {
+            val read = DeviceVault.get(HEALS)?.let { raw ->
+                runCatching { JSONObject(String(raw, Charsets.UTF_8)).let { o -> o.keys().asSequence().associateWith { Wire.HealSide.from(o.getString(it)) } } }.getOrNull()
+            }
+            if (read == null || read.values.any { it == null }) { Log.d("Montana", "pipes_heal_unreadable"); return null }
+            read.mapValues { it.value!! }.toMutableMap()
+        }
+        heals = m; return m
+    }
+    /** A refused write drops memory's copy: the next read takes the disk's again. Under the lock. */
+    private fun healStore(m: MutableMap<String, Wire.HealSide>): Boolean {
+        val o = JSONObject(); m.forEach { (k, v) -> o.put(k, v.json()) }
+        if (DeviceVault.set(HEALS, o.toString().toByteArray())) { heals = m; return true }
+        Log.d("Montana", "pipes_heal_write_refused n=" + m.size); heals = null
+        return false
+    }
+    /** The heal in flight of a pipe, handed out with it (iOS MTPipeBook.key(for:)); null: none. */
+    fun healing(ref: String): Wire.Healing? = synchronized(lock) { healLoad()?.get(ref)?.healing }
+    /** A floor a heal laid (rebased) is no erasure by the walk: it never answers rule 4 for the book's first floor. Under the lock. */
+    private fun rebasedHere(ref: String) = healLoad()?.get(ref)?.rebased == true
+    /**
+     * A heal done here (its old walk erased) rebases the pipe in the book and the archive's head with it; the heal is let go only
+     * once the book sealed the rebased pipe -- until then the pipe is handed out with it and sends and opens under the healed walk
+     * alone. Whether no heal done waits on the book. Under the lock.
+     */
+    private fun rebase(ref: String, side: Wire.HealSide): Boolean {
+        val h = side.healing ?: return true
+        if (h.holdsOld) return true
+        val m = walked()
+        val pipe = m[ref] ?: return false
+        val r = Wire.rebased(pipe, h) ?: return false
+        m[ref] = r
+        if (!saveSecrets(m)) { m[ref] = pipe; return false }
+        side.healing = null; side.rebased = true
+        Channels.dropPipes()
+        Archive.head(ref)
+        Log.d("Montana", "pipe_healed")
+        return true
+    }
+    /**
+     * What the next letter of a correspondence, sealed in `w`, carries in its ninth field: the answer owed, else this side's offer of
+     * the day (HealSide.carry, the real ML-KEM-768), sealed here before it may ride. null: nothing to carry, a pipe not whole, a heal
+     * done the book has not sealed yet, or a record that does not open or seal now. Nothing calls it yet (decision 416).
+     */
+    fun healCarry(ref: String, w: Long): Wire.HealPart? = synchronized(lock) {
+        if (walked()[ref]?.let { Wire.isWhole(it) } != true) return null
+        val m = healLoad() ?: return null
+        val side = m[ref] ?: Wire.HealSide()
+        val before = side.json()
+        if (!rebase(ref, side)) return null
+        val part = side.carry(w / Wire.MINUTES_PER_DAY, Wire.HealKeys.kem)
+        if (side.json() != before) { m[ref] = side; if (!healStore(m)) return null }
+        part
+    }
+    /** The letter sealed in `w` left with `part`: an offer rode; an answer that left starts this side's heal as the answering one. */
+    fun healSent(part: Wire.HealPart, ref: String, w: Long) {
+        synchronized(lock) {
+            val pipe = walked()[ref] ?: return
+            val m = healLoad() ?: return
+            val side = m[ref] ?: return
+            val before = side.json()
+            side.sent(part, w / Wire.MINUTES_PER_DAY, pipe)
+            if (side.json() == before) return
+            m[ref] = side; healStore(m); Channels.dropPipes()
+        }
+    }
+    /**
+     * A letter of the other side sealed in `w` opened under the healed walk or the old one, its plain text in hand: the heal in flight
+     * hears which walk opened (a healed one erases the old walk and rebases the pipe), then the ninth field is read (HealSide.received).
+     * `w` is the letter's own minute, never the device clock.
+     */
+    fun healRead(plain: ByteArray, healed: Boolean, ref: String, w: Long) {
+        val part = Wire.letterHeal(plain)?.let { Wire.HealPart.of(it) }
+        if (part == null && !healed) return   // a letter of the old walk with no heal changes nothing
+        synchronized(lock) {
+            if (walked()[ref] == null) return
+            val m = healLoad() ?: return
+            val side = m[ref] ?: Wire.HealSide()
+            val before = side.json()
+            side.healing?.opened(healed)
+            rebase(ref, side)
+            if (part != null) walked()[ref]?.let { side.received(part, w / Wire.MINUTES_PER_DAY, it, Wire.HealKeys.kem) }
+            if (side.json() != before) { m[ref] = side; healStore(m); Channels.dropPipes() }
+        }
+    }
+    /** A live letter of a correspondence opened under the pipe and its heal in flight, and heard by the heal: the one opening the
+     *  roads read a pipe's live letter by (the channel, the lane; iOS MTPipeBook.open). */
+    fun openLetter(sealed: ByteArray, ref: String, w: Long = Wire.minute()): ByteArray? {
+        val pipe = secret(ref) ?: return null
+        val o = Wire.openWalked(sealed, pipe, w, healing(ref)) ?: return null
+        healRead(o.plain, o.healed, ref, o.w)
+        return o.plain
+    }
+    /** A boxed letter of a correspondence, the node's second `atS` in hand, opened and heard the same way (iOS openBoxed + healRead). */
+    fun openBoxedLetter(sealed: ByteArray, ref: String, atS: Long): ByteArray? {
+        val pipe = secret(ref) ?: return null
+        val o = Wire.openBoxedWalked(sealed, pipe, atS, healing(ref)) ?: return null
+        healRead(o.plain, o.healed, ref, o.w)
+        return o.plain
+    }
 
     /** A correspondence is born from the secret its first letter produced (iOS MTPipeBook.establish). */
     fun establish(secret: ByteArray): String? = synchronized(lock) {
@@ -1464,6 +1719,7 @@ object Book {
             val m = sec(); dead.forEach { m.remove(it); Meeting.forget(it) }
             val o = JSONObject(); m.forEach { (k, v) -> o.put(k, Base64.encodeToString(v, Base64.NO_WRAP)) }
             DeviceVault.set(SECRETS, o.toString().toByteArray())
+            healLoad()?.let { h -> if (dead.count { h.remove(it) != null } > 0) healStore(h) }   // the heal does not outlive the pipe (iOS forgetHeal)
         }
         SamePair.drop(dead)
         dead.forEach { Archive.drop(it) }   // no conversation, no trace of it on disk (iOS deleteChatFolder)
@@ -1616,6 +1872,7 @@ object Book {
         synchronized(lock) {
             ensure(); chats.keys.forEach { DeviceVault.delete("chat:$it") }; chats.clear()
             DeviceVault.delete(INDEX); DeviceVault.delete(SECRETS); secrets = null
+            DeviceVault.delete(HEALS); heals = null   // the pipes' heals are the seat's, as the pipes (iOS SeedScope.seatKeys «pipeHeal»)
             secretsDay = 0L; secretsHeld = false; refusedAt = 0L
         }
         FloorGuard.wipe(); Archive.forgetPurge()   // the clock guard and the purge's mark are this seat's, as the book (iOS SeedScope.seatKeys)
@@ -2217,7 +2474,8 @@ object Post {
         }
         for (ref in Book.refs()) {
             val s = Book.secret(ref) ?: continue
-            for (w in boxDays(w0)) { val cw = Wire.convW(s, w); secretOf[cw] = s; chatOf[cw] = ref }
+            val h = Book.healing(ref)   // a heal in flight: the box is read under the healed walk's label too (iOS convWs, 76f5eeb7)
+            for (w in boxDays(w0)) for (cw in Wire.convWs(s, w, h)) { secretOf[cw] = s; chatOf[cw] = ref }
         }
         // THE SEED'S OWN PIPE NAMES EACH DEVICE APART (iOS BoxEar, MontanaWakePush.swift:2641-2649): the store yields no letter to the sid
         // that laid it, so this device asks under its own name there -- its own letters stay for the others
@@ -2255,7 +2513,10 @@ object Post {
                 val cw = l.optString("c"); val e = l.optString("e"); val m = l.optString("m")
                 val secret = secretOf[cw] ?: continue
                 val sealed = runCatching { Base64.decode(e, Base64.DEFAULT) }.getOrNull() ?: continue
-                val plain = Wire.openBoxed(sealed, secret, l.optLong("at")) ?: continue
+                // a pipe's letter opens through the book, under every walk it gives, and the heal hears it (iOS pickup → healRead)
+                val pipeRef = chatOf[cw]
+                val plain = (if (pipeRef != null) Book.openBoxedLetter(sealed, pipeRef, l.optLong("at"))
+                    else Wire.openBoxed(sealed, secret, l.optLong("at"))) ?: continue
                 // the history of this seed's other devices: filed there, never a letter of the feed (iOS restash → twinTakes)
                 if (cw in twinSid) { val f = Wire.fields(plain); Twin.takes(f[1], f[0]); if (m.isNotEmpty()) taken.add(JSONArray(listOf(m, dev(cw)))); continue }
                 val ok = invOf[cw]?.let { inv -> first(plain, inv) } ?: chatOf[cw]?.let { ref -> letter(ref, plain) } ?: false
