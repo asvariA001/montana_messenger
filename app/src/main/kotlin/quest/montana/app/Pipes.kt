@@ -272,6 +272,35 @@ object Wire {
         return if (b.size <= ENVELOPE) b else body
     }
     /**
+     * THE NINTH FIELD CARRIES A HEAL OF THE PIPE (iOS MTNodeWire.withHeal / letterHeal, issue #75 slice C2b-1, 4a5802a4; decision
+     * 401 = a, record 408): an offer or an answer (HealPart) rides after the author as base64 of a kind byte and its parts. The
+     * envelope keeps its 2 048 bytes and the node sees nothing new; an older build reads eight fields and none of this. NAMED
+     * LIMIT (as iOS): a letter with a long text, a quote or a card has no room and carries no heal that time.
+     */
+    const val HEAL_FIELDS = AUTHOR_FIELDS + 1   // the fields before the heal: the seven, then the author
+    fun withHeal(body: ByteArray, field: ByteArray): ByteArray {
+        var b = body
+        if (b.isNotEmpty() && b.last() != 0.toByte()) b += byteArrayOf(0)
+        val closed = b.count { it == 0.toByte() }
+        if (closed > HEAL_FIELDS) return body
+        b += ByteArray(HEAL_FIELDS - closed)
+        b += Base64.encodeToString(field, Base64.NO_WRAP).toByteArray() + byteArrayOf(0)
+        return if (b.size <= ENVELOPE) b else body
+    }
+    /** The heal a letter carries in its ninth field, kind byte first; null when it carries none. */
+    fun letterHeal(plain: ByteArray): ByteArray? {
+        var i = 0
+        repeat(HEAL_FIELDS) {
+            while (i < plain.size && plain[i] != 0.toByte()) i++
+            if (i >= plain.size) return null
+            i++
+        }
+        var z = i
+        while (z < plain.size && plain[z] != 0.toByte()) z++
+        if (z == i) return null
+        return runCatching { Base64.decode(String(plain, i, z - i, Charsets.US_ASCII), Base64.NO_WRAP) }.getOrNull()
+    }
+    /**
      * The author's vectors, derived apart from this code (python hmac): key = bytes 0..31, secret = bytes 32..63. They reject a tag
      * without its domain (N7afF/Hi…), plain SHA-256 in place of the HMAC (87X47Wdd…), mid and words swapped, no zero between mid
      * and words («ab», «c» and «a», «bc» would both be y6GqbLv5…), the URL alphabet (the first vector carries «/»), words read other
@@ -466,14 +495,18 @@ object Wire {
             while (at < on && at - day <= MAX_WALK) { value = domained("mt-pipe-ratchet", value); at++ }
             return value
         }
+        override fun equals(other: Any?) = other is Heal && other.day == day && other.first.contentEquals(first)
+        override fun hashCode() = 31 * day.hashCode() + first.contentHashCode()
     }
     /**
      * What each side of a heal sends and opens under (iOS MTPipeHealing): the offering side sends healed from the first day it
      * stands, the answering side keeps the old walk until it opens a letter under the healed one; each erases the old walk only then.
      */
-    class Healing(val offering: Boolean, val heal: Heal) {
-        var holdsOld = true
+    class Healing(val offering: Boolean, val heal: Heal, holdsOld: Boolean = true) {
+        var holdsOld = holdsOld
             private set
+        override fun equals(other: Any?) = other is Healing && other.offering == offering && other.heal == heal && other.holdsOld == holdsOld
+        override fun hashCode() = heal.hashCode()
         fun sendsHealed(day: Long) = day > heal.day && (offering || !holdsOld)
         /** The walks a letter of `day` may open under, the healed one first: true = healed, false = old. */
         fun opens(day: Long): List<Boolean> = (if (day > heal.day) listOf(true) else emptyList()) + (if (holdsOld) listOf(false) else emptyList())
@@ -509,7 +542,8 @@ object Wire {
     // ── THE KEYS OF A HEAL (iOS MTPipeHealKeys, issue #75 slice C2b common part, 69f9332d): the offering side draws a fresh ML-KEM-768
     // pair and sends its encapsulation key; the answering side encapsulates to it and sends the ciphertext back; both fold the shared
     // secret over the old walk (heal). The decapsulation key and the shared secret stay in memory on the side that drew them and never
-    // ride. Where the offer and the answer ride in a letter, and the fate of an unanswered offer, are the Author's (records 401, 402).
+    // ride. Where the offer and the answer ride (decision 401 = a, record 408) and the fate of an unanswered offer (402 = a, record 409)
+    // stand in HealSide, which takes these three as its KEM (slice C2b-1, 4a5802a4).
     object HealKeys {
         /** A fresh offer: the encapsulation key that rides (HEAL_OFFER_SIZE) and the decapsulation key kept until the answer. */
         fun offer(): Pair<ByteArray, ByteArray>? {
@@ -529,7 +563,7 @@ object Wire {
         /**
          * The offering side opens an answer with the decapsulation key it kept: the shared secret. ML-KEM never refuses a ciphertext
          * (FIPS 203, implicit rejection): one made to another key opens to a secret of noise, so an answer is opened only with the key
-         * of the offer it names (record 402). null for parts of another size.
+         * of the offer it names by ρ (record 409, HealSide.received). null for parts of another size.
          */
         fun open(ct: ByteArray, sk: ByteArray): ByteArray? {
             if (ct.size != HEAL_ANSWER_SIZE || sk.size != 2400) return null
@@ -551,7 +585,219 @@ object Wire {
             val offering = heal(pipe, day, s, pk, ct) ?: return false
             val answering = heal(pipe, day, ss, pk, ct) ?: return false
             val other = heal(pipe, day, ssB, pk, ctB) ?: return false
-            return offering.first.contentEquals(answering.first) && !other.first.contentEquals(offering.first)
+            return offering.first.contentEquals(answering.first) && !other.first.contentEquals(offering.first) && HealSide.agrees(kem)
+        }
+        /** The real ML-KEM-768 for the letters of a heal (HealSide, slice C2b). */
+        val kem = HealKem({ offer() }, { answer(it) }, { ct, sk -> open(ct, sk) })
+    }
+
+    // ── THE LETTERS OF A HEAL (iOS MTPipeHealPart / MTPipeHealKEM / MTPipeHealSide, issue #75 slice C2b-1, 4a5802a4; decisions 401 = a
+    // and 402 = a, records 408 and 409): what one side of a pipe carries in the ninth field of its letters (withHeal) and what it does
+    // with what it reads there. An offer rides in the first letter of the UTC day that has room for it; an answer the same way. The
+    // answer names its offer by ρ, the last 32 bytes of pk_h (FIPS 203: ek = t ‖ ρ, no new hash domain); the offering side opens an
+    // answer only with the key of the offer it names. An unanswered offer is replaced by the first letter of the next UTC day. At
+    // most one heal in flight (391 = a): a side offers only while it holds one walk and owes no answer; of two crossing offers the
+    // lower key stands. Nothing sends or reads these yet: the wiring is slice C2b-2.
+    /** The ninth field of a letter: an offer, or an answer that names its offer. */
+    sealed class HealPart {
+        class Offer(val pk: ByteArray) : HealPart()
+        class Answer(val ct: ByteArray, val rho: ByteArray) : HealPart()
+        val field: ByteArray get() = when (this) {
+            is Offer -> byteArrayOf(OFFER_KIND) + pk
+            is Answer -> byteArrayOf(ANSWER_KIND) + ct + rho
+        }
+        override fun equals(other: Any?) = other is HealPart && other.field.contentEquals(field)
+        override fun hashCode() = field.contentHashCode()
+        companion object {
+            const val OFFER_KIND: Byte = 1
+            const val ANSWER_KIND: Byte = 2
+            const val RHO_SIZE = 32
+            /** ρ of an encapsulation key: its last 32 bytes. */
+            fun rho(pk: ByteArray): ByteArray = pk.copyOfRange(maxOf(0, pk.size - RHO_SIZE), pk.size)
+            /** null for a kind not known here or parts of another size: an older or newer field is passed over, never half read. */
+            fun of(field: ByteArray): HealPart? {
+                if (field.isEmpty()) return null
+                val rest = field.copyOfRange(1, field.size)
+                return when {
+                    field[0] == OFFER_KIND && rest.size == HEAL_OFFER_SIZE -> Offer(rest)
+                    field[0] == ANSWER_KIND && rest.size == HEAL_ANSWER_SIZE + RHO_SIZE ->
+                        Answer(rest.copyOf(HEAL_ANSWER_SIZE), rest.copyOfRange(HEAL_ANSWER_SIZE, rest.size))
+                    else -> null
+                }
+            }
+        }
+    }
+
+    /** The three ML-KEM-768 operations of a heal, given from outside: the app passes HealKeys.kem. */
+    class HealKem(
+        val offer: () -> Pair<ByteArray, ByteArray>?,             // (pk, sk)
+        val answer: (ByteArray) -> Pair<ByteArray, ByteArray>?,   // pk -> (ct, ss)
+        val open: (ByteArray, ByteArray) -> ByteArray?,           // (ct, sk) -> ss
+    )
+
+    /**
+     * One side of one pipe's heals (iOS MTPipeHealSide): its own offer awaiting an answer, the answer it owes to the other side's
+     * offer, and the heal in flight. Kept per pipe; it holds a decapsulation key and a shared secret, so it is kept as the pipe's
+     * secret is (json / from).
+     */
+    class HealSide {
+        class Offer(val pk: ByteArray, val sk: ByteArray, val day: Long, var rode: Boolean)
+        class Owed(val pk: ByteArray, val ct: ByteArray, val ss: ByteArray)
+        var offer: Offer? = null
+        var owed: Owed? = null
+        var healing: Healing? = null
+        /** One walk held: no heal in flight, or its old walk erased. */
+        val holdsOneWalk get() = healing?.holdsOld != true
+
+        /**
+         * What a letter laid on `day` carries: the answer owed, else this side's offer of the day -- drawn on the day's first letter,
+         * replacing one left unanswered from an earlier day, and carried until a letter of the day had room for it. null: nothing.
+         */
+        fun carry(day: Long, kem: HealKem): HealPart? {
+            owed?.let { return HealPart.Answer(it.ct, HealPart.rho(it.pk)) }
+            if (!holdsOneWalk) return null
+            if (offer?.let { it.day < day } != false) offer = kem.offer()?.let { Offer(it.first, it.second, day, false) }
+            val o = offer ?: return null
+            return if (o.day == day && !o.rode) HealPart.Offer(o.pk) else null
+        }
+
+        /** The letter laid on `day` left with `part`. An answer that left starts this side's heal as the answering side, folded over `pipe`. */
+        fun sent(part: HealPart, day: Long, pipe: ByteArray) {
+            when (part) {
+                is HealPart.Offer -> offer?.let { if (it.pk.contentEquals(part.pk)) it.rode = true }
+                is HealPart.Answer -> {
+                    val o = owed ?: return
+                    if (!o.ct.contentEquals(part.ct)) return
+                    healing = heal(pipe, day, o.ss, o.pk, o.ct)?.let { Healing(false, it) }
+                    owed = null
+                }
+            }
+        }
+
+        /**
+         * A letter of the other side, whose tag stood on `day`, read with `part` -- after the walk it opened under was told to the
+         * heal in flight (Healing.opened). An offer: a heal of the other side that never got this side's answer is let go; a crossing
+         * offer of its own that stands keeps it; else it is answered. An answer: opened only when it names the offer of this side that
+         * rode; then this side heals as the offering one.
+         */
+        fun received(part: HealPart, day: Long, pipe: ByteArray, kem: HealKem) {
+            when (part) {
+                is HealPart.Offer -> {
+                    healing?.let { h ->
+                        // The other side offers only while it holds one walk: it never opened this side's answer.
+                        if (h.holdsOld) { if (h.offering) return; healing = null }
+                    }
+                    offer?.let { if (it.rode && offerStands(it.pk, part.pk)) return }
+                    offer = null
+                    owed = kem.answer(part.pk)?.let { Owed(part.pk, it.first, it.second) }
+                }
+                is HealPart.Answer -> {
+                    val mine = offer ?: return
+                    if (!mine.rode || !HealPart.rho(mine.pk).contentEquals(part.rho)) return
+                    val ss = kem.open(part.ct, mine.sk) ?: return
+                    val h = heal(pipe, day, ss, mine.pk, part.ct) ?: return
+                    healing = Healing(true, h)
+                    offer = null
+                }
+            }
+        }
+
+        fun json(): String = JSONObject().apply {
+            fun b(x: ByteArray) = Base64.encodeToString(x, Base64.NO_WRAP)
+            offer?.let { put("offer", JSONObject().put("pk", b(it.pk)).put("sk", b(it.sk)).put("day", it.day).put("rode", it.rode)) }
+            owed?.let { put("owed", JSONObject().put("pk", b(it.pk)).put("ct", b(it.ct)).put("ss", b(it.ss))) }
+            healing?.let {
+                put("healing", JSONObject().put("offering", it.offering).put("day", it.heal.day).put("first", b(it.heal.first)).put("holdsOld", it.holdsOld))
+            }
+        }.toString()
+        override fun equals(other: Any?) = other is HealSide && other.json() == json()
+        override fun hashCode() = json().hashCode()
+
+        companion object {
+            /** A side kept by json(); null for a record not read whole. */
+            fun from(json: String): HealSide? = runCatching {
+                val j = JSONObject(json)
+                fun b(o: JSONObject, k: String): ByteArray = Base64.decode(o.getString(k), Base64.NO_WRAP)
+                HealSide().apply {
+                    j.optJSONObject("offer")?.let { offer = Offer(b(it, "pk"), b(it, "sk"), it.getLong("day"), it.getBoolean("rode")) }
+                    j.optJSONObject("owed")?.let { owed = Owed(b(it, "pk"), b(it, "ct"), b(it, "ss")) }
+                    j.optJSONObject("healing")?.let {
+                        healing = Healing(it.getBoolean("offering"), Heal(it.getLong("day"), b(it, "first")), it.getBoolean("holdsOld"))
+                    }
+                }
+            }.getOrNull()
+
+            /**
+             * The letters of a heal agree, run with the KEM given (iOS MTPipeHealSide.agrees): the ninth field rides in a 2 048-byte
+             * envelope after the author and an older reader's eight fields stand unchanged; a long letter rides without it; a whole heal
+             * by letters gives both sides one walk; a late answer to an offer replaced the next day is dropped (record 409); of two
+             * crossing offers the lower stands; an answer never opened is let go when the other side offers again; no offer while two
+             * walks are held; the side survives being kept.
+             */
+            fun agrees(kem: HealKem): Boolean {
+                val pipe = ByteArray(32) { 0x5A }
+                val d = WALK_ANCHOR_DAY + 1
+                val key = ByteArray(32) { it.toByte() }
+                val head = "m1\u0000hi\u0000Ann\u0000A\u0000".toByteArray()
+                val long = ("m2\u0000" + "x".repeat(600) + "\u0000Ann\u0000A\u0000").toByteArray()
+                fun pad(b: ByteArray) = b + ByteArray(ENVELOPE - b.size)
+                val o = HealSide(); val a = HealSide()
+                val pk = (o.carry(d, kem) as? HealPart.Offer)?.pk ?: return false
+                val letter = withHeal(withAuthor(head, key, pipe, "m1", "hi", d), HealPart.Offer(pk).field)
+                if (letter.size > ENVELOPE) return false
+                val padded = pad(letter)
+                val read = letterHeal(padded) ?: return false
+                if (HealPart.of(read) != HealPart.Offer(pk)
+                    || fields(padded) != listOf("m1", "hi", "Ann", "A", "", "", "", authorTag(key, itemKey(pipe, d), "m1", "hi"))
+                    || !withHeal(long, HealPart.Offer(pk).field).contentEquals(long)
+                    || letterHeal(pad(head)) != null
+                    || HealPart.of(byteArrayOf(HealPart.OFFER_KIND) + pk.copyOf(pk.size - 1)) != null
+                    || HealPart.of(byteArrayOf(9) + pk) != null) return false
+                // A whole heal: the offer rides, is answered, the answer rides and is opened; both fold one walk.
+                o.sent(HealPart.Offer(pk), d, pipe)
+                if (o.carry(d, kem) != null) return false
+                a.received(HealPart.Offer(pk), d, pipe, kem)
+                val answer = a.carry(d, kem) as? HealPart.Answer ?: return false
+                if (HealPart.of(answer.field) != answer || !answer.rho.contentEquals(HealPart.rho(pk))) return false
+                a.sent(answer, d, pipe)
+                o.received(answer, d, pipe, kem)
+                val ho = o.healing ?: return false
+                val ha = a.healing ?: return false
+                if (!ho.offering || ha.offering || ho.heal != ha.heal || o.offer != null || a.owed != null
+                    || o.carry(d + 1, kem) != null || a.carry(d + 1, kem) != null) return false
+                o.received(answer, d, pipe, kem)
+                if (o.healing != ho) return false
+                o.healing?.opened(true)
+                if (o.carry(d + 2, kem) !is HealPart.Offer) return false
+                // Record 409: an offer nobody answered is replaced by the next day's first letter; the late answer to it is dropped.
+                val p = HealSide(); val q = HealSide()
+                val p1 = (p.carry(d, kem) as? HealPart.Offer)?.pk ?: return false
+                p.sent(HealPart.Offer(p1), d, pipe)
+                val p2 = (p.carry(d + 1, kem) as? HealPart.Offer)?.pk ?: return false
+                if (p2.contentEquals(p1)) return false
+                p.sent(HealPart.Offer(p2), d + 1, pipe)
+                q.received(HealPart.Offer(p1), d, pipe, kem)
+                val late = q.carry(d + 1, kem) ?: return false
+                p.received(late, d + 1, pipe, kem)
+                if (p.healing != null || p.offer?.pk?.contentEquals(p2) != true) return false
+                // The answer the offering side never opened is let go when it offers again, and the new offer is answered.
+                q.sent(late, d + 1, pipe)
+                if (q.healing?.holdsOld != true) return false
+                q.received(HealPart.Offer(p2), d + 1, pipe, kem)
+                if (q.healing != null || q.owed?.pk?.contentEquals(p2) != true) return false
+                // Crossing (391 = a): the lower key stands, its side keeps its offer, the other answers it.
+                val x = HealSide(); val y = HealSide()
+                val kx = (x.carry(d, kem) as? HealPart.Offer)?.pk ?: return false
+                val ky = (y.carry(d, kem) as? HealPart.Offer)?.pk ?: return false
+                if (kx.contentEquals(ky)) return false
+                x.sent(HealPart.Offer(kx), d, pipe); y.sent(HealPart.Offer(ky), d, pipe)
+                x.received(HealPart.Offer(ky), d, pipe, kem); y.received(HealPart.Offer(kx), d, pipe, kem)
+                val (low, high) = if (offerStands(kx, ky)) x to y else y to x
+                val lowPk = low.offer?.pk ?: return false
+                if (low.owed != null || high.offer != null || high.owed?.pk?.contentEquals(lowPk) != true) return false
+                // The side survives being kept.
+                return from(o.json()) == o
+            }
         }
     }
 
