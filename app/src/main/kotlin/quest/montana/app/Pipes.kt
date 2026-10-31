@@ -388,6 +388,122 @@ object Wire {
             && hex(windowPos(s32, 0x0102030405060708)) == "6f241143b5736f8ee9af63cd2db6fbf59b5bbc22069cc045307e8862e3ed6f8f"
             && hex(windowPos(s32, 1000)) == "db09ddb4cd56d677bd1f9fdc00a6894bc088b2cb8a382eaeb1f76644f2f95eec"
             && hex(overlayTag(ByteArray(1952) { ((it * 7 + 3) % 256).toByte() })) == "f2c55658958eee8b961a4d63c2ec60a793cf9f22c373d115f3021523e3f0eabe"
+            // the heal of a pipe (issue #75, slice C1), its own vectors below
+            && healAgreesWithCanon()
+    }
+
+    // ── THE HEAL OF A PIPE (iOS MTPipeKey heal, issue #75 slice C1, 42b323df; Canon «A heal of a pipe» 3375-3389): the fold and the
+    // crossing rule, pure functions of the values a pair of letters carries. iOS receives and opens a heal and starts none (decision
+    // 416 = a); the letters and the wiring come after this slice.
+    /** The size of a heal offer, an ML-KEM-768 encapsulation key, and of its answer, an encapsulation to it. */
+    const val HEAL_OFFER_SIZE = 1184
+    const val HEAL_ANSWER_SIZE = 1088
+    /**
+     * The first value of a healed walk: SHA-256(«mt-pipe-heal» ‖ 0 ‖ old ‖ ss_h ‖ pk_h ‖ ct_h). `old` is the value the old walk
+     * reaches at the answering letter's own step, never the step after it (Canon's negative line). null for a part of another
+     * size: no heal stands on a cut value (iOS MTPipeKey.healed).
+     */
+    fun healed(old: ByteArray, ss: ByteArray, pk: ByteArray, ct: ByteArray): ByteArray? {
+        if (old.size != 32 || ss.size != 32 || pk.size != HEAL_OFFER_SIZE || ct.size != HEAL_ANSWER_SIZE) return null
+        return domained("mt-pipe-heal", old, ss, pk, ct)
+    }
+    /**
+     * CROSSING HEALS (decision 391 = a, iOS MTPipeKey.offerStands): when the two sides' offers cross, the offer whose key is the
+     * lower in unsigned byte order stands; one key met twice is no crossing (false).
+     */
+    fun offerStands(mine: ByteArray, theirs: ByteArray): Boolean {
+        for (i in 0 until minOf(mine.size, theirs.size)) {
+            val a = mine[i].toInt() and 0xff
+            val b = theirs[i].toInt() and 0xff
+            if (a != b) return a < b
+        }
+        return mine.size < theirs.size
+    }
+    /**
+     * The frozen vectors of the heal (iOS MTPipeKey.healAgreesWithCanon): over pipe_secret(test_secret, W + 1) the healed walk's
+     * first value and its next step, the named wrong heal of the value one step on, a part of another size refused, and a crossing
+     * decided by the unsigned byte order alone (a signed or a length-first comparison parts on the last pair).
+     */
+    fun healAgreesWithCanon(): Boolean {
+        fun r(b: Int, n: Int) = ByteArray(n) { b.toByte() }
+        fun step(v: ByteArray) = domained("mt-pipe-ratchet", v)
+        val testSecret = sha("mt-vector-pipe-secret".toByteArray())
+        val old = step(testSecret)
+        val ss = r(0x22, 32)
+        val pk = r(0x23, HEAL_OFFER_SIZE)
+        val ct = r(0x24, HEAL_ANSWER_SIZE)
+        val low = byteArrayOf(0x01) + r(0xff, HEAL_OFFER_SIZE - 1)
+        val high = byteArrayOf(0x02) + r(0x00, HEAL_OFFER_SIZE - 1)
+        val heal = healed(old, ss, pk, ct) ?: return false
+        return hex(testSecret) == "a225e0b87df8a5568331badccfa4b217aaee3c7077b6021a52fab89d8856ef56"
+            && hex(old) == "92aa039f4d82a59e12a6e65eacaa998fa06455b63e4aef6405556f9e99e4c666"
+            && hex(heal) == "112f58fbae5637bb976ac9c6a85ed9bf5d26669a511de8310387a62419d81adc"
+            && hex(step(heal)) == "43ee0cf3597a6d9450483d33820847866be77ad8cf53191102c0ee8dd401f283"
+            && healed(step(old), ss, pk, ct)?.let { hex(it) } == "85169530874db497c0d4f527900ac25eff7fc12ac2d132e7c9984b42836924b5"
+            && healed(old, ss, pk.copyOf(HEAL_OFFER_SIZE - 1), ct) == null
+            && healed(old, ss, pk, ct + byteArrayOf(0)) == null
+            && offerStands(pk, r(0x24, HEAL_OFFER_SIZE)) && !offerStands(r(0x24, HEAL_OFFER_SIZE), pk)
+            && !offerStands(pk, pk)
+            && offerStands(low, high) && !offerStands(high, low)
+            && offerStands(r(0x7f, 4), r(0x80, 4))   // 0x80 is above 0x7f unsigned, below it signed
+            && healByDayAgreesWithCanon()
+    }
+
+    // ── THE HEAL BY THE DAY (iOS slice C2a, 65984b09; decision 398 = a): the fold takes the value the old walk reaches on the UTC
+    // day of the answering letter, and the healed walk stands from the next UTC day. NAMED LIMIT (as iOS): the Network heals by the
+    // window, this client by the day, so the residue lasts at least to the end of the answering letter's day.
+    /** A heal answered by a letter laid on `day`: the fold over the old walk of that day itself; null for a cut part or a day behind the floor (iOS MTPipeKey.heal). */
+    fun heal(secret: ByteArray, answeredOn: Long, ss: ByteArray, pk: ByteArray, ct: ByteArray): Heal? {
+        if (isFloor(secret) && steps(answeredOn) < steps(floorDay(secret))) return null
+        return healed(pipeSecret(secret, answeredOn), ss, pk, ct)?.let { Heal(answeredOn, it) }
+    }
+    /** The healed walk (iOS MTPipeHeal): nil on the answering day and before it, one step a day after the first, bounded as the old walk is. */
+    class Heal(val day: Long, val first: ByteArray) {
+        fun walked(on: Long): ByteArray? {
+            if (on <= day) return null
+            var value = first
+            var at = day + 1
+            while (at < on && at - day <= MAX_WALK) { value = domained("mt-pipe-ratchet", value); at++ }
+            return value
+        }
+    }
+    /**
+     * What each side of a heal sends and opens under (iOS MTPipeHealing): the offering side sends healed from the first day it
+     * stands, the answering side keeps the old walk until it opens a letter under the healed one; each erases the old walk only then.
+     */
+    class Healing(val offering: Boolean, val heal: Heal) {
+        var holdsOld = true
+            private set
+        fun sendsHealed(day: Long) = day > heal.day && (offering || !holdsOld)
+        /** The walks a letter of `day` may open under, the healed one first: true = healed, false = old. */
+        fun opens(day: Long): List<Boolean> = (if (day > heal.day) listOf(true) else emptyList()) + (if (holdsOld) listOf(false) else emptyList())
+        fun opened(healed: Boolean) { if (healed) holdsOld = false }
+    }
+    /** The heal by the day over the Canon's vectors with its window read as this client's day (iOS healByDayAgreesWithCanon). */
+    fun healByDayAgreesWithCanon(): Boolean {
+        val k = sha("mt-vector-pipe-secret".toByteArray())
+        val a = WALK_ANCHOR_DAY
+        val ss = ByteArray(32) { 0x22 }
+        val pk = ByteArray(HEAL_OFFER_SIZE) { 0x23 }
+        val ct = ByteArray(HEAL_ANSWER_SIZE) { 0x24 }
+        val h = heal(k, a + 1, ss, pk, ct) ?: return false
+        if (hex(h.first) != "112f58fbae5637bb976ac9c6a85ed9bf5d26669a511de8310387a62419d81adc"
+            || h.walked(a + 1) != null || h.walked(a) != null
+            || h.walked(a + 2)?.let { hex(it) } != "112f58fbae5637bb976ac9c6a85ed9bf5d26669a511de8310387a62419d81adc"
+            || h.walked(a + 3)?.let { hex(it) } != "43ee0cf3597a6d9450483d33820847866be77ad8cf53191102c0ee8dd401f283"
+            || heal(k, a + 2, ss, pk, ct)?.let { hex(it.first) } != "85169530874db497c0d4f527900ac25eff7fc12ac2d132e7c9984b42836924b5"
+            || heal(k, a + 1, ss, pk.copyOf(HEAL_OFFER_SIZE - 1), ct) != null) return false
+        val offering = Healing(true, h)
+        val answering = Healing(false, h)
+        if (offering.sendsHealed(a + 1) || !offering.sendsHealed(a + 2) || answering.sendsHealed(a + 2) || answering.sendsHealed(a + 9)
+            || offering.opens(a + 2) != listOf(true, false) || answering.opens(a + 1) != listOf(false)
+            || answering.opens(a + 2) != listOf(true, false)) return false
+        answering.opened(false); offering.opened(false)
+        if (!answering.holdsOld || !offering.holdsOld) return false
+        answering.opened(true)
+        if (answering.holdsOld || !answering.sendsHealed(a + 2) || answering.opens(a + 2) != listOf(true) || answering.opens(a + 1).isNotEmpty()) return false
+        offering.opened(true)
+        return !offering.holdsOld && offering.opens(a + 3) == listOf(true)
     }
 
     /**
