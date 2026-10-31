@@ -36,6 +36,7 @@ object CallEngine {
                     factory = PeerConnectionFactory.builder()
                         .setVideoEncoderFactory(DefaultVideoEncoderFactory(e.eglBaseContext, true, true))
                         .setVideoDecoderFactory(DefaultVideoDecoderFactory(e.eglBaseContext))
+                        .setAudioProcessingFactory(CallRecord.processing())   // iOS MontanaCall 1486-1491: the recording's two hooks
                         .createPeerConnectionFactory()
                     egl = e
                     Log.d("Montana", "call engine: ready in " + (System.currentTimeMillis() - t0) + " ms")
