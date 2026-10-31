@@ -249,7 +249,22 @@ object CallScreen {
         // rise; with no window to ask (a ring, a system without it, the person's switch off) it folds the call into the app
         val back = mark(c, R.drawable.ic_chevron_down, R.string.call_back) { if (!CallFloat.foldAway(act, "back")) close?.invoke() }
         val flip = mark(c, R.drawable.ic_camera_rotate, R.string.call_camera) { CallLine.switchCamera() }
-        val roomL = View(c)   // the mask's twin room keeps the name in the centre (iOS MontanaCall.swift 6709-6713)
+        val roomL = FrameLayout(c)   // the mask's twin room keeps the name in the centre (iOS MontanaCall.swift 6709-6713)
+        // THE RECORD MARK STANDS IN IT (iOS MTCallRecordMark, MontanaCall.swift 8026-8039; the author's word 16.10.2026 15:2x UTC)
+        // once the call is connected: the record glyph starts this call's recording by the hand, the stop glyph ends it
+        var recDraw: () -> Unit = {}
+        val recMark = mark(c, R.drawable.ic_record_circle, R.string.call_rec_mark) { CallLine.talkingSeed?.let { CallTape.toggleByHand(it) }; recDraw() }
+        roomL.addView(recMark, FrameLayout.LayoutParams(MATCH, MATCH))
+        var recGlyph = R.drawable.ic_record_circle
+        recDraw = {
+            val seed = CallLine.talkingSeed
+            recMark.visibility = if (seed != null && CallTape.markShown(seed)) View.VISIBLE else View.GONE
+            val rg = if (seed != null && CallTape.markOn(seed)) R.drawable.ic_stop_circle else R.drawable.ic_record_circle
+            if (rg != recGlyph) {
+                recGlyph = rg; (recMark.getChildAt(0) as ImageView).setImageResource(rg)
+                recMark.contentDescription = c.getString(if (rg == R.drawable.ic_stop_circle) R.string.call_rec_stop else R.string.call_rec_mark)
+            }
+        }
         // THE MASK (iOS MontanaCall.swift 6723-6727, the author's word 30.09, atom c98a92d589e3): a glyph mark with no word on the
         // platform's 44, beside the camera flip -- the filled masks while it is on (theatermasks.fill)
         val maskMark = mark(c, R.drawable.ic_theatermasks, R.string.call_mask) { AvatarMask.toggle("tap") }
@@ -278,6 +293,7 @@ object CallScreen {
             status.text = c.getString(R.string.call_title_audio) + " — " + tail
             clock.text = tail
             route.second.invoke()
+            recDraw()
             // under the name, the call's own state in bold (iOS 6771-6784): the hold line, then the break's own line, each from
             // the call's state -- both stand when both are so; a video call's one line puts a break before a hold (5399-5414)
             val held = CallLine.held || CallLine.heldByPeer
@@ -516,7 +532,7 @@ object CallScreen {
             tap.visibility = if (v && !screen) View.VISIBLE else View.GONE
             column.visibility = if (v && chromeHidden) View.INVISIBLE else View.VISIBLE
             val head = if (v && !screen) View.VISIBLE else View.INVISIBLE
-            roomL.visibility = head; title.visibility = head
+            title.visibility = head   // the room stands always: its record mark is the voice call's too (iOS 8035-8037)
             flip.visibility = if (v && !screen && CallLine.camera) View.VISIBLE else View.INVISIBLE
             // the mask stands with the flip (iOS 6722-6733): without my camera both places stand empty, the name stays centred
             maskMark.visibility = flip.visibility
