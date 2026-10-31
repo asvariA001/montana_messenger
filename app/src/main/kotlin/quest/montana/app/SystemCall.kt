@@ -37,6 +37,7 @@ import java.util.function.Consumer
  */
 object SystemCall {
     private const val ACCOUNT = "montana"
+    private const val ACCOUNT_TRANSACT = "montana-calls"
     private const val TOKENS = "callHandleTokens"
     private const val CAP = 256   // iOS MontanaCallHandle.cap: as many entries as the call log itself keeps
     private const val SCHEME = "montana"
@@ -56,7 +57,9 @@ object SystemCall {
     private val on get() = Build.VERSION.SDK_INT >= 29
     private val modern get() = Build.VERSION.SDK_INT >= 34
 
-    private fun handle(c: Context) = PhoneAccountHandle(ComponentName(c, CallsService::class.java), ACCOUNT)
+    // the platform's road (Android 14+) refuses an account that names a ConnectionService: its account names the app's page
+    private fun handle(c: Context) = if (modern) PhoneAccountHandle(ComponentName(c, MainActivity::class.java), ACCOUNT_TRANSACT)
+        else PhoneAccountHandle(ComponentName(c, CallsService::class.java), ACCOUNT)
     private fun telecom(c: Context) = c.getSystemService(TelecomManager::class.java)
     private fun address(token: String): Uri = Uri.fromParts(SCHEME, token, null)
 
