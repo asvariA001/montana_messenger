@@ -506,6 +506,55 @@ object Wire {
         return !offering.holdsOld && offering.opens(a + 3) == listOf(true)
     }
 
+    // ── THE KEYS OF A HEAL (iOS MTPipeHealKeys, issue #75 slice C2b common part, 69f9332d): the offering side draws a fresh ML-KEM-768
+    // pair and sends its encapsulation key; the answering side encapsulates to it and sends the ciphertext back; both fold the shared
+    // secret over the old walk (heal). The decapsulation key and the shared secret stay in memory on the side that drew them and never
+    // ride. Where the offer and the answer ride in a letter, and the fate of an unanswered offer, are the Author's (records 401, 402).
+    object HealKeys {
+        /** A fresh offer: the encapsulation key that rides (HEAL_OFFER_SIZE) and the decapsulation key kept until the answer. */
+        fun offer(): Pair<ByteArray, ByteArray>? {
+            val seed = ByteArray(64).also { java.security.SecureRandom().nextBytes(it) }
+            val kp = MtBindings.nativeMlkemKeypair(seed)
+            seed.fill(0)
+            if (kp == null || kp.size != HEAL_OFFER_SIZE + 2400) return null
+            return kp.copyOf(HEAL_OFFER_SIZE) to kp.copyOfRange(HEAL_OFFER_SIZE, kp.size).also { kp.fill(0) }
+        }
+        /** The answer to an offer: the ciphertext that rides back (HEAL_ANSWER_SIZE) and the shared secret the heal folds; null for an offer of another size. */
+        fun answer(pk: ByteArray): Pair<ByteArray, ByteArray>? {
+            if (pk.size != HEAL_OFFER_SIZE) return null
+            val o = MtBindings.nativeMlkemEncaps(pk) ?: return null
+            if (o.size != HEAL_ANSWER_SIZE + 32) return null
+            return o.copyOf(HEAL_ANSWER_SIZE) to o.copyOfRange(HEAL_ANSWER_SIZE, o.size).also { o.fill(0) }
+        }
+        /**
+         * The offering side opens an answer with the decapsulation key it kept: the shared secret. ML-KEM never refuses a ciphertext
+         * (FIPS 203, implicit rejection): one made to another key opens to a secret of noise, so an answer is opened only with the key
+         * of the offer it names (record 402). null for parts of another size.
+         */
+        fun open(ct: ByteArray, sk: ByteArray): ByteArray? {
+            if (ct.size != HEAL_ANSWER_SIZE || sk.size != 2400) return null
+            return MtBindings.nativeMlkemDecaps(sk, ct)
+        }
+        /**
+         * The two sides of one heal agree (iOS MTPipeHealKeys.agree): an answer opened with the offer's own key gives the answering
+         * side's secret, the heal both fold on the answering letter's day is one walk, another answer to the same offer is another
+         * heal, and parts of another size are refused. Reported beside the Canon's check, never its gate: a random round stops no history.
+         */
+        fun agree(): Boolean {
+            val (pk, sk) = offer() ?: return false
+            val (ct, ss) = answer(pk) ?: return false
+            val (ctB, ssB) = answer(pk) ?: return false
+            val s = open(ct, sk) ?: return false
+            if (!s.contentEquals(ss) || answer(pk.copyOf(HEAL_OFFER_SIZE - 1)) != null || open(ct.copyOf(HEAL_ANSWER_SIZE - 1), sk) != null) return false
+            val pipe = ByteArray(32) { 0x5A }
+            val day = WALK_ANCHOR_DAY + 1
+            val offering = heal(pipe, day, s, pk, ct) ?: return false
+            val answering = heal(pipe, day, ss, pk, ct) ?: return false
+            val other = heal(pipe, day, ssB, pk, ctB) ?: return false
+            return offering.first.contentEquals(answering.first) && !other.first.contentEquals(offering.first)
+        }
+    }
+
     /**
      * One POST of JSON to a door: the code and the body (a door that does not answer is -1). `lane` — the signal lane's book of
      * requests in flight: a path change or the lane door's death cuts every one of them at once (Signal.cut). `whole` — the body of
