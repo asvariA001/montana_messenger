@@ -68,6 +68,15 @@ object CallScreen {
     private var pill: (() -> Unit)? = null
     private var chromeHidden = false   // iOS chromeHidden: the picture was tapped and the buttons stepped aside, for the call's life
     private var corner = 1   // iOS miniCorner, for the call's life: 0 top left, 1 top right, 2 bottom left, 3 bottom right
+    private var overLock: MainActivity? = null   // the window that stands over the lock screen while a call stands
+
+    /** THE CALL OVER THE LOCK (iOS: CallKit's own screen over the lock): the ring and the call stand over the locked screen and
+     *  light it, as the system's own call does; the window gives that up when the call ends. */
+    private fun lockOver(act: MainActivity) {
+        if (overLock !== act) overLock?.overLock(false)
+        overLock = act
+        act.overLock(true)
+    }
 
     /** The call in hand on the screen; an in-app ring standing there gives way to it. */
     fun show(act: MainActivity, ref: String) {
@@ -77,6 +86,7 @@ object CallScreen {
         ringing = false
         chromeHidden = false   // iOS fullScreen .onAppear (MontanaCall.swift 6915): every reopening starts with the buttons in hand
         close = act.overlay(callPage(act, ref))
+        lockOver(act)
         CallFloat.refresh(act, "show")
     }
 
@@ -86,16 +96,18 @@ object CallScreen {
     /** The call's own ground for the window over other apps (one owner of its drawing, iOS MTCallGround). */
     fun groundOf(c: Context, ref: String, name: String): View = ground(c, ref, name)
 
-    /** A call rings while the app stands in front (iOS incomingScreen: the in-app ring). */
-    fun ring(ref: String) = MainThread.post {
-        val act = front ?: return@post
+    /** A call rings while the app stands in front (iOS incomingScreen: the in-app ring), or on the window the ring's own
+     *  notification opened over the lock screen (the full-screen ring: the app was closed, the screen dark). */
+    fun ring(ref: String, on: MainActivity? = null) = MainThread.post {
+        val act = on ?: front ?: return@post
         if (close != null) return@post
         ringing = true
         close = act.overlay(ringPage(act, ref))
+        lockOver(act)
     }
 
     /** The call ended: the screen and the pill go, and the screen's choices end with the call. */
-    fun hide() = MainThread.post { dropPill(); chromeHidden = false; corner = 1; val c = close; close = null; c?.invoke() }
+    fun hide() = MainThread.post { dropPill(); chromeHidden = false; corner = 1; val c = close; close = null; c?.invoke(); overLock?.overLock(false); overLock = null }
 
     private fun dropPill() { pill?.invoke(); pill = null; foldChanged(null) }
 

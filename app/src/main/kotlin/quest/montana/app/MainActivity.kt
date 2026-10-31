@@ -144,10 +144,17 @@ class MainActivity : Activity() {
         return true
     }
 
-    /** iOS acceptCall: the call's screen stands at once («Connecting…»), not after the voice joins. */
+    /** iOS acceptCall: the call's screen stands at once («Connecting…»), not after the voice joins. The ring's own page (the
+     *  full-screen ring of a closed app, a dark or locked phone) stands the ring with its «Answer» and «Decline». */
     private fun takeTheCall(answer: Boolean) {
         if (answer) Calls.answer()
-        Calls.held()?.let { CallScreen.show(this, it) }
+        val held = Calls.held()
+        if (held != null) CallScreen.show(this, held) else Calls.peer()?.let { CallScreen.ring(it, this) }
+    }
+
+    /** The window over the lock screen, lighting it (the call's while it stands, CallScreen.lockOver). */
+    fun overLock(on: Boolean) {
+        if (Build.VERSION.SDK_INT >= 27) { setShowWhenLocked(on); setTurnScreenOn(on) }
     }
 
     /** AN INVITATION HANDED IN BY THE SYSTEM (iOS handleLink): opened now, or kept until the identity exists. */

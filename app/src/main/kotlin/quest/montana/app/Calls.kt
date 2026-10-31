@@ -724,6 +724,7 @@ object Calls {
             .setContentTitle(name)   // USER-DATA: the caller's name
             .setContentText(c.getString(if (video) R.string.call_video else R.string.call_voice))
             .setCategory(Notification.CATEGORY_CALL)
+            .setVisibility(Notification.VISIBILITY_PUBLIC)   // the caller's name on the lock screen too, as the system's own call (iOS CallKit)
             .setOngoing(true)
             .setContentIntent(page(false))
             .setFullScreenIntent(page(false), true)
