@@ -3,10 +3,11 @@
 this computer takes the APK and checks it, lays it on the site and checks what the site gives back, and with --install
 puts it on the phone.
 
-usage: python3 scripts/lauterbourg.py [REF] [--no-site] [--install]
+usage: python3 scripts/lauterbourg.py [REF] [--no-site] [--install] [--bundle]
   REF        a branch or a commit of the shared repository (default main); push it there first
   --no-site  build and bring the APK here, lay nothing on the site
   --install  install the APK on the phone over adb and start it
+  --bundle   bring the build's app bundle (AAB, for Google Play) here too; the site never gets it
 
 Every build lands on the site at once (the author's word 05.10.2026 21:20 MSK): the site's download/android/ keeps each
 build under its number and commit, latest.json names the newest, and the landing page's Android door reads latest.json.
@@ -64,6 +65,13 @@ def bring(record):
         raise SystemExit("the APK brought here is not the one Lauterbourg built: %s" % local)
     say("here: %s (%d bytes, sha256 %s)" % (os.path.relpath(local, ROOT), os.path.getsize(local), record["sha256"][:16]))
     return local
+
+
+def bring_bundle(record):
+    # build.py lays the bundle beside the build's APK
+    local = os.path.join(HERE_OUT, "Montana-%d-%s.aab" % (record["build"], record["commit"][:7]))
+    run(["scp", "-q", "%s:%s" % (HOST["ssh"], os.path.join(os.path.dirname(record["apk"]), "Montana.aab")), local])
+    say("here: %s (%d bytes)" % (os.path.relpath(local, ROOT), os.path.getsize(local)))
 
 
 # runs on each site host: the uploaded part becomes the build's file, then the newest copy and latest.json follow it
@@ -141,6 +149,7 @@ def main():
     ap.add_argument("ref", nargs="?", default="main")
     ap.add_argument("--no-site", action="store_true")
     ap.add_argument("--install", action="store_true")
+    ap.add_argument("--bundle", action="store_true")
     ap.add_argument("--note", action="append", default=[], help="a line of what changed (English); default: the commit's subject")
     ap.add_argument("--note-ru", action="append", default=[], help="the same line in Russian")
     a = ap.parse_args()
@@ -149,6 +158,8 @@ def main():
     if a.note_ru:
         record["l"] = {"en": record["notes"], "ru": a.note_ru}
     local = bring(record)
+    if a.bundle:
+        bring_bundle(record)
     if not a.no_site:
         lay_on_site(local, record)
     if a.install:

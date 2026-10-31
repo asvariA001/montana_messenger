@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Installs the toolchain of scripts/toolchain.json on this computer: the JDK, the Android SDK pieces, the Kotlin compiler,
-the call engine (WebRTC), and the core's road (the NDK, the core's own Rust with the phone's target, cargo-ndk).
+the call engine (WebRTC), bundletool (the app bundle for Google Play), and the core's road (the NDK, the core's own Rust
+with the phone's target, cargo-ndk).
 
 usage: python3 scripts/setup.py [--apk-only]
   --apk-only   all but the core's road: for a computer that writes and checks the Kotlin and installs on a phone,
@@ -127,21 +128,28 @@ def digest_of(path):
             h.update(chunk)
 
 
-def webrtc(p):
-    pin = PIN["webrtc"]
-    if os.path.exists(p.webrtc):
-        if digest_of(p.webrtc) != pin["sha256"]:
-            raise SystemExit("setup: %s is not the pinned call engine; set it aside and run again (pinned %s)"
-                             % (p.webrtc, pin["version"]))
-        return say("WebRTC %s in place" % pin["version"])
-    parent = os.path.dirname(p.webrtc)
+def pinned_file(place, pin, what):
+    if os.path.exists(place):
+        if digest_of(place) != pin["sha256"]:
+            raise SystemExit("setup: %s is not the pinned %s; set it aside and run again (pinned %s)"
+                             % (place, what, pin["version"]))
+        return say("%s %s in place" % (what, pin["version"]))
+    parent = os.path.dirname(place)
     os.makedirs(parent, exist_ok=True)
-    # downloaded beside its place, then put there whole: a broken download never leaves half an engine
+    # downloaded beside its place, then put there whole: a broken download never leaves half a file
     with tempfile.TemporaryDirectory(dir=parent) as tmp:
-        got = os.path.join(tmp, os.path.basename(p.webrtc))
+        got = os.path.join(tmp, os.path.basename(place))
         fetch(pin["url"], "sha256", pin["sha256"], got)
-        os.rename(got, p.webrtc)
-    say("WebRTC %s installed" % pin["version"])
+        os.rename(got, place)
+    say("%s %s installed" % (what, pin["version"]))
+
+
+def webrtc(p):
+    pinned_file(p.webrtc, PIN["webrtc"], "WebRTC")
+
+
+def bundletool(p):
+    pinned_file(p.bundletool, PIN["bundletool"], "bundletool")
 
 
 def rust(p):
@@ -179,6 +187,7 @@ def main():
     sdk_packages(p, core)
     kotlin(p)
     webrtc(p)
+    bundletool(p)
     if core:
         rust(p)
     say("ready on %s%s" % (p.host, "" if core else " (the core is built on the shared host)"))
