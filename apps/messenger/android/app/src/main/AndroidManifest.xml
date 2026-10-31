@@ -42,6 +42,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <!-- A pair call is also the system's own self-managed call, so it lands in the phone's call log (SystemCall.kt, iOS CallKit's Recents). -->
+    <uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
     <!-- One build for the site and Google Play (GooglePlay.SELF_UPDATE false, the author's word 31.10.2026): the app installs no newer
          Montana itself, so it asks no right to install packages. With SELF_UPDATE true put back:
          <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" /> -->
@@ -69,6 +71,12 @@
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|uiMode"
             android:windowSoftInputMode="adjustResize"
             android:launchMode="singleTask">
+            <!-- «CALL BACK» FROM THE PHONE'S OWN CALL LOG (SystemCall.kt; Android 17's integrated call logs): the system writes the calls
+                 of an app only when the app takes this back road, and «call back» on a row comes here. -->
+            <intent-filter>
+                <action android:name="android.telecom.action.CALL_BACK" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
             <!-- AN INVITATION OPENS THE APP (iOS handleLink): the card's web link on both sites (montana.quest; montana.xxx, where the Business writes, iOS MontanaCard.linkHosts) and its scheme form, as the system camera reads them. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -166,6 +174,15 @@
             android:name="quest.montana.app.CallService"
             android:exported="false"
             android:foregroundServiceType="microphone|camera|mediaProjection" />
+        <!-- The system's door to our calls (SystemCall.kt): only Telecom may bind it. -->
+        <service
+            android:name="quest.montana.app.CallsService"
+            android:exported="true"
+            android:permission="android.permission.BIND_TELECOM_CONNECTION_SERVICE">
+            <intent-filter>
+                <action android:name="android.telecom.ConnectionService" />
+            </intent-filter>
+        </service>
         <!-- The ear with the app closed (EarService.kt): every conversation's lane held, so a call rings at once. -->
         <service
             android:name="quest.montana.app.EarService"

@@ -126,6 +126,7 @@ object Calls {
                     val r = outOf(ref, w, epoch)
                     if (r != null && sdp != null) {
                         synchronized(gate) { if (!r.answered) r.answeredAt = System.currentTimeMillis(); r.answered = true }
+                        SystemCall.talking(r.seed)
                         ringingHere(r)
                         tone(false)
                         CallLine.answered(ref, epochOf(r.seed), sdp)
@@ -214,6 +215,7 @@ object Calls {
         Signal.hold(ref, "call")
         CallLine.updateProximity()   // a call in any state holds the sensor while its sound stands at the ear (iOS 4401)
         show(ref, video)
+        SystemCall.incoming(seed, ref, callerName(ref), video)   // the system's own list holds it too (iOS reportNewIncomingCall)
         CallScreen.ring(ref)   // the app in front rings on its own screen too (iOS incomingScreen)
         MainThread.later(LIFE_MS) { synchronized(gate) { ring?.takeIf { it.seed == seed && !it.answered } }?.let { end(it, "timeout") } }
         log("ring video=" + video)
@@ -246,10 +248,29 @@ object Calls {
         val r = synchronized(gate) { ring?.takeIf { !it.out }?.also { if (!it.answered) it.answeredAt = System.currentTimeMillis(); it.answered = true } } ?: return
         hide()
         CallService.start(Book.ctx, r.ref) { refused(r, "service-refused") }
+        SystemCall.talking(r.seed)
         voice(r)
         // iOS 2639-2647: an offer still on its way is waited for fifteen seconds, then the call honestly ends
         MainThread.later(15_000) { if (synchronized(gate) { ring === r && !r.line }) hangUp("offer-missing") }
     }
+
+    /** The system's own «answer» on this call's ring (a headset, a car: SystemCall); a ring of another seed is not ours to take. */
+    fun systemAnswer(seed: String) {
+        if (synchronized(gate) { ring?.takeIf { it.seed == seed && !it.out } } == null) return
+        log("answer by the system")
+        answer()
+    }
+
+    /** The system's own «decline» or «hang up» on this call (a headset, a car: SystemCall). */
+    fun systemEnd(seed: String) {
+        if (synchronized(gate) { ring?.seed } != seed) return
+        log("end by the system")
+        hangUp(if (synchronized(gate) { ring?.answered } == true) "hangup" else "declined")
+    }
+    private val BY_US = setOf("declined", "hangup", "pill", "no-answer", "offer-missing", "service-refused")
+
+    /** The caller's name as the ring, the system's list and the call log show it (iOS callerName: my record first). */
+    fun callerName(ref: String): String = Book.chat(ref)?.shown?.ifBlank { null } ?: Book.ctx.getString(R.string.peer)
 
     /** The call in hand — answered and not yet ended — by its person; null when none (the call's screen asks it). */
     fun held(): String? = synchronized(gate) { ring?.takeIf { it.answered || it.out }?.ref }
@@ -297,6 +318,7 @@ object Calls {
         Signal.hold(ref, "call")
         CallLine.updateProximity()
         CallService.start(Book.ctx, ref) { refused(r, "service-refused") }
+        SystemCall.outgoing(seed, ref, callerName(ref), video)   // the system's own list holds it too (iOS CXStartCallAction)
         MainThread.later(1200) { pipsOn(r) }   // the searching pips until the far phone's own word «ringing» (iOS 1855, 4548-4556)
         Thread { knock(r) }.start()
         // one ring letter per call, its name the call's (iOS E2E 1162-1166): the road of a phone the wake does not reach
@@ -468,6 +490,7 @@ object Calls {
         story(r, why, spoken)
         holdOnDisk()   // the call ended: its record goes (iOS 3508-3510)
         CallService.stop()
+        SystemCall.end(r.seed, incoming = !r.out, answered = r.answered, declined = why == "declined", byUs = why in BY_US)
         CallScreen.hide()
         Signal.release(r.ref, "call")
         hide()
@@ -713,7 +736,7 @@ object Calls {
             enableVibration(true)
             vibrationPattern = longArrayOf(0, 1000, 1000)
         })
-        val name = Book.chat(ref)?.shown?.ifBlank { null } ?: c.getString(R.string.peer)
+        val name = callerName(ref)
         val flags = PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         fun page(answer: Boolean) = PendingIntent.getActivity(c, if (answer) 2 else 1,
             Intent(c, MainActivity::class.java).putExtra(EXTRA_REF, NoticeAlias.of(ref)).putExtra(EXTRA_ANSWER, answer)
