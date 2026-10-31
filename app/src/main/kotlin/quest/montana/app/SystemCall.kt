@@ -32,6 +32,10 @@ object SystemCall {
     private const val SCHEME = "montana"
     const val EXTRA_SEED = "montana.call.seed"
     const val EXTRA_CALL_BACK = "montana.call.back"
+    // Android 17 (API 37) TelecomManager names, written out: this build compiles against API 36
+    const val ACTION_CALL_BACK = "android.telecom.action.CALL_BACK"
+    const val EXTRA_CALL_BACK_NUMBER = "android.telecom.extra.CALL_BACK_NUMBER"
+    const val EXTRA_UUID = "android.telecom.extra.UUID"
 
     private class Want(val ref: String, val token: String, val name: String, val video: Boolean)
     private val wanted = HashMap<String, Want>()   // seed -> the call the system has not asked for yet

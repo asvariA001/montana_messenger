@@ -108,6 +108,15 @@ class MainActivity : Activity() {
 
     /** «CALL BACK» FROM THE PHONE'S CALL LOG (SystemCall, iOS INStartCallIntent from Recents): the row's conversation is called. */
     private fun takeCallBack(i: Intent?): Boolean {
+        if (i?.action == SystemCall.ACTION_CALL_BACK) {
+            // Android 17's own road (TelecomManager.ACTION_CALL_BACK): the row's number is the call's one-time token
+            i.action = null
+            val number = i.getStringExtra(SystemCall.EXTRA_CALL_BACK_NUMBER) ?: i.data?.schemeSpecificPart
+            val ref = (number ?: i.getStringExtra(SystemCall.EXTRA_UUID))?.let(SystemCall::conv)
+            android.util.Log.d("Montana", "call: call_back from the call log known=" + (if (ref != null) 1 else 0) + " number=" + (if (number != null) 1 else 0))
+            if (ref != null && hasSeed && termsAccepted && Book.chat(ref) != null) callOut(ref)
+            return true
+        }
         val ref = i?.getStringExtra(SystemCall.EXTRA_CALL_BACK)?.let(NoticeAlias::open) ?: return false
         i.removeExtra(SystemCall.EXTRA_CALL_BACK)
         if (hasSeed && termsAccepted && Book.chat(ref) != null) callOut(ref)
