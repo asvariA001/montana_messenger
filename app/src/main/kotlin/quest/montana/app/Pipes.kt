@@ -266,7 +266,7 @@ object Wire {
     }
     /** A live letter sealed in `w` or a minute beside it, under every key the pipe gives (iOS MTPipe.openWalked). */
     fun openWalked(sealed: ByteArray, secret: ByteArray, w: Long, h: Healing? = null): Opened? =
-        longArrayOf(w, w - 1, w + 1).firstNotNullOfOrNull { k ->
+        listOf(w, w - 1, w + 1).firstNotNullOfOrNull { k ->
             bodyKeys(secret, k, h).firstNotNullOfOrNull { (healed, key) -> open(key, sealed)?.let { Opened(it, healed, k) } }
         }
 
