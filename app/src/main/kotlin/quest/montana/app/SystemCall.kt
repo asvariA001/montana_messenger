@@ -6,6 +6,13 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.OutcomeReceiver
+import android.telecom.CallAttributes
+import android.telecom.CallControl
+import android.telecom.CallControlCallback
+import android.telecom.CallEndpoint
+import android.telecom.CallEventCallback
+import android.telecom.CallException
 import android.telecom.Connection
 import android.telecom.ConnectionRequest
 import android.telecom.ConnectionService
@@ -17,13 +24,16 @@ import android.telecom.VideoProfile
 import android.util.Log
 import org.json.JSONArray
 import java.security.SecureRandom
+import java.util.function.Consumer
 
 /**
  * THE SYSTEM'S OWN CALL LIST (iOS MTSystemCalls: CallKit's provider, includesCallsInRecents for a pair call): every pair call of
  * ours is also the system's own self-managed call (Telecom), so it lands in the phone's call log -- by the caller's name and a
  * one-time token, never the conversation's link (iOS MontanaCallHandle) -- and «call back» there comes back here by the token.
  * The ring, the screen and the voice stay ours: the system's call mirrors the call's life (ringing, dialling, talking, ended),
- * and a system that will not hold it (a refusal, another app's call) leaves our call exactly as it was.
+ * and a system that will not hold it (a refusal, another app's call) leaves our call exactly as it was. From Android 14 the call
+ * rides the platform's own road for a calling app (TelecomManager.addCall) -- the only one Android 17 writes into its integrated
+ * call log; below, a self-managed ConnectionService, which Android 10 to 13 write by EXTRA_LOG_SELF_MANAGED_CALLS.
  */
 object SystemCall {
     private const val ACCOUNT = "montana"
@@ -37,13 +47,14 @@ object SystemCall {
     const val EXTRA_CALL_BACK_NUMBER = "android.telecom.extra.CALL_BACK_NUMBER"
     const val EXTRA_UUID = "android.telecom.extra.UUID"
 
-    private class Want(val ref: String, val token: String, val name: String, val video: Boolean)
+    private class Want(val ref: String, val token: String, val name: String, val video: Boolean, val incoming: Boolean)
     private val wanted = HashMap<String, Want>()   // seed -> the call the system has not asked for yet
     private val held = HashMap<String, Line>()     // seed -> the system's call
     private val over = HashMap<String, Int>()      // seed -> how a call ended before the system asked for it
 
     /** From Android 10 a self-managed call may be written to the call log (EXTRA_LOG_SELF_MANAGED_CALLS); below, nothing. */
     private val on get() = Build.VERSION.SDK_INT >= 29
+    private val modern get() = Build.VERSION.SDK_INT >= 34
 
     private fun handle(c: Context) = PhoneAccountHandle(ComponentName(c, CallsService::class.java), ACCOUNT)
     private fun telecom(c: Context) = c.getSystemService(TelecomManager::class.java)
@@ -54,7 +65,7 @@ object SystemCall {
         val h = handle(c)
         telecom(c)?.registerPhoneAccount(PhoneAccount.builder(h, c.getString(R.string.app_name))
             .setCapabilities(PhoneAccount.CAPABILITY_SELF_MANAGED or PhoneAccount.CAPABILITY_SUPPORTS_VIDEO_CALLING or
-                PhoneAccount.CAPABILITY_VIDEO_CALLING)
+                PhoneAccount.CAPABILITY_VIDEO_CALLING or (if (modern) PhoneAccount.CAPABILITY_SUPPORTS_TRANSACTIONAL_OPERATIONS else 0))
             .addSupportedUriScheme(SCHEME)
             .setExtras(Bundle().apply { putBoolean(PhoneAccount.EXTRA_LOG_SELF_MANAGED_CALLS, true) })
             .build())
@@ -67,7 +78,8 @@ object SystemCall {
         val c = Book.ctx
         val h = account(c) ?: return
         val token = token(ref)
-        synchronized(this) { wanted[seed] = Want(ref, token, name, video) }
+        if (modern) return Transact.add(c, h, seed, Want(ref, token, name, video, incoming = true))
+        synchronized(this) { wanted[seed] = Want(ref, token, name, video, incoming = true) }
         val extras = Bundle().apply {
             putParcelable(TelecomManager.EXTRA_INCOMING_CALL_ADDRESS, address(token))
             putString(EXTRA_SEED, seed)
@@ -82,7 +94,8 @@ object SystemCall {
         val c = Book.ctx
         val h = account(c) ?: return
         val token = token(ref)
-        synchronized(this) { wanted[seed] = Want(ref, token, name, video) }
+        if (modern) return Transact.add(c, h, seed, Want(ref, token, name, video, incoming = false))
+        synchronized(this) { wanted[seed] = Want(ref, token, name, video, incoming = false) }
         val extras = Bundle().apply {
             putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, h)
             putBundle(TelecomManager.EXTRA_OUTGOING_CALL_EXTRAS, Bundle().apply { putString(EXTRA_SEED, seed) })
@@ -92,7 +105,9 @@ object SystemCall {
     }
 
     /** Both ends hold the call: its talk begins here, and the call log counts it from now. */
-    fun talking(seed: String) = MainThread.post { synchronized(this) { held[seed] }?.setActive() }
+    fun talking(seed: String) = MainThread.post {
+        if (modern) Transact.talking(seed) else synchronized(this) { held[seed] }?.setActive()
+    }
 
     /** The call ended (Calls.end): the system's call ends with it, by its own cause -- missed, declined, ours or theirs. */
     fun end(seed: String, incoming: Boolean, answered: Boolean, declined: Boolean, byUs: Boolean) {
@@ -104,6 +119,7 @@ object SystemCall {
             else -> DisconnectCause.REMOTE
         }
         MainThread.post {
+            if (modern) return@post Transact.end(seed, code)
             val line = synchronized(this) {
                 held.remove(seed) ?: run { if (wanted.containsKey(seed)) over[seed] = code; null }
             }
@@ -117,13 +133,15 @@ object SystemCall {
 
     private fun rows(): JSONArray = DeviceVault.get(TOKENS)?.let { runCatching { JSONArray(String(it, Charsets.UTF_8)) }.getOrNull() } ?: JSONArray()
 
-    @Synchronized private fun token(ref: String): String {
-        val tok = ByteArray(16).also { SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it) }
+    private fun token(ref: String): String =
+        ByteArray(16).also { SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it) }.also { remember(it, ref) }
+
+    /** A key the call log may hand back -- the row's token, or the system's own id of the call (Android 17's EXTRA_UUID). */
+    @Synchronized private fun remember(key: String, ref: String) {
         val old = rows()
-        val m = JSONArray().put(JSONArray().put(tok).put(ref))
+        val m = JSONArray().put(JSONArray().put(key).put(ref))
         for (i in 0 until minOf(old.length(), CAP - 1)) m.put(old.get(i))
         DeviceVault.set(TOKENS, m.toString().toByteArray(Charsets.UTF_8))
-        return tok
     }
 
     /** The conversation a call-log row's token stands for; null for a token this device never gave. */
@@ -169,6 +187,86 @@ object SystemCall {
         val c = Book.ctx
         runCatching { c.startActivity(Intent(c, MainActivity::class.java).putExtra(EXTRA_CALL_BACK, NoticeAlias.of(ref)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
         log("call_back from the call log")
+    }
+
+    /** THE PLATFORM'S ROAD FOR A CALLING APP (Android 14+, TelecomManager.addCall): the call is the system's from its birth, its
+     *  answer, talk and end said to it through its CallControl; a call that ended before the system answered is ended at once. */
+    @android.annotation.TargetApi(34)
+    private object Transact {
+        private val controls = HashMap<String, CallControl>()   // seed -> the system's hold on the call
+        private val calls = HashMap<String, Want>()   // seed -> its direction and kind
+        private val pending = HashSet<String>()   // asked for, not answered yet
+        private val over = HashMap<String, Int>()   // ended while pending
+        private val live = HashSet<String>()        // talking while pending
+        private val quiet = object : OutcomeReceiver<Void, CallException> {
+            override fun onResult(r: Void?) {}
+            override fun onError(e: CallException) { log("system_call step refused code=" + e.code) }
+        }
+
+        fun add(c: Context, h: PhoneAccountHandle, seed: String, w: Want) {
+            val attrs = CallAttributes.Builder(h, if (w.incoming) CallAttributes.DIRECTION_INCOMING else CallAttributes.DIRECTION_OUTGOING,
+                w.name, address(w.token)).setCallType(if (w.video) CallAttributes.VIDEO_CALL else CallAttributes.AUDIO_CALL).build()
+            synchronized(this) { pending.add(seed); calls[seed] = w }
+            val main = c.mainExecutor
+            runCatching {
+                telecom(c)?.addCall(attrs, main, object : OutcomeReceiver<CallControl, CallException> {
+                    override fun onResult(control: CallControl) {
+                        remember(control.callId.toString(), w.ref)
+                        val ended: Int?; val talk: Boolean
+                        synchronized(this@Transact) {
+                            pending.remove(seed); ended = over.remove(seed); talk = live.remove(seed)
+                            if (ended == null) controls[seed] = control else calls.remove(seed)
+                        }
+                        if (ended != null) control.disconnect(DisconnectCause(ended), main, quiet) else if (talk) activate(seed, control)
+                        log("system_call " + (if (w.incoming) "in" else "out") + " epoch=" + Calls.epochOf(seed).take(8) + (if (ended != null) " ended" else ""))
+                    }
+                    override fun onError(e: CallException) {
+                        synchronized(this@Transact) { pending.remove(seed); over.remove(seed); live.remove(seed); calls.remove(seed) }
+                        log("system_call refused code=" + e.code)   // our own call goes on as it was, outside the system's list
+                    }
+                }, Hands(seed), Events)
+            }.onFailure { synchronized(this) { pending.remove(seed); calls.remove(seed) }; log("system_call: " + it.message) }
+        }
+
+        fun talking(seed: String) {
+            val control = synchronized(this) { controls[seed] ?: run { if (seed in pending) live.add(seed); null } } ?: return
+            activate(seed, control)
+        }
+
+        private fun activate(seed: String, control: CallControl) {
+            val main = Book.ctx.mainExecutor
+            val w = synchronized(this) { calls[seed] } ?: return
+            if (w.incoming) control.answer(if (w.video) CallAttributes.VIDEO_CALL else CallAttributes.AUDIO_CALL, main, quiet) else control.setActive(main, quiet)
+        }
+
+        fun end(seed: String, code: Int) {
+            val control = synchronized(this) {
+                calls.remove(seed)
+                controls.remove(seed) ?: run { if (seed in pending) over[seed] = code; null }
+            } ?: return
+            control.disconnect(DisconnectCause(code), Book.ctx.mainExecutor, quiet)
+        }
+
+        /** The system's own hands on our call: a headset's or a car's «answer», «decline», «hang up». */
+        private class Hands(val seed: String) : CallControlCallback {
+            override fun onSetActive(done: Consumer<Boolean>) = done.accept(true)
+            override fun onSetInactive(done: Consumer<Boolean>) = done.accept(false)   // no hold: the call stays as it is
+            override fun onAnswer(videoType: Int, done: Consumer<Boolean>) { done.accept(true); Calls.systemAnswer(seed) }
+            override fun onDisconnect(cause: DisconnectCause, done: Consumer<Boolean>) {
+                synchronized(Transact) { Transact.controls.remove(seed) }
+                done.accept(true)
+                Calls.systemEnd(seed)
+            }
+            override fun onCallStreamingStarted(done: Consumer<Boolean>) = done.accept(false)
+        }
+
+        private object Events : CallEventCallback {
+            override fun onCallEndpointChanged(endpoint: CallEndpoint) {}
+            override fun onAvailableCallEndpointsChanged(endpoints: List<CallEndpoint>) {}
+            override fun onMuteStateChanged(muted: Boolean) {}
+            override fun onCallStreamingFailed(reason: Int) {}
+            override fun onEvent(event: String, extras: Bundle) {}
+        }
     }
 
     /** The system's own hands on our call: a headset's or a car's «answer», «decline», «hang up». */
