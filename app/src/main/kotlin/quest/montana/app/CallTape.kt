@@ -27,7 +27,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * (iOS AVMutableAudioMixInputParameters 0.5) and encoded once into AAC, mono 48 kHz 48 kbit/s, an .m4a the chat sends as a voice.
  * NOT YET WIRED: the call's start and end, the caps rec/lv, the notice letter, the consent, the switch and the mark (HANDOVER 113).
  */
-object CallRecord {
+object CallTape {
     const val KEY = "callRecordingEnabled"   // NOT-UI: iOS MTCallRecordingPolicy.key, on by default
     const val CONSENT_KEY = "callRecordingConsent.v1"   // NOT-UI: the person's one consent on this phone
     private const val RATE = 48_000
