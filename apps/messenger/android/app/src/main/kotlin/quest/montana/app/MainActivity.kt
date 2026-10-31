@@ -144,10 +144,17 @@ class MainActivity : Activity() {
         return true
     }
 
-    /** iOS acceptCall: the call's screen stands at once («Connecting…»), not after the voice joins. */
+    /** iOS acceptCall: the call's screen stands at once («Connecting…»), not after the voice joins. The ring's own page (the
+     *  full-screen ring of a closed app, a dark or locked phone) stands the ring with its «Answer» and «Decline». */
     private fun takeTheCall(answer: Boolean) {
         if (answer) Calls.answer()
-        Calls.held()?.let { CallScreen.show(this, it) }
+        val held = Calls.held()
+        if (held != null) CallScreen.show(this, held) else Calls.peer()?.let { CallScreen.ring(it, this) }
+    }
+
+    /** The window over the lock screen, lighting it (the call's while it stands, CallScreen.lockOver). */
+    fun overLock(on: Boolean) {
+        if (Build.VERSION.SDK_INT >= 27) { setShowWhenLocked(on); setTurnScreenOn(on) }
     }
 
     /** AN INVITATION HANDED IN BY THE SYSTEM (iOS handleLink): opened now, or kept until the identity exists. */
@@ -263,11 +270,26 @@ class MainActivity : Activity() {
      * may keep its line while the phone dozes — without it a call to a sleeping phone waits for the doze's next window. Asked once.
      */
     private fun askDoze() {
-        if (Prefs.str("dozeAsked", "").isNotEmpty()) return
+        if (Prefs.str("dozeAsked", "").isNotEmpty()) return askFullScreen()
         val pm = getSystemService(android.os.PowerManager::class.java) ?: return
-        if (pm.isIgnoringBatteryOptimizations(packageName)) return
+        if (pm.isIgnoringBatteryOptimizations(packageName)) return askFullScreen()
         Prefs.setStr("dozeAsked", "1")
         runCatching { startActivity(Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:" + packageName))) }
+    }
+
+    /**
+     * THE RING'S WHOLE SCREEN, the next time after the doze's (iOS: CallKit's own incoming call, never asked): from Android 14 a
+     * call's full-screen ring is granted by itself only to an app Google Play lists as a caller; an app from the site has it off
+     * until the person turns it on, and a call to a dark or locked phone is then a line in the shade, never the ringing screen.
+     * The system's own page for this one switch, asked once.
+     */
+    private fun askFullScreen() {
+        if (Build.VERSION.SDK_INT < 34 || Prefs.str("fullScreenAsked", "").isNotEmpty()) return
+        val nm = getSystemService(android.app.NotificationManager::class.java) ?: return
+        if (nm.canUseFullScreenIntent()) return
+        Prefs.setStr("fullScreenAsked", "1")
+        android.util.Log.i("Montana", "FSI-ASK granted=0")
+        runCatching { startActivity(Intent(android.provider.Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, Uri.parse("package:" + packageName))) }
     }
 
     /** A picture under the whole window, system bars included; null — the plain black. */

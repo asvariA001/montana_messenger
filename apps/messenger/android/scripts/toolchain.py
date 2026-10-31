@@ -39,6 +39,7 @@ class Paths:
         self.ndk = os.path.join(self.sdk, "ndk", PIN["ndk"])
         self.adb = os.path.join(self.sdk, "platform-tools", "adb")
         self.webrtc = os.path.join(self.tools, "webrtc", "android-%s.aar" % PIN["webrtc"]["version"])
+        self.bundletool = os.path.join(self.tools, "bundletool", "bundletool-all-%s.jar" % PIN["bundletool"]["version"])
         self.protocol = os.path.normpath(os.path.join(ROOT, PIN["protocol"]["dir"]))
 
     def env(self):

@@ -9,6 +9,7 @@
     dex          d8          the classes          →  classes.dex (the phone's bytecode)
     package      the dex and the core go into the resource package
     sign         zipalign + apksigner             →  build/Montana.apk
+    bundle       bundletool  the same dex and core →  build/Montana.aab (Google Play takes this), signed by jarsigner
 
 The tools are the ones scripts/toolchain.json pins (python3 scripts/setup.py puts them in place). Every step runs in a
 fresh folder of its own, so nothing from an earlier build can ride into this one."""
@@ -31,6 +32,7 @@ MIN_SDK = "26"
 FIXED_MOMENT = (1981, 1, 1, 1, 1, 2)
 BUILD = os.path.join(ROOT, "build")
 APK = os.path.join(BUILD, "Montana.apk")
+AAB = os.path.join(BUILD, "Montana.aab")
 JNI = os.path.join(ROOT, "native", "montana-jni")
 # the core builds in one folder for every builder: OpenSSL's Configure writes its install folder into the library
 # (MODULESDIR, ENGINESDIR), and no prefix map reaches those strings
@@ -126,6 +128,15 @@ def core(p):
     say("core: %s, %d bytes" % (os.path.relpath(CORE_SO, ROOT), os.path.getsize(CORE_SO)))
 
 
+def entry(name, how):
+    # a fixed moment and mode in each entry, not the file's own: one commit makes one APK, byte for byte, whoever builds
+    # it (a build as another user differed from root's only in these)
+    e = zipfile.ZipInfo(name, date_time=FIXED_MOMENT)
+    e.compress_type = how
+    e.external_attr = 0x81A40000   # a regular file, rw-r--r--
+    return e
+
+
 def engine(p, out):
     # the call engine iOS rings with, taken only as the pinned bytes: its classes for Kotlin and d8, its library for the
     # phone's processor alone
@@ -159,18 +170,21 @@ def apk(p, code, name, key, check):
         res, gen, classes, dex = [os.path.join(out, d) for d in ("res", "gen", "classes", "dex")]
         for d in (res, gen, classes, dex):
             os.makedirs(d)
-        base = os.path.join(out, "base.apk")
+        base, proto = os.path.join(out, "base.apk"), os.path.join(out, "proto.apk")
         engine_jar, engine_so = engine(p, out)
-        say("1/6 resources")
+        say("1/7 resources")
         run([os.path.join(bt, "aapt2"), "compile", "--dir", os.path.join(APP, "res"), "-o", res + "/compiled.zip"])
-        run([os.path.join(bt, "aapt2"), "link", "-I", jar, "--manifest", os.path.join(APP, "AndroidManifest.xml"),
-             "--min-sdk-version", MIN_SDK, "--target-sdk-version", PIN["platform"].split("-")[1],
-             "--version-code", str(code), "--version-name", name,
-             "--java", gen, "--custom-package", "quest.montana.app", "-o", base, res + "/compiled.zip"])
-        say("2/6 R.java")
+        linking = [os.path.join(bt, "aapt2"), "link", "-I", jar, "--manifest", os.path.join(APP, "AndroidManifest.xml"),
+                   "--min-sdk-version", MIN_SDK, "--target-sdk-version", PIN["platform"].split("-")[1],
+                   "--version-code", str(code), "--version-name", name, "--custom-package", "quest.montana.app"]
+        run(linking + ["--java", gen, "-o", base, res + "/compiled.zip"])
+        # the same resources once more as protocol buffers: the form bundletool reads (the app bundle, 7/7)
+        if not check:
+            run(linking + ["--proto-format", "-o", proto, res + "/compiled.zip"])
+        say("2/7 R.java")
         run([os.path.join(p.java_home, "bin", "javac"), "-nowarn", "--release", "17", "-cp", jar, "-d", classes]
             + files(gen, ".java"), env=env)
-        say("3/6 Kotlin")
+        say("3/7 Kotlin")
         # kotlinc's own launcher holds the compiler to 512 MB unless JAVA_OPTS names more; the app outgrew it on 08.10.2026
         # (OutOfMemoryError in Pipes.kt's code generation once chess came in), so every builder gives it the same 2 GB
         kenv = dict(env)
@@ -185,10 +199,10 @@ def apk(p, code, name, key, check):
             raise SystemExit("Kotlin failed")
         if check:
             return say("the code compiles: %d classes" % len(files(classes, ".class")))
-        say("4/6 dex")
+        say("4/7 dex")
         run([os.path.join(bt, "d8"), "--release", "--min-api", MIN_SDK, "--lib", jar, "--output", dex]
             + files(classes, ".class") + [p.stdlib, engine_jar], env=env)
-        say("5/6 package")
+        say("5/7 package")
         unsigned, aligned, signed = [os.path.join(out, n) for n in ("unsigned.apk", "aligned.apk", "signed.apk")]
         open(unsigned, "wb").write(open(base, "rb").read())
         # the library is stored, not deflated: the system maps it straight from the package, page-aligned below
@@ -196,13 +210,8 @@ def apk(p, code, name, key, check):
             for data, name, how in ((open(os.path.join(dex, "classes.dex"), "rb").read(), "classes.dex", zipfile.ZIP_DEFLATED),
                                     (open(CORE_SO, "rb").read(), "lib/%s/libmontana.so" % ABI, zipfile.ZIP_STORED),
                                     (engine_so, "lib/%s/libjingle_peerconnection_so.so" % ABI, zipfile.ZIP_STORED)):
-                # a fixed moment and mode in each entry, not the file's own: one commit makes one APK, byte for byte,
-                # whoever builds it (a build as another user differed from root's only in these)
-                entry = zipfile.ZipInfo(name, date_time=FIXED_MOMENT)
-                entry.compress_type = how
-                entry.external_attr = 0x81A40000   # a regular file, rw-r--r--
-                z.writestr(entry, data)
-        say("6/6 align + sign")
+                z.writestr(entry(name, how), data)
+        say("6/7 align + sign")
         run([os.path.join(bt, "zipalign"), "-f", "-P", "16", "4", unsigned, aligned])
         # the shared key keeps its secret in KEY.pass beside it; in its PKCS12 store the key's password is the store's,
         # and apksigner reads one file named twice line by line, so the file is named once. A debug key's is the known one.
@@ -213,7 +222,43 @@ def apk(p, code, name, key, check):
         run([os.path.join(bt, "apksigner"), "sign", "--ks", key] + secret + ["--out", signed, aligned], env=env)
         os.makedirs(BUILD, exist_ok=True)
         open(APK, "wb").write(open(signed, "rb").read())
+        say("7/7 bundle")
+        bundle(p, out, proto, dex, engine_so, key)
     say("   %s  %d bytes" % (os.path.relpath(APK, ROOT), os.path.getsize(APK)))
+    say("   %s  %d bytes" % (os.path.relpath(AAB, ROOT), os.path.getsize(AAB)))
+
+
+def bundle(p, out, proto, dex, engine_so, key):
+    # Google Play takes an app bundle, not an APK: the same pieces laid as bundletool's base module -- the manifest in
+    # manifest/, the resources as aapt2's protocol buffers, the dex in dex/, the libraries in lib/
+    env, module = p.env(), os.path.join(out, "base.zip")
+    with zipfile.ZipFile(proto) as src, zipfile.ZipFile(module, "w") as z:
+        for info in src.infolist():
+            name = "manifest/AndroidManifest.xml" if info.filename == "AndroidManifest.xml" else info.filename
+            z.writestr(entry(name, zipfile.ZIP_DEFLATED), src.read(info))
+        for path in files(dex, ".dex"):
+            z.writestr(entry("dex/" + os.path.basename(path), zipfile.ZIP_DEFLATED), open(path, "rb").read())
+        for data, name in ((open(CORE_SO, "rb").read(), "libmontana.so"), (engine_so, "libjingle_peerconnection_so.so")):
+            z.writestr(entry("lib/%s/%s" % (ABI, name), zipfile.ZIP_DEFLATED), data)
+    # the libraries stay stored and 16 KB aligned in the APKs Play makes from the bundle, as in our own APK
+    config = os.path.join(out, "BundleConfig.json")
+    json.dump({"optimizations": {"uncompressNativeLibraries": {"enabled": True, "alignment": "PAGE_ALIGNMENT_16K"}}},
+              open(config, "w"))
+    unsigned = os.path.join(out, "unsigned.aab")
+    run([os.path.join(p.java_home, "bin", "java"), "-jar", p.bundletool, "build-bundle", "--modules=" + module,
+         "--config=" + config, "--output=" + unsigned], env=env)
+    # Play keeps the app's own key (the site's: the site's APK and Play's are one app) and takes the bundle signed by
+    # the upload key beside it; until there is one, the app's own key signs, as Play allows
+    upload = os.path.join(os.path.dirname(key), "upload.keystore")
+    signer = upload if os.path.exists(upload) else key
+    secret = ["-storepass:file", signer + ".pass"] if os.path.exists(signer + ".pass") else ["-storepass", "android"]
+    listed = subprocess.run([os.path.join(p.java_home, "bin", "keytool"), "-J-Duser.language=en", "-list",
+                             "-keystore", signer] + secret, env=env, capture_output=True, text=True).stdout
+    alias = next((l.split(",")[0] for l in listed.splitlines() if "PrivateKeyEntry" in l), None)
+    if not alias:
+        raise SystemExit("no key to sign the bundle in %s" % signer)
+    run([os.path.join(p.java_home, "bin", "jarsigner"), "-keystore", signer] + secret
+        + ["-sigalg", "SHA256withRSA", "-digestalg", "SHA-256", "-signedjar", AAB, unsigned, alias], env=env)
 
 
 def digest(path):
@@ -233,6 +278,8 @@ def publish(directory, code, name):
             raise SystemExit("commit %s was built before into %s, now into %s: the build is not reproducible"
                              % (commit[:12], before[:16], digest(APK)[:16]))
     open(target, "wb").write(open(APK, "rb").read())
+    # the bundle for Google Play lies beside its APK (lauterbourg.py --bundle brings it); the site never serves it
+    open(os.path.join(place, "Montana.aab"), "wb").write(open(AAB, "rb").read())
     record = dict(build=code, name=name, commit=commit, sha256=digest(target), apk=target,
                   time=time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()))
     open(os.path.join(place, "build.json"), "w", encoding="utf-8").write(json.dumps(record, ensure_ascii=False, indent=2) + "\n")
@@ -261,7 +308,7 @@ def main():
     ap.add_argument("--install", action="store_true", help="install on the phone over adb and start it")
     a = ap.parse_args()
     p = toolchain.Paths()
-    need = [p.java_home, p.kotlinc, p.build_tools, p.android_jar, p.webrtc] if not a.core_only else []
+    need = [p.java_home, p.kotlinc, p.build_tools, p.android_jar, p.webrtc, p.bundletool] if not a.core_only else []
     if not a.check:
         need.append(p.ndk)
     missing = [n for n in need if not os.path.exists(n)]

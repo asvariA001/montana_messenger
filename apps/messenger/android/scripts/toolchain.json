@@ -38,6 +38,12 @@
     "sha256": "fc7c8d027eb33860ccbb7847988f7f942d44a92d1f575348bba6c0250cde4071",
     "why": "the call engine iOS rings with (webrtc-sdk; Montana-iOS fetch-webrtc.sh takes 144.7559.10, which is not published for Android, and .15 is the newest of the same line). The one library of the build (the word of 06.10.2026: variant A), taken byte for byte by this digest; only its classes and the phone's arm64 library go into the APK"
   },
+  "bundletool": {
+    "version": "1.18.3",
+    "url": "https://github.com/google/bundletool/releases/download/1.18.3/bundletool-all-1.18.3.jar",
+    "sha256": "a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29",
+    "why": "Google's own tool that makes the app bundle Google Play takes (AAB, the only form Play takes from a new app) out of the same dex and libraries as the APK; run by the pinned JDK, taken byte for byte by this digest (the release's own)"
+  },
   "cargo_ndk": "4.1.2",
   "protocol": {
     "why": "the public core: core/Code of this repository at a named main commit (the chairman's decision 312, issue #23); its core/Code is checked against that commit's tree, not against the checkout's head",
