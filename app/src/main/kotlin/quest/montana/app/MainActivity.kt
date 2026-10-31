@@ -83,6 +83,7 @@ class MainActivity : Activity() {
         // «Share → Montana» from another app, else an invitation's link
         if (takeUpdate(intent)) return
         if (takeCall(intent)) return
+        if (takeCallBack(intent)) return
         // A LINK OR A SHARE IS TAKEN ONCE (iOS handleLink: one link, one handling): a page the system rebuilt, or a task brought
         // back from the recent apps, carries the intent that once made it — the invitation opened anew and an expired card was
         // said expired every time the app came back.
@@ -102,6 +103,14 @@ class MainActivity : Activity() {
         if (hasSeed && termsAccepted && Book.chat(ref) != null) push { close -> conversationPage(this, ref, close) }
         val asks = callAsks(Calls.ringVideo())
         if (answer && asks.isNotEmpty()) requestPermissions(asks, ASK_CALL_MIC) else takeTheCall(answer)
+        return true
+    }
+
+    /** «CALL BACK» FROM THE PHONE'S CALL LOG (SystemCall, iOS INStartCallIntent from Recents): the row's conversation is called. */
+    private fun takeCallBack(i: Intent?): Boolean {
+        val ref = i?.getStringExtra(SystemCall.EXTRA_CALL_BACK)?.let(NoticeAlias::open) ?: return false
+        i.removeExtra(SystemCall.EXTRA_CALL_BACK)
+        if (hasSeed && termsAccepted && Book.chat(ref) != null) callOut(ref)
         return true
     }
 
@@ -163,6 +172,7 @@ class MainActivity : Activity() {
         setIntent(intent)
         if (takeUpdate(intent)) return
         if (takeCall(intent)) return
+        if (takeCallBack(intent)) return
         if (takeChat(intent)) return
         if (!takeShared(intent, hasSeed && termsAccepted)) intent.data?.let { openLink(it.toString()) }
     }
