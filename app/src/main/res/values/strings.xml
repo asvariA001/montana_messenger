@@ -317,6 +317,7 @@
     <string name="pi_send_report">Send report</string>
     <string name="pi_reports_go">Reports go to %1$s and are reviewed within 24 hours.</string>
     <string name="pi_write_wall">Write on the wall</string>
+    <string name="wall_draft">Draft</string>   <!-- iOS MTBoardDraftCell «Draft» -->
     <string name="pi_voice_message">Voice message</string>
     <string name="pi_file">File</string>
     <!-- the search (iOS searchResults) -->

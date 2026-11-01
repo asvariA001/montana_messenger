@@ -422,17 +422,9 @@ internal fun panesOf(act: MainActivity, ref: String, group: Boolean, onClose: ()
         if (tab == Tab.WALL) {
             // THE WRITE BUTTON WHILE THE OWNER LETS ME WRITE (iOS MTBoardRows, MontanaBoardViews.swift:156-161 at 2155): it opens the
             // one new post's page over their wall (MTBoardComposer.present(on: owner)), and the post goes to them
-            if (Board.canWrite(ref)) pane.addView(c.hstack {
-                gravity = Gravity.CENTER_VERTICAL
-                background = c.glassPlate()
-                setPadding(dp(14), dp(10), dp(14), dp(10))
-                addView(FrameLayout(c).apply {
-                    background = c.glassPlate(oval = true)
-                    addView(c.icon(R.drawable.ic_compose, Color.WHITE), FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
-                }, lp(dp(44), dp(44)).apply { marginEnd = dp(14) })
-                addView(c.text(c.getString(R.string.pi_write_wall), 17f))
-                pressable { act.push { close -> newPostPage(act, close, wall = ref) } }
-            }, lp().apply { topMargin = c.dp(12) })
+            if (Board.canWrite(ref)) pane.addView(writeFace(act, ref), lp().apply { topMargin = c.dp(12) })
+            // MY DRAFT ON THEIR WALL stands over the posts on their way (iOS MTBoardRows 165-169)
+            draftCell(act, ref)?.let { pane.addView(it, lp().apply { topMargin = c.dp(10) }) }
             // A POST ON ITS WAY TO THEIR WALL stands at once as it will be published, under the bar of its files (iOS MTBoardRows 167-172)
             val onItsWay = MyWall.sending(ref)
             onItsWay.forEach { o -> pane.addView(goingCell(act, o), lp().apply { topMargin = c.dp(10) }) }

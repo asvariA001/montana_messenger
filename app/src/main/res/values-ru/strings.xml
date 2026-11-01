@@ -316,6 +316,7 @@
     <string name="pi_send_report">Отправить жалобу</string>
     <string name="pi_reports_go">Жалобы уходят на %1$s и рассматриваются в течение 24 часов.</string>
     <string name="pi_write_wall">Написать на стене</string>
+    <string name="wall_draft">Черновик</string>   <!-- iOS MTBoardDraftCell «Draft» -->
     <string name="pi_voice_message">Голосовое сообщение</string>
     <string name="pi_file">Файл</string>
     <!-- the search (iOS searchResults) -->

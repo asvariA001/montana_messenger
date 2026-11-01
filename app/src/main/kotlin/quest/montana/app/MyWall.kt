@@ -127,7 +127,7 @@ object MyWall {
     }
     /** EVERY CHANGE IS LAID INTO THE WALL'S STORE: the words as typed, a file the moment it is picked or taken off; an empty draft
      *  is let go. A file taken off leaves the folder at the page itself. */
-    fun layDraft(wall: String, text: String, files: List<Attachment>, at: Double) = synchronized(lock) {
+    fun layDraft(wall: String, text: String, files: List<Attachment>, at: Double, told: Boolean = false) = synchronized(lock) {
         if (text.isBlank() && files.isEmpty()) { dropDraft(wall, "emptied"); return@synchronized }
         val born = !draftsHeld().has(wall)
         val fs = JSONArray()
@@ -135,11 +135,15 @@ object MyWall {
         draftsHeld().put(wall, JSONObject().put("text", text).put("files", fs).put("at", at))
         saveDrafts()
         if (born) Log.i("Montana", "post_draft born wall=" + (if (wall.isEmpty()) "mine" else "theirs"))
+        if (born || told) changed()   // the wall draws its draft as it was left (told: its page closed over it)
     }
-    /** A draft let go -- posted or emptied. Its files are the page's to keep (posted: they moved into the store) or delete. */
-    fun dropDraft(wall: String, why: String) = synchronized(lock) {
+    /** A draft let go -- posted or emptied. Its files are the page's to keep (posted: they moved into the store) or delete; thrown
+     *  away from the wall's trash (iOS MTBoardDraftCell, files = true) they leave with it. */
+    fun dropDraft(wall: String, why: String, files: Boolean = false) = synchronized(lock) {
         val d = draftsHeld().remove(wall) as? JSONObject ?: return@synchronized
         saveDrafts()
+        if (files) d.optJSONArray("files")?.let { fs -> for (i in 0 until fs.length()) fs.optJSONObject(i)?.optString("path")?.takeIf { it.isNotEmpty() }?.let { File(it).delete() } }
+        changed()
         Log.i("Montana", "post_draft dropped why=" + why + " files=" + (d.optJSONArray("files")?.length() ?: 0) + " chars=" + d.optString("text").length)
     }
 

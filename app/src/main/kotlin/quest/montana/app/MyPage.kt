@@ -29,17 +29,9 @@ fun myPage(act: MainActivity, onClose: () -> Unit): View {
     val wall = c.vstack(Gravity.NO_GRAVITY) { setPadding(dp(12), dp(16), dp(12), 0) }
     fun drawWall() {
         wall.removeAllViews()
-        wall.addView(c.hstack {
-            gravity = Gravity.CENTER_VERTICAL
-            background = c.glassPlate()
-            setPadding(dp(14), dp(10), dp(14), dp(10))
-            addView(FrameLayout(c).apply {
-                background = c.glassPlate(oval = true)
-                addView(c.icon(R.drawable.ic_compose, Color.WHITE), FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
-            }, lp(dp(44), dp(44)).apply { marginEnd = dp(14) })
-            addView(c.text(c.getString(R.string.pi_write_wall), 17f))
-            pressable { act.push { close -> newPostPage(act, close) } }
-        }, lp())
+        wall.addView(writeFace(act), lp())
+        // MY DRAFT STANDS ON MY WALL (iOS MTBoardRows 165-169), over the posts on their way
+        draftCell(act)?.let { wall.addView(it, lp().apply { topMargin = c.dp(10) }) }
         // A POST ON ITS WAY stands at once as it will be published, under the bar of its files (iOS MTBoardRows 167-172)
         val going = MyWall.sending()
         going.forEach { o -> wall.addView(goingCell(act, o), lp().apply { topMargin = c.dp(10) }) }
@@ -109,6 +101,72 @@ fun goingBar(act: MainActivity, o: MyWall.Going, onRetry: (() -> Unit)?, onDisca
     }
 }
 
+/** THE AUTHOR'S ARTWORK OF A NEW POST (iOS MTBoardWriteIcon, MontanaBoardViews.swift:113-119 at 2336, atom 2fb6abb2): the supplied
+ *  WriteOnWall picture in its own colours, on every control that begins a post on a wall. */
+fun writeArt(c: Context, side: Int): View = ImageView(c).apply {
+    setImageResource(R.drawable.write_on_wall)
+    scaleType = ImageView.ScaleType.FIT_CENTER
+    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+    layoutParams = android.widget.LinearLayout.LayoutParams(c.dp(side), c.dp(side))
+}
+
+/** THE WALL'S WRITE BUTTON, ONE DRAWING (iOS MTBoardWriteFace 122-135 at 2336): the artwork at 40, the words, the plate's glass, 50
+ *  high; my wall ("") and a person's wall draw the same one, and it opens the new post's page on that wall. */
+fun writeFace(act: MainActivity, wall: String = ""): View = act.hstack {
+    background = act.glassPlate()
+    minimumHeight = dp(50)
+    setPadding(dp(16), dp(5), dp(16), dp(5))
+    addView(writeArt(act, 40), lp(dp(40), dp(40)).apply { marginEnd = dp(10) })
+    addView(act.text(act.getString(R.string.pi_write_wall), 17f))
+    pressable { act.push { close -> newPostPage(act, close, wall = wall) } }
+}
+
+/** The post as the wall will draw it, from a draft's words (iOS MTBoardDraft.seen): my name, my face on another's wall, the moment it
+ *  was begun, every count at nothing. */
+fun draftPost(wall: String, at: Double, text: String): org.json.JSONObject {
+    val name = Prefs.userName.trim()
+    return org.json.JSONObject().put("id", "").put("author", "").put("byName", name).put("byGlyph", name.take(1).uppercase())
+        .put("at", at).put("text", text).put("media", org.json.JSONArray()).put("pinned", false)
+        .put("keepers", org.json.JSONArray().put("")).put("likes", org.json.JSONArray()).put("downloads", org.json.JSONArray())
+        .put("reposts", org.json.JSONArray()).put("comments", org.json.JSONArray())
+        .apply { if (wall.isNotEmpty()) Board.myFace()?.let { put("face", it) } }
+}
+
+/**
+ * A POST NOT YET PUBLISHED, ON ITS WALL (iOS MTBoardDraftCell, MontanaBoardViews.swift:1716-1755 at 2336; the author's word 25.09:
+ * «the wall keeps even a draft not published»): a plate naming it a draft -- the artwork at 36 and «Draft», its trash throwing the draft
+ * away with its files -- over the post as it will stand; a touch on the plate or the post opens the page that writes it, where it was
+ * left. Null while the wall holds no draft. The post's pictures are not drawn in the cell yet (as on the new post's page).
+ */
+fun draftCell(act: MainActivity, wall: String = ""): View? {
+    val d = MyWall.draft(wall) ?: return null
+    val c: Context = act
+    val open = { act.push { close -> newPostPage(act, close, wall = wall) } }
+    return c.vstack(Gravity.NO_GRAVITY) {
+        addView(c.hstack {
+            background = c.glassPlate()
+            setPadding(dp(16), dp(4), dp(4), dp(4))
+            addView(c.hstack {
+                minimumHeight = dp(44)
+                addView(writeArt(c, 36), lp(dp(36), dp(36)).apply { marginEnd = dp(8) })
+                addView(c.text(c.getString(R.string.wall_draft), 15f, bold = true).apply { maxLines = 1 })
+                pressable { open() }
+            }, lp(0, WRAP, 1f))
+            addView(FrameLayout(c).apply {
+                contentDescription = c.getString(R.string.delete)
+                addView(c.icon(R.drawable.ic_delete, Color.WHITE), FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
+                pressable { MyWall.dropDraft(wall, "trash", files = true) }
+            }, lp(dp(44), dp(44)))
+        }, lp())
+        gap(8)
+        // the whole post is the button: nothing inside it answers by itself
+        addView(FrameLayout(c).apply {
+            addView(postCell(act, Board.Item(wall, draftPost(wall, d.at, d.text)), onItsWall = true, sending = true), FrameLayout.LayoutParams(MATCH, WRAP))
+            addView(View(c).apply { pressable { open() } }, FrameLayout.LayoutParams(MATCH, MATCH))
+        }, lp())
+    }
+}
+
 /** A POST ON ITS WAY, ON ITS WALL (iOS MTBoardSendingCell 1581-1592): the bar of its files over the post as it will stand. */
 fun goingCell(act: MainActivity, o: MyWall.Going): View = act.vstack(Gravity.NO_GRAVITY) {
     addView(goingBar(act, o, onRetry = { Thread { MyWall.publish(o.id) }.start() }, onDiscard = { Thread { MyWall.discard(o.id) }.start() }), lp())
@@ -162,7 +220,9 @@ fun newPostPage(act: MainActivity, onClose: () -> Unit, sharedWords: String = ""
         if (soon) field.postDelayed(layNow, 400) else layNow.run()
     }
     fun leave() {
-        lay()   // the draft stays (iOS 25.09): its words and files wait for the page's next opening
+        // the draft stays (iOS 25.09): its words and files wait for the page's next opening, and the wall under the page draws them
+        field.removeCallbacks(layNow)
+        if (sending == null) MyWall.layDraft(wall, field.text.toString(), files.toList(), at, told = true)
         closed = true
         onClose()
     }
@@ -273,13 +333,7 @@ fun newPostPage(act: MainActivity, onClose: () -> Unit, sharedWords: String = ""
         // THE NEW POST'S PAGE IS THE POST ONE TO ONE (iOS MTBoardComposer's MTBoardCell with its draft, 0ba63ede, 24.09): my face,
         // my name and the moment it was begun as the wall will draw them, the words a field where the post's words stand, at the
         // wall's own width; a touch anywhere on the post gives the field the keys again (24.09)
-        val name = Prefs.userName.trim()
-        val draftPost = org.json.JSONObject().put("id", "").put("author", "").put("byName", name).put("byGlyph", name.take(1).uppercase())
-            .put("at", at).put("text", "").put("media", org.json.JSONArray()).put("pinned", false)
-            .put("keepers", org.json.JSONArray().put("")).put("likes", org.json.JSONArray()).put("downloads", org.json.JSONArray())
-            .put("reposts", org.json.JSONArray()).put("comments", org.json.JSONArray())
-        if (wall.isNotEmpty()) Board.myFace()?.let { draftPost.put("face", it) }
-        addView(postCell(act, Board.Item(wall, draftPost), whole = true, onItsWall = true, sending = true, field = field).apply {
+        addView(postCell(act, Board.Item(wall, draftPost(wall, at, "")), whole = true, onItsWall = true, sending = true, field = field).apply {
             setOnClickListener { if (sending == null && !field.hasFocus()) { field.requestFocus(); c.getSystemService(android.view.inputmethod.InputMethodManager::class.java).showSoftInput(field, 0) } }
         }, lp().apply { topMargin = dp(12) })
         addView(picks, lp().apply { topMargin = dp(16) })
