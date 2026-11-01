@@ -93,6 +93,8 @@ object CallTape {
     }
 
     @Synchronized fun recording(seed: String): Boolean = live?.seed == seed && tape != null
+    /** A tape rolls on this phone (iOS MTCallRecording.recording is not empty): the call screen's red dot stands. */
+    val rolling: Boolean get() = tape != null
     /** The call screen's mark stands (iOS MTCallRecordMark): not on a call the person ended by it, nor one the correspondent holds. */
     @Synchronized fun markShown(seed: String): Boolean = seed !in stoppedByHand && seed !in forbidden
     @Synchronized fun markOn(seed: String): Boolean = recording(seed) || seed in byHand

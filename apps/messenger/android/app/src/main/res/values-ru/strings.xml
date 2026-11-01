@@ -851,4 +851,5 @@
     <string name="call_rec_none">Запись этого звонка отсутствует: звук не поступал.</string>
     <string name="call_rec_mark">Записать</string>
     <string name="call_rec_stop">Остановить запись</string>
+    <string name="call_rec_on">Идёт запись</string>
 </resources>

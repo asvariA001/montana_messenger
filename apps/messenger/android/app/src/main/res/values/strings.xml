@@ -856,4 +856,5 @@
     <string name="call_rec_none">This call has no recording because no audio was received.</string>
     <string name="call_rec_mark">Record</string>
     <string name="call_rec_stop">Stop recording</string>
+    <string name="call_rec_on">Recording</string>
 </resources>

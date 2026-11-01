@@ -1,5 +1,7 @@
 package quest.montana.app
 
+import android.animation.ObjectAnimator
+import android.animation.ValueAnimator
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -28,6 +30,7 @@ import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.view.ViewOutlineProvider
+import android.view.animation.AccelerateDecelerateInterpolator
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -196,6 +199,10 @@ object CallScreen {
         val haze = Color.argb(128, 0, 0, 0)   // legible over whatever the picture shows (iOS .shadow 0.5, 3)
         // ── the audio branch's line (iOS 6702-6738): the light, «Montana Audio Call — 0:03», the name at forty, the state ──
         val light = c.icon(R.drawable.ic_dot, SysColor.green, 11)
+        // THE RECORDING'S DOT (iOS MTCallRecordingStatus, MTCallRecording.swift 829-841, beside MTCallLight in MTCallClock 6514):
+        // red, eight across, while a tape rolls on this phone; it breathes between whole and a quarter every 0.65 s, still when
+        // the system's animations are off (iOS accessibilityReduceMotion)
+        val recDot = recordingDot(c)
         val status = c.text("", 20f, Color.argb(153, 255, 255, 255)).apply { singleLineEllipsis(); fontFeatureSettings = "tnum" }
         val state = c.text("", 17f, Color.WHITE, bold = true, center = true).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END }
         val voiceHead = c.vstack(Gravity.CENTER_HORIZONTAL) {
@@ -203,6 +210,7 @@ object CallScreen {
             addView(c.hstack {
                 gravity = Gravity.CENTER_VERTICAL
                 addView(light, lp(dp(11), dp(11)).apply { marginEnd = dp(6) })
+                addView(recDot, lp(dp(8), dp(8)).apply { marginEnd = dp(6) })
                 addView(status, lp(WRAP, WRAP))
             }, lp(WRAP, WRAP).apply { leftMargin = dp(16); rightMargin = dp(16) })
             gap(10)
@@ -236,12 +244,14 @@ object CallScreen {
             setShadowLayer(dp(3).toFloat(), 0f, 0f, haze)
         }
         val vlight = c.icon(R.drawable.ic_dot, SysColor.green, 11)
-        val clock = c.text("", 17f, Color.argb(217, 255, 255, 255)).apply {
+        val vrecDot = recordingDot(c)
+        val clock =c.text("", 17f, Color.argb(217, 255, 255, 255)).apply {
             typeface = medium; fontFeatureSettings = "tnum"; singleLineEllipsis(); setShadowLayer(dp(3).toFloat(), 0f, 0f, haze)
         }
         val timeLine = c.hstack {
             gravity = Gravity.CENTER
             addView(vlight, lp(dp(11), dp(11)).apply { marginEnd = dp(5) })
+            addView(vrecDot, lp(dp(8), dp(8)).apply { marginEnd = dp(5) })
             addView(clock, lp(WRAP, WRAP))
         }
         val events = c.text("", 17f, Color.WHITE, bold = true, center = true).apply { singleLineEllipsis(); setShadowLayer(dp(3).toFloat(), 0f, 0f, haze) }
@@ -258,6 +268,7 @@ object CallScreen {
         var recGlyph = R.drawable.ic_record_circle
         recDraw = {
             val seed = CallLine.talkingSeed
+            for (d in listOf(recDot, vrecDot)) recordingDot(d, CallTape.rolling)
             recMark.visibility = if (seed != null && CallTape.markShown(seed)) View.VISIBLE else View.GONE
             val rg = if (seed != null && CallTape.markOn(seed)) R.drawable.ic_stop_circle else R.drawable.ic_record_circle
             if (rg != recGlyph) {
@@ -638,6 +649,25 @@ object CallScreen {
     /** A mark of the chat's own (iOS MontanaCallMark): the glass circle, its glyph, the finger's forty-four. */
     /** THE CALL'S MARK (iOS MontanaCallMark, MontanaShapes.swift 1092-1114, atom 710032f3b132): the bar's glyph colour on the
      * bar's glass circle with a white 0.28 rim, a 44-point target, a press -- the chat's scroll-down face, one to one. */
+    /** The recording's red dot (iOS MTCallRecordingStatus): hidden until a tape rolls. */
+    private fun recordingDot(c: Context): ImageView = c.icon(R.drawable.ic_dot, SysColor.red, 8).apply {
+        visibility = View.GONE
+        contentDescription = c.getString(R.string.call_rec_on)
+    }
+    /** The dot stands while a tape rolls and breathes only while it stands: a hidden dot draws nothing and costs nothing. */
+    private fun recordingDot(d: ImageView, on: Boolean) {
+        if ((d.visibility == View.VISIBLE) == on) return
+        d.visibility = if (on) View.VISIBLE else View.GONE
+        (d.tag as? ObjectAnimator)?.cancel()
+        d.tag = null
+        d.alpha = 1f
+        if (on && ValueAnimator.areAnimatorsEnabled())
+            d.tag = ObjectAnimator.ofFloat(d, View.ALPHA, 1f, 0.25f).apply {
+                duration = 650; repeatCount = ValueAnimator.INFINITE; repeatMode = ValueAnimator.REVERSE
+                interpolator = AccelerateDecelerateInterpolator(); start()
+            }
+    }
+
     private fun mark(c: Context, glyph: Int, label: Int, work: () -> Unit) = FrameLayout(c).apply {
         background = c.glassPlate(oval = true).apply { setStroke(c.dp(1), Color.argb(71, 255, 255, 255)) }
         contentDescription = c.getString(label)
