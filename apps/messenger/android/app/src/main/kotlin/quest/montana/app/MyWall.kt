@@ -99,8 +99,48 @@ object MyWall {
     }
     /** The person forgotten: their wall leaves with them. */
     fun wipe() = synchronized(lock) {
-        mine.clear(); cap.clear(); sent.clear(); inFlight.clear(); going.clear(); loaded = false
-        file().delete(); goingFile().delete(); store().deleteRecursively()
+        mine.clear(); cap.clear(); sent.clear(); inFlight.clear(); going.clear(); loaded = false; drafts = null
+        file().delete(); goingFile().delete(); store().deleteRecursively(); draftsFile().delete()
+        File(File(Book.ctx.filesDir, "board"), "picked").deleteRecursively()   // the drafts' files leave with them (iOS e1c0002c)
+    }
+
+    // ── a post being written (iOS MTBoard.draft/lay/dropDraft, MontanaBoard.swift:2071-2099; MTBoardComposer.init, 25.09) ──
+    /** A post not yet posted, on its wall ("" my own): its words, its files in the picked folder, and the moment it was begun. */
+    class Draft(val text: String, val files: List<Attachment>, val at: Double)
+    private var drafts: JSONObject? = null
+    private fun draftsFile() = File(File(Book.ctx.filesDir, "board").apply { mkdirs() }, "drafts.sealed")
+    private fun draftsHeld(): JSONObject = drafts ?: (runCatching { DeviceVault.unseal(draftsFile().readBytes())?.let { JSONObject(String(it, Charsets.UTF_8)) } }.getOrNull()
+        ?: JSONObject()).also { drafts = it }
+    private fun saveDrafts() {
+        val sealedBytes = DeviceVault.seal(draftsHeld().toString().toByteArray(Charsets.UTF_8)) ?: return
+        val part = File(draftsFile().path + ".part")
+        runCatching { part.writeBytes(sealedBytes); part.renameTo(draftsFile()) }
+    }
+    /** THE PAGE OPENS AS IT WAS LEFT: the draft on this wall, its files that still lie in their folder. */
+    fun draft(wall: String): Draft? = synchronized(lock) {
+        val d = draftsHeld().optJSONObject(wall) ?: return null
+        val fs = d.optJSONArray("files") ?: JSONArray()
+        val files = (0 until fs.length()).mapNotNull { i -> fs.optJSONObject(i) }.map { f ->
+            Attachment(File(f.optString("path")), f.optString("kind"), f.optString("name"), f.optString("ext"))
+        }.filter { it.file.exists() }
+        Draft(d.optString("text"), files, d.optDouble("at", System.currentTimeMillis() / 1000.0))
+    }
+    /** EVERY CHANGE IS LAID INTO THE WALL'S STORE: the words as typed, a file the moment it is picked or taken off; an empty draft
+     *  is let go. A file taken off leaves the folder at the page itself. */
+    fun layDraft(wall: String, text: String, files: List<Attachment>, at: Double) = synchronized(lock) {
+        if (text.isBlank() && files.isEmpty()) { dropDraft(wall, "emptied"); return@synchronized }
+        val born = !draftsHeld().has(wall)
+        val fs = JSONArray()
+        for (f in files) fs.put(JSONObject().put("path", f.file.path).put("kind", f.kind).put("name", f.name).put("ext", f.ext))
+        draftsHeld().put(wall, JSONObject().put("text", text).put("files", fs).put("at", at))
+        saveDrafts()
+        if (born) Log.i("Montana", "post_draft born wall=" + (if (wall.isEmpty()) "mine" else "theirs"))
+    }
+    /** A draft let go -- posted or emptied. Its files are the page's to keep (posted: they moved into the store) or delete. */
+    fun dropDraft(wall: String, why: String) = synchronized(lock) {
+        val d = draftsHeld().remove(wall) as? JSONObject ?: return@synchronized
+        saveDrafts()
+        Log.i("Montana", "post_draft dropped why=" + why + " files=" + (d.optJSONArray("files")?.length() ?: 0) + " chars=" + d.optString("text").length)
     }
 
     // ── the shape of a post, owner and visitor ──

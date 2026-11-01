@@ -130,12 +130,18 @@ fun newPostPage(act: MainActivity, onClose: () -> Unit, sharedWords: String = ""
     var taking = 0
     var sending: String? = null
     var closed = false
+    // THE PAGE OPENS AS IT WAS LEFT (iOS MTBoardComposer.init, 25.09): the wall's draft -- its words, its files and the moment it was begun
+    val held = MyWall.draft(wall)
+    val at = held?.at ?: (System.currentTimeMillis() / 1000.0)
+    held?.let { files.addAll(it.files) }
+    // THE WORDS STAND WHERE THE POST'S WORDS WILL STAND (iOS MTBoardDrafting, 0ba63ede): the post's own font, no frame of its own
     val field = android.widget.EditText(c).apply {
         hint = c.getString(R.string.write_something)
         setTextColor(Color.WHITE); setHintTextColor(MT.gray); background = null
-        textSize = 17f
-        minLines = 3
-        setPadding(dp(16), dp(12), dp(16), dp(16))
+        textSize = 16f
+        minLines = 2
+        setPadding(0, 0, 0, 0)
+        held?.let { setText(it.text) }   // USER-DATA: my draft's own words
     }
     val barSlot = FrameLayout(c)
     val picks = c.plate {}
@@ -148,9 +154,16 @@ fun newPostPage(act: MainActivity, onClose: () -> Unit, sharedWords: String = ""
         done.alpha = if (off) 0.4f else 1f
         picks.visibility = if (sending == null) View.VISIBLE else View.GONE
     }
+    // EVERY CHANGE IS LAID INTO THE WALL'S STORE (iOS lay, 25.09): the words as they are typed (a burst folded into one write), a
+    // file the moment it is picked or taken off; while the post is on its way the page holds nothing of its own
+    val layNow = Runnable { if (sending == null) MyWall.layDraft(wall, field.text.toString(), files.toList(), at) }
+    fun lay(soon: Boolean = false) {
+        field.removeCallbacks(layNow)
+        if (soon) field.postDelayed(layNow, 400) else layNow.run()
+    }
     fun leave() {
+        lay()   // the draft stays (iOS 25.09): its words and files wait for the page's next opening
         closed = true
-        if (sending == null) files.forEach { it.file.delete() }   // a page closed unposted leaves no copy of what it was given
         onClose()
     }
     fun drawTaken() {
@@ -176,7 +189,7 @@ fun newPostPage(act: MainActivity, onClose: () -> Unit, sharedWords: String = ""
             if (sending == null) addView(c.icon(R.drawable.ic_cancel, MT.gray, 22).apply {
                 setPadding(dp(11), dp(11), dp(11), dp(11))
                 contentDescription = c.getString(R.string.wall_remove)
-                pressable { files.remove(f); f.file.delete(); drawTaken() }
+                pressable { files.remove(f); f.file.delete(); drawTaken(); lay() }
             }, lp(dp(44), dp(44)))
         }, lp())
         // a file on its way from the picker: the platform's wheel where its row will stand
@@ -197,7 +210,7 @@ fun newPostPage(act: MainActivity, onClose: () -> Unit, sharedWords: String = ""
                 if (a != null) got++
                 MainThread.post {
                     taking--
-                    if (a != null && files.size < MEDIA_LIMIT && !closed) files.add(a) else a?.file?.delete()
+                    if (a != null && files.size < MEDIA_LIMIT && !closed) { files.add(a); lay() } else a?.file?.delete()
                     drawTaken()
                 }
             }
@@ -222,6 +235,7 @@ fun newPostPage(act: MainActivity, onClose: () -> Unit, sharedWords: String = ""
         Thread {
             val pid = MyWall.begin(words, atts, wall)
             if (pid == null) { MainThread.post { sending = null; failedLine.visibility = View.VISIBLE; drawTaken() }; return@Thread }
+            MyWall.dropDraft(wall, "posted")   // its files moved into the post's store
             MainThread.post { sending = pid; files.clear(); drawTaken(); showBar() }
             val ok = MyWall.publish(pid)
             MainThread.post { if (ok && !closed) leave() }
@@ -235,7 +249,7 @@ fun newPostPage(act: MainActivity, onClose: () -> Unit, sharedWords: String = ""
     field.addTextChangedListener(object : android.text.TextWatcher {
         override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
         override fun onTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
-        override fun afterTextChanged(s: android.text.Editable?) { dress() }
+        override fun afterTextChanged(s: android.text.Editable?) { dress(); lay(soon = true) }
     })
     fun pickRow(glyph: Int, words: Int, deed: () -> Unit) = c.hstack {
         gravity = Gravity.CENTER_VERTICAL
@@ -256,15 +270,17 @@ fun newPostPage(act: MainActivity, onClose: () -> Unit, sharedWords: String = ""
     }, lp())
     val page = settingsPage(act, c.getString(R.string.new_post), { leave() }, cross = true, trailing = done) {
         addView(barSlot, lp())
-        addView(c.plate {
-            addView(c.hstack {
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(16), dp(14), dp(16), 0)
-                addView(c.avatar(SelfFace.load(c), Prefs.userName, 40), lp(dp(40), dp(40)))
-                gap(10)
-                addView(c.text(Prefs.userName, 15f, Color.WHITE, bold = true).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))   // USER-DATA: my name
-            }, lp())
-            addView(field, lp())
+        // THE NEW POST'S PAGE IS THE POST ONE TO ONE (iOS MTBoardComposer's MTBoardCell with its draft, 0ba63ede, 24.09): my face,
+        // my name and the moment it was begun as the wall will draw them, the words a field where the post's words stand, at the
+        // wall's own width; a touch anywhere on the post gives the field the keys again (24.09)
+        val name = Prefs.userName.trim()
+        val draftPost = org.json.JSONObject().put("id", "").put("author", "").put("byName", name).put("byGlyph", name.take(1).uppercase())
+            .put("at", at).put("text", "").put("media", org.json.JSONArray()).put("pinned", false)
+            .put("keepers", org.json.JSONArray().put("")).put("likes", org.json.JSONArray()).put("downloads", org.json.JSONArray())
+            .put("reposts", org.json.JSONArray()).put("comments", org.json.JSONArray())
+        if (wall.isNotEmpty()) Board.myFace()?.let { draftPost.put("face", it) }
+        addView(postCell(act, Board.Item(wall, draftPost), whole = true, onItsWall = true, sending = true, field = field).apply {
+            setOnClickListener { if (sending == null && !field.hasFocus()) { field.requestFocus(); c.getSystemService(android.view.inputmethod.InputMethodManager::class.java).showSoftInput(field, 0) } }
         }, lp().apply { topMargin = dp(12) })
         addView(picks, lp().apply { topMargin = dp(16) })
         addView(taken, lp().apply { topMargin = dp(16) })
@@ -273,8 +289,9 @@ fun newPostPage(act: MainActivity, onClose: () -> Unit, sharedWords: String = ""
     drawTaken()
     // WHAT ANOTHER APP HANDED IN STANDS ON THE PAGE ALREADY TAKEN (iOS MTBoard.laySheet 1974-1991: the words joined, the files held to
     // what a post takes, then MTBoardComposer.reopen 2054-2058): the words to change, more files to pick, the check to post
-    if (sharedWords.isNotEmpty()) { field.setText(sharedWords); field.setSelection(field.text.length) }
-    take(sharedFiles.take(MEDIA_LIMIT))
+    // joined to the draft the wall already holds (iOS MTBoard.laySheet: «joins the words and the files to the draft my wall already holds»)
+    if (sharedWords.isNotEmpty()) { field.setText(listOf(field.text.toString(), sharedWords).filter { it.isNotBlank() }.joinToString("\n")); field.setSelection(field.text.length) }
+    take(sharedFiles.take(MEDIA_LIMIT - files.size))
     // the bar follows the node's count while the post is on its way
     val heard: () -> Unit = { if (sending != null) showBar() }
     page.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
@@ -283,6 +300,7 @@ fun newPostPage(act: MainActivity, onClose: () -> Unit, sharedWords: String = ""
     })
     field.post {
         field.requestFocus()
+        field.setSelection(field.text.length)   // a draft opens with the cursor after its last word
         c.getSystemService(android.view.inputmethod.InputMethodManager::class.java).showSoftInput(field, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
     }
     return page
