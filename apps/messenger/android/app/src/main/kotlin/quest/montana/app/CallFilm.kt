@@ -27,7 +27,7 @@ import java.util.concurrent.TimeUnit
  * MTCallTapeExport.copyPicture; the author's word 16.10.2026 15:27 UTC: «the video call must be recorded as I saw it»): while a
  * tape rolls, the call's two pictures are drawn as its screen stood -- the big one filling the frame (a shared screen whole, on
  * black), the corner one where and as large as it stood, rounded with its rim, my own mirrored as the screen mirrors it -- ten
- * times a second into one H.264 film of the screen's shape, 400 kbit/s. At the end the film is copied as it was written beside
+ * times a second by the film's own clock into one H.264 film of the screen's shape, 400 kbit/s. At the end the film is copied as it was written beside
  * the voices' AAC into one .mp4: the picture is never encoded twice. The pictures are drawn on this phone's processor, not its
  * graphics: ten small frames a second.
  */
@@ -66,13 +66,24 @@ object CallFilm {
         if (floor >= 4) return
         val step = if (floor == 0) 100L else 1000L
         val now = SystemClock.elapsedRealtime()
-        if (now - (if (local) r.tookLocal else r.tookRemote) < step) return
+        val due = if (local) r.dueLocal else r.dueRemote
+        if (!ripe(now, due)) return
         if (!r.slots.tryAcquire()) return
-        if (local) r.tookLocal = now else r.tookRemote = now
+        if (local) r.dueLocal = next(now, due, step) else r.dueRemote = next(now, due, step)
         val pic = runCatching { read(f, now) }.getOrNull()
         if (pic == null) { r.slots.release(); return }
         r.work.execute { try { r.put(local, pic, step) } finally { r.slots.release() } }
     }
+
+    /**
+     * TEN A SECOND, NOT EIGHT: the film keeps a clock of its own -- each tenth of a second is due, and the frame nearest it, up
+     * to 20 ms early, takes it. Waiting a full step from the last frame taken lost a frame interval at each step (a camera's
+     * 24 frames a second came 123 ms apart: 8 a second, 510 frames in 63 s on A1, 01.11.2026). A clock that fell behind by more
+     * than a step starts again from now.
+     */
+    private const val EARLY = 20L
+    private fun ripe(now: Long, due: Long) = now >= due - EARLY
+    private fun next(now: Long, due: Long, step: Long) = if (now - due > step) now + step else due + step
 
     private fun read(f: VideoFrame, at: Long): Pic? {
         val b = f.buffer
@@ -106,8 +117,8 @@ object CallFilm {
     class Reel(val file: File, val origin: Long) {
         internal val work = Executors.newSingleThreadExecutor()
         internal val slots = Semaphore(3)
-        @Volatile internal var tookLocal = 0L
-        @Volatile internal var tookRemote = 0L
+        @Volatile internal var dueLocal = 0L
+        @Volatile internal var dueRemote = 0L
         private val latest = HashMap<Boolean, Pic>()
         private var w = 0; private var h = 0
         private var yy = ByteArray(0); private var uu = ByteArray(0); private var vv = ByteArray(0)
@@ -115,7 +126,7 @@ object CallFilm {
         private var out: DataOutputStream? = null
         internal var format: MediaFormat? = null
         internal var frames = 0
-        private var lastAt = Long.MIN_VALUE / 2
+        private var due = 0L
         private var lastPts = 0L
         private var failed = false
         private var ended = false
@@ -124,7 +135,7 @@ object CallFilm {
             if (failed || ended) return
             latest[local] = pic
             val now = pic.at
-            if (now - lastAt < step) return
+            if (!ripe(now, due)) return
             // A stopped camera leaves the picture: the film cannot show its last frame for long (iOS: older than a second)
             latest.entries.removeAll { now - it.value.at >= 1000 }
             try {
@@ -132,7 +143,7 @@ object CallFilm {
                 if (codec == null) open(s)   // the file takes the screen's shape at its birth (iOS)
                 draw(s)
                 val pts = maxOf(lastPts + 1, (now - origin) * 1000)
-                if (encode(pts)) { lastAt = now; lastPts = pts }
+                if (encode(pts)) { due = next(now, due, step); lastPts = pts }
             } catch (e: Exception) { fail(e) }
         }
 
