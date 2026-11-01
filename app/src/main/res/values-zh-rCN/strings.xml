@@ -848,6 +848,7 @@
     <string name="call_rec_notice_send">此通话正在录制。通话结束后，录制文件将发送到此聊天。</string>
     <string name="call_rec_notice_local">本机正在本地录制通话。只有主叫方会将录音发送到聊天。</string>
     <string name="call_rec_row">通话录制</string>
+    <string name="call_rec_row_partial">通话录制 — 不完整</string>
     <string name="call_rec_none">此通话没有录音，因为未收到音频。</string>
     <string name="call_rec_mark">录制</string>
     <string name="call_rec_stop">停止录制</string>

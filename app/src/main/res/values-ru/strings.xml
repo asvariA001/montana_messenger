@@ -848,6 +848,7 @@
     <string name="call_rec_notice_send">Этот звонок записывается. После завершения запись будет отправлена в этот чат.</string>
     <string name="call_rec_notice_local">Этот телефон записывает разговор локально. Запись в чат отправляет только тот, кто позвонил.</string>
     <string name="call_rec_row">Запись звонка</string>
+    <string name="call_rec_row_partial">Запись звонка — неполная</string>
     <string name="call_rec_none">Запись этого звонка отсутствует: звук не поступал.</string>
     <string name="call_rec_mark">Записать</string>
     <string name="call_rec_stop">Остановить запись</string>
