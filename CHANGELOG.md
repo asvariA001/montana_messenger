@@ -2,6 +2,16 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
+## 1.0 (2341) - 2026-11-01
+
+Source commit `82054e1d5dc8`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2341.md).
+
+- Chats are fresh sooner after launch: the app reads its mailbox the moment it starts instead of waiting a fixed two and a half seconds, and a read that comes before the network's doors have answered -- or before the account's reference is ready -- is kept and goes the moment they are, never dropped.
+
+**Security and anonymity**
+
+- No new stored value, address, server, key leaving the device or network road. The same mailbox read starts earlier and repeats only once the doors already in use have answered; nothing else changed.
+
 ## 1.0 (2340) - 2026-11-01
 
 Source commit `7ed684ede6bd`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2340.md).
