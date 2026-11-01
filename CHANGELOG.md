@@ -2,6 +2,18 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
+## 1.0 (2331) - 2026-11-01
+
+Source commit `bca9c0debbd0`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2331.md).
+
+- The chats scroll at once after the app opens: the key is no longer derived from your words at every launch -- it is derived once and kept on this device.
+- Opening the chats no longer builds the music and the feed pages behind them; a page is built when you look at it, and the music library is gathered off the main thread.
+- Less heat: your wall's posts for the shared table are prepared in the background, not while the chats open.
+
+**Security and anonymity**
+
+- The master seed stretched from the recovery words (2^20 iterations) is now kept in the keychain beside the words, under the same class (AfterFirstUnlockThisDeviceOnly: this device only, never synchronized, never in a backup), bound to the SHA-256 of the seated words, and erased with them (clear, a new identity, forgetMasterSeed). It is the same secret as the words in another shape. Every reader asks one owner (MontanaSeed.root); a guard (tools/mt-root-owner-check.py) refuses a second derivation site. No new address, server, key leaving the device or network road is added.
+
 ## 1.0 (2330) - 2026-11-01
 
 Source commit `d0886d400527`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2330.md).
