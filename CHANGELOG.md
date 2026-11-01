@@ -2,9 +2,9 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
-## 1.0 (2326) - 2026-11-01
+## 1.0 (2327) - 2026-11-01
 
-Source commit `a50f2a3aa4e3`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2326.md).
+Source commit `f31cf9ae6fbf`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2327.md).
 
 - The chats open faster: a conversation shows its newest twelve messages at once and lays the rest a moment later, and the video-note camera starts only when you record, not when you open a chat.
 - Less heat: the music library is walked only when you open it, not at every launch; the history is written chat by chat, only the chat that changed, and only what was written is read back.
